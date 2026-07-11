@@ -15,7 +15,7 @@ export function HeroMark() {
       {ok ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src="/images/hero-1m.png"
+          src="/images/Hero%20image.%20PNG.png"
           alt="1 Mission"
           className="h-full w-full object-cover"
           onError={() => setOk(false)}

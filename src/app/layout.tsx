@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
+import { IntroSplash } from "@/components/IntroSplash";
 import { siteSettings } from "@/data/siteSettings";
 
 /**
@@ -53,6 +54,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="flex min-h-screen flex-col">
+        <IntroSplash />
         <Header />
         <main id="main" className="flex-1">{children}</main>
         <Footer />

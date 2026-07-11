@@ -68,6 +68,27 @@ body {
   }
 }
 
+/* ---- Animated 1M intro splash ---- */
+@keyframes intro-mark {
+  0% { opacity: 0; transform: scale(0.6) translateY(10px); filter: blur(5px); }
+  55% { opacity: 1; transform: scale(1.06) translateY(0); filter: blur(0); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes intro-line {
+  0% { width: 0; opacity: 0; }
+  100% { width: 170px; opacity: 1; }
+}
+@keyframes intro-tag {
+  0% { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.intro-mark { animation: intro-mark 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.intro-line { animation: intro-line 0.7s ease-out 0.5s both; }
+.intro-tag { animation: intro-tag 0.6s ease-out 0.85s both; }
+@media (prefers-reduced-motion: reduce) {
+  .intro-mark, .intro-line, .intro-tag { animation: none !important; }
+}
+
 /* Global focus visibility for interactive elements */
 a:focus-visible,
 button:focus-visible,
