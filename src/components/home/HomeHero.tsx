@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { MemberCard } from "./MemberCard";
+import { Monogram1M } from "../Logo";
 import { siteSettings } from "@/data/siteSettings";
 
 /**
@@ -58,17 +59,11 @@ export function HomeHero() {
           <p className="mt-8 text-sm font-medium tracking-wide text-medium">{domain}</p>
         </div>
 
-        {/* Right — member card on rotating orbit rings */}
+        {/* Right — member card over a large faded 1M watermark */}
         <div className="relative flex min-h-[380px] items-center justify-center lg:min-h-[520px]">
-          {/* Orbit rings */}
+          {/* Faded 1M mark behind the card */}
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden="true">
-            <div className="slow-spin absolute aspect-square w-[135%] max-w-[720px] rounded-full border border-dashed border-gold/25" />
-            <div className="slow-spin-rev absolute aspect-square w-[98%] max-w-[540px] rounded-full border border-dashed border-gold/20" />
-            <div className="absolute aspect-square w-[62%] max-w-[340px] rounded-full border border-[#E7DFCE]" />
-            {/* Floating accent dots */}
-            <span className="absolute left-[12%] top-[26%] h-2 w-2 rounded-full bg-gold/60" />
-            <span className="absolute right-[14%] top-[40%] h-1.5 w-1.5 rounded-full bg-gold/50" />
-            <span className="absolute bottom-[22%] left-[24%] h-1.5 w-1.5 rounded-full bg-gold/40" />
+            <Monogram1M className="w-[130%] max-w-[640px] text-primary/[0.06]" />
           </div>
 
           <div className="relative z-10 hero-float">
