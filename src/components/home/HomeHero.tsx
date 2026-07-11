@@ -9,7 +9,7 @@ import { siteSettings } from "@/data/siteSettings";
  * wizard at /get-started. Edit the pill/tagline/stats in src/data/siteSettings.ts.
  */
 export function HomeHero() {
-  const { established, heroTagline, domain } = siteSettings;
+  const { established, heroPill, heroTagline, domain } = siteSettings;
   return (
     <section className="relative overflow-hidden bg-gradient-hero">
       <div className="container-1m relative grid items-center gap-14 py-16 sm:py-20 lg:grid-cols-2 lg:gap-8 lg:py-28">
@@ -17,7 +17,7 @@ export function HomeHero() {
         <div className="relative z-10 animate-fade-up">
           <span className="inline-flex items-center gap-2.5 rounded-full border border-[#E4DCCB] bg-cream/70 px-4 py-2 text-[11px] font-semibold uppercase tracking-label text-medium">
             <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
-            A Private Trading Community · Est. {established}
+            {heroPill} · Est. {established}
           </span>
 
           <h1 className="mt-7 font-serif text-[clamp(2.75rem,8.4vw,6.25rem)] font-black leading-[0.95] tracking-tight text-navy">
@@ -32,9 +32,11 @@ export function HomeHero() {
             {heroTagline}
           </p>
 
-          <p className="mt-6 max-w-md text-lg leading-relaxed text-charcoal/75">
-            A community of entrepreneurs, traders, and leaders building real
-            financial freedom through education, mentorship, and execution.
+          <p className="mt-6 max-w-xl text-lg leading-relaxed text-charcoal/75">
+            A community built on faith, financial freedom, health, meaningful
+            experiences, and a shared vision for more. We believe abundance is
+            available to everyone—and that no one reaches their highest potential
+            alone. Together, we grow, lead, and create a life of purpose.
           </p>
 
           <div className="mt-9 flex flex-wrap items-center gap-4">

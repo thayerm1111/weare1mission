@@ -74,9 +74,9 @@ video {
   .text-balance {
     text-wrap: balance;
   }
-  /* Metallic gold gradient text (for big accent words in headlines). */
+  /* Cool light-blue gradient text (for big accent words in headlines). */
   .gold-grad {
-    background: linear-gradient(95deg, #8A6E38 0%, #C9AE6E 42%, #E7D6A6 62%, #B0904E 100%);
+    background: linear-gradient(95deg, #4E769A 0%, #79A3C6 40%, #B4D3EC 62%, #5E86A8 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;

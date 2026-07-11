@@ -21,10 +21,10 @@ export function SectionHeading({
   return (
     <div className={`max-w-2xl ${alignment} ${className}`}>
       {eyebrow && (
-        <span className={`eyebrow ${light ? "text-light" : "text-primary"}`}>{eyebrow}</span>
+        <span className={`eyebrow ${light ? "text-gold-light" : "text-gold"}`}>{eyebrow}</span>
       )}
       <h2
-        className={`mt-3 text-3xl sm:text-4xl lg:text-[2.75rem] font-bold leading-[1.1] tracking-tight text-balance ${
+        className={`mt-4 font-serif text-4xl font-black leading-[1.05] tracking-tight text-balance sm:text-5xl lg:text-[3.25rem] ${
           light ? "text-white" : "text-navy"
         }`}
       >

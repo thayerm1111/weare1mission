@@ -11,12 +11,9 @@ export function MemberCard() {
   const { heroStats, established } = siteSettings;
   return (
     <div className="relative w-full max-w-sm rounded-[26px] border border-[#E7E0D2] bg-cream/95 p-7 shadow-glow backdrop-blur sm:p-8">
-      {/* Top row: brand mark + member badge */}
-      <div className="flex items-center justify-between">
+      {/* Brand mark */}
+      <div className="flex items-center">
         <Monogram1M className="h-9 w-9 text-primary" />
-        <span className="rounded-full border border-[#E1D8C6] px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-label text-medium">
-          Member
-        </span>
       </div>
 
       {/* Serif headline */}
@@ -43,9 +40,8 @@ export function MemberCard() {
       <hr className="my-6 border-0 border-t border-[#E7E0D2]" />
 
       {/* Footer row */}
-      <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.14em] text-medium">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-medium">
         <span>Est. {established}</span>
-        <span>ConeqtX Partner</span>
       </div>
     </div>
   );

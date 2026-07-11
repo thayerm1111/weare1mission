@@ -24,14 +24,16 @@ export const siteSettings = {
   communityVideoUrl: "https://vimeo.com/1209000647" as string,
   supportEmail: "support@weare1mission.com",
   // Year the community started — shown in the hero pill + member card.
-  established: "2024",
+  established: "2012",
+  // Eyebrow pill text in the hero (before "· Est. {established}").
+  heroPill: "Self Made Entrepreneur Community",
   // Short serif tagline under the hero headline (editable).
-  heroTagline: "For the driven.",
+  heroTagline: "For the called.",
   // Headline stats shown on the hero "member card". Edit freely.
   heroStats: [
-    { value: "30,000+", label: "Lives Impacted" },
-    { value: "200+", label: "Countries" },
-    { value: "1000s", label: "Testimonials" },
+    { value: "100,000+", label: "Lives Impacted" },
+    { value: "230+", label: "Countries" },
+    { value: "$100M", label: "Revenue Created" },
   ],
 };
 
