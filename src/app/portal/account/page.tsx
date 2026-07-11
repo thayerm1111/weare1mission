@@ -4,6 +4,7 @@ import { getProfile } from "@/lib/auth";
 import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
 import { SignOutButton } from "@/components/portal/SignOutButton";
 import { AccountForm } from "@/components/portal/AccountForm";
+import { PasswordForm } from "@/components/portal/PasswordForm";
 import { TIER_LABELS } from "@/lib/access";
 
 export default async function AccountPage() {
@@ -37,6 +38,16 @@ export default async function AccountPage() {
             initialUsername={profile.username ?? ""}
             initialPhone={profile.phone ?? ""}
           />
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-[#E4DCCB] bg-cream p-6 shadow-card">
+        <h2 className="text-base font-bold text-navy">Password</h2>
+        <p className="mt-1 text-sm text-charcoal/60">
+          Set a password so you can log in with your email and password — no reset link needed.
+        </p>
+        <div className="mt-4">
+          <PasswordForm />
         </div>
       </section>
 

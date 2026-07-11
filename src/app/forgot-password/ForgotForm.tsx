@@ -18,7 +18,7 @@ export function ForgotForm() {
     if (!supabase) { setStatus("error"); setMessage("The member area isn't connected yet."); return; }
     setStatus("sending");
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/callback?redirect=/auth/reset`,
+      redirectTo: `${window.location.origin}/auth/reset`,
     });
     if (error) { setStatus("error"); setMessage(error.message); }
     else setStatus("sent");
