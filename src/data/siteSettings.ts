@@ -21,7 +21,7 @@ export const siteSettings = {
   // Community explainer video shown on personal referral links (/username).
   // Use a direct MP4 file (e.g. "/videos/community.mp4" or an .mp4 URL) for the
   // most accurate watch tracking, or a Vimeo link (https://vimeo.com/123456789).
-  communityVideoUrl: "" as string,
+  communityVideoUrl: "https://vimeo.com/1209000647" as string,
   supportEmail: "support@weare1mission.com",
 };
 
