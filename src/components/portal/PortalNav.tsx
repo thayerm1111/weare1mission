@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
-  FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network,
+  FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
 } from "lucide-react";
 
 /**
@@ -15,6 +15,7 @@ import {
 const items = [
   { href: "/portal", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { href: "/portal/team", label: "My Team", icon: Network },
+  { href: "/portal/prospects", label: "Prospects", icon: Video },
   { href: "/portal/training", label: "Training", icon: GraduationCap },
   { href: "/portal/trading", label: "Trading", icon: LineChart },
   { href: "/portal/schedule", label: "Schedule", icon: CalendarClock },

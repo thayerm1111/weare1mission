@@ -18,6 +18,10 @@ export const siteSettings = {
   // application form, Telegram invite, or onboarding link.
   joinUrl: "/start-here",
   ogImage: "/images/og-default.png", // 1200x630 placeholder — replace before launch
+  // Community explainer video shown on personal referral links (/username).
+  // Use a direct MP4 file (e.g. "/videos/community.mp4" or an .mp4 URL) for the
+  // most accurate watch tracking, or a Vimeo link (https://vimeo.com/123456789).
+  communityVideoUrl: "" as string,
   supportEmail: "support@weare1mission.com",
 };
 
