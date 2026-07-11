@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-inter: "Inter", system-ui, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  @apply bg-cream text-charcoal antialiased;
+  font-feature-settings: "cv11", "ss01";
+  text-rendering: optimizeLegibility;
+}
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@layer components {
+  /* Consistent page container */
+  .container-1m {
+    @apply mx-auto w-full max-w-content px-5 sm:px-6 lg:px-8;
+  }
+
+  /* Reusable eyebrow label — editorial, letter-spaced uppercase */
+  .eyebrow {
+    @apply inline-flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-label text-medium;
+  }
+
+  /* Section vertical rhythm */
+  .section {
+    @apply py-16 sm:py-20 lg:py-28;
+  }
+
+  /* Thin hairline rule used throughout the editorial layout */
+  .hairline {
+    @apply border-0 border-t border-[#E4DCCB];
+  }
+
+  /* Light glass card */
+  .glass {
+    @apply border border-[#E4DCCB] bg-cream/70 backdrop-blur-md;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  /* Visible, accessible focus ring for keyboard users */
+  .focus-ring {
+    @apply outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-primary;
+  }
+}
+
+/* Global focus visibility for interactive elements */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #FAF7EF, 0 0 0 4px #1A1610;
+  border-radius: 4px;
+}

@@ -1,0 +1,53 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { Monogram1M } from "@/components/Logo";
+import { PortalNav } from "@/components/portal/PortalNav";
+import { SignOutButton } from "@/components/portal/SignOutButton";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { getProfile } from "@/lib/auth";
+import { TIER_LABELS } from "@/lib/access";
+
+export const metadata = { title: "Member Portal", robots: { index: false, follow: false } };
+
+// Member content is per-user and auth-gated — never cache or prerender it.
+export const dynamic = "force-dynamic";
+
+export default async function PortalLayout({ children }: { children: React.ReactNode }) {
+  const configured = isSupabaseConfigured;
+  const profile = configured ? await getProfile() : null;
+
+  // Middleware already redirects unauthenticated users, but guard again here.
+  if (configured && !profile) redirect("/login");
+
+  return (
+    <div className="bg-cream">
+      <div className="container-1m py-8 lg:py-12">
+        {/* Portal top bar */}
+        <div className="flex flex-col gap-4 border-b border-[#E4DCCB] pb-6 sm:flex-row sm:items-center sm:justify-between">
+          <Link href="/portal" className="inline-flex items-center gap-2.5 text-primary">
+            <Monogram1M className="h-7 w-7" />
+            <span className="text-base font-semibold uppercase tracking-[0.18em]">Member Portal</span>
+          </Link>
+          {profile && (
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-sm font-semibold text-navy">{profile.full_name || profile.email}</p>
+                <p className="text-xs text-medium">
+                  {TIER_LABELS[profile.tier] ?? profile.tier} member
+                  {profile.role === "admin" ? " · Admin" : ""}
+                </p>
+              </div>
+              <SignOutButton />
+            </div>
+          )}
+        </div>
+
+        {/* Body: sidebar + content */}
+        <div className="mt-8 grid gap-8 lg:grid-cols-[220px_1fr]">
+          {configured && profile && <PortalNav />}
+          <div>{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
