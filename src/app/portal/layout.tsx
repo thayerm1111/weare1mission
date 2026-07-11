@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Monogram1M } from "@/components/Logo";
 import { PortalNav } from "@/components/portal/PortalNav";
 import { SignOutButton } from "@/components/portal/SignOutButton";
 import { PendingNotice } from "@/components/portal/PendingNotice";
@@ -30,8 +29,7 @@ export default async function PortalLayout({ children }: { children: React.React
         {/* Portal top bar */}
         <div className="flex flex-col gap-4 border-b border-[#E4DCCB] pb-6 sm:flex-row sm:items-center sm:justify-between">
           <Link href="/portal" className="inline-flex items-center gap-2.5 text-primary">
-            <Monogram1M className="h-7 w-7" />
-            <span className="text-base font-semibold uppercase tracking-[0.18em]">Member Portal</span>
+            <span className="text-base font-semibold uppercase tracking-[0.18em]">One Mission Portal</span>
           </Link>
           {profile && (
             <div className="flex items-center gap-4">
