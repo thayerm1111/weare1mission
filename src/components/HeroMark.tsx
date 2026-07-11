@@ -32,15 +32,15 @@ export function HeroMark() {
     >
       <div className="hero-float">
         <div
-          className="relative flex aspect-square w-full max-w-md items-center justify-center overflow-hidden rounded-2xl border border-[#E4DCCB] bg-cream shadow-glow transition-transform duration-300 ease-out will-change-transform"
+          className="relative flex aspect-[3/2] w-full max-w-xl items-center justify-center overflow-hidden rounded-2xl bg-cream shadow-glow transition-transform duration-300 ease-out will-change-transform"
           style={{ transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)` }}
         >
           {ok ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src="/images/ChatGPT%20Image%20Jul%2011,%202026,%2012_30_54%20PM.png"
+              src="/images/ChatGPT%20Image%20Jul%2011,%202026,%2012_43_33%20PM.png"
               alt="1 Mission"
-              className="h-full w-full object-contain p-8"
+              className="h-full w-full object-cover"
               onError={() => setOk(false)}
             />
           ) : (
