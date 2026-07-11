@@ -38,9 +38,9 @@ export function HeroMark() {
           {ok ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src="/images/1M%20cream.png"
+              src="/images/ChatGPT%20Image%20Jul%2011,%202026,%2012_30_54%20PM.png"
               alt="1 Mission"
-              className="h-full w-full object-cover"
+              className="h-full w-full object-contain p-8"
               onError={() => setOk(false)}
             />
           ) : (
