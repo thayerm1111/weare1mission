@@ -27,7 +27,7 @@ export default function LeadershipPage() {
         title="Leadership is service, not status"
         description="At 1 Mission, leaders are made through consistency, responsibility, and a commitment to developing others. We lead from the front and grow people first."
       >
-        <Button href="/contact" variant="white">Connect With a Leader</Button>
+        <Button href="/contact" variant="primary">Connect With a Leader</Button>
       </Hero>
 
       {/* Values */}

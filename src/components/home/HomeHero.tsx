@@ -1,6 +1,6 @@
 import { ArrowRight } from "lucide-react";
 import { Button } from "../Button";
-import { Monogram1M } from "../Logo";
+import { HeroMark } from "../HeroMark";
 import { siteSettings } from "@/data/siteSettings";
 
 export function HomeHero() {
@@ -45,14 +45,9 @@ export function HomeHero() {
           <p className="mt-8 text-sm font-medium tracking-wide text-medium">{siteSettings.domain}</p>
         </div>
 
-        {/* Right — oversized 1M mark */}
+        {/* Right — oversized 1M mark (3D image with monogram fallback) */}
         <div className="relative flex animate-fade-in justify-center lg:justify-end">
-          <div className="relative flex aspect-square w-full max-w-md items-center justify-center rounded-2xl border border-[#E4DCCB] bg-cream shadow-glow">
-            <Monogram1M className="h-2/3 w-2/3 text-primary" />
-            <span className="absolute bottom-5 right-6 text-[11px] font-semibold uppercase tracking-label text-medium">
-              1 Mission
-            </span>
-          </div>
+          <HeroMark />
         </div>
       </div>
 

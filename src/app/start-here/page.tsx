@@ -18,8 +18,8 @@ export default function StartHerePage() {
         title="Start Here"
         description="Welcome to 1 Mission. Follow these steps at your own pace to get fully connected and set up for success. Your progress saves automatically on this device."
       >
-        <Button href="/contact" variant="white">Contact Your Mentor</Button>
-        <Button href="/schedule" variant="ghost" className="border border-white/25 text-white hover:bg-white/10">View Schedule</Button>
+        <Button href="/contact" variant="primary">Contact Your Mentor</Button>
+        <Button href="/portal/schedule" variant="secondary">View Schedule</Button>
       </Hero>
       <StartHereClient />
     </>

@@ -39,7 +39,7 @@ export function Header() {
         }`}
       >
         <div className="container-1m flex h-16 items-center justify-between lg:h-20">
-          <Logo />
+          <Logo wordmark={false} />
 
           <nav className="hidden lg:block" aria-label="Primary">
             <ul className="flex items-center gap-1">
