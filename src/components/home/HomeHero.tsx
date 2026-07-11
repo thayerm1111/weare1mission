@@ -61,9 +61,9 @@ export function HomeHero() {
 
         {/* Right — member card over a large faded 1M watermark */}
         <div className="relative flex min-h-[380px] items-center justify-center lg:min-h-[520px]">
-          {/* Faded 1M mark behind the card */}
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden="true">
-            <Monogram1M className="w-[130%] max-w-[640px] text-primary/[0.06]" />
+          {/* Large branded 1M mark behind the card */}
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-visible" aria-hidden="true">
+            <Monogram1M className="w-[180%] max-w-[780px] text-primary/[0.13]" />
           </div>
 
           <div className="relative z-10 hero-float">
