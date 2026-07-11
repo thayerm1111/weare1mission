@@ -32,8 +32,8 @@ export function PortalNav({ isAdmin = false }: { isAdmin?: boolean }) {
     : items;
 
   return (
-    <nav aria-label="Member portal" className="lg:sticky lg:top-24">
-      <ul className="flex gap-1.5 overflow-x-auto pb-1 lg:flex-col lg:gap-1 lg:overflow-visible lg:pb-0">
+    <nav aria-label="Member portal" className="min-w-0 lg:sticky lg:top-24">
+      <ul className="flex flex-wrap gap-1.5 pb-1 lg:flex-col lg:flex-nowrap lg:gap-1 lg:pb-0">
         {links.map((it) => {
           const active = it.exact ? pathname === it.href : pathname.startsWith(it.href);
           const Icon = it.icon;

@@ -56,7 +56,7 @@ export default async function PortalLayout({ children }: { children: React.React
         ) : (
           <div className="mt-8 grid gap-8 lg:grid-cols-[220px_1fr]">
             {configured && profile && <PortalNav isAdmin={isAdmin} />}
-            <div>{children}</div>
+            <div className="min-w-0">{children}</div>
           </div>
         )}
       </div>

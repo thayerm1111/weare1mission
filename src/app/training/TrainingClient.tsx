@@ -76,9 +76,9 @@ export function TrainingClient() {
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[240px_1fr]">
         {/* Category sidebar */}
-        <nav aria-label="Training categories" className="lg:sticky lg:top-24 lg:self-start">
+        <nav aria-label="Training categories" className="min-w-0 lg:sticky lg:top-24 lg:self-start">
           <p className="mb-2 px-1 text-xs font-bold uppercase tracking-wider text-charcoal/50">Categories</p>
-          <ul className="flex gap-2 overflow-x-auto pb-2 lg:flex-col lg:gap-1 lg:overflow-visible lg:pb-0">
+          <ul className="flex flex-wrap gap-2 pb-2 lg:flex-col lg:flex-nowrap lg:gap-1 lg:pb-0">
             {usedCategories.map((c) => {
               const isActive = c === category;
               return (
@@ -99,7 +99,7 @@ export function TrainingClient() {
         </nav>
 
         {/* Modules */}
-        <div>
+        <div className="min-w-0">
           {categoryProgress && (
             <div className="mb-5">
               <ProgressBar percent={Math.round((categoryProgress.done / categoryProgress.total) * 100)} label={`${category} progress`} />
