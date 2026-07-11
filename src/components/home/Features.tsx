@@ -7,19 +7,19 @@ const features = [
     icon: LineChart,
     title: "Trading Education",
     description: "Structured education on the fundamentals — always education, never guarantees. Learn at your pace with live sessions and resources.",
-    href: "/training",
+    href: "/start-here",
   },
   {
     icon: Briefcase,
     title: "Business Development",
     description: "Practical skills for building the right way: communication, consistency, and duplicable systems you can actually follow.",
-    href: "/training",
+    href: "/start-here",
   },
   {
     icon: Users,
     title: "Leadership & Mentorship",
     description: "Real mentorship from people invested in your growth. Learn to lead by serving, and develop the next generation of leaders.",
-    href: "/leadership",
+    href: "/start-here",
   },
   {
     icon: ShieldCheck,

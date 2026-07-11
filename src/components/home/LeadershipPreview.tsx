@@ -19,8 +19,8 @@ export function LeadershipPreview() {
           {shown.map((l) => <LeadershipCard key={l.id} leader={l} />)}
         </div>
         <div className="mt-10 text-center">
-          <Button href="/leadership" variant="secondary">
-            Meet the Leadership Team <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          <Button href="/start-here" variant="secondary">
+            Join the Community <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
       </div>

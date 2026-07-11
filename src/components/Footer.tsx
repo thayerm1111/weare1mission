@@ -45,7 +45,7 @@ export function Footer() {
           </div>
 
           <FooterCol title="Quick Links" items={footerNav.quickLinks} />
-          <FooterCol title="Training" items={footerNav.trainingLinks} />
+          <FooterCol title="Member Area" items={footerNav.trainingLinks} />
           <div>
             <FooterCol title="Community" items={footerNav.communityLinks} />
             <h3 className="mt-6 text-sm font-bold uppercase tracking-wider text-white">Legal</h3>

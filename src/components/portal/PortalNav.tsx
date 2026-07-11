@@ -2,12 +2,22 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, LineChart, Radio, Megaphone, UserCircle } from "lucide-react";
+import {
+  LayoutDashboard, GraduationCap, LineChart, CalendarClock,
+  FolderOpen, Users2, Megaphone, UserCircle,
+} from "lucide-react";
 
+/**
+ * Member back-office navigation.
+ * Add/remove sections here. All routes live under /portal/* and are login-gated.
+ */
 const items = [
   { href: "/portal", label: "Dashboard", icon: LayoutDashboard, exact: true },
+  { href: "/portal/training", label: "Training", icon: GraduationCap },
   { href: "/portal/trading", label: "Trading", icon: LineChart },
-  { href: "/portal/live", label: "Live Sessions", icon: Radio },
+  { href: "/portal/schedule", label: "Schedule", icon: CalendarClock },
+  { href: "/portal/resources", label: "Resources", icon: FolderOpen },
+  { href: "/portal/leadership", label: "Leadership", icon: Users2 },
   { href: "/portal/updates", label: "Team Updates", icon: Megaphone },
   { href: "/portal/account", label: "Account", icon: UserCircle },
 ];

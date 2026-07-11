@@ -1,20 +1,22 @@
 /**
  * NAVIGATION  —  edit the top navigation + primary button here.
  * `href` values that start with "/" are internal pages.
+ *
+ * STRUCTURE:
+ *  - Public site (logged out): Home, Start Here, Events, Shop.
+ *  - Member back office (behind login, at /portal/*): Training, Schedule,
+ *    Resources, Leadership, Trading, Team Updates. Edit those in PortalNav.tsx.
  */
 export interface NavItem {
   label: string;
   href: string;
 }
 
+// Public, logged-out top navigation.
 export const mainNav: NavItem[] = [
   { label: "Home", href: "/" },
   { label: "Start Here", href: "/start-here" },
-  { label: "Training", href: "/training" },
-  { label: "Schedule", href: "/schedule" },
   { label: "Events", href: "/events" },
-  { label: "Resources", href: "/resources" },
-  { label: "Leadership", href: "/leadership" },
   { label: "Shop", href: "/shop" },
 ];
 
@@ -30,20 +32,22 @@ export const footerNav = {
     { label: "Home", href: "/" },
     { label: "Start Here", href: "/start-here" },
     { label: "Events", href: "/events" },
-    { label: "Leadership", href: "/leadership" },
     { label: "Shop", href: "/shop" },
+    { label: "Contact", href: "/contact" },
   ] as NavItem[],
+  // Member back-office links (require login — they redirect to /login if signed out).
   trainingLinks: [
-    { label: "Affiliate Training", href: "/training" },
-    { label: "Weekly Schedule", href: "/schedule" },
-    { label: "Resources", href: "/resources" },
-    { label: "New Member Start Here", href: "/start-here" },
+    { label: "Member Log In", href: "/login" },
+    { label: "Affiliate Training", href: "/portal/training" },
+    { label: "Schedule & Live Sessions", href: "/portal/schedule" },
+    { label: "Resources", href: "/portal/resources" },
+    { label: "Leadership", href: "/portal/leadership" },
   ] as NavItem[],
   communityLinks: [
-    { label: "Member Log In", href: "/login" },
+    { label: "Member Portal", href: "/portal" },
     { label: "Contact / Mentor", href: "/contact" },
     { label: "Events", href: "/events" },
-    { label: "Leadership Team", href: "/leadership" },
+    { label: "Shop", href: "/shop" },
   ] as NavItem[],
   legalLinks: [
     { label: "Privacy Policy", href: "/legal#privacy-policy" },

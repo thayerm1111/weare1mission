@@ -21,8 +21,8 @@ export function WeeklyPreview() {
             title="There's something every week"
             description="Live calls to learn, connect, and stay consistent. Times shown on the schedule page automatically adjust to your local timezone."
           />
-          <Button href="/schedule" variant="secondary" className="flex-shrink-0">
-            View Full Schedule <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          <Button href="/start-here" variant="secondary" className="flex-shrink-0">
+            Join to Access <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
 
