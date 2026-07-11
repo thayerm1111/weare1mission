@@ -9,7 +9,7 @@ export const metadata = buildMetadata({
   path: "/signup",
 });
 
-export default function SignupPage() {
+export default function SignupPage({ searchParams }: { searchParams: { ref?: string } }) {
   return (
     <section className="section bg-gradient-hero">
       <div className="container-1m flex justify-center">
@@ -20,7 +20,7 @@ export default function SignupPage() {
             <p className="mt-2 text-sm text-charcoal/70">Join the 1 Mission member area. Your access is approved by the team.</p>
           </div>
           <div className="mt-8 rounded-2xl border border-[#E4DCCB] bg-offwhite/70 p-6 shadow-card sm:p-8">
-            <SignupForm />
+            <SignupForm refUsername={searchParams.ref} />
           </div>
           <p className="mt-6 text-center text-sm text-charcoal/70">
             Already have an account? <Link href="/login" className="font-semibold text-primary hover:text-medium">Log in</Link>

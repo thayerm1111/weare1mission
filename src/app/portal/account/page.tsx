@@ -30,7 +30,14 @@ export default async function AccountPage() {
 
       <section className="rounded-2xl border border-[#E4DCCB] bg-cream p-6 shadow-card">
         <h2 className="text-base font-bold text-navy">Profile</h2>
-        <div className="mt-4"><AccountForm id={profile.id} initialName={profile.full_name ?? ""} /></div>
+        <div className="mt-4">
+          <AccountForm
+            id={profile.id}
+            initialName={profile.full_name ?? ""}
+            initialUsername={profile.username ?? ""}
+            initialPhone={profile.phone ?? ""}
+          />
+        </div>
       </section>
 
       <section className="rounded-2xl border border-[#E4DCCB] bg-offwhite/60 p-6">
