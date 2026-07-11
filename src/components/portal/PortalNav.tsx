@@ -4,12 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
-  FolderOpen, Users2, Megaphone, UserCircle,
+  FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck,
 } from "lucide-react";
 
 /**
  * Member back-office navigation.
  * Add/remove sections here. All routes live under /portal/* and are login-gated.
+ * The Approvals item only shows for admins.
  */
 const items = [
   { href: "/portal", label: "Dashboard", icon: LayoutDashboard, exact: true },
@@ -22,12 +23,16 @@ const items = [
   { href: "/portal/account", label: "Account", icon: UserCircle },
 ];
 
-export function PortalNav() {
+export function PortalNav({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
+  const links = isAdmin
+    ? [...items, { href: "/portal/admin", label: "Approvals", icon: ShieldCheck }]
+    : items;
+
   return (
     <nav aria-label="Member portal" className="lg:sticky lg:top-24">
       <ul className="flex gap-1.5 overflow-x-auto pb-1 lg:flex-col lg:gap-1 lg:overflow-visible lg:pb-0">
-        {items.map((it) => {
+        {links.map((it) => {
           const active = it.exact ? pathname === it.href : pathname.startsWith(it.href);
           const Icon = it.icon;
           return (

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Monogram1M } from "@/components/Logo";
 import { PortalNav } from "@/components/portal/PortalNav";
 import { SignOutButton } from "@/components/portal/SignOutButton";
+import { PendingNotice } from "@/components/portal/PendingNotice";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getProfile } from "@/lib/auth";
 import { TIER_LABELS } from "@/lib/access";
@@ -19,6 +20,10 @@ export default async function PortalLayout({ children }: { children: React.React
   // Middleware already redirects unauthenticated users, but guard again here.
   if (configured && !profile) redirect("/login");
 
+  const isAdmin = profile?.role === "admin";
+  // Members must be approved (status "active") — admins always have access.
+  const needsApproval = profile != null && !isAdmin && profile.status !== "active";
+
   return (
     <div className="bg-cream">
       <div className="container-1m py-8 lg:py-12">
@@ -33,8 +38,9 @@ export default async function PortalLayout({ children }: { children: React.React
               <div className="text-right">
                 <p className="text-sm font-semibold text-navy">{profile.full_name || profile.email}</p>
                 <p className="text-xs text-medium">
-                  {TIER_LABELS[profile.tier] ?? profile.tier} member
-                  {profile.role === "admin" ? " · Admin" : ""}
+                  {needsApproval
+                    ? (profile.status === "suspended" ? "Access paused" : "Pending approval")
+                    : `${TIER_LABELS[profile.tier] ?? profile.tier} member${isAdmin ? " · Admin" : ""}`}
                 </p>
               </div>
               <SignOutButton />
@@ -42,11 +48,17 @@ export default async function PortalLayout({ children }: { children: React.React
           )}
         </div>
 
-        {/* Body: sidebar + content */}
-        <div className="mt-8 grid gap-8 lg:grid-cols-[220px_1fr]">
-          {configured && profile && <PortalNav />}
-          <div>{children}</div>
-        </div>
+        {/* Approval gate: show a notice instead of member content until approved. */}
+        {needsApproval ? (
+          <div className="mt-10">
+            <PendingNotice status={profile!.status === "suspended" ? "suspended" : "pending"} name={profile!.full_name} />
+          </div>
+        ) : (
+          <div className="mt-8 grid gap-8 lg:grid-cols-[220px_1fr]">
+            {configured && profile && <PortalNav isAdmin={isAdmin} />}
+            <div>{children}</div>
+          </div>
+        )}
       </div>
     </div>
   );

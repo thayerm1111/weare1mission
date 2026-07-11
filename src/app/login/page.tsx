@@ -20,7 +20,7 @@ export default function LoginPage({ searchParams }: { searchParams: { redirect?:
             </Link>
             <h1 className="mt-5 text-3xl font-extrabold tracking-tight text-navy">Member Log In</h1>
             <p className="mt-2 text-sm text-charcoal/70">
-              Welcome back. Enter your email to access the 1 Mission member area.
+              Welcome back. Enter your email and password to access the 1 Mission member area.
             </p>
           </div>
           <div className="mt-8 rounded-2xl border border-[#E4DCCB] bg-offwhite/70 p-6 shadow-card sm:p-8">
@@ -28,10 +28,10 @@ export default function LoginPage({ searchParams }: { searchParams: { redirect?:
           </div>
           <p className="mt-6 text-center text-sm text-charcoal/70">
             New here?{" "}
-            <Link href="/start-here" className="font-semibold text-primary hover:text-medium">
-              Start with onboarding
+            <Link href="/signup" className="font-semibold text-primary hover:text-medium">
+              Create an account
             </Link>{" "}
-            — your mentor can get you connected.
+            — access is approved by the 1 Mission team.
           </p>
         </div>
       </div>
