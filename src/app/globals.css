@@ -15,6 +15,17 @@ body {
   @apply bg-cream text-charcoal antialiased;
   font-feature-settings: "cv11", "ss01";
   text-rendering: optimizeLegibility;
+  /* Guard against any stray element causing sideways scroll on mobile.
+     `clip` (not `hidden`) keeps the sticky header working. */
+  overflow-x: clip;
+}
+
+/* Never let a word or media element force the page wider than the phone. */
+img,
+svg,
+video {
+  max-width: 100%;
+  height: auto;
 }
 
 /* Respect users who prefer reduced motion. */

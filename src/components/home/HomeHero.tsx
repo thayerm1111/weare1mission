@@ -10,7 +10,7 @@ export function HomeHero() {
         {/* Left — editorial copy */}
         <div className="animate-fade-up">
           <p className="eyebrow">We Are</p>
-          <h1 className="mt-4 text-[3.25rem] font-extrabold leading-[0.95] tracking-tight text-primary text-balance sm:text-7xl">
+          <h1 className="mt-4 text-[clamp(2.4rem,10vw,4.5rem)] font-extrabold leading-[0.98] tracking-tight text-primary text-balance">
             One Mission.
             <br />
             One Community.
