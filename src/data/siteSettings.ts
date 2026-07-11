@@ -23,6 +23,16 @@ export const siteSettings = {
   // most accurate watch tracking, or a Vimeo link (https://vimeo.com/123456789).
   communityVideoUrl: "https://vimeo.com/1209000647" as string,
   supportEmail: "support@weare1mission.com",
+  // Year the community started — shown in the hero pill + member card.
+  established: "2024",
+  // Short serif tagline under the hero headline (editable).
+  heroTagline: "For the driven.",
+  // Headline stats shown on the hero "member card". Edit freely.
+  heroStats: [
+    { value: "30,000+", label: "Lives Impacted" },
+    { value: "200+", label: "Countries" },
+    { value: "1000s", label: "Testimonials" },
+  ],
 };
 
 export type SiteSettings = typeof siteSettings;

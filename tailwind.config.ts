@@ -28,9 +28,17 @@ const config: Config = {
         offwhite: "#F5F0E6", // bone (alt sections)
         charcoal: "#1F1B14", // body text
         cream: "#FAF7EF",    // lightest warm background
+        // Warm metallic gold accent (editorial "BFM" feel).
+        gold: {
+          DEFAULT: "#A6884B",
+          light: "#D8C48A",
+          deep: "#8A6E38",
+        },
       },
       fontFamily: {
         sans: ["var(--font-inter)", "system-ui", "sans-serif"],
+        // Editorial display serif used for big headlines + accents.
+        serif: ["var(--font-serif)", "Georgia", "Cambria", "serif"],
       },
       letterSpacing: {
         label: "0.22em",
@@ -50,6 +58,8 @@ const config: Config = {
         "gradient-hero": "linear-gradient(180deg, #FAF7EF 0%, #F2EBDD 100%)",
         "gradient-ice": "linear-gradient(180deg, #F5F0E6 0%, #FAF7EF 100%)",
         "gradient-primary": "linear-gradient(180deg, #241E15 0%, #17130D 100%)",
+        // Metallic gold sweep for accent words + buttons.
+        "gradient-gold": "linear-gradient(95deg, #8A6E38 0%, #C9AE6E 42%, #E7D6A6 62%, #B0904E 100%)",
       },
       keyframes: {
         "fade-up": {
