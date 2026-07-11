@@ -32,7 +32,7 @@ export function HeroMark() {
     >
       <div className="hero-float">
         <div
-          className="relative flex aspect-[3/2] w-full max-w-xl items-center justify-center overflow-hidden rounded-2xl bg-cream shadow-glow transition-transform duration-300 ease-out will-change-transform"
+          className="relative flex aspect-[3/2] w-full max-w-xl items-center justify-center transition-transform duration-300 ease-out will-change-transform"
           style={{ transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)` }}
         >
           {ok ? (
@@ -40,7 +40,13 @@ export function HeroMark() {
             <img
               src="/images/ChatGPT%20Image%20Jul%2011,%202026,%2012_43_33%20PM.png"
               alt="1 Mission"
-              className="h-full w-full object-cover"
+              className="h-full w-full object-contain"
+              style={{
+                maskImage:
+                  "radial-gradient(ellipse 72% 74% at 50% 47%, #000 52%, transparent 82%)",
+                WebkitMaskImage:
+                  "radial-gradient(ellipse 72% 74% at 50% 47%, #000 52%, transparent 82%)",
+              }}
               onError={() => setOk(false)}
             />
           ) : (
