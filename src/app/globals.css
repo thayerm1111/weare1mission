@@ -85,8 +85,16 @@ body {
 .intro-mark { animation: intro-mark 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 .intro-line { animation: intro-line 0.7s ease-out 0.5s both; }
 .intro-tag { animation: intro-tag 0.6s ease-out 0.85s both; }
+
+/* ---- Continuous gentle float for the hero 1M mark ---- */
+@keyframes hero-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-14px) rotate(-0.6deg); }
+}
+.hero-float { animation: hero-float 5.5s ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
-  .intro-mark, .intro-line, .intro-tag { animation: none !important; }
+  .intro-mark, .intro-line, .intro-tag, .hero-float { animation: none !important; }
 }
 
 /* Global focus visibility for interactive elements */
