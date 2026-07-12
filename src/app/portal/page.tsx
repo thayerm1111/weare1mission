@@ -31,9 +31,9 @@ export default async function PortalDashboard() {
       {/* Quick links */}
       <div className="grid gap-4 sm:grid-cols-3">
         {[
-          { href: "/portal/training", icon: GraduationCap, label: "Training", desc: "Affiliate modules" },
-          { href: "/portal/schedule", icon: Radio, label: "Schedule", desc: "Calls & live sessions" },
-          { href: "/portal/updates", icon: Megaphone, label: "Team Updates", desc: "Latest news" },
+          { href: "/portal/training", icon: GraduationCap, label: "Creator Launchpad", desc: "Training modules" },
+          { href: "/portal/schedule", icon: Radio, label: "What's On", desc: "Calls & live sessions" },
+          { href: "/portal/updates", icon: Megaphone, label: "Mission Update", desc: "Latest news" },
         ].map((c) => (
           <Link key={c.href} href={c.href} className="group rounded-2xl border border-[#E4DCCB] bg-offwhite/60 p-5 transition-all hover:-translate-y-0.5 hover:shadow-card">
             <c.icon className="h-6 w-6 text-primary" aria-hidden="true" />
