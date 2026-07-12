@@ -52,6 +52,8 @@ export interface ShopProduct {
   detailImage?: string;     // large landscape image shown at the top of the popup
   spots?: number;           // total limited spots (shows a "Only N spots" badge)
   soldOut?: boolean;        // manual override: show "Sold out" and disable checkout
+  pairsWith?: string[];     // product ids to offer as a matching set (e.g. hoodie → sweats)
+  badge?: string;           // featured ribbon text, e.g. "Hottest Item"
 }
 export interface ShopCollection {
   title: string;

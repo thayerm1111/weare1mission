@@ -7,7 +7,7 @@
  *
  * When you add or change products in Shopify, just ask and this gets refreshed.
  */
-import type { ShopCollection } from "@/lib/shopify";
+import type { ShopCollection, ShopProduct } from "@/lib/shopify";
 
 const IMG = "https://cdn.shopify.com/s/files/1/1016/0406/5559/files";
 const I = (file: string, v: string) => `${IMG}/${file}.png?v=${v}`;
@@ -28,6 +28,48 @@ export const staticCollections: Record<string, ShopCollection> = {
     title: "The Collection",
     description: "Official 1 Mission apparel and merch.",
     products: [
+      {
+        id: "gid://shopify/Product/10410168287511",
+        title: "One Mission Statement Hoodie",
+        handle: "one-mission-statement-hoodie",
+        description: "Our boldest hoodie yet — a heavyweight statement piece in six colors: Dark Green, Mild Apricot, Lake Blue, Royal Blue, Light Gray, and Black.",
+        imageUrl: I("2128897d801b418b955435b13a588528", "1783882713"), imageAlt: "One Mission Statement Hoodie",
+        images: [I("2128897d801b418b955435b13a588528", "1783882713"), I("b33898df1248414cad49616278c14a02", "1783882713"), I("b7d8740a95e6452fa10a926f52aed80f", "1783882713"), I("5a969afbcedc4459a0231a48451b197a", "1783882713"), I("ba844c2c993a4650b666ad4fb5a3496d", "1783882713"), I("366b2fdb17934ba39978734f2acf7dec", "1783882713"), I("a0f354975e8a45f1b5a3a87efbb8016e", "1783882713"), I("d5da18a2481d493fb5edff8bc513db0a", "1783882713")],
+        minPrice: "$125", currency: "USD", hasOptions: true,
+        badge: "🔥 Hottest Item",
+        variants: [
+          V("gid://shopify/ProductVariant/53664876069143", "Dark Green / S", "$125"),
+          V("gid://shopify/ProductVariant/53664876101911", "Dark Green / M", "$125"),
+          V("gid://shopify/ProductVariant/53664876134679", "Dark Green / L", "$125"),
+          V("gid://shopify/ProductVariant/53664876167447", "Dark Green / XL", "$125"),
+          V("gid://shopify/ProductVariant/53664876200215", "Dark Green / 2XL", "$125"),
+          V("gid://shopify/ProductVariant/53664876232983", "Mild Apricot / S", "$125"),
+          V("gid://shopify/ProductVariant/53664876265751", "Mild Apricot / M", "$125"),
+          V("gid://shopify/ProductVariant/53664876298519", "Mild Apricot / L", "$125"),
+          V("gid://shopify/ProductVariant/53664876331287", "Mild Apricot / XL", "$125"),
+          V("gid://shopify/ProductVariant/53664876364055", "Mild Apricot / 2XL", "$125"),
+          V("gid://shopify/ProductVariant/53664876396823", "Lake Blue / S", "$125"),
+          V("gid://shopify/ProductVariant/53664876429591", "Lake Blue / M", "$125"),
+          V("gid://shopify/ProductVariant/53664876462359", "Lake Blue / L", "$125"),
+          V("gid://shopify/ProductVariant/53664876495127", "Lake Blue / XL", "$125"),
+          V("gid://shopify/ProductVariant/53664876527895", "Lake Blue / 2XL", "$125"),
+          V("gid://shopify/ProductVariant/53664876560663", "Royal Blue / S", "$125"),
+          V("gid://shopify/ProductVariant/53664876593431", "Royal Blue / M", "$125"),
+          V("gid://shopify/ProductVariant/53664876626199", "Royal Blue / L", "$125"),
+          V("gid://shopify/ProductVariant/53664876658967", "Royal Blue / XL", "$125"),
+          V("gid://shopify/ProductVariant/53664876691735", "Royal Blue / 2XL", "$125"),
+          V("gid://shopify/ProductVariant/53664876724503", "Light Gray / S", "$125"),
+          V("gid://shopify/ProductVariant/53664876757271", "Light Gray / M", "$125"),
+          V("gid://shopify/ProductVariant/53664876790039", "Light Gray / L", "$125"),
+          V("gid://shopify/ProductVariant/53664876822807", "Light Gray / XL", "$125"),
+          V("gid://shopify/ProductVariant/53664876855575", "Light Gray / 2XL", "$125"),
+          V("gid://shopify/ProductVariant/53664876888343", "Black / S", "$125"),
+          V("gid://shopify/ProductVariant/53664876921111", "Black / M", "$125"),
+          V("gid://shopify/ProductVariant/53664876953879", "Black / L", "$125"),
+          V("gid://shopify/ProductVariant/53664876986647", "Black / XL", "$125"),
+          V("gid://shopify/ProductVariant/53664877019415", "Black / 2XL", "$125"),
+        ],
+      },
       {
         id: "gid://shopify/Product/10409785065751",
         title: "One Mission Heavyweight Hoodie — White",
@@ -148,6 +190,111 @@ export const staticCollections: Record<string, ShopCollection> = {
           V("gid://shopify/ProductVariant/53664758858007", "Coffee / L", "$80.06"),
           V("gid://shopify/ProductVariant/53664758890775", "Coffee / XL", "$80.06"),
           V("gid://shopify/ProductVariant/53664758923543", "Coffee / 2XL", "$80.06"),
+        ],
+      },
+      {
+        id: "gid://shopify/Product/10410155737367",
+        title: "One Mission Sweatpants",
+        handle: "one-mission-sweats",
+        description: "Heavyweight sweatpants in Black and Dark Gray. The perfect match for your hoodie.",
+        imageUrl: I("0da5ec9b86f2486caf34e0b5054d0ce0", "1783881933"), imageAlt: "One Mission Sweatpants",
+        images: [I("0da5ec9b86f2486caf34e0b5054d0ce0", "1783881933"), I("557d2cba2a404fd388614d382cdd50d7", "1783881932"), I("bccd0fbe6fb7400191d2ca412cc53094", "1783881932"), I("8c8351a084424fd9a541b1e206a067aa", "1783881933")],
+        minPrice: "$99", currency: "USD", hasOptions: true,
+        variants: [
+          V("gid://shopify/ProductVariant/53664778420503", "Black / S", "$99"),
+          V("gid://shopify/ProductVariant/53664778453271", "Black / M", "$99"),
+          V("gid://shopify/ProductVariant/53664778486039", "Black / L", "$99"),
+          V("gid://shopify/ProductVariant/53664778518807", "Black / XL", "$99"),
+          V("gid://shopify/ProductVariant/53664778551575", "Black / 2XL", "$99"),
+          V("gid://shopify/ProductVariant/53664778584343", "Dark Gray / S", "$99"),
+          V("gid://shopify/ProductVariant/53664778617111", "Dark Gray / M", "$99"),
+          V("gid://shopify/ProductVariant/53664778649879", "Dark Gray / L", "$99"),
+          V("gid://shopify/ProductVariant/53664778682647", "Dark Gray / XL", "$99"),
+          V("gid://shopify/ProductVariant/53664778715415", "Dark Gray / 2XL", "$99"),
+        ],
+      },
+      {
+        id: "gid://shopify/Product/10410155868439",
+        title: "One Mission Sweat Shorts",
+        handle: "one-mission-workout-short",
+        description: "Athletic sweat shorts in Royal Blue and Black. Pairs with any hoodie.",
+        imageUrl: I("1d94c0bf1f084291b9e69e054c7c97ed", "1783882007"), imageAlt: "One Mission Sweat Shorts",
+        images: [I("1d94c0bf1f084291b9e69e054c7c97ed", "1783882007"), I("33dc2130855248f9a7ee20b2786f0528", "1783882008"), I("3f8d63b236ae47f99a16955e322f2036", "1783882008"), I("09a562d320f84ae19a8c54f62f0419e5", "1783882008")],
+        minPrice: "$49.99", currency: "USD", hasOptions: true,
+        variants: [
+          V("gid://shopify/ProductVariant/53664779043095", "Royal Blue / S", "$49.99"),
+          V("gid://shopify/ProductVariant/53664779075863", "Royal Blue / M", "$49.99"),
+          V("gid://shopify/ProductVariant/53664779108631", "Royal Blue / L", "$49.99"),
+          V("gid://shopify/ProductVariant/53664779141399", "Royal Blue / XL", "$49.99"),
+          V("gid://shopify/ProductVariant/53664779174167", "Royal Blue / 2XL", "$49.99"),
+          V("gid://shopify/ProductVariant/53664779206935", "Black / S", "$49.99"),
+          V("gid://shopify/ProductVariant/53664779239703", "Black / M", "$49.99"),
+          V("gid://shopify/ProductVariant/53664779272471", "Black / L", "$49.99"),
+          V("gid://shopify/ProductVariant/53664779305239", "Black / XL", "$49.99"),
+          V("gid://shopify/ProductVariant/53664779338007", "Black / 2XL", "$49.99"),
+        ],
+      },
+      {
+        id: "gid://shopify/Product/10410155442455",
+        title: "One Mission Lounge Pants",
+        handle: "one-mission-lounge",
+        description: "Relaxed lounge pants in six colors: Brown, Navy, Gray Green, Sand, Black, and Carbon Gray.",
+        imageUrl: I("499d15ba1ede4a6783e0115d2a3d8a4d", "1783881768"), imageAlt: "One Mission Lounge Pants",
+        images: [I("499d15ba1ede4a6783e0115d2a3d8a4d", "1783881768"), I("c8554ab8b9174994aaf737b08ce452ec", "1783881768"), I("402ed1785eb7408391e81f24feb4b582", "1783881768"), I("952e55c347514a569161862889aa9386", "1783881768"), I("49efd00dd9ca49e5a6d96034768a5405", "1783881768"), I("796bdb1d38aa476dbd4cd2871de88ef0", "1783881768"), I("5223c9c8802d425f8f2a9466bd5afeb5", "1783881768"), I("03a6ba92e4384b99864c0d6f51dab553", "1783881768")],
+        minPrice: "$89", currency: "USD", hasOptions: true,
+        variants: [
+          V("gid://shopify/ProductVariant/53664776618263", "Brown / XS", "$89"),
+          V("gid://shopify/ProductVariant/53664776651031", "Brown / S", "$89"),
+          V("gid://shopify/ProductVariant/53664776683799", "Brown / M", "$89"),
+          V("gid://shopify/ProductVariant/53664776716567", "Brown / L", "$89"),
+          V("gid://shopify/ProductVariant/53664776749335", "Brown / XL", "$89"),
+          V("gid://shopify/ProductVariant/53664776782103", "Brown / 2XL", "$89"),
+          V("gid://shopify/ProductVariant/53664776814871", "Navy / XS", "$89"),
+          V("gid://shopify/ProductVariant/53664776847639", "Navy / S", "$89"),
+          V("gid://shopify/ProductVariant/53664776880407", "Navy / M", "$89"),
+          V("gid://shopify/ProductVariant/53664776913175", "Navy / L", "$89"),
+          V("gid://shopify/ProductVariant/53664776945943", "Navy / XL", "$89"),
+          V("gid://shopify/ProductVariant/53664776978711", "Navy / 2XL", "$89"),
+          V("gid://shopify/ProductVariant/53664777011479", "Gray Green / XS", "$89"),
+          V("gid://shopify/ProductVariant/53664777044247", "Gray Green / S", "$89"),
+          V("gid://shopify/ProductVariant/53664777077015", "Gray Green / M", "$89"),
+          V("gid://shopify/ProductVariant/53664777109783", "Gray Green / L", "$89"),
+          V("gid://shopify/ProductVariant/53664777142551", "Gray Green / XL", "$89"),
+          V("gid://shopify/ProductVariant/53664777175319", "Gray Green / 2XL", "$89"),
+          V("gid://shopify/ProductVariant/53664777208087", "Sand / XS", "$89"),
+          V("gid://shopify/ProductVariant/53664777240855", "Sand / S", "$89"),
+          V("gid://shopify/ProductVariant/53664777273623", "Sand / M", "$89"),
+          V("gid://shopify/ProductVariant/53664777306391", "Sand / L", "$89"),
+          V("gid://shopify/ProductVariant/53664777339159", "Sand / XL", "$89"),
+          V("gid://shopify/ProductVariant/53664777371927", "Sand / 2XL", "$89"),
+          V("gid://shopify/ProductVariant/53664777404695", "Black / XS", "$89"),
+          V("gid://shopify/ProductVariant/53664777437463", "Black / S", "$89"),
+          V("gid://shopify/ProductVariant/53664777470231", "Black / M", "$89"),
+          V("gid://shopify/ProductVariant/53664777502999", "Black / L", "$89"),
+          V("gid://shopify/ProductVariant/53664777535767", "Black / XL", "$89"),
+          V("gid://shopify/ProductVariant/53664777568535", "Black / 2XL", "$89"),
+          V("gid://shopify/ProductVariant/53664777601303", "Carbon Gray / XS", "$89"),
+          V("gid://shopify/ProductVariant/53664777634071", "Carbon Gray / S", "$89"),
+          V("gid://shopify/ProductVariant/53664777666839", "Carbon Gray / M", "$89"),
+          V("gid://shopify/ProductVariant/53664777699607", "Carbon Gray / L", "$89"),
+          V("gid://shopify/ProductVariant/53664777732375", "Carbon Gray / XL", "$89"),
+          V("gid://shopify/ProductVariant/53664777765143", "Carbon Gray / 2XL", "$89"),
+        ],
+      },
+      {
+        id: "gid://shopify/Product/10410154852631",
+        title: "One Mission Lounge Shorts",
+        handle: "one-mission-lounge-short",
+        description: "Relaxed lounge shorts in Black.",
+        imageUrl: I("8c00e76b482b4044b1c13b7923827aa5", "1783881573"), imageAlt: "One Mission Lounge Shorts",
+        images: [I("8c00e76b482b4044b1c13b7923827aa5", "1783881573"), I("20b669ac9fbc4111b6a7663ae7f7b40e", "1783881573")],
+        minPrice: "$49.99", currency: "USD", hasOptions: true,
+        variants: [
+          V("gid://shopify/ProductVariant/53664773865751", "Black / S", "$49.99"),
+          V("gid://shopify/ProductVariant/53664773898519", "Black / M", "$49.99"),
+          V("gid://shopify/ProductVariant/53664773931287", "Black / L", "$49.99"),
+          V("gid://shopify/ProductVariant/53664773964055", "Black / XL", "$49.99"),
+          V("gid://shopify/ProductVariant/53664773996823", "Black / 2XL", "$49.99"),
         ],
       },
       {
@@ -308,3 +455,39 @@ export const staticCollections: Record<string, ShopCollection> = {
     ],
   },
 };
+
+// Pair each hoodie / sweatshirt with the matching sweatpants + sweat shorts,
+// shown as a "Complete the set" option on the product page.
+const SET_PAIR_IDS = [
+  "gid://shopify/Product/10410155737367", // One Mission Sweatpants
+  "gid://shopify/Product/10410155868439", // One Mission Sweat Shorts
+];
+for (const p of staticCollections["the-collection"].products) {
+  if (/hoodie|sweatshirt/i.test(p.title)) p.pairsWith = SET_PAIR_IDS;
+}
+
+/** Short, URL-safe id used in product page routes: /product/{pid}. */
+export function productPid(id: string): string {
+  return id.split("/").pop() as string;
+}
+
+/** Every product across all collections, tagged with its collection handle. */
+export function allProducts(): (ShopProduct & { collectionHandle: string })[] {
+  return Object.entries(staticCollections).flatMap(([handle, c]) =>
+    c.products.map((p) => ({ ...p, collectionHandle: handle }))
+  );
+}
+
+/** Find a product by its short pid (from productPid). */
+export function getProductByPid(pid: string): (ShopProduct & { collectionHandle: string }) | null {
+  return allProducts().find((p) => productPid(p.id) === pid) ?? null;
+}
+
+/** Resolve a product's paired items to full product objects. */
+export function pairedProducts(product: ShopProduct): ShopProduct[] {
+  if (!product.pairsWith?.length) return [];
+  const all = allProducts();
+  return product.pairsWith
+    .map((id) => all.find((p) => p.id === id))
+    .filter((p): p is ShopProduct & { collectionHandle: string } => Boolean(p));
+}
