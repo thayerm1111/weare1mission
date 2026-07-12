@@ -22,6 +22,10 @@ const TOKEN = process.env.SHOPIFY_STOREFRONT_TOKEN;
 export const isShopifyConfigured = Boolean(DOMAIN && TOKEN);
 export const shopifyDomain = DOMAIN ?? "";
 
+// Store domain used to build secure checkout links (works without the
+// Storefront token). Update if you move checkout to a custom domain.
+export const checkoutDomain = DOMAIN || "1-mission-2.myshopify.com";
+
 export interface ShopVariant {
   id: string;
   title: string;

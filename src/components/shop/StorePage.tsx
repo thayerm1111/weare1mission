@@ -1,6 +1,7 @@
 import { Hero } from "@/components/Hero";
 import { ProductGrid } from "@/components/shop/ProductGrid";
-import { getShopCollection, isShopifyConfigured, shopifyDomain } from "@/lib/shopify";
+import { getShopCollection, isShopifyConfigured, checkoutDomain } from "@/lib/shopify";
+import { staticCollections } from "@/data/shopProducts";
 
 /**
  * Renders a Shopify collection as a storefront page (used by /collection and
@@ -11,19 +12,21 @@ export async function StorePage({
 }: {
   handle: string; eyebrow: string; title: string; description: string;
 }) {
-  const collection = isShopifyConfigured ? await getShopCollection(handle) : null;
+  // Prefer live Storefront data if configured; otherwise use the static
+  // snapshot in src/data/shopProducts.ts.
+  const live = isShopifyConfigured ? await getShopCollection(handle) : null;
+  const collection = live ?? staticCollections[handle] ?? null;
+  const hasProducts = collection && collection.products.length > 0;
 
   return (
     <>
       <Hero eyebrow={eyebrow} title={title} description={description} />
       <section className="section bg-cream">
         <div className="container-1m">
-          {!isShopifyConfigured ? (
-            <ComingSoon reason="connect" />
-          ) : !collection ? (
-            <ComingSoon reason="empty" />
+          {hasProducts ? (
+            <ProductGrid products={collection!.products} domain={checkoutDomain} />
           ) : (
-            <ProductGrid products={collection.products} domain={shopifyDomain} />
+            <ComingSoon reason="empty" />
           )}
         </div>
       </section>
