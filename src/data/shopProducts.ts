@@ -146,6 +146,8 @@ export const staticCollections: Record<string, ShopCollection> = {
         detailImage: "/images/1m%20experience%20big.png",
         minPrice: "$4,999.99", currency: "USD", hasOptions: false,
         when: "September 2026",
+        spots: 15,
+        soldOut: false,
         longDescription:
           "Three days and two nights in Miami — luxury, connection, and growth with the 1M community. Spots are limited and reserved on a first-come basis.",
         details: [

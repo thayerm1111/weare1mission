@@ -50,6 +50,8 @@ export interface ShopProduct {
   when?: string;            // e.g. "September"
   longDescription?: string; // paragraph shown in the details popup
   detailImage?: string;     // large landscape image shown at the top of the popup
+  spots?: number;           // total limited spots (shows a "Only N spots" badge)
+  soldOut?: boolean;        // manual override: show "Sold out" and disable checkout
 }
 export interface ShopCollection {
   title: string;

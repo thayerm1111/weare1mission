@@ -32,7 +32,7 @@ function Card({ product, domain }: { product: ShopProduct; domain: string }) {
   const [img, setImg] = useState<string | null>(imgs[0] ?? null);
   const [open, setOpen] = useState(false);
 
-  const soldOut = buyable.length === 0;
+  const soldOut = Boolean(product.soldOut) || buyable.length === 0;
   const hasDetails = Boolean(product.details?.length || product.longDescription);
 
   return (
@@ -56,6 +56,15 @@ function Card({ product, domain }: { product: ShopProduct; domain: string }) {
             <CalendarDays className="h-3 w-3" /> {product.when}
           </span>
         )}
+        {soldOut ? (
+          <span className="absolute right-3 top-3 rounded-full bg-red-600/90 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-white backdrop-blur">
+            Sold out
+          </span>
+        ) : product.spots ? (
+          <span className="absolute right-3 top-3 rounded-full bg-gold/90 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-cream backdrop-blur">
+            Only {product.spots} spots
+          </span>
+        ) : null}
       </button>
       {imgs.length > 1 && (
         <div className="flex gap-2 px-5 pt-4">
@@ -78,6 +87,9 @@ function Card({ product, domain }: { product: ShopProduct; domain: string }) {
         <p className="mt-1 text-sm font-semibold text-gold">
           {product.hasOptions ? "From " : ""}{product.minPrice}
         </p>
+        {product.spots && !soldOut && (
+          <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-gold-deep">Limited to {product.spots} spots</p>
+        )}
         {product.description && (
           <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-charcoal/65">{product.description}</p>
         )}
@@ -180,7 +192,14 @@ function DetailsModal({
             </span>
           )}
           <h2 className="mt-3 font-serif text-3xl font-black tracking-tight text-navy">{product.title}</h2>
-          <p className="mt-1 text-lg font-bold text-gold">{product.minPrice}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-3">
+            <p className="text-lg font-bold text-gold">{product.minPrice}</p>
+            {soldOut ? (
+              <span className="rounded-full bg-red-600/90 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-white">Sold out</span>
+            ) : product.spots ? (
+              <span className="rounded-full bg-gold/15 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-gold-deep">Only {product.spots} spots</span>
+            ) : null}
+          </div>
 
           {product.longDescription && (
             <p className="mt-4 leading-relaxed text-charcoal/75">{product.longDescription}</p>
