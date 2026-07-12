@@ -14,14 +14,14 @@ import {
  */
 const items = [
   { href: "/portal", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { href: "/portal/team", label: "My Team", icon: Network },
-  { href: "/portal/prospects", label: "Prospects", icon: Video },
-  { href: "/portal/training", label: "Training", icon: GraduationCap },
-  { href: "/portal/trading", label: "Trading", icon: LineChart },
-  { href: "/portal/schedule", label: "Schedule", icon: CalendarClock },
+  { href: "/portal/team", label: "My Circle", icon: Network },
+  { href: "/portal/prospects", label: "Next Up", icon: Video },
+  { href: "/portal/training", label: "Creator Launchpad", icon: GraduationCap },
+  { href: "/portal/trading", label: "The Floor", icon: LineChart },
+  { href: "/portal/schedule", label: "What's On", icon: CalendarClock },
   { href: "/portal/resources", label: "Resources", icon: FolderOpen },
-  { href: "/portal/leadership", label: "Leadership", icon: Users2 },
-  { href: "/portal/updates", label: "Team Updates", icon: Megaphone },
+  { href: "/portal/leadership", label: "The Inner Circle", icon: Users2 },
+  { href: "/portal/updates", label: "Mission Update", icon: Megaphone },
   { href: "/portal/account", label: "Account", icon: UserCircle },
 ];
 
