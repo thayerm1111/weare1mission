@@ -1,6 +1,5 @@
 import { MapPin, Users2, ShieldCheck, Repeat, Award, Sprout, Target } from "lucide-react";
 import { SectionHeading } from "../SectionHeading";
-import { PlaceholderImage } from "../PlaceholderImage";
 
 const reasons = [
   { icon: MapPin, title: "Environment", text: "Your surroundings shape your standards. We build a culture that pulls you up." },
@@ -17,7 +16,14 @@ export function WhyCommunity() {
     <section className="section bg-white">
       <div className="container-1m grid items-center gap-12 lg:grid-cols-[1fr_1.1fr]">
         <div className="order-2 lg:order-1">
-          <PlaceholderImage label="Community lifestyle photo" aspect="portrait" className="shadow-card" />
+          <div className="overflow-hidden rounded-xl shadow-card">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/images/IMG_3047.JPG"
+              alt="The 1 Mission community celebrating together"
+              className="aspect-[3/4] w-full object-cover"
+            />
+          </div>
         </div>
         <div className="order-1 lg:order-2">
           <SectionHeading
