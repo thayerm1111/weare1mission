@@ -41,11 +41,29 @@ export function ProductDetail({
   // main photo swaps as you pick a color.
   const colorImgMap = product.colorImages ?? {};
   const hasColorImgs = Object.keys(colorImgMap).length > 0;
-  // Gallery = one photo per color (fronts) PLUS the product's other media (backs/extra),
-  // so people can still click through to see the back.
-  const galleryImgs = hasColorImgs
-    ? Array.from(new Set([...Object.values(colorImgMap), ...imgs]))
-    : imgs;
+  // Gallery: for each color show its front photo immediately followed by that color's back
+  // (the media image right after the front), so fronts and backs sit next to each other.
+  const galleryImgs = useMemo(() => {
+    if (!hasColorImgs) return imgs;
+    const fronts = Object.values(colorImgMap);
+    const out: string[] = [];
+    const used = new Set<string>();
+    for (const c of colors) {
+      const front = colorImgMap[c];
+      if (!front || used.has(front)) continue;
+      out.push(front);
+      used.add(front);
+      const idx = imgs.indexOf(front);
+      const back = idx >= 0 ? imgs[idx + 1] : undefined;
+      if (back && !fronts.includes(back) && !used.has(back)) {
+        out.push(back);
+        used.add(back);
+      }
+    }
+    for (const u of imgs) if (!used.has(u)) { out.push(u); used.add(u); }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product]);
   const [img, setImg] = useState<string | null>((color && colorImgMap[color]) || galleryImgs[0] || null);
   useEffect(() => {
     if (color && colorImgMap[color]) setImg(colorImgMap[color]);
