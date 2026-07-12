@@ -55,6 +55,7 @@ export interface ShopProduct {
   pairsWith?: string[];     // product ids to offer as a matching set (e.g. hoodie → sweats)
   badge?: string;           // featured ribbon text, e.g. "Hottest Item"
   colorImages?: Record<string, string>; // color name → image URL (main photo swaps with color)
+  optionName?: string;      // label for the size/option selector, e.g. "Model" for a phone case
 }
 export interface ShopCollection {
   title: string;

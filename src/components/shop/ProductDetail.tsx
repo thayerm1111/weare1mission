@@ -173,7 +173,7 @@ export function ProductDetail({
           {/* Size */}
           {!single && sizes.length > 0 && (
             <div className="mt-5">
-              <p className="text-xs font-bold uppercase tracking-label text-navy/60">Size</p>
+              <p className="text-xs font-bold uppercase tracking-label text-navy/60">{product.optionName ?? "Size"}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {sizes.map((s) => {
                   const exists = parsed.some((v) => v.size === s && (colors.length ? v.color === color : true) && v.availableForSale);
@@ -197,7 +197,7 @@ export function ProductDetail({
             disabled={soldOut || (!single && !selected)}
             className="mt-7 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-primary px-6 py-4 text-sm font-bold uppercase tracking-wider text-cream transition-transform hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0"
           >
-            {soldOut ? "Sold out" : !single && !selected ? "Select a size" : <>{isExperience ? "Reserve" : "Add to bag"} <ArrowRight className="h-4 w-4" /></>}
+            {soldOut ? "Sold out" : !single && !selected ? `Select a ${(product.optionName ?? "size").toLowerCase()}` : <>{isExperience ? "Reserve" : "Add to bag"} <ArrowRight className="h-4 w-4" /></>}
           </button>
           <p className="mt-3 text-center text-xs text-charcoal/50">Secure checkout via Shopify.</p>
 

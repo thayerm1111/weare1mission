@@ -592,7 +592,7 @@ export const staticCollections: Record<string, ShopCollection> = {
           "https://cdn.shopify.com/s/files/1/1016/0406/5559/files/2782572963942251749_4096.jpg?v=1783893832",
           "https://cdn.shopify.com/s/files/1/1016/0406/5559/files/16371742377305025480_4096.jpg?v=1783893834",
         ],
-        minPrice: "$37.99", currency: "USD", hasOptions: true,
+        minPrice: "$37.99", currency: "USD", hasOptions: true, optionName: "Model",
         variants: [
           V("gid://shopify/ProductVariant/53665144602903", "iPhone 17", "$37.99"),
           V("gid://shopify/ProductVariant/53665144570135", "iPhone 17 Air", "$37.99"),
