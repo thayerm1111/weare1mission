@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Check, CalendarDays, ChevronLeft } from "lucide-react";
 import type { ShopProduct } from "@/lib/shopify";
@@ -27,7 +27,6 @@ export function ProductDetail({
   collectionHandle?: string;
 }) {
   const imgs = product.images?.length ? product.images : product.imageUrl ? [product.imageUrl] : [];
-  const [img, setImg] = useState<string | null>(imgs[0] ?? null);
   const [zoom, setZoom] = useState({ x: 50, y: 50, on: false });
 
   const parsed = useMemo(() => product.variants.map(parse), [product]);
@@ -37,6 +36,17 @@ export function ProductDetail({
 
   const [color, setColor] = useState<string | null>(colors[0] ?? null);
   const [size, setSize] = useState<string | null>(null);
+
+  // When colors have their own photos, the gallery is one image per color and the
+  // main photo swaps as you pick a color.
+  const colorImgMap = product.colorImages ?? {};
+  const hasColorImgs = Object.keys(colorImgMap).length > 0;
+  const galleryImgs = hasColorImgs ? Array.from(new Set(Object.values(colorImgMap))) : imgs;
+  const [img, setImg] = useState<string | null>((color && colorImgMap[color]) || galleryImgs[0] || null);
+  useEffect(() => {
+    if (color && colorImgMap[color]) setImg(colorImgMap[color]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [color]);
 
   const selected = single
     ? product.variants[0]
@@ -84,9 +94,9 @@ export function ProductDetail({
               </span>
             )}
           </div>
-          {imgs.length > 1 && (
+          {galleryImgs.length > 1 && (
             <div className="mt-3 flex flex-wrap gap-2">
-              {imgs.map((u, i) => (
+              {galleryImgs.map((u, i) => (
                 <button
                   key={i}
                   onClick={() => setImg(u)}
@@ -214,6 +224,7 @@ function PairCard({ pair, mainVariantId }: { pair: ShopProduct; mainVariantId: s
   const [color, setColor] = useState<string | null>(colors[0] ?? null);
   const [size, setSize] = useState<string | null>(null);
   const selected = parsed.find((v) => (colors.length ? v.color === color : true) && v.size === size) ?? null;
+  const pairImg = (color && pair.colorImages?.[color]) || pair.imageUrl;
 
   function addSet() {
     if (!selected) return;
@@ -224,9 +235,9 @@ function PairCard({ pair, mainVariantId }: { pair: ShopProduct; mainVariantId: s
   return (
     <div className="flex flex-col overflow-hidden rounded-2xl border border-[#E4DCCB] bg-cream shadow-card">
       <Link href={`/product/${productPid(pair.id)}`} className="block aspect-square overflow-hidden bg-offwhite/60">
-        {pair.imageUrl ? (
+        {pairImg ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={pair.imageUrl} alt={pair.title} className="h-full w-full object-cover transition-transform duration-300 hover:scale-105" />
+          <img src={pairImg} alt={pair.title} className="h-full w-full object-cover transition-transform duration-300 hover:scale-105" />
         ) : null}
       </Link>
       <div className="flex flex-1 flex-col p-4">

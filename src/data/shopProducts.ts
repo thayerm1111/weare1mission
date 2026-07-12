@@ -37,6 +37,14 @@ export const staticCollections: Record<string, ShopCollection> = {
         images: [I("2128897d801b418b955435b13a588528", "1783882713"), I("b33898df1248414cad49616278c14a02", "1783882713"), I("b7d8740a95e6452fa10a926f52aed80f", "1783882713"), I("5a969afbcedc4459a0231a48451b197a", "1783882713"), I("ba844c2c993a4650b666ad4fb5a3496d", "1783882713"), I("366b2fdb17934ba39978734f2acf7dec", "1783882713"), I("a0f354975e8a45f1b5a3a87efbb8016e", "1783882713"), I("d5da18a2481d493fb5edff8bc513db0a", "1783882713")],
         minPrice: "$125", currency: "USD", hasOptions: true,
         badge: "🔥 Hottest Item",
+        colorImages: {
+          "Dark Green": I("ba844c2c993a4650b666ad4fb5a3496d", "1783882713"),
+          "Mild Apricot": I("8adde8d2926b49d596b63657527e2f19", "1783882713"),
+          "Lake Blue": I("a0f354975e8a45f1b5a3a87efbb8016e", "1783882713"),
+          "Royal Blue": I("b7d8740a95e6452fa10a926f52aed80f", "1783882713"),
+          "Light Gray": I("0685e5493af843439950bc8bf0a74fcf", "1783882713"),
+          "Black": I("2128897d801b418b955435b13a588528", "1783882713"),
+        },
         variants: [
           V("gid://shopify/ProductVariant/53664876069143", "Dark Green / S", "$125"),
           V("gid://shopify/ProductVariant/53664876101911", "Dark Green / M", "$125"),
@@ -164,6 +172,12 @@ export const staticCollections: Record<string, ShopCollection> = {
         description: "Heavyweight crewneck sweatshirt in Dark Blue, Black, Dark Gray, and Coffee.",
         imageUrl: I("649262c686604ca3a7bbbe62993c1108", "1783879713"), imageAlt: "One Mission Crewneck Sweatshirt",
         images: [I("649262c686604ca3a7bbbe62993c1108", "1783879713"), I("f473fbdc5ae64fbc84ce0650aecaa9be", "1783879713"), I("7e750ad3c43a4da0bf340cea1ecbc958", "1783879713"), I("7b5b8c07f0bf4d799d030e5b98872158", "1783879713"), I("ca411e78dd2648bea84d15b2c01c475b", "1783879713"), I("8a6083a2f78143679b3eadeaf7fd6745", "1783879713"), I("0e065bc5b58142ceb35ca95a393f7f29", "1783879713"), I("5473d671397e458da57b43e425294d2a", "1783879713")],
+        colorImages: {
+          "Dark Blue": I("0e065bc5b58142ceb35ca95a393f7f29", "1783879713"),
+          "Black": I("649262c686604ca3a7bbbe62993c1108", "1783879713"),
+          "Dark Gray": I("ca411e78dd2648bea84d15b2c01c475b", "1783879713"),
+          "Coffee": I("7e750ad3c43a4da0bf340cea1ecbc958", "1783879713"),
+        },
         minPrice: "$80.06", currency: "USD", hasOptions: true,
         variants: [
           V("gid://shopify/ProductVariant/53664758169879", "Dark Blue / XS", "$80.06"),
@@ -199,6 +213,10 @@ export const staticCollections: Record<string, ShopCollection> = {
         description: "Heavyweight sweatpants in Black and Dark Gray. The perfect match for your hoodie.",
         imageUrl: I("0da5ec9b86f2486caf34e0b5054d0ce0", "1783881933"), imageAlt: "One Mission Sweatpants",
         images: [I("0da5ec9b86f2486caf34e0b5054d0ce0", "1783881933"), I("557d2cba2a404fd388614d382cdd50d7", "1783881932"), I("bccd0fbe6fb7400191d2ca412cc53094", "1783881932"), I("8c8351a084424fd9a541b1e206a067aa", "1783881933")],
+        colorImages: {
+          "Black": I("bccd0fbe6fb7400191d2ca412cc53094", "1783881932"),
+          "Dark Gray": I("0da5ec9b86f2486caf34e0b5054d0ce0", "1783881933"),
+        },
         minPrice: "$99", currency: "USD", hasOptions: true,
         variants: [
           V("gid://shopify/ProductVariant/53664778420503", "Black / S", "$99"),
@@ -220,6 +238,10 @@ export const staticCollections: Record<string, ShopCollection> = {
         description: "Athletic sweat shorts in Royal Blue and Black. Pairs with any hoodie.",
         imageUrl: I("1d94c0bf1f084291b9e69e054c7c97ed", "1783882007"), imageAlt: "One Mission Sweat Shorts",
         images: [I("1d94c0bf1f084291b9e69e054c7c97ed", "1783882007"), I("33dc2130855248f9a7ee20b2786f0528", "1783882008"), I("3f8d63b236ae47f99a16955e322f2036", "1783882008"), I("09a562d320f84ae19a8c54f62f0419e5", "1783882008")],
+        colorImages: {
+          "Royal Blue": I("3f8d63b236ae47f99a16955e322f2036", "1783882008"),
+          "Black": I("1d94c0bf1f084291b9e69e054c7c97ed", "1783882007"),
+        },
         minPrice: "$49.99", currency: "USD", hasOptions: true,
         variants: [
           V("gid://shopify/ProductVariant/53664779043095", "Royal Blue / S", "$49.99"),
@@ -241,6 +263,14 @@ export const staticCollections: Record<string, ShopCollection> = {
         description: "Relaxed lounge pants in six colors: Brown, Navy, Gray Green, Sand, Black, and Carbon Gray.",
         imageUrl: I("499d15ba1ede4a6783e0115d2a3d8a4d", "1783881768"), imageAlt: "One Mission Lounge Pants",
         images: [I("499d15ba1ede4a6783e0115d2a3d8a4d", "1783881768"), I("c8554ab8b9174994aaf737b08ce452ec", "1783881768"), I("402ed1785eb7408391e81f24feb4b582", "1783881768"), I("952e55c347514a569161862889aa9386", "1783881768"), I("49efd00dd9ca49e5a6d96034768a5405", "1783881768"), I("796bdb1d38aa476dbd4cd2871de88ef0", "1783881768"), I("5223c9c8802d425f8f2a9466bd5afeb5", "1783881768"), I("03a6ba92e4384b99864c0d6f51dab553", "1783881768")],
+        colorImages: {
+          "Brown": I("d535c76a6d434faeb80dc1836328b7c1", "1783881768"),
+          "Navy": I("5223c9c8802d425f8f2a9466bd5afeb5", "1783881768"),
+          "Gray Green": I("49efd00dd9ca49e5a6d96034768a5405", "1783881768"),
+          "Sand": I("402ed1785eb7408391e81f24feb4b582", "1783881768"),
+          "Black": I("499d15ba1ede4a6783e0115d2a3d8a4d", "1783881768"),
+          "Carbon Gray": I("c52ee30e5bdb4a5f9ae20ba3711f2a46", "1783881768"),
+        },
         minPrice: "$89", currency: "USD", hasOptions: true,
         variants: [
           V("gid://shopify/ProductVariant/53664776618263", "Brown / XS", "$89"),
@@ -350,6 +380,11 @@ export const staticCollections: Record<string, ShopCollection> = {
         description: "Long-sleeve tee in Navy Blue, Coffee, and Dark Gray.",
         imageUrl: I("cc82e923070b47c88dda45bdcbd426f5", "1783879412"), imageAlt: "One Mission Long-Sleeve Tee",
         images: [I("cc82e923070b47c88dda45bdcbd426f5", "1783879412"), I("d89e723370a34ee38748484483f64a5b", "1783879413"), I("3b7063793a464ff3b2fa28bc5fc8c799", "1783879413"), I("9f9aaf42be254454a473b8fe096feca7", "1783879413"), I("6e6102e3b5fa40fbb07d71e297afcd90", "1783879413"), I("dd720e12890649908a15f14780895ca5", "1783879413")],
+        colorImages: {
+          "Navy Blue": I("6e6102e3b5fa40fbb07d71e297afcd90", "1783879413"),
+          "Coffee": I("3b7063793a464ff3b2fa28bc5fc8c799", "1783879413"),
+          "Dark Gray": I("cc82e923070b47c88dda45bdcbd426f5", "1783879412"),
+        },
         minPrice: "$49.99", currency: "USD", hasOptions: true,
         variants: [
           V("gid://shopify/ProductVariant/53664750502167", "Navy Blue / S", "$49.99"),

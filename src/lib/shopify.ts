@@ -54,6 +54,7 @@ export interface ShopProduct {
   soldOut?: boolean;        // manual override: show "Sold out" and disable checkout
   pairsWith?: string[];     // product ids to offer as a matching set (e.g. hoodie → sweats)
   badge?: string;           // featured ribbon text, e.g. "Hottest Item"
+  colorImages?: Record<string, string>; // color name → image URL (main photo swaps with color)
 }
 export interface ShopCollection {
   title: string;
