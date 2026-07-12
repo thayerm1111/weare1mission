@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Megaphone, Pin, PinOff, Trash2, Plus, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -45,6 +45,8 @@ export function MissionUpdatesClient({ updates, isAdmin }: { updates: Update[]; 
 
 function UpdateCard({ u, isAdmin, onChange }: { u: Update; isAdmin: boolean; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   async function act(patch: Record<string, unknown> | "delete") {
     const supabase = createClient();
     if (!supabase) return;
@@ -59,7 +61,7 @@ function UpdateCard({ u, isAdmin, onChange }: { u: Update; isAdmin: boolean; onC
       <div className="flex flex-wrap items-center gap-2">
         {u.pinned && <span className="inline-flex items-center gap-1 rounded-full bg-gold/15 px-2.5 py-0.5 text-xs font-semibold text-gold-deep"><Pin className="h-3 w-3" /> Pinned</span>}
         <span className="rounded-full bg-ice px-2.5 py-0.5 text-xs font-semibold text-navy">{u.category}</span>
-        <span className="text-xs text-medium">{fmtDateTime(u.created_at)}</span>
+        <span className="text-xs text-medium">{mounted ? fmtDateTime(u.created_at) : ""}</span>
         {isAdmin && (
           <span className="ml-auto flex gap-1">
             <button disabled={busy} onClick={() => act({ pinned: !u.pinned })} title={u.pinned ? "Unpin" : "Pin"} className="rounded-lg p-1.5 text-medium hover:text-gold">

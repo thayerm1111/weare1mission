@@ -73,6 +73,7 @@ export function WhatsOnClient({ isAdmin = false }: { isAdmin?: boolean }) {
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [dbEvents, setDbEvents] = useState<ScheduleEvent[] | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -82,6 +83,7 @@ export function WhatsOnClient({ isAdmin = false }: { isAdmin?: boolean }) {
   }, []);
 
   useEffect(() => {
+    setMounted(true);
     try { setSaved(new Set(JSON.parse(localStorage.getItem("1m_saved_calls") || "[]"))); } catch {}
     load();
     const t = setInterval(() => setNow(new Date()), 30000);
@@ -130,6 +132,22 @@ export function WhatsOnClient({ isAdmin = false }: { isAdmin?: boolean }) {
   const liveCount = byDay.flat().filter((o) => o.live).length;
   const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const tLabel = (d: Date) => d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+  // Render only after mount — the board depends on the current time, which
+  // differs between the server and the browser and would break hydration.
+  if (!mounted) {
+    return (
+      <div className="space-y-8">
+        <header>
+          <p className="eyebrow text-gold">Members Only</p>
+          <h1 className="mt-2 flex items-center gap-2 font-serif text-4xl font-black tracking-tight text-navy">
+            <CalendarClock className="h-8 w-8 text-gold" aria-hidden="true" /> What&apos;s On
+          </h1>
+        </header>
+        <p className="text-sm text-charcoal/50">Loading the schedule…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
