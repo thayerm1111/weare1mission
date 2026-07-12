@@ -22,6 +22,8 @@ export function ProductGrid({ products, domain }: { products: ShopProduct[]; dom
 function Card({ product, domain }: { product: ShopProduct; domain: string }) {
   const buyable = product.variants.filter((v) => v.availableForSale);
   const [variantId, setVariantId] = useState(buyable[0]?.id ?? product.variants[0]?.id ?? "");
+  const imgs = product.images?.length ? product.images : product.imageUrl ? [product.imageUrl] : [];
+  const [img, setImg] = useState<string | null>(imgs[0] ?? null);
 
   function buy() {
     if (!variantId) return;
@@ -34,9 +36,9 @@ function Card({ product, domain }: { product: ShopProduct; domain: string }) {
   return (
     <div className="flex flex-col overflow-hidden rounded-2xl border border-[#E4DCCB] bg-cream shadow-card">
       <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-offwhite/60">
-        {product.imageUrl ? (
+        {img ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={product.imageUrl} alt={product.imageAlt ?? product.title} className="h-full w-full object-cover" />
+          <img src={img} alt={product.imageAlt ?? product.title} className="h-full w-full object-cover" />
         ) : (
           <div className="flex flex-col items-center gap-2 text-medium">
             <ImageOff className="h-8 w-8" aria-hidden="true" />
@@ -44,6 +46,21 @@ function Card({ product, domain }: { product: ShopProduct; domain: string }) {
           </div>
         )}
       </div>
+      {imgs.length > 1 && (
+        <div className="flex gap-2 px-5 pt-4">
+          {imgs.map((u, i) => (
+            <button
+              key={i}
+              onClick={() => setImg(u)}
+              aria-label={`View photo ${i + 1}`}
+              className={`h-14 w-14 overflow-hidden rounded-lg border transition-colors ${img === u ? "border-gold ring-1 ring-gold" : "border-[#E4DCCB] hover:border-gold/60"}`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={u} alt="" className="h-full w-full object-cover" />
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-1 flex-col p-5">
         <h3 className="font-serif text-lg font-bold text-navy">{product.title}</h3>

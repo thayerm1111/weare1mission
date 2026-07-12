@@ -1,19 +1,27 @@
 /**
  * STATIC SHOPIFY PRODUCTS  —  a snapshot of the products shown on the site.
  * ---------------------------------------------------------------------------
- * This lets The Collection / 1M Experiences pages show real products WITHOUT
- * needing a Storefront API token. Checkout still goes to Shopify (secure).
+ * Lets The Collection / 1M Experiences show real products WITHOUT a Storefront
+ * API token. Checkout still goes to Shopify (secure). `images` holds every
+ * photo (front, back, …); the card shows a thumbnail switcher.
  *
- * When you add or change products in Shopify, just ask and this snapshot gets
- * refreshed. (If you later add the Storefront API env vars, the site switches
- * to live product data automatically and this file becomes the fallback.)
+ * When you add or change products in Shopify, just ask and this gets refreshed.
  */
 import type { ShopCollection } from "@/lib/shopify";
 
 const IMG = "https://cdn.shopify.com/s/files/1/1016/0406/5559/files";
+const I = (file: string, v: string) => `${IMG}/${file}.png?v=${v}`;
 const V = (id: string, title: string, price: string) => ({
   id, title, availableForSale: true, price, currency: "USD",
 });
+
+// image sets (front, back, …)
+const TEE_GRAY = [I("6a419caa7fa84857a36e2717d11f77a5", "1783828206"), I("d945183324074a89bf570d49905c708d", "1783828206"), I("8ea10820931e4e0e8827568d14c09a31", "1783828205")];
+const TEE_WHITE = [I("fb7ba97c4c4b40a4ab57639eaec2f9a9", "1783826972"), I("d9ae9da4faa04acd8f612b497bafc4c4", "1783826972")];
+const TEE_BLACK = [I("e4617dab33ec47bab3387365cfb4e1f3", "1783826613"), I("a128ec1a07094d3d82f282b7fb82a9ef", "1783826612")];
+const HOOD_WHITE = [I("464b039a16944e11b9cc513eb8eb2c03", "1783828355"), I("dece42914561460382f9c7ddf4d134f4", "1783828355")];
+const HOOD_BLACK = [I("e298ea4c3fac42b99a2486b5e28f81e2", "1783828340"), I("81a55a69c16e40648412e1a55992dda0", "1783828340")];
+const HOOD_CHARCOAL = [I("3b425ec1f4d04bfabd52b1eb1b300ace", "1783828340"), I("d01900bff2944a9995885855714bd08d", "1783828340")];
 
 export const staticCollections: Record<string, ShopCollection> = {
   "the-collection": {
@@ -25,8 +33,7 @@ export const staticCollections: Record<string, ShopCollection> = {
         title: "One Mission Heavyweight Tee — Gray",
         handle: "heavy-weight-one-mission-grey-tee",
         description: "Heavyweight 305gsm 100% cotton tee. Unisex regular fit with the One Mission print.",
-        imageUrl: `${IMG}/6a419caa7fa84857a36e2717d11f77a5.png?v=1783828206`,
-        imageAlt: "One Mission Tee Gray",
+        imageUrl: TEE_GRAY[0], imageAlt: "One Mission Tee Gray", images: TEE_GRAY,
         minPrice: "$49.99", currency: "USD", hasOptions: true,
         variants: [
           V("gid://shopify/ProductVariant/53663632523543", "Gray / XS", "$49.99"),
@@ -42,8 +49,7 @@ export const staticCollections: Record<string, ShopCollection> = {
         title: "One Mission Heavyweight Tee — White",
         handle: "one-mission-heavyweight-tee-1",
         description: "Heavyweight 300gsm 100% cotton tee. Unisex, soft and durable.",
-        imageUrl: `${IMG}/fb7ba97c4c4b40a4ab57639eaec2f9a9.png?v=1783826972`,
-        imageAlt: "One Mission Tee White",
+        imageUrl: TEE_WHITE[0], imageAlt: "One Mission Tee White", images: TEE_WHITE,
         minPrice: "$49.99", currency: "USD", hasOptions: true,
         variants: [
           V("gid://shopify/ProductVariant/53663629312279", "White / S", "$49.99"),
@@ -58,8 +64,7 @@ export const staticCollections: Record<string, ShopCollection> = {
         title: "One Mission Heavyweight Tee — Black",
         handle: "one-mission-heavyweight-tee",
         description: "Heavyweight 300gsm 100% cotton tee. Unisex, soft and durable.",
-        imageUrl: `${IMG}/e4617dab33ec47bab3387365cfb4e1f3.png?v=1783826613`,
-        imageAlt: "One Mission Tee Black",
+        imageUrl: TEE_BLACK[0], imageAlt: "One Mission Tee Black", images: TEE_BLACK,
         minPrice: "$49.99", currency: "USD", hasOptions: true,
         variants: [
           V("gid://shopify/ProductVariant/53663623708951", "Black / S", "$49.99"),
@@ -74,8 +79,7 @@ export const staticCollections: Record<string, ShopCollection> = {
         title: "One Mission Heavyweight Hoodie — White",
         handle: "one-mission-heavyweight-hoodie-1",
         description: "Heavyweight 460gsm fleece hoodie. Unisex, loose fit, 85% cotton.",
-        imageUrl: `${IMG}/464b039a16944e11b9cc513eb8eb2c03.png?v=1783828355`,
-        imageAlt: "One Mission Hoodie White",
+        imageUrl: HOOD_WHITE[0], imageAlt: "One Mission Hoodie White", images: HOOD_WHITE,
         minPrice: "$100", currency: "USD", hasOptions: true,
         variants: [
           V("gid://shopify/ProductVariant/53663648416023", "White / XS", "$100"),
@@ -93,8 +97,7 @@ export const staticCollections: Record<string, ShopCollection> = {
         title: "One Mission Heavyweight Hoodie — Black",
         handle: "one-mission-heavyweight-hoodie",
         description: "Heavyweight 460gsm fleece hoodie. Unisex, loose fit, 85% cotton.",
-        imageUrl: `${IMG}/e298ea4c3fac42b99a2486b5e28f81e2.png?v=1783828340`,
-        imageAlt: "One Mission Hoodie Black",
+        imageUrl: HOOD_BLACK[0], imageAlt: "One Mission Hoodie Black", images: HOOD_BLACK,
         minPrice: "$100", currency: "USD", hasOptions: true,
         variants: [
           V("gid://shopify/ProductVariant/53663641829655", "Black / XS", "$100"),
@@ -112,8 +115,7 @@ export const staticCollections: Record<string, ShopCollection> = {
         title: "One Mission Heavyweight Hoodie — Charcoal",
         handle: "one-mission-heavyweight-hoodie",
         description: "Heavyweight 460gsm fleece hoodie. Unisex, loose fit, 85% cotton.",
-        imageUrl: `${IMG}/3b425ec1f4d04bfabd52b1eb1b300ace.png?v=1783828340`,
-        imageAlt: "One Mission Hoodie Charcoal",
+        imageUrl: HOOD_CHARCOAL[0], imageAlt: "One Mission Hoodie Charcoal", images: HOOD_CHARCOAL,
         minPrice: "$100", currency: "USD", hasOptions: true,
         variants: [
           V("gid://shopify/ProductVariant/53663642091799", "Charcoal / XS", "$100"),

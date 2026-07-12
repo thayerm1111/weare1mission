@@ -40,6 +40,7 @@ export interface ShopProduct {
   description: string;
   imageUrl: string | null;
   imageAlt: string | null;
+  images?: string[]; // all product photos (front, back, …); first is featured
   minPrice: string;
   currency: string;
   variants: ShopVariant[];
@@ -63,6 +64,7 @@ const QUERY = /* GraphQL */ `
           handle
           description
           featuredImage { url altText }
+          images(first: 6) { nodes { url } }
           options { name }
           priceRange { minVariantPrice { amount currencyCode } }
           variants(first: 50) {
@@ -118,6 +120,7 @@ export async function getShopCollection(handle: string): Promise<ShopCollection 
         description: p.description ?? "",
         imageUrl: p.featuredImage?.url ?? null,
         imageAlt: p.featuredImage?.altText ?? p.title,
+        images: (p.images?.nodes ?? []).map((n: any) => n.url),
         minPrice: fmt(p.priceRange.minVariantPrice.amount, p.priceRange.minVariantPrice.currencyCode),
         currency: p.priceRange.minVariantPrice.currencyCode,
         variants,
