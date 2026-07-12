@@ -16,8 +16,8 @@ export interface NavItem {
 export const mainNav: NavItem[] = [
   { label: "Home", href: "/" },
   { label: "Start Here", href: "/start-here" },
-  { label: "Events", href: "/events" },
-  { label: "Shop", href: "/shop" },
+  { label: "1M Experiences", href: "/experiences" },
+  { label: "The Collection", href: "/collection" },
 ];
 
 // Prominent primary button in the header. Sends new people to sign up (create
@@ -32,8 +32,8 @@ export const footerNav = {
   quickLinks: [
     { label: "Home", href: "/" },
     { label: "Start Here", href: "/start-here" },
-    { label: "Events", href: "/events" },
-    { label: "Shop", href: "/shop" },
+    { label: "1M Experiences", href: "/experiences" },
+    { label: "The Collection", href: "/collection" },
     { label: "Contact", href: "/contact" },
   ] as NavItem[],
   // Member back-office links (require login — they redirect to /login if signed out).
@@ -47,8 +47,8 @@ export const footerNav = {
   communityLinks: [
     { label: "Member Portal", href: "/portal" },
     { label: "Contact / Mentor", href: "/contact" },
-    { label: "Events", href: "/events" },
-    { label: "Shop", href: "/shop" },
+    { label: "1M Experiences", href: "/experiences" },
+    { label: "The Collection", href: "/collection" },
   ] as NavItem[],
   legalLinks: [
     { label: "Privacy Policy", href: "/legal#privacy-policy" },

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, PauseCircle, RotateCcw } from "lucide-react";
+import { Check, PauseCircle, RotateCcw, Star } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { TIERS, TIER_LABELS } from "@/lib/access";
 
@@ -13,6 +13,7 @@ export interface MemberRow {
   role: string;
   tier: string;
   status: string;
+  is_creator: boolean;
   created_at: string;
 }
 
@@ -26,7 +27,7 @@ export function AdminMembers({ members }: { members: MemberRow[] }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
 
-  async function update(id: string, patch: Record<string, string>) {
+  async function update(id: string, patch: Record<string, unknown>) {
     const supabase = createClient();
     if (!supabase) return;
     setBusy(id);
@@ -50,7 +51,7 @@ function Section({
   title, rows, onUpdate, busy, highlight = false,
 }: {
   title: string; rows: MemberRow[]; busy: string | null; highlight?: boolean;
-  onUpdate: (id: string, patch: Record<string, string>) => void;
+  onUpdate: (id: string, patch: Record<string, unknown>) => void;
 }) {
   return (
     <section>
@@ -99,6 +100,20 @@ function Section({
                     <RotateCcw className="h-4 w-4" aria-hidden="true" /> Reactivate
                   </button>
                 )}
+
+                {/* Grant / revoke Inner Circle creator access */}
+                <button
+                  disabled={busy === m.id}
+                  onClick={() => onUpdate(m.id, { is_creator: !m.is_creator })}
+                  title="Inner Circle creator access"
+                  className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60 ${
+                    m.is_creator
+                      ? "bg-gold text-cream"
+                      : "border border-[#E4DCCB] text-charcoal/75 hover:border-gold hover:text-gold"
+                  }`}
+                >
+                  <Star className="h-4 w-4" aria-hidden="true" /> {m.is_creator ? "Creator" : "Make creator"}
+                </button>
               </div>
             </div>
           ))}
