@@ -34,7 +34,7 @@ export const staticCollections: Record<string, ShopCollection> = {
         handle: "one-mission-statement-hoodie",
         description: "Our boldest hoodie yet — a heavyweight statement piece in six colors: Dark Green, Mild Apricot, Lake Blue, Royal Blue, Light Gray, and Black.",
         imageUrl: I("2128897d801b418b955435b13a588528", "1783882713"), imageAlt: "One Mission Statement Hoodie",
-        images: [I("2128897d801b418b955435b13a588528", "1783882713"), I("b33898df1248414cad49616278c14a02", "1783882713"), I("b7d8740a95e6452fa10a926f52aed80f", "1783882713"), I("5a969afbcedc4459a0231a48451b197a", "1783882713"), I("ba844c2c993a4650b666ad4fb5a3496d", "1783882713"), I("366b2fdb17934ba39978734f2acf7dec", "1783882713"), I("a0f354975e8a45f1b5a3a87efbb8016e", "1783882713"), I("d5da18a2481d493fb5edff8bc513db0a", "1783882713"), I("0685e5493af843439950bc8bf0a74fcf", "1783882713"), I("1e41a2814156463c9a10e0b5c088661d", "1783882713")],
+        images: [I("2128897d801b418b955435b13a588528", "1783882713"), I("b33898df1248414cad49616278c14a02", "1783882713"), I("b7d8740a95e6452fa10a926f52aed80f", "1783882713"), I("5a969afbcedc4459a0231a48451b197a", "1783882713"), I("ba844c2c993a4650b666ad4fb5a3496d", "1783882713"), I("366b2fdb17934ba39978734f2acf7dec", "1783882713"), I("a0f354975e8a45f1b5a3a87efbb8016e", "1783882713"), I("d5da18a2481d493fb5edff8bc513db0a", "1783882713"), I("0685e5493af843439950bc8bf0a74fcf", "1783882713"), I("1e41a2814156463c9a10e0b5c088661d", "1783882713"), I("8adde8d2926b49d596b63657527e2f19", "1783882713"), I("be7f8446edde44da91a5139da4ffa175", "1783882713")],
         minPrice: "$125", currency: "USD", hasOptions: true,
         badge: "🔥 Hottest Item",
         colorImages: {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Check, CalendarDays, ChevronLeft } from "lucide-react";
 import type { ShopProduct } from "@/lib/shopify";
@@ -37,38 +37,45 @@ export function ProductDetail({
   const [color, setColor] = useState<string | null>(colors[0] ?? null);
   const [size, setSize] = useState<string | null>(null);
 
-  // When colors have their own photos, the gallery is one image per color and the
-  // main photo swaps as you pick a color.
+  // When colors have their own photos, the gallery pairs each color's front + back and
+  // we track which color each photo belongs to (so clicking a photo also picks the color).
   const colorImgMap = product.colorImages ?? {};
   const hasColorImgs = Object.keys(colorImgMap).length > 0;
-  // Gallery: for each color show its front photo immediately followed by that color's back
-  // (the media image right after the front), so fronts and backs sit next to each other.
-  const galleryImgs = useMemo(() => {
-    if (!hasColorImgs) return imgs;
+  const gallery = useMemo(() => {
+    if (!hasColorImgs) return { list: imgs, colorOf: {} as Record<string, string> };
     const fronts = Object.values(colorImgMap);
-    const out: string[] = [];
+    const list: string[] = [];
+    const colorOf: Record<string, string> = {};
     const used = new Set<string>();
     for (const c of colors) {
       const front = colorImgMap[c];
       if (!front || used.has(front)) continue;
-      out.push(front);
-      used.add(front);
+      list.push(front); used.add(front); colorOf[front] = c;
       const idx = imgs.indexOf(front);
       const back = idx >= 0 ? imgs[idx + 1] : undefined;
       if (back && !fronts.includes(back) && !used.has(back)) {
-        out.push(back);
-        used.add(back);
+        list.push(back); used.add(back); colorOf[back] = c;
       }
     }
-    for (const u of imgs) if (!used.has(u)) { out.push(u); used.add(u); }
-    return out;
+    for (const u of imgs) if (!used.has(u)) { list.push(u); used.add(u); }
+    return { list, colorOf };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product]);
+  const galleryImgs = gallery.list;
+  const colorOf = gallery.colorOf;
   const [img, setImg] = useState<string | null>((color && colorImgMap[color]) || galleryImgs[0] || null);
-  useEffect(() => {
-    if (color && colorImgMap[color]) setImg(colorImgMap[color]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [color]);
+
+  // Picking a color shows that color's front photo.
+  function pickColor(c: string) {
+    setColor(c);
+    if (colorImgMap[c]) setImg(colorImgMap[c]);
+  }
+  // Clicking a photo shows it and selects the matching color on the right.
+  function pickImg(u: string) {
+    setImg(u);
+    const c = colorOf[u];
+    if (c) setColor(c);
+  }
 
   const selected = single
     ? product.variants[0]
@@ -121,7 +128,7 @@ export function ProductDetail({
               {galleryImgs.map((u, i) => (
                 <button
                   key={i}
-                  onClick={() => setImg(u)}
+                  onClick={() => pickImg(u)}
                   aria-label={`Photo ${i + 1}`}
                   className={`h-16 w-16 overflow-hidden rounded-lg border transition-colors ${img === u ? "border-gold ring-1 ring-gold" : "border-[#E4DCCB] hover:border-gold/60"}`}
                 >
@@ -153,7 +160,7 @@ export function ProductDetail({
                 {colors.map((c) => (
                   <button
                     key={c}
-                    onClick={() => setColor(c)}
+                    onClick={() => pickColor(c)}
                     className={`rounded-full border px-3.5 py-1.5 text-sm font-semibold transition-colors ${color === c ? "border-primary bg-primary text-cream" : "border-[#E4DCCB] text-navy hover:border-primary"}`}
                   >
                     {c}
