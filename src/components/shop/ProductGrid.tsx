@@ -147,6 +147,8 @@ function DetailsModal({
     return () => { document.body.style.overflow = prev; };
   }, []);
 
+  const heroImage = product.detailImage ?? image;
+
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-navy/60 p-4 backdrop-blur-sm"
@@ -164,10 +166,10 @@ function DetailsModal({
           <X className="h-5 w-5" />
         </button>
 
-        {image && (
-          <div className="aspect-[16/10] w-full overflow-hidden bg-offwhite/60">
+        {heroImage && (
+          <div className="aspect-video w-full overflow-hidden bg-offwhite/60">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={image} alt={product.imageAlt ?? product.title} className="h-full w-full object-cover" />
+            <img src={heroImage} alt={product.imageAlt ?? product.title} className="h-full w-full object-cover" />
           </div>
         )}
 

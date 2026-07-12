@@ -139,9 +139,11 @@ export const staticCollections: Record<string, ShopCollection> = {
         title: "Miami Retreat — 3 Days / 2 Nights",
         handle: "miami-retreat-3-days-2-nights",
         description: "An exclusive 1M Experience in Miami this September. 3 days, 2 nights.",
-        imageUrl: "/images/miami-retreat.png",
+        imageUrl: "/images/1M%20experience%20miami.png",
         imageAlt: "1M Miami Retreat",
-        images: ["/images/miami-retreat.png"],
+        images: ["/images/1M%20experience%20miami.png"],
+        // Landscape image shown large at the top of the details popup.
+        detailImage: "/images/1m%20experience%20big.png",
         minPrice: "$4,999.99", currency: "USD", hasOptions: false,
         when: "September 2026",
         longDescription:

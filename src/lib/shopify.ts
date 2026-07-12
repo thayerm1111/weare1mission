@@ -49,6 +49,7 @@ export interface ShopProduct {
   details?: string[];       // bullet list of what's included
   when?: string;            // e.g. "September"
   longDescription?: string; // paragraph shown in the details popup
+  detailImage?: string;     // large landscape image shown at the top of the popup
 }
 export interface ShopCollection {
   title: string;
