@@ -31,6 +31,8 @@ function Card({ product, domain }: { product: ShopProduct; domain: string }) {
   const imgs = product.images?.length ? product.images : product.imageUrl ? [product.imageUrl] : [];
   const [img, setImg] = useState<string | null>(imgs[0] ?? null);
   const [open, setOpen] = useState(false);
+  // Hover-to-zoom: track the cursor position over the image (as %) and whether hovering.
+  const [zoom, setZoom] = useState<{ x: number; y: number; on: boolean }>({ x: 50, y: 50, on: false });
 
   const soldOut = Boolean(product.soldOut) || buyable.length === 0;
   const hasDetails = Boolean(product.details?.length || product.longDescription);
@@ -40,11 +42,25 @@ function Card({ product, domain }: { product: ShopProduct; domain: string }) {
       <button
         type="button"
         onClick={() => hasDetails && setOpen(true)}
-        className={`relative flex aspect-square items-center justify-center overflow-hidden bg-offwhite/60 ${hasDetails ? "cursor-pointer" : "cursor-default"}`}
+        onMouseMove={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setZoom({
+            x: ((e.clientX - r.left) / r.width) * 100,
+            y: ((e.clientY - r.top) / r.height) * 100,
+            on: true,
+          });
+        }}
+        onMouseLeave={() => setZoom((z) => ({ ...z, on: false }))}
+        className={`relative flex aspect-square items-center justify-center overflow-hidden bg-offwhite/60 ${hasDetails ? "cursor-pointer" : "cursor-zoom-in"}`}
       >
         {img ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={img} alt={product.imageAlt ?? product.title} className="h-full w-full object-cover" />
+          <img
+            src={img}
+            alt={product.imageAlt ?? product.title}
+            className="h-full w-full object-cover transition-transform duration-200 ease-out will-change-transform"
+            style={{ transform: zoom.on ? "scale(2)" : "scale(1)", transformOrigin: `${zoom.x}% ${zoom.y}%` }}
+          />
         ) : (
           <div className="flex flex-col items-center gap-2 text-medium">
             <ImageOff className="h-8 w-8" aria-hidden="true" />
