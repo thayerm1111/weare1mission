@@ -5,6 +5,7 @@ export const metadata = buildMetadata({
   title: "1M Experiences",
   description: "Live events, retreats, and gatherings for the 1 Mission community. Reserve your spot and pay securely.",
   path: "/experiences",
+  image: "/images/1m%20experience%20big.png",
 });
 
 export const revalidate = 300;
