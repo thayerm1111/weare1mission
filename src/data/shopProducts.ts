@@ -454,6 +454,21 @@ export const staticCollections: Record<string, ShopCollection> = {
         ],
       },
       {
+        id: "gid://shopify/Product/10410191880471",
+        title: "One Mission Athletic Shorts",
+        handle: "one-mission-athletic-short",
+        description: "Lightweight athletic shorts in Black.",
+        imageUrl: I("8742d8b4e59a47a1977871bcd248ad51", "1783890265"), imageAlt: "One Mission Athletic Shorts",
+        images: [I("8742d8b4e59a47a1977871bcd248ad51", "1783890265"), I("9d164bc57162486db8170c554c346468", "1783890265")],
+        minPrice: "$59.99", currency: "USD", hasOptions: true,
+        variants: [
+          V("gid://shopify/ProductVariant/53664953958679", "Black / M", "$59.99"),
+          V("gid://shopify/ProductVariant/53664953991447", "Black / L", "$59.99"),
+          V("gid://shopify/ProductVariant/53664954024215", "Black / XL", "$59.99"),
+          V("gid://shopify/ProductVariant/53664954056983", "Black / 2XL", "$59.99"),
+        ],
+      },
+      {
         id: "gid://shopify/Product/10410184114455",
         title: "Women's High-Waisted Biker Shorts",
         handle: "one-mission-women-s-high-waisted-biker-shorts",
