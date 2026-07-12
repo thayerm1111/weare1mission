@@ -133,6 +133,32 @@ export const staticCollections: Record<string, ShopCollection> = {
   "1m-experiences": {
     title: "1M Experiences",
     description: "Live events, retreats, and gatherings.",
-    products: [],
+    products: [
+      {
+        id: "gid://shopify/Product/10409806725399",
+        title: "Miami Retreat — 3 Days / 2 Nights",
+        handle: "miami-retreat-3-days-2-nights",
+        description: "An exclusive 1M Experience in Miami this September. 3 days, 2 nights.",
+        imageUrl: "/images/miami-retreat.png",
+        imageAlt: "1M Miami Retreat",
+        images: ["/images/miami-retreat.png"],
+        minPrice: "$4,999.99", currency: "USD", hasOptions: false,
+        when: "September 2026",
+        longDescription:
+          "Three days and two nights in Miami — luxury, connection, and growth with the 1M community. Spots are limited and reserved on a first-come basis.",
+        details: [
+          "Luxury stay (2 nights)",
+          "Private chef for 2 days",
+          "A full day on a yacht",
+          "A full day of personal development",
+          "DJ party",
+          "Gift bag",
+          "Airport transfers",
+        ],
+        variants: [
+          V("gid://shopify/ProductVariant/53663820480791", "Reserve your spot", "$4,999.99"),
+        ],
+      },
+    ],
   },
 };

@@ -45,6 +45,10 @@ export interface ShopProduct {
   currency: string;
   variants: ShopVariant[];
   hasOptions: boolean;
+  // Optional rich detail for experiences (opens in a details popup on click).
+  details?: string[];       // bullet list of what's included
+  when?: string;            // e.g. "September"
+  longDescription?: string; // paragraph shown in the details popup
 }
 export interface ShopCollection {
   title: string;

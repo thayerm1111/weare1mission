@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { ImageOff, ArrowRight } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ImageOff, ArrowRight, Check, X, CalendarDays } from "lucide-react";
 import type { ShopProduct } from "@/lib/shopify";
 
 export function ProductGrid({ products, domain }: { products: ShopProduct[]; domain: string }) {
@@ -19,23 +19,29 @@ export function ProductGrid({ products, domain }: { products: ShopProduct[]; dom
   );
 }
 
+function checkout(domain: string, variantId: string) {
+  if (!variantId) return;
+  const numeric = variantId.split("/").pop();
+  window.location.href = `https://${domain}/cart/${numeric}:1`;
+}
+
 function Card({ product, domain }: { product: ShopProduct; domain: string }) {
   const buyable = product.variants.filter((v) => v.availableForSale);
   const [variantId, setVariantId] = useState(buyable[0]?.id ?? product.variants[0]?.id ?? "");
   const imgs = product.images?.length ? product.images : product.imageUrl ? [product.imageUrl] : [];
   const [img, setImg] = useState<string | null>(imgs[0] ?? null);
-
-  function buy() {
-    if (!variantId) return;
-    const numeric = variantId.split("/").pop();
-    window.location.href = `https://${domain}/cart/${numeric}:1`;
-  }
+  const [open, setOpen] = useState(false);
 
   const soldOut = buyable.length === 0;
+  const hasDetails = Boolean(product.details?.length || product.longDescription);
 
   return (
     <div className="flex flex-col overflow-hidden rounded-2xl border border-[#E4DCCB] bg-cream shadow-card">
-      <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-offwhite/60">
+      <button
+        type="button"
+        onClick={() => hasDetails && setOpen(true)}
+        className={`relative flex aspect-square items-center justify-center overflow-hidden bg-offwhite/60 ${hasDetails ? "cursor-pointer" : "cursor-default"}`}
+      >
         {img ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={img} alt={product.imageAlt ?? product.title} className="h-full w-full object-cover" />
@@ -45,7 +51,12 @@ function Card({ product, domain }: { product: ShopProduct; domain: string }) {
             <span className="text-xs">Add a product image in Shopify</span>
           </div>
         )}
-      </div>
+        {product.when && (
+          <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-navy/85 px-2.5 py-1 text-xs font-semibold text-cream backdrop-blur">
+            <CalendarDays className="h-3 w-3" /> {product.when}
+          </span>
+        )}
+      </button>
       {imgs.length > 1 && (
         <div className="flex gap-2 px-5 pt-4">
           {imgs.map((u, i) => (
@@ -85,13 +96,118 @@ function Card({ product, domain }: { product: ShopProduct; domain: string }) {
               ))}
             </select>
           )}
+          {hasDetails && (
+            <button
+              onClick={() => setOpen(true)}
+              className="mb-2 inline-flex w-full items-center justify-center gap-2 rounded-full border border-navy/25 px-6 py-3 text-sm font-bold uppercase tracking-wider text-navy transition-colors hover:bg-navy/5"
+            >
+              View details
+            </button>
+          )}
           <button
-            onClick={buy}
+            onClick={() => checkout(domain, variantId)}
             disabled={soldOut}
             className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-primary px-6 py-3 text-sm font-bold uppercase tracking-wider text-cream transition-transform hover:-translate-y-0.5 disabled:opacity-50"
           >
-            {soldOut ? "Sold out" : <>Checkout <ArrowRight className="h-4 w-4" /></>}
+            {soldOut ? "Sold out" : <>{product.details?.length ? "Reserve" : "Checkout"} <ArrowRight className="h-4 w-4" /></>}
           </button>
+        </div>
+      </div>
+
+      {open && (
+        <DetailsModal
+          product={product}
+          image={img}
+          onClose={() => setOpen(false)}
+          onReserve={() => checkout(domain, variantId)}
+          soldOut={soldOut}
+        />
+      )}
+    </div>
+  );
+}
+
+function DetailsModal({
+  product,
+  image,
+  onClose,
+  onReserve,
+  soldOut,
+}: {
+  product: ShopProduct;
+  image: string | null;
+  onClose: () => void;
+  onReserve: () => void;
+  soldOut: boolean;
+}) {
+  // lock body scroll while open
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-navy/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-[#E4DCCB] bg-cream shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute right-4 top-4 z-10 rounded-full bg-cream/90 p-2 text-navy shadow-card transition-colors hover:bg-white"
+        >
+          <X className="h-5 w-5" />
+        </button>
+
+        {image && (
+          <div className="aspect-[16/10] w-full overflow-hidden bg-offwhite/60">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={image} alt={product.imageAlt ?? product.title} className="h-full w-full object-cover" />
+          </div>
+        )}
+
+        <div className="p-6 sm:p-8">
+          {product.when && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-navy/10 px-3 py-1 text-xs font-bold uppercase tracking-label text-navy">
+              <CalendarDays className="h-3.5 w-3.5" /> {product.when}
+            </span>
+          )}
+          <h2 className="mt-3 font-serif text-3xl font-black tracking-tight text-navy">{product.title}</h2>
+          <p className="mt-1 text-lg font-bold text-gold">{product.minPrice}</p>
+
+          {product.longDescription && (
+            <p className="mt-4 leading-relaxed text-charcoal/75">{product.longDescription}</p>
+          )}
+
+          {product.details?.length ? (
+            <>
+              <p className="mt-6 text-xs font-bold uppercase tracking-label text-navy/60">What&apos;s included</p>
+              <ul className="mt-3 grid gap-2.5 sm:grid-cols-2">
+                {product.details.map((d) => (
+                  <li key={d} className="flex items-start gap-2.5 text-sm text-charcoal/80">
+                    <span className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-gold/15 text-gold-deep">
+                      <Check className="h-3.5 w-3.5" />
+                    </span>
+                    {d}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+
+          <button
+            onClick={onReserve}
+            disabled={soldOut}
+            className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-primary px-6 py-3.5 text-sm font-bold uppercase tracking-wider text-cream transition-transform hover:-translate-y-0.5 disabled:opacity-50"
+          >
+            {soldOut ? "Sold out" : <>Reserve your spot — {product.minPrice} <ArrowRight className="h-4 w-4" /></>}
+          </button>
+          <p className="mt-3 text-center text-xs text-charcoal/50">Secure checkout via Shopify.</p>
         </div>
       </div>
     </div>
