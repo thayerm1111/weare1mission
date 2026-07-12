@@ -41,7 +41,11 @@ export function ProductDetail({
   // main photo swaps as you pick a color.
   const colorImgMap = product.colorImages ?? {};
   const hasColorImgs = Object.keys(colorImgMap).length > 0;
-  const galleryImgs = hasColorImgs ? Array.from(new Set(Object.values(colorImgMap))) : imgs;
+  // Gallery = one photo per color (fronts) PLUS the product's other media (backs/extra),
+  // so people can still click through to see the back.
+  const galleryImgs = hasColorImgs
+    ? Array.from(new Set([...Object.values(colorImgMap), ...imgs]))
+    : imgs;
   const [img, setImg] = useState<string | null>((color && colorImgMap[color]) || galleryImgs[0] || null);
   useEffect(() => {
     if (color && colorImgMap[color]) setImg(colorImgMap[color]);
