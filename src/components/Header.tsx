@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Menu } from "lucide-react";
+import { Menu, LayoutDashboard } from "lucide-react";
 import { mainNav, primaryCta } from "@/data/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { Logo } from "./Logo";
 import { Button } from "./Button";
 import { MobileNavigation } from "./MobileNavigation";
@@ -12,7 +13,9 @@ import { MobileNavigation } from "./MobileNavigation";
 export function Header() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -20,6 +23,31 @@ export function Header() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  // Reflect the signed-in state so members don't see "Log In" everywhere.
+  useEffect(() => {
+    const supabase = createClient();
+    if (!supabase) return;
+    let active = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (active) setSignedIn(Boolean(data.session));
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSignedIn(Boolean(session));
+    });
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  async function handleLogout() {
+    const supabase = createClient();
+    if (supabase) await supabase.auth.signOut();
+    setSignedIn(false);
+    router.push("/");
+    router.refresh();
+  }
 
   return (
     <>
@@ -63,17 +91,37 @@ export function Header() {
           </nav>
 
           <div className="flex items-center gap-3">
-            <Link
-              href="/login"
-              className="hidden text-sm font-semibold text-primary hover:text-medium sm:inline-block"
-            >
-              Log In
-            </Link>
-            <div className="hidden sm:block">
-              <Button href={primaryCta.href} size="sm">
-                {primaryCta.label}
-              </Button>
-            </div>
+            {signedIn ? (
+              <>
+                <button
+                  onClick={handleLogout}
+                  className="hidden text-sm font-semibold text-primary hover:text-medium sm:inline-block"
+                >
+                  Log Out
+                </button>
+                <div className="hidden sm:block">
+                  <Button href="/portal" size="sm">
+                    <span className="inline-flex items-center gap-1.5">
+                      <LayoutDashboard className="h-4 w-4" aria-hidden="true" /> My Portal
+                    </span>
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="hidden text-sm font-semibold text-primary hover:text-medium sm:inline-block"
+                >
+                  Log In
+                </Link>
+                <div className="hidden sm:block">
+                  <Button href={primaryCta.href} size="sm">
+                    {primaryCta.label}
+                  </Button>
+                </div>
+              </>
+            )}
             <button
               onClick={() => setMenuOpen(true)}
               aria-label="Open menu"
@@ -87,7 +135,12 @@ export function Header() {
         </div>
       </header>
 
-      <MobileNavigation open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <MobileNavigation
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        signedIn={signedIn}
+        onLogout={handleLogout}
+      />
     </>
   );
 }

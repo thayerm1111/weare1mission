@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
+  ShoppingBag, Palmtree,
 } from "lucide-react";
 
 /**
@@ -22,6 +23,8 @@ const items = [
   { href: "/portal/resources", label: "Resources", icon: FolderOpen },
   { href: "/portal/leadership", label: "The Inner Circle", icon: Users2 },
   { href: "/portal/updates", label: "Mission Update", icon: Megaphone },
+  { href: "/collection", label: "The Collection", icon: ShoppingBag },
+  { href: "/experiences", label: "1M Experiences", icon: Palmtree },
   { href: "/portal/account", label: "Account", icon: UserCircle },
 ];
 

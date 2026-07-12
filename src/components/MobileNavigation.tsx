@@ -11,9 +11,11 @@ import { Button } from "./Button";
 interface Props {
   open: boolean;
   onClose: () => void;
+  signedIn?: boolean;
+  onLogout?: () => void;
 }
 
-export function MobileNavigation({ open, onClose }: Props) {
+export function MobileNavigation({ open, onClose, signedIn = false, onLogout }: Props) {
   const pathname = usePathname();
 
   // Lock scroll + close on Escape while the menu is open.
@@ -82,16 +84,32 @@ export function MobileNavigation({ open, onClose }: Props) {
           </ul>
         </nav>
         <div className="space-y-2 border-t border-[#E4DCCB] p-4">
-          <Button href={primaryCta.href} size="lg" className="w-full">
-            {primaryCta.label}
-          </Button>
-          <Link
-            href="/login"
-            onClick={onClose}
-            className="block rounded-full border border-[#E4DCCB] px-4 py-3 text-center text-sm font-semibold text-primary hover:bg-offwhite"
-          >
-            Member Log In
-          </Link>
+          {signedIn ? (
+            <>
+              <Button href="/portal" size="lg" className="w-full">
+                My Portal
+              </Button>
+              <button
+                onClick={() => { onClose(); onLogout?.(); }}
+                className="block w-full rounded-full border border-[#E4DCCB] px-4 py-3 text-center text-sm font-semibold text-primary hover:bg-offwhite"
+              >
+                Log Out
+              </button>
+            </>
+          ) : (
+            <>
+              <Button href={primaryCta.href} size="lg" className="w-full">
+                {primaryCta.label}
+              </Button>
+              <Link
+                href="/login"
+                onClick={onClose}
+                className="block rounded-full border border-[#E4DCCB] px-4 py-3 text-center text-sm font-semibold text-primary hover:bg-offwhite"
+              >
+                Member Log In
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </div>
