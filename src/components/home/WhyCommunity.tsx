@@ -19,9 +19,9 @@ export function WhyCommunity() {
           <div className="overflow-hidden rounded-xl shadow-card">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/images/IMG_3047.JPG"
+              src="/images/IMG_3154.JPG"
               alt="The 1 Mission community celebrating together"
-              className="aspect-[3/4] w-full object-cover"
+              className="aspect-[4/3] w-full object-cover"
             />
           </div>
         </div>
