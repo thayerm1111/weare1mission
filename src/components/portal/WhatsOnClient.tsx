@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { CalendarClock, Radio, Video, CalendarPlus, Star, Globe } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { CalendarClock, Radio, Video, CalendarPlus, Star, Globe, Plus, Pencil, Trash2, Settings2, X } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 import {
-  scheduleEvents, sourceTimeZone, whatsOnFilters, scheduleNotice,
-  type ScheduleEvent, type ScheduleCategory,
+  scheduleEvents as staticEvents, sourceTimeZone, whatsOnFilters, scheduleNotice,
+  type ScheduleEvent, type ScheduleCategory, type ScheduleDay,
 } from "@/data/schedule";
 
-const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAY_NAMES: ScheduleDay[] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const CATEGORIES: ScheduleCategory[] = ["Business", "Leadership", "Overview", "Comp Plan", "Trading", "Community"];
 
-const CAT_STYLE: Record<ScheduleCategory, string> = {
+const CAT_STYLE: Record<string, string> = {
   Business: "bg-emerald-100 text-emerald-800",
   Leadership: "bg-gold/20 text-gold-deep",
   Overview: "bg-sky-100 text-sky-800",
@@ -30,7 +32,6 @@ function partsInTz(date: Date, tz: string) {
   const wdMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   return { y: +m.year, mo: +m.month, d: +m.day, wd: wdMap[m.weekday] ?? 0 };
 }
-// Absolute Date for a wall-clock time in a given tz (handles DST via offset).
 function zonedToDate(y: number, mo: number, d: number, hh: number, mm: number, tz: string) {
   const utc = Date.UTC(y, mo - 1, d, hh, mm, 0);
   const p = new Intl.DateTimeFormat("en-US", {
@@ -40,14 +41,12 @@ function zonedToDate(y: number, mo: number, d: number, hh: number, mm: number, t
   const m: Record<string, string> = {};
   p.forEach((x) => (m[x.type] = x.value));
   const asTzUtc = Date.UTC(+m.year, +m.month - 1, +m.day, +m.hour, +m.minute, +m.second);
-  const offset = asTzUtc - utc;
-  return new Date(utc - offset);
+  return new Date(utc - (asTzUtc - utc));
 }
-
 function gcalUrl(ev: ScheduleEvent, start: Date) {
   const end = new Date(start.getTime() + (ev.durationMin ?? 60) * 60000);
   const f = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-  const details = `${ev.description}${ev.zoomLink && ev.zoomLink !== "#" ? `\n\nJoin: ${ev.zoomLink}` : ""}`;
+  const details = `${ev.description ?? ""}${ev.zoomLink && ev.zoomLink !== "#" ? `\n\nJoin: ${ev.zoomLink}` : ""}`;
   const params = new URLSearchParams({
     action: "TEMPLATE", text: `1 Mission · ${ev.title}`,
     dates: `${f(start)}/${f(end)}`, details,
@@ -57,19 +56,40 @@ function gcalUrl(ev: ScheduleEvent, start: Date) {
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
+function rowToEvent(r: any): ScheduleEvent {
+  return {
+    id: r.id, title: r.title, day: r.day, time: r.time, durationMin: r.duration_min,
+    speaker: r.speaker ?? "", description: r.description ?? "",
+    accessLevel: r.access_level, category: r.category, zoomLink: r.zoom_link ?? "#",
+  };
+}
+
 interface Occ { ev: ScheduleEvent; start: Date; end: Date; live: boolean; }
 
-export function WhatsOnClient() {
+export function WhatsOnClient({ isAdmin = false }: { isAdmin?: boolean }) {
   const [now, setNow] = useState(() => new Date());
   const [filter, setFilter] = useState<string>("All");
   const [savedOnly, setSavedOnly] = useState(false);
   const [saved, setSaved] = useState<Set<string>>(new Set());
+  const [dbEvents, setDbEvents] = useState<ScheduleEvent[] | null>(null);
+  const [showAdmin, setShowAdmin] = useState(false);
+
+  const load = useCallback(async () => {
+    const supabase = createClient();
+    if (!supabase) { setDbEvents([]); return; }
+    const { data } = await supabase.from("schedule_events").select("*");
+    setDbEvents((data ?? []).map(rowToEvent));
+  }, []);
 
   useEffect(() => {
     try { setSaved(new Set(JSON.parse(localStorage.getItem("1m_saved_calls") || "[]"))); } catch {}
+    load();
     const t = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(t);
-  }, []);
+  }, [load]);
+
+  // Live events = DB events if any exist, otherwise the editable starter set.
+  const events = dbEvents && dbEvents.length ? dbEvents : staticEvents;
 
   function toggleSave(id: string) {
     setSaved((prev) => {
@@ -80,7 +100,6 @@ export function WhatsOnClient() {
     });
   }
 
-  // Build the current week's 7 columns (based on the source timezone).
   const week = useMemo(() => {
     const t = partsInTz(now, sourceTimeZone);
     const todayMid = zonedToDate(t.y, t.mo, t.d, 0, 0, sourceTimeZone);
@@ -95,45 +114,47 @@ export function WhatsOnClient() {
   const matchesFilter = (ev: ScheduleEvent) =>
     (filter === "All" || ev.category === filter) && (!savedOnly || saved.has(ev.id));
 
-  // Occurrences per column.
   const byDay: Occ[][] = useMemo(() => {
-    return week.map((col) => {
-      const list: Occ[] = scheduleEvents
-        .filter((ev) => ev.day === col.name)
-        .map((ev) => {
-          const [hh, mm] = ev.time.split(":").map(Number);
-          const start = zonedToDate(col.y, col.mo, col.d, hh, mm, sourceTimeZone);
-          const end = new Date(start.getTime() + (ev.durationMin ?? 60) * 60000);
-          return { ev, start, end, live: now >= start && now < end };
-        })
-        .sort((a, b) => a.start.getTime() - b.start.getTime());
-      return list;
-    });
-  }, [week, now]);
+    return week.map((col) =>
+      events.filter((ev) => ev.day === col.name).map((ev) => {
+        const [hh, mm] = ev.time.split(":").map(Number);
+        const start = zonedToDate(col.y, col.mo, col.d, hh, mm, sourceTimeZone);
+        const end = new Date(start.getTime() + (ev.durationMin ?? 60) * 60000);
+        return { ev, start, end, live: now >= start && now < end };
+      }).sort((a, b) => a.start.getTime() - b.start.getTime())
+    );
+  }, [week, now, events]);
 
-  // Today's upcoming / live strip.
   const todayIdx = partsInTz(now, sourceTimeZone).wd;
   const todayStrip = (byDay[todayIdx] ?? []).filter((o) => matchesFilter(o.ev) && (o.live || o.end >= now));
   const liveCount = byDay.flat().filter((o) => o.live).length;
-
   const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const tLabel = (d: Date) => d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
   return (
     <div className="space-y-8">
-      <header>
-        <p className="eyebrow text-gold">Members Only</p>
-        <h1 className="mt-2 flex items-center gap-2 font-serif text-4xl font-black tracking-tight text-navy">
-          <CalendarClock className="h-8 w-8 text-gold" aria-hidden="true" /> What&apos;s On
-        </h1>
-        <p className="mt-2 text-charcoal/70">Every weekly call — save the ones you want, add them to Google Calendar, and jump into whatever&apos;s live.</p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="eyebrow text-gold">Members Only</p>
+          <h1 className="mt-2 flex items-center gap-2 font-serif text-4xl font-black tracking-tight text-navy">
+            <CalendarClock className="h-8 w-8 text-gold" aria-hidden="true" /> What&apos;s On
+          </h1>
+          <p className="mt-2 text-charcoal/70">Every weekly call — save the ones you want, add them to Google Calendar, and jump into whatever&apos;s live.</p>
+        </div>
+        {isAdmin && (
+          <button onClick={() => setShowAdmin((s) => !s)}
+            className="inline-flex items-center gap-2 rounded-full bg-gradient-primary px-5 py-2.5 text-sm font-semibold text-cream">
+            <Settings2 className="h-4 w-4" /> Manage calls
+          </button>
+        )}
       </header>
 
-      {/* Live / upcoming today strip */}
+      {isAdmin && showAdmin && <AdminSchedule dbEvents={dbEvents ?? []} onChange={load} onClose={() => setShowAdmin(false)} />}
+
+      {/* Live / upcoming today */}
       <section>
         <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-label text-medium">
-          <Radio className="h-4 w-4 text-gold" aria-hidden="true" />
-          {liveCount > 0 ? "Live & up next today" : "Up next today"}
+          <Radio className="h-4 w-4 text-gold" aria-hidden="true" /> {liveCount > 0 ? "Live & up next today" : "Up next today"}
         </h2>
         <div className="mt-3 flex gap-3 overflow-x-auto pb-2">
           {todayStrip.length === 0 ? (
@@ -161,9 +182,7 @@ export function WhatsOnClient() {
       <div className="flex flex-wrap items-center gap-2">
         {whatsOnFilters.map((f) => (
           <button key={f} onClick={() => setFilter(f)}
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${filter === f ? "bg-primary text-cream" : "border border-[#E4DCCB] text-charcoal/70 hover:bg-ice"}`}>
-            {f}
-          </button>
+            className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${filter === f ? "bg-primary text-cream" : "border border-[#E4DCCB] text-charcoal/70 hover:bg-ice"}`}>{f}</button>
         ))}
         <button onClick={() => setSavedOnly((s) => !s)}
           className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${savedOnly ? "bg-gold text-cream" : "border border-[#E4DCCB] text-charcoal/70 hover:bg-ice"}`}>
@@ -195,11 +214,7 @@ export function WhatsOnClient() {
                           <Star className={`h-4 w-4 ${saved.has(o.ev.id) ? "fill-current" : ""}`} />
                         </button>
                       </div>
-                      {o.live && (
-                        <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-red-600">
-                          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-600" /> Live
-                        </span>
-                      )}
+                      {o.live && <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-red-600"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-600" /> Live</span>}
                       <p className="mt-1 text-sm font-semibold leading-snug text-navy">{o.ev.title}</p>
                       <span className={`mt-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${CAT_STYLE[o.ev.category]}`}>{o.ev.category}</span>
                       <div className="mt-2.5 flex items-center gap-2">
@@ -226,10 +241,99 @@ export function WhatsOnClient() {
         <span className="inline-flex items-center gap-1.5"><CalendarPlus className="h-3.5 w-3.5 text-gold" /> The calendar icon saves a recurring event to Google Calendar</span>
       </div>
 
-      <div className="flex gap-3 rounded-2xl border border-[#E4DCCB] bg-offwhite/50 p-4">
-        <Radio className="h-5 w-5 flex-shrink-0 text-medium" aria-hidden="true" />
-        <p className="text-sm text-charcoal/65">{scheduleNotice}</p>
-      </div>
+      {!dbEvents?.length && (
+        <div className="flex gap-3 rounded-2xl border border-[#E4DCCB] bg-offwhite/50 p-4">
+          <Radio className="h-5 w-5 flex-shrink-0 text-medium" aria-hidden="true" />
+          <p className="text-sm text-charcoal/65">{scheduleNotice}</p>
+        </div>
+      )}
     </div>
+  );
+}
+
+/* ───────── Admin: manage the schedule ───────── */
+type Form = { id?: string; title: string; day: ScheduleDay; time: string; duration_min: number; category: ScheduleCategory; access_level: string; speaker: string; description: string; zoom_link: string; };
+const EMPTY: Form = { title: "", day: "Monday", time: "20:00", duration_min: 60, category: "Business", access_level: "Members Only", speaker: "", description: "", zoom_link: "" };
+
+function AdminSchedule({ dbEvents, onChange, onClose }: { dbEvents: ScheduleEvent[]; onChange: () => void; onClose: () => void }) {
+  const [form, setForm] = useState<Form>(EMPTY);
+  const [busy, setBusy] = useState(false);
+  const editing = !!form.id;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    const supabase = createClient();
+    if (!supabase || !form.title.trim()) return;
+    setBusy(true);
+    const payload = {
+      title: form.title.trim(), day: form.day, time: form.time, duration_min: form.duration_min,
+      category: form.category, access_level: form.access_level,
+      speaker: form.speaker || null, description: form.description || null, zoom_link: form.zoom_link || null,
+    };
+    if (form.id) await supabase.from("schedule_events").update(payload).eq("id", form.id);
+    else await supabase.from("schedule_events").insert(payload);
+    setBusy(false); setForm(EMPTY); onChange();
+  }
+  async function del(id: string) {
+    const supabase = createClient();
+    if (!supabase) return;
+    await supabase.from("schedule_events").delete().eq("id", id);
+    if (form.id === id) setForm(EMPTY);
+    onChange();
+  }
+  function edit(ev: ScheduleEvent) {
+    setForm({ id: ev.id, title: ev.title, day: ev.day, time: ev.time, duration_min: ev.durationMin ?? 60, category: ev.category, access_level: ev.accessLevel, speaker: ev.speaker ?? "", description: ev.description ?? "", zoom_link: ev.zoomLink === "#" ? "" : (ev.zoomLink ?? "") });
+  }
+
+  const field = "w-full rounded-xl border border-[#E4DCCB] bg-cream px-3 py-2.5 text-sm outline-none focus:border-gold";
+  return (
+    <section className="rounded-2xl border border-gold/40 bg-offwhite/40 p-5">
+      <div className="flex items-center justify-between">
+        <h2 className="flex items-center gap-2 text-base font-bold text-navy"><Settings2 className="h-5 w-5 text-gold" /> Manage calls (admin)</h2>
+        <button onClick={onClose} className="rounded-full p-1 text-medium hover:text-navy"><X className="h-5 w-5" /></button>
+      </div>
+
+      <form onSubmit={submit} className="mt-4 grid gap-3 sm:grid-cols-2">
+        <input className={field + " sm:col-span-2"} placeholder="Call title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+        <select className={field} value={form.day} onChange={(e) => setForm({ ...form, day: e.target.value as ScheduleDay })}>
+          {DAY_NAMES.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select className={field} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as ScheduleCategory })}>
+          {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <div className="flex gap-2">
+          <input className={field} type="time" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} />
+          <input className={field} type="number" min={15} step={15} value={form.duration_min} onChange={(e) => setForm({ ...form, duration_min: +e.target.value })} title="Minutes" />
+        </div>
+        <select className={field} value={form.access_level} onChange={(e) => setForm({ ...form, access_level: e.target.value })}>
+          <option>Members Only</option><option>Public</option>
+        </select>
+        <input className={field + " sm:col-span-2"} placeholder="Host / speaker" value={form.speaker} onChange={(e) => setForm({ ...form, speaker: e.target.value })} />
+        <input className={field + " sm:col-span-2"} placeholder="Zoom / join link" value={form.zoom_link} onChange={(e) => setForm({ ...form, zoom_link: e.target.value })} />
+        <textarea className={field + " sm:col-span-2"} rows={2} placeholder="Short description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+        <div className="flex gap-2 sm:col-span-2">
+          <button type="submit" disabled={busy} className="inline-flex items-center gap-2 rounded-full bg-gradient-primary px-6 py-2.5 text-sm font-bold uppercase tracking-wider text-cream disabled:opacity-60">
+            <Plus className="h-4 w-4" /> {editing ? "Save changes" : "Add call"}
+          </button>
+          {editing && <button type="button" onClick={() => setForm(EMPTY)} className="rounded-full border border-[#E4DCCB] px-5 py-2.5 text-sm font-semibold text-charcoal/70">Cancel</button>}
+        </div>
+      </form>
+
+      {dbEvents.length > 0 && (
+        <div className="mt-5 space-y-2">
+          <p className="text-xs font-bold uppercase tracking-label text-medium">Your calls</p>
+          {dbEvents.map((ev) => (
+            <div key={ev.id} className="flex items-center justify-between gap-3 rounded-xl border border-[#E4DCCB] bg-cream px-4 py-2.5">
+              <span className="min-w-0 truncate text-sm text-navy"><b>{ev.day}</b> {ev.time} · {ev.title} <span className="text-medium">({ev.category})</span></span>
+              <span className="flex flex-shrink-0 gap-1">
+                <button onClick={() => edit(ev)} className="rounded-lg p-1.5 text-medium hover:text-navy" aria-label="Edit"><Pencil className="h-4 w-4" /></button>
+                <button onClick={() => del(ev.id)} className="rounded-lg p-1.5 text-medium hover:text-red-600" aria-label="Delete"><Trash2 className="h-4 w-4" /></button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {dbEvents.length === 0 && <p className="mt-4 text-sm text-charcoal/60">No calls added yet — the board is showing starter placeholders. Add your first call above and it takes over.</p>}
+    </section>
   );
 }
