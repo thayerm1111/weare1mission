@@ -284,6 +284,19 @@ function AdminSchedule({ dbEvents, onChange, onClose }: { dbEvents: ScheduleEven
   function edit(ev: ScheduleEvent) {
     setForm({ id: ev.id, title: ev.title, day: ev.day, time: ev.time, duration_min: ev.durationMin ?? 60, category: ev.category, access_level: ev.accessLevel, speaker: ev.speaker ?? "", description: ev.description ?? "", zoom_link: ev.zoomLink === "#" ? "" : (ev.zoomLink ?? "") });
   }
+  async function importStarters() {
+    const supabase = createClient();
+    if (!supabase) return;
+    setBusy(true);
+    const rows = staticEvents.map((ev) => ({
+      title: ev.title, day: ev.day, time: ev.time, duration_min: ev.durationMin ?? 60,
+      category: ev.category, access_level: ev.accessLevel,
+      speaker: ev.speaker || null, description: ev.description || null,
+      zoom_link: ev.zoomLink && ev.zoomLink !== "#" ? ev.zoomLink : null,
+    }));
+    await supabase.from("schedule_events").insert(rows);
+    setBusy(false); onChange();
+  }
 
   const field = "w-full rounded-xl border border-[#E4DCCB] bg-cream px-3 py-2.5 text-sm outline-none focus:border-gold";
   return (
@@ -333,7 +346,17 @@ function AdminSchedule({ dbEvents, onChange, onClose }: { dbEvents: ScheduleEven
           ))}
         </div>
       )}
-      {dbEvents.length === 0 && <p className="mt-4 text-sm text-charcoal/60">No calls added yet — the board is showing starter placeholders. Add your first call above and it takes over.</p>}
+      {dbEvents.length === 0 && (
+        <div className="mt-4 flex flex-col items-start gap-3 rounded-xl border border-[#E4DCCB] bg-cream p-4">
+          <p className="text-sm text-charcoal/70">
+            The board is showing starter placeholder calls. Import them here to make each one editable — then add your Zoom links, hosts, and details, or delete the ones you don&apos;t use.
+          </p>
+          <button type="button" onClick={importStarters} disabled={busy}
+            className="inline-flex items-center gap-2 rounded-full border border-gold px-5 py-2.5 text-sm font-semibold text-gold-deep hover:bg-gold/10 disabled:opacity-60">
+            <Plus className="h-4 w-4" /> Import starter calls
+          </button>
+        </div>
+      )}
     </section>
   );
 }
