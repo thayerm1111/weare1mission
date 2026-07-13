@@ -3,8 +3,17 @@
 import { useEffect, useState } from "react";
 import {
   Sparkles, Zap, Share2, Hammer, Briefcase, Compass, Gem, Star, Crown, Rocket,
-  BarChart3, Activity, ArrowLeft, ArrowRight, Users, TrendingUp, ChevronRight,
+  BarChart3, Activity, ArrowLeft, ArrowRight, Users, TrendingUp, ChevronDown,
 } from "lucide-react";
+
+// Top enrollment lines — sums to EQV (1,350,700).
+const ENROLLMENTS = [
+  { name: "Wifi Money", volume: 520_000 },
+  { name: "Garret Roberts", volume: 340_000 },
+  { name: "Korab Kozgori", volume: 210_700 },
+  { name: "Ali Saleh", volume: 160_000 },
+  { name: "Anthony Waukuski", volume: 120_000 },
+];
 
 /* -------- rank ladder (lowest → highest) -------- */
 const RANKS = [
@@ -51,6 +60,7 @@ export function BuildersDashboard({ name }: { name?: string | null }) {
   const rankIdx = RANKS.findIndex((r) => r.name === DATA.currentRank);
   const RankIcon = RANKS[rankIdx]?.icon ?? Rocket;
   const first = (name ?? "Builder").split(" ")[0];
+  const [showEqv, setShowEqv] = useState(false);
 
   return (
     <div className="space-y-5">
@@ -117,10 +127,35 @@ export function BuildersDashboard({ name }: { name?: string | null }) {
       {/* ---------- Metrics ---------- */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Metric label="Total Volume" value={DATA.volume} icon={BarChart3} accent="text-primary" glow />
-        <Metric label="EQV" value={DATA.eqv} icon={Activity} accent="text-gold-deep" />
+        <EqvCard value={DATA.eqv} open={showEqv} onToggle={() => setShowEqv((v) => !v)} />
         <Metric label="Left Volume" value={DATA.leftVol} icon={ArrowLeft} accent="text-navy" />
         <Metric label="Right Volume" value={DATA.rightVol} icon={ArrowRight} accent="text-navy" />
       </div>
+
+      {/* EQV breakdown */}
+      {showEqv && (
+        <div className="rounded-2xl border border-[#E4DCCB] bg-cream p-4 shadow-card">
+          <div className="flex items-center justify-between">
+            <p className="inline-flex items-center gap-2 text-sm font-bold text-navy">
+              <Activity className="h-4 w-4 text-gold-deep" /> Top enrollment lines
+            </p>
+            <span className="text-xs text-medium">EQV breakdown</span>
+          </div>
+          <div className="mt-3 space-y-1.5">
+            {ENROLLMENTS.map((e, i) => (
+              <div key={e.name} className="flex items-center gap-3 rounded-xl border border-[#E4DCCB] bg-offwhite/50 px-3 py-2.5">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-cream">{i + 1}</span>
+                <span className="flex-1 text-sm font-semibold text-navy">{e.name}</span>
+                <span className="text-sm font-bold tabular-nums text-gold-deep">{e.volume.toLocaleString()} <span className="text-xs font-medium text-medium">vol</span></span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 flex items-center justify-between border-t border-[#E4DCCB] pt-2.5">
+            <span className="text-sm font-bold text-navy">Total EQV</span>
+            <span className="text-sm font-black tabular-nums text-gold-deep">{DATA.eqv.toLocaleString()}</span>
+          </div>
+        </div>
+      )}
 
       {/* ---------- Rank ladder ---------- */}
       <div className="rounded-3xl border border-[#E4DCCB] bg-cream p-5 shadow-card">
@@ -199,5 +234,24 @@ function Metric({
       </div>
       <p className={`mt-1 text-2xl font-black tabular-nums ${accent}`}>{Math.round(v).toLocaleString()}</p>
     </div>
+  );
+}
+
+function EqvCard({ value, open, onToggle }: { value: number; open: boolean; onToggle: () => void }) {
+  const v = useCountUp(value);
+  return (
+    <button
+      onClick={onToggle}
+      className={`rounded-2xl border bg-cream p-4 text-left shadow-card transition-colors ${
+        open ? "border-gold-deep ring-1 ring-gold-deep/30" : "border-[#E4DCCB] hover:border-gold-deep/50"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-medium">EQV</p>
+        <ChevronDown className={`h-4 w-4 text-gold-deep transition-transform ${open ? "rotate-180" : ""}`} />
+      </div>
+      <p className="mt-1 text-2xl font-black tabular-nums text-gold-deep">{Math.round(v).toLocaleString()}</p>
+      <p className="mt-0.5 text-[10px] font-semibold text-medium">Tap for top lines</p>
+    </button>
   );
 }
