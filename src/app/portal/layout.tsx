@@ -21,6 +21,7 @@ export default async function PortalLayout({ children }: { children: React.React
   if (configured && !profile) redirect("/login");
 
   const isAdmin = profile?.role === "admin";
+  const isOwner = (profile?.email ?? "").toLowerCase() === "thayerm1111@gmail.com";
   // Members must be approved (status "active") — admins always have access.
   const needsApproval = profile != null && !isAdmin && profile.status !== "active";
 
@@ -55,7 +56,7 @@ export default async function PortalLayout({ children }: { children: React.React
           </div>
         ) : (
           <div className="mt-8 grid gap-5 lg:grid-cols-[188px_1fr] xl:gap-7">
-            {configured && profile && <PortalNav isAdmin={isAdmin} />}
+            {configured && profile && <PortalNav isAdmin={isAdmin} isOwner={isOwner} />}
             <div className="min-w-0">{children}</div>
           </div>
         )}
