@@ -7,7 +7,7 @@ export const siteSettings = {
   // Text logo shown until you add a real transparent PNG.
   // To use an image logo: drop your file at /public/images/logo.png and set
   // `logoImage` to "/images/logo.png". The Header will render it automatically.
-  logoImage: "" as string, // e.g. "/images/logo.png"
+  logoImage: "/images/om-logo.png" as string, // OM monogram (black art on transparent)
   logoText: "1 MISSION",
   tagline: "One Mission. One Community. One Movement.",
   domain: "weare1mission.com",
