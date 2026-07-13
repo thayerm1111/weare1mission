@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Radio, Zap, Activity, Repeat } from "lucide-react";
 import { TheRoom } from "./TheRoom";
 import { LivePlays } from "./LivePlays";
@@ -23,12 +23,17 @@ export function FloorWorkspace({
   isCaller?: boolean;
   followerCount?: number;
 }) {
-  const [tab, setTab] = useState<TabId>("room");
+  const router = useRouter();
+  const params = useSearchParams();
+  const raw = params.get("view");
+  const tab: TabId = (TABS.some((t) => t.id === raw) ? raw : "room") as TabId;
+
+  const go = (id: TabId) => router.replace(`/portal/trading?view=${id}`, { scroll: false });
 
   return (
-    <div className="overflow-hidden rounded-3xl border border-black bg-[#0a0a0a] text-white shadow-card">
-      {/* Tab bar */}
-      <div className="border-b border-white/10 p-2.5">
+    <div className="overflow-hidden rounded-2xl border border-black bg-[#0a0a0a] text-white shadow-card">
+      {/* In-page tab bar — mobile only; on desktop the sidebar drives the view */}
+      <div className="border-b border-white/10 p-2 lg:hidden">
         <div className="flex flex-wrap gap-1.5">
           {TABS.map((t) => {
             const Icon = t.icon;
@@ -36,8 +41,8 @@ export function FloorWorkspace({
             return (
               <button
                 key={t.id}
-                onClick={() => setTab(t.id)}
-                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors ${
+                onClick={() => go(t.id)}
+                className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors ${
                   active ? "bg-white text-black" : "text-white/55 hover:bg-white/5 hover:text-white"
                 }`}
               >

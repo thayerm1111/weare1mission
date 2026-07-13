@@ -98,13 +98,13 @@ export function LivePlays({
             <span className="font-semibold text-white">{active.pair}</span>
             <span className="text-white/40">· tap a play to load it on the chart</span>
           </div>
-          <TradingViewChart symbol={active.symbol} interval="15" height="72vh" />
+          <TradingViewChart symbol={active.symbol} interval="15" height="80vh" />
         </div>
 
         {/* Signals list */}
         <div className="space-y-3">
           <p className="text-sm font-semibold text-white">Live plays</p>
-          <div className="space-y-3 lg:max-h-[72vh] lg:overflow-y-auto lg:pr-1">
+          <div className="space-y-3 lg:max-h-[80vh] lg:overflow-y-auto lg:pr-1">
             {SIGNALS.map((s) => {
               const selected = s.id === active.id;
               const buy = s.side === "Buy Market";

@@ -68,7 +68,7 @@ export function MarketPulse() {
       </div>
 
       {/* Near full-height chart */}
-      <TradingViewChart symbol={symbol} interval="60" studies={scanner.studies} height="82vh" />
+      <TradingViewChart symbol={symbol} interval="60" studies={scanner.studies} height="86vh" />
     </div>
   );
 }

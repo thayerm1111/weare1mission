@@ -36,7 +36,7 @@ export function TheRoom() {
       {/* Stage: video + chat */}
       <div className="grid gap-3 lg:grid-cols-[1fr_320px]">
         {/* Video */}
-        <div className="relative flex min-h-[58vh] items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#151206] via-[#0c0c0c] to-black">
+        <div className="relative flex min-h-[76vh] items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#151206] via-[#0c0c0c] to-black">
           <div className="pointer-events-none absolute inset-0 opacity-40 [background:radial-gradient(circle_at_50%_40%,rgba(212,180,90,0.18),transparent_60%)]" />
           <span className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-black/50 px-3 py-1 text-xs font-semibold">
             <span className="relative flex h-2 w-2">
@@ -63,7 +63,7 @@ export function TheRoom() {
         </div>
 
         {/* Chat */}
-        <div className="flex min-h-[58vh] flex-col rounded-2xl border border-white/10 bg-[#101010]">
+        <div className="flex min-h-[76vh] flex-col rounded-2xl border border-white/10 bg-[#101010]">
           <div className="border-b border-white/10 px-4 py-3">
             <p className="text-sm font-semibold">Live chat</p>
           </div>
