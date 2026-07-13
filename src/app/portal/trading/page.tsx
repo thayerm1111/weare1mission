@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { LineChart } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
@@ -33,7 +34,9 @@ export default async function FloorPage() {
         action on your own account. Past performance does not guarantee future results.
       </DisclaimerBanner>
 
-      <FloorWorkspace isCaller={isCaller} followerCount={followerCount} />
+      <Suspense fallback={<div className="h-[70vh] rounded-2xl bg-[#0a0a0a]" />}>
+        <FloorWorkspace isCaller={isCaller} followerCount={followerCount} />
+      </Suspense>
     </div>
   );
 }

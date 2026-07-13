@@ -25,7 +25,7 @@ export default async function PortalLayout({ children }: { children: React.React
 
   return (
     <div className="bg-cream">
-      <div className="container-1m py-8 lg:py-12">
+      <div className="mx-auto w-full max-w-[1760px] px-4 py-8 sm:px-6 lg:py-10">
         {/* Portal top bar */}
         <div className="flex flex-col gap-4 border-b border-[#E4DCCB] pb-6 sm:flex-row sm:items-center sm:justify-between">
           <Link href="/portal" className="inline-flex items-center gap-2.5 text-primary">
@@ -52,7 +52,7 @@ export default async function PortalLayout({ children }: { children: React.React
             <PendingNotice status={profile!.status === "suspended" ? "suspended" : "pending"} name={profile!.full_name} />
           </div>
         ) : (
-          <div className="mt-8 grid gap-8 lg:grid-cols-[220px_1fr]">
+          <div className="mt-8 grid gap-5 lg:grid-cols-[188px_1fr] xl:gap-7">
             {configured && profile && <PortalNav isAdmin={isAdmin} />}
             <div className="min-w-0">{children}</div>
           </div>
