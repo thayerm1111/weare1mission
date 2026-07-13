@@ -36,7 +36,7 @@ export function Logo({ light = false, wordmark = true }: { light?: boolean; word
         // The OM mark is black artwork on transparent. On light backgrounds it
         // shows as-is; on dark sections we flip it to white.
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={logoImage} alt={brandName} className={`h-14 w-auto sm:h-16 ${light ? "brightness-0 invert" : ""}`} />
+        <img src={logoImage} alt={brandName} className={`h-16 w-auto sm:h-20 ${light ? "brightness-0 invert" : ""}`} />
       ) : (
         <Monogram1M className="h-7 w-7" />
       )}

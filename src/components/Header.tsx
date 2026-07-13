@@ -66,10 +66,8 @@ export function Header() {
             : "bg-cream/60 backdrop-blur-sm"
         }`}
       >
-        <div className="container-1m flex h-20 items-center justify-between lg:h-24">
-          <span className="-ml-2 sm:-ml-4 lg:-ml-6">
-            <Logo wordmark={false} />
-          </span>
+        <div className="mx-auto flex h-24 w-full max-w-[1760px] items-center justify-between px-4 sm:px-6 lg:h-28">
+          <Logo wordmark={false} />
 
           <nav className="hidden lg:block" aria-label="Primary">
             <ul className="flex items-center gap-1">
