@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Users2, UserCheck, BadgeCheck, TrendingUp, DollarSign, Coins,
   Search, Network, LayoutGrid, ListTree, SlidersHorizontal, Loader2, ChevronRight,
-  Wallet, Play,
+  Wallet, Play, Pencil, Plus, Trash2, X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
@@ -105,7 +105,7 @@ export function MlmAdmin() {
           {tab === "reps" && <Reps reps={snap.reps} />}
           {tab === "tree" && <Tree reps={snap.reps} />}
           {tab === "earnings" && <Earnings />}
-          {tab === "plan" && <CompPlan ranks={snap.ranks} tiers={snap.tiers} />}
+          {tab === "plan" && <CompPlan ranks={snap.ranks} tiers={snap.tiers} onChanged={load} />}
         </>
       )}
     </div>
@@ -438,18 +438,73 @@ function Earnings() {
 
 /* ---------------- Comp Plan ---------------- */
 
-function CompPlan({ ranks, tiers }: { ranks: Rank[]; tiers: Tier[] }) {
+type EditField = { key: string; label: string; type: "text" | "number"; value: string };
+
+function CompPlan({ ranks, tiers, onChanged }: { ranks: Rank[]; tiers: Tier[]; onChanged: () => void }) {
+  const supabase = useMemo(() => createClient(), []);
+  const [editRank, setEditRank] = useState<Rank | null>(null);
+  const [editTier, setEditTier] = useState<Tier | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const rpc = async (fn: string, args: Record<string, unknown>) => {
+    if (!supabase) return;
+    setBusy(true);
+    await supabase.rpc(fn, args);
+    setBusy(false);
+    onChanged();
+  };
+
+  const saveRank = async (rec: Record<string, string>) => {
+    if (!supabase || !editRank) return;
+    setBusy(true);
+    await supabase.rpc("mlm_update_rank", { p_id: editRank.id, p_patch: rec });
+    setBusy(false); setEditRank(null); onChanged();
+  };
+  const saveTier = async (rec: Record<string, string>) => {
+    if (!supabase || !editTier) return;
+    setBusy(true);
+    await supabase.rpc("mlm_update_tier", { p_id: editTier.id, p_patch: rec });
+    setBusy(false); setEditTier(null); onChanged();
+  };
+
+  const rankFields = (r: Rank): EditField[] => [
+    { key: "position", label: "Ladder position", type: "number", value: String(r.position) },
+    { key: "name", label: "Rank name", type: "text", value: r.name },
+    { key: "volume_per_side", label: "Volume / side", type: "number", value: String(r.volume_per_side) },
+    { key: "enrollment_line_max_pct", label: "Enrollment line max %", type: "number", value: r.enrollment_line_max_pct != null ? String(r.enrollment_line_max_pct) : "" },
+    { key: "weekly_cap", label: "Max weekly rank bonus", type: "number", value: String(r.weekly_cap) },
+    { key: "monthly_cap", label: "Max monthly rank bonus", type: "number", value: String(r.monthly_cap) },
+    { key: "active_requirement", label: "Active requirement", type: "text", value: r.active_requirement ?? "" },
+    { key: "override_pct", label: "Override %", type: "number", value: String(r.override_pct) },
+    { key: "qualification", label: "Qualification note", type: "text", value: r.qualification ?? "" },
+  ];
+  const tierFields = (t: Tier): EditField[] => [
+    { key: "name", label: "Tier name", type: "text", value: t.name },
+    { key: "price", label: "Price", type: "number", value: String(t.price) },
+    { key: "renewal", label: "Monthly renewal", type: "number", value: String(t.renewal) },
+    { key: "cv", label: "Commissionable volume (CV)", type: "number", value: String(t.cv) },
+    { key: "referral_bonus", label: "Referral bonus", type: "number", value: String(t.referral_bonus) },
+    { key: "renewal_bonus", label: "Renewal bonus", type: "number", value: String(t.renewal_bonus) },
+    { key: "upgrade_bonus", label: "Upgrade bonus", type: "number", value: String(t.upgrade_bonus) },
+  ];
+
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-[#E4DCCB] bg-offwhite/50 p-4 text-sm text-charcoal/75">
-        This is your live comp-plan configuration. Rank names, counts, and every payout number are editable data —
-        changing them here (inline editor coming next) updates the whole engine without a rebuild.
+        Your live comp-plan configuration. Edit any rank or tier, add or remove them — changes save straight to the
+        engine, no rebuild. <span className="text-medium">Tier $ are placeholders; replace with your real numbers.</span>
       </div>
 
       {/* Ranks */}
       <div className="overflow-x-auto rounded-2xl border border-[#E4DCCB] bg-cream shadow-card">
-        <div className="border-b border-[#E4DCCB] px-4 py-3 text-sm font-bold text-navy">Ranks ({ranks.length})</div>
-        <table className="w-full min-w-[820px] text-left text-sm">
+        <div className="flex items-center justify-between border-b border-[#E4DCCB] px-4 py-3">
+          <span className="text-sm font-bold text-navy">Ranks ({ranks.length})</span>
+          <button onClick={() => rpc("mlm_add_rank", {})} disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-cream hover:opacity-90 disabled:opacity-60">
+            <Plus className="h-3.5 w-3.5" /> Add rank
+          </button>
+        </div>
+        <table className="w-full min-w-[880px] text-left text-sm">
           <thead>
             <tr className="border-b border-[#E4DCCB] text-xs uppercase tracking-wide text-medium">
               <th className="px-4 py-3 font-semibold">#</th>
@@ -460,6 +515,7 @@ function CompPlan({ ranks, tiers }: { ranks: Rank[]; tiers: Tier[] }) {
               <th className="px-4 py-3 text-right font-semibold">Monthly cap</th>
               <th className="px-4 py-3 font-semibold">Active req.</th>
               <th className="px-4 py-3 text-right font-semibold">Override</th>
+              <th className="px-4 py-3 text-right font-semibold"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#EFE7D6]">
@@ -473,6 +529,10 @@ function CompPlan({ ranks, tiers }: { ranks: Rank[]; tiers: Tier[] }) {
                 <td className="px-4 py-3 text-right font-semibold text-navy">{money(r.monthly_cap)}</td>
                 <td className="whitespace-nowrap px-4 py-3 text-charcoal/70">{r.active_requirement ?? "—"}</td>
                 <td className="px-4 py-3 text-right text-charcoal/80">{r.override_pct ? `${r.override_pct}%` : "—"}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-right">
+                  <button onClick={() => setEditRank(r)} className="mr-1 rounded-md p-1.5 text-charcoal/60 hover:bg-ice hover:text-navy" aria-label="Edit"><Pencil className="h-4 w-4" /></button>
+                  <button onClick={() => { if (confirm(`Delete rank “${r.name}”?`)) rpc("mlm_delete_rank", { p_id: r.id }); }} className="rounded-md p-1.5 text-charcoal/60 hover:bg-[#fdeceb] hover:text-red-500" aria-label="Delete"><Trash2 className="h-4 w-4" /></button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -481,10 +541,14 @@ function CompPlan({ ranks, tiers }: { ranks: Rank[]; tiers: Tier[] }) {
 
       {/* Tiers */}
       <div className="overflow-x-auto rounded-2xl border border-[#E4DCCB] bg-cream shadow-card">
-        <div className="border-b border-[#E4DCCB] px-4 py-3 text-sm font-bold text-navy">
-          Membership tiers ({tiers.length}) <span className="ml-1 font-normal text-xs text-medium">— placeholder $, replace with your real numbers</span>
+        <div className="flex items-center justify-between border-b border-[#E4DCCB] px-4 py-3">
+          <span className="text-sm font-bold text-navy">Membership tiers ({tiers.length})</span>
+          <button onClick={() => rpc("mlm_add_tier", {})} disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-cream hover:opacity-90 disabled:opacity-60">
+            <Plus className="h-3.5 w-3.5" /> Add tier
+          </button>
         </div>
-        <table className="w-full min-w-[720px] text-left text-sm">
+        <table className="w-full min-w-[780px] text-left text-sm">
           <thead>
             <tr className="border-b border-[#E4DCCB] text-xs uppercase tracking-wide text-medium">
               <th className="px-4 py-3 font-semibold">Tier</th>
@@ -494,6 +558,7 @@ function CompPlan({ ranks, tiers }: { ranks: Rank[]; tiers: Tier[] }) {
               <th className="px-4 py-3 text-right font-semibold">Referral</th>
               <th className="px-4 py-3 text-right font-semibold">Renewal bonus</th>
               <th className="px-4 py-3 text-right font-semibold">Upgrade bonus</th>
+              <th className="px-4 py-3 text-right font-semibold"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#EFE7D6]">
@@ -506,10 +571,58 @@ function CompPlan({ ranks, tiers }: { ranks: Rank[]; tiers: Tier[] }) {
                 <td className="px-4 py-3 text-right font-semibold text-[#0f6e56]">{money(t.referral_bonus)}</td>
                 <td className="px-4 py-3 text-right text-charcoal/80">{money(t.renewal_bonus)}</td>
                 <td className="px-4 py-3 text-right text-charcoal/80">{t.upgrade_bonus ? money(t.upgrade_bonus) : "—"}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-right">
+                  <button onClick={() => setEditTier(t)} className="mr-1 rounded-md p-1.5 text-charcoal/60 hover:bg-ice hover:text-navy" aria-label="Edit"><Pencil className="h-4 w-4" /></button>
+                  <button onClick={() => { if (confirm(`Delete tier “${t.name}”?`)) rpc("mlm_delete_tier", { p_id: t.id }); }} className="rounded-md p-1.5 text-charcoal/60 hover:bg-[#fdeceb] hover:text-red-500" aria-label="Delete"><Trash2 className="h-4 w-4" /></button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+
+      {editRank && <EditModal title={`Edit rank · ${editRank.name}`} fields={rankFields(editRank)} busy={busy} onClose={() => setEditRank(null)} onSave={saveRank} />}
+      {editTier && <EditModal title={`Edit tier · ${editTier.name}`} fields={tierFields(editTier)} busy={busy} onClose={() => setEditTier(null)} onSave={saveTier} />}
+    </div>
+  );
+}
+
+function EditModal({
+  title, fields, busy, onClose, onSave,
+}: {
+  title: string; fields: EditField[]; busy: boolean;
+  onClose: () => void; onSave: (rec: Record<string, string>) => void;
+}) {
+  const [vals, setVals] = useState<Record<string, string>>(() =>
+    Object.fromEntries(fields.map((f) => [f.key, f.value])));
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[#E4DCCB] bg-cream p-5 shadow-card" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-extrabold text-navy">{title}</h2>
+          <button onClick={onClose} className="text-medium hover:text-navy"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {fields.map((f) => (
+            <label key={f.key} className="block text-sm">
+              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-medium">{f.label}</span>
+              <input
+                type={f.type}
+                value={vals[f.key]}
+                onChange={(e) => setVals((v) => ({ ...v, [f.key]: e.target.value }))}
+                className="w-full rounded-lg border border-[#E4DCCB] bg-offwhite/50 px-3 py-2 text-sm text-navy focus:border-primary focus:outline-none"
+              />
+            </label>
+          ))}
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-xl border border-[#E4DCCB] px-4 py-2.5 text-sm font-bold text-navy hover:bg-ice">Cancel</button>
+          <button onClick={() => onSave(vals)} disabled={busy}
+            className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-cream hover:opacity-90 disabled:opacity-60">
+            {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : "Save changes"}
+          </button>
+        </div>
       </div>
     </div>
   );
