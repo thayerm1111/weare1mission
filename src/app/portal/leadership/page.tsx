@@ -10,16 +10,24 @@ export default async function InnerCirclePage() {
   if (!supabase) return <PortalNotConfigured />;
 
   const { data: { user } } = await supabase.auth.getUser();
-  let me = { id: "", name: null as string | null, isCreator: false };
+  let me = {
+    id: "",
+    name: null as string | null,
+    username: null as string | null,
+    avatar: null as string | null,
+    isCreator: false,
+  };
   if (user) {
     const { data } = await supabase
       .from("profiles")
-      .select("id, full_name, is_creator")
+      .select("id, full_name, username, avatar_url, is_creator")
       .eq("id", user.id)
       .single();
     me = {
       id: user.id,
       name: (data?.full_name as string) ?? null,
+      username: (data?.username as string) ?? null,
+      avatar: (data?.avatar_url as string) ?? null,
       isCreator: Boolean(data?.is_creator),
     };
   }
