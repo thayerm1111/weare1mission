@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, Repeat, ChevronDown, Gem, Hammer,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, Repeat, ChevronDown, Gem, Hammer, Rocket,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
@@ -103,6 +103,15 @@ export function PortalNav({ isAdmin = false }: { isAdmin?: boolean }) {
           <Hammer className="h-3.5 w-3.5" /> The Builders
         </button>
       </div>
+
+      {/* Builder HQ — network dashboard (admins only for now) */}
+      {side === "builders" && isAdmin && (
+        <NavLink
+          item={{ href: "/portal/builders", label: "Builder HQ", icon: Rocket }}
+          active={pathname.startsWith("/portal/builders")}
+          onNav={() => setOpen(false)}
+        />
+      )}
 
       {/* Side items */}
       {keys.map((key) => {
