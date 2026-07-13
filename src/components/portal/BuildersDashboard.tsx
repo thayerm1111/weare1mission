@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   Sparkles, Zap, Share2, Hammer, Briefcase, Compass, Gem, Star, Crown, Rocket,
   BarChart3, Activity, ArrowLeft, ArrowRight, Users, TrendingUp, ChevronDown,
+  Car, Plane, Home, DollarSign, Check, Lock,
 } from "lucide-react";
 
 // Top enrollment lines — sums to EQV (1,350,700).
@@ -13,6 +14,16 @@ const ENROLLMENTS = [
   { name: "Korab Kozgori", volume: 210_700 },
   { name: "Ali Saleh", volume: 160_000 },
   { name: "Anthony Waukuski", volume: 120_000 },
+];
+
+// 90-day run milestones. RUN = current 90-day volume (placeholder).
+const RUN = 37_000;
+const RUN_MAX = 100_000;
+const MILESTONES = [
+  { vol: 20_000, reward: "Car Bonus", sub: "$1,000", icon: Car },
+  { vol: 32_500, reward: "Cash Bonus", sub: "$3,000", icon: DollarSign },
+  { vol: 50_000, reward: "Mallorca, Spain", sub: "Trip paid", icon: Plane },
+  { vol: 100_000, reward: "House Bonus", sub: "$5,000", icon: Home },
 ];
 
 /* -------- rank ladder (lowest → highest) -------- */
@@ -93,6 +104,9 @@ export function BuildersDashboard({ name }: { name?: string | null }) {
           </div>
         </div>
       </div>
+
+      {/* ---------- 90-day milestone meter ---------- */}
+      <MilestoneMeter />
 
       {/* ---------- Binary legs ---------- */}
       <div className="rounded-3xl border border-[#E4DCCB] bg-cream p-5 shadow-card">
@@ -199,6 +213,66 @@ export function BuildersDashboard({ name }: { name?: string | null }) {
       <p className="text-center text-[11px] text-medium">
         Preview — these numbers fill in from the comp plan when the network side goes live.
       </p>
+    </div>
+  );
+}
+
+function MilestoneMeter() {
+  const progress = useCountUp((RUN / RUN_MAX) * 100, 1900); // 0 → current %
+  const pct = (v: number) => (v / RUN_MAX) * 100;
+  return (
+    <div className="rounded-3xl border border-[#E4DCCB] bg-cream p-5 shadow-card sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="inline-flex items-center gap-2 text-sm font-bold text-navy">
+          <Rocket className="h-4 w-4 text-gold-deep" /> 90-Day Run
+        </p>
+        <span className="text-xs text-medium">
+          <span className="font-bold text-gold-deep">{RUN.toLocaleString()}</span> / {RUN_MAX.toLocaleString()} vol
+        </span>
+      </div>
+
+      {/* progress bar with milestone ticks + rocket */}
+      <div className="relative mx-1 mt-9 h-2.5 rounded-full bg-ice">
+        <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-gold" style={{ width: `${progress}%` }} />
+        {MILESTONES.map((m) => {
+          const p = pct(m.vol);
+          const q = progress >= p - 0.2;
+          return (
+            <span key={m.vol} className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ left: `${p}%` }}>
+              <span className={`block h-4 w-4 rounded-full border-2 transition-colors ${q ? "border-gold-deep bg-gold" : "border-[#E4DCCB] bg-cream"}`} />
+              <span className={`absolute left-1/2 top-5 -translate-x-1/2 whitespace-nowrap text-[10px] font-bold transition-colors ${q ? "text-gold-deep" : "text-medium"}`}>
+                {m.vol / 1000}k
+              </span>
+            </span>
+          );
+        })}
+        <span className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2" style={{ left: `${progress}%` }}>
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-cream shadow-card">
+            <Rocket className="h-4 w-4 -rotate-45" />
+          </span>
+        </span>
+      </div>
+
+      {/* milestone cards */}
+      <div className="mt-9 grid grid-cols-2 gap-2 lg:grid-cols-4">
+        {MILESTONES.map((m) => {
+          const q = progress >= pct(m.vol) - 0.2;
+          const Icon = m.icon;
+          return (
+            <div key={m.vol} className={`rounded-2xl border p-3 transition-colors ${q ? "border-gold-deep bg-gold/10" : "border-[#E4DCCB] bg-offwhite/40"}`}>
+              <div className="flex items-center justify-between">
+                <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${q ? "bg-gold text-cream" : "bg-white text-medium"}`}>
+                  <Icon className="h-4 w-4" />
+                </span>
+                {q ? <Check className="h-4 w-4 text-gold-deep" /> : <Lock className="h-3.5 w-3.5 text-medium" />}
+              </div>
+              <p className={`mt-2 text-sm font-bold ${q ? "text-navy" : "text-charcoal/70"}`}>{m.reward}</p>
+              <p className="text-xs text-medium">{m.sub}</p>
+              <p className={`mt-1 text-[11px] font-bold ${q ? "text-gold-deep" : "text-medium"}`}>{m.vol.toLocaleString()} vol</p>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
