@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, Repeat, ChevronDown, Gem, Hammer, Rocket,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, Repeat, ChevronDown, Gem, Hammer, Rocket, Building2,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
@@ -41,7 +41,7 @@ const floorViews = [
 
 type Side = "ones" | "builders";
 
-export function PortalNav({ isAdmin = false }: { isAdmin?: boolean }) {
+export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: boolean; isOwner?: boolean }) {
   const pathname = usePathname();
   const params = useSearchParams();
   const [open, setOpen] = useState(false);
@@ -109,6 +109,15 @@ export function PortalNav({ isAdmin = false }: { isAdmin?: boolean }) {
         <NavLink
           item={{ href: "/portal/builders", label: "Builder HQ", icon: Rocket }}
           active={pathname.startsWith("/portal/builders")}
+          onNav={() => setOpen(false)}
+        />
+      )}
+
+      {/* Network HQ — admin back office (owner only for now) */}
+      {side === "builders" && isOwner && (
+        <NavLink
+          item={{ href: "/portal/mlm", label: "Network HQ", icon: Building2 }}
+          active={pathname.startsWith("/portal/mlm")}
           onNav={() => setOpen(false)}
         />
       )}
