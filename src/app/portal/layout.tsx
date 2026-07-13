@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PortalNav } from "@/components/portal/PortalNav";
 import { SignOutButton } from "@/components/portal/SignOutButton";
+import { NotificationsBell } from "@/components/portal/NotificationsBell";
 import { PendingNotice } from "@/components/portal/PendingNotice";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getProfile } from "@/lib/auth";
@@ -41,6 +42,7 @@ export default async function PortalLayout({ children }: { children: React.React
                     : `${TIER_LABELS[profile.tier] ?? profile.tier} member${isAdmin ? " · Admin" : ""}`}
                 </p>
               </div>
+              {!needsApproval && <NotificationsBell />}
               <SignOutButton />
             </div>
           )}
