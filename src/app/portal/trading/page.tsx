@@ -1,9 +1,8 @@
 import { Suspense } from "react";
-import { LineChart } from "lucide-react";
+import { LineChart, AlertTriangle } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
-import { DisclaimerBanner } from "@/components/DisclaimerBanner";
 import { FloorWorkspace } from "@/components/portal/floor/FloorWorkspace";
 
 export default async function FloorPage() {
@@ -17,24 +16,19 @@ export default async function FloorPage() {
   const followerCount = 128; // sample — wired to real subscribers in Phase 2
 
   return (
-    <div className="space-y-6">
-      <header>
-        <p className="eyebrow">Members Only</p>
-        <h1 className="mt-2 flex items-center gap-2 text-3xl font-extrabold tracking-tight text-navy">
-          <LineChart className="h-7 w-7 text-primary" aria-hidden="true" /> The Floor
+    <div className="space-y-3">
+      {/* Compact header — keep the focus on the workspace */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="flex items-center gap-2 text-xl font-extrabold tracking-tight text-navy sm:text-2xl">
+          <LineChart className="h-6 w-6 text-primary" aria-hidden="true" /> The Floor
         </h1>
-        <p className="mt-2 text-charcoal/70">
-          Everything in one place — live sessions, trade alerts, charts, and copy trading.
+        <p className="inline-flex items-center gap-1.5 text-[11px] leading-tight text-charcoal/50">
+          <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-amber-500" aria-hidden="true" />
+          Educational only — not financial advice. You approve every action on your own account.
         </p>
-      </header>
+      </div>
 
-      <DisclaimerBanner tone="warning">
-        Educational content only — not individualized financial advice. Trading involves risk,
-        including loss of capital. Trade alerts and copy trading are opt-in; you approve every
-        action on your own account. Past performance does not guarantee future results.
-      </DisclaimerBanner>
-
-      <Suspense fallback={<div className="h-[70vh] rounded-2xl bg-[#0a0a0a]" />}>
+      <Suspense fallback={<div className="h-[80vh] rounded-2xl bg-[#17130d]" />}>
         <FloorWorkspace isCaller={isCaller} followerCount={followerCount} />
       </Suspense>
     </div>
