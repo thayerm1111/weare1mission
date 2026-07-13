@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Users2, UserCheck, BadgeCheck, TrendingUp, DollarSign, Coins,
   Search, Network, LayoutGrid, ListTree, SlidersHorizontal, Loader2, ChevronRight,
-  Wallet, Play, Pencil, Plus, Trash2, X,
+  Wallet, Play, Pencil, Plus, Trash2, X, UserPlus,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
@@ -102,7 +102,7 @@ export function MlmAdmin() {
       ) : (
         <>
           {tab === "overview" && <Overview snap={snap} onJump={() => setTab("reps")} />}
-          {tab === "reps" && <Reps reps={snap.reps} />}
+          {tab === "reps" && <Reps reps={snap.reps} tiers={snap.tiers} onChanged={load} />}
           {tab === "tree" && <Tree reps={snap.reps} />}
           {tab === "earnings" && <Earnings />}
           {tab === "plan" && <CompPlan ranks={snap.ranks} tiers={snap.tiers} onChanged={load} />}
@@ -196,8 +196,9 @@ function StatusPill({ status }: { status: Rep["status"] }) {
 
 /* ---------------- Reps ---------------- */
 
-function Reps({ reps }: { reps: Rep[] }) {
+function Reps({ reps, tiers, onChanged }: { reps: Rep[]; tiers: Tier[]; onChanged: () => void }) {
   const [q, setQ] = useState("");
+  const [enrolling, setEnrolling] = useState(false);
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return reps;
@@ -211,15 +212,24 @@ function Reps({ reps }: { reps: Rep[] }) {
 
   return (
     <div className="space-y-3">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-medium" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search by name, rep ID, rank, email…"
-          className="w-full rounded-xl border border-[#E4DCCB] bg-cream py-3 pl-11 pr-4 text-sm text-navy placeholder:text-medium focus:border-primary focus:outline-none"
-        />
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-medium" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search by name, rep ID, rank, email…"
+            className="w-full rounded-xl border border-[#E4DCCB] bg-cream py-3 pl-11 pr-4 text-sm text-navy placeholder:text-medium focus:border-primary focus:outline-none"
+          />
+        </div>
+        <button
+          onClick={() => setEnrolling(true)}
+          className="inline-flex flex-shrink-0 items-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-cream hover:opacity-90"
+        >
+          <UserPlus className="h-4 w-4" /> Enroll rep
+        </button>
       </div>
+      {enrolling && <EnrollModal reps={reps} tiers={tiers} onClose={() => setEnrolling(false)} onDone={onChanged} />}
 
       <div className="overflow-x-auto rounded-2xl border border-[#E4DCCB] bg-cream shadow-card">
         <table className="w-full min-w-[860px] text-left text-sm">
@@ -260,6 +270,91 @@ function Reps({ reps }: { reps: Rep[] }) {
             )}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+function EnrollModal({ reps, tiers, onClose, onDone }: {
+  reps: Rep[]; tiers: Tier[]; onClose: () => void; onDone: () => void;
+}) {
+  const supabase = useMemo(() => createClient(), []);
+  const sortedReps = useMemo(() => [...reps].sort((a, b) => (a.full_name ?? "").localeCompare(b.full_name ?? "")), [reps]);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [tierId, setTierId] = useState(tiers[0] ? String(tiers[0].id) : "");
+  const [enrollerId, setEnrollerId] = useState(sortedReps[0]?.id ?? "");
+  const [side, setSide] = useState<"L" | "R">("L");
+  const [status, setStatus] = useState<"active" | "pending" | "inactive">("active");
+  const [dist, setDist] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!supabase) return;
+    if (!name.trim()) return setErr("Enter a name.");
+    if (!enrollerId) return setErr("Pick an enroller.");
+    setBusy(true); setErr(null);
+    const { error } = await supabase.rpc("mlm_enroll_rep", {
+      p_name: name.trim(),
+      p_email: email.trim() || null,
+      p_tier_id: tierId ? Number(tierId) : null,
+      p_enroller_id: enrollerId,
+      p_side: side,
+      p_status: status,
+      p_is_distributor: dist,
+    });
+    if (error) { setErr(error.message); setBusy(false); return; }
+    onDone(); onClose();
+  };
+
+  const selCls = "w-full rounded-lg border border-[#E4DCCB] bg-offwhite/50 px-3 py-2 text-sm text-navy focus:border-primary focus:outline-none";
+  const lbl = "mb-1 block text-xs font-semibold uppercase tracking-wide text-medium";
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[#E4DCCB] bg-cream p-5 shadow-card" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="inline-flex items-center gap-2 text-lg font-extrabold text-navy"><UserPlus className="h-5 w-5 text-gold-deep" /> Enroll a new rep</h2>
+          <button onClick={onClose} className="text-medium hover:text-navy"><X className="h-5 w-5" /></button>
+        </div>
+        <p className="mt-1 text-xs text-medium">A rep ID is assigned automatically and the rep is placed under their enroller in both trees.</p>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="block"><span className={lbl}>Full name</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" className={selCls} /></label>
+          <label className="block"><span className={lbl}>Email</span>
+            <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@email.com" className={selCls} /></label>
+          <label className="block"><span className={lbl}>Membership tier</span>
+            <select value={tierId} onChange={(e) => setTierId(e.target.value)} className={selCls}>
+              {tiers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select></label>
+          <label className="block"><span className={lbl}>Enroller (sponsor)</span>
+            <select value={enrollerId} onChange={(e) => setEnrollerId(e.target.value)} className={selCls}>
+              {sortedReps.map((r) => <option key={r.id} value={r.id}>{r.full_name} · {r.rep_code}</option>)}
+            </select></label>
+          <label className="block"><span className={lbl}>Placement side</span>
+            <select value={side} onChange={(e) => setSide(e.target.value as "L" | "R")} className={selCls}>
+              <option value="L">Left</option><option value="R">Right</option>
+            </select></label>
+          <label className="block"><span className={lbl}>Status</span>
+            <select value={status} onChange={(e) => setStatus(e.target.value as "active" | "pending" | "inactive")} className={selCls}>
+              <option value="active">Active</option><option value="pending">Pending</option><option value="inactive">Inactive</option>
+            </select></label>
+        </div>
+        <label className="mt-3 flex items-center gap-2 text-sm text-charcoal/80">
+          <input type="checkbox" checked={dist} onChange={(e) => setDist(e.target.checked)} className="h-4 w-4 rounded border-[#E4DCCB]" />
+          Mark as Independent Distributor
+        </label>
+
+        {err && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-600">{err}</p>}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-xl border border-[#E4DCCB] px-4 py-2.5 text-sm font-bold text-navy hover:bg-ice">Cancel</button>
+          <button onClick={submit} disabled={busy} className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-cream hover:opacity-90 disabled:opacity-60">
+            {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Enrolling…</> : "Enroll rep"}
+          </button>
+        </div>
       </div>
     </div>
   );
