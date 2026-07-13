@@ -20,13 +20,10 @@ type Creator = {
   posts: number;
 };
 
+// Only creators with real access right now.
 const CREATORS: Creator[] = [
   { id: "matt", name: "Matthew Thayer", handle: "matthewthayer", verified: true, headline: "1M Co-Founder · Pro Arena QB", bio: ["1 tap, 1 mission, unlimited potential", "1M Co-Founder", "Pro Arena QB", "Father, Husband"], followers: "963K", following: "2,754", posts: 542 },
-  { id: "rj", name: "RJ Antuna", handle: "rjantuna", verified: true, headline: "Forex Educator", bio: ["Forex educator", "Live gold sessions daily", "The Room host"], followers: "48.2K", following: "310", posts: 214 },
-  { id: "arabella", name: "Arabella Angeles", handle: "arabella", headline: "Scalper · Mentor", bio: ["Scalping XAU/USD", "Mentor in the 1M community"], followers: "12.1K", following: "640", posts: 98 },
-  { id: "gold", name: "Gold Master", handle: "gold_master", verified: true, headline: "Gold Specialist", bio: ["Precision entries", "London & NY sessions"], followers: "75.9K", following: "120", posts: 301 },
-  { id: "hannah", name: "Hannah Gallagher", handle: "hannahg", headline: "Swing Trader", bio: ["Higher-timeframe swings", "Risk first, always"], followers: "9.3K", following: "210", posts: 76 },
-  { id: "dee", name: "Coach Dee", handle: "coachdee", headline: "Mindset & Discipline", bio: ["Mindset coach", "Discipline > motivation"], followers: "22.4K", following: "512", posts: 180 },
+  { id: "joey", name: "Joey", handle: "joey", verified: true, headline: "1M Co-Founder", bio: ["1M Co-Founder", "Building the movement"], followers: "—", following: "—", posts: 0 },
 ];
 
 const img = (seed: string, s = 500) => `https://picsum.photos/seed/${seed}/${s}/${s}`;
@@ -52,7 +49,7 @@ function statusesFor(id: string) {
 export function InnerCircleClient(_props: { me?: { id: string; name: string | null; isCreator: boolean } }) {
   const [selected, setSelected] = useState<Creator | null>(null);
   const [query, setQuery] = useState("");
-  const [following, setFollowing] = useState<Set<string>>(new Set(["rj", "gold"]));
+  const [following, setFollowing] = useState<Set<string>>(new Set<string>());
 
   const toggleFollow = (id: string) =>
     setFollowing((prev) => {
