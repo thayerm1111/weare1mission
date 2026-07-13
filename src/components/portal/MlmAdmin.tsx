@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Users2, UserCheck, BadgeCheck, TrendingUp, DollarSign, Coins,
   Search, Network, LayoutGrid, ListTree, SlidersHorizontal, Loader2, ChevronRight,
+  Wallet, Play,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
@@ -41,6 +42,7 @@ const TABS = [
   { id: "overview", label: "Overview", icon: LayoutGrid },
   { id: "reps", label: "Reps", icon: Users2 },
   { id: "tree", label: "Genealogy", icon: ListTree },
+  { id: "earnings", label: "Earnings", icon: Wallet },
   { id: "plan", label: "Comp Plan", icon: SlidersHorizontal },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
@@ -102,6 +104,7 @@ export function MlmAdmin() {
           {tab === "overview" && <Overview snap={snap} onJump={() => setTab("reps")} />}
           {tab === "reps" && <Reps reps={snap.reps} />}
           {tab === "tree" && <Tree reps={snap.reps} />}
+          {tab === "earnings" && <Earnings />}
           {tab === "plan" && <CompPlan ranks={snap.ranks} tiers={snap.tiers} />}
         </>
       )}
@@ -313,6 +316,122 @@ function Node({ rep, byParent, depth }: { rep: Rep; byParent: Map<string | null,
         {children.length > 0 && <span className="ml-auto flex-shrink-0 text-xs font-bold text-charcoal/60">({children.length})</span>}
       </div>
       {open && children.map((c) => <Node key={c.id} rep={c} byParent={byParent} depth={depth + 1} />)}
+    </div>
+  );
+}
+
+/* ---------------- Earnings (commission run) ---------------- */
+
+type EarnRow = {
+  rep_code: string; name: string | null; rank: string | null;
+  left_cv: number; right_cv: number; referral: number; renewal: number;
+  upgrade: number; override: number; rank_pay: number; membership_credit: number; total: number;
+};
+type EarningsData = {
+  run: {
+    total: number; reps: number; period_end: string | null;
+    referral: number; renewal: number; override: number; rank_pay: number; credit: number;
+  } | null;
+  rows: EarnRow[];
+};
+
+function Earnings() {
+  const supabase = useMemo(() => createClient(), []);
+  const [data, setData] = useState<EarningsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!supabase) return;
+    setLoading(true);
+    const { data } = await supabase.rpc("mlm_earnings");
+    setData((data as EarningsData) ?? null);
+    setLoading(false);
+  }, [supabase]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const run = async () => {
+    if (!supabase) return;
+    setRunning(true);
+    await supabase.rpc("mlm_run_commissions");
+    await load();
+    setRunning(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="grid place-items-center rounded-2xl border border-[#E4DCCB] bg-offwhite/40 py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-medium" />
+      </div>
+    );
+  }
+
+  const run0 = data?.run;
+  const rows = data?.rows ?? [];
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#E4DCCB] bg-offwhite/50 p-4">
+        <div className="text-sm text-charcoal/75">
+          Commission run over the rolling 4-week window
+          {run0?.period_end && <> · last run {date(run0.period_end)}</>}.
+          <span className="ml-1 text-medium">Placeholder $ — verify against real numbers before paying.</span>
+        </div>
+        <button
+          onClick={run}
+          disabled={running}
+          className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-cream transition hover:opacity-90 disabled:opacity-60"
+        >
+          {running ? <><Loader2 className="h-4 w-4 animate-spin" /> Running…</> : <><Play className="h-4 w-4" /> Run commissions</>}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Kpi icon={DollarSign} label="Total payout" value={money(run0?.total ?? 0)} tint="bg-[#e1f5ee] text-[#0f6e56]" />
+        <Kpi icon={Wallet} label="Rank pay" value={money(run0?.rank_pay ?? 0)} tint="bg-ice text-navy" />
+        <Kpi icon={UserCheck} label="Referral + renewal" value={money((run0?.referral ?? 0) + (run0?.renewal ?? 0))} tint="bg-[#e6f0ff] text-[#3a6ea5]" />
+        <Kpi icon={Coins} label="Override + credit" value={money((run0?.override ?? 0) + (run0?.credit ?? 0))} tint="bg-[#faeeda] text-gold-deep" />
+      </div>
+
+      <div className="overflow-x-auto rounded-2xl border border-[#E4DCCB] bg-cream shadow-card">
+        <table className="w-full min-w-[900px] text-left text-sm">
+          <thead>
+            <tr className="border-b border-[#E4DCCB] text-xs uppercase tracking-wide text-medium">
+              <th className="px-4 py-3 font-semibold">Rep</th>
+              <th className="px-4 py-3 font-semibold">Rank (period)</th>
+              <th className="px-4 py-3 text-right font-semibold">L / R CV</th>
+              <th className="px-4 py-3 text-right font-semibold">Referral</th>
+              <th className="px-4 py-3 text-right font-semibold">Renewal</th>
+              <th className="px-4 py-3 text-right font-semibold">Override</th>
+              <th className="px-4 py-3 text-right font-semibold">Rank pay</th>
+              <th className="px-4 py-3 text-right font-semibold">Credit</th>
+              <th className="px-4 py-3 text-right font-semibold">Total</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#EFE7D6]">
+            {rows.map((r) => (
+              <tr key={r.rep_code} className="hover:bg-offwhite/60">
+                <td className="whitespace-nowrap px-4 py-3">
+                  <span className="font-semibold text-navy">{r.name}</span>
+                  <span className="ml-1.5 font-mono text-[11px] text-gold-deep">{r.rep_code}</span>
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-charcoal/80">{r.rank ?? "—"}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-right text-charcoal/70">{num(r.left_cv)} / {num(r.right_cv)}</td>
+                <td className="px-4 py-3 text-right text-charcoal/80">{r.referral ? money(r.referral) : "—"}</td>
+                <td className="px-4 py-3 text-right text-charcoal/80">{r.renewal ? money(r.renewal) : "—"}</td>
+                <td className="px-4 py-3 text-right text-charcoal/80">{r.override ? money(r.override) : "—"}</td>
+                <td className="px-4 py-3 text-right text-charcoal/80">{r.rank_pay ? money(r.rank_pay) : "—"}</td>
+                <td className="px-4 py-3 text-right text-charcoal/80">{r.membership_credit ? money(r.membership_credit) : "—"}</td>
+                <td className="px-4 py-3 text-right font-extrabold text-navy">{money(r.total)}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-medium">No run yet — press “Run commissions”.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
