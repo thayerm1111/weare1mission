@@ -4,8 +4,15 @@ import { useEffect, useState } from "react";
 import {
   Sparkles, Zap, Share2, Hammer, Briefcase, Compass, Gem, Star, Crown, Rocket,
   BarChart3, Activity, ArrowLeft, ArrowRight, Users, TrendingUp, ChevronDown,
-  Car, Plane, Home, DollarSign, Check, Lock,
+  Car, Plane, Home, DollarSign, Check, Lock, Wallet, ArrowUpRight,
 } from "lucide-react";
+
+// Earnings (placeholder). 30-day = Visionary's $200k/mo.
+const EARNINGS = [
+  { label: "Last 7 days", value: 50_000, bars: [38, 52, 44, 66, 58, 80, 100] },
+  { label: "Last 30 days", value: 200_000, highlight: true, bars: [40, 55, 62, 58, 74, 88, 100] },
+  { label: "Last 12 months", value: 2_400_000, bars: [30, 42, 50, 60, 72, 84, 100] },
+];
 
 // Top enrollment lines — sums to EQV (1,350,700).
 const ENROLLMENTS = [
@@ -210,9 +217,73 @@ export function BuildersDashboard({ name }: { name?: string | null }) {
         </div>
       </div>
 
+      {/* ---------- Earnings ---------- */}
+      <EarningsSection />
+
       <p className="text-center text-[11px] text-medium">
         Preview — these numbers fill in from the comp plan when the network side goes live.
       </p>
+    </div>
+  );
+}
+
+function EarningsSection() {
+  return (
+    <div className="relative overflow-hidden rounded-3xl bg-gradient-primary p-6 text-cream shadow-card sm:p-7">
+      <div className="pointer-events-none absolute inset-0 opacity-70 [background:radial-gradient(900px_340px_at_-5%_-30%,rgba(16,185,129,0.28),transparent),radial-gradient(800px_320px_at_105%_120%,rgba(94,134,168,0.3),transparent)]" />
+      <div className="pointer-events-none absolute inset-0 opacity-[0.06] [background-image:linear-gradient(rgba(255,255,255,.6)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.6)_1px,transparent_1px)] [background-size:32px_32px]" />
+      <div className="relative">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="inline-flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-cream/70">
+            <Wallet className="h-4 w-4" /> Earnings
+          </p>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-cream/20 bg-cream/10 px-3 py-1 text-[11px] font-bold">
+            <Rocket className="h-3 w-3 text-gold-light" /> Visionary · $200,000 / month
+          </span>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          {EARNINGS.map((e) => (
+            <EarnTile key={e.label} {...e} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EarnTile({
+  label, value, bars, highlight,
+}: {
+  label: string; value: number; bars: number[]; highlight?: boolean;
+}) {
+  const v = useCountUp(value, 1600);
+  return (
+    <div
+      className={`rounded-2xl border p-4 backdrop-blur ${
+        highlight ? "border-gold-light/50 bg-gold/15 ring-1 ring-gold-light/20" : "border-cream/15 bg-cream/[0.06]"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-cream/55">{label}</p>
+        <ArrowUpRight className="h-4 w-4 text-emerald-300" />
+      </div>
+      <p className="mt-1 text-2xl font-black tabular-nums sm:text-3xl">
+        <span className="bg-gradient-to-r from-emerald-300 via-cream to-gold-light bg-clip-text text-transparent">
+          ${Math.round(v).toLocaleString()}
+        </span>
+      </p>
+      {highlight && (
+        <p className="text-[10px] font-bold uppercase tracking-wide text-gold-light">Matches your rank</p>
+      )}
+      <div className="mt-3 flex h-8 items-end gap-1">
+        {bars.map((h, i) => (
+          <span
+            key={i}
+            className={`w-full rounded-sm ${highlight ? "bg-gold-light/60" : "bg-cream/25"}`}
+            style={{ height: `${Math.max(12, h)}%` }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
