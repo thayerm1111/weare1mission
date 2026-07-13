@@ -113,7 +113,7 @@ export function LivePlays({
                   key={s.id}
                   onClick={() => setActive(s)}
                   className={`w-full rounded-2xl border p-3 text-left transition-colors ${
-                    selected ? "border-gold bg-gold/[0.06]" : "border-white/10 bg-[#0f0f0f] hover:border-white/25"
+                    selected ? "border-gold bg-gold/[0.06]" : "border-white/10 bg-[#1e1810] hover:border-white/25"
                   }`}
                 >
                   <div className="flex items-start justify-between">

@@ -4,8 +4,10 @@ import { useEffect, useRef } from "react";
 
 /**
  * Embeds a TradingView "Advanced Chart" widget (free, no account needed).
- * Re-initialises when the symbol / interval / studies change so the Scanner
- * tab can swap indicator templates on the fly.
+ *
+ * The embed script forces the .tradingview-widget-container to height:100%,
+ * so we wrap it in an OUTER div that carries the real (vh/px) height. That way
+ * the 100% resolves against a definite height and the chart fills the space.
  */
 export function TradingViewChart({
   symbol = "OANDA:XAUUSD",
@@ -40,7 +42,7 @@ export function TradingViewChart({
       theme: "dark",
       style: "1",
       locale: "en",
-      backgroundColor: "rgba(10, 10, 10, 1)",
+      backgroundColor: "rgba(23, 19, 13, 1)",
       gridColor: "rgba(255, 255, 255, 0.06)",
       hide_side_toolbar: false,
       allow_symbol_change: true,
@@ -56,10 +58,12 @@ export function TradingViewChart({
   }, [symbol, interval, studiesKey]);
 
   return (
-    <div
-      className="tradingview-widget-container overflow-hidden rounded-xl"
-      ref={ref}
-      style={{ height, width: "100%" }}
-    />
+    <div className="overflow-hidden rounded-xl" style={{ height, width: "100%" }}>
+      <div
+        className="tradingview-widget-container"
+        ref={ref}
+        style={{ height: "100%", width: "100%" }}
+      />
+    </div>
   );
 }

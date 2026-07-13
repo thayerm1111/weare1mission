@@ -115,7 +115,7 @@ function Leaderboard({ onSelect }: { onSelect: (t: Trader) => void }) {
           <button
             key={t.id}
             onClick={() => onSelect(t)}
-            className="rounded-2xl border border-white/10 bg-[#0f0f0f] p-4 text-left transition-colors hover:border-emerald-400/40"
+            className="rounded-2xl border border-white/10 bg-[#1e1810] p-4 text-left transition-colors hover:border-emerald-400/40"
           >
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-2.5">
@@ -150,7 +150,7 @@ function Leaderboard({ onSelect }: { onSelect: (t: Trader) => void }) {
 function ConnectCard() {
   const [connected, setConnected] = useState(false);
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#111] p-4">
+    <div className="rounded-2xl border border-white/10 bg-[#1e1810] p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="inline-flex items-center gap-2 text-sm font-bold">
@@ -191,7 +191,7 @@ function TraderDetail({ trader, onBack }: { trader: Trader; onBack: () => void }
         <ArrowLeft className="h-4 w-4" /> Back to leaderboard
       </button>
 
-      <div className="rounded-2xl border border-white/10 bg-[#0f0f0f] p-5">
+      <div className="rounded-2xl border border-white/10 bg-[#1e1810] p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="inline-flex items-center gap-2">
             <h3 className="text-lg font-extrabold tracking-tight">{trader.name}</h3>
@@ -263,7 +263,7 @@ function TradingCalendar() {
   const monthly = Object.values(CAL).reduce((a, b) => a + b, 0);
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#0f0f0f] p-4">
+    <div className="rounded-2xl border border-white/10 bg-[#1e1810] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="inline-flex items-center gap-2 text-sm font-semibold">
           <BarChart3 className="h-4 w-4 text-emerald-400" /> Trading Calendar
@@ -326,7 +326,7 @@ function Stat({ label, value, good, bad, mini }: { label: string; value: string;
 
 function BigStat({ label, value, sub, good }: { label: string; value: string; sub: string; good?: boolean }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#0f0f0f] p-4">
+    <div className="rounded-2xl border border-white/10 bg-[#1e1810] p-4">
       <p className="text-[11px] uppercase tracking-wide text-white/40">{label}</p>
       <p className={`mt-1 text-2xl font-extrabold ${good ? "text-emerald-400" : "text-white"}`}>{value}</p>
       <p className="mt-0.5 text-xs text-white/40">{sub}</p>
@@ -336,7 +336,7 @@ function BigStat({ label, value, sub, good }: { label: string; value: string; su
 
 function Placeholder({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#0f0f0f] p-6">
+    <div className="rounded-2xl border border-white/10 bg-[#1e1810] p-6">
       <p className="text-sm font-bold">{title}</p>
       <p className="mt-1 max-w-xl text-sm text-white/50">{body}</p>
     </div>

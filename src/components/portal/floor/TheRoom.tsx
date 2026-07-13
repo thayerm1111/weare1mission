@@ -36,7 +36,7 @@ export function TheRoom() {
       {/* Stage: video + chat */}
       <div className="grid gap-3 lg:grid-cols-[1fr_320px]">
         {/* Video */}
-        <div className="relative flex min-h-[76vh] items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#151206] via-[#0c0c0c] to-black">
+        <div className="relative flex min-h-[76vh] items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#151206] via-[#17130d] to-[#0f0b06]">
           <div className="pointer-events-none absolute inset-0 opacity-40 [background:radial-gradient(circle_at_50%_40%,rgba(212,180,90,0.18),transparent_60%)]" />
           <span className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-black/50 px-3 py-1 text-xs font-semibold">
             <span className="relative flex h-2 w-2">
@@ -63,7 +63,7 @@ export function TheRoom() {
         </div>
 
         {/* Chat */}
-        <div className="flex min-h-[76vh] flex-col rounded-2xl border border-white/10 bg-[#101010]">
+        <div className="flex min-h-[76vh] flex-col rounded-2xl border border-white/10 bg-[#1e1810]">
           <div className="border-b border-white/10 px-4 py-3">
             <p className="text-sm font-semibold">Live chat</p>
           </div>
@@ -93,7 +93,7 @@ export function TheRoom() {
       </div>
 
       {/* Session info bar */}
-      <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#101010] p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#1e1810] p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold/30 text-sm font-bold text-gold-light">
             RJ
@@ -121,8 +121,8 @@ export function TheRoom() {
           <p className="mb-3 text-sm font-semibold">Session Replay</p>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {REPLAYS.map((r, i) => (
-              <article key={i} className="overflow-hidden rounded-xl border border-white/10 bg-[#0f0f0f]">
-                <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-[#1a1a1a] to-black">
+              <article key={i} className="overflow-hidden rounded-xl border border-white/10 bg-[#1e1810]">
+                <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-[#241d13] to-[#0f0b06]">
                   <span className="text-xs font-bold uppercase tracking-widest text-white/40">
                     Starting soon
                   </span>
@@ -145,7 +145,7 @@ export function TheRoom() {
           <p className="mb-3 text-sm font-semibold">Live Schedule</p>
           <div className="space-y-2">
             {SCHEDULE.map((s, i) => (
-              <div key={i} className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#0f0f0f] p-3">
+              <div key={i} className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#1e1810] p-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gold/30 text-xs font-bold text-gold-light">
                   RJ
                 </div>

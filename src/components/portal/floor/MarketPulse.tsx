@@ -40,7 +40,7 @@ export function MarketPulse() {
               className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition-colors ${
                 active
                   ? "border-gold bg-gold/15 text-gold-light"
-                  : "border-white/10 bg-[#111] text-white/70 hover:border-white/25 hover:text-white"
+                  : "border-white/10 bg-[#1e1810] text-white/70 hover:border-white/25 hover:text-white"
               }`}
             >
               <span
@@ -57,7 +57,7 @@ export function MarketPulse() {
         <select
           value={symbol}
           onChange={(e) => setSymbol(e.target.value)}
-          className="ml-auto rounded-xl border border-white/10 bg-[#141414] px-3 py-2.5 text-sm text-white focus:outline-none"
+          className="ml-auto rounded-xl border border-white/10 bg-[#241d13] px-3 py-2.5 text-sm text-white focus:outline-none"
         >
           {SYMBOLS.map((s) => (
             <option key={s} value={s}>

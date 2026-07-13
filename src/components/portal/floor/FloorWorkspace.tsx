@@ -31,7 +31,7 @@ export function FloorWorkspace({
   const go = (id: TabId) => router.replace(`/portal/trading?view=${id}`, { scroll: false });
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-black bg-[#0a0a0a] text-white shadow-card">
+    <div className="overflow-hidden rounded-2xl border border-[#100c07] bg-[#17130d] text-white shadow-card">
       {/* In-page tab bar — mobile only; on desktop the sidebar drives the view */}
       <div className="border-b border-white/10 p-2 lg:hidden">
         <div className="flex flex-wrap gap-1.5">
