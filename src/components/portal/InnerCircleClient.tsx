@@ -1,265 +1,320 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Users2, Play, FileText, Headphones, Plus, Loader2 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { useMemo, useState } from "react";
+import {
+  Search, BadgeCheck, ArrowLeft, UserPlus, Check, MessageSquare,
+  Grid3x3, Clapperboard, FileText, Heart, MessageCircle, Play, Download,
+} from "lucide-react";
 
-type Kind = "status" | "video" | "audio" | "pdf";
+/* ---------------- types + sample data (Phase 1) ---------------- */
 
-interface Post {
+type Creator = {
   id: string;
-  kind: Kind;
-  body: string | null;
-  media_url: string | null;
-  created_at: string;
-  author_id: string;
-  author_name: string | null;
-  author_username: string | null;
-  author_headline: string | null;
-  author_avatar: string | null;
+  name: string;
+  handle: string;
+  verified?: boolean;
+  headline: string;
+  bio: string[];
+  followers: string;
+  following: string;
+  posts: number;
+};
+
+const CREATORS: Creator[] = [
+  { id: "matt", name: "Matthew Thayer", handle: "matthewthayer", verified: true, headline: "1M Co-Founder · Pro Arena QB", bio: ["1 tap, 1 mission, unlimited potential", "1M Co-Founder", "Pro Arena QB", "Father, Husband"], followers: "963K", following: "2,754", posts: 542 },
+  { id: "rj", name: "RJ Antuna", handle: "rjantuna", verified: true, headline: "Forex Educator", bio: ["Forex educator", "Live gold sessions daily", "The Room host"], followers: "48.2K", following: "310", posts: 214 },
+  { id: "arabella", name: "Arabella Angeles", handle: "arabella", headline: "Scalper · Mentor", bio: ["Scalping XAU/USD", "Mentor in the 1M community"], followers: "12.1K", following: "640", posts: 98 },
+  { id: "gold", name: "Gold Master", handle: "gold_master", verified: true, headline: "Gold Specialist", bio: ["Precision entries", "London & NY sessions"], followers: "75.9K", following: "120", posts: 301 },
+  { id: "hannah", name: "Hannah Gallagher", handle: "hannahg", headline: "Swing Trader", bio: ["Higher-timeframe swings", "Risk first, always"], followers: "9.3K", following: "210", posts: 76 },
+  { id: "dee", name: "Coach Dee", handle: "coachdee", headline: "Mindset & Discipline", bio: ["Mindset coach", "Discipline > motivation"], followers: "22.4K", following: "512", posts: 180 },
+];
+
+const img = (seed: string, s = 500) => `https://picsum.photos/seed/${seed}/${s}/${s}`;
+const avatar = (id: string, s = 200) => `https://picsum.photos/seed/${id}-av/${s}/${s}`;
+
+const REELS_VIEWS = ["12.4K", "8.1K", "31.9K", "4.7K", "19.2K", "6.6K"];
+const FILES = [
+  { name: "Gold Playbook 2026.pdf", size: "2.4 MB" },
+  { name: "Risk Management Guide.pdf", size: "1.1 MB" },
+  { name: "Session Recap — London.pdf", size: "3.8 MB" },
+];
+
+function statusesFor(id: string) {
+  return [
+    { text: "Locked in for the London open — watching 4120 on gold. Patience today. 🧠", time: "2h", likes: 214, comments: 18 },
+    { text: "Reminder: your risk plan is the trade. Everything else is noise.", time: "1d", likes: 401, comments: 33 },
+    { text: `New breakdown dropping in The Room tonight. Bring questions. (${id})`, time: "3d", likes: 156, comments: 27 },
+  ];
 }
-interface Creator {
-  id: string;
-  full_name: string | null;
-  username: string | null;
-  headline: string | null;
-  bio: string | null;
-  avatar_url: string | null;
-  is_following: boolean;
-  post_count: number;
-}
-interface Me { id: string; name: string | null; isCreator: boolean; }
 
-function initials(name: string | null, fallback = "1M") {
-  if (!name) return fallback;
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || fallback;
-}
-function timeAgo(iso: string) {
-  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24); if (d < 7) return `${d}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
+/* ---------------- component ---------------- */
 
-export function InnerCircleClient({ me }: { me: Me }) {
-  const [tab, setTab] = useState<"following" | "everyone">("everyone");
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [creators, setCreators] = useState<Creator[]>([]);
-  const [loading, setLoading] = useState(true);
+export function InnerCircleClient(_props: { me?: { id: string; name: string | null; isCreator: boolean } }) {
+  const [selected, setSelected] = useState<Creator | null>(null);
+  const [query, setQuery] = useState("");
+  const [following, setFollowing] = useState<Set<string>>(new Set(["rj", "gold"]));
 
-  const load = useCallback(async () => {
-    const supabase = createClient();
-    if (!supabase) { setLoading(false); return; }
-    setLoading(true);
-    const [{ data: feed }, { data: cr }] = await Promise.all([
-      supabase.rpc("get_inner_feed", { only_following: tab === "following" }),
-      supabase.rpc("get_creators"),
-    ]);
-    setPosts((feed as Post[]) ?? []);
-    setCreators((cr as Creator[]) ?? []);
-    setLoading(false);
-  }, [tab]);
+  const toggleFollow = (id: string) =>
+    setFollowing((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
-  useEffect(() => { load(); }, [load]);
+  const list = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return CREATORS;
+    return CREATORS.filter(
+      (c) => c.name.toLowerCase().includes(q) || c.handle.toLowerCase().includes(q) || c.headline.toLowerCase().includes(q)
+    );
+  }, [query]);
 
-  async function toggleFollow(id: string) {
-    const supabase = createClient();
-    if (!supabase) return;
-    setCreators((cs) => cs.map((c) => c.id === id ? { ...c, is_following: !c.is_following } : c));
-    await supabase.rpc("toggle_follow", { target: id });
-    if (tab === "following") load();
+  if (selected) {
+    return (
+      <Profile
+        creator={selected}
+        isFollowing={following.has(selected.id)}
+        onFollow={() => toggleFollow(selected.id)}
+        onBack={() => setSelected(null)}
+      />
+    );
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       <header>
-        <p className="eyebrow text-gold">Members Only</p>
-        <h1 className="mt-2 flex items-center gap-2 font-serif text-4xl font-black tracking-tight text-navy">
-          <Users2 className="h-8 w-8 text-gold" aria-hidden="true" /> The Inner Circle
-        </h1>
-        <p className="mt-2 max-w-2xl text-charcoal/70">
-          Follow the educators and leaders you learn from. Get their videos, recordings, resources, and updates in one feed.
-        </p>
+        <p className="eyebrow">Community</p>
+        <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-navy">The Inner Circle</h1>
+        <p className="mt-2 text-charcoal/70">Search creators, follow them, and see everything they share.</p>
       </header>
 
-      <div className="grid gap-8 lg:grid-cols-[1fr_320px]">
-        {/* Feed */}
-        <div className="min-w-0 space-y-5">
-          {me.isCreator && <Composer onPosted={load} />}
+      {/* Search */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-medium" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search creators…"
+          className="w-full rounded-xl border border-[#E4DCCB] bg-cream py-3 pl-11 pr-4 text-sm text-navy placeholder:text-medium focus:border-primary focus:outline-none"
+        />
+      </div>
 
-          <div className="flex gap-2">
-            {(["everyone", "following"] as const).map((t) => (
-              <button key={t} onClick={() => setTab(t)}
-                className={`rounded-full px-4 py-2 text-sm font-semibold capitalize transition-colors ${
-                  tab === t ? "bg-primary text-cream" : "border border-[#E4DCCB] text-charcoal/70 hover:bg-ice"
-                }`}>
-                {t === "everyone" ? "Everyone" : "Following"}
-              </button>
-            ))}
-          </div>
-
-          {loading ? (
-            <div className="flex items-center gap-2 rounded-2xl border border-[#E4DCCB] bg-cream p-6 text-sm text-charcoal/60">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading the feed…
-            </div>
-          ) : posts.length === 0 ? (
-            <div className="rounded-2xl border border-[#E4DCCB] bg-offwhite/50 p-8 text-center text-sm text-charcoal/60">
-              {tab === "following"
-                ? "You're not following anyone yet. Follow a few creators on the right to fill your feed."
-                : "No posts yet. Once creators start posting, they'll show up here."}
-            </div>
-          ) : (
-            posts.map((p) => <PostCard key={p.id} post={p} />)
-          )}
-        </div>
-
-        {/* Creators sidebar */}
-        <aside className="space-y-3 lg:sticky lg:top-24 lg:self-start">
-          <h2 className="text-xs font-bold uppercase tracking-label text-medium">Creators to follow</h2>
-          {creators.length === 0 ? (
-            <p className="rounded-2xl border border-[#E4DCCB] bg-offwhite/50 p-4 text-sm text-charcoal/60">
-              No creators yet. An admin can grant creator access from the Approvals page.
-            </p>
-          ) : creators.map((c) => (
-            <div key={c.id} className="rounded-2xl border border-[#E4DCCB] bg-cream p-4 shadow-card">
-              <div className="flex items-center gap-3">
-                <Avatar name={c.full_name} src={c.avatar_url} />
+      {/* Directory */}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {list.map((c) => {
+          const isF = following.has(c.id);
+          return (
+            <div key={c.id} className="flex flex-col rounded-2xl border border-[#E4DCCB] bg-cream p-4 shadow-card">
+              <button onClick={() => setSelected(c)} className="flex items-center gap-3 text-left">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={avatar(c.id)} alt={c.name} className="h-14 w-14 rounded-full object-cover" />
                 <div className="min-w-0">
-                  <p className="truncate font-semibold text-navy">{c.full_name || c.username || "Creator"}</p>
-                  <p className="truncate text-xs text-medium">{c.headline || `${c.post_count} posts`}</p>
+                  <p className="flex items-center gap-1 font-bold text-navy">
+                    <span className="truncate">{c.name}</span>
+                    {c.verified && <BadgeCheck className="h-4 w-4 flex-shrink-0 text-gold-deep" />}
+                  </p>
+                  <p className="truncate text-xs text-medium">@{c.handle}</p>
+                  <p className="truncate text-xs text-charcoal/60">{c.headline}</p>
                 </div>
-              </div>
-              <button onClick={() => toggleFollow(c.id)}
-                className={`mt-3 w-full rounded-full px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors ${
-                  c.is_following ? "border border-[#E4DCCB] text-charcoal/70 hover:bg-ice" : "bg-gradient-primary text-cream hover:-translate-y-0.5"
-                }`}>
-                {c.is_following ? "Following" : "Follow"}
               </button>
+              <div className="mt-3 flex items-center justify-between">
+                <span className="text-xs text-medium">
+                  <span className="font-semibold text-navy">{c.followers}</span> followers
+                </span>
+                <button
+                  onClick={() => toggleFollow(c.id)}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors ${
+                    isF ? "border border-[#E4DCCB] text-charcoal/70 hover:bg-ice" : "bg-primary text-cream hover:opacity-90"
+                  }`}
+                >
+                  {isF ? <><Check className="h-3.5 w-3.5" /> Following</> : <><UserPlus className="h-3.5 w-3.5" /> Follow</>}
+                </button>
+              </div>
             </div>
-          ))}
-        </aside>
+          );
+        })}
+        {list.length === 0 && (
+          <p className="rounded-xl border border-[#E4DCCB] bg-offwhite/50 p-6 text-sm text-charcoal/60 sm:col-span-2 xl:col-span-3">
+            No creators match “{query}”.
+          </p>
+        )}
       </div>
     </div>
   );
 }
 
-function Avatar({ name, src }: { name: string | null; src: string | null }) {
-  if (src) {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img src={src} alt="" className="h-11 w-11 flex-shrink-0 rounded-full object-cover" />;
-  }
-  return (
-    <span className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-full bg-gradient-gold font-serif text-sm font-bold text-navy">
-      {initials(name)}
-    </span>
-  );
-}
+/* ---------------- profile ---------------- */
 
-function PostCard({ post }: { post: Post }) {
+const TABS = [
+  { id: "posts", label: "Posts", icon: Grid3x3 },
+  { id: "status", label: "Status", icon: MessageSquare },
+  { id: "reels", label: "Reels", icon: Clapperboard },
+  { id: "files", label: "Files", icon: FileText },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
+
+function Profile({
+  creator, isFollowing, onFollow, onBack,
+}: {
+  creator: Creator; isFollowing: boolean; onFollow: () => void; onBack: () => void;
+}) {
+  const [tab, setTab] = useState<TabId>("posts");
+
   return (
-    <article className="rounded-2xl border border-[#E4DCCB] bg-cream p-5 shadow-card">
-      <div className="flex items-center gap-3">
-        <Avatar name={post.author_name} src={post.author_avatar} />
-        <div className="min-w-0">
-          <p className="font-semibold text-navy">{post.author_name || post.author_username || "Creator"}</p>
-          <p className="text-xs text-medium">{post.author_headline ? `${post.author_headline} · ` : ""}{timeAgo(post.created_at)}</p>
+    <div className="space-y-5">
+      <button onClick={onBack} className="inline-flex items-center gap-1.5 text-sm font-semibold text-charcoal/70 hover:text-navy">
+        <ArrowLeft className="h-4 w-4" /> Back to creators
+      </button>
+
+      {/* Header */}
+      <div className="rounded-2xl border border-[#E4DCCB] bg-cream p-5 shadow-card">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={avatar(creator.id, 240)} alt={creator.name} className="h-20 w-20 rounded-full object-cover sm:h-24 sm:w-24" />
+          <div className="flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="flex items-center gap-1.5 text-xl font-extrabold tracking-tight text-navy">
+                {creator.name}
+                {creator.verified && <BadgeCheck className="h-5 w-5 text-gold-deep" />}
+              </h1>
+              <span className="text-sm text-medium">@{creator.handle}</span>
+            </div>
+            <div className="mt-2 flex gap-5 text-sm">
+              <span><span className="font-bold text-navy">{creator.posts}</span> <span className="text-medium">posts</span></span>
+              <span><span className="font-bold text-navy">{creator.followers}</span> <span className="text-medium">followers</span></span>
+              <span><span className="font-bold text-navy">{creator.following}</span> <span className="text-medium">following</span></span>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={onFollow}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-bold transition-colors ${
+                isFollowing ? "border border-[#E4DCCB] text-charcoal/70 hover:bg-ice" : "bg-primary text-cream hover:opacity-90"
+              }`}
+            >
+              {isFollowing ? <><Check className="h-4 w-4" /> Following</> : <><UserPlus className="h-4 w-4" /> Follow</>}
+            </button>
+            <button className="inline-flex items-center gap-1.5 rounded-lg border border-[#E4DCCB] px-4 py-2 text-sm font-bold text-navy hover:bg-ice">
+              <MessageSquare className="h-4 w-4" /> Message
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 space-y-0.5">
+          {creator.bio.map((b, i) => (
+            <p key={i} className="text-sm text-charcoal/80">• {b}</p>
+          ))}
         </div>
       </div>
-      {post.body && <p className="mt-4 whitespace-pre-wrap text-[15px] leading-relaxed text-charcoal/85">{post.body}</p>}
-      {post.media_url && <Media kind={post.kind} url={post.media_url} />}
-    </article>
+
+      {/* Tabs */}
+      <div className="flex gap-1 rounded-xl border border-[#E4DCCB] bg-offwhite/60 p-1">
+        {TABS.map((t) => {
+          const Icon = t.icon;
+          const active = tab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold transition-colors ${
+                active ? "bg-primary text-cream" : "text-charcoal/60 hover:bg-ice"
+              }`}
+            >
+              <Icon className="h-4 w-4" /> <span className="hidden sm:inline">{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === "posts" && <Posts id={creator.id} />}
+      {tab === "status" && <StatusFeed creator={creator} />}
+      {tab === "reels" && <Reels id={creator.id} />}
+      {tab === "files" && <Files />}
+    </div>
   );
 }
 
-function Media({ kind, url }: { kind: Kind; url: string }) {
-  if (kind === "audio") {
-    return (
-      <div className="mt-4 flex items-center gap-3 rounded-xl border border-[#E4DCCB] bg-offwhite/60 p-3">
-        <Headphones className="h-5 w-5 flex-shrink-0 text-gold" />
-        <audio controls src={url} className="w-full" />
-      </div>
-    );
-  }
-  if (kind === "pdf") {
-    return (
-      <a href={url} target="_blank" rel="noreferrer"
-        className="mt-4 flex items-center gap-3 rounded-xl border border-[#E4DCCB] bg-offwhite/60 p-4 hover:border-gold">
-        <FileText className="h-5 w-5 flex-shrink-0 text-gold" />
-        <span className="text-sm font-semibold text-navy">Open PDF resource</span>
-      </a>
-    );
-  }
-  // video (default)
+function Posts({ id }: { id: string }) {
+  const seeds = Array.from({ length: 9 }, (_, i) => `${id}-p-${i}`);
   return (
-    <a href={url} target="_blank" rel="noreferrer"
-      className="group mt-4 flex aspect-video w-full items-center justify-center overflow-hidden rounded-xl border border-[#233] bg-gradient-navy">
-      <span className="grid h-14 w-14 place-items-center rounded-full bg-red-600 text-white shadow-lg transition-transform group-hover:scale-105">
-        <Play className="h-6 w-6 fill-current" />
-      </span>
-    </a>
-  );
-}
-
-/* Creator-only composer */
-function Composer({ onPosted }: { onPosted: () => void }) {
-  const [kind, setKind] = useState<Kind>("status");
-  const [body, setBody] = useState("");
-  const [media, setMedia] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (!body.trim() && !media.trim()) return;
-    const supabase = createClient();
-    if (!supabase) return;
-    setBusy(true); setErr("");
-    const { error } = await supabase.rpc("create_inner_post", {
-      p_kind: kind, p_body: body.trim() || null, p_media_url: media.trim() || null,
-    });
-    setBusy(false);
-    if (error) { setErr(error.message); return; }
-    setBody(""); setMedia(""); setKind("status");
-    onPosted();
-  }
-
-  const kinds: { k: Kind; label: string }[] = [
-    { k: "status", label: "Status" }, { k: "video", label: "Video" },
-    { k: "audio", label: "Recording" }, { k: "pdf", label: "PDF" },
-  ];
-
-  return (
-    <form onSubmit={submit} className="rounded-2xl border border-gold/40 bg-cream p-5 shadow-card">
-      <p className="text-xs font-bold uppercase tracking-label text-gold">Post to your followers</p>
-      <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3}
-        placeholder="Share an update, a lesson, or a win…"
-        className="mt-3 w-full resize-none rounded-xl border border-[#E4DCCB] bg-offwhite/40 p-3 text-sm outline-none focus:border-gold" />
-      <div className="mt-3 flex flex-wrap gap-2">
-        {kinds.map(({ k, label }) => (
-          <button type="button" key={k} onClick={() => setKind(k)}
-            className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-              kind === k ? "bg-gradient-primary text-cream" : "border border-[#E4DCCB] text-charcoal/70 hover:bg-ice"
-            }`}>{label}</button>
-        ))}
-      </div>
-      {kind !== "status" && (
-        <input value={media} onChange={(e) => setMedia(e.target.value)}
-          placeholder={kind === "video" ? "Video link (YouTube, Vimeo, …)" : kind === "audio" ? "Audio/recording link (.mp3)" : "PDF link"}
-          className="mt-3 w-full rounded-xl border border-[#E4DCCB] bg-offwhite/40 px-3 py-2.5 text-sm outline-none focus:border-gold" />
-      )}
-      {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
-      <div className="mt-3 flex justify-end">
-        <button type="submit" disabled={busy}
-          className="inline-flex items-center gap-2 rounded-full bg-gradient-primary px-6 py-2.5 text-sm font-bold uppercase tracking-wider text-cream disabled:opacity-60">
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Post
+    <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5">
+      {seeds.map((s, i) => (
+        <button key={s} className="group relative aspect-square overflow-hidden rounded-lg bg-ice">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={img(s, 400)} alt="" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+          <div className="absolute inset-0 flex items-center justify-center gap-4 bg-black/40 text-sm font-bold text-white opacity-0 transition group-hover:opacity-100">
+            <span className="inline-flex items-center gap-1"><Heart className="h-4 w-4 fill-white" /> {120 + i * 37}</span>
+            <span className="inline-flex items-center gap-1"><MessageCircle className="h-4 w-4 fill-white" /> {6 + i * 3}</span>
+          </div>
         </button>
-      </div>
-      <p className="mt-2 text-[11px] text-charcoal/50">
-        Tip: paste a link for now. Direct file uploads (video/audio/PDF) are coming next.
-      </p>
-    </form>
+      ))}
+    </div>
+  );
+}
+
+function StatusFeed({ creator }: { creator: Creator }) {
+  return (
+    <div className="space-y-3">
+      {statusesFor(creator.id).map((s, i) => (
+        <article key={i} className="rounded-2xl border border-[#E4DCCB] bg-cream p-4 shadow-card">
+          <div className="flex items-center gap-2.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={avatar(creator.id)} alt="" className="h-9 w-9 rounded-full object-cover" />
+            <div>
+              <p className="text-sm font-bold text-navy">{creator.name}</p>
+              <p className="text-xs text-medium">{s.time} ago</p>
+            </div>
+          </div>
+          <p className="mt-3 text-sm leading-relaxed text-charcoal/85">{s.text}</p>
+          <div className="mt-3 flex gap-5 border-t border-[#E4DCCB] pt-3 text-sm text-medium">
+            <span className="inline-flex items-center gap-1.5"><Heart className="h-4 w-4" /> {s.likes}</span>
+            <span className="inline-flex items-center gap-1.5"><MessageCircle className="h-4 w-4" /> {s.comments}</span>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function Reels({ id }: { id: string }) {
+  const seeds = Array.from({ length: 6 }, (_, i) => `${id}-r-${i}`);
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      {seeds.map((s, i) => (
+        <button key={s} className="group relative aspect-[9/16] overflow-hidden rounded-xl bg-ice">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={`https://picsum.photos/seed/${s}/300/520`} alt="" className="h-full w-full object-cover" />
+          <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/25 backdrop-blur transition group-hover:scale-110">
+              <Play className="ml-0.5 h-5 w-5 fill-white text-white" />
+            </span>
+          </div>
+          <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 text-xs font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,.6)]">
+            <Play className="h-3 w-3 fill-white" /> {REELS_VIEWS[i]}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Files() {
+  return (
+    <div className="space-y-2">
+      {FILES.map((f, i) => (
+        <div key={i} className="flex items-center gap-3 rounded-xl border border-[#E4DCCB] bg-cream p-3.5 shadow-card">
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-ice text-primary">
+            <FileText className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-navy">{f.name}</p>
+            <p className="text-xs text-medium">PDF · {f.size}</p>
+          </div>
+          <button className="inline-flex items-center gap-1.5 rounded-lg border border-[#E4DCCB] px-3.5 py-1.5 text-xs font-bold text-navy hover:bg-ice">
+            <Download className="h-3.5 w-3.5" /> Open
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
