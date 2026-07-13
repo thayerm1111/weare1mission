@@ -21,8 +21,8 @@ const REG: Record<string, Item> = {
   resources: { href: "/portal/resources", label: "Resources", icon: FolderOpen },
   leadership: { href: "/portal/leadership", label: "The Inner Circle", icon: Users2 },
   updates: { href: "/portal/updates", label: "Mission Update", icon: Megaphone },
-  collection: { href: "/collection", label: "The Collection", icon: ShoppingBag },
-  experiences: { href: "/experiences", label: "1M Experiences", icon: Palmtree },
+  collection: { href: "/portal/collection", label: "The Collection", icon: ShoppingBag },
+  experiences: { href: "/portal/experiences", label: "1M Experiences", icon: Palmtree },
   account: { href: "/portal/account", label: "Account", icon: UserCircle },
 };
 
