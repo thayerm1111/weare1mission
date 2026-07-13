@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, BadgeCheck, ArrowLeft, UserPlus, Check, MessageSquare,
   Grid3x3, Clapperboard, FileText, Heart, MessageCircle, Play, Download,
-  Plus, X, ImagePlus, Loader2, Trash2, Sparkles,
+  Plus, X, ImagePlus, Loader2, Trash2, Sparkles, Send,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
@@ -42,6 +42,17 @@ type Post = {
   created_at: string;
   like_count: number;
   viewer_liked: boolean;
+  comment_count: number;
+};
+
+type Comment = {
+  id: string;
+  body: string;
+  created_at: string;
+  author_id: string;
+  author_name: string | null;
+  author_username: string | null;
+  author_avatar: string | null;
 };
 
 /* ---------------- helpers ---------------- */
@@ -270,6 +281,7 @@ function Profile({
   const [tab, setTab] = useState<TabId>("posts");
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [openPhotoId, setOpenPhotoId] = useState<string | null>(null);
   const isMe = me.id === creator.id;
 
   const load = useCallback(async () => {
@@ -367,12 +379,28 @@ function Profile({
         </div>
       ) : (
         <>
-          {tab === "posts" && <PhotoGrid photos={photos} />}
-          {tab === "status" && <StatusFeed statuses={statuses} creator={creator} onLike={like} canDelete={isMe} onDelete={remove} />}
+          {tab === "posts" && <PhotoGrid photos={photos} onOpen={(p) => setOpenPhotoId(p.id)} />}
+          {tab === "status" && <StatusFeed me={me} statuses={statuses} creator={creator} onLike={like} canDelete={isMe} onDelete={remove} />}
           {tab === "reels" && <ReelGrid reels={reels} />}
           {tab === "files" && <FileList files={files} />}
         </>
       )}
+
+      {openPhotoId && (() => {
+        const photo = posts.find((p) => p.id === openPhotoId);
+        if (!photo) return null;
+        return (
+          <PhotoModal
+            me={me}
+            creator={creator}
+            post={photo}
+            canDelete={isMe}
+            onLike={() => like(photo)}
+            onDelete={() => { remove(photo); setOpenPhotoId(null); }}
+            onClose={() => setOpenPhotoId(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -385,23 +413,28 @@ function Empty({ children }: { children: React.ReactNode }) {
   );
 }
 
-function PhotoGrid({ photos }: { photos: Post[] }) {
+function PhotoGrid({ photos, onOpen }: { photos: Post[]; onOpen: (p: Post) => void }) {
   if (photos.length === 0) return <Empty>No photos yet.</Empty>;
   return (
     <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5">
       {photos.map((p) => {
         const src = p.media_urls?.[0] ?? p.media_url ?? "";
         return (
-          <div key={p.id} className="group relative aspect-square overflow-hidden rounded-lg bg-ice">
+          <button
+            key={p.id}
+            onClick={() => onOpen(p)}
+            className="group relative aspect-square overflow-hidden rounded-lg bg-ice"
+          >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {src && <img src={src} alt={p.body ?? ""} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />}
+            {(p.media_urls?.length ?? 0) > 1 && (
+              <span className="absolute right-2 top-2 text-white/90"><Grid3x3 className="h-4 w-4" /></span>
+            )}
             <div className="absolute inset-0 flex items-center justify-center gap-4 bg-black/40 text-sm font-bold text-white opacity-0 transition group-hover:opacity-100">
               <span className="inline-flex items-center gap-1"><Heart className="h-4 w-4 fill-white" /> {p.like_count}</span>
-              {(p.media_urls?.length ?? 0) > 1 && (
-                <span className="inline-flex items-center gap-1"><Grid3x3 className="h-4 w-4" /> {p.media_urls?.length}</span>
-              )}
+              <span className="inline-flex items-center gap-1"><MessageCircle className="h-4 w-4 fill-white" /> {p.comment_count}</span>
             </div>
-          </div>
+          </button>
         );
       })}
     </div>
@@ -409,10 +442,11 @@ function PhotoGrid({ photos }: { photos: Post[] }) {
 }
 
 function StatusFeed({
-  statuses, creator, onLike, canDelete, onDelete,
+  me, statuses, creator, onLike, canDelete, onDelete,
 }: {
-  statuses: Post[]; creator: Creator; onLike: (p: Post) => void; canDelete: boolean; onDelete: (p: Post) => void;
+  me: Me; statuses: Post[]; creator: Creator; onLike: (p: Post) => void; canDelete: boolean; onDelete: (p: Post) => void;
 }) {
+  const [openId, setOpenId] = useState<string | null>(null);
   if (statuses.length === 0) return <Empty>No status updates yet.</Empty>;
   const name = creator.full_name ?? creator.username ?? "Creator";
   return (
@@ -440,10 +474,161 @@ function StatusFeed({
             <button onClick={() => onLike(s)} className={`inline-flex items-center gap-1.5 transition-colors ${s.viewer_liked ? "text-red-500" : "hover:text-navy"}`}>
               <Heart className={`h-4 w-4 ${s.viewer_liked ? "fill-red-500" : ""}`} /> {s.like_count}
             </button>
-            <span className="inline-flex items-center gap-1.5"><MessageCircle className="h-4 w-4" /> Comment</span>
+            <button
+              onClick={() => setOpenId((cur) => (cur === s.id ? null : s.id))}
+              className={`inline-flex items-center gap-1.5 transition-colors ${openId === s.id ? "text-navy" : "hover:text-navy"}`}
+            >
+              <MessageCircle className="h-4 w-4" /> {s.comment_count > 0 ? s.comment_count : "Comment"}
+            </button>
           </div>
+          {openId === s.id && <Comments me={me} postId={s.id} />}
         </article>
       ))}
+    </div>
+  );
+}
+
+function Comments({ me, postId }: { me: Me; postId: string }) {
+  const supabase = useMemo(() => createClient(), []);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!supabase) return;
+    setLoading(true);
+    const { data } = await supabase.rpc("get_inner_comments", { p_post: postId });
+    setComments((data as Comment[]) ?? []);
+    setLoading(false);
+  }, [supabase, postId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const submit = async () => {
+    const body = text.trim();
+    if (!body || !supabase) return;
+    setBusy(true);
+    const { error } = await supabase.rpc("add_inner_comment", { p_post: postId, p_body: body });
+    if (!error) { setText(""); await load(); }
+    setBusy(false);
+  };
+
+  const remove = async (id: string) => {
+    if (!supabase) return;
+    setComments((prev) => prev.filter((c) => c.id !== id));
+    await supabase.rpc("delete_inner_comment", { target: id });
+  };
+
+  return (
+    <div className="mt-3 border-t border-[#E4DCCB] pt-3">
+      {loading ? (
+        <p className="py-2 text-center text-xs text-medium">Loading comments…</p>
+      ) : (
+        <div className="space-y-2.5">
+          {comments.map((c) => {
+            const cname = c.author_name ?? c.author_username ?? "Member";
+            return (
+              <div key={c.id} className="flex items-start gap-2.5">
+                <Avatar url={c.author_avatar} name={cname} handle={c.author_username} className="h-7 w-7 text-[10px]" />
+                <div className="flex-1 rounded-xl bg-offwhite/70 px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-bold text-navy">{cname}</p>
+                    <p className="text-[11px] text-medium">{timeAgo(c.created_at)}</p>
+                    {c.author_id === me.id && (
+                      <button onClick={() => remove(c.id)} className="ml-auto text-medium hover:text-red-500" aria-label="Delete comment">
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-0.5 whitespace-pre-wrap text-sm text-charcoal/85">{c.body}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="mt-3 flex items-center gap-2">
+        <Avatar url={me.avatar} name={me.name} handle={me.username} className="h-7 w-7 text-[10px]" />
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
+          placeholder="Add a comment…"
+          className="flex-1 rounded-full border border-[#E4DCCB] bg-cream px-4 py-2 text-sm text-navy placeholder:text-medium focus:border-primary focus:outline-none"
+        />
+        <button
+          onClick={submit}
+          disabled={busy || !text.trim()}
+          className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary text-cream transition hover:opacity-90 disabled:opacity-40"
+          aria-label="Post comment"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PhotoModal({
+  me, creator, post, canDelete, onLike, onDelete, onClose,
+}: {
+  me: Me; creator: Creator; post: Post; canDelete: boolean;
+  onLike: () => void; onDelete: () => void; onClose: () => void;
+}) {
+  const images = (post.media_urls && post.media_urls.length > 0)
+    ? post.media_urls
+    : post.media_url ? [post.media_url] : [];
+  const [idx, setIdx] = useState(0);
+  const name = creator.full_name ?? creator.username ?? "Creator";
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={onClose}>
+      <div
+        className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-[#E4DCCB] bg-cream shadow-card sm:flex-row"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Image */}
+        <div className="relative flex-1 bg-black">
+          {images[idx] && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={images[idx]} alt={post.body ?? ""} className="h-full max-h-[46vh] w-full object-contain sm:max-h-[92vh]" />
+          )}
+          {images.length > 1 && (
+            <>
+              <button onClick={() => setIdx((i) => (i - 1 + images.length) % images.length)} className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-1.5 text-white"><ArrowLeft className="h-4 w-4" /></button>
+              <button onClick={() => setIdx((i) => (i + 1) % images.length)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-1.5 text-white"><ArrowLeft className="h-4 w-4 rotate-180" /></button>
+              <span className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-2 py-0.5 text-[11px] font-semibold text-white">{idx + 1}/{images.length}</span>
+            </>
+          )}
+        </div>
+        {/* Details */}
+        <div className="flex w-full flex-col sm:max-w-[320px]">
+          <div className="flex items-center gap-2.5 border-b border-[#E4DCCB] p-4">
+            <Avatar url={creator.avatar_url} name={name} handle={creator.username} className="h-9 w-9 text-xs" />
+            <div className="flex-1">
+              <p className="text-sm font-bold text-navy">{name}</p>
+              <p className="text-xs text-medium">{timeAgo(post.created_at)} ago</p>
+            </div>
+            {canDelete && (
+              <button onClick={onDelete} className="text-medium hover:text-red-500" aria-label="Delete post"><Trash2 className="h-4 w-4" /></button>
+            )}
+            <button onClick={onClose} className="text-medium hover:text-navy" aria-label="Close"><X className="h-5 w-5" /></button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            {post.body
+              ? <p className="whitespace-pre-wrap text-sm leading-relaxed text-charcoal/85">{post.body}</p>
+              : <p className="text-sm italic text-medium">No caption.</p>}
+            <div className="mt-3 flex gap-5 border-t border-[#E4DCCB] pt-3 text-sm text-medium">
+              <button onClick={onLike} className={`inline-flex items-center gap-1.5 transition-colors ${post.viewer_liked ? "text-red-500" : "hover:text-navy"}`}>
+                <Heart className={`h-4 w-4 ${post.viewer_liked ? "fill-red-500" : ""}`} /> {post.like_count}
+              </button>
+              <span className="inline-flex items-center gap-1.5"><MessageCircle className="h-4 w-4" /> {post.comment_count}</span>
+            </div>
+            <Comments me={me} postId={post.id} />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
