@@ -33,10 +33,10 @@ export function Logo({ light = false, wordmark = true }: { light?: boolean; word
       className={`inline-flex items-center gap-2.5 ${light ? "text-cream" : "text-primary"}`}
     >
       {logoImage ? (
-        // The uploaded mark is white artwork; on light backgrounds we darken it,
-        // on dark backgrounds it stays white.
+        // The OM mark is black artwork on transparent. On light backgrounds it
+        // shows as-is; on dark sections we flip it to white.
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={logoImage} alt={brandName} className={`h-9 w-auto ${light ? "" : "brightness-0"}`} />
+        <img src={logoImage} alt={brandName} className={`h-10 w-auto ${light ? "brightness-0 invert" : ""}`} />
       ) : (
         <Monogram1M className="h-7 w-7" />
       )}
