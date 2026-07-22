@@ -24,7 +24,7 @@ export function SectionHeading({
         <span className={`eyebrow ${light ? "text-gold-light" : "text-gold"}`}>{eyebrow}</span>
       )}
       <h2
-        className={`mt-4 font-serif text-4xl font-black leading-[1.05] tracking-tight text-balance sm:text-5xl lg:text-[3.25rem] ${
+        className={`mt-5 font-serif text-[2rem] font-semibold uppercase leading-[1.06] tracking-[0.03em] text-balance sm:text-[2.5rem] lg:text-[3rem] ${
           light ? "text-white" : "text-navy"
         }`}
       >

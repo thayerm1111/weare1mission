@@ -62,8 +62,8 @@ export function Header() {
       <header
         className={`sticky top-0 z-40 w-full transition-all duration-300 ${
           scrolled
-            ? "border-b border-[#E4DCCB] bg-cream/85 backdrop-blur-md"
-            : "bg-cream/60 backdrop-blur-sm"
+            ? "border-b border-[#E7E4DD] bg-white/85 backdrop-blur-md"
+            : "bg-white/60 backdrop-blur-sm"
         }`}
       >
         <div className="mx-auto flex h-24 w-full max-w-[1760px] items-center justify-between px-4 sm:px-6 lg:h-28">
@@ -78,8 +78,8 @@ export function Header() {
                     <Link
                       href={item.href}
                       aria-current={active ? "page" : undefined}
-                      className={`rounded-full px-3.5 py-2 text-sm font-semibold transition-colors ${
-                        active ? "text-primary" : "text-navy/80 hover:text-primary hover:bg-ice"
+                      className={`rounded-none px-3.5 py-2 text-[12px] font-medium uppercase tracking-[0.12em] transition-colors ${
+                        active ? "text-primary" : "text-navy/70 hover:text-primary"
                       }`}
                     >
                       {item.label}
@@ -95,7 +95,7 @@ export function Header() {
               <>
                 <button
                   onClick={handleLogout}
-                  className="hidden text-sm font-semibold text-primary hover:text-medium sm:inline-block"
+                  className="hidden text-[12px] font-medium uppercase tracking-[0.12em] text-primary hover:text-medium sm:inline-block"
                 >
                   Log Out
                 </button>
@@ -111,7 +111,7 @@ export function Header() {
               <>
                 <Link
                   href="/login"
-                  className="hidden text-sm font-semibold text-primary hover:text-medium sm:inline-block"
+                  className="hidden text-[12px] font-medium uppercase tracking-[0.12em] text-primary hover:text-medium sm:inline-block"
                 >
                   Log In
                 </Link>

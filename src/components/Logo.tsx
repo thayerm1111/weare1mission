@@ -2,27 +2,109 @@ import Link from "next/link";
 import { siteSettings } from "@/data/siteSettings";
 
 /**
- * Monogram1M — the "1M" mark as inline SVG.
- * Uses `currentColor`, so it takes the surrounding text color and looks correct
- * on both light (cream) and dark (ink) backgrounds automatically.
- * The same artwork also lives at /public/images/logo.svg for external use.
+ * BRAND MARKS
+ * -----------
+ * Inspired by the One Mission Collection print marks. Drawn as inline SVG using
+ * `currentColor`, so each mark inks near-black on light backgrounds and reads
+ * bone/white on dark ones automatically — no separate light/dark asset needed.
+ *
+ * To use the exact distressed-texture PNG artwork instead, drop the file in
+ * /public/images and set `logoImage` in src/data/siteSettings.ts to its path.
  */
-export function Monogram1M({ className = "h-7 w-7" }: { className?: string }) {
+
+const DISPLAY_FONT =
+  'var(--font-display), "Helvetica Neue", Arial, sans-serif';
+
+/**
+ * Monogram1M — the "OM" (One Mission) monogram.
+ * (Kept named `Monogram1M` so existing imports across the app keep working.)
+ */
+export function Monogram1M({ className = "h-8 w-auto" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 96 96" className={className} fill="currentColor" role="img" aria-label="1 Mission">
-      {/* numeral 1 */}
-      <path d="M10,27 L30,8 L30,88 L16,88 L16,31 L8,35 Z" />
-      {/* letter M */}
-      <path d="M40,88 L40,20 L53,20 L64,54 L75,20 L88,20 L88,88 L75,88 L75,49 L64,72 L53,49 L53,88 Z" />
+    <svg
+      viewBox="0 0 132 72"
+      className={className}
+      role="img"
+      aria-label="One Mission"
+    >
+      <text
+        x="50%"
+        y="52%"
+        dominantBaseline="central"
+        textAnchor="middle"
+        fill="currentColor"
+        style={{
+          fontFamily: DISPLAY_FONT,
+          fontWeight: 800,
+          fontSize: "62px",
+          letterSpacing: "3px",
+        }}
+      >
+        OM
+      </text>
     </svg>
   );
 }
 
 /**
- * Logo — the 1M monogram + optional wordmark.
- * To use a raster PNG instead: set `logoImage` in src/data/siteSettings.ts to a
- * file path (e.g. "/images/logo.png") and drop the file in /public/images.
- * Set `wordmark={false}` anywhere you want just the mark.
+ * OneMissionArc — the collegiate "ONE MISSION / FOUNDERS CLUB" circular mark.
+ * Used as a large brand watermark and badge. `currentColor` driven.
+ */
+export function OneMissionArc({
+  className = "h-40 w-40",
+  founders = true,
+}: {
+  className?: string;
+  founders?: boolean;
+}) {
+  return (
+    <svg
+      viewBox="0 0 240 240"
+      className={className}
+      role="img"
+      aria-label="One Mission — Founders Club"
+    >
+      <defs>
+        <path id="om-arc-top" d="M 28 132 A 92 92 0 1 1 212 132" fill="none" />
+      </defs>
+      <text
+        fill="currentColor"
+        textAnchor="middle"
+        style={{
+          fontFamily: DISPLAY_FONT,
+          fontWeight: 800,
+          fontSize: "33px",
+          letterSpacing: "2px",
+        }}
+      >
+        <textPath href="#om-arc-top" startOffset="50%">
+          ONE MISSION
+        </textPath>
+      </text>
+      {founders && (
+        <text
+          x="120"
+          y="150"
+          textAnchor="middle"
+          fill="currentColor"
+          style={{
+            fontFamily: DISPLAY_FONT,
+            fontWeight: 700,
+            fontSize: "12px",
+            letterSpacing: "5px",
+          }}
+        >
+          FOUNDERS CLUB
+        </text>
+      )}
+    </svg>
+  );
+}
+
+/**
+ * Logo — the OM monogram + optional wordmark, linking home.
+ * If `logoImage` is set in siteSettings it renders that raster art instead
+ * (flipped to white on dark sections). Otherwise the adaptive inline mark is used.
  */
 export function Logo({ light = false, wordmark = true }: { light?: boolean; wordmark?: boolean }) {
   const { logoImage, brandName } = siteSettings;
@@ -30,23 +112,21 @@ export function Logo({ light = false, wordmark = true }: { light?: boolean; word
     <Link
       href="/"
       aria-label={`${brandName} home`}
-      className={`inline-flex items-center gap-2.5 ${light ? "text-cream" : "text-primary"}`}
+      className={`inline-flex items-center gap-3 ${light ? "text-cream" : "text-primary"}`}
     >
       {logoImage ? (
-        // The OM mark is black artwork on transparent. On light backgrounds it
-        // shows as-is; on dark sections we flip it to white.
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={logoImage} alt={brandName} className={`h-16 w-auto sm:h-20 ${light ? "brightness-0 invert" : ""}`} />
+        <img src={logoImage} alt={brandName} className={`h-14 w-auto sm:h-16 ${light ? "brightness-0 invert" : ""}`} />
       ) : (
-        <Monogram1M className="h-7 w-7" />
+        <Monogram1M className="h-9 w-auto sm:h-10" />
       )}
       {wordmark && !logoImage && (
         <span
-          className={`text-base font-semibold uppercase tracking-[0.18em] ${
+          className={`text-sm font-semibold uppercase tracking-[0.22em] ${
             light ? "text-cream" : "text-primary"
           }`}
         >
-          1 Mission
+          One Mission
         </span>
       )}
     </Link>
