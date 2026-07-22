@@ -28,7 +28,7 @@ export const siteSettings = {
   // Year the community started — shown in the hero pill + member card.
   established: "2012",
   // Eyebrow pill text in the hero (before "· Est. {established}").
-  heroPill: "Self Made Entrepreneur Community",
+  heroPill: "An Invitation-Only Community",
   // Short serif tagline under the hero headline (editable).
   heroTagline: "For the called.",
   // Headline stats shown on the hero "member card". Edit freely.

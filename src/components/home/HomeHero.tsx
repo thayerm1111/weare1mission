@@ -34,25 +34,25 @@ export function HomeHero() {
           </p>
 
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-charcoal/75">
-            A community built on faith, financial freedom, health, meaningful
-            experiences, and a shared vision for more. We believe abundance is
-            available to everyone—and that no one reaches their highest potential
-            alone. Together, we grow, lead, and create a life of purpose.
+            For the ones still searching — for more than the life they were
+            handed. A private community learning to master the markets, build
+            real businesses, and become who they were made to be. If you&apos;ve
+            been looking for your people, you just found them.
           </p>
 
           <div className="mt-9 flex flex-wrap items-center gap-4">
             <Link
-              href="/get-started"
+              href="/signup"
               className="group inline-flex items-center gap-2.5 rounded-none bg-primary px-8 py-4 text-[13px] font-medium uppercase tracking-[0.14em] text-white transition-colors hover:bg-black"
             >
-              Get Started
+              Request Your Place
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
             </Link>
             <Link
-              href="#what-we-provide"
+              href="#paths"
               className="inline-flex items-center gap-1.5 border-b border-primary/30 pb-1 text-sm font-semibold uppercase tracking-wider text-primary transition-colors hover:border-primary"
             >
-              Explore 1 Mission
+              See What&apos;s Inside
             </Link>
           </div>
 
