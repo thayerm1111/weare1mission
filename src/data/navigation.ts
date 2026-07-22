@@ -24,7 +24,7 @@ export const mainNav: NavItem[] = [
 // Prominent primary button in the header. Sends new people to sign up (create
 // an account) so they can request access and be approved into the back office.
 export const primaryCta: NavItem = {
-  label: "Join 1 Mission",
+  label: "Request Access",
   href: "/signup",
 };
 
