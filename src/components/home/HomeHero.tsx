@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { MemberCard } from "./MemberCard";
-import { Monogram1M } from "../Logo";
+import { OneMissionArc } from "../Logo";
 import { siteSettings } from "@/data/siteSettings";
 
 /**
@@ -16,12 +16,12 @@ export function HomeHero() {
       <div className="container-1m relative grid items-center gap-14 py-16 sm:py-20 lg:grid-cols-2 lg:gap-8 lg:py-28">
         {/* Left — editorial copy */}
         <div className="relative z-10 animate-fade-up">
-          <span className="inline-flex items-center gap-2.5 rounded-full border border-[#E4DCCB] bg-cream/70 px-4 py-2 text-[11px] font-semibold uppercase tracking-label text-medium">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
+          <span className="inline-flex items-center gap-2.5 rounded-full border border-[#E7E4DD] bg-white/70 px-4 py-2 text-[11px] font-semibold uppercase tracking-label text-medium">
+            <span className="h-2 w-2 rounded-full bg-primary" aria-hidden="true" />
             {heroPill} · Est. {established}
           </span>
 
-          <h1 className="mt-7 font-serif text-[clamp(2.75rem,8.4vw,6.25rem)] font-black leading-[0.95] tracking-tight text-navy">
+          <h1 className="mt-7 font-serif text-[clamp(2.5rem,7.6vw,5.5rem)] font-semibold uppercase leading-[0.92] tracking-[0.01em] text-navy">
             One Mission.
             <br />
             One Community.
@@ -29,7 +29,7 @@ export function HomeHero() {
             <span className="gold-grad">One Movement.</span>
           </h1>
 
-          <p className="mt-5 font-serif text-2xl italic text-charcoal/70">
+          <p className="mt-6 max-w-md text-xl leading-snug text-charcoal/75">
             {heroTagline}
           </p>
 
@@ -43,7 +43,7 @@ export function HomeHero() {
           <div className="mt-9 flex flex-wrap items-center gap-4">
             <Link
               href="/get-started"
-              className="group inline-flex items-center gap-2.5 rounded-full bg-gradient-primary px-8 py-4 text-sm font-semibold text-cream shadow-glow transition-transform hover:-translate-y-0.5"
+              className="group inline-flex items-center gap-2.5 rounded-none bg-primary px-8 py-4 text-[13px] font-medium uppercase tracking-[0.14em] text-white transition-colors hover:bg-black"
             >
               Get Started
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
@@ -63,7 +63,7 @@ export function HomeHero() {
         <div className="relative flex min-h-[380px] items-center justify-center lg:min-h-[520px]">
           {/* Large branded 1M mark behind the card */}
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-visible" aria-hidden="true">
-            <Monogram1M className="w-[180%] max-w-[780px] text-primary/[0.13]" />
+            <OneMissionArc className="w-[125%] max-w-[640px] text-primary/[0.07]" />
           </div>
 
           <div className="relative z-10 hero-float">
@@ -73,7 +73,7 @@ export function HomeHero() {
       </div>
 
       {/* Bottom feature strip */}
-      <div className="border-t border-[#E4DCCB] bg-offwhite/60">
+      <div className="border-t border-[#E7E4DD] bg-offwhite/60">
         <div className="container-1m grid gap-8 py-10 sm:grid-cols-2 lg:grid-cols-4">
           {[
             { k: "One Community", v: "A worldwide network united by purpose and standards." },
