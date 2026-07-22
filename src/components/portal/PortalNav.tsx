@@ -6,13 +6,14 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, Repeat, ChevronDown, Gem, Hammer, Rocket, Building2,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, Repeat, ChevronDown, Gem, Hammer, Rocket, Building2, Compass,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
 
 const REG: Record<string, Item> = {
   dashboard: { href: "/portal", label: "Dashboard", icon: LayoutDashboard, exact: true },
+  startHere: { href: "/start-here", label: "Start Here", icon: Compass },
   team: { href: "/portal/team", label: "My Circle", icon: Network },
   prospects: { href: "/portal/prospects", label: "Next Up", icon: Video },
   training: { href: "/portal/training", label: "Creator Launchpad", icon: GraduationCap },
@@ -27,7 +28,8 @@ const REG: Record<string, Item> = {
 };
 
 // The Ones = customers · The Builders = affiliates
-const ONES = ["trading", "schedule", "leadership", "updates", "collection", "experiences", "account"];
+// "Start Here" leads The Ones side as the customer onboarding launchpad.
+const ONES = ["startHere", "trading", "schedule", "leadership", "updates", "collection", "experiences", "account"];
 const BUILDERS = ["team", "prospects", "training", "schedule", "resources", "leadership", "updates", "account"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources"];
 const ONES_ONLY = ["trading"];
