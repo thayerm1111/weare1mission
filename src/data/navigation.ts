@@ -13,9 +13,10 @@ export interface NavItem {
 }
 
 // Public, logged-out top navigation.
+// NOTE: "Start Here" is member onboarding — it now lives in the portal sidebar
+// (see PortalNav.tsx), not the public top nav.
 export const mainNav: NavItem[] = [
   { label: "Home", href: "/" },
-  { label: "Start Here", href: "/start-here" },
   { label: "1M Experiences", href: "/experiences" },
   { label: "The Collection", href: "/collection" },
 ];
