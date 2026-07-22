@@ -4,7 +4,9 @@
 
 :root {
   --font-inter: "Inter", system-ui, sans-serif;
-  --font-serif: "Playfair Display", Georgia, Cambria, serif;
+  /* Display grotesque (headlines). Kept on --font-serif for compatibility. */
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Archivo", "Helvetica Neue", Arial, sans-serif;
 }
 
 html {
@@ -61,12 +63,12 @@ video {
 
   /* Thin hairline rule used throughout the editorial layout */
   .hairline {
-    @apply border-0 border-t border-[#E4DCCB];
+    @apply border-0 border-t border-[#E7E4DD];
   }
 
   /* Light glass card */
   .glass {
-    @apply border border-[#E4DCCB] bg-cream/70 backdrop-blur-md;
+    @apply border border-[#E7E4DD] bg-cream/70 backdrop-blur-md;
   }
 }
 
@@ -74,13 +76,16 @@ video {
   .text-balance {
     text-wrap: balance;
   }
-  /* Cool light-blue gradient text (for big accent words in headlines). */
+  /* Accent words in headlines. Monochrome + editorial: the word inherits its
+     heading's ink color (blends cleanly on light or dark) and the old italic
+     motif is neutralized so headlines read as one uppercase grotesque block. */
   .gold-grad {
-    background: linear-gradient(95deg, #4E769A 0%, #79A3C6 40%, #B4D3EC 62%, #5E86A8 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    color: transparent;
+    background: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    -webkit-text-fill-color: currentColor;
+    color: inherit;
+    font-style: normal !important;
   }
   /* Visible, accessible focus ring for keyboard users */
   .focus-ring {
@@ -133,6 +138,6 @@ textarea:focus-visible,
 select:focus-visible,
 [tabindex]:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px #FAF7EF, 0 0 0 4px #1A1610;
-  border-radius: 4px;
+  box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px #111111;
+  border-radius: 2px;
 }
