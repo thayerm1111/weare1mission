@@ -13,7 +13,7 @@ type Item = { href: string; label: string; icon: typeof LineChart; exact?: boole
 
 const REG: Record<string, Item> = {
   dashboard: { href: "/portal", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  startHere: { href: "/start-here", label: "Start Here", icon: Compass },
+  startHere: { href: "/portal/start-here", label: "Start Here", icon: Compass },
   team: { href: "/portal/team", label: "My Circle", icon: Network },
   prospects: { href: "/portal/prospects", label: "Next Up", icon: Video },
   training: { href: "/portal/training", label: "Creator Launchpad", icon: GraduationCap },
