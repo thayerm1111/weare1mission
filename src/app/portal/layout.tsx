@@ -29,7 +29,7 @@ export default async function PortalLayout({ children }: { children: React.React
     <div className="bg-cream">
       <div className="mx-auto w-full max-w-[1760px] px-4 py-8 sm:px-6 lg:py-10">
         {/* Portal top bar */}
-        <div className="flex flex-col gap-4 border-b border-[#E4DCCB] pb-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-4 border-b border-[#E7E4DD] pb-6 sm:flex-row sm:items-center sm:justify-between">
           <Link href="/portal" className="inline-flex items-center gap-2.5 text-primary">
             <span className="text-base font-semibold uppercase tracking-[0.18em]">One Mission Portal</span>
           </Link>
