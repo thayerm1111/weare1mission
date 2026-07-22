@@ -68,6 +68,8 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
   const choose = (s: Side) => {
     setSide(s);
     try { localStorage.setItem("portal_side", s); } catch { /* ignore */ }
+    // Keep the side-aware dashboard hub (PathHub) in sync with the toggle.
+    try { window.dispatchEvent(new CustomEvent("portal-side", { detail: s })); } catch { /* ignore */ }
   };
 
   const keys = side === "ones" ? ONES : BUILDERS;
@@ -132,7 +134,7 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
           <div key={key}>
             <NavLink item={it} active={active} onNav={() => setOpen(false)} />
             {key === "trading" && (
-              <ul className={`mt-0.5 flex flex-col border-l border-[#E4DCCB] pl-2 ${compact ? "ml-4" : "ml-3"}`}>
+              <ul className={`mt-0.5 flex flex-col border-l border-[#E7E4DD] pl-2 ${compact ? "ml-4" : "ml-3"}`}>
                 {floorViews.map((v) => {
                   const vActive = onFloor && activeView === v.view;
                   const VIcon = v.icon;
@@ -174,7 +176,7 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
       <div className="relative z-30 lg:hidden">
         <button
           onClick={() => setOpen((o) => !o)}
-          className="flex w-full items-center justify-between rounded-xl border border-[#E4DCCB] bg-offwhite px-4 py-3 text-sm font-bold text-navy"
+          className="flex w-full items-center justify-between rounded-xl border border-[#E7E4DD] bg-offwhite px-4 py-3 text-sm font-bold text-navy"
           aria-expanded={open}
         >
           <span className="inline-flex items-center gap-2.5">
@@ -185,7 +187,7 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
         {open && (
           <>
             <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} aria-hidden="true" />
-            <div className="absolute z-30 mt-2 max-h-[70vh] w-full overflow-y-auto rounded-2xl border border-[#E4DCCB] bg-cream p-2 shadow-card">
+            <div className="absolute z-30 mt-2 max-h-[70vh] w-full overflow-y-auto rounded-2xl border border-[#E7E4DD] bg-cream p-2 shadow-card">
               <Body compact />
             </div>
           </>
