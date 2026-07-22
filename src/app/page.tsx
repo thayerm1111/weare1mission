@@ -1,7 +1,7 @@
 import { HomeHero } from "@/components/home/HomeHero";
-import { MissionStatement } from "@/components/home/MissionStatement";
-import { Features } from "@/components/home/Features";
-import { Journey } from "@/components/home/Journey";
+import { Origin } from "@/components/home/Origin";
+import { Vision } from "@/components/home/Vision";
+import { TwoPaths } from "@/components/home/TwoPaths";
 import { WhyCommunity } from "@/components/home/WhyCommunity";
 import { WeeklyPreview } from "@/components/home/WeeklyPreview";
 import { LeadershipPreview } from "@/components/home/LeadershipPreview";
@@ -12,7 +12,7 @@ import { buildMetadata } from "@/lib/metadata";
 export const metadata = buildMetadata({
   title: "1 Mission | One Mission. One Community. One Movement.",
   description:
-    "Join the 1 Mission community and access onboarding, affiliate training, leadership development, trading education resources, events, and weekly team sessions.",
+    "A private community for the ones who want more — learning to master the markets, build real businesses, and become the best version of themselves. Request your place.",
   path: "/",
 });
 
@@ -20,9 +20,9 @@ export default function HomePage() {
   return (
     <>
       <HomeHero />
-      <MissionStatement />
-      <Features />
-      <Journey />
+      <Origin />
+      <Vision />
+      <TwoPaths />
       <WhyCommunity />
       <WeeklyPreview />
       <LeadershipPreview />
