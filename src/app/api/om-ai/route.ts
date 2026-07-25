@@ -4,6 +4,7 @@ import { buildSystem } from "@/lib/omai/prompts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = process.env.OM_AI_MODEL || "claude-sonnet-4-6";
@@ -45,51 +46,26 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 1200,
+        max_tokens: 1024,
         system: buildSystem(mode, memory),
         messages,
-        stream: true,
       }),
     });
   } catch {
     return json({ error: "upstream_unreachable" }, 502);
   }
 
-  if (!upstream.ok || !upstream.body) {
-    const detail = await upstream.text().catch(() => "");
-    return json({ error: "upstream_error", status: upstream.status, detail: detail.slice(0, 300) }, 502);
+  const data = await upstream.json().catch(() => null);
+  if (!upstream.ok || !data) {
+    const detail = typeof data?.error?.message === "string" ? data.error.message : `status ${upstream.status}`;
+    return json({ error: "upstream_error", detail: detail.slice(0, 300) }, 502);
   }
 
-  // Transform Anthropic SSE into a plain-text delta stream the client can read.
-  const reader = upstream.body.getReader();
-  const decoder = new TextDecoder();
-  const encoder = new TextEncoder();
-  let buffer = "";
+  const text: string = Array.isArray(data.content)
+    ? data.content.filter((b: { type?: string }) => b?.type === "text").map((b: { text?: string }) => b.text ?? "").join("")
+    : "";
 
-  const stream = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      const { done, value } = await reader.read();
-      if (done) { controller.close(); return; }
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const raw of lines) {
-        const line = raw.trim();
-        if (!line.startsWith("data:")) continue;
-        const data = line.slice(5).trim();
-        if (!data || data === "[DONE]") continue;
-        try {
-          const evt = JSON.parse(data);
-          if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
-            controller.enqueue(encoder.encode(evt.delta.text));
-          }
-        } catch { /* partial JSON across chunks — ignore */ }
-      }
-    },
-    cancel() { reader.cancel().catch(() => {}); },
-  });
-
-  return new Response(stream, {
+  return new Response(text || "…", {
     headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
   });
 }
