@@ -91,3 +91,66 @@ export const PREPAY: Prepay[] = [
 
 /** Rank names only, lowest → highest — for progress ladders elsewhere. */
 export const RANK_NAMES = RANKS.map((r) => r.name);
+
+/** Parse a display string like "10,000" → 10000; "—" / "4 Personally Enrolled" → 0. */
+export function parseNum(s: string): number {
+  if (!s || /[a-z]/i.test(s)) return 0; // words (Consultant row) → no numeric volume gate
+  const n = parseInt(s.replace(/[^0-9]/g, ""), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Minimum personally-enrolled members to be active (Consultant entry). */
+export const REQUIRED_PERSONALS = 4;
+
+export type BuilderStats = { personals: number; leftVol: number; rightVol: number };
+
+export type RankProgress = {
+  current: Rank | null;
+  next: Rank | null;
+  /** Weaker (pay) leg volume — the binding side in a binary plan. */
+  weakerLeg: number;
+  active: boolean;
+  /** 0–1 progress toward `next`. */
+  progress: number;
+  /** Human-readable gap to the next rank. */
+  gapLabel: string;
+};
+
+/**
+ * Compute a builder's ConeqtX rank from their numbers. Qualification model:
+ * you must be active (≥4 personally enrolled) and hold the required per-side
+ * volume on your weaker leg. This mirrors the Bonus Table's per-side column;
+ * the live ConeqtX feed will be authoritative once connected.
+ */
+export function computeRank(stats: BuilderStats): RankProgress {
+  const weakerLeg = Math.max(0, Math.min(stats.leftVol, stats.rightVol));
+  const active = stats.personals >= REQUIRED_PERSONALS;
+
+  let current: Rank | null = null;
+  for (const r of RANKS) {
+    const qualifies = active && weakerLeg >= parseNum(r.perSide);
+    if (qualifies) current = r;
+    else break; // per-side requirement is monotonic — first miss ends the climb
+  }
+
+  const idx = current ? RANKS.findIndex((r) => r.position === current!.position) : -1;
+  const next = RANKS[idx + 1] ?? null;
+
+  let progress = 1;
+  let gapLabel = "You've reached the top rank — Legend.";
+  if (!current) {
+    // Goal is Consultant: enroll 4 core members.
+    const need = Math.max(0, REQUIRED_PERSONALS - stats.personals);
+    progress = Math.min(1, stats.personals / REQUIRED_PERSONALS);
+    gapLabel = need > 0 ? `Enroll ${need} more core member${need === 1 ? "" : "s"} to reach Consultant` : "";
+  } else if (next) {
+    const target = parseNum(next.perSide);
+    const gap = Math.max(0, target - weakerLeg);
+    progress = target > 0 ? Math.min(1, weakerLeg / target) : 1;
+    gapLabel = gap > 0
+      ? `${gap.toLocaleString()} more volume on your weaker leg to reach ${next.name}`
+      : `You qualify for ${next.name} — update to lock it in`;
+  }
+
+  return { current, next, weakerLeg, active, progress, gapLabel };
+}
