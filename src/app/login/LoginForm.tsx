@@ -1,17 +1,28 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Mail, Lock, ArrowRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 export function LoginForm({ redirect }: { redirect?: string }) {
-  const router = useRouter();
   const [form, setForm] = useState({ email: "", password: "" });
   const [status, setStatus] = useState<"idle" | "signing" | "error">("idle");
   const [message, setMessage] = useState("");
+
+  // Only allow same-site redirect targets (prevents open-redirects).
+  const dest = redirect && redirect.startsWith("/") && !redirect.startsWith("//") ? redirect : "/portal";
+
+  // Already signed in? Don't sit on the login page — go straight into the portal.
+  useEffect(() => {
+    const supabase = createClient();
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) window.location.assign(dest);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -24,20 +35,27 @@ export function LoginForm({ redirect }: { redirect?: string }) {
     if (!supabase) { setStatus("error"); setMessage("The member area isn't connected yet. Please check back soon."); return; }
 
     setStatus("signing");
-    const { error } = await supabase.auth.signInWithPassword({
-      email: form.email,
-      password: form.password,
-    });
-    if (error) {
+    setMessage("");
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: form.email,
+        password: form.password,
+      });
+      if (error) {
+        setStatus("error");
+        setMessage(
+          error.message.toLowerCase().includes("invalid")
+            ? "Incorrect email or password."
+            : error.message
+        );
+        return;
+      }
+      // Hard navigation so the server reads the freshly-set session cookie.
+      // A soft router.push races the cookie write and hangs on "Signing in…".
+      window.location.assign(dest);
+    } catch {
       setStatus("error");
-      setMessage(
-        error.message.toLowerCase().includes("invalid")
-          ? "Incorrect email or password."
-          : error.message
-      );
-    } else {
-      router.push(redirect || "/portal");
-      router.refresh();
+      setMessage("Something went wrong signing in. Please try again.");
     }
   }
 
