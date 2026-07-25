@@ -18,6 +18,7 @@ type Signal = {
   direction: "LONG" | "SHORT" | "NEUTRAL";
   entry: number; stopLoss: number; takeProfits: number[];
   confidence: string; riskReward: string; timeframe: string; rationale: string; invalidation: string;
+  setup?: string; bias?: string; poi?: string; liquidityTarget?: string;
 };
 type Candle = { t: string; o: number; h: number; l: number; c: number };
 type Result = {
@@ -341,6 +342,13 @@ function SignalCard({ r, compact, onClick }: { r: Result; compact?: boolean; onC
         <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${dirColor}`}><DirIcon className="h-4 w-4" />{dir}</span>
       </div>
 
+      {s.setup && (
+        <div className="mt-3 rounded-xl border border-gold-light/25 bg-gold-light/[0.06] px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.14em] text-gold-light/80">SMC Setup</p>
+          <p className="text-sm font-semibold text-white">{s.setup}</p>
+        </div>
+      )}
+
       {r.candles && r.candles.length > 3 && (
         <MiniChart candles={r.candles} entry={s.entry} sl={s.stopLoss} tps={(s.takeProfits || []).filter((n) => isFinite(n))} />
       )}
@@ -362,6 +370,12 @@ function SignalCard({ r, compact, onClick }: { r: Result; compact?: boolean; onC
       </div>
 
       <p className="mt-3 text-sm leading-relaxed text-white/80">{s.rationale}</p>
+
+      <div className="mt-3 space-y-1 text-xs text-white/55">
+        {s.bias && <p><span className="text-white/40">HTF bias:</span> {s.bias}</p>}
+        {s.poi && <p><span className="text-white/40">POI:</span> {s.poi}</p>}
+        {s.liquidityTarget && <p><span className="text-white/40">Targeting:</span> {s.liquidityTarget}</p>}
+      </div>
       {s.invalidation && <p className="mt-2 text-xs text-white/45"><span className="text-white/60">Invalidation:</span> {s.invalidation}</p>}
 
       <p className="mt-4 border-t border-white/10 pt-3 text-[11px] text-white/35">
