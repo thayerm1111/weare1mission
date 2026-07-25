@@ -19,6 +19,7 @@ const REG: Record<string, Item> = {
   training: { href: "/portal/training", label: "Creator Launchpad", icon: GraduationCap },
   compPlan: { href: "/portal/comp-plan", label: "The Comp Plan", icon: Trophy },
   omai: { href: "/portal/om-ai", label: "OM AI", icon: Sparkles },
+  signals: { href: "/portal/signals", label: "Signal Hub", icon: Zap },
   trading: { href: "/portal/trading", label: "The Floor", icon: LineChart },
   schedule: { href: "/portal/schedule", label: "What's On", icon: CalendarClock },
   resources: { href: "/portal/resources", label: "Resources", icon: FolderOpen },
@@ -31,10 +32,10 @@ const REG: Record<string, Item> = {
 
 // The Ones = customers · The Builders = affiliates
 // "Start Here" leads The Ones side as the customer onboarding launchpad.
-const ONES = ["startHere", "omai", "trading", "schedule", "leadership", "updates", "collection", "experiences", "account"];
+const ONES = ["startHere", "omai", "signals", "trading", "schedule", "leadership", "updates", "collection", "experiences", "account"];
 const BUILDERS = ["team", "omai", "prospects", "compPlan", "training", "schedule", "resources", "leadership", "updates", "account"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources", "compPlan"];
-const ONES_ONLY = ["trading"];
+const ONES_ONLY = ["trading", "signals"];
 
 const floorViews = [
   { view: "room", label: "The Room", icon: Radio },
