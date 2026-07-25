@@ -19,7 +19,7 @@ const REG: Record<string, Item> = {
   training: { href: "/portal/training", label: "Creator Launchpad", icon: GraduationCap },
   compPlan: { href: "/portal/comp-plan", label: "The Comp Plan", icon: Trophy },
   omai: { href: "/portal/om-ai", label: "OM AI", icon: Sparkles },
-  signals: { href: "/portal/signals", label: "Signal Hub", icon: Zap },
+  signals: { href: "/portal/signals", label: "OM AI Plays", icon: Zap },
   trading: { href: "/portal/trading", label: "The Floor", icon: LineChart },
   schedule: { href: "/portal/schedule", label: "What's On", icon: CalendarClock },
   resources: { href: "/portal/resources", label: "Resources", icon: FolderOpen },

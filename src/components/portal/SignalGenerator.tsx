@@ -19,9 +19,10 @@ type Signal = {
   entry: number; stopLoss: number; takeProfits: number[];
   confidence: string; riskReward: string; timeframe: string; rationale: string; invalidation: string;
 };
+type Candle = { t: string; o: number; h: number; l: number; c: number };
 type Result = {
-  symbol: string; name: string; market: string; orderType: string;
-  price: number; asOf: string; signal: Signal;
+  symbol: string; name: string; market: string; orderType: string; style?: string;
+  price: number; asOf: string; signal: Signal; candles?: Candle[];
 };
 
 const GEN_STEPS = [
@@ -45,6 +46,7 @@ export function SignalGenerator() {
   const [market, setMarket] = useState<Market | null>(null);
   const [asset, setAsset] = useState<Asset | null>(null);
   const [orderType, setOrderType] = useState<"market" | "limit">("limit");
+  const [style, setStyle] = useState<"scalp" | "intraday" | "swing">("intraday");
   const [genStep, setGenStep] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
@@ -59,7 +61,7 @@ export function SignalGenerator() {
   }, []);
 
   function reset() {
-    setStep("market"); setMarket(null); setAsset(null); setOrderType("limit");
+    setStep("market"); setMarket(null); setAsset(null); setOrderType("limit"); setStyle("intraday");
     setResult(null); setErrorMsg(""); setGenStep(0);
   }
   function close() { if (timer.current) clearInterval(timer.current); setOpen(false); }
@@ -75,7 +77,7 @@ export function SignalGenerator() {
         fetch("/api/om-signal", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ td: asset.td, orderType }),
+          body: JSON.stringify({ td: asset.td, orderType, style }),
         }),
         delay(2600),
       ]);
@@ -118,8 +120,8 @@ export function SignalGenerator() {
             <Zap className="h-4 w-4 text-[#0a0b10]" aria-hidden="true" />
           </span>
           <div>
-            <p className="font-serif text-base font-semibold uppercase tracking-[0.14em]">Signal Hub</p>
-            <p className="text-[11px] uppercase tracking-[0.14em] text-white/40">AI signals · real market data</p>
+            <p className="font-serif text-base font-semibold uppercase tracking-[0.14em]">OM AI Plays</p>
+            <p className="text-[11px] uppercase tracking-[0.14em] text-white/40">AI trade signals · real market data</p>
           </div>
         </div>
         <button
@@ -228,7 +230,23 @@ export function SignalGenerator() {
                 <>
                   <h2 className="text-center font-serif text-2xl font-bold">Configure</h2>
                   <p className="mt-1 text-center text-sm text-white/45">Analysis parameters for <span className="text-gold-light">{asset.symbol}</span></p>
-                  <p className="mt-6 text-[11px] uppercase tracking-[0.12em] text-white/45">Order Type</p>
+
+                  <p className="mt-6 text-[11px] uppercase tracking-[0.12em] text-white/45">Trade Style</p>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {([
+                      ["scalp", "Scalp", "Minutes · tight"],
+                      ["intraday", "Intraday", "Hours · 1H"],
+                      ["swing", "Swing", "Days · daily"],
+                    ] as const).map(([v, label, sub]) => (
+                      <button key={v} onClick={() => setStyle(v)}
+                        className={`rounded-xl border px-3 py-3 text-center transition-colors ${style === v ? "border-gold-light/60 bg-gold-light/10" : "border-white/12 bg-white/[0.03] hover:bg-white/[0.06]"}`}>
+                        <span className="block text-sm font-semibold">{label}</span>
+                        <span className="mt-0.5 block text-[10px] text-white/40">{sub}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <p className="mt-5 text-[11px] uppercase tracking-[0.12em] text-white/45">Order Type</p>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     {(["market", "limit"] as const).map((o) => (
                       <button key={o} onClick={() => setOrderType(o)}
@@ -323,6 +341,10 @@ function SignalCard({ r, compact, onClick }: { r: Result; compact?: boolean; onC
         <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${dirColor}`}><DirIcon className="h-4 w-4" />{dir}</span>
       </div>
 
+      {r.candles && r.candles.length > 3 && (
+        <MiniChart candles={r.candles} entry={s.entry} sl={s.stopLoss} tps={(s.takeProfits || []).filter((n) => isFinite(n))} />
+      )}
+
       <div className="mt-4 grid grid-cols-3 gap-2 text-center">
         <Cell label="Entry" value={fmt(s.entry)} tint="text-white" />
         <Cell label="Stop Loss" value={fmt(s.stopLoss)} tint="text-red-400" icon={<ShieldAlert className="h-3 w-3" />} />
@@ -346,6 +368,52 @@ function SignalCard({ r, compact, onClick }: { r: Result; compact?: boolean; onC
         Price {fmt(r.price)} · as of {r.asOf} · live data via Twelve Data. Educational analysis, not financial advice — verify before trading.
       </p>
     </div>
+  );
+}
+
+function MiniChart({ candles, entry, sl, tps }: { candles: Candle[]; entry: number; sl: number; tps: number[] }) {
+  const W = 320, H = 160, padT = 8, padB = 8, padL = 4, padR = 40;
+  const levels = [entry, sl, ...tps].filter((n) => isFinite(n));
+  let max = Math.max(...candles.map((c) => c.h), ...levels);
+  let min = Math.min(...candles.map((c) => c.l), ...levels);
+  const range = max - min || 1;
+  max += range * 0.05; min -= range * 0.05;
+  const span = max - min || 1;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const slot = plotW / candles.length;
+  const bodyW = Math.max(1.2, slot * 0.6);
+  const y = (p: number) => padT + ((max - p) / span) * plotH;
+  const x = (i: number) => padL + i * slot + slot / 2;
+  const price = (p: number) => (Math.abs(p) >= 1000 ? p.toFixed(0) : Math.abs(p) >= 1 ? p.toFixed(2) : p.toFixed(4));
+
+  const lines: [string, number, string][] = [
+    ["#ffffff", entry, "Entry"],
+    ["#f87171", sl, "SL"],
+    ...tps.map((t, i) => ["#34d399", t, `TP${i + 1}`] as [string, number, string]),
+  ];
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="mt-4 w-full rounded-xl border border-white/10 bg-black/30">
+      {candles.map((c, i) => {
+        const col = c.c >= c.o ? "#34d399" : "#f87171";
+        const yo = y(c.o), yc = y(c.c);
+        return (
+          <g key={i}>
+            <line x1={x(i)} x2={x(i)} y1={y(c.h)} y2={y(c.l)} stroke={col} strokeWidth={0.5} opacity={0.7} />
+            <rect x={x(i) - bodyW / 2} y={Math.min(yo, yc)} width={bodyW} height={Math.max(0.6, Math.abs(yc - yo))} fill={col} opacity={0.85} />
+          </g>
+        );
+      })}
+      {lines.map(([col, p, label], i) =>
+        isFinite(p) ? (
+          <g key={i}>
+            <line x1={padL} x2={W - padR} y1={y(p)} y2={y(p)} stroke={col} strokeWidth={0.7} strokeDasharray="3 2" opacity={0.85} />
+            <text x={W - padR + 2} y={y(p) + 2.5} fill={col} fontSize={7} fontWeight="bold">{label}</text>
+            <text x={W - padR + 2} y={y(p) + 9} fill={col} fontSize={5.5} opacity={0.7}>{price(p)}</text>
+          </g>
+        ) : null
+      )}
+    </svg>
   );
 }
 
