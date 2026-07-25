@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight, LineChart, Zap, Users2, GraduationCap, Video, Network,
-  FolderOpen, Headphones, CheckCircle2, Compass,
+  Trophy, Headphones, CheckCircle2, Compass,
 } from "lucide-react";
 
 type Side = "ones" | "builders";
@@ -138,7 +138,7 @@ function BuilderHub({ firstName }: { firstName: string }) {
     { href: "/portal/training", icon: GraduationCap, label: "Creator Launchpad", desc: "Sales & skills training" },
     { href: "/portal/prospects", icon: Video, label: "Next Up", desc: "Your prospect pipeline" },
     { href: "/portal/team", icon: Network, label: "My Circle", desc: "Your growing team" },
-    { href: "/portal/resources", icon: FolderOpen, label: "Resources", desc: "Scripts, tools & assets" },
+    { href: "/portal/comp-plan", icon: Trophy, label: "The Comp Plan", desc: "Ranks, pay & bonuses" },
   ];
   return (
     <div className="space-y-8">
@@ -149,8 +149,8 @@ function BuilderHub({ firstName }: { firstName: string }) {
         body="Champions are made in the boring reps. Do the work today that your future self will thank you for."
         ctaLabel="Start Today's Work"
         ctaHref="/portal/training"
-        altLabel="Your Pipeline"
-        altHref="/portal/prospects"
+        altLabel="See The Comp Plan"
+        altHref="/portal/comp-plan"
       />
 
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">

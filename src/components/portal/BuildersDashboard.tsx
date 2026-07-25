@@ -33,18 +33,22 @@ const MILESTONES = [
   { vol: 100_000, reward: "House Bonus", sub: "$5,000", icon: Home },
 ];
 
-/* -------- rank ladder (lowest → highest) -------- */
+/* -------- ConeqtX rank ladder (lowest → highest) -------- */
 const RANKS = [
-  { name: "The One", icon: Sparkles },
-  { name: "Activated", icon: Zap },
-  { name: "Connector", icon: Share2 },
-  { name: "Mission Builder", icon: Hammer },
-  { name: "Mogul", icon: Briefcase },
-  { name: "Pathfinder", icon: Compass },
-  { name: "Diamond", icon: Gem },
-  { name: "Icon", icon: Star },
-  { name: "Legend", icon: Crown },
+  { name: "Consultant", icon: Sparkles },
+  { name: "Senior Consultant", icon: Zap },
+  { name: "Executive Consultant", icon: Share2 },
+  { name: "Marketing Director", icon: Briefcase },
+  { name: "Regional Marketing Director", icon: Compass },
+  { name: "National Marketing Director", icon: Hammer },
+  { name: "International Marketing Director", icon: BarChart3 },
+  { name: "Vice President", icon: Activity },
+  { name: "Executive Vice President", icon: TrendingUp },
+  { name: "Senior Vice President", icon: Gem },
   { name: "Visionary", icon: Rocket },
+  { name: "Icon", icon: Star },
+  { name: "Elite", icon: Crown },
+  { name: "Legend", icon: Crown },
 ];
 
 /* -------- placeholder data (wired to real comp plan later) -------- */
