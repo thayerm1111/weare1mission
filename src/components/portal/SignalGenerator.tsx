@@ -34,11 +34,14 @@ const GEN_STEPS = [
   "Generating trade signal…",
 ];
 
-const fmt = (n: number) => {
-  if (!isFinite(n)) return "—";
-  const d = Math.abs(n) >= 1000 ? 2 : Math.abs(n) >= 1 ? 4 : 6;
-  return n.toLocaleString(undefined, { minimumFractionDigits: d > 2 ? 2 : d, maximumFractionDigits: d });
+const fmt = (n: number | null | undefined) => {
+  if (n === null || n === undefined) return "—";
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "—";
+  const d = Math.abs(x) >= 1000 ? 2 : Math.abs(x) >= 1 ? 4 : 6;
+  return x.toLocaleString(undefined, { minimumFractionDigits: d > 2 ? 2 : d, maximumFractionDigits: d });
 };
+const numOk = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function SignalGenerator() {
@@ -349,8 +352,14 @@ function SignalCard({ r, compact, onClick }: { r: Result; compact?: boolean; onC
         </div>
       )}
 
+      {dir === "NEUTRAL" && (
+        <p className="mt-3 rounded-xl border border-white/12 bg-white/[0.03] px-3 py-2 text-xs text-white/65">
+          No A+ setup right now — OM AI recommends standing aside. Read the analysis below.
+        </p>
+      )}
+
       {r.candles && r.candles.length > 3 && (
-        <MiniChart candles={r.candles} entry={s.entry} sl={s.stopLoss} tps={(s.takeProfits || []).filter((n) => isFinite(n))} />
+        <MiniChart candles={r.candles} entry={numOk(s.entry) ? s.entry : null} sl={numOk(s.stopLoss) ? s.stopLoss : null} tps={(s.takeProfits || []).filter(numOk)} />
       )}
 
       <div className="mt-4 grid grid-cols-3 gap-2 text-center">
@@ -385,9 +394,9 @@ function SignalCard({ r, compact, onClick }: { r: Result; compact?: boolean; onC
   );
 }
 
-function MiniChart({ candles, entry, sl, tps }: { candles: Candle[]; entry: number; sl: number; tps: number[] }) {
+function MiniChart({ candles, entry, sl, tps }: { candles: Candle[]; entry: number | null; sl: number | null; tps: number[] }) {
   const W = 320, H = 160, padT = 8, padB = 8, padL = 4, padR = 40;
-  const levels = [entry, sl, ...tps].filter((n) => isFinite(n));
+  const levels = [entry, sl, ...tps].filter(numOk);
   let max = Math.max(...candles.map((c) => c.h), ...levels);
   let min = Math.min(...candles.map((c) => c.l), ...levels);
   const range = max - min || 1;
@@ -400,7 +409,7 @@ function MiniChart({ candles, entry, sl, tps }: { candles: Candle[]; entry: numb
   const x = (i: number) => padL + i * slot + slot / 2;
   const price = (p: number) => (Math.abs(p) >= 1000 ? p.toFixed(0) : Math.abs(p) >= 1 ? p.toFixed(2) : p.toFixed(4));
 
-  const lines: [string, number, string][] = [
+  const lines: [string, number | null, string][] = [
     ["#ffffff", entry, "Entry"],
     ["#f87171", sl, "SL"],
     ...tps.map((t, i) => ["#34d399", t, `TP${i + 1}`] as [string, number, string]),
@@ -419,7 +428,7 @@ function MiniChart({ candles, entry, sl, tps }: { candles: Candle[]; entry: numb
         );
       })}
       {lines.map(([col, p, label], i) =>
-        isFinite(p) ? (
+        numOk(p) ? (
           <g key={i}>
             <line x1={padL} x2={W - padR} y1={y(p)} y2={y(p)} stroke={col} strokeWidth={0.7} strokeDasharray="3 2" opacity={0.85} />
             <text x={W - padR + 2} y={y(p) + 2.5} fill={col} fontSize={7} fontWeight="bold">{label}</text>
