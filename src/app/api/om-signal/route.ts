@@ -40,10 +40,17 @@ export async function POST(req: NextRequest) {
   if (!aiKey) return json({ notConfigured: "ai" }, 200);
   if (!mdKey) return json({ notConfigured: "marketdata" }, 200);
 
-  let body: { td?: unknown; orderType?: unknown };
+  let body: { td?: unknown; orderType?: unknown; style?: unknown };
   try { body = await req.json(); } catch { return json({ error: "bad_request" }, 400); }
   const td = typeof body?.td === "string" ? body.td : "";
   const orderType = body?.orderType === "market" ? "Market" : "Limit";
+  const STYLE: Record<string, { interval: string; label: string; note: string }> = {
+    scalp: { interval: "15min", label: "Scalp (15m)", note: "a very short-term scalp — keep the stop tight and targets close" },
+    intraday: { interval: "1h", label: "Intraday (1H)", note: "an intraday trade on the 1H timeframe" },
+    swing: { interval: "1day", label: "Swing (Daily)", note: "a multi-day swing on the daily timeframe — wider stop and targets" },
+  };
+  const styleKey = typeof body?.style === "string" && STYLE[body.style] ? (body.style as string) : "intraday";
+  const sty = STYLE[styleKey];
   const found = findAsset(td);
   if (!found) return json({ error: "unknown_asset" }, 400);
 
@@ -51,7 +58,7 @@ export async function POST(req: NextRequest) {
   let series: { values?: { datetime: string; open: string; high: string; low: string; close: string }[]; status?: string; message?: string };
   try {
     const r = await fetch(
-      `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=1h&outputsize=80&apikey=${mdKey}`,
+      `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=${sty.interval}&outputsize=80&apikey=${mdKey}`,
       { cache: "no-store" }
     );
     series = await r.json();
@@ -82,13 +89,13 @@ export async function POST(req: NextRequest) {
 
   const decimals = price >= 1000 ? 2 : price >= 100 ? 2 : price >= 1 ? 4 : 6;
   const system = `You are OM AI's signal engine for the 1 Mission trading community.
-Using the REAL market data provided, produce ONE structured, educational trade idea for ${found.asset.symbol} (${found.asset.name}), ${orderType} order.
-Ground every number in the current price (${price}). Entry, stop loss, and take-profits must be realistic levels near current price and internally consistent with the direction (LONG: TPs above entry, SL below; SHORT: reverse). Use ${decimals} decimal places.
+Using the REAL market data provided, produce ONE structured, educational trade idea for ${found.asset.symbol} (${found.asset.name}), ${orderType} order. This is ${sty.note}.
+Ground every number in the current price (${price}). Entry, stop loss, and take-profits must be realistic levels near current price and internally consistent with the direction (LONG: TPs above entry, SL below; SHORT: reverse), and sized to fit the ${sty.label} style. Use ${decimals} decimal places.
 Respond with ONLY valid minified JSON, no prose, matching exactly:
-{"direction":"LONG|SHORT|NEUTRAL","entry":number,"stopLoss":number,"takeProfits":[number,number,number],"confidence":"Low|Medium|High","riskReward":"e.g. 1:2.5","timeframe":"e.g. Intraday (1H)","rationale":"2-3 sentences on WHY, referencing structure/RSI/MAs","invalidation":"one line: what makes this idea wrong"}
+{"direction":"LONG|SHORT|NEUTRAL","entry":number,"stopLoss":number,"takeProfits":[number,number,number],"confidence":"Low|Medium|High","riskReward":"e.g. 1:2.5","timeframe":"${sty.label}","rationale":"2-3 sentences on WHY, referencing structure/RSI/MAs","invalidation":"one line: what makes this idea wrong"}
 This is educational analysis, not financial advice. Do not guarantee outcomes.`;
 
-  const user = `Market data for ${found.asset.symbol} (1H candles):
+  const user = `Market data for ${found.asset.symbol} (${sty.label} candles):
 current price: ${price}
 RSI(14): ${ind.rsi14?.toFixed(1) ?? "n/a"}
 SMA20: ${ind.sma20?.toFixed(decimals) ?? "n/a"}
@@ -123,7 +130,9 @@ Return the JSON signal now.`;
     orderType,
     price,
     asOf: ind.asOf,
+    style: sty.label,
     indicators: { rsi14: ind.rsi14, sma20: ind.sma20, sma50: ind.sma50, recentHigh, recentLow },
+    candles: rows.slice(-48).map((v) => ({ t: v.datetime, o: Number(v.open), h: Number(v.high), l: Number(v.low), c: Number(v.close) })),
     signal,
   }, 200);
 }
