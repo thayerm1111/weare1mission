@@ -113,13 +113,41 @@ export async function POST(req: NextRequest) {
     htfBias = `${trend}; price in ${hp > (hHi + hLo) / 2 ? "premium" : "discount"} of the ${sty.htfLabel} range (${f(hLo)}–${f(hHi)})`;
   }
 
-  // Market open/closed
+  // Market open/closed.
+  // Crypto trades 24/7. Forex, metals, stocks and indices close on weekends
+  // (and stocks/indices have daily sessions). We trust Twelve Data's
+  // `is_market_open` when it gives a definitive answer, and fall back to a
+  // UTC time-based check so the "closed" note is reliable even when the quote
+  // endpoint is rate-limited or omits the field.
   let marketClosed = false;
-  try {
-    const q = await fetch(`https://api.twelvedata.com/quote?symbol=${encodeURIComponent(td)}&apikey=${mdKey}`, { cache: "no-store" });
-    const qj = await q.json();
-    if (qj && qj.is_market_open === false) marketClosed = true;
-  } catch { /* ignore */ }
+  const mkt = found.market.id;
+  if (mkt !== "crypto") {
+    // UTC-based fallback first (always available).
+    const now = new Date();
+    const dow = now.getUTCDay(); // 0 Sun … 6 Sat
+    const hr = now.getUTCHours();
+    const mins = hr * 60 + now.getUTCMinutes();
+    // FX/metals week: opens Sun 21:00 UTC, closes Fri 21:00 UTC.
+    const fxClosed =
+      dow === 6 ||
+      (dow === 0 && hr < 21) ||
+      (dow === 5 && hr >= 21);
+    if (mkt === "forex" || mkt === "metal") {
+      marketClosed = fxClosed;
+    } else {
+      // Stocks / indices: closed on weekends and outside the regular US cash
+      // session (~13:30–20:00 UTC). Approximate; the quote field refines it.
+      marketClosed = dow === 0 || dow === 6 || mins < 13 * 60 + 30 || mins >= 20 * 60;
+    }
+    // Let a definitive quote answer override the approximation either way.
+    try {
+      const q = await fetch(`https://api.twelvedata.com/quote?symbol=${encodeURIComponent(td)}&apikey=${mdKey}`, { cache: "no-store" });
+      const qj = await q.json();
+      if (qj && (qj.is_market_open === true || qj.is_market_open === false)) {
+        marketClosed = qj.is_market_open === false;
+      }
+    } catch { /* keep time-based fallback */ }
+  }
 
   const recent = rows.slice(-40);
   const series = recent.map((v) => `${f(+v.open)},${f(+v.high)},${f(+v.low)},${f(+v.close)}`).join(" | ");
