@@ -1,5 +1,6 @@
 import { Check, X, Layers, TrendingUp, Wallet, BadgeCheck } from "lucide-react";
 import { RANKS, MEMBERSHIPS, MEMBERSHIP_FEATURES, PREPAY } from "@/data/coneqtx";
+import { PersonalRankTracker } from "@/components/portal/PersonalRankTracker";
 
 export const metadata = { title: "The Comp Plan" };
 
@@ -20,6 +21,9 @@ export default function CompPlanPage() {
           Left and a Right leg.
         </p>
       </header>
+
+      {/* Personal rank tracker */}
+      <PersonalRankTracker />
 
       {/* Rank ladder */}
       <section>
