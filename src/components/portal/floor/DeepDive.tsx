@@ -52,8 +52,10 @@ export function DeepDiveModal({
       });
       const d = await r.json();
       if (d.notConfigured) { setErr("OM AI isn't switched on yet."); return; }
+      if (r.status === 402 || d.error === "insufficient_credits") { setErr("You're out of credits — a deep dive costs 1. Free credits reset tomorrow, or top up on the Credits page."); return; }
       if (d.error) { setErr("Couldn't build the deep dive right now — try again shortly."); return; }
       setData(d);
+      if (typeof window !== "undefined") window.dispatchEvent(new Event("credits-updated"));
     } catch { setErr("Couldn't build the deep dive right now — try again shortly."); }
     finally { setLoading(false); }
   }, [ticker, name, type, thesis, td, context, dir, style]);
