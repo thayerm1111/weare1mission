@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
+import { reserveMarketData } from "@/lib/marketData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -109,8 +110,13 @@ export async function POST(req: NextRequest) {
 
   let tech: ReturnType<typeof readTechnicals> | null = null;
   if (mdKey) {
-    const rows = await fetchDaily(td, mdKey);
-    if (rows && rows.length >= 30) tech = readTechnicals(rows);
+    const md = await reserveMarketData(1);
+    if (md.ok) {
+      const rows = await fetchDaily(td, mdKey);
+      if (rows && rows.length >= 30) tech = readTechnicals(rows);
+    }
+    // If the governor is at capacity, we simply proceed without live technicals
+    // rather than blocking the whole deep dive — the AI reasons from fundamentals.
   }
 
   const techBlock = tech
