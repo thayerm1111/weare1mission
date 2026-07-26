@@ -33,24 +33,40 @@ export function LivePlays({ isCaller = false, followerCount = 0 }: { isCaller?: 
   const [plays, setPlays] = useState<Play[]>([]);
   const [note, setNote] = useState("");
   const [week, setWeek] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
   const [dive, setDive] = useState<Play | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Show the last-loaded plays on open (from on-device cache) — never auto-fetch,
+  // so clicking into Plays of the Week costs nothing. Fresh plays load only when
+  // the member taps Refresh.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("om_weekly_v1");
+      if (raw) {
+        const c = JSON.parse(raw) as { plays?: Play[]; note?: string; week?: string };
+        if (Array.isArray(c.plays)) setPlays(c.plays);
+        if (c.note) setNote(c.note);
+        if (c.week) setWeek(c.week);
+      }
+    } catch { /* ignore */ }
+    setHydrated(true);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true); setMsg("");
     try {
       const r = await fetch("/api/om-weekly", { method: "POST" });
       const d = await r.json();
-      if (d.notConfigured) { setMsg("OM AI isn't switched on yet."); setPlays([]); return; }
+      if (d.notConfigured) { setMsg("OM AI isn't switched on yet."); return; }
       if (d.error) { setMsg("Couldn't load this week's plays — try again shortly."); return; }
-      setPlays(Array.isArray(d.plays) ? d.plays : []);
-      setNote(d.note || ""); setWeek(d.week || "");
+      const fresh = Array.isArray(d.plays) ? d.plays : [];
+      setPlays(fresh); setNote(d.note || ""); setWeek(d.week || "");
+      try { localStorage.setItem("om_weekly_v1", JSON.stringify({ plays: fresh, note: d.note || "", week: d.week || "" })); } catch { /* ignore */ }
     } catch { setMsg("Couldn't load this week's plays — try again shortly."); }
     finally { setLoading(false); }
   }, []);
-
-  useEffect(() => { void load(); }, [load]);
 
   return (
     <div className="space-y-4">
@@ -80,6 +96,14 @@ export function LivePlays({ isCaller = false, followerCount = 0 }: { isCaller?: 
       {loading && plays.length === 0 && (
         <div className="grid gap-3 sm:grid-cols-2">
           {[0, 1, 2, 3].map((i) => <div key={i} className="h-44 animate-pulse rounded-2xl border border-ice bg-offwhite/60" />)}
+        </div>
+      )}
+
+      {hydrated && !loading && plays.length === 0 && !msg && (
+        <div className="rounded-2xl border border-dashed border-[#E7E4DD] bg-offwhite/40 px-4 py-10 text-center">
+          <TrendingUp className="mx-auto h-6 w-6 text-charcoal/30" />
+          <p className="mt-2 text-sm text-charcoal/65">Tap <span className="font-semibold text-navy">Refresh</span> to load this week's plays.</p>
+          <p className="mt-1 text-[11px] text-charcoal/40">Loading the list is free · a deep dive costs 1 credit</p>
         </div>
       )}
 

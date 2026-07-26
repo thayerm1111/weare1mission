@@ -35,28 +35,43 @@ const fmt = (n: number) => {
 
 export function MarketPulse() {
   const [setups, setSetups] = useState<Setup[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [asOf, setAsOf] = useState("");
   const [msg, setMsg] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [dive, setDive] = useState<Setup | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Show the LAST scan on open (from on-device cache) — never auto-scan, so just
+  // clicking into Market Pulse costs nothing. A fresh scan only runs (and spends
+  // credits) when the member taps "Scan the markets".
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("om_pulse_v1");
+      if (raw) {
+        const c = JSON.parse(raw) as { setups?: Setup[]; asOf?: string };
+        if (Array.isArray(c.setups)) setSetups(c.setups);
+        if (c.asOf) setAsOf(c.asOf);
+      }
+    } catch { /* ignore */ }
+    setHydrated(true);
+  }, []);
 
   const scan = useCallback(async () => {
     setLoading(true); setMsg("");
     try {
       const r = await fetch("/api/om-scan", { method: "POST" });
       const d = await r.json();
-      if (d.notConfigured) { setMsg("Live market data isn't connected yet."); setSetups([]); return; }
-      if (r.status === 402 || d.error === "insufficient_credits") { setMsg("You're out of credits — a scan costs 2. Free credits reset tomorrow, or top up on the Credits page."); setSetups([]); return; }
-      if (d.error === "system_busy") { setMsg(d.detail || "The scanner is at capacity for a moment — try again in a few seconds."); setSetups([]); return; }
-      setSetups(Array.isArray(d.setups) ? d.setups : []);
-      setAsOf(d.asOf || "");
-      if (Array.isArray(d.setups) && d.setups.length && typeof window !== "undefined") window.dispatchEvent(new Event("credits-updated"));
+      if (d.notConfigured) { setMsg("Live market data isn't connected yet."); return; }
+      if (r.status === 402 || d.error === "insufficient_credits") { setMsg("You're out of credits — a scan costs 2. Free credits reset tomorrow, or top up on the Credits page."); return; }
+      if (d.error === "system_busy") { setMsg(d.detail || "The scanner is at capacity for a moment — try again in a few seconds."); return; }
+      const fresh = Array.isArray(d.setups) ? d.setups : [];
+      setSetups(fresh); setAsOf(d.asOf || "");
+      try { localStorage.setItem("om_pulse_v1", JSON.stringify({ setups: fresh, asOf: d.asOf || "" })); } catch { /* ignore */ }
+      if (fresh.length && typeof window !== "undefined") window.dispatchEvent(new Event("credits-updated"));
     } catch { setMsg("Couldn't scan right now — try again shortly."); }
     finally { setLoading(false); }
   }, []);
-
-  useEffect(() => { void scan(); }, [scan]);
 
   return (
     <div className="space-y-4">
@@ -65,7 +80,7 @@ export function MarketPulse() {
           <h2 className="flex items-center gap-2 text-xl font-extrabold tracking-tight text-navy">
             <Activity className="h-5 w-5 text-primary" /> Market Pulse
           </h2>
-          <p className="text-xs text-charcoal/50">AI scanner · ranks live setups by confirmations {asOf && `· ${asOf}`}</p>
+          <p className="text-xs text-charcoal/50">AI scanner · {asOf ? `last scan ${asOf}` : "tap Scan to run the markets"}</p>
         </div>
         <button onClick={() => void scan()} disabled={loading}
           className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-cream transition-colors hover:bg-navy focus-ring disabled:opacity-50">
@@ -83,6 +98,14 @@ export function MarketPulse() {
       {loading && setups.length === 0 && (
         <div className="space-y-2">
           {[0, 1, 2, 3].map((i) => <div key={i} className="h-20 animate-pulse rounded-2xl border border-ice bg-offwhite/60" />)}
+        </div>
+      )}
+
+      {hydrated && !loading && setups.length === 0 && !msg && (
+        <div className="rounded-2xl border border-dashed border-[#E7E4DD] bg-offwhite/40 px-4 py-10 text-center">
+          <Activity className="mx-auto h-6 w-6 text-charcoal/30" />
+          <p className="mt-2 text-sm text-charcoal/65">Tap <span className="font-semibold text-navy">Scan the markets</span> to run the scanner.</p>
+          <p className="mt-1 text-[11px] text-charcoal/40">Costs {CREDIT_COST.scan} credits · just clicking in here is free</p>
         </div>
       )}
 
