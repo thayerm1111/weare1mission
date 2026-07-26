@@ -7,6 +7,8 @@ import {
   Trophy,
 } from "lucide-react";
 import { DailyEngagement } from "./DailyEngagement";
+import { Watchlist } from "./Watchlist";
+import { Achievements } from "./Achievements";
 
 type Side = "ones" | "builders";
 type Tile = { href: string; icon: typeof LineChart; label: string; desc: string };
@@ -110,6 +112,10 @@ function OneHub({ firstName }: { firstName: string }) {
       />
 
       <DailyEngagement side="ones" />
+
+      <Watchlist />
+
+      <Achievements />
 
       <div>
         <span className="eyebrow">Your Focus</span>
