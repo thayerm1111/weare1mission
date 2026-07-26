@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { reserveMarketData } from "@/lib/marketData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,6 +64,10 @@ export async function POST(req: NextRequest) {
 
   // Ground the analysis in current prices. Only tickers we could actually price
   // reach the AI, so it can never reason about (or quote) a stale price.
+  if (mdKey) {
+    const md = await reserveMarketData(UNIVERSE.length);
+    if (!md.ok) return json({ error: "no_prices", detail: "The data desk is busy — this week's plays will load shortly." }, 200);
+  }
   const quoted = mdKey
     ? await Promise.all(UNIVERSE.map(async (a) => ({ ...a, q: await quote(a.td, mdKey) })))
     : [];
