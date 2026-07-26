@@ -40,6 +40,7 @@ type Signal = {
   entry: number; stopLoss: number; takeProfits: number[];
   confidence: string; riskReward: string; timeframe: string; rationale: string; invalidation: string;
   setup?: string; bias?: string; poi?: string; liquidityTarget?: string;
+  checklist?: { label: string; ok: boolean }[]; confirmed?: number;
 };
 type Status = "open" | "win" | "loss";
 type Result = {
@@ -348,7 +349,10 @@ function CompactCard({ r, onOpen, onCheck, checking }: { r: Result; onOpen: () =
           <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${color}`}><Icon className="h-3 w-3" />{s.direction}</span>
           <StatusBadge status={r.status} />
         </div>
-        <p className="mt-0.5 truncate text-[11px] text-white/40">Entry {fmt(s.entry)} · {s.timeframe}</p>
+        <p className="mt-0.5 truncate text-[11px] text-white/40">
+          Entry {fmt(s.entry)} · {s.timeframe}
+          {typeof s.confirmed === "number" && <span className="text-white/55"> · {s.confirmed}/5 confirmed</span>}
+        </p>
       </button>
       {r.status === "open" && s.direction !== "NEUTRAL" && (
         <button onClick={onCheck} disabled={checking} title="Check result" className="ml-2 grid h-8 w-8 flex-shrink-0 place-items-center rounded-full border border-white/12 text-white/60 hover:bg-white/10 disabled:opacity-40">
@@ -441,6 +445,25 @@ function FullCard({ r, onCheck, checking }: { r: Result; onCheck: () => void; ch
       )}
 
       {s.direction === "NEUTRAL" && <p className="mt-3 rounded-xl border border-white/12 bg-white/[0.03] px-3 py-2 text-xs text-white/65">No A+ setup right now — OM AI recommends standing aside. Read the analysis below.</p>}
+
+      {Array.isArray(s.checklist) && s.checklist.length > 0 && (
+        <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+          <p className="mb-2.5 flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-white/45">
+            <span>Confirmations</span>
+            <span className="font-semibold text-white/70">{s.confirmed ?? s.checklist.filter((c) => c.ok).length} of {s.checklist.length} confirmed</span>
+          </p>
+          <ul className="grid gap-1.5 sm:grid-cols-2">
+            {s.checklist.map((c, i) => (
+              <li key={i} className="flex items-center gap-2 text-xs">
+                <span className={`grid h-4 w-4 flex-shrink-0 place-items-center rounded-full ${c.ok ? "bg-emerald-500/15 text-emerald-400" : "bg-white/[0.04] text-white/25"}`}>
+                  {c.ok ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                </span>
+                <span className={c.ok ? "text-white/80" : "text-white/40"}>{c.label}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {r.candles && r.candles.length > 3 && <MiniChart candles={r.candles} entry={numOk(s.entry) ? s.entry : null} sl={numOk(s.stopLoss) ? s.stopLoss : null} tps={(s.takeProfits || []).filter(numOk)} />}
 
