@@ -14,7 +14,10 @@ import {
 type Play = {
   ticker: string; name: string; type: "Stock" | "Crypto";
   thesis: string; buyZone: string; horizon: string; risk: string; conviction: string;
+  price?: number;
 };
+
+const fmtPrice = (n: number) => (n >= 1000 ? Math.round(n).toLocaleString() : n >= 1 ? n.toFixed(2) : n.toFixed(4));
 
 const convStyle = (c: string) =>
   /high/i.test(c) ? "bg-gold/15 text-gold-deep"
@@ -88,7 +91,7 @@ export function LivePlays({ isCaller = false, followerCount = 0 }: { isCaller?: 
                       <span className="font-bold text-navy">{p.ticker}</span>
                       <span className="rounded-full bg-offwhite px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-charcoal/50">{p.type}</span>
                     </div>
-                    <p className="text-[11px] text-charcoal/45">{p.name}</p>
+                    <p className="text-[11px] text-charcoal/45">{p.name}{typeof p.price === "number" ? ` · now $${fmtPrice(p.price)}` : ""}</p>
                   </div>
                 </div>
                 {p.conviction && <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${convStyle(p.conviction)}`}>{p.conviction}</span>}
