@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, Repeat, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, Repeat, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
@@ -20,6 +20,7 @@ const REG: Record<string, Item> = {
   compPlan: { href: "/portal/comp-plan", label: "The Comp Plan", icon: Trophy },
   omai: { href: "/portal/om-ai", label: "OM AI", icon: Sparkles },
   signals: { href: "/portal/signals", label: "OM AI Plays", icon: Zap },
+  leaderboard: { href: "/portal/leaderboard", label: "Leaderboard", icon: Medal },
   trading: { href: "/portal/trading", label: "The Floor", icon: LineChart },
   schedule: { href: "/portal/schedule", label: "What's On", icon: CalendarClock },
   resources: { href: "/portal/resources", label: "Resources", icon: FolderOpen },
@@ -32,8 +33,8 @@ const REG: Record<string, Item> = {
 
 // The Ones = customers · The Builders = affiliates
 // "Start Here" leads The Ones side as the customer onboarding launchpad.
-const ONES = ["startHere", "omai", "signals", "trading", "schedule", "leadership", "updates", "collection", "experiences", "account"];
-const BUILDERS = ["team", "omai", "prospects", "compPlan", "training", "schedule", "resources", "leadership", "updates", "account"];
+const ONES = ["startHere", "omai", "signals", "leaderboard", "trading", "schedule", "leadership", "updates", "collection", "experiences", "account"];
+const BUILDERS = ["team", "omai", "leaderboard", "prospects", "compPlan", "training", "schedule", "resources", "leadership", "updates", "account"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources", "compPlan"];
 const ONES_ONLY = ["trading", "signals"];
 

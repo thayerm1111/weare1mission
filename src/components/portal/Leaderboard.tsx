@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Trophy, Crown } from "lucide-react";
+import Link from "next/link";
+import { Trophy, Crown, ArrowRight } from "lucide-react";
 
 type Row = { rank: number; user_id: string; name: string; xp: number; streak: number };
 
@@ -57,7 +58,7 @@ export function Leaderboard() {
         </div>
       ) : (
         <ol className="mt-4 space-y-1.5">
-          {rows.map((r) => {
+          {rows.slice(0, 5).map((r) => {
             const mine = r.user_id === me;
             return (
               <li
@@ -79,6 +80,13 @@ export function Leaderboard() {
           })}
         </ol>
       )}
+
+      <Link
+        href="/portal/leaderboard"
+        className="mt-4 inline-flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.1em] text-primary hover:text-medium"
+      >
+        View full leaderboard <ArrowRight className="h-3.5 w-3.5" />
+      </Link>
     </div>
   );
 }
