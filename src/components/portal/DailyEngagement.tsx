@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { Flame, Trophy, Sparkles, Check, ArrowRight, Award, Target } from "lucide-react";
 import { useGame, type Side, type Mission } from "@/lib/gamification";
@@ -13,6 +13,7 @@ import { Leaderboard } from "./Leaderboard";
  */
 export function DailyEngagement({ side }: { side: Side }) {
   const g = useGame(side);
+  const mindFired = useRef(false);
 
   // Auto-dismiss the celebration toast.
   useEffect(() => {
@@ -20,6 +21,15 @@ export function DailyEngagement({ side }: { side: Side }) {
     const t = setTimeout(() => g.clearCelebrate(), g.celebrate.kind === "level" ? 2600 : 1600);
     return () => clearTimeout(t);
   }, [g.celebrate, g]);
+
+  // Auto-earn "read today's mindset" once the member has had it on screen a moment.
+  useEffect(() => {
+    if (!g.hydrated || mindFired.current) return;
+    const mind = g.missions.find((m) => m.id === "mind" && !m.done);
+    if (!mind) return;
+    const t = setTimeout(() => { mindFired.current = true; g.completeMission(mind); }, 2500);
+    return () => clearTimeout(t);
+  }, [g.hydrated, g.missions, g]);
 
   if (!g.hydrated) return <Skeleton />;
 

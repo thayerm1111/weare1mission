@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Sparkles, ArrowUp, Plus, LineChart, Waves, Target, CalendarClock, ShieldCheck, MessageSquareQuote, Users, Repeat, CalendarDays, Send, ImagePlus, X, Paperclip } from "lucide-react";
+import { earnMission } from "@/lib/earnMission";
 
 type Mode = "trading" | "business";
 type Msg = { role: "user" | "assistant"; content: string; images?: string[]; attached?: boolean };
@@ -175,6 +176,8 @@ export function OmAiChat() {
     setInput("");
     setAttachments([]);
     setStreaming(true);
+    // Auto-earn the daily "ask OM AI" mission for the active side.
+    void earnMission(mode === "business" ? "coach" : "omai");
 
     const finalize = (content: string) => {
       setMessages(() => {

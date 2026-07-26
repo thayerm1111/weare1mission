@@ -6,6 +6,7 @@ import {
   ArrowUp, ArrowDown, Target, ShieldAlert, Sparkles, Clock, Minus, RefreshCw,
 } from "lucide-react";
 import { MARKETS, type Market, type Asset } from "@/data/signalAssets";
+import { earnMission } from "@/lib/earnMission";
 
 const MARKET_ICON: Record<Market["id"], typeof Bitcoin> = { crypto: Bitcoin, metal: Gem, stock: TrendingUp, forex: Globe, index: BarChart3 };
 const MARKET_TINT: Record<Market["id"], string> = { crypto: "text-orange-400", metal: "text-amber-300", stock: "text-emerald-400", forex: "text-sky-400", index: "text-violet-400" };
@@ -105,6 +106,7 @@ export function SignalGenerator() {
       const r: Result = { ...data, id: Date.now(), status: "open" };
       setResult(r); setStep("result");
       persist([r, ...recent].slice(0, 20));
+      void earnMission("signal"); // auto-earn the daily "generate a play" mission
     } catch { if (timer.current) clearInterval(timer.current); setErrorMsg("Something interrupted the connection. Try again."); setStep("error"); }
   }
 
