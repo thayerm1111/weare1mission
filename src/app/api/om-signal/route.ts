@@ -225,6 +225,8 @@ ALWAYS return a directional call — LONG or SHORT — for the HIGHER-PROBABILIT
 
 The data-driven lean right now is ${leanDir}. Default to ${leanDir} unless clean market structure (a confirmed CHoCH, or a strong opposing point of interest) makes the other side clearly higher-probability — in which case take it and explain why.
 
+CONSISTENCY: the setup, bias, poi, liquidityTarget and rationale MUST all describe the SAME side as "direction". Never write a bearish narrative (e.g. a sweep of buy-side liquidity that reverses down) for a LONG, or a bullish one for a SHORT. If you catch yourself doing that, flip the direction to match the read.
+
 Build the SINGLE highest-probability trade a professional would take — synthesise ACROSS these factors, never rely on just one. The more that genuinely align, the higher the conviction:
 - TREND & higher-timeframe bias (${sty.htfLabel}) — trade with it unless a confirmed shift says otherwise.
 - MARKET STRUCTURE — BOS / CHoCH and the sequence of swing highs/lows.
@@ -267,13 +269,60 @@ Return the JSON signal now.`;
   let signal: Record<string, unknown>;
   try { signal = JSON.parse(match[0]); } catch { return json({ error: "parse_error" }, 502); }
 
-  // Sanitise levels against the real price (guards digit typos / outliers).
-  const off = (L: unknown) => (numOk(L) ? Math.abs(L - price) / price : Infinity);
-  if (off(signal.entry) > 0.3) signal.entry = price;             // repair outlier entry → current price
-  signal.stopLoss = off(signal.stopLoss) > 0.3 ? null : signal.stopLoss;
-  signal.takeProfits = Array.isArray(signal.takeProfits)
-    ? (signal.takeProfits as unknown[]).map((t) => (off(t) > 0.3 ? null : t)).filter((t) => t !== null)
+  // ── Anchor & sanity-check the levels against the REAL price ───────────────
+  // The AI's raw numbers can drift off the current price or carry an inconsistent
+  // stop/target geometry. We repair that in code so every play is tradeable:
+  //  • a MARKET order fills at the live price — re-anchor the whole play there,
+  //    preserving the AI's stop/target *shape* by shifting every level equally;
+  //  • a LIMIT entry must sit on the correct side of price;
+  //  • the stop must be on the correct side and a realistic (ATR-scaled) distance;
+  //  • targets form a clean ≥1:1.8 ladder if the AI's are missing/too tight;
+  //  • the displayed risk:reward is recomputed from the final numbers.
+  const isLong = signal.direction !== "SHORT";
+  let aiEntry = numOk(signal.entry) ? (signal.entry as number) : price;
+  if (Math.abs(aiEntry - price) / price > 0.25) aiEntry = price;   // gross digit-typo guard
+  let sl: number | null = numOk(signal.stopLoss) ? (signal.stopLoss as number) : null;
+  let tps: number[] = Array.isArray(signal.takeProfits)
+    ? (signal.takeProfits as unknown[]).filter(numOk) as number[]
     : [];
+
+  let entry = aiEntry;
+  if (orderType === "Market") {
+    const delta = price - aiEntry;                                // re-anchor to the live fill price
+    entry = price;
+    if (sl != null) sl += delta;
+    tps = tps.map((t) => t + delta);
+  } else if (isLong ? aiEntry > price : aiEntry < price) {
+    entry = isLong ? price * 0.999 : price * 1.001;               // limit must pull back / rally to fill
+  }
+
+  // ATR of the recent candles → a natural, timeframe-scaled stop distance.
+  const trs: number[] = [];
+  for (let i = 1; i < recent.length; i++) {
+    const h = +recent[i].high, l = +recent[i].low, pc = +recent[i - 1].close;
+    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  const atr = trs.length ? trs.reduce((a, b) => a + b, 0) / trs.length : (rangeHi - rangeLo) * 0.05 || price * 0.002;
+  const stopMult = styleKey === "scalp" ? 1.1 : styleKey === "swing" ? 2.4 : 1.6;
+  const fallbackRisk = Math.max(atr * stopMult, price * 0.0006);
+
+  const slValid = sl != null && (isLong ? sl < entry : sl > entry) && Math.abs(entry - sl) >= atr * 0.5 && Math.abs(entry - sl) <= atr * 6;
+  if (!slValid) sl = isLong ? entry - fallbackRisk : entry + fallbackRisk;
+  const risk = Math.abs(entry - (sl as number)) || fallbackRisk;
+
+  // Keep the AI's targets only if they're on the right side and the nearest is a
+  // real reward (≥0.9R); otherwise build a clean 1.0 / 1.8 / 2.8 R ladder.
+  let ladder = tps.filter((t) => (isLong ? t > entry : t < entry)).sort((a, b) => (isLong ? a - b : b - a));
+  const nearOk = ladder.length >= 3 && Math.abs(ladder[0] - entry) >= risk * 0.9;
+  if (!nearOk) ladder = [1.0, 1.8, 2.8].map((m) => (isLong ? entry + risk * m : entry - risk * m));
+  ladder = ladder.slice(0, 3);
+
+  const rnd = (n: number) => +n.toFixed(dec);
+  signal.entry = rnd(entry);
+  signal.stopLoss = rnd(sl as number);
+  signal.takeProfits = ladder.map(rnd);
+  const midTp = ladder[1] ?? ladder[ladder.length - 1] ?? entry;
+  signal.riskReward = `1:${(risk > 0 ? Math.abs(midTp - entry) / risk : 0).toFixed(1)}`;
 
   // ── Objective, multi-factor confirmation checklist ────────────────────────
   // Each professional factor is computed from the real candles (not the model's
