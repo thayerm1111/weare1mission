@@ -28,9 +28,11 @@ export function CreditsBadge({ className = "" }: { className?: string }) {
   }, [load]);
 
   return (
-    <Link href="/portal/credits"
-      className={`inline-flex items-center gap-1.5 rounded-full border border-ice bg-white px-3 py-1.5 text-xs font-semibold text-navy transition-colors hover:bg-offwhite focus-ring ${className}`}>
-      <Zap className="h-3.5 w-3.5 text-primary" /> {total == null ? "—" : total.toLocaleString()} credits
+    <Link href="/portal/credits" title="Your credits — tap to buy more"
+      className={`inline-flex items-center gap-1.5 rounded-full border border-[#E7E4DD] bg-white px-2.5 py-1.5 text-xs font-semibold text-navy transition-colors hover:bg-offwhite focus-ring ${className}`}>
+      <Zap className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
+      {total == null ? "—" : total.toLocaleString()}
+      <span className="hidden sm:inline">credits</span>
     </Link>
   );
 }

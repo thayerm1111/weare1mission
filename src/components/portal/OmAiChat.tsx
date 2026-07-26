@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Sparkles, ArrowUp, Plus, LineChart, Waves, Target, CalendarClock, ShieldCheck, MessageSquareQuote, Users, Repeat, CalendarDays, Send, ImagePlus, X, Paperclip } from "lucide-react";
 import { earnMission } from "@/lib/earnMission";
+import { CREDIT_COST } from "@/lib/creditConfig";
 
 type Mode = "trading" | "business";
 type Msg = { role: "user" | "assistant"; content: string; images?: string[]; attached?: boolean };
@@ -398,6 +399,7 @@ export function OmAiChat() {
           {mode === "business"
             ? "OM AI is a coaching tool — not a guarantee of results. Follow ConeqtX policies."
             : "OM AI gives educational analysis, not financial advice. No live prices — verify before trading."}
+          <span className="text-white/40"> · {CREDIT_COST.chat} credit per message</span>
         </p>
       </div>
     </div>

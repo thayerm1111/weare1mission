@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { MARKETS, findAsset, type Market, type Asset } from "@/data/signalAssets";
 import { earnMission } from "@/lib/earnMission";
+import { CREDIT_COST } from "@/lib/creditConfig";
 import { DeepDiveModal } from "./floor/DeepDive";
 
 const MARKET_ICON: Record<Market["id"], typeof Bitcoin> = { crypto: Bitcoin, metal: Gem, stock: TrendingUp, forex: Globe, index: BarChart3 };
@@ -311,7 +312,7 @@ export function SignalGenerator() {
                   </div>
 
                   <button onClick={() => generate()} disabled={confs.length === 0} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-none bg-gradient-to-br from-gold-light to-[#8a6d35] px-6 py-3.5 text-[13px] font-semibold uppercase tracking-[0.14em] text-[#0a0b10] transition-opacity hover:opacity-90 disabled:opacity-40">
-                    <Sparkles className="h-4 w-4" /> Generate Signal
+                    <Sparkles className="h-4 w-4" /> Generate Signal <span className="rounded-full bg-black/15 px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal">{CREDIT_COST.signal} credit</span>
                   </button>
                 </>
               )}
@@ -340,7 +341,7 @@ export function SignalGenerator() {
                 <>
                   <FullCard r={result} onCheck={() => checkResult(result)} checking={checking === result.id} />
                   <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                    <button onClick={() => setDive(result)} className="inline-flex w-full items-center justify-center gap-2 rounded-none border border-gold-light/40 bg-gold-light/10 px-6 py-3 text-[12px] font-medium uppercase tracking-[0.14em] text-gold-light transition-colors hover:bg-gold-light/20"><Sparkles className="h-4 w-4" /> Deep dive into the reasoning</button>
+                    <button onClick={() => setDive(result)} className="inline-flex w-full items-center justify-center gap-2 rounded-none border border-gold-light/40 bg-gold-light/10 px-6 py-3 text-[12px] font-medium uppercase tracking-[0.14em] text-gold-light transition-colors hover:bg-gold-light/20"><Sparkles className="h-4 w-4" /> Deep dive <span className="rounded-full bg-gold-light/20 px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal">{CREDIT_COST.deepdive} credit</span></button>
                     <button onClick={reset} className="inline-flex w-full items-center justify-center gap-2 rounded-none border border-white/20 px-6 py-3 text-[12px] font-medium uppercase tracking-[0.14em] text-white transition-colors hover:bg-white/10"><RefreshCw className="h-4 w-4" /> New Signal</button>
                   </div>
                 </>
