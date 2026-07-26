@@ -14,17 +14,16 @@ export const maxDuration = 60;
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = process.env.OM_AI_MODEL || "claude-sonnet-4-6";
 
+// Kept to 7 so all price lookups fit the free market-data rate limit (8/min),
+// which keeps every buy zone grounded in a real current price. Expand on Grow+.
 const UNIVERSE: { ticker: string; name: string; td: string; type: "Stock" | "Crypto" }[] = [
   { ticker: "AAPL", name: "Apple", td: "AAPL", type: "Stock" },
-  { ticker: "MSFT", name: "Microsoft", td: "MSFT", type: "Stock" },
   { ticker: "NVDA", name: "NVIDIA", td: "NVDA", type: "Stock" },
-  { ticker: "AMZN", name: "Amazon", td: "AMZN", type: "Stock" },
+  { ticker: "MSFT", name: "Microsoft", td: "MSFT", type: "Stock" },
   { ticker: "GOOGL", name: "Alphabet", td: "GOOGL", type: "Stock" },
-  { ticker: "META", name: "Meta", td: "META", type: "Stock" },
-  { ticker: "TSLA", name: "Tesla", td: "TSLA", type: "Stock" },
+  { ticker: "AMZN", name: "Amazon", td: "AMZN", type: "Stock" },
   { ticker: "BTC", name: "Bitcoin", td: "BTC/USD", type: "Crypto" },
   { ticker: "ETH", name: "Ethereum", td: "ETH/USD", type: "Crypto" },
-  { ticker: "SOL", name: "Solana", td: "SOL/USD", type: "Crypto" },
 ];
 
 type Cache = { week: string; data: unknown } | null;
@@ -62,21 +61,26 @@ export async function POST(req: NextRequest) {
   const week = isoWeek();
   if (CACHE && CACHE.week === week) return json({ week, cached: true, ...(CACHE.data as object) }, 200);
 
-  // Ground the analysis in current prices (best-effort — tolerate failures / no key).
-  const priced = mdKey
+  // Ground the analysis in current prices. Only tickers we could actually price
+  // reach the AI, so it can never reason about (or quote) a stale price.
+  const quoted = mdKey
     ? await Promise.all(UNIVERSE.map(async (a) => ({ ...a, q: await quote(a.td, mdKey) })))
-    : UNIVERSE.map((a) => ({ ...a, q: null as { price: number; pct: number | null } | null }));
+    : [];
+  const priced = quoted.filter((a) => a.q) as (typeof UNIVERSE[number] & { q: { price: number; pct: number | null } })[];
+  if (priced.length === 0) return json({ error: "no_prices", detail: "Couldn't fetch current prices — try again shortly." }, 200);
+  const priceByTicker: Record<string, number> = {};
+  for (const a of priced) priceByTicker[a.ticker.toUpperCase()] = a.q.price;
 
-  const lines = priced.map((a) => `${a.ticker} (${a.name}, ${a.type})${a.q ? ` — ~$${a.q.price} ${a.q.pct != null ? `(${a.q.pct >= 0 ? "+" : ""}${a.q.pct.toFixed(2)}% today)` : ""}` : ""}`).join("\n");
+  const lines = priced.map((a) => `${a.ticker} (${a.name}, ${a.type}) — current $${a.q.price}${a.q.pct != null ? ` (${a.q.pct >= 0 ? "+" : ""}${a.q.pct.toFixed(2)}% today)` : ""}`).join("\n");
 
   const system = `You are OM AI's buy-&-hold desk for the 1 Mission community — a professional analyst choosing longer-horizon positions (weeks to months), NOT day trades.
 
-From the universe below, pick the 4 BEST buy-and-hold ideas for this week — favour a mix of stocks and crypto and genuine quality/timing, not hype. For each: a clear one-line thesis grounded in the company/asset's real drivers, a sensible "buy zone" near the current price (a level or small range to accumulate), a horizon, and an honest risk note.
+From the universe below, pick the best 3–4 buy-and-hold ideas for this week — favour a mix of stocks and crypto and genuine quality/timing, not hype. Only choose tickers listed below. For each: a clear one-line thesis grounded in the asset's real drivers, a "buy zone" to accumulate, a horizon, and an honest risk note.
 
-Use the current prices provided to set realistic buy zones; never invent prices wildly away from them. This is EDUCATIONAL, not financial advice — no guarantees, no income claims.
+CRITICAL: the buy zone MUST sit within ~12% of the CURRENT price given for that ticker — a level or small range near or just below it. Never output a price far from the current one. This is EDUCATIONAL, not financial advice — no guarantees, no income claims.
 
 Respond with ONLY valid minified JSON, exactly:
-{"plays":[{"ticker":"AAPL","name":"Apple","type":"Stock","thesis":"one line","buyZone":"e.g. under 225 / 215–225","horizon":"e.g. 1–3 months","risk":"one line","conviction":"Low|Medium|High"}],"note":"one-line market context for the week"}`;
+{"plays":[{"ticker":"AAPL","name":"Apple","type":"Stock","thesis":"one line","buyZone":"a range/level within ~12% of current","horizon":"e.g. 1–3 months","risk":"one line","conviction":"Low|Medium|High"}],"note":"one-line market context for the week"}`;
 
   const user = `Universe with current prices:\n${lines}\n\nReturn the JSON now.`;
 
@@ -97,7 +101,24 @@ Respond with ONLY valid minified JSON, exactly:
   let parsed: { plays?: unknown; note?: unknown };
   try { parsed = JSON.parse(match[0]); } catch { return json({ error: "parse_error" }, 502); }
 
-  const data = { plays: Array.isArray(parsed.plays) ? parsed.plays : [], note: typeof parsed.note === "string" ? parsed.note : "" };
+  const fmtP = (n: number) => (n >= 1000 ? Math.round(n).toLocaleString() : n >= 1 ? n.toFixed(2) : n.toFixed(4));
+  const rawPlays = Array.isArray(parsed.plays) ? (parsed.plays as Record<string, unknown>[]) : [];
+  const plays = rawPlays
+    .map((p) => {
+      const ticker = String(p.ticker || "").toUpperCase();
+      const price = priceByTicker[ticker];
+      if (!price) return null;                                   // drop anything we didn't price
+      let buyZone = typeof p.buyZone === "string" ? p.buyZone : "";
+      // Hard-guard: if the zone's first number is >20% from the live price
+      // (or unparseable), replace it with a real range around the live price.
+      const firstNum = parseFloat((buyZone.match(/[\d,.]+/)?.[0] || "").replace(/,/g, ""));
+      const bad = !Number.isFinite(firstNum) || Math.abs(firstNum - price) / price > 0.2;
+      if (bad) buyZone = `${fmtP(price * 0.95)} – ${fmtP(price)}`;
+      return { ...p, ticker, buyZone, price };
+    })
+    .filter(Boolean);
+
+  const data = { plays, note: typeof parsed.note === "string" ? parsed.note : "" };
   CACHE = { week, data };
   return json({ week, cached: false, ...data }, 200);
 }
