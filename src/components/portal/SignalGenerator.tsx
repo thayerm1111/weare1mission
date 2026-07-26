@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { MARKETS, findAsset, type Market, type Asset } from "@/data/signalAssets";
 import { earnMission } from "@/lib/earnMission";
+import { DeepDiveModal } from "./floor/DeepDive";
 
 const MARKET_ICON: Record<Market["id"], typeof Bitcoin> = { crypto: Bitcoin, metal: Gem, stock: TrendingUp, forex: Globe, index: BarChart3 };
 const MARKET_TINT: Record<Market["id"], string> = { crypto: "text-orange-400", metal: "text-amber-300", stock: "text-emerald-400", forex: "text-sky-400", index: "text-violet-400" };
@@ -75,6 +76,7 @@ export function SignalGenerator() {
   const [errorMsg, setErrorMsg] = useState("");
   const [recent, setRecent] = useState<Result[]>([]);
   const [checking, setChecking] = useState<number | null>(null);
+  const [dive, setDive] = useState<Result | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -334,7 +336,10 @@ export function SignalGenerator() {
               {step === "result" && result && (
                 <>
                   <FullCard r={result} onCheck={() => checkResult(result)} checking={checking === result.id} />
-                  <button onClick={reset} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-none border border-white/20 px-6 py-3 text-[12px] font-medium uppercase tracking-[0.14em] text-white transition-colors hover:bg-white/10"><Sparkles className="h-4 w-4" /> New Signal</button>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    <button onClick={() => setDive(result)} className="inline-flex w-full items-center justify-center gap-2 rounded-none border border-gold-light/40 bg-gold-light/10 px-6 py-3 text-[12px] font-medium uppercase tracking-[0.14em] text-gold-light transition-colors hover:bg-gold-light/20"><Sparkles className="h-4 w-4" /> Deep dive into the reasoning</button>
+                    <button onClick={reset} className="inline-flex w-full items-center justify-center gap-2 rounded-none border border-white/20 px-6 py-3 text-[12px] font-medium uppercase tracking-[0.14em] text-white transition-colors hover:bg-white/10"><RefreshCw className="h-4 w-4" /> New Signal</button>
+                  </div>
                 </>
               )}
 
@@ -348,6 +353,19 @@ export function SignalGenerator() {
             </div>
           </div>
         </div>
+      )}
+
+      {dive && (
+        <DeepDiveModal
+          ticker={dive.symbol}
+          name={dive.name}
+          type={dive.market}
+          td={dive.td}
+          context="signal"
+          dir={dive.signal.direction === "LONG" || dive.signal.direction === "SHORT" ? dive.signal.direction : undefined}
+          style={dive.style}
+          onClose={() => setDive(null)}
+        />
       )}
     </div>
   );

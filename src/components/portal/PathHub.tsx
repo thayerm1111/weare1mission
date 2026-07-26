@@ -9,6 +9,8 @@ import {
 import { DailyEngagement } from "./DailyEngagement";
 import { Watchlist } from "./Watchlist";
 import { Achievements } from "./Achievements";
+import { MarketBrief } from "./MarketBrief";
+import { WinsWall } from "./WinsWall";
 
 type Side = "ones" | "builders";
 type Tile = { href: string; icon: typeof LineChart; label: string; desc: string };
@@ -113,7 +115,11 @@ function OneHub({ firstName }: { firstName: string }) {
 
       <DailyEngagement side="ones" />
 
+      <MarketBrief />
+
       <Watchlist />
+
+      <WinsWall />
 
       <Achievements />
 
