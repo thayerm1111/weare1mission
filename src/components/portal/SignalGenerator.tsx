@@ -5,7 +5,7 @@ import {
   Bitcoin, Gem, TrendingUp, Globe, BarChart3, Zap, X, ChevronLeft, Loader2, Check,
   ArrowUp, ArrowDown, Target, ShieldAlert, Sparkles, Clock, Minus, RefreshCw, Trash2,
 } from "lucide-react";
-import { MARKETS, type Market, type Asset } from "@/data/signalAssets";
+import { MARKETS, findAsset, type Market, type Asset } from "@/data/signalAssets";
 import { earnMission } from "@/lib/earnMission";
 
 const MARKET_ICON: Record<Market["id"], typeof Bitcoin> = { crypto: Bitcoin, metal: Gem, stock: TrendingUp, forex: Globe, index: BarChart3 };
@@ -80,6 +80,23 @@ export function SignalGenerator() {
   useEffect(() => {
     try { const raw = localStorage.getItem("om_signals"); if (raw) setRecent(JSON.parse(raw)); } catch { /* ignore */ }
   }, []);
+
+  // Auto-generate the full play when opened from a deep link, e.g. the Market
+  // Pulse scanner's "Generate the full play": /portal/signals?td=BTC/USD&style=intraday
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const q = new URLSearchParams(window.location.search);
+    const td = q.get("td");
+    if (!td) return;
+    const found = findAsset(td);
+    if (!found) return;
+    const st = q.get("style");
+    if (st === "scalp" || st === "intraday" || st === "swing") setStyle(st);
+    setMarket(found.market); setAsset(found.asset); setOpen(true);
+    try { window.history.replaceState({}, "", "/portal/signals"); } catch { /* ignore */ }
+    void generate(found.asset);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   function persist(next: Result[]) { setRecent(next); try { localStorage.setItem("om_signals", JSON.stringify(next.slice(0, 20))); } catch { /* ignore */ } }
 
   function pickMethod(m: Method) { setMethod(m); setConfs(METHOD_DEFAULTS[m]); }
@@ -90,14 +107,14 @@ export function SignalGenerator() {
   }
   function close() { if (timer.current) clearInterval(timer.current); setOpen(false); }
 
-  async function generate() {
-    if (!asset) return;
+  async function generate(a: Asset | null = asset) {
+    if (!a) return;
     setStep("loading"); setGenStep(0); setErrorMsg("");
     if (timer.current) clearInterval(timer.current);
     timer.current = setInterval(() => setGenStep((s) => Math.min(s + 1, GEN_STEPS.length - 1)), 700);
     try {
       const [res] = await Promise.all([
-        fetch("/api/om-signal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ td: asset.td, orderType, style, method, confirmations: confs }) }),
+        fetch("/api/om-signal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ td: a.td, orderType, style, method, confirmations: confs }) }),
         delay(3000),
       ]);
       if (timer.current) clearInterval(timer.current);
@@ -287,7 +304,7 @@ export function SignalGenerator() {
                     ))}
                   </div>
 
-                  <button onClick={generate} disabled={confs.length === 0} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-none bg-gradient-to-br from-gold-light to-[#8a6d35] px-6 py-3.5 text-[13px] font-semibold uppercase tracking-[0.14em] text-[#0a0b10] transition-opacity hover:opacity-90 disabled:opacity-40">
+                  <button onClick={() => generate()} disabled={confs.length === 0} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-none bg-gradient-to-br from-gold-light to-[#8a6d35] px-6 py-3.5 text-[13px] font-semibold uppercase tracking-[0.14em] text-[#0a0b10] transition-opacity hover:opacity-90 disabled:opacity-40">
                     <Sparkles className="h-4 w-4" /> Generate Signal
                   </button>
                 </>
