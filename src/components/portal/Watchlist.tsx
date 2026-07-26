@@ -13,7 +13,6 @@ import {
 import { MARKETS } from "@/data/signalAssets";
 
 const STORAGE_KEY = "1m_watchlist_v1";
-const REFRESH_MS = 60_000; // 60s keeps us within the market-data rate limit
 
 type Item = { td: string; symbol: string; name: string; alert?: number | null; alertAbove?: boolean; hit?: boolean };
 type Quote = { price: number; percent: number | null } | { error: string };
@@ -93,11 +92,12 @@ export function Watchlist() {
     }
   }, []);
 
+  // Load prices ONCE when the watchlist opens, then only on the refresh button —
+  // no background timer, so an open dashboard never quietly burns market-data
+  // credits. Alerts are checked each time prices are (re)loaded.
   useEffect(() => {
     if (!hydrated) return;
     void refresh();
-    const t = setInterval(() => void refresh(), REFRESH_MS);
-    return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated]);
 
@@ -222,7 +222,7 @@ export function Watchlist() {
       </ul>
 
       <div className="mt-3 flex items-center justify-between border-t border-ice pt-3">
-        <span className="text-[11px] text-charcoal/40">Live prices · alerts fire while this page is open</span>
+        <span className="text-[11px] text-charcoal/40">Prices update on open &amp; refresh · alerts check on refresh</span>
         <Link href="/portal/signals" className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
           Get a play <ArrowRight className="h-3 w-3" />
         </Link>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bitcoin, Gem, TrendingUp, Globe, BarChart3, Zap, X, ChevronLeft, Loader2, Check,
   ArrowUp, ArrowDown, Target, ShieldAlert, Sparkles, Clock, Minus, RefreshCw, Trash2,
@@ -126,6 +126,7 @@ export function SignalGenerator() {
       if (data.notConfigured === "marketdata") { setErrorMsg("Live market data isn't connected yet — add a TWELVEDATA_API_KEY in Vercel and I'll pull real prices."); setStep("error"); return; }
       if (data.notConfigured === "ai") { setErrorMsg("OM AI isn't switched on yet — the Anthropic key is missing."); setStep("error"); return; }
       if (data.error === "ratelimit") { setErrorMsg(data.detail || "You've hit the free market-data limit (8 requests a minute). Give it about a minute, then generate again."); setStep("error"); return; }
+      if (data.error === "system_busy") { setErrorMsg(data.detail || "The data desk is at capacity for a moment — try again in a few seconds."); setStep("error"); return; }
       if (res.status === 402 || data.error === "insufficient_credits") { setNeedCredits(true); setErrorMsg("You're out of credits. Your free credits reset tomorrow — or grab more to keep generating plays now."); setStep("error"); return; }
       if (data.error || !data.signal) { setErrorMsg(data.detail ? `Couldn't build a signal: ${data.detail}` : "Couldn't build a signal right now. Try another asset or try again shortly."); setStep("error"); return; }
       const r: Result = { ...data, id: Date.now(), status: "open" };
@@ -435,23 +436,20 @@ function LivePrice({ td, entry, direction, closed }: { td: string; entry: number
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    let alive = true;
-    let timer: ReturnType<typeof setInterval> | null = null;
-    const load = async () => {
-      try {
-        const res = await fetch(`/api/om-price?td=${encodeURIComponent(td)}`, { cache: "no-store" });
-        const d = await res.json();
-        if (!alive) return;
-        if (typeof d.price === "number" && Number.isFinite(d.price)) { setPrice(d.price); setFailed(false); }
-        else setFailed(true);
-      } catch { if (alive) setFailed(true); }
-      finally { if (alive) setLoading(false); }
-    };
-    load();
-    if (!closed) timer = setInterval(load, 15000); // refresh ~every 15s while the alert is open
-    return () => { alive = false; if (timer) clearInterval(timer); };
-  }, [td, closed]);
+  // Load the price ONCE on open, then only on manual refresh — no background
+  // timer, so an open card never quietly burns market-data credits.
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/om-price?td=${encodeURIComponent(td)}`, { cache: "no-store" });
+      const d = await res.json();
+      if (typeof d.price === "number" && Number.isFinite(d.price)) { setPrice(d.price); setFailed(false); }
+      else setFailed(true);
+    } catch { setFailed(true); }
+    finally { setLoading(false); }
+  }, [td]);
+
+  useEffect(() => { void load(); }, [load]);
 
   const diff = price !== null && entry !== null ? price - entry : null;
   const favor = diff === null ? 0 : direction === "SHORT" ? -diff : direction === "LONG" ? diff : 0;
@@ -465,7 +463,12 @@ function LivePrice({ td, entry, direction, closed }: { td: string; entry: number
           {!closed && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />}
           <span className={`relative inline-flex h-2 w-2 rounded-full ${closed ? "bg-amber-400" : "bg-emerald-400"}`} />
         </span>
-        <span className="text-[10px] uppercase tracking-[0.14em] text-white/45">{closed ? "Last price" : "Live price"}</span>
+        <span className="text-[10px] uppercase tracking-[0.14em] text-white/45">{closed ? "Last price" : "Current price"}</span>
+        {!closed && (
+          <button onClick={() => void load()} disabled={loading} title="Refresh price" className="grid h-6 w-6 place-items-center rounded-full text-white/40 hover:bg-white/10 hover:text-white/70 disabled:opacity-40">
+            <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+          </button>
+        )}
       </div>
       <div className="text-right">
         {loading && price === null ? (
