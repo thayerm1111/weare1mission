@@ -34,6 +34,20 @@ export const metadata: Metadata = {
     icon: "/favicon.ico",
   },
   robots: { index: true, follow: true },
+  openGraph: {
+    type: "website",
+    siteName: siteSettings.brandName,
+    title: `${siteSettings.brandName} | ${siteSettings.tagline}`,
+    description: siteSettings.shortMission,
+    url: siteSettings.url,
+    images: [{ url: siteSettings.ogImage, width: 1200, height: 630, alt: siteSettings.brandName }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${siteSettings.brandName} | ${siteSettings.tagline}`,
+    description: siteSettings.shortMission,
+    images: [siteSettings.ogImage],
+  },
 };
 
 export const viewport: Viewport = {
@@ -59,6 +73,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="flex min-h-screen flex-col">
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-navy focus:shadow-lg focus:ring-2 focus:ring-navy"
+        >
+          Skip to content
+        </a>
         <IntroSplash />
         <Header />
         <main id="main" className="flex-1">{children}</main>
