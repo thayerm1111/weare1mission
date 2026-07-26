@@ -3,13 +3,16 @@
 /**
  * Live Plays → Plays of the Week, in the One Mission palette (light / stone /
  * ink). A professional AI buy-&-hold desk posts the best longer-horizon ideas
- * across stocks + crypto each week, grounded in live prices. (Live *caller*
- * plays you can copy arrive with Trade Sync once the copy-trader is set up.)
+ * across stocks + crypto each week, grounded in live prices. Tap any play to
+ * open a Deep Dive — the full reasoning, a factor heat map, the strategy and the
+ * risks behind the call. (Live *caller* plays you can copy arrive with Trade
+ * Sync once the copy-trader is set up.)
  */
 import { useCallback, useEffect, useState } from "react";
 import {
-  Repeat, RefreshCw, TrendingUp, Bitcoin, AlertTriangle, Clock, ShieldAlert, Users,
+  Repeat, RefreshCw, TrendingUp, Bitcoin, AlertTriangle, Clock, ShieldAlert, Users, Search,
 } from "lucide-react";
+import { DeepDiveModal } from "./DeepDive";
 
 type Play = {
   ticker: string; name: string; type: "Stock" | "Crypto";
@@ -31,6 +34,7 @@ export function LivePlays({ isCaller = false, followerCount = 0 }: { isCaller?: 
   const [week, setWeek] = useState("");
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
+  const [dive, setDive] = useState<Play | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setMsg("");
@@ -82,7 +86,11 @@ export function LivePlays({ isCaller = false, followerCount = 0 }: { isCaller?: 
         {plays.map((p) => {
           const Icon = p.type === "Crypto" ? Bitcoin : TrendingUp;
           return (
-            <div key={p.ticker} className="rounded-2xl border border-ice bg-white p-4 shadow-card">
+            <button
+              key={p.ticker}
+              onClick={() => setDive(p)}
+              className="group rounded-2xl border border-ice bg-white p-4 text-left shadow-card transition-colors hover:border-gold/40 focus-ring"
+            >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2.5">
                   <span className="grid h-9 w-9 place-items-center rounded-xl bg-ice text-primary"><Icon className="h-4 w-4" /></span>
@@ -115,7 +123,11 @@ export function LivePlays({ isCaller = false, followerCount = 0 }: { isCaller?: 
                   <ShieldAlert className="mt-0.5 h-3 w-3 flex-shrink-0 text-red-400" /> {p.risk}
                 </p>
               )}
-            </div>
+
+              <span className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-semibold text-primary opacity-80 transition-opacity group-hover:opacity-100">
+                <Search className="h-3 w-3" /> Deep dive into the reasoning
+              </span>
+            </button>
           );
         })}
       </div>
@@ -131,7 +143,17 @@ export function LivePlays({ isCaller = false, followerCount = 0 }: { isCaller?: 
       </div>
 
       {!loading && plays.length > 0 && (
-        <p className="text-center text-[11px] text-charcoal/40">Educational buy-&-hold ideas, refreshed weekly · not financial advice.</p>
+        <p className="text-center text-[11px] text-charcoal/40">Educational buy-&-hold ideas, refreshed weekly · not financial advice. Tap any play for the full reasoning.</p>
+      )}
+
+      {dive && (
+        <DeepDiveModal
+          ticker={dive.ticker}
+          name={dive.name}
+          type={dive.type}
+          thesis={dive.thesis}
+          onClose={() => setDive(null)}
+        />
       )}
     </div>
   );
