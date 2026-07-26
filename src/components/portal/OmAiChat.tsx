@@ -1,12 +1,41 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, ArrowUp, Plus, LineChart, Waves, Target, CalendarClock, ShieldCheck, MessageSquareQuote, Users, Repeat, CalendarDays, Send } from "lucide-react";
+import { Sparkles, ArrowUp, Plus, LineChart, Waves, Target, CalendarClock, ShieldCheck, MessageSquareQuote, Users, Repeat, CalendarDays, Send, ImagePlus, X, Paperclip } from "lucide-react";
 
 type Mode = "trading" | "business";
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = { role: "user" | "assistant"; content: string; images?: string[]; attached?: boolean };
 
 const KEY = (m: Mode) => `om_ai_chat_${m}`;
+const MAX_ATTACH = 4;
+
+// Downscale + re-encode an image on the client so payloads stay small and
+// within Anthropic/Vercel limits. Everything becomes JPEG (fine for charts).
+function downscaleImage(file: File, max = 1568, quality = 0.85): Promise<string | null> {
+  return new Promise((resolve) => {
+    if (!file.type.startsWith("image/")) { resolve(null); return; }
+    const fr = new FileReader();
+    fr.onerror = () => resolve(null);
+    fr.onload = () => {
+      const img = new Image();
+      img.onerror = () => resolve(null);
+      img.onload = () => {
+        let { width, height } = img;
+        const scale = Math.min(1, max / Math.max(width, height));
+        width = Math.max(1, Math.round(width * scale));
+        height = Math.max(1, Math.round(height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(typeof fr.result === "string" ? fr.result : null); return; }
+        ctx.drawImage(img, 0, 0, width, height);
+        try { resolve(canvas.toDataURL("image/jpeg", quality)); } catch { resolve(null); }
+      };
+      img.src = fr.result as string;
+    };
+    fr.readAsDataURL(file);
+  });
+}
 
 const SPECIALISTS: Record<Mode, { icon: typeof LineChart; label: string; prompt: string }[]> = {
   trading: [
@@ -43,7 +72,10 @@ export function OmAiChat() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [attachments, setAttachments] = useState<string[]>([]);
+  const [attaching, setAttaching] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   // Follow the portal side toggle: The Ones → trading, The Builders → business.
   useEffect(() => {
@@ -74,15 +106,42 @@ export function OmAiChat() {
   }, [messages]);
 
   function persist(next: Msg[]) {
-    try { localStorage.setItem(KEY(mode), JSON.stringify(next.slice(-40))); } catch { /* ignore */ }
+    try {
+      // Don't store heavy base64 images in localStorage (quota) — keep a flag
+      // so the bubble can still show an "attached" marker on reload.
+      const light = next.map((m) => (m.images && m.images.length ? { role: m.role, content: m.content, attached: true } : m));
+      localStorage.setItem(KEY(mode), JSON.stringify(light.slice(-40)));
+    } catch { /* ignore */ }
+  }
+
+  async function onFiles(list: FileList | null) {
+    if (!list || list.length === 0) return;
+    setAttaching(true);
+    try {
+      const room = MAX_ATTACH - attachments.length;
+      const files = Array.from(list).filter((f) => f.type.startsWith("image/")).slice(0, Math.max(0, room));
+      const out: string[] = [];
+      for (const f of files) {
+        if (f.size > 25 * 1024 * 1024) continue; // skip absurdly large sources
+        const d = await downscaleImage(f);
+        if (d) out.push(d);
+      }
+      if (out.length) setAttachments((prev) => [...prev, ...out].slice(0, MAX_ATTACH));
+    } finally {
+      setAttaching(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
   }
 
   async function send(text: string) {
     const clean = text.trim();
-    if (!clean || streaming) return;
-    const base: Msg[] = [...messages, { role: "user", content: clean }];
+    const imgs = attachments;
+    if ((!clean && imgs.length === 0) || streaming) return;
+    const userMsg: Msg = imgs.length ? { role: "user", content: clean, images: imgs } : { role: "user", content: clean };
+    const base: Msg[] = [...messages, userMsg];
     setMessages([...base, { role: "assistant", content: "" }]);
     setInput("");
+    setAttachments([]);
     setStreaming(true);
 
     const finalize = (content: string) => {
@@ -204,19 +263,32 @@ export function OmAiChat() {
                     <Sparkles className="h-3.5 w-3.5 text-[#0a0b10]" aria-hidden="true" />
                   </span>
                 )}
-                <div
-                  className={
-                    m.role === "user"
-                      ? "max-w-[85%] rounded-2xl rounded-tr-sm bg-gold-light px-4 py-2.5 text-sm font-medium text-[#0a0b10]"
-                      : "max-w-[85%] rounded-2xl rounded-tl-sm bg-white/[0.05] px-4 py-3 text-sm leading-relaxed text-white/90 ring-1 ring-white/10"
-                  }
-                >
-                  {m.role === "assistant"
-                    ? (m.content
-                        ? <span dangerouslySetInnerHTML={{ __html: renderRich(m.content) }} />
-                        : <span className="inline-flex gap-1"><Dot /><Dot d={150} /><Dot d={300} /></span>)
-                    : m.content}
-                </div>
+                {m.role === "user" ? (
+                  <div className="flex max-w-[85%] flex-col items-end gap-1.5">
+                    {m.images && m.images.length > 0 && (
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        {m.images.map((src, k) => (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img key={k} src={src} alt="Attached chart" className="h-32 w-32 rounded-xl object-cover ring-1 ring-white/15" />
+                        ))}
+                      </div>
+                    )}
+                    {!m.images && m.attached && (
+                      <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-2.5 py-1 text-[11px] text-white/50 ring-1 ring-white/10">
+                        <Paperclip className="h-3 w-3" /> Image attached
+                      </span>
+                    )}
+                    {m.content && (
+                      <div className="rounded-2xl rounded-tr-sm bg-gold-light px-4 py-2.5 text-sm font-medium text-[#0a0b10]">{m.content}</div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-white/[0.05] px-4 py-3 text-sm leading-relaxed text-white/90 ring-1 ring-white/10">
+                    {m.content
+                      ? <span dangerouslySetInnerHTML={{ __html: renderRich(m.content) }} />
+                      : <span className="inline-flex gap-1"><Dot /><Dot d={150} /><Dot d={300} /></span>}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -225,27 +297,65 @@ export function OmAiChat() {
 
       {/* input */}
       <div className="relative z-10 border-t border-white/10 px-4 py-4 sm:px-8">
-        <form
-          onSubmit={(e) => { e.preventDefault(); send(input); }}
-          className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-white/12 bg-white/[0.04] px-3 py-2 focus-within:border-gold-light/40"
-        >
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
-            rows={1}
-            placeholder={mode === "business" ? "Ask about scripts, objections, content, growth…" : "Ask about setups, structure, volume, risk…"}
-            className="max-h-40 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none"
-          />
-          <button
-            type="submit"
-            disabled={streaming || !input.trim()}
-            aria-label="Send"
-            className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl bg-gradient-to-br from-gold-light to-[#8a6d35] text-[#0a0b10] transition-opacity disabled:opacity-40"
+        <div className="mx-auto max-w-3xl">
+          {attachments.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {attachments.map((src, k) => (
+                <div key={k} className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={src} alt="Attachment preview" className="h-16 w-16 rounded-lg object-cover ring-1 ring-white/15" />
+                  <button
+                    type="button"
+                    onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== k))}
+                    aria-label="Remove attachment"
+                    className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-black/80 text-white ring-1 ring-white/20 hover:bg-black"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <form
+            onSubmit={(e) => { e.preventDefault(); send(input); }}
+            className="flex items-end gap-2 rounded-2xl border border-white/12 bg-white/[0.04] px-3 py-2 focus-within:border-gold-light/40"
           >
-            {streaming ? <Send className="h-4 w-4 animate-pulse" /> : <ArrowUp className="h-4 w-4" />}
-          </button>
-        </form>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => onFiles(e.target.files)}
+            />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={attaching || attachments.length >= MAX_ATTACH}
+              aria-label="Attach an image"
+              title={attachments.length >= MAX_ATTACH ? `Up to ${MAX_ATTACH} images` : "Attach a chart or screenshot"}
+              className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl border border-white/12 text-white/60 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-40"
+            >
+              {attaching ? <Send className="h-4 w-4 animate-pulse" /> : <ImagePlus className="h-4 w-4" />}
+            </button>
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
+              rows={1}
+              placeholder={mode === "business" ? "Ask about scripts, objections, content, growth…" : "Ask, or attach a chart to analyze…"}
+              className="max-h-40 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none"
+            />
+            <button
+              type="submit"
+              disabled={streaming || (!input.trim() && attachments.length === 0)}
+              aria-label="Send"
+              className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl bg-gradient-to-br from-gold-light to-[#8a6d35] text-[#0a0b10] transition-opacity disabled:opacity-40"
+            >
+              {streaming ? <Send className="h-4 w-4 animate-pulse" /> : <ArrowUp className="h-4 w-4" />}
+            </button>
+          </form>
+        </div>
         <p className="mx-auto mt-2 max-w-3xl text-center text-[11px] text-white/30">
           {mode === "business"
             ? "OM AI is a coaching tool — not a guarantee of results. Follow ConeqtX policies."
