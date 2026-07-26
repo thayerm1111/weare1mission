@@ -42,7 +42,7 @@ const floorViews = [
   { view: "room", label: "The Room", icon: Radio },
   { view: "plays", label: "Live Plays", icon: Zap },
   { view: "pulse", label: "Market Pulse", icon: Activity },
-  { view: "sync", label: "Trade Sync", icon: Repeat },
+  // Trade Sync (copy-trading) is parked until the trade copier is set up.
 ];
 
 type Side = "ones" | "builders";
