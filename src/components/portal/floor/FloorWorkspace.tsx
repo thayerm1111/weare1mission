@@ -34,9 +34,9 @@ export function FloorWorkspace({
     router.replace(id === "home" ? "/portal/trading" : `/portal/trading?view=${id}`, { scroll: false });
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-[#100c07] bg-[#17130d] text-white shadow-card">
+    <div className="overflow-hidden rounded-2xl border border-[#E7E4DD] bg-cream text-charcoal shadow-card">
       {/* In-page tab bar — mobile only (swipeable); desktop uses the sidebar */}
-      <div className="border-b border-white/10 p-2 lg:hidden">
+      <div className="border-b border-ice p-2 lg:hidden">
         <div className="flex gap-1.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {TABS.map((t) => {
             const Icon = t.icon;
@@ -46,7 +46,7 @@ export function FloorWorkspace({
                 key={t.id}
                 onClick={() => go(t.id)}
                 className={`inline-flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors ${
-                  active ? "bg-white text-black" : "text-white/55 hover:bg-white/5 hover:text-white"
+                  active ? "bg-primary text-cream" : "text-charcoal/55 hover:bg-offwhite hover:text-charcoal"
                 }`}
               >
                 <Icon className="h-4 w-4" aria-hidden="true" />

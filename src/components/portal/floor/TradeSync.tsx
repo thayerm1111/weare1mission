@@ -54,11 +54,11 @@ export function TradeSync() {
     <div className="space-y-4">
       <div>
         <h2 className="text-xl font-extrabold tracking-tight">Copy Trading</h2>
-        <p className="text-sm text-white/50">Follow professional traders or become a master trader.</p>
+        <p className="text-sm text-charcoal/50">Follow professional traders or become a master trader.</p>
       </div>
 
       {/* Sub tabs */}
-      <div className="flex flex-wrap gap-4 border-b border-white/10">
+      <div className="flex flex-wrap gap-4 border-b border-ice">
         {SUBTABS.map((t) => {
           const Icon = t.icon;
           const active = sub === t.id;
@@ -70,7 +70,7 @@ export function TradeSync() {
                 setSelected(null);
               }}
               className={`-mb-px inline-flex items-center gap-2 border-b-2 px-1 pb-2.5 text-sm font-semibold transition-colors ${
-                active ? "border-emerald-400 text-white" : "border-transparent text-white/50 hover:text-white"
+                active ? "border-gold text-navy" : "border-transparent text-charcoal/50 hover:text-navy"
               }`}
             >
               <Icon className="h-4 w-4" /> {t.label}
@@ -106,29 +106,29 @@ function Leaderboard({ onSelect }: { onSelect: (t: Trader) => void }) {
       <ConnectCard />
       <div className="flex items-center justify-between">
         <p className="inline-flex items-center gap-2 text-sm font-semibold">
-          <Trophy className="h-4 w-4 text-gold-light" /> Top Copy Traders
+          <Trophy className="h-4 w-4 text-gold-deep" /> Top Copy Traders
         </p>
-        <span className="text-xs text-emerald-400">See all ({TRADERS.length})</span>
+        <span className="text-xs text-navy">See all ({TRADERS.length})</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {TRADERS.map((t) => (
           <button
             key={t.id}
             onClick={() => onSelect(t)}
-            className="rounded-2xl border border-white/10 bg-[#1e1810] p-4 text-left transition-colors hover:border-emerald-400/40"
+            className="rounded-2xl border border-ice bg-white p-4 text-left transition-colors hover:border-charcoal/25"
           >
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/15 text-sm font-bold text-emerald-300">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-navy/[0.06] text-sm font-bold text-navy">
                   {t.name.slice(0, 2).toUpperCase()}
                 </div>
                 <div>
                   <p className="text-sm font-bold">{t.name}</p>
-                  <p className="text-[11px] text-white/40">{t.copiers} copiers</p>
+                  <p className="text-[11px] text-charcoal/40">{t.copiers} copiers</p>
                 </div>
               </div>
               {t.hot && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-gold/20 px-2 py-0.5 text-[10px] font-bold text-gold-light">
+                <span className="inline-flex items-center gap-1 rounded-full bg-gold/20 px-2 py-0.5 text-[10px] font-bold text-gold-deep">
                   <Flame className="h-3 w-3" /> #1 Today
                 </span>
               )}
@@ -137,7 +137,7 @@ function Leaderboard({ onSelect }: { onSelect: (t: Trader) => void }) {
               <Stat mini label="Monthly" value={`${t.monthly >= 0 ? "+" : ""}${t.monthly}%`} good={t.monthly >= 0} />
               <Stat mini label="Win rate" value={`${t.winRate}%`} />
             </div>
-            <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-emerald-400">
+            <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-navy">
               View stats <ChevronRight className="h-3.5 w-3.5" />
             </span>
           </button>
@@ -150,31 +150,31 @@ function Leaderboard({ onSelect }: { onSelect: (t: Trader) => void }) {
 function ConnectCard() {
   const [connected, setConnected] = useState(false);
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#1e1810] p-4">
+    <div className="rounded-2xl border border-ice bg-white p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="inline-flex items-center gap-2 text-sm font-bold">
-            <Link2 className="h-4 w-4 text-emerald-400" /> Connect your TradeLocker account
+            <Link2 className="h-4 w-4 text-navy" /> Connect your TradeLocker account
           </p>
-          <p className="mt-1 text-xs text-white/50">
+          <p className="mt-1 text-xs text-charcoal/50">
             Link your broker (e.g. Crucial Markets) to copy an approved trader. You approve every trade.
           </p>
         </div>
       </div>
       <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-        <input placeholder="Server (e.g. crucial-live)" className="rounded-lg border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none" />
-        <input placeholder="Account number" className="rounded-lg border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none" />
+        <input placeholder="Server (e.g. crucial-live)" className="rounded-lg border border-ice bg-offwhite px-3 py-2.5 text-sm text-navy placeholder:text-charcoal/30 focus:outline-none" />
+        <input placeholder="Account number" className="rounded-lg border border-ice bg-offwhite px-3 py-2.5 text-sm text-navy placeholder:text-charcoal/30 focus:outline-none" />
         {connected ? (
-          <span className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm font-semibold text-emerald-300">
+          <span className="inline-flex items-center justify-center gap-2 rounded-lg border border-gold/40 bg-navy/[0.05] px-4 py-2.5 text-sm font-semibold text-navy">
             <CheckCircle2 className="h-4 w-4" /> Connected
           </span>
         ) : (
-          <button onClick={() => setConnected(true)} className="rounded-lg bg-white px-5 py-2.5 text-sm font-bold text-black hover:opacity-90">
+          <button onClick={() => setConnected(true)} className="rounded-lg bg-white px-5 py-2.5 text-sm font-bold text-navy hover:opacity-90">
             Connect
           </button>
         )}
       </div>
-      <p className="mt-2 text-[11px] text-white/40">
+      <p className="mt-2 text-[11px] text-charcoal/40">
         Preview — live linking and order approval require TradeLocker API access (a later phase). Never
         share your withdrawal password.
       </p>
@@ -187,21 +187,21 @@ function ConnectCard() {
 function TraderDetail({ trader, onBack }: { trader: Trader; onBack: () => void }) {
   return (
     <div className="space-y-4">
-      <button onClick={onBack} className="inline-flex items-center gap-1.5 text-sm text-white/60 hover:text-white">
+      <button onClick={onBack} className="inline-flex items-center gap-1.5 text-sm text-charcoal/60 hover:text-navy">
         <ArrowLeft className="h-4 w-4" /> Back to leaderboard
       </button>
 
-      <div className="rounded-2xl border border-white/10 bg-[#1e1810] p-5">
+      <div className="rounded-2xl border border-ice bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="inline-flex items-center gap-2">
             <h3 className="text-lg font-extrabold tracking-tight">{trader.name}</h3>
-            <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-300">
+            <span className="rounded-md bg-navy/[0.06] px-2 py-0.5 text-xs font-semibold text-navy">
               Copy Trading
             </span>
           </div>
-          <span className="text-sm text-white/50">{trader.copiers} copiers</span>
+          <span className="text-sm text-charcoal/50">{trader.copiers} copiers</span>
         </div>
-        <p className="mt-2 max-w-3xl text-sm text-white/60">{trader.desc}</p>
+        <p className="mt-2 max-w-3xl text-sm text-charcoal/60">{trader.desc}</p>
 
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           <Stat label="Monthly" value={`${trader.monthly >= 0 ? "+" : ""}${trader.monthly}%`} good={trader.monthly >= 0} />
@@ -213,20 +213,20 @@ function TraderDetail({ trader, onBack }: { trader: Trader; onBack: () => void }
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <span className="text-xs text-white/50">
-            Performance fee <span className="ml-1 rounded-md bg-emerald-500/15 px-2 py-0.5 font-semibold text-emerald-300">{trader.fee}% of profit</span>
+          <span className="text-xs text-charcoal/50">
+            Performance fee <span className="ml-1 rounded-md bg-navy/[0.06] px-2 py-0.5 font-semibold text-navy">{trader.fee}% of profit</span>
           </span>
           <div className="ml-auto flex flex-wrap gap-2">
             {trader.copying ? (
-              <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold text-white/60">
-                <CheckCircle2 className="h-4 w-4 text-emerald-400" /> Already copying
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-ice px-4 py-2 text-sm font-semibold text-charcoal/60">
+                <CheckCircle2 className="h-4 w-4 text-navy" /> Already copying
               </span>
             ) : (
-              <button className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-black hover:opacity-90">
+              <button className="inline-flex items-center gap-1.5 rounded-lg bg-navy px-4 py-2 text-sm font-bold text-navy hover:opacity-90">
                 Copy trader
               </button>
             )}
-            <button className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold text-white/80 hover:bg-white/5">
+            <button className="inline-flex items-center gap-1.5 rounded-lg border border-ice px-4 py-2 text-sm font-semibold text-charcoal/80 hover:bg-offwhite/60">
               <Plus className="h-4 w-4" /> Add account
             </button>
           </div>
@@ -263,14 +263,14 @@ function TradingCalendar() {
   const monthly = Object.values(CAL).reduce((a, b) => a + b, 0);
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#1e1810] p-4">
+    <div className="rounded-2xl border border-ice bg-white p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="inline-flex items-center gap-2 text-sm font-semibold">
-          <BarChart3 className="h-4 w-4 text-emerald-400" /> Trading Calendar
+          <BarChart3 className="h-4 w-4 text-navy" /> Trading Calendar
         </p>
-        <div className="flex items-center gap-3 text-xs text-white/50">
+        <div className="flex items-center gap-3 text-xs text-charcoal/50">
           <span>
-            Monthly P&L <span className="font-semibold text-emerald-400">+${monthly}</span>
+            Monthly P&L <span className="font-semibold text-navy">+${monthly}</span>
           </span>
           <span>Jul 2026</span>
         </div>
@@ -278,7 +278,7 @@ function TradingCalendar() {
 
       <div className="mt-3 grid grid-cols-7 gap-1.5">
         {DAYS.map((d) => (
-          <div key={d} className="pb-1 text-center text-[11px] font-medium text-white/40">
+          <div key={d} className="pb-1 text-center text-[11px] font-medium text-charcoal/40">
             {d}
           </div>
         ))}
@@ -293,14 +293,14 @@ function TradingCalendar() {
               className={`aspect-square rounded-lg border p-1.5 text-left ${
                 has
                   ? good
-                    ? "border-emerald-500/30 bg-emerald-500/10"
+                    ? "border-gold/40 bg-navy/[0.05]"
                     : "border-red-500/30 bg-red-500/10"
-                  : "border-white/5 bg-white/[0.02]"
+                  : "border-ice bg-offwhite/50"
               }`}
             >
-              <div className="text-[10px] text-white/40">{day}</div>
+              <div className="text-[10px] text-charcoal/40">{day}</div>
               {has && (
-                <div className={`text-[11px] font-bold ${good ? "text-emerald-400" : "text-red-400"}`}>
+                <div className={`text-[11px] font-bold ${good ? "text-navy" : "text-red-400"}`}>
                   {good ? "+" : ""}${pnl}
                 </div>
               )}
@@ -315,10 +315,10 @@ function TradingCalendar() {
 /* --------------------------- bits --------------------------- */
 
 function Stat({ label, value, good, bad, mini }: { label: string; value: string; good?: boolean; bad?: boolean; mini?: boolean }) {
-  const color = good ? "text-emerald-400" : bad ? "text-red-400" : "text-white";
+  const color = good ? "text-navy" : bad ? "text-red-400" : "text-navy";
   return (
-    <div className={`rounded-xl border border-white/10 bg-white/[0.03] ${mini ? "px-3 py-2" : "px-3 py-3"}`}>
-      <p className="text-[11px] uppercase tracking-wide text-white/40">{label}</p>
+    <div className={`rounded-xl border border-ice bg-offwhite/60 ${mini ? "px-3 py-2" : "px-3 py-3"}`}>
+      <p className="text-[11px] uppercase tracking-wide text-charcoal/40">{label}</p>
       <p className={`mt-0.5 font-bold ${color} ${mini ? "text-sm" : "text-base"}`}>{value}</p>
     </div>
   );
@@ -326,19 +326,19 @@ function Stat({ label, value, good, bad, mini }: { label: string; value: string;
 
 function BigStat({ label, value, sub, good }: { label: string; value: string; sub: string; good?: boolean }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#1e1810] p-4">
-      <p className="text-[11px] uppercase tracking-wide text-white/40">{label}</p>
-      <p className={`mt-1 text-2xl font-extrabold ${good ? "text-emerald-400" : "text-white"}`}>{value}</p>
-      <p className="mt-0.5 text-xs text-white/40">{sub}</p>
+    <div className="rounded-2xl border border-ice bg-white p-4">
+      <p className="text-[11px] uppercase tracking-wide text-charcoal/40">{label}</p>
+      <p className={`mt-1 text-2xl font-extrabold ${good ? "text-navy" : "text-navy"}`}>{value}</p>
+      <p className="mt-0.5 text-xs text-charcoal/40">{sub}</p>
     </div>
   );
 }
 
 function Placeholder({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#1e1810] p-6">
+    <div className="rounded-2xl border border-ice bg-white p-6">
       <p className="text-sm font-bold">{title}</p>
-      <p className="mt-1 max-w-xl text-sm text-white/50">{body}</p>
+      <p className="mt-1 max-w-xl text-sm text-charcoal/50">{body}</p>
     </div>
   );
 }

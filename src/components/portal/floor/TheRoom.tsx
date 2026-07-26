@@ -36,56 +36,56 @@ export function TheRoom() {
       {/* Stage: video + chat */}
       <div className="grid gap-3 lg:grid-cols-[1fr_320px]">
         {/* Video */}
-        <div className="relative flex min-h-[76vh] items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#151206] via-[#17130d] to-[#0f0b06]">
-          <div className="pointer-events-none absolute inset-0 opacity-40 [background:radial-gradient(circle_at_50%_40%,rgba(212,180,90,0.18),transparent_60%)]" />
-          <span className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-black/50 px-3 py-1 text-xs font-semibold">
+        <div className="relative flex min-h-[76vh] items-center justify-center overflow-hidden rounded-2xl border border-ice bg-gradient-to-b from-offwhite to-ice">
+          <div className="pointer-events-none absolute inset-0 opacity-40 [background:radial-gradient(circle_at_50%_40%,rgba(207,199,179,0.4),transparent_60%)]" />
+          <span className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold">
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-70" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
             </span>
             LIVE
           </span>
-          <span className="absolute right-4 top-4 inline-flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1 text-xs text-white/80">
+          <span className="absolute right-4 top-4 inline-flex items-center gap-1.5 rounded-full bg-white/80 px-3 py-1 text-xs text-charcoal/80">
             <Eye className="h-3.5 w-3.5" /> {PRESENTER.viewers}
           </span>
 
           <div className="relative z-10 flex flex-col items-center text-center">
-            <button className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10 backdrop-blur transition hover:bg-white/20">
+            <button className="flex h-16 w-16 items-center justify-center rounded-full bg-ice backdrop-blur transition hover:bg-white/20">
               <Play className="ml-1 h-7 w-7" />
             </button>
-            <p className="mt-6 text-xs font-semibold uppercase tracking-[0.3em] text-white/50">
+            <p className="mt-6 text-xs font-semibold uppercase tracking-[0.3em] text-charcoal/50">
               {PRESENTER.role}
             </p>
-            <p className="mt-2 rounded-md bg-gold/80 px-8 py-2 text-3xl font-bold tracking-tight text-black">
+            <p className="mt-2 rounded-md bg-gold/80 px-8 py-2 text-3xl font-bold tracking-tight text-navy">
               {PRESENTER.name}
             </p>
           </div>
         </div>
 
         {/* Chat */}
-        <div className="flex min-h-[76vh] flex-col rounded-2xl border border-white/10 bg-[#1e1810]">
-          <div className="border-b border-white/10 px-4 py-3">
+        <div className="flex min-h-[76vh] flex-col rounded-2xl border border-ice bg-white">
+          <div className="border-b border-ice px-4 py-3">
             <p className="text-sm font-semibold">Live chat</p>
           </div>
           <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
             {CHAT.map((c, i) => (
               <div key={i} className="text-sm leading-snug">
-                <span className={`font-semibold ${c.host ? "text-gold-light" : "text-white/80"}`}>
+                <span className={`font-semibold ${c.host ? "text-gold-deep" : "text-charcoal/80"}`}>
                   {c.u}
                 </span>{" "}
-                <span className="text-white/60">{c.m}</span>
+                <span className="text-charcoal/60">{c.m}</span>
               </div>
             ))}
           </div>
-          <div className="flex items-center gap-2 border-t border-white/10 p-3">
+          <div className="flex items-center gap-2 border-t border-ice p-3">
             <input
               placeholder="Write something…"
-              className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none"
+              className="min-w-0 flex-1 rounded-lg border border-ice bg-offwhite px-3 py-2 text-sm text-navy placeholder:text-charcoal/30 focus:outline-none"
             />
-            <button className="text-white/40 hover:text-white">
+            <button className="text-charcoal/40 hover:text-navy">
               <Smile className="h-5 w-5" />
             </button>
-            <button className="rounded-lg bg-white px-2.5 py-2 text-black">
+            <button className="rounded-lg bg-white px-2.5 py-2 text-navy">
               <Send className="h-4 w-4" />
             </button>
           </div>
@@ -93,22 +93,22 @@ export function TheRoom() {
       </div>
 
       {/* Session info bar */}
-      <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#1e1810] p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 rounded-2xl border border-ice bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold/30 text-sm font-bold text-gold-light">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold/30 text-sm font-bold text-gold-deep">
             RJ
           </div>
           <div>
             <p className="text-sm font-semibold">{PRESENTER.name}</p>
-            <p className="text-xs text-white/50">
-              <span className="text-gold-light">{PRESENTER.topic}</span> · {PRESENTER.lang}
+            <p className="text-xs text-charcoal/50">
+              <span className="text-gold-deep">{PRESENTER.topic}</span> · {PRESENTER.lang}
             </p>
           </div>
         </div>
         <button
           onClick={() => setFollowing((v) => !v)}
           className={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-colors ${
-            following ? "bg-gold text-black" : "border border-gold/50 text-gold-light hover:bg-gold/10"
+            following ? "bg-gold text-navy" : "border border-gold/50 text-gold-deep hover:bg-gold/10"
           }`}
         >
           <Heart className={`h-4 w-4 ${following ? "fill-black" : ""}`} /> {following ? "Following" : "Follow"}
@@ -121,18 +121,18 @@ export function TheRoom() {
           <p className="mb-3 text-sm font-semibold">Session Replay</p>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {REPLAYS.map((r, i) => (
-              <article key={i} className="overflow-hidden rounded-xl border border-white/10 bg-[#1e1810]">
-                <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-[#241d13] to-[#0f0b06]">
-                  <span className="text-xs font-bold uppercase tracking-widest text-white/40">
+              <article key={i} className="overflow-hidden rounded-xl border border-ice bg-white">
+                <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-offwhite to-ice">
+                  <span className="text-xs font-bold uppercase tracking-widest text-charcoal/40">
                     Starting soon
                   </span>
                 </div>
                 <div className="p-3">
-                  <p className="flex items-center gap-1.5 text-[11px] text-white/40">
+                  <p className="flex items-center gap-1.5 text-[11px] text-charcoal/40">
                     <Calendar className="h-3 w-3" /> {r.d}
                   </p>
-                  <p className="mt-1 text-sm font-semibold text-white">{r.t}</p>
-                  <button className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-gold-light hover:text-gold">
+                  <p className="mt-1 text-sm font-semibold text-navy">{r.t}</p>
+                  <button className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-gold-deep hover:text-gold">
                     <PlayCircle className="h-4 w-4" /> Watch replay
                   </button>
                 </div>
@@ -145,14 +145,14 @@ export function TheRoom() {
           <p className="mb-3 text-sm font-semibold">Live Schedule</p>
           <div className="space-y-2">
             {SCHEDULE.map((s, i) => (
-              <div key={i} className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#1e1810] p-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gold/30 text-xs font-bold text-gold-light">
+              <div key={i} className="flex items-center gap-3 rounded-xl border border-ice bg-white p-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gold/30 text-xs font-bold text-gold-deep">
                   RJ
                 </div>
                 <div>
                   <p className="text-sm font-semibold">{PRESENTER.name}</p>
-                  <p className="flex items-center gap-1.5 text-xs text-white/50">
-                    <Calendar className="h-3 w-3 text-gold-light" /> {s.time} · {s.day}
+                  <p className="flex items-center gap-1.5 text-xs text-charcoal/50">
+                    <Calendar className="h-3 w-3 text-gold-deep" /> {s.time} · {s.day}
                   </p>
                 </div>
               </div>

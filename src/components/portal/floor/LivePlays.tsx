@@ -1,180 +1,135 @@
 "use client";
 
-import { useState } from "react";
-import { Star, Clipboard, Bell, Users } from "lucide-react";
-import { TradingViewChart } from "./TradingViewChart";
+/**
+ * Live Plays → Plays of the Week, in the One Mission palette (light / stone /
+ * ink). A professional AI buy-&-hold desk posts the best longer-horizon ideas
+ * across stocks + crypto each week, grounded in live prices. (Live *caller*
+ * plays you can copy arrive with Trade Sync once the copy-trader is set up.)
+ */
+import { useCallback, useEffect, useState } from "react";
+import {
+  Repeat, RefreshCw, TrendingUp, Bitcoin, AlertTriangle, Clock, ShieldAlert, Users,
+} from "lucide-react";
 
-type Signal = {
-  id: string;
-  pair: string;
-  symbol: string; // TradingView symbol
-  side: "Buy Market" | "Sell Market";
-  ep: string;
-  sl: string;
-  tps: string[];
-  strength: number;
-  createdAt: string;
-  orderType: string;
-  caller: string;
-  active: boolean;
+type Play = {
+  ticker: string; name: string; type: "Stock" | "Crypto";
+  thesis: string; buyZone: string; horizon: string; risk: string; conviction: string;
 };
 
-const SIGNALS: Signal[] = [
-  {
-    id: "s1",
-    pair: "XAU/USD",
-    symbol: "OANDA:XAUUSD",
-    side: "Sell Market",
-    ep: "4127",
-    sl: "4135",
-    tps: ["4125", "4123", "4121", "4115", "4110"],
-    strength: 4,
-    createdAt: "09:20 PM",
-    orderType: "Scalp",
-    caller: "Arabella Angeles",
-    active: true,
-  },
-  {
-    id: "s2",
-    pair: "EUR/USD",
-    symbol: "OANDA:EURUSD",
-    side: "Buy Market",
-    ep: "1.1421",
-    sl: "1.1402",
-    tps: ["1.1435", "1.1450", "1.1470"],
-    strength: 5,
-    createdAt: "01:09 PM",
-    orderType: "Scalp",
-    caller: "RJ Antuna",
-    active: true,
-  },
-  {
-    id: "s3",
-    pair: "GBP/USD",
-    symbol: "OANDA:GBPUSD",
-    side: "Sell Market",
-    ep: "1.3320",
-    sl: "1.3345",
-    tps: ["1.3300", "1.3280", "1.3255"],
-    strength: 3,
-    createdAt: "11:42 AM",
-    orderType: "Swing",
-    caller: "Gold_Master",
-    active: false,
-  },
-];
+const convStyle = (c: string) =>
+  /high/i.test(c) ? "bg-gold/15 text-gold-deep"
+    : /med/i.test(c) ? "bg-ice text-charcoal/70"
+    : "bg-offwhite text-charcoal/50";
 
-export function LivePlays({
-  isCaller = false,
-  followerCount = 0,
-}: {
-  isCaller?: boolean;
-  followerCount?: number;
-}) {
-  const [active, setActive] = useState<Signal>(SIGNALS[0]);
+export function LivePlays({ isCaller = false, followerCount = 0 }: { isCaller?: boolean; followerCount?: number }) {
+  void isCaller; void followerCount;
+  const [plays, setPlays] = useState<Play[]>([]);
+  const [note, setNote] = useState("");
+  const [week, setWeek] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true); setMsg("");
+    try {
+      const r = await fetch("/api/om-weekly", { method: "POST" });
+      const d = await r.json();
+      if (d.notConfigured) { setMsg("OM AI isn't switched on yet."); setPlays([]); return; }
+      if (d.error) { setMsg("Couldn't load this week's plays — try again shortly."); return; }
+      setPlays(Array.isArray(d.plays) ? d.plays : []);
+      setNote(d.note || ""); setWeek(d.week || "");
+    } catch { setMsg("Couldn't load this week's plays — try again shortly."); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
 
   return (
-    <div className="space-y-3">
-      {isCaller && (
-        <div className="flex flex-col gap-3 rounded-2xl border border-gold/40 bg-gold/10 p-3 sm:flex-row sm:items-center sm:justify-between">
-          <span className="inline-flex items-center gap-2 text-sm">
-            <Users className="h-5 w-5 text-gold-light" />
-            <span className="font-bold">{followerCount.toLocaleString()}</span>
-            <span className="text-white/60">following your calls</span>
-          </span>
-          <button
-            title="Posting goes live in the next phase"
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-bold text-black hover:opacity-90"
-          >
-            <Bell className="h-4 w-4" /> Post a play
-          </button>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="flex items-center gap-2 text-xl font-extrabold tracking-tight text-navy">
+            <TrendingUp className="h-5 w-5 text-primary" /> Plays of the Week
+          </h2>
+          <p className="text-xs text-charcoal/50">AI buy-&-hold desk · stocks + crypto {week && `· ${week}`}</p>
+        </div>
+        <button onClick={() => void load()} disabled={loading}
+          className="inline-flex items-center gap-2 rounded-full border border-ice bg-white px-4 py-2 text-sm font-semibold text-charcoal/70 transition-colors hover:bg-offwhite focus-ring disabled:opacity-50">
+          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+        </button>
+      </div>
+
+      {note && !loading && (
+        <p className="rounded-xl border border-ice bg-offwhite/60 px-4 py-2.5 text-sm text-charcoal/75">{note}</p>
+      )}
+
+      {msg && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle className="h-4 w-4" /> {msg}
         </div>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-[1fr_340px]">
-        {/* Big chart */}
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-sm">
-            <span className="font-semibold text-white">{active.pair}</span>
-            <span className="text-white/40">· tap a play to load it on the chart</span>
-          </div>
-          <TradingViewChart symbol={active.symbol} interval="15" height="80vh" />
+      {loading && plays.length === 0 && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[0, 1, 2, 3].map((i) => <div key={i} className="h-44 animate-pulse rounded-2xl border border-ice bg-offwhite/60" />)}
         </div>
+      )}
 
-        {/* Signals list */}
-        <div className="space-y-3">
-          <p className="text-sm font-semibold text-white">Live plays</p>
-          <div className="space-y-3 lg:max-h-[80vh] lg:overflow-y-auto lg:pr-1">
-            {SIGNALS.map((s) => {
-              const selected = s.id === active.id;
-              const buy = s.side === "Buy Market";
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => setActive(s)}
-                  className={`w-full rounded-2xl border p-3 text-left transition-colors ${
-                    selected ? "border-gold bg-gold/[0.06]" : "border-white/10 bg-[#1e1810] hover:border-white/25"
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
-                        <span className={`h-2 w-2 rounded-full ${s.active ? "bg-emerald-400" : "bg-white/30"}`} />
-                        <span className={s.active ? "text-emerald-400" : "text-white/40"}>
-                          {s.active ? "Active" : "Closed"}
-                        </span>
-                      </span>
-                      <p className="mt-0.5 text-base font-extrabold tracking-tight">{s.pair}</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {plays.map((p) => {
+          const Icon = p.type === "Crypto" ? Bitcoin : TrendingUp;
+          return (
+            <div key={p.ticker} className="rounded-2xl border border-ice bg-white p-4 shadow-card">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-ice text-primary"><Icon className="h-4 w-4" /></span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-navy">{p.ticker}</span>
+                      <span className="rounded-full bg-offwhite px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-charcoal/50">{p.type}</span>
                     </div>
-                    <span
-                      className={`rounded-lg px-2.5 py-1 text-xs font-bold ${
-                        buy ? "bg-emerald-500/15 text-emerald-300" : "bg-gold/15 text-gold-light"
-                      }`}
-                    >
-                      {s.side}
-                    </span>
+                    <p className="text-[11px] text-charcoal/45">{p.name}</p>
                   </div>
+                </div>
+                {p.conviction && <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${convStyle(p.conviction)}`}>{p.conviction}</span>}
+              </div>
 
-                  <div className="mt-2 grid grid-cols-2 gap-1.5">
-                    <Cell label="EP" value={s.ep} />
-                    <Cell label="SL" value={s.sl} />
-                    {s.tps.map((tp, i) => (
-                      <Cell key={i} label={`TP${i + 1}`} value={tp} />
-                    ))}
-                  </div>
+              <p className="mt-3 text-sm leading-relaxed text-charcoal/80">{p.thesis}</p>
 
-                  <div className="mt-2 flex items-center justify-between text-xs text-white/50">
-                    <span className="inline-flex items-center gap-1">
-                      {Array.from({ length: 5 }).map((_, i) => (
-                        <Star
-                          key={i}
-                          className={`h-3 w-3 ${i < s.strength ? "fill-gold-light text-gold-light" : "text-white/20"}`}
-                        />
-                      ))}
-                    </span>
-                    <span>
-                      {s.orderType} · {s.createdAt}
-                    </span>
-                  </div>
-                  <p className="mt-1.5 text-xs text-white/40">{s.caller}</p>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-lg bg-offwhite/70 px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wide text-charcoal/40">Buy zone</div>
+                  <div className="mt-0.5 font-semibold text-navy">{p.buyZone}</div>
+                </div>
+                <div className="rounded-lg bg-offwhite/70 px-3 py-2">
+                  <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-charcoal/40"><Clock className="h-2.5 w-2.5" /> Horizon</div>
+                  <div className="mt-0.5 font-semibold text-charcoal/80">{p.horizon}</div>
+                </div>
+              </div>
+
+              {p.risk && (
+                <p className="mt-2 flex items-start gap-1.5 text-[11px] text-charcoal/45">
+                  <ShieldAlert className="mt-0.5 h-3 w-3 flex-shrink-0 text-red-400" /> {p.risk}
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
-    </div>
-  );
-}
 
-function Cell({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between rounded-md bg-white/[0.04] px-2 py-1.5">
-      <span className="text-xs text-white/50">{label}</span>
-      <span className="inline-flex items-center gap-1 text-xs font-semibold text-white">
-        {value}
-        <Clipboard className="h-3 w-3 text-white/25" />
-      </span>
+      {/* Copy-trading teaser */}
+      <div className="flex items-center gap-3 rounded-2xl border border-dashed border-[#E7E4DD] bg-offwhite/60 px-4 py-3">
+        <span className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl bg-white text-charcoal/50 shadow-card"><Repeat className="h-4 w-4" /></span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-navy">Live caller plays are coming to Trade Sync</p>
+          <p className="text-[11px] text-charcoal/50">Follow top traders and mirror their entries once copy-trading is live.</p>
+        </div>
+        <Users className="ml-auto hidden h-4 w-4 text-charcoal/30 sm:block" />
+      </div>
+
+      {!loading && plays.length > 0 && (
+        <p className="text-center text-[11px] text-charcoal/40">Educational buy-&-hold ideas, refreshed weekly · not financial advice.</p>
+      )}
     </div>
   );
 }

@@ -72,32 +72,32 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
   return (
     <div className="relative overflow-hidden rounded-xl">
       {/* futuristic backdrop */}
-      <div className="pointer-events-none absolute inset-0 opacity-70 [background:radial-gradient(1200px_400px_at_10%_-10%,rgba(16,185,129,0.12),transparent),radial-gradient(900px_400px_at_100%_0%,rgba(94,134,168,0.14),transparent)]" />
-      <div className="pointer-events-none absolute inset-0 opacity-[0.05] [background-image:linear-gradient(rgba(255,255,255,.5)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.5)_1px,transparent_1px)] [background-size:34px_34px]" />
+      <div className="pointer-events-none absolute inset-0 opacity-70 [background:radial-gradient(1200px_400px_at_10%_-10%,rgba(111,106,93,0.06),transparent),radial-gradient(900px_400px_at_100%_0%,rgba(111,106,93,0.05),transparent)]" />
+      <div className="pointer-events-none absolute inset-0 opacity-[0.05] [background-image:linear-gradient(rgba(17,17,17,.3)_1px,transparent_1px),linear-gradient(90deg,rgba(17,17,17,.3)_1px,transparent_1px)] [background-size:34px_34px]" />
 
       <div className="relative space-y-5 p-1 sm:p-2">
         {/* Hero */}
         <div className="flex flex-col gap-4 pt-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest text-emerald-300">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-gold/40 bg-gold/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest text-navy">
               <Sparkles className="h-3 w-3" /> The Floor
             </span>
             <h2 className="mt-2 text-3xl font-black leading-none tracking-tight sm:text-4xl">
-              <span className="bg-gradient-to-r from-emerald-300 via-white to-gold-light bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-navy via-charcoal to-gold-deep bg-clip-text text-transparent">
                 Where the movement moves.
               </span>
             </h2>
-            <p className="mt-2 text-sm text-white/55">
+            <p className="mt-2 text-sm text-charcoal/55">
               Top traders, hottest streaks, and the newest plays — live.
             </p>
           </div>
           <button
             onClick={() => onGo("room")}
-            className="group inline-flex items-center justify-center gap-2 self-start rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-400 px-5 py-3 text-sm font-bold text-black shadow-[0_0_30px_-6px_rgba(16,185,129,0.7)] transition hover:shadow-[0_0_40px_-4px_rgba(16,185,129,0.9)]"
+            className="group inline-flex items-center justify-center gap-2 self-start rounded-xl bg-gradient-to-r from-navy to-primary px-5 py-3 text-sm font-bold text-cream shadow-card transition hover:shadow-cardhover"
           >
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-black/60" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-black" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cream/50" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-navy" />
             </span>
             Jump into the live room
             <ChevronRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
@@ -105,10 +105,10 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
         </div>
 
         {/* Live ticker */}
-        <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black/30 py-2.5">
+        <div className="relative overflow-hidden rounded-xl border border-ice bg-offwhite py-2.5">
           <div className="flex w-max gap-10 whitespace-nowrap pl-10" style={{ animation: "floorMarquee 34s linear infinite" }}>
             {[...TICKER, ...TICKER].map((t, i) => (
-              <span key={i} className="text-sm font-medium text-white/70">{t}</span>
+              <span key={i} className="text-sm font-medium text-charcoal/70">{t}</span>
             ))}
           </div>
         </div>
@@ -130,12 +130,12 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
 
         <div className="grid gap-4 lg:grid-cols-[1fr_1.1fr]">
           {/* Leaderboard / streaks */}
-          <section className="rounded-2xl border border-white/10 bg-[#1e1810]/80 p-4 backdrop-blur">
+          <section className="rounded-2xl border border-ice bg-white p-4 backdrop-blur">
             <div className="flex items-center justify-between">
               <p className="inline-flex items-center gap-2 text-sm font-bold">
-                <Trophy className="h-4 w-4 text-gold-light" /> Top traders & streaks
+                <Trophy className="h-4 w-4 text-gold-deep" /> Top traders & streaks
               </p>
-              <button onClick={() => onGo("sync")} className="text-xs font-semibold text-emerald-400 hover:text-emerald-300">
+              <button onClick={() => onGo("sync")} className="text-xs font-semibold text-navy hover:text-navy">
                 See all
               </button>
             </div>
@@ -145,16 +145,16 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
               {[LEADERS[1], LEADERS[0], LEADERS[2]].map((t, i) => {
                 const rank = i === 1 ? 1 : i === 0 ? 2 : 3;
                 const h = rank === 1 ? "h-24" : "h-16";
-                const ring = rank === 1 ? "ring-2 ring-gold-light shadow-[0_0_30px_-8px_rgba(94,134,168,0.9)]" : "ring-1 ring-white/15";
+                const ring = rank === 1 ? "ring-2 ring-gold shadow-card" : "ring-1 ring-ice";
                 return (
                   <div key={t.name} className="flex flex-col items-center justify-end">
-                    <div className={`flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-sm font-black text-emerald-300 ${ring}`}>
+                    <div className={`flex h-12 w-12 items-center justify-center rounded-full bg-navy/[0.06] text-sm font-black text-navy ${ring}`}>
                       {t.name.slice(0, 2).toUpperCase()}
                     </div>
                     <p className="mt-1 max-w-full truncate text-[11px] font-semibold">{t.name}</p>
-                    <p className="text-[11px] font-bold text-emerald-400">+{t.monthly}%</p>
-                    <div className={`mt-1 flex w-full items-start justify-center rounded-t-lg bg-gradient-to-t from-emerald-500/10 to-emerald-400/25 ${h}`}>
-                      <span className="mt-1 text-xs font-black text-white/70">#{rank}</span>
+                    <p className="text-[11px] font-bold text-navy">+{t.monthly}%</p>
+                    <div className={`mt-1 flex w-full items-start justify-center rounded-t-lg bg-gradient-to-t from-navy/5 to-navy/15 ${h}`}>
+                      <span className="mt-1 text-xs font-black text-charcoal/70">#{rank}</span>
                     </div>
                   </div>
                 );
@@ -164,28 +164,28 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
             {/* Rest of leaderboard */}
             <div className="mt-3 space-y-1.5">
               {LEADERS.map((t, i) => (
-                <div key={t.name} className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2">
-                  <span className="w-4 text-xs font-bold text-white/40">{i + 1}</span>
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 text-[11px] font-bold text-emerald-300">
+                <div key={t.name} className="flex items-center gap-3 rounded-xl border border-ice bg-offwhite/50 px-3 py-2">
+                  <span className="w-4 text-xs font-bold text-charcoal/40">{i + 1}</span>
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-navy/[0.06] text-[11px] font-bold text-navy">
                     {t.name.slice(0, 2).toUpperCase()}
                   </div>
                   <span className="flex-1 truncate text-sm font-semibold">{t.name}</span>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-gold/15 px-2 py-0.5 text-[11px] font-bold text-gold-light">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-gold/15 px-2 py-0.5 text-[11px] font-bold text-gold-deep">
                     <Flame className="h-3 w-3" /> {t.streak}d
                   </span>
-                  <span className="w-14 text-right text-sm font-bold text-emerald-400">+{t.monthly}%</span>
+                  <span className="w-14 text-right text-sm font-bold text-navy">+{t.monthly}%</span>
                 </div>
               ))}
             </div>
           </section>
 
           {/* Newest plays */}
-          <section className="rounded-2xl border border-white/10 bg-[#1e1810]/80 p-4 backdrop-blur">
+          <section className="rounded-2xl border border-ice bg-white p-4 backdrop-blur">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="inline-flex items-center gap-2 text-sm font-bold">
-                <Zap className="h-4 w-4 text-emerald-400" /> Newest buy &amp; hold plays
+                <Zap className="h-4 w-4 text-navy" /> Newest buy &amp; hold plays
               </p>
-              <button onClick={() => onGo("plays")} className="text-xs font-semibold text-emerald-400 hover:text-emerald-300">
+              <button onClick={() => onGo("plays")} className="text-xs font-semibold text-navy hover:text-navy">
                 All plays
               </button>
             </div>
@@ -197,7 +197,7 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
                   key={c}
                   onClick={() => setCat(c)}
                   className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
-                    cat === c ? "bg-white text-black" : "bg-white/5 text-white/60 hover:bg-white/10"
+                    cat === c ? "bg-primary text-cream" : "bg-offwhite/60 text-charcoal/60 hover:bg-ice"
                   }`}
                 >
                   {c}
@@ -212,19 +212,19 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
                   <button
                     key={i}
                     onClick={() => onGo("plays")}
-                    className="flex w-full items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2.5 text-left transition hover:border-emerald-400/30"
+                    className="flex w-full items-center gap-3 rounded-xl border border-ice bg-offwhite/50 px-3 py-2.5 text-left transition hover:border-gold/40"
                   >
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-[11px] font-black text-emerald-300">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-navy/[0.05] text-[11px] font-black text-navy">
                       {p.ticker.slice(0, 3)}
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-bold">{p.ticker}</p>
-                      <p className="truncate text-[11px] text-white/40">{p.by} · held {p.held}</p>
+                      <p className="truncate text-[11px] text-charcoal/40">{p.by} · held {p.held}</p>
                     </div>
-                    <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${p.dir === "LONG" ? "bg-emerald-500/15 text-emerald-300" : "bg-gold/15 text-gold-light"}`}>
+                    <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${p.dir === "LONG" ? "bg-navy/[0.06] text-navy" : "bg-gold/15 text-gold-deep"}`}>
                       {p.dir}
                     </span>
-                    <span className={`inline-flex w-16 items-center justify-end gap-1 text-sm font-bold ${up ? "text-emerald-400" : "text-red-400"}`}>
+                    <span className={`inline-flex w-16 items-center justify-end gap-1 text-sm font-bold ${up ? "text-navy" : "text-red-400"}`}>
                       {up ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
                       {up ? "+" : ""}{p.pnl}%
                     </span>
@@ -235,7 +235,7 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
           </section>
         </div>
 
-        <p className="pb-1 text-center text-[11px] text-white/35">
+        <p className="pb-1 text-center text-[11px] text-charcoal/35">
           Preview data — the Floor lights up with real streaks, plays and traders in Phase 2.
         </p>
       </div>
@@ -249,12 +249,12 @@ function StatCard({ label, value, suffix }: { label: string; value: number; suff
   const v = useCountUp(value);
   const shown = suffix === "%" || suffix === "d" ? Math.round(v) : Math.round(v);
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#1e1810]/70 p-3.5 backdrop-blur">
-      <p className="text-2xl font-black tabular-nums text-white sm:text-3xl">
+    <div className="rounded-2xl border border-ice bg-white p-3.5 backdrop-blur">
+      <p className="text-2xl font-black tabular-nums text-navy sm:text-3xl">
         {shown.toLocaleString()}
-        <span className="text-emerald-400">{suffix}</span>
+        <span className="text-navy">{suffix}</span>
       </p>
-      <p className="mt-0.5 text-[11px] uppercase tracking-wide text-white/45">{label}</p>
+      <p className="mt-0.5 text-[11px] uppercase tracking-wide text-charcoal/45">{label}</p>
     </div>
   );
 }
@@ -267,9 +267,9 @@ function JumpCard({
   return (
     <button
       onClick={onClick}
-      className="group relative flex items-center gap-3 overflow-hidden rounded-2xl border border-white/10 bg-[#1e1810]/70 p-3.5 text-left backdrop-blur transition hover:border-emerald-400/40 hover:bg-[#241d13]"
+      className="group relative flex items-center gap-3 overflow-hidden rounded-2xl border border-ice bg-white p-3.5 text-left backdrop-blur transition hover:border-charcoal/25 hover:bg-offwhite"
     >
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-300 transition group-hover:scale-110">
+      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-navy/[0.05] text-navy transition group-hover:scale-110">
         <Icon className="h-5 w-5" />
       </div>
       <div className="min-w-0">
@@ -281,9 +281,9 @@ function JumpCard({
             </span>
           )}
         </p>
-        <p className="truncate text-[11px] text-white/45">{sub}</p>
+        <p className="truncate text-[11px] text-charcoal/45">{sub}</p>
       </div>
-      <ChevronRight className="ml-auto h-4 w-4 text-white/30 transition group-hover:translate-x-0.5 group-hover:text-white/60" />
+      <ChevronRight className="ml-auto h-4 w-4 text-charcoal/30 transition group-hover:translate-x-0.5 group-hover:text-charcoal/60" />
     </button>
   );
 }
