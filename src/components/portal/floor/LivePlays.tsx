@@ -121,8 +121,8 @@ export function LivePlays({ isCaller = false, followerCount = 0 }: { isCaller?: 
       <div className="flex items-center gap-3 rounded-2xl border border-dashed border-[#E7E4DD] bg-offwhite/60 px-4 py-3">
         <span className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl bg-white text-charcoal/50 shadow-card"><Repeat className="h-4 w-4" /></span>
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-navy">Live caller plays are coming to Trade Sync</p>
-          <p className="text-[11px] text-charcoal/50">Follow top traders and mirror their entries once copy-trading is live.</p>
+          <p className="text-sm font-semibold text-navy">Copy-trading is coming soon</p>
+          <p className="text-[11px] text-charcoal/50">Follow top traders and mirror their entries once the copy-trader is live.</p>
         </div>
         <Users className="ml-auto hidden h-4 w-4 text-charcoal/30 sm:block" />
       </div>

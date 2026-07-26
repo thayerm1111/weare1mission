@@ -121,65 +121,15 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
         </div>
 
         {/* Quick jump */}
-        <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+        <div className="grid grid-cols-3 gap-2.5">
           <JumpCard onClick={() => onGo("room")} icon={Radio} label="The Room" sub="Live session" live />
-          <JumpCard onClick={() => onGo("plays")} icon={Zap} label="Live Plays" sub="3 active" />
-          <JumpCard onClick={() => onGo("pulse")} icon={Activity} label="Market Pulse" sub="Scanners" />
-          <JumpCard onClick={() => onGo("sync")} icon={Repeat} label="Trade Sync" sub="Copy trade" />
+          <JumpCard onClick={() => onGo("plays")} icon={Zap} label="Live Plays" sub="Plays of the week" />
+          <JumpCard onClick={() => onGo("pulse")} icon={Activity} label="Market Pulse" sub="AI scanner" />
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[1fr_1.1fr]">
-          {/* Leaderboard / streaks */}
-          <section className="rounded-2xl border border-ice bg-white p-4 backdrop-blur">
-            <div className="flex items-center justify-between">
-              <p className="inline-flex items-center gap-2 text-sm font-bold">
-                <Trophy className="h-4 w-4 text-gold-deep" /> Top traders & streaks
-              </p>
-              <button onClick={() => onGo("sync")} className="text-xs font-semibold text-navy hover:text-navy">
-                See all
-              </button>
-            </div>
-
-            {/* Podium top 3 */}
-            <div className="mt-4 grid grid-cols-3 gap-2">
-              {[LEADERS[1], LEADERS[0], LEADERS[2]].map((t, i) => {
-                const rank = i === 1 ? 1 : i === 0 ? 2 : 3;
-                const h = rank === 1 ? "h-24" : "h-16";
-                const ring = rank === 1 ? "ring-2 ring-gold shadow-card" : "ring-1 ring-ice";
-                return (
-                  <div key={t.name} className="flex flex-col items-center justify-end">
-                    <div className={`flex h-12 w-12 items-center justify-center rounded-full bg-navy/[0.06] text-sm font-black text-navy ${ring}`}>
-                      {t.name.slice(0, 2).toUpperCase()}
-                    </div>
-                    <p className="mt-1 max-w-full truncate text-[11px] font-semibold">{t.name}</p>
-                    <p className="text-[11px] font-bold text-navy">+{t.monthly}%</p>
-                    <div className={`mt-1 flex w-full items-start justify-center rounded-t-lg bg-gradient-to-t from-navy/5 to-navy/15 ${h}`}>
-                      <span className="mt-1 text-xs font-black text-charcoal/70">#{rank}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Rest of leaderboard */}
-            <div className="mt-3 space-y-1.5">
-              {LEADERS.map((t, i) => (
-                <div key={t.name} className="flex items-center gap-3 rounded-xl border border-ice bg-offwhite/50 px-3 py-2">
-                  <span className="w-4 text-xs font-bold text-charcoal/40">{i + 1}</span>
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-navy/[0.06] text-[11px] font-bold text-navy">
-                    {t.name.slice(0, 2).toUpperCase()}
-                  </div>
-                  <span className="flex-1 truncate text-sm font-semibold">{t.name}</span>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-gold/15 px-2 py-0.5 text-[11px] font-bold text-gold-deep">
-                    <Flame className="h-3 w-3" /> {t.streak}d
-                  </span>
-                  <span className="w-14 text-right text-sm font-bold text-navy">+{t.monthly}%</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* Newest plays */}
+        <div className="grid gap-4">
+          {/* Newest plays. (Top traders & streaks is parked with Trade Sync until
+              the copy-trader is set up, so we don't show placeholder trader data.) */}
           <section className="rounded-2xl border border-ice bg-white p-4 backdrop-blur">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="inline-flex items-center gap-2 text-sm font-bold">
