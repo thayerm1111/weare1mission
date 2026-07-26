@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { reserveMarketData } from "@/lib/marketData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +55,10 @@ export async function POST(req: NextRequest) {
   const day = utcDay();
   if (CACHE && CACHE.day === day) return json({ day, cached: true, ...(CACHE.data as object) }, 200);
 
+  if (mdKey) {
+    const md = await reserveMarketData(UNIVERSE.length);
+    if (!md.ok) return json({ error: "no_prices", detail: "The data desk is busy — the brief will refresh shortly." }, 200);
+  }
   const quoted = mdKey
     ? await Promise.all(UNIVERSE.map(async (a) => ({ ...a, q: await quote(a.td, mdKey) })))
     : [];
