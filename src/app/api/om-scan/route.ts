@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
+import { reserveMarketData } from "@/lib/marketData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,6 +105,10 @@ export async function POST(req: NextRequest) {
   const gate = await gateCredits("scan");
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
+
+  // Global governor — a scan needs one data credit per asset in the universe.
+  const md = await reserveMarketData(UNIVERSE.length);
+  if (!md.ok) return json({ error: "system_busy", detail: "The scanner is at capacity for a moment — try again in a few seconds." }, 429);
 
   const results = await Promise.all(UNIVERSE.map(async (a) => {
     const rows = await fetchSeries(a.td, mdKey);
