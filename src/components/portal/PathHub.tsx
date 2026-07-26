@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight, LineChart, Zap, Users2, GraduationCap, Video, Network,
-  Trophy, Headphones, CheckCircle2, Compass,
+  Trophy,
 } from "lucide-react";
+import { DailyEngagement } from "./DailyEngagement";
 
 type Side = "ones" | "builders";
 type Tile = { href: string; icon: typeof LineChart; label: string; desc: string };
@@ -108,13 +109,7 @@ function OneHub({ firstName }: { firstName: string }) {
         altHref="/portal/start-here"
       />
 
-      <div className="rounded-2xl border border-[#E7E4DD] bg-offwhite/70 p-6 sm:p-7">
-        <span className="eyebrow">Today&apos;s Mindset</span>
-        <p className="mt-3 font-serif text-xl font-semibold uppercase tracking-[0.01em] text-navy sm:text-2xl">
-          Discipline is remembering what you want most.
-        </p>
-        <p className="mt-1.5 text-sm text-charcoal/55">Placeholder — set a fresh daily prompt for the community.</p>
-      </div>
+      <DailyEngagement side="ones" />
 
       <div>
         <span className="eyebrow">Your Focus</span>
@@ -128,12 +123,6 @@ function OneHub({ firstName }: { firstName: string }) {
 
 /* ─────────────────────────── The Builder (affiliate) ─────────────────────── */
 function BuilderHub({ firstName }: { firstName: string }) {
-  const goals = [
-    "Reach out to 5 new people",
-    "Complete today's training module",
-    "Follow up with your top 3 prospects",
-    "Listen to your development audio",
-  ];
   const tiles: Tile[] = [
     { href: "/portal/training", icon: GraduationCap, label: "Creator Launchpad", desc: "Sales & skills training" },
     { href: "/portal/prospects", icon: Video, label: "Next Up", desc: "Your prospect pipeline" },
@@ -153,46 +142,7 @@ function BuilderHub({ firstName }: { firstName: string }) {
         altHref="/portal/comp-plan"
       />
 
-      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        {/* Daily goals */}
-        <div className="rounded-2xl border border-[#E7E4DD] bg-white p-6 shadow-card">
-          <div className="flex items-center justify-between gap-3">
-            <span className="eyebrow">Today&apos;s Goals</span>
-            <span className="text-xs text-medium">Placeholder — set daily targets</span>
-          </div>
-          <ul className="mt-4 space-y-2.5">
-            {goals.map((g) => (
-              <li key={g} className="flex items-center gap-3 rounded-xl border border-[#EEEDE8] bg-offwhite/60 px-4 py-3">
-                <span className="grid h-5 w-5 flex-shrink-0 place-items-center rounded-full border border-primary/30 text-primary" aria-hidden="true">
-                  <CheckCircle2 className="h-3.5 w-3.5 opacity-0" />
-                </span>
-                <span className="text-sm font-medium text-navy">{g}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* Today's audio */}
-        <div className="flex flex-col rounded-2xl bg-navy p-6 text-white">
-          <span className="eyebrow text-gold-light">Today&apos;s Audio</span>
-          <div className="mt-4 flex items-center gap-4">
-            <span className="grid h-12 w-12 flex-shrink-0 place-items-center rounded-full bg-white/10" aria-hidden="true">
-              <Headphones className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="font-semibold">Your Daily Standard</p>
-              <p className="text-sm text-light/70">10 min · Personal development</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-none bg-white px-6 py-3 text-[13px] font-medium uppercase tracking-[0.14em] text-navy transition-colors hover:bg-ice"
-          >
-            <Compass className="h-4 w-4" aria-hidden="true" /> Play Audio
-          </button>
-          <p className="mt-3 text-xs text-light/45">Placeholder — connect your audio library here.</p>
-        </div>
-      </div>
+      <DailyEngagement side="builders" />
 
       <div>
         <span className="eyebrow">Your Focus</span>
