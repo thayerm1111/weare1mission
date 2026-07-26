@@ -19,8 +19,8 @@ const MODEL = process.env.OM_AI_MODEL || "claude-sonnet-4-6";
 // A tight macro snapshot — 6 quotes stays within the free rate limit (8/min).
 const UNIVERSE: { symbol: string; name: string; td: string }[] = [
   { symbol: "XAU/USD", name: "Gold", td: "XAU/USD" },
-  { symbol: "US30", name: "Dow Jones", td: "DJI" },
-  { symbol: "NAS100", name: "Nasdaq 100", td: "NDX" },
+  { symbol: "DIA", name: "Dow Jones", td: "DIA" },
+  { symbol: "QQQ", name: "Nasdaq 100", td: "QQQ" },
   { symbol: "EUR/USD", name: "Euro", td: "EUR/USD" },
   { symbol: "BTC/USD", name: "Bitcoin", td: "BTC/USD" },
   { symbol: "ETH/USD", name: "Ethereum", td: "ETH/USD" },
