@@ -77,6 +77,7 @@ export function SignalGenerator() {
   const [recent, setRecent] = useState<Result[]>([]);
   const [checking, setChecking] = useState<number | null>(null);
   const [dive, setDive] = useState<Result | null>(null);
+  const [needCredits, setNeedCredits] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -111,7 +112,7 @@ export function SignalGenerator() {
 
   async function generate(a: Asset | null = asset) {
     if (!a) return;
-    setStep("loading"); setGenStep(0); setErrorMsg("");
+    setStep("loading"); setGenStep(0); setErrorMsg(""); setNeedCredits(false);
     if (timer.current) clearInterval(timer.current);
     timer.current = setInterval(() => setGenStep((s) => Math.min(s + 1, GEN_STEPS.length - 1)), 700);
     try {
@@ -124,10 +125,12 @@ export function SignalGenerator() {
       if (data.notConfigured === "marketdata") { setErrorMsg("Live market data isn't connected yet — add a TWELVEDATA_API_KEY in Vercel and I'll pull real prices."); setStep("error"); return; }
       if (data.notConfigured === "ai") { setErrorMsg("OM AI isn't switched on yet — the Anthropic key is missing."); setStep("error"); return; }
       if (data.error === "ratelimit") { setErrorMsg(data.detail || "You've hit the free market-data limit (8 requests a minute). Give it about a minute, then generate again."); setStep("error"); return; }
+      if (res.status === 402 || data.error === "insufficient_credits") { setNeedCredits(true); setErrorMsg("You're out of credits. Your free credits reset tomorrow — or grab more to keep generating plays now."); setStep("error"); return; }
       if (data.error || !data.signal) { setErrorMsg(data.detail ? `Couldn't build a signal: ${data.detail}` : "Couldn't build a signal right now. Try another asset or try again shortly."); setStep("error"); return; }
       const r: Result = { ...data, id: Date.now(), status: "open" };
       setResult(r); setStep("result");
       persist([r, ...recent].slice(0, 20));
+      if (typeof window !== "undefined") window.dispatchEvent(new Event("credits-updated"));
       void earnMission("signal"); // auto-earn the daily "generate a play" mission
     } catch { if (timer.current) clearInterval(timer.current); setErrorMsg("Something interrupted the connection. Try again."); setStep("error"); }
   }
@@ -347,7 +350,10 @@ export function SignalGenerator() {
                 <div className="py-6 text-center">
                   <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-amber-500/15 text-amber-400"><ShieldAlert className="h-6 w-6" /></span>
                   <p className="mt-4 text-sm text-white/70">{errorMsg}</p>
-                  <button onClick={reset} className="mt-5 rounded-none border border-white/20 px-6 py-2.5 text-[12px] font-medium uppercase tracking-[0.14em] text-white hover:bg-white/10">Back to start</button>
+                  {needCredits && (
+                    <a href="/portal/credits" className="mt-5 inline-flex items-center justify-center gap-2 rounded-none bg-gradient-to-br from-gold-light to-[#8a6d35] px-6 py-2.5 text-[12px] font-semibold uppercase tracking-[0.14em] text-[#0a0b10] hover:opacity-90"><Sparkles className="h-4 w-4" /> Get credits</a>
+                  )}
+                  <button onClick={reset} className="mt-3 block rounded-none border border-white/20 px-6 py-2.5 text-[12px] font-medium uppercase tracking-[0.14em] text-white hover:bg-white/10">Back to start</button>
                 </div>
               )}
             </div>

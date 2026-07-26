@@ -11,6 +11,7 @@ import { Watchlist } from "./Watchlist";
 import { Achievements } from "./Achievements";
 import { MarketBrief } from "./MarketBrief";
 import { WinsWall } from "./WinsWall";
+import { CreditsBadge } from "./CreditsBadge";
 
 type Side = "ones" | "builders";
 type Tile = { href: string; icon: typeof LineChart; label: string; desc: string };
@@ -112,6 +113,10 @@ function OneHub({ firstName }: { firstName: string }) {
         altLabel="Continue Onboarding"
         altHref="/portal/start-here"
       />
+
+      <div className="flex justify-end">
+        <CreditsBadge />
+      </div>
 
       <DailyEngagement side="ones" />
 

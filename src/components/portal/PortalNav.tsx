@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, Repeat, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, Repeat, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
@@ -28,13 +28,14 @@ const REG: Record<string, Item> = {
   updates: { href: "/portal/updates", label: "Mission Update", icon: Megaphone },
   collection: { href: "/portal/collection", label: "The Collection", icon: ShoppingBag },
   experiences: { href: "/portal/experiences", label: "1M Experiences", icon: Palmtree },
+  credits: { href: "/portal/credits", label: "Credits", icon: CreditCard },
   account: { href: "/portal/account", label: "Account", icon: UserCircle },
 };
 
 // The Ones = customers · The Builders = affiliates
 // "Start Here" leads The Ones side as the customer onboarding launchpad.
-const ONES = ["startHere", "omai", "signals", "leaderboard", "trading", "schedule", "leadership", "updates", "collection", "experiences", "account"];
-const BUILDERS = ["team", "omai", "leaderboard", "prospects", "compPlan", "training", "schedule", "resources", "leadership", "updates", "account"];
+const ONES = ["startHere", "omai", "signals", "leaderboard", "trading", "schedule", "leadership", "updates", "collection", "experiences", "credits", "account"];
+const BUILDERS = ["team", "omai", "leaderboard", "prospects", "compPlan", "training", "schedule", "resources", "leadership", "updates", "credits", "account"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources", "compPlan"];
 const ONES_ONLY = ["trading", "signals"];
 

@@ -199,7 +199,9 @@ export function OmAiChat() {
         finalize(
           j.notConfigured
             ? "OM AI isn't switched on yet — your Anthropic API key needs to be added in Vercel. Once it's in, I'll come alive here."
-            : "I hit a snag reaching the engine. Give it another try in a moment."
+            : (res.status === 402 || j.error === "insufficient_credits")
+              ? "You're out of credits — each message costs 1. Your free credits reset tomorrow, or you can top up on the Credits page (Portal → Credits)."
+              : "I hit a snag reaching the engine. Give it another try in a moment."
         );
         return;
       }
@@ -216,6 +218,7 @@ export function OmAiChat() {
         setMessages([...base, { role: "assistant", content: live }]);
       }
       finalize(acc || "…");
+      if (typeof window !== "undefined") window.dispatchEvent(new Event("credits-updated"));
     } catch {
       finalize("Something interrupted the connection. Try again.");
     } finally {
