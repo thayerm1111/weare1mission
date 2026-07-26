@@ -357,6 +357,61 @@ function CompactCard({ r, onOpen, onCheck, checking }: { r: Result; onOpen: () =
   );
 }
 
+function LivePrice({ td, entry, direction, closed }: { td: string; entry: number | null; direction: Signal["direction"]; closed?: boolean }) {
+  const [price, setPrice] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/om-price?td=${encodeURIComponent(td)}`, { cache: "no-store" });
+        const d = await res.json();
+        if (!alive) return;
+        if (typeof d.price === "number" && Number.isFinite(d.price)) { setPrice(d.price); setFailed(false); }
+        else setFailed(true);
+      } catch { if (alive) setFailed(true); }
+      finally { if (alive) setLoading(false); }
+    };
+    load();
+    if (!closed) timer = setInterval(load, 15000); // refresh ~every 15s while the alert is open
+    return () => { alive = false; if (timer) clearInterval(timer); };
+  }, [td, closed]);
+
+  const diff = price !== null && entry !== null ? price - entry : null;
+  const favor = diff === null ? 0 : direction === "SHORT" ? -diff : direction === "LONG" ? diff : 0;
+  const pct = diff !== null && entry ? (diff / entry) * 100 : null;
+  const col = favor > 0 ? "text-emerald-400" : favor < 0 ? "text-red-400" : "text-white";
+
+  return (
+    <div className="mt-3 flex items-center justify-between rounded-xl border border-white/10 bg-black/40 px-4 py-3">
+      <div className="flex items-center gap-2">
+        <span className="relative flex h-2 w-2">
+          {!closed && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />}
+          <span className={`relative inline-flex h-2 w-2 rounded-full ${closed ? "bg-amber-400" : "bg-emerald-400"}`} />
+        </span>
+        <span className="text-[10px] uppercase tracking-[0.14em] text-white/45">{closed ? "Last price" : "Live price"}</span>
+      </div>
+      <div className="text-right">
+        {loading && price === null ? (
+          <span className="inline-flex items-center gap-1.5 text-sm text-white/50"><Loader2 className="h-3.5 w-3.5 animate-spin" /> loading…</span>
+        ) : price === null ? (
+          <span className="text-sm text-white/40">{failed ? "unavailable" : "—"}</span>
+        ) : (
+          <div className="flex items-baseline justify-end gap-2">
+            <span className={`font-serif text-xl font-bold tabular-nums ${col}`}>{fmt(price)}</span>
+            {diff !== null && (direction === "LONG" || direction === "SHORT") && (
+              <span className={`text-xs tabular-nums ${col}`}>{diff >= 0 ? "+" : ""}{fmt(diff)}{pct !== null ? ` (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%)` : ""}</span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function FullCard({ r, onCheck, checking }: { r: Result; onCheck: () => void; checking: boolean }) {
   const s = r.signal; const { color, Icon } = dirStyle(s.direction);
   return (
@@ -371,6 +426,8 @@ function FullCard({ r, onCheck, checking }: { r: Result; onCheck: () => void; ch
           <StatusBadge status={r.status} />
         </div>
       </div>
+
+      {r.td && <LivePrice td={r.td} entry={numOk(s.entry) ? s.entry : null} direction={s.direction} closed={r.marketClosed} />}
 
       {r.marketClosed && <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-1.5 text-xs text-amber-300/90">Market is currently closed — analysis based on the last session.</p>}
 
