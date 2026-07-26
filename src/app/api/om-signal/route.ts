@@ -36,11 +36,18 @@ function findFVGs(rows: Row[]) {
   }
   return { bull: bull.slice(-2), bear: bear.slice(-2) };
 }
-async function fetchSeries(td: string, interval: string, size: number, key: string): Promise<Row[] | null> {
+// Returns the candles, or "ratelimit" when Twelve Data says we're out of
+// per-minute credits (so the caller can show an honest message instead of
+// mislabelling it "insufficient candles"), or null on any other failure.
+async function fetchSeries(td: string, interval: string, size: number, key: string): Promise<Row[] | "ratelimit" | null> {
   try {
     const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=${interval}&outputsize=${size}&apikey=${key}`, { cache: "no-store" });
     const j = await r.json();
-    if (j.status === "error" || !Array.isArray(j.values)) return null;
+    if (j.status === "error" || !Array.isArray(j.values)) {
+      const msg = String(j?.message || "");
+      if (r.status === 429 || j?.code === 429 || /credit|limit|per minute/i.test(msg)) return "ratelimit";
+      return null;
+    }
     return [...(j.values as Row[])].reverse();
   } catch { return null; }
 }
@@ -105,8 +112,10 @@ export async function POST(req: NextRequest) {
   const found = findAsset(td);
   if (!found) return json({ error: "unknown_asset" }, 400);
 
-  const rows = await fetchSeries(td, sty.interval, 80, mdKey);
-  if (!rows || rows.length < 25) return json({ error: "marketdata_error", detail: "insufficient candles" }, 502);
+  const rowsRes = await fetchSeries(td, sty.interval, 80, mdKey);
+  if (rowsRes === "ratelimit") return json({ error: "ratelimit", detail: "You've hit the free market-data limit (8 requests a minute). Give it about a minute, then generate again." }, 429);
+  const rows = rowsRes;
+  if (!rows || rows.length < 25) return json({ error: "marketdata_error", detail: "not enough price history for this asset on this timeframe — try a different timeframe." }, 502);
 
   const closes = rows.map((v) => +v.close);
   const highs = rows.map((v) => +v.high);
@@ -121,7 +130,8 @@ export async function POST(req: NextRequest) {
   const f = (n: number) => n.toFixed(dec);
 
   // Higher-timeframe bias
-  const htf = await fetchSeries(td, sty.htf, 60, mdKey);
+  const htfRes = await fetchSeries(td, sty.htf, 60, mdKey);
+  const htf = Array.isArray(htfRes) ? htfRes : null;   // rate-limited HTF just means "bias unavailable", not a hard fail
   let htfBias = "unavailable";
   let htfTrend: "bullish" | "bearish" | "ranging" = "ranging";
   if (htf && htf.length > 20) {
