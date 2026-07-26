@@ -46,6 +46,7 @@ export async function GET() {
       .select("xp,streak,best_streak,last_login,day_missions").single();
     if (ins.error) return json({ enabled: false, reason: "nodb" }, 200);
     row = ins.data as Row;
+    await logXp(supabase, user.id, 10, "login");
   } else if (row.last_login !== t) {
     const continues = row.last_login === yesterday();
     const streak = continues ? row.streak + 1 : 1;
@@ -54,7 +55,7 @@ export async function GET() {
       .update({ xp: row.xp + 10, streak, best_streak: Math.max(row.best_streak, streak), last_login: t })
       .eq("user_id", user.id)
       .select("xp,streak,best_streak,last_login,day_missions").single();
-    if (!upd.error) row = upd.data as Row;
+    if (!upd.error) { row = upd.data as Row; await logXp(supabase, user.id, 10, "login"); }
   }
 
   return json({ enabled: true, state: shape(row, t) }, 200);
@@ -87,8 +88,15 @@ export async function POST(req: NextRequest) {
     .eq("user_id", user.id)
     .select("xp,streak,best_streak,last_login,day_missions").single();
   if (upd.error) return json({ enabled: false, reason: "nodb" }, 200);
+  await logXp(supabase, user.id, xp, `mission:${missionId}`);
 
   return json({ enabled: true, state: shape(upd.data as Row, t) }, 200);
+}
+
+// Best-effort XP event log (powers weekly/monthly leaderboards). Never blocks.
+async function logXp(supabase: ReturnType<typeof createClient>, userId: string, xp: number, reason: string) {
+  if (!supabase) return;
+  try { await supabase.from("xp_log").insert({ user_id: userId, xp, reason }); } catch { /* table may not exist yet */ }
 }
 
 function json(obj: unknown, status: number) {
