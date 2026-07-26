@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { gateCredits, chargeCredit } from "@/lib/credits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -100,6 +101,10 @@ export async function POST(req: NextRequest) {
   const mdKey = process.env.TWELVEDATA_API_KEY;
   if (!mdKey) return json({ notConfigured: "marketdata" }, 200);
 
+  const gate = await gateCredits("scan");
+  if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
+  if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
+
   const results = await Promise.all(UNIVERSE.map(async (a) => {
     const rows = await fetchSeries(a.td, mdKey);
     if (!rows || rows.length < 30) return null;
@@ -108,7 +113,9 @@ export async function POST(req: NextRequest) {
   }));
 
   const setups = results.filter(Boolean).sort((x, y) => (y!.confirmed - x!.confirmed));
-  return json({ asOf: new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC", setups }, 200);
+  // Only charge if the scan actually produced setups (don't bill a fully rate-limited scan).
+  const credits = setups.length > 0 ? await chargeCredit("scan") : null;
+  return json({ asOf: new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC", setups, credits }, 200);
 }
 
 function json(obj: unknown, status: number) {
