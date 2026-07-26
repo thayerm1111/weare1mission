@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { gateCredits, chargeCredit } from "@/lib/credits";
 import { findAsset } from "@/data/signalAssets";
 
 export const runtime = "nodejs";
@@ -111,6 +112,11 @@ export async function POST(req: NextRequest) {
     : [];
   const found = findAsset(td);
   if (!found) return json({ error: "unknown_asset" }, 400);
+
+  // Credit gate — reject before doing any paid work if the member is out.
+  const gate = await gateCredits("signal");
+  if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
+  if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
 
   const rowsRes = await fetchSeries(td, sty.interval, 80, mdKey);
   if (rowsRes === "ratelimit") return json({ error: "ratelimit", detail: "You've hit the free market-data limit (8 requests a minute). Give it about a minute, then generate again." }, 429);
@@ -339,7 +345,11 @@ Return the JSON signal now.`;
   signal.total = checklist.length;
   signal.confidence = ratio >= 0.75 ? "High" : ratio >= 0.45 ? "Medium" : "Low";
 
+  // Work succeeded — now charge the credit (best-effort; never charged on failure above).
+  const credits = await chargeCredit("signal");
+
   return json({
+    credits,
     symbol: found.asset.symbol,
     name: found.asset.name,
     market: found.market.name,
