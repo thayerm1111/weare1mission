@@ -48,6 +48,7 @@ export function MarketPulse() {
       const d = await r.json();
       if (d.notConfigured) { setMsg("Live market data isn't connected yet."); setSetups([]); return; }
       if (r.status === 402 || d.error === "insufficient_credits") { setMsg("You're out of credits — a scan costs 2. Free credits reset tomorrow, or top up on the Credits page."); setSetups([]); return; }
+      if (d.error === "system_busy") { setMsg(d.detail || "The scanner is at capacity for a moment — try again in a few seconds."); setSetups([]); return; }
       setSetups(Array.isArray(d.setups) ? d.setups : []);
       setAsOf(d.asOf || "");
       if (Array.isArray(d.setups) && d.setups.length && typeof window !== "undefined") window.dispatchEvent(new Event("credits-updated"));
