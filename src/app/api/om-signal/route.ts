@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
+import { reserveMarketData } from "@/lib/marketData";
 import { findAsset } from "@/data/signalAssets";
 
 export const runtime = "nodejs";
@@ -117,6 +118,10 @@ export async function POST(req: NextRequest) {
   const gate = await gateCredits("signal");
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
+
+  // Global governor — reserve the ~3 data credits this play needs (main + HTF + quote).
+  const md = await reserveMarketData(3);
+  if (!md.ok) return json({ error: "system_busy", detail: "The data desk is at capacity for a moment — try again in a few seconds." }, 429);
 
   const rowsRes = await fetchSeries(td, sty.interval, 80, mdKey);
   if (rowsRes === "ratelimit") return json({ error: "ratelimit", detail: "You've hit the free market-data limit (8 requests a minute). Give it about a minute, then generate again." }, 429);
