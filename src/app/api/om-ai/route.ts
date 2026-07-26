@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { buildSystem } from "@/lib/omai/prompts";
+import { gateCredits, chargeCredit } from "@/lib/credits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,6 +76,11 @@ export async function POST(req: NextRequest) {
 
   if (!messages.length) return json({ error: "no_messages" }, 400);
 
+  // Credit gate — one credit per message, charged only if the reply succeeds.
+  const gate = await gateCredits("chat");
+  if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
+  if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
+
   let upstream: Response;
   try {
     upstream = await fetch(ANTHROPIC_URL, {
@@ -105,9 +111,11 @@ export async function POST(req: NextRequest) {
     ? data.content.filter((b: { type?: string }) => b?.type === "text").map((b: { text?: string }) => b.text ?? "").join("")
     : "";
 
-  return new Response(text || "…", {
-    headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
-  });
+  // Reply succeeded — charge the credit and surface the new balance via headers.
+  const credits = await chargeCredit("chat");
+  const headers: Record<string, string> = { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" };
+  if (credits) { headers["x-credits-daily-left"] = String(credits.dailyLeft); headers["x-credits-purchased"] = String(credits.purchased); }
+  return new Response(text || "…", { headers });
 }
 
 function json(obj: unknown, status: number) {
