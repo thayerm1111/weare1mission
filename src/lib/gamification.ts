@@ -49,27 +49,28 @@ export function useGame(side: Side) {
     return { xp: s.xp, streak: s.streak, best: s.best, done: s.days[t] ?? [] };
   }, []);
 
+  const sync = useCallback(async () => {
+    try {
+      const res = await fetch("/api/game", { cache: "no-store" });
+      const j = await res.json();
+      if (j?.enabled && j.state) {
+        modeRef.current = "server";
+        setView({ xp: j.state.xp, streak: j.state.streak, best: j.state.best, done: Array.isArray(j.state.done) ? j.state.done : [] });
+        return;
+      }
+    } catch { /* fall through to local */ }
+    modeRef.current = "local";
+    setView(loadLocal());
+  }, [loadLocal]);
+
   useEffect(() => {
     let alive = true;
-    (async () => {
-      try {
-        const res = await fetch("/api/game", { cache: "no-store" });
-        const j = await res.json();
-        if (!alive) return;
-        if (j?.enabled && j.state) {
-          modeRef.current = "server";
-          setView({ xp: j.state.xp, streak: j.state.streak, best: j.state.best, done: Array.isArray(j.state.done) ? j.state.done : [] });
-          setHydrated(true);
-          return;
-        }
-      } catch { /* fall through to local */ }
-      if (!alive) return;
-      modeRef.current = "local";
-      setView(loadLocal());
-      setHydrated(true);
-    })();
-    return () => { alive = false; };
-  }, [loadLocal]);
+    (async () => { await sync(); if (alive) setHydrated(true); })();
+    // Auto-earned missions (from OM AI, Plays, etc.) fire "om-xp" — re-sync live.
+    const onXp = () => { void sync(); };
+    window.addEventListener("om-xp", onXp);
+    return () => { alive = false; window.removeEventListener("om-xp", onXp); };
+  }, [sync]);
 
   const completeMission = useCallback((m: Mission) => {
     setView((prev) => {
