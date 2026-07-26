@@ -121,6 +121,7 @@ export function SignalGenerator() {
       const data = await res.json().catch(() => ({}));
       if (data.notConfigured === "marketdata") { setErrorMsg("Live market data isn't connected yet — add a TWELVEDATA_API_KEY in Vercel and I'll pull real prices."); setStep("error"); return; }
       if (data.notConfigured === "ai") { setErrorMsg("OM AI isn't switched on yet — the Anthropic key is missing."); setStep("error"); return; }
+      if (data.error === "ratelimit") { setErrorMsg(data.detail || "You've hit the free market-data limit (8 requests a minute). Give it about a minute, then generate again."); setStep("error"); return; }
       if (data.error || !data.signal) { setErrorMsg(data.detail ? `Couldn't build a signal: ${data.detail}` : "Couldn't build a signal right now. Try another asset or try again shortly."); setStep("error"); return; }
       const r: Result = { ...data, id: Date.now(), status: "open" };
       setResult(r); setStep("result");
