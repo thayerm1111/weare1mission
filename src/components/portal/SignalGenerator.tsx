@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Bitcoin, Gem, TrendingUp, Globe, BarChart3, Zap, X, ChevronLeft, Loader2, Check,
-  ArrowUp, ArrowDown, Target, ShieldAlert, Sparkles, Clock, Minus, RefreshCw,
+  ArrowUp, ArrowDown, Target, ShieldAlert, Sparkles, Clock, Minus, RefreshCw, Trash2,
 } from "lucide-react";
 import { MARKETS, type Market, type Asset } from "@/data/signalAssets";
 import { earnMission } from "@/lib/earnMission";
@@ -26,12 +26,13 @@ const CONFS: { k: string; label: string }[] = [
   { k: "trend", label: "Trend (MAs)" },
   { k: "rsi", label: "RSI Momentum" },
   { k: "fib", label: "Fib / OTE" },
+  { k: "breakRetest", label: "Break & Retest" },
   { k: "volume", label: "Volume" },
 ];
 const METHOD_DEFAULTS: Record<Method, string[]> = {
-  best: ["structure", "ob", "fvg", "liquidity", "rsi", "sr"],
-  smc: ["structure", "ob", "fvg", "liquidity"],
-  structure: ["structure", "sr", "trend"],
+  best: ["trend", "structure", "fvg", "liquidity", "sr", "fib", "breakRetest", "rsi"],
+  smc: ["structure", "ob", "fvg", "liquidity", "breakRetest"],
+  structure: ["structure", "sr", "trend", "breakRetest"],
 };
 
 type Candle = { t: string; o: number; h: number; l: number; c: number };
@@ -40,7 +41,7 @@ type Signal = {
   entry: number; stopLoss: number; takeProfits: number[];
   confidence: string; riskReward: string; timeframe: string; rationale: string; invalidation: string;
   setup?: string; bias?: string; poi?: string; liquidityTarget?: string;
-  checklist?: { label: string; ok: boolean }[]; confirmed?: number;
+  checklist?: { label: string; ok: boolean }[]; confirmed?: number; total?: number;
 };
 type Status = "open" | "win" | "loss";
 type Result = {
@@ -128,6 +129,11 @@ export function SignalGenerator() {
     } catch { /* ignore */ } finally { setChecking(null); }
   }
 
+  function deleteResult(id: number) {
+    persist(recent.filter((x) => x.id !== id));
+    if (result?.id === id) { setResult(null); }
+  }
+
   const wins = recent.filter((r) => r.status === "win").length;
   const losses = recent.filter((r) => r.status === "loss").length;
   const rate = wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : null;
@@ -170,7 +176,8 @@ export function SignalGenerator() {
             {recent.map((r) => (
               <CompactCard key={r.id} r={r} checking={checking === r.id}
                 onOpen={() => { setResult(r); setStep("result"); setOpen(true); }}
-                onCheck={() => checkResult(r)} />
+                onCheck={() => checkResult(r)}
+                onDelete={() => deleteResult(r.id)} />
             ))}
           </div>
         )}
@@ -339,8 +346,9 @@ function StatusBadge({ status }: { status: Status }) {
   return <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold uppercase text-white/50">Open</span>;
 }
 
-function CompactCard({ r, onOpen, onCheck, checking }: { r: Result; onOpen: () => void; onCheck: () => void; checking: boolean }) {
+function CompactCard({ r, onOpen, onCheck, onDelete, checking }: { r: Result; onOpen: () => void; onCheck: () => void; onDelete: () => void; checking: boolean }) {
   const s = r.signal; const { color, Icon } = dirStyle(s.direction);
+  const [confirmDel, setConfirmDel] = useState(false);
   return (
     <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
       <button onClick={onOpen} className="min-w-0 flex-1 text-left">
@@ -351,14 +359,30 @@ function CompactCard({ r, onOpen, onCheck, checking }: { r: Result; onOpen: () =
         </div>
         <p className="mt-0.5 truncate text-[11px] text-white/40">
           Entry {fmt(s.entry)} · {s.timeframe}
-          {typeof s.confirmed === "number" && <span className="text-white/55"> · {s.confirmed}/5 confirmed</span>}
+          {typeof s.confirmed === "number" && <span className="text-white/55"> · {s.confirmed}/{s.total ?? s.checklist?.length ?? 5} confirmed</span>}
         </p>
       </button>
-      {r.status === "open" && s.direction !== "NEUTRAL" && (
-        <button onClick={onCheck} disabled={checking} title="Check result" className="ml-2 grid h-8 w-8 flex-shrink-0 place-items-center rounded-full border border-white/12 text-white/60 hover:bg-white/10 disabled:opacity-40">
-          {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-        </button>
-      )}
+      <div className="ml-2 flex flex-shrink-0 items-center gap-1.5">
+        {r.status === "open" && s.direction !== "NEUTRAL" && (
+          <button onClick={onCheck} disabled={checking} title="Check result" className="grid h-8 w-8 place-items-center rounded-full border border-white/12 text-white/60 hover:bg-white/10 disabled:opacity-40">
+            {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          </button>
+        )}
+        {confirmDel ? (
+          <div className="flex items-center gap-1">
+            <button onClick={() => { onDelete(); setConfirmDel(false); }} title="Confirm delete" className="grid h-8 w-8 place-items-center rounded-full bg-red-500/90 text-white hover:bg-red-500">
+              <Check className="h-3.5 w-3.5" />
+            </button>
+            <button onClick={() => setConfirmDel(false)} title="Cancel" className="grid h-8 w-8 place-items-center rounded-full border border-white/12 text-white/60 hover:bg-white/10">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : (
+          <button onClick={() => setConfirmDel(true)} title="Delete play" className="grid h-8 w-8 place-items-center rounded-full border border-white/12 text-white/50 hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-400">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
