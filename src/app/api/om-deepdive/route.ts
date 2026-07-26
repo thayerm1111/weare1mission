@@ -86,13 +86,20 @@ export async function POST(req: NextRequest) {
   const mdKey = process.env.TWELVEDATA_API_KEY;
   if (!aiKey) return json({ notConfigured: "ai" }, 200);
 
-  let body: { ticker?: string; name?: string; type?: string; thesis?: string } = {};
+  let body: { ticker?: string; name?: string; type?: string; thesis?: string; td?: string; context?: string; dir?: string; style?: string } = {};
   try { body = await req.json(); } catch { /* empty */ }
   const ticker = String(body.ticker || "").toUpperCase().trim();
   if (!ticker) return json({ error: "no_ticker" }, 400);
   const name = String(body.name || ticker);
-  const type = body.type === "Crypto" ? "Crypto" : "Stock";
-  const td = TD[ticker] || ticker;
+  const type = typeof body.type === "string" && body.type.trim() ? body.type.trim() : "Stock";
+  // Callers may pass the exact Twelve Data symbol (FX/indices/commodities);
+  // otherwise fall back to the stock/crypto map, then the ticker itself.
+  const td = (typeof body.td === "string" && body.td.trim()) || TD[ticker] || ticker;
+  // "signal" = a directional trade setup (OM AI Plays / Market Pulse);
+  // otherwise a buy-&-hold read (Plays of the Week).
+  const isSignal = body.context === "signal";
+  const dir = body.dir === "LONG" || body.dir === "SHORT" ? body.dir : "";
+  const style = typeof body.style === "string" ? body.style : "";
 
   let tech: ReturnType<typeof readTechnicals> | null = null;
   if (mdKey) {
@@ -111,14 +118,20 @@ export async function POST(req: NextRequest) {
 - Computed factor scores (0–100): Trend ${tech.heat.Trend}, Momentum ${tech.heat.Momentum}, Value ${tech.heat.Value}, Strength ${tech.heat.Strength}, Stability ${tech.heat.Stability}`
     : `Live technical data isn't available for this ticker right now — reason from the asset's known fundamentals and structure, and keep any prices as approximate ranges.`;
 
-  const system = `You are OM AI's senior analyst for the 1 Mission community. A member tapped "${ticker}" (${name}, ${type}) to understand the full reasoning behind the call. Give a professional, plain-English deep dive — the WHY behind the play.
+  const framing = isSignal
+    ? `A member tapped "${ticker}" (${name}) to understand the reasoning behind a ${dir || "directional"} ${style ? `${style} ` : ""}trade setup our scanner/AI flagged. Explain the WHY behind THIS trade direction — the market structure, momentum, levels and confluence a professional would lean on. The "stance" should read as the directional bias (e.g. "${dir === "SHORT" ? "Short bias" : "Long bias"}"). The "strategy" should describe how a pro executes this specific ${dir || ""} setup — entry trigger, where the stop belongs, and how to manage toward targets.`
+    : `A member tapped "${ticker}" (${name}, ${type}) to understand the full reasoning behind a buy-&-hold call. The "stance" should be one of Accumulate | Hold | Watch | Reduce. The "strategy" should describe how a pro accumulates and manages the position.`;
+
+  const system = `You are OM AI's senior analyst for the 1 Mission community. Give a professional, plain-English deep dive — the WHY behind the call.
+
+${framing}
 
 ${techBlock}
 
 Ground every price you mention in the live read above. This is EDUCATIONAL, not financial advice — no guarantees, no income promises.
 
 Respond with ONLY valid minified JSON, exactly this shape:
-{"headline":"one punchy line on the setup","stance":"Accumulate|Hold|Watch|Reduce","heat":[{"factor":"Trend","score":0-100,"note":"short why"},{"factor":"Momentum","score":0-100,"note":"..."},{"factor":"Value","score":0-100,"note":"..."},{"factor":"Strength","score":0-100,"note":"..."},{"factor":"Stability","score":0-100,"note":"..."}],"drivers":["catalyst / driver one","two","three"],"technical":"2–3 sentences reading the chart structure, key levels and what price is doing","strategy":"the professional playbook here — how to approach entries, adds, and management (2–3 sentences)","levels":{"support":"level or range","resistance":"level or range","invalidation":"where the thesis breaks"},"risks":["risk one","risk two"]}
+{"headline":"one punchy line on the setup","stance":"${isSignal ? (dir === "SHORT" ? "Short bias" : "Long bias") : "Accumulate|Hold|Watch|Reduce"}","heat":[{"factor":"Trend","score":0-100,"note":"short why"},{"factor":"Momentum","score":0-100,"note":"..."},{"factor":"Value","score":0-100,"note":"..."},{"factor":"Strength","score":0-100,"note":"..."},{"factor":"Stability","score":0-100,"note":"..."}],"drivers":["${isSignal ? "confluence / reason one" : "catalyst / driver one"}","two","three"],"technical":"2–3 sentences reading the chart structure, key levels and what price is doing","strategy":"${isSignal ? "how to execute this " + (dir || "") + " setup — entry trigger, stop placement, target management" : "how to approach entries, adds, and management"} (2–3 sentences)","levels":{"support":"level or range","resistance":"level or range","invalidation":"where the ${isSignal ? "setup" : "thesis"} breaks"},"risks":["risk one","risk two"]}
 
 For the heat array, use the computed factor scores above as your anchor (you may nudge ±10 with justification in the note). Keep every field tight and specific.`;
 
