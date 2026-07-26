@@ -13,6 +13,7 @@ import {
   Repeat, RefreshCw, TrendingUp, Bitcoin, AlertTriangle, Clock, ShieldAlert, Users, Search,
 } from "lucide-react";
 import { DeepDiveModal } from "./DeepDive";
+import { CREDIT_COST } from "@/lib/creditConfig";
 
 type Play = {
   ticker: string; name: string; type: "Stock" | "Crypto";
@@ -126,6 +127,7 @@ export function LivePlays({ isCaller = false, followerCount = 0 }: { isCaller?: 
 
               <span className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-semibold text-primary opacity-80 transition-opacity group-hover:opacity-100">
                 <Search className="h-3 w-3" /> Deep dive into the reasoning
+                <span className="rounded-full bg-ice px-1.5 py-0.5 text-[9px] font-bold text-charcoal/60">{CREDIT_COST.deepdive} credit</span>
               </span>
             </button>
           );

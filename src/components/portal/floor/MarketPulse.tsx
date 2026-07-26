@@ -12,6 +12,7 @@ import {
   Activity, RefreshCw, ArrowUp, ArrowDown, Check, X, ChevronDown, Zap, AlertTriangle, Search,
 } from "lucide-react";
 import { DeepDiveModal } from "./DeepDive";
+import { CREDIT_COST } from "@/lib/creditConfig";
 
 // Friendly asset category for the deep-dive header badge.
 const catOf = (td: string) =>
@@ -68,6 +69,7 @@ export function MarketPulse() {
         <button onClick={() => void scan()} disabled={loading}
           className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-cream transition-colors hover:bg-navy focus-ring disabled:opacity-50">
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> {loading ? "Scanning…" : "Scan the markets"}
+          {!loading && <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] font-bold">{CREDIT_COST.scan} credits</span>}
         </button>
       </div>
 
@@ -126,10 +128,10 @@ export function MarketPulse() {
                   </ul>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Link href={`/portal/signals?td=${encodeURIComponent(s.td)}&style=intraday`} className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-cream transition-colors hover:bg-navy focus-ring">
-                      <Zap className="h-3.5 w-3.5" /> Generate the full play
+                      <Zap className="h-3.5 w-3.5" /> Generate the full play <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] font-bold">{CREDIT_COST.signal} credit</span>
                     </Link>
                     <button onClick={() => setDive(s)} className="inline-flex items-center gap-1.5 rounded-full border border-ice bg-white px-4 py-2 text-xs font-semibold text-charcoal/70 transition-colors hover:bg-offwhite focus-ring">
-                      <Search className="h-3.5 w-3.5" /> Deep dive
+                      <Search className="h-3.5 w-3.5" /> Deep dive <span className="rounded-full bg-ice px-1.5 py-0.5 text-[10px] font-bold text-charcoal/60">{CREDIT_COST.deepdive} credit</span>
                     </button>
                   </div>
                 </div>
