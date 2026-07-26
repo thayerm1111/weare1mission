@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { gateCredits, chargeCredit } from "@/lib/credits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -90,6 +91,11 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { /* empty */ }
   const ticker = String(body.ticker || "").toUpperCase().trim();
   if (!ticker) return json({ error: "no_ticker" }, 400);
+
+  const gate = await gateCredits("deepdive");
+  if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
+  if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
+
   const name = String(body.name || ticker);
   const type = typeof body.type === "string" && body.type.trim() ? body.type.trim() : "Stock";
   // Callers may pass the exact Twelve Data symbol (FX/indices/commodities);
@@ -165,7 +171,8 @@ For the heat array, use the computed factor scores above as your anchor (you may
     });
   }
 
-  return json({ ticker, name, type, tech, ...parsed }, 200);
+  const credits = await chargeCredit("deepdive");
+  return json({ ticker, name, type, tech, credits, ...parsed }, 200);
 }
 
 function json(obj: unknown, status: number) {
