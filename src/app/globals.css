@@ -70,6 +70,13 @@ video {
   .glass {
     @apply border border-[#E7E4DD] bg-cream/70 backdrop-blur-md;
   }
+
+  /* Reusable form input — matches the portal's stone/ink design language */
+  .input-1m {
+    @apply w-full rounded-xl border border-[#E7E4DD] bg-offwhite/60 px-3.5 py-2.5 text-sm text-charcoal
+      placeholder:text-charcoal/35 transition-colors
+      focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/15;
+  }
 }
 
 @layer utilities {
