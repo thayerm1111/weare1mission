@@ -46,6 +46,23 @@ async function fetchSeries(td: string, interval: string, size: number, key: stri
 }
 
 // Confirmations catalog — keys must match the client.
+// Swing pivots (fractal highs/lows) — the basis for structure, S/R, fib and break-&-retest.
+function pivots(highs: number[], lows: number[], k = 2) {
+  const sh: { i: number; p: number }[] = [];
+  const sl: { i: number; p: number }[] = [];
+  for (let i = k; i < highs.length - k; i++) {
+    let isH = true, isL = true;
+    for (let j = i - k; j <= i + k; j++) {
+      if (j === i) continue;
+      if (highs[j] >= highs[i]) isH = false;
+      if (lows[j] <= lows[i]) isL = false;
+    }
+    if (isH) sh.push({ i, p: highs[i] });
+    if (isL) sl.push({ i, p: lows[i] });
+  }
+  return { sh, sl };
+}
+
 const CONFIRMATIONS: Record<string, string> = {
   structure: "Market structure (swing highs/lows, BOS / CHoCH, trend)",
   ob: "Order blocks (last opposing candle before displacement)",
@@ -55,6 +72,7 @@ const CONFIRMATIONS: Record<string, string> = {
   trend: "Trend via moving averages (SMA20/50 alignment)",
   rsi: "RSI momentum (overbought/oversold, divergence)",
   fib: "Fibonacci / OTE (0.62–0.79 optimal trade entry)",
+  breakRetest: "Break & retest of a reclaimed level or structure",
   volume: "Volume behaviour (expansion on displacement)",
 };
 
@@ -186,13 +204,15 @@ ALWAYS return a directional call — LONG or SHORT — for the HIGHER-PROBABILIT
 
 The data-driven lean right now is ${leanDir}. Default to ${leanDir} unless clean market structure (a confirmed CHoCH, or a strong opposing point of interest) makes the other side clearly higher-probability — in which case take it and explain why.
 
-Build the best version of that trade. These are the confirmations that matter — the more that genuinely line up, the higher the conviction:
-- ALIGN with the ${sty.htfLabel} trend (don't blindly fight it).
-- Enter from the correct premium/discount ZONE.
-- MOMENTUM (RSI) agrees with the direction.
-- Entry sits at a REAL point of interest (order block / FVG / structure), not mid-range.
-- Do NOT chase directly into opposing liquidity.
-Place the stop just beyond the structural level that invalidates the idea; targets at liquidity / opposing range / next imbalance. Aim for clean R:R (≥1:2 when possible).
+Build the SINGLE highest-probability trade a professional would take — synthesise ACROSS these factors, never rely on just one. The more that genuinely align, the higher the conviction:
+- TREND & higher-timeframe bias (${sty.htfLabel}) — trade with it unless a confirmed shift says otherwise.
+- MARKET STRUCTURE — BOS / CHoCH and the sequence of swing highs/lows.
+- SMART MONEY — order blocks, fair value gaps / imbalances, and liquidity sweeps of equal highs/lows.
+- FIBONACCI / OTE — the 0.62–0.79 retracement of the last impulse leg.
+- SUPPORT / RESISTANCE & supply/demand zones.
+- BREAK & RETEST — price reclaiming a broken level or structure and retesting it.
+- MOMENTUM (RSI) — with-trend, or a clean reversal from an overbought/oversold extreme.
+Enter at a REAL point of interest where these stack up (not mid-range); stop just beyond the level that invalidates the idea; targets at liquidity / opposing range / next imbalance. Aim for clean R:R (≥1:2 when possible). In the rationale, name the specific factors that line up.
 
 CRITICAL — numbers: the current price is EXACTLY ${price}. Entry, stopLoss and every take-profit MUST be within a few percent of ${price} and in the same order of magnitude — never add or drop a digit. Sanity-check each number against ${price} before returning. LONG: SL below entry, TPs above; SHORT: reverse. Sized for a ${sty.label} play. Use ${dec} decimals.
 
@@ -234,29 +254,80 @@ Return the JSON signal now.`;
     ? (signal.takeProfits as unknown[]).map((t) => (off(t) > 0.3 ? null : t)).filter((t) => t !== null)
     : [];
 
-  // ── Objective confirmation checklist ──────────────────────────────────────
-  // Computed from real data (not the model's self-report), so "confidence" is
-  // grounded and the trader can SEE what's confirmed. We always keep a
-  // direction; the checklist just tells them how strong it is right now.
+  // ── Objective, multi-factor confirmation checklist ────────────────────────
+  // Each professional factor is computed from the real candles (not the model's
+  // self-report). The checklist reflects the factors the trader SELECTED (or a
+  // full pro set by default); confidence is the share that confirm.
   const dir = signal.direction === "SHORT" ? "SHORT" : "LONG";
   signal.direction = dir;
   const E = numOk(signal.entry) ? (signal.entry as number) : price;
   const span = (rangeHi - rangeLo) || 1;
-  const posInRange = (E - rangeLo) / span;                       // 0 = range low, 1 = range high
-  const levels = [sma(closes, 20), sma(closes, 50), rangeHi, rangeLo, eq,
-    ...fvg.bull.flat(), ...fvg.bear.flat()].filter(numOk) as number[];
-  const tol = span * 0.06;                                       // "at a level" = within 6% of the range
-  const checklist = [
-    { label: "Aligned with the HTF trend", ok: dir === "LONG" ? htfTrend !== "bearish" : htfTrend !== "bullish" },
-    { label: "Entering from the right zone", ok: dir === "LONG" ? price <= eq : price >= eq },
-    { label: "Momentum (RSI) supports it", ok: rsiNow == null ? false : dir === "LONG" ? rsiNow >= 45 && rsiNow <= 72 : rsiNow <= 55 && rsiNow >= 28 },
-    { label: "Entry at a real level / POI", ok: levels.some((L) => Math.abs(E - L) <= tol) },
-    { label: "Not chasing into liquidity", ok: dir === "LONG" ? posInRange <= 0.8 : posInRange >= 0.2 },
-  ];
+  const tol = span * 0.06;                                        // "at a level" ≈ within 6% of the range
+
+  const piv = pivots(highs, lows, 2);
+  const shs = piv.sh, sls = piv.sl;
+  const lastSH = shs.length ? shs[shs.length - 1] : null;
+  const lastSL = sls.length ? sls[sls.length - 1] : null;
+  const prevSH = shs.length > 1 ? shs[shs.length - 2] : null;
+  const prevSL = sls.length > 1 ? sls[sls.length - 2] : null;
+
+  // Market structure — a break of structure, or a clean HH-HL / LH-LL sequence.
+  let structureDir: "LONG" | "SHORT" | "none" = "none";
+  if (lastSH && price > lastSH.p) structureDir = "LONG";
+  else if (lastSL && price < lastSL.p) structureDir = "SHORT";
+  else if (prevSH && lastSH && prevSL && lastSL) {
+    if (lastSH.p > prevSH.p && lastSL.p > prevSL.p) structureDir = "LONG";
+    else if (lastSH.p < prevSH.p && lastSL.p < prevSL.p) structureDir = "SHORT";
+  }
+
+  // Fibonacci OTE — 0.62–0.79 retracement of the last swing leg.
+  const legHi = lastSH ? lastSH.p : rangeHi;
+  const legLo = lastSL ? lastSL.p : rangeLo;
+  const legSpan = (legHi - legLo) || 1;
+  const inOTE = dir === "LONG"
+    ? E >= legHi - 0.79 * legSpan && E <= legHi - 0.62 * legSpan
+    : E >= legLo + 0.62 * legSpan && E <= legLo + 0.79 * legSpan;
+
+  const fvgEdges = [...fvg.bull.flat(), ...fvg.bear.flat()].filter(numOk) as number[];
+  const srLevels = [...shs.map((s) => s.p), ...sls.map((s) => s.p), rangeHi, rangeLo, eq].filter(numOk);
+
+  // Liquidity sweep — a wick past a swing that closes back through it.
+  const last6 = rows.slice(-6);
+  const swept = dir === "LONG"
+    ? !!lastSL && last6.some((c) => +c.low < lastSL!.p && +c.close > lastSL!.p)
+    : !!lastSH && last6.some((c) => +c.high > lastSH!.p && +c.close < lastSH!.p);
+
+  // Break & retest — a swing broken in our direction that price is now retesting.
+  const brOk = dir === "LONG"
+    ? shs.some((s) => price > s.p && Math.abs(E - s.p) <= tol * 1.5 && s.i < highs.length - 2)
+    : sls.some((s) => price < s.p && Math.abs(E - s.p) <= tol * 1.5 && s.i < lows.length - 2);
+
+  // Momentum — with-trend, or a clean reversal from an overbought/oversold extreme.
+  const momentumOk = rsiNow == null ? false
+    : dir === "LONG" ? (rsiNow >= 45 && rsiNow <= 72) || rsiNow < 32
+    : (rsiNow <= 55 && rsiNow >= 28) || rsiNow > 68;
+
+  const FACTORS: Record<string, { label: string; ok: boolean }> = {
+    trend:       { label: "Trend aligned (HTF)",         ok: dir === "LONG" ? htfTrend !== "bearish" : htfTrend !== "bullish" },
+    structure:   { label: "Market structure (BOS/CHoCH)", ok: structureDir === dir },
+    ob:          { label: "At an order block / origin",  ok: dir === "LONG" ? !!lastSL && Math.abs(E - lastSL.p) <= tol * 1.5 : !!lastSH && Math.abs(E - lastSH.p) <= tol * 1.5 },
+    fvg:         { label: "Fair value gap / imbalance",  ok: fvgEdges.some((L) => Math.abs(E - L) <= tol) },
+    liquidity:   { label: "Liquidity swept",             ok: swept },
+    sr:          { label: "At support / resistance",     ok: srLevels.some((L) => Math.abs(E - L) <= tol) },
+    fib:         { label: "In fib OTE zone (0.62–0.79)", ok: inOTE },
+    breakRetest: { label: "Break & retest",              ok: brOk },
+    rsi:         { label: "Momentum (RSI) agrees",       ok: momentumOk },
+  };
+
+  const PRO_DEFAULT = ["trend", "structure", "fvg", "liquidity", "sr", "fib", "breakRetest", "rsi"];
+  const active = (confs.length ? confs : PRO_DEFAULT).filter((k) => FACTORS[k]);
+  const checklist = active.map((k) => FACTORS[k]);
   const confirmed = checklist.filter((c) => c.ok).length;
+  const ratio = checklist.length ? confirmed / checklist.length : 0;
   signal.checklist = checklist;
   signal.confirmed = confirmed;
-  signal.confidence = confirmed >= 5 ? "High" : confirmed >= 3 ? "Medium" : "Low";
+  signal.total = checklist.length;
+  signal.confidence = ratio >= 0.75 ? "High" : ratio >= 0.45 ? "Medium" : "Low";
 
   return json({
     symbol: found.asset.symbol,
