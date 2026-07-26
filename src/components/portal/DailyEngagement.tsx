@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { Flame, Trophy, Sparkles, Check, ArrowRight, Award, Target } from "lucide-react";
 import { useGame, type Side, type Mission } from "@/lib/gamification";
+import { Leaderboard } from "./Leaderboard";
 
 /**
  * DailyEngagement — the gamified daily home. Level + XP progression, login streak,
@@ -95,6 +96,9 @@ export function DailyEngagement({ side }: { side: Side }) {
           {g.quote}
         </p>
       </div>
+
+      {/* Community leaderboard */}
+      <Leaderboard />
 
       {g.celebrate && <Celebration kind={g.celebrate.kind} label={g.celebrate.label} />}
     </section>
