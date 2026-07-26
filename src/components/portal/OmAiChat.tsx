@@ -57,13 +57,45 @@ const SPECIALISTS: Record<Mode, { icon: typeof LineChart; label: string; prompt:
 function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
-function renderRich(text: string) {
-  let t = escapeHtml(text);
+// Inline formatting inside a single line: bold, italic, inline code.
+function inlineRich(s: string) {
+  let t = escapeHtml(s);
   t = t.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  t = t.replace(/(^|[^*])\*(?!\s)([^*]+?)\*(?!\*)/g, '$1<em>$2</em>');
   t = t.replace(/`([^`]+?)`/g, '<code class="rounded bg-white/10 px-1 py-0.5 text-[0.85em]">$1</code>');
-  t = t.replace(/^\s*[-*]\s+(.*)$/gm, '<span class="flex gap-2"><span class="text-gold-light">•</span><span>$1</span></span>');
-  t = t.replace(/\n/g, "<br/>");
   return t;
+}
+// Block-level markdown → HTML, line by line, so headings, lists, rules and
+// paragraphs render cleanly (no literal "##" or stray line breaks).
+function renderRich(text: string) {
+  const lines = text.replace(/\r/g, "").split("\n");
+  const out: string[] = [];
+  let lastSpacer = true; // suppress a leading spacer
+  const pushSpacer = () => { if (!lastSpacer) { out.push('<div class="h-2"></div>'); lastSpacer = true; } };
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, "");
+    if (!line.trim()) { pushSpacer(); continue; }
+    lastSpacer = false;
+
+    let m = /^(#{1,3})\s+(.*)$/.exec(line);
+    if (m) {
+      const lvl = m[1].length;
+      const cls = lvl === 1
+        ? "mb-1 mt-1 font-serif text-base font-bold text-white"
+        : lvl === 2
+        ? "mb-0.5 mt-1 text-sm font-bold text-gold-light"
+        : "mb-0.5 mt-1 text-[12px] font-semibold uppercase tracking-[0.1em] text-white/60";
+      out.push(`<div class="${cls}">${inlineRich(m[2])}</div>`);
+      continue;
+    }
+    if (/^\s*(---+|___+|\*\*\*+)\s*$/.test(line)) { out.push('<div class="my-2 border-t border-white/10"></div>'); continue; }
+    m = /^\s*[-*]\s+(.*)$/.exec(line);
+    if (m) { out.push(`<div class="flex gap-2"><span class="mt-px text-gold-light">•</span><span>${inlineRich(m[1])}</span></div>`); continue; }
+    m = /^\s*(\d+)\.\s+(.*)$/.exec(line);
+    if (m) { out.push(`<div class="flex gap-2"><span class="tabular-nums text-gold-light">${m[1]}.</span><span>${inlineRich(m[2])}</span></div>`); continue; }
+    out.push(`<div>${inlineRich(line)}</div>`);
+  }
+  return out.join("");
 }
 
 export function OmAiChat() {
@@ -285,7 +317,7 @@ export function OmAiChat() {
                 ) : (
                   <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-white/[0.05] px-4 py-3 text-sm leading-relaxed text-white/90 ring-1 ring-white/10">
                     {m.content
-                      ? <span dangerouslySetInnerHTML={{ __html: renderRich(m.content) }} />
+                      ? <div dangerouslySetInnerHTML={{ __html: renderRich(m.content) }} />
                       : <span className="inline-flex gap-1"><Dot /><Dot d={150} /><Dot d={300} /></span>}
                   </div>
                 )}
