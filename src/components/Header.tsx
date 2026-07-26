@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Logo } from "./Logo";
 import { Button } from "./Button";
 import { MobileNavigation } from "./MobileNavigation";
+import { CreditsBadge } from "./portal/CreditsBadge";
 
 export function Header() {
   const [scrolled, setScrolled] = useState(false);
@@ -91,6 +92,8 @@ export function Header() {
           </nav>
 
           <div className="flex items-center gap-3">
+            {/* Credits — visible on every page for signed-in members, tap to buy more */}
+            {signedIn && <CreditsBadge />}
             {signedIn ? (
               <>
                 <button
