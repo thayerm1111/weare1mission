@@ -4,6 +4,7 @@
  * Each module supports a video, written lesson, action steps, downloads & links.
  */
 export const trainingCategories = [
+  "Launch Roadmap",
   "Foundation",
   "Mindset",
   "Building Your List",
@@ -39,6 +40,115 @@ export interface TrainingModuleData {
 }
 
 export const trainingModules: TrainingModuleData[] = [
+  // ── LAUNCH ROADMAP ─────────────────────────────────────────────────────────
+  // A simple, generic, step-by-step system for launching your business.
+  // Written playbook (no video required) — edit the wording to match your team.
+  {
+    id: "launch-1-foundation",
+    category: "Launch Roadmap",
+    title: "Step 1 — Set Your Foundation & Goals",
+    description: "Get clear on your why, your commitment, and a schedule you can actually keep.",
+    estimatedTime: "10 min",
+    lesson:
+      "Every strong business starts with a clear reason and a realistic plan. Before you talk to anyone, get honest about why you're doing this and what you want it to change in your life. Your 'why' is the fuel that keeps you going when it gets hard.\n\nThen decide how much time you can consistently give this each week — and protect it. Consistency beats intensity every time. A person who does a little every day will out-build someone who does a lot once a month.",
+    actionSteps: [
+      "Write your 'why' in one or two sentences",
+      "Decide how many hours per week you'll commit",
+      "Block those hours into your calendar now",
+      "Set one simple 90-day goal you can measure",
+    ],
+  },
+  {
+    id: "launch-2-list",
+    category: "Launch Roadmap",
+    title: "Step 2 — Build Your Contact List",
+    description: "Write down everyone you know — no prejudging. Quantity first, quality later.",
+    estimatedTime: "15 min",
+    lesson:
+      "Your list is the raw material of your business. The biggest mistake new builders make is deciding for other people whether they'd be interested. Your job is to make the list, not to judge it — you'll be wrong about who says yes more often than you think.\n\nStart with the people you know best and work outward. Use your phone contacts, social media friends, and memory joggers (people you work with, went to school with, know from the gym, etc.). Aim for at least 50 names to begin.",
+    actionSteps: [
+      "List at least 50 names without prejudging",
+      "Add phone numbers or social handles where you have them",
+      "Star 5–10 people you'll reach out to first",
+      "Keep the list somewhere you'll update it weekly",
+    ],
+  },
+  {
+    id: "launch-3-story",
+    category: "Launch Roadmap",
+    title: "Step 3 — Craft Your Story & Message",
+    description: "Learn to share what you're doing in a way that's natural, short, and genuine.",
+    estimatedTime: "12 min",
+    lesson:
+      "People connect with stories, not sales pitches. You don't need to be an expert — you need to be authentic. Your story is simply: where you were, what you found, and why you're excited about it.\n\nKeep it short and honest. You're not trying to convince anyone; you're inviting them to take a look. The goal of your message is to create curiosity, not to close a deal on the spot.",
+    actionSteps: [
+      "Write your story in under 60 seconds of speaking",
+      "Practice saying it out loud until it feels natural",
+      "Write one simple, non-hyped invite message",
+      "Remove any income or results claims from your wording",
+    ],
+  },
+  {
+    id: "launch-4-invite",
+    category: "Launch Roadmap",
+    title: "Step 4 — Invite With Confidence",
+    description: "A simple framework to invite people to take a look — and handle 'what is it?'",
+    estimatedTime: "12 min",
+    lesson:
+      "Inviting is the skill that drives everything. The framework is simple: be brief, be friendly, and point them to a tool or a call rather than trying to explain everything yourself. Your job is to open the door, not to deliver the whole presentation.\n\nWhen someone asks 'what is it?', you don't have to have the perfect answer. A calm, confident 'the best way to understand it is to see it — can I send you a quick overview?' works better than a nervous explanation. Let the tools and the team do the heavy lifting.",
+    actionSteps: [
+      "Reach out to your first 5 starred contacts",
+      "Use a tool or call to explain — don't wing the whole thing",
+      "Practice a calm answer to 'what is it?'",
+      "Aim to invite, not to convince",
+    ],
+  },
+  {
+    id: "launch-5-present",
+    category: "Launch Roadmap",
+    title: "Step 5 — Present & Share the Opportunity",
+    description: "Let the tools and the team tell the story. Your role is to edify and connect.",
+    estimatedTime: "10 min",
+    lesson:
+      "You don't have to be the expert in the room. The most duplicable way to present is to use a proven tool — a video, a live call, or a three-way conversation with your mentor — and let it carry the message. This keeps things simple and shows new people that they can do it too.\n\nYour job during a presentation is to edify: speak well of your mentor and the community, stay positive, and let the third party build credibility. Then simply ask what they liked best.",
+    actionSteps: [
+      "Pick one presentation tool to share consistently",
+      "Set up a three-way intro with your mentor when you can",
+      "Edify your mentor and the community before the call",
+      "After they watch, ask: 'what did you like best?'",
+    ],
+  },
+  {
+    id: "launch-6-followup",
+    category: "Launch Roadmap",
+    title: "Step 6 — Follow Up & Help Them Decide",
+    description: "The fortune is in the follow-up. Learn a simple, respectful cadence.",
+    estimatedTime: "10 min",
+    lesson:
+      "Most people won't make a decision the first time — and that's normal. Following up isn't pestering; it's professional. A simple, friendly cadence over a few days shows you're serious and reliable.\n\nWhen you follow up, your goal is to answer questions and help them reach a clear yes or no. A 'not right now' is fine — keep the relationship warm and move on. Never chase or pressure; confidence is more attractive than desperation.",
+    actionSteps: [
+      "Follow up within 24–48 hours of them looking",
+      "Answer questions honestly; point to the tools",
+      "Help them reach a clear yes or no",
+      "Keep every 'not now' as a warm future contact",
+    ],
+  },
+  {
+    id: "launch-7-duplicate",
+    category: "Launch Roadmap",
+    title: "Step 7 — Launch & Duplicate",
+    description: "Get your new partner started fast and teach them to do the same.",
+    estimatedTime: "12 min",
+    lesson:
+      "When someone joins you, the first 72 hours matter most. Get them plugged in quickly: walk them through onboarding, get them into the group chats, and help them make their first list. A fast, guided start builds belief and momentum.\n\nDuplication is the whole game. Instead of doing everything for your team, teach them this same simple system so they can teach it to others. When your people can launch new people without you, your business becomes real.",
+    actionSteps: [
+      "Walk every new partner through the Start Here onboarding",
+      "Help them build their list in the first 72 hours",
+      "Teach them these 7 steps — don't just do it for them",
+      "Celebrate their first win publicly",
+    ],
+  },
+  // ── SKILL LIBRARY (deeper training by topic) ───────────────────────────────
   {
     id: "becoming-a-professional",
     category: "Foundation",

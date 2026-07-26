@@ -41,14 +41,13 @@ export const onboardingSteps: OnboardingStepData[] = [
     checklist: ["Read the welcome message", "Bookmark this page for easy access"],
   },
   {
-    id: "orientation-video",
+    id: "orientation",
     step: 2,
     phase: "Welcome to 1 Mission",
-    title: "Watch the orientation video",
+    title: "Get oriented",
     description:
-      "Get the big-picture overview of who we are, what we value, and how the community works.",
-    videoUrl: "", // paste your orientation video embed URL here
-    checklist: ["Watch the full video", "Write down one thing you're excited about"],
+      "Here's the big picture. 1 Mission is a community built to help you grow — whether your focus is learning the markets, building a business, or both. We value showing up consistently, staying teachable, and lifting each other up. Everything you need is in this portal: your AI co-pilots, live sessions, training, and the people here to support you. Take these steps one at a time — there's no rush.",
+    checklist: ["Read the overview above", "Write down one thing you're excited about"],
   },
   {
     id: "save-mentor",
@@ -161,12 +160,11 @@ export const onboardingSteps: OnboardingStepData[] = [
     id: "getting-started-training",
     step: 14,
     phase: "Learn the Basics",
-    title: "Watch the getting-started training",
+    title: "Start the getting-started training",
     description:
-      "Begin the foundational training so you understand the system and your first actions.",
-    externalLink: { label: "Go to Affiliate Training", href: "/training" },
-    videoUrl: "",
-    checklist: ["Watch the foundation module", "Take notes"],
+      "Open the Creator Launchpad and work through the Launch Roadmap — a simple, step-by-step system for getting started. Read the first step and take a few notes; you can move at your own pace.",
+    externalLink: { label: "Open the Creator Launchpad", href: "/portal/training" },
+    checklist: ["Open the Launch Roadmap", "Read Step 1 and take notes"],
   },
   {
     id: "contact-list",
