@@ -9,7 +9,7 @@ export interface SocialLink {
 }
 
 export const socialLinks: SocialLink[] = [
-  { platform: "instagram", label: "Instagram", href: "#" }, // e.g. https://instagram.com/weare1mission
+  { platform: "instagram", label: "Instagram", href: "https://www.instagram.com/weare1mission" },
   { platform: "facebook", label: "Facebook", href: "#" },
   { platform: "telegram", label: "Telegram", href: "#" },
   { platform: "youtube", label: "YouTube", href: "#" },
