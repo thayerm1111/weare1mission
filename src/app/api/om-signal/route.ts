@@ -172,6 +172,14 @@ Build the play: 1) align with the higher-timeframe (${sty.htfLabel}) bias; 2) id
 
 Be SELECTIVE — only give LONG/SHORT when there is real confluence across the selected confirmations. If there is no A+ setup, return "NEUTRAL" and explain what's missing. Reserve "High" confidence for textbook A+ confluence.
 
+A+ CRITERIA (require most of these for a directional call; otherwise NEUTRAL):
+- The idea ALIGNS with the higher-timeframe bias, OR there is a clean confirmed CHoCH signalling a genuine shift — do not blindly fight the HTF trend.
+- At least THREE independent confirmations agree (e.g. structure + a POI like an OB/FVG + momentum/liquidity), not one lonely signal.
+- Entry sits at a real point of interest in the correct premium/discount zone — not chasing mid-range.
+- The stop sits just beyond a STRUCTURAL level that truly invalidates the idea (a swing or the far edge of the POI), not an arbitrary distance.
+- You are NOT entering directly into major opposing liquidity or a strong opposing zone a few candles away.
+Downgrade confidence (or go NEUTRAL) when price is mid-range, momentum conflicts with structure, or the setup is still forming.
+
 CRITICAL — numbers: the current price is EXACTLY ${price}. Entry, stopLoss and every take-profit MUST be within a few percent of ${price} and in the same order of magnitude — never add or drop a digit. Sanity-check each number against ${price} before returning. LONG: SL below entry, TPs above; SHORT: reverse. Sized for a ${sty.label} play. Use ${dec} decimals.
 
 Respond with ONLY valid minified JSON, exactly:
