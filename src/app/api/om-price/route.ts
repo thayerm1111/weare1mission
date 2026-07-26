@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { reserveMarketData } from "@/lib/marketData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,9 @@ export async function GET(req: NextRequest) {
 
   const td = req.nextUrl.searchParams.get("td") || "";
   if (!td) return json({ error: "bad_request" }, 400);
+
+  const md = await reserveMarketData(1);
+  if (!md.ok) return json({ error: "system_busy" }, 429);
 
   try {
     const r = await fetch(
