@@ -27,13 +27,17 @@ const heatColor = (s: number) =>
 const heatText = (s: number) => (s >= 55 ? "text-navy" : s >= 40 ? "text-charcoal/70" : "text-red-600");
 
 const stanceStyle = (s = "") =>
-  /accumulate|buy/i.test(s) ? "bg-navy/[0.06] text-navy"
-    : /reduce|sell/i.test(s) ? "bg-red-50 text-red-600"
+  /accumulate|buy|long/i.test(s) ? "bg-navy/[0.06] text-navy"
+    : /reduce|sell|short/i.test(s) ? "bg-red-50 text-red-600"
     : "bg-ice text-charcoal/70";
 
 export function DeepDiveModal({
-  ticker, name, type, thesis, onClose,
-}: { ticker: string; name: string; type: "Stock" | "Crypto"; thesis?: string; onClose: () => void }) {
+  ticker, name, type, thesis, td, context, dir, style, onClose,
+}: {
+  ticker: string; name: string; type: string; thesis?: string;
+  td?: string; context?: "signal" | "buyhold"; dir?: "LONG" | "SHORT"; style?: string;
+  onClose: () => void;
+}) {
   const [data, setData] = useState<Dive | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -44,7 +48,7 @@ export function DeepDiveModal({
       const r = await fetch("/api/om-deepdive", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ticker, name, type, thesis }),
+        body: JSON.stringify({ ticker, name, type, thesis, td, context, dir, style }),
       });
       const d = await r.json();
       if (d.notConfigured) { setErr("OM AI isn't switched on yet."); return; }
@@ -52,7 +56,7 @@ export function DeepDiveModal({
       setData(d);
     } catch { setErr("Couldn't build the deep dive right now — try again shortly."); }
     finally { setLoading(false); }
-  }, [ticker, name, type, thesis]);
+  }, [ticker, name, type, thesis, td, context, dir, style]);
 
   useEffect(() => { void load(); }, [load]);
 

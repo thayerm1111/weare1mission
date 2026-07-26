@@ -9,8 +9,16 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  Activity, RefreshCw, ArrowUp, ArrowDown, Check, X, ChevronDown, Zap, AlertTriangle,
+  Activity, RefreshCw, ArrowUp, ArrowDown, Check, X, ChevronDown, Zap, AlertTriangle, Search,
 } from "lucide-react";
+import { DeepDiveModal } from "./DeepDive";
+
+// Friendly asset category for the deep-dive header badge.
+const catOf = (td: string) =>
+  /BTC|ETH|SOL|XRP|DOGE/i.test(td) ? "Crypto"
+    : /XAU|XAG|WTI|BRENT/i.test(td) ? "Commodity"
+    : /DJI|NDX|SPX/i.test(td) ? "Index"
+    : "Forex";
 
 type CheckItem = { label: string; ok: boolean };
 type Setup = {
@@ -30,6 +38,7 @@ export function MarketPulse() {
   const [asOf, setAsOf] = useState("");
   const [msg, setMsg] = useState("");
   const [open, setOpen] = useState<string | null>(null);
+  const [dive, setDive] = useState<Setup | null>(null);
 
   const scan = useCallback(async () => {
     setLoading(true); setMsg("");
@@ -113,9 +122,14 @@ export function MarketPulse() {
                       </li>
                     ))}
                   </ul>
-                  <Link href={`/portal/signals?td=${encodeURIComponent(s.td)}&style=intraday`} className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-cream transition-colors hover:bg-navy focus-ring">
-                    <Zap className="h-3.5 w-3.5" /> Generate the full play
-                  </Link>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Link href={`/portal/signals?td=${encodeURIComponent(s.td)}&style=intraday`} className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-cream transition-colors hover:bg-navy focus-ring">
+                      <Zap className="h-3.5 w-3.5" /> Generate the full play
+                    </Link>
+                    <button onClick={() => setDive(s)} className="inline-flex items-center gap-1.5 rounded-full border border-ice bg-white px-4 py-2 text-xs font-semibold text-charcoal/70 transition-colors hover:bg-offwhite focus-ring">
+                      <Search className="h-3.5 w-3.5" /> Deep dive
+                    </button>
+                  </div>
                 </div>
               )}
             </li>
@@ -125,6 +139,19 @@ export function MarketPulse() {
 
       {!loading && setups.length > 0 && (
         <p className="text-center text-[11px] text-charcoal/40">Objective read from live candles · not financial advice. Tap a setup for the confirmation breakdown.</p>
+      )}
+
+      {dive && (
+        <DeepDiveModal
+          ticker={dive.symbol}
+          name={dive.name}
+          type={catOf(dive.td)}
+          td={dive.td}
+          context="signal"
+          dir={dive.dir}
+          style="intraday"
+          onClose={() => setDive(null)}
+        />
       )}
     </div>
   );
