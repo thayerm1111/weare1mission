@@ -60,11 +60,13 @@ export const MARKETS: Market[] = [
   {
     id: "index",
     name: "Index",
-    desc: "S&P 500, NAS100 & more",
+    desc: "S&P 500, Nasdaq & Dow (real-time ETFs)",
     assets: [
-      { symbol: "SPX", name: "S&P 500", td: "SPX" },
-      { symbol: "NDX", name: "Nasdaq 100", td: "NDX" },
-      { symbol: "DJI", name: "Dow Jones 30", td: "DJI" },
+      // Real-time ETF proxies — track the index tick-for-tick on the Grow plan.
+      // (Twelve Data doesn't serve clean index levels for SPX/NDX/DJI here.)
+      { symbol: "SPY", name: "S&P 500 · SPY", td: "SPY" },
+      { symbol: "QQQ", name: "Nasdaq 100 · QQQ", td: "QQQ" },
+      { symbol: "DIA", name: "Dow Jones · DIA", td: "DIA" },
     ],
   },
 ];
