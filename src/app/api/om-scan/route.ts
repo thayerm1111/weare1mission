@@ -15,15 +15,18 @@ export const maxDuration = 30;
 
 type Row = { datetime: string; open: string; high: string; low: string; close: string };
 
-// Kept to 6 so a single scan stays within the free market-data rate limit
-// (8 requests/min). Bump this list once on a paid data plan.
+// Focused universe: main FX majors, gold, the two headline indices, and the
+// two lead crypto — 8 assets, which stays within the free rate limit (8/min)
+// and keeps Market Pulse precise. Widen this once on a paid data plan.
 const UNIVERSE: { symbol: string; name: string; td: string }[] = [
-  { symbol: "XAU/USD", name: "Gold", td: "XAU/USD" },
-  { symbol: "BTC/USD", name: "Bitcoin", td: "BTC/USD" },
-  { symbol: "ETH/USD", name: "Ethereum", td: "ETH/USD" },
-  { symbol: "SOL/USD", name: "Solana", td: "SOL/USD" },
   { symbol: "EUR/USD", name: "Euro", td: "EUR/USD" },
   { symbol: "GBP/USD", name: "Pound", td: "GBP/USD" },
+  { symbol: "USD/JPY", name: "Yen", td: "USD/JPY" },
+  { symbol: "XAU/USD", name: "Gold", td: "XAU/USD" },
+  { symbol: "US30", name: "Dow Jones", td: "DJI" },
+  { symbol: "NAS100", name: "Nasdaq 100", td: "NDX" },
+  { symbol: "BTC/USD", name: "Bitcoin", td: "BTC/USD" },
+  { symbol: "ETH/USD", name: "Ethereum", td: "ETH/USD" },
 ];
 
 const numOk = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
