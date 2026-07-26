@@ -183,7 +183,7 @@ export function SignalGenerator() {
             </div>
           )}
           <button onClick={() => { reset(); setOpen(true); }} className="inline-flex items-center gap-2 rounded-none bg-gradient-to-br from-gold-light to-[#8a6d35] px-6 py-3 text-[12px] font-semibold uppercase tracking-[0.14em] text-[#0a0b10] transition-opacity hover:opacity-90">
-            <Sparkles className="h-4 w-4" /> Generate Signal
+            <Sparkles className="h-4 w-4" /> Generate Signal <span className="rounded-full bg-black/15 px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal">{CREDIT_COST.signal} credit</span>
           </button>
         </div>
       </div>
