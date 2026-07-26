@@ -585,7 +585,24 @@ function MiniChart({ candles, entry, sl, tps }: { candles: Candle[]; entry: numb
   const y = (p: number) => padT + ((max - p) / span) * plotH;
   const x = (i: number) => padL + i * slot + slot / 2;
   const price = (p: number) => (Math.abs(p) >= 1000 ? p.toFixed(0) : Math.abs(p) >= 1 ? p.toFixed(2) : p.toFixed(4));
-  const lines: [string, number | null, string][] = [["#ffffff", entry, "Entry"], ["#f87171", sl, "SL"], ...tps.map((t, i) => ["#34d399", t, `TP${i + 1}`] as [string, number, string])];
+
+  // Build the labelled levels, then push their TEXT apart so labels never overlap
+  // when entry/SL/TP sit close together (the dashed line stays at the true price).
+  const raw: { col: string; p: number; label: string }[] = [
+    { col: "#ffffff", p: entry as number, label: "Entry" },
+    { col: "#f87171", p: sl as number, label: "SL" },
+    ...tps.map((t, i) => ({ col: "#34d399", p: t, label: `TP${i + 1}` })),
+  ].filter((L) => inBand(L.p));
+  const placed = raw
+    .map((L) => ({ ...L, ly: y(L.p) }))
+    .sort((a, b) => a.ly - b.ly);
+  const GAP = 9;
+  for (let i = 1; i < placed.length; i++) {
+    if (placed[i].ly - placed[i - 1].ly < GAP) placed[i].ly = placed[i - 1].ly + GAP;
+  }
+  // keep the stack inside the frame
+  const overflow = placed.length ? placed[placed.length - 1].ly - (H - 4) : 0;
+  if (overflow > 0) placed.forEach((L) => { L.ly -= overflow; });
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="mt-4 w-full rounded-xl border border-white/10 bg-black/30">
@@ -599,15 +616,14 @@ function MiniChart({ candles, entry, sl, tps }: { candles: Candle[]; entry: numb
           </g>
         );
       })}
-      {lines.map(([col, p, label], i) =>
-        inBand(p) ? (
-          <g key={i}>
-            <line x1={padL} x2={W - padR} y1={y(p)} y2={y(p)} stroke={col} strokeWidth={0.7} strokeDasharray="3 2" opacity={0.85} />
-            <text x={W - padR + 2} y={y(p) + 2.5} fill={col} fontSize={7} fontWeight="bold">{label}</text>
-            <text x={W - padR + 2} y={y(p) + 9} fill={col} fontSize={5.5} opacity={0.7}>{price(p)}</text>
-          </g>
-        ) : null
-      )}
+      {placed.map((L, i) => (
+        <g key={i}>
+          <line x1={padL} x2={W - padR} y1={y(L.p)} y2={y(L.p)} stroke={L.col} strokeWidth={0.7} strokeDasharray="3 2" opacity={0.85} />
+          {/* thin connector from the true line to the (possibly nudged) label */}
+          <line x1={W - padR} x2={W - padR + 3} y1={y(L.p)} y2={L.ly} stroke={L.col} strokeWidth={0.5} opacity={0.5} />
+          <text x={W - padR + 4} y={L.ly + 2} fill={L.col} fontSize={6.5} fontWeight="bold">{L.label} {price(L.p)}</text>
+        </g>
+      ))}
     </svg>
   );
 }
