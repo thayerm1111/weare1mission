@@ -113,7 +113,7 @@ export function MarketPulse() {
                       </li>
                     ))}
                   </ul>
-                  <Link href="/portal/signals" className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-cream transition-colors hover:bg-navy focus-ring">
+                  <Link href={`/portal/signals?td=${encodeURIComponent(s.td)}&style=intraday`} className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-cream transition-colors hover:bg-navy focus-ring">
                     <Zap className="h-3.5 w-3.5" /> Generate the full play
                   </Link>
                 </div>
