@@ -62,6 +62,25 @@ const fmt = (n: number | null | undefined) => {
   return x.toLocaleString(undefined, { minimumFractionDigits: d > 2 ? 2 : d, maximumFractionDigits: d });
 };
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Pip size per instrument class, so we can total the pips a winning trade caught.
+// FX standard = 0.0001, JPY pairs = 0.01, gold = 0.1 ($1 = 10 pips), silver = 0.01,
+// crypto & index CFDs are quoted in points (treat 1 point = 1 pip).
+const pipSize = (symbol: string): number => {
+  const s = (symbol || "").toUpperCase();
+  if (s.includes("JPY")) return 0.01;
+  if (s.includes("XAU") || s.includes("GOLD")) return 0.1;
+  if (s.includes("XAG") || s.includes("SILVER")) return 0.01;
+  if (/(BTC|ETH|SOL|XRP|DOGE|US30|NAS|NDX|SPX|US100|US500|GER|UK100|DXY)/.test(s)) return 1;
+  return 0.0001;
+};
+// Pips captured on a winning trade: entry → the take-profit that filled (fallback TP1).
+const winPips = (r: Result): number => {
+  const entry = r.signal?.entry;
+  const tps = r.signal?.takeProfits || [];
+  const tp = (typeof r.hitTp === "number" ? tps[r.hitTp - 1] : undefined) ?? tps[0];
+  if (!numOk(entry) || !numOk(tp)) return 0;
+  return Math.abs(tp - entry) / pipSize(r.symbol);
+};
 const GEN_STEPS = ["Connecting to market data…", "Fetching live candles…", "Mapping structure & liquidity…", "Checking confirmations…", "Generating trade signal…"];
 
 export function SignalGenerator() {
@@ -221,6 +240,7 @@ export function SignalGenerator() {
   const wins = recent.filter((r) => r.status === "win").length;
   const losses = recent.filter((r) => r.status === "loss").length;
   const rate = wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : null;
+  const totalPips = Math.round(recent.filter((r) => r.status === "win").reduce((sum, r) => sum + winPips(r), 0));
 
   return (
     <div className="relative overflow-hidden rounded-3xl bg-[#0a0b10] text-white ring-1 ring-white/10">
@@ -240,6 +260,7 @@ export function SignalGenerator() {
             <div className="text-right">
               <p className="font-serif text-lg font-bold text-emerald-400">{rate}%<span className="ml-1 text-xs font-normal text-white/40">win</span></p>
               <p className="text-[10px] uppercase tracking-[0.1em] text-white/40">{wins}W · {losses}L</p>
+              {totalPips > 0 && <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-emerald-400/80">+{totalPips.toLocaleString()} pips</p>}
             </div>
           )}
           <button onClick={() => { reset(); setOpen(true); }} className="inline-flex items-center gap-2 rounded-none bg-gradient-to-br from-gold-light to-[#8a6d35] px-6 py-3 text-[12px] font-semibold uppercase tracking-[0.14em] text-[#0a0b10] transition-opacity hover:opacity-90">
