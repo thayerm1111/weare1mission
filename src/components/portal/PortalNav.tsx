@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, Repeat, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
@@ -35,18 +35,31 @@ const REG: Record<string, Item> = {
 };
 
 // The Ones = customers · The Builders = affiliates
-// "Start Here" leads The Ones side as the customer onboarding launchpad.
-const ONES = ["startHere", "omai", "signals", "xaughost", "charts", "leaderboard", "trading", "schedule", "leadership", "updates", "collection", "experiences", "credits", "account"];
-const BUILDERS = ["team", "omai", "leaderboard", "prospects", "compPlan", "training", "schedule", "resources", "leadership", "updates", "credits", "account"];
+// The Ones side is organized so the trading desk (The Floor) is the hub: the
+// live rooms AND the AI tools (OM Charts, OM AI, OM AI Plays, XAUGHOST) all nest
+// under it. Credits nests under Account. Leaderboard sits at the very bottom.
+const ONES = ["startHere", "schedule", "trading", "leadership", "updates", "collection", "experiences", "account", "leaderboard"];
+const BUILDERS = ["omai", "prospects", "team", "compPlan", "schedule", "leadership", "training", "resources", "updates", "account", "leaderboard"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources", "compPlan"];
 const ONES_ONLY = ["trading", "signals", "xaughost", "charts"];
 
-const floorViews = [
-  { view: "room", label: "The Room", icon: Radio },
-  { view: "plays", label: "Live Plays", icon: Zap },
-  { view: "pulse", label: "Market Pulse", icon: Activity },
-  // Trade Sync (copy-trading) is parked until the trade copier is set up.
+// Children shown under "The Floor". Two kinds: live-desk VIEWS (query-param
+// views of /portal/trading) and standalone PAGES (their own routes). Rendered
+// in this exact order.
+type FloorChild =
+  | { kind: "view"; view: string; label: string; icon: typeof LineChart }
+  | { kind: "page"; key: string };
+const FLOOR_CHILDREN: FloorChild[] = [
+  { kind: "view", view: "room", label: "The Room", icon: Radio },
+  { kind: "page", key: "charts" },
+  { kind: "page", key: "omai" },
+  { kind: "page", key: "signals" },
+  { kind: "view", view: "plays", label: "Live Plays", icon: Zap },
+  { kind: "view", view: "pulse", label: "Market Pulse", icon: Activity },
+  { kind: "page", key: "xaughost" },
 ];
+// Page keys that now live inside The Floor submenu (used for active detection).
+const FLOOR_PAGE_KEYS = FLOOR_CHILDREN.filter((c): c is Extract<FloorChild, { kind: "page" }> => c.kind === "page").map((c) => c.key);
 
 type Side = "ones" | "builders";
 
@@ -81,14 +94,34 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
 
   const keys = side === "ones" ? ONES : BUILDERS;
 
-  const activeKey = keys.find(match) ?? "dashboard";
+  // Active key for the mobile header label — include the pages nested under The
+  // Floor (and Credits under Account) so the label reflects the real page.
+  const labelKeys = side === "ones" ? [...ONES, ...FLOOR_PAGE_KEYS, "credits"] : keys;
+  const activeKey = labelKeys.find(match) ?? "dashboard";
   const CurrentIcon = (REG[activeKey] ?? REG.dashboard).icon;
+  const activeViewChild = FLOOR_CHILDREN.find((v) => v.kind === "view" && v.view === activeView);
   const currentLabel =
     onFloor && activeView !== "home"
-      ? `The Floor · ${floorViews.find((v) => v.view === activeView)?.label ?? ""}`
+      ? `The Floor · ${activeViewChild && activeViewChild.kind === "view" ? activeViewChild.label : ""}`
       : pathname === "/portal"
       ? "Dashboard"
       : (REG[activeKey] ?? REG.dashboard).label;
+
+  // Indented sub-link used for both the Floor children and Credits-under-Account.
+  const SubLink = ({ href, label, Icon, active, compact }: { href: string; label: string; Icon: typeof LineChart; active: boolean; compact?: boolean }) => (
+    <li>
+      <Link
+        href={href}
+        onClick={() => setOpen(false)}
+        aria-current={active ? "page" : undefined}
+        className={`inline-flex w-full items-center gap-2 whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors ${
+          active ? "bg-ice text-navy" : "text-charcoal/55 hover:bg-ice/60 hover:text-charcoal"
+        }`}
+      >
+        <Icon className="h-3.5 w-3.5" aria-hidden="true" /> {label}
+      </Link>
+    </li>
+  );
 
   const Body = ({ compact }: { compact?: boolean }) => (
     <div className="flex flex-col gap-1">
@@ -140,26 +173,43 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
         return (
           <div key={key}>
             <NavLink item={it} active={active} onNav={() => setOpen(false)} />
+
+            {/* The Floor — mixed submenu of live-desk views + AI tool pages */}
             {key === "trading" && (
               <ul className={`mt-0.5 flex flex-col border-l border-[#E7E4DD] pl-2 ${compact ? "ml-4" : "ml-3"}`}>
-                {floorViews.map((v) => {
-                  const vActive = onFloor && activeView === v.view;
-                  const VIcon = v.icon;
+                {FLOOR_CHILDREN.map((child) => {
+                  if (child.kind === "view") {
+                    const vActive = onFloor && activeView === child.view;
+                    return (
+                      <SubLink
+                        key={`view-${child.view}`}
+                        href={`/portal/trading?view=${child.view}`}
+                        label={child.label}
+                        Icon={child.icon}
+                        active={vActive}
+                        compact={compact}
+                      />
+                    );
+                  }
+                  const p = REG[child.key];
                   return (
-                    <li key={v.view}>
-                      <Link
-                        href={`/portal/trading?view=${v.view}`}
-                        onClick={() => setOpen(false)}
-                        aria-current={vActive ? "page" : undefined}
-                        className={`inline-flex w-full items-center gap-2 whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors ${
-                          vActive ? "bg-ice text-navy" : "text-charcoal/55 hover:bg-ice/60 hover:text-charcoal"
-                        }`}
-                      >
-                        <VIcon className="h-3.5 w-3.5" aria-hidden="true" /> {v.label}
-                      </Link>
-                    </li>
+                    <SubLink
+                      key={`page-${child.key}`}
+                      href={p.href}
+                      label={p.label}
+                      Icon={p.icon}
+                      active={match(child.key)}
+                      compact={compact}
+                    />
                   );
                 })}
+              </ul>
+            )}
+
+            {/* Account — Credits nested underneath */}
+            {key === "account" && (
+              <ul className={`mt-0.5 flex flex-col border-l border-[#E7E4DD] pl-2 ${compact ? "ml-4" : "ml-3"}`}>
+                <SubLink href={REG.credits.href} label={REG.credits.label} Icon={REG.credits.icon} active={match("credits")} compact={compact} />
               </ul>
             )}
           </div>
