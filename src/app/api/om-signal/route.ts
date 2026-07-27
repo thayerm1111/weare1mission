@@ -54,6 +54,49 @@ async function fetchSeries(td: string, interval: string, size: number, key: stri
   } catch { return null; }
 }
 
+// Repair glitch/spike bars from the data feed (e.g. a single bar whose wick
+// prints hundreds of points away from every other candle, or a stale weekend
+// feed that briefly flickers). We NEVER expand a bar — we only clip wicks that
+// stick out far beyond the bar's own body relative to the recent typical range,
+// so a bad tick can't corrupt the dealing range, the AI's targets, or the chart.
+// Bodies (open/close) are trusted; only implausible high/low wicks are clamped.
+function cleanRows(rows: Row[] | null): Row[] | null {
+  if (!Array.isArray(rows) || rows.length < 5) return rows;
+  const ranges = rows
+    .map((r) => Math.abs(+r.high - +r.low))
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => a - b);
+  if (!ranges.length) return rows;
+  const med = ranges[Math.floor(ranges.length / 2)] || 0;
+  const px = Math.abs(+rows[rows.length - 1].close) || 1;
+  // Max wick beyond the body: 12× the typical bar range, with a small
+  // price-based floor so perfectly-flat (frozen) data still allows a real wick.
+  const cap = Math.max(med * 12, px * 0.0015);
+  return rows.map((r) => {
+    const o = +r.open, c = +r.close, h = +r.high, l = +r.low;
+    if (![o, c, h, l].every(Number.isFinite)) return r;
+    const bodyTop = Math.max(o, c), bodyBot = Math.min(o, c);
+    // clip an over-extended wick back toward the body, never past the body
+    const nh = Math.max(bodyTop, Math.min(h, bodyTop + cap));
+    const nl = Math.min(bodyBot, Math.max(l, bodyBot - cap));
+    if (nh === h && nl === l) return r;
+    return { ...r, high: String(nh), low: String(nl) };
+  });
+}
+
+// Live spot price (latest tick) — used to anchor a MARKET play to the real
+// fill price instead of the last completed candle's close, which can trail the
+// market by a couple of dollars during a fast move. Returns null on any failure
+// so the caller can fall back to the candle close.
+async function fetchLivePrice(td: string, key: string): Promise<number | null> {
+  try {
+    const r = await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(td)}&apikey=${key}`, { cache: "no-store" });
+    const j = await r.json();
+    const p = Number(j?.price);
+    return Number.isFinite(p) ? p : null;
+  } catch { return null; }
+}
+
 // Confirmations catalog — keys must match the client.
 // Swing pivots (fractal highs/lows) — the basis for structure, S/R, fib and break-&-retest.
 function pivots(highs: number[], lows: number[], k = 2) {
@@ -125,13 +168,18 @@ export async function POST(req: NextRequest) {
 
   const rowsRes = await fetchSeries(td, sty.interval, 80, mdKey);
   if (rowsRes === "ratelimit") return json({ error: "ratelimit", detail: "You've hit the free market-data limit (8 requests a minute). Give it about a minute, then generate again." }, 429);
-  const rows = rowsRes;
+  const rows = cleanRows(rowsRes);
   if (!rows || rows.length < 25) return json({ error: "marketdata_error", detail: "not enough price history for this asset on this timeframe — try a different timeframe." }, 502);
 
   const closes = rows.map((v) => +v.close);
   const highs = rows.map((v) => +v.high);
   const lows = rows.map((v) => +v.low);
-  const price = closes[closes.length - 1];
+  // Anchor to the LIVE tick when we can get it (matches the "current price" the
+  // card shows and the price a market order actually fills at); fall back to the
+  // last candle close. A 5% sanity band rejects a garbage tick.
+  const candleClose = closes[closes.length - 1];
+  const liveTick = await fetchLivePrice(td, mdKey);
+  const price = (liveTick != null && Math.abs(liveTick - candleClose) / candleClose < 0.05) ? liveTick : candleClose;
   const rangeHi = Math.max(...highs.slice(-40));
   const rangeLo = Math.min(...lows.slice(-40));
   const eq = (rangeHi + rangeLo) / 2;
@@ -142,7 +190,7 @@ export async function POST(req: NextRequest) {
 
   // Higher-timeframe bias
   const htfRes = await fetchSeries(td, sty.htf, 60, mdKey);
-  const htf = Array.isArray(htfRes) ? htfRes : null;   // rate-limited HTF just means "bias unavailable", not a hard fail
+  const htf = Array.isArray(htfRes) ? cleanRows(htfRes) : null;   // rate-limited HTF just means "bias unavailable", not a hard fail
   let htfBias = "unavailable";
   let htfTrend: "bullish" | "bearish" | "ranging" = "ranging";
   if (htf && htf.length > 20) {
