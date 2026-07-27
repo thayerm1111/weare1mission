@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, Repeat, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, Repeat, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
@@ -20,6 +20,7 @@ const REG: Record<string, Item> = {
   compPlan: { href: "/portal/comp-plan", label: "The Comp Plan", icon: Trophy },
   omai: { href: "/portal/om-ai", label: "OM AI", icon: Sparkles },
   signals: { href: "/portal/signals", label: "OM AI Plays", icon: Zap },
+  xaughost: { href: "/portal/xaughost", label: "XAUGHOST", icon: Ghost },
   leaderboard: { href: "/portal/leaderboard", label: "Leaderboard", icon: Medal },
   trading: { href: "/portal/trading", label: "The Floor", icon: LineChart },
   schedule: { href: "/portal/schedule", label: "What's On", icon: CalendarClock },
@@ -34,10 +35,10 @@ const REG: Record<string, Item> = {
 
 // The Ones = customers · The Builders = affiliates
 // "Start Here" leads The Ones side as the customer onboarding launchpad.
-const ONES = ["startHere", "omai", "signals", "leaderboard", "trading", "schedule", "leadership", "updates", "collection", "experiences", "credits", "account"];
+const ONES = ["startHere", "omai", "signals", "xaughost", "leaderboard", "trading", "schedule", "leadership", "updates", "collection", "experiences", "credits", "account"];
 const BUILDERS = ["team", "omai", "leaderboard", "prospects", "compPlan", "training", "schedule", "resources", "leadership", "updates", "credits", "account"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources", "compPlan"];
-const ONES_ONLY = ["trading", "signals"];
+const ONES_ONLY = ["trading", "signals", "xaughost"];
 
 const floorViews = [
   { view: "room", label: "The Room", icon: Radio },
