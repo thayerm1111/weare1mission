@@ -15,6 +15,7 @@ export const CREDIT_COST = {
   deepdive: 1,   // open the full reasoning breakdown
   scan: 2,       // Market Pulse scan (heaviest — up to 8 data calls)
   ghost: 3,      // XAUGHOST full gold intelligence run (multi-timeframe + deep analysis)
+  chartread: 2,  // OM Charts AI read — vision analysis of a marked-up chart + live data
 } as const;
 
 export type Feature = keyof typeof CREDIT_COST;
