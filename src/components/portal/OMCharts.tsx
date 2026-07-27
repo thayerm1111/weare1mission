@@ -15,6 +15,7 @@
  * (a separate, free-but-gated package) — see the note in the UI.
  */
 import { CandlestickChart } from "lucide-react";
+import { ChartRead } from "./ChartRead";
 
 const CONFIG = {
   autosize: true,
@@ -67,6 +68,9 @@ export function OMCharts() {
       <p className="text-[11px] leading-relaxed text-charcoal/45">
         Your view and drawings are kept in this browser between visits. Note: your personal TradingView layout, custom indicators and saved watchlist live in your TradingView account and can&apos;t be pulled into an embed — for drawings that save to your OM account and follow you across every device, we can add TradingView&apos;s Charting Library next. Educational only — not financial advice.
       </p>
+
+      {/* AI read of the member's marked-up chart */}
+      <ChartRead />
     </div>
   );
 }
