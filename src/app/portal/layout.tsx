@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { PortalNav } from "@/components/portal/PortalNav";
 import { SignOutButton } from "@/components/portal/SignOutButton";
 import { NotificationsBell } from "@/components/portal/NotificationsBell";
+import { ThemeToggle } from "@/components/portal/ThemeToggle";
 import { PendingNotice } from "@/components/portal/PendingNotice";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getProfile } from "@/lib/auth";
@@ -27,6 +28,12 @@ export default async function PortalLayout({ children }: { children: React.React
 
   return (
     <div className="bg-cream">
+      {/* Apply the saved theme before first paint so there's no light flash. */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: "(function(){try{if(localStorage.getItem('om-theme')==='dark'){document.documentElement.classList.add('om-dark');}}catch(e){}})();",
+        }}
+      />
       <div className="mx-auto w-full max-w-[1760px] px-4 py-8 sm:px-6 lg:py-10">
         {/* Portal top bar */}
         <div className="flex flex-col gap-4 border-b border-[#E7E4DD] pb-6 sm:flex-row sm:items-center sm:justify-between">
@@ -44,6 +51,7 @@ export default async function PortalLayout({ children }: { children: React.React
                 </p>
               </div>
               {!needsApproval && <NotificationsBell />}
+              <ThemeToggle />
               <SignOutButton />
             </div>
           )}
