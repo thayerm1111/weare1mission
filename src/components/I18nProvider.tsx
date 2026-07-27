@@ -11,8 +11,14 @@
  * AI-generated signals, briefs and deep dives. Every translation is cached in
  * localStorage, so after the first pass switching languages is instant and free.
  *
- * Numbers, tickers and brand names are preserved by the translation prompt, and
- * switching back to English restores the original text exactly.
+ * Correctness notes:
+ *  - We record every node/attr we translate in `originals`, and NEVER re-process
+ *    an already-translated node — so writing a Spanish string can't feed itself
+ *    back through the translator (no loops, no wasted API calls).
+ *  - DOM writes happen with the observer paused (disconnect + takeRecords) so our
+ *    own mutations are never observed.
+ *  - Only newly-appeared nodes are processed on each mutation batch — never a
+ *    full-document rescan — so heavy/animated pages stay responsive.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Globe, Loader2 } from "lucide-react";
@@ -21,24 +27,27 @@ const LANG_KEY = "om-lang";
 const CACHE_KEY = "om-i18n-es";
 const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "CODE", "PRE", "TEXTAREA", "SVG", "CANVAS"]);
 const ATTRS = ["placeholder", "title", "aria-label", "alt"];
+const OBS_CONFIG: MutationObserverInit = { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRS };
 const hasLetters = (s: string) => /[A-Za-z]/.test(s);
+
+type AttrTarget = { el: Element; attr: string; val: string };
 
 export function I18nProvider() {
   const [lang, setLang] = useState<"en" | "es">("en");
   const [busy, setBusy] = useState(false);
 
   const cache = useRef<Map<string, string>>(new Map());
-  const originals = useRef<Map<Text, string>>(new Map());
-  const attrOriginals = useRef<Map<Element, Record<string, string>>>(new Map());
+  const originals = useRef<Map<Text, string>>(new Map());        // translated text nodes → English
+  const attrOriginals = useRef<Map<string, string>>(new Map());  // "elUid:attr" → English (dedupe)
+  const attrDone = useRef<WeakSet<Element>>(new WeakSet());
   const observer = useRef<MutationObserver | null>(null);
-  const applying = useRef(false);
-  const pending = useRef<Set<string>>(new Set());
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queuedText = useRef<Set<Text>>(new Set());
+  const queuedAttr = useRef<AttrTarget[]>([]);
 
-  // ── helpers ──────────────────────────────────────────────────────────────
   const isSkippable = (node: Node | null): boolean => {
     let n: Node | null = node;
-    while (n && n !== document.body.parentNode) {
+    while (n && n !== document.documentElement) {
       if (n.nodeType === 1) {
         const el = n as HTMLElement;
         if (SKIP_TAGS.has(el.tagName)) return true;
@@ -49,73 +58,69 @@ export function I18nProvider() {
     return false;
   };
 
-  const textNodesIn = (root: Node): Text[] => {
+  const collectText = (root: Node): Text[] => {
     const out: Text[] = [];
-    if (root.nodeType === Node.TEXT_NODE) {
-      const t = root as Text;
-      if (t.nodeValue && t.nodeValue.trim() && hasLetters(t.nodeValue) && !isSkippable(t.parentNode)) out.push(t);
-      return out;
-    }
+    const push = (t: Text) => {
+      if (originals.current.has(t)) return; // already translated → never touch again
+      const v = t.nodeValue || "";
+      if (v.trim() && hasLetters(v) && v.trim().length > 1 && !isSkippable(t.parentNode)) out.push(t);
+    };
+    if (root.nodeType === Node.TEXT_NODE) { push(root as Text); return out; }
     if (root.nodeType !== Node.ELEMENT_NODE) return out;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        const v = node.nodeValue || "";
-        if (!v.trim() || !hasLetters(v)) return NodeFilter.FILTER_REJECT;
-        if (isSkippable(node.parentNode)) return NodeFilter.FILTER_REJECT;
-        return NodeFilter.FILTER_ACCEPT;
-      },
-    });
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     let n: Node | null;
-    while ((n = walker.nextNode())) out.push(n as Text);
+    while ((n = walker.nextNode())) push(n as Text);
     return out;
   };
 
-  const attrTargetsIn = (root: Node): { el: Element; attr: string; val: string }[] => {
-    const out: { el: Element; attr: string; val: string }[] = [];
-    const els = root.nodeType === Node.ELEMENT_NODE ? [root as Element, ...Array.from((root as Element).querySelectorAll("*"))] : [];
+  const collectAttrs = (root: Node): AttrTarget[] => {
+    const out: AttrTarget[] = [];
+    if (root.nodeType !== Node.ELEMENT_NODE) return out;
+    const els = [root as Element, ...Array.from((root as Element).querySelectorAll("*"))];
     for (const el of els) {
-      if (isSkippable(el)) continue;
+      if (attrDone.current.has(el) || isSkippable(el)) continue;
       for (const attr of ATTRS) {
         const val = el.getAttribute(attr);
-        if (val && val.trim() && hasLetters(val)) out.push({ el, attr, val });
+        if (val && val.trim() && hasLetters(val) && val.trim().length > 1) out.push({ el, attr, val });
       }
     }
     return out;
   };
 
-  const persistCache = () => {
+  const persist = () => {
     try {
       const obj: Record<string, string> = {};
       cache.current.forEach((v, k) => { obj[k] = v; });
       localStorage.setItem(CACHE_KEY, JSON.stringify(obj));
-    } catch { /* quota — fine, still works in-memory */ }
+    } catch { /* quota — still works in memory */ }
   };
 
-  // Apply whatever is already cached to every text node / attribute on the page.
-  const applyCache = useCallback(() => {
-    applying.current = true;
-    for (const node of textNodesIn(document.body)) {
+  // Write translations with the observer paused so our own edits aren't observed.
+  const writeNodes = (textNodes: Text[], attrTargets: AttrTarget[]) => {
+    observer.current?.disconnect();
+    for (const node of textNodes) {
       const raw = node.nodeValue || "";
       const key = raw.trim();
       const hit = cache.current.get(key);
-      if (hit && hit !== key) {
-        if (!originals.current.has(node)) originals.current.set(node, raw);
+      if (hit && hit !== key && !originals.current.has(node)) {
+        originals.current.set(node, raw);
         const lead = raw.match(/^\s*/)?.[0] ?? "";
         const trail = raw.match(/\s*$/)?.[0] ?? "";
         node.nodeValue = lead + hit + trail;
       }
     }
-    for (const { el, attr, val } of attrTargetsIn(document.body)) {
+    for (const { el, attr, val } of attrTargets) {
       const key = val.trim();
       const hit = cache.current.get(key);
       if (hit && hit !== key) {
-        const store = attrOriginals.current.get(el) || {};
-        if (!(attr in store)) { store[attr] = val; attrOriginals.current.set(el, store); }
+        const uid = `${attr}:${val}`;
+        if (!attrOriginals.current.has(uid)) attrOriginals.current.set(uid, val);
         el.setAttribute(attr, hit);
+        attrDone.current.add(el);
       }
     }
-    applying.current = false;
-  }, []);
+    if (observer.current) { observer.current.takeRecords(); observer.current.observe(document.body, OBS_CONFIG); }
+  };
 
   const fetchTranslations = async (list: string[]) => {
     for (let i = 0; i < list.length; i += 60) {
@@ -132,77 +137,73 @@ export function I18nProvider() {
         chunk.forEach((src) => cache.current.set(src, src));
       }
     }
-    persistCache();
+    persist();
   };
 
-  // Gather everything on the page, translate what isn't cached yet, then apply.
-  const translateAll = useCallback(async () => {
-    const strings = new Set<string>();
-    for (const node of textNodesIn(document.body)) strings.add((node.nodeValue || "").trim());
-    for (const { val } of attrTargetsIn(document.body)) strings.add(val.trim());
-    const missing = [...strings].filter((s) => s.length > 1 && !cache.current.has(s)).slice(0, 400);
-    applyCache(); // show any cached hits immediately
+  // Translate a specific set of nodes (never the whole document twice).
+  const process = useCallback(async (textNodes: Text[], attrTargets: AttrTarget[]) => {
+    if (!textNodes.length && !attrTargets.length) return;
+    writeNodes(textNodes, attrTargets); // apply anything already cached first
+    const need = new Set<string>();
+    for (const t of textNodes) { if (!originals.current.has(t)) { const k = (t.nodeValue || "").trim(); if (k.length > 1 && !cache.current.has(k)) need.add(k); } }
+    for (const a of attrTargets) { const k = a.val.trim(); if (k.length > 1 && !cache.current.has(k)) need.add(k); }
+    const missing = [...need].slice(0, 400);
     if (missing.length) {
       setBusy(true);
       await fetchTranslations(missing);
-      applyCache();
+      writeNodes(textNodes, attrTargets);
       setBusy(false);
     }
-  }, [applyCache]);
+  }, []);
 
-  // Debounced translation of strings that appear after the first pass.
-  const queue = useCallback((strings: string[]) => {
-    let added = false;
-    for (const s of strings) { if (s.length > 1 && !cache.current.has(s)) { pending.current.add(s); added = true; } }
-    // apply already-cached immediately for snappy re-renders
-    applyCache();
-    if (!added) return;
-    if (debounce.current) clearTimeout(debounce.current);
-    debounce.current = setTimeout(async () => {
-      const batch = [...pending.current].slice(0, 400);
-      pending.current.clear();
-      if (!batch.length) return;
-      setBusy(true);
-      await fetchTranslations(batch);
-      applyCache();
-      setBusy(false);
-    }, 350);
-  }, [applyCache]);
+  const flushQueue = useCallback(() => {
+    const nodes = [...queuedText.current];
+    const attrs = queuedAttr.current;
+    queuedText.current = new Set();
+    queuedAttr.current = [];
+    void process(nodes, attrs);
+  }, [process]);
 
   const startObserver = useCallback(() => {
     if (observer.current) return;
     observer.current = new MutationObserver((muts) => {
-      if (applying.current) return;
-      const strings: string[] = [];
       for (const m of muts) {
-        if (m.type === "characterData" && m.target.nodeType === Node.TEXT_NODE) {
+        if (m.type === "characterData") {
           const t = m.target as Text;
-          if (t.nodeValue && t.nodeValue.trim() && hasLetters(t.nodeValue) && !isSkippable(t.parentNode)) strings.push(t.nodeValue.trim());
+          if (t.nodeType === Node.TEXT_NODE && !originals.current.has(t)) collectText(t).forEach((n) => queuedText.current.add(n));
+        } else if (m.type === "attributes") {
+          if (m.target.nodeType === Node.ELEMENT_NODE) collectAttrs(m.target as Element).forEach((a) => queuedAttr.current.push(a));
+        } else {
+          m.addedNodes.forEach((n) => {
+            collectText(n).forEach((x) => queuedText.current.add(x));
+            queuedAttr.current.push(...collectAttrs(n));
+          });
         }
-        m.addedNodes.forEach((n) => {
-          for (const node of textNodesIn(n)) strings.push((node.nodeValue || "").trim());
-          for (const { val } of attrTargetsIn(n)) strings.push(val.trim());
-        });
       }
-      if (strings.length) queue(strings);
+      if (!queuedText.current.size && !queuedAttr.current.length) return;
+      if (debounce.current) clearTimeout(debounce.current);
+      debounce.current = setTimeout(flushQueue, 300);
     });
-    observer.current.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRS });
-  }, [queue]);
+    observer.current.observe(document.body, OBS_CONFIG);
+  }, [flushQueue]);
 
   const restoreEnglish = useCallback(() => {
-    applying.current = true;
     observer.current?.disconnect();
     observer.current = null;
     originals.current.forEach((val, node) => { try { node.nodeValue = val; } catch { /* detached */ } });
     originals.current.clear();
-    attrOriginals.current.forEach((attrs, el) => {
-      for (const [attr, val] of Object.entries(attrs)) { try { el.setAttribute(attr, val); } catch { /* detached */ } }
+    // attributes: originals were stored by value key; walk the DOM and restore any we changed
+    attrOriginals.current.forEach((orig, uid) => {
+      const attr = uid.slice(0, uid.indexOf(":"));
+      const es = cache.current.get(orig.trim());
+      if (!es) return;
+      document.querySelectorAll(`[${attr}]`).forEach((el) => { if (el.getAttribute(attr) === es) el.setAttribute(attr, orig); });
     });
     attrOriginals.current.clear();
-    applying.current = false;
+    attrDone.current = new WeakSet();
   }, []);
 
-  // ── init: load saved cache + language ─────────────────────────────────────
+  // init: load cache + saved language
   useEffect(() => {
     try {
       const raw = localStorage.getItem(CACHE_KEY);
@@ -214,7 +215,7 @@ export function I18nProvider() {
     if (saved === "es") {
       document.documentElement.lang = "es";
       startObserver();
-      void translateAll();
+      void process(collectText(document.body), collectAttrs(document.body));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -224,9 +225,10 @@ export function I18nProvider() {
     setLang(next);
     try { localStorage.setItem(LANG_KEY, next); } catch { /* ignore */ }
     document.documentElement.lang = next;
-    if (next === "es") { startObserver(); void translateAll(); }
+    if (next === "es") { startObserver(); void process(collectText(document.body), collectAttrs(document.body)); }
     else { restoreEnglish(); }
-  }, [lang, startObserver, translateAll, restoreEnglish]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang, startObserver, process, restoreEnglish]);
 
   return (
     <div data-no-i18n translate="no" className="notranslate fixed bottom-4 left-4 z-[90]">
