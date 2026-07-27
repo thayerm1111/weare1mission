@@ -96,9 +96,11 @@ function tfSummary(label: string, rows: Row[] | null): string {
 
 export async function POST(req: NextRequest) {
   const supabase = createClient();
+  let userId: string | null = null;
   if (supabase) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return json({ error: "unauthorized" }, 401);
+    userId = user.id;
   }
   const aiKey = process.env.ANTHROPIC_API_KEY;
   const mdKey = process.env.TWELVEDATA_API_KEY;
@@ -147,28 +149,50 @@ export async function POST(req: NextRequest) {
     utcH >= 12 && utcH < 14 ? "London/New York overlap (kill zone)" :
     utcH >= 14 && utcH < 20 ? "New York session" : "post New-York / late";
 
-  const system = `You are XAUGHOST — an elite desk analysing ONLY Gold (XAU/USD): a quant trader, institutional analyst, discretionary ICT/SMC scalper and risk manager rolled into one. You produce the highest-quality gold reads and you NEVER force trades — "No Trade" is a valid, often correct answer.
+  // ── Adaptive memory: feed the engine what its own recent gold calls did and
+  // the lessons learned, so wins are repeated and past mistakes aren't. ────────
+  let memoryBlock = "";
+  if (supabase && userId) {
+    try {
+      const { data: past } = await supabase
+        .from("xaughost_trades")
+        .select("direction, strategy, status, hit_tp, grade, lesson, outcome_at")
+        .eq("user_id", userId).in("status", ["win", "loss"])
+        .order("outcome_at", { ascending: false }).limit(10);
+      if (Array.isArray(past) && past.length) {
+        const wins = past.filter((t) => t.status === "win").length;
+        const byStrat: Record<string, { w: number; l: number }> = {};
+        for (const t of past) { const k = t.strategy || "?"; byStrat[k] = byStrat[k] || { w: 0, l: 0 }; if (t.status === "win") byStrat[k].w++; else byStrat[k].l++; }
+        const stratLine = Object.entries(byStrat).map(([k, v]) => `${k} ${v.w}W-${v.l}L`).join("; ");
+        const lessons = past.filter((t) => t.lesson).slice(0, 6).map((t) => `• [${t.status?.toUpperCase()}${t.status === "win" && t.hit_tp ? ` TP${t.hit_tp}` : ""}] ${t.direction} ${t.strategy}: ${t.lesson}`).join("\n");
+        memoryBlock = `\n\nADAPTIVE MEMORY — your last ${past.length} resolved gold calls: ${wins}W-${past.length - wins}L. By strategy: ${stratLine}.\nLessons learned (apply these — repeat what won, avoid what failed; favour strategies that have been winning in these conditions):\n${lessons}`;
+      }
+    } catch { /* memory optional */ }
+  }
 
-Your process:
-1) Detect the market REGIME (trend / range / expansion / compression / accumulation / distribution / liquidity hunt / stop run / mean reversion / news-driven / volatility expansion or compression / breakout / fakeout).
-2) Establish HTF bias top-down (Daily → 4H → 1H) then refine execution on 15M/5M. Weight higher timeframes more.
-3) Map liquidity: equal highs/lows, prior day/session highs/lows, resting buy/sell-side liquidity, what's already been swept vs what remains.
-4) Pick the single strategy with the highest statistical edge FOR THESE conditions (don't blend everything). Only use ICT/SMC concepts (BOS, CHoCH, order blocks, breakers, FVG, OTE, displacement, inducement, liquidity sweeps, AMD/Power-of-Three) when they genuinely align.
-5) Score confluence 0-100 across: HTF trend, structure, liquidity, SMC alignment, momentum, session, volatility, entry location, risk-reward, news risk. Grade: 95-100 Elite, 90-94 A+, 85-89 A, 80-84 B+, below 80 => No Trade.
-6) Respect Gold's personality: news sensitivity (CPI, PPI, NFP, FOMC, PCE, Powell), fast liquidity grabs, fake breakouts, large wicks, USD/yields/risk correlation. If unclear structure, messy liquidity, elevated news risk, or poor R:R → decision "NO_TRADE".
+  const system = `You are XAUGHOST — an institutional STRATEGY SELECTION ENGINE for ONLY Gold (XAU/USD). You behave like a portfolio manager, not a single strategy. Your job is NOT to predict price: it is to (1) diagnose the current market environment, (2) determine which trading methodology has the highest probability under those exact conditions, and (3) execute only that one. If no methodology has a real statistical edge, you return NO_TRADE — capital preservation is part of the strategy. NEVER force a setup.
+
+Your decision process:
+STEP 1 — DIAGNOSE: score the market environment. Rate the conditions that are most present right now (e.g. Trend Day, Strong/Weak Trend, Range, Mean Reversion, Expansion, Compression, Accumulation, Distribution, Liquidity Grab, False Breakout, Real Breakout, News-Driven, High/Low Volatility, Session Rotation, Risk-On/Off, Dollar-Driven, Yield-Driven, Central-Bank Reaction). Give each a 0-100 probability and rank them.
+STEP 2 — SELECT: consider the full playbook (Institutional Trend Following, Liquidity Sweep Reversal, ICT Model, Smart Money Continuation, Opening Range Breakout, VWAP Trend Continuation, London Session Expansion, New York Reversal, FVG Continuation, Order Block Reaction, Mean Reversion, Break & Retest, Momentum Scalping, Volatility/ATR Breakout, AMD, Power of Three, Judas Swing, Session Sweep). Score each 0-100 for THESE conditions.
+STEP 3 — RANK: return the top 5 strategies by score and execute ONLY the single highest scorer. Never blend conflicting models.
+STEP 4 — CONFIDENCE: weight HTF structure, trend, liquidity, session, momentum, displacement, FVG, order blocks, volatility, dollar/yields, news, market structure, ATR and risk-reward into one confidence score. Grade: 95-100 Elite, 90-94 A+, 85-89 A, 80-84 B+, below 80 => No Trade.
+STEP 5 — WORTH IT? Ask: enough volatility? clean liquidity? institutions likely active? a catalyst? is today's range already exhausted? favorable R:R? If not → NO_TRADE.
+STEP 6 — EXPLAIN why the winning strategy beat the runners-up (e.g. why trend-following over mean-reversion, why liquidity-sweep over breakout, why VWAP was ignored).
+STEP 7 — GOLD PERSONALITY: gold reacts uniquely to CPI/FOMC/PCE/Powell, correlates with DXY (inverse) and Treasury yields (inverse), safe-haven/risk flows; expect Asian accumulation, London expansion, NY reversals, stop hunts, fake breakouts, large wicks, explosive momentum. Judge whether gold is behaving NORMALLY or ABNORMALLY and factor that in.
 
 Numbers: current price is EXACTLY ${price}. All levels must be within a sane distance of it and use 2 decimals. For a LONG: stop below entry, TPs above; SHORT: reverse.
 
 Respond with ONLY valid minified JSON, exactly these keys:
-{"bias":"BULLISH|BEARISH|NEUTRAL","regime":"short label","htfBias":"1-2 sentences top-down","narrative":"3-5 sentences: what price is doing, who is trapped, who is in control, where liquidity sits","liquidityMap":{"buyside":["level — note"],"sellside":["level — note"],"taken":["what's been swept"],"resting":["what remains"]},"bestStrategy":"the chosen playbook and why it fits now","decision":"TRADE|NO_TRADE","direction":"LONG|SHORT|NONE","entries":{"primary":number|null,"aggressive":number|null,"conservative":number|null,"confirmation":"what confirms execution"},"stopLoss":number|null,"takeProfits":[number,number,number]|[],"riskReward":"e.g. 1:2.8 or n/a","confidence":number,"grade":"Elite|A+|A|B+|No Trade","longProbability":number,"shortProbability":number,"reasonsToAvoid":["..."],"invalidation":"the level/condition that kills the idea","sessionBehavior":"expected behaviour for the current session","tradeManagement":"how to manage: partials, trail, break-even, hold time"}
-longProbability + shortProbability must sum to 100. If decision is NO_TRADE, set direction "NONE", entries/stopLoss null, takeProfits [], grade "No Trade", and make reasonsToAvoid substantive. Educational analysis, not financial advice.`;
+{"regime":"the dominant market regime, short label","marketScorecard":[{"condition":"Trend Day","probability":91}],"strategyRanking":[{"strategy":"Liquidity Sweep Reversal","score":95}],"winningStrategy":"name of the #1 strategy","whyChosen":"2-4 sentences on why it beat the runners-up and why rejected models were rejected","bias":"BULLISH|BEARISH|NEUTRAL","htfBias":"1-2 sentences top-down Daily→4H→1H","narrative":"3-5 sentences: what price is doing, who is trapped, who is in control, where liquidity sits","liquidityMap":{"buyside":["level — note"],"sellside":["level — note"],"taken":["what's been swept"],"resting":["what remains"]},"keyLevels":{"resistance":["level — note"],"support":["level — note"]},"decision":"TRADE|NO_TRADE","direction":"LONG|SHORT|NONE","entries":{"primary":number|null,"aggressive":number|null,"conservative":number|null,"confirmation":"the confirmation trigger that greenlights execution"},"stopLoss":number|null,"takeProfits":[number,number,number]|[],"riskReward":"e.g. 1:2.8 or n/a","confidence":number,"grade":"Elite|A+|A|B+|No Trade","winProbability":number,"failureProbability":number,"longProbability":number,"shortProbability":number,"reasonsToAvoid":["..."],"invalidation":"the level/condition that kills the idea","sessionBehavior":"expected behaviour for the current session","tradeManagement":"how to manage: partials, trail, break-even, hold time"}
+Rules: marketScorecard = 5-8 conditions ranked high→low by probability. strategyRanking = exactly the top 5 ranked high→low by score; winningStrategy MUST equal strategyRanking[0].strategy. winProbability + failureProbability sum to 100; longProbability + shortProbability sum to 100. If no strategy clears ~80 or conditions are unfavorable, set decision "NO_TRADE", direction "NONE", entries/stopLoss null, takeProfits [], grade "No Trade", and make reasonsToAvoid substantive. Educational analysis, not financial advice.`;
 
   const user = `Live XAU/USD: ${price}
 Session (UTC ${utcH}:00): ${sessionHint}
 Multi-timeframe read:
 ${dataBlock}
 
-Recent 15M candles (O,H,L,C oldest→newest): ${recent15}
+Recent 15M candles (O,H,L,C oldest→newest): ${recent15}${memoryBlock}
 
 Deliver the full XAUGHOST gold read as the specified JSON now.`;
 
@@ -177,7 +201,7 @@ Deliver the full XAUGHOST gold read as the specified JSON now.`;
     const r = await fetch(ANTHROPIC_URL, {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": aiKey, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: MODEL, max_tokens: 3500, system, messages: [{ role: "user", content: user }] }),
+      body: JSON.stringify({ model: MODEL, max_tokens: 4096, system, messages: [{ role: "user", content: user }] }),
     });
     ai = await r.json();
   } catch { return json({ error: "ai_error", detail: "The gold desk is busy — try again in a moment." }, 502); }
