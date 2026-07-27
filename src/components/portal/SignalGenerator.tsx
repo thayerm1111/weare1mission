@@ -571,8 +571,22 @@ function FullCard({ r, onCheck, checking }: { r: Result; onCheck: () => void; ch
 
 function MiniChart({ candles, entry, sl, tps }: { candles: Candle[]; entry: number | null; sl: number | null; tps: number[] }) {
   const W = 320, H = 160, padT = 8, padB = 8, padL = 4, padR = 42;
-  const cHi = Math.max(...candles.map((c) => c.h));
-  const cLo = Math.min(...candles.map((c) => c.l));
+  // Robust price window from the candle BODIES (open/close are trustworthy; a
+  // glitch feed only lies in the high/low wicks). We take the 2nd–98th
+  // percentile of all body values, allow a margin for genuine wicks, then clip
+  // every candle into that window — so one bad spike bar can never blow out the
+  // whole scale and flatten the real price action.
+  const bodyVals = candles.flatMap((c) => [c.o, c.c]).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+  const pctl = (p: number) => bodyVals[Math.min(bodyVals.length - 1, Math.max(0, Math.round(p * (bodyVals.length - 1))))];
+  const bodyLo = bodyVals.length ? pctl(0.02) : Math.min(...candles.map((c) => c.l));
+  const bodyHi = bodyVals.length ? pctl(0.98) : Math.max(...candles.map((c) => c.h));
+  const margin = (bodyHi - bodyLo || Math.abs(bodyHi) * 0.002 || 1) * 0.5;
+  const winLo = bodyLo - margin, winHi = bodyHi + margin;
+  const clip = (n: number) => Math.min(winHi, Math.max(winLo, n));
+  // Draw with clipped wicks so a spike bar renders as a normal candle.
+  const cand = candles.map((c) => ({ ...c, h: clip(Math.max(c.h, c.o, c.c)), l: clip(Math.min(c.l, c.o, c.c)), o: clip(c.o), c: clip(c.c) }));
+  const cHi = Math.max(...cand.map((c) => c.h));
+  const cLo = Math.min(...cand.map((c) => c.l));
   const cRange = cHi - cLo || 1;
   // Only levels within a sane band of the candle range are plotted/scaled.
   const inBand = (n: unknown): n is number => numOk(n) && n >= cLo - cRange * 0.6 && n <= cHi + cRange * 0.6;
@@ -581,7 +595,7 @@ function MiniChart({ candles, entry, sl, tps }: { candles: Candle[]; entry: numb
   const pad = (max0 - min0 || 1) * 0.06;
   const max = max0 + pad, min = min0 - pad, span = max - min || 1;
   const plotW = W - padL - padR, plotH = H - padT - padB;
-  const slot = plotW / candles.length, bodyW = Math.max(1.2, slot * 0.6);
+  const slot = plotW / cand.length, bodyW = Math.max(1.2, slot * 0.6);
   const y = (p: number) => padT + ((max - p) / span) * plotH;
   const x = (i: number) => padL + i * slot + slot / 2;
   const price = (p: number) => (Math.abs(p) >= 1000 ? p.toFixed(0) : Math.abs(p) >= 1 ? p.toFixed(2) : p.toFixed(4));
@@ -606,7 +620,7 @@ function MiniChart({ candles, entry, sl, tps }: { candles: Candle[]; entry: numb
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="mt-4 w-full rounded-xl border border-white/10 bg-black/30">
-      {candles.map((c, i) => {
+      {cand.map((c, i) => {
         const col = c.c >= c.o ? "#34d399" : "#f87171";
         const yo = y(c.o), yc = y(c.c);
         return (
