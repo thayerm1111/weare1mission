@@ -14,6 +14,7 @@ export const CREDIT_COST = {
   signal: 1,     // generate a play on OM AI Plays
   deepdive: 1,   // open the full reasoning breakdown
   scan: 2,       // Market Pulse scan (heaviest — up to 8 data calls)
+  ghost: 3,      // XAUGHOST full gold intelligence run (multi-timeframe + deep analysis)
 } as const;
 
 export type Feature = keyof typeof CREDIT_COST;
