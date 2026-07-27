@@ -23,6 +23,18 @@ const WATCHLIST = [
 export function OMCharts() {
   const holder = useRef<HTMLDivElement>(null);
 
+  // Force the TradingView iframe to fill its container (autosize sometimes
+  // renders it only ~150px tall inside a flex/vh parent).
+  useEffect(() => {
+    const id = "om-tv-fill";
+    if (!document.getElementById(id)) {
+      const style = document.createElement("style");
+      style.id = id;
+      style.textContent = ".tradingview-widget-container__widget { width:100% !important; height:100% !important; } .tradingview-widget-container iframe { width:100% !important; height:100% !important; display:block !important; }";
+      document.head.appendChild(style);
+    }
+  }, []);
+
   useEffect(() => {
     const el = holder.current;
     if (!el) return;
