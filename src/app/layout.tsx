@@ -3,6 +3,7 @@ import "./globals.css";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { IntroSplash } from "@/components/IntroSplash";
+import { I18nProvider } from "@/components/I18nProvider";
 import { siteSettings } from "@/data/siteSettings";
 
 /**
@@ -83,6 +84,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Header />
         <main id="main" className="flex-1">{children}</main>
         <Footer />
+        <I18nProvider />
       </body>
     </html>
   );
