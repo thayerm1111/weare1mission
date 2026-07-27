@@ -38,7 +38,10 @@
   --c-ice: 33 35 43;         /* cards / chips / borders */
   --c-charcoal: 214 211 203; /* body text (opacity variants follow) */
   --c-medium: 151 149 143;   /* muted grey */
-  --c-navy: 24 24 29;        /* dark panels — lifted slightly for separation */
+  /* navy is used far more as heading/nav/logo TEXT (incl. opacity variants like
+     text-navy/70) than as a panel background, so flip it LIGHT here and darken
+     the handful of bg-navy panels via overrides below. */
+  --c-navy: 236 234 228;
   --c-gold: 184 174 148;     /* accent, brightened for dark */
   --c-gold-deep: 198 189 166;
 }
@@ -46,11 +49,13 @@
 html.om-dark,
 .om-dark body { background-color: rgb(12 13 17); }
 
-/* navy/primary heading + link text (always solid) go light even though their
-   background utilities stay dark. */
-.om-dark .text-navy { color: rgb(240 238 232) !important; }
+/* primary link text goes light; navy now flips light via its variable so nav
+   links, the logo and every text-navy opacity variant stay visible. bg-navy
+   panels are the minority use → darkened here so they don't turn light. */
 .om-dark .text-primary { color: rgb(233 231 225) !important; }
 .om-dark .bg-primary { background-color: rgb(43 43 50) !important; }
+.om-dark .bg-navy,
+.om-dark .bg-navy\/90 { background-color: rgb(15 15 19) !important; }
 /* white/cream are the light on-dark text color, so the tokens stay light and
    only their solid/opaque background utilities move to dark surfaces. */
 .om-dark .bg-cream { background-color: rgb(18 19 24) !important; }
@@ -59,11 +64,14 @@ html.om-dark,
 .om-dark .focus\:bg-white:focus { background-color: rgb(24 25 31) !important; }
 .om-dark .bg-white\/95,
 .om-dark .bg-white\/90,
+.om-dark .bg-white\/85,
 .om-dark .bg-white\/80,
+.om-dark .bg-white\/75,
 .om-dark .bg-white\/70,
+.om-dark .bg-white\/65,
 .om-dark .bg-white\/60,
 .om-dark .bg-white\/50,
-.om-dark .bg-white\/40 { background-color: rgb(24 25 31 / 0.9) !important; }
+.om-dark .bg-white\/40 { background-color: rgb(24 25 31 / 0.92) !important; }
 /* Light section gradients → flat dark. */
 .om-dark .bg-gradient-hero,
 .om-dark .bg-gradient-ice { background-image: none !important; background-color: rgb(18 19 24) !important; }
