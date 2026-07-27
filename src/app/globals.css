@@ -7,7 +7,71 @@
   /* Display grotesque (headlines). Kept on --font-serif for compatibility. */
   --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
   --font-serif: "Archivo", "Helvetica Neue", Arial, sans-serif;
+
+  /* Brand palette as RGB channels so Tailwind's `rgb(var(--x) / <alpha>)`
+     tokens (and every opacity variant) can be re-themed. These light values
+     reproduce the original hexes exactly, so nothing changes until `.om-dark`
+     is present (member portal only). */
+  --c-navy: 11 11 11;
+  --c-primary: 17 17 17;
+  --c-medium: 115 115 115;
+  --c-light: 184 180 172;
+  --c-ice: 238 237 232;
+  --c-offwhite: 245 244 241;
+  --c-charcoal: 26 26 26;
+  --c-cream: 255 255 255;
+  --c-gold: 111 106 93;
+  --c-gold-light: 207 199 179;
+  --c-gold-deep: 74 70 56;
 }
+
+/* ── Member-portal dark theme ─────────────────────────────────────────────
+   Applied by adding `.om-dark` to <html> (ThemeToggle + a pre-paint script in
+   the portal layout). Public marketing pages never get this class, so they stay
+   light. Single-role tokens flip via the variables; the three dual-role tokens
+   (cream/white, primary, navy) keep their light "on-dark" text role and get a
+   few targeted background overrides so a surface and its text don't invert
+   together. */
+.om-dark {
+  color-scheme: dark;
+  --c-offwhite: 20 21 27;    /* alternating surfaces */
+  --c-ice: 33 35 43;         /* cards / chips / borders */
+  --c-charcoal: 214 211 203; /* body text (opacity variants follow) */
+  --c-medium: 151 149 143;   /* muted grey */
+  --c-navy: 24 24 29;        /* dark panels — lifted slightly for separation */
+  --c-gold: 184 174 148;     /* accent, brightened for dark */
+  --c-gold-deep: 198 189 166;
+}
+
+html.om-dark,
+.om-dark body { background-color: rgb(12 13 17); }
+
+/* navy/primary heading + link text (always solid) go light even though their
+   background utilities stay dark. */
+.om-dark .text-navy { color: rgb(240 238 232) !important; }
+.om-dark .text-primary { color: rgb(233 231 225) !important; }
+.om-dark .bg-primary { background-color: rgb(43 43 50) !important; }
+/* white/cream are the light on-dark text color, so the tokens stay light and
+   only their solid/opaque background utilities move to dark surfaces. */
+.om-dark .bg-cream { background-color: rgb(18 19 24) !important; }
+.om-dark .bg-cream\/70 { background-color: rgb(24 25 31 / 0.7) !important; }
+.om-dark .bg-white,
+.om-dark .focus\:bg-white:focus { background-color: rgb(24 25 31) !important; }
+.om-dark .bg-white\/95,
+.om-dark .bg-white\/90,
+.om-dark .bg-white\/80,
+.om-dark .bg-white\/70,
+.om-dark .bg-white\/60,
+.om-dark .bg-white\/50,
+.om-dark .bg-white\/40 { background-color: rgb(24 25 31 / 0.9) !important; }
+/* Light section gradients → flat dark. */
+.om-dark .bg-gradient-hero,
+.om-dark .bg-gradient-ice { background-image: none !important; background-color: rgb(18 19 24) !important; }
+/* Hardcoded light hairlines used across the portal shell. */
+.om-dark [class*="border-[#E7E4DD]"] { border-color: rgb(255 255 255 / 0.10) !important; }
+/* Card shadows are invisible on dark — trade them for soft depth shadows. */
+.om-dark .shadow-card { box-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 30px rgb(0 0 0 / 0.35) !important; }
+.om-dark .shadow-cardhover { box-shadow: 0 2px 6px rgb(0 0 0 / 0.45), 0 18px 44px rgb(0 0 0 / 0.45) !important; }
 
 html {
   scroll-behavior: smooth;
