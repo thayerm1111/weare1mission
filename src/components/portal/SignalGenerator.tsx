@@ -50,6 +50,7 @@ type Result = {
   id: number; symbol: string; name: string; market: string; td: string; interval: string;
   orderType: string; style?: string; method?: string; price: number; asOf: string; marketClosed?: boolean;
   signal: Signal; candles?: Candle[]; status: Status;
+  hitTp?: number; hitAt?: string;   // which take-profit filled (1|2|3) on a win
 };
 
 const numOk = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
@@ -80,6 +81,7 @@ export function SignalGenerator() {
   const [dive, setDive] = useState<Result | null>(null);
   const [needCredits, setNeedCredits] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const backfilled = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     try { const raw = localStorage.getItem("om_signals"); if (raw) setRecent(JSON.parse(raw)); } catch { /* ignore */ }
@@ -101,6 +103,18 @@ export function SignalGenerator() {
     void generate(found.asset);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // When an already-won card is opened but was recorded before we tracked which
+  // TP filled, quietly re-evaluate once to backfill the hit level so the card
+  // can show it. (The check isn't credit-gated, so this costs the member nothing.)
+  useEffect(() => {
+    if (!result || result.status !== "win" || result.hitTp != null) return;
+    if (result.signal?.direction === "NEUTRAL") return;
+    if (backfilled.current.has(result.id)) return;
+    backfilled.current.add(result.id);
+    void checkResult(result);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result?.id, result?.status]);
+
   function persist(next: Result[]) { setRecent(next); try { localStorage.setItem("om_signals", JSON.stringify(next.slice(0, 20))); } catch { /* ignore */ } }
 
   function pickMethod(m: Method) { setMethod(m); setConfs(METHOD_DEFAULTS[m]); }
@@ -141,15 +155,17 @@ export function SignalGenerator() {
     if (checking) return;
     setChecking(r.id);
     try {
+      const tps = (r.signal.takeProfits || []).filter((n) => typeof n === "number" && Number.isFinite(n));
       const res = await fetch("/api/om-signal-check", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ td: r.td, interval: r.interval, since: r.asOf, direction: r.signal.direction, entry: r.signal.entry, sl: r.signal.stopLoss, tp1: (r.signal.takeProfits || [])[0] }),
+        body: JSON.stringify({ td: r.td, interval: r.interval, since: r.asOf, direction: r.signal.direction, entry: r.signal.entry, sl: r.signal.stopLoss, tp1: tps[0], tps }),
       });
       const d = await res.json().catch(() => ({}));
       if (d.status === "win" || d.status === "loss") {
-        const next = recent.map((x) => (x.id === r.id ? { ...x, status: d.status } : x));
+        const patch = { status: d.status as Status, hitTp: typeof d.hitTp === "number" ? d.hitTp : undefined, hitAt: typeof d.at === "string" ? d.at : undefined };
+        const next = recent.map((x) => (x.id === r.id ? { ...x, ...patch } : x));
         persist(next);
-        if (result?.id === r.id) setResult({ ...result, status: d.status });
+        if (result?.id === r.id) setResult({ ...result, ...patch });
       }
     } catch { /* ignore */ } finally { setChecking(null); }
   }
@@ -384,8 +400,8 @@ function dirStyle(dir: string) {
   const Icon = dir === "LONG" ? ArrowUp : dir === "SHORT" ? ArrowDown : Minus;
   return { color, Icon };
 }
-function StatusBadge({ status }: { status: Status }) {
-  if (status === "win") return <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-400">Win</span>;
+function StatusBadge({ status, hitTp }: { status: Status; hitTp?: number }) {
+  if (status === "win") return <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-400">Win{typeof hitTp === "number" ? ` · TP${hitTp}` : ""}</span>;
   if (status === "loss") return <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-red-400">Loss</span>;
   return <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold uppercase text-white/50">Open</span>;
 }
@@ -399,7 +415,7 @@ function CompactCard({ r, onOpen, onCheck, onDelete, checking }: { r: Result; on
         <div className="flex items-center gap-2">
           <span className="font-semibold">{r.symbol}</span>
           <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${color}`}><Icon className="h-3 w-3" />{s.direction}</span>
-          <StatusBadge status={r.status} />
+          <StatusBadge status={r.status} hitTp={r.hitTp} />
         </div>
         <p className="mt-0.5 truncate text-[11px] text-white/40">
           Entry {fmt(s.entry)} · {s.timeframe}
@@ -499,11 +515,28 @@ function FullCard({ r, onCheck, checking }: { r: Result; onCheck: () => void; ch
         </div>
         <div className="flex flex-col items-end gap-1.5">
           <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${color}`}><Icon className="h-4 w-4" />{s.direction}</span>
-          <StatusBadge status={r.status} />
+          <StatusBadge status={r.status} hitTp={r.hitTp} />
         </div>
       </div>
 
       {r.td && <LivePrice td={r.td} entry={numOk(s.entry) ? s.entry : null} direction={s.direction} closed={r.marketClosed} />}
+
+      {r.status === "win" && (
+        <div className="mt-3 flex items-center gap-2.5 rounded-xl border border-emerald-400/30 bg-emerald-500/[0.08] px-4 py-2.5">
+          <span className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-full bg-emerald-500/20 text-emerald-400"><Check className="h-4 w-4" /></span>
+          <span className="text-sm font-semibold text-emerald-300">
+            {typeof r.hitTp === "number"
+              ? `Target hit — reached TP${r.hitTp} at ${fmt((s.takeProfits || [])[r.hitTp - 1])}`
+              : "Target hit — this play reached take-profit"}
+          </span>
+        </div>
+      )}
+      {r.status === "loss" && (
+        <div className="mt-3 flex items-center gap-2.5 rounded-xl border border-red-500/25 bg-red-500/[0.07] px-4 py-2.5">
+          <span className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-full bg-red-500/15 text-red-400"><ShieldAlert className="h-4 w-4" /></span>
+          <span className="text-sm font-semibold text-red-300">Stopped out — price hit the stop loss before a target.</span>
+        </div>
+      )}
 
       {r.marketClosed && <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-1.5 text-xs text-amber-300/90">Market is currently closed — analysis based on the last session.</p>}
 
@@ -535,7 +568,7 @@ function FullCard({ r, onCheck, checking }: { r: Result; onCheck: () => void; ch
         </div>
       )}
 
-      {r.candles && r.candles.length > 3 && <MiniChart candles={r.candles} entry={numOk(s.entry) ? s.entry : null} sl={numOk(s.stopLoss) ? s.stopLoss : null} tps={(s.takeProfits || []).filter(numOk)} />}
+      {r.candles && r.candles.length > 3 && <MiniChart candles={r.candles} entry={numOk(s.entry) ? s.entry : null} sl={numOk(s.stopLoss) ? s.stopLoss : null} tps={(s.takeProfits || []).filter(numOk)} hitTp={r.status === "win" ? r.hitTp : undefined} />}
 
       <div className="mt-4 grid grid-cols-3 gap-2 text-center">
         <Cell label="Entry" value={fmt(s.entry)} tint="text-white" />
@@ -543,7 +576,10 @@ function FullCard({ r, onCheck, checking }: { r: Result; onCheck: () => void; ch
         <Cell label="Risk : Reward" value={s.riskReward || "—"} tint="text-gold-light" />
       </div>
       <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-        {[0, 1, 2].map((i) => <Cell key={i} label={`TP${i + 1}`} value={fmt((s.takeProfits || [])[i])} tint="text-emerald-400" icon={<Target className="h-3 w-3" />} />)}
+        {[0, 1, 2].map((i) => (
+          <Cell key={i} label={`TP${i + 1}`} value={fmt((s.takeProfits || [])[i])} tint="text-emerald-400" icon={<Target className="h-3 w-3" />}
+            hit={r.status === "win" && typeof r.hitTp === "number" && i + 1 <= r.hitTp} />
+        ))}
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/50">
@@ -569,7 +605,7 @@ function FullCard({ r, onCheck, checking }: { r: Result; onCheck: () => void; ch
   );
 }
 
-function MiniChart({ candles, entry, sl, tps }: { candles: Candle[]; entry: number | null; sl: number | null; tps: number[] }) {
+function MiniChart({ candles, entry, sl, tps, hitTp }: { candles: Candle[]; entry: number | null; sl: number | null; tps: number[]; hitTp?: number }) {
   const W = 320, H = 160, padT = 8, padB = 8, padL = 4, padR = 42;
   // Robust price window from the candle BODIES (open/close are trustworthy; a
   // glitch feed only lies in the high/low wicks). We take the 2nd–98th
@@ -602,10 +638,10 @@ function MiniChart({ candles, entry, sl, tps }: { candles: Candle[]; entry: numb
 
   // Build the labelled levels, then push their TEXT apart so labels never overlap
   // when entry/SL/TP sit close together (the dashed line stays at the true price).
-  const raw: { col: string; p: number; label: string }[] = [
+  const raw: { col: string; p: number; label: string; hit?: boolean }[] = [
     { col: "#ffffff", p: entry as number, label: "Entry" },
     { col: "#f87171", p: sl as number, label: "SL" },
-    ...tps.map((t, i) => ({ col: "#34d399", p: t, label: `TP${i + 1}` })),
+    ...tps.map((t, i) => ({ col: "#34d399", p: t, label: `TP${i + 1}`, hit: typeof hitTp === "number" && i + 1 <= hitTp })),
   ].filter((L) => inBand(L.p));
   const placed = raw
     .map((L) => ({ ...L, ly: y(L.p) }))
@@ -632,21 +668,22 @@ function MiniChart({ candles, entry, sl, tps }: { candles: Candle[]; entry: numb
       })}
       {placed.map((L, i) => (
         <g key={i}>
-          <line x1={padL} x2={W - padR} y1={y(L.p)} y2={y(L.p)} stroke={L.col} strokeWidth={0.7} strokeDasharray="3 2" opacity={0.85} />
+          <line x1={padL} x2={W - padR} y1={y(L.p)} y2={y(L.p)} stroke={L.col} strokeWidth={L.hit ? 1.2 : 0.7} strokeDasharray={L.hit ? undefined : "3 2"} opacity={L.hit ? 1 : 0.85} />
           {/* thin connector from the true line to the (possibly nudged) label */}
           <line x1={W - padR} x2={W - padR + 3} y1={y(L.p)} y2={L.ly} stroke={L.col} strokeWidth={0.5} opacity={0.5} />
-          <text x={W - padR + 4} y={L.ly + 2} fill={L.col} fontSize={6.5} fontWeight="bold">{L.label} {price(L.p)}</text>
+          <text x={W - padR + 4} y={L.ly + 2} fill={L.col} fontSize={6.5} fontWeight="bold">{L.label}{L.hit ? " ✓" : ""} {price(L.p)}</text>
         </g>
       ))}
     </svg>
   );
 }
 
-function Cell({ label, value, tint, icon }: { label: string; value: string; tint: string; icon?: React.ReactNode }) {
+function Cell({ label, value, tint, icon, hit }: { label: string; value: string; tint: string; icon?: React.ReactNode; hit?: boolean }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.02] px-2 py-2.5">
-      <p className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.1em] text-white/40">{icon}{label}</p>
+    <div className={`relative rounded-xl border px-2 py-2.5 ${hit ? "border-emerald-400/50 bg-emerald-500/[0.10]" : "border-white/10 bg-white/[0.02]"}`}>
+      <p className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.1em] text-white/40">{icon}{label}{hit && <Check className="h-3 w-3 text-emerald-400" />}</p>
       <p className={`mt-0.5 font-serif text-base font-bold tabular-nums ${tint}`}>{value}</p>
+      {hit && <span className="absolute -right-1 -top-1 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[8px] font-bold uppercase text-black">Hit</span>}
     </div>
   );
 }
