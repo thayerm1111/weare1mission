@@ -23,21 +23,23 @@ const config: Config = {
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      // Palette is CSS-variable-backed so the member portal can flip to a dark
+      // theme (via the `.om-dark` class) without editing every component. The
+      // light values live in :root and the dark overrides in `.om-dark`
+      // (see globals.css). Public pages never get `.om-dark`, so they stay light.
       colors: {
-        navy: "#0B0B0B",     // near-black (dark sections / footer / hero panels)
-        primary: "#111111",  // ink (buttons, links, accents)
-        medium: "#737373",   // neutral mid grey
-        light: "#B8B4AC",    // light grey (on dark)
-        ice: "#EEEDE8",      // light stone (cards / chips / tints)
-        offwhite: "#F5F4F1", // off-white (alt sections)
-        charcoal: "#1A1A1A", // body text
-        cream: "#FFFFFF",    // base background — stark white
-        // Accent — a single warm "bone". Deliberately near-monochrome:
-        // `DEFAULT` reads on light backgrounds; `light` is bone for dark ones.
+        navy: "rgb(var(--c-navy) / <alpha-value>)",       // near-black panels / heading text
+        primary: "rgb(var(--c-primary) / <alpha-value>)", // ink (buttons, links, accents)
+        medium: "rgb(var(--c-medium) / <alpha-value>)",   // neutral mid grey
+        light: "rgb(var(--c-light) / <alpha-value>)",     // light grey (on dark)
+        ice: "rgb(var(--c-ice) / <alpha-value>)",         // light stone (cards / chips / tints)
+        offwhite: "rgb(var(--c-offwhite) / <alpha-value>)", // off-white (alt sections)
+        charcoal: "rgb(var(--c-charcoal) / <alpha-value>)", // body text
+        cream: "rgb(var(--c-cream) / <alpha-value>)",     // base background
         gold: {
-          DEFAULT: "#6F6A5D", // warm stone (eyebrows / accents on light bg)
-          light: "#CFC7B3",   // bone (accents on dark bg)
-          deep: "#4A4638",    // deep stone
+          DEFAULT: "rgb(var(--c-gold) / <alpha-value>)",       // warm stone accent
+          light: "rgb(var(--c-gold-light) / <alpha-value>)",   // bone (accents on dark)
+          deep: "rgb(var(--c-gold-deep) / <alpha-value>)",     // deep stone
         },
       },
       fontFamily: {
