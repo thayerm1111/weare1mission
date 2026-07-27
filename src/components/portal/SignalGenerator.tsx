@@ -117,6 +117,45 @@ export function SignalGenerator() {
 
   function persist(next: Result[]) { setRecent(next); try { localStorage.setItem("om_signals", JSON.stringify(next.slice(0, 20))); } catch { /* ignore */ } }
 
+  // Cloud sync — signals are saved server-side so they follow the member across
+  // every device and survive a cleared browser. localStorage stays as an instant
+  // local cache; these calls fail quietly when offline.
+  async function cloudSave(items: Result[]) {
+    if (!items.length) return;
+    try { await fetch("/api/signals", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ signals: items }) }); } catch { /* offline */ }
+  }
+  async function cloudDelete(id: number) {
+    try { await fetch(`/api/signals?id=${encodeURIComponent(String(id))}`, { method: "DELETE" }); } catch { /* offline */ }
+  }
+
+  // On open, pull the member's signals from the server (source of truth) and, the
+  // first time, migrate anything already saved only in this browser up to the cloud.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/signals", { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const d = await res.json().catch(() => ({}));
+        const cloud: Result[] = Array.isArray(d.signals) ? d.signals : [];
+        let local: Result[] = [];
+        try { const raw = localStorage.getItem("om_signals"); if (raw) local = JSON.parse(raw); } catch { /* ignore */ }
+        if (cancelled) return;
+        if (cloud.length) {
+          const seen = new Set(cloud.map((r) => r.id));
+          const extras = local.filter((r) => r && !seen.has(r.id));
+          const merged = [...cloud, ...extras].sort((a, b) => Number(b.id) - Number(a.id)).slice(0, 20);
+          persist(merged);
+          if (extras.length) void cloudSave(extras);
+        } else if (local.length) {
+          void cloudSave(local); // first run with cloud storage — back up this device's signals
+        }
+      } catch { /* offline — keep the local cache */ }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function pickMethod(m: Method) { setMethod(m); setConfs(METHOD_DEFAULTS[m]); }
   function toggleConf(k: string) { setConfs((c) => (c.includes(k) ? c.filter((x) => x !== k) : [...c, k])); }
   function reset() {
@@ -146,6 +185,7 @@ export function SignalGenerator() {
       const r: Result = { ...data, id: Date.now(), status: "open" };
       setResult(r); setStep("result");
       persist([r, ...recent].slice(0, 20));
+      void cloudSave([r]);
       if (typeof window !== "undefined") window.dispatchEvent(new Event("credits-updated"));
       void earnMission("signal"); // auto-earn the daily "generate a play" mission
     } catch { if (timer.current) clearInterval(timer.current); setErrorMsg("Something interrupted the connection. Try again."); setStep("error"); }
@@ -163,9 +203,11 @@ export function SignalGenerator() {
       const d = await res.json().catch(() => ({}));
       if (d.status === "win" || d.status === "loss") {
         const patch = { status: d.status as Status, hitTp: typeof d.hitTp === "number" ? d.hitTp : undefined, hitAt: typeof d.at === "string" ? d.at : undefined };
-        const next = recent.map((x) => (x.id === r.id ? { ...x, ...patch } : x));
+        const updated = { ...r, ...patch };
+        const next = recent.map((x) => (x.id === r.id ? updated : x));
         persist(next);
         if (result?.id === r.id) setResult({ ...result, ...patch });
+        void cloudSave([updated]); // keep the server copy's status/TP in sync
       }
     } catch { /* ignore */ } finally { setChecking(null); }
   }
@@ -173,6 +215,7 @@ export function SignalGenerator() {
   function deleteResult(id: number) {
     persist(recent.filter((x) => x.id !== id));
     if (result?.id === id) { setResult(null); }
+    void cloudDelete(id);
   }
 
   const wins = recent.filter((r) => r.status === "win").length;
