@@ -11,10 +11,12 @@
  *
  * Mobile drawing: on a phone, dragging a drawing inside the embed can be read by
  * the browser as a page scroll ("the whole screen moves"). The Fullscreen /
- * Draw mode fixes that — it blows the chart up to the whole viewport, locks page
- * scroll, and sets touch-action:none so every touch goes straight to the chart,
- * so drawings move freely. The SAME iframe node is reused (only its container's
- * CSS changes), so toggling fullscreen never reloads the chart or loses drawings.
+ * Draw mode fixes that — it blows the chart up to the whole viewport and locks
+ * page scroll, so there's nothing behind to scroll and every touch goes straight
+ * to the chart. The SAME iframe node is reused (only its container's CSS changes),
+ * so toggling fullscreen never reloads the chart or loses drawings. (We do NOT
+ * set touch-action:none on the iframe — on iOS Safari that can swallow the drag
+ * before TradingView gets it, which is what made drawings impossible to move.)
  *
  * Persistence: TradingView keeps a member's view and drawings in their browser,
  * so they persist between visits on the same device. Drawings that save to their
@@ -103,15 +105,21 @@ export function OMCharts() {
           src={SRC}
           title="OM Charts — TradingView"
           allow="fullscreen"
-          style={{ width: "100%", height: "100%", border: 0, display: "block", touchAction: full ? "none" : "auto" }}
+          style={{ width: "100%", height: "100%", border: 0, display: "block" }}
         />
         {full && (
-          <button
-            onClick={() => setFull(false)}
-            className="absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full bg-navy/85 px-4 py-2 text-xs font-bold uppercase tracking-wide text-cream shadow-lg backdrop-blur transition-colors hover:bg-navy"
-          >
-            <Minimize2 className="h-4 w-4" /> Exit
-          </button>
+          <>
+            <button
+              onClick={() => setFull(false)}
+              className="absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full bg-navy/85 px-4 py-2 text-xs font-bold uppercase tracking-wide text-cream shadow-lg backdrop-blur transition-colors hover:bg-navy"
+            >
+              <Minimize2 className="h-4 w-4" /> Exit
+            </button>
+            {/* Non-interactive gesture hint so it never blocks the chart's own touches. */}
+            <div className="pointer-events-none absolute left-3 top-3 z-10 max-w-[60%] rounded-full bg-navy/70 px-3 py-1.5 text-[11px] font-medium text-cream/90 shadow backdrop-blur">
+              Tap a drawing to select, then drag · pinch to zoom
+            </div>
+          </>
         )}
       </div>
 
