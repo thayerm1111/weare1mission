@@ -1,0 +1,196 @@
+import { type NextRequest } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { gateCredits, chargeCredit } from "@/lib/credits";
+import { reserveMarketData } from "@/lib/marketData";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+/**
+ * XAUGHOST — a dedicated, self-contained Gold (XAU/USD) intelligence engine.
+ * COMPLETELY SEPARATE from OM AI Plays: it only ever analyses gold and shares no
+ * logic with the multi-asset signal engine, so nothing here can affect EURUSD,
+ * indices, crypto, etc. It pulls XAU/USD across Daily → 5m, builds an
+ * institutional data picture, then asks the model to act as a desk of quant +
+ * ICT/SMC traders and return a strict, structured read — including a confident
+ * "No Trade" when there is no edge.
+ */
+const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+const MODEL = process.env.OM_AI_MODEL || "claude-sonnet-4-6";
+const TD = "XAU/USD";
+
+type Row = { datetime: string; open: string; high: string; low: string; close: string };
+
+function json(obj: unknown, status = 200) {
+  return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+}
+
+async function series(interval: string, size: number, key: string): Promise<Row[] | "ratelimit" | null> {
+  try {
+    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(TD)}&interval=${interval}&outputsize=${size}&apikey=${key}`, { cache: "no-store" });
+    const j = await r.json();
+    if (j.status === "error" || !Array.isArray(j.values)) {
+      if (r.status === 429 || j?.code === 429 || /credit|limit|per minute/i.test(String(j?.message || ""))) return "ratelimit";
+      return null;
+    }
+    return [...(j.values as Row[])].reverse();
+  } catch { return null; }
+}
+
+async function livePrice(key: string): Promise<number | null> {
+  try {
+    const r = await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(TD)}&apikey=${key}`, { cache: "no-store" });
+    const j = await r.json();
+    const p = Number(j?.price);
+    return Number.isFinite(p) ? p : null;
+  } catch { return null; }
+}
+
+const sma = (v: number[], n: number) => (v.length < n ? null : v.slice(-n).reduce((a, b) => a + b, 0) / n);
+function rsi(c: number[], p = 14): number | null {
+  if (c.length < p + 1) return null;
+  let g = 0, l = 0;
+  for (let i = c.length - p; i < c.length; i++) { const d = c[i] - c[i - 1]; if (d >= 0) g += d; else l -= d; }
+  const ag = g / p, al = l / p;
+  return al === 0 ? 100 : 100 - 100 / (1 + ag / al);
+}
+function atr(rows: Row[], p = 14): number | null {
+  if (rows.length < p + 1) return null;
+  const tr: number[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const h = +rows[i].high, lo = +rows[i].low, pc = +rows[i - 1].close;
+    tr.push(Math.max(h - lo, Math.abs(h - pc), Math.abs(lo - pc)));
+  }
+  return sma(tr, p);
+}
+// Cap freak wicks so a single bad print can't distort structure.
+function clean(rows: Row[]): Row[] {
+  if (rows.length < 5) return rows;
+  const ranges = rows.map((r) => Math.abs(+r.high - +r.low)).filter(Number.isFinite).sort((a, b) => a - b);
+  const med = ranges[Math.floor(ranges.length / 2)] || 0;
+  const px = Math.abs(+rows[rows.length - 1].close) || 1;
+  const cap = Math.max(med * 12, px * 0.0015);
+  return rows.map((r) => {
+    const o = +r.open, c = +r.close, h = +r.high, l = +r.low;
+    if (![o, c, h, l].every(Number.isFinite)) return r;
+    const bt = Math.max(o, c), bb = Math.min(o, c);
+    return { ...r, high: String(Math.max(bt, Math.min(h, bt + cap))), low: String(Math.min(bb, Math.max(l, bb - cap))) };
+  });
+}
+
+function tfSummary(label: string, rows: Row[] | null): string {
+  if (!rows || rows.length < 20) return `${label}: data unavailable`;
+  const r = clean(rows);
+  const closes = r.map((v) => +v.close), highs = r.map((v) => +v.high), lows = r.map((v) => +v.low);
+  const last = closes[closes.length - 1];
+  const hi = Math.max(...highs.slice(-40)), lo = Math.min(...lows.slice(-40));
+  const eq = (hi + lo) / 2;
+  const s20 = sma(closes, 20), s50 = sma(closes, 50);
+  const trend = s20 && s50 ? (last > s20 && s20 > s50 ? "up" : last < s20 && s20 < s50 ? "down" : "range") : "range";
+  const a = atr(r);
+  const rs = rsi(closes);
+  const f = (n: number) => n.toFixed(2);
+  return `${label}: px ${f(last)} | trend ${trend} | ${last > eq ? "PREMIUM" : "DISCOUNT"} of ${f(lo)}-${f(hi)} (eq ${f(eq)}) | SMA20 ${s20 ? f(s20) : "-"} SMA50 ${s50 ? f(s50) : "-"} | RSI ${rs != null ? rs.toFixed(0) : "-"} | ATR ${a ? f(a) : "-"}`;
+}
+
+export async function POST(req: NextRequest) {
+  const supabase = createClient();
+  if (supabase) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return json({ error: "unauthorized" }, 401);
+  }
+  const aiKey = process.env.ANTHROPIC_API_KEY;
+  const mdKey = process.env.TWELVEDATA_API_KEY;
+  if (!aiKey) return json({ notConfigured: "ai" }, 200);
+  if (!mdKey) return json({ notConfigured: "marketdata" }, 200);
+
+  // Credit gate (heaviest tool — 3 credits).
+  const gate = await gateCredits("ghost");
+  if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
+  if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
+
+  // Reserve the ~6 data calls from the global per-minute governor.
+  const md = await reserveMarketData(6);
+  if (!md.ok) return json({ error: "system_busy", detail: "The data desk is at capacity for a moment — try again in a few seconds." }, 429);
+
+  const [d1, h4, h1, m15, m5] = await Promise.all([
+    series("1day", 90, mdKey),
+    series("4h", 80, mdKey),
+    series("1h", 80, mdKey),
+    series("15min", 96, mdKey),
+    series("5min", 78, mdKey),
+  ]);
+  if ([d1, h4, h1, m15, m5].some((x) => x === "ratelimit")) {
+    return json({ error: "ratelimit", detail: "Market-data limit hit for a moment — give it a minute and run again." }, 429);
+  }
+  const live = await livePrice(mdKey);
+  const price = live ?? (Array.isArray(m5) && m5.length ? +m5[m5.length - 1].close : Array.isArray(h1) && h1.length ? +h1[h1.length - 1].close : null);
+  if (price == null) return json({ error: "marketdata_error", detail: "Couldn't read a live gold price right now — try again shortly." }, 502);
+
+  // Recent 15m candles for execution-level context.
+  const recent15 = Array.isArray(m15) ? clean(m15).slice(-24).map((v) => `${(+v.open).toFixed(2)},${(+v.high).toFixed(2)},${(+v.low).toFixed(2)},${(+v.close).toFixed(2)}`).join(" | ") : "n/a";
+
+  const dataBlock = [
+    tfSummary("Daily", d1 as Row[] | null),
+    tfSummary("4H", h4 as Row[] | null),
+    tfSummary("1H", h1 as Row[] | null),
+    tfSummary("15M", m15 as Row[] | null),
+    tfSummary("5M", m5 as Row[] | null),
+  ].join("\n");
+
+  const now = new Date();
+  const utcH = now.getUTCHours();
+  const sessionHint =
+    utcH >= 0 && utcH < 7 ? "Asian session" :
+    utcH >= 7 && utcH < 12 ? "London session (open/expansion)" :
+    utcH >= 12 && utcH < 14 ? "London/New York overlap (kill zone)" :
+    utcH >= 14 && utcH < 20 ? "New York session" : "post New-York / late";
+
+  const system = `You are XAUGHOST — an elite desk analysing ONLY Gold (XAU/USD): a quant trader, institutional analyst, discretionary ICT/SMC scalper and risk manager rolled into one. You produce the highest-quality gold reads and you NEVER force trades — "No Trade" is a valid, often correct answer.
+
+Your process:
+1) Detect the market REGIME (trend / range / expansion / compression / accumulation / distribution / liquidity hunt / stop run / mean reversion / news-driven / volatility expansion or compression / breakout / fakeout).
+2) Establish HTF bias top-down (Daily → 4H → 1H) then refine execution on 15M/5M. Weight higher timeframes more.
+3) Map liquidity: equal highs/lows, prior day/session highs/lows, resting buy/sell-side liquidity, what's already been swept vs what remains.
+4) Pick the single strategy with the highest statistical edge FOR THESE conditions (don't blend everything). Only use ICT/SMC concepts (BOS, CHoCH, order blocks, breakers, FVG, OTE, displacement, inducement, liquidity sweeps, AMD/Power-of-Three) when they genuinely align.
+5) Score confluence 0-100 across: HTF trend, structure, liquidity, SMC alignment, momentum, session, volatility, entry location, risk-reward, news risk. Grade: 95-100 Elite, 90-94 A+, 85-89 A, 80-84 B+, below 80 => No Trade.
+6) Respect Gold's personality: news sensitivity (CPI, PPI, NFP, FOMC, PCE, Powell), fast liquidity grabs, fake breakouts, large wicks, USD/yields/risk correlation. If unclear structure, messy liquidity, elevated news risk, or poor R:R → decision "NO_TRADE".
+
+Numbers: current price is EXACTLY ${price}. All levels must be within a sane distance of it and use 2 decimals. For a LONG: stop below entry, TPs above; SHORT: reverse.
+
+Respond with ONLY valid minified JSON, exactly these keys:
+{"bias":"BULLISH|BEARISH|NEUTRAL","regime":"short label","htfBias":"1-2 sentences top-down","narrative":"3-5 sentences: what price is doing, who is trapped, who is in control, where liquidity sits","liquidityMap":{"buyside":["level — note"],"sellside":["level — note"],"taken":["what's been swept"],"resting":["what remains"]},"bestStrategy":"the chosen playbook and why it fits now","decision":"TRADE|NO_TRADE","direction":"LONG|SHORT|NONE","entries":{"primary":number|null,"aggressive":number|null,"conservative":number|null,"confirmation":"what confirms execution"},"stopLoss":number|null,"takeProfits":[number,number,number]|[],"riskReward":"e.g. 1:2.8 or n/a","confidence":number,"grade":"Elite|A+|A|B+|No Trade","longProbability":number,"shortProbability":number,"reasonsToAvoid":["..."],"invalidation":"the level/condition that kills the idea","sessionBehavior":"expected behaviour for the current session","tradeManagement":"how to manage: partials, trail, break-even, hold time"}
+longProbability + shortProbability must sum to 100. If decision is NO_TRADE, set direction "NONE", entries/stopLoss null, takeProfits [], grade "No Trade", and make reasonsToAvoid substantive. Educational analysis, not financial advice.`;
+
+  const user = `Live XAU/USD: ${price}
+Session (UTC ${utcH}:00): ${sessionHint}
+Multi-timeframe read:
+${dataBlock}
+
+Recent 15M candles (O,H,L,C oldest→newest): ${recent15}
+
+Deliver the full XAUGHOST gold read as the specified JSON now.`;
+
+  let ai: { content?: { type?: string; text?: string }[]; error?: { message?: string } };
+  try {
+    const r = await fetch(ANTHROPIC_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": aiKey, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: MODEL, max_tokens: 3500, system, messages: [{ role: "user", content: user }] }),
+    });
+    ai = await r.json();
+  } catch { return json({ error: "ai_error", detail: "The gold desk is busy — try again in a moment." }, 502); }
+  if (ai?.error) return json({ error: "ai_error", detail: ai.error.message || "AI error" }, 502);
+
+  const text = ai?.content?.find((c) => c.type === "text")?.text || "";
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return json({ error: "parse_error" }, 502);
+  let read: Record<string, unknown>;
+  try { read = JSON.parse(match[0]); } catch { return json({ error: "parse_error" }, 502); }
+
+  // Charge only after a successful read.
+  await chargeCredit("ghost");
+
+  return json({ ok: true, price, asOf: now.toISOString(), session: sessionHint, read }, 200);
+}
