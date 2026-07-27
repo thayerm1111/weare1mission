@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Ghost, Loader2, ArrowUp, ArrowDown, ShieldAlert, Target, Gauge, Layers, Droplets,
-  Crosshair, Compass, Clock, AlertTriangle, Ban, Sparkles, TrendingUp, Trophy, BarChart3, ListChecks, BookOpen, GraduationCap,
+  Crosshair, Compass, Clock, AlertTriangle, Sparkles, TrendingUp, Trophy, BarChart3, ListChecks, BookOpen, GraduationCap,
 } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
 
@@ -77,9 +77,9 @@ export function XauGhost() {
       setRes(result);
       try { localStorage.setItem("om_xaughost", JSON.stringify(result)); } catch { /* ignore */ }
       if (typeof window !== "undefined") window.dispatchEvent(new Event("credits-updated"));
-      // Auto-save any actionable call to the learning journal.
+      // Auto-save every directional call (with levels) to the learning journal.
       const rd = d.read as Read;
-      if (rd?.decision === "TRADE" && rd?.direction && rd.direction !== "NONE") {
+      if (rd?.direction && rd.direction !== "NONE" && (rd.entries?.primary != null || rd.stopLoss != null)) {
         const trade = {
           id: Date.now(), asOf: d.asOf, direction: rd.direction, strategy: rd.winningStrategy || rd.bestStrategy,
           regime: rd.regime, entry: rd.entries?.primary, stopLoss: rd.stopLoss, takeProfits: rd.takeProfits,
@@ -163,14 +163,16 @@ export function XauGhost() {
 
         {read && (
           <div className="space-y-5">
-            {/* Decision banner */}
-            <div className={`rounded-2xl border p-5 ${noTrade ? "border-white/15 bg-white/[0.03]" : isLong ? "border-emerald-400/30 bg-emerald-500/[0.07]" : "border-red-400/30 bg-red-500/[0.07]"}`}>
+            {/* Decision banner — always shows a directional call; NO_TRADE means low conviction (levels still given). */}
+            <div className={`rounded-2xl border p-5 ${noTrade ? "border-amber-400/30 bg-amber-400/[0.06]" : isLong ? "border-emerald-400/30 bg-emerald-500/[0.07]" : "border-red-400/30 bg-red-500/[0.07]"}`}>
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-black uppercase tracking-wide ${noTrade ? "bg-white/10 text-white/70" : isLong ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}>
-                    {noTrade ? <><Ban className="h-4 w-4" /> No Trade</> : isLong ? <><ArrowUp className="h-4 w-4" /> Long</> : <><ArrowDown className="h-4 w-4" /> Short</>}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-black uppercase tracking-wide ${isLong ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}>
+                    {isLong ? <><ArrowUp className="h-4 w-4" /> Long</> : <><ArrowDown className="h-4 w-4" /> Short</>}
                   </span>
-                  {read.grade && <span className="rounded-full bg-[#CFC7B3]/15 px-3 py-1 text-xs font-bold text-[#CFC7B3]">{read.grade}</span>}
+                  {noTrade
+                    ? <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-3 py-1 text-xs font-bold text-amber-300"><AlertTriangle className="h-3.5 w-3.5" /> Low conviction</span>
+                    : read.grade && <span className="rounded-full bg-[#CFC7B3]/15 px-3 py-1 text-xs font-bold text-[#CFC7B3]">{read.grade}</span>}
                   {read.regime && <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-white/60">{read.regime}</span>}
                 </div>
                 {res && (
@@ -180,6 +182,7 @@ export function XauGhost() {
                   </div>
                 )}
               </div>
+              {noTrade && <p className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2 text-xs text-amber-200/90">No clean A-grade edge right now — the levels below are the best available read. Consider smaller size or waiting for the confirmation trigger.</p>}
               {read.htfBias && <p className="mt-3 text-sm leading-relaxed text-white/75">{read.htfBias}</p>}
             </div>
 
@@ -284,9 +287,9 @@ export function XauGhost() {
               </Section>
             )}
 
-            {/* Trade plan */}
-            {!noTrade && (
-              <Section icon={<Target className="h-3.5 w-3.5" />} title="Trade plan">
+            {/* Trade plan — always shown, even on a low-conviction (No Trade) read. */}
+            {(read.entries || read.stopLoss != null || (read.takeProfits && read.takeProfits.length > 0)) && (
+              <Section icon={<Target className="h-3.5 w-3.5" />} title={noTrade ? "Trade plan (low conviction)" : "Trade plan"}>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   <Stat label="Primary entry" value={fmt(read.entries?.primary)} />
                   <Stat label="Aggressive" value={fmt(read.entries?.aggressive)} />
