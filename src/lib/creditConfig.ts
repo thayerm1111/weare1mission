@@ -1,11 +1,12 @@
 /**
- * Credit system config. Members get a daily free allowance that resets every
- * UTC day; purchased credits stack on top and never expire. Free credits are
- * always spent first. Tweak the numbers here — everything reads from this file.
+ * Credit system config. New members get a one-time WELCOME grant of credits
+ * (see the welcome_credits migration) that does NOT refill; once spent they buy
+ * more. There is no daily free allowance in this model. Tweak numbers here.
  */
 
-// Daily free credits per member (resets each day). Public so the UI can show it.
-export const DAILY_FREE = Number(process.env.NEXT_PUBLIC_DAILY_FREE_CREDITS || 15);
+// Daily free credits per member. 0 = no daily refill (members start with the
+// one-time welcome grant and buy more when they run out). Overridable via env.
+export const DAILY_FREE = Number(process.env.NEXT_PUBLIC_DAILY_FREE_CREDITS ?? 0);
 
 // What each metered action costs. Plays of the Week + Daily Brief are free
 // (cached/shared for everyone) so they aren't listed here.
