@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
@@ -22,6 +22,7 @@ const REG: Record<string, Item> = {
   signals: { href: "/portal/signals", label: "OM AI Plays", icon: Zap },
   xaughost: { href: "/portal/xaughost", label: "XAUGHOST", icon: Ghost },
   charts: { href: "/portal/charts", label: "OM Charts", icon: CandlestickChart },
+  command: { href: "/portal/market-command", label: "OM AI Market Command", icon: Crosshair },
   leaderboard: { href: "/portal/leaderboard", label: "Leaderboard", icon: Medal },
   trading: { href: "/portal/trading", label: "The Floor", icon: LineChart },
   schedule: { href: "/portal/schedule", label: "What's On", icon: CalendarClock },
@@ -41,7 +42,7 @@ const REG: Record<string, Item> = {
 const ONES = ["startHere", "schedule", "trading", "leadership", "updates", "collection", "experiences", "account", "leaderboard"];
 const BUILDERS = ["omai", "prospects", "team", "compPlan", "schedule", "leadership", "training", "resources", "updates", "account", "leaderboard"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources", "compPlan"];
-const ONES_ONLY = ["trading", "signals", "xaughost", "charts"];
+const ONES_ONLY = ["trading", "signals", "xaughost", "charts", "command"];
 
 // Children shown under "The Floor". Two kinds: live-desk VIEWS (query-param
 // views of /portal/trading) and standalone PAGES (their own routes). Rendered
@@ -57,6 +58,7 @@ const FLOOR_CHILDREN: FloorChild[] = [
   { kind: "view", view: "plays", label: "Live Plays", icon: Zap },
   { kind: "view", view: "pulse", label: "Market Pulse", icon: Activity },
   { kind: "page", key: "xaughost" },
+  { kind: "page", key: "command" },
 ];
 // Page keys that now live inside The Floor submenu (used for active detection).
 const FLOOR_PAGE_KEYS = FLOOR_CHILDREN.filter((c): c is Extract<FloorChild, { kind: "page" }> => c.kind === "page").map((c) => c.key);
@@ -177,7 +179,7 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
             {/* The Floor — mixed submenu of live-desk views + AI tool pages */}
             {key === "trading" && (
               <ul className={`mt-0.5 flex flex-col border-l border-[#E7E4DD] pl-2 ${compact ? "ml-4" : "ml-3"}`}>
-                {FLOOR_CHILDREN.map((child) => {
+                {FLOOR_CHILDREN.filter((child) => !(child.kind === "page" && child.key === "command" && !isAdmin)).map((child) => {
                   if (child.kind === "view") {
                     const vActive = onFloor && activeView === child.view;
                     return (
