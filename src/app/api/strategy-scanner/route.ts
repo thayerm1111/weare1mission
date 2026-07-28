@@ -374,13 +374,25 @@ export async function POST(req: NextRequest) {
   const firing = scouts.filter((s) => s.fired && s.dir === dir);
   const anchors = firing.map((s) => s.level).filter(numOk) as number[];
   const entry = anchors.length ? f(anchors.reduce((a, b) => a + b, 0) / anchors.length) : f(px);
-  // Stop beyond the nearest opposing swing / structure, ATR-scaled.
+  // Stop beyond the nearest opposing swing / structure — but never tighter than the
+  // market's own noise. We floor the risk at 1.5x ATR AND an instrument-aware minimum
+  // in pips, so a scalp on a quiet FX major can't collapse to a 3-4 pip stop that
+  // spread + a single wick would take out, then widen to clear structure plus a small
+  // buffer. Targets scale off the final risk, so the R:R stays honest.
   const h = rows.map((r) => +r.high), l = rows.map((r) => +r.low);
   const { sh, sl } = pivots(h, l, 2);
   const lastSH = sh[sh.length - 1]?.p ?? Math.max(...h.slice(-20));
   const lastSL = sl[sl.length - 1]?.p ?? Math.min(...l.slice(-20));
-  const stop = isLong ? f(Math.min(lastSL, entry - atrv * 1.0)) : f(Math.max(lastSH, entry + atrv * 1.0));
-  const risk = Math.abs(entry - stop) || atrv;
+  const buffer = pip * 2; // clear spread + a wick beyond the swing
+  const structRisk = isLong ? Math.max(0, entry - lastSL) + buffer : Math.max(0, lastSH - entry) + buffer;
+  // Minimum stop in pips, scaled by style (scalp tightest). FX majors ~8/12/18 pips;
+  // instruments quoted with a big pip (indices/crypto pip=1, metals pip>=0.1) get a
+  // larger point floor — though 1.5x ATR usually dominates for those anyway.
+  const basePips = style === "scalp" ? 8 : style === "swing" ? 18 : 12;
+  const pipFloor = (pip >= 1 ? basePips * 2 : pip >= 0.1 ? basePips * 1.5 : basePips) * pip;
+  const rawRisk = Math.max(structRisk, atrv * 1.5, pipFloor);
+  const stop = f(isLong ? entry - rawRisk : entry + rawRisk);
+  const risk = Math.abs(entry - stop) || rawRisk;
   const targets = [1.5, 2.5, 4.0].map((m) => f(isLong ? entry + risk * m : entry - risk * m));
   const rr1 = +(Math.abs(targets[0] - entry) / risk).toFixed(1);
   const orderType = isLong ? (entry < px ? "limit" : "market") : (entry > px ? "limit" : "market");
