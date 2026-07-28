@@ -38,7 +38,7 @@ type Dir = "LONG" | "SHORT";
 type Trend = "bullish" | "bearish" | "ranging";
 const numOk = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 
-// ── Indicators ──────────────────────────────────────────────────────────────
+// -- Indicators --
 function sma(v: number[], n: number): number | null { return v.length < n ? null : v.slice(-n).reduce((a, b) => a + b, 0) / n; }
 function rsi(c: number[], p = 14): number | null {
   if (c.length < p + 1) return null;
@@ -68,7 +68,7 @@ function trendOf(rows: Row[] | null): Trend {
   return p > s20 && s20 > s50 ? "bullish" : p < s20 && s20 < s50 ? "bearish" : "ranging";
 }
 
-// ── Data ────────────────────────────────────────────────────────────────────
+// -- Data --
 async function series(td: string, interval: string, size: number, key: string): Promise<Row[] | "ratelimit" | null> {
   try {
     const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=${interval}&outputsize=${size}&apikey=${key}`, { cache: "no-store" });
@@ -90,11 +90,63 @@ const pipSize = (s: string): number => {
   if (u.includes("JPY")) return 0.01;
   if (u.includes("XAU") || u.includes("GOLD")) return 0.1;
   if (u.includes("XAG") || u.includes("SILVER")) return 0.01;
-  if (/(BTC|ETH|SOL|XRP|DOGE|US30|NAS|NDX|SPX|US100|US500|GER|UK100|DXY)/.test(u)) return 1;
+  if (u.includes("XPT") || u.includes("XPD") || u.includes("PLATIN") || u.includes("PALLAD")) return 0.1;
+  if (u.includes("XCU") || u.includes("COPPER")) return 0.0005;
+  if (/WTI|BRENT|CRUDE|OIL|NATGAS|\bNG\b/.test(u)) return 0.01;
+  if (/(BTC|ETH|SOL|XRP|DOGE|ADA|BNB|LTC|US30|NAS|NDX|SPX|US100|US500|GER|UK100|DXY)/.test(u)) return 1;
+  if (!u.includes("/")) return 0.01; // equities / index ETF proxies (SPY, QQQ, DIA, …)
   return 0.0001;
 };
 
-// ── Scout result ────────────────────────────────────────────────────────────
+// Currency codes used to spot a forex pair typed without a slash (EURUSD → EUR/USD).
+const FX_CODES = ["USD", "EUR", "GBP", "JPY", "AUD", "NZD", "CAD", "CHF", "SGD", "HKD", "SEK", "NOK", "DKK", "MXN", "ZAR", "TRY", "CNH", "HUF", "CZK", "PLN"];
+const SYMBOL_ALIASES: Record<string, string> = {
+  GOLD: "XAU/USD", SILVER: "XAG/USD", PLATINUM: "XPT/USD", PALLADIUM: "XPD/USD", COPPER: "XCU/USD",
+  OIL: "WTI/USD", CRUDE: "WTI/USD", WTI: "WTI/USD",
+  NASDAQ: "QQQ", NAS100: "QQQ", NAS: "QQQ", US100: "QQQ", USTEC: "QQQ",
+  SPX: "SPY", SP500: "SPY", US500: "SPY", SPX500: "SPY",
+  DOW: "DIA", US30: "DIA", DJIA: "DIA", DJI: "DIA",
+  RUSSELL: "IWM", US2000: "IWM", BITCOIN: "BTC/USD", ETHEREUM: "ETH/USD",
+};
+
+// Canonicalise whatever the trader typed into a symbol the data feed understands.
+function normalizeSymbol(input: string): string {
+  const s = (input || "").trim().toUpperCase().replace(/\s+/g, "");
+  if (!s) return "";
+  if (SYMBOL_ALIASES[s]) return SYMBOL_ALIASES[s];
+  if (s.includes("/")) return s;
+  if (/^(XAU|XAG|XPT|XPD|XCU)USD$/.test(s)) return s.slice(0, 3) + "/USD";
+  if (/^[A-Z]{6}$/.test(s)) {
+    const a = s.slice(0, 3), b = s.slice(3);
+    if (FX_CODES.includes(a) && FX_CODES.includes(b)) return `${a}/${b}`;
+  }
+  if (/^(BTC|ETH|SOL|XRP|DOGE|ADA|BNB|LTC|DOT|AVAX|MATIC)USDT?$/.test(s)) return s.replace(/USDT?$/, "/USD");
+  return s; // plain ticker (SPY, AAPL, …)
+}
+
+// Reasonable market bucket for a free-typed symbol (label + pip conventions).
+function marketFor(sym: string): { id: "crypto" | "metal" | "forex" | "index"; name: string } {
+  const u = sym.toUpperCase();
+  if (/^(XAU|XAG|XPT|XPD|XCU)\/|WTI|BRENT|CRUDE|OIL|GOLD|SILVER|COPPER|NATGAS/.test(u)) return { id: "metal", name: "Commodities" };
+  if (/^(BTC|ETH|SOL|XRP|DOGE|ADA|BNB|LTC|DOT|AVAX|MATIC)\//.test(u)) return { id: "crypto", name: "Crypto" };
+  if (u.includes("/")) return { id: "forex", name: "Forex" };
+  return { id: "index", name: "Index / Equity" };
+}
+
+// Accept a catalog asset OR any well-formed symbol; the feed is the final judge.
+function resolveAsset(input: string): { market: { id: string; name: string; desc: string; assets: unknown[] }; asset: { symbol: string; name: string; td: string } } | null {
+  const sym = normalizeSymbol(input);
+  if (!sym || sym.length < 2) return null;
+  const cataloged = findAsset(sym);
+  if (cataloged) return cataloged as never;
+  // Sanity gate: forex pair, spot metal, or a short alphabetic ticker.
+  const ok = /^[A-Z]{2,5}\/[A-Z]{2,5}$/.test(sym) || /^[A-Z.]{1,6}$/.test(sym);
+  if (!ok) return null;
+  const m = marketFor(sym);
+  return { market: { id: m.id, name: m.name, desc: "", assets: [] }, asset: { symbol: sym, name: sym, td: sym } };
+}
+
+// -- Scout result --
 type Scout = {
   key: string; label: string; fired: boolean; dir: Dir | null;
   strength: number;            // 0–100 confidence this scout has in its read
@@ -232,9 +284,10 @@ export async function POST(req: NextRequest) {
 
   let body: { td?: unknown; style?: unknown; scouts?: unknown };
   try { body = await req.json(); } catch { return json({ error: "bad_request" }, 400); }
-  const td = typeof body?.td === "string" ? body.td : "";
-  const found = findAsset(td);
-  if (!found) return json({ error: "unknown_asset" }, 400);
+  const rawTd = typeof body?.td === "string" ? body.td : "";
+  const found = resolveAsset(rawTd);
+  if (!found) return json({ error: "unknown_asset", reason: "Type a symbol like EUR/USD, XAU/USD, GBP/JPY, or SPY." }, 400);
+  const td = found.asset.td; // canonical symbol used for every data fetch below
   const style = typeof body?.style === "string" && INTENT[body.style] ? (body.style as string) : "intraday";
   const intent = INTENT[style];
   const chosen: string[] = Array.isArray(body?.scouts) ? (body!.scouts as unknown[]).filter((s): s is string => typeof s === "string" && ALL_SCOUTS.includes(s)) : ALL_SCOUTS;
