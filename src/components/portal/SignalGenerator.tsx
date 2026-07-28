@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bitcoin, Gem, TrendingUp, Globe, BarChart3, Zap, X, ChevronLeft, Loader2, Check,
   ArrowUp, ArrowDown, Target, ShieldAlert, Sparkles, Clock, Minus, RefreshCw, Trash2,
+  Activity, Eye,
 } from "lucide-react";
 import { MARKETS, findAsset, type Market, type Asset } from "@/data/signalAssets";
 import { earnMission } from "@/lib/earnMission";
@@ -50,6 +51,15 @@ type Signal = {
   verdict?: string;
 };
 type Status = "open" | "win" | "loss";
+// Live "Get Update" snapshot for an open call — computed server-side in code and
+// explained in plain English. Every number here is locked by the engine.
+type TradeUpdate = {
+  headline: string; thesis: "intact" | "weakening" | "invalidated"; price: number;
+  pnl: { r: number; pips: number; side: string; percent: number };
+  distance: { to_stop_pips: number; to_next_target_pips: number; next_target_label: string };
+  market?: { flow_1h?: string; flow_4h?: string; rsi?: number | null };
+  explanation: string[]; what_to_watch: string;
+};
 type Result = {
   id: number; symbol: string; name: string; market: string; td: string; interval: string;
   orderType: string; style?: string; method?: string; price: number; asOf: string; marketClosed?: boolean;
@@ -102,6 +112,8 @@ export function SignalGenerator() {
   const [recent, setRecent] = useState<Result[]>([]);
   const [checking, setChecking] = useState<number | null>(null);
   const [dive, setDive] = useState<Result | null>(null);
+  const [updating, setUpdating] = useState<number | null>(null);
+  const [updates, setUpdates] = useState<Record<number, TradeUpdate>>({});
   const [needCredits, setNeedCredits] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const backfilled = useRef<Set<number>>(new Set());
@@ -233,6 +245,22 @@ export function SignalGenerator() {
         void cloudSave([updated]); // keep the server copy's status/TP in sync
       }
     } catch { /* ignore */ } finally { setChecking(null); }
+  }
+
+  // "Get Update" — re-read the live market and explain what's happening to THIS
+  // open call right now (profit/drawdown, stop-run vs real break, flow flip).
+  // Free to run; never charges a credit.
+  async function getUpdate(r: Result) {
+    if (updating) return;
+    setUpdating(r.id);
+    try {
+      const res = await fetch("/api/om-signal-update", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ td: r.td, symbol: r.symbol, style: r.style, direction: r.signal.direction, entry: r.signal.entry, stopLoss: r.signal.stopLoss, takeProfits: r.signal.takeProfits, since: r.asOf }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (d && d.status === "update") setUpdates((u) => ({ ...u, [r.id]: d as TradeUpdate }));
+    } catch { /* ignore */ } finally { setUpdating(null); }
   }
 
   function deleteResult(id: number) {
@@ -424,7 +452,7 @@ export function SignalGenerator() {
 
               {step === "result" && result && (
                 <>
-                  <FullCard r={result} onCheck={() => checkResult(result)} checking={checking === result.id} />
+                  <FullCard r={result} onCheck={() => checkResult(result)} checking={checking === result.id} onUpdate={() => getUpdate(result)} updating={updating === result.id} update={updates[result.id]} />
                   <div className="mt-4 grid gap-2 sm:grid-cols-2">
                     <button onClick={() => setDive(result)} className="inline-flex w-full items-center justify-center gap-2 rounded-none border border-gold-light/40 bg-gold-light/10 px-6 py-3 text-[12px] font-medium uppercase tracking-[0.14em] text-gold-light transition-colors hover:bg-gold-light/20"><Sparkles className="h-4 w-4" /> Deep dive <span className="rounded-full bg-gold-light/20 px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal">{CREDIT_COST.deepdive} credit</span></button>
                     <button onClick={reset} className="inline-flex w-full items-center justify-center gap-2 rounded-none border border-white/20 px-6 py-3 text-[12px] font-medium uppercase tracking-[0.14em] text-white transition-colors hover:bg-white/10"><RefreshCw className="h-4 w-4" /> New Signal</button>
@@ -572,7 +600,42 @@ function LivePrice({ td, entry, direction, closed }: { td: string; entry: number
   );
 }
 
-function FullCard({ r, onCheck, checking }: { r: Result; onCheck: () => void; checking: boolean }) {
+// Live trade-update panel — plain-English "what's happening to my trade & why".
+function UpdatePanel({ u }: { u: TradeUpdate }) {
+  const side = u.pnl?.side;
+  const tone = side === "profit" ? "emerald" : side === "drawdown" ? "amber" : "sky";
+  const border = tone === "emerald" ? "border-emerald-400/30 bg-emerald-500/[0.06]" : tone === "amber" ? "border-amber-500/30 bg-amber-500/[0.06]" : "border-sky-400/30 bg-sky-400/[0.06]";
+  const chip = u.thesis === "intact" ? "bg-emerald-500/15 text-emerald-300" : u.thesis === "weakening" ? "bg-amber-500/15 text-amber-300" : "bg-red-500/15 text-red-300";
+  const rStr = `${u.pnl.r >= 0 ? "+" : ""}${u.pnl.r}R`;
+  return (
+    <div className={`mt-4 rounded-2xl border px-4 py-3.5 ${border}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70"><Activity className="h-3.5 w-3.5 text-sky-300" /> Live update</p>
+        <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${chip}`}>Idea {u.thesis}</span>
+      </div>
+      <p className="mt-2 text-sm font-semibold text-white">{u.headline}</p>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-white/55">
+        <span>Now: <span className="font-semibold tabular-nums text-white/85">{fmt(u.price)}</span></span>
+        <span>P/L: <span className={`font-semibold tabular-nums ${side === "profit" ? "text-emerald-400" : side === "drawdown" ? "text-amber-300" : "text-white/70"}`}>{rStr} · {u.pnl.pips >= 0 ? "+" : ""}{u.pnl.pips} pips</span></span>
+        <span>To stop: <span className="tabular-nums text-white/75">{u.distance.to_stop_pips} pips</span></span>
+        <span>To {u.distance.next_target_label}: <span className="tabular-nums text-white/75">{u.distance.to_next_target_pips} pips</span></span>
+      </div>
+      {Array.isArray(u.explanation) && u.explanation.length > 0 && (
+        <ul className="mt-3 space-y-1.5">
+          {u.explanation.map((e, i) => (
+            <li key={i} className="flex items-start gap-2 text-[13px] leading-relaxed text-white/80"><span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-sky-300/70" /> {e}</li>
+          ))}
+        </ul>
+      )}
+      {u.what_to_watch && (
+        <p className="mt-3 inline-flex items-start gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[12px] text-white/70"><Eye className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-white/50" /> <span><span className="text-white/50">What to watch:</span> {u.what_to_watch}</span></p>
+      )}
+      <p className="mt-2 text-[10px] text-white/35">Educational market-management context, not financial advice. Live data via Twelve Data.</p>
+    </div>
+  );
+}
+
+function FullCard({ r, onCheck, checking, onUpdate, updating, update }: { r: Result; onCheck: () => void; checking: boolean; onUpdate?: () => void; updating?: boolean; update?: TradeUpdate }) {
   const s = r.signal; const { color, Icon } = dirStyle(s.direction);
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
@@ -683,11 +746,20 @@ function FullCard({ r, onCheck, checking }: { r: Result; onCheck: () => void; ch
         <span>Confidence: <span className="font-semibold text-white/80">{s.confidence}</span></span>
         <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {s.timeframe}</span>
         {r.status === "open" && s.direction !== "NEUTRAL" && (
-          <button onClick={onCheck} disabled={checking} className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1 text-[11px] text-white/70 hover:bg-white/10 disabled:opacity-40">
-            {checking ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Check result
-          </button>
+          <span className="ml-auto inline-flex items-center gap-2">
+            {onUpdate && (
+              <button onClick={onUpdate} disabled={updating} className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/40 bg-sky-400/10 px-3 py-1 text-[11px] font-semibold text-sky-300 hover:bg-sky-400/20 disabled:opacity-40">
+                {updating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Activity className="h-3 w-3" />} Get update
+              </button>
+            )}
+            <button onClick={onCheck} disabled={checking} className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1 text-[11px] text-white/70 hover:bg-white/10 disabled:opacity-40">
+              {checking ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Check result
+            </button>
+          </span>
         )}
       </div>
+
+      {update && <UpdatePanel u={update} />}
 
       <p className="mt-3 text-sm leading-relaxed text-white/80">{s.rationale}</p>
       <div className="mt-3 space-y-1 text-xs text-white/55">
