@@ -12,6 +12,20 @@ const MODEL = process.env.OM_AI_MODEL || "claude-sonnet-4-6";
 type Row = { datetime: string; open: string; high: string; low: string; close: string };
 type Trend = "bullish" | "bearish" | "ranging";
 const numOk = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
+// Parse a Twelve Data / ISO datetime string to epoch ms, assuming UTC when no zone is given.
+const tms = (s: string): number => {
+  if (!s) return NaN;
+  const iso = s.includes("T") ? s : s.replace(" ", "T");
+  const t = Date.parse(/([zZ]|[+-]\d\d:?\d\d)$/.test(iso) ? iso : iso + "Z");
+  return Number.isFinite(t) ? t : NaN;
+};
+// Format an ISO timestamp as Twelve Data's expected "YYYY-MM-DD HH:MM:SS" (UTC).
+const toTdDate = (iso: string): string => {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const d = new Date(t), p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+};
 
 /**
  * OM AI Plays — "Get Update" on an OPEN call.
@@ -94,7 +108,7 @@ export async function POST(req: NextRequest) {
   if (!md.ok) return json({ error: "system_busy", reason: "The data desk is busy — try again in a few seconds." }, 429);
 
   const [execRes, flow4Res, flow1Res] = await Promise.all([
-    fetchSeries(td, interval, 200, mdKey, since || undefined),
+    fetchSeries(td, interval, 200, mdKey, since ? toTdDate(since) || undefined : undefined),
     style === "swing" ? Promise.resolve(null) : fetchSeries(td, style === "scalp" ? "4h" : "1day", 60, mdKey),
     style === "swing" ? Promise.resolve(null) : fetchSeries(td, style === "scalp" ? "1h" : "4h", 60, mdKey),
   ]);
@@ -103,8 +117,6 @@ export async function POST(req: NextRequest) {
   if (!rows || rows.length < 3) return json({ error: "marketdata_error", reason: "Couldn't pull fresh candles for this instrument." }, 502);
 
   const closes = rows.map((r) => +r.close);
-  const highs = rows.map((r) => +r.high);
-  const lows = rows.map((r) => +r.low);
   const tick = await livePrice(td, mdKey);
   const px = tick != null && Math.abs(tick - closes[closes.length - 1]) / closes[closes.length - 1] < 0.05 ? tick : closes[closes.length - 1];
   const pip = pipSize(symbol);
@@ -119,15 +131,32 @@ export async function POST(req: NextRequest) {
   const pnlPct = entry ? (move / entry) * 100 : 0;
   const side = Math.abs(move) < risk * 0.05 ? "flat" : move > 0 ? "profit" : "drawdown";
 
-  // Max favourable / adverse excursion since entry (from the candles since `since`).
+  // Restrict every "since entry" reading to candles at/after the entry time. Scanning the
+  // whole fetched window (up to 200 bars ≈ many hours) would let unrelated history mark the
+  // stop or a target as "hit" on a trade opened minutes ago — the trade can then read as
+  // "+0.7R, stop 7 pips away" AND "stop hit / invalidated" at the same time, which is wrong.
+  // No usable entry time (or entry newer than every candle) → fall back to the last few bars.
+  const cutoff = since ? tms(since) : NaN;
+  let startIdx: number;
+  if (Number.isFinite(cutoff)) {
+    const idx = rows.findIndex((r) => { const t = tms(r.datetime); return Number.isFinite(t) && t >= cutoff; });
+    startIdx = idx >= 0 ? idx : rows.length - 1;
+  } else {
+    startIdx = Math.max(0, rows.length - 4);
+  }
+  const sinceRows = rows.slice(startIdx);
+  const sHighs = sinceRows.map((r) => +r.high);
+  const sLows = sinceRows.map((r) => +r.low);
+
+  // Max favourable / adverse excursion since entry.
   let bestPrice = px, worstPrice = px;
-  for (let i = 0; i < rows.length; i++) { bestPrice = isLong ? Math.max(bestPrice, +rows[i].high) : Math.min(bestPrice, +rows[i].low); worstPrice = isLong ? Math.min(worstPrice, +rows[i].low) : Math.max(worstPrice, +rows[i].high); }
+  for (let i = 0; i < sinceRows.length; i++) { bestPrice = isLong ? Math.max(bestPrice, +sinceRows[i].high) : Math.min(bestPrice, +sinceRows[i].low); worstPrice = isLong ? Math.min(worstPrice, +sinceRows[i].low) : Math.max(worstPrice, +sinceRows[i].high); }
   const mfeR = (isLong ? bestPrice - entry : entry - bestPrice) / risk;
   const maeR = (isLong ? entry - worstPrice : worstPrice - entry) / risk;
 
-  // Has price already tagged the stop or a target within a candle since entry?
-  const stopTagged = isLong ? Math.min(...lows) <= stop : Math.max(...highs) >= stop;
-  const tpTagged = tps.map((t) => (isLong ? Math.max(...highs) >= t : Math.min(...lows) <= t));
+  // A CLOSE beyond the stop since entry = a genuine break (invalidated). Targets hit since entry.
+  const stopBrokenClose = isLong ? sinceRows.some((c) => +c.close <= stop) : sinceRows.some((c) => +c.close >= stop);
+  const tpTagged = tps.map((t) => (isLong ? Math.max(...sHighs) >= t : Math.min(...sLows) <= t));
   const nextTpIdx = tpTagged.findIndex((h) => !h);
   const nextTp = nextTpIdx >= 0 ? tps[nextTpIdx] : tps[tps.length - 1];
   const toStopPips = Math.abs(px - stop) / pip;
@@ -145,14 +174,14 @@ export async function POST(req: NextRequest) {
 
   // Stop-run / liquidity sweep: did price poke BEYOND the stop then close back on
   // the trade's side within the last few candles? (a hunt, not a real break).
-  const last6 = rows.slice(-6);
+  const last6 = sinceRows.slice(-6);
   const stopRun = isLong
-    ? last6.some((c) => +c.low < stop && +c.close > stop)
-    : last6.some((c) => +c.high > stop && +c.close < stop);
+    ? last6.some((c) => +c.low <= stop && +c.close > stop)
+    : last6.some((c) => +c.high >= stop && +c.close < stop);
 
   // Deterministic event tags.
   const events: string[] = [];
-  if (stopTagged && side !== "profit") events.push("Price has already traded through the stop level at least once.");
+  if (stopBrokenClose) events.push("Price has already closed beyond the stop since entry — a genuine break of the level, not just a wick.");
   if (stopRun) events.push("Looks like a stop-run / liquidity sweep — price wicked past the stop then closed back, a classic stop hunt rather than a clean break.");
   if (side === "drawdown" && flowAgainst) events.push(`The ${style === "scalp" ? "1H/4H flow" : "higher timeframe"} has turned ${againstTrend} — momentum is currently against the trade.`);
   if (side === "drawdown" && !flowAgainst && !stopRun) events.push("This reads as a normal pullback against the position — the broader flow hasn't flipped yet.");
@@ -160,11 +189,12 @@ export async function POST(req: NextRequest) {
   if (rsiNow != null) { if (isLong && rsiNow > 70) events.push("Momentum (RSI) is stretched high — a pause or pullback is more likely near here."); if (!isLong && rsiNow < 30) events.push("Momentum (RSI) is stretched low — a bounce is more likely near here."); }
   if (tpTagged.some(Boolean)) events.push(`Price has already reached TP${tpTagged.filter(Boolean).length}.`);
 
-  // Thesis verdict.
-  const thesis = stopTagged && !stopRun ? "invalidated" : (side === "drawdown" && flowAgainst) || (stopRun && flowAgainst) ? "weakening" : "intact";
+  // Thesis verdict. Only a close beyond the stop invalidates; a wick/stop-run or a
+  // drawdown with the flow against the trade is "weakening"; otherwise "intact".
+  const thesis = stopBrokenClose ? "invalidated" : (side === "drawdown" && flowAgainst) || stopRun ? "weakening" : "intact";
 
-  const headline = stopTagged && !stopRun
-    ? `${symbol} traded through the stop — the original idea is invalidated.`
+  const headline = stopBrokenClose
+    ? `${symbol} closed beyond the stop since entry — the original idea is invalidated.`
     : side === "profit"
       ? `${symbol} is ${rNow >= 1 ? "solidly" : ""} in profit, about ${rNow.toFixed(1)}R on-side.`
       : stopRun
