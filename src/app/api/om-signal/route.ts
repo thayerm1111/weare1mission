@@ -1,7 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
-import { reserveMarketData } from "@/lib/marketData";
+import { series, livePrice, isPriorityEmail } from "@/lib/marketData";
 import { findAsset } from "@/data/signalAssets";
 
 export const runtime = "nodejs";
@@ -45,17 +45,9 @@ function findFVGs(rows: Row[]) {
 // Returns the candles, or "ratelimit" when Twelve Data says we're out of
 // per-minute credits (so the caller can show an honest message instead of
 // mislabelling it "insufficient candles"), or null on any other failure.
-async function fetchSeries(td: string, interval: string, size: number, key: string): Promise<Row[] | "ratelimit" | null> {
-  try {
-    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=${interval}&outputsize=${size}&apikey=${key}`, { cache: "no-store" });
-    const j = await r.json();
-    if (j.status === "error" || !Array.isArray(j.values)) {
-      const msg = String(j?.message || "");
-      if (r.status === 429 || j?.code === 429 || /credit|limit|per minute/i.test(msg)) return "ratelimit";
-      return null;
-    }
-    return [...(j.values as Row[])].reverse();
-  } catch { return null; }
+// Community-cached candle pull via the shared fetcher (skips API + budget on a cache hit).
+async function fetchSeries(td: string, interval: string, size: number, key: string, fresh = false): Promise<Row[] | "ratelimit" | null> {
+  return series(td, interval, size, key, fresh);
 }
 
 // Short-lived in-memory cache for the higher-timeframe "flow" candles (4H/1H).
@@ -65,12 +57,14 @@ async function fetchSeries(td: string, interval: string, size: number, key: stri
 // cache lives on the warm serverless instance and is best-effort only.
 type CacheEntry = { at: number; rows: Row[] };
 const flowCache = new Map<string, CacheEntry>();
-async function fetchSeriesCached(td: string, interval: string, size: number, key: string, ttlMs: number): Promise<Row[] | "ratelimit" | null> {
+async function fetchSeriesCached(td: string, interval: string, size: number, key: string, ttlMs: number, fresh = false): Promise<Row[] | "ratelimit" | null> {
   const ck = `${td}|${interval}|${size}`;
-  const hit = flowCache.get(ck);
   const now = Date.now();
-  if (hit && now - hit.at < ttlMs) return hit.rows;
-  const res = await fetchSeries(td, interval, size, key);
+  if (!fresh) {
+    const hit = flowCache.get(ck);
+    if (hit && now - hit.at < ttlMs) return hit.rows;
+  }
+  const res = await fetchSeries(td, interval, size, key, fresh);
   if (Array.isArray(res)) flowCache.set(ck, { at: now, rows: res });
   return res;
 }
@@ -109,13 +103,8 @@ function cleanRows(rows: Row[] | null): Row[] | null {
 // fill price instead of the last completed candle's close, which can trail the
 // market by a couple of dollars during a fast move. Returns null on any failure
 // so the caller can fall back to the candle close.
-async function fetchLivePrice(td: string, key: string): Promise<number | null> {
-  try {
-    const r = await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(td)}&apikey=${key}`, { cache: "no-store" });
-    const j = await r.json();
-    const p = Number(j?.price);
-    return Number.isFinite(p) ? p : null;
-  } catch { return null; }
+async function fetchLivePrice(td: string, key: string, fresh = false): Promise<number | null> {
+  return livePrice(td, key, fresh);
 }
 
 // Swing pivots (fractal highs/lows) — the basis for structure, S/R, fib and break-&-retest.
@@ -252,9 +241,11 @@ function buildChecklist(rows: Row[], dir: Dir, E: number, flowTrend: Trend, conf
 
 export async function POST(req: NextRequest) {
   const supabase = createClient();
+  let fresh = false; // owner/admin: always fresh data, never throttled
   if (supabase) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return json({ error: "unauthorized" }, 401);
+    fresh = isPriorityEmail(user.email);
   }
   const aiKey = process.env.ANTHROPIC_API_KEY;
   const mdKey = process.env.TWELVEDATA_API_KEY;
@@ -287,11 +278,6 @@ export async function POST(req: NextRequest) {
 
   const RL_MSG = "You've hit the free market-data limit (8 requests a minute). Give it about a minute, then generate again.";
 
-  // Global governor — a scalp pulls more frames (4H,1H,30m,15m,5m + quote) so it
-  // reserves more of the shared data budget than an intraday/swing play.
-  const md = await reserveMarketData(isScalp ? 6 : 3);
-  if (!md.ok) return json({ error: "system_busy", detail: "The data desk is at capacity for a moment — try again in a few seconds." }, 429);
-
   // ── Gather candles ────────────────────────────────────────────────────────
   // Scalp: 30m + 15m(entry) + 5m for the trade, 4H + 1H (cached) for the flow.
   // Intraday/swing: a single execution frame + one higher-timeframe bias frame.
@@ -302,11 +288,11 @@ export async function POST(req: NextRequest) {
 
   if (isScalp) {
     const [r30, r15, r5, r4h, r1h] = await Promise.all([
-      fetchSeries(td, "30min", 80, mdKey),
-      fetchSeries(td, "15min", 80, mdKey),
-      fetchSeries(td, "5min", 80, mdKey),
-      fetchSeriesCached(td, "4h", 60, mdKey, 120000),
-      fetchSeriesCached(td, "1h", 60, mdKey, 60000),
+      fetchSeries(td, "30min", 80, mdKey, fresh),
+      fetchSeries(td, "15min", 80, mdKey, fresh),
+      fetchSeries(td, "5min", 80, mdKey, fresh),
+      fetchSeriesCached(td, "4h", 60, mdKey, 120000, fresh),
+      fetchSeriesCached(td, "1h", 60, mdKey, 60000, fresh),
     ]);
     if (r15 === "ratelimit" || r30 === "ratelimit" || r5 === "ratelimit") return json({ error: "ratelimit", detail: RL_MSG }, 429);
     rows = cleanRows(Array.isArray(r15) ? r15 : null);
@@ -316,7 +302,7 @@ export async function POST(req: NextRequest) {
     const f1 = cleanRows(Array.isArray(r1h) ? r1h : null);
     flow = combineFlow(trendOf(f4), trendOf(f1));
   } else {
-    const rowsRes = await fetchSeries(td, sty.interval, 80, mdKey);
+    const rowsRes = await fetchSeries(td, sty.interval, 80, mdKey, fresh);
     if (rowsRes === "ratelimit") return json({ error: "ratelimit", detail: RL_MSG }, 429);
     rows = cleanRows(rowsRes);
   }
@@ -329,7 +315,7 @@ export async function POST(req: NextRequest) {
   // card shows and the price a market order actually fills at); fall back to the
   // last candle close. A 5% sanity band rejects a garbage tick.
   const candleClose = closes[closes.length - 1];
-  const liveTick = await fetchLivePrice(td, mdKey);
+  const liveTick = await fetchLivePrice(td, mdKey, fresh);
   const price = (liveTick != null && Math.abs(liveTick - candleClose) / candleClose < 0.05) ? liveTick : candleClose;
   const rangeHi = Math.max(...highs.slice(-40));
   const rangeLo = Math.min(...lows.slice(-40));
@@ -352,7 +338,7 @@ export async function POST(req: NextRequest) {
     htfTrend = flow.trend;
     htfBias = `4H ${flow.t4}, 1H ${flow.t1} → ${flow.aligned ? `aligned ${flow.dir}` : flow.dir ? `mixed, following 1H (${flow.dir})` : "no clear flow"}`;
   } else if (!isScalp) {
-    const htfRes = await fetchSeries(td, sty.htf, 60, mdKey);
+    const htfRes = await fetchSeries(td, sty.htf, 60, mdKey, fresh);
     const htf = Array.isArray(htfRes) ? cleanRows(htfRes) : null;
     if (htf && htf.length > 20) {
       const hc = htf.map((v) => +v.close);
