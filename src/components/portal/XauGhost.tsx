@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Ghost, Loader2, ArrowUp, ArrowDown, ShieldAlert, Target, Gauge, Layers, Droplets,
-  Crosshair, Compass, Clock, AlertTriangle, Sparkles, TrendingUp, Trophy, BarChart3, ListChecks, BookOpen, GraduationCap,
+  Crosshair, Compass, Clock, AlertTriangle, Sparkles, TrendingUp, Trophy, BarChart3, ListChecks, BookOpen, GraduationCap, Activity, Eye,
 } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
 
@@ -30,6 +30,14 @@ type Read = {
   reasonsToAvoid?: string[]; invalidation?: string; sessionBehavior?: string; tradeManagement?: string;
 };
 type Result = { price: number; asOf: string; session?: string; read: Read };
+// Live "Get update" snapshot for the current gold call.
+type TradeUpdate = {
+  headline: string; thesis: "intact" | "weakening" | "invalidated"; price: number;
+  pnl: { r: number; pips: number; side: string; percent: number };
+  distance: { to_stop_pips: number; to_next_target_pips: number; next_target_label: string };
+  market?: { flow_1h?: string; flow_4h?: string; rsi?: number | null };
+  explanation: string[]; what_to_watch: string;
+};
 
 const STEPS = ["Pulling XAU/USD across Daily → 5M", "Detecting market regime", "Mapping liquidity & structure", "Scoring institutional confluence", "Writing the gold read"];
 const fmt = (n: number | null | undefined) => (typeof n === "number" && Number.isFinite(n) ? n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—");
@@ -48,6 +56,8 @@ export function XauGhost() {
   const [hydrated, setHydrated] = useState(false);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [checking, setChecking] = useState<string | null>(null);
+  const [ghostUpdating, setGhostUpdating] = useState(false);
+  const [ghostUpdate, setGhostUpdate] = useState<TradeUpdate | null>(null);
 
   const loadTrades = useCallback(async () => {
     try {
@@ -74,7 +84,7 @@ export function XauGhost() {
       if (d.error === "system_busy" || d.error === "ratelimit") { setMsg(d.detail || "The desk is at capacity for a moment — try again shortly."); return; }
       if (d.error || !d.read) { setMsg(d.detail || "Couldn't complete the gold read — try again shortly."); return; }
       const result: Result = { price: d.price, asOf: d.asOf, session: d.session, read: d.read };
-      setRes(result);
+      setRes(result); setGhostUpdate(null);
       try { localStorage.setItem("om_xaughost", JSON.stringify(result)); } catch { /* ignore */ }
       if (typeof window !== "undefined") window.dispatchEvent(new Event("credits-updated"));
       // Auto-save every directional call (with levels) to the learning journal.
@@ -102,6 +112,26 @@ export function XauGhost() {
       }
     } catch { /* ignore */ } finally { setChecking(null); }
   }, []);
+
+  // "Get update" — re-read live gold and explain what's happened to this call
+  // since it was generated (profit/drawdown, stop-run vs real break, flow flip). Free.
+  const getUpdate = useCallback(async () => {
+    const rd = res?.read;
+    if (!rd || ghostUpdating) return;
+    const dir = rd.direction === "LONG" ? "LONG" : rd.direction === "SHORT" ? "SHORT" : null;
+    const entry = rd.entries?.primary, stop = rd.stopLoss;
+    const tps = (rd.takeProfits || []).filter((n): n is number => typeof n === "number");
+    if (!dir || entry == null || stop == null || tps.length === 0) return;
+    setGhostUpdating(true);
+    try {
+      const r = await fetch("/api/om-signal-update", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ td: "XAU/USD", symbol: "XAU/USD", style: "intraday", direction: dir, entry, stopLoss: stop, takeProfits: tps, since: res?.asOf || "" }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (d && d.status === "update") setGhostUpdate(d as TradeUpdate);
+    } catch { /* ignore */ } finally { setGhostUpdating(false); }
+  }, [res, ghostUpdating]);
 
   const read = res?.read;
   const noTrade = read?.decision === "NO_TRADE" || read?.direction === "NONE";
@@ -302,6 +332,13 @@ export function XauGhost() {
                   {[0, 1, 2].map((i) => <Stat key={i} label={`TP${i + 1}`} value={fmt((read.takeProfits || [])[i])} tone="emerald" />)}
                 </div>
                 {read.entries?.confirmation && <p className="mt-3 text-xs text-white/55"><span className="text-white/40">Confirmation:</span> {read.entries.confirmation}</p>}
+                {read.direction && read.direction !== "NONE" && read.entries?.primary != null && read.stopLoss != null && (read.takeProfits?.length ?? 0) > 0 && (
+                  <button onClick={() => void getUpdate()} disabled={ghostUpdating}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-sky-400/40 bg-sky-400/10 px-3.5 py-1.5 text-[12px] font-semibold text-sky-300 transition-colors hover:bg-sky-400/20 disabled:opacity-40">
+                    {ghostUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Activity className="h-3.5 w-3.5" />} Get update — what happened since
+                  </button>
+                )}
+                {ghostUpdate && <UpdatePanel u={ghostUpdate} />}
               </Section>
             )}
 
@@ -331,7 +368,7 @@ export function XauGhost() {
           </div>
         )}
 
-        {/* ── Track record & learning journal ─────────────────────────────── */}
+        {/* -- Track record & learning journal -- */}
         <TrackRecord trades={trades} checking={checking} onCheck={checkOutcome} />
       </div>
     </div>
@@ -428,6 +465,40 @@ function MiniCard({ icon, title, body, full }: { icon: React.ReactNode; title: s
     <div className={`rounded-2xl border border-white/10 bg-white/[0.02] p-4 ${full ? "sm:col-span-2" : ""}`}>
       <p className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-white/45">{icon}{title}</p>
       <p className="text-sm leading-relaxed text-white/80">{body}</p>
+    </div>
+  );
+}
+
+function UpdatePanel({ u }: { u: TradeUpdate }) {
+  const side = u.pnl?.side;
+  const tone = side === "profit" ? "emerald" : side === "drawdown" ? "amber" : "sky";
+  const border = tone === "emerald" ? "border-emerald-400/30 bg-emerald-500/[0.06]" : tone === "amber" ? "border-amber-500/30 bg-amber-500/[0.06]" : "border-sky-400/30 bg-sky-400/[0.06]";
+  const chip = u.thesis === "intact" ? "bg-emerald-500/15 text-emerald-300" : u.thesis === "weakening" ? "bg-amber-500/15 text-amber-300" : "bg-red-500/15 text-red-300";
+  const rStr = `${u.pnl.r >= 0 ? "+" : ""}${u.pnl.r}R`;
+  return (
+    <div className={`mt-4 rounded-2xl border px-4 py-3.5 ${border}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70"><Activity className="h-3.5 w-3.5 text-sky-300" /> Live update</p>
+        <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${chip}`}>Idea {u.thesis}</span>
+      </div>
+      <p className="mt-2 text-sm font-semibold text-white">{u.headline}</p>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-white/55">
+        <span>Now: <span className="font-semibold tabular-nums text-white/85">{fmt(u.price)}</span></span>
+        <span>P/L: <span className={`font-semibold tabular-nums ${side === "profit" ? "text-emerald-400" : side === "drawdown" ? "text-amber-300" : "text-white/70"}`}>{rStr} · {u.pnl.pips >= 0 ? "+" : ""}{u.pnl.pips} pips</span></span>
+        <span>To stop: <span className="tabular-nums text-white/75">{u.distance.to_stop_pips} pips</span></span>
+        <span>To {u.distance.next_target_label}: <span className="tabular-nums text-white/75">{u.distance.to_next_target_pips} pips</span></span>
+      </div>
+      {Array.isArray(u.explanation) && u.explanation.length > 0 && (
+        <ul className="mt-3 space-y-1.5">
+          {u.explanation.map((e, i) => (
+            <li key={i} className="flex items-start gap-2 text-[13px] leading-relaxed text-white/80"><span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-sky-300/70" /> {e}</li>
+          ))}
+        </ul>
+      )}
+      {u.what_to_watch && (
+        <p className="mt-3 inline-flex items-start gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[12px] text-white/70"><Eye className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-white/50" /> <span><span className="text-white/50">What to watch:</span> {u.what_to_watch}</span></p>
+      )}
+      <p className="mt-2 text-[10px] text-white/35">Educational market-management context, not financial advice. Live data via Twelve Data.</p>
     </div>
   );
 }
