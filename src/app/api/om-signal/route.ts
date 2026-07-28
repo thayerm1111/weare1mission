@@ -12,6 +12,10 @@ const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = process.env.OM_AI_MODEL || "claude-sonnet-4-6";
 
 type Row = { datetime: string; open: string; high: string; low: string; close: string };
+type Trend = "bullish" | "bearish" | "ranging";
+type Dir = "LONG" | "SHORT";
+type Factor = { label: string; ok: boolean };
+type TFResult = { checklist: Factor[]; confirmed: number; total: number; tfTrend: Trend };
 const numOk = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 
 function sma(vals: number[], n: number): number | null {
@@ -52,6 +56,23 @@ async function fetchSeries(td: string, interval: string, size: number, key: stri
     }
     return [...(j.values as Row[])].reverse();
   } catch { return null; }
+}
+
+// Short-lived in-memory cache for the higher-timeframe "flow" candles (4H/1H).
+// These barely change minute-to-minute, so caching them means a member can
+// rapidly re-generate a scalp without re-pulling the slow frames every time —
+// which keeps us well under Twelve Data's 8-requests/minute free limit. The
+// cache lives on the warm serverless instance and is best-effort only.
+type CacheEntry = { at: number; rows: Row[] };
+const flowCache = new Map<string, CacheEntry>();
+async function fetchSeriesCached(td: string, interval: string, size: number, key: string, ttlMs: number): Promise<Row[] | "ratelimit" | null> {
+  const ck = `${td}|${interval}|${size}`;
+  const hit = flowCache.get(ck);
+  const now = Date.now();
+  if (hit && now - hit.at < ttlMs) return hit.rows;
+  const res = await fetchSeries(td, interval, size, key);
+  if (Array.isArray(res)) flowCache.set(ck, { at: now, rows: res });
+  return res;
 }
 
 // Repair glitch/spike bars from the data feed (e.g. a single bar whose wick
@@ -97,7 +118,6 @@ async function fetchLivePrice(td: string, key: string): Promise<number | null> {
   } catch { return null; }
 }
 
-// Confirmations catalog — keys must match the client.
 // Swing pivots (fractal highs/lows) — the basis for structure, S/R, fib and break-&-retest.
 function pivots(highs: number[], lows: number[], k = 2) {
   const sh: { i: number; p: number }[] = [];
@@ -115,6 +135,30 @@ function pivots(highs: number[], lows: number[], k = 2) {
   return { sh, sl };
 }
 
+// Simple trend read for one timeframe: price vs SMA20 vs SMA50 alignment.
+function trendOf(rows: Row[] | null): Trend {
+  if (!rows || rows.length < 20) return "ranging";
+  const c = rows.map((v) => +v.close);
+  const p = c[c.length - 1], s20 = sma(c, 20), s50 = sma(c, 50);
+  if (!s20 || !s50) return "ranging";
+  return p > s20 && s20 > s50 ? "bullish" : p < s20 && s20 < s50 ? "bearish" : "ranging";
+}
+
+// Combine the 4H and 1H reads into one "market flow". When both agree (and
+// neither is ranging) the flow is aligned and strong. When they disagree we
+// FOLLOW THE 1H direction but flag the flow as not-aligned, so confidence gets
+// capped downstream. Both ranging → no clear flow.
+function combineFlow(t4: Trend, t1: Trend): { t4: Trend; t1: Trend; dir: Dir | null; trend: Trend; aligned: boolean } {
+  let dir: Dir | null = null;
+  let trend: Trend = "ranging";
+  let aligned = false;
+  if (t4 !== "ranging" && t4 === t1) { trend = t4; aligned = true; dir = t4 === "bullish" ? "LONG" : "SHORT"; }
+  else if (t1 !== "ranging") { trend = t1; dir = t1 === "bullish" ? "LONG" : "SHORT"; }
+  else if (t4 !== "ranging") { trend = t4; dir = t4 === "bullish" ? "LONG" : "SHORT"; }
+  return { t4, t1, dir, trend, aligned };
+}
+
+// Confirmations catalog — keys must match the client.
 const CONFIRMATIONS: Record<string, string> = {
   structure: "Market structure (swing highs/lows, BOS / CHoCH, trend)",
   ob: "Order blocks (last opposing candle before displacement)",
@@ -127,6 +171,84 @@ const CONFIRMATIONS: Record<string, string> = {
   breakRetest: "Break & retest of a reclaimed level or structure",
   volume: "Volume behaviour (expansion on displacement)",
 };
+
+// Objective, multi-factor confirmation checklist computed from ONE timeframe's
+// real candles (not the model's self-report). `E` is the entry price we're
+// checking for confluence; `flowTrend` is the shared higher-timeframe bias used
+// for the "trend aligned" factor. Returns the checklist plus this frame's own
+// trend so the card can show it.
+function buildChecklist(rows: Row[], dir: Dir, E: number, flowTrend: Trend, confs: string[]): TFResult {
+  const highs = rows.map((v) => +v.high);
+  const lows = rows.map((v) => +v.low);
+  const closes = rows.map((v) => +v.close);
+  const rangeHi = Math.max(...highs.slice(-40));
+  const rangeLo = Math.min(...lows.slice(-40));
+  const eq = (rangeHi + rangeLo) / 2;
+  const span = (rangeHi - rangeLo) || 1;
+  const tol = span * 0.06;
+  const fvg = findFVGs(rows.slice(-30));
+  const rsiNow = rsi(closes);
+  const price = closes[closes.length - 1];
+
+  const piv = pivots(highs, lows, 2);
+  const shs = piv.sh, sls = piv.sl;
+  const lastSH = shs.length ? shs[shs.length - 1] : null;
+  const lastSL = sls.length ? sls[sls.length - 1] : null;
+  const prevSH = shs.length > 1 ? shs[shs.length - 2] : null;
+  const prevSL = sls.length > 1 ? sls[sls.length - 2] : null;
+
+  let structureDir: "LONG" | "SHORT" | "none" = "none";
+  if (lastSH && price > lastSH.p) structureDir = "LONG";
+  else if (lastSL && price < lastSL.p) structureDir = "SHORT";
+  else if (prevSH && lastSH && prevSL && lastSL) {
+    if (lastSH.p > prevSH.p && lastSL.p > prevSL.p) structureDir = "LONG";
+    else if (lastSH.p < prevSH.p && lastSL.p < prevSL.p) structureDir = "SHORT";
+  }
+
+  const legHi = lastSH ? lastSH.p : rangeHi;
+  const legLo = lastSL ? lastSL.p : rangeLo;
+  const legSpan = (legHi - legLo) || 1;
+  const inOTE = dir === "LONG"
+    ? E >= legHi - 0.79 * legSpan && E <= legHi - 0.62 * legSpan
+    : E >= legLo + 0.62 * legSpan && E <= legLo + 0.79 * legSpan;
+
+  const fvgEdges = [...fvg.bull.flat(), ...fvg.bear.flat()].filter(numOk) as number[];
+  const srLevels = [...shs.map((s) => s.p), ...sls.map((s) => s.p), rangeHi, rangeLo, eq].filter(numOk);
+
+  const last6 = rows.slice(-6);
+  const swept = dir === "LONG"
+    ? !!lastSL && last6.some((c) => +c.low < lastSL!.p && +c.close > lastSL!.p)
+    : !!lastSH && last6.some((c) => +c.high > lastSH!.p && +c.close < lastSH!.p);
+
+  const brOk = dir === "LONG"
+    ? shs.some((s) => price > s.p && Math.abs(E - s.p) <= tol * 1.5 && s.i < highs.length - 2)
+    : sls.some((s) => price < s.p && Math.abs(E - s.p) <= tol * 1.5 && s.i < lows.length - 2);
+
+  const momentumOk = rsiNow == null ? false
+    : dir === "LONG" ? (rsiNow >= 45 && rsiNow <= 72) || rsiNow < 32
+    : (rsiNow <= 55 && rsiNow >= 28) || rsiNow > 68;
+
+  const FACTORS: Record<string, Factor> = {
+    trend:       { label: "Trend aligned (HTF)",          ok: dir === "LONG" ? flowTrend !== "bearish" : flowTrend !== "bullish" },
+    structure:   { label: "Market structure (BOS/CHoCH)", ok: structureDir === dir },
+    ob:          { label: "At an order block / origin",   ok: dir === "LONG" ? !!lastSL && Math.abs(E - lastSL.p) <= tol * 1.5 : !!lastSH && Math.abs(E - lastSH.p) <= tol * 1.5 },
+    fvg:         { label: "Fair value gap / imbalance",   ok: fvgEdges.some((L) => Math.abs(E - L) <= tol) },
+    liquidity:   { label: "Liquidity swept",              ok: swept },
+    sr:          { label: "At support / resistance",      ok: srLevels.some((L) => Math.abs(E - L) <= tol) },
+    fib:         { label: "In fib OTE zone (0.62–0.79)",  ok: inOTE },
+    breakRetest: { label: "Break & retest",               ok: brOk },
+    rsi:         { label: "Momentum (RSI) agrees",        ok: momentumOk },
+  };
+
+  const PRO_DEFAULT = ["trend", "structure", "fvg", "liquidity", "sr", "fib", "breakRetest", "rsi"];
+  const active = (confs.length ? confs : PRO_DEFAULT).filter((k) => FACTORS[k]);
+  const checklist = active.map((k) => FACTORS[k]);
+  const confirmed = checklist.filter((c) => c.ok).length;
+
+  const s20 = sma(closes, 20), s50 = sma(closes, 50), last = closes[closes.length - 1];
+  const tfTrend: Trend = s20 && s50 ? (last > s20 && s20 > s50 ? "bullish" : last < s20 && s20 < s50 ? "bearish" : "ranging") : "ranging";
+  return { checklist, confirmed, total: checklist.length, tfTrend };
+}
 
 export async function POST(req: NextRequest) {
   const supabase = createClient();
@@ -144,12 +266,13 @@ export async function POST(req: NextRequest) {
   const td = typeof body?.td === "string" ? body.td : "";
   const orderType = body?.orderType === "market" ? "Market" : "Limit";
   const STYLE: Record<string, { interval: string; htf: string; htfLabel: string; label: string; note: string }> = {
-    scalp: { interval: "15min", htf: "1h", htfLabel: "1H", label: "Scalp (15m)", note: "a very short-term scalp — tight stop, nearby targets" },
+    scalp: { interval: "15min", htf: "1h", htfLabel: "4H/1H flow", label: "Scalp (5·15·30m)", note: "a very short-term scalp — tight stop, nearby targets" },
     intraday: { interval: "1h", htf: "4h", htfLabel: "4H", label: "Intraday (1H)", note: "an intraday trade on the 1H timeframe" },
     swing: { interval: "1day", htf: "1week", htfLabel: "1W", label: "Swing (Daily)", note: "a multi-day swing on the daily timeframe" },
   };
   const styleKey = typeof body?.style === "string" && STYLE[body.style] ? (body.style as string) : "intraday";
   const sty = STYLE[styleKey];
+  const isScalp = styleKey === "scalp";
   const method = ["best", "smc", "structure"].includes(String(body?.method)) ? String(body?.method) : "best";
   const confs: string[] = Array.isArray(body?.confirmations)
     ? (body!.confirmations as unknown[]).filter((c): c is string => typeof c === "string" && !!CONFIRMATIONS[c])
@@ -162,13 +285,41 @@ export async function POST(req: NextRequest) {
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
 
-  // Global governor — reserve the ~3 data credits this play needs (main + HTF + quote).
-  const md = await reserveMarketData(3);
+  const RL_MSG = "You've hit the free market-data limit (8 requests a minute). Give it about a minute, then generate again.";
+
+  // Global governor — a scalp pulls more frames (4H,1H,30m,15m,5m + quote) so it
+  // reserves more of the shared data budget than an intraday/swing play.
+  const md = await reserveMarketData(isScalp ? 6 : 3);
   if (!md.ok) return json({ error: "system_busy", detail: "The data desk is at capacity for a moment — try again in a few seconds." }, 429);
 
-  const rowsRes = await fetchSeries(td, sty.interval, 80, mdKey);
-  if (rowsRes === "ratelimit") return json({ error: "ratelimit", detail: "You've hit the free market-data limit (8 requests a minute). Give it about a minute, then generate again." }, 429);
-  const rows = cleanRows(rowsRes);
+  // ── Gather candles ────────────────────────────────────────────────────────
+  // Scalp: 30m + 15m(entry) + 5m for the trade, 4H + 1H (cached) for the flow.
+  // Intraday/swing: a single execution frame + one higher-timeframe bias frame.
+  let rows: Row[] | null;
+  let m30: Row[] | null = null;
+  let m5: Row[] | null = null;
+  let flow: { t4: Trend; t1: Trend; dir: Dir | null; trend: Trend; aligned: boolean } | null = null;
+
+  if (isScalp) {
+    const [r30, r15, r5, r4h, r1h] = await Promise.all([
+      fetchSeries(td, "30min", 80, mdKey),
+      fetchSeries(td, "15min", 80, mdKey),
+      fetchSeries(td, "5min", 80, mdKey),
+      fetchSeriesCached(td, "4h", 60, mdKey, 120000),
+      fetchSeriesCached(td, "1h", 60, mdKey, 60000),
+    ]);
+    if (r15 === "ratelimit" || r30 === "ratelimit" || r5 === "ratelimit") return json({ error: "ratelimit", detail: RL_MSG }, 429);
+    rows = cleanRows(Array.isArray(r15) ? r15 : null);
+    m30 = cleanRows(Array.isArray(r30) ? r30 : null);
+    m5 = cleanRows(Array.isArray(r5) ? r5 : null);
+    const f4 = cleanRows(Array.isArray(r4h) ? r4h : null);
+    const f1 = cleanRows(Array.isArray(r1h) ? r1h : null);
+    flow = combineFlow(trendOf(f4), trendOf(f1));
+  } else {
+    const rowsRes = await fetchSeries(td, sty.interval, 80, mdKey);
+    if (rowsRes === "ratelimit") return json({ error: "ratelimit", detail: RL_MSG }, 429);
+    rows = cleanRows(rowsRes);
+  }
   if (!rows || rows.length < 25) return json({ error: "marketdata_error", detail: "not enough price history for this asset on this timeframe — try a different timeframe." }, 502);
 
   const closes = rows.map((v) => +v.close);
@@ -187,19 +338,30 @@ export async function POST(req: NextRequest) {
   const fvg = findFVGs(rows.slice(-30));
   const dec = price >= 1000 ? 2 : price >= 1 ? 4 : 6;
   const f = (n: number) => n.toFixed(dec);
+  const briefTf = (rws: Row[] | null): string => {
+    if (!rws || rws.length < 10) return "unavailable";
+    const c = rws.map((v) => +v.close), h = rws.map((v) => +v.high), l = rws.map((v) => +v.low);
+    const hi = Math.max(...h.slice(-30)), lo = Math.min(...l.slice(-30)), rr = rsi(c);
+    return `trend ${trendOf(rws)}, range ${f(lo)}–${f(hi)}, RSI ${rr != null ? rr.toFixed(0) : "n/a"}`;
+  };
 
-  // Higher-timeframe bias
-  const htfRes = await fetchSeries(td, sty.htf, 60, mdKey);
-  const htf = Array.isArray(htfRes) ? cleanRows(htfRes) : null;   // rate-limited HTF just means "bias unavailable", not a hard fail
+  // Higher-timeframe bias / market flow
   let htfBias = "unavailable";
-  let htfTrend: "bullish" | "bearish" | "ranging" = "ranging";
-  if (htf && htf.length > 20) {
-    const hc = htf.map((v) => +v.close);
-    const hp = hc[hc.length - 1], hs20 = sma(hc, 20), hs50 = sma(hc, 50);
-    const hHi = Math.max(...htf.map((v) => +v.high)), hLo = Math.min(...htf.map((v) => +v.low));
-    const trend = hs20 && hs50 ? (hp > hs20 && hs20 > hs50 ? "bullish" : hp < hs20 && hs20 < hs50 ? "bearish" : "ranging") : "ranging";
-    htfTrend = trend;
-    htfBias = `${trend}; price in ${hp > (hHi + hLo) / 2 ? "premium" : "discount"} of the ${sty.htfLabel} range (${f(hLo)}–${f(hHi)})`;
+  let htfTrend: Trend = "ranging";
+  if (isScalp && flow) {
+    htfTrend = flow.trend;
+    htfBias = `4H ${flow.t4}, 1H ${flow.t1} → ${flow.aligned ? `aligned ${flow.dir}` : flow.dir ? `mixed, following 1H (${flow.dir})` : "no clear flow"}`;
+  } else if (!isScalp) {
+    const htfRes = await fetchSeries(td, sty.htf, 60, mdKey);
+    const htf = Array.isArray(htfRes) ? cleanRows(htfRes) : null;
+    if (htf && htf.length > 20) {
+      const hc = htf.map((v) => +v.close);
+      const hp = hc[hc.length - 1], hs20 = sma(hc, 20), hs50 = sma(hc, 50);
+      const hHi = Math.max(...htf.map((v) => +v.high)), hLo = Math.min(...htf.map((v) => +v.low));
+      const trend: Trend = hs20 && hs50 ? (hp > hs20 && hs20 > hs50 ? "bullish" : hp < hs20 && hs20 < hs50 ? "bearish" : "ranging") : "ranging";
+      htfTrend = trend;
+      htfBias = `${trend}; price in ${hp > (hHi + hLo) / 2 ? "premium" : "discount"} of the ${sty.htfLabel} range (${f(hLo)}–${f(hHi)})`;
+    }
   }
 
   // Data-driven higher-probability lean — biases the call toward the side the
@@ -263,11 +425,15 @@ export async function POST(req: NextRequest) {
     ? `The trader has selected these confirmations — require confluence across them and reference each you use: ${confs.map((c) => CONFIRMATIONS[c]).join("; ")}.`
     : "Use the cleanest set of confirmations you judge best for this market.";
 
+  const scalpDirective = isScalp
+    ? `\nThis is a SCALP. Take DIRECTION from the higher-timeframe 4H/1H flow (${htfBias}). Then TIME the trade using the shorter frames: the 30m quick move, the 15m entry, and the 5m for what is about to happen right now. Keep the stop tight and the targets nearby — a typical scalp is a quick 30–150 pip move. Entry, stop and every take-profit must sit on the 15m structure.\n`
+    : "";
+
   const system = `You are OM AI's signal engine for the 1 Mission trading community.
 ${methodLine}
 ${confLine}
-
-Build the play: 1) align with the higher-timeframe (${sty.htfLabel}) bias; 2) identify the draw on liquidity / next objective; 3) place entry at a valid point of interest confirmed by displacement/structure, in the correct premium/discount zone; 4) stop-loss just beyond the level that invalidates it; targets at liquidity / opposing range / next imbalance. Aim for clean R:R (≥1:2 when possible).
+${scalpDirective}
+Build the play: 1) align with the ${sty.htfLabel} bias; 2) identify the draw on liquidity / next objective; 3) place entry at a valid point of interest confirmed by displacement/structure, in the correct premium/discount zone; 4) stop-loss just beyond the level that invalidates it; targets at liquidity / opposing range / next imbalance. Aim for clean R:R (≥1:2 when possible).
 
 ALWAYS return a directional call — LONG or SHORT — for the HIGHER-PROBABILITY side of this market RIGHT NOW. Never return NEUTRAL. When confluence is thin, still pick the better side, note what's missing in the rationale, and keep confidence Low.
 
@@ -291,12 +457,20 @@ Respond with ONLY valid minified JSON, exactly:
 {"direction":"LONG|SHORT","setup":"the setup in a few words","bias":"HTF bias in a few words","poi":"entry POI zone","liquidityTarget":"the liquidity/objective targeted","entry":number,"stopLoss":number,"takeProfits":[number,number,number],"confidence":"Low|Medium|High","riskReward":"e.g. 1:2.5","timeframe":"${sty.label}","rationale":"2-4 sentences referencing the confirmations you used","invalidation":"one line: the level that kills the idea"}
 Educational analysis, not financial advice. No guarantees.`;
 
+  const scalpContext = isScalp
+    ? `SCALP MULTI-TIMEFRAME:
+Market flow (bigger picture) — 4H: ${flow?.t4}, 1H: ${flow?.t1} → ${flow?.aligned ? `aligned ${flow?.dir}` : flow?.dir ? `mixed, following the 1H (${flow?.dir})` : "no clear flow — trade the cleaner side"}
+30m (near-term quick move): ${briefTf(m30)}
+5m (immediate trigger / what's about to happen): ${briefTf(m5)}
+Entry, stop and targets are anchored on the 15m candles below.\n`
+    : "";
+
   const user = `Asset: ${found.asset.symbol} (${found.asset.name}) · ${orderType} · ${sty.label}
 Current price: ${f(price)}${marketClosed ? " (market currently CLOSED — analyse last session)" : ""}
-Higher-timeframe (${sty.htfLabel}) bias: ${htfBias}
-Dealing range (last 40 bars): high(BSL) ${f(rangeHi)} | low(SSL) ${f(rangeLo)} | equilibrium ${f(eq)} → price is in ${zone}
-Momentum: RSI(14) ${rsi(closes)?.toFixed(1) ?? "n/a"} | SMA20 ${sma(closes, 20) ? f(sma(closes, 20)!) : "n/a"} | SMA50 ${sma(closes, 50) ? f(sma(closes, 50)!) : "n/a"}
-Recent unfilled FVGs — bullish: ${fvg.bull.map(([a, b]) => `${f(a)}-${f(b)}`).join(", ") || "none"} | bearish: ${fvg.bear.map(([a, b]) => `${f(a)}-${f(b)}`).join(", ") || "none"}
+${isScalp ? scalpContext : `Higher-timeframe (${sty.htfLabel}) bias: ${htfBias}`}
+Dealing range (last 40 bars, 15m): high(BSL) ${f(rangeHi)} | low(SSL) ${f(rangeLo)} | equilibrium ${f(eq)} → price is in ${zone}
+Momentum (15m): RSI(14) ${rsi(closes)?.toFixed(1) ?? "n/a"} | SMA20 ${sma(closes, 20) ? f(sma(closes, 20)!) : "n/a"} | SMA50 ${sma(closes, 50) ? f(sma(closes, 50)!) : "n/a"}
+Recent unfilled FVGs (15m) — bullish: ${fvg.bull.map(([a, b]) => `${f(a)}-${f(b)}`).join(", ") || "none"} | bearish: ${fvg.bear.map(([a, b]) => `${f(a)}-${f(b)}`).join(", ") || "none"}
 Recent 40 candles (O,H,L,C, oldest→newest): ${series}
 Return the JSON signal now.`;
 
@@ -318,14 +492,6 @@ Return the JSON signal now.`;
   try { signal = JSON.parse(match[0]); } catch { return json({ error: "parse_error" }, 502); }
 
   // ── Anchor & sanity-check the levels against the REAL price ───────────────
-  // The AI's raw numbers can drift off the current price or carry an inconsistent
-  // stop/target geometry. We repair that in code so every play is tradeable:
-  //  • a MARKET order fills at the live price — re-anchor the whole play there,
-  //    preserving the AI's stop/target *shape* by shifting every level equally;
-  //  • a LIMIT entry must sit on the correct side of price;
-  //  • the stop must be on the correct side and a realistic (ATR-scaled) distance;
-  //  • targets form a clean ≥1:1.8 ladder if the AI's are missing/too tight;
-  //  • the displayed risk:reward is recomputed from the final numbers.
   const isLong = signal.direction !== "SHORT";
   let aiEntry = numOk(signal.entry) ? (signal.entry as number) : price;
   if (Math.abs(aiEntry - price) / price > 0.25) aiEntry = price;   // gross digit-typo guard
@@ -373,79 +539,50 @@ Return the JSON signal now.`;
   signal.riskReward = `1:${(risk > 0 ? Math.abs(midTp - entry) / risk : 0).toFixed(1)}`;
 
   // ── Objective, multi-factor confirmation checklist ────────────────────────
-  // Each professional factor is computed from the real candles (not the model's
-  // self-report). The checklist reflects the factors the trader SELECTED (or a
-  // full pro set by default); confidence is the share that confirm.
-  const dir = signal.direction === "SHORT" ? "SHORT" : "LONG";
+  const dir: Dir = signal.direction === "SHORT" ? "SHORT" : "LONG";
   signal.direction = dir;
   const E = numOk(signal.entry) ? (signal.entry as number) : price;
-  const span = (rangeHi - rangeLo) || 1;
-  const tol = span * 0.06;                                        // "at a level" ≈ within 6% of the range
 
-  const piv = pivots(highs, lows, 2);
-  const shs = piv.sh, sls = piv.sl;
-  const lastSH = shs.length ? shs[shs.length - 1] : null;
-  const lastSL = sls.length ? sls[sls.length - 1] : null;
-  const prevSH = shs.length > 1 ? shs[shs.length - 2] : null;
-  const prevSL = sls.length > 1 ? sls[sls.length - 2] : null;
+  if (isScalp && flow) {
+    // Run the full confirmation stack on EACH scalp frame (30m / 15m / 5m).
+    const frames: { tf: string; rows: Row[] | null }[] = [
+      { tf: "30m", rows: m30 },
+      { tf: "15m", rows },
+      { tf: "5m", rows: m5 },
+    ];
+    const tfOut = frames.map(({ tf, rows: fr }) => {
+      if (!fr || fr.length < 20) return { tf, trend: "ranging" as Trend, confirmed: 0, total: 0, checklist: [] as Factor[], unavailable: true };
+      const cl = buildChecklist(fr, dir, E, flow!.trend, confs);
+      return { tf, trend: cl.tfTrend, confirmed: cl.confirmed, total: cl.total, checklist: cl.checklist, unavailable: false };
+    });
 
-  // Market structure — a break of structure, or a clean HH-HL / LH-LL sequence.
-  let structureDir: "LONG" | "SHORT" | "none" = "none";
-  if (lastSH && price > lastSH.p) structureDir = "LONG";
-  else if (lastSL && price < lastSL.p) structureDir = "SHORT";
-  else if (prevSH && lastSH && prevSL && lastSL) {
-    if (lastSH.p > prevSH.p && lastSL.p > prevSL.p) structureDir = "LONG";
-    else if (lastSH.p < prevSH.p && lastSL.p < prevSL.p) structureDir = "SHORT";
+    const totalConfirmed = tfOut.reduce((a, t) => a + t.confirmed, 0);
+    const totalFactors = tfOut.reduce((a, t) => a + t.total, 0);
+    const ratio = totalFactors ? totalConfirmed / totalFactors : 0;
+    let level = ratio >= 0.7 ? 3 : ratio >= 0.45 ? 2 : 1;         // 3 High · 2 Medium · 1 Low
+    if (flow.dir && dir !== flow.dir) level = Math.max(1, level - 1); // counter-flow trade → knock down a level
+    if (!flow.aligned) level = Math.min(level, 2);                // mixed 4H/1H flow → cap at Medium
+    const confidence = level >= 3 ? "High" : level >= 2 ? "Medium" : "Low";
+
+    signal.confidence = confidence;
+    signal.confirmed = totalConfirmed;
+    signal.total = totalFactors;
+    signal.checklist = tfOut[1].checklist;                        // 15m list for the compact card / back-compat
+    signal.timeframes = tfOut;
+    signal.flow = { h4: flow.t4, h1: flow.t1, dir: flow.dir ?? "—", aligned: flow.aligned };
+    signal.verdict = confidence === "High"
+      ? "High-probability — the 4H/1H flow and the 30/15/5 timing line up."
+      : confidence === "Medium"
+      ? "Reasonable setup — partial confluence; manage risk and size sensibly."
+      : "Lower-probability — thin confirmation right now; wait for a cleaner trigger or size down.";
+  } else {
+    const cl = buildChecklist(rows, dir, E, htfTrend, confs);
+    signal.checklist = cl.checklist;
+    signal.confirmed = cl.confirmed;
+    signal.total = cl.total;
+    const ratio = cl.total ? cl.confirmed / cl.total : 0;
+    signal.confidence = ratio >= 0.75 ? "High" : ratio >= 0.45 ? "Medium" : "Low";
   }
-
-  // Fibonacci OTE — 0.62–0.79 retracement of the last swing leg.
-  const legHi = lastSH ? lastSH.p : rangeHi;
-  const legLo = lastSL ? lastSL.p : rangeLo;
-  const legSpan = (legHi - legLo) || 1;
-  const inOTE = dir === "LONG"
-    ? E >= legHi - 0.79 * legSpan && E <= legHi - 0.62 * legSpan
-    : E >= legLo + 0.62 * legSpan && E <= legLo + 0.79 * legSpan;
-
-  const fvgEdges = [...fvg.bull.flat(), ...fvg.bear.flat()].filter(numOk) as number[];
-  const srLevels = [...shs.map((s) => s.p), ...sls.map((s) => s.p), rangeHi, rangeLo, eq].filter(numOk);
-
-  // Liquidity sweep — a wick past a swing that closes back through it.
-  const last6 = rows.slice(-6);
-  const swept = dir === "LONG"
-    ? !!lastSL && last6.some((c) => +c.low < lastSL!.p && +c.close > lastSL!.p)
-    : !!lastSH && last6.some((c) => +c.high > lastSH!.p && +c.close < lastSH!.p);
-
-  // Break & retest — a swing broken in our direction that price is now retesting.
-  const brOk = dir === "LONG"
-    ? shs.some((s) => price > s.p && Math.abs(E - s.p) <= tol * 1.5 && s.i < highs.length - 2)
-    : sls.some((s) => price < s.p && Math.abs(E - s.p) <= tol * 1.5 && s.i < lows.length - 2);
-
-  // Momentum — with-trend, or a clean reversal from an overbought/oversold extreme.
-  const momentumOk = rsiNow == null ? false
-    : dir === "LONG" ? (rsiNow >= 45 && rsiNow <= 72) || rsiNow < 32
-    : (rsiNow <= 55 && rsiNow >= 28) || rsiNow > 68;
-
-  const FACTORS: Record<string, { label: string; ok: boolean }> = {
-    trend:       { label: "Trend aligned (HTF)",         ok: dir === "LONG" ? htfTrend !== "bearish" : htfTrend !== "bullish" },
-    structure:   { label: "Market structure (BOS/CHoCH)", ok: structureDir === dir },
-    ob:          { label: "At an order block / origin",  ok: dir === "LONG" ? !!lastSL && Math.abs(E - lastSL.p) <= tol * 1.5 : !!lastSH && Math.abs(E - lastSH.p) <= tol * 1.5 },
-    fvg:         { label: "Fair value gap / imbalance",  ok: fvgEdges.some((L) => Math.abs(E - L) <= tol) },
-    liquidity:   { label: "Liquidity swept",             ok: swept },
-    sr:          { label: "At support / resistance",     ok: srLevels.some((L) => Math.abs(E - L) <= tol) },
-    fib:         { label: "In fib OTE zone (0.62–0.79)", ok: inOTE },
-    breakRetest: { label: "Break & retest",              ok: brOk },
-    rsi:         { label: "Momentum (RSI) agrees",       ok: momentumOk },
-  };
-
-  const PRO_DEFAULT = ["trend", "structure", "fvg", "liquidity", "sr", "fib", "breakRetest", "rsi"];
-  const active = (confs.length ? confs : PRO_DEFAULT).filter((k) => FACTORS[k]);
-  const checklist = active.map((k) => FACTORS[k]);
-  const confirmed = checklist.filter((c) => c.ok).length;
-  const ratio = checklist.length ? confirmed / checklist.length : 0;
-  signal.checklist = checklist;
-  signal.confirmed = confirmed;
-  signal.total = checklist.length;
-  signal.confidence = ratio >= 0.75 ? "High" : ratio >= 0.45 ? "Medium" : "Low";
 
   // Work succeeded — now charge the credit (best-effort; never charged on failure above).
   const credits = await chargeCredit("signal");
