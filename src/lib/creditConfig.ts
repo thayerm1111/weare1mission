@@ -16,6 +16,7 @@ export const CREDIT_COST = {
   scan: 2,       // Market Pulse scan (heaviest — up to 8 data calls)
   ghost: 3,      // XAUGHOST full gold intelligence run (multi-timeframe + deep analysis)
   chartread: 2,  // OM Charts AI read — vision analysis of a marked-up chart + live data
+  command: 3,    // OM AI Market Command — full deterministic qualification run (multi-TF + risk engine)
 } as const;
 
 export type Feature = keyof typeof CREDIT_COST;
