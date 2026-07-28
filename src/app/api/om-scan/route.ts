@@ -1,7 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
-import { reserveMarketData } from "@/lib/marketData";
+import { series, isPriorityEmail } from "@/lib/marketData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,13 +37,10 @@ function rsi(c: number[], p = 14) { if (c.length < p + 1) return null; let g = 0
 function findFVGs(rows: Row[]) { const bull: [number, number][] = [], bear: [number, number][] = []; for (let i = 2; i < rows.length; i++) { const aH = +rows[i - 2].high, aL = +rows[i - 2].low, cH = +rows[i].high, cL = +rows[i].low; if (cL > aH) bull.push([aH, cL]); if (cH < aL) bear.push([cH, aL]); } return { bull, bear }; }
 function pivots(highs: number[], lows: number[], k = 2) { const sh: { i: number; p: number }[] = [], sl: { i: number; p: number }[] = []; for (let i = k; i < highs.length - k; i++) { let isH = true, isL = true; for (let j = i - k; j <= i + k; j++) { if (j === i) continue; if (highs[j] >= highs[i]) isH = false; if (lows[j] <= lows[i]) isL = false; } if (isH) sh.push({ i, p: highs[i] }); if (isL) sl.push({ i, p: lows[i] }); } return { sh, sl }; }
 
-async function fetchSeries(td: string, key: string): Promise<Row[] | null> {
-  try {
-    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=1h&outputsize=80&apikey=${key}`, { cache: "no-store" });
-    const j = await r.json();
-    if (!Array.isArray(j?.values)) return null;
-    return (j.values as Row[]).slice().reverse();
-  } catch { return null; }
+// Community-cached 1H pull via the shared fetcher (skips API + budget on a cache hit).
+async function fetchSeries(td: string, key: string, fresh: boolean): Promise<Row[] | null> {
+  const r = await series(td, "1h", 80, key, fresh);
+  return Array.isArray(r) ? r : null;
 }
 
 function analyze(rows: Row[]) {
@@ -98,7 +95,8 @@ function analyze(rows: Row[]) {
 export async function POST(req: NextRequest) {
   void req;
   const supabase = createClient();
-  if (supabase) { const { data: { user } } = await supabase.auth.getUser(); if (!user) return json({ error: "unauthorized" }, 401); }
+  let fresh = false; // owner/admin: always fresh data, never throttled
+  if (supabase) { const { data: { user } } = await supabase.auth.getUser(); if (!user) return json({ error: "unauthorized" }, 401); fresh = isPriorityEmail(user.email); }
   const mdKey = process.env.TWELVEDATA_API_KEY;
   if (!mdKey) return json({ notConfigured: "marketdata" }, 200);
 
@@ -106,12 +104,8 @@ export async function POST(req: NextRequest) {
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
 
-  // Global governor — a scan needs one data credit per asset in the universe.
-  const md = await reserveMarketData(UNIVERSE.length);
-  if (!md.ok) return json({ error: "system_busy", detail: "The scanner is at capacity for a moment — try again in a few seconds." }, 429);
-
   const results = await Promise.all(UNIVERSE.map(async (a) => {
-    const rows = await fetchSeries(a.td, mdKey);
+    const rows = await fetchSeries(a.td, mdKey, fresh);
     if (!rows || rows.length < 30) return null;
     const r = analyze(rows);
     return { ...a, ...r };
