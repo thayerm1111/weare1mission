@@ -1,11 +1,12 @@
 "use client";
 
 /**
- * XAUGHOST — the front end for the dedicated Gold (XAU/USD) intelligence engine.
- * Self-contained and gold-only; renders the full institutional read (regime,
- * HTF bias, liquidity map, chosen strategy, entries, confidence, probabilities,
- * reasons to avoid, invalidation, session behaviour, management) — or a clear
- * "No Trade" when there is no edge.
+ * MFXGHOST — the front end for the dedicated multi-instrument intelligence engine
+ * (FX majors + Gold). Pick an instrument, then it renders the full institutional
+ * read (regime, HTF bias, liquidity map, chosen strategy, entries, confidence,
+ * probabilities, reasons to avoid, invalidation, session behaviour, management)
+ * — or a clear "No Trade" when there is no edge. Each instrument keeps its own
+ * saved read and track record.
  */
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -29,8 +30,8 @@ type Read = {
   longProbability?: number; shortProbability?: number;
   reasonsToAvoid?: string[]; invalidation?: string; sessionBehavior?: string; tradeManagement?: string;
 };
-type Result = { price: number; asOf: string; session?: string; read: Read };
-// Live "Get update" snapshot for the current gold call.
+type Result = { price: number; asOf: string; session?: string; symbol?: string; read: Read };
+// Live "Get update" snapshot for the current call.
 type TradeUpdate = {
   headline: string; thesis: "intact" | "weakening" | "invalidated"; price: number;
   pnl: { r: number; pips: number; side: string; percent: number };
@@ -39,8 +40,25 @@ type TradeUpdate = {
   explanation: string[]; what_to_watch: string;
 };
 
-const STEPS = ["Pulling XAU/USD across Daily → 5M", "Detecting market regime", "Mapping liquidity & structure", "Scoring institutional confluence", "Writing the gold read"];
-const fmt = (n: number | null | undefined) => (typeof n === "number" && Number.isFinite(n) ? n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—");
+// The instruments MFXGHOST covers (must match the API allow-list).
+const INSTRUMENTS: { td: string; label: string }[] = [
+  { td: "USD/JPY", label: "USD/JPY" },
+  { td: "EUR/USD", label: "EUR/USD" },
+  { td: "GBP/USD", label: "GBP/USD" },
+  { td: "AUD/USD", label: "AUD/USD" },
+  { td: "USD/CAD", label: "USD/CAD" },
+  { td: "XAU/USD", label: "Gold" },
+];
+const DEFAULT_SYM = "XAU/USD";
+
+const STEPS = ["Pulling multi-timeframe data · Daily → 5M", "Detecting market regime", "Mapping liquidity & structure", "Scoring institutional confluence", "Writing the read"];
+// Price precision auto-scales to the instrument's magnitude: gold (~3300) → 2dp,
+// JPY (~157) → 3dp, FX majors (~1.08) → 5dp. Works across mixed-symbol journals.
+const fmt = (n: number | null | undefined) => {
+  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+  const a = Math.abs(n), d = a >= 1000 ? 2 : a >= 50 ? 3 : 5;
+  return n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+};
 
 type Trade = {
   client_id: string; as_of?: string; direction?: string; strategy?: string; regime?: string;
@@ -49,6 +67,7 @@ type Trade = {
 };
 
 export function XauGhost() {
+  const [symbol, setSymbol] = useState(DEFAULT_SYM);
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(0);
   const [res, setRes] = useState<Result | null>(null);
@@ -59,48 +78,56 @@ export function XauGhost() {
   const [ghostUpdating, setGhostUpdating] = useState(false);
   const [ghostUpdate, setGhostUpdate] = useState<TradeUpdate | null>(null);
 
-  const loadTrades = useCallback(async () => {
+  const symLabel = INSTRUMENTS.find((i) => i.td === symbol)?.label ?? symbol;
+
+  const loadTrades = useCallback(async (sym: string) => {
     try {
-      const r = await fetch("/api/xaughost/trades", { cache: "no-store" });
+      const r = await fetch(`/api/xaughost/trades?symbol=${encodeURIComponent(sym)}`, { cache: "no-store" });
       const d = await r.json().catch(() => ({}));
       if (Array.isArray(d.trades)) setTrades(d.trades);
+      else setTrades([]);
     } catch { /* offline */ }
   }, []);
 
+  // Load the saved read + journal for whatever instrument is selected. Runs on
+  // mount and whenever the user switches pairs, so each instrument is independent.
   useEffect(() => {
-    try { const raw = localStorage.getItem("om_xaughost"); if (raw) setRes(JSON.parse(raw)); } catch { /* ignore */ }
+    setGhostUpdate(null); setMsg("");
+    let saved: Result | null = null;
+    try { const raw = localStorage.getItem(`om_mfxghost:${symbol}`); if (raw) saved = JSON.parse(raw); } catch { /* ignore */ }
+    setRes(saved);
     setHydrated(true);
-    void loadTrades();
-  }, [loadTrades]);
+    void loadTrades(symbol);
+  }, [symbol, loadTrades]);
 
   const run = useCallback(async () => {
     setLoading(true); setMsg(""); setStep(0);
     const timer = setInterval(() => setStep((s) => Math.min(s + 1, STEPS.length - 1)), 1400);
     try {
-      const r = await fetch("/api/xaughost", { method: "POST" });
+      const r = await fetch("/api/xaughost", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ symbol }) });
       const d = await r.json().catch(() => ({}));
-      if (d.notConfigured) { setMsg("The gold desk isn't switched on yet."); return; }
-      if (r.status === 402 || d.error === "insufficient_credits") { setMsg(`You're out of credits — a gold run costs ${CREDIT_COST.ghost}. Free credits reset tomorrow, or top up on the Credits page.`); return; }
+      if (d.notConfigured) { setMsg("The desk isn't switched on yet."); return; }
+      if (r.status === 402 || d.error === "insufficient_credits") { setMsg(`You're out of credits — a run costs ${CREDIT_COST.ghost}. Free credits reset tomorrow, or top up on the Credits page.`); return; }
       if (d.error === "system_busy" || d.error === "ratelimit") { setMsg(d.detail || "The desk is at capacity for a moment — try again shortly."); return; }
-      if (d.error || !d.read) { setMsg(d.detail || "Couldn't complete the gold read — try again shortly."); return; }
-      const result: Result = { price: d.price, asOf: d.asOf, session: d.session, read: d.read };
+      if (d.error || !d.read) { setMsg(d.detail || "Couldn't complete the read — try again shortly."); return; }
+      const result: Result = { price: d.price, asOf: d.asOf, session: d.session, symbol: d.symbol || symbol, read: d.read };
       setRes(result); setGhostUpdate(null);
-      try { localStorage.setItem("om_xaughost", JSON.stringify(result)); } catch { /* ignore */ }
+      try { localStorage.setItem(`om_mfxghost:${symbol}`, JSON.stringify(result)); } catch { /* ignore */ }
       if (typeof window !== "undefined") window.dispatchEvent(new Event("credits-updated"));
-      // Auto-save every directional call (with levels) to the learning journal.
+      // Auto-save every directional call (with levels) to this instrument's journal.
       const rd = d.read as Read;
       if (rd?.direction && rd.direction !== "NONE" && (rd.entries?.primary != null || rd.stopLoss != null)) {
         const trade = {
-          id: Date.now(), asOf: d.asOf, direction: rd.direction, strategy: rd.winningStrategy || rd.bestStrategy,
+          id: Date.now(), symbol, asOf: d.asOf, direction: rd.direction, strategy: rd.winningStrategy || rd.bestStrategy,
           regime: rd.regime, entry: rd.entries?.primary, stopLoss: rd.stopLoss, takeProfits: rd.takeProfits,
           confidence: rd.confidence, grade: rd.grade, status: "open", payload: rd,
         };
         try { await fetch("/api/xaughost/trades", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ trade }) }); } catch { /* ignore */ }
-        void loadTrades();
+        void loadTrades(symbol);
       }
     } catch { setMsg("Something interrupted the connection. Try again."); }
     finally { clearInterval(timer); setLoading(false); }
-  }, [loadTrades]);
+  }, [symbol, loadTrades]);
 
   const checkOutcome = useCallback(async (id: string) => {
     setChecking(id);
@@ -113,11 +140,12 @@ export function XauGhost() {
     } catch { /* ignore */ } finally { setChecking(null); }
   }, []);
 
-  // "Get update" — re-read live gold and explain what's happened to this call
+  // "Get update" — re-read the live market and explain what's happened to this call
   // since it was generated (profit/drawdown, stop-run vs real break, flow flip). Free.
   const getUpdate = useCallback(async () => {
     const rd = res?.read;
     if (!rd || ghostUpdating) return;
+    const sym = res?.symbol || symbol;
     const dir = rd.direction === "LONG" ? "LONG" : rd.direction === "SHORT" ? "SHORT" : null;
     const entry = rd.entries?.primary, stop = rd.stopLoss;
     const tps = (rd.takeProfits || []).filter((n): n is number => typeof n === "number");
@@ -126,12 +154,12 @@ export function XauGhost() {
     try {
       const r = await fetch("/api/om-signal-update", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ td: "XAU/USD", symbol: "XAU/USD", style: "intraday", direction: dir, entry, stopLoss: stop, takeProfits: tps, since: res?.asOf || "" }),
+        body: JSON.stringify({ td: sym, symbol: sym, style: "intraday", direction: dir, entry, stopLoss: stop, takeProfits: tps, since: res?.asOf || "" }),
       });
       const d = await r.json().catch(() => ({}));
       if (d && d.status === "update") setGhostUpdate(d as TradeUpdate);
     } catch { /* ignore */ } finally { setGhostUpdating(false); }
-  }, [res, ghostUpdating]);
+  }, [res, symbol, ghostUpdating]);
 
   const read = res?.read;
   const noTrade = read?.decision === "NO_TRADE" || read?.direction === "NONE";
@@ -149,8 +177,8 @@ export function XauGhost() {
         <div className="flex items-center gap-3">
           <span className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-[#CFC7B3] to-[#8a8266] text-black shadow-[0_0_30px_rgba(207,199,179,0.25)]"><Ghost className="h-6 w-6" /></span>
           <div>
-            <h2 className="font-serif text-2xl font-black tracking-tight">XAUGHOST</h2>
-            <p className="text-[11px] uppercase tracking-[0.16em] text-white/40">Gold-only intelligence · XAU/USD · institutional engine</p>
+            <h2 className="font-serif text-2xl font-black tracking-tight">MFXGHOST</h2>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-white/40">Multi-FX + Gold intelligence · institutional engine</p>
           </div>
         </div>
         <button
@@ -158,9 +186,23 @@ export function XauGhost() {
           className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#CFC7B3] to-[#B8AE93] px-5 py-2.5 text-sm font-bold uppercase tracking-wide text-black transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-          {loading ? "Analyzing…" : res ? "Run again" : "Run gold intelligence"}
+          {loading ? "Analyzing…" : res ? "Run again" : "Run intelligence"}
           {!loading && <span className="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px] font-bold">{CREDIT_COST.ghost} credits</span>}
         </button>
+      </div>
+
+      {/* Instrument selector — each pair has its own read + track record. */}
+      <div className="relative z-10 flex flex-wrap items-center gap-2 border-b border-white/10 px-6 py-3 sm:px-8">
+        <span className="mr-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/35">Pair</span>
+        {INSTRUMENTS.map((it) => {
+          const active = it.td === symbol;
+          return (
+            <button key={it.td} onClick={() => { if (!loading && it.td !== symbol) setSymbol(it.td); }} disabled={loading}
+              className={`rounded-full px-3.5 py-1.5 text-xs font-bold uppercase tracking-wide transition-colors disabled:opacity-40 ${active ? "bg-gradient-to-r from-[#CFC7B3] to-[#B8AE93] text-black" : "border border-white/15 text-white/70 hover:bg-white/10"}`}>
+              {it.label}
+            </button>
+          );
+        })}
       </div>
 
       <div className="relative z-10 p-6 sm:p-8">
@@ -186,8 +228,8 @@ export function XauGhost() {
         {hydrated && !res && !loading && (
           <div className="rounded-2xl border border-dashed border-white/12 bg-white/[0.02] px-4 py-12 text-center">
             <Ghost className="mx-auto h-8 w-8 text-white/25" />
-            <p className="mt-3 text-sm text-white/65">Run the desk for a full institutional gold read — regime, liquidity, the highest-edge strategy right now, or a clear <span className="font-semibold text-white">No Trade</span>.</p>
-            <p className="mt-1 text-[11px] text-white/35">Analyses Daily → 5M · costs {CREDIT_COST.ghost} credits · gold only</p>
+            <p className="mt-3 text-sm text-white/65">Run the desk for a full institutional read on <span className="font-semibold text-white">{symLabel}</span> — regime, liquidity, the highest-edge strategy right now, or a clear <span className="font-semibold text-white">No Trade</span>.</p>
+            <p className="mt-1 text-[11px] text-white/35">Analyses Daily → 5M · costs {CREDIT_COST.ghost} credits · {symLabel}</p>
           </div>
         )}
 
@@ -208,7 +250,7 @@ export function XauGhost() {
                 {res && (
                   <div className="text-right">
                     <p className="font-serif text-xl font-bold tabular-nums">{fmt(res.price)}</p>
-                    <p className="text-[10px] uppercase tracking-wide text-white/40">live XAU/USD</p>
+                    <p className="text-[10px] uppercase tracking-wide text-white/40">live {res.symbol || symbol}</p>
                   </div>
                 )}
               </div>
@@ -390,7 +432,7 @@ function TrackRecord({ trades, checking, onCheck }: { trades: Trade[]; checking:
           <span className="text-white/50">{wins}W · {losses}L · {open} open</span>
         </div>
       </div>
-      <p className="mb-3 text-[11px] text-white/40">Each call is saved and checked against real candles. XAUGHOST learns from every result — repeating what wins, avoiding what fails — and feeds those lessons into future reads.</p>
+      <p className="mb-3 text-[11px] text-white/40">Each call is saved and checked against real candles. MFXGHOST learns from every result on this pair — repeating what wins, avoiding what fails — and feeds those lessons into future reads.</p>
       <ul className="space-y-2">
         {trades.map((t) => {
           const isWin = t.status === "win", isLoss = t.status === "loss";
@@ -401,7 +443,7 @@ function TrackRecord({ trades, checking, onCheck }: { trades: Trade[]; checking:
                 <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${isLong ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300"}`}>
                   {isLong ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}{t.direction}
                 </span>
-                <span className="text-sm font-semibold text-white/85">{t.strategy || "Gold call"}</span>
+                <span className="text-sm font-semibold text-white/85">{t.strategy || "Call"}</span>
                 {t.grade && <span className="rounded-full bg-[#CFC7B3]/15 px-2 py-0.5 text-[10px] font-bold text-[#CFC7B3]">{t.grade}</span>}
                 <span className="ml-auto">
                   {isWin ? <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-300">Win{t.hit_tp ? ` · TP${t.hit_tp}` : ""}</span>
