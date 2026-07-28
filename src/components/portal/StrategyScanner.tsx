@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Radar, Loader2, ShieldAlert, ArrowUp, ArrowDown, Target, Gauge, Check, X, Sparkles,
-  Ban, Layers, TrendingUp, Trash2, Search,
+  Ban, Layers, TrendingUp, Trash2, Search, Activity, Eye,
 } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
 
@@ -129,6 +129,14 @@ type Result = Record<string, unknown> & {
   scouts?: ScoutRead[]; reasoning?: string[]; educational?: string; error?: string;
 };
 type Journal = Result & { id: number };
+// Live "Get update" snapshot for a signal the scanner produced.
+type TradeUpdate = {
+  headline: string; thesis: "intact" | "weakening" | "invalidated"; price: number;
+  pnl: { r: number; pips: number; side: string; percent: number };
+  distance: { to_stop_pips: number; to_next_target_pips: number; next_target_label: string };
+  market?: { flow_1h?: string; flow_4h?: string; rsi?: number | null };
+  explanation: string[]; what_to_watch: string;
+};
 
 const fmt = (n: unknown) => (typeof n === "number" && Number.isFinite(n) ? (Math.abs(n) >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : Math.abs(n) >= 1 ? n.toFixed(4) : n.toFixed(6)) : "—");
 
@@ -143,6 +151,8 @@ export function StrategyScanner() {
   const [error, setError] = useState("");
   const [needCredits, setNeedCredits] = useState(false);
   const [journal, setJournal] = useState<Journal[]>([]);
+  const [updating, setUpdating] = useState<number | null>(null);
+  const [updates, setUpdates] = useState<Record<number, TradeUpdate>>({});
   const boxRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => { try { const raw = localStorage.getItem("om_scanner"); if (raw) setJournal(JSON.parse(raw)); } catch { /* ignore */ } }, []);
@@ -184,12 +194,36 @@ export function StrategyScanner() {
       if (d.error === "marketdata_error") { setError((d.reason as string) || `No live candles came back for ${td} on this timeframe — check the symbol or try another.`); return; }
       if (d.error === "ratelimit" || d.error === "system_busy" || d.error === "notConfigured") { setError((d.reason as string) || "Market data is busy — try again shortly."); return; }
       if (d.error) { setError((d.reason as string) || "Couldn't run the scan right now. Try again shortly."); return; }
-      setResult(d);
       const item: Journal = { ...d, id: Date.now() };
+      setResult(item);
       persist([item, ...journal].slice(0, 15));
       try { window.dispatchEvent(new Event("credits-updated")); } catch { /* ignore */ }
     } catch { setError("Something interrupted the connection. Try again."); }
     finally { setLoading(false); }
+  }
+
+  // "Get update" — re-read the live market and explain what happened / is happening
+  // to a signal the scanner already called. Free to run; works for any symbol.
+  async function getUpdate(r: Result) {
+    const rid = (r as Journal).id;
+    if (updating != null || rid == null || r.status !== "setup") return;
+    setUpdating(rid);
+    try {
+      const ageMs = Date.now() - rid;
+      const res = await fetch("/api/om-signal-update", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          td: (r.instrument as string) || r.symbol,
+          symbol: r.symbol,
+          style: String(r.style || "").toLowerCase(),
+          direction: r.direction,
+          entry: r.entry, stopLoss: r.stop_loss, takeProfits: r.take_profits,
+          since: ageMs > 20 * 60 * 1000 ? new Date(rid).toISOString() : "",
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (d && d.status === "update") setUpdates((u) => ({ ...u, [rid]: d as TradeUpdate }));
+    } catch { /* ignore */ } finally { setUpdating(null); }
   }
 
   return (
@@ -309,7 +343,7 @@ export function StrategyScanner() {
           </div>
         )}
 
-        {result && <ResultView r={result} />}
+        {result && <ResultView r={result} onUpdate={() => getUpdate(result)} updating={updating === (result as Journal).id} update={updates[(result as Journal).id ?? -1]} />}
 
         {/* Recent */}
         {journal.length > 0 && (
@@ -341,7 +375,7 @@ export function StrategyScanner() {
   );
 }
 
-function ResultView({ r }: { r: Result }) {
+function ResultView({ r, onUpdate, updating, update }: { r: Result; onUpdate?: () => void; updating?: boolean; update?: TradeUpdate }) {
   const scouts = Array.isArray(r.scouts) ? r.scouts : [];
   const isSetup = r.status === "setup";
   const buy = r.direction === "LONG";
@@ -361,6 +395,14 @@ function ResultView({ r }: { r: Result }) {
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white/60"><Ban className="h-4 w-4" /> WAIT</span>
         )}
       </div>
+
+      {isSetup && onUpdate && (
+        <button onClick={onUpdate} disabled={updating}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-sky-400/40 bg-sky-400/10 px-3.5 py-1.5 text-[12px] font-semibold text-sky-300 transition-colors hover:bg-sky-400/20 disabled:opacity-40">
+          {updating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Activity className="h-3.5 w-3.5" />} Get update — what happened since
+        </button>
+      )}
+      {update && <UpdatePanel u={update} />}
 
       {/* Confluence meter */}
       <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.02] p-3">
@@ -422,6 +464,40 @@ function Cell({ label, v, tint, icon, small }: { label: string; v: string; tint:
     <div className="rounded-xl border border-white/10 bg-white/[0.02] px-2 py-2.5">
       <p className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.08em] text-white/40">{icon}{label}</p>
       <p className={`mt-0.5 font-serif ${small ? "text-sm" : "text-base"} font-bold tabular-nums ${tint}`}>{v}</p>
+    </div>
+  );
+}
+
+function UpdatePanel({ u }: { u: TradeUpdate }) {
+  const side = u.pnl?.side;
+  const tone = side === "profit" ? "emerald" : side === "drawdown" ? "amber" : "sky";
+  const border = tone === "emerald" ? "border-emerald-400/30 bg-emerald-500/[0.06]" : tone === "amber" ? "border-amber-500/30 bg-amber-500/[0.06]" : "border-sky-400/30 bg-sky-400/[0.06]";
+  const chip = u.thesis === "intact" ? "bg-emerald-500/15 text-emerald-300" : u.thesis === "weakening" ? "bg-amber-500/15 text-amber-300" : "bg-red-500/15 text-red-300";
+  const rStr = `${u.pnl.r >= 0 ? "+" : ""}${u.pnl.r}R`;
+  return (
+    <div className={`mt-4 rounded-2xl border px-4 py-3.5 ${border}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70"><Activity className="h-3.5 w-3.5 text-sky-300" /> Live update</p>
+        <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${chip}`}>Idea {u.thesis}</span>
+      </div>
+      <p className="mt-2 text-sm font-semibold text-white">{u.headline}</p>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-white/55">
+        <span>Now: <span className="font-semibold tabular-nums text-white/85">{fmt(u.price)}</span></span>
+        <span>P/L: <span className={`font-semibold tabular-nums ${side === "profit" ? "text-emerald-400" : side === "drawdown" ? "text-amber-300" : "text-white/70"}`}>{rStr} · {u.pnl.pips >= 0 ? "+" : ""}{u.pnl.pips} pips</span></span>
+        <span>To stop: <span className="tabular-nums text-white/75">{u.distance.to_stop_pips} pips</span></span>
+        <span>To {u.distance.next_target_label}: <span className="tabular-nums text-white/75">{u.distance.to_next_target_pips} pips</span></span>
+      </div>
+      {Array.isArray(u.explanation) && u.explanation.length > 0 && (
+        <ul className="mt-3 space-y-1.5">
+          {u.explanation.map((e, i) => (
+            <li key={i} className="flex items-start gap-2 text-[13px] leading-relaxed text-white/80"><span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-sky-300/70" /> {e}</li>
+          ))}
+        </ul>
+      )}
+      {u.what_to_watch && (
+        <p className="mt-3 inline-flex items-start gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[12px] text-white/70"><Eye className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-white/50" /> <span><span className="text-white/50">What to watch:</span> {u.what_to_watch}</span></p>
+      )}
+      <p className="mt-2 text-[10px] text-white/35">Educational market-management context, not financial advice. Live data via Twelve Data.</p>
     </div>
   );
 }
