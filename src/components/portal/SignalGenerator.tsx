@@ -44,6 +44,10 @@ type Signal = {
   confidence: string; riskReward: string; timeframe: string; rationale: string; invalidation: string;
   setup?: string; bias?: string; poi?: string; liquidityTarget?: string;
   checklist?: { label: string; ok: boolean }[]; confirmed?: number; total?: number;
+  // Scalp multi-timeframe extras (present only on scalp plays).
+  flow?: { h4: string; h1: string; dir: string; aligned: boolean };
+  timeframes?: { tf: string; trend: string; confirmed: number; total: number; checklist: { label: string; ok: boolean }[]; unavailable?: boolean }[];
+  verdict?: string;
 };
 type Status = "open" | "win" | "loss";
 type Result = {
@@ -351,7 +355,7 @@ export function SignalGenerator() {
 
                   <p className="mt-5 text-[11px] uppercase tracking-[0.12em] text-white/45">Trade Style</p>
                   <div className="mt-2 grid grid-cols-3 gap-2">
-                    {([["scalp", "Scalp", "Minutes"], ["intraday", "Intraday", "1H"], ["swing", "Swing", "Daily"]] as const).map(([v, label, sub]) => (
+                    {([["scalp", "Scalp", "5·15·30m"], ["intraday", "Intraday", "1H"], ["swing", "Swing", "Daily"]] as const).map(([v, label, sub]) => (
                       <button key={v} onClick={() => setStyle(v)} className={`rounded-xl border px-3 py-2.5 text-center transition-colors ${style === v ? "border-gold-light/60 bg-gold-light/10" : "border-white/12 bg-white/[0.03] hover:bg-white/[0.06]"}`}>
                         <span className="block text-sm font-semibold">{label}</span><span className="mt-0.5 block text-[10px] text-white/40">{sub}</span>
                       </button>
@@ -613,7 +617,36 @@ function FullCard({ r, onCheck, checking }: { r: Result; onCheck: () => void; ch
 
       {s.direction === "NEUTRAL" && <p className="mt-3 rounded-xl border border-white/12 bg-white/[0.03] px-3 py-2 text-xs text-white/65">No A+ setup right now — OM AI recommends standing aside. Read the analysis below.</p>}
 
-      {Array.isArray(s.checklist) && s.checklist.length > 0 && (
+      {Array.isArray(s.timeframes) && s.timeframes.length > 0 ? (
+        <div className="mt-4 space-y-3">
+          {s.flow && (
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+              <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-white/45">Market flow · bigger picture</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <TrendChip label="4H" trend={s.flow.h4} />
+                <TrendChip label="1H" trend={s.flow.h1} />
+                <span className="text-white/30">→</span>
+                <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase ${s.flow.dir === "LONG" ? "bg-emerald-500/15 text-emerald-400" : s.flow.dir === "SHORT" ? "bg-red-500/15 text-red-400" : "bg-white/10 text-white/60"}`}>
+                  {s.flow.dir === "LONG" ? "Up" : s.flow.dir === "SHORT" ? "Down" : "Mixed"} flow
+                </span>
+                <span className="text-[10px] text-white/40">{s.flow.aligned ? "4H & 1H aligned" : "mixed — following the 1H"}</span>
+              </div>
+            </div>
+          )}
+          <div>
+            <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-white/45">Timing · confirmations per timeframe</p>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {s.timeframes.map((t) => <TFBlock key={t.tf} t={t} />)}
+            </div>
+          </div>
+          {s.verdict && (
+            <div className="rounded-xl border border-gold-light/25 bg-gold-light/[0.06] px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-gold-light/80">Verdict</p>
+              <p className="mt-0.5 text-sm text-white/85">{s.verdict}</p>
+            </div>
+          )}
+        </div>
+      ) : Array.isArray(s.checklist) && s.checklist.length > 0 ? (
         <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.02] p-3">
           <p className="mb-2.5 flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-white/45">
             <span>Confirmations</span>
@@ -630,7 +663,7 @@ function FullCard({ r, onCheck, checking }: { r: Result; onCheck: () => void; ch
             ))}
           </ul>
         </div>
-      )}
+      ) : null}
 
       {r.candles && r.candles.length > 3 && <MiniChart candles={r.candles} entry={numOk(s.entry) ? s.entry : null} sl={numOk(s.stopLoss) ? s.stopLoss : null} tps={(s.takeProfits || []).filter(numOk)} hitTp={r.status === "win" ? r.hitTp : undefined} />}
 
@@ -739,6 +772,47 @@ function MiniChart({ candles, entry, sl, tps, hitTp }: { candles: Candle[]; entr
         </g>
       ))}
     </svg>
+  );
+}
+
+function TrendChip({ label, trend }: { label: string; trend: string }) {
+  const up = trend === "bullish", down = trend === "bearish";
+  const col = up ? "text-emerald-400 bg-emerald-500/10" : down ? "text-red-400 bg-red-500/10" : "text-white/50 bg-white/[0.06]";
+  const Icon = up ? ArrowUp : down ? ArrowDown : Minus;
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${col}`}>
+      <span className="text-white/40">{label}</span><Icon className="h-3 w-3" />{up ? "Bull" : down ? "Bear" : "Range"}
+    </span>
+  );
+}
+
+function TFBlock({ t }: { t: { tf: string; trend: string; confirmed: number; total: number; checklist: { label: string; ok: boolean }[]; unavailable?: boolean } }) {
+  const up = t.trend === "bullish", down = t.trend === "bearish";
+  const tcol = up ? "text-emerald-400" : down ? "text-red-400" : "text-white/45";
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-bold text-white/80">{t.tf}</span>
+        <span className={`text-[10px] font-semibold uppercase ${tcol}`}>{up ? "Bull" : down ? "Bear" : "Range"}</span>
+      </div>
+      {t.unavailable ? (
+        <p className="mt-2 text-[11px] text-white/30">data unavailable</p>
+      ) : (
+        <>
+          <p className="mt-1 text-[10px] uppercase tracking-wide text-white/40">{t.confirmed}/{t.total} confirmed</p>
+          <ul className="mt-1.5 space-y-1">
+            {t.checklist.map((c, i) => (
+              <li key={i} className="flex items-center gap-1.5 text-[11px]">
+                <span className={`grid h-3.5 w-3.5 flex-shrink-0 place-items-center rounded-full ${c.ok ? "bg-emerald-500/15 text-emerald-400" : "bg-white/[0.04] text-white/25"}`}>
+                  {c.ok ? <Check className="h-2.5 w-2.5" /> : <X className="h-2.5 w-2.5" />}
+                </span>
+                <span className={c.ok ? "text-white/75" : "text-white/35"}>{c.label}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
   );
 }
 
