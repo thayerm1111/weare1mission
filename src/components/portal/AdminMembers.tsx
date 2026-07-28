@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, PauseCircle, RotateCcw, Star } from "lucide-react";
+import { Check, PauseCircle, RotateCcw, Star, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { TIERS, TIER_LABELS } from "@/lib/access";
 
@@ -36,22 +36,44 @@ export function AdminMembers({ members }: { members: MemberRow[] }) {
     router.refresh();
   }
 
+  // Permanently remove a member (auth user + profile). Admin-only server route.
+  async function remove(id: string, label: string) {
+    if (!window.confirm(`Permanently delete ${label}?\n\nThis removes their account and access and cannot be undone.`)) return;
+    setBusy(id);
+    try {
+      const res = await fetch("/api/admin/delete-member", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) {
+        router.refresh();
+      } else {
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
+        window.alert(`Couldn't delete this member: ${d.error || res.status}`);
+      }
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const pending = members.filter((m) => m.status === "pending");
   const others = members.filter((m) => m.status !== "pending");
 
   return (
     <div className="space-y-8">
-      <Section title={`Pending approval (${pending.length})`} rows={pending} onUpdate={update} busy={busy} highlight />
-      <Section title={`All members (${others.length})`} rows={others} onUpdate={update} busy={busy} />
+      <Section title={`Pending approval (${pending.length})`} rows={pending} onUpdate={update} onRemove={remove} busy={busy} highlight />
+      <Section title={`All members (${others.length})`} rows={others} onUpdate={update} onRemove={remove} busy={busy} />
     </div>
   );
 }
 
 function Section({
-  title, rows, onUpdate, busy, highlight = false,
+  title, rows, onUpdate, onRemove, busy, highlight = false,
 }: {
   title: string; rows: MemberRow[]; busy: string | null; highlight?: boolean;
   onUpdate: (id: string, patch: Record<string, unknown>) => void;
+  onRemove: (id: string, label: string) => void;
 }) {
   return (
     <section>
@@ -114,6 +136,18 @@ function Section({
                 >
                   <Star className="h-4 w-4" aria-hidden="true" /> {m.is_creator ? "Creator" : "Make creator"}
                 </button>
+
+                {/* Permanently delete a member */}
+                {m.role !== "admin" && (
+                  <button
+                    disabled={busy === m.id}
+                    onClick={() => onRemove(m.id, m.full_name || m.email || "this member")}
+                    title="Delete member"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[#E4DCCB] px-4 py-2 text-sm font-semibold text-charcoal/75 hover:border-red-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" /> Delete
+                  </button>
+                )}
               </div>
             </div>
           ))}
