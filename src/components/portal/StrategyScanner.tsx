@@ -9,26 +9,102 @@
  * when the strategies don't agree. Every number is computed server-side in code;
  * this component only displays and journals the result.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Radar, Loader2, ShieldAlert, ArrowUp, ArrowDown, Target, Gauge, Check, X, Sparkles,
-  Ban, Layers, TrendingUp, Trash2,
+  Ban, Layers, TrendingUp, Trash2, Search,
 } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
 
-const INSTRUMENTS: { td: string; label: string; cat: string }[] = [
-  { td: "XAU/USD", label: "Gold", cat: "Metal" },
-  { td: "XAG/USD", label: "Silver", cat: "Metal" },
-  { td: "WTI/USD", label: "Crude Oil", cat: "Energy" },
-  { td: "EUR/USD", label: "Euro", cat: "Forex" },
-  { td: "GBP/USD", label: "Pound", cat: "Forex" },
-  { td: "USD/JPY", label: "Yen", cat: "Forex" },
-  { td: "AUD/USD", label: "Aussie", cat: "Forex" },
-  { td: "SPY", label: "S&P 500", cat: "Index" },
-  { td: "QQQ", label: "Nasdaq", cat: "Index" },
-  { td: "BTC/USD", label: "Bitcoin", cat: "Crypto" },
-  { td: "ETH/USD", label: "Ethereum", cat: "Crypto" },
+// -- Instrument catalog --
+// The search box below matches against this list, but you can also just TYPE any
+// symbol (e.g. "EURJPY", "gold", "nas") and scan it — the engine normalises it and
+// passes it straight to the live-data feed.
+type Inst = { td: string; name: string; cat: string };
+
+const CUR: Record<string, string> = {
+  EUR: "Euro", USD: "US Dollar", GBP: "Pound", JPY: "Yen",
+  AUD: "Aussie", NZD: "Kiwi", CAD: "Loonie", CHF: "Franc",
+};
+// Base-currency priority (market convention) so pairs read the standard way.
+const ORDER = ["EUR", "GBP", "AUD", "NZD", "USD", "CAD", "CHF", "JPY"];
+function majorCrosses(): Inst[] {
+  const out: Inst[] = [];
+  for (let i = 0; i < ORDER.length; i++)
+    for (let j = i + 1; j < ORDER.length; j++)
+      out.push({ td: `${ORDER[i]}/${ORDER[j]}`, name: `${CUR[ORDER[i]]} / ${CUR[ORDER[j]]}`, cat: "Forex" });
+  return out;
+}
+const EXOTICS: Inst[] = [
+  { td: "USD/SGD", name: "US Dollar / Singapore", cat: "Forex" },
+  { td: "USD/HKD", name: "US Dollar / Hong Kong", cat: "Forex" },
+  { td: "USD/SEK", name: "US Dollar / Swedish Krona", cat: "Forex" },
+  { td: "USD/NOK", name: "US Dollar / Norwegian Krone", cat: "Forex" },
+  { td: "USD/MXN", name: "US Dollar / Mexican Peso", cat: "Forex" },
+  { td: "USD/ZAR", name: "US Dollar / South African Rand", cat: "Forex" },
+  { td: "USD/TRY", name: "US Dollar / Turkish Lira", cat: "Forex" },
+  { td: "USD/CNH", name: "US Dollar / Chinese Yuan", cat: "Forex" },
+  { td: "USD/PLN", name: "US Dollar / Polish Zloty", cat: "Forex" },
+  { td: "EUR/SEK", name: "Euro / Swedish Krona", cat: "Forex" },
+  { td: "EUR/NOK", name: "Euro / Norwegian Krone", cat: "Forex" },
+  { td: "EUR/TRY", name: "Euro / Turkish Lira", cat: "Forex" },
+  { td: "EUR/PLN", name: "Euro / Polish Zloty", cat: "Forex" },
+  { td: "GBP/SGD", name: "Pound / Singapore", cat: "Forex" },
 ];
+const COMMODITIES: Inst[] = [
+  { td: "XAU/USD", name: "Gold", cat: "Commodity" },
+  { td: "XAG/USD", name: "Silver", cat: "Commodity" },
+  { td: "XPT/USD", name: "Platinum", cat: "Commodity" },
+  { td: "XPD/USD", name: "Palladium", cat: "Commodity" },
+  { td: "XCU/USD", name: "Copper", cat: "Commodity" },
+  { td: "WTI/USD", name: "Crude Oil (WTI)", cat: "Commodity" },
+];
+const INDICES: Inst[] = [
+  { td: "SPY", name: "S&P 500 (SPY)", cat: "Index" },
+  { td: "QQQ", name: "Nasdaq 100 (QQQ)", cat: "Index" },
+  { td: "DIA", name: "Dow Jones (DIA)", cat: "Index" },
+  { td: "IWM", name: "Russell 2000 (IWM)", cat: "Index" },
+];
+const CRYPTO: Inst[] = [
+  { td: "BTC/USD", name: "Bitcoin", cat: "Crypto" },
+  { td: "ETH/USD", name: "Ethereum", cat: "Crypto" },
+  { td: "SOL/USD", name: "Solana", cat: "Crypto" },
+  { td: "XRP/USD", name: "XRP", cat: "Crypto" },
+  { td: "DOGE/USD", name: "Dogecoin", cat: "Crypto" },
+  { td: "ADA/USD", name: "Cardano", cat: "Crypto" },
+  { td: "BNB/USD", name: "BNB", cat: "Crypto" },
+  { td: "LTC/USD", name: "Litecoin", cat: "Crypto" },
+];
+const CATALOG: Inst[] = [...COMMODITIES, ...INDICES, ...majorCrosses(), ...EXOTICS, ...CRYPTO];
+const POPULAR = ["XAU/USD", "EUR/USD", "GBP/USD", "USD/JPY", "GBP/JPY", "WTI/USD", "SPY", "QQQ", "BTC/USD"];
+
+// Friendly aliases so typing "gold", "nasdaq", "us30" etc. resolves to a symbol.
+const ALIASES: Record<string, string> = {
+  GOLD: "XAU/USD", SILVER: "XAG/USD", PLATINUM: "XPT/USD", PALLADIUM: "XPD/USD", COPPER: "XCU/USD",
+  OIL: "WTI/USD", CRUDE: "WTI/USD", WTI: "WTI/USD",
+  NASDAQ: "QQQ", NAS100: "QQQ", NAS: "QQQ", US100: "QQQ", USTEC: "QQQ",
+  SPX: "SPY", SP500: "SPY", US500: "SPY", SPX500: "SPY",
+  DOW: "DIA", US30: "DIA", DJIA: "DIA", DJI: "DIA",
+  RUSSELL: "IWM", US2000: "IWM",
+  BITCOIN: "BTC/USD", ETHEREUM: "ETH/USD",
+};
+const CODES = ["USD", "EUR", "GBP", "JPY", "AUD", "NZD", "CAD", "CHF", "SGD", "HKD", "SEK", "NOK", "DKK", "MXN", "ZAR", "TRY", "CNH", "PLN", "HUF", "CZK"];
+
+// Turn whatever the trader typed into a canonical symbol the feed understands.
+function normalizeSymbol(input: string): string {
+  const s = (input || "").trim().toUpperCase().replace(/\s+/g, "");
+  if (!s) return "";
+  if (ALIASES[s]) return ALIASES[s];
+  if (s.includes("/")) return s;
+  if (/^(XAU|XAG|XPT|XPD|XCU)USD$/.test(s)) return s.slice(0, 3) + "/USD";
+  if (/^[A-Z]{6}$/.test(s)) {
+    const a = s.slice(0, 3), b = s.slice(3);
+    if (CODES.includes(a) && CODES.includes(b)) return `${a}/${b}`;
+  }
+  if (/^(BTC|ETH|SOL|XRP|DOGE|ADA|BNB|LTC|DOT|AVAX|MATIC)USDT?$/.test(s)) return s.replace(/USDT?$/, "/USD");
+  return s; // plain ticker (SPY, AAPL, …)
+}
+
 const STYLES: { key: string; label: string; note: string }[] = [
   { key: "scalp", label: "Scalp", note: "next ~30–90 min · 30–100 pips" },
   { key: "intraday", label: "Intraday", note: "the bigger intraday move" },
@@ -58,6 +134,8 @@ const fmt = (n: unknown) => (typeof n === "number" && Number.isFinite(n) ? (Math
 
 export function StrategyScanner() {
   const [td, setTd] = useState("XAU/USD");
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
   const [style, setStyle] = useState("scalp");
   const [scouts, setScouts] = useState<string[]>(SCOUTS.map((s) => s.key));
   const [loading, setLoading] = useState(false);
@@ -65,11 +143,32 @@ export function StrategyScanner() {
   const [error, setError] = useState("");
   const [needCredits, setNeedCredits] = useState(false);
   const [journal, setJournal] = useState<Journal[]>([]);
+  const boxRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => { try { const raw = localStorage.getItem("om_scanner"); if (raw) setJournal(JSON.parse(raw)); } catch { /* ignore */ } }, []);
   function persist(next: Journal[]) { setJournal(next); try { localStorage.setItem("om_scanner", JSON.stringify(next.slice(0, 15))); } catch { /* ignore */ } }
 
   const toggle = (k: string) => setScouts((cur) => (cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]));
+
+  // Filtered suggestions for whatever is typed.
+  const matches = useMemo(() => {
+    const q = query.trim().toUpperCase().replace(/\s+/g, "");
+    if (!q) return CATALOG.slice(0, 10);
+    const qLoose = q.replace("/", "");
+    return CATALOG.filter((i) => {
+      const t = i.td.toUpperCase().replace("/", "");
+      return t.includes(qLoose) || i.name.toUpperCase().includes(query.trim().toUpperCase()) || i.cat.toUpperCase().startsWith(q);
+    }).slice(0, 10);
+  }, [query]);
+
+  const normalized = useMemo(() => normalizeSymbol(query), [query]);
+  const showCustom = normalized && !matches.some((m) => m.td === normalized) && query.trim().length > 0;
+
+  function pick(sym: string) {
+    const canon = normalizeSymbol(sym);
+    if (!canon) return;
+    setTd(canon); setQuery(""); setOpen(false); setError("");
+  }
 
   async function scan() {
     if (loading) return;
@@ -81,6 +180,8 @@ export function StrategyScanner() {
       });
       const d: Result = await res.json().catch(() => ({ status: "error" }));
       if (res.status === 402 || d.error === "insufficient_credits") { setNeedCredits(true); setError("You're out of credits — they reset tomorrow, or grab more."); return; }
+      if (d.error === "unknown_asset") { setError(`"${td}" isn't a symbol we could read. Try a form like EUR/USD, XAU/USD, GBP/JPY, or SPY.`); return; }
+      if (d.error === "marketdata_error") { setError((d.reason as string) || `No live candles came back for ${td} on this timeframe — check the symbol or try another.`); return; }
       if (d.error === "ratelimit" || d.error === "system_busy" || d.error === "notConfigured") { setError((d.reason as string) || "Market data is busy — try again shortly."); return; }
       if (d.error) { setError((d.reason as string) || "Couldn't run the scan right now. Try again shortly."); return; }
       setResult(d);
@@ -108,13 +209,57 @@ export function StrategyScanner() {
       </div>
 
       <div className="relative z-10 px-6 py-6 sm:px-8">
-        {/* Instrument */}
+        {/* Instrument — search or type any symbol */}
         <p className="text-[11px] uppercase tracking-[0.12em] text-white/45">Instrument</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {INSTRUMENTS.map((i) => (
-            <button key={i.td} onClick={() => setTd(i.td)} title={`${i.label} · ${i.cat}`}
-              className={`rounded-xl border px-3 py-1.5 text-xs transition-colors ${td === i.td ? "border-indigo-400/60 bg-indigo-400/10 text-white" : "border-white/12 bg-white/[0.03] text-white/60 hover:text-white/90"}`}>
-              {i.td}
+        <div ref={boxRef} className="relative mt-2">
+          <div className="flex items-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-3 py-2.5 focus-within:border-indigo-400/60">
+            <Search className="h-4 w-4 flex-shrink-0 text-white/40" />
+            <input
+              value={query}
+              onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+              onFocus={() => setOpen(true)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); pick(query || td); } if (e.key === "Escape") setOpen(false); }}
+              placeholder="Search or type any symbol — EUR/USD, XAU/USD, GBP/JPY, SPY…"
+              className="min-w-0 flex-1 bg-transparent text-sm text-white placeholder:text-white/35 focus:outline-none"
+            />
+            <span className="flex-shrink-0 rounded-lg border border-indigo-400/40 bg-indigo-400/10 px-2.5 py-1 text-xs font-semibold text-indigo-200">{td}</span>
+          </div>
+
+          {open && (
+            <>
+              <button aria-hidden onClick={() => setOpen(false)} className="fixed inset-0 z-10 cursor-default" />
+              <div className="absolute left-0 right-0 top-full z-20 mt-1.5 max-h-72 overflow-auto rounded-xl border border-white/15 bg-[#0d0e15] p-1.5 shadow-xl shadow-black/40">
+                {showCustom && (
+                  <button onMouseDown={(e) => { e.preventDefault(); pick(query); }}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left hover:bg-white/[0.06]">
+                    <span className="text-sm font-semibold text-white">Scan “{normalized}”</span>
+                    <span className="text-[10px] uppercase tracking-wide text-indigo-300">Use typed symbol</span>
+                  </button>
+                )}
+                {matches.map((m) => (
+                  <button key={m.td} onMouseDown={(e) => { e.preventDefault(); pick(m.td); }}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left hover:bg-white/[0.06]">
+                    <span className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-white">{m.td}</span>
+                      <span className="text-xs text-white/45">{m.name}</span>
+                    </span>
+                    <span className="rounded-full bg-white/8 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/45">{m.cat}</span>
+                  </button>
+                ))}
+                {!showCustom && matches.length === 0 && (
+                  <p className="px-3 py-3 text-sm text-white/45">No match — press Enter to scan “{normalized || query}” anyway.</p>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Popular quick-picks */}
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {POPULAR.map((p) => (
+            <button key={p} onClick={() => pick(p)}
+              className={`rounded-lg border px-2.5 py-1 text-[11px] transition-colors ${td === p ? "border-indigo-400/60 bg-indigo-400/10 text-white" : "border-white/10 bg-white/[0.03] text-white/55 hover:text-white/90"}`}>
+              {p}
             </button>
           ))}
         </div>
