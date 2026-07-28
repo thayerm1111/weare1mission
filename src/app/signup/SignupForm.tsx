@@ -28,8 +28,8 @@ export function SignupForm({ refUsername }: { refUsername?: string }) {
     e.preventDefault();
     if (!form.name.trim()) return fail("Please enter your name.");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return fail("Please enter a valid email.");
-    if (!form.conectivUsername.trim()) return fail("Please enter your Conectiv/Kuvera username.");
-    if (!form.conectivId.trim()) return fail("Please enter your Conectiv/Kuvera Member ID.");
+    if (!form.conectivUsername.trim()) return fail("Please enter your Conectiv username.");
+    if (!form.conectivId.trim()) return fail("Please enter your Conectiv Member ID.");
     if (form.password.length < 8) return fail("Password must be at least 8 characters.");
 
     const supabase = createClient();
@@ -82,8 +82,8 @@ export function SignupForm({ refUsername }: { refUsername?: string }) {
       )}
       <Input id="su-name" label="Full name" icon={User} value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="Your name" autoComplete="name" />
       <Input id="su-email" label="Email address" type="email" icon={Mail} value={form.email} onChange={(v) => setForm({ ...form, email: v })} placeholder="you@example.com" autoComplete="email" />
-      <Input id="su-cuser" label="Conectiv / Kuvera username" icon={AtSign} value={form.conectivUsername} onChange={(v) => setForm({ ...form, conectivUsername: v })} placeholder="Your Kuvera username" autoComplete="off" />
-      <Input id="su-cid" label="Conectiv / Kuvera Member ID" icon={IdCard} value={form.conectivId} onChange={(v) => setForm({ ...form, conectivId: v })} placeholder="Your Kuvera Member ID" autoComplete="off" />
+      <Input id="su-cuser" label="Conectiv username" icon={AtSign} value={form.conectivUsername} onChange={(v) => setForm({ ...form, conectivUsername: v })} placeholder="Your Conectiv username" autoComplete="off" />
+      <Input id="su-cid" label="Conectiv Member ID" icon={IdCard} value={form.conectivId} onChange={(v) => setForm({ ...form, conectivId: v })} placeholder="Your Conectiv Member ID" autoComplete="off" />
       <Input id="su-phone" label="Mobile number" type="tel" icon={Phone} value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} placeholder="For team updates (optional)" autoComplete="tel" />
       <Input id="su-pass" label="Password" type="password" icon={Lock} value={form.password} onChange={(v) => setForm({ ...form, password: v })} placeholder="At least 8 characters" autoComplete="new-password" />
 
