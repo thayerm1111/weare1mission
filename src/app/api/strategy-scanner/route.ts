@@ -1,7 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
-import { reserveMarketData } from "@/lib/marketData";
+import { series, livePrice, isPriorityEmail } from "@/lib/marketData";
 import { findAsset } from "@/data/signalAssets";
 
 export const runtime = "nodejs";
@@ -68,22 +68,7 @@ function trendOf(rows: Row[] | null): Trend {
   return p > s20 && s20 > s50 ? "bullish" : p < s20 && s20 < s50 ? "bearish" : "ranging";
 }
 
-// -- Data --
-async function series(td: string, interval: string, size: number, key: string): Promise<Row[] | "ratelimit" | null> {
-  try {
-    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=${interval}&outputsize=${size}&apikey=${key}`, { cache: "no-store" });
-    const j = await r.json();
-    if (j.status === "error" || !Array.isArray(j.values)) {
-      const msg = String(j?.message || "");
-      if (r.status === 429 || j?.code === 429 || /credit|limit|per minute/i.test(msg)) return "ratelimit";
-      return null;
-    }
-    return [...(j.values as Row[])].reverse();
-  } catch { return null; }
-}
-async function livePrice(td: string, key: string): Promise<number | null> {
-  try { const r = await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(td)}&apikey=${key}`, { cache: "no-store" }); const j = await r.json(); const p = Number(j?.price); return Number.isFinite(p) ? p : null; } catch { return null; }
-}
+// -- Data (candle series + live price come from the shared cached fetcher in @/lib/marketData) --
 
 const pipSize = (s: string): number => {
   const u = (s || "").toUpperCase();
@@ -274,9 +259,11 @@ const INTENT: Record<string, { exec: string; ctx: string; ctx2: string; label: s
 
 export async function POST(req: NextRequest) {
   const supabase = createClient();
+  let fresh = false; // owner/admin: always fresh data, never throttled
   if (supabase) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return json({ error: "unauthorized" }, 401);
+    fresh = isPriorityEmail(user.email);
   }
   const mdKey = process.env.TWELVEDATA_API_KEY;
   const aiKey = process.env.ANTHROPIC_API_KEY;
@@ -296,14 +283,11 @@ export async function POST(req: NextRequest) {
   const gate = await gateCredits("signal");
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
-  const md = await reserveMarketData(4);
-  if (!md.ok) return json({ error: "system_busy", reason: "The data desk is busy — try again in a few seconds." }, 429);
-
   const [execR, ctxR, ctx2R, price] = await Promise.all([
-    series(td, intent.exec, 120, mdKey),
-    series(td, intent.ctx, 60, mdKey),
-    series(td, intent.ctx2, 60, mdKey),
-    livePrice(td, mdKey),
+    series(td, intent.exec, 120, mdKey, fresh),
+    series(td, intent.ctx, 60, mdKey, fresh),
+    series(td, intent.ctx2, 60, mdKey, fresh),
+    livePrice(td, mdKey, fresh),
   ]);
   if ([execR, ctxR, ctx2R].some((r) => r === "ratelimit")) return json({ error: "ratelimit", reason: "Hit the free market-data limit (8/min). Wait a minute and retry." }, 429);
   const rows = Array.isArray(execR) ? execR : null;
