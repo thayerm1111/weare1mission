@@ -1,7 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
-import { reserveMarketData } from "@/lib/marketData";
+import { series, livePrice, isPriorityEmail } from "@/lib/marketData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,26 +36,7 @@ function json(obj: unknown, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }
 
-async function series(td: string, interval: string, size: number, key: string): Promise<Row[] | "ratelimit" | null> {
-  try {
-    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=${interval}&outputsize=${size}&apikey=${key}`, { cache: "no-store" });
-    const j = await r.json();
-    if (j.status === "error" || !Array.isArray(j.values)) {
-      if (r.status === 429 || j?.code === 429 || /credit|limit|per minute/i.test(String(j?.message || ""))) return "ratelimit";
-      return null;
-    }
-    return [...(j.values as Row[])].reverse();
-  } catch { return null; }
-}
-
-async function livePrice(td: string, key: string): Promise<number | null> {
-  try {
-    const r = await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(td)}&apikey=${key}`, { cache: "no-store" });
-    const j = await r.json();
-    const p = Number(j?.price);
-    return Number.isFinite(p) ? p : null;
-  } catch { return null; }
-}
+// Candle series + live price come from the shared cached fetcher in @/lib/marketData.
 
 const sma = (v: number[], n: number) => (v.length < n ? null : v.slice(-n).reduce((a, b) => a + b, 0) / n);
 function rsi(c: number[], p = 14): number | null {
@@ -107,10 +88,12 @@ function tfSummary(label: string, rows: Row[] | null, dec: number): string {
 export async function POST(req: NextRequest) {
   const supabase = createClient();
   let userId: string | null = null;
+  let fresh = false; // owner/admin: always fresh data, never throttled
   if (supabase) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return json({ error: "unauthorized" }, 401);
     userId = user.id;
+    fresh = isPriorityEmail(user.email);
   }
   const aiKey = process.env.ANTHROPIC_API_KEY;
   const mdKey = process.env.TWELVEDATA_API_KEY;
@@ -129,21 +112,17 @@ export async function POST(req: NextRequest) {
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
 
-  // Reserve the ~6 data calls from the global per-minute governor.
-  const md = await reserveMarketData(6);
-  if (!md.ok) return json({ error: "system_busy", detail: "The data desk is at capacity for a moment — try again in a few seconds." }, 429);
-
   const [d1, h4, h1, m15, m5] = await Promise.all([
-    series(TD, "1day", 90, mdKey),
-    series(TD, "4h", 80, mdKey),
-    series(TD, "1h", 80, mdKey),
-    series(TD, "15min", 96, mdKey),
-    series(TD, "5min", 78, mdKey),
+    series(TD, "1day", 90, mdKey, fresh),
+    series(TD, "4h", 80, mdKey, fresh),
+    series(TD, "1h", 80, mdKey, fresh),
+    series(TD, "15min", 96, mdKey, fresh),
+    series(TD, "5min", 78, mdKey, fresh),
   ]);
   if ([d1, h4, h1, m15, m5].some((x) => x === "ratelimit")) {
     return json({ error: "ratelimit", detail: "Market-data limit hit for a moment — give it a minute and run again." }, 429);
   }
-  const live = await livePrice(TD, mdKey);
+  const live = await livePrice(TD, mdKey, fresh);
   const price = live ?? (Array.isArray(m5) && m5.length ? +m5[m5.length - 1].close : Array.isArray(h1) && h1.length ? +h1[h1.length - 1].close : null);
   if (price == null) return json({ error: "marketdata_error", detail: `Couldn't read a live ${inst.label} price right now — try again shortly.` }, 502);
 
