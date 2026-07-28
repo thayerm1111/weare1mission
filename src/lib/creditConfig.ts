@@ -1,12 +1,17 @@
 /**
- * Credit system config. New members get a one-time WELCOME grant of credits
- * (see the welcome_credits migration) that does NOT refill; once spent they buy
- * more. There is no daily free allowance in this model. Tweak numbers here.
+ * Credit system config. Single-balance model with a daily floor:
+ *  - New members get a one-time WELCOME grant of 20 credits (signup trigger).
+ *  - Each day, the first time a member touches a tool their balance is topped
+ *    up TO the floor (DAILY_FREE) if it sits below it — never above. A member
+ *    at 3 refills to 10; a member at 15 stays 15 (no daily stacking).
+ *  - Purchased credits stack on top of the floor and persist. Tweak numbers here.
  */
 
-// Daily free credits per member. 0 = no daily refill (members start with the
-// one-time welcome grant and buy more when they run out). Overridable via env.
-export const DAILY_FREE = Number(process.env.NEXT_PUBLIC_DAILY_FREE_CREDITS ?? 0);
+// Daily free floor per member. Each member is topped up to this many credits
+// once per day if they're below it (never lowered if above). 20 welcome credits
+// on signup sit above this floor and are spent down before the floor matters.
+// Overridable via env; leave NEXT_PUBLIC_DAILY_FREE_CREDITS unset to use 10.
+export const DAILY_FREE = Number(process.env.NEXT_PUBLIC_DAILY_FREE_CREDITS ?? 10);
 
 // What each metered action costs. Plays of the Week + Daily Brief are free
 // (cached/shared for everyone) so they aren't listed here.
