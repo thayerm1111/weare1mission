@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Mail, Lock, User, Phone, CheckCircle2, ArrowRight } from "lucide-react";
+import { Mail, Lock, User, Phone, CheckCircle2, ArrowRight, AtSign, IdCard } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import Link from "next/link";
@@ -13,7 +13,14 @@ function readRefCookie(): string {
 }
 
 export function SignupForm({ refUsername }: { refUsername?: string }) {
-  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "" });
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    password: "",
+    conectivUsername: "",
+    conectivId: "",
+  });
   const [status, setStatus] = useState<"idle" | "sending" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
 
@@ -21,6 +28,8 @@ export function SignupForm({ refUsername }: { refUsername?: string }) {
     e.preventDefault();
     if (!form.name.trim()) return fail("Please enter your name.");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return fail("Please enter a valid email.");
+    if (!form.conectivUsername.trim()) return fail("Please enter your Conectiv/Kuvera username.");
+    if (!form.conectivId.trim()) return fail("Please enter your Conectiv/Kuvera Member ID.");
     if (form.password.length < 8) return fail("Password must be at least 8 characters.");
 
     const supabase = createClient();
@@ -36,6 +45,8 @@ export function SignupForm({ refUsername }: { refUsername?: string }) {
         data: {
           full_name: form.name,
           phone: form.phone,
+          conectiv_username: form.conectivUsername.trim(),
+          conectiv_id: form.conectivId.trim(),
           ...(referred_by_username ? { referred_by_username } : {}),
         },
       },
@@ -62,7 +73,6 @@ export function SignupForm({ refUsername }: { refUsername?: string }) {
     );
   }
 
-  const field = "w-full rounded-xl border border-[#E4DCCB] bg-cream py-3.5 pl-12 pr-4 text-sm outline-none focus:border-primary";
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-4">
       {!isSupabaseConfigured && (
@@ -72,6 +82,8 @@ export function SignupForm({ refUsername }: { refUsername?: string }) {
       )}
       <Input id="su-name" label="Full name" icon={User} value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="Your name" autoComplete="name" />
       <Input id="su-email" label="Email address" type="email" icon={Mail} value={form.email} onChange={(v) => setForm({ ...form, email: v })} placeholder="you@example.com" autoComplete="email" />
+      <Input id="su-cuser" label="Conectiv / Kuvera username" icon={AtSign} value={form.conectivUsername} onChange={(v) => setForm({ ...form, conectivUsername: v })} placeholder="Your Kuvera username" autoComplete="off" />
+      <Input id="su-cid" label="Conectiv / Kuvera Member ID" icon={IdCard} value={form.conectivId} onChange={(v) => setForm({ ...form, conectivId: v })} placeholder="Your Kuvera Member ID" autoComplete="off" />
       <Input id="su-phone" label="Mobile number" type="tel" icon={Phone} value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} placeholder="For team updates (optional)" autoComplete="tel" />
       <Input id="su-pass" label="Password" type="password" icon={Lock} value={form.password} onChange={(v) => setForm({ ...form, password: v })} placeholder="At least 8 characters" autoComplete="new-password" />
 
