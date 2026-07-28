@@ -364,15 +364,28 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Data-driven higher-probability lean — biases the call toward the side the
-  // objective factors favour (so the engine stops, e.g., shorting into an
-  // uptrend). The engine ALWAYS returns a direction; the lean just guides it.
+  // Direction is TREND-FIRST. We trade WITH the higher-timeframe flow and never
+  // against it: in a downtrend we SELL pullbacks, in an uptrend we BUY dips.
+  // Mean-reversion (discount zone / oversold RSI) is ONLY allowed to pick a side
+  // when the higher timeframe is genuinely rangebound — a falling market can stay
+  // "oversold" for a long time, so oversold RSI must NEVER, on its own, call a
+  // long into a bearish trend. (This is the exact bug that produced repeated BUY
+  // scalps into a falling gold market: bearish −2, discount +1, oversold +1 = 0,
+  // and the old `>= 0` tie defaulted to LONG.) For a scalp, htfTrend is the
+  // combined 4H/1H flow, so the flow is authoritative here too.
   const rsiNow = rsi(closes);
-  let leanScore = 0;
-  if (htfTrend === "bullish") leanScore += 2; else if (htfTrend === "bearish") leanScore -= 2;
-  leanScore += price <= eq ? 1 : -1;
-  if (rsiNow != null) { if (rsiNow < 40) leanScore += 1; else if (rsiNow > 60) leanScore -= 1; }
-  const leanDir = leanScore >= 0 ? "LONG" : "SHORT";
+  let requiredDir: Dir;
+  if (htfTrend === "bearish") requiredDir = "SHORT";
+  else if (htfTrend === "bullish") requiredDir = "LONG";
+  else {
+    // Rangebound only: fade the extreme back toward equilibrium.
+    let mr = 0;
+    mr += price <= eq ? 1 : -1;
+    if (rsiNow != null) { if (rsiNow < 35) mr += 1; else if (rsiNow > 65) mr -= 1; }
+    requiredDir = mr >= 0 ? "LONG" : "SHORT";
+  }
+  const leanDir = requiredDir;                        // kept for the prompt below
+  const trendLocked = htfTrend !== "ranging";         // clear trend → direction is not negotiable
 
   // Market open/closed.
   // Crypto trades 24/7. Forex & metals follow the FX week (Sun 21:00 → Fri
@@ -435,9 +448,13 @@ ${confLine}
 ${scalpDirective}
 Build the play: 1) align with the ${sty.htfLabel} bias; 2) identify the draw on liquidity / next objective; 3) place entry at a valid point of interest confirmed by displacement/structure, in the correct premium/discount zone; 4) stop-loss just beyond the level that invalidates it; targets at liquidity / opposing range / next imbalance. Aim for clean R:R (≥1:2 when possible).
 
-ALWAYS return a directional call — LONG or SHORT — for the HIGHER-PROBABILITY side of this market RIGHT NOW. Never return NEUTRAL. When confluence is thin, still pick the better side, note what's missing in the rationale, and keep confidence Low.
+ALWAYS return a directional call — LONG or SHORT. Never return NEUTRAL. This is a WITH-TREND engine: you trade in the direction of the higher-timeframe flow, NEVER against it. Buying a downtrend or shorting an uptrend is prohibited.
 
-The data-driven lean right now is ${leanDir}. Default to ${leanDir} unless clean market structure (a confirmed CHoCH, or a strong opposing point of interest) makes the other side clearly higher-probability — in which case take it and explain why.
+DIRECTION IS ${leanDir}. ${trendLocked
+  ? `The higher-timeframe flow is ${htfTrend.toUpperCase()}, so this MUST be a ${leanDir} — a with-trend continuation. ${leanDir === "SHORT"
+      ? "SELL a pullback/rally UP into a premium point of interest: a broken support now acting as resistance, a bearish order block, an unfilled bearish FVG, or the 0.62–0.79 retracement of the last down-leg. Do NOT buy the bounce, do NOT try to catch the falling knife, and do NOT sell the low — wait for price to rally into resistance and sell the continuation down."
+      : "BUY a pullback/dip DOWN into a discount point of interest: a reclaimed resistance now acting as support, a bullish order block, an unfilled bullish FVG, or the 0.62–0.79 retracement of the last up-leg. Do NOT short the dip and do NOT chase the high — wait for price to pull back into support and buy the continuation up."} A counter-trend ${leanDir === "SHORT" ? "LONG" : "SHORT"} is NOT permitted no matter how oversold/overbought RSI looks or how far price has already run.`
+  : `The higher timeframe is rangebound, so fade the range: ${leanDir} back toward equilibrium from the ${leanDir === "LONG" ? "discount (lower)" : "premium (upper)"} extreme. If price is mid-range with no clean edge, say so in the rationale and keep confidence Low.`}
 
 CONSISTENCY: the setup, bias, poi, liquidityTarget and rationale MUST all describe the SAME side as "direction". Never write a bearish narrative (e.g. a sweep of buy-side liquidity that reverses down) for a LONG, or a bullish one for a SHORT. If you catch yourself doing that, flip the direction to match the read.
 
@@ -490,6 +507,17 @@ Return the JSON signal now.`;
   if (!match) return json({ error: "parse_error" }, 502);
   let signal: Record<string, unknown>;
   try { signal = JSON.parse(match[0]); } catch { return json({ error: "parse_error" }, 502); }
+
+  // ── Hard-lock direction to the with-trend requirement ─────────────────────
+  // The ENGINE, not the model, owns direction whenever the higher timeframe has
+  // a clear trend. If the model still tried to fade the trend (e.g. a bounce
+  // long in a downtrend), we flip it back to the with-trend side here. This is
+  // the guard that stops BUY calls in a falling market from ever reaching a user.
+  if (trendLocked && signal.direction !== requiredDir) {
+    signal.direction = requiredDir;
+    signal.confidence = "Low";                 // model disagreed with the trend → be cautious
+    signal._directionCorrected = true;         // surfaced in logs / debugging
+  }
 
   // ── Anchor & sanity-check the levels against the REAL price ───────────────
   const isLong = signal.direction !== "SHORT";
