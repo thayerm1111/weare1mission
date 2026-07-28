@@ -50,9 +50,10 @@ export async function POST(req: NextRequest) {
 
   // Twelve Data wants "YYYY-MM-DD HH:MM:SS"; normalise the stored ISO timestamp.
   const since = asOf.replace("T", " ").replace(/\..*$/, "").replace("Z", "").trim();
+  const symbol = typeof trade.symbol === "string" && trade.symbol ? trade.symbol : "XAU/USD";
   let rows: { datetime: string; high: string; low: string }[] = [];
   try {
-    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent("XAU/USD")}&interval=15min&outputsize=500&start_date=${encodeURIComponent(since)}&apikey=${mdKey}`, { cache: "no-store" });
+    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=15min&outputsize=500&start_date=${encodeURIComponent(since)}&apikey=${mdKey}`, { cache: "no-store" });
     const j = await r.json();
     if (Array.isArray(j.values)) rows = [...j.values].reverse();
   } catch { return json({ status: "open", note: "data_error" }); }
@@ -84,7 +85,7 @@ export async function POST(req: NextRequest) {
   let lesson = "";
   const aiKey = process.env.ANTHROPIC_API_KEY;
   if (aiKey) {
-    const sys = `You are XAUGHOST's learning module for Gold (XAU/USD). A previous gold call has resolved. In 2-4 concise, specific, actionable sentences, extract the KEY lesson:
+    const sys = `You are MFXGHOST's learning module for ${symbol}. A previous ${symbol} call has resolved. In 2-4 concise, specific, actionable sentences, extract the KEY lesson:
 - If it WON: exactly HOW it won — which regime read, strategy, liquidity/structure or timing edge delivered — and what to KEEP doing.
 - If it LOST: exactly WHY the stop was hit — what regime/liquidity/timing signal was misread or missed, whether the strategy fit the conditions — and ONE concrete adjustment for next time.
 Plain text only. No preamble, no JSON, no bullet symbols.`;
