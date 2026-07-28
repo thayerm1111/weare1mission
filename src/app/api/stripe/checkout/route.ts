@@ -49,7 +49,11 @@ export async function POST(req: NextRequest) {
       metadata: { user_id: user.id, credits: String(pack.credits), pack: pack.id },
       success_url: `${origin}/portal/credits?success=1`,
       cancel_url: `${origin}/portal/credits?canceled=1`,
-    });
+      // This account has Stripe Managed Payments enabled by default, which rejects
+      // line items without an eligible tax_code. Disable it per-request so credit
+      // packs charge the exact flat price shown in the UI (no tax added on top).
+      managed_payments: { enabled: false },
+    } as Stripe.Checkout.SessionCreateParams);
     return json({ url: session.url }, 200);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "checkout_failed";
