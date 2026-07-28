@@ -15,6 +15,8 @@ export interface MemberRow {
   status: string;
   is_creator: boolean;
   created_at: string;
+  conectiv_username: string | null;
+  conectiv_id: string | null;
 }
 
 const statusStyle: Record<string, string> = {
@@ -91,6 +93,12 @@ function Section({
                   {m.role === "admin" && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">admin</span>}
                 </div>
                 <p className="mt-0.5 truncate text-sm text-charcoal/60">{m.email}</p>
+                {(m.conectiv_username || m.conectiv_id) && (
+                  <p className="mt-0.5 truncate text-xs text-charcoal/55">
+                    Conectiv: {m.conectiv_username || "—"}
+                    {m.conectiv_id ? ` · ID ${m.conectiv_id}` : ""}
+                  </p>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
