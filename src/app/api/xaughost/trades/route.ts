@@ -12,23 +12,26 @@ export const maxDuration = 15;
  *   POST   -> save/update one call
  *   DELETE -> remove one by ?id=<client id>
  */
-type Incoming = { id?: unknown; asOf?: unknown; direction?: unknown; strategy?: unknown; regime?: unknown; entry?: unknown; stopLoss?: unknown; takeProfits?: unknown; confidence?: unknown; grade?: unknown; status?: unknown; payload?: unknown };
+type Incoming = { id?: unknown; symbol?: unknown; asOf?: unknown; direction?: unknown; strategy?: unknown; regime?: unknown; entry?: unknown; stopLoss?: unknown; takeProfits?: unknown; confidence?: unknown; grade?: unknown; status?: unknown; payload?: unknown };
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
 function json(obj: unknown, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const supabase = createClient();
   if (!supabase) return json({ trades: [] });
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return json({ error: "unauthorized" }, 401);
-  const { data, error } = await supabase
+  const symbol = req.nextUrl.searchParams.get("symbol");
+  let q = supabase
     .from("xaughost_trades")
-    .select("client_id, as_of, direction, strategy, regime, entry, stop_loss, tp1, tp2, tp3, confidence, grade, status, hit_tp, outcome_at, lesson, payload, created_at")
+    .select("client_id, symbol, as_of, direction, strategy, regime, entry, stop_loss, tp1, tp2, tp3, confidence, grade, status, hit_tp, outcome_at, lesson, payload, created_at")
     .order("created_at", { ascending: false })
     .limit(30);
+  if (symbol) q = q.eq("symbol", symbol);
+  const { data, error } = await q;
   if (error) return json({ error: "db_error" }, 500);
   return json({ trades: data ?? [] });
 }
@@ -46,6 +49,7 @@ export async function POST(req: NextRequest) {
   const row = {
     user_id: user.id,
     client_id: String(t.id),
+    symbol: typeof t.symbol === "string" && t.symbol ? t.symbol : "XAU/USD",
     as_of: typeof t.asOf === "string" ? t.asOf : null,
     direction: typeof t.direction === "string" ? t.direction : null,
     strategy: typeof t.strategy === "string" ? t.strategy : null,
