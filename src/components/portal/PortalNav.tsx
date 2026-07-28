@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair, Radar,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
@@ -23,6 +23,7 @@ const REG: Record<string, Item> = {
   xaughost: { href: "/portal/xaughost", label: "XAUGHOST", icon: Ghost },
   charts: { href: "/portal/charts", label: "OM Charts", icon: CandlestickChart },
   command: { href: "/portal/market-command", label: "OM AI Market Command", icon: Crosshair },
+  scanner: { href: "/portal/strategy-scanner", label: "OM Strategy Scanner", icon: Radar },
   leaderboard: { href: "/portal/leaderboard", label: "Leaderboard", icon: Medal },
   trading: { href: "/portal/trading", label: "The Floor", icon: LineChart },
   schedule: { href: "/portal/schedule", label: "What's On", icon: CalendarClock },
@@ -42,7 +43,7 @@ const REG: Record<string, Item> = {
 const ONES = ["startHere", "schedule", "trading", "leadership", "updates", "collection", "experiences", "account", "leaderboard"];
 const BUILDERS = ["omai", "prospects", "team", "compPlan", "schedule", "leadership", "training", "resources", "updates", "account", "leaderboard"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources", "compPlan"];
-const ONES_ONLY = ["trading", "signals", "xaughost", "charts", "command"];
+const ONES_ONLY = ["trading", "signals", "xaughost", "charts", "command", "scanner"];
 
 // Children shown under "The Floor". Two kinds: live-desk VIEWS (query-param
 // views of /portal/trading) and standalone PAGES (their own routes). Rendered
@@ -55,6 +56,7 @@ const FLOOR_CHILDREN: FloorChild[] = [
   { kind: "page", key: "charts" },
   { kind: "page", key: "omai" },
   { kind: "page", key: "signals" },
+  { kind: "page", key: "scanner" },
   { kind: "view", view: "plays", label: "Live Plays", icon: Zap },
   { kind: "view", view: "pulse", label: "Market Pulse", icon: Activity },
   { kind: "page", key: "xaughost" },
