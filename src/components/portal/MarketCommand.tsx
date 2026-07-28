@@ -1,0 +1,288 @@
+"use client";
+
+/**
+ * OM AI Market Command — front end for the deterministic qualification engine.
+ * The card renders exactly what /api/market-command returns: a qualified setup,
+ * or (just as importantly) a NO TRADE with an explicit reason. Every number is
+ * computed server-side in code; this component only displays and journals them.
+ */
+import { useEffect, useState } from "react";
+import {
+  Crosshair, Loader2, ShieldAlert, ArrowUp, ArrowDown, Target, Gauge, Clock,
+  Ban, Check, Sparkles, TrendingUp, AlertTriangle, Trash2, X,
+} from "lucide-react";
+import { CREDIT_COST } from "@/lib/creditConfig";
+
+const INSTRUMENTS: { td: string; label: string; cat: string }[] = [
+  { td: "XAU/USD", label: "Gold", cat: "Commodity" },
+  { td: "XAG/USD", label: "Silver", cat: "Commodity" },
+  { td: "WTI/USD", label: "Crude Oil", cat: "Commodity" },
+  { td: "EUR/USD", label: "Euro", cat: "Forex" },
+  { td: "GBP/USD", label: "Pound", cat: "Forex" },
+  { td: "USD/JPY", label: "Yen", cat: "Forex" },
+  { td: "AUD/USD", label: "Aussie", cat: "Forex" },
+  { td: "USD/CAD", label: "Loonie", cat: "Forex" },
+  { td: "SPY", label: "S&P 500", cat: "Index" },
+  { td: "QQQ", label: "Nasdaq 100", cat: "Index" },
+  { td: "DIA", label: "Dow 30", cat: "Index" },
+  { td: "BTC/USD", label: "Bitcoin", cat: "Crypto" },
+  { td: "ETH/USD", label: "Ethereum", cat: "Crypto" },
+];
+
+type TP = { label: string; price: number; risk_reward: number; reason: string; suggested_close_percent: number };
+type Setup = Record<string, unknown> & {
+  status: string; instrument?: string; market_category?: string; timestamp?: string; headline?: string; reason?: string; recheck?: string;
+  direction?: string; order_type?: string; market_regime?: string; strategy?: string; session?: string; setup_expiration?: string;
+  invalidation?: string; confidence?: string; data_provider?: string; data_age_seconds?: number | null; market_status?: string;
+  entry?: { price: number; zone_low?: number; zone_high?: number }; stop_loss?: { price: number; reason: string };
+  take_profits?: TP[]; scores?: Record<string, number>; news_risk?: { level: string; next_event?: string; event_time?: string; note?: string };
+  position_sizing?: Record<string, number | string>; reasoning?: string[]; risk_warnings?: string[]; educational_disclaimer?: string; error?: string;
+};
+type JournalItem = Setup & { id: number };
+
+const fmt = (n: unknown) => (typeof n === "number" && Number.isFinite(n) ? (Math.abs(n) >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : Math.abs(n) >= 1 ? n.toFixed(4) : n.toFixed(6)) : "—");
+
+export function MarketCommand() {
+  const [td, setTd] = useState("XAU/USD");
+  const [balance, setBalance] = useState("10000");
+  const [riskPct, setRiskPct] = useState("1");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<Setup | null>(null);
+  const [error, setError] = useState("");
+  const [needCredits, setNeedCredits] = useState(false);
+  const [journal, setJournal] = useState<JournalItem[]>([]);
+
+  useEffect(() => { try { const raw = localStorage.getItem("om_command"); if (raw) setJournal(JSON.parse(raw)); } catch { /* ignore */ } }, []);
+  function persist(next: JournalItem[]) { setJournal(next); try { localStorage.setItem("om_command", JSON.stringify(next.slice(0, 15))); } catch { /* ignore */ } }
+
+  async function analyze() {
+    if (loading) return;
+    setLoading(true); setError(""); setNeedCredits(false); setResult(null);
+    try {
+      const res = await fetch("/api/market-command", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ td, balance: Number(balance) || undefined, riskPct: Number(riskPct) || undefined }),
+      });
+      const d: Setup = await res.json().catch(() => ({ status: "error" }));
+      if (res.status === 403) { setError(d.reason || "OM AI Market Command is in admin-only beta."); return; }
+      if (res.status === 402 || d.error === "insufficient_credits") { setNeedCredits(true); setError("You're out of credits. They reset tomorrow — or grab more."); return; }
+      if (d.error === "ratelimit" || d.error === "system_busy" || d.error === "notConfigured") { setError(d.reason || "Market data is busy — try again shortly."); return; }
+      if (d.status === "error") { setError(d.reason || "Couldn't run the analysis right now. Try again shortly."); return; }
+      setResult(d);
+      const item: JournalItem = { ...d, id: Date.now() };
+      persist([item, ...journal].slice(0, 15));
+      try { window.dispatchEvent(new Event("credits-updated")); } catch { /* ignore */ }
+    } catch { setError("Something interrupted the connection. Try again."); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div className="relative overflow-hidden rounded-3xl bg-[#0a0b10] text-white ring-1 ring-white/10">
+      <div className="pointer-events-none absolute inset-x-0 -top-24 h-64 bg-[radial-gradient(60%_100%_at_50%_0%,rgba(120,160,210,0.16),transparent)]" />
+      <div className="pointer-events-none absolute inset-0 opacity-[0.04] [background-image:linear-gradient(#fff_1px,transparent_1px),linear-gradient(90deg,#fff_1px,transparent_1px)] [background-size:40px_40px]" />
+
+      <div className="relative z-10 flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-6 py-5 sm:px-8">
+        <div className="flex items-center gap-2.5">
+          <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-sky-300 to-sky-600"><Crosshair className="h-4 w-4 text-[#0a0b10]" /></span>
+          <div>
+            <p className="font-serif text-base font-semibold uppercase tracking-[0.14em]">OM AI Market Command</p>
+            <p className="text-[11px] uppercase tracking-[0.14em] text-white/40">Quantitative setup qualification · admin beta</p>
+          </div>
+        </div>
+        <span className="rounded-full border border-white/15 px-3 py-1 text-[10px] uppercase tracking-[0.14em] text-white/50">NO&nbsp;TRADE is a feature</span>
+      </div>
+
+      <div className="relative z-10 px-6 py-6 sm:px-8">
+        {/* Controls */}
+        <p className="text-[11px] uppercase tracking-[0.12em] text-white/45">Instrument</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {INSTRUMENTS.map((i) => (
+            <button key={i.td} onClick={() => setTd(i.td)} title={`${i.label} · ${i.cat}`}
+              className={`rounded-xl border px-3 py-1.5 text-xs transition-colors ${td === i.td ? "border-sky-400/60 bg-sky-400/10 text-white" : "border-white/12 bg-white/[0.03] text-white/60 hover:text-white/90"}`}>
+              {i.td}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <label className="block">
+            <span className="text-[11px] uppercase tracking-[0.12em] text-white/45">Account balance (USD)</span>
+            <input value={balance} onChange={(e) => setBalance(e.target.value.replace(/[^\d.]/g, ""))} inputMode="decimal"
+              className="mt-1 w-full rounded-xl border border-white/12 bg-white/[0.04] px-3 py-2 text-sm font-semibold tabular-nums text-white outline-none focus:border-sky-400/60" />
+          </label>
+          <label className="block">
+            <span className="text-[11px] uppercase tracking-[0.12em] text-white/45">Risk per trade (%)</span>
+            <input value={riskPct} onChange={(e) => setRiskPct(e.target.value.replace(/[^\d.]/g, ""))} inputMode="decimal"
+              className="mt-1 w-full rounded-xl border border-white/12 bg-white/[0.04] px-3 py-2 text-sm font-semibold tabular-nums text-white outline-none focus:border-sky-400/60" />
+          </label>
+          <button onClick={analyze} disabled={loading}
+            className="inline-flex h-[42px] items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-sky-300 to-sky-600 px-6 text-[12px] font-semibold uppercase tracking-[0.12em] text-[#0a0b10] transition-opacity hover:opacity-90 disabled:opacity-40">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {loading ? "Qualifying…" : "Analyze"}
+            <span className="rounded-full bg-black/15 px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal">{CREDIT_COST.command}</span>
+          </button>
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3 text-sm text-amber-200">
+            <p className="inline-flex items-center gap-2"><ShieldAlert className="h-4 w-4" /> {error}</p>
+            {needCredits && <a href="/portal/credits" className="mt-2 inline-flex rounded-lg bg-sky-400/90 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-[#0a0b10]">Get credits</a>}
+          </div>
+        )}
+
+        {result && <SetupView s={result} />}
+
+        {/* Recent runs */}
+        {journal.length > 0 && (
+          <div className="mt-6">
+            <p className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-[0.12em] text-white/45">
+              <span>Recent runs</span>
+              <button onClick={() => persist([])} className="inline-flex items-center gap-1 text-white/40 hover:text-white/70"><Trash2 className="h-3 w-3" /> clear</button>
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {journal.map((j) => (
+                <button key={j.id} onClick={() => setResult(j)} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-left hover:border-white/25">
+                  <span className="flex items-center gap-2 text-sm font-semibold">{j.instrument}
+                    {j.status === "qualified_setup"
+                      ? <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${j.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>{j.direction}</span>
+                      : <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold uppercase text-white/50"><Ban className="h-3 w-3" /> no trade</span>}
+                  </span>
+                  <span className="text-[10px] text-white/35">{j.scores?.overall != null ? `${j.scores.overall}/100` : ""}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <p className="mt-5 border-t border-white/10 pt-4 text-[11px] leading-relaxed text-white/35">
+          Educational market-analysis & paper-trading decision support — not financial advice, and not a prediction. Trading CFDs, forex, indices and commodities involves substantial risk; you may lose some or all of your capital. Past performance does not guarantee future results. No target is guaranteed to be reached before a stop. Automatic broker execution is disabled.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function SetupView({ s }: { s: Setup }) {
+  if (s.status === "no_trade") {
+    return (
+      <div className="mt-5 rounded-2xl border border-white/12 bg-white/[0.03] p-5">
+        <div className="flex items-center gap-2.5">
+          <span className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white/70"><Ban className="h-4 w-4" /></span>
+          <div>
+            <p className="font-serif text-lg font-bold">{s.instrument} · NO TRADE</p>
+            <p className="text-[11px] uppercase tracking-[0.14em] text-white/45">{s.headline}</p>
+          </div>
+        </div>
+        <p className="mt-3 text-sm leading-relaxed text-white/80">{s.reason}</p>
+        {s.recheck && <p className="mt-2 text-xs text-white/50"><span className="text-white/40">Recheck:</span> {s.recheck}</p>}
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-white/45">
+          {s.market_regime && s.market_regime !== "unavailable" && <span>Regime: <span className="text-white/70">{s.market_regime}</span></span>}
+          {s.session && <span>Session: <span className="text-white/70">{s.session}</span></span>}
+          {s.scores?.data_quality != null && <span>Data quality: <span className="text-white/70">{s.scores.data_quality}/100</span></span>}
+        </div>
+        <p className="mt-3 text-[11px] leading-relaxed text-white/35">{s.educational_disclaimer}</p>
+      </div>
+    );
+  }
+
+  const buy = s.direction === "buy";
+  const dirCol = buy ? "text-emerald-400 bg-emerald-500/15" : "text-red-400 bg-red-500/15";
+  const DirIcon = buy ? ArrowUp : ArrowDown;
+  const sc = s.scores || {};
+  const ps = s.position_sizing || {};
+
+  return (
+    <div className="mt-5 rounded-2xl border border-white/12 bg-white/[0.03] p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-serif text-xl font-bold">{s.instrument}</p>
+          <p className="text-xs text-white/40">{s.market_category} · {s.strategy}</p>
+        </div>
+        <div className="flex flex-col items-end gap-1.5">
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${dirCol}`}><DirIcon className="h-4 w-4" /> {s.direction} · {s.order_type}</span>
+          <span className="rounded-full bg-sky-400/15 px-2.5 py-0.5 text-[10px] font-bold uppercase text-sky-300">Qualified · {s.confidence}</span>
+        </div>
+      </div>
+
+      {/* Levels */}
+      <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+        <Cell label="Entry" v={fmt(s.entry?.price)} tint="text-white" />
+        <Cell label="Stop" v={fmt(s.stop_loss?.price)} tint="text-red-400" icon={<ShieldAlert className="h-3 w-3" />} />
+        <Cell label="Regime" v={String(s.market_regime).split(" ")[0]} tint="text-sky-300" small />
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+        {(s.take_profits || []).map((t) => (
+          <Cell key={t.label} label={`${t.label} · ${t.risk_reward}R`} v={fmt(t.price)} tint="text-emerald-400" icon={<Target className="h-3 w-3" />} note={`${t.suggested_close_percent}%`} />
+        ))}
+      </div>
+
+      {/* Score bar */}
+      <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+        <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.12em] text-white/45">
+          <span className="inline-flex items-center gap-1.5"><Gauge className="h-3.5 w-3.5" /> Setup score</span>
+          <span className="font-serif text-lg font-bold text-white">{sc.overall}/100</span>
+        </div>
+        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+          <div className={`h-full rounded-full ${(sc.overall ?? 0) >= 80 ? "bg-emerald-400" : (sc.overall ?? 0) >= 70 ? "bg-sky-400" : "bg-amber-400"}`} style={{ width: `${Math.min(100, sc.overall ?? 0)}%` }} />
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-white/55 sm:grid-cols-3">
+          {[["Regime", sc.regime], ["Structure", sc.structure], ["Entry", sc.entry], ["R:R", sc.risk_reward], ["Momentum", sc.momentum], ["Volatility", sc.volatility], ["Session", sc.session], ["News", sc.news], ["Data", sc.data_quality]].map(([k, v]) => (
+            <span key={String(k)} className="flex justify-between"><span className="text-white/40">{k}</span><span className="tabular-nums">{v ?? "—"}</span></span>
+          ))}
+        </div>
+      </div>
+
+      {/* Position sizing */}
+      <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+        <p className="text-[11px] uppercase tracking-[0.12em] text-white/45">Position size</p>
+        <div className="mt-1.5 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
+          <span className="font-serif text-lg font-bold text-white">{fmt(ps.position_size)} <span className="text-xs font-normal text-white/50">{String(ps.unit)}</span></span>
+          <span className="text-xs text-white/55">risking {fmt(ps.risk_amount)} ({String(ps.risk_percent)}% of {fmt(ps.account_balance)})</span>
+          <span className="text-xs text-white/40">· {fmt(ps.stop_pips)} pip stop</span>
+        </div>
+      </div>
+
+      {/* News + meta */}
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-white/50">
+        <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> expires {s.setup_expiration ? new Date(s.setup_expiration).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</span>
+        <span>Session: <span className="text-white/70">{s.session}</span></span>
+        <span className="inline-flex items-center gap-1"><TrendingUp className="h-3 w-3" /> {s.data_provider} · {s.data_age_seconds != null ? `${s.data_age_seconds}s old` : "live"}</span>
+      </div>
+
+      {s.news_risk?.note && (
+        <p className="mt-2 inline-flex items-start gap-1.5 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-1.5 text-[11px] text-amber-200/90"><AlertTriangle className="mt-0.5 h-3 w-3 flex-shrink-0" /> {s.news_risk.note}</p>
+      )}
+
+      {/* Reasoning */}
+      {Array.isArray(s.reasoning) && s.reasoning.length > 0 && (
+        <ul className="mt-3 space-y-1.5">
+          {s.reasoning.map((r, i) => (
+            <li key={i} className="flex items-start gap-2 text-sm text-white/80"><Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-sky-300" /> {r}</li>
+          ))}
+        </ul>
+      )}
+
+      {s.stop_loss?.reason && <p className="mt-3 text-xs text-white/50"><span className="text-white/60">Invalidation:</span> {s.stop_loss.reason}</p>}
+
+      {Array.isArray(s.risk_warnings) && s.risk_warnings.length > 0 && (
+        <div className="mt-3 space-y-1">
+          {s.risk_warnings.map((w, i) => (
+            <p key={i} className="flex items-start gap-1.5 text-[11px] text-white/45"><X className="mt-0.5 h-3 w-3 flex-shrink-0 text-white/30" /> {w}</p>
+          ))}
+        </div>
+      )}
+
+      <p className="mt-4 border-t border-white/10 pt-3 text-[11px] leading-relaxed text-white/35">{s.educational_disclaimer}</p>
+    </div>
+  );
+}
+
+function Cell({ label, v, tint, icon, note, small }: { label: string; v: string; tint: string; icon?: React.ReactNode; note?: string; small?: boolean }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] px-2 py-2.5">
+      <p className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.08em] text-white/40">{icon}{label}</p>
+      <p className={`mt-0.5 font-serif ${small ? "text-sm" : "text-base"} font-bold tabular-nums ${tint}`}>{v}</p>
+      {note && <p className="text-[9px] text-white/35">{note}</p>}
+    </div>
+  );
+}
