@@ -20,7 +20,7 @@ const REG: Record<string, Item> = {
   compPlan: { href: "/portal/comp-plan", label: "The Comp Plan", icon: Trophy },
   omai: { href: "/portal/om-ai", label: "OM AI", icon: Sparkles },
   signals: { href: "/portal/signals", label: "OM AI Plays", icon: Zap },
-  xaughost: { href: "/portal/xaughost", label: "XAUGHOST", icon: Ghost },
+  xaughost: { href: "/portal/xaughost", label: "MFXGHOST", icon: Ghost },
   charts: { href: "/portal/charts", label: "OM Charts", icon: CandlestickChart },
   command: { href: "/portal/market-command", label: "OM AI Market Command", icon: Crosshair },
   scanner: { href: "/portal/strategy-scanner", label: "OM Strategy Scanner", icon: Radar },
