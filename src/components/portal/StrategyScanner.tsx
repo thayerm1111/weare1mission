@@ -61,7 +61,7 @@ const COMMODITIES: Inst[] = [
 ];
 const INDICES: Inst[] = [
   { td: "SPY", name: "S&P 500 (SPY)", cat: "Index" },
-  { td: "QQQ", name: "Nasdaq 100 (QQQ)", cat: "Index" },
+  { td: "NAS100", name: "Nasdaq 100 (NAS100)", cat: "Index" },
   { td: "DIA", name: "Dow Jones (DIA)", cat: "Index" },
   { td: "IWM", name: "Russell 2000 (IWM)", cat: "Index" },
 ];
@@ -76,13 +76,13 @@ const CRYPTO: Inst[] = [
   { td: "LTC/USD", name: "Litecoin", cat: "Crypto" },
 ];
 const CATALOG: Inst[] = [...COMMODITIES, ...INDICES, ...majorCrosses(), ...EXOTICS, ...CRYPTO];
-const POPULAR = ["XAU/USD", "EUR/USD", "GBP/USD", "USD/JPY", "GBP/JPY", "WTI/USD", "SPY", "QQQ", "BTC/USD"];
+const POPULAR = ["XAU/USD", "EUR/USD", "GBP/USD", "USD/JPY", "GBP/JPY", "WTI/USD", "SPY", "NAS100", "BTC/USD"];
 
 // Friendly aliases so typing "gold", "nasdaq", "us30" etc. resolves to a symbol.
 const ALIASES: Record<string, string> = {
   GOLD: "XAU/USD", SILVER: "XAG/USD", PLATINUM: "XPT/USD", PALLADIUM: "XPD/USD", COPPER: "XCU/USD",
   OIL: "WTI/USD", CRUDE: "WTI/USD", WTI: "WTI/USD",
-  NASDAQ: "QQQ", NAS100: "QQQ", NAS: "QQQ", US100: "QQQ", USTEC: "QQQ",
+  NASDAQ: "NAS100", NAS100: "NAS100", NAS: "NAS100", US100: "NAS100", USTEC: "NAS100", QQQ: "NAS100",
   SPX: "SPY", SP500: "SPY", US500: "SPY", SPX500: "SPY",
   DOW: "DIA", US30: "DIA", DJIA: "DIA", DJI: "DIA",
   RUSSELL: "IWM", US2000: "IWM",
