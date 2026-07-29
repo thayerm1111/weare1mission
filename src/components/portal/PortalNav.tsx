@@ -225,7 +225,16 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
       {isAdmin && (
         <NavLink
           item={{ href: "/portal/admin", label: "Approvals", icon: ShieldCheck }}
-          active={pathname.startsWith("/portal/admin")}
+          active={pathname === "/portal/admin"}
+          onNav={() => setOpen(false)}
+        />
+      )}
+
+      {/* Credits & conversion (admin) */}
+      {isAdmin && (
+        <NavLink
+          item={{ href: "/portal/admin/credits", label: "Credits", icon: CreditCard }}
+          active={pathname.startsWith("/portal/admin/credits")}
           onNav={() => setOpen(false)}
         />
       )}
