@@ -23,7 +23,7 @@ const INSTRUMENTS: { td: string; label: string; cat: string }[] = [
   { td: "AUD/USD", label: "Aussie", cat: "Forex" },
   { td: "USD/CAD", label: "Loonie", cat: "Forex" },
   { td: "SPY", label: "S&P 500", cat: "Index" },
-  { td: "QQQ", label: "Nasdaq 100", cat: "Index" },
+  { td: "NAS100", label: "Nasdaq 100", cat: "Index" },
   { td: "DIA", label: "Dow 30", cat: "Index" },
   { td: "BTC/USD", label: "Bitcoin", cat: "Crypto" },
   { td: "ETH/USD", label: "Ethereum", cat: "Crypto" },
