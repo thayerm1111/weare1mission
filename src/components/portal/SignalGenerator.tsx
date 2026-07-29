@@ -10,6 +10,7 @@ import { MARKETS, findAsset, type Market, type Asset } from "@/data/signalAssets
 import { earnMission } from "@/lib/earnMission";
 import { CREDIT_COST } from "@/lib/creditConfig";
 import { DeepDiveModal } from "./floor/DeepDive";
+import { CopyBtn, CopyAllBtn, buildTradeText } from "./copykit";
 
 const MARKET_ICON: Record<Market["id"], typeof Bitcoin> = { crypto: Bitcoin, metal: Gem, stock: TrendingUp, forex: Globe, index: BarChart3 };
 const MARKET_TINT: Record<Market["id"], string> = { crypto: "text-orange-400", metal: "text-amber-300", stock: "text-emerald-400", forex: "text-sky-400", index: "text-violet-400" };
@@ -731,16 +732,22 @@ function FullCard({ r, onCheck, checking, onUpdate, updating, update }: { r: Res
       {r.candles && r.candles.length > 3 && <MiniChart candles={r.candles} entry={numOk(s.entry) ? s.entry : null} sl={numOk(s.stopLoss) ? s.stopLoss : null} tps={(s.takeProfits || []).filter(numOk)} hitTp={r.status === "win" ? r.hitTp : undefined} />}
 
       <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-        <Cell label="Entry" value={fmt(s.entry)} tint="text-white" />
-        <Cell label="Stop Loss" value={fmt(s.stopLoss)} tint="text-red-400" icon={<ShieldAlert className="h-3 w-3" />} />
+        <Cell label="Entry" value={fmt(s.entry)} tint="text-white" copy={fmt(s.entry)} />
+        <Cell label="Stop Loss" value={fmt(s.stopLoss)} tint="text-red-400" icon={<ShieldAlert className="h-3 w-3" />} copy={fmt(s.stopLoss)} />
         <Cell label="Risk : Reward" value={s.riskReward || "—"} tint="text-gold-light" />
       </div>
       <div className="mt-2 grid grid-cols-3 gap-2 text-center">
         {[0, 1, 2].map((i) => (
           <Cell key={i} label={`TP${i + 1}`} value={fmt((s.takeProfits || [])[i])} tint="text-emerald-400" icon={<Target className="h-3 w-3" />}
+            copy={fmt((s.takeProfits || [])[i])}
             hit={r.status === "win" && typeof r.hitTp === "number" && i + 1 <= r.hitTp} />
         ))}
       </div>
+      {s.direction !== "NEUTRAL" && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <CopyAllBtn text={buildTradeText({ direction: s.direction, entry: s.entry, stopLoss: s.stopLoss, takeProfits: s.takeProfits, fmt })} />
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/50">
         <span>Confidence: <span className="font-semibold text-white/80">{s.confidence}</span></span>
@@ -888,11 +895,11 @@ function TFBlock({ t }: { t: { tf: string; trend: string; confirmed: number; tot
   );
 }
 
-function Cell({ label, value, tint, icon, hit }: { label: string; value: string; tint: string; icon?: React.ReactNode; hit?: boolean }) {
+function Cell({ label, value, tint, icon, hit, copy }: { label: string; value: string; tint: string; icon?: React.ReactNode; hit?: boolean; copy?: string }) {
   return (
     <div className={`relative rounded-xl border px-2 py-2.5 ${hit ? "border-emerald-400/50 bg-emerald-500/[0.10]" : "border-white/10 bg-white/[0.02]"}`}>
       <p className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.1em] text-white/40">{icon}{label}{hit && <Check className="h-3 w-3 text-emerald-400" />}</p>
-      <p className={`mt-0.5 font-serif text-base font-bold tabular-nums ${tint}`}>{value}</p>
+      <p className={`mt-0.5 flex items-center justify-center gap-1 font-serif text-base font-bold tabular-nums ${tint}`}>{value}{copy ? <CopyBtn value={copy} label={label} /> : null}</p>
       {hit && <span className="absolute -right-1 -top-1 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[8px] font-bold uppercase text-black">Hit</span>}
     </div>
   );
