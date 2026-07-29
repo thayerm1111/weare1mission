@@ -17,7 +17,13 @@ export const dynamic = "force-dynamic";
  * Access rule: allow when the login SUCCEEDS *and* Active_Level is "Active" *and*
  * "Physical access only" is not "Yes". Everything else is denied (with a reason).
  */
-const BASE = process.env.KUVERA_VERIFY_URL || "https://shield.conectivglobal.com/qkuvera/hmember.dhtml";
+// Requests go through the static-IP relay proxy (proxy.weare1mission.com),
+// which is the single address ConectivGlobal whitelists — Vercel's own IPs
+// rotate and would be blocked. The proxy requires the X-Relay-Key header
+// (KUVERA_RELAY_KEY) so it's not an open relay. Override the whole URL with
+// KUVERA_VERIFY_URL if the endpoint ever changes.
+const BASE = process.env.KUVERA_VERIFY_URL || "https://proxy.weare1mission.com/coneqtx/qkuvera/hmember.dhtml";
+const RELAY_KEY = process.env.KUVERA_RELAY_KEY;
 
 // Read a value from the upstream JSON tolerant of key casing/spacing/underscores.
 function pick(obj: Record<string, unknown>, ...names: string[]): string {
@@ -61,7 +67,10 @@ export async function POST(req: NextRequest) {
 
   let data: Record<string, unknown> | null = null;
   try {
-    const r = await fetch(url.toString(), { cache: "no-store" });
+    const r = await fetch(url.toString(), {
+      cache: "no-store",
+      headers: RELAY_KEY ? { "X-Relay-Key": RELAY_KEY } : undefined,
+    });
     const text = await r.text();
     try {
       data = JSON.parse(text);
