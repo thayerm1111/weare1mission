@@ -12,9 +12,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Radar, Loader2, ShieldAlert, ArrowUp, ArrowDown, Target, Gauge, Check, X, Sparkles,
-  Ban, Layers, TrendingUp, Trash2, Search, Activity, Eye,
+  Ban, Layers, TrendingUp, Trash2, Search, Activity, Eye, Send,
 } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
+import { CopyBtn, CopyAllBtn, buildTradeText, cleanNum } from "./copykit";
 
 // -- Instrument catalog --
 // The search box below matches against this list, but you can also just TYPE any
@@ -140,7 +141,7 @@ type TradeUpdate = {
 
 const fmt = (n: unknown) => (typeof n === "number" && Number.isFinite(n) ? (Math.abs(n) >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : Math.abs(n) >= 1 ? n.toFixed(4) : n.toFixed(6)) : "—");
 
-export function StrategyScanner() {
+export function StrategyScanner({ isAdmin = false }: { isAdmin?: boolean }) {
   const [td, setTd] = useState("XAU/USD");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -343,7 +344,7 @@ export function StrategyScanner() {
           </div>
         )}
 
-        {result && <ResultView r={result} onUpdate={() => getUpdate(result)} updating={updating === (result as Journal).id} update={updates[(result as Journal).id ?? -1]} />}
+        {result && <ResultView r={result} isAdmin={isAdmin} onUpdate={() => getUpdate(result)} updating={updating === (result as Journal).id} update={updates[(result as Journal).id ?? -1]} />}
 
         {/* Recent */}
         {journal.length > 0 && (
@@ -375,10 +376,45 @@ export function StrategyScanner() {
   );
 }
 
-function ResultView({ r, onUpdate, updating, update }: { r: Result; onUpdate?: () => void; updating?: boolean; update?: TradeUpdate }) {
+function ResultView({ r, onUpdate, updating, update, isAdmin }: { r: Result; onUpdate?: () => void; updating?: boolean; update?: TradeUpdate; isAdmin?: boolean }) {
   const scouts = Array.isArray(r.scouts) ? r.scouts : [];
   const isSetup = r.status === "setup";
   const buy = r.direction === "LONG";
+
+  const tradeBlock = buildTradeText({
+    direction: r.direction,
+    entry: r.entry,
+    stopLoss: r.stop_loss,
+    takeProfits: r.take_profits,
+    fmt,
+  });
+
+  const [tgBusy, setTgBusy] = useState(false);
+  const [tgDone, setTgDone] = useState(false);
+  const [tgErr, setTgErr] = useState("");
+  async function pushTelegram() {
+    if (tgBusy) return;
+    setTgBusy(true); setTgErr("");
+    try {
+      const res = await fetch("/api/telegram-call", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          symbol: r.symbol,
+          direction: r.direction,
+          entry: cleanNum(fmt(r.entry)),
+          stop_loss: cleanNum(fmt(r.stop_loss)),
+          take_profits: (r.take_profits || []).map((t) => cleanNum(fmt(t))),
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (j.ok) { setTgDone(true); setTimeout(() => setTgDone(false), 3000); }
+      else if (j.notConfigured) { setTgErr("Telegram isn't connected yet — add TELEGRAM_BOT_TOKEN & TELEGRAM_CHANNEL_ID in Vercel."); }
+      else { setTgErr(j.detail || "Couldn't post to Telegram. Try again."); }
+    } catch { setTgErr("Couldn't reach the server. Try again."); }
+    finally { setTgBusy(false); }
+  }
+
   return (
     <div className="mt-5 rounded-2xl border border-white/12 bg-white/[0.03] p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -436,13 +472,25 @@ function ResultView({ r, onUpdate, updating, update }: { r: Result; onUpdate?: (
       {isSetup ? (
         <>
           <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-            <Cell label="Entry" v={fmt(r.entry)} tint="text-white" />
-            <Cell label="Stop" v={fmt(r.stop_loss)} tint="text-red-400" icon={<ShieldAlert className="h-3 w-3" />} />
+            <Cell label="Entry" v={fmt(r.entry)} tint="text-white" copy={fmt(r.entry)} />
+            <Cell label="Stop" v={fmt(r.stop_loss)} tint="text-red-400" icon={<ShieldAlert className="h-3 w-3" />} copy={fmt(r.stop_loss)} />
             <Cell label="Risk : Reward" v={r.risk_reward || "—"} tint="text-indigo-300" small />
           </div>
           <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-            {(r.take_profits || []).map((t, i) => <Cell key={i} label={`TP${i + 1}`} v={fmt(t)} tint="text-emerald-400" icon={<Target className="h-3 w-3" />} />)}
+            {(r.take_profits || []).map((t, i) => <Cell key={i} label={`TP${i + 1}`} v={fmt(t)} tint="text-emerald-400" icon={<Target className="h-3 w-3" />} copy={fmt(t)} />)}
           </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <CopyAllBtn text={tradeBlock} />
+            {isAdmin && (
+              <button type="button" onClick={pushTelegram} disabled={tgBusy}
+                className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/40 bg-sky-400/10 px-3.5 py-1.5 text-[12px] font-semibold text-sky-300 transition-colors hover:bg-sky-400/20 disabled:opacity-40">
+                {tgBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : tgDone ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Send className="h-3.5 w-3.5" />}
+                {tgDone ? "Posted to Telegram" : "Push to Telegram"}
+              </button>
+            )}
+          </div>
+          {tgErr && <p className="mt-2 text-[11px] leading-relaxed text-amber-300">{tgErr}</p>}
           {Array.isArray(r.reasoning) && r.reasoning.length > 0 && (
             <ul className="mt-4 space-y-1.5">
               {r.reasoning.map((x, i) => <li key={i} className="flex items-start gap-2 text-sm text-white/80"><Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-indigo-300" /> {x}</li>)}
@@ -459,11 +507,11 @@ function ResultView({ r, onUpdate, updating, update }: { r: Result; onUpdate?: (
   );
 }
 
-function Cell({ label, v, tint, icon, small }: { label: string; v: string; tint: string; icon?: React.ReactNode; small?: boolean }) {
+function Cell({ label, v, tint, icon, small, copy }: { label: string; v: string; tint: string; icon?: React.ReactNode; small?: boolean; copy?: string }) {
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.02] px-2 py-2.5">
       <p className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.08em] text-white/40">{icon}{label}</p>
-      <p className={`mt-0.5 font-serif ${small ? "text-sm" : "text-base"} font-bold tabular-nums ${tint}`}>{v}</p>
+      <p className={`mt-0.5 flex items-center justify-center gap-1 font-serif ${small ? "text-sm" : "text-base"} font-bold tabular-nums ${tint}`}>{v}{copy ? <CopyBtn value={copy} label={label} /> : null}</p>
     </div>
   );
 }
