@@ -21,7 +21,13 @@ export const dynamic = "force-dynamic";
  * for an active member, used to set their own weare1mission password); it is
  * never stored in plaintext, never logged, and never returned to the client.
  */
-const BASE = process.env.KUVERA_VERIFY_URL || "https://shield.conectivglobal.com/qkuvera/hmember.dhtml";
+// Requests go through the static-IP relay proxy (proxy.weare1mission.com),
+// which is the single address ConectivGlobal whitelists — Vercel's own IPs
+// rotate and would be blocked. The proxy requires the X-Relay-Key header
+// (KUVERA_RELAY_KEY) so it's not an open relay. Override the whole URL with
+// KUVERA_VERIFY_URL if the endpoint ever changes.
+const BASE = process.env.KUVERA_VERIFY_URL || "https://proxy.weare1mission.com/coneqtx/qkuvera/hmember.dhtml";
+const RELAY_KEY = process.env.KUVERA_RELAY_KEY;
 
 function json(obj: unknown, status = 200) {
   return new Response(JSON.stringify(obj), {
@@ -64,7 +70,10 @@ async function verifyConectiv(login: string, password: string): Promise<Verdict>
 
   let data: Record<string, unknown> | null = null;
   try {
-    const r = await fetch(url.toString(), { cache: "no-store" });
+    const r = await fetch(url.toString(), {
+      cache: "no-store",
+      headers: RELAY_KEY ? { "X-Relay-Key": RELAY_KEY } : undefined,
+    });
     const text = await r.text();
     try {
       data = JSON.parse(text);
