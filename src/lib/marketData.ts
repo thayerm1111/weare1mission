@@ -27,6 +27,31 @@ const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "thayerm1111@gmail.com")
 
 export type Row = { datetime: string; open: string; high: string; low: string; close: string };
 
+// ── Synthetic index instruments ─────────────────────────────────────────────
+// Twelve Data's plan here serves NO clean Nasdaq-100 index level (NDX / US100 /
+// NAS100 / ^NDX all resolve to unrelated tickers or "unavailable"). So we present
+// NAS100 in true index terms by sourcing the liquid QQQ ETF — which tracks the
+// Nasdaq-100 tick-for-tick — and scaling it to the index level.
+//   scale = index level / QQQ price, verified live: 27,756.65 / 675.5 = 41.09.
+// Re-tune SCALE if the two drift materially (QQQ's tiny expense-ratio/dividend
+// drift moves the ratio by a fraction of a percent per year).
+const SYNTH: Record<string, { base: string; scale: number }> = {
+  NAS100: { base: "QQQ", scale: 41.09 },
+};
+
+/** Map a display symbol to the symbol we actually fetch + the scale to apply. */
+export function resolveTd(td: string): { fetchTd: string; scale: number } {
+  const s = SYNTH[td];
+  return s ? { fetchTd: s.base, scale: s.scale } : { fetchTd: td, scale: 1 };
+}
+
+/** Scale every OHLC field of a candle series (no-op when scale === 1). */
+export function scaleRows(rows: Row[], scale: number): Row[] {
+  if (scale === 1) return rows;
+  const m = (x: string) => String(Number(x) * scale);
+  return rows.map((r) => ({ datetime: r.datetime, open: m(r.open), high: m(r.high), low: m(r.low), close: m(r.close) }));
+}
+
 /** True for accounts that always get fresh, un-throttled data (the owner/admins). */
 export function isPriorityEmail(email?: string | null): boolean {
   return !!email && ADMIN_EMAILS.includes(email.toLowerCase());
@@ -99,9 +124,10 @@ export async function series(
   const g = await getOrReserve(ck, 1, fresh);
   if (g.hit && Array.isArray(g.payload)) return g.payload as Row[];
   if (g.ok === false) return "ratelimit";
+  const { fetchTd, scale } = resolveTd(td);
   try {
     const r = await fetch(
-      `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=${interval}&outputsize=${size}&apikey=${key}`,
+      `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(fetchTd)}&interval=${interval}&outputsize=${size}&apikey=${key}`,
       { cache: "no-store" },
     );
     const j = await r.json();
@@ -110,7 +136,7 @@ export async function series(
       if (r.status === 429 || j?.code === 429 || /credit|limit|per minute/i.test(msg)) return "ratelimit";
       return null;
     }
-    const rows = [...(j.values as Row[])].reverse();
+    const rows = scaleRows([...(j.values as Row[])].reverse(), scale);
     await putCache(ck, rows);
     return rows;
   } catch {
@@ -130,16 +156,18 @@ export async function livePrice(td: string, key: string, fresh = false): Promise
     return Number.isFinite(cached) ? cached : null;
   }
   if (g.ok === false) return null;
+  const { fetchTd, scale } = resolveTd(td);
   try {
     const r = await fetch(
-      `https://api.twelvedata.com/price?symbol=${encodeURIComponent(td)}&apikey=${key}`,
+      `https://api.twelvedata.com/price?symbol=${encodeURIComponent(fetchTd)}&apikey=${key}`,
       { cache: "no-store" },
     );
     const j = await r.json();
     const p = Number(j?.price);
     if (Number.isFinite(p)) {
-      await putCache(ck, p);
-      return p;
+      const sp = p * scale;
+      await putCache(ck, sp);
+      return sp;
     }
     return null;
   } catch {
