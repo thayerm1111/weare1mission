@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
 import { reserveMarketData, resolveTd } from "@/lib/marketData";
 import { getProfile } from "@/lib/auth";
+import { assessNews } from "@/lib/econCalendar";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -298,12 +299,12 @@ export async function POST(req: NextRequest) {
   if (posSize <= 0) riskWarnings.push("Computed position size rounded to zero at this risk % — increase balance or risk to trade this instrument.");
   riskWarnings.push(`Position size uses standard CFD contract specs for ${spec.cat}; confirm pip value and lot step against your own broker before trading.`);
 
-  // ── News gate (mock/sandbox until ECON_CALENDAR_API_KEY is added) ───────────
-  const hasCalendar = !!process.env.ECON_CALENDAR_API_KEY;
-  const news = hasCalendar
-    ? { level: "unknown", next_event: "", event_time: "", note: "Economic-calendar provider connected but live query not yet implemented in this phase." }
-    : { level: "unknown", next_event: "", event_time: "", note: "Economic calendar not connected — set ECON_CALENDAR_API_KEY to enable news blackout filtering. News risk is NOT being screened right now." };
-  const newsScore = hasCalendar ? 70 : 55;
+  // ── News gate (economic-calendar blackout via FMP) ──────────────────────────
+  const news = await assessNews(td, nowMs);
+  if (news.blackout) {
+    return noTrade(td, spec, "NO TRADE — NEWS BLACKOUT", news.note, dqScore, { regime, session });
+  }
+  const newsScore = news.level === "clear" ? 80 : news.level === "low" ? 68 : news.level === "medium" ? 50 : news.screened ? 70 : 55;
 
   // ── Scoring ────────────────────────────────────────────────────────────────
   const rrScore = Math.min(100, Math.round((rr1 / 3) * 100));
