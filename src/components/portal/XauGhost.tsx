@@ -14,6 +14,7 @@ import {
   Crosshair, Compass, Clock, AlertTriangle, Sparkles, TrendingUp, Trophy, BarChart3, ListChecks, BookOpen, GraduationCap, Activity, Eye,
 } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
+import { CopyBtn, CopyAllBtn, buildTradeText } from "./copykit";
 
 type Entries = { primary: number | null; aggressive: number | null; conservative: number | null; confirmation?: string };
 type LiquidityMap = { buyside?: string[]; sellside?: string[]; taken?: string[]; resting?: string[] };
@@ -363,16 +364,21 @@ export function XauGhost() {
             {(read.entries || read.stopLoss != null || (read.takeProfits && read.takeProfits.length > 0)) && (
               <Section icon={<Target className="h-3.5 w-3.5" />} title={noTrade ? "Trade plan (low conviction)" : "Trade plan"}>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  <Stat label="Primary entry" value={fmt(read.entries?.primary)} />
-                  <Stat label="Aggressive" value={fmt(read.entries?.aggressive)} />
-                  <Stat label="Conservative" value={fmt(read.entries?.conservative)} />
-                  <Stat label="Stop loss" value={fmt(read.stopLoss)} tone="red" />
+                  <Stat label="Primary entry" value={fmt(read.entries?.primary)} copy={fmt(read.entries?.primary)} />
+                  <Stat label="Aggressive" value={fmt(read.entries?.aggressive)} copy={fmt(read.entries?.aggressive)} />
+                  <Stat label="Conservative" value={fmt(read.entries?.conservative)} copy={fmt(read.entries?.conservative)} />
+                  <Stat label="Stop loss" value={fmt(read.stopLoss)} tone="red" copy={fmt(read.stopLoss)} />
                   <Stat label="Risk : reward" value={read.riskReward || "—"} tone="gold" />
                   <Stat label="—" value="" hidden />
                 </div>
                 <div className="mt-2 grid grid-cols-3 gap-2">
-                  {[0, 1, 2].map((i) => <Stat key={i} label={`TP${i + 1}`} value={fmt((read.takeProfits || [])[i])} tone="emerald" />)}
+                  {[0, 1, 2].map((i) => <Stat key={i} label={`TP${i + 1}`} value={fmt((read.takeProfits || [])[i])} tone="emerald" copy={fmt((read.takeProfits || [])[i])} />)}
                 </div>
+                {read.direction && read.direction !== "NONE" && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <CopyAllBtn text={buildTradeText({ direction: read.direction, entry: read.entries?.primary, stopLoss: read.stopLoss, takeProfits: read.takeProfits, fmt })} />
+                  </div>
+                )}
                 {read.entries?.confirmation && <p className="mt-3 text-xs text-white/55"><span className="text-white/40">Confirmation:</span> {read.entries.confirmation}</p>}
                 {read.direction && read.direction !== "NONE" && read.entries?.primary != null && read.stopLoss != null && (read.takeProfits?.length ?? 0) > 0 && (
                   <button onClick={() => void getUpdate()} disabled={ghostUpdating}
@@ -491,13 +497,13 @@ function LiqCol({ label, items, tone }: { label: string; items?: string[]; tone:
   );
 }
 
-function Stat({ label, value, tone, hidden }: { label: string; value: string; tone?: "red" | "emerald" | "gold"; hidden?: boolean }) {
+function Stat({ label, value, tone, hidden, copy }: { label: string; value: string; tone?: "red" | "emerald" | "gold"; hidden?: boolean; copy?: string }) {
   if (hidden) return <div className="hidden sm:block" />;
   const col = tone === "red" ? "text-red-400" : tone === "emerald" ? "text-emerald-400" : tone === "gold" ? "text-[#CFC7B3]" : "text-white";
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.02] px-2 py-2.5 text-center">
       <p className="text-[10px] uppercase tracking-[0.1em] text-white/40">{label}</p>
-      <p className={`mt-0.5 font-serif text-base font-bold tabular-nums ${col}`}>{value}</p>
+      <p className={`mt-0.5 flex items-center justify-center gap-1 font-serif text-base font-bold tabular-nums ${col}`}>{value}{copy ? <CopyBtn value={copy} label={label} /> : null}</p>
     </div>
   );
 }
