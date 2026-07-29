@@ -1,7 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
-import { reserveMarketData } from "@/lib/marketData";
+import { reserveMarketData, resolveTd } from "@/lib/marketData";
 import { getProfile } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -110,19 +110,24 @@ function pivots(h: number[], l: number[], k = 2) {
 
 // ── Data fetch ───────────────────────────────────────────────────────────────
 async function series(td: string, interval: string, size: number, key: string): Promise<Row[] | "ratelimit" | null> {
+  const { fetchTd, scale } = resolveTd(td);
   try {
-    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=${interval}&outputsize=${size}&apikey=${key}`, { cache: "no-store" });
+    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(fetchTd)}&interval=${interval}&outputsize=${size}&apikey=${key}`, { cache: "no-store" });
     const j = await r.json();
     if (j.status === "error" || !Array.isArray(j.values)) {
       const msg = String(j?.message || "");
       if (r.status === 429 || j?.code === 429 || /credit|limit|per minute/i.test(msg)) return "ratelimit";
       return null;
     }
-    return [...(j.values as Row[])].reverse();
+    const rows = [...(j.values as Row[])].reverse();
+    if (scale === 1) return rows;
+    const m = (x: string) => String(Number(x) * scale);
+    return rows.map((v) => ({ ...v, open: m(v.open), high: m(v.high), low: m(v.low), close: m(v.close) }));
   } catch { return null; }
 }
 async function livePrice(td: string, key: string): Promise<number | null> {
-  try { const r = await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(td)}&apikey=${key}`, { cache: "no-store" }); const j = await r.json(); const p = Number(j?.price); return Number.isFinite(p) ? p : null; } catch { return null; }
+  const { fetchTd, scale } = resolveTd(td);
+  try { const r = await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(fetchTd)}&apikey=${key}`, { cache: "no-store" }); const j = await r.json(); const p = Number(j?.price); return Number.isFinite(p) ? p * scale : null; } catch { return null; }
 }
 
 const INTERVAL_MS: Record<string, number> = { "5min": 300000, "15min": 900000, "1h": 3600000, "1day": 86400000 };
