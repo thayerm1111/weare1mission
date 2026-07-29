@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { resolveTd } from "@/lib/marketData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,14 +35,18 @@ export async function POST(req: NextRequest) {
   const tps = (Array.isArray(b.tps) ? b.tps.map(Number) : [Number(b.tp1)]).filter(numOk);
   if (!td || !since || !direction || !numOk(sl) || tps.length === 0) return json({ status: "open" }, 200);
 
+  const { fetchTd, scale } = resolveTd(td);
   let rows: { datetime: string; high: string; low: string }[] = [];
   try {
     const r = await fetch(
-      `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=${interval}&outputsize=500&start_date=${encodeURIComponent(since)}&apikey=${mdKey}`,
+      `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(fetchTd)}&interval=${interval}&outputsize=500&start_date=${encodeURIComponent(since)}&apikey=${mdKey}`,
       { cache: "no-store" }
     );
     const j = await r.json();
-    if (Array.isArray(j.values)) rows = [...j.values].reverse(); // chronological
+    if (Array.isArray(j.values)) {
+      rows = [...j.values].reverse(); // chronological
+      if (scale !== 1) rows = rows.map((c) => ({ datetime: c.datetime, high: String(Number(c.high) * scale), low: String(Number(c.low) * scale) }));
+    }
   } catch { return json({ status: "open" }, 200); }
 
   // Highest take-profit level reached, in order, so we can report TP3 > TP2 > TP1.
