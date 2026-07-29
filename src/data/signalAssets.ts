@@ -62,10 +62,11 @@ export const MARKETS: Market[] = [
     name: "Index",
     desc: "S&P 500, Nasdaq & Dow (real-time ETFs)",
     assets: [
-      // Real-time ETF proxies — track the index tick-for-tick on the Grow plan.
-      // (Twelve Data doesn't serve clean index levels for SPX/NDX/DJI here.)
+      // S&P and Dow use real-time ETF proxies (Twelve Data serves no clean index
+      // level on this plan). NAS100 is presented at the true index level via the
+      // QQQ→index scaling in lib/marketData (resolveTd/scaleRows).
       { symbol: "SPY", name: "S&P 500 · SPY", td: "SPY" },
-      { symbol: "QQQ", name: "Nasdaq 100 · QQQ", td: "QQQ" },
+      { symbol: "NAS100", name: "Nasdaq 100 · NAS100", td: "NAS100" },
       { symbol: "DIA", name: "Dow Jones · DIA", td: "DIA" },
     ],
   },
