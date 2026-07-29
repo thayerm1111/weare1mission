@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { reserveMarketData } from "@/lib/marketData";
+import { reserveMarketData, resolveTd } from "@/lib/marketData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,15 +26,16 @@ export async function GET(req: NextRequest) {
   const md = await reserveMarketData(1);
   if (!md.ok) return json({ error: "system_busy" }, 429);
 
+  const { fetchTd, scale } = resolveTd(td);
   try {
     const r = await fetch(
-      `https://api.twelvedata.com/price?symbol=${encodeURIComponent(td)}&apikey=${mdKey}`,
+      `https://api.twelvedata.com/price?symbol=${encodeURIComponent(fetchTd)}&apikey=${mdKey}`,
       { cache: "no-store" }
     );
     const j = await r.json();
-    const price = Number(j?.price);
-    if (!Number.isFinite(price)) return json({ error: "unavailable" }, 200);
-    return json({ price }, 200);
+    const raw = Number(j?.price);
+    if (!Number.isFinite(raw)) return json({ error: "unavailable" }, 200);
+    return json({ price: raw * scale }, 200);
   } catch {
     return json({ error: "unavailable" }, 200);
   }
