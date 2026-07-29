@@ -252,7 +252,7 @@ function scoutRSI(rows: Row[], htf: Trend): Scout {
 
 const ALL_SCOUTS = ["structure", "liquidity", "fvg", "sr", "trend", "rsi", "fib", "breakRetest"];
 const INTENT: Record<string, { exec: string; ctx: string; ctx2: string; label: string; note: string }> = {
-  scalp: { exec: "15min", ctx: "1h", ctx2: "4h", label: "Scalp", note: "a quick 30–100 pip move in the next ~30–90 minutes" },
+  scalp: { exec: "5min", ctx: "1h", ctx2: "4h", label: "Scalp", note: "a quick 30–100 pip move in the next ~15–45 minutes" },
   intraday: { exec: "1h", ctx: "4h", ctx2: "1day", label: "Intraday", note: "a bigger intraday move" },
   swing: { exec: "1day", ctx: "1week", ctx2: "1week", label: "Swing", note: "the overall multi-day direction" },
 };
