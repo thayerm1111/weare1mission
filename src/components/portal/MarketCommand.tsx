@@ -12,6 +12,7 @@ import {
   Ban, Check, Sparkles, TrendingUp, AlertTriangle, Trash2, X, Activity, Eye,
 } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
+import { CopyBtn, CopyAllBtn, buildTradeText } from "./copykit";
 
 const INSTRUMENTS: { td: string; label: string; cat: string }[] = [
   { td: "XAU/USD", label: "Gold", cat: "Commodity" },
@@ -247,14 +248,17 @@ function SetupView({ s, onUpdate, updating, update }: { s: Setup; onUpdate?: () 
 
       {/* Levels */}
       <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-        <Cell label="Entry" v={fmt(s.entry?.price)} tint="text-white" />
-        <Cell label="Stop" v={fmt(s.stop_loss?.price)} tint="text-red-400" icon={<ShieldAlert className="h-3 w-3" />} />
+        <Cell label="Entry" v={fmt(s.entry?.price)} tint="text-white" copy={fmt(s.entry?.price)} />
+        <Cell label="Stop" v={fmt(s.stop_loss?.price)} tint="text-red-400" icon={<ShieldAlert className="h-3 w-3" />} copy={fmt(s.stop_loss?.price)} />
         <Cell label="Regime" v={String(s.market_regime).split(" ")[0]} tint="text-sky-300" small />
       </div>
       <div className="mt-2 grid grid-cols-3 gap-2 text-center">
         {(s.take_profits || []).map((t) => (
-          <Cell key={t.label} label={`${t.label} · ${t.risk_reward}R`} v={fmt(t.price)} tint="text-emerald-400" icon={<Target className="h-3 w-3" />} note={`${t.suggested_close_percent}%`} />
+          <Cell key={t.label} label={`${t.label} · ${t.risk_reward}R`} v={fmt(t.price)} tint="text-emerald-400" icon={<Target className="h-3 w-3" />} note={`${t.suggested_close_percent}%`} copy={fmt(t.price)} />
         ))}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <CopyAllBtn text={buildTradeText({ direction: s.direction, entry: s.entry?.price, stopLoss: s.stop_loss?.price, takeProfits: (s.take_profits || []).map((t) => t.price), fmt })} />
       </div>
 
       {/* Score bar */}
@@ -318,11 +322,11 @@ function SetupView({ s, onUpdate, updating, update }: { s: Setup; onUpdate?: () 
   );
 }
 
-function Cell({ label, v, tint, icon, note, small }: { label: string; v: string; tint: string; icon?: React.ReactNode; note?: string; small?: boolean }) {
+function Cell({ label, v, tint, icon, note, small, copy }: { label: string; v: string; tint: string; icon?: React.ReactNode; note?: string; small?: boolean; copy?: string }) {
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.02] px-2 py-2.5">
       <p className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.08em] text-white/40">{icon}{label}</p>
-      <p className={`mt-0.5 font-serif ${small ? "text-sm" : "text-base"} font-bold tabular-nums ${tint}`}>{v}</p>
+      <p className={`mt-0.5 flex items-center justify-center gap-1 font-serif ${small ? "text-sm" : "text-base"} font-bold tabular-nums ${tint}`}>{v}{copy ? <CopyBtn value={copy} label={label} /> : null}</p>
       {note && <p className="text-[9px] text-white/35">{note}</p>}
     </div>
   );
