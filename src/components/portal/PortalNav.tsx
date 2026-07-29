@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair, Radar,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair, Radar, LifeBuoy,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
@@ -34,14 +34,15 @@ const REG: Record<string, Item> = {
   experiences: { href: "/portal/experiences", label: "1M Experiences", icon: Palmtree },
   credits: { href: "/portal/credits", label: "Credits", icon: CreditCard },
   account: { href: "/portal/account", label: "Account", icon: UserCircle },
+  support: { href: "/portal/support", label: "Support", icon: LifeBuoy },
 };
 
 // The Ones = customers · The Builders = affiliates
 // The Ones side is organized so the trading desk (The Floor) is the hub: the
 // live rooms AND the AI tools (OM Charts, OM AI, OM AI Plays, XAUGHOST) all nest
 // under it. Credits nests under Account. Leaderboard sits at the very bottom.
-const ONES = ["startHere", "schedule", "trading", "leadership", "updates", "collection", "experiences", "account", "leaderboard"];
-const BUILDERS = ["omai", "prospects", "team", "compPlan", "schedule", "leadership", "training", "resources", "updates", "account", "leaderboard"];
+const ONES = ["startHere", "schedule", "trading", "leadership", "updates", "collection", "experiences", "account", "support", "leaderboard"];
+const BUILDERS = ["omai", "prospects", "team", "compPlan", "schedule", "leadership", "training", "resources", "updates", "account", "support", "leaderboard"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources", "compPlan"];
 const ONES_ONLY = ["trading", "signals", "xaughost", "charts", "command", "scanner"];
 
