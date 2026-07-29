@@ -26,7 +26,7 @@ const UNIVERSE: { symbol: string; name: string; td: string }[] = [
   { symbol: "USD/JPY", name: "Yen", td: "USD/JPY" },
   { symbol: "XAU/USD", name: "Gold", td: "XAU/USD" },
   { symbol: "DIA", name: "Dow Jones (US30)", td: "DIA" },
-  { symbol: "QQQ", name: "Nasdaq 100 (NAS100)", td: "QQQ" },
+  { symbol: "NAS100", name: "Nasdaq 100 (NAS100)", td: "NAS100" },
   { symbol: "BTC/USD", name: "Bitcoin", td: "BTC/USD" },
   { symbol: "ETH/USD", name: "Ethereum", td: "ETH/USD" },
 ];
