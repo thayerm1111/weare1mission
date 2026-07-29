@@ -199,7 +199,7 @@ Deliver the full MFXGHOST read for ${inst.label} as the specified JSON now.`;
     const r = await fetch(ANTHROPIC_URL, {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": aiKey, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: MODEL, max_tokens: 4096, system, messages: [{ role: "user", content: user }] }),
+      body: JSON.stringify({ model: MODEL, max_tokens: 4096, system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }], messages: [{ role: "user", content: user }] }),
     });
     ai = await r.json();
   } catch { return json({ error: "ai_error", detail: "The desk is busy — try again in a moment." }, 502); }
