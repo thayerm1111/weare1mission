@@ -66,20 +66,38 @@ export async function POST(req: NextRequest) {
   url.searchParams.set("password", password);
 
   let data: Record<string, unknown> | null = null;
+  // TEMP DIAGNOSTIC: for a single sentinel login only, surface the raw proxy
+  // response (status + content-type + short snippet) so we can tell a proxy
+  // key/host failure apart from a genuine Conectiv rejection. Never triggers
+  // for a real member (sentinel is a fixed non-existent id). Remove after use.
+  const DIAG = login === "__diag_probe_9f3a__";
+  let diagStatus = 0;
+  let diagCtype = "";
+  let diagLen = 0;
+  let diagHead = "";
   try {
     const r = await fetch(url.toString(), {
       cache: "no-store",
       headers: RELAY_KEY ? { "X-Relay-Key": RELAY_KEY } : undefined,
     });
     const text = await r.text();
+    diagStatus = r.status;
+    diagCtype = r.headers.get("content-type") || "";
+    diagLen = text.length;
+    if (DIAG) diagHead = text.slice(0, 200);
     try {
       data = JSON.parse(text);
     } catch {
       const m = text.match(/\{[\s\S]*\}/); // tolerate stray wrapping text
       if (m) { try { data = JSON.parse(m[0]); } catch { data = null; } }
     }
-  } catch {
+  } catch (e) {
+    if (DIAG) return json({ _diag: { threw: true, err: String(e).slice(0, 200), relayKeySet: !!RELAY_KEY, base: BASE } }, 200);
     return json({ error: "upstream_unreachable", reason: "Couldn't reach the membership service — try again shortly." }, 502);
+  }
+
+  if (DIAG) {
+    return json({ _diag: { status: diagStatus, ctype: diagCtype, len: diagLen, head: diagHead, parsedJson: !!data, relayKeySet: !!RELAY_KEY, base: BASE } }, 200);
   }
 
   if (!data || typeof data !== "object") {
