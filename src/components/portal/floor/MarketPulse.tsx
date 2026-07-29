@@ -18,7 +18,7 @@ import { CREDIT_COST } from "@/lib/creditConfig";
 const catOf = (td: string) =>
   /BTC|ETH|SOL|XRP|DOGE/i.test(td) ? "Crypto"
     : /XAU|XAG|WTI|BRENT/i.test(td) ? "Commodity"
-    : /DJI|NDX|SPX|QQQ|DIA|SPY/i.test(td) ? "Index"
+    : /DJI|NDX|SPX|QQQ|DIA|SPY|NAS100|US100|US500|US30/i.test(td) ? "Index"
     : "Forex";
 
 type CheckItem = { label: string; ok: boolean };
