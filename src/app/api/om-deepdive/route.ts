@@ -1,7 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
-import { reserveMarketData } from "@/lib/marketData";
+import { reserveMarketData, resolveTd } from "@/lib/marketData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,11 +32,15 @@ function rsi(c: number[], p = 14) { if (c.length < p + 1) return null; let g = 0
 const clamp = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, n));
 
 async function fetchDaily(td: string, key: string): Promise<Row[] | null> {
+  const { fetchTd, scale } = resolveTd(td);
   try {
-    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=1day&outputsize=220&apikey=${key}`, { cache: "no-store" });
+    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(fetchTd)}&interval=1day&outputsize=220&apikey=${key}`, { cache: "no-store" });
     const j = await r.json();
     if (!Array.isArray(j?.values)) return null;
-    return (j.values as Row[]).slice().reverse();
+    const rows = (j.values as Row[]).slice().reverse();
+    if (scale === 1) return rows;
+    const m = (x: string) => String(Number(x) * scale);
+    return rows.map((v) => ({ ...v, open: m(v.open), high: m(v.high), low: m(v.low), close: m(v.close) }));
   } catch { return null; }
 }
 
