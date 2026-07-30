@@ -413,36 +413,19 @@ export async function POST(req: NextRequest) {
   const orderType = isLong ? (entry < px ? "limit" : "market") : (entry > px ? "limit" : "market");
   const confidence = confluence >= 78 ? "High" : confluence >= 60 ? "Medium" : "Low";
 
-  // ── Chase guard ───────────────────────────────────────────────────────────
-  // Default behaviour is UNCHANGED: a limit/retest entry is still called even
-  // when live price currently sits above (long) / below (short) the entry —
-  // price often blows past a level, comes back to retest, and then continues,
-  // which is a perfectly good trade. We ONLY switch to a "missed" result when
-  // price has TRULY left: it has travelled more than a full planned-risk
-  // (1.2R) beyond the ideal entry. By then a retest that deep would put the
-  // structure in doubt, price has already covered ~80%+ of the move to the
-  // first target (reward gone), and the fixed stop would be far more exposed —
-  // so there is genuinely no point entering even if it did come back.
-  // Breakout / market entries (entry ≈ live price) can never trip this.
-  const CHASE_R = 1.2;
-  const runPast = isLong ? px - entry : entry - px;   // distance live price ran past the ideal entry, in trade direction
+  // ── Price-extended heads-up (NON-BLOCKING) ────────────────────────────────
+  // The trade is ALWAYS produced — a limit/retest entry is valid even when price
+  // has moved past it, because price routinely runs, comes back to retest, and
+  // then continues. We NEVER withhold the setup. We only ATTACH a soft heads-up
+  // when live price has already travelled well past the ideal entry (≥1.5× the
+  // planned stop), so the trader knows the retest may be deep or may not fill.
+  // Breakout / market entries (entry ≈ live price) never trigger it.
+  const runPast = isLong ? px - entry : entry - px;   // how far live price ran past the ideal entry, in trade direction
   const runR = risk > 0 ? runPast / risk : 0;
-  if (orderType === "limit" && runR >= CHASE_R) {
-    const missed = {
-      status: "missed" as const, symbol: found.asset.symbol, instrument: td, market: found.market.name, style: intent.label,
-      direction: dir, order_type: orderType, price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive,
-      htf_trend: htf, confluence, agreement: +agreement.toFixed(2), confidence,
-      regime_label: regimeLabel, regime_basis: regimeBasis,
-      ideal_entry: entry, missed_by_pips: +(runPast / pip).toFixed(1), ran_r: +runR.toFixed(1),
-      strategy: `Missed — price already extended · ${dir}`,
-      strategy_why: `The ${dir} read was valid — structure broke ${isLong ? "up" : "down"} in line with the ${regimeLabel.toLowerCase()} — but live price has already run ${runR.toFixed(1)}× the planned risk past the ideal entry (${entry} → now ${f(px)}, ~${Math.round(Math.abs(runPast) / pip)} pips away). A retest that deep would call the move into question, and even if price did come back, most of the move to the first target is already gone while the stop would be fully exposed. There's no good entry here right now — better to let this one go and take the next clean setup.`,
-      scouts: scouts.map((s) => ({ ...s, level: s.level != null ? f(s.level) : undefined })),
-      headline: `${found.asset.symbol} · ${dir} — MISSED (price already ran)`,
-      educational: "Educational market analysis only — not financial advice. Missing a trade is normal and protects capital: chasing an already-extended move is how good setups turn into bad entries. WAIT / MISSED are valid, disciplined results.",
-    };
-    await chargeCredit("signal");
-    return json(missed, 200);
-  }
+  const priceExtended = orderType === "limit" && runR >= 1.5;
+  const extendedNote = priceExtended
+    ? `Heads up — price has already moved ~${Math.round(Math.abs(runPast) / pip)} pips (${runR.toFixed(1)}× the stop) past the ideal entry of ${entry} since this level formed. The retest may be shallow or may not fill; wait for price to come back to the level rather than chasing it here.`
+    : null;
 
   // Name the strategy the engine actually chose, given the regime + which scouts fired.
   const isReversal = reversalConfirmed && ((htf === "bearish" && isLong) || (htf === "bullish" && !isLong));
@@ -473,6 +456,7 @@ export async function POST(req: NextRequest) {
     direction: dir, order_type: orderType, price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf, confluence, agreement: +agreement.toFixed(2), confidence,
     regime_label: regimeLabel, regime_basis: regimeBasis, strategy, strategy_why: strategyWhy,
     entry, stop_loss: stop, take_profits: targets, risk_reward: `1:${rr1}`, stop_pips: +(risk / pip).toFixed(1),
+    price_extended: priceExtended, extended_note: extendedNote, ran_r: +runR.toFixed(1),
     reversal: reversalConfirmed && ((htf === "bearish" && isLong) || (htf === "bullish" && !isLong)),
     scouts: scouts.map((s) => ({ ...s, level: s.level != null ? f(s.level) : undefined })),
     headline: `${found.asset.symbol} · ${dir} — ${firing.length} strategies agree (${confluence}/100)`,
