@@ -1,7 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
-import { series, livePrice, isPriorityEmail } from "@/lib/marketData";
+import { series, livePrice, isPriorityEmail, livePriceSane } from "@/lib/marketData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -123,7 +123,13 @@ export async function POST(req: NextRequest) {
     return json({ error: "ratelimit", detail: "Market-data limit hit for a moment — give it a minute and run again." }, 429);
   }
   const live = await livePrice(TD, mdKey, fresh);
-  const price = live ?? (Array.isArray(m5) && m5.length ? +m5[m5.length - 1].close : Array.isArray(h1) && h1.length ? +h1[h1.length - 1].close : null);
+  // Sanity-check the live tick against recent candles. A bad tick (which once put
+  // USD/JPY at 159.6 vs a real 162.9) is rejected in favour of the trusted candle
+  // reference, so MFXGHOST never builds a whole read around a garbage price.
+  const refRows = Array.isArray(m5) && m5.length >= 3 ? m5 : (Array.isArray(h1) ? h1 : null);
+  const liveOk = livePriceSane(live, refRows);
+  const candleFallback = Array.isArray(m5) && m5.length ? +m5[m5.length - 1].close : Array.isArray(h1) && h1.length ? +h1[h1.length - 1].close : null;
+  const price = (live != null && liveOk.ok) ? live : (liveOk.reference ?? candleFallback);
   if (price == null) return json({ error: "marketdata_error", detail: `Couldn't read a live ${inst.label} price right now — try again shortly.` }, 502);
 
   // Recent 15m candles for execution-level context.
