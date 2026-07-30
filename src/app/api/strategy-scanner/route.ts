@@ -299,6 +299,10 @@ export async function POST(req: NextRequest) {
   const tCtx = trendOf(ctx), tCtx2 = trendOf(ctx2);
   const htf: Trend = tCtx !== "ranging" && tCtx === tCtx2 ? tCtx : tCtx !== "ranging" ? tCtx : tCtx2;
 
+  // Regime read (surfaced to the trader so they can SEE what the engine decided).
+  const regimeLabel = htf === "bullish" ? "Uptrend" : htf === "bearish" ? "Downtrend" : "Ranging — no clear trend";
+  const regimeBasis = `${intent.ctx} ${tCtx} · ${intent.ctx2} ${tCtx2}`;
+
   const px = price != null && Math.abs(price - +rows[rows.length - 1].close) / +rows[rows.length - 1].close < 0.05 ? price : +rows[rows.length - 1].close;
   const pip = pipSize(found.asset.symbol);
   const dec = px >= 1000 ? 2 : px >= 1 ? 4 : 6;
@@ -344,6 +348,11 @@ export async function POST(req: NextRequest) {
     const setup = {
       status: "wait" as const, symbol: found.asset.symbol, instrument: td, style: intent.label,
       price: f(px), htf_trend: htf, confluence, agreement: +agreement.toFixed(2),
+      regime_label: regimeLabel, regime_basis: regimeBasis,
+      strategy: "Standing aside — waiting for confluence",
+      strategy_why: htf === "ranging"
+        ? "No clear trend to lean on and the range-fade reads don't line up yet — no side has an edge."
+        : `The ${regimeLabel.toLowerCase()} is intact, but not enough strategies agree on an entry right now.`,
       headline: `${found.asset.symbol} · WAIT — no clean confluence`,
       reason: dir ? `The strategies are leaning ${dir} but agreement is only ${Math.round(agreement * 100)}% and confluence is thin (${confluence}/100). Better to wait for the reads to line up.` : `The strategies conflict / are mid-structure — no side has an edge right now.`,
       scouts: scouts.map((s) => ({ ...s, level: s.level != null ? f(s.level) : undefined })),
@@ -382,9 +391,31 @@ export async function POST(req: NextRequest) {
   const orderType = isLong ? (entry < px ? "limit" : "market") : (entry > px ? "limit" : "market");
   const confidence = confluence >= 78 ? "High" : confluence >= 60 ? "Medium" : "Low";
 
+  // Name the strategy the engine actually chose, given the regime + which scouts fired.
+  const isReversal = reversalConfirmed && ((htf === "bearish" && isLong) || (htf === "bullish" && !isLong));
+  const winKeys = new Set(firing.map((s) => s.key));
+  let strategy: string;
+  let strategyWhy: string;
+  if (isReversal) {
+    strategy = `Counter-trend reversal · ${dir}`;
+    strategyWhy = `Structure flipped against the ${regimeLabel.toLowerCase()} AND liquidity was swept — a genuine reversal, not just a dip, so the engine is allowed to trade against the trend here.`;
+  } else if (htf === "ranging") {
+    strategy = `Range fade · ${dir}`;
+    strategyWhy = isLong
+      ? "No clear trend, so the engine is buying the low of the range back toward the middle."
+      : "No clear trend, so the engine is selling the high of the range back toward the middle.";
+  } else if (winKeys.has("breakRetest") || winKeys.has("structure")) {
+    strategy = `With-trend continuation · ${dir}`;
+    strategyWhy = `Price broke structure ${isLong ? "up" : "down"} in line with the ${regimeLabel.toLowerCase()} and is continuing — entering on the break & retest.`;
+  } else {
+    strategy = `With-trend pullback · ${dir}`;
+    strategyWhy = `Trading with the ${regimeLabel.toLowerCase()}: waiting for a pullback into value (fib / FVG / support-resistance) to join the move rather than chasing.`;
+  }
+
   const setup = {
     status: "setup" as const, symbol: found.asset.symbol, instrument: td, market: found.market.name, style: intent.label, note: intent.note,
     direction: dir, order_type: orderType, price: f(px), htf_trend: htf, confluence, agreement: +agreement.toFixed(2), confidence,
+    regime_label: regimeLabel, regime_basis: regimeBasis, strategy, strategy_why: strategyWhy,
     entry, stop_loss: stop, take_profits: targets, risk_reward: `1:${rr1}`, stop_pips: +(risk / pip).toFixed(1),
     reversal: reversalConfirmed && ((htf === "bearish" && isLong) || (htf === "bullish" && !isLong)),
     scouts: scouts.map((s) => ({ ...s, level: s.level != null ? f(s.level) : undefined })),
