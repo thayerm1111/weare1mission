@@ -366,24 +366,41 @@ export async function POST(req: NextRequest) {
   const isLong = dir === "LONG";
   const firing = scouts.filter((s) => s.fired && s.dir === dir);
   const anchors = firing.map((s) => s.level).filter(numOk) as number[];
-  const entry = anchors.length ? f(anchors.reduce((a, b) => a + b, 0) / anchors.length) : f(px);
-  // Stop beyond the nearest opposing swing / structure — but never tighter than the
-  // market's own noise. We floor the risk at 1.5x ATR AND an instrument-aware minimum
-  // in pips, so a scalp on a quiet FX major can't collapse to a 3-4 pip stop that
-  // spread + a single wick would take out, then widen to clear structure plus a small
-  // buffer. Targets scale off the final risk, so the R:R stays honest.
   const h = rows.map((r) => +r.high), l = rows.map((r) => +r.low);
   const { sh, sl } = pivots(h, l, 2);
   const lastSH = sh[sh.length - 1]?.p ?? Math.max(...h.slice(-20));
   const lastSL = sl[sl.length - 1]?.p ?? Math.min(...l.slice(-20));
-  const buffer = pip * 2; // clear spread + a wick beyond the swing
-  const structRisk = isLong ? Math.max(0, entry - lastSL) + buffer : Math.max(0, lastSH - entry) + buffer;
+
+  // Strong-trend breakout continuation: when BOTH higher-timeframe context frames
+  // agree with the trend (a genuinely strong trend, not just a lean) AND the
+  // structure scout just fired a break-of-structure in the trend direction with
+  // price sitting right at the break (not already extended past it), join the break
+  // at MARKET rather than anchoring a pullback limit that may never fill. The stop
+  // tucks just back under the broken level, which now flips to support/resistance —
+  // that tight structural stop is the whole edge of a breakout entry.
+  const structScout = scouts.find((s) => s.key === "structure" && s.fired && s.dir === dir);
+  const brk = structScout && numOk(structScout.level) ? (structScout.level as number) : null;
+  const strongAligned = htf !== "ranging" && tCtx === tCtx2 && tCtx === htf;
+  const isBreakout = strongAligned && brk != null &&
+    (isLong ? px >= brk && px <= brk + atrv * 0.8 : px <= brk && px >= brk - atrv * 0.8);
+
   // Minimum stop in pips, scaled by style (scalp tightest). FX majors ~8/12/18 pips;
   // instruments quoted with a big pip (indices/crypto pip=1, metals pip>=0.1) get a
-  // larger point floor — though 1.5x ATR usually dominates for those anyway.
+  // larger point floor.
   const basePips = style === "scalp" ? 8 : style === "swing" ? 18 : 12;
   const pipFloor = (pip >= 1 ? basePips * 2 : pip >= 0.1 ? basePips * 1.5 : basePips) * pip;
-  const rawRisk = Math.max(structRisk, atrv * 1.5, pipFloor);
+  const buffer = pip * 2; // clear spread + a wick beyond the swing
+
+  const entry = isBreakout ? f(px) : anchors.length ? f(anchors.reduce((a, b) => a + b, 0) / anchors.length) : f(px);
+  let rawRisk: number;
+  if (isBreakout) {
+    const breakoutStop = isLong ? (brk as number) - atrv * 0.6 : (brk as number) + atrv * 0.6;
+    rawRisk = Math.max(Math.abs(entry - breakoutStop), atrv * 0.8, pipFloor);
+  } else {
+    // Pullback stop: beyond the nearest opposing swing, floored at 1.5x ATR + a pip minimum.
+    const structRisk = isLong ? Math.max(0, entry - lastSL) + buffer : Math.max(0, lastSH - entry) + buffer;
+    rawRisk = Math.max(structRisk, atrv * 1.5, pipFloor);
+  }
   const stop = f(isLong ? entry - rawRisk : entry + rawRisk);
   const risk = Math.abs(entry - stop) || rawRisk;
   const targets = [1.5, 2.5, 4.0].map((m) => f(isLong ? entry + risk * m : entry - risk * m));
@@ -396,7 +413,10 @@ export async function POST(req: NextRequest) {
   const winKeys = new Set(firing.map((s) => s.key));
   let strategy: string;
   let strategyWhy: string;
-  if (isReversal) {
+  if (isBreakout) {
+    strategy = `Breakout continuation · ${dir}`;
+    strategyWhy = `Strong ${regimeLabel.toLowerCase()} — both higher timeframes agree — and price just broke structure ${isLong ? "up" : "down"} at the break. Joining the momentum at market instead of waiting for a pullback that may not come, with a tight stop under the broken level.`;
+  } else if (isReversal) {
     strategy = `Counter-trend reversal · ${dir}`;
     strategyWhy = `Structure flipped against the ${regimeLabel.toLowerCase()} AND liquidity was swept — a genuine reversal, not just a dip, so the engine is allowed to trade against the trend here.`;
   } else if (htf === "ranging") {
