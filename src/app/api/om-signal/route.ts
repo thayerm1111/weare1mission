@@ -5,6 +5,7 @@ import { series, livePrice, isPriorityEmail, livePriceSane } from "@/lib/marketD
 import { findAsset } from "@/data/signalAssets";
 import { logSignal } from "@/lib/signalLog";
 import { evaluateSetup, confirmationSignals } from "@/lib/confirmation";
+import { getAdjustmentPenalty } from "@/lib/learningStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -665,6 +666,10 @@ Return the JSON signal now.`;
     ? Math.round(((signal.confirmed as number) / (signal.total as number)) * 100)
     : 0;
   const instLevel = ["ob", "fvg", "liquidity", "sr", "fib", "breakRetest"].some((k) => execOkByKey[k]);
+  // Continuous-learning context + learned penalty for this setup's buckets.
+  const htfAlignOm: "with" | "against" | "range" = htfTrend === "ranging" ? "range" : ((htfTrend === "bullish") === (gDir === "long") ? "with" : "against");
+  const sessScoreOm = strongTrend ? 78 : 68;
+  const learned = await getAdjustmentPenalty({ instrument: td, mode: profile, regime: htfTrend, setup: method });
   const gateDecision = evaluateSetup({
     direction: gDir,
     htf: htfArr,
@@ -682,7 +687,8 @@ Return the JSON signal now.`;
     stop: signal.stopLoss as number,
     tps: signal.takeProfits as number[],
     trendStrength: confluencePct,
-    sessionScore: strongTrend ? 78 : 68,
+    sessionScore: sessScoreOm,
+    scorePenalty: learned.penalty, penaltyReasons: learned.reasons,
   }, profile);
   signal.mode = profile;
   signal.grade = gateDecision.grade;
@@ -711,7 +717,12 @@ Return the JSON signal now.`;
       style: styleKey, method, direction: dir, orderType,
       entry: signal.entry as number, stop: signal.stopLoss as number, tps: signal.takeProfits as number[],
       confidence: signal.confidence as string, regime: htfTrend, atr, priceAtIssue: price, interval: sty.interval,
-      meta: { directionCorrected: signal._directionCorrected ?? false, confirmed: signal.confirmed ?? null, total: signal.total ?? null, grade: signal.grade ?? null, gate_score: signal.gate_score ?? null, gate_decision: signal.gate_decision ?? null, mode: profile },
+      meta: {
+        directionCorrected: signal._directionCorrected ?? false, confirmed: signal.confirmed ?? null, total: signal.total ?? null,
+        grade: signal.grade ?? null, gate_score: signal.gate_score ?? null, gate_decision: signal.gate_decision ?? null, mode: profile,
+        penalty_applied: learned.penalty, penalty_reasons: learned.reasons,
+        ctx: { mode: profile, setup: method, htf_align: htfAlignOm, momentum: cs.momentumScore, trend: confluencePct, had_sweep: instLevel, bos: !!execOkByKey.structure, pullback: cs.pullbackComplete, session_score: sessScoreOm },
+      },
     });
   }
 
