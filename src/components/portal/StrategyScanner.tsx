@@ -131,6 +131,7 @@ type Result = Record<string, unknown> & {
   live_price?: number; as_of?: string; price_is_live?: boolean; ideal_entry?: number; missed_by_pips?: number; ran_r?: number;
   price_extended?: boolean; extended_note?: string | null;
   grade?: string; gate_score?: number; gate_reasons?: string[];
+  mode?: string; momentum_rating?: string; trend_rating?: string; trend_strength?: number;
   scouts?: ScoutRead[]; reasoning?: string[]; educational?: string; error?: string;
 };
 type Journal = Result & { id: number };
@@ -165,6 +166,7 @@ export function StrategyScanner({ isAdmin = false }: { isAdmin?: boolean }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [style, setStyle] = useState("scalp");
+  const [mode, setMode] = useState<"institutional" | "accelerator">("institutional");
   const [scouts, setScouts] = useState<string[]>(SCOUTS.map((s) => s.key));
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
@@ -206,7 +208,7 @@ export function StrategyScanner({ isAdmin = false }: { isAdmin?: boolean }) {
     try {
       const res = await fetch("/api/strategy-scanner", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ td, style, scouts }),
+        body: JSON.stringify({ td, style, scouts, mode }),
       });
       const d: Result = await res.json().catch(() => ({ status: "error" }));
       if (res.status === 402 || d.error === "insufficient_credits") { setNeedCredits(true); setError("You're out of credits — they reset weekly, or grab more."); return; }
@@ -330,6 +332,21 @@ export function StrategyScanner({ isAdmin = false }: { isAdmin?: boolean }) {
           ))}
         </div>
 
+        {/* Trading mode — institutional (strict) vs accelerator (aggressive) */}
+        <p className="mt-4 text-[11px] uppercase tracking-[0.12em] text-white/45">Trading mode</p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <button onClick={() => setMode("institutional")}
+            className={`rounded-xl border px-3 py-2 text-left transition-colors ${mode === "institutional" ? "border-gold-light/60 bg-gold-light/10" : "border-white/12 bg-white/[0.03] hover:border-white/25"}`}>
+            <p className="text-sm font-semibold text-white">Institutional</p>
+            <p className="text-[10px] text-white/45">Strict · A+/A only · ≥2.5R · fewer, cleaner setups</p>
+          </button>
+          <button onClick={() => setMode("accelerator")}
+            className={`rounded-xl border px-3 py-2 text-left transition-colors ${mode === "accelerator" ? "border-amber-400/60 bg-amber-400/10" : "border-white/12 bg-white/[0.03] hover:border-white/25"}`}>
+            <p className="text-sm font-semibold text-white">Accelerator</p>
+            <p className="text-[10px] text-white/45">Aggressive · momentum &amp; breakouts · ≥1.8R · more opportunities</p>
+          </button>
+        </div>
+
         {/* Strategy scouts */}
         <p className="mt-4 flex items-center justify-between text-[11px] uppercase tracking-[0.12em] text-white/45">
           <span>Strategies to scan with</span>
@@ -443,7 +460,10 @@ function ResultView({ r, onUpdate, updating, update, isAdmin }: { r: Result; onU
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-serif text-xl font-bold">{r.symbol}</p>
-          <p className="text-xs text-white/40">{r.style} · HTF trend {r.htf_trend}</p>
+          <p className="text-xs text-white/40">
+            {r.style} · HTF trend {r.htf_trend}
+            {r.mode && <span className={`ml-2 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${r.mode === "accelerator" ? "bg-amber-400/15 text-amber-300" : "bg-gold-light/15 text-gold-light"}`}>{r.mode === "accelerator" ? "Accelerator" : "Institutional"}</span>}
+          </p>
         </div>
         {isSetup ? (
           <div className="flex flex-col items-end gap-1.5">
@@ -490,6 +510,12 @@ function ResultView({ r, onUpdate, updating, update, isAdmin }: { r: Result; onU
               <p className="text-sm font-bold text-white">{r.strategy ?? "—"}</p>
             </div>
           </div>
+          {(r.momentum_rating || r.trend_rating) && (
+            <div className="mt-2.5 flex flex-wrap gap-4 border-t border-white/10 pt-2.5">
+              {r.trend_rating && <span className="text-[11px] text-white/55">Trend strength <span className="font-semibold text-white/80">{r.trend_rating}</span></span>}
+              {r.momentum_rating && <span className="text-[11px] text-white/55">Momentum <span className="font-semibold text-white/80">{r.momentum_rating}</span></span>}
+            </div>
+          )}
           {r.strategy_why && <p className="mt-2.5 text-[12px] leading-relaxed text-white/70">{r.strategy_why}</p>}
         </div>
       )}
