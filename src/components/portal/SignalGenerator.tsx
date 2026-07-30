@@ -672,10 +672,21 @@ function FullCard({ r, onCheck, checking, onUpdate, updating, update }: { r: Res
 
       {r.marketClosed && <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-1.5 text-xs text-amber-300/90">Market is currently closed — analysis based on the last session.</p>}
 
-      {s.setup && (
-        <div className="mt-3 rounded-xl border border-gold-light/25 bg-gold-light/[0.06] px-3 py-2">
-          <p className="text-[10px] uppercase tracking-[0.14em] text-gold-light/80">Setup{r.method ? ` · ${r.method === "smc" ? "Smart Money" : r.method === "structure" ? "Market Structure" : "Best"}` : ""}</p>
-          <p className="text-sm font-semibold text-white">{s.setup}</p>
+      {(s.setup || s.bias) && (
+        <div className="mt-3 rounded-xl border border-gold-light/25 bg-gold-light/[0.06] px-3.5 py-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-gold-light/80">Market read — what OM AI processed{r.method ? ` · ${r.method === "smc" ? "Smart Money" : r.method === "structure" ? "Market Structure" : "Best"}` : ""}</p>
+          {s.bias && (
+            <div className="mt-2">
+              <p className="text-[10px] uppercase tracking-wide text-white/40">Regime / higher-timeframe bias</p>
+              <p className="text-[13px] font-semibold text-white">{s.bias}</p>
+            </div>
+          )}
+          {s.setup && (
+            <div className="mt-2">
+              <p className="text-[10px] uppercase tracking-wide text-white/40">Strategy chosen</p>
+              <p className="text-sm font-semibold text-white">{s.setup}</p>
+            </div>
+          )}
         </div>
       )}
 
