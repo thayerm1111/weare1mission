@@ -6,6 +6,7 @@ import { getProfile } from "@/lib/auth";
 import { logSignal } from "@/lib/signalLog";
 import { assessNews } from "@/lib/econCalendar";
 import { evaluateSetup, confirmationSignals } from "@/lib/confirmation";
+import { getAdjustmentPenalty } from "@/lib/learningStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -393,6 +394,11 @@ export async function POST(req: NextRequest) {
   const volumeScore = v15.length >= 12
     ? Math.round(Math.max(0, Math.min(100, 50 + ((v15.slice(-3).reduce((a, b) => a + b, 0) / 3) / ((v15.reduce((a, b) => a + b, 0) / v15.length) || 1) - 1) * 60)))
     : 60;
+  // Continuous-learning context + learned penalty for this setup's buckets.
+  const wantTrendC = gDir === "long" ? "up" : "down";
+  const htfAlignC: "with" | "against" | "range" = h1Trend === "range" ? "range" : (h1Trend === wantTrendC ? "with" : "against");
+  const bosC = (dir === "buy" && trendUp) || (dir === "sell" && trendDn);
+  const learned = await getAdjustmentPenalty({ instrument: td, mode: tradeMode, regime, setup: strategy, session });
   const gateDecision = evaluateSetup({
     direction: gDir,
     htf: [dailyTrend, h1Trend],
@@ -412,6 +418,7 @@ export async function POST(req: NextRequest) {
     volumeScore,
     trendStrength: trendStrengthScore,
     newsRisk: false, // a news blackout already returned NO TRADE above
+    scorePenalty: learned.penalty, penaltyReasons: learned.reasons,
   }, tradeMode);
   if (gateDecision.decision === "NO_TRADE") {
     return noTrade(td, spec, `NO TRADE — ${isAccel ? "NO CONFIRMED MOMENTUM" : "WAITING FOR CONFIRMATION"}`, gateDecision.noTradeReason ?? "The market hasn't confirmed the setup yet.", dqScore, { regime, session, scores, mode: tradeMode });
@@ -469,7 +476,11 @@ export async function POST(req: NextRequest) {
     engine: "command", userId: loggedUserId, instrument: td, symbol: td, style: "intraday",
     method: strategy, direction: dir, orderType, entry, stop, tps: targets,
     confidence, score: scores.overall, regime, session, atr: atr1, priceAtIssue: px, interval: "15min",
-    meta: { scores, news_level: news?.level ?? null, grade: gateDecision.grade, gate_score: gateDecision.score, mode: tradeMode },
+    meta: {
+      scores, news_level: news?.level ?? null, grade: gateDecision.grade, gate_score: gateDecision.score, mode: tradeMode,
+      penalty_applied: learned.penalty, penalty_reasons: learned.reasons,
+      ctx: { mode: tradeMode, setup: strategy, htf_align: htfAlignC, momentum: cs.momentumScore, trend: trendStrengthScore, had_sweep: true, bos: bosC, pullback: cs.pullbackComplete, session_score: scores.session, vol_score: scores.volatility },
+    },
   });
   return json(setup, 200);
 }
