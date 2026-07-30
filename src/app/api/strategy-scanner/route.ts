@@ -273,7 +273,7 @@ export async function POST(req: NextRequest) {
   const aiKey = process.env.ANTHROPIC_API_KEY;
   if (!mdKey) return json({ error: "notConfigured", reason: "Live market data isn't connected." }, 200);
 
-  let body: { td?: unknown; style?: unknown; scouts?: unknown };
+  let body: { td?: unknown; style?: unknown; scouts?: unknown; mode?: unknown };
   try { body = await req.json(); } catch { return json({ error: "bad_request" }, 400); }
   const rawTd = typeof body?.td === "string" ? body.td : "";
   const found = resolveAsset(rawTd);
@@ -283,6 +283,10 @@ export async function POST(req: NextRequest) {
   const intent = INTENT[style];
   const chosen: string[] = Array.isArray(body?.scouts) ? (body!.scouts as unknown[]).filter((s): s is string => typeof s === "string" && ALL_SCOUTS.includes(s)) : ALL_SCOUTS;
   const use = chosen.length ? chosen : ALL_SCOUTS;
+  // Trading personality: "accelerator" (aggressive — more momentum/breakout setups,
+  // 1.8R floor, releases ≥75) or the default "institutional" (strict, 2.5R, A+/A only).
+  const profile = body?.mode === "accelerator" ? "accelerator" : "institutional";
+  const isAccel = profile === "accelerator";
 
   const gate = await gateCredits("signal");
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
@@ -416,11 +420,23 @@ export async function POST(req: NextRequest) {
   }
   const stop = f(isLong ? entry - rawRisk : entry + rawRisk);
   const risk = Math.abs(entry - stop) || rawRisk;
-  // Institutional reward:risk — first target ≥ 2.5R (Stage 7).
-  const targets = [2.5, 3.5, 5.0].map((m) => f(isLong ? entry + risk * m : entry - risk * m));
+  // Reward:risk ladder by profile — accelerator's first target clears 1.8R,
+  // institutional's clears 2.5R.
+  const rrLadder = isAccel ? [1.8, 2.8, 4.0] : [2.5, 3.5, 5.0];
+  const targets = rrLadder.map((m) => f(isLong ? entry + risk * m : entry - risk * m));
   const rr1 = +(Math.abs(targets[0] - entry) / risk).toFixed(1);
   const orderType: string = "market";
   const confidence = confluence >= 78 ? "High" : confluence >= 60 ? "Medium" : "Low";
+
+  // Trend strength (scout agreement) + volume expansion feed the accelerator score.
+  const trendStrength = Math.round(Math.max(0, Math.min(100, agreement * 100)));
+  const vols = rows.map((r) => +((r as { volume?: string }).volume ?? 0)).filter((v) => v > 0);
+  let volumeScore = 60;
+  if (vols.length >= 12) {
+    const recentVol = vols.slice(-3).reduce((a, b) => a + b, 0) / 3;
+    const baseVol = vols.reduce((a, b) => a + b, 0) / vols.length;
+    volumeScore = Math.round(Math.max(0, Math.min(100, 50 + (recentVol / (baseVol || 1) - 1) * 60)));
+  }
 
   // ── INSTITUTIONAL CONFIRMATION GATE (Stages 1–9) ──────────────────────────
   // React, never anticipate. Only release a setup once the higher timeframes
@@ -443,17 +459,19 @@ export async function POST(req: NextRequest) {
     trigger: { closed: cs.closed, closedWithTrend: cs.closedWithTrend },
     liquidityScore: confluence,
     entry, stop, tps: targets,
-  });
+    trendStrength, volumeScore,
+  }, profile);
 
   if (gateDecision.decision === "NO_TRADE") {
     const noTrade = {
       status: "wait" as const, symbol: found.asset.symbol, instrument: td, style: intent.label,
       price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf,
       confluence, agreement: +agreement.toFixed(2), grade: gateDecision.grade, gate_score: gateDecision.score,
+      mode: profile, momentum_rating: gateDecision.momentumRating, trend_rating: gateDecision.trendRating,
       regime_label: regimeLabel, regime_basis: regimeBasis,
       strategy: "Standing aside — waiting for confirmation",
       strategy_why: gateDecision.noTradeReason,
-      headline: `${found.asset.symbol} · NO TRADE — waiting for confirmation`,
+      headline: `${found.asset.symbol} · NO TRADE — ${isAccel ? "no clean momentum edge yet" : "waiting for confirmation"}`,
       reason: gateDecision.noTradeReason,
       scouts: scouts.map((s) => ({ ...s, level: s.level != null ? f(s.level) : undefined })),
       educational: "Institutional-grade filter: the engine only issues a trade after the market confirms — higher-timeframe agreement, a completed pullback, a closed confirmation candle, momentum turning, and ≥2.5R. NO TRADE is the correct, disciplined output most of the time.",
@@ -505,6 +523,7 @@ export async function POST(req: NextRequest) {
     direction: dir, order_type: orderType, price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf, confluence, agreement: +agreement.toFixed(2), confidence,
     regime_label: regimeLabel, regime_basis: regimeBasis, strategy, strategy_why: strategyWhy,
     grade: gateDecision.grade, gate_score: gateDecision.score, gate_reasons: gateDecision.reasons,
+    mode: profile, momentum_rating: gateDecision.momentumRating, trend_rating: gateDecision.trendRating, trend_strength: trendStrength,
     entry, stop_loss: stop, take_profits: targets, risk_reward: `1:${rr1}`, stop_pips: +(risk / pip).toFixed(1),
     price_extended: priceExtended, extended_note: extendedNote, ran_r: +runR.toFixed(1),
     reversal: reversalConfirmed && ((htf === "bearish" && isLong) || (htf === "bullish" && !isLong)),
@@ -520,7 +539,7 @@ export async function POST(req: NextRequest) {
     engine: "scanner", userId: loggedUserId, instrument: td, symbol: found.asset.symbol,
     style, method: strategy, direction: dir, orderType, entry, stop, tps: targets,
     confidence, score: confluence, regime: regimeLabel, atr: atrv, priceAtIssue: px,
-    interval: intent.exec, meta: { agreement: +agreement.toFixed(2), firing: firing.map((s) => s.key), breakout: isBreakout, grade: gateDecision.grade, gate_score: gateDecision.score },
+    interval: intent.exec, meta: { agreement: +agreement.toFixed(2), firing: firing.map((s) => s.key), breakout: isBreakout, grade: gateDecision.grade, gate_score: gateDecision.score, mode: profile },
   });
   return json(setup, 200);
 }
