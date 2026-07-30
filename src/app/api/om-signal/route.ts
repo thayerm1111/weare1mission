@@ -1,7 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
-import { series, livePrice, isPriorityEmail } from "@/lib/marketData";
+import { series, livePrice, isPriorityEmail, livePriceSane } from "@/lib/marketData";
 import { findAsset } from "@/data/signalAssets";
 import { logSignal } from "@/lib/signalLog";
 
@@ -319,7 +319,11 @@ export async function POST(req: NextRequest) {
   // last candle close. A 5% sanity band rejects a garbage tick.
   const candleClose = closes[closes.length - 1];
   const liveTick = await fetchLivePrice(td, mdKey, fresh);
-  const price = (liveTick != null && Math.abs(liveTick - candleClose) / candleClose < 0.05) ? liveTick : candleClose;
+  // Trust the live tick only when it agrees with recent candle closes. A bad
+  // tick (which once put USD/JPY at 159.6 vs a real 162.9) is rejected and we
+  // anchor to the trusted candle reference instead — never a garbage price.
+  const liveOk = livePriceSane(liveTick, rows);
+  const price = (liveTick != null && liveOk.ok) ? liveTick : (liveOk.reference ?? candleClose);
   const rangeHi = Math.max(...highs.slice(-40));
   const rangeLo = Math.min(...lows.slice(-40));
   const eq = (rangeHi + rangeLo) / 2;
