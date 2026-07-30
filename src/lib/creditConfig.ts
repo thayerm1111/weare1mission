@@ -1,17 +1,21 @@
 /**
- * Credit system config. Single-balance model with a daily floor:
+ * Credit system config. Single-balance model with a WEEKLY floor:
  *  - New members get a one-time WELCOME grant of 5 credits on first touch
  *    (set in the get_credit_balance / spend_credits DB functions). Members who
- *    joined earlier keep their original 20 — the grant is future-only.
- *  - Each day, the first time a member touches a tool their balance is topped
- *    up TO the floor (DAILY_FREE) if it sits below it — never above. A member
- *    at 2 refills to 5; a member at 15 stays 15 (no daily stacking).
+ *    joined earlier keep their original balance — the grant is future-only.
+ *  - Once per week, the first time a member touches a tool their balance is
+ *    topped up TO the floor (DAILY_FREE) if it sits below it — never above. A
+ *    member at 2 refills to 5; a member at 15 stays 15 (no stacking). The
+ *    weekly cadence is enforced in the DB functions (top-up keyed to the Monday
+ *    of the current UTC week), so this number is "free credits per week".
  *  - Purchased credits stack on top of the floor and persist. Tweak numbers here.
  */
 
-// Daily free floor per member. Each member is topped up to this many credits
-// once per day if they're below it (never lowered if above). The welcome grant
-// (5 for new members) sits at/above this floor and is spent down first.
+// Free floor per member, refreshed WEEKLY. Each member is topped up to this many
+// credits once per calendar week if they're below it (never lowered if above).
+// The welcome grant (5 for new members) sits at/above this floor and is spent
+// down first. The name is kept as DAILY_FREE for import stability, but the
+// cadence is weekly — see the get_credit_balance / spend_credits DB functions.
 // Overridable via env; leave NEXT_PUBLIC_DAILY_FREE_CREDITS unset to use 5.
 export const DAILY_FREE = Number(process.env.NEXT_PUBLIC_DAILY_FREE_CREDITS ?? 5);
 
@@ -22,7 +26,7 @@ export const CREDIT_COST = {
   signal: 1,     // generate a play on OM AI Plays
   deepdive: 1,   // open the full reasoning breakdown
   scan: 2,       // Market Pulse scan (heaviest — up to 8 data calls)
-  ghost: 3,      // MFXGHOST full institutional read — the heaviest AI call (4k-token output + multi-timeframe data), priced above a standard play
+  ghost: 5,      // MFXGHOST full institutional read — the heaviest AI call (up to 4k-token output + multi-timeframe data). Priced as a premium action so its margin holds even on the cheapest credit pack.
   chartread: 2,  // OM Charts AI read — vision analysis of a marked-up chart + live data
   command: 1,    // OM AI Market Command — full deterministic qualification run (multi-TF + risk engine)
 } as const;
