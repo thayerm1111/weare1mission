@@ -221,6 +221,7 @@ export async function POST(req: NextRequest) {
   let regimeDir: Dir | null = null;
   let regimeScore = 40;
   const adxV = a.adx ?? 0;
+  const strongTrend = adxV >= 40; // only a genuinely strong trend unlocks breakout-continuation entries
   const trendUp = s20 != null && s50 != null && px > s20 && s20 > s50;
   const trendDn = s20 != null && s50 != null && px < s20 && s20 < s50;
   if (adxV >= 25 && trendUp) { regime = adxV >= 40 ? "Strong bullish trend" : "Weak bullish trend"; regimeDir = "buy"; regimeScore = adxV >= 40 ? 90 : 68; }
@@ -243,17 +244,41 @@ export async function POST(req: NextRequest) {
   let orderType: "market" | "limit" | "stop" = "limit";
 
   if (regimeDir === "buy") {
-    strategy = "Trend pullback (long)"; dir = "buy";
-    entry = f(Math.max(s20 ?? px - atr1 * 0.5, px - atr1 * 0.6)); orderType = entry < px ? "limit" : "market";
-    stop = f(Math.min(lastSL, entry - atr1 * 1.0));
-    invalidation = `1H close below the last swing low / SMA20 zone (${f(lastSL)})`;
-    structureQ = trendUp ? 78 : 60; entryQ = px > eq ? 55 : 72;
+    dir = "buy";
+    // Breakout continuation: in a STRONG trend, if price is freshly breaking the
+    // last swing high (at/just above it — not already extended past it), join the
+    // break instead of waiting for a pullback that may never come. Stop tucks back
+    // under the broken high, which now acts as support.
+    const freshBreakUp = strongTrend && px >= lastSH && px <= lastSH + atr1 * 0.8;
+    if (freshBreakUp) {
+      strategy = "Trend breakout (long)";
+      entry = f(px); orderType = "market";
+      stop = f(lastSH - atr1 * 0.6);
+      invalidation = `1H close back below the broken high (${f(lastSH)})`;
+      structureQ = 82; entryQ = 74;
+    } else {
+      strategy = "Trend pullback (long)";
+      entry = f(Math.max(s20 ?? px - atr1 * 0.5, px - atr1 * 0.6)); orderType = entry < px ? "limit" : "market";
+      stop = f(Math.min(lastSL, entry - atr1 * 1.0));
+      invalidation = `1H close below the last swing low / SMA20 zone (${f(lastSL)})`;
+      structureQ = trendUp ? 78 : 60; entryQ = px > eq ? 55 : 72;
+    }
   } else if (regimeDir === "sell") {
-    strategy = "Trend pullback (short)"; dir = "sell";
-    entry = f(Math.min(s20 ?? px + atr1 * 0.5, px + atr1 * 0.6)); orderType = entry > px ? "limit" : "market";
-    stop = f(Math.max(lastSH, entry + atr1 * 1.0));
-    invalidation = `1H close above the last swing high / SMA20 zone (${f(lastSH)})`;
-    structureQ = trendDn ? 78 : 60; entryQ = px < eq ? 55 : 72;
+    dir = "sell";
+    const freshBreakDn = strongTrend && px <= lastSL && px >= lastSL - atr1 * 0.8;
+    if (freshBreakDn) {
+      strategy = "Trend breakout (short)";
+      entry = f(px); orderType = "market";
+      stop = f(lastSL + atr1 * 0.6);
+      invalidation = `1H close back above the broken low (${f(lastSL)})`;
+      structureQ = 82; entryQ = 74;
+    } else {
+      strategy = "Trend pullback (short)";
+      entry = f(Math.min(s20 ?? px + atr1 * 0.5, px + atr1 * 0.6)); orderType = entry > px ? "limit" : "market";
+      stop = f(Math.max(lastSH, entry + atr1 * 1.0));
+      invalidation = `1H close above the last swing high / SMA20 zone (${f(lastSH)})`;
+      structureQ = trendDn ? 78 : 60; entryQ = px < eq ? 55 : 72;
+    }
   } else if (regime.startsWith("Range")) {
     // Mean-revert from the range extreme the price is nearest.
     const nearHi = Math.abs(px - rangeHi) < Math.abs(px - rangeLo);
