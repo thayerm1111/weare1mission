@@ -239,6 +239,15 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
           onNav={() => setOpen(false)}
         />
       )}
+
+      {/* Learning Desk — AI self-audit / continuous learning (admin) */}
+      {isAdmin && (
+        <NavLink
+          item={{ href: "/portal/learning", label: "Learning Desk", icon: BarChart3 }}
+          active={pathname.startsWith("/portal/learning")}
+          onNav={() => setOpen(false)}
+        />
+      )}
     </div>
   );
 
