@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
 import { series, livePrice, isPriorityEmail } from "@/lib/marketData";
 import { findAsset } from "@/data/signalAssets";
+import { logSignal } from "@/lib/signalLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -242,10 +243,12 @@ function buildChecklist(rows: Row[], dir: Dir, E: number, flowTrend: Trend, conf
 export async function POST(req: NextRequest) {
   const supabase = createClient();
   let fresh = false; // owner/admin: always fresh data, never throttled
+  let loggedUserId: string | null = null;
   if (supabase) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return json({ error: "unauthorized" }, 401);
     fresh = isPriorityEmail(user.email);
+    loggedUserId = user.id;
   }
   const aiKey = process.env.ANTHROPIC_API_KEY;
   const mdKey = process.env.TWELVEDATA_API_KEY;
@@ -607,6 +610,15 @@ Return the JSON signal now.`;
 
   // Work succeeded — now charge the credit (best-effort; never charged on failure above).
   const credits = await chargeCredit("signal");
+
+  // Universal outcome logging (fire-and-safe: never blocks or breaks the signal).
+  await logSignal({
+    engine: "plays", userId: loggedUserId, instrument: td, symbol: found.asset.symbol,
+    style: styleKey, method, direction: dir, orderType,
+    entry: signal.entry as number, stop: signal.stopLoss as number, tps: signal.takeProfits as number[],
+    confidence: signal.confidence as string, regime: htfTrend, atr, priceAtIssue: price, interval: sty.interval,
+    meta: { directionCorrected: signal._directionCorrected ?? false, confirmed: signal.confirmed ?? null, total: signal.total ?? null },
+  });
 
   return json({
     credits,
