@@ -130,6 +130,7 @@ type Result = Record<string, unknown> & {
   entry?: number; stop_loss?: number; take_profits?: number[]; risk_reward?: string; stop_pips?: number; reversal?: boolean;
   live_price?: number; as_of?: string; price_is_live?: boolean; ideal_entry?: number; missed_by_pips?: number; ran_r?: number;
   price_extended?: boolean; extended_note?: string | null;
+  grade?: string; gate_score?: number; gate_reasons?: string[];
   scouts?: ScoutRead[]; reasoning?: string[]; educational?: string; error?: string;
 };
 type Journal = Result & { id: number };
@@ -143,6 +144,21 @@ type TradeUpdate = {
 };
 
 const fmt = (n: unknown) => (typeof n === "number" && Number.isFinite(n) ? (Math.abs(n) >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : Math.abs(n) >= 1 ? n.toFixed(4) : n.toFixed(6)) : "—");
+
+// Institutional trade grade (only A+/A ever release as a trade). Shows the
+// quality/confluence score — never a win-probability.
+function GradeBadge({ grade, score }: { grade: string; score?: number }) {
+  const cls = grade === "A+"
+    ? "bg-amber-400/20 text-amber-300 border border-amber-400/40"
+    : grade === "A"
+    ? "bg-gold-light/15 text-gold-light border border-gold-light/35"
+    : "bg-white/8 text-white/55 border border-white/15";
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${cls}`}>
+      Grade {grade}{typeof score === "number" ? ` · ${score}/100` : ""}
+    </span>
+  );
+}
 
 export function StrategyScanner({ isAdmin = false }: { isAdmin?: boolean }) {
   const [td, setTd] = useState("XAU/USD");
@@ -432,6 +448,7 @@ function ResultView({ r, onUpdate, updating, update, isAdmin }: { r: Result; onU
         {isSetup ? (
           <div className="flex flex-col items-end gap-1.5">
             <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${buy ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>{buy ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}{r.direction} · {r.order_type}</span>
+            {r.grade && <GradeBadge grade={r.grade} score={r.gate_score} />}
             {r.reversal && <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[10px] font-bold uppercase text-amber-300">Confirmed reversal</span>}
           </div>
         ) : isMissed ? (
