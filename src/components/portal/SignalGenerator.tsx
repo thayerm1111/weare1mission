@@ -54,6 +54,7 @@ type Signal = {
   // trade once the market confirms; otherwise status is "no_trade" (waiting).
   status?: "setup" | "no_trade"; grade?: "A+" | "A" | "B" | "C" | "D" | null; gate_score?: number;
   gate_decision?: "TRADE" | "NO_TRADE"; no_trade_reason?: string;
+  mode?: "institutional" | "accelerator"; momentum_rating?: string; trend_rating?: string;
   // Chase guard: set when live price has run so far past the ideal limit entry
   // that a retest is no longer worth taking (price truly left).
   chased?: boolean; ran_r?: number; chase_note?: string; live_price?: number; as_of?: string;
@@ -113,6 +114,7 @@ export function SignalGenerator() {
   const [orderType, setOrderType] = useState<"market" | "limit">("limit");
   const [style, setStyle] = useState<"scalp" | "intraday" | "swing">("intraday");
   const [method, setMethod] = useState<Method>("best");
+  const [mode, setMode] = useState<"institutional" | "accelerator">("institutional");
   const [confs, setConfs] = useState<string[]>(METHOD_DEFAULTS.best);
   const [genStep, setGenStep] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
@@ -214,7 +216,7 @@ export function SignalGenerator() {
     timer.current = setInterval(() => setGenStep((s) => Math.min(s + 1, GEN_STEPS.length - 1)), 700);
     try {
       const [res] = await Promise.all([
-        fetch("/api/om-signal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ td: a.td, orderType, style, method, confirmations: confs }) }),
+        fetch("/api/om-signal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ td: a.td, orderType, style, method, confirmations: confs, mode }) }),
         delay(3000),
       ]);
       if (timer.current) clearInterval(timer.current);
@@ -388,6 +390,16 @@ export function SignalGenerator() {
                 <>
                   <h2 className="text-center font-serif text-2xl font-bold">Configure</h2>
                   <p className="mt-1 text-center text-sm text-white/45">Setup for <span className="text-gold-light">{asset.symbol}</span></p>
+
+                  <p className="mt-5 text-[11px] uppercase tracking-[0.12em] text-white/45">Trading Mode</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button onClick={() => setMode("institutional")} className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${mode === "institutional" ? "border-gold-light/60 bg-gold-light/10" : "border-white/12 bg-white/[0.03] hover:bg-white/[0.06]"}`}>
+                      <span className="block text-sm font-semibold">Institutional</span><span className="mt-0.5 block text-[10px] leading-tight text-white/40">Strict · A+/A · ≥2.5R</span>
+                    </button>
+                    <button onClick={() => setMode("accelerator")} className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${mode === "accelerator" ? "border-amber-400/60 bg-amber-400/10" : "border-white/12 bg-white/[0.03] hover:bg-white/[0.06]"}`}>
+                      <span className="block text-sm font-semibold">Accelerator</span><span className="mt-0.5 block text-[10px] leading-tight text-white/40">Aggressive · momentum · ≥1.8R</span>
+                    </button>
+                  </div>
 
                   <p className="mt-5 text-[11px] uppercase tracking-[0.12em] text-white/45">Trade Style</p>
                   <div className="mt-2 grid grid-cols-3 gap-2">
@@ -665,7 +677,10 @@ function FullCard({ r, onCheck, checking, onUpdate, updating, update }: { r: Res
       <div className="flex items-center justify-between">
         <div>
           <p className="font-serif text-xl font-bold">{r.symbol}</p>
-          <p className="text-xs text-white/40">{r.name} · {r.market} · {r.orderType}</p>
+          <p className="text-xs text-white/40">
+            {r.name} · {r.market} · {r.orderType}
+            {s.mode && <span className={`ml-2 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${s.mode === "accelerator" ? "bg-amber-400/15 text-amber-300" : "bg-gold-light/15 text-gold-light"}`}>{s.mode === "accelerator" ? "Accelerator" : "Institutional"}</span>}
+          </p>
         </div>
         <div className="flex flex-col items-end gap-1.5">
           {s.status === "no_trade"
@@ -816,6 +831,8 @@ function FullCard({ r, onCheck, checking, onUpdate, updating, update }: { r: Res
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/50">
         <span>Confidence: <span className="font-semibold text-white/80">{s.confidence}</span></span>
+        {s.trend_rating && <span>Trend: <span className="font-semibold text-white/80">{s.trend_rating}</span></span>}
+        {s.momentum_rating && <span>Momentum: <span className="font-semibold text-white/80">{s.momentum_rating}</span></span>}
         <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {s.timeframe}</span>
         {r.status === "open" && s.direction !== "NEUTRAL" && (
           <span className="ml-auto inline-flex items-center gap-2">
