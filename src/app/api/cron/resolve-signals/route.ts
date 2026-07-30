@@ -25,7 +25,15 @@ const IV_MIN: Record<string, number> = {
   "1h": 60, "2h": 120, "4h": 240, "1day": 1440, "1week": 10080,
 };
 
-const tsOf = (dt: string): number => Date.parse((dt || "").replace(" ", "T") + "Z");
+// Parse both timestamp shapes we see:
+//  • Supabase created_at / expires_at — full ISO WITH a zone ("2026-07-30T07:17:52+00:00")
+//  • Twelve Data candle datetimes — "2026-07-30 07:15:00" (a space, no zone → treat as UTC)
+// The old version appended "Z" unconditionally, which turned the ISO created_at into an
+// invalid "...+00:00Z" → NaN → NaN candle count → every fetch failed and nothing graded.
+const tsOf = (dt: string): number => {
+  const s = (dt || "").trim().replace(" ", "T");
+  return /(z|[+-]\d{2}(:?\d{2})?)$/i.test(s) ? Date.parse(s) : Date.parse(s + "Z");
+};
 
 function json(obj: unknown, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
