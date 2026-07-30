@@ -174,3 +174,39 @@ export async function livePrice(td: string, key: string, fresh = false): Promise
     return null;
   }
 }
+
+/**
+ * Sanity-check a live tick against recent completed candle closes.
+ *
+ * A real feed's live price sits within a fraction of a percent of the last few
+ * closes; a bad/garbled quote lands far away — this is what once put USD/JPY at
+ * 159.6 while the market was actually 162.9. We take the MEDIAN of the last few
+ * closes (robust to a single bad candle) as a trusted reference. When the live
+ * tick disagrees with it by more than `threshold`, the caller should anchor to
+ * the reference instead of the tick.
+ *
+ * `threshold` default 0.015 (1.5%) is far beyond any normal single-candle move
+ * on FX majors / indices, so it only ever trips on a genuine anomaly: it can
+ * correct a bad-data signal, never block a good one. Returns `ok:true` (with a
+ * best-effort reference) when there aren't enough candles to judge, so a thin
+ * series never blocks a signal.
+ */
+export function livePriceSane(
+  live: number | null | undefined,
+  rows: Row[] | null | undefined,
+  threshold = 0.015,
+): { ok: boolean; reference: number | null; deviationPct: number | null } {
+  const closes = Array.isArray(rows)
+    ? rows.slice(-5).map((r) => +r.close).filter((n) => Number.isFinite(n) && n > 0)
+    : [];
+  if (closes.length < 3) {
+    return { ok: true, reference: closes.length ? closes[closes.length - 1] : null, deviationPct: null };
+  }
+  const sorted = [...closes].sort((a, b) => a - b);
+  const reference = sorted[Math.floor(sorted.length / 2)]; // median recent close
+  if (live == null || !Number.isFinite(live) || live <= 0) {
+    return { ok: false, reference, deviationPct: null };
+  }
+  const dev = Math.abs(live - reference) / reference;
+  return { ok: dev <= threshold, reference, deviationPct: +(dev * 100).toFixed(2) };
+}
