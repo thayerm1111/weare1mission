@@ -50,6 +50,9 @@ type Signal = {
   flow?: { h4: string; h1: string; dir: string; aligned: boolean };
   timeframes?: { tf: string; trend: string; confirmed: number; total: number; checklist: { label: string; ok: boolean }[]; unavailable?: boolean }[];
   verdict?: string;
+  // Chase guard: set when live price has run so far past the ideal limit entry
+  // that a retest is no longer worth taking (price truly left).
+  chased?: boolean; ran_r?: number; chase_note?: string; live_price?: number; as_of?: string;
 };
 type Status = "open" | "win" | "loss";
 // Live "Get Update" snapshot for an open call — computed server-side in code and
@@ -63,7 +66,7 @@ type TradeUpdate = {
 };
 type Result = {
   id: number; symbol: string; name: string; market: string; td: string; interval: string;
-  orderType: string; style?: string; method?: string; price: number; asOf: string; marketClosed?: boolean;
+  orderType: string; style?: string; method?: string; price: number; asOf: string; as_of?: string; live_price?: number; marketClosed?: boolean;
   signal: Signal; candles?: Candle[]; status: Status;
   hitTp?: number; hitAt?: string;   // which take-profit filled (1|2|3) on a win
 };
@@ -647,9 +650,28 @@ function FullCard({ r, onCheck, checking, onUpdate, updating, update }: { r: Res
         </div>
         <div className="flex flex-col items-end gap-1.5">
           <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${color}`}><Icon className="h-4 w-4" />{s.direction}</span>
-          <StatusBadge status={r.status} hitTp={r.hitTp} />
+          {s.chased
+            ? <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-300"><ShieldAlert className="h-3.5 w-3.5" /> Missed — price ran</span>
+            : <StatusBadge status={r.status} hitTp={r.hitTp} />}
         </div>
       </div>
+
+      {/* As-of stamp — proves the analysis reflects live price at the moment of the click */}
+      {(r.as_of || r.live_price != null) && (
+        <p className="mt-2 text-[11px] text-white/40">
+          Analyzed at {r.as_of ? new Date(r.as_of).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "now"} · live price {fmt(r.live_price ?? r.price)}
+        </p>
+      )}
+
+      {s.chased && (
+        <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] px-4 py-3">
+          <span className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-full bg-amber-500/20 text-amber-300"><ShieldAlert className="h-4 w-4" /></span>
+          <div>
+            <p className="text-sm font-bold text-amber-300">Price already ran — no good entry right now</p>
+            <p className="mt-0.5 text-[12px] leading-relaxed text-white/75">{s.chase_note}</p>
+          </div>
+        </div>
+      )}
 
       {r.td && <LivePrice td={r.td} entry={numOk(s.entry) ? s.entry : null} direction={s.direction} closed={r.marketClosed} />}
 
