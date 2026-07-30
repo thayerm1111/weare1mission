@@ -1,7 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
-import { series, livePrice, isPriorityEmail } from "@/lib/marketData";
+import { series, livePrice, isPriorityEmail, livePriceSane } from "@/lib/marketData";
 import { logSignal } from "@/lib/signalLog";
 import { findAsset } from "@/data/signalAssets";
 
@@ -306,9 +306,13 @@ export async function POST(req: NextRequest) {
   const regimeLabel = htf === "bullish" ? "Uptrend" : htf === "bearish" ? "Downtrend" : "Ranging — no clear trend";
   const regimeBasis = `${intent.ctx} ${tCtx} · ${intent.ctx2} ${tCtx2}`;
 
-  const px = price != null && Math.abs(price - +rows[rows.length - 1].close) / +rows[rows.length - 1].close < 0.05 ? price : +rows[rows.length - 1].close;
+  // Trust the live tick only when it agrees with recent candle closes; a bad
+  // tick (which once put USD/JPY at 159.6 vs a real 162.9) is rejected and we
+  // anchor to the trusted candle reference (median of recent closes) instead.
+  const pxSane = livePriceSane(price, rows);
+  const px = (price != null && pxSane.ok) ? price : (pxSane.reference ?? +rows[rows.length - 1].close);
   const asOf = new Date().toISOString();   // stamp: the exact moment this analysis was computed
-  const priceIsLive = price != null && Math.abs(price - +rows[rows.length - 1].close) / +rows[rows.length - 1].close < 0.05;
+  const priceIsLive = price != null && pxSane.ok;
   const pip = pipSize(found.asset.symbol);
   const dec = px >= 1000 ? 2 : px >= 1 ? 4 : 6;
   const f = (n: number) => +n.toFixed(dec);
