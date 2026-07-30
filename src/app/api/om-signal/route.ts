@@ -562,6 +562,28 @@ Return the JSON signal now.`;
   const midTp = ladder[1] ?? ladder[ladder.length - 1] ?? entry;
   signal.riskReward = `1:${(risk > 0 ? Math.abs(midTp - entry) / risk : 0).toFixed(1)}`;
 
+  // ── Chase guard ───────────────────────────────────────────────────────────
+  // Retest/limit entries are STILL called by default — price often runs past a
+  // level, comes back to retest, and continues, which is a good trade. We only
+  // flag the play as "missed" when price has TRULY left: it has travelled more
+  // than a full planned-risk (1.2R) beyond the ideal limit entry. By then a
+  // retest that deep puts the move in doubt, ~80%+ of the move to the first
+  // target is already gone, and the fixed stop would be far more exposed — so
+  // there is no point entering even if price did come back. Market entries
+  // (entry == live price) can never trip this.
+  const asOfStamp = new Date().toISOString();
+  const CHASE_R = 1.2;
+  const chaseRun = isLong ? price - entry : entry - price;   // distance live price ran past the ideal limit entry
+  const chaseRunR = risk > 0 ? chaseRun / risk : 0;
+  const chased = orderType === "Limit" && chaseRunR >= CHASE_R;
+  signal.chased = chased;
+  signal.live_price = rnd(price);
+  signal.as_of = asOfStamp;
+  if (chased) {
+    signal.ran_r = +chaseRunR.toFixed(1);
+    signal.chase_note = `Price has already run ${chaseRunR.toFixed(1)}× the planned risk past the ideal entry (${rnd(entry)} → now ${rnd(price)}). A retest that deep would put the move in doubt, and even if price came back most of the move to the first target is gone while the stop would be exposed. No good entry right now — better to let this one go and take the next clean setup.`;
+  }
+
   // ── Objective, multi-factor confirmation checklist ────────────────────────
   const dir: Dir = signal.direction === "SHORT" ? "SHORT" : "LONG";
   signal.direction = dir;
@@ -612,7 +634,9 @@ Return the JSON signal now.`;
   const credits = await chargeCredit("signal");
 
   // Universal outcome logging (fire-and-safe: never blocks or breaks the signal).
-  await logSignal({
+  // Skip logging a "missed" play — it isn't a takeable trade, so it must not
+  // count toward win-rate stats.
+  if (!chased) await logSignal({
     engine: "plays", userId: loggedUserId, instrument: td, symbol: found.asset.symbol,
     style: styleKey, method, direction: dir, orderType,
     entry: signal.entry as number, stop: signal.stopLoss as number, tps: signal.takeProfits as number[],
@@ -632,6 +656,8 @@ Return the JSON signal now.`;
     method,
     price,
     asOf: rows[rows.length - 1].datetime,
+    as_of: asOfStamp,
+    live_price: rnd(price),
     marketClosed,
     candles: recent.map((v) => ({ t: v.datetime, o: +v.open, h: +v.high, l: +v.low, c: +v.close })),
     signal,
