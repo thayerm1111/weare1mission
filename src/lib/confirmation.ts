@@ -54,6 +54,11 @@ export type SetupInput = {
   volumeScore?: number;            // 0–100 — volume expansion (accelerator weights this)
   trendStrength?: number;          // 0–100 — execution-frame trend strength (ADX / MA-slope)
   newsRisk?: boolean;              // imminent high-impact news → stand aside
+  // Continuous-learning feedback: a bounded, penalty-only score deduction the
+  // gate subtracts before grading, learned from buckets with proven-negative
+  // expectancy. It can only ever TIGHTEN selectivity, never loosen it.
+  scorePenalty?: number;           // 0..TOTAL_CAP
+  penaltyReasons?: string[];
 };
 
 export type Grade = "A+" | "A" | "B" | "C" | "D";
@@ -70,6 +75,8 @@ export type Decision = {
   profile: Profile;                // which personality graded this setup
   momentumRating?: string;         // Strong / Moderate / Building
   trendRating?: string;            // Strong / Moderate / Weak
+  penalty?: number;                // learned score penalty that was applied
+  penaltyReasons?: string[];       // which buckets drove the penalty
 };
 
 const clamp = (n: number) => Math.max(0, Math.min(100, n));
@@ -295,6 +302,12 @@ export function evaluateSetup(input: SetupInput, profile: Profile = "institution
     );
   }
 
+  // Continuous-learning: subtract the learned, bounded penalty BEFORE grading, so
+  // buckets with proven-negative expectancy simply raise the bar (penalty-only).
+  const penalty = Math.max(0, Math.round(input.scorePenalty ?? 0));
+  const penaltyReasons = penalty > 0 ? (input.penaltyReasons ?? []) : [];
+  score = Math.max(0, score - penalty);
+
   const grade: Grade =
     score >= 90 ? "A+" : score >= 80 ? "A" : score >= 70 ? "B" : score >= 60 ? "C" : "D";
   const momentumRating = ratingOf(momentumScore);
@@ -302,12 +315,14 @@ export function evaluateSetup(input: SetupInput, profile: Profile = "institution
 
   const gradeOk = !cfg.releaseGrades || cfg.releaseGrades.includes(grade);
   if (score < cfg.releaseScore || !gradeOk) {
+    const base = profile === "institutional"
+      ? `Grade ${grade} (${score}/100) — not enough institutional confluence.`
+      : `Confidence ${score}/100 is below the ${cfg.releaseScore} threshold — insufficient edge.`;
     return {
       decision: "NO_TRADE", direction: dir, grade, score, rr, reasons: [], profile, momentumRating, trendRating,
-      noTradeReason: profile === "institutional"
-        ? `Grade ${grade} (${score}/100) — not enough institutional confluence.`
-        : `Confidence ${score}/100 is below the ${cfg.releaseScore} threshold — insufficient edge.`,
+      penalty, penaltyReasons,
+      noTradeReason: penalty > 0 ? `${base} (learned −${penalty} from ${penaltyReasons.join("; ") || "recent losses"})` : base,
     };
   }
-  return { decision: "TRADE", direction: dir, grade, score, rr, reasons, profile, momentumRating, trendRating };
+  return { decision: "TRADE", direction: dir, grade, score, rr, reasons, profile, momentumRating, trendRating, penalty, penaltyReasons };
 }
