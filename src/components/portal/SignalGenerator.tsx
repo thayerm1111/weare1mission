@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bitcoin, Gem, TrendingUp, Globe, BarChart3, Zap, X, ChevronLeft, Loader2, Check,
   ArrowUp, ArrowDown, Target, ShieldAlert, Sparkles, Clock, Minus, RefreshCw, Trash2,
-  Activity, Eye,
+  Activity, Eye, Ban,
 } from "lucide-react";
 import { MARKETS, findAsset, type Market, type Asset } from "@/data/signalAssets";
 import { earnMission } from "@/lib/earnMission";
@@ -50,6 +50,10 @@ type Signal = {
   flow?: { h4: string; h1: string; dir: string; aligned: boolean };
   timeframes?: { tf: string; trend: string; confirmed: number; total: number; checklist: { label: string; ok: boolean }[]; unavailable?: boolean }[];
   verdict?: string;
+  // Institutional confirmation gate (Phase 1): the setup only releases as a
+  // trade once the market confirms; otherwise status is "no_trade" (waiting).
+  status?: "setup" | "no_trade"; grade?: "A+" | "A" | "B" | "C" | "D" | null; gate_score?: number;
+  gate_decision?: "TRADE" | "NO_TRADE"; no_trade_reason?: string;
   // Chase guard: set when live price has run so far past the ideal limit entry
   // that a retest is no longer worth taking (price truly left).
   chased?: boolean; ran_r?: number; chase_note?: string; live_price?: number; as_of?: string;
@@ -505,6 +509,21 @@ function StatusBadge({ status, hitTp }: { status: Status; hitTp?: number }) {
   if (status === "loss") return <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-red-400">Loss</span>;
   return <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold uppercase text-white/50">Open</span>;
 }
+// Institutional trade grade (A+/A only ever released as a trade). Shows the
+// quality score, never a win-probability. Amber for A+, softer gold for A.
+function GradeBadge({ grade, score }: { grade: string; score?: number }) {
+  const strong = grade === "A+";
+  const cls = strong
+    ? "bg-amber-400/20 text-amber-300 border border-amber-400/40"
+    : grade === "A"
+    ? "bg-gold-light/15 text-gold-light border border-gold-light/35"
+    : "bg-white/8 text-white/55 border border-white/15";
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${cls}`}>
+      Grade {grade}{typeof score === "number" ? ` · ${score}/100` : ""}
+    </span>
+  );
+}
 
 function CompactCard({ r, onOpen, onCheck, onDelete, checking }: { r: Result; onOpen: () => void; onCheck: () => void; onDelete: () => void; checking: boolean }) {
   const s = r.signal; const { color, Icon } = dirStyle(s.direction);
@@ -649,12 +668,25 @@ function FullCard({ r, onCheck, checking, onUpdate, updating, update }: { r: Res
           <p className="text-xs text-white/40">{r.name} · {r.market} · {r.orderType}</p>
         </div>
         <div className="flex flex-col items-end gap-1.5">
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${color}`}><Icon className="h-4 w-4" />{s.direction}</span>
+          {s.status === "no_trade"
+            ? <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white/60"><Ban className="h-4 w-4" /> No trade</span>
+            : <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${color}`}><Icon className="h-4 w-4" />{s.direction}</span>}
+          {s.grade && <GradeBadge grade={s.grade} score={s.gate_score} />}
           {s.chased && r.status === "open"
             ? <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-300"><ShieldAlert className="h-3.5 w-3.5" /> Price extended</span>
             : <StatusBadge status={r.status} hitTp={r.hitTp} />}
         </div>
       </div>
+
+      {s.status === "no_trade" && (
+        <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3">
+          <span className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-full bg-white/10 text-white/70"><Ban className="h-4 w-4" /></span>
+          <div>
+            <p className="text-sm font-bold text-white/85">NO TRADE — waiting for confirmation</p>
+            <p className="mt-0.5 text-[12px] leading-relaxed text-white/70">{s.no_trade_reason || "The market hasn't confirmed this setup yet — the engine reacts only after price proves itself. Read the analysis below."}</p>
+          </div>
+        </div>
+      )}
 
       {/* As-of stamp — proves the analysis reflects live price at the moment of the click */}
       {(r.as_of || r.live_price != null) && (
