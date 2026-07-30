@@ -4,6 +4,7 @@ import { gateCredits, chargeCredit } from "@/lib/credits";
 import { series, livePrice, isPriorityEmail, livePriceSane } from "@/lib/marketData";
 import { evaluateSetup, confirmationSignals } from "@/lib/confirmation";
 import { logSignal } from "@/lib/signalLog";
+import { getAdjustmentPenalty } from "@/lib/learningStore";
 import { findAsset } from "@/data/signalAssets";
 
 export const runtime = "nodejs";
@@ -445,14 +446,19 @@ export async function POST(req: NextRequest) {
   // and the reward:risk clears 2.5R — then grade it, and surface only A+ / A.
   const cTrend = (t: string) => (t === "bullish" ? "up" : t === "bearish" ? "down" : "range");
   const cs = confirmationSignals(rows, isLong ? "long" : "short");
+  // Continuous-learning context + learned penalty for this setup's buckets.
+  const htfAlign: "with" | "against" | "range" = htf === "ranging" ? "range" : ((htf === "bullish") === isLong ? "with" : "against");
+  const hadSweep = firing.some((s) => ["liquidity", "fvg", "sr", "fib", "breakRetest"].includes(s.key));
+  const bosFired = firing.some((s) => ["structure", "breakRetest"].includes(s.key));
+  const learned = await getAdjustmentPenalty({ instrument: td, mode: profile, regime: regimeLabel });
   const gateDecision = evaluateSetup({
     direction: isLong ? "long" : "short",
     htf: [cTrend(tCtx), cTrend(tCtx2)],
     htfLabel: `${intent.ctx}/${intent.ctx2}`,
     structure: {
-      bosWithTrend: firing.some((s) => s.key === "structure" || s.key === "breakRetest"),
+      bosWithTrend: bosFired,
       pullbackComplete: cs.pullbackComplete,
-      atInstitutionalLevel: firing.some((s) => ["liquidity", "fvg", "sr", "fib", "breakRetest"].includes(s.key)),
+      atInstitutionalLevel: hadSweep,
       score: confluence,
     },
     momentum: { turnedWithTrend: cs.momentumTurned, strongAgainst: cs.strongAgainst, score: cs.momentumScore },
@@ -460,6 +466,7 @@ export async function POST(req: NextRequest) {
     liquidityScore: confluence,
     entry, stop, tps: targets,
     trendStrength, volumeScore,
+    scorePenalty: learned.penalty, penaltyReasons: learned.reasons,
   }, profile);
 
   if (gateDecision.decision === "NO_TRADE") {
@@ -539,7 +546,12 @@ export async function POST(req: NextRequest) {
     engine: "scanner", userId: loggedUserId, instrument: td, symbol: found.asset.symbol,
     style, method: strategy, direction: dir, orderType, entry, stop, tps: targets,
     confidence, score: confluence, regime: regimeLabel, atr: atrv, priceAtIssue: px,
-    interval: intent.exec, meta: { agreement: +agreement.toFixed(2), firing: firing.map((s) => s.key), breakout: isBreakout, grade: gateDecision.grade, gate_score: gateDecision.score, mode: profile },
+    interval: intent.exec, meta: {
+      agreement: +agreement.toFixed(2), firing: firing.map((s) => s.key), breakout: isBreakout,
+      grade: gateDecision.grade, gate_score: gateDecision.score, mode: profile,
+      penalty_applied: learned.penalty, penalty_reasons: learned.reasons,
+      ctx: { mode: profile, setup: strategy, htf_align: htfAlign, momentum: cs.momentumScore, trend: trendStrength, had_sweep: hadSweep, bos: bosFired, pullback: cs.pullbackComplete, vol_score: volumeScore },
+    },
   });
   return json(setup, 200);
 }
