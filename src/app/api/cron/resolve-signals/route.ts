@@ -1,6 +1,8 @@
 import { type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { series } from "@/lib/marketData";
+import { autopsy, type SetupCtx } from "@/lib/learning";
+import { recomputeAdjustments } from "@/lib/learningStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +45,8 @@ type Sig = {
   id: string; created_at: string; instrument: string; interval: string | null;
   direction: string; order_type: string | null; entry: number; stop: number;
   tp1: number | null; tp2: number | null; tp3: number | null; expires_at: string | null;
+  session: string | null; regime: string | null; method: string | null;
+  meta: { ctx?: SetupCtx; mode?: unknown } | null;
 };
 
 type Verdict = {
@@ -125,7 +129,7 @@ async function run(): Promise<Response> {
   const nowMs = Date.now();
 
   const { data: openRows, error } = await admin
-    .from("signal_log").select("id,created_at,instrument,interval,direction,order_type,entry,stop,tp1,tp2,tp3,expires_at")
+    .from("signal_log").select("id,created_at,instrument,interval,direction,order_type,entry,stop,tp1,tp2,tp3,expires_at,session,regime,method,meta")
     .eq("status", "open").order("created_at", { ascending: true }).limit(80);
   if (error) return json({ error: "query_failed", detail: error.message }, 500);
   const open = (openRows || []) as Sig[];
@@ -139,7 +143,7 @@ async function run(): Promise<Response> {
     (groups.get(k) || groups.set(k, []).get(k)!).push(s);
   }
 
-  let resolved = 0, checked = 0, rateLimited = 0;
+  let resolved = 0, checked = 0, rateLimited = 0, autopsied = 0;
   const summary: Record<string, number> = { win: 0, loss: 0, expired: 0, unfilled: 0, open: 0 };
 
   for (const [k, sigs] of groups) {
@@ -156,15 +160,30 @@ async function run(): Promise<Response> {
       const v = grade(s, rows as Row[], nowMs);
       summary[v.status] = (summary[v.status] || 0) + 1;
       if (v.status === "open") continue;
-      const { error: uerr } = await admin.from("signal_log").update({
+      const update: Record<string, unknown> = {
         status: v.status, hit_tp: v.hit_tp, exit_price: v.exit_price, bars_to_resolve: v.bars_to_resolve,
         realized_r: v.realized_r, mae_r: v.mae_r, mfe_r: v.mfe_r, resolved_at: new Date(nowMs).toISOString(),
-      }).eq("id", s.id).eq("status", "open");
+      };
+      // Autopsy every losing trade: a stop-out, or an expiry that closed at a loss.
+      const isLoss = v.status === "loss" || (v.status === "expired" && (v.realized_r ?? 0) < 0);
+      if (isLoss) {
+        const a = autopsy({ ctx: s.meta?.ctx || {}, realized_r: v.realized_r, mae_r: v.mae_r, mfe_r: v.mfe_r });
+        update.failure_reasons = a.reasons;
+        update.autopsy = a.detail;
+        update.autopsied_at = new Date(nowMs).toISOString();
+        autopsied++;
+      }
+      const { error: uerr } = await admin.from("signal_log").update(update).eq("id", s.id).eq("status", "open");
       if (!uerr) resolved++;
     }
   }
 
-  return json({ ok: true, checked, resolved, still_open: summary.open, rate_limited: rateLimited, breakdown: summary }, 200);
+  // Continuous learning: rebuild the bounded, penalty-only scoring adjustments
+  // from the rolling window of graded trades (only worth it if anything resolved).
+  let activeAdjustments = 0;
+  if (resolved > 0) activeAdjustments = await recomputeAdjustments(admin);
+
+  return json({ ok: true, checked, resolved, autopsied, active_adjustments: activeAdjustments, still_open: summary.open, rate_limited: rateLimited, breakdown: summary }, 200);
 }
 
 function authorized(req: NextRequest): boolean {
