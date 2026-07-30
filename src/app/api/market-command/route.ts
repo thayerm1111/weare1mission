@@ -5,6 +5,7 @@ import { reserveMarketData, resolveTd, livePriceSane } from "@/lib/marketData";
 import { getProfile } from "@/lib/auth";
 import { logSignal } from "@/lib/signalLog";
 import { assessNews } from "@/lib/econCalendar";
+import { evaluateSetup, confirmationSignals } from "@/lib/confirmation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -365,6 +366,41 @@ export async function POST(req: NextRequest) {
     return noTrade(td, spec, "NO TRADE — BELOW QUALIFICATION THRESHOLD", `The setup scored ${scores.overall}/100 (threshold ${CFG.minScore}). Direction is ${dir.toUpperCase()} but confluence is too thin to qualify.`, dqScore, { regime, session, scores });
   }
 
+  // ── Institutional confirmation gate (Phase 1) ─────────────────────────────
+  // React, never anticipate. Even after the quant engine qualifies a setup, the
+  // gate demands the market has PROVEN itself: Daily + 1H agree with the trade,
+  // structure broke with the trend and the pullback completed, the trigger candle
+  // CLOSED back with the trend on the execution frame, momentum turned, and TP1
+  // clears the 2.5R institutional floor. Otherwise → NO TRADE, waiting.
+  const trigRows = (spec.cat === "index" || spec.cat === "stock") ? R5 : R15;
+  const gDir: "long" | "short" = dir === "buy" ? "long" : "short";
+  const cs = confirmationSignals(trigRows as { open: string; high: string; low: string; close: string }[], gDir);
+  const closesD = RD.map((r) => +r.close);
+  const dSma = sma(closesD, Math.min(20, closesD.length));
+  const dailyTrend: "up" | "down" | "range" = dSma == null ? "range" : px > dSma ? "up" : px < dSma ? "down" : "range";
+  const h1Trend: "up" | "down" | "range" = regimeDir === "buy" ? "up" : regimeDir === "sell" ? "down" : "range";
+  const gateDecision = evaluateSetup({
+    direction: gDir,
+    htf: [dailyTrend, h1Trend],
+    htfLabel: "Daily/1H",
+    structure: {
+      bosWithTrend: (dir === "buy" && trendUp) || (dir === "sell" && trendDn),
+      pullbackComplete: cs.pullbackComplete,
+      atInstitutionalLevel: true, // entries are anchored to swing / range / prev-day / SMA levels
+      score: structureQ,
+    },
+    momentum: { turnedWithTrend: cs.momentumTurned, strongAgainst: cs.strongAgainst, score: cs.momentumScore },
+    trigger: { closed: cs.closed, closedWithTrend: cs.closedWithTrend },
+    liquidityScore: Math.round((scores.structure + scores.regime) / 2),
+    entry, stop, tps: targets,
+    sessionScore: scores.session,
+    volatilityScore: scores.volatility,
+    newsRisk: false, // a news blackout already returned NO TRADE above
+  });
+  if (gateDecision.decision === "NO_TRADE") {
+    return noTrade(td, spec, "NO TRADE — WAITING FOR CONFIRMATION", gateDecision.noTradeReason ?? "The market hasn't confirmed the setup yet.", dqScore, { regime, session, scores });
+  }
+
   const interval = spec.cat === "index" || spec.cat === "stock" ? "5min" : "15min";
   const ttlMin = CFG.setupTtlMin[interval] ?? 120;
   const expiresAt = new Date(nowMs + ttlMin * 60000).toISOString();
@@ -388,6 +424,9 @@ export async function POST(req: NextRequest) {
       suggested_close_percent: i === 0 ? 50 : i === 1 ? 30 : 20,
     })),
     market_regime: regime,
+    grade: gateDecision.grade,
+    gate_score: gateDecision.score,
+    gate_reasons: gateDecision.reasons,
     strategy,
     timeframes: ["1day", "1h", "15min", "5min"],
     session,
@@ -411,7 +450,7 @@ export async function POST(req: NextRequest) {
     engine: "command", userId: loggedUserId, instrument: td, symbol: td, style: "intraday",
     method: strategy, direction: dir, orderType, entry, stop, tps: targets,
     confidence, score: scores.overall, regime, session, atr: atr1, priceAtIssue: px, interval: "15min",
-    meta: { scores, news_level: news?.level ?? null },
+    meta: { scores, news_level: news?.level ?? null, grade: gateDecision.grade, gate_score: gateDecision.score },
   });
   return json(setup, 200);
 }
