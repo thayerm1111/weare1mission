@@ -2,8 +2,8 @@
 
 /**
  * Credits — balance + buy page, in the One Mission palette. Shows the member's
- * daily free credits and purchased balance, what each action costs, and the
- * buyable packs (Stripe checkout). Free credits reset daily; purchased stack.
+ * weekly free credits and purchased balance, what each action costs, and the
+ * buyable packs (Stripe checkout). Free credits reset weekly; purchased stack.
  */
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -73,7 +73,7 @@ export function CreditsClient() {
       <div>
         <span className="eyebrow">Your Account</span>
         <h1 className="mt-2 font-serif text-2xl font-semibold uppercase tracking-[0.02em] text-navy">Credits</h1>
-        <p className="mt-1 text-sm text-charcoal/60">Free credits reset every day. Buy more anytime — purchased credits never expire.</p>
+        <p className="mt-1 text-sm text-charcoal/60">Free credits reset every week. Buy more anytime — purchased credits never expire.</p>
       </div>
 
       {banner === "success" && (
