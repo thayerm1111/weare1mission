@@ -128,6 +128,7 @@ type Result = Record<string, unknown> & {
   regime_label?: string; regime_basis?: string; strategy?: string; strategy_why?: string;
   headline?: string; reason?: string; direction?: string; order_type?: string; confidence?: string;
   entry?: number; stop_loss?: number; take_profits?: number[]; risk_reward?: string; stop_pips?: number; reversal?: boolean;
+  live_price?: number; as_of?: string; price_is_live?: boolean; ideal_entry?: number; missed_by_pips?: number; ran_r?: number;
   scouts?: ScoutRead[]; reasoning?: string[]; educational?: string; error?: string;
 };
 type Journal = Result & { id: number };
@@ -360,6 +361,8 @@ export function StrategyScanner({ isAdmin = false }: { isAdmin?: boolean }) {
                   <span className="flex items-center gap-2 text-sm font-semibold">{j.symbol}
                     {j.status === "setup"
                       ? <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${j.direction === "LONG" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>{j.direction}</span>
+                      : j.status === "missed"
+                      ? <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-300"><Ban className="h-3 w-3" /> missed</span>
                       : <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold uppercase text-white/50"><Ban className="h-3 w-3" /> wait</span>}
                   </span>
                   <span className="text-[10px] text-white/35">{j.confluence != null ? `${j.confluence}/100` : ""}</span>
@@ -380,7 +383,9 @@ export function StrategyScanner({ isAdmin = false }: { isAdmin?: boolean }) {
 function ResultView({ r, onUpdate, updating, update, isAdmin }: { r: Result; onUpdate?: () => void; updating?: boolean; update?: TradeUpdate; isAdmin?: boolean }) {
   const scouts = Array.isArray(r.scouts) ? r.scouts : [];
   const isSetup = r.status === "setup";
+  const isMissed = r.status === "missed";
   const buy = r.direction === "LONG";
+  const asOfLabel = r.as_of ? new Date(r.as_of).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : null;
 
   const tradeBlock = buildTradeText({
     direction: r.direction,
@@ -428,10 +433,21 @@ function ResultView({ r, onUpdate, updating, update, isAdmin }: { r: Result; onU
             <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${buy ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>{buy ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}{r.direction} · {r.order_type}</span>
             {r.reversal && <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[10px] font-bold uppercase text-amber-300">Confirmed reversal</span>}
           </div>
+        ) : isMissed ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-300"><Ban className="h-4 w-4" /> Missed — price ran</span>
         ) : (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white/60"><Ban className="h-4 w-4" /> WAIT</span>
         )}
       </div>
+
+      {/* As-of stamp — proves the analysis reflects live price at click time */}
+      {(asOfLabel || r.live_price != null) && (
+        <p className="mt-2 text-[11px] text-white/40">
+          Analyzed at {asOfLabel ?? "now"} · live price {r.live_price != null ? fmt(r.live_price) : fmt(r.price)}
+          {r.price_is_live === false && <span className="text-amber-300/70"> (last close — live quote unavailable)</span>}
+          {isMissed && r.missed_by_pips != null && <span className="text-amber-300/80"> · ideal entry {fmt(r.ideal_entry)} was ~{Math.abs(r.missed_by_pips)} pips ago ({r.ran_r}× risk)</span>}
+        </p>
+      )}
 
       {/* Market read — surface the regime + chosen strategy so the trader sees what was processed */}
       {(r.regime_label || r.strategy) && (
