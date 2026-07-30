@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
 import { series, livePrice, isPriorityEmail } from "@/lib/marketData";
+import { logSignal } from "@/lib/signalLog";
 import { findAsset } from "@/data/signalAssets";
 
 export const runtime = "nodejs";
@@ -260,10 +261,12 @@ const INTENT: Record<string, { exec: string; ctx: string; ctx2: string; label: s
 export async function POST(req: NextRequest) {
   const supabase = createClient();
   let fresh = false; // owner/admin: always fresh data, never throttled
+  let loggedUserId: string | null = null;
   if (supabase) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return json({ error: "unauthorized" }, 401);
     fresh = isPriorityEmail(user.email);
+    loggedUserId = user.id;
   }
   const mdKey = process.env.TWELVEDATA_API_KEY;
   const aiKey = process.env.ANTHROPIC_API_KEY;
@@ -445,6 +448,13 @@ export async function POST(req: NextRequest) {
   };
   setup.reasoning = await narrate(setup, aiKey).catch(() => deterministic(setup));
   await chargeCredit("signal");
+  // Universal outcome logging (fire-and-safe: never blocks or breaks the signal).
+  await logSignal({
+    engine: "scanner", userId: loggedUserId, instrument: td, symbol: found.asset.symbol,
+    style, method: strategy, direction: dir, orderType, entry, stop, tps: targets,
+    confidence, score: confluence, regime: regimeLabel, atr: atrv, priceAtIssue: px,
+    interval: intent.exec, meta: { agreement: +agreement.toFixed(2), firing: firing.map((s) => s.key), breakout: isBreakout },
+  });
   return json(setup, 200);
 }
 
