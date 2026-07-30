@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
 import { series, livePrice, isPriorityEmail, livePriceSane } from "@/lib/marketData";
+import { evaluateSetup, confirmationSignals } from "@/lib/confirmation";
 import { logSignal } from "@/lib/signalLog";
 import { findAsset } from "@/data/signalAssets";
 
@@ -400,7 +401,10 @@ export async function POST(req: NextRequest) {
   const pipFloor = (pip >= 1 ? basePips * 2 : pip >= 0.1 ? basePips * 1.5 : basePips) * pip;
   const buffer = pip * 2; // clear spread + a wick beyond the swing
 
-  const entry = isBreakout ? f(px) : anchors.length ? f(anchors.reduce((a, b) => a + b, 0) / anchors.length) : f(px);
+  // Institutional entry: enter AT confirmation (market), never an anticipatory
+  // limit back at the level — the confirmation gate below guarantees price has
+  // already pulled back, turned, and closed with the trend before we take it.
+  const entry = f(px);
   let rawRisk: number;
   if (isBreakout) {
     const breakoutStop = isLong ? (brk as number) - atrv * 0.6 : (brk as number) + atrv * 0.6;
@@ -412,10 +416,51 @@ export async function POST(req: NextRequest) {
   }
   const stop = f(isLong ? entry - rawRisk : entry + rawRisk);
   const risk = Math.abs(entry - stop) || rawRisk;
-  const targets = [1.5, 2.5, 4.0].map((m) => f(isLong ? entry + risk * m : entry - risk * m));
+  // Institutional reward:risk — first target ≥ 2.5R (Stage 7).
+  const targets = [2.5, 3.5, 5.0].map((m) => f(isLong ? entry + risk * m : entry - risk * m));
   const rr1 = +(Math.abs(targets[0] - entry) / risk).toFixed(1);
-  const orderType = isLong ? (entry < px ? "limit" : "market") : (entry > px ? "limit" : "market");
+  const orderType: string = "market";
   const confidence = confluence >= 78 ? "High" : confluence >= 60 ? "Medium" : "Low";
+
+  // ── INSTITUTIONAL CONFIRMATION GATE (Stages 1–9) ──────────────────────────
+  // React, never anticipate. Only release a setup once the higher timeframes
+  // agree, structure has broken with the trend, the pullback is complete, the
+  // trigger candle has CLOSED back in the trend direction, momentum has turned,
+  // and the reward:risk clears 2.5R — then grade it, and surface only A+ / A.
+  const cTrend = (t: string) => (t === "bullish" ? "up" : t === "bearish" ? "down" : "range");
+  const cs = confirmationSignals(rows, isLong ? "long" : "short");
+  const gateDecision = evaluateSetup({
+    direction: isLong ? "long" : "short",
+    htf: [cTrend(tCtx), cTrend(tCtx2)],
+    htfLabel: `${intent.ctx}/${intent.ctx2}`,
+    structure: {
+      bosWithTrend: firing.some((s) => s.key === "structure" || s.key === "breakRetest"),
+      pullbackComplete: cs.pullbackComplete,
+      atInstitutionalLevel: firing.some((s) => ["liquidity", "fvg", "sr", "fib", "breakRetest"].includes(s.key)),
+      score: confluence,
+    },
+    momentum: { turnedWithTrend: cs.momentumTurned, strongAgainst: cs.strongAgainst, score: cs.momentumScore },
+    trigger: { closed: cs.closed, closedWithTrend: cs.closedWithTrend },
+    liquidityScore: confluence,
+    entry, stop, tps: targets,
+  });
+
+  if (gateDecision.decision === "NO_TRADE") {
+    const noTrade = {
+      status: "wait" as const, symbol: found.asset.symbol, instrument: td, style: intent.label,
+      price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf,
+      confluence, agreement: +agreement.toFixed(2), grade: gateDecision.grade, gate_score: gateDecision.score,
+      regime_label: regimeLabel, regime_basis: regimeBasis,
+      strategy: "Standing aside — waiting for confirmation",
+      strategy_why: gateDecision.noTradeReason,
+      headline: `${found.asset.symbol} · NO TRADE — waiting for confirmation`,
+      reason: gateDecision.noTradeReason,
+      scouts: scouts.map((s) => ({ ...s, level: s.level != null ? f(s.level) : undefined })),
+      educational: "Institutional-grade filter: the engine only issues a trade after the market confirms — higher-timeframe agreement, a completed pullback, a closed confirmation candle, momentum turning, and ≥2.5R. NO TRADE is the correct, disciplined output most of the time.",
+    };
+    await chargeCredit("signal");
+    return json(noTrade, 200);
+  }
 
   // ── Price-extended heads-up (NON-BLOCKING) ────────────────────────────────
   // The trade is ALWAYS produced — a limit/retest entry is valid even when price
@@ -459,6 +504,7 @@ export async function POST(req: NextRequest) {
     status: "setup" as const, symbol: found.asset.symbol, instrument: td, market: found.market.name, style: intent.label, note: intent.note,
     direction: dir, order_type: orderType, price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf, confluence, agreement: +agreement.toFixed(2), confidence,
     regime_label: regimeLabel, regime_basis: regimeBasis, strategy, strategy_why: strategyWhy,
+    grade: gateDecision.grade, gate_score: gateDecision.score, gate_reasons: gateDecision.reasons,
     entry, stop_loss: stop, take_profits: targets, risk_reward: `1:${rr1}`, stop_pips: +(risk / pip).toFixed(1),
     price_extended: priceExtended, extended_note: extendedNote, ran_r: +runR.toFixed(1),
     reversal: reversalConfirmed && ((htf === "bearish" && isLong) || (htf === "bullish" && !isLong)),
@@ -474,7 +520,7 @@ export async function POST(req: NextRequest) {
     engine: "scanner", userId: loggedUserId, instrument: td, symbol: found.asset.symbol,
     style, method: strategy, direction: dir, orderType, entry, stop, tps: targets,
     confidence, score: confluence, regime: regimeLabel, atr: atrv, priceAtIssue: px,
-    interval: intent.exec, meta: { agreement: +agreement.toFixed(2), firing: firing.map((s) => s.key), breakout: isBreakout },
+    interval: intent.exec, meta: { agreement: +agreement.toFixed(2), firing: firing.map((s) => s.key), breakout: isBreakout, grade: gateDecision.grade, gate_score: gateDecision.score },
   });
   return json(setup, 200);
 }
