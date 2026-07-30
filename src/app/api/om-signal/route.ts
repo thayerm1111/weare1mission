@@ -372,6 +372,11 @@ export async function POST(req: NextRequest) {
   }
   const leanDir = requiredDir;                        // kept for the prompt below
   const trendLocked = htfTrend !== "ranging";         // clear trend → direction is not negotiable
+  // A genuinely STRONG trend (clear direction + both HTF frames aligned for a scalp
+  // + with-trend momentum) unlocks breakout-continuation entries, so the engine can
+  // join a runaway move instead of only ever waiting for a pullback that may not come.
+  const momWithTrend = rsiNow != null && (requiredDir === "LONG" ? rsiNow >= 55 : rsiNow <= 45);
+  const strongTrend = trendLocked && (flow ? flow.aligned : true) && momWithTrend;
 
   // Market open/closed.
   // Crypto trades 24/7. Forex & metals follow the FX week (Sun 21:00 → Fri
@@ -437,9 +442,11 @@ Build the play: 1) align with the ${sty.htfLabel} bias; 2) identify the draw on 
 ALWAYS return a directional call — LONG or SHORT. Never return NEUTRAL. This is a WITH-TREND engine: you trade in the direction of the higher-timeframe flow, NEVER against it. Buying a downtrend or shorting an uptrend is prohibited.
 
 DIRECTION IS ${leanDir}. ${trendLocked
-  ? `The higher-timeframe flow is ${htfTrend.toUpperCase()}, so this MUST be a ${leanDir} — a with-trend continuation. ${leanDir === "SHORT"
-      ? "SELL a pullback/rally UP into a premium point of interest: a broken support now acting as resistance, a bearish order block, an unfilled bearish FVG, or the 0.62–0.79 retracement of the last down-leg. Do NOT buy the bounce, do NOT try to catch the falling knife, and do NOT sell the low — wait for price to rally into resistance and sell the continuation down."
-      : "BUY a pullback/dip DOWN into a discount point of interest: a reclaimed resistance now acting as support, a bullish order block, an unfilled bullish FVG, or the 0.62–0.79 retracement of the last up-leg. Do NOT short the dip and do NOT chase the high — wait for price to pull back into support and buy the continuation up."} A counter-trend ${leanDir === "SHORT" ? "LONG" : "SHORT"} is NOT permitted no matter how oversold/overbought RSI looks or how far price has already run.`
+  ? `The higher-timeframe flow is ${htfTrend.toUpperCase()}, so this MUST be a ${leanDir} — a with-trend continuation. ${strongTrend
+      ? `This is a STRONG, aligned trend with momentum behind it, so you may enter EITHER of two ways — pick whichever the CURRENT price action actually offers, do not invent one that isn't there: (a) PULLBACK — ${leanDir === "SHORT" ? "sell a rally UP into a premium POI (bearish order block, unfilled bearish FVG, broken support now resistance, or the 0.62–0.79 retracement of the last down-leg)" : "buy a dip DOWN into a discount POI (bullish order block, unfilled bullish FVG, reclaimed resistance now support, or the 0.62–0.79 retracement of the last up-leg)"}; OR (b) BREAKOUT CONTINUATION — if price is breaking structure to a fresh ${leanDir === "SHORT" ? "low" : "high"} with displacement and NO clean pullback is on offer, enter the break itself at market, with the stop tucked just ${leanDir === "SHORT" ? "above the broken low (now resistance)" : "below the broken high (now support)"}. When a strong trend is running and not retracing, the break IS the entry — do not sit out the move waiting for a pullback that isn't coming.`
+      : `${leanDir === "SHORT"
+        ? "SELL a pullback/rally UP into a premium point of interest: a broken support now acting as resistance, a bearish order block, an unfilled bearish FVG, or the 0.62–0.79 retracement of the last down-leg. Do NOT buy the bounce, do NOT try to catch the falling knife, and do NOT sell the low — wait for price to rally into resistance and sell the continuation down."
+        : "BUY a pullback/dip DOWN into a discount point of interest: a reclaimed resistance now acting as support, a bullish order block, an unfilled bullish FVG, or the 0.62–0.79 retracement of the last up-leg. Do NOT short the dip and do NOT chase the high — wait for price to pull back into support and buy the continuation up."}`} A counter-trend ${leanDir === "SHORT" ? "LONG" : "SHORT"} is NOT permitted no matter how oversold/overbought RSI looks or how far price has already run.`
   : `The higher timeframe is rangebound, so fade the range: ${leanDir} back toward equilibrium from the ${leanDir === "LONG" ? "discount (lower)" : "premium (upper)"} extreme. If price is mid-range with no clean edge, say so in the rationale and keep confidence Low.`}
 
 CONSISTENCY: the setup, bias, poi, liquidityTarget and rationale MUST all describe the SAME side as "direction". Never write a bearish narrative (e.g. a sweep of buy-side liquidity that reverses down) for a LONG, or a bullish one for a SHORT. If you catch yourself doing that, flip the direction to match the read.
