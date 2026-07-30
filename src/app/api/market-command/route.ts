@@ -1,7 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
-import { reserveMarketData, resolveTd } from "@/lib/marketData";
+import { reserveMarketData, resolveTd, livePriceSane } from "@/lib/marketData";
 import { getProfile } from "@/lib/auth";
 import { logSignal } from "@/lib/signalLog";
 import { assessNews } from "@/lib/econCalendar";
@@ -206,7 +206,11 @@ export async function POST(req: NextRequest) {
     return noTrade(td, spec, "MARKET DATA UNAVAILABLE OR STALE", `The latest ${td} candle is ~${Math.round(staleBy)} intervals old while the market appears open — refusing to analyse stale data.`, dqScore);
   }
 
-  const px = price != null ? price : +R5[R5.length - 1].close;
+  // Trust the live tick only when it agrees with recent 5m closes; a bad tick
+  // (which once put USD/JPY at 159.6 vs a real 162.9) is rejected in favour of
+  // the trusted candle reference. (Candle-age staleness is already gated above.)
+  const pxSane = livePriceSane(price, R5);
+  const px = (price != null && pxSane.ok) ? price : (pxSane.reference ?? +R5[R5.length - 1].close);
   const closes1 = R1.map((r) => +r.close), highs1 = R1.map((r) => +r.high), lows1 = R1.map((r) => +r.low);
   const dec = px >= 1000 ? 2 : px >= 1 ? 4 : 6;
   const f = (n: number) => +n.toFixed(dec);
