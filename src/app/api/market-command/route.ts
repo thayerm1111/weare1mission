@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
 import { reserveMarketData, resolveTd } from "@/lib/marketData";
 import { getProfile } from "@/lib/auth";
+import { logSignal } from "@/lib/signalLog";
 import { assessNews } from "@/lib/econCalendar";
 
 export const runtime = "nodejs";
@@ -146,9 +147,11 @@ function sessionNow(d: Date): string {
 export async function POST(req: NextRequest) {
   // Auth + admin gate (this feature is admin-only during the beta phase).
   const supabase = createClient();
+  let loggedUserId: string | null = null;
   if (supabase) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return json({ status: "error", error: "unauthorized" }, 401);
+    loggedUserId = user.id;
   }
   const profile = await getProfile().catch(() => null);
   if (!profile || profile.role !== "admin") return json({ status: "error", error: "forbidden", reason: "OM AI Market Command is in admin-only beta." }, 403);
@@ -399,7 +402,13 @@ export async function POST(req: NextRequest) {
   setup.reasoning = await narrate(setup, aiKey).catch(() => deterministicReasoning(setup));
 
   await chargeCredit("command");
-  try { /* fire-and-forget: credits UI refresh handled client-side */ } catch { /* noop */ }
+  // Universal outcome logging (fire-and-safe: never blocks or breaks the signal).
+  await logSignal({
+    engine: "command", userId: loggedUserId, instrument: td, symbol: td, style: "intraday",
+    method: strategy, direction: dir, orderType, entry, stop, tps: targets,
+    confidence, score: scores.overall, regime, session, atr: atr1, priceAtIssue: px, interval: "15min",
+    meta: { scores, news_level: news?.level ?? null },
+  });
   return json(setup, 200);
 }
 
