@@ -35,6 +35,7 @@ type Setup = Record<string, unknown> & {
   status: string; instrument?: string; market_category?: string; timestamp?: string; headline?: string; reason?: string; recheck?: string;
   direction?: string; order_type?: string; market_regime?: string; strategy?: string; session?: string; setup_expiration?: string;
   invalidation?: string; confidence?: string; data_provider?: string; data_age_seconds?: number | null; market_status?: string;
+  grade?: string; gate_score?: number; gate_reasons?: string[];
   entry?: { price: number; zone_low?: number; zone_high?: number }; stop_loss?: { price: number; reason: string };
   take_profits?: TP[]; scores?: Record<string, number>; news_risk?: { level: string; next_event?: string; event_time?: string; note?: string };
   position_sizing?: Record<string, number | string>; reasoning?: string[]; risk_warnings?: string[]; educational_disclaimer?: string; error?: string;
@@ -234,6 +235,9 @@ function SetupView({ s, onUpdate, updating, update }: { s: Setup; onUpdate?: () 
         </div>
         <div className="flex flex-col items-end gap-1.5">
           <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${dirCol}`}><DirIcon className="h-4 w-4" /> {s.direction} · {s.order_type}</span>
+          {s.grade && (
+            <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${s.grade === "A+" ? "bg-amber-400/20 text-amber-300 border border-amber-400/40" : "bg-gold-light/15 text-gold-light border border-gold-light/35"}`}>Grade {s.grade}{typeof s.gate_score === "number" ? ` · ${s.gate_score}/100` : ""}</span>
+          )}
           <span className="rounded-full bg-sky-400/15 px-2.5 py-0.5 text-[10px] font-bold uppercase text-sky-300">Qualified · {s.confidence}</span>
         </div>
       </div>
