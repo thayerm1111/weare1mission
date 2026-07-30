@@ -129,6 +129,7 @@ type Result = Record<string, unknown> & {
   headline?: string; reason?: string; direction?: string; order_type?: string; confidence?: string;
   entry?: number; stop_loss?: number; take_profits?: number[]; risk_reward?: string; stop_pips?: number; reversal?: boolean;
   live_price?: number; as_of?: string; price_is_live?: boolean; ideal_entry?: number; missed_by_pips?: number; ran_r?: number;
+  price_extended?: boolean; extended_note?: string | null;
   scouts?: ScoutRead[]; reasoning?: string[]; educational?: string; error?: string;
 };
 type Journal = Result & { id: number };
@@ -447,6 +448,14 @@ function ResultView({ r, onUpdate, updating, update, isAdmin }: { r: Result; onU
           {r.price_is_live === false && <span className="text-amber-300/70"> (last close — live quote unavailable)</span>}
           {isMissed && r.missed_by_pips != null && <span className="text-amber-300/80"> · ideal entry {fmt(r.ideal_entry)} was ~{Math.abs(r.missed_by_pips)} pips ago ({r.ran_r}× risk)</span>}
         </p>
+      )}
+
+      {/* Soft, non-blocking heads-up when price has extended past the ideal entry. The full trade is still shown. */}
+      {isSetup && r.price_extended && r.extended_note && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2">
+          <ShieldAlert className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-300" />
+          <p className="text-[12px] leading-relaxed text-amber-200/90">{r.extended_note}</p>
+        </div>
       )}
 
       {/* Market read — surface the regime + chosen strategy so the trader sees what was processed */}
