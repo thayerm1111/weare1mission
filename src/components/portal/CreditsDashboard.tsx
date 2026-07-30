@@ -189,7 +189,7 @@ export default function CreditsDashboard() {
       </section>
 
       <p className="text-center text-[11px] text-charcoal/40">
-        Refreshes automatically every minute · daily free floor is {DAILY_FREE} credits, so nobody gets locked out — “running low” means they&apos;re ripe to buy more.
+        Refreshes automatically every minute · weekly free floor is {DAILY_FREE} credits, so nobody gets locked out — “running low” means they&apos;re ripe to buy more.
       </p>
     </div>
   );
