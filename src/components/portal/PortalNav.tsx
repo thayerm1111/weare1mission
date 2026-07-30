@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair, Radar, LifeBuoy,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair, Radar, LifeBuoy, BarChart3,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
@@ -25,6 +25,7 @@ const REG: Record<string, Item> = {
   command: { href: "/portal/market-command", label: "OM AI Market Command", icon: Crosshair },
   scanner: { href: "/portal/strategy-scanner", label: "OM Strategy Scanner", icon: Radar },
   leaderboard: { href: "/portal/leaderboard", label: "Leaderboard", icon: Medal },
+  results: { href: "/portal/community", label: "Community Results", icon: BarChart3 },
   trading: { href: "/portal/trading", label: "The Floor", icon: LineChart },
   schedule: { href: "/portal/schedule", label: "What's On", icon: CalendarClock },
   resources: { href: "/portal/resources", label: "Resources", icon: FolderOpen },
@@ -41,8 +42,8 @@ const REG: Record<string, Item> = {
 // The Ones side is organized so the trading desk (The Floor) is the hub: the
 // live rooms AND the AI tools (OM Charts, OM AI, OM AI Plays, XAUGHOST) all nest
 // under it. Credits nests under Account. Leaderboard sits at the very bottom.
-const ONES = ["startHere", "schedule", "trading", "leadership", "updates", "collection", "experiences", "account", "support", "leaderboard"];
-const BUILDERS = ["omai", "prospects", "team", "compPlan", "schedule", "leadership", "training", "resources", "updates", "account", "support", "leaderboard"];
+const ONES = ["startHere", "schedule", "trading", "leadership", "updates", "collection", "experiences", "account", "support", "results", "leaderboard"];
+const BUILDERS = ["omai", "prospects", "team", "compPlan", "schedule", "leadership", "training", "resources", "updates", "account", "support", "results", "leaderboard"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources", "compPlan"];
 const ONES_ONLY = ["trading", "signals", "xaughost", "charts", "command", "scanner"];
 
