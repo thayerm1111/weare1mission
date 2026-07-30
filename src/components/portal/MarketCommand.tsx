@@ -35,7 +35,7 @@ type Setup = Record<string, unknown> & {
   status: string; instrument?: string; market_category?: string; timestamp?: string; headline?: string; reason?: string; recheck?: string;
   direction?: string; order_type?: string; market_regime?: string; strategy?: string; session?: string; setup_expiration?: string;
   invalidation?: string; confidence?: string; data_provider?: string; data_age_seconds?: number | null; market_status?: string;
-  grade?: string; gate_score?: number; gate_reasons?: string[];
+  grade?: string; gate_score?: number; gate_reasons?: string[]; mode?: string; momentum_rating?: string; trend_rating?: string;
   entry?: { price: number; zone_low?: number; zone_high?: number }; stop_loss?: { price: number; reason: string };
   take_profits?: TP[]; scores?: Record<string, number>; news_risk?: { level: string; next_event?: string; event_time?: string; note?: string };
   position_sizing?: Record<string, number | string>; reasoning?: string[]; risk_warnings?: string[]; educational_disclaimer?: string; error?: string;
@@ -56,6 +56,7 @@ export function MarketCommand() {
   const [td, setTd] = useState("XAU/USD");
   const [balance, setBalance] = useState("10000");
   const [riskPct, setRiskPct] = useState("1");
+  const [mode, setMode] = useState<"institutional" | "accelerator">("institutional");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Setup | null>(null);
   const [error, setError] = useState("");
@@ -73,7 +74,7 @@ export function MarketCommand() {
     try {
       const res = await fetch("/api/market-command", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ td, balance: Number(balance) || undefined, riskPct: Number(riskPct) || undefined }),
+        body: JSON.stringify({ td, balance: Number(balance) || undefined, riskPct: Number(riskPct) || undefined, mode }),
       });
       const d: Setup = await res.json().catch(() => ({ status: "error" }));
       if (res.status === 403) { setError(d.reason || "OM AI Market Command is in admin-only beta."); return; }
@@ -137,6 +138,18 @@ export function MarketCommand() {
               {i.td}
             </button>
           ))}
+        </div>
+
+        {/* Trading mode */}
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button onClick={() => setMode("institutional")}
+            className={`rounded-xl border px-3 py-2 text-left transition-colors ${mode === "institutional" ? "border-sky-400/60 bg-sky-400/10" : "border-white/12 bg-white/[0.03] hover:border-white/25"}`}>
+            <span className="block text-sm font-semibold text-white">Institutional</span><span className="mt-0.5 block text-[10px] text-white/40">Strict · A+/A · ≥2.5R</span>
+          </button>
+          <button onClick={() => setMode("accelerator")}
+            className={`rounded-xl border px-3 py-2 text-left transition-colors ${mode === "accelerator" ? "border-amber-400/60 bg-amber-400/10" : "border-white/12 bg-white/[0.03] hover:border-white/25"}`}>
+            <span className="block text-sm font-semibold text-white">Accelerator</span><span className="mt-0.5 block text-[10px] text-white/40">Aggressive · momentum · ≥1.8R</span>
+          </button>
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
@@ -231,7 +244,17 @@ function SetupView({ s, onUpdate, updating, update }: { s: Setup; onUpdate?: () 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-serif text-xl font-bold">{s.instrument}</p>
-          <p className="text-xs text-white/40">{s.market_category} · {s.strategy}</p>
+          <p className="text-xs text-white/40">
+            {s.market_category} · {s.strategy}
+            {s.mode && <span className={`ml-2 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${s.mode === "accelerator" ? "bg-amber-400/15 text-amber-300" : "bg-sky-400/15 text-sky-300"}`}>{s.mode === "accelerator" ? "Accelerator" : "Institutional"}</span>}
+          </p>
+          {(s.trend_rating || s.momentum_rating) && (
+            <p className="mt-0.5 text-[11px] text-white/45">
+              {s.trend_rating && <>Trend <span className="text-white/70">{s.trend_rating}</span></>}
+              {s.trend_rating && s.momentum_rating && " · "}
+              {s.momentum_rating && <>Momentum <span className="text-white/70">{s.momentum_rating}</span></>}
+            </p>
+          )}
         </div>
         <div className="flex flex-col items-end gap-1.5">
           <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${dirCol}`}><DirIcon className="h-4 w-4" /> {s.direction} · {s.order_type}</span>
