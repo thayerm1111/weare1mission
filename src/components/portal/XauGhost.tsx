@@ -108,7 +108,7 @@ export function XauGhost() {
       const r = await fetch("/api/xaughost", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ symbol }) });
       const d = await r.json().catch(() => ({}));
       if (d.notConfigured) { setMsg("The desk isn't switched on yet."); return; }
-      if (r.status === 402 || d.error === "insufficient_credits") { setMsg(`You're out of credits — a run costs ${CREDIT_COST.ghost}. Free credits reset tomorrow, or top up on the Credits page.`); return; }
+      if (r.status === 402 || d.error === "insufficient_credits") { setMsg(`You're out of credits — a run costs ${CREDIT_COST.ghost}. Free credits reset weekly, or top up on the Credits page.`); return; }
       if (d.error === "system_busy" || d.error === "ratelimit") { setMsg(d.detail || "The desk is at capacity for a moment — try again shortly."); return; }
       if (d.error || !d.read) { setMsg(d.detail || "Couldn't complete the read — try again shortly."); return; }
       const result: Result = { price: d.price, asOf: d.asOf, session: d.session, symbol: d.symbol || symbol, read: d.read };
