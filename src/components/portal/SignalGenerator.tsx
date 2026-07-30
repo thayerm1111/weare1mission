@@ -650,8 +650,8 @@ function FullCard({ r, onCheck, checking, onUpdate, updating, update }: { r: Res
         </div>
         <div className="flex flex-col items-end gap-1.5">
           <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${color}`}><Icon className="h-4 w-4" />{s.direction}</span>
-          {s.chased
-            ? <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-300"><ShieldAlert className="h-3.5 w-3.5" /> Missed — price ran</span>
+          {s.chased && r.status === "open"
+            ? <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-300"><ShieldAlert className="h-3.5 w-3.5" /> Price extended</span>
             : <StatusBadge status={r.status} hitTp={r.hitTp} />}
         </div>
       </div>
@@ -667,7 +667,7 @@ function FullCard({ r, onCheck, checking, onUpdate, updating, update }: { r: Res
         <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] px-4 py-3">
           <span className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-full bg-amber-500/20 text-amber-300"><ShieldAlert className="h-4 w-4" /></span>
           <div>
-            <p className="text-sm font-bold text-amber-300">Price already ran — no good entry right now</p>
+            <p className="text-sm font-bold text-amber-300">Heads up — price has extended past the ideal entry</p>
             <p className="mt-0.5 text-[12px] leading-relaxed text-white/75">{s.chase_note}</p>
           </div>
         </div>
