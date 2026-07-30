@@ -51,23 +51,65 @@ export type SetupInput = {
   tps: number[];                   // first element is TP1
   sessionScore?: number;           // 0–100
   volatilityScore?: number;        // 0–100
+  volumeScore?: number;            // 0–100 — volume expansion (accelerator weights this)
+  trendStrength?: number;          // 0–100 — execution-frame trend strength (ADX / MA-slope)
   newsRisk?: boolean;              // imminent high-impact news → stand aside
 };
 
 export type Grade = "A+" | "A" | "B" | "C" | "D";
+export type Profile = "institutional" | "accelerator";
 
 export type Decision = {
   decision: "TRADE" | "NO_TRADE";
   direction: Dir;
   grade: Grade | null;
-  score: number;                   // weighted 0–100 QUALITY score (not a win probability)
+  score: number;                   // weighted 0–100 QUALITY/confidence score (NOT a win probability)
   rr: number;
   reasons: string[];
   noTradeReason?: string;
+  profile: Profile;                // which personality graded this setup
+  momentumRating?: string;         // Strong / Moderate / Building
+  trendRating?: string;            // Strong / Moderate / Weak
 };
 
 const clamp = (n: number) => Math.max(0, Math.min(100, n));
 const RR_FLOOR = 2.5;
+
+// ── Two personalities, one brain ─────────────────────────────────────────────
+// The SAME hard gates that enforce "react, never anticipate" (trigger candle
+// CLOSED with the trend, not fading strong momentum, momentum turned) apply to
+// BOTH profiles — neither ever enters before confirmation. The profiles differ
+// only in SELECTIVITY: institutional demands full HTF agreement, a completed
+// pullback into an institutional level, and ≥2.5R, releasing only A+/A. The
+// accelerator relaxes those context filters (majority HTF, breakout entries
+// without a pullback, mid-structure momentum) and drops the floor to 1.8R,
+// releasing anything scoring ≥75 — more opportunities, same discipline on entry.
+type GateConfig = {
+  rrFloor: number;
+  releaseScore: number;            // minimum weighted score to release as a TRADE
+  releaseGrades: Grade[] | null;   // if set, ALSO require this grade (institutional: A+/A)
+  htf: "all" | "majority";         // HTF-agreement strictness
+  requireBosWithTrend: boolean;    // hard-require a break of structure in the trade dir
+  requirePullbackComplete: boolean;// hard-require the pullback has completed
+  requireInstitutionalLevel: boolean; // hard-require an OB / FVG / sweep / S-R level
+  usesVolume: boolean;
+  rrCeil: number;                  // rr that maps to a full rr-score (scaling)
+};
+
+const PROFILES: Record<Profile, GateConfig> = {
+  institutional: {
+    rrFloor: 2.5, releaseScore: 80, releaseGrades: ["A+", "A"],
+    htf: "all", requireBosWithTrend: true, requirePullbackComplete: true, requireInstitutionalLevel: true,
+    usesVolume: false, rrCeil: 3.5,
+  },
+  accelerator: {
+    rrFloor: 1.8, releaseScore: 75, releaseGrades: null,
+    htf: "majority", requireBosWithTrend: false, requirePullbackComplete: false, requireInstitutionalLevel: false,
+    usesVolume: true, rrCeil: 3.0,
+  },
+};
+
+const ratingOf = (score: number): string => (score >= 75 ? "Strong" : score >= 50 ? "Moderate" : score >= 30 ? "Building" : "Weak");
 
 export function rrToTp1(entry: number, stop: number, tps: number[]): number {
   const risk = Math.abs(entry - stop);
@@ -155,77 +197,117 @@ export function confirmationSignals(
 }
 
 /**
- * Evaluate a setup through the institutional gate. Hard gates first (any failure →
- * NO_TRADE); then the weighted score + grade decide whether it's worth releasing.
+ * Evaluate a setup through the gate for a given PROFILE. Hard gates first (any
+ * failure → NO_TRADE); then the weighted score + release rule decide whether the
+ * setup is worth issuing. Institutional is strict (full HTF agreement, completed
+ * pullback at an institutional level, ≥2.5R, A+/A only). Accelerator relaxes the
+ * context filters and drops the floor to 1.8R, releasing anything scoring ≥75 —
+ * but BOTH share the confirmation hard gates, so neither enters before the market
+ * proves itself.
  */
-export function evaluateSetup(input: SetupInput): Decision {
+export function evaluateSetup(input: SetupInput, profile: Profile = "institutional"): Decision {
+  const cfg = PROFILES[profile];
   const { direction: dir, htf, structure, momentum, trigger } = input;
   const rr = rrToTp1(input.entry, input.stop, input.tps);
   const reasons: string[] = [];
-  const no = (why: string): Decision => ({
-    decision: "NO_TRADE", direction: dir, grade: null, score: 0, rr, reasons: [], noTradeReason: why,
+  const no = (why: string, grade: Grade | null = null, score = 0): Decision => ({
+    decision: "NO_TRADE", direction: dir, grade, score, rr, reasons: [], noTradeReason: why, profile,
   });
 
-  // ── HARD GATES (Stages 1–7) — react only after confirmation ────────────────
+  // ── HARD GATES ─────────────────────────────────────────────────────────────
+  // News + the three confirmation gates (trigger closed with trend, not fading
+  // strong momentum, momentum turned) are enforced for BOTH profiles.
 
   if (input.newsRisk) return no("High-impact news imminent — standing aside.");
 
-  // Stage 2: every higher timeframe must agree, and with the trade direction.
+  // Higher-timeframe bias. Institutional: every frame must agree. Accelerator:
+  // only reject if the MAJORITY of frames lean against the trade.
   const wantTrend: Trend = dir === "long" ? "up" : "down";
-  const htfAligned = htf.length > 0 && htf.every((t) => t === wantTrend);
-  if (!htfAligned) return no("Higher timeframes don't all agree with the trade — no clean bias.");
-  reasons.push(`Higher timeframes${input.htfLabel ? ` (${input.htfLabel})` : ""} all ${wantTrend === "up" ? "bullish" : "bearish"} — with the trend.`);
+  const n = htf.length;
+  const agree = htf.filter((t) => t === wantTrend).length;
+  const against = htf.filter((t) => t !== wantTrend && t !== "range").length;
+  if (cfg.htf === "all") {
+    if (!(n > 0 && agree === n)) return no("Higher timeframes don't all agree with the trade — no clean bias.");
+    reasons.push(`Higher timeframes${input.htfLabel ? ` (${input.htfLabel})` : ""} all ${wantTrend === "up" ? "bullish" : "bearish"} — with the trend.`);
+  } else {
+    if (n > 0 && against > n / 2) return no("Higher timeframes lean against the trade — standing aside.");
+    reasons.push(`Higher-timeframe bias not against the trade (${agree}/${n} with).`);
+  }
 
-  // Stage 3: structure broke in our favour and the pullback is done.
-  if (!structure.bosWithTrend) return no("No break of structure in the trade direction yet.");
-  if (!structure.pullbackComplete) return no("Pullback not complete — price is still moving into the level.");
-  reasons.push("Structure broke with the trend and the pullback has completed.");
+  // Market structure. Institutional hard-requires a BOS with the trend AND a
+  // completed pullback at an institutional level. Accelerator allows a momentum
+  // breakout to stand in for the BOS, and does not require a pullback or a
+  // classic institutional level (breakouts / VWAP rejections live mid-structure).
+  if (cfg.requireBosWithTrend) {
+    if (!structure.bosWithTrend) return no("No break of structure in the trade direction yet.");
+    reasons.push("Structure broke with the trend.");
+  } else if (!structure.bosWithTrend && !(momentum.turnedWithTrend && trigger.closedWithTrend)) {
+    return no("No structural break and no confirmed momentum breakout to justify entry.");
+  }
+  if (cfg.requirePullbackComplete && !structure.pullbackComplete) {
+    return no("Pullback not complete — price is still moving into the level.");
+  }
+  if (cfg.requireInstitutionalLevel && !structure.atInstitutionalLevel) {
+    return no("Price is mid-range — not at an institutional level.");
+  }
 
-  // Stage 4: at a real institutional level, not mid-range.
-  if (!structure.atInstitutionalLevel) return no("Price is mid-range — not at an institutional level.");
-  reasons.push("Reaction is at an institutional level (OB / FVG / sweep / S-R).");
-
-  // Stage 6: THE reaction — the trigger candle must have CLOSED back with the trend.
+  // Confirmation candle — HARD for both: never enter before the trigger closes
+  // back in the trend direction.
   if (!trigger.closed) return no("Waiting for the trigger candle to close.");
   if (!trigger.closedWithTrend) return no("Trigger candle hasn't closed back in the trend direction — no confirmation.");
-  reasons.push("Confirmation candle CLOSED back in the trend direction off the level.");
+  reasons.push("Confirmation candle CLOSED back in the trend direction.");
 
-  // Stage 5: momentum turned our way, and we are not fading strong momentum.
+  // Momentum — HARD for both: don't fade strong momentum, and require it to have
+  // turned with the trade.
   if (momentum.strongAgainst) return no("Strong momentum against the trade — not fading it.");
-  if (!momentum.turnedWithTrend) return no("Momentum hasn't turned back with the trend yet.");
-  reasons.push("Momentum has turned back in the trend direction.");
+  if (!momentum.turnedWithTrend) return no("Momentum hasn't turned with the trend yet.");
+  reasons.push("Momentum is with the trend.");
 
-  // Stage 7: institutional reward:risk floor.
-  if (rr < RR_FLOOR) return no(`Reward:risk ${rr} is below the ${RR_FLOOR} floor.`);
-  reasons.push(`Reward:risk ${rr}:1 clears the ${RR_FLOOR} floor.`);
+  // Reward:risk floor (profile-specific).
+  if (rr < cfg.rrFloor) return no(`Reward:risk ${rr} is below the ${cfg.rrFloor} floor.`);
+  reasons.push(`Reward:risk ${rr}:1 clears the ${cfg.rrFloor} floor.`);
 
-  // ── WEIGHTED QUALITY SCORE (Stage 8) ───────────────────────────────────────
-  const rrScore = clamp(((rr - RR_FLOOR) / (3.5 - RR_FLOOR)) * 40 + 60);
-  const session = input.sessionScore ?? 70;
-  const volatility = input.volatilityScore ?? 70;
+  // ── WEIGHTED SCORE ─────────────────────────────────────────────────────────
+  const rrScore = clamp(((rr - cfg.rrFloor) / (cfg.rrCeil - cfg.rrFloor)) * 40 + 60);
+  const session = clamp(input.sessionScore ?? 70);
+  const volatility = clamp(input.volatilityScore ?? 70);
   const structureScore = clamp(structure.score);
   const liquidity = clamp(input.liquidityScore);
   const momentumScore = clamp(momentum.score);
+  const trendScore = clamp(input.trendStrength ?? 75);
+  const volume = clamp(input.volumeScore ?? 60);
+  const htfRatio = n ? agree / n : 0.5;
 
-  const score = Math.round(
-    100 * 0.20 +               // trend alignment (gate guarantees it)
-    100 * 0.15 +               // HTF bias (aligned)
-    structureScore * 0.15 +
-    liquidity * 0.15 +
-    momentumScore * 0.10 +
-    liquidity * 0.10 +         // institutional confluence
-    rrScore * 0.05 +
-    session * 0.05 +
-    volatility * 0.05 +
-    100 * 0.05                 // news filter clear
-  );
+  let score: number;
+  if (profile === "institutional") {
+    // Gate guarantees full trend + HTF agreement, so those weights are maxed.
+    score = Math.round(
+      100 * 0.20 + 100 * 0.15 +
+      structureScore * 0.15 + liquidity * 0.15 + momentumScore * 0.10 +
+      liquidity * 0.10 + rrScore * 0.05 + session * 0.05 + volatility * 0.05 + 100 * 0.05
+    );
+  } else {
+    // Accelerator: momentum-heavy, real (not assumed) trend + HTF components.
+    score = Math.round(
+      trendScore * 0.20 + momentumScore * 0.20 + structureScore * 0.15 +
+      liquidity * 0.10 + volume * 0.10 + htfRatio * 100 * 0.10 +
+      session * 0.05 + volatility * 0.05 + rrScore * 0.05
+    );
+  }
 
   const grade: Grade =
     score >= 90 ? "A+" : score >= 80 ? "A" : score >= 70 ? "B" : score >= 60 ? "C" : "D";
+  const momentumRating = ratingOf(momentumScore);
+  const trendRating = ratingOf(trendScore);
 
-  if (grade !== "A+" && grade !== "A") {
-    return { decision: "NO_TRADE", direction: dir, grade, score, rr, reasons: [],
-      noTradeReason: `Grade ${grade} (${score}/100) — not enough institutional confluence.` };
+  const gradeOk = !cfg.releaseGrades || cfg.releaseGrades.includes(grade);
+  if (score < cfg.releaseScore || !gradeOk) {
+    return {
+      decision: "NO_TRADE", direction: dir, grade, score, rr, reasons: [], profile, momentumRating, trendRating,
+      noTradeReason: profile === "institutional"
+        ? `Grade ${grade} (${score}/100) — not enough institutional confluence.`
+        : `Confidence ${score}/100 is below the ${cfg.releaseScore} threshold — insufficient edge.`,
+    };
   }
-  return { decision: "TRADE", direction: dir, grade, score, rr, reasons };
+  return { decision: "TRADE", direction: dir, grade, score, rr, reasons, profile, momentumRating, trendRating };
 }
