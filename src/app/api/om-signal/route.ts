@@ -562,26 +562,23 @@ Return the JSON signal now.`;
   const midTp = ladder[1] ?? ladder[ladder.length - 1] ?? entry;
   signal.riskReward = `1:${(risk > 0 ? Math.abs(midTp - entry) / risk : 0).toFixed(1)}`;
 
-  // ── Chase guard ───────────────────────────────────────────────────────────
-  // Retest/limit entries are STILL called by default — price often runs past a
-  // level, comes back to retest, and continues, which is a good trade. We only
-  // flag the play as "missed" when price has TRULY left: it has travelled more
-  // than a full planned-risk (1.2R) beyond the ideal limit entry. By then a
-  // retest that deep puts the move in doubt, ~80%+ of the move to the first
-  // target is already gone, and the fixed stop would be far more exposed — so
-  // there is no point entering even if price did come back. Market entries
-  // (entry == live price) can never trip this.
+  // ── Price-extended heads-up (NON-BLOCKING) ────────────────────────────────
+  // The play is ALWAYS produced. A retest/limit entry is valid even when price
+  // has moved past it — price routinely runs, comes back to retest, and then
+  // continues. We NEVER withhold the trade. We only ATTACH a soft heads-up when
+  // live price has already travelled well past the ideal limit entry (≥1.5× the
+  // planned stop), so the trader knows the retest may be shallow or may not fill.
+  // Market entries (entry == live price) never trigger it.
   const asOfStamp = new Date().toISOString();
-  const CHASE_R = 1.2;
   const chaseRun = isLong ? price - entry : entry - price;   // distance live price ran past the ideal limit entry
   const chaseRunR = risk > 0 ? chaseRun / risk : 0;
-  const chased = orderType === "Limit" && chaseRunR >= CHASE_R;
-  signal.chased = chased;
+  const priceExtended = orderType === "Limit" && chaseRunR >= 1.5;
+  signal.chased = priceExtended;               // kept as `chased` for the UI's existing binding
   signal.live_price = rnd(price);
   signal.as_of = asOfStamp;
-  if (chased) {
+  if (priceExtended) {
     signal.ran_r = +chaseRunR.toFixed(1);
-    signal.chase_note = `Price has already run ${chaseRunR.toFixed(1)}× the planned risk past the ideal entry (${rnd(entry)} → now ${rnd(price)}). A retest that deep would put the move in doubt, and even if price came back most of the move to the first target is gone while the stop would be exposed. No good entry right now — better to let this one go and take the next clean setup.`;
+    signal.chase_note = `Heads up — price has already moved ${chaseRunR.toFixed(1)}× the planned stop past the ideal entry (${rnd(entry)} → now ${rnd(price)}) since this level formed. The retest may be shallow or may not fill; wait for price to come back to the level rather than chasing it here.`;
   }
 
   // ── Objective, multi-factor confirmation checklist ────────────────────────
@@ -634,9 +631,7 @@ Return the JSON signal now.`;
   const credits = await chargeCredit("signal");
 
   // Universal outcome logging (fire-and-safe: never blocks or breaks the signal).
-  // Skip logging a "missed" play — it isn't a takeable trade, so it must not
-  // count toward win-rate stats.
-  if (!chased) await logSignal({
+  await logSignal({
     engine: "plays", userId: loggedUserId, instrument: td, symbol: found.asset.symbol,
     style: styleKey, method, direction: dir, orderType,
     entry: signal.entry as number, stop: signal.stopLoss as number, tps: signal.takeProfits as number[],
