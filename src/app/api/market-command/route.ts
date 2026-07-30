@@ -161,12 +161,17 @@ export async function POST(req: NextRequest) {
   const mdKey = process.env.TWELVEDATA_API_KEY;
   if (!mdKey) return json({ status: "error", error: "notConfigured", reason: "Live market data isn't connected (TWELVEDATA_API_KEY missing)." }, 200);
 
-  let body: { td?: unknown; balance?: unknown; riskPct?: unknown };
+  let body: { td?: unknown; balance?: unknown; riskPct?: unknown; mode?: unknown };
   try { body = await req.json(); } catch { return json({ status: "error", error: "bad_request" }, 400); }
   const td = (typeof body?.td === "string" ? body.td : "").trim().toUpperCase();
   if (!/^[A-Z0-9]{2,7}(\/[A-Z0-9]{2,7})?$/.test(td)) return json({ status: "error", error: "invalid_symbol", reason: "That instrument symbol isn't recognised." }, 400);
   const balance = numOk(Number(body?.balance)) && Number(body?.balance) > 0 ? Number(body?.balance) : CFG.defaultBalance;
   const riskPct = numOk(Number(body?.riskPct)) && Number(body?.riskPct) > 0 && Number(body?.riskPct) <= 10 ? Number(body?.riskPct) : CFG.defaultRiskPct;
+  // Trading personality: accelerator (aggressive, 1.8R floor, releases ≥75) or
+  // the default institutional (strict, 2.5R floor, A+/A only).
+  const tradeMode: "institutional" | "accelerator" = body?.mode === "accelerator" ? "accelerator" : "institutional";
+  const isAccel = tradeMode === "accelerator";
+  const profileFloor = isAccel ? 1.8 : 2.5;
 
   const gate = await gateCredits("command");
   if (!gate.ok && gate.reason === "unauthorized") return json({ status: "error", error: "unauthorized" }, 401);
@@ -306,12 +311,15 @@ export async function POST(req: NextRequest) {
 
   // Targets from real objectives: opposing range / prev-day level / swing, then R-ladder fill.
   const risk = Math.abs(entry - stop) || atr1;
+  // TP1 must clear the profile's reward:risk floor (2.5R institutional, 1.8R
+  // accelerator): take the nearest structural objective beyond the floor, else a
+  // clean profile ladder off the floor.
   if (dir === "buy") {
-    const obj = [rangeHi, prevDayHi, lastSH].filter((v) => v > entry + risk * 0.8).sort((x, y) => x - y);
-    targets = [obj[0] ?? entry + risk * 1.8, entry + risk * 2.8, entry + risk * 4.0].map(f);
+    const obj = [rangeHi, prevDayHi, lastSH].filter((v) => v > entry + risk * profileFloor).sort((x, y) => x - y);
+    targets = [obj[0] ?? entry + risk * profileFloor, entry + risk * (profileFloor + 1.0), entry + risk * (profileFloor + 2.2)].map(f);
   } else {
-    const obj = [rangeLo, prevDayLo, lastSL].filter((v) => v < entry - risk * 0.8).sort((x, y) => y - x);
-    targets = [obj[0] ?? entry - risk * 1.8, entry - risk * 2.8, entry - risk * 4.0].map(f);
+    const obj = [rangeLo, prevDayLo, lastSL].filter((v) => v < entry - risk * profileFloor).sort((x, y) => y - x);
+    targets = [obj[0] ?? entry - risk * profileFloor, entry - risk * (profileFloor + 1.0), entry - risk * (profileFloor + 2.2)].map(f);
   }
   targets = Array.from(new Set(targets)).slice(0, 3);
   const rr1 = risk ? Math.abs(targets[0] - entry) / risk : 0;
@@ -321,7 +329,7 @@ export async function POST(req: NextRequest) {
   const riskWarnings: string[] = [];
   if (stopAtr > CFG.maxStopAtr) return noTrade(td, spec, "NO TRADE — STOP TOO WIDE", `The structural stop is ${stopAtr.toFixed(1)}× ATR (max ${CFG.maxStopAtr}×). Risk per unit is too large for a clean intraday setup.`, dqScore, { regime, session });
   if (stopAtr < CFG.minStopAtr) return noTrade(td, spec, "NO TRADE — STOP TOO TIGHT", `The stop is only ${stopAtr.toFixed(2)}× ATR — noise would stop this out. Waiting for a cleaner structure.`, dqScore, { regime, session });
-  if (rr1 < CFG.minRR) return noTrade(td, spec, "NO TRADE — REWARD:RISK TOO LOW", `Nearest objective gives only ${rr1.toFixed(1)}R (min ${CFG.minRR}R). The move on offer doesn't justify the risk.`, dqScore, { regime, session });
+  if (rr1 < profileFloor) return noTrade(td, spec, "NO TRADE — REWARD:RISK TOO LOW", `Nearest objective gives only ${rr1.toFixed(1)}R (min ${profileFloor}R for ${profile}). The move on offer doesn't justify the risk.`, dqScore, { regime, session });
 
   // Position sizing (per-instrument spec — never a generic pip formula).
   const stopPips = risk / spec.pip;
@@ -366,12 +374,13 @@ export async function POST(req: NextRequest) {
     return noTrade(td, spec, "NO TRADE — BELOW QUALIFICATION THRESHOLD", `The setup scored ${scores.overall}/100 (threshold ${CFG.minScore}). Direction is ${dir.toUpperCase()} but confluence is too thin to qualify.`, dqScore, { regime, session, scores });
   }
 
-  // ── Institutional confirmation gate (Phase 1) ─────────────────────────────
+  // ── Confirmation gate (profile-aware) ─────────────────────────────────────
   // React, never anticipate. Even after the quant engine qualifies a setup, the
-  // gate demands the market has PROVEN itself: Daily + 1H agree with the trade,
-  // structure broke with the trend and the pullback completed, the trigger candle
-  // CLOSED back with the trend on the execution frame, momentum turned, and TP1
-  // clears the 2.5R institutional floor. Otherwise → NO TRADE, waiting.
+  // gate demands the market has PROVEN itself: the trigger candle CLOSED back
+  // with the trend on the execution frame, momentum turned, and TP1 clears the
+  // profile's RR floor. Institutional also requires Daily+1H agreement and a
+  // completed pullback (2.5R, A+/A); accelerator relaxes those and drops to 1.8R,
+  // releasing anything scoring ≥75. Otherwise → NO TRADE, waiting.
   const trigRows = (spec.cat === "index" || spec.cat === "stock") ? R5 : R15;
   const gDir: "long" | "short" = dir === "buy" ? "long" : "short";
   const cs = confirmationSignals(trigRows as { open: string; high: string; low: string; close: string }[], gDir);
@@ -379,6 +388,11 @@ export async function POST(req: NextRequest) {
   const dSma = sma(closesD, Math.min(20, closesD.length));
   const dailyTrend: "up" | "down" | "range" = dSma == null ? "range" : px > dSma ? "up" : px < dSma ? "down" : "range";
   const h1Trend: "up" | "down" | "range" = regimeDir === "buy" ? "up" : regimeDir === "sell" ? "down" : "range";
+  const trendStrengthScore = Math.round(Math.max(0, Math.min(100, adxV * 2.5)));
+  const v15 = R15.map((r) => +(r.volume ?? 0)).filter((v) => v > 0);
+  const volumeScore = v15.length >= 12
+    ? Math.round(Math.max(0, Math.min(100, 50 + ((v15.slice(-3).reduce((a, b) => a + b, 0) / 3) / ((v15.reduce((a, b) => a + b, 0) / v15.length) || 1) - 1) * 60)))
+    : 60;
   const gateDecision = evaluateSetup({
     direction: gDir,
     htf: [dailyTrend, h1Trend],
@@ -395,10 +409,12 @@ export async function POST(req: NextRequest) {
     entry, stop, tps: targets,
     sessionScore: scores.session,
     volatilityScore: scores.volatility,
+    volumeScore,
+    trendStrength: trendStrengthScore,
     newsRisk: false, // a news blackout already returned NO TRADE above
-  });
+  }, tradeMode);
   if (gateDecision.decision === "NO_TRADE") {
-    return noTrade(td, spec, "NO TRADE — WAITING FOR CONFIRMATION", gateDecision.noTradeReason ?? "The market hasn't confirmed the setup yet.", dqScore, { regime, session, scores });
+    return noTrade(td, spec, `NO TRADE — ${isAccel ? "NO CONFIRMED MOMENTUM" : "WAITING FOR CONFIRMATION"}`, gateDecision.noTradeReason ?? "The market hasn't confirmed the setup yet.", dqScore, { regime, session, scores, mode: tradeMode });
   }
 
   const interval = spec.cat === "index" || spec.cat === "stock" ? "5min" : "15min";
@@ -424,9 +440,12 @@ export async function POST(req: NextRequest) {
       suggested_close_percent: i === 0 ? 50 : i === 1 ? 30 : 20,
     })),
     market_regime: regime,
+    mode: tradeMode,
     grade: gateDecision.grade,
     gate_score: gateDecision.score,
     gate_reasons: gateDecision.reasons,
+    momentum_rating: gateDecision.momentumRating,
+    trend_rating: gateDecision.trendRating,
     strategy,
     timeframes: ["1day", "1h", "15min", "5min"],
     session,
@@ -450,7 +469,7 @@ export async function POST(req: NextRequest) {
     engine: "command", userId: loggedUserId, instrument: td, symbol: td, style: "intraday",
     method: strategy, direction: dir, orderType, entry, stop, tps: targets,
     confidence, score: scores.overall, regime, session, atr: atr1, priceAtIssue: px, interval: "15min",
-    meta: { scores, news_level: news?.level ?? null, grade: gateDecision.grade, gate_score: gateDecision.score },
+    meta: { scores, news_level: news?.level ?? null, grade: gateDecision.grade, gate_score: gateDecision.score, mode: tradeMode },
   });
   return json(setup, 200);
 }
@@ -475,13 +494,14 @@ function isClosed(cat: Cat, now: Date): boolean {
   return dow === 0 || dow === 6 || mins < 13 * 60 + 30 || mins >= 20 * 60;
 }
 
-function noTrade(td: string, spec: Spec, headline: string, reason: string, dqScore: number, extra?: { regime?: string; session?: string; scores?: unknown }) {
+function noTrade(td: string, spec: Spec, headline: string, reason: string, dqScore: number, extra?: { regime?: string; session?: string; scores?: unknown; mode?: string }) {
   return json({
     status: "no_trade",
     instrument: td,
     market_category: spec.cat,
     timestamp: new Date().toISOString(),
     data_provider: "Twelve Data",
+    mode: extra?.mode ?? "institutional",
     headline,
     reason,
     recheck: "Re-run after conditions change — a cleaner regime, tighter structure, or a better reward-to-risk.",
