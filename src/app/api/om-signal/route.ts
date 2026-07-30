@@ -260,10 +260,14 @@ export async function POST(req: NextRequest) {
   if (!aiKey) return json({ notConfigured: "ai" }, 200);
   if (!mdKey) return json({ notConfigured: "marketdata" }, 200);
 
-  let body: { td?: unknown; orderType?: unknown; style?: unknown; method?: unknown; confirmations?: unknown };
+  let body: { td?: unknown; orderType?: unknown; style?: unknown; method?: unknown; confirmations?: unknown; mode?: unknown };
   try { body = await req.json(); } catch { return json({ error: "bad_request" }, 400); }
   const td = typeof body?.td === "string" ? body.td : "";
   const orderType = body?.orderType === "market" ? "Market" : "Limit";
+  // Trading personality: accelerator (aggressive, 1.8R, releases ≥75) or the
+  // default institutional (strict, 2.5R, A+/A only).
+  const profile = body?.mode === "accelerator" ? "accelerator" : "institutional";
+  const isAccel = profile === "accelerator";
   const STYLE: Record<string, { interval: string; htf: string; htfLabel: string; label: string; note: string }> = {
     scalp: { interval: "15min", htf: "1h", htfLabel: "4H/1H flow", label: "Scalp (5·15·30m)", note: "a very short-term scalp — tight stop, nearby targets" },
     intraday: { interval: "1h", htf: "4h", htfLabel: "4H", label: "Intraday (1H)", note: "an intraday trade on the 1H timeframe" },
@@ -557,11 +561,16 @@ Return the JSON signal now.`;
   if (!slValid) sl = isLong ? entry - fallbackRisk : entry + fallbackRisk;
   const risk = Math.abs(entry - (sl as number)) || fallbackRisk;
 
-  // Keep the AI's targets only if they're on the right side and the nearest is a
-  // real reward (≥0.9R); otherwise build a clean 1.0 / 1.8 / 2.8 R ladder.
+  // Build the TP ladder so TP1 clears the profile's reward:risk floor (2.5R
+  // institutional, 1.8R accelerator) — the confirmation gate rejects anything
+  // that doesn't, so the advertised targets and the gate must agree. Keep the
+  // AI's targets only if TP1 already clears the floor; otherwise build a clean
+  // profile ladder.
+  const rrFloor = isAccel ? 1.8 : 2.5;
+  const rrLadder = isAccel ? [1.8, 2.8, 4.0] : [2.5, 3.5, 5.0];
   let ladder = tps.filter((t) => (isLong ? t > entry : t < entry)).sort((a, b) => (isLong ? a - b : b - a));
-  const nearOk = ladder.length >= 3 && Math.abs(ladder[0] - entry) >= risk * 0.9;
-  if (!nearOk) ladder = [1.0, 1.8, 2.8].map((m) => (isLong ? entry + risk * m : entry - risk * m));
+  const nearOk = ladder.length >= 3 && Math.abs(ladder[0] - entry) >= risk * rrFloor;
+  if (!nearOk) ladder = rrLadder.map((m) => (isLong ? entry + risk * m : entry - risk * m));
   ladder = ladder.slice(0, 3);
 
   const rnd = (n: number) => +n.toFixed(dec);
@@ -642,10 +651,12 @@ Return the JSON signal now.`;
     signal.confidence = ratio >= 0.75 ? "High" : ratio >= 0.45 ? "Medium" : "Low";
   }
 
-  // ── Institutional confirmation gate (Phase 1) ─────────────────────────────
-  // React, never anticipate: only release the play after HTF agreement, a
-  // completed pullback, a CLOSED confirmation candle with the trend, momentum
-  // turning, and ≥2.5R. Otherwise it's NO TRADE — waiting for confirmation.
+  // ── Confirmation gate (profile-aware) ─────────────────────────────────────
+  // React, never anticipate: only release the play after a CLOSED confirmation
+  // candle with the trend, momentum turning, and the profile's RR floor. The
+  // accelerator profile relaxes HTF/pullback/level filters and drops to 1.8R;
+  // institutional stays strict (full HTF agreement, completed pullback, ≥2.5R,
+  // A+/A). Otherwise it's NO TRADE — waiting for confirmation.
   const cTrend = (t: Trend): "up" | "down" | "range" => (t === "bullish" ? "up" : t === "bearish" ? "down" : "range");
   const gDir: "long" | "short" = dir === "SHORT" ? "short" : "long";
   const cs = confirmationSignals(rows, gDir);
@@ -670,11 +681,16 @@ Return the JSON signal now.`;
     entry: signal.entry as number,
     stop: signal.stopLoss as number,
     tps: signal.takeProfits as number[],
-  });
+    trendStrength: confluencePct,
+    sessionScore: strongTrend ? 78 : 68,
+  }, profile);
+  signal.mode = profile;
   signal.grade = gateDecision.grade;
   signal.gate_score = gateDecision.score;
   signal.gate_decision = gateDecision.decision;
   signal.gate_reasons = gateDecision.reasons;
+  signal.momentum_rating = gateDecision.momentumRating;
+  signal.trend_rating = gateDecision.trendRating;
   if (gateDecision.decision === "NO_TRADE") {
     signal.status = "no_trade";
     signal.no_trade_reason = gateDecision.noTradeReason;
@@ -695,7 +711,7 @@ Return the JSON signal now.`;
       style: styleKey, method, direction: dir, orderType,
       entry: signal.entry as number, stop: signal.stopLoss as number, tps: signal.takeProfits as number[],
       confidence: signal.confidence as string, regime: htfTrend, atr, priceAtIssue: price, interval: sty.interval,
-      meta: { directionCorrected: signal._directionCorrected ?? false, confirmed: signal.confirmed ?? null, total: signal.total ?? null, grade: signal.grade ?? null, gate_score: signal.gate_score ?? null, gate_decision: signal.gate_decision ?? null },
+      meta: { directionCorrected: signal._directionCorrected ?? false, confirmed: signal.confirmed ?? null, total: signal.total ?? null, grade: signal.grade ?? null, gate_score: signal.gate_score ?? null, gate_decision: signal.gate_decision ?? null, mode: profile },
     });
   }
 
