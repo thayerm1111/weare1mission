@@ -192,7 +192,7 @@ export function StrategyScanner({ isAdmin = false }: { isAdmin?: boolean }) {
         body: JSON.stringify({ td, style, scouts }),
       });
       const d: Result = await res.json().catch(() => ({ status: "error" }));
-      if (res.status === 402 || d.error === "insufficient_credits") { setNeedCredits(true); setError("You're out of credits — they reset tomorrow, or grab more."); return; }
+      if (res.status === 402 || d.error === "insufficient_credits") { setNeedCredits(true); setError("You're out of credits — they reset weekly, or grab more."); return; }
       if (d.error === "unknown_asset") { setError(`"${td}" isn't a symbol we could read. Try a form like EUR/USD, XAU/USD, GBP/JPY, or SPY.`); return; }
       if (d.error === "marketdata_error") { setError((d.reason as string) || `No live candles came back for ${td} on this timeframe — check the symbol or try another.`); return; }
       if (d.error === "ratelimit" || d.error === "system_busy" || d.error === "notConfigured") { setError((d.reason as string) || "Market data is busy — try again shortly."); return; }
