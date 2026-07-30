@@ -125,6 +125,7 @@ const SCOUTS: { key: string; label: string }[] = [
 type ScoutRead = { key: string; label: string; fired: boolean; dir: "LONG" | "SHORT" | null; strength: number; read: string; level?: number };
 type Result = Record<string, unknown> & {
   status: string; symbol?: string; style?: string; price?: number; htf_trend?: string; confluence?: number; agreement?: number;
+  regime_label?: string; regime_basis?: string; strategy?: string; strategy_why?: string;
   headline?: string; reason?: string; direction?: string; order_type?: string; confidence?: string;
   entry?: number; stop_loss?: number; take_profits?: number[]; risk_reward?: string; stop_pips?: number; reversal?: boolean;
   scouts?: ScoutRead[]; reasoning?: string[]; educational?: string; error?: string;
@@ -431,6 +432,25 @@ function ResultView({ r, onUpdate, updating, update, isAdmin }: { r: Result; onU
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white/60"><Ban className="h-4 w-4" /> WAIT</span>
         )}
       </div>
+
+      {/* Market read — surface the regime + chosen strategy so the trader sees what was processed */}
+      {(r.regime_label || r.strategy) && (
+        <div className="mt-4 rounded-xl border border-indigo-400/25 bg-indigo-400/[0.06] p-3.5">
+          <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-indigo-300/80"><Radar className="h-3.5 w-3.5" /> Market read — what the engine processed</p>
+          <div className="mt-2.5 grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-white/40">Regime</p>
+              <p className="text-sm font-bold text-white">{r.regime_label ?? r.htf_trend}</p>
+              {r.regime_basis && <p className="mt-0.5 text-[11px] text-white/45">{r.regime_basis}</p>}
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-white/40">Strategy chosen</p>
+              <p className="text-sm font-bold text-white">{r.strategy ?? "—"}</p>
+            </div>
+          </div>
+          {r.strategy_why && <p className="mt-2.5 text-[12px] leading-relaxed text-white/70">{r.strategy_why}</p>}
+        </div>
+      )}
 
       {isSetup && onUpdate && (
         <button onClick={onUpdate} disabled={updating}
