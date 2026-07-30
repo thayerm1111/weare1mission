@@ -4,6 +4,7 @@ import { gateCredits, chargeCredit } from "@/lib/credits";
 import { series, livePrice, isPriorityEmail, livePriceSane } from "@/lib/marketData";
 import { findAsset } from "@/data/signalAssets";
 import { logSignal } from "@/lib/signalLog";
+import { evaluateSetup, confirmationSignals } from "@/lib/confirmation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ type Row = { datetime: string; open: string; high: string; low: string; close: s
 type Trend = "bullish" | "bearish" | "ranging";
 type Dir = "LONG" | "SHORT";
 type Factor = { label: string; ok: boolean };
-type TFResult = { checklist: Factor[]; confirmed: number; total: number; tfTrend: Trend };
+type TFResult = { checklist: Factor[]; confirmed: number; total: number; tfTrend: Trend; okByKey: Record<string, boolean> };
 const numOk = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 
 function sma(vals: number[], n: number): number | null {
@@ -234,10 +235,14 @@ function buildChecklist(rows: Row[], dir: Dir, E: number, flowTrend: Trend, conf
   const active = (confs.length ? confs : PRO_DEFAULT).filter((k) => FACTORS[k]);
   const checklist = active.map((k) => FACTORS[k]);
   const confirmed = checklist.filter((c) => c.ok).length;
+  // Keyed pass/fail for every factor we actually evaluated — the confirmation
+  // gate reads structure / institutional-level factors off this map.
+  const okByKey: Record<string, boolean> = {};
+  for (const k of Object.keys(FACTORS)) okByKey[k] = FACTORS[k].ok;
 
   const s20 = sma(closes, 20), s50 = sma(closes, 50), last = closes[closes.length - 1];
   const tfTrend: Trend = s20 && s50 ? (last > s20 && s20 > s50 ? "bullish" : last < s20 && s20 < s50 ? "bearish" : "ranging") : "ranging";
-  return { checklist, confirmed, total: checklist.length, tfTrend };
+  return { checklist, confirmed, total: checklist.length, tfTrend, okByKey };
 }
 
 export async function POST(req: NextRequest) {
@@ -590,6 +595,10 @@ Return the JSON signal now.`;
   signal.direction = dir;
   const E = numOk(signal.entry) ? (signal.entry as number) : price;
 
+  // Captured for the institutional confirmation gate below: the keyed factor
+  // reads for the primary execution frame (15m for a scalp, else the exec frame).
+  let execOkByKey: Record<string, boolean> = {};
+
   if (isScalp && flow) {
     // Run the full confirmation stack on EACH scalp frame (30m / 15m / 5m).
     const frames: { tf: string; rows: Row[] | null }[] = [
@@ -598,9 +607,9 @@ Return the JSON signal now.`;
       { tf: "5m", rows: m5 },
     ];
     const tfOut = frames.map(({ tf, rows: fr }) => {
-      if (!fr || fr.length < 20) return { tf, trend: "ranging" as Trend, confirmed: 0, total: 0, checklist: [] as Factor[], unavailable: true };
+      if (!fr || fr.length < 20) return { tf, trend: "ranging" as Trend, confirmed: 0, total: 0, checklist: [] as Factor[], okByKey: {} as Record<string, boolean>, unavailable: true };
       const cl = buildChecklist(fr, dir, E, flow!.trend, confs);
-      return { tf, trend: cl.tfTrend, confirmed: cl.confirmed, total: cl.total, checklist: cl.checklist, unavailable: false };
+      return { tf, trend: cl.tfTrend, confirmed: cl.confirmed, total: cl.total, checklist: cl.checklist, okByKey: cl.okByKey, unavailable: false };
     });
 
     const totalConfirmed = tfOut.reduce((a, t) => a + t.confirmed, 0);
@@ -615,6 +624,7 @@ Return the JSON signal now.`;
     signal.confirmed = totalConfirmed;
     signal.total = totalFactors;
     signal.checklist = tfOut[1].checklist;                        // 15m list for the compact card / back-compat
+    execOkByKey = tfOut[1].okByKey;
     signal.timeframes = tfOut;
     signal.flow = { h4: flow.t4, h1: flow.t1, dir: flow.dir ?? "—", aligned: flow.aligned };
     signal.verdict = confidence === "High"
@@ -627,21 +637,67 @@ Return the JSON signal now.`;
     signal.checklist = cl.checklist;
     signal.confirmed = cl.confirmed;
     signal.total = cl.total;
+    execOkByKey = cl.okByKey;
     const ratio = cl.total ? cl.confirmed / cl.total : 0;
     signal.confidence = ratio >= 0.75 ? "High" : ratio >= 0.45 ? "Medium" : "Low";
+  }
+
+  // ── Institutional confirmation gate (Phase 1) ─────────────────────────────
+  // React, never anticipate: only release the play after HTF agreement, a
+  // completed pullback, a CLOSED confirmation candle with the trend, momentum
+  // turning, and ≥2.5R. Otherwise it's NO TRADE — waiting for confirmation.
+  const cTrend = (t: Trend): "up" | "down" | "range" => (t === "bullish" ? "up" : t === "bearish" ? "down" : "range");
+  const gDir: "long" | "short" = dir === "SHORT" ? "short" : "long";
+  const cs = confirmationSignals(rows, gDir);
+  const htfArr = isScalp && flow ? [cTrend(flow.t4), cTrend(flow.t1)] : [cTrend(htfTrend)];
+  const confluencePct = (signal.total as number) > 0
+    ? Math.round(((signal.confirmed as number) / (signal.total as number)) * 100)
+    : 0;
+  const instLevel = ["ob", "fvg", "liquidity", "sr", "fib", "breakRetest"].some((k) => execOkByKey[k]);
+  const gateDecision = evaluateSetup({
+    direction: gDir,
+    htf: htfArr,
+    htfLabel: isScalp ? "4H/1H" : sty.htfLabel,
+    structure: {
+      bosWithTrend: !!execOkByKey.structure,
+      pullbackComplete: cs.pullbackComplete,
+      atInstitutionalLevel: instLevel,
+      score: confluencePct,
+    },
+    momentum: { turnedWithTrend: cs.momentumTurned, strongAgainst: cs.strongAgainst, score: cs.momentumScore },
+    trigger: { closed: cs.closed, closedWithTrend: cs.closedWithTrend },
+    liquidityScore: confluencePct,
+    entry: signal.entry as number,
+    stop: signal.stopLoss as number,
+    tps: signal.takeProfits as number[],
+  });
+  signal.grade = gateDecision.grade;
+  signal.gate_score = gateDecision.score;
+  signal.gate_decision = gateDecision.decision;
+  signal.gate_reasons = gateDecision.reasons;
+  if (gateDecision.decision === "NO_TRADE") {
+    signal.status = "no_trade";
+    signal.no_trade_reason = gateDecision.noTradeReason;
+    signal.verdict = `NO TRADE — ${gateDecision.noTradeReason}`;
+  } else {
+    signal.status = "setup";
   }
 
   // Work succeeded — now charge the credit (best-effort; never charged on failure above).
   const credits = await chargeCredit("signal");
 
   // Universal outcome logging (fire-and-safe: never blocks or breaks the signal).
-  await logSignal({
-    engine: "plays", userId: loggedUserId, instrument: td, symbol: found.asset.symbol,
-    style: styleKey, method, direction: dir, orderType,
-    entry: signal.entry as number, stop: signal.stopLoss as number, tps: signal.takeProfits as number[],
-    confidence: signal.confidence as string, regime: htfTrend, atr, priceAtIssue: price, interval: sty.interval,
-    meta: { directionCorrected: signal._directionCorrected ?? false, confirmed: signal.confirmed ?? null, total: signal.total ?? null },
-  });
+  // Only log ACTUAL trades — a NO_TRADE (gate said "wait") is not a position and
+  // must never enter the win/loss ledger or it would corrupt the performance stats.
+  if (signal.status !== "no_trade") {
+    await logSignal({
+      engine: "plays", userId: loggedUserId, instrument: td, symbol: found.asset.symbol,
+      style: styleKey, method, direction: dir, orderType,
+      entry: signal.entry as number, stop: signal.stopLoss as number, tps: signal.takeProfits as number[],
+      confidence: signal.confidence as string, regime: htfTrend, atr, priceAtIssue: price, interval: sty.interval,
+      meta: { directionCorrected: signal._directionCorrected ?? false, confirmed: signal.confirmed ?? null, total: signal.total ?? null, grade: signal.grade ?? null, gate_score: signal.gate_score ?? null, gate_decision: signal.gate_decision ?? null },
+    });
+  }
 
   return json({
     credits,
