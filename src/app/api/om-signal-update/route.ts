@@ -19,13 +19,6 @@ const tms = (s: string): number => {
   const t = Date.parse(/([zZ]|[+-]\d\d:?\d\d)$/.test(iso) ? iso : iso + "Z");
   return Number.isFinite(t) ? t : NaN;
 };
-// Format an ISO timestamp as Twelve Data's expected "YYYY-MM-DD HH:MM:SS" (UTC).
-const toTdDate = (iso: string): string => {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "";
-  const d = new Date(t), p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
-};
 
 /**
  * OM AI Plays — "Get Update" on an OPEN call.
@@ -59,7 +52,7 @@ async function fetchSeries(td: string, interval: string, size: number, key: stri
   const { fetchTd, scale } = resolveTd(td);
   try {
     const sd = since ? `&start_date=${encodeURIComponent(since)}` : "";
-    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(fetchTd)}&interval=${interval}&outputsize=${size}${sd}&apikey=${key}`, { cache: "no-store" });
+    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(fetchTd)}&interval=${interval}&outputsize=${size}${sd}&timezone=UTC&apikey=${key}`, { cache: "no-store" });
     const j = await r.json();
     if (j.status === "error" || !Array.isArray(j.values)) {
       const msg = String(j?.message || "");
@@ -113,7 +106,7 @@ export async function POST(req: NextRequest) {
   if (!md.ok) return json({ error: "system_busy", reason: "The data desk is busy — try again in a few seconds." }, 429);
 
   const [execRes, flow4Res, flow1Res] = await Promise.all([
-    fetchSeries(td, interval, 200, mdKey, since ? toTdDate(since) || undefined : undefined),
+    fetchSeries(td, interval, 200, mdKey),
     style === "swing" ? Promise.resolve(null) : fetchSeries(td, style === "scalp" ? "4h" : "1day", 60, mdKey),
     style === "swing" ? Promise.resolve(null) : fetchSeries(td, style === "scalp" ? "1h" : "4h", 60, mdKey),
   ]);
@@ -136,34 +129,44 @@ export async function POST(req: NextRequest) {
   const pnlPct = entry ? (move / entry) * 100 : 0;
   const side = Math.abs(move) < risk * 0.05 ? "flat" : move > 0 ? "profit" : "drawdown";
 
-  // Restrict every "since entry" reading to candles at/after the entry time. Scanning the
-  // whole fetched window (up to 200 bars ≈ many hours) would let unrelated history mark the
-  // stop or a target as "hit" on a trade opened minutes ago — the trade can then read as
-  // "+0.7R, stop 7 pips away" AND "stop hit / invalidated" at the same time, which is wrong.
-  // No usable entry time (or entry newer than every candle) → fall back to the last few bars.
+  // Post-entry window (timezone-robust). We fetch the recent series in UTC (no
+  // start_date) and locate the entry inside it. The window is TRUSTED only when the
+  // series brackets the entry — a candle exists BEFORE the entry time (startIdx > 0)
+  // — so we only read price action that happened AFTER the trade was issued, never
+  // the move that set it up. If we can't bracket the entry (just-issued trade, or
+  // entry older than the fetched range) it's a FRESH entry: an empty window, and we
+  // make NO "already hit / already broken" claims. This prevents a trade opened
+  // minutes ago from reading "+0.7R, stop 7 pips away" AND "stop hit" at once.
   const cutoff = since ? tms(since) : NaN;
-  let startIdx: number;
-  if (Number.isFinite(cutoff)) {
-    const idx = rows.findIndex((r) => { const t = tms(r.datetime); return Number.isFinite(t) && t >= cutoff; });
-    startIdx = idx >= 0 ? idx : rows.length - 1;
-  } else {
-    startIdx = Math.max(0, rows.length - 4);
-  }
-  const sinceRows = rows.slice(startIdx);
-  const sHighs = sinceRows.map((r) => +r.high);
-  const sLows = sinceRows.map((r) => +r.low);
+  const startIdx = Number.isFinite(cutoff)
+    ? rows.findIndex((r) => { const t = tms(r.datetime); return Number.isFinite(t) && t >= cutoff; })
+    : -1;
+  const bracketed = startIdx > 0;
+  const freshEntry = !bracketed;
+  const sinceRows = bracketed ? rows.slice(startIdx) : [];
 
-  // Max favourable / adverse excursion since entry.
-  let bestPrice = px, worstPrice = px;
+  // Max favourable / adverse excursion since entry, seeded at the ENTRY price so a
+  // fresh trade measures entry -> current price only (never a pre-entry extreme).
+  let bestPrice = entry, worstPrice = entry;
   for (let i = 0; i < sinceRows.length; i++) { bestPrice = isLong ? Math.max(bestPrice, +sinceRows[i].high) : Math.min(bestPrice, +sinceRows[i].low); worstPrice = isLong ? Math.min(worstPrice, +sinceRows[i].low) : Math.max(worstPrice, +sinceRows[i].high); }
+  bestPrice = isLong ? Math.max(bestPrice, px) : Math.min(bestPrice, px);
+  worstPrice = isLong ? Math.min(worstPrice, px) : Math.max(worstPrice, px);
   const mfeR = (isLong ? bestPrice - entry : entry - bestPrice) / risk;
   const maeR = (isLong ? entry - worstPrice : worstPrice - entry) / risk;
 
-  // A CLOSE beyond the stop since entry = a genuine break (invalidated). Targets hit since entry.
-  const stopBrokenClose = isLong ? sinceRows.some((c) => +c.close <= stop) : sinceRows.some((c) => +c.close >= stop);
-  const tpTagged = tps.map((t) => (isLong ? Math.max(...sHighs) >= t : Math.min(...sLows) <= t));
+  // A target counts as hit only when the favourable excursion actually reached it,
+  // inside a trusted window (monotonic — a far TP can't read hit before a nearer one).
+  const tpRs = tps.map((t) => Math.abs(entry - t) / risk);
+  const tpTagged = tps.map((_, i) => bracketed && mfeR >= tpRs[i] - 1e-9);
   const nextTpIdx = tpTagged.findIndex((h) => !h);
   const nextTp = nextTpIdx >= 0 ? tps[nextTpIdx] : tps[tps.length - 1];
+
+  // Stop "broken on close" — only inside a trusted window, and reconciled with the
+  // live state: if the trade is still live and price hasn't passed the stop, a
+  // close-beyond-stop reading is stale/pre-entry noise, so we don't report it.
+  const pxBeyondStop = isLong ? px <= stop : px >= stop;
+  let stopBrokenClose = bracketed && (isLong ? sinceRows.some((c) => +c.close <= stop) : sinceRows.some((c) => +c.close >= stop));
+  if (stopBrokenClose && !pxBeyondStop && rNow > -0.98) stopBrokenClose = false;
   const toStopPips = Math.abs(px - stop) / pip;
   const toNextTpPips = Math.abs(nextTp - px) / pip;
 
@@ -217,7 +220,7 @@ export async function POST(req: NextRequest) {
     excursion: { mfe_r: +mfeR.toFixed(2), mae_r: +maeR.toFixed(2) },
     distance: { to_stop_pips: +toStopPips.toFixed(1), to_next_target_pips: +toNextTpPips.toFixed(1), next_target_label: `TP${nextTpIdx >= 0 ? nextTpIdx + 1 : tps.length}` },
     market: { exec_trend: execTrend, flow_4h: t4, flow_1h: t1, rsi: rsiNow != null ? +rsiNow.toFixed(0) : null, flow_against_trade: flowAgainst },
-    events, thesis, headline,
+    events, thesis, headline, fresh_entry: freshEntry,
     explanation: [] as string[],
     what_to_watch: "",
     educational: "Educational market analysis and trade-management context only — not financial advice, and not a prediction. Manage your own risk.",
@@ -245,7 +248,7 @@ function deterministic(s: Record<string, unknown>): string[] {
 
 async function narrate(s: Record<string, unknown>, aiKey: string | undefined): Promise<string[]> {
   if (!aiKey) return deterministic(s);
-  const sys = `You are OM AI Plays' trade-update explainer. You are given a FINAL, LOCKED JSON snapshot of an OPEN trade that a deterministic engine already computed (price, P/L in R and pips, what price did since entry, whether the flow flipped, whether it was a stop-run, etc.). Your ONLY job is to explain, in plain, simple English a beginner could follow, what is happening to THIS trade and WHY the market moved the way it did — using ONLY the mechanics in the JSON (liquidity sweep / stop-run, pullback, trend flip, momentum stretch, distance to stop/target). You MUST NOT invent or change any number. You MUST NOT invent specific news headlines, economic releases, or events that aren't in the JSON — if news could be a factor, say only that scheduled news can cause moves like this and to check an economic calendar. Return ONLY a JSON array of 3-5 short plain-English sentences (no markdown).`;
+  const sys = `You are OM AI Plays' trade-update explainer. You are given a FINAL, LOCKED JSON snapshot of an OPEN trade that a deterministic engine already computed (price, P/L in R and pips, what price did since entry, whether the flow flipped, whether it was a stop-run, etc.). Your ONLY job is to explain, in plain, simple English a beginner could follow, what is happening to THIS trade and WHY the market moved the way it did — using ONLY the mechanics in the JSON (liquidity sweep / stop-run, pullback, trend flip, momentum stretch, distance to stop/target). You MUST NOT invent or change any number. You MUST NOT invent specific news headlines, economic releases, or events that aren't in the JSON — if news could be a factor, say only that scheduled news can cause moves like this and to check an economic calendar. If "fresh_entry" is true the trade was JUST issued and nothing has happened since entry yet — say plainly it's a brand-new, just-triggered setup with no post-entry action to report, and never claim a target or the stop was hit. Return ONLY a JSON array of 3-5 short plain-English sentences (no markdown).`;
   const r = await fetch(ANTHROPIC_URL, {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": aiKey, "anthropic-version": "2023-06-01" },
