@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
 import { CopyBtn, CopyAllBtn, buildTradeText } from "./copykit";
+import { TradeChat } from "./TradeChat";
 
 const INSTRUMENTS: { td: string; label: string; cat: string }[] = [
   { td: "XAU/USD", label: "Gold", cat: "Commodity" },
@@ -342,6 +343,10 @@ function SetupView({ s, onUpdate, updating, update }: { s: Setup; onUpdate?: () 
             <p key={i} className="flex items-start gap-1.5 text-[11px] text-white/45"><X className="mt-0.5 h-3 w-3 flex-shrink-0 text-white/30" /> {w}</p>
           ))}
         </div>
+      )}
+
+      {typeof s.entry?.price === "number" && typeof s.stop_loss?.price === "number" && (s.take_profits || []).length > 0 && (
+        <TradeChat trade={{ td: String(s.instrument), symbol: String(s.instrument), interval: "15min", direction: String(s.direction), entry: s.entry.price, stopLoss: s.stop_loss.price, takeProfits: (s.take_profits || []).map((t) => t.price).filter((n) => typeof n === "number"), since: s.timestamp }} />
       )}
 
       <p className="mt-4 border-t border-white/10 pt-3 text-[11px] leading-relaxed text-white/35">{s.educational_disclaimer}</p>
