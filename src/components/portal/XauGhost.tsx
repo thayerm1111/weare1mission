@@ -16,6 +16,7 @@ import {
 import { CREDIT_COST } from "@/lib/creditConfig";
 import { CopyBtn, CopyAllBtn, buildTradeText } from "./copykit";
 import { TradeChat } from "./TradeChat";
+import { Ring, scoreTone } from "./quantUi";
 
 type Entries = { primary: number | null; aggressive: number | null; conservative: number | null; confirmation?: string };
 type LiquidityMap = { buyside?: string[]; sellside?: string[]; taken?: string[]; resting?: string[] };
@@ -264,13 +265,14 @@ export function XauGhost() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
                 <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-white/45"><Gauge className="h-3.5 w-3.5" /> Confidence</p>
-                <div className="mt-2 flex items-center gap-3">
-                  <span className="font-serif text-2xl font-bold">{conf != null ? `${conf}` : "—"}<span className="text-sm text-white/40">/100</span></span>
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/10">
-                    <div className="h-full rounded-full bg-gradient-to-r from-[#8a8266] to-[#CFC7B3]" style={{ width: `${conf ?? 0}%` }} />
+                <div className="mt-2 flex items-center gap-4">
+                  <Ring value={conf ?? 0} size={80} stroke={6} tone={scoreTone(conf ?? 0)} sub="/100" />
+                  <div className="text-xs text-white/55">
+                    {winP != null
+                      ? <><p>Win probability <span className="font-semibold text-emerald-300">{winP}%</span></p><p className="mt-0.5">Fail <span className="font-semibold text-red-300">{100 - winP}%</span></p></>
+                      : <p className="text-white/45">Engine confidence in this read</p>}
                   </div>
                 </div>
-                {winP != null && <p className="mt-2 text-xs text-white/50">Win probability <span className="font-semibold text-emerald-300">{winP}%</span> · fail <span className="font-semibold text-red-300">{100 - winP}%</span></p>}
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
                 <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-white/45"><TrendingUp className="h-3.5 w-3.5" /> Directional probability</p>
