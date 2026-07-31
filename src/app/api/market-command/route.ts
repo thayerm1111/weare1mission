@@ -447,6 +447,7 @@ export async function POST(req: NextRequest) {
       suggested_close_percent: i === 0 ? 50 : i === 1 ? 30 : 20,
     })),
     market_regime: regime,
+    spark: closes1.slice(-24),
     mode: tradeMode,
     grade: gateDecision.grade,
     gate_score: gateDecision.score,
