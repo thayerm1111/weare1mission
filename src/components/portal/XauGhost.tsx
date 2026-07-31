@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
 import { CopyBtn, CopyAllBtn, buildTradeText } from "./copykit";
+import { TradeChat } from "./TradeChat";
 
 type Entries = { primary: number | null; aggressive: number | null; conservative: number | null; confirmation?: string };
 type LiquidityMap = { buyside?: string[]; sellside?: string[]; taken?: string[]; resting?: string[] };
@@ -387,6 +388,9 @@ export function XauGhost() {
                   </button>
                 )}
                 {ghostUpdate && <UpdatePanel u={ghostUpdate} />}
+                {read.direction && read.direction !== "NONE" && read.entries?.primary != null && read.stopLoss != null && (read.takeProfits?.length ?? 0) > 0 && (
+                  <TradeChat trade={{ td: res?.symbol || symbol, symbol: res?.symbol || symbol, style: "intraday", direction: read.direction, entry: read.entries.primary, stopLoss: read.stopLoss, takeProfits: (read.takeProfits || []).filter((n): n is number => typeof n === "number"), since: res?.asOf }} />
+                )}
               </Section>
             )}
 
