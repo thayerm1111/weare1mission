@@ -37,8 +37,8 @@ export type Feature = keyof typeof CREDIT_COST;
 // adjust freely. `id` is what the checkout route looks up.
 export type Pack = { id: string; label: string; credits: number; priceUsd: number; blurb: string; best?: boolean };
 export const PACKS: Pack[] = [
-  { id: "starter", label: "Starter", credits: 100, priceUsd: 9, blurb: "A week or two of extra plays" },
-  { id: "trader", label: "Trader", credits: 300, priceUsd: 19, blurb: "Best value for daily traders", best: true },
-  { id: "pro", label: "Pro", credits: 1000, priceUsd: 49, blurb: "For heavy users & power days" },
+  { id: "starter", label: "Starter", credits: 100, priceUsd: 19.99, blurb: "A week or two of extra plays" },
+  { id: "trader", label: "Trader", credits: 300, priceUsd: 39.99, blurb: "Best value for daily traders", best: true },
+  { id: "pro", label: "Pro", credits: 1000, priceUsd: 79.99, blurb: "For heavy users & power days" },
 ];
 export const packById = (id: string): Pack | null => PACKS.find((p) => p.id === id) || null;
