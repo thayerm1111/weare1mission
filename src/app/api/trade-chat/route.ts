@@ -170,6 +170,14 @@ async function snapshot(t: Trade, mdKey: string): Promise<Record<string, unknown
   let stopBrokenClose = bracketed && (isLong ? sinceRows.some((c) => +c.close <= t.stop) : sinceRows.some((c) => +c.close >= t.stop));
   if (stopBrokenClose && !pxBeyondStop && rNow > -0.98) stopBrokenClose = false;
 
+  // A real stop ORDER fills on an intrabar TOUCH of the level, not only on a close
+  // beyond it. Track that separately so we never tell a member "your stop wasn't hit"
+  // when price actually reached it. NOTE: this is only THIS feed — a member's broker
+  // gold feed can wick past the stop (and fill it) without it showing here.
+  const stopTouched = pxBeyondStop || (bracketed && (isLong ? sinceRows.some((c) => +c.low <= t.stop) : sinceRows.some((c) => +c.high >= t.stop)));
+  const toStopPips = Math.abs(px - t.stop) / pip;
+  const nearStop = !stopTouched && (toStopPips <= Math.max(3, (risk / pip) * 0.15) || maeR >= 0.85);
+
   const beMove = isLong ? px - t.entry : t.entry - px; // >0 means price has moved past breakeven in our favour
 
   const execTrend = trendOf(rows);
@@ -181,7 +189,7 @@ async function snapshot(t: Trade, mdKey: string): Promise<Record<string, unknown
 
   const last6 = sinceRows.slice(-6);
   const stopRun = isLong ? last6.some((c) => +c.low <= t.stop && +c.close > t.stop) : last6.some((c) => +c.high >= t.stop && +c.close < t.stop);
-  const thesis = stopBrokenClose ? "invalidated" : (side === "drawdown" && flowAgainst) || stopRun ? "weakening" : "intact";
+  const thesis = stopBrokenClose ? "invalidated" : (side === "drawdown" && flowAgainst) || stopRun || stopTouched ? "weakening" : "intact";
 
   return {
     symbol: t.symbol, direction: t.direction, price: f(px), entry: f(t.entry), stop: f(t.stop),
@@ -189,10 +197,11 @@ async function snapshot(t: Trade, mdKey: string): Promise<Record<string, unknown
     r_now: +rNow.toFixed(2), side, pips: +(move / pip).toFixed(1),
     at_or_past_breakeven: beMove >= 0,
     mfe_r: +mfeR.toFixed(2), mae_r: +maeR.toFixed(2),
-    to_stop_pips: +(Math.abs(px - t.stop) / pip).toFixed(1),
+    to_stop_pips: +toStopPips.toFixed(1),
     to_next_target_pips: +(Math.abs(nextTp - px) / pip).toFixed(1),
     exec_trend: execTrend, higher_trend: higher, rsi: rsiNow != null ? +rsiNow.toFixed(0) : null,
     flow_against_trade: flowAgainst, stop_run: stopRun, stop_broken_close: stopBrokenClose,
+    stop_touched: stopTouched, near_stop: nearStop,
     tps_already_hit: tpsHit, fresh_entry: freshEntry, thesis, as_of: rows[rows.length - 1].datetime,
   };
 }
@@ -203,7 +212,9 @@ You are given a LOCKED JSON snapshot of the trade computed from real live market
 
 Rules:
 - NEVER invent or change a price, level, or R number — use only what's in the snapshot. If asked something the data can't answer, say so plainly.
-- The snapshot is the ONLY source of truth for what has happened. A target counts as reached ONLY if "tps_already_hit" is greater than 0, and the stop counts as broken ONLY if "stop_broken_close" is true. If those say 0 / false, the level has NOT been reached — never say otherwise, no matter how the raw prices look. If "fresh_entry" is true the trade was just issued and is live and un-triggered: do NOT claim any target or the stop has been hit, and answer as if managing a brand-new open position.
+- The snapshot describes what THIS market-data feed shows. If "fresh_entry" is true the trade was just issued and is live and un-triggered — answer as if managing a brand-new open position and don't claim targets were reached.
+- ORDER FILLS ARE THE BROKER'S CALL, NOT YOURS. The member's own broker/platform is the ONLY source of truth for whether their stop or target actually filled. A stop order fills the instant price TOUCHES the level (an intrabar wick) — it does NOT wait for a candle to close beyond it — and broker XAU/gold feeds routinely differ from this feed by a few tenths to over a dollar, especially on fast wicks. So NEVER state as fact that "the stop was not hit" or "your order didn't fill." At most say what THIS feed shows (e.g. "on my data I don't see price reaching your stop"), and immediately defer to their platform. If "stop_touched" is true, treat the position as stopped out. If "near_stop" is true, warn plainly that the stop may already have filled on their broker even though it isn't showing here.
+- If the member says they were stopped out, or shows a closed/stopped position, BELIEVE THEM — do not argue with the snapshot or tell them they're still in the trade. Acknowledge the stop-out, then be useful: was it a wick/stop-run or a decisive break, was the stop placement reasonable, and what to take from it. "tps_already_hit" and "stop_broken_close" describe a decisive close through a level for THESIS purposes only — they are not a claim about whether the member's order filled.
 - NEVER invent specific news/economic events. If news might matter, say only that scheduled news can move price like this and to check an economic calendar.
 - Be genuinely useful and DIRECT. Give a clear lean with your reasoning tied to the plan + live conditions. Answer questions about moving to breakeven, taking partials, trailing the stop, holding vs closing, and where the idea is invalidated — like a pro would.
 - Keep it conversational and tight: a few sentences or short lines, not an essay. Lead with the answer, then the why.
