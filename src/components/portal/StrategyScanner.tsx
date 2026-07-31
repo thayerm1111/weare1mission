@@ -11,12 +11,13 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Radar, Loader2, ShieldAlert, ArrowUp, ArrowDown, Target, Gauge, Check, X, Sparkles,
+  Radar, Loader2, ShieldAlert, ArrowUp, ArrowDown, Gauge, Check, X, Sparkles,
   Ban, Layers, TrendingUp, Trash2, Search, Activity, Eye, Send,
 } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
-import { CopyBtn, CopyAllBtn, buildTradeText, cleanNum } from "./copykit";
+import { CopyAllBtn, buildTradeText, cleanNum } from "./copykit";
 import { TradeChat } from "./TradeChat";
+import { Ring, Levels, scoreTone } from "./quantUi";
 
 // -- Instrument catalog --
 // The search box below matches against this list, but you can also just TYPE any
@@ -529,14 +530,13 @@ function ResultView({ r, onUpdate, updating, update, isAdmin }: { r: Result; onU
       )}
       {update && <UpdatePanel u={update} />}
 
-      {/* Confluence meter */}
-      <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.02] p-3">
-        <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.12em] text-white/45">
-          <span className="inline-flex items-center gap-1.5"><Gauge className="h-3.5 w-3.5" /> Confluence · {Math.round((r.agreement ?? 0) * 100)}% agree</span>
-          <span className="font-serif text-lg font-bold text-white">{r.confluence ?? 0}/100</span>
-        </div>
-        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-          <div className={`h-full rounded-full ${(r.confluence ?? 0) >= 78 ? "bg-emerald-400" : (r.confluence ?? 0) >= 60 ? "bg-indigo-400" : "bg-amber-400"}`} style={{ width: `${Math.min(100, r.confluence ?? 0)}%` }} />
+      {/* Confluence gauge */}
+      <div className="mt-4 flex items-center gap-5 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+        <Ring value={r.confluence ?? 0} size={92} tone={scoreTone(r.confluence ?? 0)} sub="/100" label={`${Math.round((r.agreement ?? 0) * 100)}% agree`} />
+        <div>
+          <p className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.12em] text-white/45"><Gauge className="h-3.5 w-3.5" /> Confluence</p>
+          <p className="mt-1 text-sm text-white/70">{scouts.filter((s) => s.fired).length} of {scouts.length} strategies aligned</p>
+          {r.confidence && <p className="mt-1 text-[12px] text-white/55">Confidence <span className="font-semibold text-white/80">{r.confidence}</span></p>}
         </div>
       </div>
 
@@ -560,14 +560,14 @@ function ResultView({ r, onUpdate, updating, update, isAdmin }: { r: Result; onU
 
       {isSetup ? (
         <>
-          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-            <Cell label="Entry" v={fmt(r.entry)} tint="text-white" copy={fmt(r.entry)} />
-            <Cell label="Stop" v={fmt(r.stop_loss)} tint="text-red-400" icon={<ShieldAlert className="h-3 w-3" />} copy={fmt(r.stop_loss)} />
-            <Cell label="Risk : Reward" v={r.risk_reward || "—"} tint="text-indigo-300" small />
-          </div>
-          <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-            {(r.take_profits || []).map((t, i) => <Cell key={i} label={`TP${i + 1}`} v={fmt(t)} tint="text-emerald-400" icon={<Target className="h-3 w-3" />} copy={fmt(t)} />)}
-          </div>
+          {typeof r.entry === "number" && typeof r.stop_loss === "number" && (
+            <div className="mt-4">
+              <Levels direction={r.direction as string} entry={r.entry} stop={r.stop_loss}
+                pip={typeof r.stop_pips === "number" && r.stop_pips > 0 ? Math.abs(r.entry - r.stop_loss) / r.stop_pips : undefined}
+                rr={(r.take_profits || []).reduce((m, t) => Math.max(m, Math.abs(r.entry! - r.stop_loss!) > 0 ? +(Math.abs(t - r.entry!) / Math.abs(r.entry! - r.stop_loss!)).toFixed(2) : 0), 0) || undefined}
+                targets={(r.take_profits || []).map((t, i) => ({ label: `TP${i + 1}`, price: t }))} />
+            </div>
+          )}
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <CopyAllBtn text={tradeBlock} />
@@ -596,15 +596,6 @@ function ResultView({ r, onUpdate, updating, update, isAdmin }: { r: Result; onU
       )}
 
       <p className="mt-4 border-t border-white/10 pt-3 text-[11px] leading-relaxed text-white/35">{r.educational}</p>
-    </div>
-  );
-}
-
-function Cell({ label, v, tint, icon, small, copy }: { label: string; v: string; tint: string; icon?: React.ReactNode; small?: boolean; copy?: string }) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.02] px-2 py-2.5">
-      <p className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.08em] text-white/40">{icon}{label}</p>
-      <p className={`mt-0.5 flex items-center justify-center gap-1 font-serif ${small ? "text-sm" : "text-base"} font-bold tabular-nums ${tint}`}>{v}{copy ? <CopyBtn value={copy} label={label} /> : null}</p>
     </div>
   );
 }
