@@ -11,6 +11,7 @@ import { earnMission } from "@/lib/earnMission";
 import { CREDIT_COST } from "@/lib/creditConfig";
 import { DeepDiveModal } from "./floor/DeepDive";
 import { CopyBtn, CopyAllBtn, buildTradeText } from "./copykit";
+import { TradeChat } from "./TradeChat";
 
 const MARKET_ICON: Record<Market["id"], typeof Bitcoin> = { crypto: Bitcoin, metal: Gem, stock: TrendingUp, forex: Globe, index: BarChart3 };
 const MARKET_TINT: Record<Market["id"], string> = { crypto: "text-orange-400", metal: "text-amber-300", stock: "text-emerald-400", forex: "text-sky-400", index: "text-violet-400" };
@@ -827,6 +828,10 @@ function FullCard({ r, onCheck, checking, onUpdate, updating, update }: { r: Res
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <CopyAllBtn text={buildTradeText({ direction: s.direction, entry: s.entry, stopLoss: s.stopLoss, takeProfits: s.takeProfits, fmt })} />
         </div>
+      )}
+
+      {s.direction !== "NEUTRAL" && s.status !== "no_trade" && numOk(s.entry) && numOk(s.stopLoss) && (
+        <TradeChat trade={{ td: r.td, symbol: r.symbol, style: r.style, interval: r.interval, direction: s.direction, entry: s.entry, stopLoss: s.stopLoss, takeProfits: (s.takeProfits || []).filter(numOk), since: r.asOf || r.as_of }} />
       )}
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/50">
