@@ -8,12 +8,13 @@
  */
 import { useEffect, useState } from "react";
 import {
-  Crosshair, Loader2, ShieldAlert, ArrowUp, ArrowDown, Target, Gauge, Clock,
+  Crosshair, Loader2, ShieldAlert, ArrowUp, ArrowDown, Gauge, Clock,
   Ban, Check, Sparkles, TrendingUp, AlertTriangle, Trash2, X, Activity, Eye,
 } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
-import { CopyBtn, CopyAllBtn, buildTradeText } from "./copykit";
+import { CopyAllBtn, buildTradeText } from "./copykit";
 import { TradeChat } from "./TradeChat";
+import { Ring, GradeRing, Sparkline, StatRow, StatTile, Checks, Levels, scoreTone } from "./quantUi";
 
 const INSTRUMENTS: { td: string; label: string; cat: string }[] = [
   { td: "XAU/USD", label: "Gold", cat: "Commodity" },
@@ -40,6 +41,7 @@ type Setup = Record<string, unknown> & {
   entry?: { price: number; zone_low?: number; zone_high?: number }; stop_loss?: { price: number; reason: string };
   take_profits?: TP[]; scores?: Record<string, number>; news_risk?: { level: string; next_event?: string; event_time?: string; note?: string };
   position_sizing?: Record<string, number | string>; reasoning?: string[]; risk_warnings?: string[]; educational_disclaimer?: string; error?: string;
+  spark?: number[];
 };
 type JournalItem = Setup & { id: number };
 // Live "Get update" snapshot for a qualified setup.
@@ -240,6 +242,23 @@ function SetupView({ s, onUpdate, updating, update }: { s: Setup; onUpdate?: () 
   const sc = s.scores || {};
   const ps = s.position_sizing || {};
 
+  // Derived, purely from the engine's own numbers.
+  const overall = typeof sc.overall === "number" ? sc.overall : 0;
+  const confLabel = overall >= 78 ? "Strong" : overall >= 62 ? "Solid" : "Building";
+  const regimeUp = /bull|up/i.test(String(s.market_regime)) || /bull|up/i.test(String(s.trend_rating)) ? true : /bear|down/i.test(String(s.market_regime)) || /bear|down/i.test(String(s.trend_rating)) ? false : undefined;
+  const tps = (s.take_profits || []);
+  const entryP = s.entry?.price, stopP = s.stop_loss?.price;
+  const pip = ps.stop_pips && entryP != null && stopP != null ? Math.abs(entryP - stopP) / Number(ps.stop_pips) : undefined;
+  const rrMax = tps.reduce((m, t) => Math.max(m, t.risk_reward || 0), 0);
+  const checks = [
+    { label: "Trend / Regime", ok: (sc.regime ?? 0) >= 55 },
+    { label: "Structure", ok: (sc.structure ?? 0) >= 55 },
+    { label: "Entry", ok: (sc.entry ?? 0) >= 55 },
+    { label: "R : R", ok: (sc.risk_reward ?? 0) >= 55 },
+    { label: "Momentum", ok: (sc.momentum ?? 0) >= 55 },
+    { label: "Data", ok: (sc.data_quality ?? 0) >= 70 },
+  ];
+
   return (
     <div className="mt-5 rounded-2xl border border-white/12 bg-white/[0.03] p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -274,17 +293,42 @@ function SetupView({ s, onUpdate, updating, update }: { s: Setup; onUpdate?: () 
       )}
       {update && <UpdatePanel u={update} />}
 
+      {/* Stat row — the "market read" at a glance */}
+      <div className="mt-4">
+        <StatRow cols={5}>
+          <StatTile label="Regime Read">
+            <div className="font-serif text-base font-bold leading-tight text-white">{String(s.market_regime).split(" ")[0] || "—"}</div>
+            <div className={`text-[10px] font-semibold uppercase tracking-wide ${regimeUp ? "text-emerald-400" : regimeUp === false ? "text-red-400" : "text-white/50"}`}>{s.trend_rating || (regimeUp ? "Bullish" : regimeUp === false ? "Bearish" : "Ranging")}</div>
+            <Sparkline data={s.spark} up={regimeUp} w={110} h={30} />
+          </StatTile>
+          <StatTile label="Confluence">
+            <Ring value={overall} size={78} stroke={6} tone={scoreTone(overall)} sub="/100" label={confLabel} />
+          </StatTile>
+          <StatTile label="Strategy">
+            <div className="font-serif text-sm font-bold leading-tight text-white">{s.strategy || "—"}</div>
+            <div className="text-[10px] text-white/45">{buy ? "Long setup" : "Short setup"}</div>
+          </StatTile>
+          <StatTile label="Grade">
+            {s.grade ? <GradeRing grade={s.grade} size={54} /> : <span className="text-white/40">—</span>}
+            <div className="text-[10px] text-white/45">{typeof s.gate_score === "number" ? `${s.gate_score}/100` : "High quality"}</div>
+          </StatTile>
+          <StatTile label="Qualification">
+            <div className="font-serif text-base font-bold text-emerald-400">QUALIFIED</div>
+            <div className="text-[10px] text-white/45">Meets all criteria</div>
+          </StatTile>
+        </StatRow>
+      </div>
+
+      {/* Qualification checks */}
+      <div className="mt-2.5"><Checks items={checks} /></div>
+
       {/* Levels */}
-      <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-        <Cell label="Entry" v={fmt(s.entry?.price)} tint="text-white" copy={fmt(s.entry?.price)} />
-        <Cell label="Stop" v={fmt(s.stop_loss?.price)} tint="text-red-400" icon={<ShieldAlert className="h-3 w-3" />} copy={fmt(s.stop_loss?.price)} />
-        <Cell label="Regime" v={String(s.market_regime).split(" ")[0]} tint="text-sky-300" small />
-      </div>
-      <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-        {(s.take_profits || []).map((t) => (
-          <Cell key={t.label} label={`${t.label} · ${t.risk_reward}R`} v={fmt(t.price)} tint="text-emerald-400" icon={<Target className="h-3 w-3" />} note={`${t.suggested_close_percent}%`} copy={fmt(t.price)} />
-        ))}
-      </div>
+      {typeof entryP === "number" && typeof stopP === "number" && (
+        <div className="mt-3">
+          <Levels direction={s.direction} entry={entryP} stop={stopP} rr={rrMax || undefined} pip={pip}
+            targets={tps.map((t) => ({ label: t.label, price: t.price, rr: t.risk_reward }))} />
+        </div>
+      )}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <CopyAllBtn text={buildTradeText({ direction: s.direction, entry: s.entry?.price, stopLoss: s.stop_loss?.price, takeProfits: (s.take_profits || []).map((t) => t.price), fmt })} />
       </div>
@@ -350,16 +394,6 @@ function SetupView({ s, onUpdate, updating, update }: { s: Setup; onUpdate?: () 
       )}
 
       <p className="mt-4 border-t border-white/10 pt-3 text-[11px] leading-relaxed text-white/35">{s.educational_disclaimer}</p>
-    </div>
-  );
-}
-
-function Cell({ label, v, tint, icon, note, small, copy }: { label: string; v: string; tint: string; icon?: React.ReactNode; note?: string; small?: boolean; copy?: string }) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.02] px-2 py-2.5">
-      <p className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.08em] text-white/40">{icon}{label}</p>
-      <p className={`mt-0.5 flex items-center justify-center gap-1 font-serif ${small ? "text-sm" : "text-base"} font-bold tabular-nums ${tint}`}>{v}{copy ? <CopyBtn value={copy} label={label} /> : null}</p>
-      {note && <p className="text-[9px] text-white/35">{note}</p>}
     </div>
   );
 }
