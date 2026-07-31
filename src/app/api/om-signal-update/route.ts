@@ -167,7 +167,12 @@ export async function POST(req: NextRequest) {
   const pxBeyondStop = isLong ? px <= stop : px >= stop;
   let stopBrokenClose = bracketed && (isLong ? sinceRows.some((c) => +c.close <= stop) : sinceRows.some((c) => +c.close >= stop));
   if (stopBrokenClose && !pxBeyondStop && rNow > -0.98) stopBrokenClose = false;
+  // A stop ORDER fills on an intrabar TOUCH, not only on a close beyond the level —
+  // tracked separately (and only for THIS feed; a broker's gold feed can wick past
+  // the stop and fill it without it showing here).
+  const stopTouched = pxBeyondStop || (bracketed && (isLong ? sinceRows.some((c) => +c.low <= stop) : sinceRows.some((c) => +c.high >= stop)));
   const toStopPips = Math.abs(px - stop) / pip;
+  const nearStop = !stopTouched && (toStopPips <= Math.max(3, (risk / pip) * 0.15) || maeR >= 0.85);
   const toNextTpPips = Math.abs(nextTp - px) / pip;
 
   // Structure / flow now vs the trade direction.
@@ -190,6 +195,8 @@ export async function POST(req: NextRequest) {
   // Deterministic event tags.
   const events: string[] = [];
   if (stopBrokenClose) events.push("Price has already closed beyond the stop since entry — a genuine break of the level, not just a wick.");
+  if (stopTouched && !stopBrokenClose) events.push("Price has tapped the stop level on this feed — a stop order there would have filled on your broker (a wick can stop you out without a candle closing beyond it). Your platform is the final word on whether it filled.");
+  if (nearStop) events.push("Price is right up against the stop — it may already have filled on your broker even if it hasn't registered on this feed. Check your platform.");
   if (stopRun) events.push("Looks like a stop-run / liquidity sweep — price wicked past the stop then closed back, a classic stop hunt rather than a clean break.");
   if (side === "drawdown" && flowAgainst) events.push(`The ${style === "scalp" ? "1H/4H flow" : "higher timeframe"} has turned ${againstTrend} — momentum is currently against the trade.`);
   if (side === "drawdown" && !flowAgainst && !stopRun) events.push("This reads as a normal pullback against the position — the broader flow hasn't flipped yet.");
@@ -199,7 +206,7 @@ export async function POST(req: NextRequest) {
 
   // Thesis verdict. Only a close beyond the stop invalidates; a wick/stop-run or a
   // drawdown with the flow against the trade is "weakening"; otherwise "intact".
-  const thesis = stopBrokenClose ? "invalidated" : (side === "drawdown" && flowAgainst) || stopRun ? "weakening" : "intact";
+  const thesis = stopBrokenClose ? "invalidated" : (side === "drawdown" && flowAgainst) || stopRun || stopTouched ? "weakening" : "intact";
 
   const headline = stopBrokenClose
     ? `${symbol} closed beyond the stop since entry — the original idea is invalidated.`
@@ -220,7 +227,7 @@ export async function POST(req: NextRequest) {
     excursion: { mfe_r: +mfeR.toFixed(2), mae_r: +maeR.toFixed(2) },
     distance: { to_stop_pips: +toStopPips.toFixed(1), to_next_target_pips: +toNextTpPips.toFixed(1), next_target_label: `TP${nextTpIdx >= 0 ? nextTpIdx + 1 : tps.length}` },
     market: { exec_trend: execTrend, flow_4h: t4, flow_1h: t1, rsi: rsiNow != null ? +rsiNow.toFixed(0) : null, flow_against_trade: flowAgainst },
-    events, thesis, headline, fresh_entry: freshEntry,
+    events, thesis, headline, fresh_entry: freshEntry, stop_touched: stopTouched, near_stop: nearStop,
     explanation: [] as string[],
     what_to_watch: "",
     educational: "Educational market analysis and trade-management context only — not financial advice, and not a prediction. Manage your own risk.",
@@ -248,7 +255,7 @@ function deterministic(s: Record<string, unknown>): string[] {
 
 async function narrate(s: Record<string, unknown>, aiKey: string | undefined): Promise<string[]> {
   if (!aiKey) return deterministic(s);
-  const sys = `You are OM AI Plays' trade-update explainer. You are given a FINAL, LOCKED JSON snapshot of an OPEN trade that a deterministic engine already computed (price, P/L in R and pips, what price did since entry, whether the flow flipped, whether it was a stop-run, etc.). Your ONLY job is to explain, in plain, simple English a beginner could follow, what is happening to THIS trade and WHY the market moved the way it did — using ONLY the mechanics in the JSON (liquidity sweep / stop-run, pullback, trend flip, momentum stretch, distance to stop/target). You MUST NOT invent or change any number. You MUST NOT invent specific news headlines, economic releases, or events that aren't in the JSON — if news could be a factor, say only that scheduled news can cause moves like this and to check an economic calendar. If "fresh_entry" is true the trade was JUST issued and nothing has happened since entry yet — say plainly it's a brand-new, just-triggered setup with no post-entry action to report, and never claim a target or the stop was hit. Return ONLY a JSON array of 3-5 short plain-English sentences (no markdown).`;
+  const sys = `You are OM AI Plays' trade-update explainer. You are given a FINAL, LOCKED JSON snapshot of an OPEN trade that a deterministic engine already computed (price, P/L in R and pips, what price did since entry, whether the flow flipped, whether it was a stop-run, etc.). Your ONLY job is to explain, in plain, simple English a beginner could follow, what is happening to THIS trade and WHY the market moved the way it did — using ONLY the mechanics in the JSON (liquidity sweep / stop-run, pullback, trend flip, momentum stretch, distance to stop/target). You MUST NOT invent or change any number. You MUST NOT invent specific news headlines, economic releases, or events that aren't in the JSON — if news could be a factor, say only that scheduled news can cause moves like this and to check an economic calendar. If "fresh_entry" is true the trade was JUST issued and nothing has happened since entry yet — say plainly it's a brand-new, just-triggered setup with no post-entry action to report. The member's own broker is the ONLY source of truth for whether their stop or target order filled; this feed can differ from a broker's gold price by a few tenths on fast wicks, and a stop fills on an intrabar TOUCH, not a close — so NEVER state the stop was not hit. If "stop_touched" or "near_stop" is set, say the stop may have filled on their broker and to trust their platform. Return ONLY a JSON array of 3-5 short plain-English sentences (no markdown).`;
   const r = await fetch(ANTHROPIC_URL, {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": aiKey, "anthropic-version": "2023-06-01" },
