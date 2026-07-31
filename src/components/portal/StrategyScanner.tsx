@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
 import { CopyBtn, CopyAllBtn, buildTradeText, cleanNum } from "./copykit";
+import { TradeChat } from "./TradeChat";
 
 // -- Instrument catalog --
 // The search box below matches against this list, but you can also just TYPE any
@@ -588,6 +589,10 @@ function ResultView({ r, onUpdate, updating, update, isAdmin }: { r: Result; onU
         </>
       ) : (
         <p className="mt-4 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-sm leading-relaxed text-white/80">{r.reason}</p>
+      )}
+
+      {isSetup && typeof r.entry === "number" && typeof r.stop_loss === "number" && (
+        <TradeChat trade={{ td: r.instrument as string, symbol: (r.symbol as string) || (r.instrument as string), style: r.style, direction: r.direction as string, entry: r.entry, stopLoss: r.stop_loss, takeProfits: (r.take_profits || []).filter((n): n is number => typeof n === "number"), since: r.as_of }} />
       )}
 
       <p className="mt-4 border-t border-white/10 pt-3 text-[11px] leading-relaxed text-white/35">{r.educational}</p>
