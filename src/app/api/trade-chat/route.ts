@@ -40,12 +40,6 @@ const tms = (s: string): number => {
   const t = Date.parse(/([zZ]|[+-]\d\d:?\d\d)$/.test(iso) ? iso : iso + "Z");
   return Number.isFinite(t) ? t : NaN;
 };
-const toTdDate = (iso: string): string => {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "";
-  const d = new Date(t), p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
-};
 
 function sma(v: number[], n: number): number | null { return v.length < n ? null : v.slice(-n).reduce((a, b) => a + b, 0) / n; }
 function rsi(c: number[], p = 14): number | null {
@@ -64,7 +58,7 @@ async function fetchSeries(td: string, interval: string, size: number, key: stri
   const { fetchTd, scale } = resolveTd(td);
   try {
     const sd = since ? `&start_date=${encodeURIComponent(since)}` : "";
-    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(fetchTd)}&interval=${interval}&outputsize=${size}${sd}&apikey=${key}`, { cache: "no-store" });
+    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(fetchTd)}&interval=${interval}&outputsize=${size}${sd}&timezone=UTC&apikey=${key}`, { cache: "no-store" });
     const j = await r.json();
     if (j.status === "error" || !Array.isArray(j.values)) {
       const msg = String(j?.message || "");
@@ -108,9 +102,11 @@ function tradeKeyOf(t: Trade): string {
 
 // The LOCKED live snapshot of the trade — every number computed here, never by the model.
 async function snapshot(t: Trade, mdKey: string): Promise<Record<string, unknown> | { error: string; reason: string }> {
-  const since = t.since ? toTdDate(t.since) || undefined : undefined;
+  // Fetch the RECENT series (no start_date) in UTC, then locate the entry inside it.
+  // Using start_date made the "since entry" window depend on Twelve Data's date/tz
+  // handling, which could pull in candles from BEFORE the trade was issued.
   const [execRes, higherRes] = await Promise.all([
-    fetchSeries(t.td, t.interval, 200, mdKey, since),
+    fetchSeries(t.td, t.interval, 200, mdKey),
     fetchSeries(t.td, t.interval === "1day" ? "1week" : t.interval === "15min" ? "4h" : "1day", 60, mdKey),
   ]);
   if (execRes === "ratelimit") return { error: "ratelimit", reason: "Hit the market-data limit (8/min). Give it a minute and ask again." };
@@ -129,24 +125,51 @@ async function snapshot(t: Trade, mdKey: string): Promise<Record<string, unknown
   const rNow = move / risk;
   const side = Math.abs(move) < risk * 0.05 ? "flat" : move > 0 ? "profit" : "drawdown";
 
+  // ---- Post-entry window (timezone-robust) -----------------------------------
+  // Locate the entry inside the fetched UTC series. The window is TRUSTED only when
+  // the series brackets the entry — i.e. there is at least one candle BEFORE the
+  // entry time (startIdx > 0). That guarantees we're reading price action AFTER the
+  // trade was issued, never the move that set it up. If we can't bracket the entry
+  // (just-issued trade, or entry older than the fetched range) we treat it as a
+  // FRESH entry and make NO "already hit / already broken" claims.
   const cutoff = t.since ? tms(t.since) : NaN;
-  let startIdx: number;
-  if (Number.isFinite(cutoff)) {
-    const idx = rows.findIndex((r) => { const tt = tms(r.datetime); return Number.isFinite(tt) && tt >= cutoff; });
-    startIdx = idx >= 0 ? idx : rows.length - 1;
-  } else startIdx = Math.max(0, rows.length - 4);
-  const sinceRows = rows.slice(startIdx);
-  const sHighs = sinceRows.map((r) => +r.high), sLows = sinceRows.map((r) => +r.low);
+  const startIdx = Number.isFinite(cutoff)
+    ? rows.findIndex((r) => { const tt = tms(r.datetime); return Number.isFinite(tt) && tt >= cutoff; })
+    : -1;
+  const bracketed = startIdx > 0;
+  const freshEntry = !bracketed;
+  // Fresh/untrusted -> EMPTY historical window; excursion is measured entry -> live
+  // price only, so a brand-new trade never inherits a pre-entry candle's extremes.
+  const sinceRows = bracketed ? rows.slice(startIdx) : [];
 
-  let best = px, worst = px;
-  for (const c of sinceRows) { best = isLong ? Math.max(best, +c.high) : Math.min(best, +c.low); worst = isLong ? Math.min(worst, +c.low) : Math.max(worst, +c.high); }
+  // Max favourable / adverse excursion since entry, seeded at the ENTRY price so a
+  // one-candle fresh window still measures entry -> current extremes (never 0).
+  let best = t.entry, worst = t.entry;
+  for (const c of sinceRows) {
+    best = isLong ? Math.max(best, +c.high) : Math.min(best, +c.low);
+    worst = isLong ? Math.min(worst, +c.low) : Math.max(worst, +c.high);
+  }
+  best = isLong ? Math.max(best, px) : Math.min(best, px);
+  worst = isLong ? Math.min(worst, px) : Math.max(worst, px);
   const mfeR = (isLong ? best - t.entry : t.entry - best) / risk;
   const maeR = (isLong ? t.entry - worst : worst - t.entry) / risk;
 
-  const stopBrokenClose = isLong ? sinceRows.some((c) => +c.close <= t.stop) : sinceRows.some((c) => +c.close >= t.stop);
-  const tpTagged = t.tps.map((tp) => (isLong ? Math.max(...sHighs) >= tp : Math.min(...sLows) <= tp));
+  // A target counts as hit only when the FAVOURABLE excursion actually reached it,
+  // and only inside a trusted window. This ties "hit" to real post-entry travel and
+  // stays monotonic — a far TP can't read hit unless the nearer ones were.
+  const tpR = t.tps.map((tp) => Math.abs(t.entry - tp) / risk);
+  const tpTagged = t.tps.map((_, i) => bracketed && mfeR >= tpR[i] - 1e-9);
+  const tpsHit = tpTagged.filter(Boolean).length;
   const nextTpIdx = tpTagged.findIndex((h) => !h);
   const nextTp = nextTpIdx >= 0 ? t.tps[nextTpIdx] : t.tps[t.tps.length - 1];
+
+  // Stop "broken on close" — only inside a trusted window, and reconciled with the
+  // live state: if the trade is still live and price hasn't passed the stop, a
+  // close-beyond-stop reading is stale/pre-entry noise, so we don't report it.
+  const pxBeyondStop = isLong ? px <= t.stop : px >= t.stop;
+  let stopBrokenClose = bracketed && (isLong ? sinceRows.some((c) => +c.close <= t.stop) : sinceRows.some((c) => +c.close >= t.stop));
+  if (stopBrokenClose && !pxBeyondStop && rNow > -0.98) stopBrokenClose = false;
+
   const beMove = isLong ? px - t.entry : t.entry - px; // >0 means price has moved past breakeven in our favour
 
   const execTrend = trendOf(rows);
@@ -170,7 +193,7 @@ async function snapshot(t: Trade, mdKey: string): Promise<Record<string, unknown
     to_next_target_pips: +(Math.abs(nextTp - px) / pip).toFixed(1),
     exec_trend: execTrend, higher_trend: higher, rsi: rsiNow != null ? +rsiNow.toFixed(0) : null,
     flow_against_trade: flowAgainst, stop_run: stopRun, stop_broken_close: stopBrokenClose,
-    tps_already_hit: tpTagged.filter(Boolean).length, thesis, as_of: rows[rows.length - 1].datetime,
+    tps_already_hit: tpsHit, fresh_entry: freshEntry, thesis, as_of: rows[rows.length - 1].datetime,
   };
 }
 
@@ -180,6 +203,7 @@ You are given a LOCKED JSON snapshot of the trade computed from real live market
 
 Rules:
 - NEVER invent or change a price, level, or R number — use only what's in the snapshot. If asked something the data can't answer, say so plainly.
+- The snapshot is the ONLY source of truth for what has happened. A target counts as reached ONLY if "tps_already_hit" is greater than 0, and the stop counts as broken ONLY if "stop_broken_close" is true. If those say 0 / false, the level has NOT been reached — never say otherwise, no matter how the raw prices look. If "fresh_entry" is true the trade was just issued and is live and un-triggered: do NOT claim any target or the stop has been hit, and answer as if managing a brand-new open position.
 - NEVER invent specific news/economic events. If news might matter, say only that scheduled news can move price like this and to check an economic calendar.
 - Be genuinely useful and DIRECT. Give a clear lean with your reasoning tied to the plan + live conditions. Answer questions about moving to breakeven, taking partials, trailing the stop, holding vs closing, and where the idea is invalidated — like a pro would.
 - Keep it conversational and tight: a few sentences or short lines, not an essay. Lead with the answer, then the why.
