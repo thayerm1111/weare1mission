@@ -1,10 +1,1 @@
-{
-  "name": "One Mission", "short_name": "One Mission",
-  "description": "The One Mission trading floor — signals, AI tools and the live room.",
-  "start_url": "/app/", "scope": "/app/", "display": "standalone", "orientation": "portrait",
-  "background_color": "#0a0b10", "theme_color": "#0a0b10",
-  "icons": [
-    { "src": "/app/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/app/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
-  ]
-}
+{ "name": "One Mission", "short_name": "One Mission", "description": "The One Mission trading floor — signals, AI tools and the live room.", "start_url": "/app/", "scope": "/app/", "display": "standalone", "orientation": "portrait", "background_color": "#0a0b10", "theme_color": "#0a0b10", "icons": [ { "src": "/app/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" }, { "src": "/app/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" } ] }
