@@ -18,8 +18,8 @@ type Gate =
   | { ok: false; reason: "unauthorized" }
   | { ok: false; reason: "insufficient"; balance: Balance };
 
-export async function gateCredits(feature: Feature): Promise<Gate> {
-  const supabase = createClient();
+export async function gateCredits(feature: Feature, client?: ReturnType<typeof createClient>): Promise<Gate> {
+  const supabase = client ?? createClient();
   const fallback: Balance = { dailyLeft: DAILY_FREE, purchased: 0, dailyAllowance: DAILY_FREE };
   if (!supabase) return { ok: true, balance: fallback };
   const { data: { user } } = await supabase.auth.getUser();
@@ -38,9 +38,9 @@ export async function gateCredits(feature: Feature): Promise<Gate> {
 }
 
 /** Spend the credit after the work succeeded. Best-effort: never throws. */
-export async function chargeCredit(feature: Feature): Promise<Balance | null> {
+export async function chargeCredit(feature: Feature, client?: ReturnType<typeof createClient>): Promise<Balance | null> {
   try {
-    const supabase = createClient();
+    const supabase = client ?? createClient();
     if (!supabase) return null;
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
