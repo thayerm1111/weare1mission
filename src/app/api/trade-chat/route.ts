@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { authedContext } from "@/lib/supabase/bearer";
 import { gateCredits, chargeCredit } from "@/lib/credits";
 import { reserveMarketData, resolveTd } from "@/lib/marketData";
 import { createHash } from "crypto";
@@ -228,9 +228,9 @@ function json(obj: unknown, status = 200) {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = createClient();
-  if (!supabase) return json({ error: "not_configured" }, 500);
-  const { data: { user } } = await supabase.auth.getUser();
+  // Accept the web cookie session OR the native app's Bearer token (cookie-first).
+  const { supabase, user, configured } = await authedContext(req);
+  if (!configured || !supabase) return json({ error: "not_configured" }, 500);
   if (!user) return json({ error: "unauthorized" }, 401);
 
   let b: Record<string, unknown>;
@@ -261,7 +261,7 @@ export async function POST(req: NextRequest) {
   if (!question) return json({ error: "empty_question" }, 400);
 
   // Credit gate BEFORE the paid work.
-  const gate = await gateCredits("chat");
+  const gate = await gateCredits("chat", supabase);
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
 
@@ -296,7 +296,7 @@ export async function POST(req: NextRequest) {
   if (!reply) return json({ error: "empty_reply" }, 502);
 
   // Work succeeded → charge, then persist both turns (best-effort).
-  const credits = await chargeCredit("chat");
+  const credits = await chargeCredit("chat", supabase);
   await supabase.from("trade_chats").insert([
     { user_id: user.id, trade_key: key, role: "user", content: question },
     { user_id: user.id, trade_key: key, role: "assistant", content: reply, meta: snap },
