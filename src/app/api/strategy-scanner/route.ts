@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { authedContext } from "@/lib/supabase/bearer";
 import { gateCredits, chargeCredit } from "@/lib/credits";
 import { series, livePrice, isPriorityEmail, livePriceSane } from "@/lib/marketData";
 import { evaluateSetup, confirmationSignals } from "@/lib/confirmation";
@@ -261,11 +261,12 @@ const INTENT: Record<string, { exec: string; ctx: string; ctx2: string; label: s
 };
 
 export async function POST(req: NextRequest) {
-  const supabase = createClient();
+  // Accept the web cookie session OR the native app's Bearer token (cookie-first,
+  // so the web path is unchanged).
+  const { supabase, user, configured } = await authedContext(req);
   let fresh = false; // owner/admin: always fresh data, never throttled
   let loggedUserId: string | null = null;
-  if (supabase) {
-    const { data: { user } } = await supabase.auth.getUser();
+  if (configured) {
     if (!user) return json({ error: "unauthorized" }, 401);
     fresh = isPriorityEmail(user.email);
     loggedUserId = user.id;
@@ -289,7 +290,7 @@ export async function POST(req: NextRequest) {
   const profile = body?.mode === "accelerator" ? "accelerator" : "institutional";
   const isAccel = profile === "accelerator";
 
-  const gate = await gateCredits("signal");
+  const gate = await gateCredits("signal", supabase);
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
   const [execR, ctxR, ctx2R, price] = await Promise.all([
@@ -373,7 +374,7 @@ export async function POST(req: NextRequest) {
       scouts: scouts.map((s) => ({ ...s, level: s.level != null ? f(s.level) : undefined })),
       educational: "Educational market analysis only — not financial advice. WAIT is a valid result: the scanner only calls a trade when enough strategies genuinely agree.",
     };
-    await chargeCredit("signal");
+    await chargeCredit("signal", supabase);
     return json(setup, 200);
   }
 
@@ -483,7 +484,7 @@ export async function POST(req: NextRequest) {
       scouts: scouts.map((s) => ({ ...s, level: s.level != null ? f(s.level) : undefined })),
       educational: "Institutional-grade filter: the engine only issues a trade after the market confirms — higher-timeframe agreement, a completed pullback, a closed confirmation candle, momentum turning, and ≥2.5R. NO TRADE is the correct, disciplined output most of the time.",
     };
-    await chargeCredit("signal");
+    await chargeCredit("signal", supabase);
     return json(noTrade, 200);
   }
 
