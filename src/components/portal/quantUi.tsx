@@ -8,7 +8,8 @@
  * plots a real recent-close series, Levels shows the real entry/stop/targets.
  * Dark theme, sky-blue primary accent, to match bg-[#0a0b10] cards.
  */
-import { Check, X, ShieldAlert, Target } from "lucide-react";
+import { useState } from "react";
+import { Check, X, ShieldAlert, Target, Copy } from "lucide-react";
 
 export type Tone = "sky" | "emerald" | "amber" | "red" | "violet" | "slate";
 
@@ -154,30 +155,40 @@ export function Levels({
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3">
       <div className="grid grid-cols-3 gap-2">
-        <Box label="Entry" value={fmtPrice(entry)} tint="text-white" />
-        <Box label="Stop" value={fmtPrice(stop)} delta={delta(stop)} tint="text-red-400" icon={<ShieldAlert className="h-3 w-3" />} />
+        <Box label="Entry" value={fmtPrice(entry)} tint="text-white" copy={String(entry)} />
+        <Box label="Stop" value={fmtPrice(stop)} delta={delta(stop)} tint="text-red-400" icon={<ShieldAlert className="h-3 w-3" />} copy={String(stop)} />
         <Box label="Risk : Reward" value={rr ? `1 : ${rr}` : "—"} tint="text-sky-300" />
       </div>
       {targets.length > 0 && (
         <div className={`mt-2 grid gap-2 ${targets.length >= 3 ? "grid-cols-3" : targets.length === 2 ? "grid-cols-2" : "grid-cols-1"}`}>
           {targets.map((t) => (
             <Box key={t.label} label={t.rr ? `${t.label} · ${t.rr}R` : t.label} value={fmtPrice(t.price)} delta={delta(t.price)}
-              tint="text-emerald-400" icon={<Target className="h-3 w-3" />} />
+              tint="text-emerald-400" icon={<Target className="h-3 w-3" />} copy={String(t.price)} />
           ))}
         </div>
       )}
-      <p className="mt-2 px-1 text-[10px] text-white/30">{long ? "Long" : "Short"}{pip ? " · figures in parentheses are pips from entry" : ""}</p>
+      <p className="mt-2 px-1 text-[10px] text-white/30">{long ? "Long" : "Short"}{pip ? " · figures in parentheses are pips from entry" : ""} · tap a level to copy</p>
     </div>
   );
 }
 
-function Box({ label, value, delta, tint, icon }: { label: string; value: string; delta?: string; tint: string; icon?: React.ReactNode }) {
+function Box({ label, value, delta, tint, icon, copy }: { label: string; value: string; delta?: string; tint: string; icon?: React.ReactNode; copy?: string }) {
+  const [done, setDone] = useState(false);
+  const clickable = !!copy;
+  const doCopy = () => {
+    if (!copy) return;
+    try { void navigator.clipboard?.writeText(copy); } catch { /* ignore */ }
+    setDone(true); setTimeout(() => setDone(false), 1200);
+  };
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.02] px-2 py-2.5 text-center">
-      <p className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.08em] text-white/40">{icon}{label}</p>
+    <div onClick={clickable ? doCopy : undefined} role={clickable ? "button" : undefined} tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doCopy(); } } : undefined}
+      className={`relative rounded-xl border border-white/10 bg-white/[0.02] px-2 py-2.5 text-center ${clickable ? "cursor-pointer transition hover:bg-white/[0.06] active:opacity-70" : ""}`}>
+      <p className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.08em] text-white/40">{icon}{done ? "Copied ✓" : label}</p>
       <p className={`mt-0.5 font-serif text-base font-bold tabular-nums ${tint}`}>
         {value}{delta && <span className="ml-1 text-[10px] font-normal text-white/35">{delta}</span>}
       </p>
+      {clickable && <Copy className="pointer-events-none absolute right-1.5 top-1.5 h-3 w-3 text-white/20" />}
     </div>
   );
 }
