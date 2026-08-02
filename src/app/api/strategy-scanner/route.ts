@@ -304,6 +304,8 @@ export async function POST(req: NextRequest) {
   if (!rows || rows.length < 30) return json({ error: "marketdata_error", reason: "Not enough candles to scan this instrument on this timeframe." }, 502);
   const ctx = Array.isArray(ctxR) ? ctxR : null;
   const ctx2 = Array.isArray(ctx2R) ? ctx2R : null;
+  // Recent execution-frame candles (OHLC, oldest→newest) for the result chart.
+  const candleOut = rows.slice(-48).map((v) => ({ t: v.datetime, o: +v.open, h: +v.high, l: +v.low, c: +v.close }));
 
   // Higher-timeframe trend = context frames (this is the top filter).
   const tCtx = trendOf(ctx), tCtx2 = trendOf(ctx2);
@@ -363,7 +365,7 @@ export async function POST(req: NextRequest) {
   if (!dir || agreement < 0.6 || confluence < 45) {
     const setup = {
       status: "wait" as const, symbol: found.asset.symbol, instrument: td, style: intent.label,
-      price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf, confluence, agreement: +agreement.toFixed(2),
+      price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf, confluence, agreement: +agreement.toFixed(2), candles: candleOut,
       regime_label: regimeLabel, regime_basis: regimeBasis,
       strategy: "Standing aside — waiting for confluence",
       strategy_why: htf === "ranging"
@@ -473,7 +475,7 @@ export async function POST(req: NextRequest) {
   if (gateDecision.decision === "NO_TRADE") {
     const noTrade = {
       status: "wait" as const, symbol: found.asset.symbol, instrument: td, style: intent.label,
-      price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf,
+      price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf, candles: candleOut,
       confluence, agreement: +agreement.toFixed(2), grade: gateDecision.grade, gate_score: gateDecision.score,
       mode: profile, momentum_rating: gateDecision.momentumRating, trend_rating: gateDecision.trendRating,
       regime_label: regimeLabel, regime_basis: regimeBasis,
@@ -528,7 +530,7 @@ export async function POST(req: NextRequest) {
 
   const setup = {
     status: "setup" as const, symbol: found.asset.symbol, instrument: td, market: found.market.name, style: intent.label, note: intent.note,
-    direction: dir, order_type: orderType, price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf, confluence, agreement: +agreement.toFixed(2), confidence,
+    direction: dir, order_type: orderType, price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf, confluence, agreement: +agreement.toFixed(2), confidence, candles: candleOut,
     regime_label: regimeLabel, regime_basis: regimeBasis, strategy, strategy_why: strategyWhy,
     grade: gateDecision.grade, gate_score: gateDecision.score, gate_reasons: gateDecision.reasons,
     mode: profile, momentum_rating: gateDecision.momentumRating, trend_rating: gateDecision.trendRating, trend_strength: trendStrength,
