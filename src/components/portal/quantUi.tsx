@@ -131,8 +131,16 @@ export function Checks({ items }: { items: { label: string; ok: boolean }[] }) {
 
 export type Level = { label: string; price: number; rr?: number };
 
-const fmtPrice = (n: number) =>
-  Math.abs(n) >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : Math.abs(n) >= 1 ? n.toFixed(2) : n.toFixed(5);
+// Instrument-appropriate precision. FX majors trade near 1.xxxxx, so 2 decimals
+// collapses distinct levels into the same number (1.34965 → "1.35") — show 5.
+const fmtPrice = (n: number) => {
+  if (!Number.isFinite(n)) return "—";
+  const a = Math.abs(n);
+  if (a >= 1000) return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (a >= 100) return n.toFixed(2);   // JPY pairs (157.27), indices under 1000
+  if (a >= 10) return n.toFixed(3);
+  return n.toFixed(5);                  // FX majors, most sub-10 instruments
+};
 
 /** Trade-summary levels panel: entry / stop / R:R header, then targets, each with
  * a pip delta from entry when a pip size is supplied. */
