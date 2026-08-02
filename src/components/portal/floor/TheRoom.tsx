@@ -1,164 +1,76 @@
 "use client";
 
-import { useState } from "react";
-import { Play, Heart, Eye, Send, Smile, Calendar, PlayCircle } from "lucide-react";
+import { Video, Clock, ChevronRight, CalendarClock } from "lucide-react";
+import { LIVE_URL, CALLS } from "@/lib/liveCalls";
 
-const PRESENTER = { name: "RJ Antuna", role: "Forex Educator", topic: "Forex", lang: "English", viewers: 312 };
-
-const CHAT = [
-  { u: "Marcus", m: "gold looking clean today 🔥" },
-  { u: "Dee", m: "what's the bias on XAU?" },
-  { u: "RJ Antuna", m: "waiting for the London open, watch 4120", host: true },
-  { u: "Sam", m: "in from 4127 🙏" },
-  { u: "Priya", m: "ty for the breakdown" },
-];
-
-const REPLAYS = [
-  { d: "2026-05-28 05:58", t: "London Session Breakdown" },
-  { d: "2026-05-27 06:02", t: "NY Open — Gold + Indices" },
-  { d: "2026-05-22 14:38", t: "Liquidity & Order Blocks" },
-  { d: "2026-05-21 05:56", t: "Risk Management Live" },
-  { d: "2026-05-20 05:56", t: "Pre-market Game Plan" },
-  { d: "2026-05-15 16:03", t: "Weekly Review" },
-];
-
-const SCHEDULE = [
-  { day: "Tuesday", time: "12:00 AM" },
-  { day: "Wednesday", time: "1:00 AM" },
-  { day: "Thursday", time: "1:00 AM" },
-];
-
+/**
+ * The Room — the live trading calls hub. We run daily sessions on Zoom via
+ * 1MissionLive.com, so this shows the upcoming call schedule with a one-tap join
+ * rather than an in-app stream. Swap in an embedded player once streaming is set up.
+ */
 export function TheRoom() {
-  const [following, setFollowing] = useState(false);
-
   return (
     <div className="space-y-4">
-      {/* Stage: video + chat */}
-      <div className="grid gap-3 lg:grid-cols-[1fr_320px]">
-        {/* Video */}
-        <div className="relative flex min-h-[76vh] items-center justify-center overflow-hidden rounded-2xl border border-ice bg-gradient-to-b from-offwhite to-ice">
-          <div className="pointer-events-none absolute inset-0 opacity-40 [background:radial-gradient(circle_at_50%_40%,rgba(207,199,179,0.4),transparent_60%)]" />
-          <span className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-70" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
-            </span>
-            LIVE
+      {/* Hero — join the live call */}
+      <div className="relative overflow-hidden rounded-2xl border border-ice bg-gradient-to-b from-offwhite to-ice p-6 sm:p-8">
+        <div className="pointer-events-none absolute inset-0 opacity-40 [background:radial-gradient(circle_at_50%_-10%,rgba(207,199,179,0.4),transparent_60%)]" />
+        <div className="relative">
+          <span className="inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold">
+            <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500/70" /><span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" /></span>
+            Live daily on Zoom
           </span>
-          <span className="absolute right-4 top-4 inline-flex items-center gap-1.5 rounded-full bg-white/80 px-3 py-1 text-xs text-charcoal/80">
-            <Eye className="h-3.5 w-3.5" /> {PRESENTER.viewers}
-          </span>
-
-          <div className="relative z-10 flex flex-col items-center text-center">
-            <button className="flex h-16 w-16 items-center justify-center rounded-full bg-ice backdrop-blur transition hover:bg-white/20">
-              <Play className="ml-1 h-7 w-7" />
-            </button>
-            <p className="mt-6 text-xs font-semibold uppercase tracking-[0.3em] text-charcoal/50">
-              {PRESENTER.role}
-            </p>
-            <p className="mt-2 rounded-md bg-gold/80 px-8 py-2 text-3xl font-bold tracking-tight text-navy">
-              {PRESENTER.name}
-            </p>
-          </div>
-        </div>
-
-        {/* Chat */}
-        <div className="flex min-h-[76vh] flex-col rounded-2xl border border-ice bg-white">
-          <div className="border-b border-ice px-4 py-3">
-            <p className="text-sm font-semibold">Live chat</p>
-          </div>
-          <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
-            {CHAT.map((c, i) => (
-              <div key={i} className="text-sm leading-snug">
-                <span className={`font-semibold ${c.host ? "text-gold-deep" : "text-charcoal/80"}`}>
-                  {c.u}
-                </span>{" "}
-                <span className="text-charcoal/60">{c.m}</span>
-              </div>
-            ))}
-          </div>
-          <div className="flex items-center gap-2 border-t border-ice p-3">
-            <input
-              placeholder="Write something…"
-              className="min-w-0 flex-1 rounded-lg border border-ice bg-offwhite px-3 py-2 text-sm text-navy placeholder:text-charcoal/30 focus:outline-none"
-            />
-            <button className="text-charcoal/40 hover:text-navy">
-              <Smile className="h-5 w-5" />
-            </button>
-            <button className="rounded-lg bg-white px-2.5 py-2 text-navy">
-              <Send className="h-4 w-4" />
-            </button>
-          </div>
+          <h2 className="mt-3 text-2xl font-black tracking-tight text-navy sm:text-3xl">Live trading calls</h2>
+          <p className="mt-1 max-w-xl text-sm text-charcoal/60">
+            Market overview and a live trading session every day. Tap below at any session time to join the room on 1MissionLive.com.
+          </p>
+          <a
+            href={LIVE_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-5 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-navy to-primary px-6 py-3.5 text-sm font-bold text-cream shadow-card transition hover:shadow-cardhover"
+          >
+            <Video className="h-4 w-4" /> Join the live call
+            <ChevronRight className="h-4 w-4" />
+          </a>
+          <p className="mt-2 text-[11px] text-charcoal/45">Zoom · 1MissionLive.com</p>
         </div>
       </div>
 
-      {/* Session info bar */}
-      <div className="flex flex-col gap-3 rounded-2xl border border-ice bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold/30 text-sm font-bold text-gold-deep">
-            RJ
-          </div>
-          <div>
-            <p className="text-sm font-semibold">{PRESENTER.name}</p>
-            <p className="text-xs text-charcoal/50">
-              <span className="text-gold-deep">{PRESENTER.topic}</span> · {PRESENTER.lang}
-            </p>
-          </div>
+      {/* Upcoming calls */}
+      <div>
+        <p className="mb-3 inline-flex items-center gap-2 text-sm font-semibold">
+          <CalendarClock className="h-4 w-4 text-gold-deep" /> Upcoming calls · every day
+        </p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {CALLS.map((c) => (
+            <a
+              key={c.t}
+              href={LIVE_URL}
+              target="_blank"
+              rel="noreferrer"
+              className={`group flex flex-col rounded-2xl border p-4 transition hover:shadow-cardhover ${c.hot ? "border-primary/50 bg-primary/[0.06]" : "border-ice bg-white"}`}
+            >
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-charcoal/45">
+                <Clock className="h-3.5 w-3.5" /> {c.zone}
+              </span>
+              <span className="mt-1 text-2xl font-black tracking-tight text-navy">{c.t}</span>
+              <span className="mt-1 text-sm text-charcoal/60">{c.label}</span>
+              {c.hot && <span className="mt-2 inline-flex w-max items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">Live session</span>}
+              <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-gold-deep opacity-0 transition group-hover:opacity-100">
+                Join <ChevronRight className="h-3.5 w-3.5" />
+              </span>
+            </a>
+          ))}
         </div>
-        <button
-          onClick={() => setFollowing((v) => !v)}
-          className={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-colors ${
-            following ? "bg-gold text-navy" : "border border-gold/50 text-gold-deep hover:bg-gold/10"
-          }`}
-        >
-          <Heart className={`h-4 w-4 ${following ? "fill-black" : ""}`} /> {following ? "Following" : "Follow"}
-        </button>
       </div>
 
-      {/* Replays + schedule */}
-      <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
-        <div>
-          <p className="mb-3 text-sm font-semibold">Session Replay</p>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {REPLAYS.map((r, i) => (
-              <article key={i} className="overflow-hidden rounded-xl border border-ice bg-white">
-                <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-offwhite to-ice">
-                  <span className="text-xs font-bold uppercase tracking-widest text-charcoal/40">
-                    Starting soon
-                  </span>
-                </div>
-                <div className="p-3">
-                  <p className="flex items-center gap-1.5 text-[11px] text-charcoal/40">
-                    <Calendar className="h-3 w-3" /> {r.d}
-                  </p>
-                  <p className="mt-1 text-sm font-semibold text-navy">{r.t}</p>
-                  <button className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-gold-deep hover:text-gold">
-                    <PlayCircle className="h-4 w-4" /> Watch replay
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <p className="mb-3 text-sm font-semibold">Live Schedule</p>
-          <div className="space-y-2">
-            {SCHEDULE.map((s, i) => (
-              <div key={i} className="flex items-center gap-3 rounded-xl border border-ice bg-white p-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gold/30 text-xs font-bold text-gold-deep">
-                  RJ
-                </div>
-                <div>
-                  <p className="text-sm font-semibold">{PRESENTER.name}</p>
-                  <p className="flex items-center gap-1.5 text-xs text-charcoal/50">
-                    <Calendar className="h-3 w-3 text-gold-deep" /> {s.time} · {s.day}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* How it works */}
+      <div className="rounded-2xl border border-ice bg-white p-4">
+        <p className="text-sm font-semibold">How to join</p>
+        <p className="mt-1 text-sm leading-relaxed text-charcoal/60">
+          Sessions run daily at 3, 6 and 9 PM CST (4, 7 and 10 PM EST). Tap “Join the live call” at any session time and you’ll open the Zoom room at{" "}
+          <a href={LIVE_URL} target="_blank" rel="noreferrer" className="font-semibold text-gold-deep underline">1MissionLive.com</a>. The 9 PM session includes a live trading session.
+        </p>
       </div>
     </div>
   );
