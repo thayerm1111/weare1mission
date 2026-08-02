@@ -220,5 +220,7 @@ Deliver the full MFXGHOST read for ${inst.label} as the specified JSON now.`;
   // Charge only after a successful read.
   await chargeCredit("ghost");
 
-  return json({ ok: true, price, asOf: now.toISOString(), session: sessionHint, symbol: TD, read }, 200);
+  // Recent execution-frame candles (OHLC, oldest→newest) for the result chart.
+  const candles = Array.isArray(m15) ? clean(m15).slice(-48).map((v) => ({ t: v.datetime, o: +v.open, h: +v.high, l: +v.low, c: +v.close })) : [];
+  return json({ ok: true, price, asOf: now.toISOString(), session: sessionHint, symbol: TD, read, candles }, 200);
 }
