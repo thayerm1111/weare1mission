@@ -26,7 +26,9 @@ type Setup = {
   symbol: string; name: string; td: string; dir: "LONG" | "SHORT";
   price: number; confirmed: number; total: number; checklist: CheckItem[];
   zone: "discount" | "premium"; rsi: number | null;
+  entry?: number; stopLoss?: number; takeProfits?: number[]; riskReward?: string;
 };
+const numOk = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 
 const fmt = (n: number) => {
   const d = n >= 1000 ? 2 : n >= 1 ? 4 : 6;
@@ -140,6 +142,24 @@ export function MarketPulse() {
               </button>
               {isOpen && (
                 <div className="border-t border-ice px-4 pb-4 pt-3">
+                  {numOk(s.entry) && numOk(s.stopLoss) && (
+                    <div className="mb-3 rounded-xl border border-ice bg-offwhite/60 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-[11px] font-bold uppercase tracking-wide text-charcoal/55">{s.dir} · trade levels</span>
+                        {s.riskReward && <span className="rounded-full bg-navy/[0.06] px-2 py-0.5 text-[11px] font-bold text-navy">R:R {s.riskReward}</span>}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                        <Level label="Entry" value={fmt(s.entry)} tone="navy" />
+                        <Level label="Stop" value={fmt(s.stopLoss)} tone="red" />
+                        {(s.takeProfits ?? []).slice(0, 3).map((tp, i) => (
+                          <Level key={i} label={`TP${i + 1}`} value={fmt(tp)} tone="green" />
+                        ))}
+                      </div>
+                      <p className="mt-2 text-[10px] leading-snug text-charcoal/45">
+                        Entry is the current price (take-it-now read). Stop sits beyond the swing that invalidates the idea; targets are a clean R ladder. Objective read from live candles — not financial advice.
+                      </p>
+                    </div>
+                  )}
                   <ul className="grid gap-1.5 sm:grid-cols-2">
                     {s.checklist.map((c, i) => (
                       <li key={i} className="flex items-center gap-2 text-xs">
@@ -181,6 +201,16 @@ export function MarketPulse() {
           onClose={() => setDive(null)}
         />
       )}
+    </div>
+  );
+}
+
+function Level({ label, value, tone }: { label: string; value: string; tone: "navy" | "red" | "green" }) {
+  const color = tone === "red" ? "text-red-600" : tone === "green" ? "text-emerald-600" : "text-navy";
+  return (
+    <div className="rounded-lg border border-ice bg-white px-2 py-1.5 text-center">
+      <div className="text-[9px] font-semibold uppercase tracking-wide text-charcoal/40">{label}</div>
+      <div className={`text-sm font-bold ${color}`}>{value}</div>
     </div>
   );
 }
