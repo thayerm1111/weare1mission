@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair, Radar, LifeBuoy, BarChart3, Smartphone,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair, Radar, LifeBuoy, BarChart3, Smartphone, Gauge,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
@@ -25,6 +25,7 @@ const REG: Record<string, Item> = {
   charts: { href: "/portal/charts", label: "OM Charts", icon: CandlestickChart },
   command: { href: "/portal/market-command", label: "OM AI Market Command", icon: Crosshair },
   scanner: { href: "/portal/strategy-scanner", label: "OM Strategy Scanner", icon: Radar },
+  scalp: { href: "/portal/scalp", label: "OM Scalp", icon: Gauge },
   leaderboard: { href: "/portal/leaderboard", label: "Leaderboard", icon: Medal },
   results: { href: "/portal/community", label: "Community Results", icon: BarChart3 },
   trading: { href: "/portal/trading", label: "The Floor", icon: LineChart },
@@ -46,7 +47,7 @@ const REG: Record<string, Item> = {
 const ONES = ["getApp", "startHere", "schedule", "trading", "leadership", "updates", "collection", "experiences", "account", "support", "results", "leaderboard"];
 const BUILDERS = ["getApp", "omai", "prospects", "team", "compPlan", "schedule", "leadership", "training", "resources", "updates", "account", "support", "results", "leaderboard"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources", "compPlan"];
-const ONES_ONLY = ["trading", "signals", "xaughost", "charts", "command", "scanner"];
+const ONES_ONLY = ["trading", "signals", "xaughost", "charts", "command", "scanner", "scalp"];
 
 // Children shown under "The Floor". Two kinds: live-desk VIEWS (query-param
 // views of /portal/trading) and standalone PAGES (their own routes). Rendered
@@ -56,6 +57,7 @@ type FloorChild =
   | { kind: "page"; key: string };
 const FLOOR_CHILDREN: FloorChild[] = [
   { kind: "view", view: "room", label: "The Room", icon: Radio },
+  { kind: "page", key: "scalp" },
   { kind: "page", key: "charts" },
   { kind: "page", key: "omai" },
   { kind: "page", key: "signals" },
