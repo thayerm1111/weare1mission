@@ -204,6 +204,8 @@ export async function POST(req: NextRequest) {
   if (!R1 || !R15 || !R5 || !RD) {
     return noTrade(td, spec, "MARKET DATA UNAVAILABLE OR STALE", `Not enough validated candles to analyse ${td}. ${dq.join("; ")}.`, dqScore);
   }
+  // Recent execution-frame candles (OHLC, oldest→newest) for the result chart.
+  const candleOut = R15.slice(-48).map((v) => ({ t: v.datetime, o: +v.open, h: +v.high, l: +v.low, c: +v.close }));
   // Staleness: last candle must be within N intervals of now (skip on daily/crypto weekend leniency).
   const lastTs = Date.parse((R5[R5.length - 1].datetime || "").replace(" ", "T") + "Z");
   const staleBy = Number.isFinite(lastTs) ? (nowMs - lastTs) / INTERVAL_MS["5min"] : 0;
@@ -307,7 +309,7 @@ export async function POST(req: NextRequest) {
 
   // Nothing actionable → NO TRADE (price mid-range / unclear regime).
   if (!dir) {
-    return noTrade(td, spec, "NO QUALIFIED SETUP", `${td} is in a "${regime}" state with price mid-structure — no strategy has a defined edge here right now.`, dqScore, { regime, session });
+    return noTrade(td, spec, "NO QUALIFIED SETUP", `${td} is in a "${regime}" state with price mid-structure — no strategy has a defined edge here right now.`, dqScore, { regime, session, candles: candleOut });
   }
 
   // Targets from real objectives: opposing range / prev-day level / swing, then R-ladder fill.
@@ -372,7 +374,7 @@ export async function POST(req: NextRequest) {
   );
 
   if (scores.overall < CFG.minScore) {
-    return noTrade(td, spec, "NO TRADE — BELOW QUALIFICATION THRESHOLD", `The setup scored ${scores.overall}/100 (threshold ${CFG.minScore}). Direction is ${dir.toUpperCase()} but confluence is too thin to qualify.`, dqScore, { regime, session, scores });
+    return noTrade(td, spec, "NO TRADE — BELOW QUALIFICATION THRESHOLD", `The setup scored ${scores.overall}/100 (threshold ${CFG.minScore}). Direction is ${dir.toUpperCase()} but confluence is too thin to qualify.`, dqScore, { regime, session, scores, candles: candleOut });
   }
 
   // ── Confirmation gate (profile-aware) ─────────────────────────────────────
@@ -421,7 +423,7 @@ export async function POST(req: NextRequest) {
     scorePenalty: learned.penalty, penaltyReasons: learned.reasons,
   }, tradeMode);
   if (gateDecision.decision === "NO_TRADE") {
-    return noTrade(td, spec, `NO TRADE — ${isAccel ? "NO CONFIRMED MOMENTUM" : "WAITING FOR CONFIRMATION"}`, gateDecision.noTradeReason ?? "The market hasn't confirmed the setup yet.", dqScore, { regime, session, scores, mode: tradeMode });
+    return noTrade(td, spec, `NO TRADE — ${isAccel ? "NO CONFIRMED MOMENTUM" : "WAITING FOR CONFIRMATION"}`, gateDecision.noTradeReason ?? "The market hasn't confirmed the setup yet.", dqScore, { regime, session, scores, mode: tradeMode, candles: candleOut });
   }
 
   const interval = spec.cat === "index" || spec.cat === "stock" ? "5min" : "15min";
@@ -448,6 +450,7 @@ export async function POST(req: NextRequest) {
     })),
     market_regime: regime,
     spark: closes1.slice(-24),
+    candles: candleOut,
     mode: tradeMode,
     grade: gateDecision.grade,
     gate_score: gateDecision.score,
@@ -506,7 +509,7 @@ function isClosed(cat: Cat, now: Date): boolean {
   return dow === 0 || dow === 6 || mins < 13 * 60 + 30 || mins >= 20 * 60;
 }
 
-function noTrade(td: string, spec: Spec, headline: string, reason: string, dqScore: number, extra?: { regime?: string; session?: string; scores?: unknown; mode?: string }) {
+function noTrade(td: string, spec: Spec, headline: string, reason: string, dqScore: number, extra?: { regime?: string; session?: string; scores?: unknown; mode?: string; candles?: { t: string; o: number; h: number; l: number; c: number }[] }) {
   return json({
     status: "no_trade",
     instrument: td,
@@ -514,6 +517,7 @@ function noTrade(td: string, spec: Spec, headline: string, reason: string, dqSco
     timestamp: new Date().toISOString(),
     data_provider: "Twelve Data",
     mode: extra?.mode ?? "institutional",
+    candles: extra?.candles ?? [],
     headline,
     reason,
     recheck: "Re-run after conditions change — a cleaner regime, tighter structure, or a better reward-to-risk.",
