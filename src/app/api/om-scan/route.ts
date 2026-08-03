@@ -125,6 +125,17 @@ function analyze(rows: Row[]) {
   };
 }
 
+// ── Result cache (the biggest CPU saver on the platform) ────────────────────
+// Market Pulse is IDENTICAL for every member — same universe, same candles, same
+// math. So a freshly-computed scan is reused for a short window instead of
+// re-fetching and re-crunching indicators for 8 instruments on every request.
+// Warm Fluid instances keep this in memory across requests; admins (fresh) always
+// bypass it, and the credit is still charged (the member asked for a scan). 1H
+// candles barely move inside the TTL, so the read is effectively unchanged.
+type Setup = { symbol: string; name: string; td: string } & ReturnType<typeof analyze>;
+const SCAN_TTL_MS = Number(process.env.SCAN_CACHE_TTL || 60) * 1000;
+let scanCache: { at: number; asOf: string; setups: Setup[] } | null = null;
+
 export async function POST(req: NextRequest) {
   void req;
   const supabase = createClient();
@@ -137,6 +148,13 @@ export async function POST(req: NextRequest) {
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
 
+  // Serve a recent cached scan when one exists — skips 8 fetches + all indicator
+  // math. Admins bypass so they can always force a fresh read.
+  if (!fresh && scanCache && Date.now() - scanCache.at < SCAN_TTL_MS && scanCache.setups.length > 0) {
+    const credits = await chargeCredit("scan");
+    return json({ asOf: scanCache.asOf, setups: scanCache.setups, credits, cached: true }, 200);
+  }
+
   const results = await Promise.all(UNIVERSE.map(async (a) => {
     const rows = await fetchSeries(a.td, mdKey, fresh);
     if (!rows || rows.length < 30) return null;
@@ -144,10 +162,13 @@ export async function POST(req: NextRequest) {
     return { ...a, ...r };
   }));
 
-  const setups = results.filter(Boolean).sort((x, y) => (y!.confirmed - x!.confirmed));
+  const setups = (results.filter(Boolean) as Setup[]).sort((x, y) => (y.confirmed - x.confirmed));
+  const asOf = new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC";
+  // Cache the computed result for the next members' scans in this window.
+  if (setups.length > 0 && !fresh) scanCache = { at: Date.now(), asOf, setups };
   // Only charge if the scan actually produced setups (don't bill a fully rate-limited scan).
   const credits = setups.length > 0 ? await chargeCredit("scan") : null;
-  return json({ asOf: new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC", setups, credits }, 200);
+  return json({ asOf, setups, credits }, 200);
 }
 
 function json(obj: unknown, status: number) {
