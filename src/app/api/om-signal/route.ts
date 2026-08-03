@@ -6,6 +6,7 @@ import { findAsset } from "@/data/signalAssets";
 import { logSignal } from "@/lib/signalLog";
 import { evaluateSetup, confirmationSignals } from "@/lib/confirmation";
 import { getAdjustmentPenalty } from "@/lib/learningStore";
+import { closedBars } from "@/lib/mtf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -705,6 +706,39 @@ Return the JSON signal now.`;
     signal.status = "setup";
   }
 
+  // ── EXECUTION-STACK ALIGNMENT GATE (1H / 30m / 15m, closed candles only) ────
+  // This is a with-trend engine that takes direction from the 4H/1H flow. That
+  // alone caused stop-outs when the lower-timeframe stack was rolling over. Now a
+  // trade only survives when 1H, 30m and 15m all agree with the direction —
+  // otherwise it becomes a genuine NO-TRADE. (Scalp + intraday only; swing enters
+  // on the daily and doesn't use this filter.)
+  if ((isScalp || styleKey === "intraday") && signal.status === "setup") {
+    let t1h: Trend, t30: Trend, t15: Trend;
+    if (isScalp) {
+      t1h = flow?.t1 ?? "ranging";
+      t30 = trendOf(closedBars(m30, 20));
+      t15 = trendOf(closedBars(rows, 20));
+    } else {
+      const [i30, i15] = await Promise.all([
+        fetchSeries(td, "30min", 80, mdKey, fresh),
+        fetchSeries(td, "15min", 80, mdKey, fresh),
+      ]);
+      t1h = trendOf(closedBars(rows, 20)); // rows is the 1h exec frame for intraday
+      t30 = trendOf(closedBars(Array.isArray(i30) ? i30 : null, 20));
+      t15 = trendOf(closedBars(Array.isArray(i15) ? i15 : null, 20));
+    }
+    const want: Trend = dir === "LONG" ? "bullish" : "bearish";
+    const aligned = t1h === want && t30 === want && t15 === want;
+    signal.mtf = [{ tf: "1H", trend: t1h }, { tf: "30m", trend: t30 }, { tf: "15m", trend: t15 }];
+    signal.mtf_label = `1H ${t1h} · 30m ${t30} · 15m ${t15}`;
+    if (!aligned) {
+      signal.status = "no_trade";
+      signal.no_trade_reason = `The 1H, 30m and 15m timeframes don't line up (${signal.mtf_label}). This is a with-trend engine — it only fires when the whole execution stack agrees, so it isn't taking an entry into a lower-timeframe pullback here. Standing aside.`;
+      signal.verdict = "NO TRADE — 1H/30m/15m not aligned";
+    }
+  }
+  signal.strategy_version = "v2-mtf-closedbar";
+
   // Work succeeded — now charge the credit (best-effort; never charged on failure above).
   const credits = await chargeCredit("signal");
 
@@ -718,6 +752,7 @@ Return the JSON signal now.`;
       entry: signal.entry as number, stop: signal.stopLoss as number, tps: signal.takeProfits as number[],
       confidence: signal.confidence as string, regime: htfTrend, atr, priceAtIssue: price, interval: sty.interval,
       meta: {
+        version: "v2-mtf-closedbar", mtf: signal.mtf ?? null,
         directionCorrected: signal._directionCorrected ?? false, confirmed: signal.confirmed ?? null, total: signal.total ?? null,
         grade: signal.grade ?? null, gate_score: signal.gate_score ?? null, gate_decision: signal.gate_decision ?? null, mode: profile,
         penalty_applied: learned.penalty, penalty_reasons: learned.reasons,
