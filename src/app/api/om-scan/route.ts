@@ -89,7 +89,40 @@ function analyze(rows: Row[]) {
     { label: "Momentum", ok: momentumOk },
   ];
   const confirmed = checklist.filter((c) => c.ok).length;
-  return { dir, price, confirmed, total: checklist.length, checklist, zone: price <= eq ? "discount" : "premium", rsi: rv == null ? null : Math.round(rv) };
+
+  // ── Trade levels, from Market Pulse's OWN read ────────────────────────────
+  // Same candles, same direction, same structure the scan already used — so the
+  // entry / stop / targets ARE Market Pulse (never a second engine that could
+  // disagree). Entry is the live price (a "take it now" read); the stop sits
+  // beyond the swing that invalidates the idea (or an ATR floor), and the
+  // targets are a clean R ladder off that risk.
+  const dec = price >= 1000 ? 2 : price >= 1 ? 4 : 6;
+  const rnd = (n: number) => +n.toFixed(dec);
+  const trs: number[] = [];
+  for (let i = Math.max(1, rows.length - 14); i < rows.length; i++) {
+    const h = +rows[i].high, l = +rows[i].low, pc = +rows[i - 1].close;
+    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  const atr = trs.length ? trs.reduce((a, b) => a + b, 0) / trs.length : span * 0.05 || price * 0.002;
+  const atrDist = Math.max(atr * 1.2, price * 0.0012);
+  const isLong = dir === "LONG";
+  const swing = isLong ? (lastSL ? lastSL.p : null) : (lastSH ? lastSH.p : null);
+  let stop = isLong ? price - atrDist : price + atrDist;
+  if (swing != null) {
+    const onSide = isLong ? swing < price : swing > price;
+    const sdist = Math.abs(price - swing);
+    if (onSide && sdist >= atrDist * 0.6 && sdist <= atrDist * 2.2) {
+      stop = isLong ? swing - atrDist * 0.15 : swing + atrDist * 0.15; // just beyond the swing
+    }
+  }
+  const riskDist = Math.abs(price - stop) || atrDist;
+  const takeProfits = [1.5, 2.5, 4.0].map((m) => rnd(isLong ? price + riskDist * m : price - riskDist * m));
+
+  return {
+    dir, price, confirmed, total: checklist.length, checklist,
+    zone: price <= eq ? "discount" : "premium", rsi: rv == null ? null : Math.round(rv),
+    entry: rnd(price), stopLoss: rnd(stop), takeProfits, riskReward: "1:2.5",
+  };
 }
 
 export async function POST(req: NextRequest) {
