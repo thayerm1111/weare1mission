@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 import { authedContext } from "@/lib/supabase/bearer";
 import { gateCredits, chargeCredit } from "@/lib/credits";
 import { series, livePrice, isPriorityEmail, livePriceSane } from "@/lib/marketData";
+import { mtfAlign, closedBars } from "@/lib/mtf";
 import { evaluateSetup, confirmationSignals } from "@/lib/confirmation";
 import { logSignal } from "@/lib/signalLog";
 import { getAdjustmentPenalty } from "@/lib/learningStore";
@@ -293,19 +294,34 @@ export async function POST(req: NextRequest) {
   const gate = await gateCredits("signal", supabase);
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
-  const [execR, ctxR, ctx2R, price] = await Promise.all([
+  // 1H/30m/15m execution-stack alignment: for scalp/intraday only (swing enters
+  // on the daily and doesn't use this filter). Reuse whichever fetched frame is
+  // 1H so we only add 30m + 15m — keeping us within the 8-req/min data budget.
+  const useMtf = style === "scalp" || style === "intraday";
+  const [execR, ctxR, ctx2R, price, mtf30, mtf15] = await Promise.all([
     series(td, intent.exec, 120, mdKey, fresh),
     series(td, intent.ctx, 60, mdKey, fresh),
     series(td, intent.ctx2, 60, mdKey, fresh),
     livePrice(td, mdKey, fresh),
+    useMtf ? series(td, "30min", 60, mdKey, fresh) : Promise.resolve(null),
+    useMtf ? series(td, "15min", 60, mdKey, fresh) : Promise.resolve(null),
   ]);
   if ([execR, ctxR, ctx2R].some((r) => r === "ratelimit")) return json({ error: "ratelimit", reason: "Hit the free market-data limit (8/min). Wait a minute and retry." }, 429);
-  const rows = Array.isArray(execR) ? execR : null;
-  if (!rows || rows.length < 30) return json({ error: "marketdata_error", reason: "Not enough candles to scan this instrument on this timeframe." }, 502);
-  const ctx = Array.isArray(ctxR) ? ctxR : null;
-  const ctx2 = Array.isArray(ctx2R) ? ctx2R : null;
+  const rowsAll = Array.isArray(execR) ? execR : null;
+  if (!rowsAll || rowsAll.length < 30) return json({ error: "marketdata_error", reason: "Not enough candles to scan this instrument on this timeframe." }, 502);
+  // Look-ahead fix: all indicator / structure / trend / ATR reads run on CLOSED
+  // candles only — the newest bar from the feed is the current, still-forming one.
+  const rows = closedBars(rowsAll, 30) as Row[];
+  const ctx = closedBars(Array.isArray(ctxR) ? ctxR : null, 20);
+  const ctx2 = closedBars(Array.isArray(ctx2R) ? ctx2R : null, 20);
+  const rows1h = intent.exec === "1h" ? rowsAll : intent.ctx === "1h" ? (Array.isArray(ctxR) ? ctxR : null) : intent.ctx2 === "1h" ? (Array.isArray(ctx2R) ? ctx2R : null) : null;
+  const mtf = mtfAlign([
+    { tf: "1H", rows: closedBars(rows1h, 20) },
+    { tf: "30m", rows: closedBars(Array.isArray(mtf30) ? mtf30 : null, 20) },
+    { tf: "15m", rows: closedBars(Array.isArray(mtf15) ? mtf15 : null, 20) },
+  ]);
   // Recent execution-frame candles (OHLC, oldest→newest) for the result chart.
-  const candleOut = rows.slice(-48).map((v) => ({ t: v.datetime, o: +v.open, h: +v.high, l: +v.low, c: +v.close }));
+  const candleOut = rowsAll.slice(-48).map((v) => ({ t: v.datetime, o: +v.open, h: +v.high, l: +v.low, c: +v.close }));
 
   // Higher-timeframe trend = context frames (this is the top filter).
   const tCtx = trendOf(ctx), tCtx2 = trendOf(ctx2);
@@ -380,6 +396,28 @@ export async function POST(req: NextRequest) {
     return json(setup, 200);
   }
 
+  // ── EXECUTION-STACK ALIGNMENT GATE (the #1 loss fix) ──────────────────────
+  // A trade is only released when the 1H, 30m and 15m trends ALL agree with the
+  // direction. This stops the engine from taking a "with the 4H/Daily trend"
+  // entry straight into a lower-timeframe pullback — the exact pattern behind
+  // the recent stop-outs. If the execution stack conflicts, stand aside.
+  if (useMtf && mtf.dir !== dir) {
+    const setup = {
+      status: "wait" as const, symbol: found.asset.symbol, instrument: td, style: intent.label,
+      price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf, confluence, agreement: +agreement.toFixed(2), candles: candleOut,
+      mtf: mtf.byTf, mtf_label: mtf.label, strategy_version: "v2-mtf-closedbar",
+      regime_label: regimeLabel, regime_basis: regimeBasis,
+      strategy: "Standing aside — timeframes not aligned",
+      strategy_why: `The strategies lean ${dir}, but the execution timeframes don't line up (${mtf.label}). A trade only fires when 1H, 30m and 15m all trend the same way — otherwise you're buying into a lower-timeframe pullback, which is what causes stop-outs.`,
+      headline: `${found.asset.symbol} · WAIT — 1H/30m/15m not aligned`,
+      reason: `${dir} confluence is there (${confluence}/100), but the execution stack is mixed: ${mtf.label}. Waiting for 1H, 30m and 15m to line up before taking the trade.`,
+      scouts: scouts.map((s) => ({ ...s, level: s.level != null ? f(s.level) : undefined })),
+      educational: "Educational market analysis only — not financial advice. Requiring 1H/30m/15m agreement is a deliberate filter: fewer trades, but it removes the 'trade the higher-timeframe trend into a pullback' setups that stop out most often.",
+    };
+    await chargeCredit("signal", supabase);
+    return json(setup, 200);
+  }
+
   // Build the trade deterministically from the firing scouts on the winning side.
   const isLong = dir === "LONG";
   const firing = scouts.filter((s) => s.fired && s.dir === dir);
@@ -407,7 +445,12 @@ export async function POST(req: NextRequest) {
   // larger point floor.
   const basePips = style === "scalp" ? 8 : style === "swing" ? 18 : 12;
   const pipFloor = (pip >= 1 ? basePips * 2 : pip >= 0.1 ? basePips * 1.5 : basePips) * pip;
-  const buffer = pip * 2; // clear spread + a wick beyond the swing
+  // Conservative typical spread by instrument class (pips). A scalp stop that
+  // doesn't clear the spread + a wick gets taken by the bid/ask, not by real
+  // invalidation — the buffer now covers it. (Broker-specific spreads should
+  // replace these estimates once available; these are deliberately cautious.)
+  const spreadPips = pip >= 1 ? 2 : pip >= 0.1 ? 3 : 1.6;
+  const buffer = (spreadPips + 2) * pip; // spread + a wick beyond the swing
 
   // Institutional entry: enter AT confirmation (market), never an anticipatory
   // limit back at the level — the confirmation gate below guarantees price has
@@ -531,6 +574,7 @@ export async function POST(req: NextRequest) {
   const setup = {
     status: "setup" as const, symbol: found.asset.symbol, instrument: td, market: found.market.name, style: intent.label, note: intent.note,
     direction: dir, order_type: orderType, price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf, confluence, agreement: +agreement.toFixed(2), confidence, candles: candleOut,
+    mtf: mtf.byTf, mtf_label: mtf.label, strategy_version: "v2-mtf-closedbar",
     regime_label: regimeLabel, regime_basis: regimeBasis, strategy, strategy_why: strategyWhy,
     grade: gateDecision.grade, gate_score: gateDecision.score, gate_reasons: gateDecision.reasons,
     mode: profile, momentum_rating: gateDecision.momentumRating, trend_rating: gateDecision.trendRating, trend_strength: trendStrength,
@@ -550,6 +594,7 @@ export async function POST(req: NextRequest) {
     style, method: strategy, direction: dir, orderType, entry, stop, tps: targets,
     confidence, score: confluence, regime: regimeLabel, atr: atrv, priceAtIssue: px,
     interval: intent.exec, meta: {
+      version: "v2-mtf-closedbar", mtf: mtf.byTf, mtf_dir: mtf.dir, spread_pips: spreadPips,
       agreement: +agreement.toFixed(2), firing: firing.map((s) => s.key), breakout: isBreakout,
       grade: gateDecision.grade, gate_score: gateDecision.score, mode: profile,
       penalty_applied: learned.penalty, penalty_reasons: learned.reasons,
