@@ -7,6 +7,7 @@ import { logSignal } from "@/lib/signalLog";
 import { assessNews } from "@/lib/econCalendar";
 import { evaluateSetup, confirmationSignals } from "@/lib/confirmation";
 import { getAdjustmentPenalty } from "@/lib/learningStore";
+import { mtfAlign, closedBars } from "@/lib/mtf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -184,9 +185,10 @@ export async function POST(req: NextRequest) {
   const spec = specFor(td);
   const nowMs = Date.now();
 
-  const [d1, h1, m15, m5, price] = await Promise.all([
+  const [d1, h1, m30, m15, m5, price] = await Promise.all([
     series(td, "1day", 60, mdKey),
     series(td, "1h", 120, mdKey),
+    series(td, "30min", 120, mdKey),
     series(td, "15min", 120, mdKey),
     series(td, "5min", 120, mdKey),
     livePrice(td, mdKey),
@@ -200,12 +202,12 @@ export async function POST(req: NextRequest) {
     if (!Array.isArray(rows) || rows.length < min) { dq.push(`${label} candles incomplete`); dqScore -= 40; return null; }
     return rows;
   };
-  const R1 = need(h1, "1H", 40), R15 = need(m15, "15m", 40), R5 = need(m5, "5m", 30), RD = need(d1, "Daily", 10);
-  if (!R1 || !R15 || !R5 || !RD) {
+  const R1raw = need(h1, "1H", 40), R15raw = need(m15, "15m", 40), R5 = need(m5, "5m", 30), RD = need(d1, "Daily", 10);
+  if (!R1raw || !R15raw || !R5 || !RD) {
     return noTrade(td, spec, "MARKET DATA UNAVAILABLE OR STALE", `Not enough validated candles to analyse ${td}. ${dq.join("; ")}.`, dqScore);
   }
   // Recent execution-frame candles (OHLC, oldest→newest) for the result chart.
-  const candleOut = R15.slice(-48).map((v) => ({ t: v.datetime, o: +v.open, h: +v.high, l: +v.low, c: +v.close }));
+  const candleOut = R15raw.slice(-48).map((v) => ({ t: v.datetime, o: +v.open, h: +v.high, l: +v.low, c: +v.close }));
   // Staleness: last candle must be within N intervals of now (skip on daily/crypto weekend leniency).
   const lastTs = Date.parse((R5[R5.length - 1].datetime || "").replace(" ", "T") + "Z");
   const staleBy = Number.isFinite(lastTs) ? (nowMs - lastTs) / INTERVAL_MS["5min"] : 0;
@@ -220,6 +222,14 @@ export async function POST(req: NextRequest) {
   // the trusted candle reference. (Candle-age staleness is already gated above.)
   const pxSane = livePriceSane(price, R5);
   const px = (price != null && pxSane.ok) ? price : (pxSane.reference ?? +R5[R5.length - 1].close);
+  // Look-ahead fix: trend / structure / confirmation run on CLOSED candles only
+  // (the newest feed bar is the current, still-forming one). Live price (px) is
+  // handled separately above, so entries still anchor to the real tick.
+  const R1 = (closedBars(R1raw, 25) ?? R1raw) as Row[];
+  const R15 = (closedBars(R15raw, 25) ?? R15raw) as Row[];
+  const R30c = closedBars(Array.isArray(m30) ? m30 : null, 20);
+  // Execution-stack alignment (1H / 30m / 15m), closed bars only.
+  const mtf = mtfAlign([{ tf: "1H", rows: R1 }, { tf: "30m", rows: R30c }, { tf: "15m", rows: R15 }]);
   const closes1 = R1.map((r) => +r.close), highs1 = R1.map((r) => +r.high), lows1 = R1.map((r) => +r.low);
   const dec = px >= 1000 ? 2 : px >= 1 ? 4 : 6;
   const f = (n: number) => +n.toFixed(dec);
@@ -309,7 +319,15 @@ export async function POST(req: NextRequest) {
 
   // Nothing actionable → NO TRADE (price mid-range / unclear regime).
   if (!dir) {
-    return noTrade(td, spec, "NO QUALIFIED SETUP", `${td} is in a "${regime}" state with price mid-structure — no strategy has a defined edge here right now.`, dqScore, { regime, session, candles: candleOut });
+    return noTrade(td, spec, "NO QUALIFIED SETUP", `${td} is in a "${regime}" state with price mid-structure — no strategy has a defined edge here right now.`, dqScore, { regime, session, candles: candleOut, mtf: mtf.byTf });
+  }
+
+  // Execution-stack alignment gate for TREND trades only. Range mean-reversion is
+  // deliberately counter to the short-term push, so it is exempt. A trend entry
+  // fires only when 1H, 30m and 15m all agree — this removes the "trade the higher
+  // -timeframe trend into a lower-timeframe pullback" losses.
+  if (regimeDir && mtf.dir !== (dir === "buy" ? "LONG" : "SHORT")) {
+    return noTrade(td, spec, "NO TRADE — 1H/30m/15m NOT ALIGNED", `The ${regime.toLowerCase()} points ${dir === "buy" ? "long" : "short"}, but the execution timeframes don't line up (${mtf.label}). A trend trade only fires when 1H, 30m and 15m all trend the same way — otherwise it's an entry into a lower-timeframe pullback, the main cause of stop-outs.`, dqScore, { regime, session, candles: candleOut, mtf: mtf.byTf });
   }
 
   // Targets from real objectives: opposing range / prev-day level / swing, then R-ladder fill.
@@ -451,6 +469,7 @@ export async function POST(req: NextRequest) {
     market_regime: regime,
     spark: closes1.slice(-24),
     candles: candleOut,
+    mtf: mtf.byTf, mtf_label: mtf.label, strategy_version: "v2-mtf-closedbar",
     mode: tradeMode,
     grade: gateDecision.grade,
     gate_score: gateDecision.score,
@@ -481,6 +500,7 @@ export async function POST(req: NextRequest) {
     method: strategy, direction: dir, orderType, entry, stop, tps: targets,
     confidence, score: scores.overall, regime, session, atr: atr1, priceAtIssue: px, interval: "15min",
     meta: {
+      version: "v2-mtf-closedbar", mtf: mtf.byTf, mtf_dir: mtf.dir,
       scores, news_level: news?.level ?? null, grade: gateDecision.grade, gate_score: gateDecision.score, mode: tradeMode,
       penalty_applied: learned.penalty, penalty_reasons: learned.reasons,
       ctx: { mode: tradeMode, setup: strategy, htf_align: htfAlignC, momentum: cs.momentumScore, trend: trendStrengthScore, had_sweep: true, bos: bosC, pullback: cs.pullbackComplete, session_score: scores.session, vol_score: scores.volatility },
@@ -509,7 +529,7 @@ function isClosed(cat: Cat, now: Date): boolean {
   return dow === 0 || dow === 6 || mins < 13 * 60 + 30 || mins >= 20 * 60;
 }
 
-function noTrade(td: string, spec: Spec, headline: string, reason: string, dqScore: number, extra?: { regime?: string; session?: string; scores?: unknown; mode?: string; candles?: { t: string; o: number; h: number; l: number; c: number }[] }) {
+function noTrade(td: string, spec: Spec, headline: string, reason: string, dqScore: number, extra?: { regime?: string; session?: string; scores?: unknown; mode?: string; candles?: { t: string; o: number; h: number; l: number; c: number }[]; mtf?: { tf: string; trend: string }[] }) {
   return json({
     status: "no_trade",
     instrument: td,
@@ -518,6 +538,8 @@ function noTrade(td: string, spec: Spec, headline: string, reason: string, dqSco
     data_provider: "Twelve Data",
     mode: extra?.mode ?? "institutional",
     candles: extra?.candles ?? [],
+    mtf: extra?.mtf ?? [],
+    strategy_version: "v2-mtf-closedbar",
     headline,
     reason,
     recheck: "Re-run after conditions change — a cleaner regime, tighter structure, or a better reward-to-risk.",
