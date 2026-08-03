@@ -186,7 +186,9 @@ function sessionLabel(s: SessionKey): string {
 
 // ── Layer 2: Claude explains the finished object (never edits a number) ─────
 async function finish(sig: ScalpSignal, aiKey: string | undefined, reasons: string[] = []): Promise<Response> {
-  await chargeCredit("signal");
+  // Only charge when we actually hand over a trade. NO_TRADE and WATCHLIST ("wait")
+  // deliver nothing tradeable, so they're free — the member keeps their credit.
+  if (sig.decision === "TRADE") await chargeCredit("signal");
   sig.explanation = deterministicExplain(sig, reasons);
   if (aiKey) {
     try {
