@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
 import { series, livePrice, isPriorityEmail, livePriceSane } from "@/lib/marketData";
+import { trendOfRows, closedBars } from "@/lib/mtf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -112,10 +113,11 @@ export async function POST(req: NextRequest) {
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
 
-  const [d1, h4, h1, m15, m5] = await Promise.all([
+  const [d1, h4, h1, m30, m15, m5] = await Promise.all([
     series(TD, "1day", 90, mdKey, fresh),
     series(TD, "4h", 80, mdKey, fresh),
     series(TD, "1h", 80, mdKey, fresh),
+    series(TD, "30min", 80, mdKey, fresh),
     series(TD, "15min", 96, mdKey, fresh),
     series(TD, "5min", 78, mdKey, fresh),
   ]);
@@ -133,7 +135,8 @@ export async function POST(req: NextRequest) {
   if (price == null) return json({ error: "marketdata_error", detail: `Couldn't read a live ${inst.label} price right now — try again shortly.` }, 502);
 
   // Recent 15m candles for execution-level context.
-  const recent15 = Array.isArray(m15) ? clean(m15).slice(-24).map((v) => `${(+v.open).toFixed(dec)},${(+v.high).toFixed(dec)},${(+v.low).toFixed(dec)},${(+v.close).toFixed(dec)}`).join(" | ") : "n/a";
+  const m15closed = closedBars(Array.isArray(m15) ? clean(m15) : null, 20); // drop the forming bar
+  const recent15 = m15closed ? m15closed.slice(-24).map((v) => `${(+v.open).toFixed(dec)},${(+v.high).toFixed(dec)},${(+v.low).toFixed(dec)},${(+v.close).toFixed(dec)}`).join(" | ") : "n/a";
 
   const dataBlock = [
     tfSummary("Daily", d1 as Row[] | null, dec),
@@ -220,7 +223,28 @@ Deliver the full MFXGHOST read for ${inst.label} as the specified JSON now.`;
   // Charge only after a successful read.
   await chargeCredit("ghost");
 
+  // ── Deterministic 1H/30m/15m alignment guardrail (closed candles) ──────────
+  // MFXGHOST is a with-trend read; on top of the model we enforce that the
+  // execution stack agrees. If 1H/30m/15m don't all line up with the direction,
+  // override to NO-TRADE so it never hands out a with-higher-timeframe entry into
+  // a lower-timeframe pullback — the pattern behind the stop-outs.
+  const gMtf = [
+    { tf: "1H", trend: trendOfRows(closedBars(Array.isArray(h1) ? h1 : null, 20)) },
+    { tf: "30m", trend: trendOfRows(closedBars(Array.isArray(m30) ? m30 : null, 20)) },
+    { tf: "15m", trend: trendOfRows(closedBars(Array.isArray(m15) ? m15 : null, 20)) },
+  ];
+  read.mtf = gMtf;
+  read.mtf_label = gMtf.map((x) => `${x.tf} ${x.trend}`).join(" · ");
+  const gWant = String(read.direction || "").toUpperCase() === "LONG" ? "bullish" : String(read.direction || "").toUpperCase() === "SHORT" ? "bearish" : null;
+  if (gWant != null && !gMtf.every((x) => x.trend === gWant)) {
+    read.decision = "NO_TRADE";
+    read.grade = "No Trade";
+    const ra = Array.isArray(read.reasonsToAvoid) ? (read.reasonsToAvoid as string[]) : [];
+    ra.unshift(`1H/30m/15m are not aligned (${read.mtf_label}) — the execution stack disagrees with the ${String(read.direction)} read, so this is a NO-TRADE rather than an entry into a lower-timeframe pullback.`);
+    read.reasonsToAvoid = ra;
+  }
+
   // Recent execution-frame candles (OHLC, oldest→newest) for the result chart.
   const candles = Array.isArray(m15) ? clean(m15).slice(-48).map((v) => ({ t: v.datetime, o: +v.open, h: +v.high, l: +v.low, c: +v.close })) : [];
-  return json({ ok: true, price, asOf: now.toISOString(), session: sessionHint, symbol: TD, read, candles }, 200);
+  return json({ ok: true, price, asOf: now.toISOString(), session: sessionHint, symbol: TD, read, candles, strategy_version: "v2-mtf-closedbar" }, 200);
 }
