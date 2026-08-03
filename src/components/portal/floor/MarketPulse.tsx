@@ -9,9 +9,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  Activity, RefreshCw, ArrowUp, ArrowDown, Check, X, ChevronDown, Zap, AlertTriangle, Search,
+  Activity, RefreshCw, ArrowUp, ArrowDown, Check, X, ChevronDown, Zap, AlertTriangle, Search, Copy,
 } from "lucide-react";
 import { DeepDiveModal } from "./DeepDive";
+import { TradeChat } from "../TradeChat";
 import { CREDIT_COST } from "@/lib/creditConfig";
 
 // Friendly asset category for the deep-dive header badge.
@@ -155,9 +156,15 @@ export function MarketPulse() {
                           <Level key={i} label={`TP${i + 1}`} value={fmt(tp)} tone="green" />
                         ))}
                       </div>
+                      <CopyTradeBtn text={pulseTradeText(s)} />
                       <p className="mt-2 text-[10px] leading-snug text-charcoal/45">
-                        Entry is the current price (take-it-now read). Stop sits beyond the swing that invalidates the idea; targets are a clean R ladder. Objective read from live candles — not financial advice.
+                        Entry is the current price (take-it-now read). Stop sits beyond the swing that invalidates the idea; targets are a clean R ladder. Tap any level to copy it. Objective read from live candles — not financial advice.
                       </p>
+                    </div>
+                  )}
+                  {numOk(s.entry) && numOk(s.stopLoss) && (
+                    <div className="mb-3">
+                      <TradeChat trade={{ td: s.td, symbol: s.symbol, direction: s.dir, entry: s.entry, stopLoss: s.stopLoss, takeProfits: (s.takeProfits ?? []).filter(numOk), style: "intraday" }} creditCost={CREDIT_COST.signal} />
                     </div>
                   )}
                   <ul className="grid gap-1.5 sm:grid-cols-2">
@@ -205,12 +212,37 @@ export function MarketPulse() {
   );
 }
 
+function copyText(text: string) {
+  try { void navigator.clipboard?.writeText(text); } catch { /* clipboard blocked */ }
+}
+function pulseTradeText(s: Setup): string {
+  const tps = (s.takeProfits ?? []).map((t, i) => `TP${i + 1}: ${fmt(t)}`).join("\n");
+  return `${s.symbol} ${s.dir}\nEntry: ${fmt(s.entry as number)}\nStop: ${fmt(s.stopLoss as number)}\n${tps}${s.riskReward ? `\nR:R ${s.riskReward}` : ""}\n(Market Pulse — educational, not financial advice)`;
+}
 function Level({ label, value, tone }: { label: string; value: string; tone: "navy" | "red" | "green" }) {
+  const [copied, setCopied] = useState(false);
   const color = tone === "red" ? "text-red-600" : tone === "green" ? "text-emerald-600" : "text-navy";
   return (
-    <div className="rounded-lg border border-ice bg-white px-2 py-1.5 text-center">
+    <button
+      type="button"
+      onClick={() => { copyText(value); setCopied(true); setTimeout(() => setCopied(false), 1100); }}
+      className="rounded-lg border border-ice bg-white px-2 py-1.5 text-center transition-colors hover:border-navy/30 focus-ring"
+      title="Tap to copy"
+    >
       <div className="text-[9px] font-semibold uppercase tracking-wide text-charcoal/40">{label}</div>
-      <div className={`text-sm font-bold ${color}`}>{value}</div>
-    </div>
+      <div className={`text-sm font-bold ${copied ? "text-emerald-600" : color}`}>{copied ? "Copied ✓" : value}</div>
+    </button>
+  );
+}
+function CopyTradeBtn({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => { copyText(text); setCopied(true); setTimeout(() => setCopied(false), 1400); }}
+      className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-ice bg-white px-3 py-2 text-xs font-semibold text-navy transition-colors hover:bg-offwhite focus-ring"
+    >
+      <Copy className="h-3.5 w-3.5" /> {copied ? "Copied!" : "Copy trade"}
+    </button>
   );
 }
