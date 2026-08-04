@@ -4,7 +4,7 @@ import { gateCredits, chargeCredit } from "@/lib/credits";
 import { series, isPriorityEmail } from "@/lib/marketData";
 import { closedBars } from "@/lib/mtf";
 import { XPAIRS, XSYMS, analyzePair, sessionOf, XGHOST_VERSION, type PairInput, type XSym } from "@/lib/xghost/engine";
-import { classifyDxy, buildProxyCloses } from "@/lib/xghost/dxy";
+import { classifyDxy, buildProxyCloses, fetchFreeDxy } from "@/lib/xghost/dxy";
 import { rankAndGuard } from "@/lib/xghost/correlation";
 import type { Row } from "@/lib/marketData";
 
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   const nowMs = now.getTime();
   const session = sessionOf(now);
 
-  // ── Fetch: 5 pairs × (1H, 15m, 5m) + DXY × (1H, 15m, 5m). Parallel; the shared
+  // ── Fetch: 5 pairs × (1H, 15m, 5m) for pair analysis. Parallel; the shared
   // community governor + 30s cache keep this within budget. ──
   const pairFetch = XSYMS.map(async (sym) => {
     const cfg = XPAIRS[sym];
@@ -54,27 +54,44 @@ export async function POST(req: NextRequest) {
     const price = m5arr && m5arr.length ? +m5arr[m5arr.length - 1].close : null;
     return { sym, h1: arr(h1), m15: arr(m15), m5: m5arr, priceRow: arr(priceRow), price };
   });
-  const [pairData, dxyRaw] = await Promise.all([
-    Promise.all(pairFetch),
-    Promise.all([series("DXY", "1h", 120, mdKey, fresh), series("DXY", "15min", 120, mdKey, fresh), series("DXY", "5min", 150, mdKey, fresh)]),
-  ]);
+
+  // ── DXY across 1m/5m/15m/30m. Source order: NATIVE Twelve Data (opt-in via env —
+  // the Grow plan does NOT serve DXY, so it's off by default and burns no budget) →
+  // FREE ICE Dollar Index (DX-Y.NYB) intraday → PROXY from the pair candles. ──
+  const DXY_TFS = ["1min", "5min", "15min", "30min"] as const;
+  const tryNative = process.env.XGHOST_NATIVE_DXY === "1";
+  const dxyFetch = (async () => {
+    if (tryNative) {
+      const nat = await Promise.all(DXY_TFS.map((tf) => series("DXY", tf, 150, mdKey, fresh)));
+      const n = nat.map(arr);
+      if (n.every((x) => x && x!.length > 25)) return { src: "native" as const, rows: n as Row[][] };
+    }
+    const free = await Promise.all(DXY_TFS.map((tf) => fetchFreeDxy(tf, 200)));
+    if (free.every((x) => x && x.length > 25)) return { src: "free" as const, rows: free as Row[][] };
+    return { src: "proxy" as const, rows: null };
+  })();
+
+  const [pairData, dxySrc] = await Promise.all([Promise.all(pairFetch), dxyFetch]);
 
   // Rate-limit guard: if every pair failed to fetch, bail without charging.
   const anyData = pairData.some((p) => p.h1 && p.m15 && p.m5);
   if (!anyData) return json({ error: "ratelimit", reason: "Market data is busy (per-minute limit). Wait a minute and rescan." }, 429);
 
-  // ── DXY: native first, proxy fallback (zero extra calls) ──
-  const [dxy1, dxy15, dxy5] = [arr(dxyRaw[0]), arr(dxyRaw[1]), arr(dxyRaw[2])];
   let dxy;
-  if (dxy1 && dxy15 && dxy5 && dxy1.length > 25) {
-    dxy = classifyDxy(closedBars(dxy1, 25), closedBars(dxy15, 25), closedBars(dxy5, 25), "native");
+  if (dxySrc.rows) {
+    const R = dxySrc.rows;
+    // drop the last (possibly-forming) candle before reading trend
+    const cb = (r: Row[]) => (r.length > 26 ? r.slice(0, -1) : r);
+    dxy = classifyDxy(cb(R[0]), cb(R[1]), cb(R[2]), cb(R[3]), dxySrc.src);
   } else {
+    // Proxy fallback — build a USD-strength series from the pair candles we already
+    // have (5m, 15m, 1H stand in for 5m/15m/30m; 1m unavailable). Zero extra calls.
     const byTf = (tf: "h1" | "m15" | "m5") => {
       const m: Record<string, Row[] | null> = {};
-      for (const p of pairData) m[p.sym] = closedBars(p[tf], 25);
+      for (const p of pairData) m[p.sym] = closedBars(p[tf], 120);
       return m;
     };
-    dxy = classifyDxy(buildProxyCloses(byTf("h1")), buildProxyCloses(byTf("m15")), buildProxyCloses(byTf("m5")), "proxy");
+    dxy = classifyDxy(null, buildProxyCloses(byTf("m5")), buildProxyCloses(byTf("m15")), buildProxyCloses(byTf("h1")), "proxy");
   }
 
   // ── Analyze each pair ──
