@@ -57,6 +57,7 @@ type FloorChild =
   | { kind: "page"; key: string };
 const FLOOR_CHILDREN: FloorChild[] = [
   { kind: "view", view: "room", label: "The Room", icon: Radio },
+  { kind: "view", view: "xghost", label: "xGhost", icon: Ghost },
   { kind: "page", key: "scalp" },
   { kind: "page", key: "charts" },
   { kind: "page", key: "omai" },
