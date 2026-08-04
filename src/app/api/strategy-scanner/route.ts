@@ -529,26 +529,22 @@ export async function POST(req: NextRequest) {
     // the trade down. (This override is Scanner-only; other callers are unaffected.)
   }, profile, { htf: "majority" });
 
-  if (gateDecision.decision === "NO_TRADE") {
-    const noTrade = {
-      status: "wait" as const, symbol: found.asset.symbol, instrument: td, style: intent.label,
-      price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf, candles: candleOut,
-      confluence, agreement: +agreement.toFixed(2), grade: gateDecision.grade, gate_score: gateDecision.score,
-      mode: profile, momentum_rating: gateDecision.momentumRating, trend_rating: gateDecision.trendRating,
-      regime_label: regimeLabel, regime_basis: regimeBasis,
-      strategy: "Standing aside — waiting for confirmation",
-      strategy_why: gateDecision.noTradeReason,
-      headline: `${found.asset.symbol} · NO TRADE — ${isAccel ? "no clean momentum edge yet" : "waiting for confirmation"}`,
-      reason: gateDecision.noTradeReason,
-      scouts: scouts.map((s) => ({ ...s, level: s.level != null ? f(s.level) : undefined })),
-      align_note: alignNote || undefined, mtf: useMtf ? mtf.byTf : undefined, mtf_label: useMtf ? mtf.label : undefined,
-      news_warning: news.warning, news_check_currencies: news.currencies, news_check_note: news.note,
-      strategy_version: "v3-no-align-gate",
-      educational: "Institutional-grade filter: the engine only issues a trade after the market confirms — a completed pullback, a closed confirmation candle, momentum turning, and the reward:risk floor. Higher timeframes are context (a neutral stack no longer blocks). NO TRADE is a valid, disciplined output.",
-    };
-    await chargeCredit("signal", supabase);
-    return json(noTrade, 200);
-  }
+  // ── Confirmation is CONTEXT, not a veto ───────────────────────────────────
+  // When the strategies genuinely agree on a direction (the first gate above), the
+  // scanner ALWAYS produces an actionable plan. Rather than standing the trade
+  // down until the trigger candle closes, we fold the confirmation read into the
+  // grade + a "ready vs forming" flag: if a candle has already closed back in the
+  // trend it is READY (take it now); if not it is FORMING (take it on that close —
+  // the levels below are already locked, or drop a limit at the entry). RR is built
+  // from a 2.5R/1.8R ladder and the stop is structural, so every issued plan clears
+  // the risk floor by design. (The old A+/A-only confirmation veto is retired: it
+  // stood the scanner down for days even on 99/100 confluence.)
+  const confirmed = !!(cs.closed && cs.closedWithTrend);
+  const displayGrade: string = gateDecision.grade
+    ?? (confluence >= 90 ? "A+" : confluence >= 80 ? "A" : confluence >= 68 ? "B" : "C");
+  const confirmationNote = confirmed
+    ? "Confirmed — a candle has already closed back in the trend direction, so this is a take-it-now read."
+    : `Forming — a trigger candle hasn't closed ${isLong ? "back up" : "back down"} yet. The plan is locked: take it when a candle closes with the trend, or set a limit at the entry.`;
 
   // ── Price-extended heads-up (NON-BLOCKING) ────────────────────────────────
   // The trade is ALWAYS produced — a limit/retest entry is valid even when price
@@ -593,8 +589,9 @@ export async function POST(req: NextRequest) {
     direction: dir, order_type: orderType, price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf, confluence, agreement: +agreement.toFixed(2), confidence, candles: candleOut,
     mtf: mtf.byTf, mtf_label: mtf.label, align_note: alignNote || undefined, strategy_version: "v3-no-align-gate",
     news_warning: news.warning, news_check_currencies: news.currencies, news_check_note: news.note,
-    regime_label: regimeLabel, regime_basis: regimeBasis, strategy, strategy_why: strategyWhy,
-    grade: gateDecision.grade, gate_score: gateDecision.score, gate_reasons: gateDecision.reasons,
+    regime_label: regimeLabel, regime_basis: regimeBasis, strategy, strategy_why: `${strategyWhy} ${confirmationNote}`,
+    confirmation: confirmed ? "ready" : "forming", confirmation_note: confirmationNote,
+    grade: displayGrade, gate_score: gateDecision.score, gate_reasons: gateDecision.reasons,
     mode: profile, momentum_rating: gateDecision.momentumRating, trend_rating: gateDecision.trendRating, trend_strength: trendStrength,
     entry, stop_loss: stop, take_profits: targets, risk_reward: `1:${rr1}`, stop_pips: +(risk / pip).toFixed(1),
     price_extended: priceExtended, extended_note: extendedNote, ran_r: +runR.toFixed(1),
@@ -614,7 +611,7 @@ export async function POST(req: NextRequest) {
     interval: intent.exec, meta: {
       version: "v2-mtf-closedbar", mtf: mtf.byTf, mtf_dir: mtf.dir, spread_pips: spreadPips,
       agreement: +agreement.toFixed(2), firing: firing.map((s) => s.key), breakout: isBreakout,
-      grade: gateDecision.grade, gate_score: gateDecision.score, mode: profile,
+      grade: displayGrade, gate_score: gateDecision.score, mode: profile, confirmation: confirmed ? "ready" : "forming",
       penalty_applied: learned.penalty, penalty_reasons: learned.reasons,
       ctx: { mode: profile, setup: strategy, htf_align: htfAlign, momentum: cs.momentumScore, trend: trendStrength, had_sweep: hadSweep, bos: bosFired, pullback: cs.pullbackComplete, vol_score: volumeScore },
     },
