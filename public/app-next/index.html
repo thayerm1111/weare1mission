@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#0a0b10"/>
+<meta name="robots" content="noindex"/>
+<title>One Mission — Trade Desk (preview)</title>
+<style>:root{
+  --bg:#0a0b10; --bg2:#0f1119; --card:#12141d; --line:rgba(255,255,255,.10);
+  --ink:#f4f5f8; --muted:#9aa0ad; --faint:#6b7180; --gold:#e6c88a; --navy:#8fb3ff;
+  --green:#34d399; --red:#f87171; --amber:#fbbf24; --sky:#54c6ff; --slate:#8a93a6;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
+#app{max-width:560px;margin:0 auto;min-height:100vh}
+button{font:inherit;cursor:pointer;border:none;background:none;color:inherit}
+input{font:inherit}
+
+/* Header + tabs */
+.shell{padding:0 0 40px}
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 10px}
+.brand{font-weight:800;letter-spacing:.14em;font-size:15px}
+.brand span{color:var(--gold);margin-left:2px}
+.brand.big{font-size:24px;letter-spacing:.18em}
+.out{color:var(--faint);font-size:12px;font-weight:600}
+.tabs{display:flex;gap:8px;overflow-x:auto;padding:6px 14px 12px;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:1px;
+  padding:9px 13px;border-radius:13px;border:1px solid var(--line);background:var(--bg2);min-width:104px}
+.tab.on{border-color:var(--gold);background:linear-gradient(180deg,rgba(230,200,138,.16),rgba(230,200,138,.05))}
+.tab-l{font-weight:700;font-size:13px}
+.tab-t{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em}
+.tab.on .tab-t{color:var(--gold)}
+
+.main{padding:6px 14px 0}
+.foot{color:var(--faint);font-size:11px;text-align:center;padding:22px 24px 0;line-height:1.5}
+
+/* Runner */
+.blurb{color:var(--muted);font-size:13px;padding:2px 4px 12px}
+.controls{display:flex;flex-direction:column;gap:9px;margin-bottom:12px}
+.chips{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none}
+.chips.wrap{flex-wrap:wrap;overflow:visible}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;padding:8px 13px;border-radius:999px;border:1px solid var(--line);
+  background:var(--bg2);font-size:13px;font-weight:600;color:var(--muted)}
+.chip.sm{padding:6px 11px;font-size:12px}
+.chip.on{border-color:var(--gold);color:var(--ink);background:rgba(230,200,138,.14)}
+.inp{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
+  background:var(--bg2);color:var(--ink);font-size:15px;outline:none}
+.inp:focus{border-color:var(--gold)}
+.run{width:100%;padding:14px;border-radius:13px;font-weight:800;font-size:15px;letter-spacing:.02em;
+  color:#0a0b10;background:linear-gradient(180deg,#f0d99a,#e6c88a);margin-top:2px}
+.run:disabled{opacity:.6}
+.err{margin-top:12px;padding:12px 14px;border-radius:12px;border:1px solid rgba(248,113,113,.3);
+  background:rgba(248,113,113,.08);color:#fca5a5;font-size:13px}
+
+/* Card */
+.card{margin-top:14px;border-radius:18px;border:1px solid var(--line);background:var(--card);
+  padding:16px;position:relative;overflow:hidden}
+.card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--slate)}
+.card-green::before{background:var(--green)} .card-amber::before{background:var(--amber)}
+.card-sky::before{background:var(--sky)} .card-red::before{background:var(--red)}
+.card-slate::before{background:var(--slate)}
+.card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.sym{font-size:21px;font-weight:800;letter-spacing:.01em}
+.strat{font-size:12px;color:var(--muted);margin-top:1px}
+.card-top-r{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.badge{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;
+  padding:4px 10px;border-radius:999px;border:1px solid}
+.badge-green{color:var(--green);border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.12)}
+.badge-amber{color:var(--amber);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.12)}
+.badge-sky{color:var(--sky);border-color:rgba(84,198,255,.4);background:rgba(84,198,255,.12)}
+.badge-red{color:var(--red);border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.12)}
+.badge-slate{color:var(--slate);border-color:rgba(138,147,166,.4);background:rgba(138,147,166,.12)}
+.pill{font-size:12px;font-weight:800;padding:3px 10px;border-radius:999px}
+.pill-long{color:var(--green);background:rgba(52,211,153,.15)}
+.pill-short{color:var(--red);background:rgba(248,113,113,.15)}
+
+/* Meter */
+.meter{margin:15px 0 4px}
+.meter-top{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
+.meter-cap{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--faint)}
+.meter-val{font-size:22px;font-weight:800}
+.meter-val b{font-size:12px;font-weight:600;color:var(--faint)}
+.meter-val.green{color:var(--green)} .meter-val.amber{color:var(--amber)}
+.meter-val.sky{color:var(--sky)} .meter-val.slate{color:var(--slate)}
+.meter-track{height:9px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden}
+.meter-fill{height:100%;border-radius:999px;transition:width .5s ease}
+.meter-fill.green{background:linear-gradient(90deg,#34d39988,#34d399)}
+.meter-fill.amber{background:linear-gradient(90deg,#fbbf2488,#fbbf24)}
+.meter-fill.sky{background:linear-gradient(90deg,#54c6ff88,#54c6ff)}
+.meter-fill.slate{background:linear-gradient(90deg,#8a93a655,#8a93a6)}
+.meter-label{font-size:11px;color:var(--muted);margin-top:6px}
+
+/* Levels */
+.levels{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 2px}
+.lvl{flex:1 1 88px;min-width:88px;display:flex;flex-direction:column;gap:2px;text-align:left;
+  padding:10px 11px;border-radius:12px;border:1px solid var(--line);background:var(--bg2)}
+.lvl-cap{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
+.lvl-v{font-size:16px;font-weight:800}
+.lvl-sub{font-size:9px;color:var(--faint)}
+.lvl-navy .lvl-v{color:var(--navy)} .lvl-red .lvl-v{color:var(--red)} .lvl-green .lvl-v{color:var(--green)}
+.rr{flex:0 0 auto;align-self:center;text-align:center;font-size:10px;color:var(--faint);padding:0 4px}
+.rr b{font-size:15px;color:var(--ink)}
+
+/* Sections */
+.sec{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+.sec-h{width:100%;display:flex;align-items:center;justify-content:space-between;
+  font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.sec-x{color:var(--faint);font-size:16px}
+.sec-b{padding-top:9px}
+.rz{margin:0 0 8px;font-size:13.5px;line-height:1.5;color:#d7dae2}
+.next{margin:0;padding-left:2px;list-style:none}
+.next li{position:relative;padding:0 0 7px 18px;font-size:13.5px;color:#d7dae2}
+.next li::before{content:"→";position:absolute;left:0;color:var(--gold)}
+
+/* Confirmations */
+.checks{list-style:none;margin:0;padding:0}
+.chk{display:flex;align-items:flex-start;gap:9px;padding:5px 0;font-size:13.5px}
+.chk-i{flex:0 0 20px;height:20px;border-radius:999px;text-align:center;line-height:20px;
+  font-size:12px;font-weight:800}
+.chk-ok .chk-i{color:var(--green);background:rgba(52,211,153,.15)}
+.chk-no .chk-i{color:var(--faint);background:rgba(255,255,255,.05)}
+.chk-na .chk-i{color:var(--faint);background:rgba(255,255,255,.05)}
+.chk-ok{color:#e6e8ee}
+.chk-no,.chk-na{color:var(--muted)}
+
+/* Scouts */
+.scouts{list-style:none;margin:0;padding:0}
+.scout{display:grid;grid-template-columns:12px 120px 1fr;gap:8px;align-items:start;padding:5px 0;font-size:12.5px}
+.scout.quiet{opacity:.5}
+.sdot{width:9px;height:9px;border-radius:999px;margin-top:5px;background:var(--slate)}
+.sdot.long{background:var(--green)} .sdot.short{background:var(--red)}
+.sname{font-weight:700;font-size:12px}
+.sread{color:var(--muted)}
+
+/* misc */
+.kv{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;padding:3px 0;color:var(--muted)}
+.kv b{color:var(--ink);font-weight:600;text-align:right}
+.prox{margin-top:10px;font-size:12px;color:var(--muted)}
+.prox b{color:var(--ink)}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.tags span{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 9px}
+.news{margin-top:13px;padding:11px 13px;border-radius:12px;font-size:12px;line-height:1.5;
+  border:1px solid rgba(230,200,138,.35);background:rgba(230,200,138,.08);color:#e9dcb8}
+.news b{color:var(--gold)}
+
+/* Login */
+.login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.login-box{width:100%;max-width:360px;text-align:center}
+.login-box .tag{color:var(--muted);font-size:13px;margin:6px 0 22px}
+.login-box form{display:flex;flex-direction:column;gap:11px}
+.hint{color:var(--faint);font-size:11px;margin-top:16px;line-height:1.5}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>!function(n){"function"==typeof define&&define.amd?define(n):n()}(function(){var n,t,e,i,r,o,f,u,c,a,s,h,l,p,y,d,v,_="http://www.w3.org/2000/svg",w="http://www.w3.org/1999/xhtml",m=null,g=void 0,b={},k=[],x=/acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i,C=Array.isArray;function M(n,t){for(var e in t)n[e]=t[e];return n}function S(n){n&&n.parentNode&&n.parentNode.removeChild(n)}function $(t,e,i){var r,o,f,u={};for(f in e)"key"==f?r=e[f]:"ref"==f?o=e[f]:u[f]=e[f];if(arguments.length>2&&(u.children=arguments.length>3?n.call(arguments,2):i),"function"==typeof t&&t.defaultProps!=m)for(f in t.defaultProps)u[f]===g&&(u[f]=t.defaultProps[f]);return A(t,u,r,o,m)}function A(n,i,r,o,f){var u={type:n,props:i,key:r,ref:o,__k:m,__:m,__b:0,__e:m,__c:m,constructor:g,__v:f==m?++e:f,__i:-1,__u:0};return f==m&&t.vnode!=m&&t.vnode(u),u}function I(n){return n.children}function P(n,t){this.props=n,this.context=t}function E(n,t){if(t==m)return n.__?E(n.__,n.__i+1):m;for(var e;t<n.__k.length;t++)if((e=n.__k[t])!=m&&e.__e!=m)return e.__e;return"function"==typeof n.type?E(n):m}function F(n){if(n.__P&&n.__d){var e=n.__v,i=e.__e,r=[],o=[],f=M({},e);f.__v=e.__v+1,t.vnode&&t.vnode(f),B(n.__P,f,e,n.__n,n.__P.namespaceURI,32&e.__u?[i]:m,r,i==m?E(e):i,!!(32&e.__u),o),f.__v=e.__v,f.__.__k[f.__i]=f,G(r,f,o),e.__e=e.__=null,f.__e!=i&&H(f)}}function H(n){if((n=n.__)!=m&&n.__c!=m)return n.__e=n.__c.base=m,n.__k.some(function(t){if(t!=m&&t.__e!=m)return n.__e=n.__c.base=t.__e}),H(n)}function L(n){(!n.__d&&(n.__d=!0)&&r.push(n)&&!T.__r++||o!=t.debounceRendering)&&((o=t.debounceRendering)||f)(T)}function T(){try{for(var n,t=1;r.length;)r.length>t&&r.sort(u),n=r.shift(),t=r.length,F(n)}finally{r.length=T.__r=0}}function j(n,t,e,i,r,o,f,u,c,a,s){var h,l,p,y,d,v,_=i&&i.__k||k,w=t.length;for(c=O(e,t,_,c,w),h=0;h<w;h++)(p=e.__k[h])!=m&&(l=-1!=p.__i&&_[p.__i]||b,p.__i=h,v=B(n,p,l,r,o,f,u,c,a,s),y=p.__e,p.ref&&l.ref!=p.ref&&(l.ref&&Q(l.ref,m,p),s.push(p.ref,p.__c||y,p)),d==m&&y!=m&&(d=y),4&p.__u?(c=V(p,c,n),l.__e&&(l.__e=m)):"function"==typeof p.type&&v!==g?c=v:y&&(c=y.nextSibling),p.__u&=-7);return e.__e=d,c}function O(n,t,e,i,r){var o,f,u,c,a,s=e.length,h=s,l=0;for(n.__k=new Array(r),o=0;o<r;o++)(f=t[o])!=m&&"boolean"!=typeof f&&"function"!=typeof f?("string"==typeof f||"number"==typeof f||"bigint"==typeof f||f.constructor==String?f=n.__k[o]=A(m,f,m,m,m):C(f)?f=n.__k[o]=A(I,{children:f},m,m,m):f.constructor===g&&f.__b>0?f=n.__k[o]=A(f.type,f.props,f.key,f.ref?f.ref:m,f.__v):n.__k[o]=f,c=o+l,f.__=n,f.__b=n.__b+1,a=f.__i=z(f,e,c,h),u=m,-1!=a&&(h--,(u=e[a])&&(u.__u|=2)),u==m||u.__v==m?(-1==a&&(r>s?l--:r<s&&l++),"function"!=typeof f.type&&(f.__u|=4)):a!=c&&(a==c-1?l--:a==c+1?l++:(a>c?l--:l++,f.__u|=4))):n.__k[o]=m;if(h)for(o=0;o<s;o++)(u=e[o])!=m&&0==(2&u.__u)&&(u.__e==i&&(i=E(u)),U(u,u));return i}function V(n,t,e){var i,r;if("function"==typeof n.type){for(i=n.__k,r=0;i&&r<i.length;r++)i[r]&&(i[r].__=n,t=V(i[r],t,e));return t}n.__e!=t&&(t&&n.type&&!t.parentNode&&(t=E(n)),t=e.insertBefore(n.__e,t||m));do{t=t&&t.nextSibling}while(t!=m&&8==t.nodeType);return t}function z(n,t,e,i){var r,o,f,u=n.key,c=n.type,a=t[e],s=a!=m&&0==(2&a.__u);if(a===m&&null==u||s&&u==a.key&&c==a.type)return e;if(i>(s?1:0))for(r=e-1,o=e+1;r>=0||o<t.length;)if((a=t[f=r>=0?r--:o++])!=m&&0==(2&a.__u)&&u==a.key&&c==a.type)return f;return-1}function N(n,t,e){"-"==t[0]?n.setProperty(t,e==m?"":e):n[t]=e==m?"":"number"!=typeof e||x.test(t)?e:e+"px"}function R(n,t,e,i,r){var o,f;n:if("style"==t)if("string"==typeof e)n.style.cssText=e;else{if("string"==typeof i&&(n.style.cssText=i=""),i)for(t in i)e&&t in e||N(n.style,t,"");if(e)for(t in e)i&&e[t]==i[t]||N(n.style,t,e[t])}else if("o"==t[0]&&"n"==t[1])o=t!=(t=t.replace(h,"$1")),f=t.toLowerCase(),t=f in n||"onFocusOut"==t||"onFocusIn"==t?f.slice(2):t.slice(2),n.l||(n.l={}),n.l[t+o]=e,e?i?e[s]=i[s]:(e[s]=l,n.addEventListener(t,o?y:p,o)):n.removeEventListener(t,o?y:p,o);else{if(r==_)t=t.replace(/xlink(H|:h)/,"h").replace(/sName$/,"s");else if("width"!=t&&"height"!=t&&"href"!=t&&"list"!=t&&"form"!=t&&"tabIndex"!=t&&"download"!=t&&"rowSpan"!=t&&"colSpan"!=t&&"role"!=t&&"popover"!=t&&t in n)try{n[t]=e==m?"":e;break n}catch(n){}"function"==typeof e||(e==m||!1===e&&"-"!=t[4]?n.removeAttribute(t):n.setAttribute(t,"popover"==t&&1==e?"":e))}}function q(n){return function(e){if(this.l){var i=this.l[e.type+n];if(e[a]==m)e[a]=l++;else if(e[a]<i[s])return;return i(t.event?t.event(e):e)}}}function B(n,e,i,r,o,f,u,c,a,s){var h,l,p,y,d,v,_,w,b,x,$,A,F,H,L,T,O=e.type;if(e.constructor!==g)return m;128&i.__u&&(a=!!(32&i.__u),f=[c=e.__e=i.__e]),(h=t.__b)&&h(e);n:if("function"==typeof O){l=u.length;try{if(b=e.props,x=O.prototype&&O.prototype.render,$=(h=O.contextType)&&r[h.__c],A=h?$?$.props.value:h.__:r,i.__c?w=(p=e.__c=i.__c).__=p.__E:(x?e.__c=p=new O(b,A):(e.__c=p=new P(b,A),p.constructor=O,p.render=W),$&&$.sub(p),p.state||(p.state={}),p.__n=r,y=p.__d=!0,p.__h=[],p._sb=[]),x&&p.__s==m&&(p.__s=p.state),x&&O.getDerivedStateFromProps!=m&&(p.__s==p.state&&(p.__s=M({},p.__s)),M(p.__s,O.getDerivedStateFromProps(b,p.__s))),d=p.props,v=p.state,p.__v=e,y)x&&O.getDerivedStateFromProps==m&&p.componentWillMount!=m&&p.componentWillMount(),x&&p.componentDidMount!=m&&p.__h.push(p.componentDidMount);else{if(x&&O.getDerivedStateFromProps==m&&b!==d&&p.componentWillReceiveProps!=m&&p.componentWillReceiveProps(b,A),e.__v==i.__v||!p.__e&&p.shouldComponentUpdate!=m&&!1===p.shouldComponentUpdate(b,p.__s,A)){e.__v!=i.__v&&(p.props=b,p.state=p.__s,p.__d=!1),e.__e=i.__e,e.__k=i.__k,e.__k.some(function(n){n&&(n.__=e)}),k.push.apply(p.__h,p._sb),p._sb=[],p.__h.length&&u.push(p),c=E(i);break n}p.componentWillUpdate!=m&&p.componentWillUpdate(b,p.__s,A),x&&p.componentDidUpdate!=m&&p.__h.push(function(){p.componentDidUpdate(d,v,_)})}if(p.context=A,p.props=b,p.__P=n,p.__e=!1,F=t.__r,H=0,x)p.state=p.__s,p.__d=!1,F&&F(e),h=p.render(p.props,p.state,p.context),k.push.apply(p.__h,p._sb),p._sb=[];else do{p.__d=!1,F&&F(e),h=p.render(p.props,p.state,p.context),p.state=p.__s}while(p.__d&&++H<25);p.state=p.__s,p.getChildContext!=m&&(r=M(M({},r),p.getChildContext())),x&&!y&&p.getSnapshotBeforeUpdate!=m&&(_=p.getSnapshotBeforeUpdate(d,v)),L=h!=m&&h.type===I&&h.key==m?J(h.props.children):h,c=j(n,C(L)?L:[L],e,i,r,o,f,u,c,a,s),p.base=e.__e,e.__u&=-161,p.__h.length&&u.push(p),w&&(p.__E=p.__=m)}catch(n){if(u.length=l,e.__v=m,a||f!=m){if(n.then){for(e.__u|=a?160:128;c&&8==c.nodeType&&c.nextSibling;)c=c.nextSibling;f!=m&&(f[f.indexOf(c)]=m),e.__e=c}else if(f!=m)for(T=f.length;T--;)S(f[T])}else e.__e=i.__e;e.__k==m&&(e.__k=i.__k||[]),n.then||D(e),t.__e(n,e,i)}}else f==m&&e.__v==i.__v?(e.__k=i.__k,e.__e=i.__e):c=e.__e=K(i.__e,e,i,r,o,f,u,a,s);return(h=t.diffed)&&h(e),128&e.__u?void 0:c}function D(n){n&&(n.__c&&(n.__c.__e=!0),n.__k&&n.__k.some(D))}function G(n,e,i){for(var r=0;r<i.length;r++)Q(i[r],i[++r],i[++r]);t.__c&&t.__c(e,n),n.some(function(e){try{n=e.__h,e.__h=[],n.some(function(n){n.call(e)})}catch(n){t.__e(n,e.__v)}})}function J(n){return"object"!=typeof n||n==m||n.__b>0?n:C(n)?n.map(J):n.constructor!==g?null:M({},n)}function K(e,i,r,o,f,u,c,a,s){var h,l,p,y,d,v,k,x=r.props||b,M=i.props,$=i.type;if("svg"==$?f=_:"math"==$?f="http://www.w3.org/1998/Math/MathML":f||(f=w),u!=m)for(h=0;h<u.length;h++)if((d=u[h])&&"setAttribute"in d==!!$&&($?d.localName==$:3==d.nodeType)){e=d,u[h]=m;break}if(e==m){if($==m)return document.createTextNode(M);e=document.createElementNS(f,$,M.is&&M),a&&(t.__m&&t.__m(i,u),a=!1),u=m}if($==m)x===M||a&&e.data==M||(e.data=M);else{if(u="textarea"==$&&M.defaultValue!=m?m:u&&n.call(e.childNodes),!a&&u!=m)for(x={},h=0;h<e.attributes.length;h++)x[(d=e.attributes[h]).name]=d.value;for(h in x)d=x[h],"dangerouslySetInnerHTML"==h?p=d:"children"==h||h in M||"value"==h&&"defaultValue"in M||"checked"==h&&"defaultChecked"in M||R(e,h,m,d,f);for(h in M)d=M[h],"children"==h?y=d:"dangerouslySetInnerHTML"==h?l=d:"value"==h?v=d:"checked"==h?k=d:a&&"function"!=typeof d||x[h]===d||R(e,h,d,x[h],f);if(l)a||p&&(l.__html==p.__html||l.__html==e.innerHTML)||(e.innerHTML=l.__html),i.__k=[];else if(p&&(e.innerHTML=""),j("template"==i.type?e.content:e,C(y)?y:[y],i,r,o,"foreignObject"==$?w:f,u,c,u?u[0]:r.__k&&E(r,0),a,s),u!=m)for(h=u.length;h--;)S(u[h]);a&&"textarea"!=$||(h="value","progress"==$&&v==m?e.removeAttribute("value"):v!=g&&(v!==e[h]||"progress"==$&&!v||"option"==$&&v!=x[h])&&R(e,h,v,x[h],f),h="checked",k!=g&&k!=e[h]&&R(e,h,k,x[h],f))}return e}function Q(n,e,i){try{if("function"==typeof n){var r="function"==typeof n.__u;r&&n.__u(),r&&e==m||(n.__u=n(e))}else n.current=e}catch(n){t.__e(n,i)}}function U(n,e,i){var r,o;if(t.unmount&&t.unmount(n),(r=n.ref)&&(r.current&&r.current!=n.__e||Q(r,m,e)),(r=n.__c)!=m){if(r.componentWillUnmount)try{r.componentWillUnmount()}catch(n){t.__e(n,e)}r.base=r.__P=r.__n=m}if(r=n.__k)for(o=0;o<r.length;o++)r[o]&&U(r[o],e,i||"function"!=typeof n.type);i||S(n.__e),n.__c=n.__=n.__e=g}function W(n,t,e){return this.constructor(n,e)}function X(e,i,r){var o,f,u,c;i==document&&(i=document.documentElement),t.__&&t.__(e,i),f=(o="function"==typeof r)?m:r&&r.__k||i.__k,u=[],c=[],B(i,e=(!o&&r||i).__k=$(I,m,[e]),f||b,b,i.namespaceURI,!o&&r?[r]:f?m:i.firstChild?n.call(i.childNodes):m,u,!o&&r?r:f?f.__e:i.firstChild,o,c),G(u,e,c),e.props.children=m}n=k.slice,t={__e:function(n,t,e,i){for(var r,o,f;t=t.__;)if((r=t.__c)&&!r.__)try{if((o=r.constructor)&&o.getDerivedStateFromError!=m&&(r.setState(o.getDerivedStateFromError(n)),f=r.__d),r.componentDidCatch!=m&&(r.componentDidCatch(n,i||{}),f=r.__d),f)return r.__E=r}catch(t){n=t}throw n}},e=0,i=function(n){return n!=m&&n.constructor===g},P.prototype.setState=function(n,t){var e;e=this.__s!=m&&this.__s!=this.state?this.__s:this.__s=M({},this.state),"function"==typeof n&&(n=n(M({},e),this.props)),n&&M(e,n),n!=m&&this.__v&&(t&&this._sb.push(t),L(this))},P.prototype.forceUpdate=function(n){this.__v&&(this.__e=!0,n&&this.__h.push(n),L(this))},P.prototype.render=I,r=[],f="function"==typeof Promise?Promise.prototype.then.bind(Promise.resolve()):setTimeout,u=function(n,t){return n.__v.__b-t.__v.__b},T.__r=0,c=Math.random().toString(8),a="__d"+c,s="__a"+c,h=/(PointerCapture)$|Capture$/i,l=0,p=q(!1),y=q(!0),d=0,v={__proto__:null,render:X,hydrate:function n(t,e){X(t,e,n)},createElement:$,h:$,Fragment:I,createRef:function(){return{current:m}},isValidElement:i,Component:P,cloneElement:function(t,e,i){var r,o,f,u,c=M({},t.props);for(f in t.type&&t.type.defaultProps&&(u=t.type.defaultProps),e)"key"==f?r=e[f]:"ref"==f?o=e[f]:c[f]=e[f]===g&&u!=g?u[f]:e[f];return arguments.length>2&&(c.children=arguments.length>3?n.call(arguments,2):i),A(t.type,c,r||t.key,o||t.ref,m)},createContext:function(n){function t(n){var e,i;return this.getChildContext||(e=new Set,(i={})[t.__c]=this,this.getChildContext=function(){return i},this.componentWillUnmount=function(){e=m},this.shouldComponentUpdate=function(n){this.props.value!=n.value&&e.forEach(function(n){n.__e=!0,L(n)})},this.sub=function(n){e.add(n);var t=n.componentWillUnmount;n.componentWillUnmount=function(){e&&e.delete(n),t&&t.call(n)}}),n.children}return t.__c="__cC"+d++,t.__=n,t.Provider=t.__l=(t.Consumer=function(n,t){return n.children(t)}).contextType=t,t},toChildArray:function n(t,e){return e=e||[],t==m||"boolean"==typeof t||(C(t)?t.some(function(t){n(t,e)}):e.push(t)),e},options:t},typeof module<"u"?module.exports=v:self.preact=v});
+//# sourceMappingURL=preact.min.umd.js.map
+</script>
+<script>!function(n,t){"object"==typeof exports&&"undefined"!=typeof module?t(exports,require("preact")):"function"==typeof define&&define.amd?define(["exports","preact"],t):t((n||self).preactHooks={},n.preact)}(this,function(n,t){var u,i,r,o,f=0,c=[],e=t.options,a=e.__b,v=e.__r,l=e.diffed,d=e.__c,p=e.unmount,s=e.__;function y(n,t){e.__h&&e.__h(i,n,f||t),f=0;var u=i.__H||(i.__H={__:[],__h:[]});return n>=u.__.length&&u.__.push({}),u.__[n]}function h(n){return f=1,m(j,n)}function m(n,t,r){var o=y(u++,2);if(o.t=n,!o.__c&&(o.__=[r?r(t):j(void 0,t),function(n){var t=o.__N?o.__N[0]:o.__[0],u=o.t(t,n);t!==u&&(o.__N=[u,o.__[1]],o.__c.setState({}))}],o.__c=i,!i.__f)){var f=function(n,t,u){if(!o.__c.__H)return!0;var i=!1,r=o.__c.props!==n;if(o.__c.__H.__.some(function(n){if(n.__N){i=!0;var t=n.__[0];n.__=n.__N,n.__N=void 0,t!==n.__[0]&&(r=!0)}}),c){var f=c.call(this,n,t,u);return i?f||r:f}return!i||r};i.__f=!0;var c=i.shouldComponentUpdate,e=i.componentWillUpdate;i.componentWillUpdate=function(n,t,u){if(this.__e){var i=c;c=void 0,f(n,t,u),c=i}e&&e.call(this,n,t,u)},i.shouldComponentUpdate=f}return o.__N||o.__}function T(n,t){var r=y(u++,4);!e.__s&&g(r.__H,t)&&(r.__=n,r.u=t,i.__h.push(r))}function _(n,t){var i=y(u++,7);return g(i.__H,t)&&(i.__=n(),i.__H=t,i.__h=n),i.__}function b(){for(var n;n=c.shift();){var t=n.__H;if(n.__P&&t)try{t.__h.some(A),t.__h.some(F),t.__h=[]}catch(u){t.__h=[],e.__e(u,n.__v)}}}e.__b=function(n){i=null,a&&a(n)},e.__=function(n,t){n&&t.__k&&t.__k.__m&&(n.__m=t.__k.__m),s&&s(n,t)},e.__r=function(n){v&&v(n),u=0;var t=(i=n.__c).__H;t&&(r===i?(t.__h=[],i.__h=[],t.__.some(function(n){n.__N&&(n.__=n.__N),n.u=n.__N=void 0})):(t.__h.some(A),t.__h.some(F),t.__h=[],u=0)),r=i},e.diffed=function(n){l&&l(n);var t=n.__c;t&&t.__H&&(t.__H.__h.length&&(1!==c.push(t)&&o===e.requestAnimationFrame||((o=e.requestAnimationFrame)||x)(b)),t.__H.__.some(function(n){n.u&&(n.__H=n.u,n.u=void 0)})),r=i=null},e.__c=function(n,t){t.some(function(n){try{n.__h.some(A),n.__h=n.__h.filter(function(n){return!n.__||F(n)})}catch(u){t.some(function(n){n.__h&&(n.__h=[])}),t=[],e.__e(u,n.__v)}}),d&&d(n,t)},e.unmount=function(n){p&&p(n);var t,u=n.__c;u&&u.__H&&(u.__H.__.some(function(n){try{A(n)}catch(n){t=n}}),u.__H=void 0,t&&e.__e(t,u.__v))};var q="function"==typeof requestAnimationFrame;function x(n){var t,u=function(){clearTimeout(i),q&&cancelAnimationFrame(t),setTimeout(n)},i=setTimeout(u,35);q&&(t=requestAnimationFrame(u))}function A(n){var t=i,u=n.__c;"function"==typeof u&&(n.__c=void 0,u()),i=t}function F(n){var t=i;n.__c=n.__(),i=t}function g(n,t){return!n||n.length!==t.length||t.some(function(t,u){return t!==n[u]})}function j(n,t){return"function"==typeof t?t(n):t}n.useCallback=function(n,t){return f=8,_(function(){return n},t)},n.useContext=function(n){var t=i.context[n.__c],r=y(u++,9);return r.c=n,t?(null==r.__&&(r.__=!0,t.sub(i)),t.props.value):n.__},n.useDebugValue=function(n,t){e.useDebugValue&&e.useDebugValue(t?t(n):n)},n.useEffect=function(n,t){var r=y(u++,3);!e.__s&&g(r.__H,t)&&(r.__=n,r.u=t,i.__H.__h.push(r))},n.useErrorBoundary=function(n){var t=y(u++,10),r=h();return t.__=n,i.componentDidCatch||(i.componentDidCatch=function(n,u){t.__&&t.__(n,u),r[1](n)}),[r[0],function(){r[1](void 0)}]},n.useId=function(){var n=y(u++,11);if(!n.__){for(var t=i.__v;null!==t&&!t.__m&&null!==t.__;)t=t.__;var r=t.__m||(t.__m=[0,0]);n.__="P"+r[0]+"-"+r[1]++}return n.__},n.useImperativeHandle=function(n,t,u){f=6,T(function(){if("function"==typeof n){var u=n(t());return function(){n(null),u&&"function"==typeof u&&u()}}if(n)return n.current=t(),function(){return n.current=null}},null==u?u:u.concat(n))},n.useLayoutEffect=T,n.useMemo=_,n.useReducer=m,n.useRef=function(n){return f=5,_(function(){return{current:n}},[])},n.useState=h});
+//# sourceMappingURL=hooks.umd.js.map
+</script>
+<script>!function(n,e){"object"==typeof exports&&"undefined"!=typeof module?module.exports=e():"function"==typeof define&&define.amd?define(e):n.htm=e()}(this,function(){var n=function(e,t,u,s){var r;t[0]=0;for(var p=1;p<t.length;p++){var h=t[p++],o=t[p]?(t[0]|=h?1:2,u[t[p++]]):t[++p];3===h?s[0]=o:4===h?s[1]=Object.assign(s[1]||{},o):5===h?(s[1]=s[1]||{})[t[++p]]=o:6===h?s[1][t[++p]]+=o+"":h?(r=e.apply(o,n(e,o,u,["",null])),s.push(r),o[0]?t[0]|=2:(t[p-2]=0,t[p]=r)):s.push(o)}return s},e=new Map;return function(t){var u=e.get(this);return u||(u=new Map,e.set(this,u)),(u=n(this,u.get(t)||(u.set(t,u=function(n){for(var e,t,u=1,s="",r="",p=[0],h=function(n){1===u&&(n||(s=s.replace(/^\s*\n\s*|\s*\n\s*$/g,"")))?p.push(0,n,s):3===u&&(n||s)?(p.push(3,n,s),u=2):2===u&&"..."===s&&n?p.push(4,n,0):2===u&&s&&!n?p.push(5,0,!0,s):u>=5&&((s||!n&&5===u)&&(p.push(u,0,s,t),u=6),n&&(p.push(u,n,0,t),u=6)),s=""},o=0;o<n.length;o++){o&&(1===u&&h(),h(o));for(var f=0;f<n[o].length;f++)e=n[o][f],1===u?"<"===e?(h(),p=[p],u=3):s+=e:4===u?"--"===s&&">"===e?(u=1,s=""):s=e+s[0]:r?e===r?r="":s+=e:'"'===e||"'"===e?r=e:">"===e?(h(),u=1):u&&("="===e?(u=5,t=s,s=""):"/"===e&&(u<5||">"===n[o][f+1])?(h(),3===u&&(p=p[0]),u=p,(p=p[0]).push(2,0,u),u=0):" "===e||"\t"===e||"\n"===e||"\r"===e?(h(),u=2):s+=e),3===u&&"!--"===s&&(u=4,p=p[0])}return h(),p}(t)),u),arguments,[])).length>1?u:u[0]}});
+</script>
+<script>/* One Mission — unified trade cards (preview app for /app-next/).
+ * Self-contained: Preact + hooks + htm are inlined ahead of this script.
+ * Every tool's backend response is normalized to ONE CardModel, then rendered
+ * by ONE <TradeCard>. No number is invented here — we only display what the
+ * deterministic backends return. */
+(function () {
+  "use strict";
+  var h = preact.h, render = preact.render;
+  var useState = preactHooks.useState, useEffect = preactHooks.useEffect, useRef = preactHooks.useRef;
+  var html = htm.bind(h);
+
+  // ── Config ────────────────────────────────────────────────────────────────
+  var SUPABASE_URL = "https://pguzevnkmpwfuzcjbcbx.supabase.co";
+  var SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBndXpldm5rbXB3ZnV6Y2piY2J4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM3MzEzNDIsImV4cCI6MjA5OTMwNzM0Mn0.H25WdkMBSbk_BzimW8iFeuObEJgN0E9hHB5HvsHVPxA";
+  var TOKKEY = "om_next_session";
+
+  // ── Small helpers ───────────────────────────────────────────────────────────
+  function num(v) { return typeof v === "number" && isFinite(v) ? v : (typeof v === "string" && v !== "" && isFinite(+v) ? +v : null); }
+  function arr(v) { return Array.isArray(v) ? v.filter(function (x) { return x != null && x !== ""; }) : []; }
+  function normDir(v) {
+    if (!v) return null;
+    var s = String(v).toUpperCase();
+    if (s === "LONG" || s === "BUY") return "LONG";
+    if (s === "SHORT" || s === "SELL") return "SHORT";
+    return null; // NONE / NEUTRAL / null → no directional trade
+  }
+  function priceOf(o) { if (o == null) return null; if (typeof o === "number") return num(o); return num(o.price); }
+  function entryFrom(o) {
+    if (o == null) return null;
+    if (typeof o === "number") return { price: num(o) };
+    return { price: num(o.price), zoneLow: num(o.zone_low != null ? o.zone_low : o.low), zoneHigh: num(o.zone_high != null ? o.zone_high : o.high) };
+  }
+  function tps(list) {
+    return arr(list).map(function (t, i) {
+      if (typeof t === "number") return { label: "TP" + (i + 1), price: num(t), rr: null };
+      return { label: t.label || ("TP" + (i + 1)), price: num(t.price), rr: num(t.risk_reward != null ? t.risk_reward : t.rMultiple) };
+    }).filter(function (t) { return t.price != null; });
+  }
+  function parseRR(v) {
+    if (v == null) return null;
+    if (typeof v === "number") return v;
+    var m = String(v).match(/([\d.]+)\s*$/); return m ? +m[1] : null;
+  }
+  // Normalize the many state vocabularies into one set + tone.
+  function mapState(raw) {
+    var s = String(raw || "").toUpperCase();
+    if (s === "TRADE_READY" || s === "QUALIFIED_SETUP" || s === "TRADE" || s === "SETUP") return { key: "TRADE", label: "Trade Ready", tone: "green" };
+    if (s === "DEVELOPING_SETUP" || s === "DEVELOPING") return { key: "DEVELOPING", label: "Developing", tone: "amber" };
+    if (s === "WATCHLIST") return { key: "WATCHLIST", label: "Watchlist", tone: "sky" };
+    if (s === "NO_TRADE" || s === "WAIT" || s === "REJECTED") return { key: "NO_TRADE", label: "No Trade", tone: "slate" };
+    if (s === "NEUTRAL") return { key: "NEUTRAL", label: "Neutral", tone: "slate" };
+    if (s === "DATA_UNAVAILABLE" || s === "INSUFFICIENT_DATA") return { key: "DATA", label: "Data Issue", tone: "red" };
+    return { key: "NO_TRADE", label: "No Trade", tone: "slate" };
+  }
+
+  // ── Confidence normalization (0–100) ────────────────────────────────────────
+  function confFromLabel(l) {
+    var s = String(l || "").toLowerCase();
+    if (s.indexOf("elite") >= 0 || s.indexOf("high") >= 0 || s === "a+") return 90;
+    if (s.indexOf("qualified") >= 0 || s.indexOf("medium") >= 0 || s === "a") return 72;
+    if (s.indexOf("watch") >= 0 || s.indexOf("low") >= 0 || s.indexOf("b") === 0) return 55;
+    return null;
+  }
+
+  // ── The normalized card model ───────────────────────────────────────────────
+  function model(x) {
+    x.direction = x.direction || null;
+    x.targets = x.targets || [];
+    x.reasoning = arr(x.reasoning);
+    x.whatNext = arr(x.whatNext);
+    x.scouts = x.scouts || null;
+    x.confirmations = x.confirmations || buildConfirmations(x);
+    if (x.confidence == null) x.confidence = confFromLabel(x.confidenceLabel || x.grade);
+    return x;
+  }
+
+  // Friendly, universal "what's confirmed / still needed" checklist.
+  function buildConfirmations(m) {
+    var st = m.state && m.state.key;
+    var rr = parseRR(m.riskReward);
+    var hasEntry = m.entry && (m.entry.price != null || m.entry.zoneLow != null);
+    var list = [
+      { label: "Clear direction (long or short)", met: !!m.direction },
+      { label: "Entry price is set", met: !!hasEntry },
+      { label: "Protective stop-loss is set", met: m.stop != null },
+      { label: "Reward is at least 2× the risk", met: rr != null ? rr >= 2 : null },
+      { label: "Setup is live right now", met: st === "TRADE" ? true : (st === "DATA" ? null : false) }
+    ];
+    return list;
+  }
+
+  // ── Per-tool adapters ───────────────────────────────────────────────────────
+  function adaptGhost(d) {
+    var r = d.read || {};
+    return model({
+      tool: "ghost", symbol: d.symbol || r.instrument || r.label, asOf: d.asOf,
+      state: mapState(r.state || r.status),
+      direction: normDir(r.direction || r.dir_side),
+      strategy: r.strategy || r.winningStrategy,
+      confidence: num(r.confidence) != null ? num(r.confidence) : (r.confidence_breakdown ? num(r.confidence_breakdown.overall) : (r.scores ? num(r.scores.overall) : null)),
+      confidenceLabel: r.confidence_label, grade: r.grade,
+      entry: entryFrom(r.entry) || (r.entries ? { price: num(r.entries.primary), zoneLow: num(r.entries.aggressive), zoneHigh: num(r.entries.conservative) } : null) || (r.provisional_trade ? entryFrom(r.provisional_trade.entry) : null),
+      stop: priceOf(r.stop_loss) != null ? priceOf(r.stop_loss) : (num(r.stopLoss) != null ? num(r.stopLoss) : (r.provisional_trade ? priceOf(r.provisional_trade.stop_loss) : null)),
+      targets: tps(r.take_profits || r.takeProfits || (r.provisional_trade && r.provisional_trade.take_profits)),
+      riskReward: r.riskReward || (r.rr_tp1 != null ? "1:" + r.rr_tp1 : null),
+      reasoning: arr(r.desk_read).concat(arr(r.reasoning)).concat(r.reason ? [r.reason] : []),
+      whatNext: arr(r.what_next),
+      setupZone: r.setup_zone, proximity: r.proximity,
+      newsWarning: r.news_warning, newsCurrencies: r.news_check_currencies,
+      extras: { regime: r.market_regime || r.regime, bias: r.current_bias || r.bias, session: r.session },
+      raw: d
+    });
+  }
+  function adaptCommand(d) {
+    return model({
+      tool: "command", symbol: d.instrument, asOf: d.timestamp,
+      state: mapState(d.state || d.status),
+      direction: normDir(d.direction),
+      strategy: d.strategy,
+      confidence: d.confidence_breakdown ? num(d.confidence_breakdown.overall) : (d.scores ? num(d.scores.overall) : null),
+      grade: d.grade,
+      entry: entryFrom(d.entry) || (d.provisional_trade ? entryFrom(d.provisional_trade.entry) : null),
+      stop: priceOf(d.stop_loss) != null ? priceOf(d.stop_loss) : (d.provisional_trade ? priceOf(d.provisional_trade.stop_loss) : null),
+      targets: tps(d.take_profits || (d.provisional_trade && d.provisional_trade.take_profits)),
+      riskReward: (d.take_profits && d.take_profits[0] && d.take_profits[0].risk_reward != null) ? "1:" + d.take_profits[0].risk_reward : (d.provisional_trade && d.provisional_trade.risk_reward_tp1 != null ? "1:" + d.provisional_trade.risk_reward_tp1 : null),
+      reasoning: arr(d.reasoning).concat(d.reason ? [d.reason] : []),
+      whatNext: arr(d.what_next),
+      setupZone: d.setup_zone, proximity: d.proximity,
+      newsWarning: d.news_warning, newsCurrencies: d.news_check_currencies,
+      extras: { regime: d.market_regime, bias: d.current_bias, session: d.session, orderType: d.order_type },
+      raw: d
+    });
+  }
+  function adaptScanner(d) {
+    var scouts = arr(d.scouts).map(function (s) { return { label: s.label, dir: normDir(s.dir), read: s.read, fired: !!s.fired, level: s.level }; });
+    var m = model({
+      tool: "scanner", symbol: d.symbol || d.instrument, asOf: d.as_of,
+      state: mapState(d.status),
+      direction: normDir(d.direction),
+      strategy: d.strategy,
+      confidence: num(d.confluence),
+      confidenceLabel: d.confidence, grade: d.grade,
+      entry: d.entry != null ? { price: num(d.entry) } : null,
+      stop: num(d.stop_loss),
+      targets: tps(d.take_profits),
+      riskReward: d.risk_reward,
+      reasoning: arr(d.reasoning).concat(d.strategy_why ? [d.strategy_why] : []),
+      whatNext: [],
+      newsWarning: d.news_warning, newsCurrencies: d.news_check_currencies,
+      scouts: scouts,
+      extras: { regime: d.regime_label, mtf: d.mtf_label, align: d.align_note, agreement: d.agreement != null ? Math.round(d.agreement * 100) + "% agree" : null, style: d.style },
+      raw: d
+    });
+    return m;
+  }
+  function adaptScalp(d) {
+    var zone = d.entryZone || {};
+    return model({
+      tool: "scalp", symbol: d.symbol, asOf: d.timestampUtc,
+      state: mapState(d.decision),
+      direction: normDir(d.direction),
+      strategy: d.setupFamily,
+      confidence: num(d.score),
+      confidenceLabel: d.confidenceLabel,
+      entry: (zone.low != null || zone.high != null) ? { zoneLow: num(zone.low), zoneHigh: num(zone.high), price: num(d.currentPrice) } : (d.currentPrice != null ? { price: num(d.currentPrice) } : null),
+      stop: num(d.stopLoss),
+      targets: tps(d.takeProfits),
+      riskReward: (d.takeProfits && d.takeProfits[0] && d.takeProfits[0].rMultiple != null) ? "1:" + d.takeProfits[0].rMultiple : null,
+      reasoning: arr(d.reasoning),
+      whatNext: arr(d.failedConditions),
+      confirmations: buildScalpConfirm(d),
+      newsWarning: null,
+      extras: { regime: d.regime, session: d.session, invalidation: d.invalidation, vetoes: arr(d.vetoes) },
+      raw: d
+    });
+  }
+  function buildScalpConfirm(d) {
+    var passed = arr(d.passedConditions).map(function (c) { return { label: friendly(c), met: true }; });
+    var failed = arr(d.failedConditions).map(function (c) { return { label: friendly(c), met: false }; });
+    var all = passed.concat(failed);
+    return all.length ? all.slice(0, 8) : null;
+  }
+  function adaptLive(d) {
+    var s = d.signal || d;
+    return model({
+      tool: "liveplays", symbol: d.symbol || s.symbol || s.instrument, asOf: d.asOf || s.asOf,
+      state: mapState(s.status || (normDir(s.direction) ? "TRADE" : "NEUTRAL")),
+      direction: normDir(s.direction),
+      strategy: s.setup,
+      confidence: confFromLabel(s.confidence),
+      confidenceLabel: s.confidence,
+      entry: s.entry != null ? { price: num(s.entry) } : null,
+      stop: num(s.stopLoss),
+      targets: tps(s.takeProfits),
+      riskReward: s.riskReward,
+      reasoning: arr(s.rationale ? [s.rationale] : []).concat(s.bias ? ["Higher-timeframe bias: " + s.bias] : []),
+      whatNext: [],
+      newsWarning: null,
+      extras: { bias: s.bias, poi: s.poi, target: s.liquidityTarget, invalidation: s.invalidation, timeframe: s.timeframe },
+      raw: d
+    });
+  }
+  function adaptPulseItem(it) {
+    return model({
+      tool: "pulse", symbol: it.symbol || it.name || it.td, asOf: null,
+      state: mapState(normDir(it.direction) ? "TRADE" : "NO_TRADE"),
+      direction: normDir(it.direction),
+      strategy: it.name || "Market Pulse",
+      confidence: num(it.score) != null ? num(it.score) : (num(it.confidence) != null ? num(it.confidence) : (num(it.confluence))),
+      entry: it.entry != null ? { price: num(it.entry) } : null,
+      stop: num(it.stopLoss != null ? it.stopLoss : it.stop),
+      targets: tps(it.takeProfits || it.take_profits),
+      riskReward: it.riskReward || it.risk_reward,
+      reasoning: arr(it.reasons || it.reasoning),
+      extras: {},
+      raw: it
+    });
+  }
+  function friendly(s) {
+    return String(s || "").replace(/_/g, " ").replace(/\b(bos|choch|fvg|ote|rsi|sr|htf|rr|tp|atr)\b/gi, function (w) { return w.toUpperCase(); });
+  }
+
+  // ── API ─────────────────────────────────────────────────────────────────────
+  function getSession() { try { return JSON.parse(localStorage.getItem(TOKKEY) || "null"); } catch (e) { return null; } }
+  function setSession(s) { try { s ? localStorage.setItem(TOKKEY, JSON.stringify(s)) : localStorage.removeItem(TOKKEY); } catch (e) {} }
+
+  function signIn(email, password) {
+    return fetch(SUPABASE_URL + "/auth/v1/token?grant_type=password", {
+      method: "POST", headers: { "apikey": SUPABASE_ANON, "Content-Type": "application/json" },
+      body: JSON.stringify({ email: (email || "").trim(), password: password })
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok) return { error: (res.j && (res.j.error_description || res.j.msg || res.j.error)) || "Sign-in failed" };
+        setSession({ access_token: res.j.access_token, refresh_token: res.j.refresh_token, email: (res.j.user && res.j.user.email) || email });
+        return { ok: true };
+      }).catch(function () { return { error: "Network error signing in" }; });
+  }
+  function refresh() {
+    var s = getSession(); if (!s || !s.refresh_token) return Promise.resolve(false);
+    return fetch(SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token", {
+      method: "POST", headers: { "apikey": SUPABASE_ANON, "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: s.refresh_token })
+    }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      if (!j || !j.access_token) return false;
+      setSession({ access_token: j.access_token, refresh_token: j.refresh_token, email: s.email }); return true;
+    }).catch(function () { return false; });
+  }
+  function apiPost(path, body) {
+    var s = getSession();
+    var opts = { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) };
+    if (s && s.access_token) opts.headers.Authorization = "Bearer " + s.access_token;
+    return fetch(path, opts).then(function (r) {
+      if (r.status === 401) {
+        return refresh().then(function (ok) {
+          if (!ok) { setSession(null); throw { code: 401 }; }
+          var s2 = getSession(); opts.headers.Authorization = "Bearer " + s2.access_token;
+          return fetch(path, opts).then(handle);
+        });
+      }
+      return handle(r);
+    });
+    function handle(r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (r.status === 402 || (j && j.error === "insufficient_credits")) throw { code: 402, j: j };
+        if (r.status === 403) throw { code: 403, j: j };
+        return j;
+      });
+    }
+  }
+
+  // ── Tools ─────────────────────────────────────────────────────────────────
+  var GHOST_SYMS = ["XAU/USD", "EUR/USD", "GBP/USD", "AUD/USD", "USD/CAD", "USD/JPY"];
+  var SCALP_SYMS = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/CAD", "GBP/JPY", "XAU/USD"];
+  var SCOUTS = [
+    { k: "structure", n: "Structure" }, { k: "liquidity", n: "Liquidity" }, { k: "fvg", n: "Fair-Value Gap" },
+    { k: "sr", n: "Support / Resistance" }, { k: "trend", n: "Trend" }, { k: "rsi", n: "Momentum (RSI)" },
+    { k: "fib", n: "Fib / OTE" }, { k: "breakRetest", n: "Break & Retest" }
+  ];
+  var TOOLS = [
+    { id: "pulse", label: "Market Pulse", tag: "Scan", endpoint: "/api/om-scan", list: true, adapt: adaptPulseItem, blurb: "One tap scans the majors and hands back every clean setup right now." },
+    { id: "ghost", label: "MFX Ghost", tag: "Gold desk", endpoint: "/api/xaughost", adapt: adaptGhost, inputs: ["symbol"], syms: GHOST_SYMS, blurb: "A deep single-instrument read with entry, stop, targets and the setup zone." },
+    { id: "scanner", label: "Strategy Scanner", tag: "Confluence", endpoint: "/api/strategy-scanner", adapt: adaptScanner, inputs: ["symbolFree", "style", "scouts"], blurb: "Pick your strategies; it fires each one and combines the agreement into a trade." },
+    { id: "scalp", label: "OM Scalp", tag: "Fast", endpoint: "/api/scalp", adapt: adaptScalp, inputs: ["symbol"], syms: SCALP_SYMS, blurb: "Tight, quick setups graded by score with a strict confirmation checklist." },
+    { id: "liveplays", label: "OM AI Plays", tag: "AI", endpoint: "/api/om-signal", adapt: adaptLive, inputs: ["symbolFree", "style"], blurb: "An AI-narrated play built on the higher-timeframe flow and confirmations." },
+    { id: "command", label: "Market Command", tag: "Beta", endpoint: "/api/market-command", adapt: adaptCommand, inputs: ["symbolFree"], blurb: "Institutional command read (admin beta)." }
+  ];
+  function bodyFor(tool, st) {
+    if (tool.id === "pulse") return {};
+    if (tool.id === "ghost") return { symbol: st.symbol };
+    if (tool.id === "scalp") return { symbol: st.symbol };
+    if (tool.id === "command") return { td: st.symbolFree, mode: "institutional" };
+    if (tool.id === "scanner") return { td: st.symbolFree, style: st.style || "intraday", scouts: st.scouts && st.scouts.length ? st.scouts : SCOUTS.map(function (s) { return s.k; }), mode: "institutional" };
+    if (tool.id === "liveplays") return { td: st.symbolFree, style: st.style || "intraday", orderType: "market", method: "auto", mode: "institutional" };
+    return {};
+  }
+
+  // ── UI atoms ────────────────────────────────────────────────────────────────
+  function copy(text) {
+    try { navigator.clipboard.writeText(String(text)); } catch (e) {
+      var ta = document.createElement("textarea"); ta.value = String(text); document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); } catch (e2) {} document.body.removeChild(ta);
+    }
+  }
+  function Meter(props) {
+    var v = props.value == null ? null : Math.max(0, Math.min(100, Math.round(props.value)));
+    var tone = v == null ? "slate" : v >= 76 ? "green" : v >= 60 ? "amber" : v >= 45 ? "sky" : "slate";
+    return html`<div class="meter">
+      <div class="meter-top">
+        <span class="meter-cap">Confidence</span>
+        <span class="meter-val ${tone}">${v == null ? "—" : v}${v == null ? "" : html`<b>/100</b>`}</span>
+      </div>
+      <div class="meter-track"><div class="meter-fill ${tone}" style=${"width:" + (v == null ? 0 : v) + "%"}></div></div>
+      ${props.label ? html`<div class="meter-label">${props.label}</div>` : null}
+    </div>`;
+  }
+  function Level(props) {
+    var v = props.value;
+    if (v == null || v === "") return null;
+    var copied = useState(false);
+    return html`<button class=${"lvl lvl-" + props.tone} onClick=${function () { copy(v); copied[1](true); setTimeout(function () { copied[1](false); }, 900); }}>
+      <span class="lvl-cap">${props.cap}</span>
+      <span class="lvl-v">${v}</span>
+      <span class="lvl-sub">${copied[0] ? "Copied ✓" : (props.sub || "tap to copy")}</span>
+    </button>`;
+  }
+  function Section(props) {
+    var open = useState(props.open !== false);
+    return html`<div class="sec">
+      <button class="sec-h" onClick=${function () { open[1](!open[0]); }}>
+        <span>${props.title}</span><span class="sec-x">${open[0] ? "−" : "+"}</span>
+      </button>
+      ${open[0] ? html`<div class="sec-b">${props.children}</div>` : null}
+    </div>`;
+  }
+
+  function DirPill(props) {
+    if (!props.dir) return null;
+    var up = props.dir === "LONG";
+    return html`<span class=${"pill " + (up ? "pill-long" : "pill-short")}>${up ? "▲ Long" : "▼ Short"}</span>`;
+  }
+  function StateBadge(props) {
+    var s = props.state || { label: "—", tone: "slate" };
+    return html`<span class=${"badge badge-" + s.tone}>${s.label}</span>`;
+  }
+
+  function Confirmations(props) {
+    var list = props.list || [];
+    if (!list.length) return null;
+    return html`<ul class="checks">${list.map(function (c) {
+      var cls = c.met === true ? "ok" : c.met === false ? "no" : "na";
+      var icon = c.met === true ? "✓" : c.met === false ? "○" : "–";
+      return html`<li class=${"chk chk-" + cls}><span class="chk-i">${icon}</span><span>${c.label}</span></li>`;
+    })}</ul>`;
+  }
+
+  function TradeCard(props) {
+    var m = props.m;
+    var tradeable = m.state && m.state.key === "TRADE";
+    var developing = m.state && (m.state.key === "DEVELOPING" || m.state.key === "WATCHLIST");
+    var e = m.entry || {};
+    var entryStr = e.price != null ? String(e.price) : (e.zoneLow != null && e.zoneHigh != null ? e.zoneLow + "–" + e.zoneHigh : (e.zoneLow != null ? String(e.zoneLow) : null));
+    return html`<div class=${"card card-" + (m.state ? m.state.tone : "slate")}>
+      <div class="card-top">
+        <div>
+          <div class="sym">${m.symbol || "—"}</div>
+          <div class="strat">${m.strategy || m.toolLabel || ""}</div>
+        </div>
+        <div class="card-top-r">
+          <${StateBadge} state=${m.state} />
+          <${DirPill} dir=${m.direction} />
+        </div>
+      </div>
+
+      <${Meter} value=${m.confidence} label=${m.confidenceLabel ? (m.confidenceLabel + (m.grade ? " · Grade " + m.grade : "")) : (m.grade ? "Grade " + m.grade : null)} />
+
+      ${(entryStr || m.stop != null || m.targets.length) ? html`
+        <div class="levels">
+          <${Level} cap="Entry" value=${entryStr} tone="navy" />
+          <${Level} cap="Stop" value=${m.stop} tone="red" />
+          ${m.targets.map(function (t) { return html`<${Level} cap=${t.label + (t.rr != null ? " · " + t.rr + "R" : "")} value=${t.price} tone="green" />`; })}
+          ${m.riskReward ? html`<div class="rr">R:R<br/><b>${m.riskReward}</b></div>` : null}
+        </div>` : null}
+
+      ${(tradeable || developing) && m.reasoning.length ? html`<${Section} title="The setup — why this trade">
+        ${m.reasoning.map(function (t) { return html`<p class="rz">${t}</p>`; })}
+      <//>` : null}
+
+      ${!tradeable && m.whatNext.length ? html`<${Section} title="What has to happen next">
+        <ul class="next">${m.whatNext.map(function (t) { return html`<li>${t}</li>`; })}</ul>
+      <//>` : null}
+
+      ${m.confirmations && m.confirmations.length ? html`<${Section} title="Confirmations">
+        <${Confirmations} list=${m.confirmations} />
+      <//>` : null}
+
+      ${m.scouts && m.scouts.length ? html`<${Section} title="Strategies scanned" open=${false}>
+        <ul class="scouts">${m.scouts.map(function (s) {
+      return html`<li class=${"scout " + (s.fired ? "fired" : "quiet")}>
+            <span class=${"sdot " + (s.dir === "LONG" ? "long" : s.dir === "SHORT" ? "short" : "flat")}></span>
+            <span class="sname">${s.label}</span>
+            <span class="sread">${s.read}</span>
+          </li>`;
+    })}</ul>
+      <//>` : null}
+
+      ${m.setupZone ? html`<${Section} title="Setup zone" open=${false}>
+        <div class="kv"><span>Zone</span><b>${(m.setupZone.zone_low != null ? m.setupZone.zone_low : "?")}–${(m.setupZone.zone_high != null ? m.setupZone.zone_high : "?")}</b></div>
+        ${m.setupZone.confirmation ? html`<div class="kv"><span>Confirm</span><b>${m.setupZone.confirmation}</b></div>` : null}
+        ${m.setupZone.invalidation ? html`<div class="kv"><span>Invalid</span><b>${m.setupZone.invalidation}</b></div>` : null}
+      <//>` : null}
+
+      ${m.proximity && m.proximity.status ? html`<div class="prox">Distance: <b>${m.proximity.status}</b>${m.proximity.distance_atr != null ? " · " + m.proximity.distance_atr + "× ATR" : ""}</div>` : null}
+
+      ${m.extras && (m.extras.regime || m.extras.session || m.extras.mtf || m.extras.align || m.extras.agreement) ? html`<div class="tags">
+        ${m.extras.regime ? html`<span>Regime: ${m.extras.regime}</span>` : null}
+        ${m.extras.agreement ? html`<span>${m.extras.agreement}</span>` : null}
+        ${m.extras.mtf ? html`<span>Stack: ${m.extras.mtf}</span>` : null}
+        ${m.extras.session ? html`<span>Session: ${m.extras.session}</span>` : null}
+      </div>` : null}
+
+      ${m.newsWarning ? html`<div class="news"><b>⚠ Check the news.</b> ${m.newsWarning}${m.newsCurrencies && m.newsCurrencies.length ? " (" + m.newsCurrencies.join(", ") + ")" : ""}</div>` : null}
+    </div>`;
+  }
+
+  // ── Tool runner ─────────────────────────────────────────────────────────────
+  function ToolRunner(props) {
+    var tool = props.tool;
+    var symState = useState((tool.syms && tool.syms[0]) || "");
+    var symFree = useState("EUR/USD");
+    var style = useState("intraday");
+    var scoutSel = useState(SCOUTS.map(function (s) { return s.k; }));
+    var loading = useState(false);
+    var err = useState("");
+    var result = useState(null); // CardModel or array
+
+    function run() {
+      if (loading[0]) return;
+      loading[1](true); err[1](""); result[1](null);
+      var st = { symbol: symState[0], symbolFree: symFree[0], style: style[0], scouts: scoutSel[0] };
+      apiPost(tool.endpoint, bodyFor(tool, st)).then(function (d) {
+        if (!d || d.error) {
+          if (d && d.notConfigured) return err[1]("Live market data isn't connected yet.");
+          return err[1]((d && (d.reason || d.detail)) || "Couldn't run that right now — try again.");
+        }
+        if (tool.list) {
+          var items = arr(d.setups).map(tool.adapt);
+          result[1]({ list: items });
+        } else {
+          result[1]({ one: tool.adapt(d) });
+        }
+      }).catch(function (e2) {
+        if (e2 && e2.code === 402) return err[1]("You're out of credits — they reset weekly, or grab more.");
+        if (e2 && e2.code === 401) { props.onLogout(); return; }
+        if (e2 && e2.code === 403) return err[1]((e2.j && e2.j.reason) || "This tool is in admin-only beta.");
+        err[1]("Something went wrong — try again.");
+      }).then(function () { loading[1](false); });
+    }
+
+    return html`<div class="runner">
+      <div class="blurb">${tool.blurb}</div>
+      <div class="controls">
+        ${tool.inputs && tool.inputs.indexOf("symbol") >= 0 ? html`<div class="chips">${tool.syms.map(function (s) {
+      return html`<button class=${"chip " + (symState[0] === s ? "on" : "")} onClick=${function () { symState[1](s); }}>${s}</button>`;
+    })}</div>` : null}
+        ${tool.inputs && tool.inputs.indexOf("symbolFree") >= 0 ? html`<input class="inp" value=${symFree[0]} onInput=${function (e) { symFree[1](e.target.value.toUpperCase()); }} placeholder="EUR/USD, XAU/USD, SPY…" />` : null}
+        ${tool.inputs && tool.inputs.indexOf("style") >= 0 ? html`<div class="chips">${["scalp", "intraday", "swing"].map(function (s) {
+      return html`<button class=${"chip " + (style[0] === s ? "on" : "")} onClick=${function () { style[1](s); }}>${s}</button>`;
+    })}</div>` : null}
+        ${tool.inputs && tool.inputs.indexOf("scouts") >= 0 ? html`<div class="chips wrap">${SCOUTS.map(function (sc) {
+      var on = scoutSel[0].indexOf(sc.k) >= 0;
+      return html`<button class=${"chip sm " + (on ? "on" : "")} onClick=${function () { scoutSel[1](on ? scoutSel[0].filter(function (x) { return x !== sc.k; }) : scoutSel[0].concat([sc.k])); }}>${sc.n}</button>`;
+    })}</div>` : null}
+      </div>
+      <button class="run" disabled=${loading[0]} onClick=${run}>${loading[0] ? "Analyzing…" : "Analyze"}</button>
+      ${err[0] ? html`<div class="err">${err[0]}</div>` : null}
+      ${result[0] && result[0].one ? html`<${TradeCard} m=${result[0].one} />` : null}
+      ${result[0] && result[0].list ? (result[0].list.length ? result[0].list.map(function (m) { return html`<${TradeCard} m=${m} />`; }) : html`<div class="err">No clean setups right now — check back shortly.</div>`) : null}
+    </div>`;
+  }
+
+  // ── Shell + tabs ────────────────────────────────────────────────────────────
+  function Shell(props) {
+    var active = useState(TOOLS[0].id);
+    var tool = TOOLS.filter(function (t) { return t.id === active[0]; })[0];
+    return html`<div class="shell">
+      <header class="hdr">
+        <div class="brand">ONE<span>MISSION</span></div>
+        <button class="out" onClick=${props.onLogout}>Sign out</button>
+      </header>
+      <nav class="tabs">${TOOLS.map(function (t) {
+      return html`<button class=${"tab " + (active[0] === t.id ? "on" : "")} onClick=${function () { active[1](t.id); }}>
+          <span class="tab-l">${t.label}</span><span class="tab-t">${t.tag}</span>
+        </button>`;
+    })}</nav>
+      <main class="main"><${ToolRunner} tool=${tool} onLogout=${props.onLogout} /></main>
+      <footer class="foot">Educational analysis only — not financial advice. You manage your own risk.</footer>
+    </div>`;
+  }
+
+  function Login(props) {
+    var email = useState(""); var pw = useState(""); var busy = useState(false); var err = useState("");
+    function submit(e) {
+      e.preventDefault(); if (busy[0]) return; busy[1](true); err[1]("");
+      signIn(email[0], pw[0]).then(function (r) {
+        busy[1](false);
+        if (r.error) return err[1](r.error);
+        props.onIn();
+      });
+    }
+    return html`<div class="login">
+      <div class="login-box">
+        <div class="brand big">ONE<span>MISSION</span></div>
+        <p class="tag">The Floor — trade desk</p>
+        <form onSubmit=${submit}>
+          <input class="inp" type="email" placeholder="Email" value=${email[0]} onInput=${function (e) { email[1](e.target.value); }} autocomplete="email" />
+          <input class="inp" type="password" placeholder="Password" value=${pw[0]} onInput=${function (e) { pw[1](e.target.value); }} autocomplete="current-password" />
+          <button class="run" disabled=${busy[0]}>${busy[0] ? "Signing in…" : "Sign in"}</button>
+          ${err[0] ? html`<div class="err">${err[0]}</div>` : null}
+        </form>
+        <p class="hint">Use your One Mission member login. This is a preview of the new trade cards.</p>
+      </div>
+    </div>`;
+  }
+
+  function App() {
+    var authed = useState(!!(getSession() && getSession().access_token));
+    return authed[0]
+      ? html`<${Shell} onLogout=${function () { setSession(null); authed[1](false); }} />`
+      : html`<${Login} onIn=${function () { authed[1](true); }} />`;
+  }
+
+  render(html`<${App} />`, document.getElementById("app"));
+})();
+</script>
+</body>
+</html>
