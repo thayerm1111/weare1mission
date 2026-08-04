@@ -254,6 +254,18 @@ function scoutRSI(rows: Row[], htf: Trend): Scout {
   return { key: "rsi", label: "RSI Momentum", fired: false, dir: null, strength: 40, read: `RSI ${r.toFixed(0)} — momentum is neutral / against a with-trend entry.` };
 }
 
+// News is NOT checked by this tool. We never imply it was — instead we hand the
+// trader the exact currencies/events to verify themselves before entering.
+function newsCheck(sym: string): { warning: string; currencies: string[]; note: string } {
+  const s = (sym || "").toUpperCase();
+  const warning = "News is not checked by this tool. Before entering, verify the economic calendar for high-impact events affecting this instrument.";
+  if (s.includes("XAU") || s.includes("GOLD")) return { warning, currencies: ["USD"], note: "Verify major USD macro: Fed / FOMC, CPI & PCE inflation, NFP / employment, and Treasury-yield-moving releases." };
+  const m = s.match(/^([A-Z]{3})\/([A-Z]{3})$/);
+  if (m) return { warning, currencies: [m[1], m[2]], note: `Verify high-impact ${m[1]} and ${m[2]} events (rate decisions, inflation, employment, GDP).` };
+  if (/(BTC|ETH|SOL|XRP|DOGE)/.test(s)) return { warning, currencies: ["USD", "Crypto"], note: "Verify USD macro (Fed, CPI) plus crypto-specific catalysts." };
+  return { warning, currencies: ["USD"], note: "Verify the relevant high-impact macro releases for this instrument." };
+}
+
 const ALL_SCOUTS = ["structure", "liquidity", "fvg", "sr", "trend", "rsi", "fib", "breakRetest"];
 const INTENT: Record<string, { exec: string; ctx: string; ctx2: string; label: string; note: string }> = {
   scalp: { exec: "5min", ctx: "1h", ctx2: "4h", label: "Scalp", note: "a quick 30–100 pip move in the next ~15–45 minutes" },
@@ -342,6 +354,8 @@ export async function POST(req: NextRequest) {
   const dec = px >= 1000 ? 2 : px >= 1 ? 4 : 6;
   const f = (n: number) => +n.toFixed(dec);
   const atrv = atr(rows, 14) || (Math.max(...rows.map((r) => +r.high).slice(-20)) - Math.min(...rows.map((r) => +r.low).slice(-20))) * 0.1 || px * 0.002;
+  // News is NOT checked here — we surface the exact currencies/events to verify.
+  const news = newsCheck(found.asset.symbol);
 
   // Run the selected scouts.
   const registry: Record<string, () => Scout> = {
@@ -375,7 +389,19 @@ export async function POST(req: NextRequest) {
   const dir: Dir | null = total < 0.6 ? null : longScore >= shortScore ? "LONG" : "SHORT";
   const dominant = Math.max(longScore, shortScore);
   const agreement = total ? dominant / total : 0;                          // 0.5 = split, 1.0 = unanimous
-  const confluence = Math.min(100, Math.round(dominant * 22));             // rough 0–100 confluence meter
+  // Execution-stack alignment (1H/30m/15m) is CONTEXT, not a gate. A mixed or
+  // neutral stack no longer forces a WAIT — it only nudges the confluence meter:
+  // a stack that materially OPPOSES the read trims it slightly, an aligned stack
+  // gives a small boost, a neutral stack is left alone. Removing the old hard
+  // "1H/30m/15m must all agree" veto is the #1 change in this tool — a valid
+  // lower-timeframe read can now qualify on its own structure.
+  let mtfAdj = 0, alignNote = "";
+  if (useMtf && dir) {
+    if (mtf.dir && mtf.dir !== dir) { mtfAdj = -6; alignNote = `Execution stack mixed/against (${mtf.label}) — treated as context, not a block.`; }
+    else if (mtf.dir === dir) { mtfAdj = 4; alignNote = `Execution stack aligns with the read (${mtf.label}).`; }
+    else { alignNote = `Execution stack neutral (${mtf.label}).`; }
+  }
+  const confluence = Math.max(0, Math.min(100, Math.round(dominant * 22) + mtfAdj)); // 0–100 confluence meter
 
   // Not enough agreement, or the reads conflict → honest WAIT.
   if (!dir || agreement < 0.6 || confluence < 45) {
@@ -390,33 +416,18 @@ export async function POST(req: NextRequest) {
       headline: `${found.asset.symbol} · WAIT — no clean confluence`,
       reason: dir ? `The strategies are leaning ${dir} but agreement is only ${Math.round(agreement * 100)}% and confluence is thin (${confluence}/100). Better to wait for the reads to line up.` : `The strategies conflict / are mid-structure — no side has an edge right now.`,
       scouts: scouts.map((s) => ({ ...s, level: s.level != null ? f(s.level) : undefined })),
+      align_note: alignNote || undefined, mtf: useMtf ? mtf.byTf : undefined, mtf_label: useMtf ? mtf.label : undefined,
+      news_warning: news.warning, news_check_currencies: news.currencies, news_check_note: news.note,
+      strategy_version: "v3-no-align-gate",
       educational: "Educational market analysis only — not financial advice. WAIT is a valid result: the scanner only calls a trade when enough strategies genuinely agree.",
     };
     await chargeCredit("signal", supabase);
     return json(setup, 200);
   }
 
-  // ── EXECUTION-STACK ALIGNMENT GATE (the #1 loss fix) ──────────────────────
-  // A trade is only released when the 1H, 30m and 15m trends ALL agree with the
-  // direction. This stops the engine from taking a "with the 4H/Daily trend"
-  // entry straight into a lower-timeframe pullback — the exact pattern behind
-  // the recent stop-outs. If the execution stack conflicts, stand aside.
-  if (useMtf && mtf.dir !== dir) {
-    const setup = {
-      status: "wait" as const, symbol: found.asset.symbol, instrument: td, style: intent.label,
-      price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf, confluence, agreement: +agreement.toFixed(2), candles: candleOut,
-      mtf: mtf.byTf, mtf_label: mtf.label, strategy_version: "v2-mtf-closedbar",
-      regime_label: regimeLabel, regime_basis: regimeBasis,
-      strategy: "Standing aside — timeframes not aligned",
-      strategy_why: `The strategies lean ${dir}, but the execution timeframes don't line up (${mtf.label}). A trade only fires when 1H, 30m and 15m all trend the same way — otherwise you're buying into a lower-timeframe pullback, which is what causes stop-outs.`,
-      headline: `${found.asset.symbol} · WAIT — 1H/30m/15m not aligned`,
-      reason: `${dir} confluence is there (${confluence}/100), but the execution stack is mixed: ${mtf.label}. Waiting for 1H, 30m and 15m to line up before taking the trade.`,
-      scouts: scouts.map((s) => ({ ...s, level: s.level != null ? f(s.level) : undefined })),
-      educational: "Educational market analysis only — not financial advice. Requiring 1H/30m/15m agreement is a deliberate filter: fewer trades, but it removes the 'trade the higher-timeframe trend into a pullback' setups that stop out most often.",
-    };
-    await chargeCredit("signal", supabase);
-    return json(setup, 200);
-  }
+  // (The old hard 1H/30m/15m execution-stack veto lived here and has been REMOVED.
+  // Alignment is now folded into `confluence` above as context only — the tool no
+  // longer forces a WAIT purely because the lower timeframes disagree.)
 
   // Build the trade deterministically from the firing scouts on the winning side.
   const isLong = dir === "LONG";
@@ -513,7 +524,10 @@ export async function POST(req: NextRequest) {
     entry, stop, tps: targets,
     trendStrength, volumeScore,
     scorePenalty: learned.penalty, penaltyReasons: learned.reasons,
-  }, profile);
+    // Soften HTF from "all must agree" → "majority": a neutral/mixed higher
+    // timeframe is context, not a veto. Only a materially opposed majority stands
+    // the trade down. (This override is Scanner-only; other callers are unaffected.)
+  }, profile, { htf: "majority" });
 
   if (gateDecision.decision === "NO_TRADE") {
     const noTrade = {
@@ -527,7 +541,10 @@ export async function POST(req: NextRequest) {
       headline: `${found.asset.symbol} · NO TRADE — ${isAccel ? "no clean momentum edge yet" : "waiting for confirmation"}`,
       reason: gateDecision.noTradeReason,
       scouts: scouts.map((s) => ({ ...s, level: s.level != null ? f(s.level) : undefined })),
-      educational: "Institutional-grade filter: the engine only issues a trade after the market confirms — higher-timeframe agreement, a completed pullback, a closed confirmation candle, momentum turning, and ≥2.5R. NO TRADE is the correct, disciplined output most of the time.",
+      align_note: alignNote || undefined, mtf: useMtf ? mtf.byTf : undefined, mtf_label: useMtf ? mtf.label : undefined,
+      news_warning: news.warning, news_check_currencies: news.currencies, news_check_note: news.note,
+      strategy_version: "v3-no-align-gate",
+      educational: "Institutional-grade filter: the engine only issues a trade after the market confirms — a completed pullback, a closed confirmation candle, momentum turning, and the reward:risk floor. Higher timeframes are context (a neutral stack no longer blocks). NO TRADE is a valid, disciplined output.",
     };
     await chargeCredit("signal", supabase);
     return json(noTrade, 200);
@@ -574,7 +591,8 @@ export async function POST(req: NextRequest) {
   const setup = {
     status: "setup" as const, symbol: found.asset.symbol, instrument: td, market: found.market.name, style: intent.label, note: intent.note,
     direction: dir, order_type: orderType, price: f(px), live_price: f(px), as_of: asOf, price_is_live: priceIsLive, htf_trend: htf, confluence, agreement: +agreement.toFixed(2), confidence, candles: candleOut,
-    mtf: mtf.byTf, mtf_label: mtf.label, strategy_version: "v2-mtf-closedbar",
+    mtf: mtf.byTf, mtf_label: mtf.label, align_note: alignNote || undefined, strategy_version: "v3-no-align-gate",
+    news_warning: news.warning, news_check_currencies: news.currencies, news_check_note: news.note,
     regime_label: regimeLabel, regime_basis: regimeBasis, strategy, strategy_why: strategyWhy,
     grade: gateDecision.grade, gate_score: gateDecision.score, gate_reasons: gateDecision.reasons,
     mode: profile, momentum_rating: gateDecision.momentumRating, trend_rating: gateDecision.trendRating, trend_strength: trendStrength,
@@ -614,7 +632,7 @@ function deterministic(s: Record<string, unknown>): string[] {
 
 async function narrate(s: Record<string, unknown>, aiKey: string | undefined): Promise<string[]> {
   if (!aiKey) return deterministic(s);
-  const sys = `You are OM Strategy Scanner's explainer. You are given a FINAL, LOCKED JSON result that a deterministic multi-strategy engine already produced: a list of trading strategies (market structure, liquidity sweeps, fair-value gaps, fib/OTE, break-&-retest, support/resistance, trend, RSI), each with its own read, plus the combined trade (direction, entry, stop, targets, confluence). Your ONLY job is to explain, in plain simple English a beginner can follow, WHY this trade was chosen — walk through the specific strategy chain that fired (e.g. "structure broke down, then price swept the highs and rejected, so we sell the pullback into the fib zone"). You MUST NOT invent or change any number, level, or direction, and MUST NOT invent news. Return ONLY a JSON array of 3-5 short plain-English sentences.`;
+  const sys = `You are OM Strategy Scanner's explainer. You are given a FINAL, LOCKED JSON result that a deterministic multi-strategy engine already produced: a list of trading strategies (market structure, liquidity sweeps, fair-value gaps, fib/OTE, break-&-retest, support/resistance, trend, RSI), each with its own read, plus the combined trade (direction, entry, stop, targets, confluence). Your ONLY job is to explain, in plain simple English a beginner can follow, WHY this trade was chosen — walk through the specific strategy chain that fired (e.g. "structure broke down, then price swept the highs and rejected, so we sell the pullback into the fib zone"). You MUST NOT invent or change any number, level, or direction. You have NO news feed — never claim news was checked or that it is "clear"; do not mention news at all (a separate warning already tells the trader to verify the economic calendar themselves). Return ONLY a JSON array of 3-5 short plain-English sentences.`;
   const r = await fetch(ANTHROPIC_URL, {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": aiKey, "anthropic-version": "2023-06-01" },
