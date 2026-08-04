@@ -18,8 +18,8 @@ const DEFAULT_SYM = "XAU/USD";
 type TP = { label: string; price: number; structural?: boolean; risk_reward?: number };
 type Read = Record<string, unknown> & {
   status: string; state?: string; instrument?: string; label?: string; headline?: string; reason?: string;
-  direction?: string | null; current_bias?: string | null; strategy?: string; order_type?: string;
-  market_regime?: string; session?: string; grade?: string; confidence?: string; entry_status?: string;
+  direction?: string | null; dir_side?: string | null; current_bias?: string | null; strategy?: string; order_type?: string;
+  market_regime?: string; session?: string; grade?: string; confidence?: string | number; confidence_label?: string | null; entry_status?: string;
   entry?: { price: number; zone_low?: number; zone_high?: number }; stop_loss?: { price: number; reason?: string };
   take_profits?: TP[]; scores?: Record<string, number>; confidence_breakdown?: Record<string, number>;
   what_next?: string[]; desk_read?: string[]; reasoning?: string[]; risk_warnings?: string[]; instrument_note?: string;
@@ -115,7 +115,8 @@ function GhostResult({ res }: { res: Result }) {
 
 function ReadyView({ res }: { res: Result }) {
   const s = res.read;
-  const buy = s.direction === "buy";
+  const buy = s.dir_side === "buy";
+  const dirLabel = s.dir_side === "buy" ? "LONG" : s.dir_side === "sell" ? "SHORT" : (s.direction ?? "");
   return (
     <div className="rounded-2xl border border-white/12 bg-white/[0.03] p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -124,9 +125,9 @@ function ReadyView({ res }: { res: Result }) {
           <p className="text-xs text-white/40">{s.strategy} · live {res.price}</p>
         </div>
         <div className="flex flex-col items-end gap-1.5">
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${buy ? "text-emerald-400 bg-emerald-500/15" : "text-red-400 bg-red-500/15"}`}>{buy ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />} {s.direction} · {s.order_type}</span>
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${buy ? "text-emerald-400 bg-emerald-500/15" : "text-red-400 bg-red-500/15"}`}>{buy ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />} {dirLabel} · {s.order_type}</span>
           {s.grade && <span className="rounded-full border border-gold-light/35 bg-gold-light/15 px-2.5 py-0.5 text-[10px] font-bold uppercase text-gold-light">Grade {s.grade}</span>}
-          <span className="rounded-full bg-sky-400/15 px-2.5 py-0.5 text-[10px] font-bold uppercase text-sky-300">Trade Ready · {s.confidence}</span>
+          <span className="rounded-full bg-sky-400/15 px-2.5 py-0.5 text-[10px] font-bold uppercase text-sky-300">Trade Ready · {s.confidence_label ?? s.confidence}</span>
         </div>
       </div>
 
@@ -147,7 +148,7 @@ function ReadyView({ res }: { res: Result }) {
 
       {s.entry?.price != null && s.stop_loss?.price != null && (s.take_profits || []).length > 0 && (
         <div className="mt-3">
-          <TradeChat trade={{ td: String(s.instrument), symbol: String(s.instrument), interval: "15min", direction: String(s.direction), entry: s.entry.price, stopLoss: s.stop_loss.price, takeProfits: (s.take_profits || []).map((t) => t.price), since: res.asOf }} />
+          <TradeChat trade={{ td: String(s.instrument), symbol: String(s.instrument), interval: "15min", direction: dirLabel, entry: s.entry.price, stopLoss: s.stop_loss.price, takeProfits: (s.take_profits || []).map((t) => t.price), since: res.asOf }} />
         </div>
       )}
       <p className="mt-4 border-t border-white/10 pt-3 text-[11px] leading-relaxed text-white/35">{s.educational_disclaimer}</p>
@@ -159,7 +160,7 @@ function InfoView({ res }: { res: Result }) {
   const s = res.read;
   const st = STATE_STYLE[s.status] ?? STATE_STYLE.no_trade;
   const Icon = st.Icon;
-  const buy = (s.provisional_trade?.direction ?? s.direction) === "buy";
+  const buy = (s.provisional_trade?.direction ?? s.dir_side) === "buy";
   const pt = s.provisional_trade || undefined;
   const isData = s.status === "data_unavailable" || s.status === "insufficient_data";
   return (
@@ -172,7 +173,7 @@ function InfoView({ res }: { res: Result }) {
             <p className="text-[11px] uppercase tracking-[0.14em] text-white/45">{s.headline}</p>
           </div>
         </div>
-        {!isData && (s.provisional_trade?.direction ?? s.direction) && (
+        {!isData && (s.provisional_trade?.direction ?? s.dir_side) && (
           <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${buy ? "text-emerald-400 bg-emerald-500/15" : "text-red-400 bg-red-500/15"}`}>{buy ? "Bias · Long" : "Bias · Short"}</span>
         )}
       </div>
