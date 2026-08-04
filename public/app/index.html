@@ -232,12 +232,13 @@ input{font:inherit}
 .scr-blurb{color:var(--muted);font-size:13px;padding:2px 4px 14px}
 .load{color:var(--faint);font-size:13px;text-align:center;padding:22px}
 
-/* chat */
-.chat{display:flex;flex-direction:column;gap:9px;padding:8px 2px 12px;min-height:50vh}
+/* chat — fill the screen, messages scroll, input pinned at the bottom */
+.chatscreen{display:flex;flex-direction:column;min-height:calc(100vh - env(safe-area-inset-top,0px) - 88px);min-height:calc(100dvh - env(safe-area-inset-top,0px) - 88px)}
+.chat{flex:1 1 auto;display:flex;flex-direction:column;gap:9px;padding:10px 2px 12px;overflow-y:auto;min-height:0}
 .bub{max-width:84%;padding:10px 13px;border-radius:14px;font-size:14px;line-height:1.5;white-space:pre-wrap}
 .bub.ai{align-self:flex-start;background:var(--panel2);border:1px solid var(--line);border-bottom-left-radius:4px}
 .bub.me{align-self:flex-end;background:linear-gradient(180deg,rgba(57,198,255,.2),rgba(57,198,255,.1));border:1px solid rgba(57,198,255,.3);border-bottom-right-radius:4px}
-.chatbar{position:sticky;bottom:0;display:flex;gap:8px;padding:8px 0}
+.chatbar{flex:0 0 auto;display:flex;gap:8px;padding:10px 0 6px;background:var(--bg)}
 .send{flex:0 0 auto;padding:0 18px;border-radius:12px;font-weight:800;color:#04121f;background:linear-gradient(180deg,#65d6ff,#2eb8ef)}
 .send:disabled{opacity:.6}
 
@@ -774,7 +775,7 @@ input{font:inherit}
       }).catch(function (e) { if (e && e.code === 402) msgs[1](next.concat([{ role: "assistant", content: "You're out of credits — they reset weekly, or grab more from Account." }])); else if (e && e.code === 401) props.onLogout(); else msgs[1](next.concat([{ role: "assistant", content: "Something went wrong — try again." }])); }).then(function () { busy[1](false); });
     }
     useEffect(function () { if (endRef.current) endRef.current.scrollIntoView({ behavior: "smooth" }); });
-    return html`<div class="scr">
+    return html`<div class="scr chatscreen">
       <div class="scr-h">AI Chat</div>
       <div class="chat">${msgs[0].map(function (m) { return html`<div class=${"bub " + (m.role === "user" ? "me" : "ai")}>${m.content}</div>`; })}<div ref=${endRef}></div></div>
       <div class="chatbar">
