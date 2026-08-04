@@ -212,8 +212,13 @@ export function confirmationSignals(
  * but BOTH share the confirmation hard gates, so neither enters before the market
  * proves itself.
  */
-export function evaluateSetup(input: SetupInput, profile: Profile = "institutional"): Decision {
-  const cfg = PROFILES[profile];
+export function evaluateSetup(input: SetupInput, profile: Profile = "institutional", overrides?: Partial<GateConfig>): Decision {
+  // `overrides` lets a caller relax a single gate WITHOUT changing the shared
+  // profile (so other tools that call evaluateSetup are byte-for-byte unaffected).
+  // The OM Strategy Scanner uses this to soften HTF from "all" to "majority" so it
+  // no longer requires FULL timeframe alignment — a neutral/mixed higher timeframe
+  // is treated as context, only a materially opposed majority stands the trade down.
+  const cfg = overrides ? { ...PROFILES[profile], ...overrides } : PROFILES[profile];
   const { direction: dir, htf, structure, momentum, trigger } = input;
   const rr = rrToTp1(input.entry, input.stop, input.tps);
   const reasons: string[] = [];
