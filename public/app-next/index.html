@@ -23,10 +23,8 @@ html,body{margin:0;background:
 button{font:inherit;cursor:pointer;border:none;background:none;color:inherit}
 input{font:inherit}
 
-.hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 8px}
 .brand{font-weight:800;letter-spacing:.12em;font-size:16px;display:flex;align-items:center;gap:6px}
 .brand span{color:var(--sky)}
-.brand em{font-style:normal;font-size:10px;letter-spacing:.28em;color:var(--faint);font-weight:700}
 .brand.big{font-size:30px;letter-spacing:.14em;justify-content:center}
 .out{color:var(--faint);font-size:12px;font-weight:600}
 .tabs{display:flex;gap:8px;overflow-x:auto;padding:6px 14px 12px;scrollbar-width:none}
@@ -41,19 +39,42 @@ input{font:inherit}
 .foot{color:var(--faint);font-size:11px;text-align:center;padding:22px 24px 0;line-height:1.5}
 
 .blurb{color:var(--muted);font-size:13px;padding:2px 4px 12px}
-.controls{display:flex;flex-direction:column;gap:9px;margin-bottom:12px}
+.controls{display:flex;flex-direction:column;gap:2px;margin-bottom:14px}
+.fld{display:block;margin-bottom:13px}
+.fld-l{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px}
+.fld-l em{font-style:normal;color:var(--sky);letter-spacing:.02em;margin-left:4px}
+/* native dropdown */
+.selwrap{position:relative}
+.sel{width:100%;appearance:none;-webkit-appearance:none;padding:15px 42px 15px 15px;border-radius:13px;border:1px solid var(--line);
+  background:var(--bg2);color:var(--ink);font-size:17px;font-weight:700;outline:none}
+.sel:focus{border-color:var(--sky)}
+.selcar{position:absolute;right:15px;top:50%;transform:translateY(-50%);color:var(--sky);pointer-events:none;font-size:13px}
+/* segmented timeframe */
+.segs{display:flex;gap:5px;background:var(--bg2);border:1px solid var(--line);border-radius:13px;padding:4px}
+.seg{flex:1;padding:11px 0;border-radius:10px;font-size:13px;font-weight:700;color:var(--muted);text-transform:capitalize}
+.seg.on{background:linear-gradient(180deg,#65d6ff,#2eb8ef);color:#04121f;box-shadow:0 4px 14px rgba(46,184,239,.28)}
+/* strategy toggle chips */
 .chips{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none}
 .chips.wrap{flex-wrap:wrap;overflow:visible}
 .chips::-webkit-scrollbar{display:none}
 .chip{flex:0 0 auto;padding:8px 13px;border-radius:999px;border:1px solid var(--line);background:var(--bg2);font-size:13px;font-weight:600;color:var(--muted)}
-.chip.sm{padding:6px 11px;font-size:12px}
-.chip.on{border-color:rgba(57,198,255,.6);color:var(--ink);background:rgba(57,198,255,.14)}
+.chip.sm{padding:8px 12px;font-size:12.5px;font-weight:700}
+.chip.off{color:var(--faint);opacity:.75}
+.chip.on{border-color:transparent;color:#04121f;background:linear-gradient(180deg,#65d6ff,#2eb8ef);box-shadow:0 3px 12px rgba(46,184,239,.25)}
 .inp{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--bg2);color:var(--ink);font-size:15px;outline:none}
 .inp:focus{border-color:var(--sky)}
 .run{width:100%;padding:14px;border-radius:13px;font-weight:800;font-size:15px;letter-spacing:.03em;color:#04121f;
   background:linear-gradient(180deg,#65d6ff,#2eb8ef);box-shadow:0 8px 24px rgba(46,184,239,.28);margin-top:2px}
 .run:disabled{opacity:.6}
 .err{margin-top:12px;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,93,108,.3);background:rgba(255,93,108,.08);color:#ffb3ba;font-size:13px}
+.empty{margin-top:26px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:12px;padding:26px 20px;
+  border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,rgba(12,20,36,.5),rgba(6,12,24,.4))}
+.empty-i{width:56px;height:56px;display:grid;place-items:center;border-radius:16px;font-size:24px;color:var(--sky);
+  border:1px solid rgba(57,198,255,.3);background:rgba(57,198,255,.08);box-shadow:0 0 26px rgba(57,198,255,.16)}
+.empty p{font-size:14px;color:var(--muted);line-height:1.55;margin:0;max-width:280px}
+.empty p b{color:var(--ink)}
+.empty .steps{display:flex;flex-direction:column;gap:7px;margin-top:4px;text-align:left}
+.empty .steps span{font-size:12.5px;color:var(--faint)}
 
 /* ── signal card ── */
 .sig{margin-top:14px;border-radius:20px;border:1px solid var(--line);
@@ -191,7 +212,7 @@ input{font:inherit}
 .creed span{display:block;font-size:10px;color:var(--faint);margin-top:4px;letter-spacing:.05em}
 
 /* bottom nav + screens */
-.shell{padding-bottom:76px}
+.shell{padding-top:calc(env(safe-area-inset-top,0px) + 6px);padding-bottom:76px}
 .bnav{position:fixed;left:0;right:0;bottom:0;max-width:600px;margin:0 auto;display:flex;
   background:rgba(8,12,24,.92);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
 .bn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;color:var(--faint)}
@@ -248,7 +269,7 @@ input{font:inherit}
 .out.big{width:100%;margin-top:18px;padding:13px;border:1px solid var(--line);border-radius:12px;color:var(--muted);font-weight:700}
 
 /* login */
-.login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:calc(env(safe-area-inset-top,0px) + 24px) 24px 24px}
 .login-box{width:100%;max-width:360px;text-align:center}
 .login-box .tag{color:var(--muted);font-size:13px;margin:6px 0 22px}
 .login-box form{display:flex;flex-direction:column;gap:11px}
@@ -514,6 +535,14 @@ input{font:inherit}
   // ── tools ─────────────────────────────────────────────────────────────────
   var GHOST_SYMS = ["XAU/USD", "EUR/USD", "GBP/USD", "AUD/USD", "USD/CAD", "USD/JPY"];
   var SCALP_SYMS = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/CAD", "GBP/JPY", "XAU/USD"];
+  // Broad instrument list for the free tools (Scanner / Command / OM AI Plays) — a
+  // tap-to-pick dropdown instead of typing.
+  var SYMBOLS = [
+    "XAU/USD", "XAG/USD", "EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD", "NZD/USD", "USD/CHF",
+    "EUR/JPY", "GBP/JPY", "AUD/JPY", "EUR/GBP", "EUR/AUD", "GBP/AUD",
+    "BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD",
+    "NAS100", "SPY", "DIA", "AAPL", "NVDA", "TSLA", "AMZN", "MSFT"
+  ];
   var SCOUTS = [{ k: "structure", n: "Structure" }, { k: "liquidity", n: "Liquidity" }, { k: "fvg", n: "Fair-Value Gap" }, { k: "sr", n: "Support / Resistance" }, { k: "trend", n: "Trend" }, { k: "rsi", n: "Momentum (RSI)" }, { k: "fib", n: "Fib / OTE" }, { k: "breakRetest", n: "Break & Retest" }];
   var TOOLS = [
     { id: "pulse", label: "Market Pulse", tag: "Scan", endpoint: "/api/om-scan", list: true, adapt: adaptPulseItem, blurb: "One tap scans the majors and hands back every clean setup right now." },
@@ -525,10 +554,10 @@ input{font:inherit}
   ];
   function bodyFor(tool, st) {
     if (tool.id === "pulse") return {};
-    if (tool.id === "ghost" || tool.id === "scalp") return { symbol: st.symbol };
-    if (tool.id === "command") return { td: st.symbolFree, mode: "institutional" };
-    if (tool.id === "scanner") return { td: st.symbolFree, style: st.style || "intraday", scouts: st.scouts && st.scouts.length ? st.scouts : SCOUTS.map(function (s) { return s.k; }), mode: "institutional" };
-    if (tool.id === "liveplays") return { td: st.symbolFree, style: st.style || "intraday", orderType: "market", method: "auto", mode: "institutional" };
+    if (tool.id === "ghost" || tool.id === "scalp") return { symbol: st.sym };
+    if (tool.id === "command") return { td: st.sym, mode: "institutional" };
+    if (tool.id === "scanner") return { td: st.sym, style: st.style || "intraday", scouts: st.scouts && st.scouts.length ? st.scouts : SCOUTS.map(function (s) { return s.k; }), mode: "institutional" };
+    if (tool.id === "liveplays") return { td: st.sym, style: st.style || "intraday", orderType: "market", method: "auto", mode: "institutional" };
     return {};
   }
 
@@ -689,7 +718,7 @@ input{font:inherit}
 
       ${rsi != null ? html`<div class="rsi"><div class="rsi-l"><span class="rsi-cap">RSI (14)</span><span class=${"rsi-v " + (rsi >= 55 ? "up" : rsi <= 45 ? "dn" : "fl")}>${rsi}</span></div><div class="rsi-lbl">${rsi >= 60 ? "STRONG MOMENTUM" : rsi <= 40 ? "WEAK MOMENTUM" : "NEUTRAL"}</div></div>` : null}
 
-      ${m.scouts && m.scouts.length ? html`<${Section} title="Strategies scanned" open=${false}>
+      ${m.scouts && m.scouts.length ? html`<${Section} title=${"Strategies used · " + m.scouts.filter(function (s) { return s.fired; }).length + "/" + m.scouts.length + " fired"} open=${true}>
         <ul class="scouts">${m.scouts.map(function (s) { return html`<li class=${"scout " + (s.fired ? "fired" : "quiet")}><span class=${"sdot " + (s.dir === "LONG" ? "long" : s.dir === "SHORT" ? "short" : "flat")}></span><span class="sname">${s.label}</span><span class="sread">${s.read}</span></li>`; })}</ul>
       <//>` : null}
 
@@ -797,11 +826,12 @@ input{font:inherit}
   // ── runner + shell ─────────────────────────────────────────────────────────
   function ToolRunner(props) {
     var tool = props.tool;
-    var symState = useState((tool.syms && tool.syms[0]) || ""), symFree = useState("EUR/USD"), style = useState("intraday");
+    var sym = useState((tool.syms && tool.syms[0]) || "EUR/USD"), style = useState("intraday");
     var scoutSel = useState(SCOUTS.map(function (s) { return s.k; })), loading = useState(false), err = useState(""), result = useState(null);
+    var options = tool.syms || SYMBOLS;
     function run() {
       if (loading[0]) return; loading[1](true); err[1](""); result[1](null);
-      var st = { symbol: symState[0], symbolFree: symFree[0], style: style[0], scouts: scoutSel[0] };
+      var st = { sym: sym[0], style: style[0], scouts: scoutSel[0] };
       apiPost(tool.endpoint, bodyFor(tool, st)).then(function (d) {
         if (!d || d.error) { if (d && d.notConfigured) return err[1]("Live market data isn't connected yet."); return err[1]((d && (d.reason || d.detail)) || "Couldn't run that right now — try again."); }
         if (tool.list) { result[1]({ list: arr(d.setups).map(function (x) { var m = tool.adapt(x); m.toolName = tool.label; return m; }) }); }
@@ -816,13 +846,25 @@ input{font:inherit}
     return html`<div class="runner">
       <div class="blurb">${tool.blurb}</div>
       <div class="controls">
-        ${tool.inputs && tool.inputs.indexOf("symbol") >= 0 ? html`<div class="chips">${tool.syms.map(function (s) { return html`<button class=${"chip " + (symState[0] === s ? "on" : "")} onClick=${function () { symState[1](s); }}>${s}</button>`; })}</div>` : null}
-        ${tool.inputs && tool.inputs.indexOf("symbolFree") >= 0 ? html`<input class="inp" value=${symFree[0]} onInput=${function (e) { symFree[1](e.target.value.toUpperCase()); }} placeholder="EUR/USD, XAU/USD, SPY…" />` : null}
-        ${tool.inputs && tool.inputs.indexOf("style") >= 0 ? html`<div class="chips">${["scalp", "intraday", "swing"].map(function (s) { return html`<button class=${"chip " + (style[0] === s ? "on" : "")} onClick=${function () { style[1](s); }}>${s}</button>`; })}</div>` : null}
-        ${tool.inputs && tool.inputs.indexOf("scouts") >= 0 ? html`<div class="chips wrap">${SCOUTS.map(function (sc) { var on = scoutSel[0].indexOf(sc.k) >= 0; return html`<button class=${"chip sm " + (on ? "on" : "")} onClick=${function () { scoutSel[1](on ? scoutSel[0].filter(function (x) { return x !== sc.k; }) : scoutSel[0].concat([sc.k])); }}>${sc.n}</button>`; })}</div>` : null}
+        ${tool.inputs ? html`<label class="fld"><span class="fld-l">Instrument</span>
+          <div class="selwrap"><select class="sel" value=${sym[0]} onChange=${function (e) { sym[1](e.target.value); }}>
+            ${options.map(function (s) { return html`<option value=${s}>${s}</option>`; })}
+          </select><span class="selcar">▾</span></div>
+        </label>` : null}
+        ${tool.inputs && tool.inputs.indexOf("style") >= 0 ? html`<div class="fld"><span class="fld-l">Timeframe</span>
+          <div class="segs">${["scalp", "intraday", "swing"].map(function (s) { return html`<button class=${"seg " + (style[0] === s ? "on" : "")} onClick=${function () { style[1](s); }}>${s}</button>`; })}</div>
+        </div>` : null}
+        ${tool.inputs && tool.inputs.indexOf("scouts") >= 0 ? html`<div class="fld"><span class="fld-l">Strategies <em>${scoutSel[0].length}/${SCOUTS.length} on</em></span>
+          <div class="chips wrap">${SCOUTS.map(function (sc) { var on = scoutSel[0].indexOf(sc.k) >= 0; return html`<button class=${"chip sm " + (on ? "on" : "off")} onClick=${function () { scoutSel[1](on ? scoutSel[0].filter(function (x) { return x !== sc.k; }) : scoutSel[0].concat([sc.k])); }}>${on ? "✓ " : ""}${sc.n}</button>`; })}</div>
+        </div>` : null}
       </div>
       <button class="run" disabled=${loading[0]} onClick=${run}>${loading[0] ? "Analyzing…" : "Analyze"}</button>
       ${err[0] ? html`<div class="err">${err[0]}</div>` : null}
+      ${!loading[0] && !err[0] && !result[0] ? html`<div class="empty">
+        <div class="empty-i">◈</div>
+        <p>Tap <b>Analyze</b> and ${tool.label} builds a live trade card — direction, entry, stop, targets and the setup, all on one screen.</p>
+      </div>` : null}
+      ${loading[0] ? html`<div class="empty"><div class="empty-i">◈</div><p>Reading the live market…</p></div>` : null}
       ${result[0] && result[0].one ? html`<${TradeCard} m=${result[0].one} />` : null}
       ${result[0] && result[0].list ? (result[0].list.length ? result[0].list.map(function (m) { return html`<${TradeCard} m=${m} />`; }) : html`<div class="err">No clean setups right now — check back shortly.</div>`) : null}
     </div>`;
@@ -835,13 +877,12 @@ input{font:inherit}
     var active = useState(TOOLS[0].id), tool = TOOLS.filter(function (t) { return t.id === active[0]; })[0];
     return html`<div>
       <nav class="tabs">${TOOLS.map(function (t) { return html`<button class=${"tab " + (active[0] === t.id ? "on" : "")} onClick=${function () { active[1](t.id); }}><span class="tab-l">${t.label}</span><span class="tab-t">${t.tag}</span></button>`; })}</nav>
-      <${ToolRunner} tool=${tool} onLogout=${props.onLogout} />
+      <${ToolRunner} key=${active[0]} tool=${tool} onLogout=${props.onLogout} />
     </div>`;
   }
   function Shell(props) {
     var sec = useState("signals");
     return html`<div class="shell">
-      <header class="hdr"><div class="brand">OM<span>AI</span> <em>TRADE SIGNAL</em></div></header>
       <main class="main">
         ${sec[0] === "signals" ? html`<${SignalsSection} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "chat" ? html`<${ChatScreen} onLogout=${props.onLogout} />` : null}
@@ -863,7 +904,7 @@ input{font:inherit}
         <button class="run" disabled=${busy[0]}>${busy[0] ? "Signing in…" : "Sign in"}</button>
         ${err[0] ? html`<div class="err">${err[0]}</div>` : null}
       </form>
-      <p class="hint">Use your One Mission member login. This is a preview of the new trade cards.</p>
+      <p class="hint">Use your One Mission member login to enter the trade desk.</p>
     </div></div>`;
   }
   function App() {
