@@ -21,6 +21,11 @@ const nextConfig = {
         source: "/app/manifest.webmanifest",
         headers: [{ key: "Cache-Control", value: "public, max-age=0, must-revalidate" }],
       },
+      {
+        // Preview build of the new unified trade-card app (separate from live /app).
+        source: "/app-next/index.html",
+        headers: [{ key: "Cache-Control", value: "public, max-age=0, must-revalidate" }],
+      },
     ];
   },
 };
