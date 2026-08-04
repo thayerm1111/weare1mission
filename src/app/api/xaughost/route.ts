@@ -125,5 +125,41 @@ export async function POST(req: NextRequest) {
     ].filter(Boolean);
   }
 
+  // ── Backward-compat overlay so the deployed mobile app (which reads the old
+  // schema) renders the NEW deterministic numbers without an app rebuild. The
+  // website UI reads `dir_side` / `confidence_label`; the app reads `direction`
+  // (LONG/SHORT) / `confidence` (number) / `entries` / `stopLoss` / `takeProfits`.
+  // No fabricated fields — sections the app no longer has (scorecards/probabilities)
+  // are simply omitted. ──
+  legacyOverlay(read);
+
   return json({ ok: true, price, asOf: now.toISOString(), session, symbol: TD, read, candles: read.candles ?? [], strategy_version: "ghost-v3-deterministic" }, 200);
 }
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function legacyOverlay(read: Record<string, unknown>): void {
+  const r = read as any;
+  const side: string | null = r.direction === "buy" ? "buy" : r.direction === "sell" ? "sell" : null;
+  r.dir_side = side;                                             // website UI
+  r.direction = side === "buy" ? "LONG" : side === "sell" ? "SHORT" : "NONE";  // app UI
+  r.confidence_label = typeof r.confidence === "string" ? r.confidence : null; // website UI (label)
+  const overall = r.confidence_breakdown?.overall ?? r.scores?.overall;
+  r.confidence = typeof overall === "number" ? overall : null;  // app UI (number)
+
+  const pt = r.provisional_trade;
+  const eObj = r.entry ?? pt?.entry;
+  const slObj = r.stop_loss ?? pt?.stop_loss;
+  const tps: number[] = ((r.take_profits ?? pt?.take_profits ?? []) as any[]).map((t) => t?.price).filter((n) => typeof n === "number");
+  r.entries = eObj ? { primary: eObj.price ?? null, aggressive: eObj.zone_low ?? eObj.price ?? null, conservative: eObj.zone_high ?? eObj.price ?? null, confirmation: r.trigger?.confirmationRequired ?? "" } : { primary: null, aggressive: null, conservative: null, confirmation: "" };
+  r.stopLoss = slObj?.price ?? null;
+  r.takeProfits = tps;
+  const rr = pt?.risk_reward_tp1 ?? r.rr_tp1;
+  r.riskReward = typeof rr === "number" ? `1:${rr}` : "n/a";
+  r.decision = r.state === "TRADE_READY" ? "TRADE" : "NO_TRADE";
+  r.regime = r.market_regime ?? "";
+  r.reasonsToAvoid = Array.isArray(r.what_next) ? r.what_next : [];
+  r.invalidation = slObj?.reason ?? (r.setup_zone?.invalidation ?? "");
+  r.bias = r.current_bias ?? "";
+  r.winningStrategy = r.strategy ?? "";
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
