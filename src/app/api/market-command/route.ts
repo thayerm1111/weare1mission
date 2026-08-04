@@ -4,8 +4,7 @@ import { gateCredits, chargeCredit } from "@/lib/credits";
 import { reserveMarketData, resolveTd, livePriceSane } from "@/lib/marketData";
 import { getProfile } from "@/lib/auth";
 import { logSignal } from "@/lib/signalLog";
-import { assessNews } from "@/lib/econCalendar";
-import { evaluateSetup, confirmationSignals } from "@/lib/confirmation";
+import { confirmationSignals } from "@/lib/confirmation";
 import { getAdjustmentPenalty } from "@/lib/learningStore";
 import { mtfAlign, closedBars } from "@/lib/mtf";
 
@@ -33,14 +32,26 @@ const MODEL = process.env.OM_AI_MODEL || "claude-sonnet-4-6";
 // ── Config (these become admin-editable settings in a later phase) ───────────
 const CFG = {
   minRR: 1.8,               // minimum reward-to-risk to qualify (TP1)
-  minScore: 62,             // minimum overall score (0-100) to qualify
-  maxStopAtr: 3.0,          // reject if the structural stop is wider than N×ATR
-  minStopAtr: 0.4,          // reject if the stop is unrealistically tight
+  minScore: 62,             // legacy floor (kept for back-compat logging)
+  maxStopAtr: 3.0,          // HARD VETO: reject if the structural stop is wider than N×ATR
+  minStopAtr: 0.4,          // HARD VETO: reject if the stop is unrealistically tight
   staleMult: 3.0,           // data is stale if the last candle is older than N intervals
   defaultBalance: 10000,    // used for position sizing when the caller sends none
   defaultRiskPct: 1.0,      // % of balance risked per trade
   setupTtlMin: { "5min": 45, "15min": 120, "1h": 360 } as Record<string, number>,
+  // Standardized-state score bands (0-100). These are CONFIGURABLE and still need
+  // historical calibration (see the calibration deliverable) — do not treat as final.
+  // A setup that clears `ready` AND has no outstanding measurable trigger is TRADE_READY;
+  // a real directional setup with one unmet, measurable trigger is DEVELOPING; a
+  // directional bias too far from entry is WATCHLIST; below `watch` (or no bias) is NO_TRADE.
+  bands: {
+    institutional: { ready: 76, develop: 64, watch: 54 },
+    accelerator: { ready: 70, develop: 60, watch: 52 },
+  } as Record<string, { ready: number; develop: number; watch: number }>,
 };
+
+// Standardized output states shared by all three tools.
+type State = "TRADE_READY" | "DEVELOPING_SETUP" | "WATCHLIST" | "NO_TRADE" | "DATA_UNAVAILABLE" | "INSUFFICIENT_DATA";
 
 type Row = { datetime: string; open: string; high: string; low: string; close: string; volume?: string };
 type Cat = "forex" | "gold" | "commodity" | "index" | "crypto" | "stock";
@@ -137,14 +148,101 @@ async function livePrice(td: string, key: string): Promise<number | null> {
 
 const INTERVAL_MS: Record<string, number> = { "5min": 300000, "15min": 900000, "1h": 3600000, "1day": 86400000 };
 
-// Session by UTC hour (rough): Asia / London / New York / off-hours.
+// Session, DST-safe. We derive London wall-clock via Intl (handles BST/GMT) and
+// map the FX day off it, so the London/NY windows don't drift by an hour across
+// the DST changeover the way a fixed-UTC-hour split does.
+function londonHour(d: Date): number {
+  try {
+    const s = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", hour12: false }).format(d);
+    const h = parseInt(s, 10);
+    return Number.isFinite(h) ? (h === 24 ? 0 : h) : d.getUTCHours();
+  } catch { return d.getUTCHours(); }
+}
+function nyHour(d: Date): number {
+  try {
+    const s = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false }).format(d);
+    const h = parseInt(s, 10);
+    return Number.isFinite(h) ? (h === 24 ? 0 : h) : d.getUTCHours() - 5;
+  } catch { return d.getUTCHours() - 5; }
+}
 function sessionNow(d: Date): string {
-  const h = d.getUTCHours();
-  if (h >= 0 && h < 7) return "Asian";
-  if (h >= 7 && h < 12) return "London";
-  if (h >= 12 && h < 16) return "London/NY overlap";
-  if (h >= 16 && h < 21) return "New York";
+  const lh = londonHour(d), nh = nyHour(d);
+  const londonOpen = lh >= 7 && lh < 16;      // ~08:00–16:00 London
+  const nyOpen = nh >= 8 && nh < 17;          // ~08:00–17:00 New York
+  if (londonOpen && nyOpen) return "London/NY overlap";
+  if (londonOpen) return "London";
+  if (nyOpen) return "New York";
+  if (lh >= 0 && lh < 7) return "Asian";
   return "Off-session";
+}
+
+// A distinct DATA state — bad/insufficient data must NOT read as "No Trade".
+function dataUnavailable(td: string, spec: Spec, insufficient: boolean, reason: string, dqScore: number, extra?: { session?: string }): Response {
+  return json({
+    status: insufficient ? "insufficient_data" : "data_unavailable",
+    state: insufficient ? "INSUFFICIENT_DATA" : "DATA_UNAVAILABLE",
+    instrument: td, market_category: spec.cat, timestamp: new Date().toISOString(), data_provider: "Twelve Data",
+    strategy_version: STRAT_VERSION, headline: insufficient ? "INSUFFICIENT DATA" : "DATA UNAVAILABLE",
+    reason,
+    recheck: "This is a data issue, not a market read — retry shortly; if it persists the provider or symbol needs checking.",
+    what_next: ["Retry in ~1 minute (provider may be rate-limited).", "Confirm the instrument symbol is supported by the data provider."],
+    session: extra?.session ?? "", candles: [], mtf: [],
+    scores: { data_quality: Math.max(0, dqScore) },
+    educational_disclaimer: "Educational market analysis only — not financial advice.",
+  }, 200);
+}
+
+// Deterministic trigger object (identical schema across all three tools).
+type Trigger = {
+  state: State; asset: string; direction: "BUY" | "SELL" | null; strategy: string;
+  monitorTimeframe: string; triggerType: string; triggerLevel: number | null;
+  retestZoneLow: number | null; retestZoneHigh: number | null;
+  confirmationRequired: string; invalidationLevel: number | null; expirationCondition: string;
+  recheckInstruction: string; generatedAt: string; dataCandleClose: string | null;
+};
+const STRAT_VERSION = "v3-command-states";
+
+// News is NOT checked by this tool — no live calendar. We hand the user the exact
+// currencies/macro events to verify, and NEVER imply the market is safe.
+function newsCheck(td: string): { status: string; warning: string; currencies: string[]; note: string } {
+  const s = td.toUpperCase();
+  const warning = "News is not checked by this tool. Before entering, verify the economic calendar for high-impact events affecting this instrument.";
+  const status = "Not checked — user verification required.";
+  if (s === "XAU/USD" || s.includes("GOLD")) return { status, warning, currencies: ["USD"], note: "Verify major USD macro: Fed / FOMC, CPI & PCE inflation, NFP / employment, and Treasury-yield-moving releases." };
+  const m = s.match(/^([A-Z]{3})\/([A-Z]{3})$/);
+  if (m) return { status, warning, currencies: [m[1], m[2]], note: `Verify high-impact ${m[1]} and ${m[2]} events (rate decisions, inflation, employment, GDP).` };
+  if (/(BTC|ETH|SOL|XRP|DOGE)/.test(s)) return { status, warning, currencies: ["USD", "Crypto"], note: "Verify USD macro (Fed, CPI) plus crypto-specific catalysts (ETF flows, regulation, major protocol events)." };
+  if (/(SPY|QQQ|DIA|NAS100|US30|SPX500|NDX|US100|US500)/.test(s)) return { status, warning, currencies: ["USD"], note: "Verify USD macro: Fed / FOMC, CPI & PCE, NFP, and major earnings that move the index." };
+  return { status, warning, currencies: ["USD"], note: "Verify the relevant high-impact macro releases for this instrument." };
+}
+
+function stateJson(state: State, td: string, spec: Spec, p: {
+  headline: string; direction: Dir | null; strategy: string; reason: string;
+  trigger: Trigger; what_next: string[]; levels?: Record<string, number> | null;
+  provisional_trade?: unknown; regime?: string; session?: string; scores?: Record<string, number>;
+  candles?: { t: string; o: number; h: number; l: number; c: number }[]; mtf?: { tf: string; trend: string }[];
+  confidence?: Record<string, number>; reasoning?: string[]; risk_warnings?: string[];
+  setup_zone?: unknown; proximity?: unknown; alternative_scenario?: unknown; current_bias?: string;
+}): Response {
+  const statusMap: Record<State, string> = {
+    TRADE_READY: "qualified_setup", DEVELOPING_SETUP: "developing_setup", WATCHLIST: "watchlist",
+    NO_TRADE: "no_trade", DATA_UNAVAILABLE: "data_unavailable", INSUFFICIENT_DATA: "insufficient_data",
+  };
+  const nc = newsCheck(td);
+  return json({
+    status: statusMap[state], state,
+    instrument: td, market_category: spec.cat, timestamp: new Date().toISOString(), data_provider: "Twelve Data",
+    strategy_version: STRAT_VERSION,
+    headline: p.headline, direction: p.direction ?? null, current_bias: p.current_bias ?? null, strategy: p.strategy, reason: p.reason,
+    trigger: p.trigger, what_next: p.what_next, levels: p.levels ?? null, provisional_trade: p.provisional_trade ?? null,
+    setup_zone: p.setup_zone ?? null, proximity: p.proximity ?? null, alternative_scenario: p.alternative_scenario ?? null,
+    market_regime: p.regime ?? "", session: p.session ?? "",
+    scores: p.scores ?? {}, confidence: p.confidence ?? {},
+    candles: p.candles ?? [], mtf: p.mtf ?? [], recheck: p.trigger.recheckInstruction,
+    reasoning: p.reasoning ?? [], risk_warnings: p.risk_warnings ?? [],
+    news_status: nc.status, news_warning: nc.warning, news_check_currencies: nc.currencies, news_check_note: nc.note,
+    educational_disclaimer: "Educational market analysis only — not financial advice, and not a prediction. States: TRADE READY, DEVELOPING, WATCHLIST, NO TRADE. There is no guarantee a level is reached.",
+  }, 200);
 }
 
 export async function POST(req: NextRequest) {
@@ -204,7 +302,7 @@ export async function POST(req: NextRequest) {
   };
   const R1raw = need(h1, "1H", 40), R15raw = need(m15, "15m", 40), R5 = need(m5, "5m", 30), RD = need(d1, "Daily", 10);
   if (!R1raw || !R15raw || !R5 || !RD) {
-    return noTrade(td, spec, "MARKET DATA UNAVAILABLE OR STALE", `Not enough validated candles to analyse ${td}. ${dq.join("; ")}.`, dqScore);
+    return dataUnavailable(td, spec, true, `Not enough validated candles to analyse ${td}. ${dq.join("; ")}.`, dqScore);
   }
   // Recent execution-frame candles (OHLC, oldest→newest) for the result chart.
   const candleOut = R15raw.slice(-48).map((v) => ({ t: v.datetime, o: +v.open, h: +v.high, l: +v.low, c: +v.close }));
@@ -214,7 +312,7 @@ export async function POST(req: NextRequest) {
   const marketClosed = isClosed(spec.cat, new Date(nowMs));
   if (Number.isFinite(lastTs) && staleBy > CFG.staleMult && !marketClosed && spec.cat !== "crypto") {
     dqScore -= 30;
-    return noTrade(td, spec, "MARKET DATA UNAVAILABLE OR STALE", `The latest ${td} candle is ~${Math.round(staleBy)} intervals old while the market appears open — refusing to analyse stale data.`, dqScore);
+    return dataUnavailable(td, spec, false, `The latest ${td} candle is ~${Math.round(staleBy)} intervals old while the market appears open — refusing to analyse stale data.`, dqScore);
   }
 
   // Trust the live tick only when it agrees with recent 5m closes; a bad tick
@@ -317,40 +415,86 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Nothing actionable → NO TRADE (price mid-range / unclear regime).
+  const wantDir: "LONG" | "SHORT" | null = dir === "buy" ? "LONG" : dir === "sell" ? "SHORT" : null;
+  const interval = spec.cat === "index" || spec.cat === "stock" ? "5min" : "15min";
+  const dataClose = R5.length ? new Date((R5[R5.length - 1].datetime || "").replace(" ", "T") + "Z").toISOString() : null;
+  const genAt = new Date(nowMs).toISOString();
+  const band = CFG.bands[tradeMode] ?? CFG.bands.institutional;
+  const levels: Record<string, number> = {
+    support: f(Math.min(lastSL, rangeLo)), resistance: f(Math.max(lastSH, rangeHi)),
+    liquidity_above: f(Math.max(prevDayHi, rangeHi)), liquidity_below: f(Math.min(prevDayLo, rangeLo)), equilibrium: f(eq),
+  };
+  const baseTrig = (over: Partial<Trigger>): Trigger => ({
+    state: "NO_TRADE", asset: td, direction: dir === "buy" ? "BUY" : dir === "sell" ? "SELL" : null, strategy: strategy || "None",
+    monitorTimeframe: interval, triggerType: "AWAIT", triggerLevel: null,
+    retestZoneLow: null, retestZoneHigh: null, confirmationRequired: "",
+    invalidationLevel: dir ? f(stop) : null, expirationCondition: `${interval} close beyond ${dir ? f(stop) : "the invalidation level"}`,
+    recheckInstruction: "", generatedAt: genAt, dataCandleClose: dataClose, ...over,
+  });
+
+  // ── No directional edge → WATCHLIST with real levels (never a bare No-Trade) ──
   if (!dir) {
-    return noTrade(td, spec, "NO QUALIFIED SETUP", `${td} is in a "${regime}" state with price mid-structure — no strategy has a defined edge here right now.`, dqScore, { regime, session, candles: candleOut, mtf: mtf.byTf });
+    const near = Math.abs(px - rangeHi) < Math.abs(px - rangeLo);
+    const lvl = near ? levels.resistance : levels.support;
+    const trig = baseTrig({
+      state: "WATCHLIST", direction: null, strategy: "Awaiting a setup at a range extreme", monitorTimeframe: "1H",
+      triggerType: "PRICE_REACHES_LEVEL", triggerLevel: lvl,
+      confirmationRequired: `a rejection or sweep-and-reclaim at the ${near ? "range high" : "range low"} (${lvl})`,
+      recheckInstruction: `Come back when price reaches the ${near ? "resistance/liquidity" : "support/liquidity"} at ${lvl} and shows a reaction there.`,
+    });
+    return stateJson("WATCHLIST", td, spec, {
+      headline: `WATCHLIST — ${regime}`, direction: null, strategy: "None (mid-structure)",
+      reason: `${td} is in a "${regime}" state with price mid-structure (${f(px)}; equilibrium ${levels.equilibrium}). No strategy has a defined edge until price reaches a range extreme.`,
+      trigger: trig, levels, regime, session, candles: candleOut, mtf: mtf.byTf,
+      scores: { data_quality: Math.max(0, dqScore), regime: regimeScore },
+      confidence: { data: Math.max(0, dqScore), directional: 40, entry: 20, overall: 34 },
+      what_next: [
+        `Wait for price to reach the ${near ? "resistance" : "support"} at ${lvl}.`,
+        `Preferred: fade a rejection there back toward equilibrium ${levels.equilibrium}.`,
+        `Alternative: a decisive 1H close beyond ${lvl} flips the bias to a breakout — reanalyze then.`,
+        `Press Analyze again to recompute on fresh candles.`,
+      ],
+    });
   }
 
-  // Execution-stack alignment gate for TREND trades only. Range mean-reversion is
-  // deliberately counter to the short-term push, so it is exempt. A trend entry
-  // fires only when 1H, 30m and 15m all agree — this removes the "trade the higher
-  // -timeframe trend into a lower-timeframe pullback" losses.
-  if (regimeDir && mtf.dir !== (dir === "buy" ? "LONG" : "SHORT")) {
-    return noTrade(td, spec, "NO TRADE — 1H/30m/15m NOT ALIGNED", `The ${regime.toLowerCase()} points ${dir === "buy" ? "long" : "short"}, but the execution timeframes don't line up (${mtf.label}). A trend trade only fires when 1H, 30m and 15m all trend the same way — otherwise it's an entry into a lower-timeframe pullback, the main cause of stop-outs.`, dqScore, { regime, session, candles: candleOut, mtf: mtf.byTf });
-  }
-
-  // Targets from real objectives: opposing range / prev-day level / swing, then R-ladder fill.
+  // ── Targets: structural objectives first; an R-based level only as an explicit fallback ──
   const risk = Math.abs(entry - stop) || atr1;
-  // TP1 must clear the profile's reward:risk floor (2.5R institutional, 1.8R
-  // accelerator): take the nearest structural objective beyond the floor, else a
-  // clean profile ladder off the floor.
-  if (dir === "buy") {
-    const obj = [rangeHi, prevDayHi, lastSH].filter((v) => v > entry + risk * profileFloor).sort((x, y) => x - y);
-    targets = [obj[0] ?? entry + risk * profileFloor, entry + risk * (profileFloor + 1.0), entry + risk * (profileFloor + 2.2)].map(f);
-  } else {
-    const obj = [rangeLo, prevDayLo, lastSL].filter((v) => v < entry - risk * profileFloor).sort((x, y) => y - x);
-    targets = [obj[0] ?? entry - risk * profileFloor, entry - risk * (profileFloor + 1.0), entry - risk * (profileFloor + 2.2)].map(f);
+  const objSrc = dir === "buy"
+    ? [rangeHi, prevDayHi, lastSH, ...piv.sh.map((s) => s.p)].filter((v) => v > entry + risk * 0.6)
+    : [rangeLo, prevDayLo, lastSL, ...piv.sl.map((s) => s.p)].filter((v) => v < entry - risk * 0.6);
+  const objs = Array.from(new Set(objSrc.map(f))).sort((x, y) => dir === "buy" ? x - y : y - x);
+  const tpMeta: { price: number; structural: boolean }[] = [];
+  const firstStruct = objs.find((v) => Math.abs(v - entry) >= risk * profileFloor);
+  if (firstStruct != null) tpMeta.push({ price: firstStruct, structural: true });
+  else tpMeta.push({ price: f(dir === "buy" ? entry + risk * profileFloor : entry - risk * profileFloor), structural: false });
+  for (const v of objs) {
+    if (tpMeta.length >= 3) break;
+    if (Math.abs(v - entry) > Math.abs(tpMeta[tpMeta.length - 1].price - entry) + risk * 0.4) tpMeta.push({ price: v, structural: true });
   }
-  targets = Array.from(new Set(targets)).slice(0, 3);
+  targets = tpMeta.map((t) => t.price);
   const rr1 = risk ? Math.abs(targets[0] - entry) / risk : 0;
 
-  // ── Independent risk engine (authority to veto) ────────────────────────────
+  // ── TRUE hard vetoes (genuine risk/data failures only) → NO TRADE with a measurable recheck ──
   const stopAtr = risk / (atr1 || 1);
   const riskWarnings: string[] = [];
-  if (stopAtr > CFG.maxStopAtr) return noTrade(td, spec, "NO TRADE — STOP TOO WIDE", `The structural stop is ${stopAtr.toFixed(1)}× ATR (max ${CFG.maxStopAtr}×). Risk per unit is too large for a clean intraday setup.`, dqScore, { regime, session });
-  if (stopAtr < CFG.minStopAtr) return noTrade(td, spec, "NO TRADE — STOP TOO TIGHT", `The stop is only ${stopAtr.toFixed(2)}× ATR — noise would stop this out. Waiting for a cleaner structure.`, dqScore, { regime, session });
-  if (rr1 < profileFloor) return noTrade(td, spec, "NO TRADE — REWARD:RISK TOO LOW", `Nearest objective gives only ${rr1.toFixed(1)}R (min ${profileFloor}R for ${profile}). The move on offer doesn't justify the risk.`, dqScore, { regime, session });
+  const hardVeto = (headline: string, reason: string, whatNext: string[], trigOver: Partial<Trigger>) =>
+    stateJson("NO_TRADE", td, spec, {
+      headline, direction: dir, strategy, reason, trigger: baseTrig({ state: "NO_TRADE", ...trigOver }),
+      what_next: whatNext, levels, regime, session, candles: candleOut, mtf: mtf.byTf,
+      scores: { data_quality: Math.max(0, dqScore), regime: regimeScore },
+      confidence: { data: Math.max(0, dqScore), directional: 45, entry: 20, overall: 30 },
+    });
+  if (stopAtr > CFG.maxStopAtr) return hardVeto("NO TRADE — STOP TOO WIDE",
+    `The only structural stop is ${stopAtr.toFixed(1)}× ATR (max ${CFG.maxStopAtr}×). Risk per unit is too large for a clean setup right now.`,
+    [`Wait for a tighter structure — a nearer swing ${dir === "buy" ? "low" : "high"} — so the invalidation sits closer.`, `Reanalyze after a ${dir === "buy" ? "higher-low" : "lower-high"} forms.`],
+    { triggerType: "TIGHTER_STRUCTURE", confirmationRequired: "a nearer structural invalidation forms", recheckInstruction: `Come back after price forms a tighter ${dir === "buy" ? "higher-low" : "lower-high"} so the stop is within ${CFG.maxStopAtr}× ATR.` });
+  if (stopAtr < CFG.minStopAtr) return hardVeto("NO TRADE — STOP TOO TIGHT",
+    `The stop is only ${stopAtr.toFixed(2)}× ATR — normal noise would stop this out.`,
+    [`Wait for a structure that supports a slightly wider, safer stop.`, `Reanalyze shortly.`],
+    { triggerType: "VOLATILITY_NORMALIZE", confirmationRequired: "an ATR-appropriate stop distance", recheckInstruction: "Come back once a structurally valid stop is at least 0.4× ATR away." });
+  if (!(rr1 > 0) || !Number.isFinite(rr1)) return hardVeto("NO TRADE — INVALID REWARD:RISK",
+    `Could not resolve a valid reward-to-risk for ${td}.`, [`Press Analyze again to recompute.`],
+    { triggerType: "RECOMPUTE", recheckInstruction: "Press Analyze again to recompute on fresh candles." });
 
   // Position sizing (per-instrument spec — never a generic pip formula).
   const stopPips = risk / spec.pip;
@@ -361,152 +505,251 @@ export async function POST(req: NextRequest) {
   if (posSize <= 0) riskWarnings.push("Computed position size rounded to zero at this risk % — increase balance or risk to trade this instrument.");
   riskWarnings.push(`Position size uses standard CFD contract specs for ${spec.cat}; confirm pip value and lot step against your own broker before trading.`);
 
-  // ── News gate (economic-calendar blackout via FMP) ──────────────────────────
-  const news = await assessNews(td, nowMs);
-  if (news.blackout) {
-    return noTrade(td, spec, "NO TRADE — NEWS BLACKOUT", news.note, dqScore, { regime, session });
-  }
-  const newsScore = news.level === "clear" ? 80 : news.level === "low" ? 68 : news.level === "medium" ? 50 : news.screened ? 70 : 55;
+  // ── News: NOT checked by this tool. There is no live calendar integration, so we
+  // NEVER block a trade, never imply it's "clear", and never fabricate a calendar.
+  // We hand the user the exact currencies/macro events to verify themselves. ──
+  const newsInfo = newsCheck(td);
+  const newsScore = 65; // neutral — news neither gates nor biases the score
 
-  // ── Scoring ────────────────────────────────────────────────────────────────
+  // ── Confirmation reads (from the shared PURE helper — read-only, no gate) ──
+  const trigRows = (spec.cat === "index" || spec.cat === "stock") ? R5 : R15;
+  const gDir: "long" | "short" = dir === "buy" ? "long" : "short";
+  const cs = confirmationSignals(trigRows as { open: string; high: string; low: string; close: string }[], gDir);
+  const confirmed = cs.closedWithTrend && cs.momentumTurned;
+  const mtfAligned = regimeDir ? mtf.dir === wantDir : true;   // range trades don't require alignment
+
+  // Entry-quality / stale-entry status (never re-offer a missed entry without recompute).
+  const chaseTol = atr1 * (isAccel ? 1.2 : 0.8);
+  let entryStatus: "available" | "approaching" | "far";
+  if (orderType === "market") entryStatus = "available";
+  else if (dir === "buy") entryStatus = px <= entry + atr1 * 0.05 ? "available" : (px - entry <= chaseTol ? "approaching" : "far");
+  else entryStatus = px >= entry - atr1 * 0.05 ? "available" : (entry - px <= chaseTol ? "approaching" : "far");
+
+  // Distance-to-obstacle: opposing structure between entry and TP1 (soft penalty).
+  const betw = dir === "buy"
+    ? [rangeHi, prevDayHi, lastSH, ...piv.sh.map((s) => s.p)].filter((v) => v > entry + risk * 0.15 && v < targets[0] - risk * 0.1)
+    : [rangeLo, prevDayLo, lastSL, ...piv.sl.map((s) => s.p)].filter((v) => v < entry - risk * 0.15 && v > targets[0] + risk * 0.1);
+  const obstacle = betw.length ? f(dir === "buy" ? Math.min(...betw) : Math.max(...betw)) : null;
+
+  // ── Single transparent score (0-100). Redundant gates are now soft penalties. ──
   const rrScore = Math.min(100, Math.round((rr1 / 3) * 100));
   const momo = rsi(closes1) ?? 50;
   const momoScore = dir === "buy" ? clamp(momo, 40, 75) : clamp(100 - momo, 40, 75);
   const volScore = atrPct >= 30 && atrPct <= 85 ? 75 : 45;
   const sessionScore = session === "Off-session" ? 45 : 72;
-  const scores = {
-    overall: 0,
-    regime: regimeScore,
-    structure: structureQ,
-    entry: entryQ,
-    risk_reward: rrScore,
-    momentum: Math.round(momoScore),
-    volatility: volScore,
-    session: sessionScore,
-    news: newsScore,
-    data_quality: Math.max(0, dqScore),
-  };
-  scores.overall = Math.round(
-    (scores.regime * 0.2 + scores.structure * 0.15 + scores.entry * 0.13 + scores.risk_reward * 0.17 +
-     scores.momentum * 0.08 + scores.volatility * 0.07 + scores.session * 0.05 + scores.news * 0.05 + scores.data_quality * 0.1)
-  );
-
-  if (scores.overall < CFG.minScore) {
-    return noTrade(td, spec, "NO TRADE — BELOW QUALIFICATION THRESHOLD", `The setup scored ${scores.overall}/100 (threshold ${CFG.minScore}). Direction is ${dir.toUpperCase()} but confluence is too thin to qualify.`, dqScore, { regime, session, scores, candles: candleOut });
-  }
-
-  // ── Confirmation gate (profile-aware) ─────────────────────────────────────
-  // React, never anticipate. Even after the quant engine qualifies a setup, the
-  // gate demands the market has PROVEN itself: the trigger candle CLOSED back
-  // with the trend on the execution frame, momentum turned, and TP1 clears the
-  // profile's RR floor. Institutional also requires Daily+1H agreement and a
-  // completed pullback (2.5R, A+/A); accelerator relaxes those and drops to 1.8R,
-  // releasing anything scoring ≥75. Otherwise → NO TRADE, waiting.
-  const trigRows = (spec.cat === "index" || spec.cat === "stock") ? R5 : R15;
-  const gDir: "long" | "short" = dir === "buy" ? "long" : "short";
-  const cs = confirmationSignals(trigRows as { open: string; high: string; low: string; close: string }[], gDir);
-  const closesD = RD.map((r) => +r.close);
-  const dSma = sma(closesD, Math.min(20, closesD.length));
-  const dailyTrend: "up" | "down" | "range" = dSma == null ? "range" : px > dSma ? "up" : px < dSma ? "down" : "range";
-  const h1Trend: "up" | "down" | "range" = regimeDir === "buy" ? "up" : regimeDir === "sell" ? "down" : "range";
-  const trendStrengthScore = Math.round(Math.max(0, Math.min(100, adxV * 2.5)));
-  const v15 = R15.map((r) => +(r.volume ?? 0)).filter((v) => v > 0);
-  const volumeScore = v15.length >= 12
-    ? Math.round(Math.max(0, Math.min(100, 50 + ((v15.slice(-3).reduce((a, b) => a + b, 0) / 3) / ((v15.reduce((a, b) => a + b, 0) / v15.length) || 1) - 1) * 60)))
-    : 60;
-  // Continuous-learning context + learned penalty for this setup's buckets.
-  const wantTrendC = gDir === "long" ? "up" : "down";
-  const htfAlignC: "with" | "against" | "range" = h1Trend === "range" ? "range" : (h1Trend === wantTrendC ? "with" : "against");
-  const bosC = (dir === "buy" && trendUp) || (dir === "sell" && trendDn);
+  const confirmScore = (cs.closedWithTrend ? 40 : 0) + (cs.momentumTurned ? 35 : 0) + (cs.pullbackComplete ? 25 : 0);
+  // Alignment is CONTEXT, weighted low. A NEUTRAL higher timeframe is treated as
+  // genuinely neutral (75), not a penalty — only a materially OPPOSED HTF (40)
+  // drags the score, and even then by score, never as a gate.
+  const alignScore = mtfAligned ? 90 : (mtf.dir == null ? 75 : 40);
   const learned = await getAdjustmentPenalty({ instrument: td, mode: tradeMode, regime, setup: strategy, session });
-  const gateDecision = evaluateSetup({
-    direction: gDir,
-    htf: [dailyTrend, h1Trend],
-    htfLabel: "Daily/1H",
-    structure: {
-      bosWithTrend: (dir === "buy" && trendUp) || (dir === "sell" && trendDn),
-      pullbackComplete: cs.pullbackComplete,
-      atInstitutionalLevel: true, // entries are anchored to swing / range / prev-day / SMA levels
-      score: structureQ,
-    },
-    momentum: { turnedWithTrend: cs.momentumTurned, strongAgainst: cs.strongAgainst, score: cs.momentumScore },
-    trigger: { closed: cs.closed, closedWithTrend: cs.closedWithTrend },
-    liquidityScore: Math.round((scores.structure + scores.regime) / 2),
-    entry, stop, tps: targets,
-    sessionScore: scores.session,
-    volatilityScore: scores.volatility,
-    volumeScore,
-    trendStrength: trendStrengthScore,
-    newsRisk: false, // a news blackout already returned NO TRADE above
-    scorePenalty: learned.penalty, penaltyReasons: learned.reasons,
-  }, tradeMode);
-  if (gateDecision.decision === "NO_TRADE") {
-    return noTrade(td, spec, `NO TRADE — ${isAccel ? "NO CONFIRMED MOMENTUM" : "WAITING FOR CONFIRMATION"}`, gateDecision.noTradeReason ?? "The market hasn't confirmed the setup yet.", dqScore, { regime, session, scores, mode: tradeMode, candles: candleOut });
-  }
+  const scores: Record<string, number> = {
+    overall: 0, regime: regimeScore, structure: structureQ, entry: entryQ, risk_reward: rrScore,
+    confirmation: confirmScore, alignment: alignScore, momentum: Math.round(momoScore),
+    volatility: volScore, session: sessionScore, news: newsScore, data_quality: Math.max(0, dqScore),
+  };
+  // Strategy quality DOMINATES; alignment/news are minor context (weights sum to 1.0).
+  let overall = Math.round(
+    scores.structure * 0.16 + scores.entry * 0.12 + scores.confirmation * 0.15 + scores.risk_reward * 0.15 +
+    scores.regime * 0.12 + scores.momentum * 0.07 + scores.volatility * 0.05 + scores.session * 0.04 +
+    scores.data_quality * 0.08 + scores.alignment * 0.03 + scores.news * 0.03,
+  );
+  if (obstacle != null) overall -= 6;                       // soft penalty: not enough clean room to TP1
+  overall = Math.max(0, Math.min(100, overall - (learned.penalty || 0)));
+  scores.overall = overall;
 
-  const interval = spec.cat === "index" || spec.cat === "stock" ? "5min" : "15min";
-  const ttlMin = CFG.setupTtlMin[interval] ?? 120;
-  const expiresAt = new Date(nowMs + ttlMin * 60000).toISOString();
-  const confidence = scores.overall >= 80 ? "High" : scores.overall >= 70 ? "Medium" : "Qualified (low)";
+  // ── Outstanding measurable triggers (each blocks TRADE_READY but not the read) ──
+  // NOTE: timeframe alignment is deliberately NOT a blocker. A valid setup can be
+  // TRADE_READY even when 1H/30m/15m disagree — misalignment only lowers `alignment`
+  // in the score above (context), and a strongly-opposed HTF drags the score toward
+  // WATCHLIST/NO_TRADE on its own. Alignment is never the universal gatekeeper.
+  const zoneLow = dir === "buy" ? f(entry - atr1 * 0.15) : entry;
+  const zoneHigh = dir === "buy" ? entry : f(entry + atr1 * 0.15);
+  const blockers: { key: string; short: string; trigger: Trigger }[] = [];
+  if (!confirmed) blockers.push({
+    key: "confirmation", short: `a ${interval} close ${dir === "buy" ? "up" : "down"} through ${f(entry)} with momentum turning.`,
+    trigger: baseTrig({ state: "DEVELOPING_SETUP", monitorTimeframe: interval,
+      triggerType: dir === "buy" ? "CANDLE_CLOSE_ABOVE" : "CANDLE_CLOSE_BELOW", triggerLevel: f(entry),
+      confirmationRequired: `a ${interval} candle closing ${dir === "buy" ? "back up through" : "back down through"} ${f(entry)} with momentum turning ${dir === "buy" ? "up" : "down"}`,
+      recheckInstruction: `Come back after the next ${interval} candle closes ${dir === "buy" ? "above" : "below"} ${f(entry)}.` }),
+  });
+  if (entryStatus === "approaching" || entryStatus === "far") blockers.push({
+    key: "entry", short: `price retraces into the ${zoneLow}–${zoneHigh} entry zone.`,
+    trigger: baseTrig({ state: "DEVELOPING_SETUP", monitorTimeframe: interval, triggerType: "PRICE_TOUCH",
+      triggerLevel: f(entry), retestZoneLow: zoneLow, retestZoneHigh: zoneHigh,
+      confirmationRequired: `price retraces into the ${zoneLow}–${zoneHigh} entry zone`,
+      recheckInstruction: `Come back if price ${dir === "buy" ? "pulls back down" : "rallies up"} into ${zoneLow}–${zoneHigh}.` }),
+  });
+  if (obstacle != null) blockers.push({
+    key: "clearance", short: `price clears the opposing level at ${obstacle} before TP1.`,
+    trigger: baseTrig({ state: "DEVELOPING_SETUP", triggerType: "LEVEL_CLEAR", triggerLevel: obstacle,
+      confirmationRequired: `price clears ${obstacle} (opposing structure between entry and TP1)`,
+      recheckInstruction: `Come back once price ${dir === "buy" ? "breaks and holds above" : "breaks and holds below"} ${obstacle}.` }),
+  });
+  if (rr1 < profileFloor) blockers.push({
+    key: "rr", short: `a deeper ${dir === "buy" ? "pullback" : "rally"} improves reward:risk (now ${rr1.toFixed(1)}R, need ${profileFloor}R).`,
+    trigger: baseTrig({ state: "DEVELOPING_SETUP", triggerType: "BETTER_LOCATION", triggerLevel: f(entry),
+      confirmationRequired: `a deeper ${dir === "buy" ? "pullback" : "rally"} that puts entry ≥${profileFloor}R from ${targets[0]}`,
+      recheckInstruction: `Come back on a deeper ${dir === "buy" ? "dip" : "bounce"} — the nearest objective is only ${rr1.toFixed(1)}R (need ${profileFloor}R).` }),
+  });
 
-  const setup = {
-    status: "qualified_setup" as const,
-    instrument: td,
-    market_category: spec.cat,
-    timestamp: new Date(nowMs).toISOString(),
-    data_provider: "Twelve Data",
-    data_age_seconds: Number.isFinite(lastTs) ? Math.round((nowMs - lastTs) / 1000) : null,
-    market_status: marketClosed ? "closed" : "open",
-    direction: dir,
-    order_type: orderType,
-    entry: { price: entry, zone_low: dir === "buy" ? f(entry - atr1 * 0.15) : entry, zone_high: dir === "buy" ? entry : f(entry + atr1 * 0.15) },
-    stop_loss: { price: stop, reason: invalidation },
-    take_profits: targets.map((p, i) => ({
-      label: `TP${i + 1}`, price: p, risk_reward: +(Math.abs(p - entry) / risk).toFixed(2),
-      reason: i === 0 ? "Nearest structural objective (range / prev-day level / swing)" : `Extension at ${(Math.abs(p - entry) / risk).toFixed(1)}R`,
-      suggested_close_percent: i === 0 ? 50 : i === 1 ? 30 : 20,
-    })),
-    market_regime: regime,
-    spark: closes1.slice(-24),
-    candles: candleOut,
-    mtf: mtf.byTf, mtf_label: mtf.label, strategy_version: "v2-mtf-closedbar",
-    mode: tradeMode,
-    grade: gateDecision.grade,
-    gate_score: gateDecision.score,
-    gate_reasons: gateDecision.reasons,
-    momentum_rating: gateDecision.momentumRating,
-    trend_rating: gateDecision.trendRating,
-    strategy,
-    timeframes: ["1day", "1h", "15min", "5min"],
-    session,
-    setup_expiration: expiresAt,
-    invalidation,
-    news_risk: news,
-    scores,
-    confidence,
-    position_sizing: { account_balance: balance, risk_percent: riskPct, risk_amount: +riskAmount.toFixed(2), position_size: +posSize.toFixed(spec.lotStep < 1 ? 2 : 0), unit: spec.unit, pip_value_per_lot: +pipValue.toFixed(2), stop_pips: +stopPips.toFixed(1) },
-    reasoning: [] as string[],
-    risk_warnings: riskWarnings,
-    educational_disclaimer: "Educational market analysis and paper-trading decision support only — not financial advice, and not a prediction. Trading CFDs, forex, indices and commodities carries substantial risk; you may lose some or all of your capital. There is no guarantee a target is reached before the stop.",
+  // ── Decide the standardized state (single authority: the score + outstanding triggers) ──
+  let state: State;
+  if (overall >= band.ready && blockers.length === 0) state = "TRADE_READY";
+  else if (overall >= band.develop && blockers.length >= 1) state = "DEVELOPING_SETUP";
+  else if (overall >= band.watch) state = "WATCHLIST";
+  else state = "NO_TRADE";
+
+  const confBreak = {
+    data: Math.max(0, dqScore),
+    directional: Math.round((scores.regime + scores.alignment) / 2),
+    entry: Math.round((scores.entry + scores.confirmation) / 2),
+    risk: Math.round((scores.risk_reward + Math.max(0, 100 - (stopAtr / CFG.maxStopAtr) * 100)) / 2),
+    overall,
   };
 
-  // ── Claude: plain-English narrative ONLY (numbers are locked) ───────────────
-  setup.reasoning = await narrate(setup, aiKey).catch(() => deterministicReasoning(setup));
+  // Diagnostics (observability — never exposes secrets/prompts).
+  const diagnostics = {
+    tool: "market-command", asset: td, resolved_symbol: resolveTd(td).fetchTd,
+    timeframes: ["1day", "1h", "30min", "15min", "5min"], last_candle: dataClose,
+    regime, session, mtf: mtf.label, scores, penalties: { obstacle: obstacle != null ? 6 : 0, learned: learned.penalty || 0 },
+    blockers: blockers.map((b) => b.key), entry_status: entryStatus, band: { ready: band.ready, develop: band.develop, watch: band.watch },
+    state, strategy, rr1: +rr1.toFixed(2),
+  };
 
-  await chargeCredit("command");
-  // Universal outcome logging (fire-and-safe: never blocks or breaks the signal).
-  await logSignal({
-    engine: "command", userId: loggedUserId, instrument: td, symbol: td, style: "intraday",
-    method: strategy, direction: dir, orderType, entry, stop, tps: targets,
-    confidence, score: scores.overall, regime, session, atr: atr1, priceAtIssue: px, interval: "15min",
-    meta: {
-      version: "v2-mtf-closedbar", mtf: mtf.byTf, mtf_dir: mtf.dir,
-      scores, news_level: news?.level ?? null, grade: gateDecision.grade, gate_score: gateDecision.score, mode: tradeMode,
-      penalty_applied: learned.penalty, penalty_reasons: learned.reasons,
-      ctx: { mode: tradeMode, setup: strategy, htf_align: htfAlignC, momentum: cs.momentumScore, trend: trendStrengthScore, had_sweep: true, bos: bosC, pullback: cs.pullbackComplete, session_score: scores.session, vol_score: scores.volatility },
-    },
+  const ttlMin = CFG.setupTtlMin[interval] ?? 120;
+
+  // ── TRADE READY ────────────────────────────────────────────────────────────
+  if (state === "TRADE_READY") {
+    const expiresAt = new Date(nowMs + ttlMin * 60000).toISOString();
+    const confidence = overall >= 82 ? "High" : overall >= 74 ? "Medium" : "Qualified";
+    const grade = overall >= 85 ? "A+" : overall >= 78 ? "A" : "B+";
+    const readyTrig = baseTrig({ state: "TRADE_READY", triggerType: "ENTRY_AVAILABLE", triggerLevel: entry,
+      retestZoneLow: zoneLow, retestZoneHigh: zoneHigh, confirmationRequired: "confirmed — entry is live",
+      recheckInstruction: `Entry available now at ${entry}. Stop ${f(stop)}; TP1 ${targets[0]} (${rr1.toFixed(1)}R). Reanalyze if price moves before you act.` });
+    const setup = {
+      status: "qualified_setup" as const, state: "TRADE_READY" as const,
+      instrument: td, market_category: spec.cat, timestamp: genAt, data_provider: "Twelve Data",
+      data_age_seconds: Number.isFinite(lastTs) ? Math.round((nowMs - lastTs) / 1000) : null,
+      market_status: marketClosed ? "closed" : "open",
+      direction: dir, order_type: orderType,
+      entry: { price: entry, zone_low: zoneLow, zone_high: zoneHigh }, stop_loss: { price: f(stop), reason: invalidation },
+      take_profits: tpMeta.map((t, i) => ({
+        label: `TP${i + 1}`, price: t.price, risk_reward: +(Math.abs(t.price - entry) / risk).toFixed(2),
+        structural: t.structural,
+        reason: t.structural ? "Structural objective (range / prev-day level / swing)" : `Measured ${(Math.abs(t.price - entry) / risk).toFixed(1)}R extension (no nearer structural level)`,
+        suggested_close_percent: i === 0 ? 50 : i === 1 ? 30 : 20,
+      })),
+      market_regime: regime, spark: closes1.slice(-24), candles: candleOut,
+      mtf: mtf.byTf, mtf_label: mtf.label, strategy_version: STRAT_VERSION, mode: tradeMode,
+      grade, entry_status: entryStatus, trigger: readyTrig,
+      what_next: [`Entry available at ${entry}; stop ${f(stop)}; first target ${targets[0]} (${rr1.toFixed(1)}R).`, `Size to your risk % — never widen the stop to stay in the trade.`, `Reanalyze if price runs before you enter — the setup is recomputed on fresh candles.`],
+      strategy, timeframes: ["1day", "1h", "15min", "5min"], session, setup_expiration: expiresAt, invalidation,
+      news_status: newsInfo.status, news_warning: newsInfo.warning, news_check_currencies: newsInfo.currencies, news_check_note: newsInfo.note,
+      scores, confidence, confidence_breakdown: confBreak,
+      position_sizing: { account_balance: balance, risk_percent: riskPct, risk_amount: +riskAmount.toFixed(2), position_size: +posSize.toFixed(spec.lotStep < 1 ? 2 : 0), unit: spec.unit, pip_value_per_lot: +pipValue.toFixed(2), stop_pips: +stopPips.toFixed(1) },
+      reasoning: [] as string[], risk_warnings: riskWarnings, diagnostics,
+      educational_disclaimer: "Educational market analysis and paper-trading decision support only — not financial advice, and not a prediction. Trading carries substantial risk; you may lose some or all of your capital. There is no guarantee a target is reached before the stop.",
+    };
+    setup.reasoning = await narrate(setup, aiKey).catch(() => deterministicReasoning(setup));
+    await chargeCredit("command");
+    await logSignal({
+      engine: "command", userId: loggedUserId, instrument: td, symbol: td, style: "intraday",
+      method: strategy, direction: dir, orderType, entry, stop, tps: targets,
+      confidence, score: overall, regime, session, atr: atr1, priceAtIssue: px, interval: "15min",
+      meta: { version: STRAT_VERSION, mtf: mtf.byTf, mtf_dir: mtf.dir, scores, news_level: null, grade, mode: tradeMode, penalty_applied: learned.penalty, penalty_reasons: learned.reasons,
+        ctx: { mode: tradeMode, setup: strategy, htf_align: mtfAligned ? "with" : (mtf.dir == null ? "range" : "against"), momentum: cs.momentumScore, trend: Math.round(Math.max(0, Math.min(100, adxV * 2.5))), had_sweep: true, bos: (dir === "buy" && trendUp) || (dir === "sell" && trendDn), pullback: cs.pullbackComplete, session_score: scores.session, vol_score: scores.volatility } },
+    });
+    return json(setup, 200);
+  }
+
+  // ── DEVELOPING / WATCHLIST / NO TRADE (with a measurable trigger + provisional levels) ──
+  const primary = blockers[0]?.trigger ?? baseTrig({ state, recheckInstruction: "Press Analyze again to recompute on fresh candles." });
+  primary.state = state;
+  const provisional = {
+    direction: dir, strategy, order_type: orderType,
+    entry: { price: entry, zone_low: zoneLow, zone_high: zoneHigh }, stop_loss: { price: f(stop), reason: invalidation },
+    take_profits: tpMeta.map((t, i) => ({ label: `TP${i + 1}`, price: t.price, structural: t.structural, risk_reward: +(Math.abs(t.price - entry) / risk).toFixed(2) })),
+    risk_reward_tp1: +rr1.toFixed(2), entry_status: entryStatus,
+  };
+  const headlineMap: Record<string, string> = {
+    DEVELOPING_SETUP: `DEVELOPING — ${strategy}`,
+    WATCHLIST: `WATCHLIST — ${dir === "buy" ? "bullish" : "bearish"} bias`,
+    NO_TRADE: `NO TRADE — ${regime}`,
+  };
+  const whatNext = [
+    ...(blockers.length ? blockers.map((b, i) => `${i === 0 ? "First: " : "Then: "}${b.short}`) : [`No qualifying trigger is close; watch ${levels.support} (support) and ${levels.resistance} (resistance).`]),
+    `Invalidation: a close ${dir === "buy" ? "below" : "above"} ${f(stop)}.`,
+    `Press Analyze again to recompute on fresh candles.`,
+  ];
+  const reason = state === "DEVELOPING_SETUP"
+    ? `A ${dir === "buy" ? "long" : "short"} ${strategy} is forming (score ${overall}/100), but ${blockers.length} condition${blockers.length > 1 ? "s" : ""} must confirm first — starting with: ${blockers[0].short}`
+    : state === "WATCHLIST"
+    ? `${td} has a ${dir === "buy" ? "bullish" : "bearish"} lean (score ${overall}/100) but price is too far from a valid entry. Watching ${levels.support}–${levels.resistance}.`
+    : `${td} scored ${overall}/100 — below the ${band.watch} watchlist floor. The lean is ${dir.toUpperCase()} but confluence is too thin for an edge right now.`;
+  // ── Actionable future SETUP ZONE (never "wait/check later") ──
+  // A deterministic Fibonacci-continuation zone from the last 1H impulse leg,
+  // overlapping structure. This is the "best developing idea" the trader should
+  // watch even when nothing is ready now.
+  const legHi = piv.sh.length ? piv.sh[piv.sh.length - 1].p : rangeHi;
+  const legLo = piv.sl.length ? piv.sl[piv.sl.length - 1].p : rangeLo;
+  const legRange = Math.abs(legHi - legLo) || atr1;
+  const fibA = dir === "buy" ? legHi - 0.618 * legRange : legLo + 0.618 * legRange;
+  const fibB = dir === "buy" ? legHi - 0.786 * legRange : legLo + 0.786 * legRange;
+  const zLow = f(Math.min(fibA, fibB)), zHigh = f(Math.max(fibA, fibB));
+  const overlapLevel = dir === "buy" ? levels.support : levels.resistance;
+  const setup_zone = {
+    direction: dir === "buy" ? "BUY" : "SELL", setup_type: strategy,
+    zone_low: zLow, zone_high: zHigh,
+    zone_source: `61.8%–78.6% Fibonacci retracement of the last 1H ${dir === "buy" ? "up" : "down"}-impulse (${f(legLo)}→${f(legHi)})`,
+    setup_timeframe: `1H context → ${interval} trigger`,
+    why: [
+      `${dir === "buy" ? "Discount" : "Premium"} pullback into the 61.8–78.6% Fib zone of the latest impulse`,
+      `Overlaps ${dir === "buy" ? "support" : "resistance"} near ${overlapLevel}`,
+      obstacle == null ? `Clean room toward the first objective ${targets[0]}` : `First objective ${targets[0]} (an opposing level at ${obstacle} sits en route)`,
+    ],
+    what_price_must_do: [
+      `Trade into ${zLow}–${zHigh}`,
+      `Form a ${interval === "5min" ? "5-minute" : interval} ${dir === "buy" ? "bullish" : "bearish"} rejection inside the zone`,
+      `Close back ${dir === "buy" ? "above" : "below"} ${dir === "buy" ? zHigh : zLow}`,
+      `Then print a ${dir === "buy" ? "higher high" : "lower low"} to confirm continuation`,
+    ],
+    confirmation: `${interval} ${dir === "buy" ? "bullish" : "bearish"} rejection + close ${dir === "buy" ? "above" : "below"} ${dir === "buy" ? zHigh : zLow}`,
+    invalidation: `A close ${dir === "buy" ? "below" : "above"} ${f(stop)}`,
+    first_target: targets[0], second_target: targets[1] ?? null,
+    cancels: `A decisive close ${dir === "buy" ? "below" : "above"} ${f(stop)} (structure break against the idea)`,
+  };
+  // Proximity: how close price is to the actionable zone.
+  const insideZone = px >= zLow && px <= zHigh;
+  const distToZone = insideZone ? 0 : (px < zLow ? zLow - px : px - zHigh);
+  const distAtr = atr1 ? distToZone / atr1 : 0;
+  const candlesAway = atr1 ? distToZone / atr1 : 0;
+  const proximityStatus = insideZone && confirmed ? "Confirmation Pending"
+    : insideZone ? "Inside Setup Zone"
+    : distAtr <= 1.5 ? "Approaching Setup Zone"
+    : distAtr > 3 ? "Setup Too Far Away" : "Approaching Setup Zone";
+  const proximity = {
+    status: proximityStatus, current_price: f(px), zone_low: zLow, zone_high: zHigh,
+    distance: +distToZone.toFixed(dec), distance_atr: +distAtr.toFixed(2), candles_away: +candlesAway.toFixed(1),
+    reachable_this_session: distAtr <= 4 && session !== "Off-session",
+    note: `≈ ${distAtr.toFixed(2)}× ATR from the zone (~${candlesAway.toFixed(1)} average candles). Estimated review window is an estimate only, not a promise.`,
+  };
+  const alternative_scenario = {
+    direction: dir === "buy" ? "SELL" : "BUY",
+    trigger: `A close ${dir === "buy" ? "below" : "above"} ${f(stop)} then a retest of it from the ${dir === "buy" ? "underside" : "topside"}`,
+    activation_zone: `${f(stop)} area (broken ${dir === "buy" ? "support → resistance" : "resistance → support"})`,
+    invalidates_current: `${dir === "buy" ? "Below" : "Above"} ${f(stop)}, the ${gDir} idea is cancelled`,
+  };
+  const current_bias = `${dir === "buy" ? "Bullish" : "Bearish"} while ${dir === "buy" ? "above" : "below"} ${f(stop)}`;
+
+  if (state === "DEVELOPING_SETUP") await chargeCredit("command");   // actionable → charge; WATCHLIST/NO_TRADE are free
+  return stateJson(state, td, spec, {
+    headline: headlineMap[state], direction: dir, current_bias, strategy, reason, trigger: primary, what_next: whatNext,
+    levels, provisional_trade: state === "NO_TRADE" ? null : provisional,
+    setup_zone, proximity, alternative_scenario,
+    regime, session, candles: candleOut, mtf: mtf.byTf, scores, confidence: confBreak, risk_warnings: riskWarnings,
+    reasoning: [`Regime "${regime}" on the 1H; nearest strategy: ${strategy} (score ${overall}/100).`, `Setup zone ${zLow}–${zHigh} (${proximityStatus}); entry ${entryStatus}.`],
   });
-  return json(setup, 200);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -527,28 +770,6 @@ function isClosed(cat: Cat, now: Date): boolean {
   // index / stock — rough US cash session 13:30–20:00 UTC weekdays.
   const mins = hr * 60 + now.getUTCMinutes();
   return dow === 0 || dow === 6 || mins < 13 * 60 + 30 || mins >= 20 * 60;
-}
-
-function noTrade(td: string, spec: Spec, headline: string, reason: string, dqScore: number, extra?: { regime?: string; session?: string; scores?: unknown; mode?: string; candles?: { t: string; o: number; h: number; l: number; c: number }[]; mtf?: { tf: string; trend: string }[] }) {
-  return json({
-    status: "no_trade",
-    instrument: td,
-    market_category: spec.cat,
-    timestamp: new Date().toISOString(),
-    data_provider: "Twelve Data",
-    mode: extra?.mode ?? "institutional",
-    candles: extra?.candles ?? [],
-    mtf: extra?.mtf ?? [],
-    strategy_version: "v2-mtf-closedbar",
-    headline,
-    reason,
-    recheck: "Re-run after conditions change — a cleaner regime, tighter structure, or a better reward-to-risk.",
-    market_regime: extra?.regime ?? "unavailable",
-    session: extra?.session ?? "",
-    scores: extra?.scores ?? { data_quality: Math.max(0, dqScore) },
-    educational_disclaimer: "Educational market analysis only — not financial advice. NO TRADE is a feature: the engine returns it whenever conditions don't meet the qualification threshold.",
-  }, 200);
-  // aiKey intentionally unused for NO TRADE — the reason is fully deterministic.
 }
 
 function deterministicReasoning(s: Record<string, unknown>): string[] {
