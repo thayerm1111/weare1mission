@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<meta name="theme-color" content="#0a0b10"/>
+<meta name="theme-color" content="#060912"/>
 <meta name="robots" content="noindex"/>
 <title>One Mission — Trade Desk (preview)</title>
 <style>:root{
@@ -190,6 +190,63 @@ input{font:inherit}
 .creed b{display:block;font-size:13px;letter-spacing:.02em;color:#dbe4f6}
 .creed span{display:block;font-size:10px;color:var(--faint);margin-top:4px;letter-spacing:.05em}
 
+/* bottom nav + screens */
+.shell{padding-bottom:76px}
+.bnav{position:fixed;left:0;right:0;bottom:0;max-width:600px;margin:0 auto;display:flex;
+  background:rgba(8,12,24,.92);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
+.bn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;color:var(--faint)}
+.bn-i{font-size:17px;line-height:1}
+.bn-l{font-size:10px;font-weight:700;letter-spacing:.03em}
+.bn.on{color:var(--sky)}
+.bn.on .bn-i{text-shadow:0 0 12px rgba(57,198,255,.5)}
+.scr{padding:6px 2px 8px}
+.scr-h{font-size:20px;font-weight:800;letter-spacing:.01em;padding:4px 4px 2px}
+.scr-sub{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:20px 4px 10px}
+.scr-blurb{color:var(--muted);font-size:13px;padding:2px 4px 14px}
+.load{color:var(--faint);font-size:13px;text-align:center;padding:22px}
+
+/* chat */
+.chat{display:flex;flex-direction:column;gap:9px;padding:8px 2px 12px;min-height:50vh}
+.bub{max-width:84%;padding:10px 13px;border-radius:14px;font-size:14px;line-height:1.5;white-space:pre-wrap}
+.bub.ai{align-self:flex-start;background:var(--panel2);border:1px solid var(--line);border-bottom-left-radius:4px}
+.bub.me{align-self:flex-end;background:linear-gradient(180deg,rgba(57,198,255,.2),rgba(57,198,255,.1));border:1px solid rgba(57,198,255,.3);border-bottom-right-radius:4px}
+.chatbar{position:sticky;bottom:0;display:flex;gap:8px;padding:8px 0}
+.send{flex:0 0 auto;padding:0 18px;border-radius:12px;font-weight:800;color:#04121f;background:linear-gradient(180deg,#65d6ff,#2eb8ef)}
+.send:disabled{opacity:.6}
+
+/* charts / upload */
+.upl{display:flex;align-items:center;justify-content:center;min-height:120px;border:1px dashed var(--line);border-radius:14px;background:var(--bg2);color:var(--muted);font-size:14px;margin-bottom:10px;cursor:pointer;overflow:hidden}
+.uplimg{width:100%;border-radius:12px;display:block}
+.verdict{margin-top:12px;padding:9px 12px;border-radius:10px;font-size:13px;font-weight:700}
+.v-agree{color:var(--green);background:rgba(46,232,143,.1);border:1px solid var(--greenglow)}
+.v-disagree{color:var(--red);background:rgba(255,93,108,.1);border:1px solid rgba(255,93,108,.4)}
+.v-partial{color:var(--amber);background:rgba(255,194,75,.1);border:1px solid rgba(255,194,75,.4)}
+
+/* weekly */
+.wknote{font-size:13px;color:var(--muted);border-left:2px solid var(--sky);padding:2px 0 2px 12px;margin:4px 4px 12px}
+.wk{border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:11px;background:linear-gradient(180deg,var(--panel),var(--bg2))}
+.wk-t{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.wk-tk{font-size:18px;font-weight:800}
+.wk-nm{font-size:12px;color:var(--muted)}
+.wk-cv{margin-left:auto;font-size:10px;font-weight:800;padding:3px 9px;border-radius:999px;text-transform:uppercase}
+.wk-cv.high{color:var(--green);background:rgba(46,232,143,.12)} .wk-cv.medium{color:var(--amber);background:rgba(255,194,75,.12)} .wk-cv.low{color:var(--slate);background:rgba(127,141,176,.12)}
+.wk-th{font-size:13.5px;line-height:1.5;color:#dbe4f6;margin:9px 0}
+.wk-kv{display:flex;justify-content:space-between;font-size:13px;padding:3px 0}
+.wk-kv span{color:var(--muted)} .wk-kv b{color:var(--green);font-weight:700}
+.wk-risk{font-size:12px;color:var(--faint);margin-top:7px}
+
+/* account */
+.acct{border:1px solid var(--line);border-radius:14px;padding:6px 14px;background:var(--panel);margin-bottom:12px}
+.acct-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(120,160,220,.07);font-size:14px}
+.acct-row:last-child{border-bottom:none}
+.acct-row span{color:var(--muted)} .acct-row b{font-weight:700}
+.acct-row.big b{font-size:22px}
+.cr{color:var(--sky)}
+.jr{display:grid;grid-template-columns:52px 1fr auto auto;gap:8px;align-items:center;padding:9px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:7px;font-size:13px;background:rgba(8,16,32,.5)}
+.jr-d{font-weight:800;font-size:11px} .jr-d.long{color:var(--green)} .jr-d.short{color:var(--red)}
+.jr-s{font-weight:700} .jr-e{color:var(--muted);font-size:12px} .jr-r{color:var(--faint);font-size:11px;text-transform:uppercase}
+.out.big{width:100%;margin-top:18px;padding:13px;border:1px solid var(--line);border-radius:12px;color:var(--muted);font-weight:700}
+
 /* login */
 .login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
 .login-box{width:100%;max-width:360px;text-align:center}
@@ -217,7 +274,7 @@ input{font:inherit}
 (function () {
   "use strict";
   var h = preact.h, render = preact.render;
-  var useState = preactHooks.useState;
+  var useState = preactHooks.useState, useEffect = preactHooks.useEffect, useRef = preactHooks.useRef;
   var html = htm.bind(h);
 
   var SUPABASE_URL = "https://pguzevnkmpwfuzcjbcbx.supabase.co";
@@ -416,6 +473,22 @@ input{font:inherit}
   // ── API ─────────────────────────────────────────────────────────────────
   function getSession() { try { return JSON.parse(localStorage.getItem(TOKKEY) || "null"); } catch (e) { return null; } }
   function setSession(s) { try { s ? localStorage.setItem(TOKKEY, JSON.stringify(s)) : localStorage.removeItem(TOKKEY); } catch (e) {} }
+  // If the member is already signed in via the existing app (supabase-js stores its
+  // session under an "sb-<ref>-auth-token" key), adopt it so the swap doesn't force
+  // a re-login.
+  function adoptLegacySession() {
+    if (getSession()) return;
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && /sb-.*-auth-token/.test(k)) {
+          var raw = JSON.parse(localStorage.getItem(k) || "null");
+          var s = raw && (raw.currentSession || raw);
+          if (s && s.access_token) { setSession({ access_token: s.access_token, refresh_token: s.refresh_token, email: (s.user && s.user.email) || "" }); return; }
+        }
+      }
+    } catch (e) { /* ignore */ }
+  }
   function signIn(email, password) {
     return fetch(SUPABASE_URL + "/auth/v1/token?grant_type=password", { method: "POST", headers: { apikey: SUPABASE_ANON, "Content-Type": "application/json" }, body: JSON.stringify({ email: (email || "").trim(), password: password }) })
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
@@ -436,6 +509,7 @@ input{font:inherit}
     });
     function handle(r) { return r.json().catch(function () { return {}; }).then(function (j) { if (r.status === 402 || (j && j.error === "insufficient_credits")) throw { code: 402, j: j }; if (r.status === 403) throw { code: 403, j: j }; return j; }); }
   }
+  function apiGet(path) { var s = getSession(), o = { credentials: "same-origin", headers: {} }; if (s && s.access_token) o.headers.Authorization = "Bearer " + s.access_token; return fetch(path, o).then(function (r) { return r.json().catch(function () { return {}; }); }); }
 
   // ── tools ─────────────────────────────────────────────────────────────────
   var GHOST_SYMS = ["XAU/USD", "EUR/USD", "GBP/USD", "AUD/USD", "USD/CAD", "USD/JPY"];
@@ -625,6 +699,101 @@ input{font:inherit}
     </div>`;
   }
 
+  // ── secondary screens ───────────────────────────────────────────────────────
+  function ChatScreen(props) {
+    var msgs = useState([{ role: "assistant", content: "I'm OM AI. Ask me anything about a trade, a pair, or the plan you're looking at." }]);
+    var input = useState(""), busy = useState(false); var endRef = useRef(null);
+    function send() {
+      var q = input[0].trim(); if (!q || busy[0]) return;
+      var next = msgs[0].concat([{ role: "user", content: q }]); msgs[1](next); input[1](""); busy[1](true);
+      apiPost("/api/om-ai", { messages: next.map(function (m) { return { role: m.role, content: m.content }; }) }).then(function (d) {
+        if (d && d.notConfigured) { msgs[1](next.concat([{ role: "assistant", content: "The AI isn't connected right now." }])); return; }
+        var reply = (d && (d.reply || d.content)) || (d && d.error ? "Sorry — " + d.error : "…");
+        msgs[1](next.concat([{ role: "assistant", content: String(reply) }]));
+      }).catch(function (e) { if (e && e.code === 402) msgs[1](next.concat([{ role: "assistant", content: "You're out of credits — they reset weekly, or grab more from Account." }])); else if (e && e.code === 401) props.onLogout(); else msgs[1](next.concat([{ role: "assistant", content: "Something went wrong — try again." }])); }).then(function () { busy[1](false); });
+    }
+    useEffect(function () { if (endRef.current) endRef.current.scrollIntoView({ behavior: "smooth" }); });
+    return html`<div class="scr">
+      <div class="scr-h">AI Chat</div>
+      <div class="chat">${msgs[0].map(function (m) { return html`<div class=${"bub " + (m.role === "user" ? "me" : "ai")}>${m.content}</div>`; })}<div ref=${endRef}></div></div>
+      <div class="chatbar">
+        <input class="inp" value=${input[0]} placeholder="Ask OM AI…" onInput=${function (e) { input[1](e.target.value); }} onKeyDown=${function (e) { if (e.key === "Enter") send(); }} />
+        <button class="send" disabled=${busy[0]} onClick=${send}>${busy[0] ? "…" : "Send"}</button>
+      </div>
+    </div>`;
+  }
+  function ChartsScreen(props) {
+    var img = useState(null), sym = useState("XAU/USD"), notes = useState(""), busy = useState(false), err = useState(""), res = useState(null);
+    function pick(e) { var f = e.target.files && e.target.files[0]; if (!f) return; var r = new FileReader(); r.onload = function () { img[1](String(r.result)); res[1](null); }; r.readAsDataURL(f); }
+    function run() {
+      if (!img[0] || busy[0]) return; busy[1](true); err[1](""); res[1](null);
+      apiPost("/api/chart-read", { image: img[0], symbol: sym[0], notes: notes[0] }).then(function (d) {
+        if (!d || d.error) { if (d && d.notConfigured) return err[1]("The AI isn't connected yet."); return err[1]((d && (d.reason || d.detail)) || "Couldn't read that chart — try a clearer screenshot."); }
+        res[1](d.read || d);
+      }).catch(function (e2) { if (e2 && e2.code === 402) err[1]("You're out of credits — grab more from Account."); else if (e2 && e2.code === 401) props.onLogout(); else err[1]("Something went wrong — try again."); }).then(function () { busy[1](false); });
+    }
+    var r = res[0];
+    return html`<div class="scr">
+      <div class="scr-h">Chart Read</div>
+      <p class="scr-blurb">Snap or upload a chart and OM AI will give you its read — agree/disagree, bias, levels, and what to watch.</p>
+      <label class="upl">${img[0] ? html`<img src=${img[0]} class="uplimg"/>` : html`<span>＋ Tap to add a chart image</span>`}<input type="file" accept="image/*" onChange=${pick} hidden /></label>
+      <input class="inp" value=${sym[0]} onInput=${function (e) { sym[1](e.target.value.toUpperCase()); }} placeholder="Pair (e.g. XAU/USD)" />
+      <input class="inp" value=${notes[0]} onInput=${function (e) { notes[1](e.target.value); }} placeholder="Your read / notes (optional)" />
+      <button class="run" disabled=${busy[0] || !img[0]} onClick=${run}>${busy[0] ? "Reading…" : "Read this chart"}</button>
+      ${err[0] ? html`<div class="err">${err[0]}</div>` : null}
+      ${r ? html`<div class="sig">
+        <div class="sig-hd"><div class="sig-hd-l"><div><div class="sig-sym">${(sym[0] || "").replace("/", "")}</div><div class="sig-tags"><span>CHART READ</span></div></div></div>
+        <div class="sig-hd-r">${r.bias ? html`<span class=${"dirpill " + (normDir(r.bias) === "LONG" ? "long" : normDir(r.bias) === "SHORT" ? "short" : "flat")}>${r.bias}</span>` : null}</div></div>
+        ${r.verdict ? html`<div class=${"verdict v-" + r.verdict}>Your read: ${r.verdict === "agree" ? "✓ Agree" : r.verdict === "disagree" ? "✗ Disagree" : "~ Partly agree"}</div>` : null}
+        ${r.pairRead ? html`<${Section} title="OM AI's read"><p class="rz">${r.pairRead}</p></${Section}>` : null}
+        ${Array.isArray(r.watch) && r.watch.length ? html`<${Section} title="What to watch"><ul class="next">${r.watch.map(function (w) { return html`<li>${w}</li>`; })}</ul></${Section}>` : null}
+      </div>` : null}
+    </div>`;
+  }
+  function WeeklyScreen(props) {
+    var busy = useState(true), err = useState(""), data = useState(null);
+    useEffect(function () {
+      apiGet("/api/om-weekly").then(function (d) {
+        if (!d || d.error) { err[1]((d && d.detail) || "This week's plays will load shortly."); return; }
+        data[1](d);
+      }).catch(function () { err[1]("Couldn't load the weekly brief."); }).then(function () { busy[1](false); });
+    }, []);
+    return html`<div class="scr">
+      <div class="scr-h">Weekly Plays</div>
+      <p class="scr-blurb">Longer-horizon buy-&-hold ideas for the community — educational, not financial advice.</p>
+      ${busy[0] ? html`<div class="load">Loading this week's plays…</div>` : null}
+      ${err[0] ? html`<div class="err">${err[0]}</div>` : null}
+      ${data[0] && data[0].note ? html`<div class="wknote">${data[0].note}</div>` : null}
+      ${data[0] && arr(data[0].plays).map(function (p) { return html`<div class="wk">
+        <div class="wk-t"><span class="wk-tk">${p.ticker}</span><span class="wk-nm">${p.name} · ${p.type}</span>${p.conviction ? html`<span class=${"wk-cv " + String(p.conviction).toLowerCase()}>${p.conviction}</span>` : null}</div>
+        <p class="wk-th">${p.thesis}</p>
+        <div class="wk-kv"><span>Buy zone</span><b>${p.buyZone}</b></div>
+        ${p.horizon ? html`<div class="wk-kv"><span>Horizon</span><b>${p.horizon}</b></div>` : null}
+        ${p.risk ? html`<div class="wk-risk">Risk: ${p.risk}</div>` : null}
+      </div>`; })}
+    </div>`;
+  }
+  function AccountScreen(props) {
+    var me = useState(null), trades = useState(null);
+    useEffect(function () { apiGet("/api/me").then(function (d) { me[1](d || {}); }).catch(function () { me[1]({}); }); apiGet("/api/xaughost/trades").then(function (d) { trades[1](arr(d && d.trades)); }).catch(function () { trades[1]([]); }); }, []);
+    var m = me[0];
+    return html`<div class="scr">
+      <div class="scr-h">Account</div>
+      ${m ? html`<div class="acct">
+        <div class="acct-row"><span>Member</span><b>${m.name || m.email || "—"}</b></div>
+        <div class="acct-row"><span>Email</span><b>${m.email || "—"}</b></div>
+        ${m.membership ? html`<div class="acct-row"><span>Plan</span><b>${m.membership}</b></div>` : null}
+        <div class="acct-row big"><span>Credits</span><b class="cr">${m.credits != null ? m.credits : "—"}</b></div>
+      </div>` : html`<div class="load">Loading…</div>`}
+      <button class="run" onClick=${function () { try { window.open("/portal/credits", "_blank"); } catch (e) {} }}>Get more credits</button>
+      <div class="scr-sub">Your trade journal</div>
+      ${trades[0] == null ? html`<div class="load">Loading…</div>` : (trades[0].length ? trades[0].slice(0, 20).map(function (t) {
+      return html`<div class="jr"><span class=${"jr-d " + (String(t.direction).toUpperCase() === "LONG" || String(t.direction).toUpperCase() === "BUY" ? "long" : "short")}>${t.direction || ""}</span><span class="jr-s">${t.symbol || t.td || ""}</span><span class="jr-e">${t.entry != null ? "@ " + t.entry : ""}</span><span class="jr-r">${t.status || t.result || ""}</span></div>`;
+    }) : html`<div class="load">No journaled trades yet.</div>`)}
+      <button class="out big" onClick=${props.onLogout}>Sign out</button>
+    </div>`;
+  }
+
   // ── runner + shell ─────────────────────────────────────────────────────────
   function ToolRunner(props) {
     var tool = props.tool;
@@ -658,13 +827,29 @@ input{font:inherit}
       ${result[0] && result[0].list ? (result[0].list.length ? result[0].list.map(function (m) { return html`<${TradeCard} m=${m} />`; }) : html`<div class="err">No clean setups right now — check back shortly.</div>`) : null}
     </div>`;
   }
-  function Shell(props) {
+  var NAV = [
+    { id: "signals", label: "Signals", icon: "◈" }, { id: "chat", label: "Chat", icon: "✦" },
+    { id: "charts", label: "Charts", icon: "▤" }, { id: "weekly", label: "Weekly", icon: "❖" }, { id: "you", label: "You", icon: "◉" }
+  ];
+  function SignalsSection(props) {
     var active = useState(TOOLS[0].id), tool = TOOLS.filter(function (t) { return t.id === active[0]; })[0];
-    return html`<div class="shell">
-      <header class="hdr"><div class="brand">OM<span>AI</span> <em>TRADE SIGNAL</em></div><button class="out" onClick=${props.onLogout}>Sign out</button></header>
+    return html`<div>
       <nav class="tabs">${TOOLS.map(function (t) { return html`<button class=${"tab " + (active[0] === t.id ? "on" : "")} onClick=${function () { active[1](t.id); }}><span class="tab-l">${t.label}</span><span class="tab-t">${t.tag}</span></button>`; })}</nav>
-      <main class="main"><${ToolRunner} tool=${tool} onLogout=${props.onLogout} /></main>
-      <footer class="foot">Educational analysis only — not financial advice. You manage your own risk.</footer>
+      <${ToolRunner} tool=${tool} onLogout=${props.onLogout} />
+    </div>`;
+  }
+  function Shell(props) {
+    var sec = useState("signals");
+    return html`<div class="shell">
+      <header class="hdr"><div class="brand">OM<span>AI</span> <em>TRADE SIGNAL</em></div></header>
+      <main class="main">
+        ${sec[0] === "signals" ? html`<${SignalsSection} onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "chat" ? html`<${ChatScreen} onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "charts" ? html`<${ChartsScreen} onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "weekly" ? html`<${WeeklyScreen} onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "you" ? html`<${AccountScreen} onLogout=${props.onLogout} />` : null}
+      </main>
+      <nav class="bnav">${NAV.map(function (n) { return html`<button class=${"bn " + (sec[0] === n.id ? "on" : "")} onClick=${function () { sec[1](n.id); }}><span class="bn-i">${n.icon}</span><span class="bn-l">${n.label}</span></button>`; })}</nav>
     </div>`;
   }
   function Login(props) {
@@ -685,8 +870,10 @@ input{font:inherit}
     var authed = useState(!!(getSession() && getSession().access_token));
     return authed[0] ? html`<${Shell} onLogout=${function () { setSession(null); authed[1](false); }} />` : html`<${Login} onIn=${function () { authed[1](true); }} />`;
   }
+  adoptLegacySession();
   render(html`<${App} />`, document.getElementById("app"));
 })();
 </script>
+
 </body>
 </html>
