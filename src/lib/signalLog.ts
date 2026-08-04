@@ -8,7 +8,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * the user their signal. Rows are graded later by the scheduled resolver.
  */
 export type SignalLogInput = {
-  engine: "plays" | "scanner" | "command" | "ghost";
+  engine: "plays" | "scanner" | "command" | "ghost" | "xghost";
   userId?: string | null;
   instrument: string;              // canonical td, e.g. "XAU/USD", "NAS100"
   symbol?: string;
@@ -27,6 +27,8 @@ export type SignalLogInput = {
   priceAtIssue?: number;
   interval?: string;               // execution timeframe used
   meta?: Record<string, unknown>;
+  expiresAt?: string;              // explicit expiry override (else scaled by style)
+  fingerprint?: string;            // when set, dedups against an open row with the same fp
 };
 
 const normDir = (d: string): string =>
@@ -50,6 +52,17 @@ export async function logSignal(s: SignalLogInput): Promise<void> {
     const tps = (s.tps || []).map(Number).filter((n) => Number.isFinite(n));
     const risk = Math.abs(entry - stop);
     const rrPlanned = risk > 0 && tps[0] != null ? +(Math.abs(tps[0] - entry) / risk).toFixed(2) : null;
+    // Dedup: if this exact setup (by fingerprint) is already logged and still open,
+    // don't record it again — a member re-pressing Analyze must not double-count it.
+    if (s.fingerprint) {
+      const { data: dup } = await admin
+        .from("signal_log").select("id")
+        .eq("engine", s.engine).eq("status", "open")
+        .contains("meta", { fingerprint: s.fingerprint }).limit(1);
+      if (dup && dup.length) return;
+    }
+    const meta = { ...(s.meta ?? {}) } as Record<string, unknown>;
+    if (s.fingerprint) meta.fingerprint = s.fingerprint;
     await admin.from("signal_log").insert({
       engine: s.engine,
       user_id: s.userId ?? null,
@@ -72,8 +85,8 @@ export async function logSignal(s: SignalLogInput): Promise<void> {
       price_at_issue: Number.isFinite(Number(s.priceAtIssue)) ? Number(s.priceAtIssue) : null,
       interval: s.interval ?? null,
       rr_planned: rrPlanned,
-      expires_at: expiryForStyle(s.style),
-      meta: s.meta ?? {},
+      expires_at: s.expiresAt ?? expiryForStyle(s.style),
+      meta,
     });
   } catch {
     // Swallow everything — logging must never break signal generation.
