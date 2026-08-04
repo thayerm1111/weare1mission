@@ -86,7 +86,7 @@ export type DxyRead = {
   state: "Strong bullish" | "Moderate bullish" | "Neutral" | "Moderate bearish" | "Strong bearish" | "Conflicting / transitioning";
   score: number;            // -100 (strong USD down) .. +100 (strong USD up)
   byTf: { tf: string; dir: string }[];
-  source: "native" | "proxy";
+  source: "native" | "free" | "proxy";
 };
 
 export type XCandidate = {
