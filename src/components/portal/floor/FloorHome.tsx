@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Zap, Activity, Radio, ChevronRight, TrendingUp, TrendingDown } from "lucide-react";
+import { Zap, Activity, Radio, ChevronRight, TrendingUp, TrendingDown, Ghost } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { LIVE_URL, CALLS } from "@/lib/liveCalls";
 
@@ -149,7 +149,8 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
         </div>
 
         {/* Quick jump */}
-        <div className="grid grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          <JumpCard onClick={() => onGo("xghost")} icon={Ghost} label="xGhost" sub="5-pair AI scanner" />
           <JumpCard onClick={() => onGo("room")} icon={Radio} label="The Room" sub="Live calls" />
           <JumpCard onClick={() => onGo("plays")} icon={Zap} label="Live Plays" sub="Plays of the week" />
           <JumpCard onClick={() => onGo("pulse")} icon={Activity} label="Market Pulse" sub="AI scanner" />

@@ -1,16 +1,18 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { LayoutGrid, Radio, Zap, Activity } from "lucide-react";
+import { LayoutGrid, Radio, Zap, Activity, Ghost } from "lucide-react";
 import { FloorHome } from "./FloorHome";
 import { TheRoom } from "./TheRoom";
 import { LivePlays } from "./LivePlays";
 import { MarketPulse } from "./MarketPulse";
+import { XGhost } from "./XGhost";
 
 // Trade Sync (copy-trading) is parked until the trade copier is set up.
 const TABS = [
   { id: "home", label: "Floor", icon: LayoutGrid },
   { id: "room", label: "The Room", icon: Radio },
+  { id: "xghost", label: "xGhost", icon: Ghost },
   { id: "plays", label: "Live Plays", icon: Zap },
   { id: "pulse", label: "Market Pulse", icon: Activity },
 ] as const;
@@ -59,6 +61,7 @@ export function FloorWorkspace({
       <div className="p-2.5 sm:p-3">
         {tab === "home" && <FloorHome onGo={go} />}
         {tab === "room" && <TheRoom />}
+        {tab === "xghost" && <XGhost />}
         {tab === "plays" && <LivePlays isCaller={isCaller} followerCount={followerCount} />}
         {tab === "pulse" && <MarketPulse />}
       </div>
