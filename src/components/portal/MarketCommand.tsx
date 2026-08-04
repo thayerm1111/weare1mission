@@ -42,6 +42,33 @@ type Setup = Record<string, unknown> & {
   take_profits?: TP[]; scores?: Record<string, number>; news_risk?: { level: string; next_event?: string; event_time?: string; note?: string };
   position_sizing?: Record<string, number | string>; reasoning?: string[]; risk_warnings?: string[]; educational_disclaimer?: string; error?: string;
   spark?: number[];
+  // v3 standardized states
+  state?: string; what_next?: string[]; entry_status?: string;
+  levels?: Record<string, number> | null;
+  confidence_breakdown?: Record<string, number>;
+  trigger?: {
+    state?: string; direction?: string | null; strategy?: string; monitorTimeframe?: string; triggerType?: string;
+    triggerLevel?: number | null; retestZoneLow?: number | null; retestZoneHigh?: number | null;
+    confirmationRequired?: string; invalidationLevel?: number | null; expirationCondition?: string; recheckInstruction?: string;
+  } | null;
+  provisional_trade?: {
+    direction?: string; strategy?: string; order_type?: string;
+    entry?: { price: number; zone_low?: number; zone_high?: number }; stop_loss?: { price: number; reason?: string };
+    take_profits?: { label: string; price: number; structural?: boolean; risk_reward?: number }[];
+    risk_reward_tp1?: number; entry_status?: string;
+  } | null;
+  current_bias?: string | null;
+  news_status?: string; news_warning?: string; news_check_currencies?: string[]; news_check_note?: string;
+  setup_zone?: {
+    direction?: string; setup_type?: string; zone_low?: number; zone_high?: number; zone_source?: string;
+    setup_timeframe?: string; why?: string[]; what_price_must_do?: string[]; confirmation?: string;
+    invalidation?: string; first_target?: number; second_target?: number | null; cancels?: string;
+  } | null;
+  proximity?: {
+    status?: string; current_price?: number; zone_low?: number; zone_high?: number;
+    distance?: number; distance_atr?: number; candles_away?: number; reachable_this_session?: boolean; note?: string;
+  } | null;
+  alternative_scenario?: { direction?: string; trigger?: string; activation_zone?: string; invalidates_current?: string } | null;
 };
 type JournalItem = Setup & { id: number };
 // Live "Get update" snapshot for a qualified setup.
@@ -195,8 +222,8 @@ export function MarketCommand() {
                 <button key={j.id} onClick={() => setResult(j)} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-left hover:border-white/25">
                   <span className="flex items-center gap-2 text-sm font-semibold">{j.instrument}
                     {j.status === "qualified_setup"
-                      ? <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${j.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>{j.direction}</span>
-                      : <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold uppercase text-white/50"><Ban className="h-3 w-3" /> no trade</span>}
+                      ? <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${j.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>Ready · {j.direction}</span>
+                      : <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${(STATE_STYLE[j.status] ?? STATE_STYLE.no_trade).cls}`}>{(STATE_STYLE[j.status] ?? STATE_STYLE.no_trade).label}</span>}
                   </span>
                   <span className="text-[10px] text-white/35">{j.scores?.overall != null ? `${j.scores.overall}/100` : ""}</span>
                 </button>
@@ -213,28 +240,164 @@ export function MarketCommand() {
   );
 }
 
-function SetupView({ s, onUpdate, updating, update }: { s: Setup; onUpdate?: () => void; updating?: boolean; update?: TradeUpdate }) {
-  if (s.status === "no_trade") {
-    return (
-      <div className="mt-5 rounded-2xl border border-white/12 bg-white/[0.03] p-5">
+const INFO_STATES = new Set(["no_trade", "developing_setup", "watchlist", "data_unavailable", "insufficient_data"]);
+const STATE_STYLE: Record<string, { label: string; cls: string; Icon: typeof Ban }> = {
+  developing_setup: { label: "DEVELOPING", cls: "bg-amber-400/15 text-amber-300 border-amber-400/40", Icon: Clock },
+  watchlist: { label: "WATCHLIST", cls: "bg-sky-400/15 text-sky-300 border-sky-400/40", Icon: Eye },
+  no_trade: { label: "NO TRADE", cls: "bg-white/10 text-white/70 border-white/20", Icon: Ban },
+  data_unavailable: { label: "DATA ERROR", cls: "bg-red-500/15 text-red-300 border-red-400/40", Icon: AlertTriangle },
+  insufficient_data: { label: "INSUFFICIENT DATA", cls: "bg-red-500/15 text-red-300 border-red-400/40", Icon: AlertTriangle },
+};
+
+function InfoStateView({ s }: { s: Setup }) {
+  const st = STATE_STYLE[s.status] ?? STATE_STYLE.no_trade;
+  const Icon = st.Icon;
+  const t = s.trigger || undefined;
+  const pt = s.provisional_trade || undefined;
+  const lv = s.levels || undefined;
+  const buy = (pt?.direction ?? s.direction) === "buy";
+  return (
+    <div className="mt-5 rounded-2xl border border-white/12 bg-white/[0.03] p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <span className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white/70"><Ban className="h-4 w-4" /></span>
+          <span className={`grid h-9 w-9 place-items-center rounded-full border ${st.cls}`}><Icon className="h-4 w-4" /></span>
           <div>
-            <p className="font-serif text-lg font-bold">{s.instrument} · NO TRADE</p>
+            <p className="font-serif text-lg font-bold">{s.instrument} · {st.label}</p>
             <p className="text-[11px] uppercase tracking-[0.14em] text-white/45">{s.headline}</p>
           </div>
         </div>
-        <p className="mt-3 text-sm leading-relaxed text-white/80">{s.reason}</p>
-        {s.recheck && <p className="mt-2 text-xs text-white/50"><span className="text-white/40">Recheck:</span> {s.recheck}</p>}
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-white/45">
-          {s.market_regime && s.market_regime !== "unavailable" && <span>Regime: <span className="text-white/70">{s.market_regime}</span></span>}
-          {s.session && <span>Session: <span className="text-white/70">{s.session}</span></span>}
-          {s.scores?.data_quality != null && <span>Data quality: <span className="text-white/70">{s.scores.data_quality}/100</span></span>}
-        </div>
-        <p className="mt-3 text-[11px] leading-relaxed text-white/35">{s.educational_disclaimer}</p>
+        {(pt?.direction ?? s.direction) && s.status !== "data_unavailable" && s.status !== "insufficient_data" && (
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${buy ? "text-emerald-400 bg-emerald-500/15" : "text-red-400 bg-red-500/15"}`}>{buy ? "Bias · Long" : "Bias · Short"}</span>
+        )}
       </div>
-    );
-  }
+
+      <p className="mt-3 text-sm leading-relaxed text-white/80">{s.reason}</p>
+
+      {/* WHAT NEEDS TO HAPPEN NEXT — measurable, prominent */}
+      {Array.isArray(s.what_next) && s.what_next.length > 0 && (
+        <div className="mt-4 rounded-xl border border-white/12 bg-white/[0.04] p-4">
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-white/55">What needs to happen next</p>
+          <ul className="mt-2 space-y-1.5">
+            {s.what_next.map((w, i) => (
+              <li key={i} className="flex gap-2 text-sm text-white/80"><span className="text-gold-light">→</span><span>{w}</span></li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Trigger detail */}
+      {t && (t.triggerLevel != null || t.confirmationRequired) && (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {t.monitorTimeframe && <Kv k="Monitor" v={t.monitorTimeframe} />}
+          {t.triggerType && <Kv k="Trigger" v={String(t.triggerType).replace(/_/g, " ").toLowerCase()} />}
+          {t.triggerLevel != null && <Kv k="Level" v={String(t.triggerLevel)} />}
+          {t.retestZoneLow != null && t.retestZoneHigh != null && <Kv k="Retest zone" v={`${t.retestZoneLow}–${t.retestZoneHigh}`} />}
+          {t.invalidationLevel != null && <Kv k="Invalidation" v={String(t.invalidationLevel)} />}
+          {t.expirationCondition && <Kv k="Expires" v={t.expirationCondition} />}
+        </div>
+      )}
+
+      {/* Provisional trade (developing / watchlist) */}
+      {pt && pt.entry && (
+        <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-white/45">Provisional {buy ? "long" : "short"} · pending trigger{pt.entry_status ? ` · entry ${pt.entry_status}` : ""}</p>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-white/70">
+            <span>Entry <b className="text-white/90">{pt.entry.zone_low != null && pt.entry.zone_high != null ? `${pt.entry.zone_low}–${pt.entry.zone_high}` : pt.entry.price}</b></span>
+            {pt.stop_loss && <span>Stop <b className="text-red-300">{pt.stop_loss.price}</b></span>}
+            {(pt.take_profits || []).map((tp) => <span key={tp.label}>{tp.label} <b className="text-emerald-300">{tp.price}</b>{tp.structural === false ? <i className="text-white/35"> (R-based)</i> : null}</span>)}
+            {pt.risk_reward_tp1 != null && <span>R:R <b className="text-white/90">{pt.risk_reward_tp1}</b></span>}
+          </div>
+        </div>
+      )}
+
+      {/* Setup proximity */}
+      {s.proximity?.status && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="rounded-full border border-white/15 bg-white/[0.05] px-2.5 py-1 font-bold uppercase tracking-wide text-white/75">Proximity · {s.proximity.status}</span>
+          {s.proximity.distance_atr != null && <span className="text-white/45">{s.proximity.distance_atr}× ATR away{s.proximity.candles_away != null ? ` · ~${s.proximity.candles_away} candles` : ""}{s.proximity.reachable_this_session === false ? " · unlikely this session" : ""}</span>}
+        </div>
+      )}
+
+      {/* Best potential setup zone */}
+      {s.setup_zone && s.setup_zone.zone_low != null && (
+        <div className="mt-3 rounded-xl border border-gold-light/25 bg-gold-light/[0.05] p-4">
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-gold-light">Best potential setup{s.setup_zone.direction ? ` · ${s.setup_zone.direction}` : ""}</p>
+          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="font-serif text-lg font-bold text-white">{s.setup_zone.zone_low}–{s.setup_zone.zone_high}</span>
+            {s.setup_zone.setup_type && <span className="text-xs text-white/60">{s.setup_zone.setup_type}</span>}
+            {s.setup_zone.setup_timeframe && <span className="text-[11px] text-white/40">{s.setup_zone.setup_timeframe}</span>}
+          </div>
+          {s.setup_zone.zone_source && <p className="mt-1 text-[11px] text-white/50">{s.setup_zone.zone_source}</p>}
+          {Array.isArray(s.setup_zone.why) && s.setup_zone.why.length > 0 && (
+            <ul className="mt-2 space-y-1 text-xs text-white/70">{s.setup_zone.why.map((w, i) => <li key={i} className="flex gap-2"><span className="text-white/30">•</span>{w}</li>)}</ul>
+          )}
+          {Array.isArray(s.setup_zone.what_price_must_do) && s.setup_zone.what_price_must_do.length > 0 && (
+            <div className="mt-2">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-white/40">What price must do</p>
+              <ol className="mt-1 space-y-0.5 text-xs text-white/70">{s.setup_zone.what_price_must_do.map((w, i) => <li key={i}>{i + 1}. {w}</li>)}</ol>
+            </div>
+          )}
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-white/55">
+            {s.setup_zone.confirmation && <span>Confirm: <span className="text-white/75">{s.setup_zone.confirmation}</span></span>}
+            {s.setup_zone.invalidation && <span>Invalidation: <span className="text-red-300">{s.setup_zone.invalidation}</span></span>}
+            {s.setup_zone.first_target != null && <span>Target 1: <span className="text-emerald-300">{s.setup_zone.first_target}</span></span>}
+            {s.setup_zone.second_target != null && <span>Target 2: <span className="text-emerald-300">{s.setup_zone.second_target}</span></span>}
+          </div>
+        </div>
+      )}
+
+      {/* Alternative scenario */}
+      {s.alternative_scenario?.trigger && (
+        <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs text-white/65">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-white/40">Alternative scenario{s.alternative_scenario.direction ? ` · ${s.alternative_scenario.direction}` : ""}</p>
+          <p className="mt-1">{s.alternative_scenario.trigger}</p>
+          {s.alternative_scenario.invalidates_current && <p className="mt-0.5 text-white/45">{s.alternative_scenario.invalidates_current}</p>}
+        </div>
+      )}
+
+      <NewsWarning s={s} />
+
+      {/* Directional levels */}
+      {lv && (
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-white/45">
+          {lv.support != null && <span>Support: <span className="text-white/70">{lv.support}</span></span>}
+          {lv.resistance != null && <span>Resistance: <span className="text-white/70">{lv.resistance}</span></span>}
+          {lv.liquidity_below != null && <span>Liquidity below: <span className="text-white/70">{lv.liquidity_below}</span></span>}
+          {lv.liquidity_above != null && <span>Liquidity above: <span className="text-white/70">{lv.liquidity_above}</span></span>}
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-white/45">
+        {s.current_bias && <span>Bias: <span className="text-white/70">{s.current_bias}</span></span>}
+        {s.market_regime && s.market_regime !== "unavailable" && <span>Regime: <span className="text-white/70">{s.market_regime}</span></span>}
+        {s.session && <span>Session: <span className="text-white/70">{s.session}</span></span>}
+        {typeof s.scores?.overall === "number" && <span>Score: <span className="text-white/70">{s.scores.overall}/100</span></span>}
+        {s.scores?.data_quality != null && <span>Data quality: <span className="text-white/70">{s.scores.data_quality}/100</span></span>}
+      </div>
+      <p className="mt-3 text-[11px] leading-relaxed text-white/35">{s.educational_disclaimer}</p>
+    </div>
+  );
+}
+
+function Kv({ k, v }: { k: string; v: string }) {
+  return <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs"><span className="text-white/40">{k}:</span> <span className="font-semibold text-white/85">{v}</span></div>;
+}
+
+function NewsWarning({ s }: { s: Setup }) {
+  if (!s.news_warning) return null;
+  return (
+    <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/[0.06] p-3">
+      <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-300"><AlertTriangle className="h-3.5 w-3.5" /> News not checked</p>
+      <p className="mt-1 text-xs text-amber-100/80">{s.news_warning}</p>
+      {(!!s.news_check_currencies?.length || s.news_check_note) && (
+        <p className="mt-1 text-[11px] text-amber-100/60">Verify {(s.news_check_currencies || []).join(", ")}{s.news_check_note ? ` — ${s.news_check_note}` : ""}</p>
+      )}
+    </div>
+  );
+}
+
+function SetupView({ s, onUpdate, updating, update }: { s: Setup; onUpdate?: () => void; updating?: boolean; update?: TradeUpdate }) {
+  if (INFO_STATES.has(s.status)) return <InfoStateView s={s} />;
 
   const buy = s.direction === "buy";
   const dirCol = buy ? "text-emerald-400 bg-emerald-500/15" : "text-red-400 bg-red-500/15";
@@ -281,7 +444,7 @@ function SetupView({ s, onUpdate, updating, update }: { s: Setup; onUpdate?: () 
           {s.grade && (
             <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${s.grade === "A+" ? "bg-amber-400/20 text-amber-300 border border-amber-400/40" : "bg-gold-light/15 text-gold-light border border-gold-light/35"}`}>Grade {s.grade}{typeof s.gate_score === "number" ? ` · ${s.gate_score}/100` : ""}</span>
           )}
-          <span className="rounded-full bg-sky-400/15 px-2.5 py-0.5 text-[10px] font-bold uppercase text-sky-300">Qualified · {s.confidence}</span>
+          <span className="rounded-full bg-sky-400/15 px-2.5 py-0.5 text-[10px] font-bold uppercase text-sky-300">Trade Ready · {s.confidence}</span>
         </div>
       </div>
 
@@ -388,6 +551,8 @@ function SetupView({ s, onUpdate, updating, update }: { s: Setup; onUpdate?: () 
           ))}
         </div>
       )}
+
+      <NewsWarning s={s} />
 
       {typeof s.entry?.price === "number" && typeof s.stop_loss?.price === "number" && (s.take_profits || []).length > 0 && (
         <TradeChat trade={{ td: String(s.instrument), symbol: String(s.instrument), interval: "15min", direction: String(s.direction), entry: s.entry.price, stopLoss: s.stop_loss.price, takeProfits: (s.take_profits || []).map((t) => t.price).filter((n) => typeof n === "number"), since: s.timestamp }} />
