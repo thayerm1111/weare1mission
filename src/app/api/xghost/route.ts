@@ -6,6 +6,7 @@ import { closedBars } from "@/lib/mtf";
 import { XPAIRS, XSYMS, analyzePair, sessionOf, XGHOST_VERSION, type PairInput, type XSym } from "@/lib/xghost/engine";
 import { classifyDxy, buildProxyCloses, fetchFreeDxy } from "@/lib/xghost/dxy";
 import { rankAndGuard } from "@/lib/xghost/correlation";
+import { logSignal } from "@/lib/signalLog";
 import type { Row } from "@/lib/marketData";
 
 export const runtime = "nodejs";
@@ -122,6 +123,36 @@ export async function POST(req: NextRequest) {
       const m = raw.match(/\{[\s\S]*\}/);
       if (m && card) { const a = JSON.parse(m[0]); if (typeof a.thesis === "string") card.thesis = a.thesis; if (Array.isArray(a.supporting)) card.supporting = a.supporting.map(String).slice(0, 6); if (Array.isArray(a.conflicting)) card.conflicting = a.conflicting.map(String).slice(0, 4); if (typeof a.watch === "string") card.aiWatch = a.watch; }
     } catch { /* deterministic prose already present */ }
+  }
+
+  // ── Stage 3: paper-log tradeable signals into the universal signal_log so the
+  // scanner's own edge can be measured later. Deduped by fingerprint, so a member
+  // re-pressing Analyze on the same live setup never double-counts it. Fire-and-safe. ──
+  const toLog = [best, second].filter((c) => !!c && (c.execState === "ENTER_NOW" || c.execState === "LIMIT_ENTRY"));
+  for (const c of toLog) {
+    if (!c) continue;
+    const isMarket = c.entryType === "MARKET";
+    const entryRef = isMarket
+      ? (c.price ?? c.entryLow ?? c.entryHigh)
+      : (c.entryLow != null && c.entryHigh != null ? (c.entryLow + c.entryHigh) / 2 : (c.entryLow ?? c.entryHigh ?? c.price));
+    const tpPrices = c.tps.map((t) => t.price).filter((n) => Number.isFinite(n));
+    if (entryRef == null || c.stop == null || !tpPrices.length || !c.direction) continue;
+    await logSignal({
+      engine: "xghost", userId: user?.id ?? null,
+      instrument: c.symbol, symbol: c.symbol, style: "scalp",
+      method: c.family, direction: c.direction, orderType: isMarket ? "market" : "limit",
+      entry: entryRef, stop: c.stop, tps: tpPrices,
+      confidence: c.grade && c.grade !== "NONE" ? c.grade : undefined, score: c.score,
+      regime: c.regime, session: c.session, priceAtIssue: c.price ?? undefined,
+      interval: "5min", fingerprint: c.fingerprint || undefined,
+      expiresAt: c.expiresAtUtc || undefined,
+      meta: {
+        variant: "xghost", family: c.family, grade: c.grade, exec_state: c.execState,
+        rr_main: c.rrMain, rr1: c.rr1, usd_leg: c.usdLeg,
+        dxy_state: dxy.state, dxy_score: dxy.score, dxy_source: dxy.source, dxy_confirm: c.dxyConfirm,
+        strategy_version: XGHOST_VERSION,
+      },
+    });
   }
 
   // Charge only when we produced a real scan (not a fully rate-limited one).
