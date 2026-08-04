@@ -1,0 +1,32 @@
+name: xGhost auto-scan
+
+# Automatic five-pair xGhost scan for continuous performance capture.
+# Runs every 15 minutes on weekdays (forex hours) plus on-demand. The Vercel
+# Hobby plan caps native crons at once-per-day, so this GitHub-hosted schedule
+# is what gives us frequent capture. It just pings the protected endpoint; all
+# the work happens server-side.
+
+on:
+  schedule:
+    - cron: "*/15 * * * 1-5"   # every 15 min, Mon–Fri (UTC)
+  workflow_dispatch: {}         # allow manual runs from the Actions tab
+
+concurrency:
+  group: xghost-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger xGhost scan + resolve
+        env:
+          KEY: ${{ secrets.XGHOST_CRON_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then echo "XGHOST_CRON_KEY secret is not set"; exit 1; fi
+          code=$(curl -sS -o /tmp/out.json -w "%{http_code}" -X POST \
+            "https://weare1mission.com/api/cron/xghost-scan?key=$KEY")
+          echo "HTTP $code"
+          cat /tmp/out.json || true
+          echo ""
+          if [ "$code" != "200" ]; then echo "::error::xGhost scan returned HTTP $code"; exit 1; fi
