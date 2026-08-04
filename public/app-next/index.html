@@ -210,6 +210,20 @@ input{font:inherit}
 
 .news{margin-top:13px;padding:11px 13px;border-radius:12px;font-size:12px;line-height:1.5;border:1px solid rgba(255,194,75,.32);background:rgba(255,194,75,.07);color:#f0dcae}
 .news b{color:var(--amber)}
+/* save trade + per-trade chat */
+.savetrade{width:100%;margin-top:13px;padding:13px;border-radius:12px;font-size:14px;font-weight:800;letter-spacing:.01em;
+  border:1px solid var(--greenglow);color:var(--green);background:rgba(46,232,143,.1)}
+.savetrade.saved{color:#04121f;background:linear-gradient(180deg,#3cf0a0,#22c483);border-color:transparent}
+.savetrade.saving{opacity:.7}
+.savetrade.err{color:var(--red);border-color:rgba(255,93,108,.4);background:rgba(255,93,108,.1)}
+.tchat{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}
+.tchat-t{width:100%;display:flex;align-items:center;justify-content:space-between;padding:12px 13px;border-radius:12px;
+  border:1px solid rgba(57,198,255,.35);background:rgba(57,198,255,.08);color:var(--sky);font-size:13.5px;font-weight:800}
+.tchat-x{font-size:17px}
+.tchat-b{margin-top:11px;display:flex;flex-direction:column;gap:9px}
+.tchat-hint{font-size:12px;color:var(--faint);line-height:1.55;padding:1px 2px 4px}
+.tchat-bar{display:flex;gap:8px;margin-top:2px}
+
 .creed{margin-top:14px;border-top:1px solid var(--line);padding-top:12px;text-align:center}
 .creed b{display:block;font-size:13px;letter-spacing:.02em;color:#dbe4f6}
 .creed span{display:block;font-size:10px;color:var(--faint);margin-top:4px;letter-spacing:.05em}
@@ -672,6 +686,56 @@ input{font:inherit}
     })}</div>`;
   }
 
+  function tradeLevels(m) {
+    var e = m.entry, ep = e ? (e.price != null ? e.price : e.zoneLow) : null;
+    var tps = (m.targets || []).map(function (t) { return t.price; }).filter(function (n) { return typeof n === "number" && isFinite(n); });
+    return { ep: ep, stop: m.stop, tps: tps, ok: ep != null && m.stop != null && tps.length > 0 };
+  }
+  // "I took this trade" → save to the member's journal (You → journal).
+  function SaveTrade(props) {
+    var m = props.m, st = useState("idle");
+    var lv = tradeLevels(m);
+    if (!lv.ok) return null;
+    function save() {
+      if (st[0] === "saving" || st[0] === "saved") return; st[1]("saving");
+      var id = [m.symbol, m.direction, lv.ep, m.asOf || ""].join("|");
+      apiPost("/api/xaughost/trades", { trade: {
+        id: id, symbol: m.symbol, asOf: m.asOf || null, direction: m.direction, strategy: m.strategy,
+        regime: m.extras && m.extras.regime, entry: lv.ep, stopLoss: lv.stop, takeProfits: lv.tps,
+        confidence: m.confidence, grade: m.grade, status: "open"
+      } }).then(function (d) { st[1](d && d.ok ? "saved" : "err"); }).catch(function () { st[1]("err"); });
+    }
+    return html`<button class=${"savetrade " + st[0]} disabled=${st[0] === "saving" || st[0] === "saved"} onClick=${save}>
+      ${st[0] === "saved" ? "✓ Saved to your trades" : st[0] === "saving" ? "Saving…" : st[0] === "err" ? "Couldn't save — tap to retry" : "＋ I took this trade"}
+    </button>`;
+  }
+  // Per-trade AI chat — ask about THIS specific setup (/api/trade-chat).
+  function TradeChat(props) {
+    var m = props.m, lv = tradeLevels(m);
+    var open = useState(false), msgs = useState([]), input = useState(""), busy = useState(false), loaded = useState(false);
+    if (!lv.ok) return null;
+    function payload(extra) { return Object.assign({ td: m.symbol, symbol: m.symbol, direction: m.direction, entry: lv.ep, stopLoss: lv.stop, takeProfits: lv.tps, interval: m.timeframe, since: m.asOf || "" }, extra); }
+    function toggle() {
+      var willOpen = !open[0]; open[1](willOpen);
+      if (willOpen && !loaded[0]) { loaded[1](true); apiPost("/api/trade-chat", payload({ action: "load" })).then(function (d) { if (d && Array.isArray(d.messages)) msgs[1](d.messages.map(function (x) { return { role: x.role, content: x.content }; })); }).catch(function () {}); }
+    }
+    function send() {
+      var q = input[0].trim(); if (!q || busy[0]) return;
+      var next = msgs[0].concat([{ role: "user", content: q }]); msgs[1](next); input[1](""); busy[1](true);
+      apiPost("/api/trade-chat", payload({ action: "ask", question: q })).then(function (d) {
+        var reply = (d && d.reply) || (d && d.error ? "Sorry — " + (d.reason || d.error) : "…");
+        msgs[1](next.concat([{ role: "assistant", content: String(reply) }]));
+      }).catch(function (e) { msgs[1](next.concat([{ role: "assistant", content: e && e.code === 402 ? "You're out of credits — grab more from Account." : "Something went wrong — try again." }])); }).then(function () { busy[1](false); });
+    }
+    return html`<div class="tchat">
+      <button class="tchat-t" onClick=${toggle}><span>✦ Ask AI about this trade</span><span class="tchat-x">${open[0] ? "−" : "+"}</span></button>
+      ${open[0] ? html`<div class="tchat-b">
+        ${msgs[0].length ? msgs[0].map(function (mm) { return html`<div class=${"bub " + (mm.role === "user" ? "me" : "ai")}>${mm.content}</div>`; }) : html`<div class="tchat-hint">e.g. "Is this a good entry?" · "Where should I trail my stop?" · "What would invalidate it?"</div>`}
+        <div class="tchat-bar"><input class="inp" value=${input[0]} placeholder=${"Ask about " + (m.symbol || "this trade") + "…"} onInput=${function (e) { input[1](e.target.value); }} onKeyDown=${function (e) { if (e.key === "Enter") send(); }} /><button class="send" disabled=${busy[0]} onClick=${send}>${busy[0] ? "…" : "Send"}</button></div>
+      </div>` : null}
+    </div>`;
+  }
+
   function TradeCard(props) {
     var m = props.m, tradeable = m.state && m.state.key === "TRADE";
     var dir = m.direction, up = dir === "LONG";
@@ -724,7 +788,10 @@ input{font:inherit}
           <div><span>RISK / REWARD</span><b>${m.riskReward || "—"}</b></div>
           <div><span>POTENTIAL</span><b class="pot">${potential != null ? "+" + potential + " PIPS" : "—"}</b></div>
         </div>
+        <${SaveTrade} m=${m} />
       </div>` : null}
+
+      <${TradeChat} m=${m} />
 
       ${!tradeable && m.whatNext.length ? html`<${Section} title="What has to happen next">
         <ul class="next">${m.whatNext.map(function (t) { return html`<li>${t}</li>`; })}</ul>
