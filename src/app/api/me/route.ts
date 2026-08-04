@@ -40,14 +40,16 @@ export async function GET(req: NextRequest) {
     if (d) credits = (Number(d.daily_left) || 0) + (Number(d.purchased) || 0);
   } catch { /* leave the free-floor default */ }
 
-  // Profile — name + membership gate from the profiles table.
+  // Profile — name + membership gate + role from the profiles table.
   let name = user.email?.split("@")[0] ?? "Member";
   let membership: "active" | "pending" | "none" = "active";
+  let role = "member";
   try {
-    const { data: p } = await supabase.from("profiles").select("full_name, status").eq("id", user.id).single();
+    const { data: p } = await supabase.from("profiles").select("full_name, status, role").eq("id", user.id).single();
     if (p?.full_name) name = p.full_name as string;
     if (p?.status && p.status !== "active") membership = "pending";
+    if (p?.role) role = String(p.role);
   } catch { /* fall back to defaults */ }
 
-  return json({ name, email: user.email ?? "", credits, membership });
+  return json({ name, email: user.email ?? "", credits, membership, role });
 }
