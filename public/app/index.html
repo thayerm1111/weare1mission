@@ -400,6 +400,43 @@ input{font:inherit}
 .brkfill.green{background:linear-gradient(90deg,#1aa268,#2ee88f)} .brkfill.amber{background:var(--amber)} .brkfill.slate{background:var(--slate)}
 .brkpts{font-size:13px;font-weight:800;text-align:right}
 .brkpts em{font-style:normal;font-size:10px;font-weight:600;color:var(--faint)}
+
+/* ── xGhost Performance (admin) ── */
+.xperf-open{width:100%;margin:12px 0 4px;padding:14px;border-radius:13px;text-align:left;display:flex;flex-direction:column;gap:2px;
+  border:1px solid rgba(46,232,143,.4);background:linear-gradient(180deg,rgba(46,232,143,.12),rgba(46,232,143,.03))}
+.xperf-open span{font-weight:800;font-size:14px;color:var(--green)}
+.xperf-open em{font-style:normal;font-size:11px;color:var(--muted)}
+.xperf-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.xperf-title{font-size:19px;font-weight:800;letter-spacing:.01em}
+.xback{font-size:13px;font-weight:700;color:var(--muted);padding:6px 4px}
+.xrefresh{width:38px;height:38px;border-radius:11px;border:1px solid var(--line);background:var(--bg2);color:var(--sky);font-size:16px;font-weight:800}
+.xrefresh:disabled{opacity:.5}
+.xhero{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:6px 0 12px}
+.xst{border:1px solid var(--line);border-radius:15px;padding:14px;background:linear-gradient(180deg,var(--panel),var(--bg2));text-align:center}
+.xst-v{font-size:30px;font-weight:800;line-height:1}
+.xst-v.up{color:var(--green)} .xst-v.dn{color:var(--red)} .xst-v.fl{color:var(--amber)}
+.xst-l{font-size:10px;font-weight:800;letter-spacing:.12em;color:var(--faint);margin-top:6px}
+.xrow2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px;border:1px solid var(--line);border-radius:14px;padding:4px 14px;background:var(--panel);margin-bottom:10px}
+.xkv{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(120,160,220,.07);font-size:13px}
+.xkv span{color:var(--muted)} .xkv b{font-weight:800}
+.xnote{font-size:12px;color:var(--sky);border-left:2px solid var(--sky);padding:2px 0 2px 10px;margin:2px 2px 12px}
+.xbt{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:6px}
+.xbt-h,.xbt-r{display:grid;grid-template-columns:1.4fr .5fr .8fr .7fr .8fr;gap:6px;align-items:center;padding:9px 12px;font-size:12.5px}
+.xbt-h{background:rgba(8,16,32,.6);font-size:10px;font-weight:800;letter-spacing:.06em;color:var(--faint);text-transform:uppercase}
+.xbt-r{border-top:1px solid rgba(120,160,220,.07)}
+.xbt-h span:not(:first-child),.xbt-r span:not(:first-child){text-align:right}
+.xbt-k{font-weight:700}
+.xbt-wr.up,.xbt-e.up{color:var(--green)} .xbt-wr.dn,.xbt-e.dn{color:var(--red)} .xbt-wr.fl{color:var(--amber)}
+.xbt-e{font-weight:800}
+.xres{display:grid;grid-template-columns:16px 1fr 1.3fr auto auto;gap:9px;align-items:center;padding:9px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:6px;font-size:13px;background:rgba(8,16,32,.5)}
+.xres-d{font-size:11px;font-weight:800} .xres-d.long{color:var(--green)} .xres-d.short{color:var(--red)}
+.xres-s{font-weight:800}
+.xres-f{color:var(--muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.xres-st{font-size:9.5px;font-weight:800;letter-spacing:.04em;padding:3px 8px;border-radius:999px;text-transform:uppercase;white-space:nowrap}
+.xres-st.up{color:var(--green);background:rgba(46,232,143,.12)} .xres-st.dn{color:var(--red);background:rgba(255,93,108,.12)} .xres-st.fl{color:var(--slate);background:rgba(127,141,176,.12)}
+.xres-rr{font-weight:800;font-size:14px;min-width:44px;text-align:right}
+.xres-rr.up{color:var(--green)} .xres-rr.dn{color:var(--red)}
+.xperf-foot{text-align:center;font-size:11px;color:var(--faint);margin:16px 0 4px;letter-spacing:.02em}
 </style>
 </head>
 <body>
@@ -1059,11 +1096,79 @@ input{font:inherit}
         <div class="acct-row big"><span>Credits</span><b class="cr">${m.credits != null ? m.credits : "—"}</b></div>
       </div>` : html`<div class="load">Loading…</div>`}
       <button class="run" onClick=${function () { try { window.open("/portal/credits", "_blank"); } catch (e) {} }}>Get more credits</button>
+      ${m && m.role === "admin" ? html`<button class="xperf-open" onClick=${props.onOpenXperf}><span>◆ xGhost Performance</span><em>admin · win rate, expectancy, by-pair</em></button>` : null}
       <div class="scr-sub">Your trade journal</div>
       ${trades[0] == null ? html`<div class="load">Loading…</div>` : (trades[0].length ? trades[0].slice(0, 20).map(function (t) {
       return html`<div class="jr"><span class=${"jr-d " + (String(t.direction).toUpperCase() === "LONG" || String(t.direction).toUpperCase() === "BUY" ? "long" : "short")}>${t.direction || ""}</span><span class="jr-s">${t.symbol || t.td || ""}</span><span class="jr-e">${t.entry != null ? "@ " + t.entry : ""}</span><span class="jr-r">${t.status || t.result || ""}</span></div>`;
     }) : html`<div class="load">No journaled trades yet.</div>`)}
       <button class="out big" onClick=${props.onLogout}>Sign out</button>
+    </div>`;
+  }
+
+  // ── xGhost Performance (admin-only) — the Stage 3 tracking dashboard ─────────
+  function XStat(props) { return html`<div class="xst"><div class=${"xst-v " + (props.tone || "")}>${props.value}</div><div class="xst-l">${props.label}</div></div>`; }
+  function XBucketTable(props) {
+    var rows = props.rows || []; if (!rows.length) return html`<div class="load">No data yet.</div>`;
+    return html`<div class="xbt">
+      <div class="xbt-h"><span>${props.col || "Group"}</span><span>N</span><span>W–L</span><span>Win%</span><span>Exp R</span></div>
+      ${rows.map(function (r) {
+      var wr = r.winRate, tone = wr == null ? "" : wr >= 55 ? "up" : wr < 45 ? "dn" : "fl";
+      var et = r.expectancyR == null ? "" : r.expectancyR > 0 ? "up" : r.expectancyR < 0 ? "dn" : "";
+      return html`<div class="xbt-r"><span class="xbt-k">${props.fmtKey ? props.fmtKey(r.key) : r.key}</span><span>${r.n}</span><span>${r.wins}–${r.losses}</span><span class=${"xbt-wr " + tone}>${wr == null ? "—" : wr + "%"}</span><span class=${"xbt-e " + et}>${r.expectancyR == null ? "—" : (r.expectancyR > 0 ? "+" : "") + r.expectancyR + "R"}</span></div>`;
+    })}
+    </div>`;
+  }
+  function XGhostStatsScreen(props) {
+    var busy = useState(true), err = useState(""), data = useState(null);
+    function load() {
+      busy[1](true); err[1](""); apiGet("/api/xghost/stats").then(function (d) {
+        if (!d || d.error) {
+          if (d && d.error === "forbidden") return err[1]("Admin only — this dashboard is limited to the desk owner.");
+          if (d && d.error === "not_configured") return err[1]("Performance tracking isn't fully wired yet (missing service key on the server).");
+          if (d && d.error === "unauthorized") { props.onLogout && props.onLogout(); return; }
+          return err[1]((d && (d.reason || d.detail)) || "Couldn't load performance — try again.");
+        }
+        data[1](d);
+      }).catch(function () { err[1]("Couldn't load performance — try again."); }).then(function () { busy[1](false); });
+    }
+    useEffect(function () { load(); }, []);
+    var d = data[0], t = d && d.totals;
+    function fmtSym(k) { return String(k || "").replace("/", ""); }
+    function isUp(dir) { var s = String(dir || "").toLowerCase(); return s.indexOf("long") >= 0 || s.indexOf("buy") >= 0; }
+    function stC(s) { return s === "win" ? "up" : s === "loss" ? "dn" : "fl"; }
+    return html`<div class="scr xperf">
+      <div class="xperf-top">
+        <button class="xback" onClick=${props.onBack}>‹ Back</button>
+        <div class="xperf-title">xGhost Performance</div>
+        <button class="xrefresh" disabled=${busy[0]} onClick=${load}>${busy[0] ? "…" : "↻"}</button>
+      </div>
+      ${busy[0] && !d ? html`<div class="load">Grading open signals & loading…</div>` : null}
+      ${err[0] ? html`<div class="err">${err[0]}</div>` : null}
+      ${d && t ? (t.signals === 0 ? html`<div class="empty"><div class="empty-i">◆</div><p>No xGhost signals logged yet. Run a scan that produces a <b>tradeable</b> setup (Enter now / Limit) and it's tracked here automatically — then graded win/loss as price plays out.</p></div>` : html`
+        <div class="xhero">
+          <${XStat} value=${t.winRate == null ? "—" : t.winRate + "%"} label="WIN RATE" tone=${t.winRate == null ? "" : t.winRate >= 55 ? "up" : t.winRate < 45 ? "dn" : "fl"} />
+          <${XStat} value=${t.expectancyR == null ? "—" : (t.expectancyR > 0 ? "+" : "") + t.expectancyR + "R"} label="EXPECTANCY" tone=${t.expectancyR == null ? "" : t.expectancyR > 0 ? "up" : "dn"} />
+          <${XStat} value=${t.wins + "–" + t.losses} label="RECORD" />
+          <${XStat} value=${(t.totalR > 0 ? "+" : "") + t.totalR + "R"} label="NET R" tone=${t.totalR > 0 ? "up" : t.totalR < 0 ? "dn" : ""} />
+        </div>
+        <div class="xrow2">
+          <div class="xkv"><span>Signals logged</span><b>${t.signals}</b></div>
+          <div class="xkv"><span>Still open</span><b>${t.open}</b></div>
+          <div class="xkv"><span>Resolved</span><b>${t.resolved}</b></div>
+          <div class="xkv"><span>Expired / unfilled</span><b>${t.expired} / ${t.unfilled}</b></div>
+          <div class="xkv"><span>Avg win</span><b class="up">${t.avgWinR == null ? "—" : "+" + t.avgWinR + "R"}</b></div>
+          <div class="xkv"><span>Avg loss</span><b class="dn">${t.avgLossR == null ? "—" : t.avgLossR + "R"}</b></div>
+        </div>
+        ${d.resolvedNow && d.resolvedNow.resolved ? html`<div class="xnote">Just graded ${d.resolvedNow.resolved} newly-resolved signal${d.resolvedNow.resolved > 1 ? "s" : ""} on open.</div>` : null}
+        <div class="scr-sub">By pair</div><${XBucketTable} rows=${d.byPair} col="Pair" fmtKey=${fmtSym} />
+        <div class="scr-sub">By setup</div><${XBucketTable} rows=${d.byFamily} col="Setup" />
+        <div class="scr-sub">By DXY confirmation</div><${XBucketTable} rows=${d.byDxy} col="DXY" />
+        <div class="scr-sub">Recently resolved</div>
+        ${(d.recent || []).length ? d.recent.map(function (r) { var up = isUp(r.direction); return html`<div class="xres"><span class=${"xres-d " + (up ? "long" : "short")}>${up ? "▲" : "▼"}</span><span class="xres-s">${fmtSym(r.symbol)}</span><span class="xres-f">${r.family}</span><span class=${"xres-st " + stC(r.status)}>${String(r.status).toUpperCase()}</span><span class=${"xres-rr " + (r.realized_r > 0 ? "up" : r.realized_r < 0 ? "dn" : "")}>${r.realized_r == null ? "—" : (r.realized_r > 0 ? "+" : "") + r.realized_r + "R"}</span></div>`; }) : html`<div class="load">Nothing resolved yet — outcomes appear as price plays out.</div>`}
+        <div class="scr-sub">Currently open</div>
+        ${(d.open || []).length ? d.open.map(function (r) { var up = isUp(r.direction); return html`<div class="xres"><span class=${"xres-d " + (up ? "long" : "short")}>${up ? "▲" : "▼"}</span><span class="xres-s">${fmtSym(r.symbol)}</span><span class="xres-f">${r.family}</span><span class="xres-st fl">${String(r.execState || "OPEN").replace(/_/g, " ")}</span><span class="xres-rr">${r.score == null ? "" : r.score}</span></div>`; }) : html`<div class="load">No open signals right now.</div>`}
+        <div class="xperf-foot">${d.version} · graded on open · outcomes measured from live candles</div>
+      `) : null}
     </div>`;
   }
 
@@ -1236,7 +1341,8 @@ input{font:inherit}
         ${sec[0] === "chat" ? html`<${ChatScreen} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "charts" ? html`<${ChartsScreen} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "weekly" ? html`<${WeeklyScreen} onLogout=${props.onLogout} />` : null}
-        ${sec[0] === "you" ? html`<${AccountScreen} onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "you" ? html`<${AccountScreen} onLogout=${props.onLogout} onOpenXperf=${function () { sec[1]("xperf"); }} />` : null}
+        ${sec[0] === "xperf" ? html`<${XGhostStatsScreen} onBack=${function () { sec[1]("you"); }} onLogout=${props.onLogout} />` : null}
       </main>
       <nav class="bnav">${NAV.map(function (n) { return html`<button class=${"bn " + (sec[0] === n.id ? "on" : "")} onClick=${function () { sec[1](n.id); }}><span class="bn-i">${n.icon}</span><span class="bn-l">${n.label}</span></button>`; })}</nav>
     </div>`;
