@@ -133,6 +133,7 @@ type Result = Record<string, unknown> & {
   live_price?: number; as_of?: string; price_is_live?: boolean; ideal_entry?: number; missed_by_pips?: number; ran_r?: number;
   price_extended?: boolean; extended_note?: string | null;
   grade?: string; gate_score?: number; gate_reasons?: string[];
+  confirmation?: string; confirmation_note?: string;
   mode?: string; momentum_rating?: string; trend_rating?: string; trend_strength?: number;
   scouts?: ScoutRead[]; reasoning?: string[]; educational?: string; error?: string;
 };
@@ -471,6 +472,8 @@ function ResultView({ r, onUpdate, updating, update, isAdmin }: { r: Result; onU
           <div className="flex flex-col items-end gap-1.5">
             <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${buy ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>{buy ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}{r.direction} · {r.order_type}</span>
             {r.grade && <GradeBadge grade={r.grade} score={r.gate_score} />}
+            {r.confirmation === "ready" && <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[10px] font-bold uppercase text-emerald-300">Ready · take now</span>}
+            {r.confirmation === "forming" && <span className="rounded-full bg-sky-500/15 px-2.5 py-0.5 text-[10px] font-bold uppercase text-sky-300">Forming · take on close</span>}
             {r.reversal && <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[10px] font-bold uppercase text-amber-300">Confirmed reversal</span>}
           </div>
         ) : isMissed ? (
