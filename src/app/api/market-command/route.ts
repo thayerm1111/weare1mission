@@ -234,6 +234,7 @@ function stateJson(state: State, td: string, spec: Spec, p: {
     instrument: td, market_category: spec.cat, timestamp: new Date().toISOString(), data_provider: "Twelve Data",
     strategy_version: STRAT_VERSION,
     headline: p.headline, direction: p.direction ?? null, current_bias: p.current_bias ?? null, strategy: p.strategy, reason: p.reason,
+    no_trade_reason: state === "NO_TRADE" ? p.reason : undefined, // legacy app field (NO TRADE view)
     trigger: p.trigger, what_next: p.what_next, levels: p.levels ?? null, provisional_trade: p.provisional_trade ?? null,
     setup_zone: p.setup_zone ?? null, proximity: p.proximity ?? null, alternative_scenario: p.alternative_scenario ?? null,
     market_regime: p.regime ?? "", session: p.session ?? "",
