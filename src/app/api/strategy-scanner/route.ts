@@ -377,14 +377,40 @@ export async function POST(req: NextRequest) {
   const AUTH: Record<string, number> = { structure: 1.4, liquidity: 1.4, breakRetest: 1.2, fib: 1.1, fvg: 1.0, sr: 0.9, trend: 1.2, rsi: 0.7 };
   const reversalConfirmed = scouts.some((s) => s.key === "structure" && s.fired && s.dir && ((htf === "bearish" && s.dir === "LONG") || (htf === "bullish" && s.dir === "SHORT")))
     && scouts.some((s) => s.key === "liquidity" && s.fired);
+  // ── Live-flow bias — WHAT PRICE IS DOING RIGHT NOW ────────────────────────
+  // The higher-timeframe trend alone can read "ranging" while the last few 15m
+  // candles are clearly running one way. The level/mean-reversion scouts then
+  // FADE that move (short into an up-push), which is the classic "I got in and it
+  // instantly reversed". So we read the immediate flow from the most recent
+  // candles and let it VOTE on direction, and we damp any scout that fights a
+  // strong live move. This sides the read WITH the current momentum instead of
+  // against it — it changes the SIDE the engine picks, it does not add a filter.
+  const clF = rows.map((r) => +r.close), opF = rows.map((r) => +r.open);
+  const liF = clF.length - 1;
+  const net4 = clF[liF] - clF[Math.max(0, liF - 4)];        // net move over the last ~4 candles
+  const lastBody = clF[liF] - opF[liF];                     // the current candle's direction
+  const flowBias = Math.max(-1, Math.min(1,
+    (net4 / (atrv || 1)) * 0.6 + Math.sign(lastBody) * Math.min(1, Math.abs(lastBody) / (atrv || 1)) * 0.4));
+  const flowStrong = Math.abs(flowBias) >= 0.5;
+
   let longScore = 0, shortScore = 0;
   for (const s of scouts) {
     if (!s.fired || !s.dir) continue;
     const withTrend = (htf === "bullish" && s.dir === "LONG") || (htf === "bearish" && s.dir === "SHORT") || htf === "ranging";
     let w = (AUTH[s.key] ?? 1) * (s.strength / 100);
     if (withTrend) w *= 1.25; else w *= reversalConfirmed ? 0.9 : 0.35;   // counter-trend heavily damped unless confirmed
+    // Damp a vote that fights a STRONG live move (unless a reversal is confirmed) —
+    // don't let a level-fade scout call short while price is pushing up right now.
+    const againstFlow = (flowBias > 0 && s.dir === "SHORT") || (flowBias < 0 && s.dir === "LONG");
+    if (flowStrong && againstFlow && !reversalConfirmed) w *= 0.45;
     if (s.dir === "LONG") longScore += w; else shortScore += w;
   }
+  // The live move itself gets a vote, weighted by how decisive it is — on par with
+  // a structural scout, so a clear current push can carry the direction.
+  const FLOW_AUTH = 1.6;
+  if (flowBias > 0.15) longScore += FLOW_AUTH * flowBias;
+  else if (flowBias < -0.15) shortScore += FLOW_AUTH * Math.abs(flowBias);
+
   const total = longScore + shortScore;
   const dir: Dir | null = total < 0.6 ? null : longScore >= shortScore ? "LONG" : "SHORT";
   const dominant = Math.max(longScore, shortScore);
