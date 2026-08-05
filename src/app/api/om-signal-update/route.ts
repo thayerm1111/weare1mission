@@ -168,9 +168,20 @@ export async function POST(req: NextRequest) {
   let stopBrokenClose = bracketed && (isLong ? sinceRows.some((c) => +c.close <= stop) : sinceRows.some((c) => +c.close >= stop));
   if (stopBrokenClose && !pxBeyondStop && rNow > -0.98) stopBrokenClose = false;
   // A stop ORDER fills on an intrabar TOUCH, not only on a close beyond the level —
-  // tracked separately (and only for THIS feed; a broker's gold feed can wick past
-  // the stop and fill it without it showing here).
-  const stopTouched = pxBeyondStop || (bracketed && (isLong ? sinceRows.some((c) => +c.low <= stop) : sinceRows.some((c) => +c.high >= stop)));
+  // tracked separately (and only for THIS feed; a broker's feed can wick past the
+  // stop and fill it without it showing here).
+  //
+  // A just-issued trade whose entry falls mid-candle can't "bracket" a post-entry
+  // window (its own forming candle opened BEFORE the entry time, so nothing reads
+  // as "after entry" and sinceRows is empty). That gap made an intrabar wick that
+  // hit the stop invisible — so the update wrongly read "idea intact / normal
+  // pullback". For that fresh case, while in drawdown, also scan the last couple of
+  // exec candles for a stop touch. Safety-first: better to flag a likely fill than
+  // to reassure a member on a stop that has actually hit.
+  const recentTouch = freshEntry && move < 0 && (isLong
+    ? rows.slice(-2).some((c) => +c.low <= stop)
+    : rows.slice(-2).some((c) => +c.high >= stop));
+  const stopTouched = pxBeyondStop || recentTouch || (bracketed && (isLong ? sinceRows.some((c) => +c.low <= stop) : sinceRows.some((c) => +c.high >= stop)));
   const toStopPips = Math.abs(px - stop) / pip;
   const nearStop = !stopTouched && (toStopPips <= Math.max(3, (risk / pip) * 0.15) || maeR >= 0.85);
   const toNextTpPips = Math.abs(nextTp - px) / pip;
@@ -187,7 +198,7 @@ export async function POST(req: NextRequest) {
 
   // Stop-run / liquidity sweep: did price poke BEYOND the stop then close back on
   // the trade's side within the last few candles? (a hunt, not a real break).
-  const last6 = sinceRows.slice(-6);
+  const last6 = sinceRows.length ? sinceRows.slice(-6) : rows.slice(-3);
   const stopRun = isLong
     ? last6.some((c) => +c.low <= stop && +c.close > stop)
     : last6.some((c) => +c.high >= stop && +c.close < stop);
@@ -204,19 +215,30 @@ export async function POST(req: NextRequest) {
   if (rsiNow != null) { if (isLong && rsiNow > 70) events.push("Momentum (RSI) is stretched high — a pause or pullback is more likely near here."); if (!isLong && rsiNow < 30) events.push("Momentum (RSI) is stretched low — a bounce is more likely near here."); }
   if (tpTagged.some(Boolean)) events.push(`Price has already reached TP${tpTagged.filter(Boolean).length}.`);
 
-  // Thesis verdict. Only a close beyond the stop invalidates; a wick/stop-run or a
-  // drawdown with the flow against the trade is "weakening"; otherwise "intact".
-  const thesis = stopBrokenClose ? "invalidated" : (side === "drawdown" && flowAgainst) || stopRun || stopTouched ? "weakening" : "intact";
+  // Thesis verdict. A stop that has been TOUCHED (an intrabar wick that would fill a
+  // stop order) or a decisive close beyond it means the position is stopped out —
+  // "invalidated" — even if price later snapped back (that's a stop-run, but the
+  // order still filled). Sitting right on the stop, or a drawdown with the flow
+  // against the trade, is "weakening". Only otherwise is the idea "intact".
+  const thesis = (stopBrokenClose || stopTouched)
+    ? "invalidated"
+    : (nearStop || (side === "drawdown" && flowAgainst) || stopRun)
+      ? "weakening"
+      : "intact";
 
   const headline = stopBrokenClose
     ? `${symbol} closed beyond the stop since entry — the original idea is invalidated.`
-    : side === "profit"
-      ? `${symbol} is ${rNow >= 1 ? "solidly" : ""} in profit, about ${rNow.toFixed(1)}R on-side.`
-      : stopRun
-        ? `${symbol} dipped into the stop zone and snapped back — this has the shape of a stop-run, not a trend change.`
-        : flowAgainst
-          ? `${symbol} is in drawdown and the flow has turned against the trade — manage risk.`
-          : `${symbol} is in a normal pullback — down about ${Math.abs(rNow).toFixed(1)}R but the flow hasn't flipped.`;
+    : stopTouched
+      ? (stopRun
+          ? `${symbol} wicked into your stop at ${f(stop)} then snapped back — a stop-run. A stop order there would have filled, so treat the trade as stopped out even though price recovered; confirm on your platform.`
+          : `${symbol} reached your stop at ${f(stop)} — a stop order there would have filled. Treat the trade as stopped out and confirm on your platform.`)
+      : side === "profit"
+        ? `${symbol} is ${rNow >= 1 ? "solidly" : ""} in profit, about ${rNow.toFixed(1)}R on-side.`
+        : nearStop
+          ? `${symbol} is right on top of your stop at ${f(stop)} (~${toStopPips.toFixed(1)} pips) — it may already have filled on your broker. Check your platform before doing anything else.`
+          : flowAgainst
+            ? `${symbol} is in drawdown and the flow has turned against the trade — manage risk.`
+            : `${symbol} is in a normal pullback — down about ${Math.abs(rNow).toFixed(1)}R but the flow hasn't flipped.`;
 
   const setup = {
     status: "update" as const,
@@ -227,7 +249,7 @@ export async function POST(req: NextRequest) {
     excursion: { mfe_r: +mfeR.toFixed(2), mae_r: +maeR.toFixed(2) },
     distance: { to_stop_pips: +toStopPips.toFixed(1), to_next_target_pips: +toNextTpPips.toFixed(1), next_target_label: `TP${nextTpIdx >= 0 ? nextTpIdx + 1 : tps.length}` },
     market: { exec_trend: execTrend, flow_4h: t4, flow_1h: t1, rsi: rsiNow != null ? +rsiNow.toFixed(0) : null, flow_against_trade: flowAgainst },
-    events, thesis, headline, fresh_entry: freshEntry, stop_touched: stopTouched, near_stop: nearStop,
+    events, thesis, headline, fresh_entry: freshEntry && !stopTouched && !nearStop, stop_touched: stopTouched, near_stop: nearStop,
     explanation: [] as string[],
     what_to_watch: "",
     educational: "Educational market analysis and trade-management context only — not financial advice, and not a prediction. Manage your own risk.",
