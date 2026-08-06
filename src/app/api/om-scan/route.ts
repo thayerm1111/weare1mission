@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { authedContext } from "@/lib/supabase/bearer";
 import { gateCredits, chargeCredit } from "@/lib/credits";
 import { series, isPriorityEmail } from "@/lib/marketData";
 
@@ -137,21 +137,24 @@ const SCAN_TTL_MS = Number(process.env.SCAN_CACHE_TTL || 60) * 1000;
 let scanCache: { at: number; asOf: string; setups: Setup[] } | null = null;
 
 export async function POST(req: NextRequest) {
-  void req;
-  const supabase = createClient();
+  // Accept EITHER the web's cookie session OR the native app's Bearer token — the
+  // app has no cookie jar, so a cookie-only check 401s every Market Pulse scan
+  // from the app. authedContext tries the cookie first (web is unchanged), then
+  // falls back to the Authorization: Bearer token (the app).
+  const { supabase, user, configured } = await authedContext(req);
   let fresh = false; // owner/admin: always fresh data, never throttled
-  if (supabase) { const { data: { user } } = await supabase.auth.getUser(); if (!user) return json({ error: "unauthorized" }, 401); fresh = isPriorityEmail(user.email); }
+  if (configured) { if (!user) return json({ error: "unauthorized" }, 401); fresh = isPriorityEmail(user.email); }
   const mdKey = process.env.TWELVEDATA_API_KEY;
   if (!mdKey) return json({ notConfigured: "marketdata" }, 200);
 
-  const gate = await gateCredits("scan");
+  const gate = await gateCredits("scan", supabase);
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
 
   // Serve a recent cached scan when one exists — skips 8 fetches + all indicator
   // math. Admins bypass so they can always force a fresh read.
   if (!fresh && scanCache && Date.now() - scanCache.at < SCAN_TTL_MS && scanCache.setups.length > 0) {
-    const credits = await chargeCredit("scan");
+    const credits = await chargeCredit("scan", supabase);
     return json({ asOf: scanCache.asOf, setups: scanCache.setups, credits, cached: true }, 200);
   }
 
@@ -167,7 +170,7 @@ export async function POST(req: NextRequest) {
   // Cache the computed result for the next members' scans in this window.
   if (setups.length > 0 && !fresh) scanCache = { at: Date.now(), asOf, setups };
   // Only charge if the scan actually produced setups (don't bill a fully rate-limited scan).
-  const credits = setups.length > 0 ? await chargeCredit("scan") : null;
+  const credits = setups.length > 0 ? await chargeCredit("scan", supabase) : null;
   return json({ asOf, setups, credits }, 200);
 }
 
