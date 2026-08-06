@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { authedContext } from "@/lib/supabase/bearer";
 import { gateCredits, chargeCredit } from "@/lib/credits";
 import { series, livePrice, isPriorityEmail, livePriceSane } from "@/lib/marketData";
 import { findAsset } from "@/data/signalAssets";
@@ -248,14 +248,15 @@ function buildChecklist(rows: Row[], dir: Dir, E: number, flowTrend: Trend, conf
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = createClient();
+  // Accept EITHER the web's cookie session OR the native app's Bearer token — the
+  // app has no cookie jar, so a cookie-only check 401s every AI Play from the app.
+  const { supabase, user: authUser, configured } = await authedContext(req);
   let fresh = false; // owner/admin: always fresh data, never throttled
   let loggedUserId: string | null = null;
-  if (supabase) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return json({ error: "unauthorized" }, 401);
-    fresh = isPriorityEmail(user.email);
-    loggedUserId = user.id;
+  if (configured) {
+    if (!authUser) return json({ error: "unauthorized" }, 401);
+    fresh = isPriorityEmail(authUser.email);
+    loggedUserId = authUser.id;
   }
   const aiKey = process.env.ANTHROPIC_API_KEY;
   const mdKey = process.env.TWELVEDATA_API_KEY;
@@ -286,7 +287,7 @@ export async function POST(req: NextRequest) {
   if (!found) return json({ error: "unknown_asset" }, 400);
 
   // Credit gate — reject before doing any paid work if the member is out.
-  const gate = await gateCredits("signal");
+  const gate = await gateCredits("signal", supabase);
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
 
@@ -740,7 +741,7 @@ Return the JSON signal now.`;
   signal.strategy_version = "v2-mtf-closedbar";
 
   // Work succeeded — now charge the credit (best-effort; never charged on failure above).
-  const credits = await chargeCredit("signal");
+  const credits = await chargeCredit("signal", supabase);
 
   // Universal outcome logging (fire-and-safe: never blocks or breaks the signal).
   // Only log ACTUAL trades — a NO_TRADE (gate said "wait") is not a position and
