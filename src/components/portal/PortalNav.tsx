@@ -32,11 +32,11 @@ const REG: Record<string, Item> = {
   schedule: { href: "/portal/schedule", label: "What's On", icon: CalendarClock },
   resources: { href: "/portal/resources", label: "Resources", icon: FolderOpen },
   leadership: { href: "/portal/leadership", label: "The Inner Circle", icon: Users2 },
-  updates: { href: "/portal/updates", label: "Mission Update", icon: Megaphone },
+  updates: { href: "/portal/updates", label: "Mission Updates", icon: Megaphone },
   collection: { href: "/portal/collection", label: "The Collection", icon: ShoppingBag },
   experiences: { href: "/portal/experiences", label: "1M Experiences", icon: Palmtree },
   credits: { href: "/portal/credits", label: "Credits", icon: CreditCard },
-  account: { href: "/portal/account", label: "Account", icon: UserCircle },
+  account: { href: "/portal/account", label: "Profile", icon: UserCircle },
   support: { href: "/portal/support", label: "Support", icon: LifeBuoy },
 };
 
@@ -44,7 +44,14 @@ const REG: Record<string, Item> = {
 // The Ones side is organized so the trading desk (The Floor) is the hub: the
 // live rooms AND the AI tools (OM Charts, OM AI, OM AI Plays, XAUGHOST) all nest
 // under it. Credits nests under Account. Leaderboard sits at the very bottom.
-const ONES = ["getApp", "startHere", "schedule", "trading", "leadership", "updates", "collection", "experiences", "account", "support", "results", "leaderboard"];
+// Customer ("The Ones") nav — deliberately short. A short primary journey, then
+// a small utility cluster. Trading lives INSIDE The Floor, not as many top-level
+// links. Items archived from the customer menu (still reachable by URL, code
+// intact): 1M Experiences, Community Results, Leaderboard, and the extra Floor
+// tools (OM Scalp / OM Charts / OM Strategy Scanner / The Room / xGhost).
+const ONES_PRIMARY = ["startHere", "schedule", "trading", "leadership", "updates", "collection"];
+const ONES_UTILITY = ["getApp", "account", "support"];
+const ONES = [...ONES_PRIMARY, ...ONES_UTILITY];
 const BUILDERS = ["getApp", "omai", "prospects", "team", "compPlan", "schedule", "leadership", "training", "resources", "updates", "account", "support", "results", "leaderboard"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources", "compPlan"];
 const ONES_ONLY = ["trading", "signals", "xaughost", "charts", "command", "scanner", "scalp"];
@@ -55,16 +62,16 @@ const ONES_ONLY = ["trading", "signals", "xaughost", "charts", "command", "scann
 type FloorChild =
   | { kind: "view"; view: string; label: string; icon: typeof LineChart }
   | { kind: "page"; key: string };
+// The five Floor experiences, in the flywheel order:
+// OM AI (intelligence) → OM AI Plays (execution) → Market Pulse (discovery) →
+// Live Plays (long game) → MFXGHOST (deep analysis). Market Command stays admin-
+// only. Archived from the customer Floor menu (routes/components kept intact):
+// The Room, xGhost (5-pair), OM Scalp, OM Charts, OM Strategy Scanner.
 const FLOOR_CHILDREN: FloorChild[] = [
-  { kind: "view", view: "room", label: "The Room", icon: Radio },
-  { kind: "view", view: "xghost", label: "xGhost", icon: Ghost },
-  { kind: "page", key: "scalp" },
-  { kind: "page", key: "charts" },
   { kind: "page", key: "omai" },
   { kind: "page", key: "signals" },
-  { kind: "page", key: "scanner" },
-  { kind: "view", view: "plays", label: "Live Plays", icon: Zap },
   { kind: "view", view: "pulse", label: "Market Pulse", icon: Activity },
+  { kind: "view", view: "plays", label: "Live Plays", icon: Zap },
   { kind: "page", key: "xaughost" },
   { kind: "page", key: "command" },
 ];
@@ -176,55 +183,67 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
         />
       )}
 
-      {/* Side items */}
-      {keys.map((key) => {
-        const it = REG[key];
-        const active = match(key);
-        return (
-          <div key={key}>
-            <NavLink item={it} active={active} onNav={() => setOpen(false)} />
+      {/* Side items — customers get a short primary list plus a small utility
+          cluster below a divider; builders keep their existing single list. */}
+      {(() => {
+        const renderKey = (key: string) => {
+          const it = REG[key];
+          const active = match(key);
+          return (
+            <div key={key}>
+              <NavLink item={it} active={active} onNav={() => setOpen(false)} />
 
-            {/* The Floor — mixed submenu of live-desk views + AI tool pages */}
-            {key === "trading" && (
-              <ul className={`mt-0.5 flex flex-col border-l border-[#E7E4DD] pl-2 ${compact ? "ml-4" : "ml-3"}`}>
-                {FLOOR_CHILDREN.filter((child) => !(child.kind === "page" && child.key === "command" && !isAdmin)).map((child) => {
-                  if (child.kind === "view") {
-                    const vActive = onFloor && activeView === child.view;
+              {/* The Floor — the five experiences (Market Command stays admin-only) */}
+              {key === "trading" && (
+                <ul className={`mt-0.5 flex flex-col border-l border-[#E7E4DD] pl-2 ${compact ? "ml-4" : "ml-3"}`}>
+                  {FLOOR_CHILDREN.filter((child) => !(child.kind === "page" && child.key === "command" && !isAdmin)).map((child) => {
+                    if (child.kind === "view") {
+                      const vActive = onFloor && activeView === child.view;
+                      return (
+                        <SubLink
+                          key={`view-${child.view}`}
+                          href={`/portal/trading?view=${child.view}`}
+                          label={child.label}
+                          Icon={child.icon}
+                          active={vActive}
+                          compact={compact}
+                        />
+                      );
+                    }
+                    const p = REG[child.key];
                     return (
                       <SubLink
-                        key={`view-${child.view}`}
-                        href={`/portal/trading?view=${child.view}`}
-                        label={child.label}
-                        Icon={child.icon}
-                        active={vActive}
+                        key={`page-${child.key}`}
+                        href={p.href}
+                        label={p.label}
+                        Icon={p.icon}
+                        active={match(child.key)}
                         compact={compact}
                       />
                     );
-                  }
-                  const p = REG[child.key];
-                  return (
-                    <SubLink
-                      key={`page-${child.key}`}
-                      href={p.href}
-                      label={p.label}
-                      Icon={p.icon}
-                      active={match(child.key)}
-                      compact={compact}
-                    />
-                  );
-                })}
-              </ul>
-            )}
+                  })}
+                </ul>
+              )}
 
-            {/* Account — Credits nested underneath */}
-            {key === "account" && (
-              <ul className={`mt-0.5 flex flex-col border-l border-[#E7E4DD] pl-2 ${compact ? "ml-4" : "ml-3"}`}>
-                <SubLink href={REG.credits.href} label={REG.credits.label} Icon={REG.credits.icon} active={match("credits")} compact={compact} />
-              </ul>
-            )}
-          </div>
+              {/* Account — Credits nested underneath */}
+              {key === "account" && (
+                <ul className={`mt-0.5 flex flex-col border-l border-[#E7E4DD] pl-2 ${compact ? "ml-4" : "ml-3"}`}>
+                  <SubLink href={REG.credits.href} label={REG.credits.label} Icon={REG.credits.icon} active={match("credits")} compact={compact} />
+                </ul>
+              )}
+            </div>
+          );
+        };
+        return side === "ones" ? (
+          <>
+            {ONES_PRIMARY.map(renderKey)}
+            <div className="my-2 h-px bg-[#E7E4DD]" role="separator" aria-hidden="true" />
+            {ONES_UTILITY.map(renderKey)}
+          </>
+        ) : (
+          <>{BUILDERS.map(renderKey)}</>
         );
-      })}
+      })()}
 
       {/* Approvals (admin) */}
       {isAdmin && (
