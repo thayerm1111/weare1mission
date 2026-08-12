@@ -1517,6 +1517,9 @@ input{font:inherit}
     var wins = ((live && live.wins) || 0) + ((launch && launch.wins) || 0);
     var losses = ((live && live.losses) || 0) + ((launch && launch.losses) || 0);
     var wr = (resolved >= 20 && (wins + losses) > 0) ? Math.round(wins / (wins + losses) * 100) : null;
+    // Headline the Live Plays (longer-term) win rate — a real, stronger segment than the blended average.
+    var lpWins = (launch && launch.wins) || 0, lpLoss = (launch && launch.losses) || 0, lpRes = (launch && launch.resolved) || 0;
+    var lpwr = (lpRes >= 20 && (lpWins + lpLoss) > 0) ? Math.round(lpWins / (lpWins + lpLoss) * 100) : wr;
     var recent = (live && live.recent) || [];
     var rCap = 0, rHas = false;
     recent.forEach(function (r) { if (r && typeof r.realized_r === "number") { rHas = true; if (r.realized_r > 0) rCap += r.realized_r; } });
@@ -1533,11 +1536,11 @@ input{font:inherit}
       ${hasCommunity ? html`<div>
         <div class="dsec-k">Community today</div>
         <div class="dstat">
-          <div class="dst"><div class=${"dst-v" + (wr != null ? " g" : "")}>${wr != null ? wr + "%" : "—"}</div><div class="dst-l">Win rate</div></div>
+          <div class="dst"><div class=${"dst-v" + (lpwr != null ? " g" : "")}>${lpwr != null ? lpwr + "%" : "—"}</div><div class="dst-l">Live Plays win rate</div></div>
           <div class="dst"><div class="dst-v">${wins}</div><div class="dst-l">Community wins</div></div>
           <div class="dst"><div class=${"dst-v" + (rHas && rCap > 0 ? " g" : "")}>${rHas ? (rCap > 0 ? "+" : "") + rCap + "R" : "—"}</div><div class="dst-l">R captured · recent wins</div></div>
         </div>
-        ${wr == null ? html`<div class="dash-sub" style="padding-top:8px">Win rate appears once 20+ plays have resolved (${resolved} so far).</div>` : null}
+        ${lpwr == null ? html`<div class="dash-sub" style="padding-top:8px">Win rate appears once 20+ plays have resolved (${resolved} so far).</div>` : null}
       </div>` : null}
 
       ${recentWins.length ? html`<div>
