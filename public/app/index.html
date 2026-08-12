@@ -815,6 +815,7 @@ input{font:inherit}
   // ── API ─────────────────────────────────────────────────────────────────
   function getSession() { try { return JSON.parse(localStorage.getItem(TOKKEY) || "null"); } catch (e) { return null; } }
   function setSession(s) { try { s ? localStorage.setItem(TOKKEY, JSON.stringify(s)) : localStorage.removeItem(TOKKEY); } catch (e) {} }
+  function killSession() { setSession(null); try { window.dispatchEvent(new Event("om-auth-dead")); } catch (e) {} }
   // If the member is already signed in via the existing app (supabase-js stores its
   // session under an "sb-<ref>-auth-token" key), adopt it so the swap doesn't force
   // a re-login.
@@ -854,7 +855,7 @@ input{font:inherit}
   function apiGet(path) {
     function go() { var s = getSession(), o = { credentials: "same-origin", headers: {} }; if (s && s.access_token) o.headers.Authorization = "Bearer " + s.access_token; return fetch(path, o); }
     return go().then(function (r) {
-      if (r.status === 401) return refresh().then(function (ok) { return ok ? go().then(function (r2) { return r2.json().catch(function () { return {}; }); }) : {}; });
+      if (r.status === 401) return refresh().then(function (ok) { if (!ok) { killSession(); return {}; } return go().then(function (r2) { return r2.json().catch(function () { return {}; }); }); });
       return r.json().catch(function () { return {}; });
     }).catch(function () { return {}; });
   }
@@ -862,7 +863,7 @@ input{font:inherit}
   function sbHeaders() { var se = getSession(), h = { apikey: SUPABASE_ANON, "Content-Type": "application/json" }; h.Authorization = "Bearer " + ((se && se.access_token) || SUPABASE_ANON); return h; }
   function sbFetch(url, method, body) {
     function go() { var o = { method: method || "GET", headers: sbHeaders() }; if (body != null) o.body = JSON.stringify(body); return fetch(url, o); }
-    return go().then(function (r) { if (r.status === 401) return refresh().then(function (ok) { return ok ? go() : r; }); return r; });
+    return go().then(function (r) { if (r.status === 401) return refresh().then(function (ok) { if (!ok) { killSession(); return r; } return go(); }); return r; });
   }
   function sbRpc(fn, body) { return sbFetch(SUPABASE_URL + "/rest/v1/rpc/" + fn, "POST", body || {}).then(function (r) { return r && r.ok ? r.json() : null; }).catch(function () { return null; }); }
   function sbSelect(path) { return sbFetch(SUPABASE_URL + "/rest/v1/" + path, "GET", null).then(function (r) { return r && r.ok ? r.json() : []; }).then(function (j) { return Array.isArray(j) ? j : []; }).catch(function () { return []; }); }
@@ -1752,6 +1753,7 @@ input{font:inherit}
   }
   function App() {
     var authed = useState(!!(getSession() && getSession().access_token));
+    useEffect(function () { function dead() { authed[1](false); } window.addEventListener("om-auth-dead", dead); return function () { window.removeEventListener("om-auth-dead", dead); }; }, []);
     return authed[0] ? html`<${Shell} onLogout=${function () { setSession(null); authed[1](false); }} />` : html`<${Login} onIn=${function () { authed[1](true); }} />`;
   }
   adoptLegacySession();
