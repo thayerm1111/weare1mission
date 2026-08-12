@@ -294,6 +294,9 @@ input{font:inherit}
 .dticker-row{display:flex;gap:22px;white-space:nowrap;width:max-content;padding-left:22px;animation:dashMarquee 26s linear infinite}
 .dticker-row span{font-size:12px;font-weight:600;color:var(--muted)}
 @keyframes dashMarquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.login-note{background:rgba(57,198,255,.1);border:1px solid rgba(57,198,255,.3);color:var(--sky);border-radius:10px;padding:9px 12px;font-size:12px;font-weight:600;margin-bottom:12px;text-align:center}
+.keep{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted);margin:2px 2px 14px;cursor:pointer;user-select:none}
+.keep input{width:17px;height:17px;accent-color:var(--sky)}
 
 /* -- Dashboard -- */
 .dash{padding:6px 4px 8px}
@@ -1738,23 +1741,35 @@ input{font:inherit}
     </div>`;
   }
   function Login(props) {
-    var email = useState(""), pw = useState(""), busy = useState(false), err = useState("");
-    function submit(e) { e.preventDefault(); if (busy[0]) return; busy[1](true); err[1](""); signIn(email[0], pw[0]).then(function (r) { busy[1](false); if (r.error) return err[1](r.error); props.onIn(); }); }
+    var savedEmail = ""; try { savedEmail = localStorage.getItem("om_login_email") || ""; } catch (e) {}
+    var email = useState(savedEmail), pw = useState(""), busy = useState(false), err = useState(""), keep = useState(true);
+    function submit(e) {
+      e.preventDefault(); if (busy[0]) return; busy[1](true); err[1]("");
+      signIn(email[0], pw[0]).then(function (r) {
+        busy[1](false);
+        if (r.error) return err[1](r.error);
+        try { keep[0] ? localStorage.setItem("om_login_email", email[0]) : localStorage.removeItem("om_login_email"); } catch (e2) {}
+        props.onIn();
+      });
+    }
     return html`<div class="login"><div class="login-box">
       <div class="brand big">OM<span>AI</span></div><p class="tag">The Floor — trade desk</p>
+      ${props.reason === "expired" ? html`<div class="login-note">Your session expired — please sign in again.</div>` : null}
       <form onSubmit=${submit}>
-        <input class="inp" type="email" placeholder="Email" value=${email[0]} onInput=${function (e) { email[1](e.target.value); }} autocomplete="email" />
-        <input class="inp" type="password" placeholder="Password" value=${pw[0]} onInput=${function (e) { pw[1](e.target.value); }} autocomplete="current-password" />
+        <input class="inp" type="email" name="username" placeholder="Email" value=${email[0]} onInput=${function (e) { email[1](e.target.value); }} autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" />
+        <input class="inp" type="password" name="password" placeholder="Password" value=${pw[0]} onInput=${function (e) { pw[1](e.target.value); }} autocomplete="current-password" />
+        <label class="keep"><input type="checkbox" checked=${keep[0]} onChange=${function (e) { keep[1](e.target.checked); }} /> Keep me signed in</label>
         <button class="run" disabled=${busy[0]}>${busy[0] ? "Signing in…" : "Sign in"}</button>
         ${err[0] ? html`<div class="err">${err[0]}</div>` : null}
       </form>
-      <p class="hint">Use your One Mission member login to enter the trade desk.</p>
+      <p class="hint">Use your One Mission member login. Let your device save your password to sign in with one tap next time.</p>
     </div></div>`;
   }
   function App() {
     var authed = useState(!!(getSession() && getSession().access_token));
-    useEffect(function () { function dead() { authed[1](false); } window.addEventListener("om-auth-dead", dead); return function () { window.removeEventListener("om-auth-dead", dead); }; }, []);
-    return authed[0] ? html`<${Shell} onLogout=${function () { setSession(null); authed[1](false); }} />` : html`<${Login} onIn=${function () { authed[1](true); }} />`;
+    var reason = useState("");
+    useEffect(function () { function dead() { reason[1]("expired"); authed[1](false); } window.addEventListener("om-auth-dead", dead); return function () { window.removeEventListener("om-auth-dead", dead); }; }, []);
+    return authed[0] ? html`<${Shell} onLogout=${function () { setSession(null); authed[1](false); }} />` : html`<${Login} reason=${reason[0]} onIn=${function () { reason[1](""); authed[1](true); }} />`;
   }
   adoptLegacySession();
   render(html`<${App} />`, document.getElementById("app"));
