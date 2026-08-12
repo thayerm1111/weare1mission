@@ -269,6 +269,13 @@ input{font:inherit}
 .flcard.adv .fl-cta{color:var(--muted)}
 .floor-back{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--muted);padding:8px 4px 6px}
 .floor-back:active{color:var(--ink)}
+.optgrid{display:grid;gap:8px;margin-top:4px}
+.optgrid.c2{grid-template-columns:1fr 1fr}
+.optgrid.c3{grid-template-columns:1fr 1fr 1fr}
+.optbtn{border:1px solid var(--line);border-radius:12px;padding:9px 8px;text-align:center;background:var(--bg2);color:var(--muted);transition:border-color .12s,background .12s}
+.optbtn.on{border-color:rgba(57,198,255,.55);background:rgba(57,198,255,.1);color:var(--ink)}
+.optbtn b{display:block;font-size:13px;font-weight:700}
+.optbtn span{display:block;font-size:9px;margin-top:2px;color:var(--faint);letter-spacing:.02em}
 
 /* -- Dashboard -- */
 .dash{padding:6px 4px 8px}
@@ -854,7 +861,7 @@ input{font:inherit}
     { id: "ghost", label: "MFX Ghost", tag: "Gold desk", endpoint: "/api/xaughost", adapt: adaptGhost, inputs: ["symbol"], syms: GHOST_SYMS, blurb: "A deep single-instrument read with the full trade plan and setup zone." },
     { id: "scanner", label: "Strategy Scanner", tag: "Confluence", endpoint: "/api/strategy-scanner", adapt: adaptScanner, inputs: ["symbolFree", "style", "scouts"], blurb: "Pick your strategies; it fires each one and combines the agreement into a trade." },
     { id: "scalp", label: "OM Scalp", tag: "Fast", endpoint: "/api/scalp", adapt: adaptScalp, inputs: ["symbol"], syms: SCALP_SYMS, blurb: "Tight, quick setups graded by score with a strict confirmation checklist." },
-    { id: "liveplays", label: "OM AI Plays", tag: "AI", endpoint: "/api/om-signal", adapt: adaptLive, inputs: ["symbolFree", "style"], blurb: "An AI-narrated play built on the higher-timeframe flow and confirmations." },
+    { id: "liveplays", label: "OM AI Plays", tag: "AI", endpoint: "/api/om-signal", adapt: adaptLive, inputs: ["symbolFree", "mode", "style", "method", "orderType"], blurb: "An AI-narrated play built on the higher-timeframe flow and confirmations." },
     { id: "command", label: "Market Command", tag: "Beta", endpoint: "/api/market-command", adapt: adaptCommand, inputs: ["symbolFree"], blurb: "Institutional command read (admin beta)." }
   ];
   function bodyFor(tool, st) {
@@ -862,7 +869,7 @@ input{font:inherit}
     if (tool.id === "ghost" || tool.id === "scalp") return { symbol: st.sym };
     if (tool.id === "command") return { td: st.sym, mode: "institutional" };
     if (tool.id === "scanner") return { td: st.sym, style: st.style || "intraday", scouts: st.scouts && st.scouts.length ? st.scouts : SCOUTS.map(function (s) { return s.k; }), mode: "institutional" };
-    if (tool.id === "liveplays") return { td: st.sym, style: st.style || "intraday", orderType: "market", method: "auto", mode: "institutional" };
+    if (tool.id === "liveplays") return { td: st.sym, style: st.style || "intraday", orderType: st.orderType || "limit", method: st.method || "best", mode: st.mode || "institutional" };
     return {};
   }
 
@@ -961,10 +968,10 @@ input{font:inherit}
     function save() {
       if (st[0] === "saving" || st[0] === "saved") return; st[1]("saving");
       var id = [m.symbol, m.direction, lv.ep, m.asOf || ""].join("|");
-      apiPost("/api/xaughost/trades", { trade: {
-        id: id, symbol: m.symbol, asOf: m.asOf || null, direction: m.direction, strategy: m.strategy,
-        regime: m.extras && m.extras.regime, entry: lv.ep, stopLoss: lv.stop, takeProfits: lv.tps,
-        confidence: m.confidence, grade: m.grade, status: "open"
+      apiPost("/api/signals", { signal: {
+        id: id, td: m.symbol, symbol: m.symbol, interval: m.timeframe || "", asOf: m.asOf || "",
+        status: "open", savedManual: true,
+        signal: { direction: m.direction, entry: lv.ep, stopLoss: lv.stop, takeProfits: lv.tps, confidence: m.confidence, timeframe: m.timeframe || "", grade: m.grade }
       } }).then(function (d) { st[1](d && d.ok ? "saved" : "err"); }).catch(function () { st[1]("err"); });
     }
     return html`<button class=${"savetrade " + st[0]} disabled=${st[0] === "saving" || st[0] === "saved"} onClick=${save}>
@@ -1178,7 +1185,7 @@ input{font:inherit}
   }
   function AccountScreen(props) {
     var me = useState(null), trades = useState(null);
-    useEffect(function () { apiGet("/api/me").then(function (d) { me[1](d || {}); }).catch(function () { me[1]({}); }); apiGet("/api/xaughost/trades").then(function (d) { trades[1](arr(d && d.trades)); }).catch(function () { trades[1]([]); }); }, []);
+    useEffect(function () { apiGet("/api/me").then(function (d) { me[1](d || {}); }).catch(function () { me[1]({}); }); apiGet("/api/signals").then(function (d) { trades[1](arr(d && d.signals)); }).catch(function () { trades[1]([]); }); }, []);
     var m = me[0];
     return html`<div class="scr">
       <div class="scr-h">Account</div>
@@ -1190,10 +1197,11 @@ input{font:inherit}
       </div>` : html`<div class="load">Loading…</div>`}
       <button class="run" onClick=${function () { try { window.open("/portal/credits", "_blank"); } catch (e) {} }}>Get more credits</button>
       ${m && m.role === "admin" ? html`<button class="xperf-open" onClick=${props.onOpenXperf}><span>◆ xGhost Performance</span><em>admin · win rate, expectancy, by-pair</em></button>` : null}
-      <div class="scr-sub">Your trade journal</div>
+      <div class="scr-sub">Your saved plays</div>
       ${trades[0] == null ? html`<div class="load">Loading…</div>` : (trades[0].length ? trades[0].slice(0, 20).map(function (t) {
-      return html`<div class="jr"><span class=${"jr-d " + (String(t.direction).toUpperCase() === "LONG" || String(t.direction).toUpperCase() === "BUY" ? "long" : "short")}>${t.direction || ""}</span><span class="jr-s">${t.symbol || t.td || ""}</span><span class="jr-e">${t.entry != null ? "@ " + t.entry : ""}</span><span class="jr-r">${t.status || t.result || ""}</span></div>`;
-    }) : html`<div class="load">No journaled trades yet.</div>`)}
+      var sg = t.signal || {}; var dir = sg.direction || t.direction || ""; var entry = sg.entry != null ? sg.entry : t.entry;
+      return html`<div class="jr"><span class=${"jr-d " + (String(dir).toUpperCase() === "LONG" || String(dir).toUpperCase() === "BUY" ? "long" : "short")}>${dir || ""}</span><span class="jr-s">${t.symbol || t.td || ""}</span><span class="jr-e">${entry != null ? "@ " + entry : ""}</span><span class="jr-r">${t.status || ""}</span></div>`;
+    }) : html`<div class="load">No saved plays yet — tap “I took this trade” on any play.</div>`)}
       <button class="out big" onClick=${props.onLogout}>Sign out</button>
     </div>`;
   }
@@ -1370,14 +1378,18 @@ input{font:inherit}
   }
 
   // ── runner + shell ─────────────────────────────────────────────────────────
+  var PLAY_MODES = [{ k: "institutional", label: "Institutional", sub: "Strict · A+/A" }, { k: "accelerator", label: "Accelerator", sub: "Aggressive" }];
+  var PLAY_METHODS = [{ k: "best", label: "Best", sub: "OM AI mix" }, { k: "smc", label: "Smart Money", sub: "ICT / SMC" }, { k: "structure", label: "Structure", sub: "Structure" }];
+  var PLAY_ORDER = [{ k: "market", label: "Market", sub: "Around price" }, { k: "limit", label: "Limit", sub: "Exact level" }];
   function ToolRunner(props) {
     var tool = props.tool;
     var sym = useState((tool.syms && tool.syms[0]) || "EUR/USD"), style = useState("intraday");
+    var mode = useState("institutional"), method = useState("best"), orderType = useState("limit");
     var scoutSel = useState(SCOUTS.map(function (s) { return s.k; })), loading = useState(false), err = useState(""), result = useState(null);
     var options = tool.syms || SYMBOLS;
     function run() {
       if (loading[0]) return; loading[1](true); err[1](""); result[1](null);
-      var st = { sym: sym[0], style: style[0], scouts: scoutSel[0] };
+      var st = { sym: sym[0], style: style[0], scouts: scoutSel[0], mode: mode[0], method: method[0], orderType: orderType[0] };
       apiPost(tool.endpoint, bodyFor(tool, st)).then(function (d) {
         if (!d || d.error) { if (d && d.notConfigured) return err[1]("Live market data isn't connected yet."); return err[1]((d && (d.reason || d.detail)) || "Couldn't run that right now — try again."); }
         if (tool.list) { result[1]({ list: arr(d.setups).map(function (x) { var m = tool.adapt(x); m.toolName = tool.label; return m; }) }); }
@@ -1399,6 +1411,15 @@ input{font:inherit}
         </label>` : null}
         ${tool.inputs && tool.inputs.indexOf("style") >= 0 ? html`<div class="fld"><span class="fld-l">Timeframe</span>
           <div class="segs">${["scalp", "intraday", "swing"].map(function (s) { return html`<button class=${"seg " + (style[0] === s ? "on" : "")} onClick=${function () { style[1](s); }}>${s}</button>`; })}</div>
+        </div>` : null}
+        ${tool.inputs && tool.inputs.indexOf("mode") >= 0 ? html`<div class="fld"><span class="fld-l">Trading mode</span>
+          <div class="optgrid c2">${PLAY_MODES.map(function (o) { return html`<button class=${"optbtn " + (mode[0] === o.k ? "on" : "")} onClick=${function () { mode[1](o.k); }}><b>${o.label}</b><span>${o.sub}</span></button>`; })}</div>
+        </div>` : null}
+        ${tool.inputs && tool.inputs.indexOf("method") >= 0 ? html`<div class="fld"><span class="fld-l">Analysis method</span>
+          <div class="optgrid c3">${PLAY_METHODS.map(function (o) { return html`<button class=${"optbtn " + (method[0] === o.k ? "on" : "")} onClick=${function () { method[1](o.k); }}><b>${o.label}</b><span>${o.sub}</span></button>`; })}</div>
+        </div>` : null}
+        ${tool.inputs && tool.inputs.indexOf("orderType") >= 0 ? html`<div class="fld"><span class="fld-l">Order type</span>
+          <div class="optgrid c2">${PLAY_ORDER.map(function (o) { return html`<button class=${"optbtn " + (orderType[0] === o.k ? "on" : "")} onClick=${function () { orderType[1](o.k); }}><b>${o.label}</b><span>${o.sub}</span></button>`; })}</div>
         </div>` : null}
         ${tool.inputs && tool.inputs.indexOf("scouts") >= 0 ? html`<div class="fld"><span class="fld-l">Strategies <em>${scoutSel[0].length}/${SCOUTS.length} on</em></span>
           <div class="chips wrap">${SCOUTS.map(function (sc) { var on = scoutSel[0].indexOf(sc.k) >= 0; return html`<button class=${"chip sm " + (on ? "on" : "off")} onClick=${function () { scoutSel[1](on ? scoutSel[0].filter(function (x) { return x !== sc.k; }) : scoutSel[0].concat([sc.k])); }}>${on ? "✓ " : ""}${sc.n}</button>`; })}</div>
