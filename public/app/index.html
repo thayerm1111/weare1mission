@@ -276,6 +276,24 @@ input{font:inherit}
 .optbtn.on{border-color:rgba(57,198,255,.55);background:rgba(57,198,255,.1);color:var(--ink)}
 .optbtn b{display:block;font-size:13px;font-weight:700}
 .optbtn span{display:block;font-size:9px;margin-top:2px;color:var(--faint);letter-spacing:.02em}
+.dhero{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.dlive{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--green);border:1px solid rgba(46,232,143,.3);background:rgba(46,232,143,.08);border-radius:999px;padding:5px 10px;margin-top:6px}
+.dlive .p{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--greenglow);animation:dpulse 1.6s ease-in-out infinite}
+@keyframes dpulse{0%,100%{opacity:1}50%{opacity:.35}}
+.qgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:2px}
+.qa{display:flex;flex-direction:column;align-items:center;gap:7px;padding:13px 6px;border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg,var(--panel),var(--bg2));transition:transform .12s,border-color .12s}
+.qa:active{transform:scale(.96)}
+.qa-ic{width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:18px;background:rgba(57,198,255,.12);color:var(--sky)}
+.qa-l{font-size:10px;font-weight:700;color:var(--muted);text-align:center;line-height:1.15}
+.dst-ic{font-size:14px;color:var(--sky);margin-bottom:3px}
+.dst-v{font-variant-numeric:tabular-nums}
+.dchips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.dchip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--muted);border:1px solid var(--line);background:var(--bg2);border-radius:999px;padding:6px 11px}
+.dchip b{color:var(--ink);font-weight:800}
+.dticker{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:14px;background:rgba(8,16,32,.5);padding:9px 0;margin-top:10px}
+.dticker-row{display:flex;gap:22px;white-space:nowrap;width:max-content;padding-left:22px;animation:dashMarquee 26s linear infinite}
+.dticker-row span{font-size:12px;font-weight:600;color:var(--muted)}
+@keyframes dashMarquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 
 /* -- Dashboard -- */
 .dash{padding:6px 4px 8px}
@@ -833,7 +851,13 @@ input{font:inherit}
     });
     function handle(r) { return r.json().catch(function () { return {}; }).then(function (j) { if (r.status === 402 || (j && j.error === "insufficient_credits")) throw { code: 402, j: j }; if (r.status === 403) throw { code: 403, j: j }; return j; }); }
   }
-  function apiGet(path) { var s = getSession(), o = { credentials: "same-origin", headers: {} }; if (s && s.access_token) o.headers.Authorization = "Bearer " + s.access_token; return fetch(path, o).then(function (r) { return r.json().catch(function () { return {}; }); }); }
+  function apiGet(path) {
+    function go() { var s = getSession(), o = { credentials: "same-origin", headers: {} }; if (s && s.access_token) o.headers.Authorization = "Bearer " + s.access_token; return fetch(path, o); }
+    return go().then(function (r) {
+      if (r.status === 401) return refresh().then(function (ok) { return ok ? go().then(function (r2) { return r2.json().catch(function () { return {}; }); }) : {}; });
+      return r.json().catch(function () { return {}; });
+    }).catch(function () { return {}; });
+  }
   // Supabase REST — anon key + the member's bearer so RLS (active member) applies.
   function sbHeaders() { var se = getSession(), h = { apikey: SUPABASE_ANON, "Content-Type": "application/json" }; h.Authorization = "Bearer " + ((se && se.access_token) || SUPABASE_ANON); return h; }
   function sbFetch(url, method, body) {
@@ -1499,6 +1523,31 @@ input{font:inherit}
   }
 
   // ── Dashboard — the community home. All numbers are real; empty cards hide. ──
+  function useCountUp(target, duration) {
+    var v = useState(0);
+    useEffect(function () {
+      var raf = 0, start = performance.now(), dur = duration || 900;
+      function tick(t) { var pr = Math.min(1, (t - start) / dur); v[1](target * (1 - Math.pow(1 - pr, 3))); if (pr < 1) raf = requestAnimationFrame(tick); }
+      raf = requestAnimationFrame(tick);
+      return function () { cancelAnimationFrame(raf); };
+    }, [target]);
+    return v[0];
+  }
+  function DTile(props) {
+    var v = useCountUp(typeof props.value === "number" ? props.value : 0);
+    var shown = props.raw != null ? props.raw : Math.round(v).toLocaleString();
+    return html`<div class="dst">
+      ${props.icon ? html`<div class="dst-ic">${props.icon}</div>` : null}
+      <div class=${"dst-v" + (props.tone ? " " + props.tone : "")}>${shown}</div>
+      <div class="dst-l">${props.label}</div>
+    </div>`;
+  }
+  var DASH_QUICK = [
+    { k: "omai", icon: "✦", label: "OM AI" },
+    { k: "pulse", icon: "◈", label: "Market Pulse" },
+    { k: "plays", icon: "⚡", label: "OM AI Plays" },
+    { k: "ghost", icon: "⬟", label: "MFXGHOST" }
+  ];
   function DashboardScreen(props) {
     var me = useState(null), stats = useState(undefined), nextCall = useState(undefined);
     useEffect(function () {
@@ -1515,37 +1564,54 @@ input{font:inherit}
     var live = d && d.live, launch = d && d.launch;
     var resolved = ((live && live.resolved) || 0) + ((launch && launch.resolved) || 0);
     var wins = ((live && live.wins) || 0) + ((launch && launch.wins) || 0);
-    var losses = ((live && live.losses) || 0) + ((launch && launch.losses) || 0);
-    var wr = (resolved >= 20 && (wins + losses) > 0) ? Math.round(wins / (wins + losses) * 100) : null;
-    // Headline the Live Plays (longer-term) win rate — a real, stronger segment than the blended average.
-    var lpWins = (launch && launch.wins) || 0, lpLoss = (launch && launch.losses) || 0, lpRes = (launch && launch.resolved) || 0;
-    var lpwr = (lpRes >= 20 && (lpWins + lpLoss) > 0) ? Math.round(lpWins / (lpWins + lpLoss) * 100) : wr;
     var wk = (live && live.generated_7d) || 0;
+    var openNow = (live && live.open) || 0;
+    var members = (d && d.members_using) || 0;
+    var topInstr = (live && live.top_instruments && live.top_instruments[0]) ? live.top_instruments[0].instrument : null;
     var recent = (live && live.recent) || [];
     var rCap = 0, rHas = false;
     recent.forEach(function (r) { if (r && typeof r.realized_r === "number") { rHas = true; if (r.realized_r > 0) rCap += r.realized_r; } });
     rCap = Math.round(rCap * 10) / 10;
-    var recentWins = recent.filter(function (r) { return String(r.status || "").toLowerCase() === "win"; }).slice(0, 5);
+    var recentWins = recent.filter(function (r) { return String(r.status || "").toLowerCase() === "win"; });
     var active = recent.filter(function (r) { var st = String(r.status || "").toLowerCase(); return st === "live" || st === "open"; })[0];
     var hasCommunity = d && resolved > 0;
     function sym(x) { return String(x || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase(); }
     function dirOf(x) { return /long|buy/i.test(String(x || "")) ? "LONG" : "SHORT"; }
+    var ticker = recentWins.slice(0, 8).map(function (r) { return "✅ " + sym(r.instrument) + " " + dirOf(r.direction) + (r.realized_r != null && r.realized_r > 0 ? "  +" + r.realized_r + "R" : "  Won"); });
+
     return html`<div class="scr dash">
-      <div class="dash-hi">Welcome back${name ? ", " + name : ""}</div>
-      <div class="dash-sub">Here's where the mission stands today.</div>
+      <div class="dhero">
+        <div>
+          <div class="dash-hi">Welcome back${name ? ", " + name : ""}</div>
+          <div class="dash-sub">Here's where the mission stands today.</div>
+        </div>
+        ${openNow > 0 ? html`<span class="dlive"><span class="p"></span>${openNow} live</span>` : null}
+      </div>
+
+      <div class="dsec-k">Jump back in</div>
+      <div class="qgrid">
+        ${DASH_QUICK.map(function (q) { return html`<button class="qa" onClick=${function () { props.goFloor(q.k); }}>
+          <span class="qa-ic">${q.icon}</span><span class="qa-l">${q.label}</span>
+        </button>`; })}
+      </div>
 
       ${hasCommunity ? html`<div>
         <div class="dsec-k">Community today</div>
         <div class="dstat">
-          <div class="dst"><div class="dst-v g">${wins}</div><div class="dst-l">Winning plays</div></div>
-          <div class="dst"><div class="dst-v">${wk}</div><div class="dst-l">Plays this week</div></div>
-          <div class="dst"><div class=${"dst-v" + (rHas && rCap > 0 ? " g" : "")}>${rHas ? (rCap > 0 ? "+" : "") + rCap + "R" : "—"}</div><div class="dst-l">R captured · recent wins</div></div>
+          <${DTile} value=${wins} tone="g" icon="✓" label="Winning plays" />
+          <${DTile} value=${wk} icon="⚡" label="Plays this week" />
+          <${DTile} raw=${rHas ? (rCap > 0 ? "+" : "") + rCap + "R" : "—"} tone=${rHas && rCap > 0 ? "g" : ""} icon="◆" label="R · recent wins" />
         </div>
+        ${(members > 0 || topInstr) ? html`<div class="dchips">
+          ${members > 0 ? html`<span class="dchip"><b>${members}</b> members trading</span>` : null}
+          ${topInstr ? html`<span class="dchip">Most active · <b>${sym(topInstr)}</b></span>` : null}
+        </div>` : null}
+        ${ticker.length ? html`<div class="dticker"><div class="dticker-row">${ticker.concat(ticker).map(function (t) { return html`<span>${t}</span>`; })}</div></div>` : null}
       </div>` : null}
 
       ${recentWins.length ? html`<div>
         <div class="dsec-k"><span>Recent wins</span><button onClick=${function () { props.goFloor("plays"); }}>View plays ›</button></div>
-        ${recentWins.map(function (r) { return html`<div class="dwin">
+        ${recentWins.slice(0, 5).map(function (r) { return html`<div class="dwin">
           <div class="dwin-ic">✓</div>
           <div class="dwin-b"><div class="dwin-s">${sym(r.instrument)} · ${dirOf(r.direction)}</div><div class="dwin-m">${r.hit_tp != null ? "Hit TP" + r.hit_tp : "Closed in profit"}</div></div>
           <div class="dwin-r">${r.realized_r != null ? (r.realized_r > 0 ? "+" : "") + r.realized_r + "R" : "Won"}</div>
@@ -1569,15 +1635,6 @@ input{font:inherit}
           <div class="dprev-t">${nextCall[0] ? nextCall[0].title : "Trading calls · 3 · 6 · 9 PM CST"}</div>
           <div class="dprev-s">${nextCall[0] ? fmtWhen(nextCall[0].starts_at).date + " · " + fmtWhen(nextCall[0].starts_at).time : "Join the community live on Zoom, every day."}</div>
           <button class="dprev-cta" onClick=${function () { props.go("plugin"); }} style="background:none;padding:0">Open Plug In ›</button>
-        </div>
-      </div>
-
-      <div>
-        <div class="dsec-k">Ready to trade?</div>
-        <div class="dprev">
-          <div class="dprev-t">Enter The Floor</div>
-          <div class="dprev-s">OM AI, Market Pulse, live plays and more — your trading command center.</div>
-          <button class="dprev-cta" onClick=${function () { props.goFloor(""); }} style="background:none;padding:0">Open The Floor ›</button>
         </div>
       </div>
     </div>`;
