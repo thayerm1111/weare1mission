@@ -829,8 +829,12 @@ input{font:inherit}
   function apiGet(path) { var s = getSession(), o = { credentials: "same-origin", headers: {} }; if (s && s.access_token) o.headers.Authorization = "Bearer " + s.access_token; return fetch(path, o).then(function (r) { return r.json().catch(function () { return {}; }); }); }
   // Supabase REST — anon key + the member's bearer so RLS (active member) applies.
   function sbHeaders() { var se = getSession(), h = { apikey: SUPABASE_ANON, "Content-Type": "application/json" }; h.Authorization = "Bearer " + ((se && se.access_token) || SUPABASE_ANON); return h; }
-  function sbRpc(fn, body) { return fetch(SUPABASE_URL + "/rest/v1/rpc/" + fn, { method: "POST", headers: sbHeaders(), body: JSON.stringify(body || {}) }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }); }
-  function sbSelect(path) { return fetch(SUPABASE_URL + "/rest/v1/" + path, { headers: sbHeaders() }).then(function (r) { return r.ok ? r.json() : []; }).then(function (j) { return Array.isArray(j) ? j : []; }).catch(function () { return []; }); }
+  function sbFetch(url, method, body) {
+    function go() { var o = { method: method || "GET", headers: sbHeaders() }; if (body != null) o.body = JSON.stringify(body); return fetch(url, o); }
+    return go().then(function (r) { if (r.status === 401) return refresh().then(function (ok) { return ok ? go() : r; }); return r; });
+  }
+  function sbRpc(fn, body) { return sbFetch(SUPABASE_URL + "/rest/v1/rpc/" + fn, "POST", body || {}).then(function (r) { return r && r.ok ? r.json() : null; }).catch(function () { return null; }); }
+  function sbSelect(path) { return sbFetch(SUPABASE_URL + "/rest/v1/" + path, "GET", null).then(function (r) { return r && r.ok ? r.json() : []; }).then(function (j) { return Array.isArray(j) ? j : []; }).catch(function () { return []; }); }
 
   // ── tools ─────────────────────────────────────────────────────────────────
   var GHOST_SYMS = ["XAU/USD", "EUR/USD", "GBP/USD", "AUD/USD", "USD/CAD", "USD/JPY"];
