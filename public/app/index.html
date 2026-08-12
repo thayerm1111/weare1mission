@@ -246,6 +246,91 @@ input{font:inherit}
 .scr-blurb{color:var(--muted);font-size:13px;padding:2px 4px 14px}
 .load{color:var(--faint);font-size:13px;text-align:center;padding:22px}
 
+/* -- Floor launcher (5-card premium landing) -- */
+.floor-h{padding:8px 4px 2px}
+.floor-k{font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+.floor-t{font-size:26px;font-weight:800;letter-spacing:.01em;margin-top:3px}
+.floor-s{color:var(--muted);font-size:13px;margin-top:3px}
+.flgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.flcard{position:relative;display:flex;flex-direction:column;gap:8px;text-align:left;border:1px solid var(--line);border-radius:18px;padding:15px 15px 16px;background:linear-gradient(180deg,var(--panel),var(--bg2));min-height:118px;transition:transform .12s ease,border-color .12s ease}
+.flcard:active{transform:scale(.985)}
+.flcard.span{grid-column:1 / -1}
+.flcard.hero{grid-column:1 / -1;min-height:132px;border-color:rgba(57,198,255,.4);background:linear-gradient(180deg,rgba(57,198,255,.14),rgba(57,198,255,.03))}
+.flcard.adv{border-color:var(--line);background:linear-gradient(180deg,rgba(120,160,220,.05),transparent);opacity:.92}
+.fl-ic{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:19px;background:rgba(120,160,220,.1);border:1px solid var(--line)}
+.flcard.hero .fl-ic{background:rgba(57,198,255,.16);border-color:rgba(57,198,255,.35);color:var(--sky)}
+.flcard.adv .fl-ic{background:rgba(120,160,220,.07)}
+.fl-nm{font-size:16px;font-weight:800;letter-spacing:.01em}
+.flcard.hero .fl-nm{font-size:18px}
+.fl-bl{font-size:12px;color:var(--muted);line-height:1.4}
+.fl-tag{position:absolute;top:13px;right:14px;font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);border:1px solid var(--line);border-radius:999px;padding:3px 8px}
+.flcard.hero .fl-tag{color:var(--sky);border-color:rgba(57,198,255,.4)}
+.fl-cta{margin-top:auto;font-size:12px;font-weight:800;letter-spacing:.04em;color:var(--sky);display:flex;align-items:center;gap:5px}
+.flcard.adv .fl-cta{color:var(--muted)}
+.floor-back{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--muted);padding:8px 4px 6px}
+.floor-back:active{color:var(--ink)}
+
+/* -- Dashboard -- */
+.dash{padding:6px 4px 8px}
+.dash-hi{font-size:22px;font-weight:800;letter-spacing:.01em;padding:4px 2px 1px}
+.dash-sub{color:var(--muted);font-size:13px;padding:0 2px 6px}
+.dsec-k{font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);margin:20px 2px 9px;display:flex;justify-content:space-between;align-items:center}
+.dsec-k a,.dsec-k button{font-size:11px;font-weight:800;letter-spacing:.04em;color:var(--sky);text-transform:none}
+.dstat{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.dstat.two{grid-template-columns:repeat(2,1fr)}
+.dst{border:1px solid var(--line);border-radius:15px;padding:13px 12px;background:linear-gradient(180deg,var(--panel),var(--bg2));text-align:center}
+.dst-v{font-size:24px;font-weight:800;letter-spacing:-.01em;line-height:1.05}
+.dst-v.g{color:var(--green)}
+.dst-l{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin-top:4px}
+.dwin{display:flex;align-items:center;gap:11px;border:1px solid var(--line);border-radius:13px;padding:11px 13px;background:rgba(8,16,32,.5);margin-bottom:8px}
+.dwin-ic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;background:rgba(46,232,143,.12);color:var(--green);flex:0 0 auto}
+.dwin-b{min-width:0;flex:1}
+.dwin-s{font-size:14px;font-weight:800}
+.dwin-m{font-size:11px;color:var(--faint);margin-top:1px}
+.dwin-r{font-size:13px;font-weight:800;color:var(--green);white-space:nowrap}
+.dwin-r.dir{color:var(--muted);font-weight:700}
+.dprev{border:1px solid var(--line);border-radius:16px;padding:14px;background:linear-gradient(180deg,var(--panel),var(--bg2));margin-bottom:10px}
+.dprev.hot{border-color:rgba(57,198,255,.35);background:linear-gradient(180deg,rgba(57,198,255,.1),transparent)}
+.dprev-k{font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.dprev-t{font-size:17px;font-weight:800;margin-top:5px}
+.dprev-s{font-size:12px;color:var(--muted);margin-top:3px}
+.dprev-cta{margin-top:11px;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--sky)}
+.dprev-live{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--green)}
+.dot-live{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--greenglow)}
+
+/* -- Plug In -- */
+.pin{padding:6px 4px 8px}
+.pin-next{border:1px solid rgba(57,198,255,.32);border-radius:20px;padding:18px;margin-top:6px;background:radial-gradient(600px 200px at 100% 0%,rgba(57,198,255,.14),transparent 70%),linear-gradient(180deg,var(--panel2),var(--bg2))}
+.pin-next.live{border-color:rgba(46,232,143,.45);background:linear-gradient(180deg,rgba(46,232,143,.12),var(--bg2))}
+.pin-badge{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--sky)}
+.pin-next.live .pin-badge{color:var(--green)}
+.pin-when{font-size:13px;font-weight:700;color:var(--muted);margin-top:9px}
+.pin-title{font-size:20px;font-weight:800;margin-top:4px}
+.pin-cd{display:flex;gap:8px;margin-top:12px}
+.pin-cd .u{flex:1;text-align:center;border:1px solid var(--line);border-radius:12px;padding:8px 4px;background:rgba(8,16,32,.5)}
+.pin-cd .u b{display:block;font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
+.pin-cd .u span{font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.pin-join{margin-top:14px;width:100%;padding:13px;border-radius:13px;font-size:14px;font-weight:800;background:linear-gradient(180deg,rgba(57,198,255,.9),rgba(57,198,255,.7));color:#04121f;text-align:center;display:block}
+.pin-next.live .pin-join{background:linear-gradient(180deg,var(--green),#22c07a);color:#03130b}
+.pin-row{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:13px;padding:12px 13px;background:rgba(8,16,32,.5);margin-bottom:8px}
+.pin-row-d{flex:0 0 auto;width:44px;text-align:center}
+.pin-row-d b{display:block;font-size:15px;font-weight:800}
+.pin-row-d span{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
+.pin-row-b{min-width:0;flex:1}
+.pin-row-t{font-size:14px;font-weight:800}
+.pin-row-m{font-size:11px;color:var(--faint);margin-top:1px}
+.replays{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.rep{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:linear-gradient(180deg,var(--panel),var(--bg2));text-align:left}
+.rep-th{aspect-ratio:16/10;display:flex;align-items:center;justify-content:center;font-size:26px;color:var(--sky);background:radial-gradient(200px 120px at 50% 30%,rgba(57,198,255,.18),transparent),rgba(8,16,32,.6);border-bottom:1px solid var(--line)}
+.rep-b{padding:10px 11px 12px}
+.rep-t{font-size:13px;font-weight:800;line-height:1.25}
+.rep-m{font-size:10px;color:var(--faint);margin-top:4px}
+.pin-cats{display:flex;gap:7px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none}
+.pin-cats::-webkit-scrollbar{display:none}
+.pin-cat{flex:0 0 auto;font-size:12px;font-weight:700;padding:6px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--bg2)}
+.pin-cat.on{border-color:rgba(57,198,255,.5);color:var(--sky);background:rgba(57,198,255,.08)}
+.emptybox{text-align:center;color:var(--faint);font-size:12px;padding:18px;border:1px dashed var(--line);border-radius:14px;background:var(--bg2)}
+
 /* chat — fill the screen, messages scroll, input pinned at the bottom */
 .chatscreen{display:flex;flex-direction:column;min-height:calc(100vh - env(safe-area-inset-top,0px) - 88px);min-height:calc(100dvh - env(safe-area-inset-top,0px) - 88px)}
 .chat{flex:1 1 auto;display:flex;flex-direction:column;gap:9px;padding:10px 2px 12px;overflow-y:auto;min-height:0}
@@ -742,6 +827,10 @@ input{font:inherit}
     function handle(r) { return r.json().catch(function () { return {}; }).then(function (j) { if (r.status === 402 || (j && j.error === "insufficient_credits")) throw { code: 402, j: j }; if (r.status === 403) throw { code: 403, j: j }; return j; }); }
   }
   function apiGet(path) { var s = getSession(), o = { credentials: "same-origin", headers: {} }; if (s && s.access_token) o.headers.Authorization = "Bearer " + s.access_token; return fetch(path, o).then(function (r) { return r.json().catch(function () { return {}; }); }); }
+  // Supabase REST — anon key + the member's bearer so RLS (active member) applies.
+  function sbHeaders() { var se = getSession(), h = { apikey: SUPABASE_ANON, "Content-Type": "application/json" }; h.Authorization = "Bearer " + ((se && se.access_token) || SUPABASE_ANON); return h; }
+  function sbRpc(fn, body) { return fetch(SUPABASE_URL + "/rest/v1/rpc/" + fn, { method: "POST", headers: sbHeaders(), body: JSON.stringify(body || {}) }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }); }
+  function sbSelect(path) { return fetch(SUPABASE_URL + "/rest/v1/" + path, { headers: sbHeaders() }).then(function (r) { return r.ok ? r.json() : []; }).then(function (j) { return Array.isArray(j) ? j : []; }).catch(function () { return []; }); }
 
   // ── tools ─────────────────────────────────────────────────────────────────
   var GHOST_SYMS = ["XAU/USD", "EUR/USD", "GBP/USD", "AUD/USD", "USD/CAD", "USD/JPY"];
@@ -1069,8 +1158,8 @@ input{font:inherit}
       }).catch(function () { err[1]("Couldn't load the weekly brief."); }).then(function () { busy[1](false); });
     }, []);
     return html`<div class="scr">
-      <div class="scr-h">Weekly Plays</div>
-      <p class="scr-blurb">Longer-horizon buy-&-hold ideas for the community — educational, not financial advice.</p>
+      <div class="scr-h">Live Plays</div>
+      <p class="scr-blurb">Longer-horizon trades and buy-&-hold ideas shared with the community — educational, not financial advice.</p>
       ${busy[0] ? html`<div class="load">Loading this week's plays…</div>` : null}
       ${err[0] ? html`<div class="err">${err[0]}</div>` : null}
       ${data[0] && data[0].note ? html`<div class="wknote">${data[0].note}</div>` : null}
@@ -1322,9 +1411,222 @@ input{font:inherit}
       ${result[0] && result[0].list ? (result[0].list.length ? html`<${PulseList} items=${result[0].list} />` : html`<div class="err">No clean setups right now — check back shortly.</div>`) : null}
     </div>`;
   }
+  var LIVE_URL = "https://1missionlive.com";
+  var DAILY_CALLS = [
+    { t: "3:00 PM", zone: "CST", label: "Trading Overview" },
+    { t: "6:00 PM", zone: "CST", label: "Trading Overview" },
+    { t: "9:00 PM", zone: "CST", label: "Overview + Live Session" }
+  ];
+
+  // ── The Floor — premium 5-card launcher into the trading experiences ────────
+  function FloorSection(props) {
+    var view = useState(props.init || "");
+    var pulseTool = TOOLS.filter(function (t) { return t.id === "pulse"; })[0];
+    var playsTool = TOOLS.filter(function (t) { return t.id === "liveplays"; })[0];
+    function back() { return html`<button class="floor-back" onClick=${function () { view[1](""); }}>‹ The Floor</button>`; }
+    if (view[0] === "omai") return html`<div>${back()}<${ChatScreen} onLogout=${props.onLogout} /></div>`;
+    if (view[0] === "pulse") return html`<div>${back()}<${ToolRunner} key="pulse" tool=${pulseTool} onLogout=${props.onLogout} /></div>`;
+    if (view[0] === "plays") return html`<div>${back()}<${ToolRunner} key="liveplays" tool=${playsTool} onLogout=${props.onLogout} /></div>`;
+    if (view[0] === "live") return html`<div>${back()}<${WeeklyScreen} onLogout=${props.onLogout} /></div>`;
+    if (view[0] === "ghost") return html`<div>${back()}<${XGhostSection} key="xghost" onLogout=${props.onLogout} /></div>`;
+    function open(v) { return function () { view[1](v); }; }
+    return html`<div class="scr">
+      <div class="floor-h">
+        <div class="floor-k">The Floor</div>
+        <div class="floor-t">Your edge starts here.</div>
+        <div class="floor-s">Five ways to work the markets. New here? Start with OM AI — just ask it.</div>
+      </div>
+      <div class="flgrid">
+        <button class="flcard hero" onClick=${open("omai")}>
+          <span class="fl-tag">Start here</span>
+          <div class="fl-ic">✦</div>
+          <div class="fl-nm">OM AI</div>
+          <div class="fl-bl">Ask anything, analyze a market, or generate a trade setup.</div>
+          <div class="fl-cta">Open OM AI ›</div>
+        </button>
+        <button class="flcard" onClick=${open("pulse")}>
+          <div class="fl-ic">◈</div>
+          <div class="fl-nm">Market Pulse</div>
+          <div class="fl-bl">What's worth watching right now.</div>
+          <div class="fl-cta">Check ›</div>
+        </button>
+        <button class="flcard" onClick=${open("plays")}>
+          <div class="fl-ic">⚡</div>
+          <div class="fl-nm">OM AI Plays</div>
+          <div class="fl-bl">AI-generated opportunities.</div>
+          <div class="fl-cta">View ›</div>
+        </button>
+        <button class="flcard span" onClick=${open("live")}>
+          <div class="fl-ic">↗</div>
+          <div class="fl-nm">Live Plays</div>
+          <div class="fl-bl">Longer-horizon trades shared with the community.</div>
+          <div class="fl-cta">View ›</div>
+        </button>
+        <button class="flcard span adv" onClick=${open("ghost")}>
+          <span class="fl-tag">Advanced analysis</span>
+          <div class="fl-ic">⬟</div>
+          <div class="fl-nm">MFXGHOST</div>
+          <div class="fl-bl">Deep market intelligence — structure, liquidity, institutional confluence.</div>
+          <div class="fl-cta">Open ›</div>
+        </button>
+      </div>
+    </div>`;
+  }
+
+  // ── Dashboard — the community home. All numbers are real; empty cards hide. ──
+  function DashboardScreen(props) {
+    var me = useState(null), stats = useState(undefined), nextCall = useState(undefined);
+    useEffect(function () {
+      apiGet("/api/me").then(function (d) { me[1](d || {}); }).catch(function () { me[1]({}); });
+      sbRpc("community_signal_stats").then(function (raw) { stats[1](raw ? (Array.isArray(raw) ? raw[0] : raw) : null); });
+      var nowIso = new Date().toISOString();
+      sbSelect("live_sessions?select=title,starts_at,join_url,host&published=eq.true&starts_at=gte." + encodeURIComponent(nowIso) + "&order=starts_at.asc&limit=1")
+        .then(function (rows) { nextCall[1](rows && rows[0] ? rows[0] : null); });
+    }, []);
+    var m = me[0] || {};
+    var name = (m.name || m.email || "");
+    name = name ? (name.indexOf("@") >= 0 ? name.split("@")[0] : name.split(" ")[0]) : "";
+    var d = stats[0];
+    var live = d && d.live, launch = d && d.launch;
+    var resolved = ((live && live.resolved) || 0) + ((launch && launch.resolved) || 0);
+    var wins = ((live && live.wins) || 0) + ((launch && launch.wins) || 0);
+    var losses = ((live && live.losses) || 0) + ((launch && launch.losses) || 0);
+    var wr = (resolved >= 20 && (wins + losses) > 0) ? Math.round(wins / (wins + losses) * 100) : null;
+    var recent = (live && live.recent) || [];
+    var rCap = 0, rHas = false;
+    recent.forEach(function (r) { if (r && typeof r.realized_r === "number") { rCap += r.realized_r; rHas = true; } });
+    rCap = Math.round(rCap * 10) / 10;
+    var recentWins = recent.filter(function (r) { return String(r.status || "").toLowerCase() === "win"; }).slice(0, 5);
+    var active = recent.filter(function (r) { var st = String(r.status || "").toLowerCase(); return st === "live" || st === "open"; })[0];
+    var hasCommunity = d && resolved > 0;
+    function sym(x) { return String(x || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase(); }
+    function dirOf(x) { return /long|buy/i.test(String(x || "")) ? "LONG" : "SHORT"; }
+    return html`<div class="scr dash">
+      <div class="dash-hi">Welcome back${name ? ", " + name : ""}</div>
+      <div class="dash-sub">Here's where the mission stands today.</div>
+
+      ${hasCommunity ? html`<div>
+        <div class="dsec-k">Community today</div>
+        <div class="dstat">
+          <div class="dst"><div class=${"dst-v" + (wr != null ? " g" : "")}>${wr != null ? wr + "%" : "—"}</div><div class="dst-l">Win rate</div></div>
+          <div class="dst"><div class="dst-v">${wins}</div><div class="dst-l">Community wins</div></div>
+          <div class="dst"><div class=${"dst-v" + (rHas && rCap > 0 ? " g" : "")}>${rHas ? (rCap > 0 ? "+" : "") + rCap + "R" : "—"}</div><div class="dst-l">R captured · recent</div></div>
+        </div>
+        ${wr == null ? html`<div class="dash-sub" style="padding-top:8px">Win rate appears once 20+ plays have resolved (${resolved} so far).</div>` : null}
+      </div>` : null}
+
+      ${recentWins.length ? html`<div>
+        <div class="dsec-k"><span>Recent wins</span><button onClick=${function () { props.goFloor("plays"); }}>View plays ›</button></div>
+        ${recentWins.map(function (r) { return html`<div class="dwin">
+          <div class="dwin-ic">✓</div>
+          <div class="dwin-b"><div class="dwin-s">${sym(r.instrument)} · ${dirOf(r.direction)}</div><div class="dwin-m">${r.hit_tp != null ? "Hit TP" + r.hit_tp : "Closed in profit"}</div></div>
+          <div class="dwin-r">${r.realized_r != null ? (r.realized_r > 0 ? "+" : "") + r.realized_r + "R" : "Won"}</div>
+        </div>`; })}
+      </div>` : null}
+
+      ${active ? html`<div>
+        <div class="dsec-k">Active now</div>
+        <div class="dprev hot">
+          <div class="dprev-live"><span class="dot-live"></span> Live play</div>
+          <div class="dprev-t">${sym(active.instrument)} · ${dirOf(active.direction)}</div>
+          <div class="dprev-s">A community play is live right now.</div>
+          <button class="dprev-cta" onClick=${function () { props.goFloor("plays"); }} style="background:none;padding:0">View on The Floor ›</button>
+        </div>
+      </div>` : null}
+
+      <div>
+        <div class="dsec-k">Next plug in</div>
+        <div class="dprev">
+          <div class="dprev-k">${nextCall[0] ? "Next community call" : "Live daily"}</div>
+          <div class="dprev-t">${nextCall[0] ? nextCall[0].title : "Trading calls · 3 · 6 · 9 PM CST"}</div>
+          <div class="dprev-s">${nextCall[0] ? fmtWhen(nextCall[0].starts_at).date + " · " + fmtWhen(nextCall[0].starts_at).time : "Join the community live on Zoom, every day."}</div>
+          <button class="dprev-cta" onClick=${function () { props.go("plugin"); }} style="background:none;padding:0">Open Plug In ›</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="dsec-k">Ready to trade?</div>
+        <div class="dprev">
+          <div class="dprev-t">Enter The Floor</div>
+          <div class="dprev-s">OM AI, Market Pulse, live plays and more — your trading command center.</div>
+          <button class="dprev-cta" onClick=${function () { props.goFloor(""); }} style="background:none;padding:0">Open The Floor ›</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── Plug In — community calls + replays ─────────────────────────────────────
+  function PlugInScreen(props) {
+    var tick = useState(Date.now());
+    var sessions = useState(null), events = useState(null), replays = useState(null), cat = useState("All");
+    useEffect(function () { var iv = setInterval(function () { tick[1](Date.now()); }, 1000); return function () { clearInterval(iv); }; }, []);
+    useEffect(function () {
+      sbSelect("live_sessions?select=title,description,host,starts_at,join_url,category&published=eq.true&order=starts_at.asc").then(function (r) { sessions[1](r || []); });
+      sbSelect("schedule_events?select=title,day,time,category,speaker,zoom_link&order=created_at.asc").then(function (r) { events[1](r || []); });
+      sbSelect("trading_content?select=title,description,video_url,category,created_at&published=eq.true&order=created_at.desc").then(function (r) { replays[1]((r || []).filter(function (x) { return x.video_url; })); });
+    }, []);
+    var now = tick[0], LIVE_MS = 90 * 60000;
+    var up = (sessions[0] || []).map(function (x) { return { title: x.title, host: x.host, cat: x.category, when: new Date(x.starts_at).getTime(), join: x.join_url, iso: x.starts_at }; }).filter(function (x) { return isFinite(x.when); });
+    var featured = null; for (var i = 0; i < up.length; i++) { if (up[i].when + LIVE_MS > now) { featured = up[i]; break; } }
+    var upcoming = up.filter(function (x) { return x !== featured && x.when > now; }).slice(0, 5);
+    var reps = replays[0] || [];
+    var cats = []; reps.forEach(function (r) { var c = r.category || "Community"; if (cats.indexOf(c) < 0) cats.push(c); });
+    var shownReps = cat[0] === "All" ? reps : reps.filter(function (r) { return (r.category || "Community") === cat[0]; });
+
+    var hero;
+    if (featured) {
+      var diff = featured.when - now, isLive = diff <= 0 && now < featured.when + LIVE_MS, soon = diff > 0 && diff < 15 * 60000;
+      var rem = Math.max(0, diff), dd = Math.floor(rem / 86400000), hh = Math.floor(rem % 86400000 / 3600000), mm = Math.floor(rem % 3600000 / 60000), ssx = Math.floor(rem % 60000 / 1000);
+      hero = html`<div class=${"pin-next" + (isLive ? " live" : "")}>
+        <div class="pin-badge">${isLive ? html`<span class="dot-live"></span> Live now` : (soon ? "Starting soon" : "Next call")}</div>
+        <div class="pin-when">${fmtWhen(featured.iso).date} · ${fmtWhen(featured.iso).time}${featured.host ? " · " + featured.host : ""}</div>
+        <div class="pin-title">${featured.title}</div>
+        ${!isLive ? html`<div class="pin-cd">
+          <div class="u"><b>${pad(dd)}</b><span>days</span></div>
+          <div class="u"><b>${pad(hh)}</b><span>hrs</span></div>
+          <div class="u"><b>${pad(mm)}</b><span>min</span></div>
+          <div class="u"><b>${pad(ssx)}</b><span>sec</span></div>
+        </div>` : null}
+        <a class="pin-join" href=${featured.join || LIVE_URL} target="_blank" rel="noreferrer">${isLive ? "Join live ›" : "Call details ›"}</a>
+      </div>`;
+    } else {
+      hero = html`<div class="pin-next">
+        <div class="pin-badge">Live daily</div>
+        <div class="pin-when">Every day on Zoom</div>
+        <div class="pin-title">Community trading calls</div>
+        <div class="pin-cd">${DAILY_CALLS.map(function (c) { return html`<div class="u"><b style="font-size:14px">${c.t}</b><span>${c.label}</span></div>`; })}</div>
+        <a class="pin-join" href=${LIVE_URL} target="_blank" rel="noreferrer">Join the live call ›</a>
+      </div>`;
+    }
+
+    return html`<div class="scr pin">
+      <div class="scr-h">Plug In</div>
+      ${hero}
+
+      ${(upcoming.length || (events[0] && events[0].length)) ? html`<div>
+        <div class="dsec-k">Upcoming</div>
+        ${upcoming.map(function (x) { var w = fmtWhen(x.iso); return html`<div class="pin-row">
+          <div class="pin-row-d"><b>${w.date.split(" ")[1]}</b><span>${w.date.split(" ")[0]}</span></div>
+          <div class="pin-row-b"><div class="pin-row-t">${x.title}</div><div class="pin-row-m">${w.time}${x.host ? " · " + x.host : ""}</div></div>
+        </div>`; })}
+        ${(events[0] || []).slice(0, 6).map(function (e) { return html`<div class="pin-row">
+          <div class="pin-row-d"><b>${String(e.day || "").slice(0, 3)}</b><span>wkly</span></div>
+          <div class="pin-row-b"><div class="pin-row-t">${e.title}</div><div class="pin-row-m">${e.time || ""}${e.speaker ? " · " + e.speaker : ""}</div></div>
+        </div>`; })}
+      </div>` : null}
+
+      <div class="dsec-k">Replays</div>
+      ${cats.length >= 2 ? html`<div class="pin-cats">${["All"].concat(cats).map(function (c) { return html`<button class=${"pin-cat" + (cat[0] === c ? " on" : "")} onClick=${function () { cat[1](c); }}>${c}</button>`; })}</div>` : null}
+      ${reps.length ? html`<div class="replays">${shownReps.map(function (r) { return html`<a class="rep" href=${r.video_url} target="_blank" rel="noreferrer">
+        <div class="rep-th">▶</div>
+        <div class="rep-b"><div class="rep-t">${r.title}</div><div class="rep-m">${(r.category || "Community")}${r.created_at ? " · " + fmtWhen(r.created_at).date : ""}</div></div>
+      </a>`; })}</div>` : html`<div class="emptybox">Replays from past community calls will appear here.</div>`}
+    </div>`;
+  }
+
   var NAV = [
-    { id: "signals", label: "Signals", icon: "◈" }, { id: "chat", label: "Chat", icon: "✦" },
-    { id: "charts", label: "Charts", icon: "▤" }, { id: "weekly", label: "Weekly", icon: "❖" }, { id: "you", label: "You", icon: "◉" }
+    { id: "floor", label: "The Floor", icon: "▦" }, { id: "dashboard", label: "Dashboard", icon: "⌂" },
+    { id: "account", label: "Account", icon: "◉" }, { id: "plugin", label: "Plug In", icon: "⌁" }
   ];
   function SignalsSection(props) {
     var active = useState(TOOLS[0].id), tool = TOOLS.filter(function (t) { return t.id === active[0]; })[0];
@@ -1334,17 +1636,19 @@ input{font:inherit}
     </div>`;
   }
   function Shell(props) {
-    var sec = useState("signals");
+    var sec = useState("dashboard");
+    var floorInit = useState("");
+    function go(id) { sec[1](id); }
+    function goFloor(v) { floorInit[1](v || ""); sec[1]("floor"); }
     return html`<div class="shell">
       <main class="main">
-        ${sec[0] === "signals" ? html`<${SignalsSection} onLogout=${props.onLogout} />` : null}
-        ${sec[0] === "chat" ? html`<${ChatScreen} onLogout=${props.onLogout} />` : null}
-        ${sec[0] === "charts" ? html`<${ChartsScreen} onLogout=${props.onLogout} />` : null}
-        ${sec[0] === "weekly" ? html`<${WeeklyScreen} onLogout=${props.onLogout} />` : null}
-        ${sec[0] === "you" ? html`<${AccountScreen} onLogout=${props.onLogout} onOpenXperf=${function () { sec[1]("xperf"); }} />` : null}
-        ${sec[0] === "xperf" ? html`<${XGhostStatsScreen} onBack=${function () { sec[1]("you"); }} onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "dashboard" ? html`<${DashboardScreen} go=${go} goFloor=${goFloor} onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "floor" ? html`<${FloorSection} key=${"fl" + floorInit[0]} init=${floorInit[0]} onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "account" ? html`<${AccountScreen} onLogout=${props.onLogout} onOpenXperf=${function () { sec[1]("xperf"); }} />` : null}
+        ${sec[0] === "plugin" ? html`<${PlugInScreen} onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "xperf" ? html`<${XGhostStatsScreen} onBack=${function () { sec[1]("account"); }} onLogout=${props.onLogout} />` : null}
       </main>
-      <nav class="bnav">${NAV.map(function (n) { return html`<button class=${"bn " + (sec[0] === n.id ? "on" : "")} onClick=${function () { sec[1](n.id); }}><span class="bn-i">${n.icon}</span><span class="bn-l">${n.label}</span></button>`; })}</nav>
+      <nav class="bnav">${NAV.map(function (n) { var on = sec[0] === n.id || (sec[0] === "xperf" && n.id === "account"); return html`<button class=${"bn " + (on ? "on" : "")} onClick=${function () { if (n.id === "floor") goFloor(""); else go(n.id); }}><span class="bn-i">${n.icon}</span><span class="bn-l">${n.label}</span></button>`; })}</nav>
     </div>`;
   }
   function Login(props) {
