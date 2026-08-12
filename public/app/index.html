@@ -1498,7 +1498,7 @@ input{font:inherit}
     var wr = (resolved >= 20 && (wins + losses) > 0) ? Math.round(wins / (wins + losses) * 100) : null;
     var recent = (live && live.recent) || [];
     var rCap = 0, rHas = false;
-    recent.forEach(function (r) { if (r && typeof r.realized_r === "number") { rCap += r.realized_r; rHas = true; } });
+    recent.forEach(function (r) { if (r && typeof r.realized_r === "number") { rHas = true; if (r.realized_r > 0) rCap += r.realized_r; } });
     rCap = Math.round(rCap * 10) / 10;
     var recentWins = recent.filter(function (r) { return String(r.status || "").toLowerCase() === "win"; }).slice(0, 5);
     var active = recent.filter(function (r) { var st = String(r.status || "").toLowerCase(); return st === "live" || st === "open"; })[0];
@@ -1514,7 +1514,7 @@ input{font:inherit}
         <div class="dstat">
           <div class="dst"><div class=${"dst-v" + (wr != null ? " g" : "")}>${wr != null ? wr + "%" : "—"}</div><div class="dst-l">Win rate</div></div>
           <div class="dst"><div class="dst-v">${wins}</div><div class="dst-l">Community wins</div></div>
-          <div class="dst"><div class=${"dst-v" + (rHas && rCap > 0 ? " g" : "")}>${rHas ? (rCap > 0 ? "+" : "") + rCap + "R" : "—"}</div><div class="dst-l">R captured · recent</div></div>
+          <div class="dst"><div class=${"dst-v" + (rHas && rCap > 0 ? " g" : "")}>${rHas ? (rCap > 0 ? "+" : "") + rCap + "R" : "—"}</div><div class="dst-l">R captured · recent wins</div></div>
         </div>
         ${wr == null ? html`<div class="dash-sub" style="padding-top:8px">Win rate appears once 20+ plays have resolved (${resolved} so far).</div>` : null}
       </div>` : null}
