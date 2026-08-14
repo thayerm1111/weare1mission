@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
 
   // ── Decision mapping → GENX result (all numbers from the engine) ──
   const vol = volBucket(arr(m15), price);
-  const genx = mapGenx(read, { mode, price, session, dataStatus, hold: m.hold, triggerTf: m.triggerTf, contextTf: m.contextTf, pip: GOLD.pip, dec: GOLD.dec, marketStory, volatility: vol.label });
+  const genx = mapGenx(read, { mode, price, session, dataStatus, hold: m.hold, triggerTf: m.triggerTf, contextTf: m.contextTf, pip: GOLD.pip, dec: GOLD.dec, marketStory, volatility: vol.label, atr: vol.atr });
 
   // Charge only when GENX produces an actionable read (spec: watchlist/no-data free-ish).
   const chargeable = read.state === "TRADE_READY" || read.state === "DEVELOPING_SETUP" || read.state === "WATCHLIST";
@@ -225,48 +225,67 @@ export async function POST(req: NextRequest) {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function mapGenx(read: Record<string, unknown>, ctx: { mode: Mode; price: number; session: string; dataStatus: string; hold: [number, number]; triggerTf: string; contextTf: string; pip: number; dec: number; marketStory: string[]; volatility: string }) {
+function mapGenx(read: Record<string, unknown>, ctx: { mode: Mode; price: number; session: string; dataStatus: string; hold: [number, number]; triggerTf: string; contextTf: string; pip: number; dec: number; marketStory: string[]; volatility: string; atr: number | null }) {
   const r = read as any;
   const { pip, dec, price } = ctx;
   const pips = (a: number | null, b: number | null): number | null => (num(a) != null && num(b) != null ? Math.round(Math.abs((a as number) - (b as number)) / pip) : null);
   const round = (n: number | null) => (num(n) != null ? +(n as number).toFixed(dec) : null);
 
-  const dir: "buy" | "sell" | null = r.direction === "buy" ? "buy" : r.direction === "sell" ? "sell" : null;
-  const bias = dir === "buy" ? "bullish" : dir === "sell" ? "bearish" : "neutral";
+  const engineDir: "buy" | "sell" | null = r.direction === "buy" ? "buy" : r.direction === "sell" ? "sell" : null;
   const state: string = String(r.state ?? "NO_TRADE");
 
   const eObj = r.entry ?? r.provisional_trade?.entry ?? {};
   const slObj = r.stop_loss ?? r.provisional_trade?.stop_loss ?? {};
   const tpsRaw: any[] = (r.take_profits ?? r.provisional_trade?.take_profits ?? []) as any[];
-  const entry = round(eObj.price ?? null);
-  const entryLow = round(eObj.zone_low ?? null);
-  const entryHigh = round(eObj.zone_high ?? null);
-  const stop = round(slObj.price ?? null);
-  const tp1 = round(tpsRaw[0]?.price ?? null);
-  const tp2 = round(tpsRaw[1]?.price ?? null);
-  const tp3 = round(tpsRaw[2]?.price ?? null);
+  let entry = round(eObj.price ?? null);
+  let entryLow = round(eObj.zone_low ?? null);
+  let entryHigh = round(eObj.zone_high ?? null);
+  let stop = round(slObj.price ?? null);
+  let tp1 = round(tpsRaw[0]?.price ?? null);
+  let tp2 = round(tpsRaw[1]?.price ?? null);
+  let tp3 = round(tpsRaw[2]?.price ?? null);
 
   const levels = r.levels ?? {};
   const support = round(levels.support ?? null);
   const resistance = round(levels.resistance ?? null);
   const scores = r.scores ?? {};
-  const confidence = num(r.confidence_breakdown?.overall) ?? num(scores.overall) ?? 0;
+  let confidence = num(r.confidence_breakdown?.overall) ?? num(scores.overall) ?? 0;
 
-  // Proximity decides NOW vs a LIMIT/pullback vs WAIT (spec §19 — never chase).
   const proxStatus = String(r.proximity?.status ?? "");
   const insideZone = /Inside Setup Zone|Confirmation Pending|Trade Ready/i.test(proxStatus);
 
-  // ── Action type (spec §20). Never a bare "no trade". ──
+  // ── GENX always forms a directional thesis (spec §2/§19/§20). When the engine
+  //    is flat or has a lean but no executable plan, synthesize a LOCATION play
+  //    from the REAL support/resistance levels — buy near support / sell near
+  //    resistance — so GENX is never "neutral / no plan". ──
+  let dir: "buy" | "sell" = engineDir ?? "buy";
+  let synth = false;
+  if (!engineDir || entry == null || stop == null) {
+    if (support != null && resistance != null && resistance > support) {
+      const mid = round((support + resistance) / 2)!;
+      if (!engineDir) dir = ctx.price <= mid ? "buy" : "sell";
+      const range = resistance - support;
+      const buf = Math.max((ctx.atr ?? 0) * 0.4, range * 0.15, pip * 15);
+      if (dir === "buy") { entry = support; entryLow = round(support - pip * 5); entryHigh = round(support + pip * 8); stop = round(support - buf); tp1 = mid; tp2 = resistance; tp3 = null; }
+      else { entry = resistance; entryLow = round(resistance - pip * 8); entryHigh = round(resistance + pip * 5); stop = round(resistance + buf); tp1 = mid; tp2 = support; tp3 = null; }
+      synth = true;
+      // A location play in a thin market is a low-conviction WAIT — floor the score honestly.
+      confidence = Math.max(45, Math.min(58, confidence || 45));
+    }
+  }
+  const bias = dir === "buy" ? "bullish" : "bearish";
+
+  // ── Action type (spec §20). Never a bare "no trade"; a WAIT still carries a plan. ──
   let action: string;
   let lifecycle: string;
-  if (state === "TRADE_READY") {
+  if (state === "TRADE_READY" && !synth) {
     action = dir === "buy" ? "BUY_NOW" : "SELL_NOW";
     lifecycle = "active";
-  } else if ((state === "DEVELOPING_SETUP" || state === "WATCHLIST") && dir) {
+  } else if ((state === "DEVELOPING_SETUP" || state === "WATCHLIST") && engineDir && !synth) {
     action = dir === "buy" ? "BUY_LIMIT" : "SELL_LIMIT";
     lifecycle = "waiting_for_entry";
   } else {
-    action = dir === "buy" ? "WAIT_FOR_BUY_TRIGGER" : dir === "sell" ? "WAIT_FOR_SELL_TRIGGER" : "WAIT_FOR_TRIGGER";
+    action = dir === "buy" ? "WAIT_FOR_BUY_TRIGGER" : "WAIT_FOR_SELL_TRIGGER";
     lifecycle = "waiting_for_trigger";
   }
 
@@ -274,7 +293,7 @@ function mapGenx(read: Record<string, unknown>, ctx: { mode: Mode; price: number
   const dirScore = num(scores.directional) ?? confidence;
   const momentum = dirScore >= 72 ? "Strong" : dirScore >= 55 ? "Moderate" : "Weak";
   const regime = String(r.market_regime ?? "");
-  const structure = /bull/i.test(regime) ? "Bullish" : /bear/i.test(regime) ? "Bearish" : /range|chop|consol/i.test(regime) ? "Range" : (bias === "bullish" ? "Bullish" : bias === "bearish" ? "Bearish" : "Neutral");
+  const structure = synth ? "Range" : (/bull/i.test(regime) ? "Bullish" : /bear/i.test(regime) ? "Bearish" : /range|chop|consol/i.test(regime) ? "Range" : (bias === "bullish" ? "Bullish" : "Bearish"));
 
   // Buyer/seller dominance — a relative GENX score, NOT a win probability (spec §23).
   const lean = dir === "buy" ? 1 : dir === "sell" ? -1 : 0;
@@ -289,9 +308,9 @@ function mapGenx(read: Record<string, unknown>, ctx: { mode: Mode; price: number
   const roomPips = pips(entry ?? price, nextObstacle);
 
   // ── WHY GENX LIKES IT (3–5 short bullets, from computed facts) ──
-  const why: string[] = [];
+  const why: string[] = synth ? [dir === "buy" ? "Range-bound — buy the support hold toward resistance." : "Range-bound — sell the resistance rejection toward support."] : [];
   if (regime) why.push(`Market regime: ${regime}.`);
-  if (structure !== "Neutral") why.push(`${structure} structure with ${momentum.toLowerCase()} momentum.`);
+  why.push(`${structure} structure with ${momentum.toLowerCase()} momentum.`);
   if (entry != null && stop != null) why.push(`Stop sits behind structure at ${stop} (${pips(entry, stop)} pips risk).`);
   if (tp1 != null && entry != null) why.push(`First target ${tp1} = ${pips(entry, tp1)} pips (${tpsRaw[0]?.risk_reward ?? "?"}R).`);
   if (roomPips != null) why.push(`~${roomPips} pips of room before the next ${dir === "buy" ? "resistance" : "support"}.`);
@@ -304,7 +323,7 @@ function mapGenx(read: Record<string, unknown>, ctx: { mode: Mode; price: number
   if (!insideZone && action.includes("LIMIT")) risk_factors.push(`Do not chase — wait for the pullback into the entry zone.`);
   whatNext.slice(0, 2).forEach((w: string) => risk_factors.push(w));
 
-  const trigger_condition = String(r.trigger?.recheckInstruction ?? r.setup_zone?.confirmation ?? "");
+  const trigger_condition = synth ? ("Wait for price to reach " + entry + " (" + (dir === "buy" ? "support" : "resistance") + ") and show a " + (dir === "buy" ? "bullish" : "bearish") + " reaction, then enter " + (dir === "buy" ? "BUY" : "SELL") + ". Invalid on a close beyond " + stop + ".") : String(r.trigger?.recheckInstruction ?? r.setup_zone?.confirmation ?? "");
   const invalidation_reason = String(slObj.reason ?? r.setup_zone?.invalidation ?? (stop != null ? `A decisive close beyond ${stop}.` : ""));
 
   // ── Projected path for the visual (spec §22). Primary = to targets;
