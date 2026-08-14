@@ -297,6 +297,64 @@ input{font:inherit}
 .login-note{background:rgba(57,198,255,.1);border:1px solid rgba(57,198,255,.3);color:var(--sky);border-radius:10px;padding:9px 12px;font-size:12px;font-weight:600;margin-bottom:12px;text-align:center}
 .keep{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted);margin:2px 2px 14px;cursor:pointer;user-select:none}
 .keep input{width:17px;height:17px;accent-color:var(--sky)}
+.gx-hero{border-color:rgba(240,178,62,.45)!important;background:linear-gradient(180deg,rgba(240,178,62,.14),rgba(127,208,255,.05))!important}
+.gx-hero .fl-ic{background:rgba(240,178,62,.16);border-color:rgba(240,178,62,.4);color:#ffd76a}
+.gx-hero .fl-tag{color:#ffd76a;border-color:rgba(240,178,62,.5)}
+.gx-hero .fl-cta{color:#ffd76a}
+.gx{padding:2px 2px 10px}
+.gx-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:4px 2px 2px}
+.gx-title{font-size:30px;font-weight:900;letter-spacing:.05em;background:linear-gradient(90deg,#ffd76a,#f0b23e,#7fd0ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.gx-sub{font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+.gx-price{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:4px}
+.gx-live{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;border-radius:999px;padding:5px 10px;margin-top:6px}
+.gx-live.live{color:var(--green);border:1px solid rgba(46,232,143,.3);background:rgba(46,232,143,.08)}
+.gx-live.stale{color:var(--amber);border:1px solid rgba(255,194,75,.35);background:rgba(255,194,75,.1)}
+.gx-live .p{width:7px;height:7px;border-radius:50%;background:currentColor;animation:dpulse 1.6s ease-in-out infinite}
+.gx-modes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin:14px 0 10px}
+.gx-mode{border:1px solid var(--line);border-radius:12px;padding:10px 4px;text-align:center;background:var(--bg2);color:var(--muted)}
+.gx-mode b{display:block;font-size:13px;font-weight:800}
+.gx-mode span{display:block;font-size:9px;color:var(--faint);margin-top:2px}
+.gx-mode.on{border-color:rgba(127,208,255,.55);background:rgba(127,208,255,.1);color:var(--ink)}
+.gx-analyze{width:100%;padding:16px;border-radius:15px;font-size:16px;font-weight:900;letter-spacing:.04em;text-align:center;color:#0a0b10;background:linear-gradient(180deg,#ffd76a,#f0b23e);box-shadow:0 8px 26px rgba(240,178,62,.22)}
+.gx-analyze:disabled{opacity:.6}
+.gx-analyzing{text-align:center;color:var(--faint);padding:22px 10px;font-size:13px}
+.gx-card{border:1px solid var(--line);border-radius:20px;padding:18px;margin-top:14px;background:linear-gradient(180deg,var(--panel2),var(--bg2))}
+.gx-card.buy{border-color:rgba(46,232,143,.4)} .gx-card.sell{border-color:rgba(255,93,108,.4)} .gx-card.wait{border-color:rgba(255,194,75,.35)}
+.gx-act{font-size:34px;font-weight:900;letter-spacing:.02em;line-height:1}
+.gx-card.buy .gx-act{color:var(--green)} .gx-card.sell .gx-act{color:var(--red)} .gx-card.wait .gx-act{color:var(--amber)}
+.gx-conf{display:flex;align-items:baseline;gap:8px;margin-top:9px}
+.gx-conf b{font-size:26px;font-weight:900;font-variant-numeric:tabular-nums}
+.gx-conf span{font-size:11px;color:var(--faint);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.gx-bias{margin-top:3px;font-size:12px;color:var(--muted);text-transform:capitalize}
+.gx-levels{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+.gx-lv{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:rgba(8,16,32,.4)}
+.gx-lv .k{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
+.gx-lv .v{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px}
+.gx-lv .pp{font-size:11px;font-weight:700;margin-left:5px;color:var(--faint)}
+.gx-lv.stop .v{color:var(--red)} .gx-lv.tp .v{color:var(--green)}
+.gx-hold{margin-top:11px;font-size:12px;color:var(--muted);text-align:center}
+.gx-sec-k{font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);margin:18px 2px 8px}
+.gx-story p{font-size:14px;line-height:1.5;color:var(--ink);margin:0 0 8px}
+.gx-why{list-style:none;margin:0;padding:0}
+.gx-why li{position:relative;padding-left:18px;font-size:13px;color:var(--muted);margin-bottom:6px}
+.gx-why li:before{content:"\25C6";position:absolute;left:0;color:var(--sky);font-size:9px;top:3px}
+.gx-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.gx-stat{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:rgba(8,16,32,.4)}
+.gx-stat .k{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:700}
+.gx-stat .v{font-size:14px;font-weight:800;margin-top:2px}
+.gx-domin{display:flex;height:12px;border-radius:6px;overflow:hidden;margin-top:6px;border:1px solid var(--line)}
+.gx-domin .b{background:var(--green)} .gx-domin .s{background:var(--red)}
+.gx-reanalyze{width:100%;margin-top:14px;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--bg2);color:var(--ink);font-weight:700;font-size:13px}
+.gx-foot{text-align:center;font-size:10px;color:var(--faint);margin-top:14px;padding:0 8px}
+.gxchart{height:260px;border:1px solid var(--line);border-radius:14px;background:rgba(8,16,32,.4);margin-top:14px}
+.chart .hl.r,.chart .hl.sup{stroke:rgba(120,160,220,.5);stroke-dasharray:2 3}
+.chart .hlt.r,.chart .hlt.sup{fill:rgba(150,180,230,.8)}
+.chart .split{stroke:rgba(120,160,220,.3);stroke-width:1;stroke-dasharray:2 3}
+.chart .proj{fill:none;stroke-width:2;stroke-dasharray:5 4}
+.chart .proj.up{stroke:#2ee88f} .chart .proj.dn{stroke:#ff5d6c} .chart .proj.fl{stroke:#ffc24b}
+.chart .projdot.up{fill:#2ee88f} .chart .projdot.dn{fill:#ff5d6c} .chart .projdot.fl{fill:#ffc24b}
+.chart .plab{font-size:8px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.chart .plab.up{fill:#5eeaa6} .chart .plab.dn{fill:#ff8f99} .chart .plab.fl{fill:#ffd27a}
 
 /* -- Dashboard -- */
 .dash{padding:6px 4px 8px}
@@ -1472,6 +1530,160 @@ input{font:inherit}
   ];
 
   // ── The Floor — premium 5-card launcher into the trading experiences ────────
+  // ── GENX — flagship XAUUSD Gold intelligence engine (front-end) ──
+  var GENX_MODES = [
+    { k: "quick", label: "Quick", sub: "30–80 pips" },
+    { k: "intraday", label: "Intraday", sub: "2–6 hrs" },
+    { k: "swing", label: "Swing", sub: "Hours–days" },
+  ];
+  function gxAction(a) {
+    var m = {
+      BUY_NOW: { t: "BUY NOW", c: "buy" }, SELL_NOW: { t: "SELL NOW", c: "sell" },
+      BUY_LIMIT: { t: "BUY LIMIT", c: "buy" }, SELL_LIMIT: { t: "SELL LIMIT", c: "sell" },
+      BUY_STOP: { t: "BUY STOP", c: "buy" }, SELL_STOP: { t: "SELL STOP", c: "sell" },
+      WAIT_FOR_BUY_TRIGGER: { t: "WAIT · BUY SETUP", c: "wait" }, WAIT_FOR_SELL_TRIGGER: { t: "WAIT · SELL SETUP", c: "wait" },
+      WAIT_FOR_TRIGGER: { t: "WAIT FOR TRIGGER", c: "wait" },
+    };
+    return m[a] || { t: String(a || "").replace(/_/g, " "), c: "wait" };
+  }
+  function gxConfLabel(n) { return n >= 90 ? "Exceptional" : n >= 82 ? "Strong" : n >= 72 ? "Good" : n >= 60 ? "Moderate" : "Weak"; }
+
+  // Candlestick chart + projected-path overlay (spec §22 — the WOW factor).
+  function GenxChart(props) {
+    var cs = candlesFrom(props.candles || []); if (cs.length < 4) return null;
+    var W = 680, H = 260, padT = 14, padB = 20, plotH = H - padT - padB;
+    var splitX = Math.round(W * 0.58), rightEdge = W - 12, x0 = 6;
+    var path = (props.path || []).filter(function (pt) { return num(pt.price) != null; });
+    var lo = Infinity, hi = -Infinity, i;
+    for (i = 0; i < cs.length; i++) { if (cs[i].l < lo) lo = cs[i].l; if (cs[i].h > hi) hi = cs[i].h; }
+    function addL(v) { if (num(v) != null) { if (v < lo) lo = v; if (v > hi) hi = v; } }
+    addL(props.entry); addL(props.stop); (props.tps || []).forEach(function (t) { addL(t.price); });
+    addL(props.support); addL(props.resistance); path.forEach(function (pt) { addL(pt.price); });
+    if (!(isFinite(lo) && isFinite(hi)) || hi === lo) return null;
+    var pd = (hi - lo) * 0.08; lo -= pd; hi += pd;
+    function y(v) { return padT + plotH * (1 - (v - lo) / (hi - lo)); }
+    var n = cs.length, cw = (splitX - x0) / n, bw = Math.max(1.5, cw * 0.55);
+    var candles = cs.map(function (c, idx) {
+      var x = x0 + idx * cw + cw / 2, up = c.c >= c.o, cls = up ? "cu" : "cd";
+      var yo = y(c.o), yc = y(c.c), yh = y(c.h), yl = y(c.l), top = Math.min(yo, yc), bh = Math.max(1, Math.abs(yc - yo));
+      return html`<g class=${cls}><line x1=${x} x2=${x} y1=${yh} y2=${yl} class="wick"/><rect x=${x - bw / 2} y=${top} width=${bw} height=${bh} class="body"/></g>`;
+    });
+    function hline(v, cls, label) { if (num(v) == null) return null; var yy = y(v); return html`<g><line x1=${x0} x2=${rightEdge} y1=${yy} y2=${yy} class=${"hl " + cls}/><text x=${x0 + 2} y=${yy - 3} class=${"hlt " + cls}>${label}</text></g>`; }
+    // projected path polyline from the split (now) rightward through the plan.
+    var proj = null, projCls = props.bias === "bullish" ? "up" : props.bias === "bearish" ? "dn" : "fl";
+    if (path.length >= 2) {
+      var pts = path.map(function (pt, idx) { var x = splitX + (idx / (path.length - 1)) * (rightEdge - splitX); return { x: x, y: y(pt.price), label: pt.label, kind: pt.kind }; });
+      var poly = pts.map(function (q) { return q.x.toFixed(1) + "," + q.y.toFixed(1); }).join(" ");
+      var end = pts[pts.length - 1];
+      proj = html`<g>
+        <polyline points=${poly} class=${"proj " + projCls} />
+        ${pts.map(function (q) { return html`<g><circle cx=${q.x} cy=${q.y} r="3" class=${"projdot " + projCls} /><text x=${q.x} y=${q.y - 6} class=${"plab " + projCls} text-anchor="middle">${q.label}</text></g>`; })}
+        <text x=${splitX + 4} y=${H - 6} class="plab fl">GENX projected path</text>
+      </g>`;
+    }
+    return html`<svg viewBox=${"0 0 " + W + " " + H} class="chart gxchart" preserveAspectRatio="none">
+      ${candles}
+      <line x1=${splitX} x2=${splitX} y1=${padT} y2=${padT + plotH} class="split" />
+      ${hline(props.resistance, "r", "R " + fmt(props.resistance))}
+      ${hline(props.support, "sup", "S " + fmt(props.support))}
+      ${hline(props.entry, "e", "ENTRY " + fmt(props.entry))}
+      ${hline(props.stop, "s", "SL " + fmt(props.stop))}
+      ${(props.tps || []).map(function (t) { return hline(t.price, "t", t.label + " " + fmt(t.price)); })}
+      ${proj}
+    </svg>`;
+  }
+
+  function GenxScreen(props) {
+    var mode = useState("quick"), loading = useState(false), err = useState(""), res = useState(null), needCr = useState(false), open = useState(false);
+    function run() {
+      if (loading[0]) return; loading[1](true); err[1](""); needCr[1](false);
+      apiPost("/api/genx", { mode: mode[0] }).then(function (d) {
+        if (!d || d.error) {
+          if (d && (d.notConfigured || d.error === "marketdata_error")) return err[1]("Gold market data isn't available right now — try again shortly.");
+          if (d && d.error === "ratelimit") return err[1](d.detail || "Market-data limit hit — give it a minute.");
+          if (d && d.error === "insufficient_data") return err[1](d.detail || "Not enough recent Gold candles yet — try again shortly.");
+          return err[1]((d && d.detail) || "GENX couldn't read Gold right now — try again.");
+        }
+        res[1](d);
+      }).catch(function (e) {
+        if (e && e.code === 402) { needCr[1](true); err[1]("You're out of credits — a GENX read costs 5. They reset weekly, or top up from Account."); }
+        else if (e && e.code === 401) props.onLogout();
+        else err[1]("Something went wrong — try again.");
+      }).then(function () { loading[1](false); });
+    }
+    var d = res[0], g = d && d.genx ? d.genx : null;
+    var act = g ? gxAction(g.action) : null;
+    var hasPlan = g && num(g.entry) != null && num(g.stop_loss) != null;
+    var tps = g ? [g.tp1, g.tp2, g.tp3].map(function (p, i) { return num(p) != null ? { price: p, label: "TP" + (i + 1), pips: [g.tp1_pips, g.tp2_pips, g.tp3_pips][i] } : null; }).filter(Boolean) : [];
+    var entryTxt = g ? (num(g.entry_low) != null && num(g.entry_high) != null && g.entry_low !== g.entry_high ? g.entry_low + "–" + g.entry_high : (num(g.entry) != null ? String(g.entry) : "—")) : "—";
+
+    return html`<div class="scr gx">
+      <div class="gx-head">
+        <div>
+          <div class="gx-title">GENX</div>
+          <div class="gx-sub">Gold Intelligence Engine</div>
+          ${d ? html`<div class="gx-price">$${d.price}</div>` : null}
+        </div>
+        ${d ? html`<span class=${"gx-live " + (d.data_status === "live" ? "live" : "stale")}><span class="p"></span>${d.data_status === "live" ? "Live" : "Delayed"}</span>` : null}
+      </div>
+
+      <div class="gx-modes">
+        ${GENX_MODES.map(function (mo) { return html`<button class=${"gx-mode " + (mode[0] === mo.k ? "on" : "")} onClick=${function () { if (!loading[0]) mode[1](mo.k); }}><b>${mo.label}</b><span>${mo.sub}</span></button>`; })}
+      </div>
+
+      <button class="gx-analyze" disabled=${loading[0]} onClick=${run}>${loading[0] ? "Analyzing Gold…" : (d ? "Re-analyze Gold" : "Analyze Gold Now")}</button>
+      ${err[0] ? html`<div class="err" style="margin-top:10px">${err[0]}${needCr[0] ? html` <a href="#" onClick=${function (e) { e.preventDefault(); try { window.open("/portal/credits", "_blank"); } catch (x) {} }} style="color:var(--sky);font-weight:700"> Get credits</a>` : null}</div>` : null}
+      ${loading[0] ? html`<div class="gx-analyzing">◆ Reading live Gold — structure, momentum, levels, liquidity…</div>` : null}
+
+      ${g ? html`<div class=${"gx-card " + act.c}>
+        <div class="gx-act">${act.t}</div>
+        <div class="gx-conf"><b>${g.confidence_score}</b><span>/ 100 · ${gxConfLabel(g.confidence_score)}</span></div>
+        <div class="gx-bias">Bias: ${g.directional_bias} · ${g.market_regime || "—"} · ${g.session}</div>
+
+        ${hasPlan ? html`<div class="gx-levels">
+          <div class="gx-lv"><div class="k">Entry</div><div class="v">${entryTxt}</div></div>
+          <div class="gx-lv stop"><div class="k">Stop loss</div><div class="v">${g.stop_loss}<span class="pp">${g.stop_pips != null ? g.stop_pips + "p" : ""}</span></div></div>
+          ${tps.map(function (t) { return html`<div class="gx-lv tp"><div class="k">${t.label}</div><div class="v">${t.price}<span class="pp">${t.pips != null ? "+" + t.pips + "p" : ""}</span></div></div>`; })}
+        </div>
+        <div class="gx-hold">Expected hold ≈ ${(g.expected_hold_minutes || [])[0]}–${(g.expected_hold_minutes || [])[1]} min</div>`
+        : html`<div class="gx-levels">
+          <div class="gx-lv"><div class="k">Preferred</div><div class="v" style="text-transform:capitalize">${g.directional_bias}</div></div>
+          <div class="gx-lv"><div class="k">Support</div><div class="v">${g.closest_support ?? "—"}</div></div>
+          <div class="gx-lv"><div class="k">Resistance</div><div class="v">${g.closest_resistance ?? "—"}</div></div>
+          <div class="gx-lv"><div class="k">Room</div><div class="v">${g.room_to_target_pips != null ? g.room_to_target_pips + "p" : "—"}</div></div>
+        </div>
+        ${g.trigger_condition ? html`<div class="gx-hold">Trigger: ${g.trigger_condition}</div>` : null}`}
+      </div>
+
+      <${GenxChart} candles=${d.candles} entry=${g.entry} stop=${g.stop_loss} tps=${tps} support=${g.closest_support} resistance=${g.closest_resistance} path=${g.projected_path} bias=${g.directional_bias} />
+
+      <div class="gx-sec-k">What GENX sees</div>
+      <div class="gx-story">${(g.market_story || []).map(function (t) { return html`<p>${t}</p>`; })}</div>
+
+      ${(g.trade_reasoning || []).length ? html`<div class="gx-sec-k">Why GENX likes it</div>
+      <ul class="gx-why">${(g.trade_reasoning || []).map(function (t) { return html`<li>${t}</li>`; })}</ul>` : null}
+
+      <button class="gx-reanalyze" onClick=${function () { open[1](!open[0]); }}>${open[0] ? "Hide full breakdown" : "View full analysis"}</button>
+      ${open[0] ? html`<div style="margin-top:12px">
+        <div class="gx-grid">
+          <div class="gx-stat"><div class="k">Trend / Structure</div><div class="v">${g.market_structure}</div></div>
+          <div class="gx-stat"><div class="k">Momentum</div><div class="v">${g.momentum}</div></div>
+          <div class="gx-stat"><div class="k">Volatility</div><div class="v">${g.volatility}</div></div>
+          <div class="gx-stat"><div class="k">Market regime</div><div class="v">${g.market_regime || "—"}</div></div>
+          <div class="gx-stat"><div class="k">Closest support</div><div class="v">${g.closest_support ?? "—"}</div></div>
+          <div class="gx-stat"><div class="k">Closest resistance</div><div class="v">${g.closest_resistance ?? "—"}</div></div>
+        </div>
+        <div class="gx-sec-k">Buyers vs sellers</div>
+        <div class="gx-domin"><div class="b" style=${"width:" + (g.buyer_control || 50) + "%"}></div><div class="s" style=${"width:" + (g.seller_control || 50) + "%"}></div></div>
+        <div class="gx-bias" style="margin-top:4px">Buyers ${g.buyer_control} · Sellers ${g.seller_control} <span style="color:var(--faint)">(relative GENX dominance, not a win probability)</span></div>
+        ${g.invalidation_reason ? html`<div class="gx-sec-k">Invalidation</div><div class="gx-bias">${g.invalidation_reason}</div>` : null}
+        ${(g.risk_factors || []).length ? html`<div class="gx-sec-k">Watch for</div><ul class="gx-why">${(g.risk_factors || []).map(function (t) { return html`<li>${t}</li>`; })}</ul>` : null}
+      </div>` : null}
+
+      <div class="gx-foot">GENX Confidence Score reflects setup strength, not a guaranteed outcome · educational analysis, not financial advice.</div>` : null}
+    </div>`;
+  }
+
   function FloorSection(props) {
     var view = useState(props.init || "");
     var pulseTool = TOOLS.filter(function (t) { return t.id === "pulse"; })[0];
@@ -1482,16 +1694,23 @@ input{font:inherit}
     if (view[0] === "plays") return html`<div>${back()}<${ToolRunner} key="liveplays" tool=${playsTool} onLogout=${props.onLogout} /></div>`;
     if (view[0] === "live") return html`<div>${back()}<${WeeklyScreen} onLogout=${props.onLogout} /></div>`;
     if (view[0] === "ghost") return html`<div>${back()}<${XGhostSection} key="xghost" onLogout=${props.onLogout} /></div>`;
+    if (view[0] === "genx") return html`<div>${back()}<${GenxScreen} onLogout=${props.onLogout} /></div>`;
     function open(v) { return function () { view[1](v); }; }
     return html`<div class="scr">
       <div class="floor-h">
         <div class="floor-k">The Floor</div>
         <div class="floor-t">Your edge starts here.</div>
-        <div class="floor-s">Five ways to work the markets. New here? Start with OM AI — just ask it.</div>
+        <div class="floor-s">Start with GENX — press analyze and get the exact Gold trade right now.</div>
       </div>
       <div class="flgrid">
-        <button class="flcard hero" onClick=${open("omai")}>
-          <span class="fl-tag">Start here</span>
+        <button class="flcard hero gx-hero" onClick=${open("genx")}>
+          <span class="fl-tag">Flagship</span>
+          <div class="fl-ic">◆</div>
+          <div class="fl-nm">GENX</div>
+          <div class="fl-bl">Gold intelligence engine — one tap tells you exactly what to do on Gold right now.</div>
+          <div class="fl-cta">Analyze Gold ›</div>
+        </button>
+        <button class="flcard span" onClick=${open("omai")}>
           <div class="fl-ic">✦</div>
           <div class="fl-nm">OM AI</div>
           <div class="fl-bl">Ask anything, analyze a market, or generate a trade setup.</div>
