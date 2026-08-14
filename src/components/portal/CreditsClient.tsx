@@ -82,8 +82,9 @@ export function CreditsClient() {
         </div>
       )}
       {banner === "canceled" && (
-        <div className="flex items-center gap-2 rounded-xl border border-ice bg-offwhite px-4 py-3 text-sm text-charcoal/70">
+        <div className="rounded-xl border border-ice bg-offwhite px-4 py-3 text-sm text-charcoal/70">
           Checkout canceled — no charge was made.
+          <span className="mt-1 block text-[13px] text-charcoal/55">If your card was declined, your bank may have flagged it as an unusual charge. Call the number on the back of your card to approve it, then try again.</span>
         </div>
       )}
 
@@ -149,6 +150,7 @@ export function CreditsClient() {
           ))}
         </div>
         <p className="mt-3 text-[11px] text-charcoal/40">Secure checkout by Stripe · one-time purchase, no subscription.</p>
+        <p className="mt-1 text-[11px] text-charcoal/40">Card declined? Some banks automatically block first-time or online charges — a quick call to the number on your card to approve it usually clears it. Then try again.</p>
       </div>
     </div>
   );
