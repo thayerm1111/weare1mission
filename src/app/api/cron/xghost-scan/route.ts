@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { scanXghost, logXghostSignals } from "@/lib/xghost/scan";
 import { resolveXghostOpen } from "@/lib/xghostResolve";
+import { resolveGenxOpen } from "@/lib/genxResolve";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,10 +47,15 @@ async function run(): Promise<Response> {
   let resolved: { checked: number; resolved: number; breakdown: Record<string, number> } = { checked: 0, resolved: 0, breakdown: {} };
   try { resolved = await resolveXghostOpen(mdKey); } catch { /* grading is best-effort */ }
 
+  // GENX outcome tracking (spec §28) rides this same trusted 15-min cycle — grades
+  // any resolvable Gold signals. Best-effort; never blocks the xGhost result.
+  let genx: { checked: number; resolved: number; breakdown: Record<string, number> } = { checked: 0, resolved: 0, breakdown: {} };
+  try { genx = await resolveGenxOpen(mdKey); } catch { /* grading is best-effort */ }
+
   return json({
     ok: true, asOf: scan.asOf, session: scan.session,
     dxy: { state: scan.dxy.state, score: scan.dxy.score, source: scan.dxy.source },
-    anyTradeable: scan.anyTradeable, logged, resolved,
+    anyTradeable: scan.anyTradeable, logged, resolved, genx,
     best: scan.best ? { symbol: scan.best.label, execState: scan.best.execState, score: scan.best.score } : null,
   }, 200);
 }
