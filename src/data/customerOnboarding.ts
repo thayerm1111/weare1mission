@@ -111,7 +111,7 @@ export const customerOnboardingSteps: CustomerStep[] = [
       },
     ],
     links: [
-      { label: "Join the main group", href: "#", placeholder: true },
+      { label: "Join One Mission Community", href: "https://t.me/+c5QCPF8mlHo5MDcx", external: true },
       { label: "Join announcements", href: "#", placeholder: true },
       { label: "Join the plays channel", href: "#", placeholder: true },
     ],
@@ -140,7 +140,7 @@ export const customerOnboardingSteps: CustomerStep[] = [
       {
         heading: "Get the app",
         points: [
-          "Download ConeqtX from the App Store (iPhone) or Google Play (Android).",
+          "Get ConeqtX on Google Play (Android), or open the web app at app.coneqtx.com — the iPhone (App Store) version is coming soon.",
           "Open it and sign in with the account you created when you joined.",
           "If you haven't created your ConeqtX account yet, do that first — your mentor can walk you through it.",
           "Enable notifications so you never miss a live call or alert.",
@@ -156,8 +156,9 @@ export const customerOnboardingSteps: CustomerStep[] = [
       },
     ],
     links: [
+      { label: "Get ConeqtX on Google Play", href: "https://play.google.com/store/apps/details?id=com.coneqtx.app", external: true },
+      { label: "Open ConeqtX (web app)", href: "https://app.coneqtx.com", external: true },
       { label: "ConeqtX on the App Store", href: "#", placeholder: true, external: true },
-      { label: "ConeqtX on Google Play", href: "#", placeholder: true, external: true },
     ],
     checklist: [
       "Download and install ConeqtX",
@@ -165,7 +166,7 @@ export const customerOnboardingSteps: CustomerStep[] = [
       "Complete your profile",
       "Turn on notifications",
     ],
-    note: "The exact app-store links and sign-in steps will be shared by your team — placeholders here will become live buttons soon.",
+    note: "Android and the web app are live now — use whichever suits you. The iPhone (App Store) version is coming soon.",
   },
   {
     id: "connect-broker",
@@ -203,38 +204,35 @@ export const customerOnboardingSteps: CustomerStep[] = [
     section: "Set Up Your Trading",
     icon: Smartphone,
     title: "Connect Tap to Trade & learn how it works",
-    summary: "Understand Tap to Trade so you can act on a play in a couple of taps.",
+    summary: "Get an alert, press Approve, and let the trader manage the rest.",
     blocks: [
       {
         body: [
-          "Tap to Trade is the feature that lets you act on a shared play quickly — instead of manually typing in every detail, you review the setup and place the order in just a few taps.",
+          "Tap to Trade is the simplest way to act on a play. Once your broker is connected, you get an alert the moment a trader shares a setup — you press Approve, and the trade is placed in your own account. The educator/trader manages it from there.",
         ],
       },
       {
-        heading: "How it works (the flow)",
+        heading: "It's this simple",
         points: [
-          "A play is posted with its direction, entry, stop-loss, and target.",
-          "You open it in ConeqtX and review it — make sure you understand the idea and the risk.",
-          "You set your position size based on YOUR risk rules (see the risk step).",
-          "You confirm, and the order is placed through your connected broker.",
-          "You manage the trade — move to break-even, take partials, or close — per the plan.",
+          "Get a notification — a trader shares a live setup and it pops up in ConeqtX.",
+          "Press Approve — glance at the setup, then tap Approve to place it in your account.",
+          "The trader does the rest — they manage the trade (targets, break-even, exits) and post updates as it plays out.",
         ],
       },
       {
-        heading: "Before your first tap",
+        heading: "One-time setup",
         points: [
-          "Make sure your broker is connected and funded.",
-          "Do a slow, careful first trade with the smallest size to learn the buttons.",
-          "Always know your stop-loss and how much you're risking before you confirm.",
+          "Connect your broker in ConeqtX — you only do this once.",
+          "Set your risk — pick your lot size / risk level so every approval sizes correctly for your account.",
         ],
       },
     ],
     checklist: [
-      "Confirm Tap to Trade is connected to your broker",
-      "Read through the Tap to Trade flow above",
-      "Place one small practice trade to learn the interface",
+      "Connect your broker in ConeqtX",
+      "Set your lot size / risk level",
+      "Approve your first trade when an alert comes in",
     ],
-    note: "Tap to Trade makes execution fast — it does not remove the risk. You are always responsible for your own position size and decisions. The exact in-app steps are guided by your team and the app itself.",
+    note: "You approve every trade on your own account — nothing is placed without your tap. Tap to Trade makes execution fast; it doesn't remove market risk. Educational only, not financial advice.",
   },
 
   // ──────────────────────────────  GO LIVE  ──────────────────────────────
@@ -256,13 +254,13 @@ export const customerOnboardingSteps: CustomerStep[] = [
           "Check What's On for the live session times — they display in your local timezone automatically.",
           "Add 2–3 sessions a week to your calendar so they become routine.",
           "Join a few minutes early, and have ConeqtX open so you can follow along.",
-          "Live links are posted in the announcements channel before each session.",
+          "Join the live sessions at MFXlive.com — the link is also posted in announcements before each session.",
         ],
       },
     ],
     links: [
+      { label: "Join live on MFXlive.com", href: "https://mfxlive.com", external: true },
       { label: "See the live schedule (What's On)", href: "/portal/schedule" },
-      { label: "MFX session details", href: "#", placeholder: true },
     ],
     checklist: [
       "Open What's On and view the schedule",
