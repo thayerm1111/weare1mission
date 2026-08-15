@@ -19,6 +19,7 @@ const REG: Record<string, Item> = {
   prospects: { href: "/portal/prospects", label: "Next Up", icon: Video },
   training: { href: "/portal/training", label: "Creator Launchpad", icon: GraduationCap },
   compPlan: { href: "/portal/comp-plan", label: "The Comp Plan", icon: Trophy },
+  genx: { href: "/portal/genx", label: "GENX", icon: Gem },
   omai: { href: "/portal/om-ai", label: "OM AI", icon: Sparkles },
   signals: { href: "/portal/signals", label: "OM AI Plays", icon: Zap },
   xaughost: { href: "/portal/xaughost", label: "MFXGHOST", icon: Ghost },
@@ -54,7 +55,7 @@ const ONES_UTILITY = ["getApp", "account", "support"];
 const ONES = [...ONES_PRIMARY, ...ONES_UTILITY];
 const BUILDERS = ["getApp", "omai", "prospects", "team", "compPlan", "schedule", "leadership", "training", "resources", "updates", "account", "support", "results", "leaderboard"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources", "compPlan"];
-const ONES_ONLY = ["trading", "signals", "xaughost", "charts", "command", "scanner", "scalp"];
+const ONES_ONLY = ["trading", "genx", "signals", "xaughost", "charts", "command", "scanner", "scalp"];
 
 // Children shown under "The Floor". Two kinds: live-desk VIEWS (query-param
 // views of /portal/trading) and standalone PAGES (their own routes). Rendered
@@ -68,6 +69,7 @@ type FloorChild =
 // only. Archived from the customer Floor menu (routes/components kept intact):
 // The Room, xGhost (5-pair), OM Scalp, OM Charts, OM Strategy Scanner.
 const FLOOR_CHILDREN: FloorChild[] = [
+  { kind: "page", key: "genx" },
   { kind: "page", key: "omai" },
   { kind: "page", key: "signals" },
   { kind: "view", view: "pulse", label: "Market Pulse", icon: Activity },
