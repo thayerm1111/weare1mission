@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Zap, Activity, Radio, ChevronRight, TrendingUp, TrendingDown, Ghost } from "lucide-react";
+import Link from "next/link";
+import { Zap, Activity, Radio, ChevronRight, TrendingUp, TrendingDown, Ghost, Gem } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { LIVE_URL, CALLS } from "@/lib/liveCalls";
 
@@ -139,6 +140,20 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
             </div>
           </div>
         )}
+
+        {/* GENX — flagship Gold engine (its own page) */}
+        <Link
+          href="/portal/genx"
+          className="group relative flex items-center justify-between gap-3 overflow-hidden rounded-2xl border border-amber-400/40 bg-[#0b0d14] px-5 py-4 text-white transition hover:border-amber-300/70"
+          style={{ backgroundImage: "radial-gradient(120% 120% at 0% 0%, rgba(255,194,75,0.14), transparent 55%)" }}
+        >
+          <div className="min-w-0">
+            <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-300/80"><Gem className="h-3 w-3" /> Flagship · new</p>
+            <p className="mt-0.5 bg-gradient-to-r from-amber-200 via-amber-400 to-amber-200 bg-clip-text text-2xl font-black tracking-tight text-transparent">GENX</p>
+            <p className="text-xs text-white/55">Gold intelligence engine — “what should I do on Gold right now?”</p>
+          </div>
+          <ChevronRight className="h-5 w-5 flex-shrink-0 text-amber-300/80 transition group-hover:translate-x-0.5" />
+        </Link>
 
         {/* Real stat band */}
         <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">

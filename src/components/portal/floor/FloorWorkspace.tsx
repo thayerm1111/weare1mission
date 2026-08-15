@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { LayoutGrid, Sparkles, Zap, Activity, TrendingUp, Ghost } from "lucide-react";
+import { LayoutGrid, Sparkles, Zap, Activity, TrendingUp, Ghost, Gem } from "lucide-react";
 import { FloorHome } from "./FloorHome";
 import { LivePlays } from "./LivePlays";
 import { MarketPulse } from "./MarketPulse";
@@ -27,6 +27,7 @@ type SwitchItem = { key: string; label: string; icon: typeof LayoutGrid } & (
 );
 const SWITCHER: SwitchItem[] = [
   { key: "home", label: "Floor", icon: LayoutGrid, view: "home" },
+  { key: "genx", label: "GENX", icon: Gem, href: "/portal/genx" },
   { key: "omai", label: "OM AI", icon: Sparkles, href: "/portal/om-ai" },
   { key: "signals", label: "OM AI Plays", icon: Zap, href: "/portal/signals" },
   { key: "pulse", label: "Market Pulse", icon: Activity, view: "pulse" },
