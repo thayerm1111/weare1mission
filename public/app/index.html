@@ -277,6 +277,13 @@ input{font:inherit}
 .optbtn b{display:block;font-size:13px;font-weight:700}
 .optbtn span{display:block;font-size:9px;margin-top:2px;color:var(--faint);letter-spacing:.02em}
 .dhero{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.dfeat{width:100%;display:flex;align-items:center;gap:13px;margin:14px 0 2px;padding:15px;border-radius:16px;border:1px solid var(--sky);background:linear-gradient(135deg,rgba(57,198,255,.15),rgba(57,198,255,.03));text-align:left;cursor:pointer;color:var(--ink)}
+.dfeat-ic{font-size:26px;flex:none;width:50px;height:50px;display:grid;place-items:center;border-radius:14px;background:rgba(57,198,255,.16)}
+.dfeat-b{flex:1;min-width:0}
+.dfeat-e{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;color:var(--sky)}
+.dfeat-t{font-size:18px;font-weight:800;margin-top:2px}
+.dfeat-s{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.35}
+.dfeat-go{flex:none;font-weight:800;color:var(--sky);font-size:14px;align-self:center}
 .dlive{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--green);border:1px solid rgba(46,232,143,.3);background:rgba(46,232,143,.08);border-radius:999px;padding:5px 10px;margin-top:6px}
 .dlive .p{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--greenglow);animation:dpulse 1.6s ease-in-out infinite}
 @keyframes dpulse{0%,100%{opacity:1}50%{opacity:.35}}
@@ -1894,6 +1901,16 @@ input{font:inherit}
         ${openNow > 0 ? html`<span class="dlive"><span class="p"></span>${openNow} live</span>` : null}
       </div>
 
+      <button class="dfeat" onClick=${function () { props.go("academy"); }}>
+        <span class="dfeat-ic">🎓</span>
+        <span class="dfeat-b">
+          <span class="dfeat-e">Build the business</span>
+          <span class="dfeat-t">Affiliate Academy</span>
+          <span class="dfeat-s">Your step-by-step roadmap + the Learn From the Greats library</span>
+        </span>
+        <span class="dfeat-go">Start →</span>
+      </button>
+
       <div class="dsec-k">Jump back in</div>
       <div class="qgrid">
         ${DASH_QUICK.map(function (q) { return html`<button class="qa" onClick=${function () { props.goFloor(q.k); }}>
@@ -2017,6 +2034,7 @@ input{font:inherit}
 
   var NAV = [
     { id: "floor", label: "The Floor", icon: "▦" }, { id: "dashboard", label: "Dashboard", icon: "⌂" },
+    { id: "academy", label: "Academy", icon: "🎓" },
     { id: "account", label: "Account", icon: "◉" }, { id: "plugin", label: "Plug In", icon: "⌁" }
   ];
   function SignalsSection(props) {
@@ -2472,7 +2490,7 @@ input{font:inherit}
     function save(patch) { apiPost("/api/academy", { patch: patch }).catch(function () {}); }
     function saveAct(a) { apiPost("/api/academy", { activity: a }).catch(function () {}); }
     var d = data[0];
-    if (!loaded[0] || !d) return html`<div class="scr"><button class="ac-back" onClick=${props.onBack}>‹ Account</button><div class="ac-sub" style="padding:24px 4px">Loading the Academy…</div></div>`;
+    if (!loaded[0] || !d) return html`<div class="scr"><button class="ac-back" onClick=${props.onBack}>‹ Home</button><div class="ac-sub" style="padding:24px 4px">Loading the Academy…</div></div>`;
     var MODS = d.modules, PH = d.phases, LV = d.levels;
     function isDone(id) { return completed[0].indexOf(id) >= 0; }
     function complete(id) { if (isDone(id)) return; var arr = completed[0].concat([id]); completed[1](arr); save({ completed_lessons: arr, level: acLevelFor(LV, arr.length).n }); }
@@ -2496,7 +2514,7 @@ input{font:inherit}
       var today = new Date().toISOString().slice(0, 10);
       var streak = acStreak(daily[0].dates);
       return html`<div class="scr">
-        <button class="ac-back" onClick=${props.onBack}>‹ Account</button>
+        <button class="ac-back" onClick=${props.onBack}>‹ Home</button>
         <div class="ac-card">
           <div class="ac-eyebrow">One Mission Affiliate Academy</div>
           <div class="ac-h1">Welcome, ${name[0]}.</div>
@@ -2672,9 +2690,9 @@ input{font:inherit}
         ${sec[0] === "account" ? html`<${AccountScreen} onLogout=${props.onLogout} onOpenXperf=${function () { sec[1]("xperf"); }} onOpenAcademy=${function () { sec[1]("academy"); }} />` : null}
         ${sec[0] === "plugin" ? html`<${PlugInScreen} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "xperf" ? html`<${XGhostStatsScreen} onBack=${function () { sec[1]("account"); }} onLogout=${props.onLogout} />` : null}
-        ${sec[0] === "academy" ? html`<${AcademyScreen} onBack=${function () { sec[1]("account"); }} onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "academy" ? html`<${AcademyScreen} onBack=${function () { sec[1]("dashboard"); }} onLogout=${props.onLogout} />` : null}
       </main>
-      <nav class="bnav">${NAV.map(function (n) { var on = sec[0] === n.id || ((sec[0] === "xperf" || sec[0] === "academy") && n.id === "account"); return html`<button class=${"bn " + (on ? "on" : "")} onClick=${function () { if (n.id === "floor") goFloor(""); else go(n.id); }}><span class="bn-i">${n.icon}</span><span class="bn-l">${n.label}</span></button>`; })}</nav>
+      <nav class="bnav">${NAV.map(function (n) { var on = sec[0] === n.id || (sec[0] === "xperf" && n.id === "account"); return html`<button class=${"bn " + (on ? "on" : "")} onClick=${function () { if (n.id === "floor") goFloor(""); else go(n.id); }}><span class="bn-i">${n.icon}</span><span class="bn-l">${n.label}</span></button>`; })}</nav>
     </div>`;
   }
   function Login(props) {
