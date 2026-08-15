@@ -419,6 +419,24 @@ input{font:inherit}
 .chart .plab{font-size:8px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
 .chart .plab.up{fill:#5eeaa6} .chart .plab.dn{fill:#ff8f99} .chart .plab.fl{fill:#ffd27a}
 
+/* -- Learn From the Greats library -- */
+.g-cover{border-radius:18px;padding:16px;color:#fff;margin-top:14px}
+.g-eye{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;opacity:.85}
+.g-rail{display:flex;gap:11px;overflow-x:auto;padding-bottom:6px;margin-top:8px}
+.g-mc{min-width:212px;max-width:212px;flex:none;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel);text-align:left;cursor:pointer;color:var(--ink)}
+.g-mc-top{padding:13px;color:#fff}.g-mc-b{padding:11px}
+.g-bar{height:6px;border-radius:99px;background:var(--bg);overflow:hidden;border:1px solid var(--line);margin-top:8px}
+.g-bar>i{display:block;height:100%;border-radius:99px}
+.g-opt{width:100%;display:flex;gap:10px;align-items:center;border:2px solid var(--line);border-radius:12px;padding:11px 13px;background:var(--bg2);color:var(--ink);text-align:left;font-size:14px;cursor:pointer;margin-bottom:8px}
+.g-optl{width:22px;height:22px;flex:none;border-radius:99px;border:2px solid var(--faint);display:grid;place-items:center;font-size:11px;font-weight:800;color:var(--faint)}
+.g-daygrid{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;margin-top:8px}
+.g-day{aspect-ratio:1;border:2px solid var(--line);border-radius:9px;background:var(--bg2);color:var(--muted);font-weight:800;font-size:12px;cursor:pointer;display:grid;place-items:center}
+.g-day:disabled{opacity:.32}
+.g-star{background:rgba(255,255,255,.16);border:none;border-radius:99px;width:38px;height:38px;color:#fff;font-size:16px;cursor:pointer;flex:none}
+.g-five{border:2px solid var(--sky);border-radius:16px;padding:14px;background:rgba(57,198,255,.05);margin-top:10px}
+.g-lrow{width:100%;display:flex;align-items:center;gap:11px;padding:10px 8px;border-radius:12px;background:none;border:none;color:var(--ink);text-align:left;cursor:pointer;border-bottom:1px solid var(--line)}
+.g-med{width:100%;display:flex;align-items:center;gap:11px;border:1px solid var(--line);border-radius:12px;padding:11px;background:var(--bg2);color:var(--ink);text-align:left;cursor:pointer;margin-bottom:8px}
+
 /* -- Dashboard -- */
 .dash{padding:6px 4px 8px}
 .dash-hi{font-size:22px;font-weight:800;letter-spacing:.01em;padding:4px 2px 1px}
@@ -2045,6 +2063,399 @@ input{font:inherit}
       </form>
     </div>`;
   }
+  /* ═══════════════ LEARN FROM THE GREATS — library ═══════════════ */
+  function gPost(body) { return apiPost("/api/greats", body).catch(function () {}); }
+
+  function GNote(props) {
+    var v = useState(props.value || ""); var saved = useState(false); var tref = useRef(null);
+    useEffect(function () { v[1](props.value || ""); }, [props.lessonId]);
+    function change(nv) { v[1](nv); if (tref.current) clearTimeout(tref.current); tref.current = setTimeout(function () { props.onSave(nv); saved[1](true); setTimeout(function () { saved[1](false); }, 1200); }, 700); }
+    return html`<div class="ac-secl">My notes</div>
+      <textarea class="ac-ta" rows="3" placeholder="Write what stood out and what you'll do…" value=${v[0]} onInput=${function (e) { change(e.target.value); }}></textarea>
+      <div class="ac-sub" style="margin-top:4px">${saved[0] ? "Saved ✓" : "Autosaves as you type."}</div>`;
+  }
+
+  function GScript(props) {
+    var c = useState(false);
+    return html`<div class="ac-scr"><div class="ac-scr-h"><span class="ac-scr-t">${props.label}</span>
+      <button class="ac-copy" onClick=${function () { try { navigator.clipboard.writeText(props.text); } catch (e) {} c[1](true); setTimeout(function () { c[1](false); }, 1400); }}>${c[0] ? "✓ Copied" : "⧉ Copy"}</button></div>
+      <div class="ac-scr-x">${props.text}</div></div>`;
+  }
+
+  function gLessonContext(mc, l) {
+    return "Masterclass: " + mc.title + " (" + mc.teacher + (mc.book ? ', based on "' + mc.book + '"' : "") + ").\n"
+      + "Lesson " + l.num + ": " + l.title + ".\n"
+      + "Big idea: " + l.five.bigIdea + "\nPrinciple: " + l.principle + "\nExplained simply: " + l.beginner
+      + "\nOne Mission application: " + l.application + "\nCommon mistakes: " + l.mistakes.join(" | ") + "\nAction: " + l.action;
+  }
+
+  function GAiChat(props) {
+    var msgs = useState([]), input = useState(""), busy = useState(false), nc = useState(false);
+    var ctx = gLessonContext(props.mc, props.lesson);
+    var endRef = useRef(null);
+    useEffect(function () { if (endRef.current) endRef.current.scrollIntoView(); }, [msgs[0], busy[0]]);
+    function send(text) {
+      var t = (text || "").trim(); if (!t || busy[0]) return;
+      var next = msgs[0].concat([{ role: "user", content: t }]); msgs[1](next); input[1](""); busy[1](true);
+      apiPost("/api/greats/coach", { mode: props.mode, scenario: props.scenario || "", context: ctx, messages: next }).then(function (d) {
+        if (d && d.notConfigured) { nc[1](true); busy[1](false); return; }
+        msgs[1](next.concat([{ role: "assistant", content: (d && d.reply) || "…" }])); busy[1](false);
+      }).catch(function () { msgs[1](next.concat([{ role: "assistant", content: "Something went wrong. Try again." }])); busy[1](false); });
+    }
+    var sugg = props.mode === "study" ? ["Explain this like I'm brand new", "Quiz me on this lesson", "How do I apply this today?"] : [];
+    return html`<div class="ac-chat">
+      <div class="ac-chat-h"><span>${props.mode === "study" ? "✦ AI Study Mode" : "◆ Role-play · " + (props.scenario || "")}</span></div>
+      <div class="ac-msgs">
+        ${msgs[0].length === 0 ? html`<div class="ac-sub" style="text-align:center;margin-top:20px">${props.mode === "study" ? "Ask a question about “" + props.lesson.title + ".”" : "Say your opening line."}</div>` : null}
+        ${msgs[0].map(function (m) { return html`<div class=${"ac-msg " + (m.role === "user" ? "u" : "a")}>${m.content}</div>`; })}
+        ${busy[0] ? html`<div class="ac-msg a">…</div>` : null}
+        ${nc[0] ? html`<div class="ac-msg a">AI study mode isn't available right now. You can still read the lesson and use the workbook.</div>` : null}
+        <div ref=${endRef}></div>
+      </div>
+      ${sugg.length && msgs[0].length === 0 ? html`<div style="display:flex;flex-wrap:wrap;padding:8px 10px 0">${sugg.map(function (s) { return html`<button class="ac-chip" onClick=${function () { send(s); }}>${s}</button>`; })}</div>` : null}
+      <div class="ac-cin">
+        <input class="ac-input" placeholder=${props.mode === "roleplay" ? "Type what you'd say…" : "Ask a question…"} value=${input[0]} onInput=${function (e) { input[1](e.target.value); }} onKeyDown=${function (e) { if (e.key === "Enter") send(input[0]); }} />
+        ${props.mode === "roleplay" ? html`<button class="ac-btn2" style="margin:0" onClick=${function () { send("[SCORE]"); }}>Score</button>` : null}
+        <button class="ac-send" onClick=${function () { send(input[0]); }}>➤</button>
+      </div></div>`;
+  }
+
+  function GMedia(props) {
+    var url = useState(null), err = useState(false);
+    useEffect(function () {
+      apiGet("/api/greats/file?path=" + encodeURIComponent(props.path)).then(function (d) { if (d && d.ok) url[1](d.url); else err[1](true); }).catch(function () { err[1](true); });
+    }, [props.path]);
+    return html`<div><div class="ac-h1" style="font-size:20px">${props.title}</div>
+      ${err[0] ? html`<div class="ac-sub">This file isn't available.</div>` : null}
+      ${url[0] && props.kind === "audio" ? html`<div class="ac-card"><audio controls src=${url[0]} style="width:100%"></audio></div>` : null}
+      ${url[0] && props.kind !== "audio" ? html`<div style="margin-top:10px"><a class="ac-btn" href=${url[0]} target="_blank" rel="noreferrer">Open document ↗</a><iframe src=${url[0]} style="width:100%;height:70vh;border:1px solid var(--line);border-radius:14px;margin-top:10px;background:#fff"></iframe></div>` : null}
+      ${!url[0] && !err[0] ? html`<div class="ac-sub" style="margin-top:12px">Loading…</div>` : null}</div>`;
+  }
+
+  function gMediaRow(r, open) {
+    var icon = r.kind === "audio" ? "♪" : (r.kind === "pdf" || r.kind === "workbook") ? "▤" : r.kind === "video" ? "▶" : "↗";
+    return html`<button class="g-med" onClick=${function () {
+      if (r.external_url) { window.open(r.external_url, "_blank"); return; }
+      if (!r.storage_path) return;
+      open(r.kind === "audio" ? "audio" : "pdf", { path: r.storage_path, title: r.title, kind: r.kind });
+    }}><span style="font-size:17px;color:var(--sky)">${icon}</span><span style="flex:1"><b style="font-size:13.5px;display:block">${r.title}</b>${r.description ? html`<span class="ac-mb">${r.description}</span>` : null}</span><span class="ac-mb" style="text-transform:uppercase">${r.kind}</span></button>`;
+  }
+
+  function GreatsScreen(props) {
+    var content = useState(null), loaded = useState(false);
+    var completed = useState([]), notes = useState({}), favs = useState([]), quizzes = useState({}), workbook = useState({});
+    var streak = useState(0), totalDays = useState(0), lastLesson = useState(null), challenge = useState([]), role = useState("member");
+    // view: {v:'home'} | {v:'mc',id} | {v:'lesson',mc,id} | {v:'quiz',mc,id} | {v:'workbook',mc} | {v:'study',mc,id} | {v:'roleplay',mc,id,scenario} | {v:'media',...} | {v:'search'} | {v:'favorites'} | {v:'challenge'} | {v:'admin'}
+    var view = useState({ v: "home" });
+    function go(v) { window.scrollTo(0, 0); view[1](v); }
+
+    useEffect(function () {
+      apiGet("/api/greats/content").then(function (d) { if (d && d.ok) content[1](d); });
+      apiGet("/api/greats").then(function (d) {
+        if (d && d.ok) {
+          completed[1]((d.progress || []).map(function (p) { return p.lessonId; }));
+          notes[1](d.notes || {});
+          favs[1]((d.favorites || []).map(function (f) { return f.type + ":" + f.id; }));
+          quizzes[1](d.quiz || {}); workbook[1](d.workbook || {});
+          streak[1]((d.state && d.state.streak) || 0); totalDays[1]((d.state && d.state.total_days) || 0);
+          lastLesson[1]((d.state && d.state.last_lesson) || null);
+          challenge[1](Array.isArray(d.challenge) ? d.challenge : []); role[1](d.role || "member");
+        }
+        loaded[1](true);
+      }).catch(function () { loaded[1](true); });
+    }, []);
+
+    var d = content[0];
+    if (!loaded[0] || !d) return html`<div class="scr"><button class="ac-back" onClick=${props.onBack}>‹ Academy</button><div class="ac-sub" style="padding:24px 4px">Loading the library…</div></div>`;
+    var MCS = d.masterclasses || [], TRACKS = d.tracks || [], RES = d.resources || [];
+    function mcById(id) { for (var i = 0; i < MCS.length; i++) if (MCS[i].id === id) return MCS[i]; return null; }
+    function isDone(id) { return completed[0].indexOf(id) >= 0; }
+    function hasFav(key) { return favs[0].indexOf(key) >= 0; }
+    function mcProg(mc) { var done = 0; mc.lessons.forEach(function (l) { if (isDone(l.id)) done++; }); return { done: done, total: mc.lessons.length, pct: Math.round(done / mc.lessons.length * 100) }; }
+
+    function toggleComplete(mc, id, on) {
+      var arr = on ? completed[0].concat([id]) : completed[0].filter(function (x) { return x !== id; });
+      completed[1](arr); gPost({ kind: "progress", masterclassId: mc, lessonId: id, completed: on });
+      if (on) streak[1](streak[0]);
+    }
+    function saveNote(mc, id, body) { var o = {}; for (var k in notes[0]) o[k] = notes[0][k]; o[id] = body; notes[1](o); gPost({ kind: "note", masterclassId: mc, lessonId: id, body: body }); }
+    function toggleFav(type, id) { var key = type + ":" + id; var on = !hasFav(key); var arr = on ? favs[0].concat([key]) : favs[0].filter(function (x) { return x !== key; }); favs[1](arr); gPost({ kind: "favorite", itemType: type, itemId: id, on: on }); }
+    function saveQuiz(id, score, total) { var o = {}; for (var k in quizzes[0]) o[k] = quizzes[0][k]; o[id] = { score: score, total: total }; quizzes[1](o); gPost({ kind: "quiz", lessonId: id, score: score, total: total }); }
+    function saveWorkbook(wid, answers) { var o = {}; for (var k in workbook[0]) o[k] = workbook[0][k]; o[wid] = answers; workbook[1](o); gPost({ kind: "workbook", workbookId: wid, answers: answers }); }
+    function setLast(mc, id) { lastLesson[1](mc + "/" + id); gPost({ kind: "lastLesson", masterclassId: mc, lessonId: id }); }
+
+    var back = html`<button class="ac-back" onClick=${function () { go({ v: "home" }); }}>‹ Library</button>`;
+    var v = view[0];
+
+    /* ── HOME ── */
+    if (v.v === "home") {
+      var cats = []; var order = [];
+      MCS.forEach(function (m) { if (order.indexOf(m.category) < 0) order.push(m.category); });
+      order.forEach(function (c) { cats.push([c, MCS.filter(function (m) { return m.category === c; })]); });
+      var cont = null;
+      if (lastLesson[0]) { var parts = lastLesson[0].split("/"); var cm = mcById(parts[0]); if (cm) { var cl = null; cm.lessons.forEach(function (l) { if (l.id === parts[1]) cl = l; }); if (cl && !isDone(cl.id)) cont = { m: cm, l: cl }; } }
+      if (!cont) { for (var i = 0; i < MCS.length && !cont; i++) { for (var j = 0; j < MCS[i].lessons.length; j++) { if (!isDone(MCS[i].lessons[j].id)) { cont = { m: MCS[i], l: MCS[i].lessons[j] }; break; } } } }
+      var totalL = 0, doneL = 0; MCS.forEach(function (m) { m.lessons.forEach(function (l) { totalL++; if (isDone(l.id)) doneL++; }); });
+      return html`<div class="scr"><button class="ac-back" onClick=${props.onBack}>‹ Academy</button>
+        <div class="ac-card">
+          <div class="ac-eyebrow">One Mission Personal Development Library</div>
+          <div class="ac-h1">Learn From the Greats</div>
+          <div class="ac-sub">Full masterclasses on building, mindset, money, and leadership — taught as original One Mission training, then put straight to work in your business.</div>
+          ${cont ? html`<div class="ac-next"><div class="ac-mini">${lastLesson[0] ? "Continue learning" : "Start here"}</div><div class="ac-nt">${cont.l.title}</div><div class="ac-sub" style="margin-top:0">${cont.m.title} · Lesson ${cont.l.num} · ${cont.l.minutes} min</div>
+            <button class="ac-btn" onClick=${function () { go({ v: "lesson", mc: cont.m.id, id: cont.l.id }); }}>${lastLesson[0] ? "Continue" : "Begin"} →</button></div>` : null}
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+            <span class="ac-lvl" style="background:linear-gradient(90deg,#c2410c,#f97316)">🔥 ${streak[0]}-day PD streak</span>
+            <span class="ac-lvl" style="background:var(--bg2);color:var(--ink)">🎓 ${doneL}/${totalL} lessons</span>
+          </div>
+        </div>
+        <div class="ac-tiles">
+          <button class="ac-tile" onClick=${function () { go({ v: "search" }); }}><span class="i">⌕</span><b>Search</b><em>Find anything</em></button>
+          <button class="ac-tile" onClick=${function () { go({ v: "favorites" }); }}><span class="i">★</span><b>Favorites</b><em>Your saved</em></button>
+          <button class="ac-tile" onClick=${function () { go({ v: "challenge" }); }}><span class="i">◔</span><b>30-Day Challenge</b><em>Nightingale</em></button>
+          ${role[0] === "admin" ? html`<button class="ac-tile" onClick=${function () { go({ v: "admin" }); }}><span class="i">⚙</span><b>Manage Library</b><em>Admin</em></button>` : html`<button class="ac-tile" onClick=${function () { go({ v: "search" }); }}><span class="i">♪</span><b>Audio & PDFs</b><em>Media</em></button>`}
+        </div>
+        ${TRACKS.length ? html`<div class="ac-card"><div class="ac-mini" style="color:var(--sky)">Learning Tracks</div><div class="g-rail">${TRACKS.map(function (t) { return html`<div style="min-width:180px;flex:none;border:1px solid var(--line);border-radius:13px;padding:11px;background:var(--bg2)"><b style="font-size:13px">${t.label}</b>${t.steps.slice(0, 5).map(function (s, i) { return html`<div class="ac-mb" style="margin-top:4px">${i + 1}. ${s}</div>`; })}</div>`; })}</div></div>` : null}
+        ${cats.map(function (pair) {
+          return html`<div><div class="ac-phase">${pair[0]}</div><div class="g-rail">${pair[1].map(function (m) {
+            var p = mcProg(m); var accent = m.accent || "#39c6ff";
+            return html`<button class="g-mc" onClick=${function () { go({ v: "mc", id: m.id }); }}>
+              <div class="g-mc-top" style=${"background:linear-gradient(135deg," + accent + "," + accent + "cc)"}><div class="g-eye">${m.teacher}</div><div style="font-size:15px;font-weight:800;margin-top:4px;line-height:1.2">${m.title}</div>${m.book ? html`<div style="font-size:11px;font-style:italic;opacity:.85;margin-top:3px">based on “${m.book}”</div>` : null}</div>
+              <div class="g-mc-b"><div class="ac-mb" style="min-height:32px">${m.subtitle}</div><div style="display:flex;justify-content:space-between;margin-top:6px"><span class="ac-mb">${m.lessons.length} lessons</span>${p.done > 0 ? html`<span style="font-size:11px;font-weight:800;color:${accent}">${p.pct}%</span>` : null}</div><div class="g-bar"><i style=${"width:" + p.pct + "%;background:" + accent}></i></div></div>
+            </button>`;
+          })}</div></div>`;
+        })}
+      </div>`;
+    }
+
+    /* ── MASTERCLASS ── */
+    if (v.v === "mc") {
+      var mc = mcById(v.id); if (!mc) return html`<div class="scr">${back}<div class="ac-sub">Not found.</div></div>`;
+      var accent = mc.accent || "#39c6ff"; var p = mcProg(mc);
+      var media = RES.filter(function (r) { return r.masterclass_id === mc.id && !r.lesson_id; });
+      return html`<div class="scr">${back}
+        <div class="g-cover" style=${"background:linear-gradient(135deg," + accent + "," + accent + "bb)"}>
+          <div style="display:flex;justify-content:space-between;gap:10px"><div><div class="g-eye">${mc.teacher}${mc.book ? " · " + mc.book : ""}</div><div style="font-size:22px;font-weight:800;margin-top:3px">${mc.title}</div><div style="font-size:13px;opacity:.92;margin-top:3px">${mc.subtitle}</div></div>
+            <button class="g-star" onClick=${function () { toggleFav("masterclass", mc.id); }}>${hasFav("masterclass:" + mc.id) ? "★" : "☆"}</button></div>
+          <div style="font-size:12px;font-weight:700;opacity:.9;margin-top:10px">${mc.lessons.length} lessons · ${mc.minutes} · ${p.done}/${p.total} done</div>
+        </div>
+        <p class="ac-p" style="margin-top:12px">${mc.overview}</p>
+        <div class="ac-card" style="padding:6px">
+          ${mc.lessons.map(function (l) { var done = isDone(l.id); var q = quizzes[0][l.id];
+            return html`<button class="g-lrow" onClick=${function () { go({ v: "lesson", mc: mc.id, id: l.id }); }}><span class=${"ac-ck " + (done ? "on" : "")}>${done ? "✓" : "○"}</span><span style="flex:1"><span class="ac-mt">${l.num}. ${l.title}</span><br/><span class="ac-mb">${l.minutes} min · ${l.quiz.length} quiz Q${q ? " · scored " + q.score + "/" + q.total : ""}</span></span><span class="ac-mb">›</span></button>`;
+          })}
+        </div>
+        <div class="ac-tiles">
+          ${mc.workbook ? html`<button class="ac-tile" onClick=${function () { go({ v: "workbook", mc: mc.id }); }}><span class="i">✎</span><b>Workbook</b><em>${mc.workbook.sections.length} sections</em></button>` : null}
+          <button class="ac-tile" onClick=${function () { go({ v: "study", mc: mc.id, id: mc.lessons[0].id }); }}><span class="i">✦</span><b>AI Study Mode</b><em>Ask & apply</em></button>
+          ${mc.id === "strangest-secret" ? html`<button class="ac-tile" onClick=${function () { go({ v: "challenge" }); }}><span class="i">◔</span><b>30-Day Challenge</b><em>The test</em></button>` : null}
+        </div>
+        ${media.length ? html`<div class="ac-secl">Audio & PDF library</div>${media.map(function (r) { return gMediaRow(r, function (k, o) { go({ v: "media", path: o.path, title: o.title, kind: o.kind }); }); })}` : null}
+        ${mc.original && mc.original.length ? html`<div class="ac-secl">Get the real thing (official sources)</div>${mc.original.map(function (o) { return html`<a class="ac-deeper" href=${o.url} target="_blank" rel="noreferrer">↗ ${o.label}</a>`; })}<div class="ac-sub" style="margin-top:6px">We teach original training built on these ideas — we don't copy anyone's book. Support the authors by getting their work.</div>` : null}
+      </div>`;
+    }
+
+    /* ── LESSON ── */
+    if (v.v === "lesson") {
+      var lmc = mcById(v.mc); if (!lmc) return html`<div class="scr">${back}</div>`;
+      var lac = lmc.accent || "#39c6ff";
+      var li = -1; for (var a = 0; a < lmc.lessons.length; a++) if (lmc.lessons[a].id === v.id) li = a;
+      var L = lmc.lessons[li]; var nx = lmc.lessons[li + 1];
+      setLastRef(lmc.id, v.id, setLast);
+      var done = isDone(L.id);
+      return html`<div class="scr"><button class="ac-back" onClick=${function () { go({ v: "mc", id: lmc.id }); }}>‹ ${lmc.title}</button>
+        <div style="display:flex;justify-content:space-between;gap:10px"><div><div class="ac-eyebrow" style="color:${lac}">${lmc.teacher} · Lesson ${L.num} · ${L.minutes} min</div><div class="ac-h1">${L.title}</div></div>
+          <button class="g-star" style="background:var(--bg2);color:${lac};border:1px solid var(--line)" onClick=${function () { toggleFav("lesson", L.id); }}>${hasFav("lesson:" + L.id) ? "★" : "☆"}</button></div>
+        <${GFive} L=${L} accent=${lac} />
+        <div class="ac-secl">Why this matters</div><p class="ac-p">${L.why}</p>
+        <div class="ac-secl">The principle</div><p class="ac-p">${L.principle}</p>
+        <div class="ac-secl">Explained simply</div><p class="ac-p">${L.beginner}</p>
+        <div class="ac-secl">Real-life example</div><div class="ac-ex">${L.example}</div>
+        ${L.whatToSay && L.whatToSay.length ? html`<div class="ac-secl">What to say — copy & use</div>${L.whatToSay.map(function (s) { return html`<${GScript} label=${s.label} text=${s.text} />`; })}` : null}
+        ${L.whatNotToSay && L.whatNotToSay.length ? html`<div class="ac-secl">What NOT to say</div>${L.whatNotToSay.map(function (x) { return html`<p class="ac-p"><span class="ac-x">✕</span>${x}</p>`; })}` : null}
+        <div class="ac-secl">Common mistakes</div>${L.mistakes.map(function (x) { return html`<p class="ac-p"><span class="ac-x">✕</span>${x}</p>`; })}
+        <div class="ac-act" style=${"border-color:" + lac + ";background:" + lac + "0d"}><div class="ac-mini" style="color:${lac}">Apply it in One Mission</div><p class="ac-p" style="margin:4px 0 0">${L.application}</p></div>
+        <div class="ac-secl">Practice</div><p class="ac-p">${L.practice}</p>
+        <button class="ac-open" onClick=${function () { go({ v: "study", mc: lmc.id, id: L.id }); }}><span>✦ Study this with AI</span><em>Ask questions, get quizzed, apply it</em></button>
+        ${L.roleplay ? html`<button class="ac-open" onClick=${function () { go({ v: "roleplay", mc: lmc.id, id: L.id, scenario: L.roleplay.scenario }); }}><span>◆ Role-play: ${L.roleplay.scenario}</span><em>Practice the conversation live</em></button>` : null}
+        <div class="ac-act" style=${"border-color:" + lac + ";background:" + lac + "0d"}><div class="ac-mini" style="color:${lac}">Take action today</div><div class="ac-mt" style="font-size:15px;margin-top:3px">${L.action}</div></div>
+        <button class="ac-btn2 full" style="margin-top:10px" onClick=${function () { go({ v: "quiz", mc: lmc.id, id: L.id }); }}>Take the quiz (${L.quiz.length} Q)${quizzes[0][L.id] ? " · " + quizzes[0][L.id].score + "/" + quizzes[0][L.id].total : ""}</button>
+        <${GNote} lessonId=${L.id} value=${notes[0][L.id] || ""} onSave=${function (val) { saveNote(lmc.id, L.id, val); }} />
+        ${RES.filter(function (r) { return r.lesson_id === L.id; }).map(function (r) { return gMediaRow(r, function (k, o) { go({ v: "media", path: o.path, title: o.title, kind: o.kind }); }); })}
+        ${L.resource && L.resource.length ? html`<div class="ac-secl">Original resource</div>${L.resource.map(function (o) { return html`<a class="ac-deeper" href=${o.url} target="_blank" rel="noreferrer">↗ ${o.label}</a>`; })}` : null}
+        <div style="display:flex;gap:12px;align-items:center;margin-top:16px;border-top:1px solid var(--line);padding-top:14px;flex-wrap:wrap">
+          ${done ? html`<span class="ac-done">✓ Completed</span><button class="ac-back" style="margin:0" onClick=${function () { toggleComplete(lmc.id, L.id, false); }}>Mark incomplete</button>` : html`<button class="ac-btn" style="margin:0;background:${lac}" onClick=${function () { toggleComplete(lmc.id, L.id, true); }}>✓ Mark complete</button>`}
+          ${nx ? html`<button class="ac-back" style="margin:0;color:var(--ink)" onClick=${function () { go({ v: "lesson", mc: lmc.id, id: nx.id }); }}>Next: ${nx.title} →</button>` : null}
+        </div></div>`;
+    }
+
+    /* ── QUIZ ── */
+    if (v.v === "quiz") { var qmc = mcById(v.mc); var QL = null; qmc.lessons.forEach(function (l) { if (l.id === v.id) QL = l; }); return html`<div class="scr"><button class="ac-back" onClick=${function () { go({ v: "lesson", mc: v.mc, id: v.id }); }}>‹ ${QL.title}</button><${GQuiz} mc=${qmc} L=${QL} onScore=${saveQuiz} /></div>`; }
+
+    /* ── WORKBOOK ── */
+    if (v.v === "workbook") { var wmc = mcById(v.mc); return html`<div class="scr">${back}<${GWorkbook} mc=${wmc} answers=${workbook[0][wmc.workbook.id] || {}} onSave=${saveWorkbook} /></div>`; }
+
+    /* ── STUDY / ROLEPLAY ── */
+    if (v.v === "study") { var smc = mcById(v.mc); var SL = smc.lessons[0]; smc.lessons.forEach(function (l) { if (l.id === v.id) SL = l; }); return html`<div class="scr"><button class="ac-back" onClick=${function () { go({ v: "lesson", mc: v.mc, id: v.id }); }}>‹ ${SL.title}</button><${GAiChat} mode="study" mc=${smc} lesson=${SL} /></div>`; }
+    if (v.v === "roleplay") { var rmc = mcById(v.mc); var RL = rmc.lessons[0]; rmc.lessons.forEach(function (l) { if (l.id === v.id) RL = l; }); return html`<div class="scr"><button class="ac-back" onClick=${function () { go({ v: "lesson", mc: v.mc, id: v.id }); }}>‹ ${RL.title}</button><${GAiChat} mode="roleplay" mc=${rmc} lesson=${RL} scenario=${v.scenario} /></div>`; }
+
+    /* ── MEDIA ── */
+    if (v.v === "media") return html`<div class="scr">${back}<${GMedia} path=${v.path} title=${v.title} kind=${v.kind} /></div>`;
+
+    /* ── SEARCH ── */
+    if (v.v === "search") return html`<div class="scr">${back}<${GSearch} MCS=${MCS} RES=${RES} go=${go} /></div>`;
+
+    /* ── FAVORITES ── */
+    if (v.v === "favorites") {
+      var fMcs = MCS.filter(function (m) { return hasFav("masterclass:" + m.id); });
+      var fLes = []; MCS.forEach(function (m) { m.lessons.forEach(function (l) { if (hasFav("lesson:" + l.id)) fLes.push({ m: m, l: l }); }); });
+      return html`<div class="scr">${back}<div class="ac-h1">★ Your favorites</div>
+        ${fMcs.length + fLes.length === 0 ? html`<div class="ac-sub" style="margin-top:8px">Tap the star on any masterclass or lesson to save it here.</div>` : null}
+        ${fMcs.map(function (m) { return html`<button class="g-lrow" onClick=${function () { go({ v: "mc", id: m.id }); }}><span style="flex:1"><b>${m.title}</b> <span class="ac-mb">· ${m.teacher}</span></span><span class="ac-mb">›</span></button>`; })}
+        ${fLes.map(function (o) { return html`<button class="g-lrow" onClick=${function () { go({ v: "lesson", mc: o.m.id, id: o.l.id }); }}><span style="flex:1"><b>${o.l.title}</b> <span class="ac-mb">· ${o.m.title}</span></span><span class="ac-mb">›</span></button>`; })}
+      </div>`;
+    }
+
+    /* ── CHALLENGE ── */
+    if (v.v === "challenge") return html`<div class="scr">${back}<${GChallenge} MCS=${MCS} challenge=${challenge[0]} onSave=${function (b) { gPost({ kind: "challenge", challengeId: b.challengeId, goal: b.goal, start: b.start, dayDone: b.dayDone }); }} go=${go} /></div>`;
+
+    /* ── ADMIN ── */
+    if (v.v === "admin" && role[0] === "admin") return html`<div class="scr">${back}<${GAdmin} MCS=${MCS} /></div>`;
+
+    return html`<div class="scr">${back}</div>`;
+  }
+
+  // stable one-shot lastLesson setter (avoids effect churn in htm)
+  var _lastKey = "";
+  function setLastRef(mc, id, fn) { var k = mc + "/" + id; if (_lastKey !== k) { _lastKey = k; try { fn(mc, id); } catch (e) {} } }
+
+  function GFive(props) {
+    var open = useState(false); var L = props.L, accent = props.accent;
+    return html`<div class="g-five" style=${"border-color:" + accent + ";background:" + accent + "0d"}>
+      <button style="width:100%;display:flex;justify-content:space-between;align-items:center;background:none;border:none;color:${accent};font-weight:800;font-size:13px;cursor:pointer" onClick=${function () { open[1](!open[0]); }}><span>✦ The Lesson in 5 Minutes</span><span>${open[0] ? "Hide" : "Show"}</span></button>
+      ${open[0] ? html`<div style="margin-top:10px">
+        <p class="ac-p"><b>Big idea:</b> ${L.five.bigIdea}</p>
+        <p class="ac-p" style="margin-bottom:2px"><b>3 core principles:</b></p>${L.five.principles.map(function (pr, i) { return html`<p class="ac-p" style="margin:0 0 3px">${i + 1}. ${pr}</p>`; })}
+        <p class="ac-p"><b>What most get wrong:</b> ${L.five.wrong}</p>
+        <p class="ac-p"><b>In One Mission:</b> ${L.five.oneMission}</p>
+        <p class="ac-p" style="margin-bottom:0"><b>Do today:</b> ${L.five.today}</p></div>` : null}</div>`;
+  }
+
+  function GQuiz(props) {
+    var mc = props.mc, L = props.L, accent = mc.accent || "#39c6ff";
+    var ans = useState({}), sub = useState(false);
+    var score = 0; L.quiz.forEach(function (q, i) { if (ans[0][i] === q.correct) score++; });
+    var answered = Object.keys(ans[0]).length;
+    return html`<div><div class="ac-eyebrow" style="color:${accent}">Quiz · ${L.title}</div><div class="ac-h1" style="font-size:20px">Check your understanding</div>
+      ${L.quiz.map(function (q, i) {
+        return html`<div class="ac-card">
+          <div class="ac-mt" style="font-size:14.5px">${i + 1}. ${q.q}</div>
+          <div style="margin-top:10px">${q.options.map(function (opt, oi) {
+            var chosen = ans[0][i] === oi; var correct = sub[0] && oi === q.correct; var wrong = sub[0] && chosen && oi !== q.correct;
+            var bc = correct ? "#2ee88f" : wrong ? "#ff5d6c" : chosen ? accent : "var(--line)";
+            return html`<button class="g-opt" style=${"border-color:" + bc + (chosen && !sub[0] ? ";background:" + accent + "1a" : "")} onClick=${function () { if (sub[0]) return; var o = {}; for (var k in ans[0]) o[k] = ans[0][k]; o[i] = oi; ans[1](o); }}>
+              <span class="g-optl" style=${"border-color:" + bc + ";color:" + bc}>${String.fromCharCode(65 + oi)}</span><span>${opt}</span></button>`;
+          })}</div>
+          ${sub[0] ? html`<div class="ac-ex" style="margin-top:6px"><b>Why:</b> ${q.why}</div>` : null}
+        </div>`;
+      })}
+      ${!sub[0] ? html`<button class="ac-btn full" disabled=${answered < L.quiz.length} style=${"background:" + accent + (answered < L.quiz.length ? ";opacity:.4" : "")} onClick=${function () { sub[1](true); props.onScore(L.id, score, L.quiz.length); }}>Submit answers</button>`
+        : html`<div class="ac-act" style=${"text-align:center;border-color:" + accent}><div style="font-size:26px;font-weight:800">${score}/${L.quiz.length}</div><div class="ac-sub">${score === L.quiz.length ? "Perfect — you've got it." : "Review the explanations and try again anytime."}</div><button class="ac-btn2" style="margin-top:8px" onClick=${function () { sub[1](false); ans[1]({}); }}>Retake</button></div>`}
+    </div>`;
+  }
+
+  function GWorkbook(props) {
+    var mc = props.mc, wb = mc.workbook, accent = mc.accent || "#39c6ff";
+    var ans = useState(props.answers || {}); var saved = useState(false); var tref = useRef(null);
+    function change(fid, val) { var o = {}; for (var k in ans[0]) o[k] = ans[0][k]; o[fid] = val; ans[1](o); if (tref.current) clearTimeout(tref.current); tref.current = setTimeout(function () { props.onSave(wb.id, o); saved[1](true); setTimeout(function () { saved[1](false); }, 1200); }, 700); }
+    var filled = 0, total = 0; wb.sections.forEach(function (s) { s.fields.forEach(function (f) { total++; if ((ans[0][f.id] || "").trim()) filled++; }); });
+    return html`<div><div class="g-cover" style=${"background:linear-gradient(135deg," + accent + "," + accent + "bb)"}><div class="g-eye">Interactive Workbook</div><div style="font-size:19px;font-weight:800;margin-top:3px">${wb.title}</div><div style="font-size:12px;opacity:.9;margin-top:3px">${filled}/${total} answered · autosaves</div></div>
+      ${wb.sections.map(function (s, si) { return html`<div class="ac-card"><div class="ac-mt" style="font-size:13px">${si + 1}. ${s.title}</div>${s.fields.map(function (f) { return html`<div style="margin-top:8px"><label class="ac-mb">${f.label}</label>${f.hint ? html`<div class="ac-sub" style="margin:0">${f.hint}</div>` : null}<textarea class="ac-ta" rows="2" value=${ans[0][f.id] || ""} onInput=${function (e) { change(f.id, e.target.value); }}></textarea></div>`; })}</div>`; })}
+      <div class="ac-sub" style="text-align:center;margin-top:10px">${saved[0] ? "Saved ✓" : "Your answers save automatically and stay private to you."}</div></div>`;
+  }
+
+  function GSearch(props) {
+    var q = useState(""); var ql = q[0].trim().toLowerCase();
+    var lessons = [], mcs = [], media = [];
+    if (ql) {
+      props.MCS.forEach(function (m) { if ((m.title + " " + m.teacher + " " + (m.book || "") + " " + m.category).toLowerCase().indexOf(ql) >= 0) mcs.push(m);
+        m.lessons.forEach(function (l) { if ((l.title + " " + l.principle + " " + l.beginner + " " + m.teacher).toLowerCase().indexOf(ql) >= 0) lessons.push({ m: m, l: l }); }); });
+      props.RES.forEach(function (r) { if ((r.title + " " + (r.description || "") + " " + r.kind).toLowerCase().indexOf(ql) >= 0) media.push(r); });
+    }
+    return html`<div><input class="ac-input" autofocus placeholder="Search lessons, teachers, audio, PDFs…" value=${q[0]} onInput=${function (e) { q[1](e.target.value); }} />
+      ${!ql ? html`<div class="ac-sub" style="margin-top:10px">Try “persistence”, “assets”, “identity”, or a teacher's name.</div>` : null}
+      ${ql && mcs.length + lessons.length + media.length === 0 ? html`<div class="ac-sub" style="margin-top:10px">No matches. Try a different word.</div>` : null}
+      ${mcs.length ? html`<div class="ac-secl">Masterclasses</div>${mcs.map(function (m) { return html`<button class="g-lrow" onClick=${function () { props.go({ v: "mc", id: m.id }); }}><span style="flex:1"><b>${m.title}</b> <span class="ac-mb">· ${m.teacher}</span></span><span class="ac-mb">›</span></button>`; })}` : null}
+      ${lessons.length ? html`<div class="ac-secl">Lessons</div>${lessons.slice(0, 40).map(function (o) { return html`<button class="g-lrow" onClick=${function () { props.go({ v: "lesson", mc: o.m.id, id: o.l.id }); }}><span style="flex:1"><b>${o.l.title}</b> <span class="ac-mb">· ${o.m.title}</span></span><span class="ac-mb">›</span></button>`; })}` : null}
+      ${media.length ? html`<div class="ac-secl">Audio & PDFs</div>${media.map(function (r) { return gMediaRow(r, function (k, o) { props.go({ v: "media", path: o.path, title: o.title, kind: o.kind }); }); })}` : null}
+    </div>`;
+  }
+
+  function GChallenge(props) {
+    var accent = "#0891b2", cid = "strangest-secret-30";
+    var ex = null; props.challenge.forEach(function (c) { if (c.challenge_id === cid) ex = c; });
+    var goal = useState(ex && ex.goal || ""), start = useState(ex && ex.start_date || null), days = useState(ex && ex.days_done || []);
+    function today() { return new Date().toISOString().slice(0, 10); }
+    var dayNum = start[0] ? Math.min(30, Math.floor((Date.parse(today()) - Date.parse(start[0])) / 86400000) + 1) : 0;
+    function saveGoal() { var s = start[0] || today(); start[1](s); props.onSave({ challengeId: cid, goal: goal[0], start: s }); }
+    function toggleDay(dn) { if (!start[0]) return; var has = days[0].indexOf(dn) >= 0; var nd = has ? days[0].filter(function (x) { return x !== dn; }) : days[0].concat([dn]); days[1](nd); props.onSave({ challengeId: cid, dayDone: dn }); }
+    var mcExists = props.MCS.some(function (m) { return m.id === "strangest-secret"; });
+    var dcount = days[0].length;
+    return html`<div><div class="g-cover" style=${"background:linear-gradient(135deg," + accent + "," + accent + "bb)"}><div class="g-eye">Earl Nightingale · The Strangest Secret</div><div style="font-size:22px;font-weight:800;margin-top:3px">The 30-Day Challenge</div><div style="font-size:13px;opacity:.92;margin-top:4px">For 30 days: hold your one goal in mind, act on it daily, and each time a negative thought shows up, replace it with your goal. Slip up? Start fresh the next day.</div></div>
+      <div class="ac-secl">Step 1 — Your one goal</div><textarea class="ac-ta" rows="2" placeholder="The one goal you'll hold in mind for 30 days…" value=${goal[0]} onInput=${function (e) { goal[1](e.target.value); }}></textarea>
+      <button class="ac-btn" style=${"background:" + accent} onClick=${saveGoal}>${start[0] ? "Save goal" : "Start my 30 days"}</button>
+      ${start[0] ? html`<div class="ac-secl">Step 2 — Mark each day (Day ${dayNum} of 30 · ${dcount} done)</div>
+        <div class="g-daygrid">${Array.apply(null, { length: 30 }).map(function (_, i) { var dn = i + 1; var on = days[0].indexOf(dn) >= 0; var reach = dn <= dayNum;
+          return html`<button class="g-day" disabled=${!reach} style=${on ? "background:" + accent + ";border-color:" + accent + ";color:#fff" : ""} onClick=${function () { toggleDay(dn); }}>${dn}</button>`; })}</div>
+        <div class="g-bar" style="margin-top:10px"><i style=${"width:" + Math.round(dcount / 30 * 100) + "%;background:" + accent}></i></div>
+        ${dcount >= 30 ? html`<div class="ac-done" style="margin-top:10px;width:100%;justify-content:center">🎉 30 days complete. You proved the secret.</div>` : null}` : null}
+      ${mcExists ? html`<button class="ac-back" style="margin-top:12px;color:${accent}" onClick=${function () { props.go({ v: "mc", id: "strangest-secret" }); }}>Read the full masterclass →</button>` : null}</div>`;
+  }
+
+  function GAdmin(props) {
+    var rows = useState([]), loaded = useState(false), msg = useState("");
+    function load() { apiGet("/api/greats/admin").then(function (d) { if (d && d.ok) rows[1](d.resources || []); loaded[1](true); }).catch(function () { loaded[1](true); }); }
+    useEffect(function () { load(); }, []);
+    var kind = useState("pdf"), title = useState(""), desc = useState(""), mc = useState(""), lesson = useState(""), ext = useState(""), file = useState(null), busy = useState(false);
+    var lessons = []; props.MCS.forEach(function (m) { if (m.id === mc[0]) lessons = m.lessons; });
+    function submit() {
+      if (!title[0].trim()) { msg[1]("Add a title first."); return; }
+      busy[1](true);
+      function create(storagePath) {
+        apiPost("/api/greats/admin", { action: "create", kind: kind[0], title: title[0], description: desc[0], masterclassId: mc[0] || null, lessonId: lesson[0] || null, externalUrl: ext[0] || null, storagePath: storagePath || null, published: true }).then(function (r) {
+          busy[1](false); if (r && r.ok) { msg[1]("Added ✓"); title[1](""); desc[1](""); ext[1](""); file[1](null); load(); } else msg[1]("Could not save."); });
+      }
+      if (file[0] && kind[0] !== "link") {
+        var safe = file[0].name.replace(/[^a-zA-Z0-9._-]/g, "_"); var path = (mc[0] || "general") + "/" + Date.now() + "_" + safe;
+        apiPost("/api/greats/admin", { action: "signedUpload", path: path, contentType: file[0].type }).then(function (s) {
+          if (!s || !s.ok || !s.signedUrl) { msg[1]("Could not get an upload URL."); busy[1](false); return; }
+          fetch(s.signedUrl, { method: "PUT", headers: { "content-type": file[0].type || "application/octet-stream" }, body: file[0] }).then(function (up) {
+            if (!up.ok) { msg[1]("Upload failed."); busy[1](false); return; } create(s.path);
+          }).catch(function () { msg[1]("Upload failed."); busy[1](false); });
+        });
+      } else create("");
+    }
+    return html`<div><div class="ac-h1" style="font-size:20px">⚙ Manage Library</div><div class="ac-sub">Upload audio, PDFs, and workbooks, attach them to a masterclass or lesson, and publish.</div>
+      ${msg[0] ? html`<div class="ac-sub" style="color:var(--sky)">${msg[0]}</div>` : null}
+      <div class="ac-card"><div class="ac-mt" style="font-size:13px">Add a resource</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+          <select class="sel" style="padding:10px;font-size:14px" value=${kind[0]} onChange=${function (e) { kind[1](e.target.value); }}><option value="pdf">PDF</option><option value="audio">Audio</option><option value="video">Video</option><option value="workbook">Workbook</option><option value="link">External link</option></select>
+          <input class="ac-input" placeholder="Title" value=${title[0]} onInput=${function (e) { title[1](e.target.value); }} />
+          <select class="sel" style="padding:10px;font-size:14px" value=${mc[0]} onChange=${function (e) { mc[1](e.target.value); lesson[1](""); }}><option value="">— Masterclass —</option>${props.MCS.map(function (m) { return html`<option value=${m.id}>${m.title}</option>`; })}</select>
+          <select class="sel" style="padding:10px;font-size:14px" disabled=${!mc[0]} value=${lesson[0]} onChange=${function (e) { lesson[1](e.target.value); }}><option value="">— Whole masterclass —</option>${lessons.map(function (l) { return html`<option value=${l.id}>${l.num}. ${l.title}</option>`; })}</select>
+        </div>
+        <input class="ac-input" style="margin-top:8px" placeholder="Short description (optional)" value=${desc[0]} onInput=${function (e) { desc[1](e.target.value); }} />
+        ${kind[0] === "link" ? html`<input class="ac-input" style="margin-top:8px" placeholder="https://…" value=${ext[0]} onInput=${function (e) { ext[1](e.target.value); }} />`
+          : html`<input type="file" style="margin-top:8px;font-size:13px;color:var(--muted)" accept=${kind[0] === "audio" ? "audio/*" : kind[0] === "video" ? "video/*" : "application/pdf"} onChange=${function (e) { file[1](e.target.files && e.target.files[0]); }} />`}
+        <button class="ac-btn" disabled=${busy[0]} onClick=${submit}>${busy[0] ? "Working…" : "Add & publish"}</button>
+      </div>
+      <div class="ac-secl">All resources (${rows[0].length})</div>
+      ${loaded[0] && rows[0].length === 0 ? html`<div class="ac-sub">Nothing uploaded yet.</div>` : null}
+      ${rows[0].map(function (r) { return html`<div class="ac-row"><span style="flex:1"><b>${r.title}</b> <span class="ac-mb">· ${r.kind}</span><br/><span class="ac-mb">${r.masterclass_id || "—"}${r.lesson_id ? " / " + r.lesson_id : ""}</span></span>
+        <button class="ac-chip" onClick=${function () { apiPost("/api/greats/admin", { action: "publish", id: r.id, published: !r.published }).then(load); }}>${r.published ? "Published" : "Draft"}</button>
+        <button class="ac-copy" style="color:var(--red)" onClick=${function () { apiPost("/api/greats/admin", { action: "delete", id: r.id }).then(load); }}>✕</button></div>`; })}
+    </div>`;
+  }
+
   function AcademyScreen(props) {
     var data = useState(null), loaded = useState(false);
     var completed = useState([]), why = useState({}), prospects = useState([]), launch = useState([]), daily = useState({ dates: [] });
@@ -2100,7 +2511,7 @@ input{font:inherit}
           <button class="ac-tile" onClick=${function () { view[1]("coach"); }}><span class="i">✦</span><b>Ask OM Coach</b><em>Get unstuck</em></button>
           <button class="ac-tile" onClick=${function () { view[1]("roleplay"); }}><span class="i">◆</span><b>Role-Play</b><em>Practice live</em></button>
           <button class="ac-tile" onClick=${function () { open("tool", "launch"); }}><span class="i">⚡</span><b>48-Hour Launch</b><em>New affiliate</em></button>
-          <button class="ac-tile" onClick=${function () { view[1]("resources"); }}><span class="i">▤</span><b>Learn From Greats</b><em>Free resources</em></button>
+          <button class="ac-tile" onClick=${function () { view[1]("resources"); }}><span class="i">▤</span><b>Learn From Greats</b><em>PD library</em></button>
         </div>
         <div class="ac-tiles">
           <button class="ac-tile" onClick=${function () { open("tool", "daily"); }}><span class="i">◔</span><b>Daily · ${streak}-day streak</b><em>${daily[0].dates.indexOf(today) >= 0 ? "Done today ✓" : "10 min a day"}</em></button>
@@ -2157,11 +2568,9 @@ input{font:inherit}
       return html`<div class="scr"><button class="ac-back" onClick=${function () { rp[1](""); }}>‹ Scenarios</button><${AcademyCoach} mode="roleplay" scenario=${parts[1]} opener=${parts[2]} /></div>`;
     }
 
-    // ── RESOURCES ──
+    // ── RESOURCES → Learn From the Greats library ──
     if (view[0] === "resources") {
-      var teachers = []; d.greats.forEach(function (g) { if (teachers.indexOf(g.teacher) < 0) teachers.push(g.teacher); });
-      return html`<div class="scr">${back}<div class="ac-h1">Learn From The Greats</div><div class="ac-sub" style="margin-bottom:6px">Free, public resources from respected educators. We link their official sources — we don't copy their material.</div>
-        ${teachers.map(function (t) { return html`<div class="ac-card"><b style="font-size:15px">${t}</b>${d.greats.filter(function (g) { return g.teacher === t; }).map(function (g) { return html`<a class="ac-res" href=${g.url} target="_blank" rel="noreferrer"><b>${g.title}</b> ↗<div class="tp">${g.topic} · ${g.kind}</div><div class="wh">${g.why}</div></a>`; })}</div>`; })}</div>`;
+      return html`<${GreatsScreen} onBack=${function () { view[1]("home"); }} />`;
     }
 
     // ── SEARCH ──
