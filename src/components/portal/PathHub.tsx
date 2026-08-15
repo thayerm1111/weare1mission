@@ -141,7 +141,7 @@ function OneHub({ firstName }: { firstName: string }) {
 /* ─────────────────────────── The Builder (affiliate) ─────────────────────── */
 function BuilderHub({ firstName }: { firstName: string }) {
   const tiles: Tile[] = [
-    { href: "/portal/training", icon: GraduationCap, label: "Creator Launchpad", desc: "Sales & skills training" },
+    { href: "/portal/training", icon: GraduationCap, label: "Affiliate Academy", desc: "Your build roadmap & PD library" },
     { href: "/portal/prospects", icon: Video, label: "Next Up", desc: "Your prospect pipeline" },
     { href: "/portal/team", icon: Network, label: "My Circle", desc: "Your growing team" },
     { href: "/portal/comp-plan", icon: Trophy, label: "The Comp Plan", desc: "Ranks, pay & bonuses" },
@@ -153,11 +153,40 @@ function BuilderHub({ firstName }: { firstName: string }) {
         line1={`Let's build, ${firstName}.`}
         line2="Build the business. Become the leader."
         body="Champions are made in the boring reps. Do the work today that your future self will thank you for."
-        ctaLabel="Start Today's Work"
+        ctaLabel="Open the Affiliate Academy"
         ctaHref="/portal/training"
         altLabel="See The Comp Plan"
         altHref="/portal/comp-plan"
       />
+
+      {/* Featured — the Affiliate Academy, front and center on the business side */}
+      <Link
+        href="/portal/training"
+        className="group relative block overflow-hidden rounded-2xl border border-[#E7E4DD] bg-white p-6 shadow-card transition-all hover:-translate-y-0.5 hover:shadow-lg sm:p-8"
+        style={{ backgroundImage: "radial-gradient(120% 100% at 100% 0%, rgba(37,99,235,0.08), transparent 55%)" }}
+      >
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-4">
+            <span className="grid h-14 w-14 flex-shrink-0 place-items-center rounded-2xl bg-navy text-white" aria-hidden="true">
+              <GraduationCap className="h-7 w-7" />
+            </span>
+            <div>
+              <span className="eyebrow text-primary">Start Here · The Business</span>
+              <h2 className="mt-1 font-serif text-2xl font-semibold uppercase tracking-[0.02em] text-navy sm:text-[28px]">
+                The Affiliate Academy
+              </h2>
+              <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-charcoal/65">
+                Your step-by-step roadmap to build One Mission — the daily method, invite &amp; presentation skills,
+                an AI coach and role-play, plus the full <span className="font-semibold text-navy">Learn From the Greats</span> personal-development library.
+              </p>
+            </div>
+          </div>
+          <span className="inline-flex flex-shrink-0 items-center gap-2.5 self-start rounded-none bg-navy px-7 py-3.5 text-[13px] font-medium uppercase tracking-[0.14em] text-white transition-colors group-hover:bg-primary sm:self-center">
+            Enter the Academy
+            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+          </span>
+        </div>
+      </Link>
 
       <DailyEngagement side="builders" />
 

@@ -53,7 +53,7 @@ const REG: Record<string, Item> = {
 const ONES_PRIMARY = ["startHere", "schedule", "trading", "leadership", "updates", "collection"];
 const ONES_UTILITY = ["getApp", "account", "support"];
 const ONES = [...ONES_PRIMARY, ...ONES_UTILITY];
-const BUILDERS = ["getApp", "omai", "prospects", "team", "compPlan", "schedule", "leadership", "training", "resources", "updates", "account", "support", "results", "leaderboard"];
+const BUILDERS = ["training", "getApp", "omai", "prospects", "team", "compPlan", "schedule", "leadership", "resources", "updates", "account", "support", "results", "leaderboard"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources", "compPlan"];
 const ONES_ONLY = ["trading", "genx", "signals", "xaughost", "charts", "command", "scanner", "scalp"];
 
