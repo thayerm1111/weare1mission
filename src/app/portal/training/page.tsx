@@ -1,24 +1,31 @@
-import { GraduationCap } from "lucide-react";
-import { TrainingClient } from "@/app/training/TrainingClient";
+import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/auth";
+import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
 import { DisclaimerBanner } from "@/components/DisclaimerBanner";
+import { AffiliateAcademy } from "@/components/portal/academy/AffiliateAcademy";
 
-export const metadata = { title: "Training", robots: { index: false, follow: false } };
+export const metadata = { title: "Affiliate Academy", robots: { index: false, follow: false } };
+export const dynamic = "force-dynamic";
 
-export default function PortalTrainingPage() {
+/**
+ * One Mission Affiliate Academy — the affiliate training experience. A guided
+ * Beginner → Producer → Builder → Leader roadmap with lessons, scripts, an AI
+ * coach + role-play, interactive tools, and a verified free-resource library.
+ * Progress persists per member (academy_state / academy_activity, RLS-protected).
+ */
+export default async function PortalTrainingPage() {
+  const supabase = createClient();
+  if (!supabase) return <PortalNotConfigured />;
+  const profile = await getProfile().catch(() => null);
+  const firstName = ((profile?.full_name || "").trim().split(/\s+/)[0]) || "there";
+
   return (
-    <div className="space-y-6">
-      <header>
-        <p className="eyebrow">Members Only</p>
-        <h1 className="mt-2 flex items-center gap-2 text-3xl font-extrabold tracking-tight text-navy">
-          <GraduationCap className="h-7 w-7 text-primary" aria-hidden="true" /> Affiliate Training
-        </h1>
-        <p className="mt-2 text-charcoal/70">Work through the modules and track your completion.</p>
-      </header>
+    <div className="space-y-4">
       <DisclaimerBanner tone="warning">
         Educational content only — not individualized financial advice, and no income or results are
         guaranteed. Your results depend on your effort, skill, and factors outside anyone&apos;s control.
       </DisclaimerBanner>
-      <TrainingClient />
+      <AffiliateAcademy firstName={firstName} />
     </div>
   );
 }
