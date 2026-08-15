@@ -1606,7 +1606,7 @@ input{font:inherit}
         }
         res[1](d);
       }).catch(function (e) {
-        if (e && e.code === 402) { needCr[1](true); err[1]("You're out of credits — a GENX read costs 5. They reset weekly, or top up from Account."); }
+        if (e && e.code === 402) { needCr[1](true); err[1]("You're out of credits — a GENX read costs 3. They reset weekly, or top up from Account."); }
         else if (e && e.code === 401) props.onLogout();
         else err[1]("Something went wrong — try again.");
       }).then(function () { loading[1](false); });
@@ -1632,6 +1632,7 @@ input{font:inherit}
       </div>
 
       <button class="gx-analyze" disabled=${loading[0]} onClick=${run}>${loading[0] ? "Analyzing Gold…" : (d ? "Re-analyze Gold" : "Analyze Gold Now")}</button>
+      <div style="text-align:center;margin-top:6px;font-size:11px;opacity:.5">3 credits per read</div>
       ${err[0] ? html`<div class="err" style="margin-top:10px">${err[0]}${needCr[0] ? html` <a href="#" onClick=${function (e) { e.preventDefault(); try { window.open("/portal/credits", "_blank"); } catch (x) {} }} style="color:var(--sky);font-weight:700"> Get credits</a>` : null}</div>` : null}
       ${loading[0] ? html`<div class="gx-analyzing">◆ Reading live Gold — structure, momentum, levels, liquidity…</div>` : null}
 
