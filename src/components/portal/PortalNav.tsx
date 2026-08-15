@@ -17,7 +17,7 @@ const REG: Record<string, Item> = {
   startHere: { href: "/portal/start-here", label: "Start Here", icon: Compass },
   team: { href: "/portal/team", label: "My Circle", icon: Network },
   prospects: { href: "/portal/prospects", label: "Next Up", icon: Video },
-  training: { href: "/portal/training", label: "Creator Launchpad", icon: GraduationCap },
+  training: { href: "/portal/training", label: "Affiliate Academy", icon: GraduationCap },
   compPlan: { href: "/portal/comp-plan", label: "The Comp Plan", icon: Trophy },
   genx: { href: "/portal/genx", label: "GENX", icon: Gem },
   omai: { href: "/portal/om-ai", label: "OM AI", icon: Sparkles },
