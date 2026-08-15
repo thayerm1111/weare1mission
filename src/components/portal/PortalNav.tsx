@@ -271,6 +271,15 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
           onNav={() => setOpen(false)}
         />
       )}
+
+      {/* GENX Lab — recorded Gold signals & tracked outcomes (admin) */}
+      {isAdmin && (
+        <NavLink
+          item={{ href: "/portal/genx-lab", label: "GENX Lab", icon: Gem }}
+          active={pathname.startsWith("/portal/genx-lab")}
+          onNav={() => setOpen(false)}
+        />
+      )}
     </div>
   );
 
