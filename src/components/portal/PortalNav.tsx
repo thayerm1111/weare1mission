@@ -282,6 +282,20 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
           onNav={() => setOpen(false)}
         />
       )}
+
+      {/* Fantasy — private tool, rendered ONLY for the owner account (isOwner is
+          Matthew's email). A plain full-load <a> because /admin/fantasy serves raw
+          HTML, which Next's client-side <Link> navigation can't handle. */}
+      {isOwner && (
+        <a
+          href="/admin/fantasy"
+          onClick={() => setOpen(false)}
+          className="focus-ring inline-flex w-full items-center gap-2.5 whitespace-nowrap rounded-xl px-3.5 py-2.5 text-sm font-semibold text-charcoal/75 transition-colors hover:bg-ice"
+        >
+          <Trophy className="h-4 w-4" aria-hidden="true" />
+          Fantasy
+        </a>
+      )}
     </div>
   );
 
