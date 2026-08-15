@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Gem, Loader2, ChevronDown } from "lucide-react";
+import { CREDIT_COST } from "@/lib/creditConfig";
 
 /**
  * GENX — flagship XAUUSD (Gold) decision engine, desktop portal edition.
@@ -193,6 +194,7 @@ export function GenxDesk() {
       <button onClick={analyze} disabled={loading} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-300 to-amber-500 px-4 py-3 text-sm font-bold text-[#1a1204] transition hover:from-amber-200 hover:to-amber-400 disabled:opacity-60">
         {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Analyzing Gold…</> : res ? "Re-analyze Gold" : "Analyze Gold now"}
       </button>
+      <p className="mt-1.5 text-center text-[11px] text-white/40">{CREDIT_COST.genx} credits per read</p>
       {loading && <p className="mt-2 text-center text-xs text-white/40">◆ Reading live Gold — structure, momentum, levels, liquidity…</p>}
       {err && <div className="mt-4 rounded-xl border border-red-500/25 bg-red-500/[0.07] px-4 py-3 text-sm text-red-300">{err}</div>}
 
