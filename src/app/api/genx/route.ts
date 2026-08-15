@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
   const TD = GOLD.symbol;
 
   // ── Credits (gate before spending data) ──
-  const gate = await gateCredits("ghost");
+  const gate = await gateCredits("genx");
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
 
@@ -182,7 +182,7 @@ export async function POST(req: NextRequest) {
 
   // Charge only when GENX produces an actionable read (spec: watchlist/no-data free-ish).
   const chargeable = read.state === "TRADE_READY" || read.state === "DEVELOPING_SETUP" || read.state === "WATCHLIST";
-  if (chargeable) await chargeCredit("ghost");
+  if (chargeable) await chargeCredit("genx");
 
   // ── Immutable signal recording (spec §27). Non-blocking. ──
   let signalId: string | null = null;
