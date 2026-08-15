@@ -10,6 +10,7 @@ import {
   MODULES, PHASES, LEVELS, levelForCompleted, PRINCIPLES, DAILY_PLANS, LAUNCH_ITEMS,
   HELP_NOW, ROLEPLAY_SCENARIOS, GREATS, type Module, type ToolKey,
 } from "@/data/academy";
+import { GreatsLibrary } from "./GreatsLibrary";
 
 /* ───────────────────────── state / persistence ───────────────────────── */
 type Activity = { conversations: number; invites: number; presentations: number; followups: number; enrollments: number; events: number; training_days: number };
@@ -112,7 +113,7 @@ export function AffiliateAcademy({ firstName = "there" }: { firstName?: string }
       )}
       {view.v === "coach" && <Coach mode="coach" />}
       {view.v === "roleplay" && <Coach mode="roleplay" />}
-      {view.v === "resources" && <Resources />}
+      {view.v === "resources" && <GreatsLibrary firstName={firstName} />}
       {view.v === "search" && <SearchView onOpen={(vw) => setView(vw)} />}
       {view.v === "tool" && (
         <Tools
@@ -190,7 +191,7 @@ function Home({ firstName, loaded, completed, level, nextLevel, nextModule, acti
         <Tile icon={Sparkles} label="Ask OM Coach" sub="Get unstuck" onClick={() => onOpen({ v: "coach" })} />
         <Tile icon={MessageCircle} label="Role-Play" sub="Practice live" onClick={() => onOpen({ v: "roleplay" })} />
         <Tile icon={Zap} label="48-Hour Launch" sub="New affiliate" onClick={() => onOpen({ v: "tool", key: "launch" })} />
-        <Tile icon={BookOpen} label="Learn From Greats" sub="Free resources" onClick={() => onOpen({ v: "resources" })} />
+        <Tile icon={BookOpen} label="Learn From Greats" sub="PD library" onClick={() => onOpen({ v: "resources" })} />
       </div>
 
       {/* daily + activity */}
