@@ -32,7 +32,7 @@ ABSOLUTE RULES (never break these):
 1. REAL DATA ONLY. You may ONLY reference games, odds, prices, and edges that appear in the CURRENT DATA block provided to you in the user message. NEVER invent or recall from memory any game, score, line, odds, injury, starting pitcher, QB, lineup, or stat. If the data you need is not in the CURRENT DATA block, say "DATA UNAVAILABLE — I won't generate that bet" and stop.
 2. If the CURRENT DATA block says data is unavailable or empty, do NOT produce a pick. Say there are no priced games / no data right now.
 3. Be comfortable saying "NO BET" and "NO HIGH-QUALITY OPPORTUNITIES." Do not chase action. Never call any bet or parlay "guaranteed," "safe," "lock," or "certain."
-4. Edges here are price/consensus edges (best available price vs no-vig market consensus). Inputs currently exclude injuries/lineups/situational data, so keep confidence honest and flag that limitation.
+4. Edges here are value edges computed on the price at the user's own sportsbook (Bovada by default — the line they can actually bet), vs the no-vig market consensus. Inputs currently exclude injuries/lineups/situational data, so keep confidence honest and flag that limitation.
 5. This is analysis for the admin's own decisions — never place or submit bets. End actionable answers with a short, clear rationale (odds, implied vs fair prob, edge, and what would invalidate it).
 
 Tone: sharp, concise, institutional — like a trading desk, not a hype tout.`;
@@ -45,19 +45,29 @@ async function settingsKey(): Promise<string | null> {
   return v?.odds_api_key || null;
 }
 
+async function preferredBook(): Promise<string> {
+  const db = sportsDb();
+  if (!db) return "bovada";
+  const { data } = await db.from("sports_admin_settings").select("value").eq("key", "preferred_book").maybeSingle();
+  const v = data?.value as { book?: string } | null;
+  return (v?.book || "bovada").toLowerCase();
+}
+
 async function buildDataContext(): Promise<string> {
   const sk = await settingsKey();
   const { provider, configured } = getProvider(sk);
   if (!configured) return "CURRENT DATA: DATA UNAVAILABLE — no sports-data provider is connected. Do not generate any bet.";
+  const pref = await preferredBook();
   try {
     const odds = (await Promise.all(LEAGUES.map((lg) => provider.getOdds(lg))))
       .flatMap((r) => (r.ok ? r.data : []));
     if (!odds.length) return "CURRENT DATA: No games are currently priced across NFL/NBA/MLB. Treat as NO GAMES AVAILABLE.";
-    const ranked = rankOpportunities(odds).slice(0, 25);
+    const all = rankOpportunities(odds, pref);
+    const ranked = all.slice(0, 25);
     const lines = ranked.map((o) =>
-      `- [${o.league}] ${o.matchup} | ${o.selection} @ ${fmtAmerican(o.oddsAmerican)} (${o.book}) | implied ${(o.impliedProb * 100).toFixed(1)}% vs fair ${(o.modelProb * 100).toFixed(1)}% | edge ${o.edgePts.toFixed(1)}pts | conf ${o.confidence} | ${o.classification} | data ${o.dataQuality}`
+      `- [${o.league}] ${o.matchup} | ${o.selection} @ ${fmtAmerican(o.oddsAmerican)} (${o.book}${o.onPreferredBook ? "" : ", best avail"}) | implied ${(o.impliedProb * 100).toFixed(1)}% vs fair ${(o.modelProb * 100).toFixed(1)}% | edge ${o.edgePts.toFixed(1)}pts | conf ${o.confidence} | ${o.classification} | data ${o.dataQuality}${o.betterElsewhere ? ` | sharper at ${o.betterElsewhere.book} ${fmtAmerican(o.betterElsewhere.price)}` : ""}`
     );
-    return `CURRENT DATA (real odds pulled just now; ${ranked.length} of ${rankOpportunities(odds).length} opportunities shown, ranked by price edge):\n${lines.join("\n")}\n\nOnly discuss games/lines in this list.`;
+    return `CURRENT DATA (real odds pulled just now; prices are ${pref.toUpperCase()}'s actual line where posted — the book the user bets at — else best available; ${ranked.length} of ${all.length} opportunities shown, ranked by value edge on the bettable line):\n${lines.join("\n")}\n\nOnly discuss games/lines in this list. When you cite a price, it is the ${pref.toUpperCase()} number unless marked "best avail".`;
   } catch (e) {
     return `CURRENT DATA: LIVE DATA TEMPORARILY UNAVAILABLE (${String(e).slice(0, 120)}). Do not generate a bet.`;
   }
