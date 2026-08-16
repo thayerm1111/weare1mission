@@ -36,6 +36,9 @@ export type Opportunity = {
   booksSeen: number;
   onPreferredBook: boolean;               // true if the evaluated price is your book (e.g. Bovada)
   betterElsewhere: { book: string; price: number } | null; // a sharper price at another book, if any
+  market: OddsMarket["key"];              // 'h2h' | 'spreads' | 'totals' (for grading)
+  side: string;                           // team name or 'Over'/'Under' (for grading)
+  point: number | null;                   // spread/total line (for grading)
   reasoning: string;
   supporting: string[];
   risks: string[];
@@ -182,6 +185,9 @@ export function analyzeGame(g: GameOdds, preferredBook?: string | null): Opportu
       booksSeen: rows.length,
       onPreferredBook,
       betterElsewhere,
+      market: marketKey,
+      side: selName,
+      point: primary.point,
       reasoning:
         `${bookLabel} price ${primary.price > 0 ? "+" : ""}${primary.price} implies ${(implied * 100).toFixed(1)}%, ` +
         `vs a no-vig market consensus of ${(modelProb * 100).toFixed(1)}% across ${rows.length} book(s). ` +

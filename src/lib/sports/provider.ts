@@ -119,7 +119,8 @@ export class TheOddsApiProvider implements SportsDataProvider {
 
   async getGames(league: League): Promise<ProviderResult<Game[]>> {
     // /scores gives live + recently-completed + upcoming (daysFrom for finals).
-    const res = await this.call<Array<Record<string, unknown>>>(`/sports/${LEAGUE_KEYS[league]}/scores`, { daysFrom: "1" });
+    // 3 days back so the learning loop can grade calls from the last few days.
+    const res = await this.call<Array<Record<string, unknown>>>(`/sports/${LEAGUE_KEYS[league]}/scores`, { daysFrom: "3" });
     if (!res.ok) return res;
     return { ...res, data: res.data.map((g) => mapScore(g, league)) };
   }
