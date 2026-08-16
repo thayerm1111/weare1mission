@@ -131,7 +131,14 @@ export function analyzeGame(g: GameOdds, preferredBook?: string | null): Opportu
     const edge = edgePoints(modelProb, implied);
     if (edge == null) return;
     const base = baselineConfidence(edge, rows.length);
-    const confidence = applyDataQuality(base, dq);
+    // OUTLIER GUARD: a real market almost never leaves a huge price gap vs the
+    // consensus. An edge this large is far more likely a stale/limited line or a
+    // data hiccup than free money — so we downgrade data quality, cut confidence
+    // hard, and let the classifier fall to PASS/LEAN rather than ELITE.
+    const OUTLIER_PTS = 8;
+    const isOutlier = edge >= OUTLIER_PTS;
+    const dqEff: DataQuality = isOutlier ? "LOW" : dq;
+    const confidence = isOutlier ? Math.min(applyDataQuality(base, dqEff), 32) : applyDataQuality(base, dqEff);
     const classification = classify(edge, confidence);
     const pointStr = primary.point != null ? ` ${primary.point > 0 ? "+" : ""}${primary.point}` : "";
     // Is there a meaningfully better number elsewhere? (context only — you bet your book.)
@@ -146,6 +153,17 @@ export function analyzeGame(g: GameOdds, preferredBook?: string | null): Opportu
     ];
     if (betterElsewhere) supporting.push(`A sharper price exists at ${betterElsewhere.book} (${betterElsewhere.price > 0 ? "+" : ""}${betterElsewhere.price}) — context only.`);
 
+    const risks = [
+      "Model prob here is market-consensus only; no injury/lineup/situational data is baked into this number.",
+      "Odds move — verify the price is still live at your book before betting.",
+    ];
+    if (isOutlier) {
+      risks.unshift(
+        `⚠ OUTLIER PRICE: this ${edge.toFixed(1)}-pt gap vs the market is almost certainly a stale or limited line — not free money. ` +
+        `Real markets don't leave value this big. Confirm the number is actually bettable at real limits and isn't a bad/old line before trusting it.`,
+      );
+    }
+
     out.push({
       league: g.league,
       matchup,
@@ -159,7 +177,7 @@ export function analyzeGame(g: GameOdds, preferredBook?: string | null): Opportu
       modelProb,
       edgePts: edge,
       confidence,
-      dataQuality: dq,
+      dataQuality: dqEff,
       classification,
       booksSeen: rows.length,
       onPreferredBook,
@@ -167,15 +185,14 @@ export function analyzeGame(g: GameOdds, preferredBook?: string | null): Opportu
       reasoning:
         `${bookLabel} price ${primary.price > 0 ? "+" : ""}${primary.price} implies ${(implied * 100).toFixed(1)}%, ` +
         `vs a no-vig market consensus of ${(modelProb * 100).toFixed(1)}% across ${rows.length} book(s). ` +
-        (edge > 0
-          ? `That is a ${edge.toFixed(1)}-pt value edge on the line you can bet.`
-          : `No positive edge vs consensus at this price — not a value spot.`) +
+        (isOutlier
+          ? `That is a ${edge.toFixed(1)}-pt gap — implausibly large, so treat it as a likely stale/limited line, NOT a real edge.`
+          : edge > 0
+            ? `That is a ${edge.toFixed(1)}-pt value edge on the line you can bet.`
+            : `No positive edge vs consensus at this price — not a value spot.`) +
         (prefRow ? "" : pref ? ` (${pref} hasn't posted this market; showing best available.)` : ""),
       supporting,
-      risks: [
-        "Model prob here is market-consensus only; no injury/lineup/situational data is connected yet.",
-        "Odds move — verify the price is still live at your book before betting.",
-      ],
+      risks,
       invalidators: [
         "Line moves past the listed price.",
         "A key injury, scratch, or lineup/pitcher change before start.",
