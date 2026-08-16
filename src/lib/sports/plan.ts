@@ -110,12 +110,17 @@ export function buildStakingPlan(all: Opportunity[], budgetRaw: number, styleRaw
     };
   });
 
-  // Big pulls: plus-money legs from DIFFERENT games → a parlay lottery ticket.
+  // Big pull: a parlay of the best value legs from DIFFERENT games. Parlaying
+  // even even-money legs creates the big multiplier, so we don't require each
+  // leg to be a longshot — we pick the highest-payout qualifying value legs
+  // (prefer plus-money) across distinct games. All legs must hit: low hit rate
+  // by design, which is exactly why the stake is a small, capped slice.
   const bigPulls: BigPull[] = [];
   if (bigPullBudget > 0) {
     const gseen = new Set<string>();
     const legs: Opportunity[] = [];
-    for (const o of [...qualified].filter((o) => o.oddsAmerican >= s.minOdds).sort((a, b) => b.oddsAmerican - a.oddsAmerican)) {
+    // Prefer bigger-payout legs first (decimal odds desc), one per game.
+    for (const o of [...qualified].sort((a, b) => decOr1(b.oddsAmerican) - decOr1(a.oddsAmerican) || b.edgePts - a.edgePts)) {
       if (gseen.has(o.matchup)) continue;
       gseen.add(o.matchup);
       legs.push(o);
