@@ -34,6 +34,8 @@ export type Opportunity = {
   dataQuality: DataQuality;
   classification: Classification;
   booksSeen: number;
+  onPreferredBook: boolean;               // true if the evaluated price is your book (e.g. Bovada)
+  betterElsewhere: { book: string; price: number } | null; // a sharper price at another book, if any
   reasoning: string;
   supporting: string[];
   risks: string[];
@@ -94,21 +96,35 @@ function twoWayFairProbs(
   return noVig(ia, ib);
 }
 
-/** Build opportunities for a single game's odds. Only emits real, priced picks. */
-export function analyzeGame(g: GameOdds): Opportunity[] {
+/**
+ * Build opportunities for a single game's odds. Only emits real, priced picks.
+ *
+ * preferredBook (e.g. "bovada"): when set, we evaluate the EXACT price at that
+ * book — the line you can actually bet — and compute the edge on it. If the book
+ * hasn't posted that market, we fall back to the best available price and flag
+ * it. Either way we still surface whether a sharper price exists elsewhere, as
+ * line-shopping context only. Never fabricates a number.
+ */
+export function analyzeGame(g: GameOdds, preferredBook?: string | null): Opportunity[] {
   const out: Opportunity[] = [];
   const matchup = `${g.awayTeam} @ ${g.homeTeam}`;
   // Provider gives no injuries/lineups here -> data quality is capped at MEDIUM.
   const dq: DataQuality = "MEDIUM";
+  const pref = preferredBook ? preferredBook.toLowerCase() : null;
 
   const consider = (
     betType: Opportunity["betType"], marketKey: OddsMarket["key"],
     selName: string, oppName: string, label: string,
   ) => {
     const rows = pricesFor(g.books, marketKey, selName);
+    if (!rows.length) return; // no real price -> emit nothing
     const best = bestPrice(rows);
-    if (!best) return; // no real price -> emit nothing
-    const implied = americanToImplied(best.price);
+    if (!best) return;
+    // The price we EVALUATE: your book's actual line if it posted one, else best available.
+    const prefRow = pref ? rows.find((r) => r.book.toLowerCase() === pref) : null;
+    const primary = prefRow || best;
+    const onPreferredBook = !!prefRow;
+    const implied = americanToImplied(primary.price);
     const fair = twoWayFairProbs(g.books, marketKey, selName, oppName);
     if (implied == null || !fair) return;
     const modelProb = fair.a; // baseline model = market consensus fair prob
@@ -117,15 +133,27 @@ export function analyzeGame(g: GameOdds): Opportunity[] {
     const base = baselineConfidence(edge, rows.length);
     const confidence = applyDataQuality(base, dq);
     const classification = classify(edge, confidence);
-    const pointStr = best.point != null ? ` ${best.point > 0 ? "+" : ""}${best.point}` : "";
+    const pointStr = primary.point != null ? ` ${primary.point > 0 ? "+" : ""}${primary.point}` : "";
+    // Is there a meaningfully better number elsewhere? (context only — you bet your book.)
+    const betterElsewhere = best.book.toLowerCase() !== primary.book.toLowerCase()
+      && (americanToDecimal(best.price) ?? 0) > (americanToDecimal(primary.price) ?? 0)
+      ? { book: best.book, price: best.price } : null;
+    const bookLabel = onPreferredBook ? primary.book : `${primary.book} (best avail.)`;
+
+    const supporting = [
+      `${rows.length} book(s) priced this market (consensus breadth).`,
+      `No-vig fair prob ${(modelProb * 100).toFixed(1)}% vs your priced ${(implied * 100).toFixed(1)}%.`,
+    ];
+    if (betterElsewhere) supporting.push(`A sharper price exists at ${betterElsewhere.book} (${betterElsewhere.price > 0 ? "+" : ""}${betterElsewhere.price}) — context only.`);
+
     out.push({
       league: g.league,
       matchup,
       commenceTime: g.commenceTime,
       betType,
       selection: `${label}${pointStr}`,
-      book: best.book,
-      oddsAmerican: best.price,
+      book: primary.book,
+      oddsAmerican: primary.price,
       impliedProb: implied,
       fairProb: fair.a,
       modelProb,
@@ -134,19 +162,19 @@ export function analyzeGame(g: GameOdds): Opportunity[] {
       dataQuality: dq,
       classification,
       booksSeen: rows.length,
+      onPreferredBook,
+      betterElsewhere,
       reasoning:
-        `Best price ${best.price > 0 ? "+" : ""}${best.price} at ${best.book} implies ${(implied * 100).toFixed(1)}%, ` +
+        `${bookLabel} price ${primary.price > 0 ? "+" : ""}${primary.price} implies ${(implied * 100).toFixed(1)}%, ` +
         `vs a no-vig market consensus of ${(modelProb * 100).toFixed(1)}% across ${rows.length} book(s). ` +
         (edge > 0
-          ? `That is a ${edge.toFixed(1)}-pt price edge from line-shopping the consensus.`
-          : `No positive price edge vs consensus — not a value spot.`),
-      supporting: [
-        `${rows.length} book(s) priced this market (consensus breadth).`,
-        `No-vig fair prob ${(modelProb * 100).toFixed(1)}% vs priced ${(implied * 100).toFixed(1)}%.`,
-      ],
+          ? `That is a ${edge.toFixed(1)}-pt value edge on the line you can bet.`
+          : `No positive edge vs consensus at this price — not a value spot.`) +
+        (prefRow ? "" : pref ? ` (${pref} hasn't posted this market; showing best available.)` : ""),
+      supporting,
       risks: [
         "Model prob here is market-consensus only; no injury/lineup/situational data is connected yet.",
-        "Odds move — verify the price is still live before betting.",
+        "Odds move — verify the price is still live at your book before betting.",
       ],
       invalidators: [
         "Line moves past the listed price.",
@@ -169,8 +197,8 @@ export function analyzeGame(g: GameOdds): Opportunity[] {
 }
 
 /** Analyze many games and rank by statistical edge (not by favorite). */
-export function rankOpportunities(games: GameOdds[]): Opportunity[] {
-  const all = games.flatMap(analyzeGame);
+export function rankOpportunities(games: GameOdds[], preferredBook?: string | null): Opportunity[] {
+  const all = games.flatMap((g) => analyzeGame(g, preferredBook));
   return all.sort((a, b) => {
     // Rank by edge first, then confidence — never by "biggest favorite".
     if (b.edgePts !== a.edgePts) return b.edgePts - a.edgePts;
@@ -179,8 +207,8 @@ export function rankOpportunities(games: GameOdds[]): Opportunity[] {
 }
 
 /** Best moneylines ranked by edge (not by shortest price). */
-export function bestMoneylines(games: GameOdds[]): Opportunity[] {
-  return rankOpportunities(games).filter((o) => o.betType === "moneyline");
+export function bestMoneylines(games: GameOdds[], preferredBook?: string | null): Opportunity[] {
+  return rankOpportunities(games, preferredBook).filter((o) => o.betType === "moneyline");
 }
 
 export { decimalToAmerican };
