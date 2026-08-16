@@ -296,6 +296,21 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
           Fantasy
         </a>
       )}
+
+      {/* Sports AI — private admin command center. Rendered ONLY for the owner
+          account (isOwner). Plain full-load <a> because /admin/sports-ai serves
+          raw HTML that Next's client-side <Link> can't handle. Server-side gated
+          too, so this link is a convenience, not the security boundary. */}
+      {isOwner && (
+        <a
+          href="/admin/sports-ai"
+          onClick={() => setOpen(false)}
+          className="focus-ring inline-flex w-full items-center gap-2.5 whitespace-nowrap rounded-xl px-3.5 py-2.5 text-sm font-semibold text-charcoal/75 transition-colors hover:bg-ice"
+        >
+          <Crosshair className="h-4 w-4" aria-hidden="true" />
+          Sports AI
+        </a>
+      )}
     </div>
   );
 
