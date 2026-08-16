@@ -31,6 +31,16 @@ async function settingsKey(): Promise<string | null> {
   return v?.odds_api_key || null;
 }
 
+// The book you actually bet at — its exact line is what the engine evaluates.
+// Defaults to Bovada; overridable via the preferred_book setting.
+async function preferredBook(): Promise<string> {
+  const db = sportsDb();
+  if (!db) return "bovada";
+  const { data } = await db.from("sports_admin_settings").select("value").eq("key", "preferred_book").maybeSingle();
+  const v = data?.value as { book?: string } | null;
+  return (v?.book || "bovada").toLowerCase();
+}
+
 async function bumpUsage(apiCalls: number) {
   try {
     const db = sportsDb();
@@ -108,12 +118,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const ranked = action === "moneylines" ? bestMoneylines(allGames) : rankOpportunities(allGames);
+    const pref = await preferredBook();
+    const ranked = action === "moneylines" ? bestMoneylines(allGames, pref) : rankOpportunities(allGames, pref);
     const positive = ranked.filter((o) => o.edgePts > 0);
     const feed = action === "best-bets" ? positive : ranked;
 
     return json({
       configured: true, via, action,
+      preferredBook: pref,
       count: feed.length,
       opportunities: feed.slice(0, 60),
       note: positive.length === 0
