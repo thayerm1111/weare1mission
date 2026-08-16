@@ -1,7 +1,9 @@
 import { type NextRequest } from "next/server";
 import { gateAdmin, sportsDb } from "@/lib/sports/gate";
 import { getProvider, type League } from "@/lib/sports/provider";
-import { rankOpportunities, bestMoneylines } from "@/lib/sports/engine";
+import { rankOpportunities, bestMoneylines, type Opportunity } from "@/lib/sports/engine";
+import { classify } from "@/lib/sports/odds";
+import { calibrationFactor } from "@/lib/sports/grade";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,6 +55,47 @@ async function bumpUsage(apiCalls: number) {
       updated_at: new Date().toISOString(),
     });
   } catch { /* usage tracking is best-effort */ }
+}
+
+// Load the learned calibration factors (league × bet-type) from performance.
+async function loadCalibration(): Promise<{ bucket_type: string; bucket_key: string; calibration_factor: number }[]> {
+  const db = sportsDb();
+  if (!db) return [];
+  const { data } = await db.from("sports_model_performance").select("bucket_type,bucket_key,calibration_factor").eq("bucket_type", "league_bettype");
+  return (data as { bucket_type: string; bucket_key: string; calibration_factor: number }[]) || [];
+}
+
+// Apply learning: nudge confidence by the segment's historical calibration,
+// then re-classify. Segments that have under-performed get quieter.
+function applyCalibration(opps: Opportunity[], cal: { bucket_type: string; bucket_key: string; calibration_factor: number }[]): Opportunity[] {
+  if (!cal.length) return opps;
+  return opps.map((o) => {
+    const f = calibrationFactor(cal, o.league, o.betType);
+    if (f === 1) return o;
+    const confidence = Math.max(0, Math.min(100, Math.round(o.confidence * f)));
+    return { ...o, confidence, classification: classify(o.edgePts, confidence) };
+  });
+}
+
+// Auto-log the bets the engine actually CALLS (ELITE/STRONG/LEAN). Idempotent:
+// one row per day/game/market/selection, keeping the first-seen call price so
+// CLV can be measured against the closing line later.
+async function logCalls(opps: Opportunity[]) {
+  try {
+    const db = sportsDb();
+    if (!db) return;
+    const called = opps.filter((o) => ["ELITE", "STRONG", "LEAN"].includes(o.classification) && o.dataQuality !== "LOW");
+    if (!called.length) return;
+    const rows = called.slice(0, 40).map((o) => ({
+      league: o.league, matchup: o.matchup, commence_time: o.commenceTime,
+      game_date: o.commenceTime ? new Date(o.commenceTime).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+      bet_type: o.betType, market: o.market, side: o.side, point: o.point, selection: o.selection,
+      book: o.book, odds_american: o.oddsAmerican, implied_prob: o.impliedProb, model_prob: o.modelProb,
+      edge_pct: o.edgePts, confidence: o.confidence, data_quality: o.dataQuality, classification: o.classification,
+      reasoning: o.reasoning, model_version: "consensus-cal-v1", result: "pending", stake: 1, called: true,
+    }));
+    await db.from("sports_recommendations").upsert(rows, { onConflict: "game_date,league,matchup,bet_type,selection", ignoreDuplicates: true });
+  } catch { /* logging is best-effort — never block the response */ }
 }
 
 export async function POST(req: NextRequest) {
@@ -119,7 +162,10 @@ export async function POST(req: NextRequest) {
     }
 
     const pref = await preferredBook();
-    const ranked = action === "moneylines" ? bestMoneylines(allGames, pref) : rankOpportunities(allGames, pref);
+    const cal = await loadCalibration();
+    const rankedRaw = action === "moneylines" ? bestMoneylines(allGames, pref) : rankOpportunities(allGames, pref);
+    const ranked = applyCalibration(rankedRaw, cal);
+    void logCalls(ranked); // fire-and-forget: record every called bet
     const positive = ranked.filter((o) => o.edgePts > 0);
     const feed = action === "best-bets" ? positive : ranked;
 
