@@ -3,14 +3,16 @@
 /**
  * LowBalanceFlyer — a premium "flyer" upsell modal that appears when a member's
  * credit balance drops below the threshold (default: fewer than 2 credits left).
- * It shows the desk's REAL, logged track record (via the anonymized
- * `community_signal_stats` RPC — the same honest source as Community Results) to
- * motivate a top-up, then routes straight into Stripe checkout for a credit pack.
+ * It leads with how the GENX Gold engine has ACTUALLY performed (via the
+ * member-safe `/api/genx-stats` aggregate — straight from the immutable
+ * genx_signals outcome ledger) to motivate a top-up, then routes into Stripe
+ * checkout for a credit pack.
  *
- * HONESTY: every number here is a real recorded outcome. Nothing is invented. If
- * not enough trades have resolved to headline a win rate, we show the raw count
- * of winning calls instead — never a fabricated percentage. Educational
- * decision-support, not financial advice and not a promise of future results.
+ * HONESTY: every number here is a real recorded GENX outcome. Nothing is
+ * invented. Win rate is over decided calls (wins vs losses); if too few have
+ * resolved to headline a percentage, we show the raw count of winning calls
+ * instead — never a fabricated rate. Educational decision-support, not financial
+ * advice and not a promise of future results.
  *
  * Triggers:
  *  • On mount, if the live balance is below the threshold (unless snoozed this
@@ -24,33 +26,25 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Zap, TrendingUp, ArrowUp, ArrowDown, Check, Loader2, ShieldCheck, Flame } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { X, Zap, TrendingUp, ArrowUp, ArrowDown, Loader2, ShieldCheck, Flame } from "lucide-react";
 
 const THRESHOLD = 2; // show when total credits are BELOW this many
-const MIN_CONFIDENT = 20; // below this many decided trades, show a count, not a headline %
+const MIN_CONFIDENT = 10; // below this many decided GENX calls, show a count, not a headline %
 const SNOOZE_KEY = "om-lowbal-snooze"; // session-scoped: don't re-pop on every nav after a manual dismiss
 
 const GOLD = "#ffc24b";
 const BULL = "#2ee88f";
+const BEAR = "#ff5d6c";
 
 type Balance = { dailyLeft: number; purchased: number; dailyAllowance: number };
 type Pack = { id: string; label: string; credits: number; priceUsd: number; blurb: string; best?: boolean };
-type Recent = { engine: string; instrument: string; direction: string; status: string; hit_tp: number | null; realized_r: number | null; at: string };
-type Stats = {
-  members_using: number;
-  live: {
-    generated: number; generated_7d: number; open: number; resolved: number; wins: number; losses: number;
-    avg_planned_rr: number | null; avg_realized_r: number | null;
-    recent: Recent[];
-  };
-  launch: { resolved: number; wins: number; losses: number };
+type GenxWin = { mode: string | null; direction: string; tp: number | null; pips: number | null; at: string };
+type GenxStats = {
+  generated: number; resolved: number; wins: number; losses: number; other: number; decided: number;
+  winRate: number | null; avgRr: number | null; netPips: number; recent: GenxWin[];
 };
 
-const ENGINE_LABEL: Record<string, string> = {
-  scanner: "Strategy Scanner", command: "Market Command", plays: "OM AI Plays",
-  ghost: "MFXGHOST", genx: "GENX", signal: "OM AI Plays",
-};
+const MODE_LABEL: Record<string, string> = { quick: "Quick", intraday: "Intraday", swing: "Swing" };
 
 function ago(iso: string): string {
   const t = new Date(iso).getTime();
@@ -68,7 +62,7 @@ export function LowBalanceFlyer() {
   const [mounted, setMounted] = useState(false);
   const [total, setTotal] = useState<number | null>(null);
   const [packs, setPacks] = useState<Pack[]>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [genx, setGenx] = useState<GenxStats | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
 
@@ -94,13 +88,12 @@ export function LowBalanceFlyer() {
     return null;
   }, []);
 
-  // Real, logged track record (anonymized, member-safe RPC).
+  // Real GENX track record (member-safe, anonymized aggregate).
   const loadStats = useCallback(async () => {
     try {
-      const supabase = createClient();
-      if (!supabase) return;
-      const { data, error } = await supabase.rpc("community_signal_stats");
-      if (!error && data) setStats(data as Stats);
+      const r = await fetch("/api/genx-stats", { cache: "no-store" });
+      const d = await r.json();
+      if (d && !d.error) setGenx(d as GenxStats);
     } catch { /* ignore */ }
   }, []);
 
@@ -165,18 +158,15 @@ export function LowBalanceFlyer() {
 
   if (!mounted || !open) return null;
 
-  // ── Derive the honest headline from real data ──────────────────────────────
-  const L = stats?.live;
-  const wins = (L?.wins ?? 0) + (stats?.launch.wins ?? 0);
-  const losses = (L?.losses ?? 0) + (stats?.launch.losses ?? 0);
-  const decided = wins + losses;
-  const winRate = decided > 0 ? Math.round((wins / decided) * 100) : null;
+  // ── Honest GENX headline from real data ────────────────────────────────────
+  const decided = genx?.decided ?? 0;
+  const winRate = genx?.winRate ?? null;
   const confident = decided >= MIN_CONFIDENT && winRate != null;
-  const recentWins = (L?.recent || []).filter((r) => r.status === "win").slice(0, 5);
-  const generated = L?.generated ?? 0;
-  const rr = L?.avg_planned_rr ?? null;
+  const recentWins = genx?.recent || [];
+  const netPips = genx?.netPips ?? 0;
+  const avgRr = genx?.avgRr ?? null;
 
-  const balText = total == null ? "low" : total <= 0 ? "0 credits" : total === 1 ? "1 credit" : `${total} credits`;
+  const balText = total == null ? "low" : total <= 0 ? "0 credits" : total === 1 ? "1 credit" : `${total.toLocaleString()} credits`;
 
   const flyer = (
     <div
@@ -212,45 +202,48 @@ export function LowBalanceFlyer() {
           </p>
         </div>
 
-        {/* Track record — real, logged outcomes */}
+        {/* GENX track record — real, logged outcomes */}
         <div className="relative mt-5 px-6 sm:px-8">
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
             <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-white/45">
-              <TrendingUp className="h-3.5 w-3.5" style={{ color: BULL }} /> Recent wins the desk has printed
+              <TrendingUp className="h-3.5 w-3.5" style={{ color: BULL }} /> GENX · how the Gold engine is performing
             </div>
 
             {/* headline stats */}
             <div className="mt-3 grid grid-cols-3 gap-2.5">
               <Tile
-                value={confident ? `${winRate}%` : (wins > 0 ? String(wins) : "—")}
-                label={confident ? "Win rate" : "Winning calls"}
-                sub={confident ? `of ${decided} resolved` : (decided > 0 ? `${decided} resolved` : "logged")}
+                value={confident ? `${winRate}%` : (genx && genx.wins > 0 ? String(genx.wins) : "—")}
+                label={confident ? "GENX win rate" : "GENX wins"}
+                sub={confident ? `of ${decided} decided calls` : (decided > 0 ? `${decided} decided` : "logged on Gold")}
                 accent={BULL}
               />
-              <Tile value={generated > 0 ? generated.toLocaleString() : "—"} label="Signals called" sub="all-time" />
-              <Tile value={rr ? `1:${rr}` : "—"} label="Avg reward:risk" sub="planned" accent={GOLD} />
+              <Tile
+                value={genx ? `${netPips >= 0 ? "+" : ""}${netPips.toLocaleString()}` : "—"}
+                label="Net pips"
+                sub="banked on Gold"
+                accent={netPips >= 0 ? BULL : BEAR}
+              />
+              <Tile value={avgRr ? `1:${avgRr}` : "—"} label="Avg reward:risk" sub="planned" accent={GOLD} />
             </div>
 
-            {/* recent winning calls */}
+            {/* recent GENX winning calls */}
             {recentWins.length > 0 ? (
               <div className="mt-3 space-y-1.5">
-                {recentWins.map((r, i) => (
+                {recentWins.slice(0, 5).map((r, i) => (
                   <div key={i} className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <span className="grid h-6 w-6 flex-shrink-0 place-items-center rounded-full" style={{ background: "rgba(46,232,143,0.14)", color: BULL }}>
-                        {r.direction === "long" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />}
+                        {r.direction === "short" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
                       </span>
-                      <span className="truncate text-[13px] font-semibold text-white">{r.instrument}</span>
-                      <span className="hidden text-[11px] text-white/35 sm:inline">{ENGINE_LABEL[r.engine] ?? r.engine}</span>
+                      <span className="truncate text-[13px] font-semibold text-white">Gold</span>
+                      <span className="hidden text-[11px] text-white/35 sm:inline">{r.mode ? (MODE_LABEL[r.mode] ?? r.mode) : "GENX"}</span>
                     </div>
                     <div className="flex flex-shrink-0 items-center gap-2">
-                      {r.realized_r != null && (
-                        <span className="text-[12px] font-semibold tabular-nums" style={{ color: r.realized_r >= 0 ? BULL : "#ff5d6c" }}>
-                          {r.realized_r > 0 ? "+" : ""}{r.realized_r}R
-                        </span>
+                      {r.pips != null && (
+                        <span className="text-[12px] font-semibold tabular-nums" style={{ color: BULL }}>+{r.pips}p</span>
                       )}
                       <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: "rgba(46,232,143,0.14)", color: BULL }}>
-                        {r.hit_tp ? `TP${r.hit_tp} hit` : "Win"}
+                        {r.tp ? `TP${r.tp} hit` : "Win"}
                       </span>
                       <span className="hidden text-[10px] text-white/30 sm:inline">{ago(r.at)}</span>
                     </div>
@@ -259,11 +252,11 @@ export function LowBalanceFlyer() {
               </div>
             ) : (
               <p className="mt-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3 text-center text-[12px] text-white/45">
-                The desk is live and calling setups right now — winning results post here the moment they close.
+                GENX is live and calling Gold right now — winning results post here the moment they close.
               </p>
             )}
             <p className="mt-2 text-[10px] leading-relaxed text-white/30">
-              Real, logged outcomes — not a prediction or a promise. Every trade carries risk. Educational decision-support only.
+              Real, logged GENX outcomes — not a prediction or a promise. Every trade carries risk. Educational decision-support only.
             </p>
           </div>
         </div>
