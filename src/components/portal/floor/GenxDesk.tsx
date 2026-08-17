@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Gem, Loader2, ChevronDown } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
+import { GenxFlow } from "./GenxFlow";
 
 /**
  * GENX — flagship XAUUSD (Gold) decision engine, desktop portal edition.
@@ -260,7 +261,7 @@ export function GenxDesk() {
             {g.trigger_condition && <p className="mt-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[13px] text-white/60">{g.trigger_condition}</p>}
           </div>
 
-          <GenxChart candles={res?.candles || []} g={g} />
+          <GenxFlow candles={res?.candles || []} g={g} price={res?.price ?? null} live={res?.data_status === "live"} />
 
           {g.market_story?.length > 0 && (
             <section className="mt-5">
