@@ -80,7 +80,7 @@ export function XGhost() {
       const r = await fetch("/api/xghost", { method: "POST" });
       const d = (await r.json()) as Scan & { notConfigured?: string; error?: string; reason?: string };
       if (d.notConfigured) { setMsg("Live market data isn't connected yet."); return; }
-      if (r.status === 402 || d.error === "insufficient_credits") { setMsg("You're out of credits — a scan costs 2. Free credits reset weekly, or top up on the Credits page."); return; }
+      if (r.status === 402 || d.error === "insufficient_credits") { setMsg("You're out of credits — a scan costs 2. Free credits reset weekly, or top up on the Credits page."); try { window.dispatchEvent(new Event("open-credits-flyer")); } catch { /* ignore */ } return; }
       if (d.error === "ratelimit") { setMsg(d.reason || "Market data is busy — wait a minute and rescan."); return; }
       if (!d.ok) { setMsg(d.reason || "Couldn't run the scan — try again shortly."); return; }
       setScan(d); setOpen(null);

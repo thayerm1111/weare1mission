@@ -182,7 +182,7 @@ export function GenxDesk() {
       const r = await fetch("/api/genx", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode }) });
       const d: Resp = await r.json();
       if (d.notConfigured) { setErr("Gold market data isn’t configured on the server yet."); setRes(null); }
-      else if (d.error === "insufficient_credits") { setErr(`Not enough credits to run GENX${typeof d.balance === "number" ? ` (balance ${d.balance})` : ""}.`); setRes(null); }
+      else if (d.error === "insufficient_credits") { setErr(`Not enough credits to run GENX${typeof d.balance === "number" ? ` (balance ${d.balance})` : ""}.`); setRes(null); try { window.dispatchEvent(new Event("open-credits-flyer")); } catch { /* ignore */ } }
       else if (!r.ok || !d.ok) { setErr(d.detail || d.error || "GENX couldn’t read Gold right now — try again shortly."); setRes(null); }
       else setRes(d);
     } catch { setErr("Couldn’t reach the server."); }
