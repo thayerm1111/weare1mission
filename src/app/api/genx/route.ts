@@ -335,6 +335,34 @@ function mapGenx(read: Record<string, unknown>, ctx: { mode: Mode; price: number
   if (tp2 != null) path.push({ label: "TP2", price: tp2, kind: "target" });
   if (tp3 != null) path.push({ label: "TP3", price: tp3, kind: "target" });
 
+  // ── "Enter now at market" (spec: actionable NOW). GENX's best entry — the
+  //    value/pullback level that drives its accuracy — is left UNTOUCHED. This
+  //    only computes the honest reward:risk of taking the SAME trade (same stop,
+  //    same targets) immediately at the current price, so the member can act now
+  //    instead of waiting for a pullback that may not come. It never moves the
+  //    engine's decision; if entering now has no room, it says so plainly. ──
+  let market_now: {
+    price: number | null; risk_pips: number | null; target: number | null; target_pips: number | null;
+    rr: number | null; final_target: number | null; final_rr: number | null; ok: boolean; note: string;
+  } | null = null;
+  {
+    const now = round(price);
+    const st = stop;
+    const stopOnSide = st != null && now != null && (dir === "buy" ? st < now : st > now);
+    const ahead = [tp1, tp2, tp3].filter((t): t is number => t != null && (dir === "buy" ? t > (now as number) + pip * 2 : t < (now as number) - pip * 2));
+    if (now != null && stopOnSide && ahead.length) {
+      const riskPrice = Math.abs(now - (st as number));
+      const first = ahead[0], last = ahead[ahead.length - 1];
+      const rr = riskPrice ? +(Math.abs(first - now) / riskPrice).toFixed(2) : null;
+      const finalRr = riskPrice ? +(Math.abs(last - now) / riskPrice).toFixed(2) : null;
+      const fr = finalRr ?? 0;
+      const note = fr >= 2 ? "Solid room from here." : fr >= 1.2 ? "Workable — a bit tighter than waiting for the pullback." : "Chasing — poor reward:risk if you enter here now.";
+      market_now = { price: now, risk_pips: pips(now, st), target: round(first), target_pips: pips(now, first), rr, final_target: round(last), final_rr: finalRr, ok: fr >= 1.5, note };
+    } else if (now != null && stopOnSide) {
+      market_now = { price: now, risk_pips: pips(now, st), target: null, target_pips: null, rr: null, final_target: null, final_rr: null, ok: false, note: "Price has already run to the targets — no room to enter now; wait for the next setup." };
+    }
+  }
+
   const [holdLow, holdHigh] = ctx.hold;
 
   return {
@@ -358,6 +386,7 @@ function mapGenx(read: Record<string, unknown>, ctx: { mode: Mode; price: number
     invalidation_reason, trigger_condition,
     setup_type: String(r.strategy ?? ""), engine_state: state,
     projected_path: path, invalidation_price: stop,
+    market_now,
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
