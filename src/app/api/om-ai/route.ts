@@ -1,6 +1,8 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { buildSystem } from "@/lib/omai/prompts";
+import { resolveInstrument, getMarketContext } from "@/lib/omai/market";
+import { isPriorityEmail } from "@/lib/marketData";
 import { gateCredits, chargeCredit } from "@/lib/credits";
 
 export const runtime = "nodejs";
@@ -30,10 +32,12 @@ function parseDataUrl(d: unknown): ImageBlock | null {
 
 export async function POST(req: NextRequest) {
   // Only signed-in members may use OM AI (protects the API key from abuse).
+  let userEmail: string | null = null;
   const supabase = createClient();
   if (supabase) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return json({ error: "unauthorized" }, 401);
+    userEmail = user.email ?? null;
   }
 
   const key = process.env.ANTHROPIC_API_KEY;
@@ -76,6 +80,21 @@ export async function POST(req: NextRequest) {
 
   if (!messages.length) return json({ error: "no_messages" }, 400);
 
+  // Live market data: if (trading mode) the member named an instrument, fetch
+  // REAL current price + structure so OM AI can give a grounded setup instead of
+  // refusing. Best-effort; on any miss it stays null and OM AI reasons honestly.
+  let liveData: string | null = null;
+  try {
+    const mdKey = process.env.TWELVEDATA_API_KEY;
+    if (mode === "trading" && mdKey) {
+      const lastUser = [...raw].reverse().find((m) => m.role === "user");
+      if (lastUser && typeof lastUser.content === "string") {
+        const inst = resolveInstrument(lastUser.content);
+        if (inst) liveData = await getMarketContext(inst, mdKey, isPriorityEmail(userEmail));
+      }
+    }
+  } catch { liveData = null; }
+
   // Credit gate — one credit per message, charged only if the reply succeeds.
   const gate = await gateCredits("chat");
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
@@ -93,7 +112,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 1400,
-        system: buildSystem(mode, memory),
+        system: buildSystem(mode, memory, liveData),
         messages,
       }),
     });
