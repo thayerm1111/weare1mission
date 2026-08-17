@@ -197,6 +197,7 @@ export function OmAiChat() {
       const ct = res.headers.get("content-type") || "";
       if (ct.includes("application/json")) {
         const j = await res.json().catch(() => ({}));
+        if (res.status === 402 || j.error === "insufficient_credits") { try { window.dispatchEvent(new Event("open-credits-flyer")); } catch { /* ignore */ } }
         finalize(
           j.notConfigured
             ? "OM AI isn't switched on yet — your Anthropic API key needs to be added in Vercel. Once it's in, I'll come alive here."

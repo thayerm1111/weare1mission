@@ -108,7 +108,7 @@ export function MarketCommand() {
       });
       const d: Setup = await res.json().catch(() => ({ status: "error" }));
       if (res.status === 403) { setError(d.reason || "OM AI Market Command is in admin-only beta."); return; }
-      if (res.status === 402 || d.error === "insufficient_credits") { setNeedCredits(true); setError("You're out of credits. They reset weekly — or grab more."); return; }
+      if (res.status === 402 || d.error === "insufficient_credits") { setNeedCredits(true); setError("You're out of credits. They reset weekly — or grab more."); try { window.dispatchEvent(new Event("open-credits-flyer")); } catch { /* ignore */ } return; }
       if (d.error === "ratelimit" || d.error === "system_busy" || d.error === "notConfigured") { setError(d.reason || "Market data is busy — try again shortly."); return; }
       if (d.status === "error") { setError(d.reason || "Couldn't run the analysis right now. Try again shortly."); return; }
       const item: JournalItem = { ...d, id: Date.now() };

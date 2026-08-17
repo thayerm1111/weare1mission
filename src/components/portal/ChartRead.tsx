@@ -216,7 +216,7 @@ export function ChartRead() {
       });
       const d = await res.json().catch(() => ({}));
       if (d.notConfigured === "ai") { setError("OM AI isn't switched on yet — the Anthropic key is missing."); return; }
-      if (res.status === 402 || d.error === "insufficient_credits") { setNeedCredits(true); setError("You're out of credits. They reset weekly — or grab more to keep reading charts."); return; }
+      if (res.status === 402 || d.error === "insufficient_credits") { setNeedCredits(true); setError("You're out of credits. They reset weekly — or grab more to keep reading charts."); try { window.dispatchEvent(new Event("open-credits-flyer")); } catch { /* ignore */ } return; }
       if (d.error === "bad_image") { setError("That image didn't come through — try snapshotting the chart again."); return; }
       if (d.error === "image_too_large") { setError("That image is too large — try a tighter crop of the chart."); return; }
       if (d.error || !d.read) { setError(d.detail ? `Couldn't analyze: ${d.detail}` : "Couldn't analyze that chart right now. Try again shortly."); return; }
