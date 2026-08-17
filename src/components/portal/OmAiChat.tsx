@@ -398,7 +398,7 @@ export function OmAiChat() {
         <p className="mx-auto mt-2 max-w-3xl text-center text-[11px] text-white/30">
           {mode === "business"
             ? "OM AI is a coaching tool — not a guarantee of results. Follow ConeqtX policies."
-            : "OM AI gives educational analysis, not financial advice. No live prices — verify before trading."}
+            : "OM AI gives educational analysis, not financial advice. Live prices are indicative — verify on your broker before trading."}
           <span className="text-white/40"> · {CREDIT_COST.chat} credit per message</span>
         </p>
       </div>
