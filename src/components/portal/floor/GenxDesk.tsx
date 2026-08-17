@@ -61,67 +61,98 @@ const fmtHold = (m: [number, number]) => {
 };
 
 /* ---------- projection chart ---------- */
+/** Spread out label Y-positions so near-equal ones don't overlap. Order-preserving. */
+function declutterY(ys: number[], minGap: number, top: number, bottom: number): number[] {
+  const out = ys.slice();
+  const order = ys.map((_, i) => i).sort((a, b) => ys[a] - ys[b]);
+  let prev = -Infinity;
+  for (const i of order) { const v = Math.max(ys[i], prev + minGap); out[i] = v; prev = v; }
+  const last = order[order.length - 1];
+  const over = out[last] - bottom;
+  if (over > 0) for (const i of order) out[i] -= over;
+  const first = order[0];
+  const under = top - out[first];
+  if (under > 0) for (const i of order) out[i] += under;
+  return out;
+}
+
 function GenxChart({ candles, g }: { candles: Candle[]; g: Genx }) {
   const cs = (candles || []).filter((c) => num(c.o) != null && num(c.h) != null && num(c.l) != null && num(c.c) != null).slice(-40);
   const path = (g.projected_path || []).filter((p) => num(p.price) != null) as { label: string; price: number; kind: string }[];
   if (cs.length < 4 && path.length < 2) return null;
 
-  const W = 680, H = 240, padY = 16, splitX = Math.round(W * 0.56);
-  const levels = [g.closest_support, g.closest_resistance, g.entry, g.stop_loss, g.tp1, g.tp2, g.tp3].map(num).filter((n): n is number => n != null);
-  const allPrices = [...cs.flatMap((c) => [c.h, c.l]), ...path.map((p) => p.price), ...levels];
+  // Layout: candles + projection live in the plot; price labels get their own
+  // right-hand gutter so they can never collide with the candles or each other.
+  const W = 720, H = 264, padY = 22, padL = 10, gutterW = 78;
+  const plotR = W - gutterW;
+  const splitX = Math.round(padL + (plotR - padL) * 0.58);
+
+  const levelsRaw = [
+    { label: "R", price: num(g.closest_resistance), color: "#ff8fa0" },
+    { label: "TP2", price: num(g.tp2), color: "#34d99a" },
+    { label: "TP1", price: num(g.tp1), color: "#2ee88f" },
+    { label: "Entry", price: num(g.entry), color: "#ffc24b" },
+    { label: "S", price: num(g.closest_support), color: "#7fe6b5" },
+    { label: "Stop", price: num(g.stop_loss), color: "#ff5d6c" },
+  ].filter((l): l is { label: string; price: number; color: string } => l.price != null);
+
+  const allPrices = [...cs.flatMap((c) => [c.h, c.l]), ...path.map((p) => p.price), ...levelsRaw.map((l) => l.price)];
   const min = Math.min(...allPrices), max = Math.max(...allPrices);
-  const span = max - min || 1;
-  const y = (p: number) => padY + (1 - (p - min) / span) * (H - padY * 2);
+  const pad = ((max - min) || 1) * 0.06;
+  const lo = min - pad, hi = max + pad, sp = (hi - lo) || 1;
+  const y = (p: number) => padY + (1 - (p - lo) / sp) * (H - padY * 2);
 
   const n = cs.length;
-  const cw = n ? (splitX - 8) / n : 8;
-  const bodyW = Math.max(2, cw * 0.6);
+  const cw = n ? (splitX - padL - 6) / n : 8;
+  const bodyW = Math.max(2, Math.min(9, cw * 0.62));
 
-  // projection polyline: start at split from last close, out to right edge
   const pxs = path.length;
-  const projX = (i: number) => splitX + (pxs > 1 ? (i / (pxs - 1)) * (W - splitX - 14) : 0);
+  const projX = (i: number) => splitX + (pxs > 1 ? (i / (pxs - 1)) * (plotR - splitX - 6) : 0);
   const projColor = g.directional_bias === "bullish" ? "#2ee88f" : g.directional_bias === "bearish" ? "#ff5d6c" : "#ffc24b";
   const poly = path.map((p, i) => `${projX(i).toFixed(1)},${y(p.price).toFixed(1)}`).join(" ");
 
-  const lvlLine = (p: number | null, color: string, label: string, key: string) =>
-    p == null ? null : (
-      <g key={key}>
-        <line x1={0} x2={W} y1={y(p)} y2={y(p)} stroke={color} strokeWidth={1} strokeDasharray="3 4" opacity={0.5} />
-        <text x={4} y={y(p) - 3} fill={color} fontSize={9} opacity={0.9}>{label} {p}</text>
-      </g>
-    );
+  const labelY = declutterY(levelsRaw.map((l) => y(l.price)), 13, padY + 4, H - padY);
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="mt-4 w-full" style={{ maxHeight: 260 }} preserveAspectRatio="xMidYMid meet">
-      {lvlLine(g.closest_resistance, "#ff8fa0", "R", "r")}
-      {lvlLine(g.closest_support, "#7fe6b5", "S", "s")}
-      {lvlLine(g.entry, "#ffc24b", "Entry", "e")}
-      {lvlLine(g.stop_loss, "#ff5d6c", "Stop", "sl")}
-      {lvlLine(g.tp1, "#2ee88f", "TP1", "t1")}
+    <svg viewBox={`0 0 ${W} ${H}`} className="mt-4 w-full" style={{ maxHeight: 300 }} preserveAspectRatio="xMidYMid meet" role="img" aria-label="GENX price chart with projected path">
+      {/* level lines (plot only) + decluttered labels in the right gutter */}
+      {levelsRaw.map((l, i) => (
+        <g key={`lv${i}`}>
+          <line x1={padL} x2={plotR} y1={y(l.price)} y2={y(l.price)} stroke={l.color} strokeWidth={1} strokeDasharray="2 6" opacity={0.22} />
+          <line x1={plotR} x2={plotR + 7} y1={y(l.price)} y2={labelY[i]} stroke={l.color} strokeWidth={1} opacity={0.32} />
+          <circle cx={plotR + 9} cy={labelY[i]} r={2} fill={l.color} />
+          <text x={plotR + 14} y={labelY[i] + 3.2} fill={l.color} fontSize={9.5} opacity={0.95}>{l.label} {l.price}</text>
+        </g>
+      ))}
       {/* candles */}
       {cs.map((c, i) => {
-        const x = 4 + i * cw + cw / 2;
+        const x = padL + 2 + i * cw + cw / 2;
         const up = c.c >= c.o;
         const col = up ? "#2ee88f" : "#ff5d6c";
         const yo = y(c.o), yc = y(c.c);
         return (
           <g key={i}>
-            <line x1={x} x2={x} y1={y(c.h)} y2={y(c.l)} stroke={col} strokeWidth={1} opacity={0.7} />
-            <rect x={x - bodyW / 2} y={Math.min(yo, yc)} width={bodyW} height={Math.max(1, Math.abs(yc - yo))} fill={col} opacity={0.85} />
+            <line x1={x} x2={x} y1={y(c.h)} y2={y(c.l)} stroke={col} strokeWidth={1} opacity={0.55} />
+            <rect x={x - bodyW / 2} y={Math.min(yo, yc)} width={bodyW} height={Math.max(1, Math.abs(yc - yo))} rx={0.5} fill={col} opacity={0.9} />
           </g>
         );
       })}
-      {/* split line */}
-      <line x1={splitX} x2={splitX} y1={padY} y2={H - padY} stroke="#ffffff" strokeWidth={1} strokeDasharray="2 4" opacity={0.15} />
+      {/* now / split marker */}
+      <line x1={splitX} x2={splitX} y1={padY} y2={H - padY} stroke="#ffffff" strokeWidth={1} strokeDasharray="2 6" opacity={0.1} />
       {/* projection */}
-      {path.length > 1 && <polyline points={poly} fill="none" stroke={projColor} strokeWidth={2} strokeDasharray="5 4" />}
-      {path.map((p, i) => (
-        <g key={`p${i}`}>
-          <circle cx={projX(i)} cy={y(p.price)} r={3} fill={projColor} />
-          <text x={projX(i)} y={y(p.price) - 7} fill={projColor} fontSize={9} textAnchor="middle">{p.label}</text>
-        </g>
-      ))}
-      <text x={splitX + 6} y={H - 6} fill={projColor} fontSize={9} opacity={0.8}>GENX projected path</text>
+      {path.length > 1 && <polyline points={poly} fill="none" stroke={projColor} strokeWidth={2} strokeDasharray="5 4" opacity={0.9} />}
+      {path.map((p, i) => {
+        const px = projX(i), py = y(p.price);
+        const anchor: "start" | "middle" | "end" = i === 0 ? "start" : i === path.length - 1 ? "end" : "middle";
+        const tx = i === 0 ? px + 4 : i === path.length - 1 ? px - 2 : px;
+        return (
+          <g key={`p${i}`}>
+            <circle cx={px} cy={py} r={3} fill={projColor} />
+            <text x={tx} y={py - 9} fill={projColor} fontSize={9} textAnchor={anchor} opacity={0.95}>{p.label}</text>
+          </g>
+        );
+      })}
+      <text x={splitX + 4} y={H - 6} fill={projColor} fontSize={8.5} opacity={0.55}>Projected path →</text>
     </svg>
   );
 }
