@@ -286,14 +286,19 @@ export function LowBalanceFlyer() {
                   ? { borderColor: "rgba(255,194,75,0.55)", background: "linear-gradient(180deg,rgba(255,194,75,0.12),rgba(255,194,75,0.02))" }
                   : { borderColor: "rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.02)" }}
               >
+                {/* Desktop: badge floats centered above the card. */}
                 {p.best && (
-                  <span className="absolute right-3 top-3 whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-black sm:right-auto sm:left-1/2 sm:top-[-8px] sm:-translate-x-1/2" style={{ background: GOLD }}>
+                  <span className="absolute left-1/2 top-[-8px] hidden -translate-x-1/2 whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-black sm:block" style={{ background: GOLD }}>
                     Best value
                   </span>
                 )}
                 {/* label + credits — inline on mobile, stacked on desktop */}
                 <div className="flex items-baseline gap-2 sm:flex-col sm:items-center sm:gap-0">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/60">{p.label}</span>
+                  {/* Mobile: inline chip by the label so it never covers the price. */}
+                  {p.best && (
+                    <span className="rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-black sm:hidden" style={{ background: GOLD }}>Best</span>
+                  )}
                   <span className="font-serif text-xl font-extrabold text-white sm:mt-1 sm:text-2xl">{p.credits.toLocaleString()}</span>
                   <span className="text-[10px] text-white/40">credits</span>
                 </div>
