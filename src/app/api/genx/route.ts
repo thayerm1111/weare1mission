@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
 
   // ── Decision mapping → GENX result (all numbers from the engine) ──
   const vol = volBucket(arr(m15), price);
-  const genx = mapGenx(read, { mode, price, session, dataStatus, hold: m.hold, triggerTf: m.triggerTf, contextTf: m.contextTf, pip: GOLD.pip, dec: GOLD.dec, marketStory, volatility: vol.label, atr: vol.atr });
+  const genx = mapGenx(read, { mode, price, session, dataStatus, hold: m.hold, triggerTf: m.triggerTf, contextTf: m.contextTf, pip: GOLD.pip, dec: GOLD.dec, marketStory, volatility: vol.label, atr: vol.atr, m15: arr(m15) });
 
   // Charge only when GENX produces an actionable read (spec: watchlist/no-data free-ish).
   const chargeable = read.state === "TRADE_READY" || read.state === "DEVELOPING_SETUP" || read.state === "WATCHLIST";
@@ -225,7 +225,7 @@ export async function POST(req: NextRequest) {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function mapGenx(read: Record<string, unknown>, ctx: { mode: Mode; price: number; session: string; dataStatus: string; hold: [number, number]; triggerTf: string; contextTf: string; pip: number; dec: number; marketStory: string[]; volatility: string; atr: number | null }) {
+function mapGenx(read: Record<string, unknown>, ctx: { mode: Mode; price: number; session: string; dataStatus: string; hold: [number, number]; triggerTf: string; contextTf: string; pip: number; dec: number; marketStory: string[]; volatility: string; atr: number | null; m15: Row[] | null }) {
   const r = read as any;
   const { pip, dec, price } = ctx;
   const pips = (a: number | null, b: number | null): number | null => (num(a) != null && num(b) != null ? Math.round(Math.abs((a as number) - (b as number)) / pip) : null);
@@ -335,31 +335,55 @@ function mapGenx(read: Record<string, unknown>, ctx: { mode: Mode; price: number
   if (tp2 != null) path.push({ label: "TP2", price: tp2, kind: "target" });
   if (tp3 != null) path.push({ label: "TP3", price: tp3, kind: "target" });
 
-  // ── "Enter now at market" (spec: actionable NOW). GENX's best entry — the
-  //    value/pullback level that drives its accuracy — is left UNTOUCHED. This
-  //    only computes the honest reward:risk of taking the SAME trade (same stop,
-  //    same targets) immediately at the current price, so the member can act now
-  //    instead of waiting for a pullback that may not come. It never moves the
-  //    engine's decision; if entering now has no room, it says so plainly. ──
-  let market_now: {
-    price: number | null; risk_pips: number | null; target: number | null; target_pips: number | null;
-    rr: number | null; final_target: number | null; final_rr: number | null; ok: boolean; note: string;
+  // ── RIGHT-NOW SCALP (spec: catch 30–80 pips WHILE waiting for the main trade).
+  //    When the main call is a WAIT/pullback, GENX expects price to travel to the
+  //    entry zone first — and that leg is itself a tradeable move in the OPPOSITE
+  //    direction (e.g. sell down into the buy zone). We read the LIVE 15m flow
+  //    (momentum + last candle + volume) and only offer the scalp when the flow
+  //    actually supports the move and it clears ~1R. The main signal is never
+  //    changed; this is a bonus trade for the wait. ──
+  let scalp: {
+    side: "buy" | "sell"; entry: number | null; stop: number | null; target: number | null;
+    target_pips: number | null; risk_pips: number | null; rr: number | null; reason: string;
   } | null = null;
   {
-    const now = round(price);
-    const st = stop;
-    const stopOnSide = st != null && now != null && (dir === "buy" ? st < now : st > now);
-    const ahead = [tp1, tp2, tp3].filter((t): t is number => t != null && (dir === "buy" ? t > (now as number) + pip * 2 : t < (now as number) - pip * 2));
-    if (now != null && stopOnSide && ahead.length) {
-      const riskPrice = Math.abs(now - (st as number));
-      const first = ahead[0], last = ahead[ahead.length - 1];
-      const rr = riskPrice ? +(Math.abs(first - now) / riskPrice).toFixed(2) : null;
-      const finalRr = riskPrice ? +(Math.abs(last - now) / riskPrice).toFixed(2) : null;
-      const fr = finalRr ?? 0;
-      const note = fr >= 2 ? "Solid room from here." : fr >= 1.2 ? "Workable — a bit tighter than waiting for the pullback." : "Chasing — poor reward:risk if you enter here now.";
-      market_now = { price: now, risk_pips: pips(now, st), target: round(first), target_pips: pips(now, first), rr, final_target: round(last), final_rr: finalRr, ok: fr >= 1.5, note };
-    } else if (now != null && stopOnSide) {
-      market_now = { price: now, risk_pips: pips(now, st), target: null, target_pips: null, rr: null, final_target: null, final_rr: null, ok: false, note: "Price has already run to the targets — no room to enter now; wait for the next setup." };
+    const rows: Row[] = (ctx.m15 ?? []) as Row[];
+    const isWait = action.includes("WAIT") || action.includes("LIMIT");
+    const nowP = round(price);
+    const a = ctx.atr;
+    if (isWait && entry != null && nowP != null && rows.length >= 6 && a) {
+      const zoneNear = dir === "buy" ? (entryHigh ?? entry) : (entryLow ?? entry);
+      const distPips = pips(nowP, zoneNear) ?? 0;
+      const side: "buy" | "sell" = entry < nowP ? "sell" : "buy";
+      const c = rows.map((x) => ({ o: +x.open, h: +x.high, l: +x.low, c: +x.close, v: x.volume != null ? +x.volume : null }));
+      const last = c[c.length - 1];
+      const mom = last.c - c[Math.max(0, c.length - 4)].c;
+      const bodyAbs = Math.abs(last.c - last.o) || pip;
+      const bearRej = (last.h - Math.max(last.o, last.c)) > bodyAbs * 1.1;
+      const bullRej = (Math.min(last.o, last.c) - last.l) > bodyAbs * 1.1;
+      const strongUp = mom > a * 0.8, strongDown = mom < -a * 0.8;
+      const vols = c.map((x) => x.v).filter((v): v is number => v != null && v > 0);
+      const volRising = vols.length >= 6 ? (vols.slice(-3).reduce((s, v) => s + v, 0) / 3) > (vols.slice(-6, -3).reduce((s, v) => s + v, 0) / 3) : null;
+      const worthwhile = distPips >= 25;
+      const flowOk = side === "sell" ? !strongUp : !strongDown;
+      if (worthwhile && flowOk) {
+        const tgtPips = Math.max(30, Math.min(80, distPips));
+        const target = round(side === "sell" ? nowP - tgtPips * pip : nowP + tgtPips * pip);
+        const look = c.slice(-8);
+        const swingHi = Math.max(...look.map((x) => x.h)), swingLo = Math.min(...look.map((x) => x.l));
+        const rawStop = side === "sell" ? Math.max(swingHi, nowP + a * 0.6) : Math.min(swingLo, nowP - a * 0.6);
+        const cappedStop = side === "sell" ? Math.min(rawStop, nowP + a * 1.2) : Math.max(rawStop, nowP - a * 1.2);
+        const stopP = round(cappedStop);
+        const riskP = pips(nowP, stopP);
+        const rr = riskP && tgtPips ? +(tgtPips / riskP).toFixed(2) : null;
+        const bits: string[] = [];
+        if (side === "sell") bits.push(strongDown ? "15m momentum is pushing down" : bearRej ? "the last 15m candle rejected off the highs" : "15m momentum is soft and rolling over");
+        else bits.push(strongUp ? "15m momentum is pushing up" : bullRej ? "the last 15m candle rejected off the lows" : "15m momentum is firming up");
+        if (volRising === true) bits.push("volume is rising into the move");
+        const zoneName = dir === "buy" ? "buy zone" : "sell zone";
+        const reason = `${bits.join(" and ")} — GENX expects a drift toward the ${entry} ${zoneName} first. Scalp ${side.toUpperCase()} for ~${tgtPips} pips into ${target}, then look for the main ${dir === "buy" ? "BUY" : "SELL"} at ${entry}.`;
+        if ((rr ?? 0) >= 0.9) scalp = { side, entry: nowP, stop: stopP, target, target_pips: tgtPips, risk_pips: riskP, rr, reason };
+      }
     }
   }
 
@@ -386,7 +410,7 @@ function mapGenx(read: Record<string, unknown>, ctx: { mode: Mode; price: number
     invalidation_reason, trigger_condition,
     setup_type: String(r.strategy ?? ""), engine_state: state,
     projected_path: path, invalidation_price: stop,
-    market_now,
+    scalp,
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
