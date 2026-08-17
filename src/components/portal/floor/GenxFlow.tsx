@@ -42,13 +42,13 @@ function sideOf(a: string): "buy" | "sell" | "wait" {
 type Step = { t: string; s?: string; tone: "now" | "wait" | "buy" | "sell" | "muted" };
 function buildSteps(g: Genx, price: number | null): Step[] {
   const side = sideOf(g.action);
-  const p = (v: number | null) => (v != null ? `$${v}` : undefined);
-  const now: Step = { t: "NOW", s: price != null ? `$${price}` : undefined, tone: "now" };
+  const p = (v: number | null) => (v != null ? `$${fmtPrice(v)}` : undefined);
+  const now: Step = { t: "NOW", s: price != null ? `$${fmtPrice(price)}` : undefined, tone: "now" };
   const t1: Step | null = g.tp1 != null ? { t: "TP1", s: p(g.tp1), tone: side === "sell" ? "sell" : "buy" } : null;
   const t2: Step | null = g.tp2 != null ? { t: "TP2", s: p(g.tp2), tone: side === "sell" ? "sell" : "buy" } : null;
   const watch = g.closest_support ?? g.entry ?? null;
   const watchR = g.closest_resistance ?? g.entry ?? null;
-  const enter: Step = { t: "ENTER", s: g.entry_low != null && g.entry_high != null ? `$${g.entry_low}` : p(g.entry), tone: side === "sell" ? "sell" : "buy" };
+  const enter: Step = { t: "ENTER", s: g.entry_low != null && g.entry_high != null ? `$${fmtPrice(g.entry_low)}` : p(g.entry), tone: side === "sell" ? "sell" : "buy" };
 
   if (g.action === "WAIT_FOR_BUY_TRIGGER") {
     return [now, { t: "PULLBACK", tone: "muted" }, { t: "WATCH", s: p(watch), tone: "wait" }, { t: "CONFIRM BUYERS", tone: "wait" }, enter, ...(t1 ? [t1] : []), ...(t2 ? [t2] : [])];
