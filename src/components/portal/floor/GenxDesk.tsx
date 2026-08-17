@@ -29,6 +29,10 @@ type Genx = {
   market_story: string[]; trade_reasoning: string[]; risk_factors: string[];
   invalidation_reason: string; trigger_condition: string; setup_type: string; engine_state: string;
   projected_path: PathPt[]; invalidation_price: number | null;
+  market_now?: {
+    price: number | null; risk_pips: number | null; target: number | null; target_pips: number | null;
+    rr: number | null; final_target: number | null; final_rr: number | null; ok: boolean; note: string;
+  } | null;
 };
 type Resp = { ok?: boolean; signal_id?: string | null; price?: number; data_status?: string; asOf?: string; genx?: Genx; candles?: Candle[]; error?: string; detail?: string; notConfigured?: string; balance?: number };
 
@@ -259,6 +263,36 @@ export function GenxDesk() {
               </div>
             )}
             {g.trigger_condition && <p className="mt-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[13px] text-white/60">{g.trigger_condition}</p>}
+
+            {/* Enter now at market — GENX's best entry above is unchanged; this is
+                the honest R:R of taking the same trade immediately. */}
+            {g.market_now && (g.action.includes("WAIT") || g.action.includes("LIMIT")) && (
+              <div className="mt-3 rounded-lg border px-3 py-2.5"
+                style={g.market_now.ok
+                  ? { borderColor: "rgba(46,232,143,0.35)", background: "rgba(46,232,143,0.06)" }
+                  : { borderColor: "rgba(255,194,75,0.35)", background: "rgba(255,194,75,0.06)" }}>
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-white/55">
+                    Want in now? Enter at market
+                  </span>
+                  {g.market_now.price != null && (
+                    <span className="font-serif text-lg font-extrabold" style={{ color: g.market_now.ok ? "#2ee88f" : "#ffc24b" }}>
+                      {g.market_now.price}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-[12px] text-white/60">
+                  {g.market_now.target != null ? (
+                    <>Same stop {g.stop_loss} ({g.market_now.risk_pips}p risk) · to {g.market_now.target} = {g.market_now.rr}R{g.market_now.final_target != null && g.market_now.final_target !== g.market_now.target ? ` · to ${g.market_now.final_target} = ${g.market_now.final_rr}R` : ""}</>
+                  ) : (
+                    <>Same stop {g.stop_loss} ({g.market_now.risk_pips}p risk)</>
+                  )}
+                </p>
+                <p className="mt-1 text-[11px]" style={{ color: g.market_now.ok ? "rgba(46,232,143,0.85)" : "rgba(255,194,75,0.9)" }}>
+                  {g.market_now.note} <span className="text-white/35">GENX’s best entry ({g.entry}) still has the stronger reward:risk.</span>
+                </p>
+              </div>
+            )}
           </div>
 
           <GenxFlow candles={res?.candles || []} g={g} price={res?.price ?? null} live={res?.data_status === "live"} />
