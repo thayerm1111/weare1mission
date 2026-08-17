@@ -5,6 +5,7 @@ import { SignOutButton } from "@/components/portal/SignOutButton";
 import { NotificationsBell } from "@/components/portal/NotificationsBell";
 import { ThemeToggle } from "@/components/portal/ThemeToggle";
 import { PendingNotice } from "@/components/portal/PendingNotice";
+import { LowBalanceFlyer } from "@/components/portal/LowBalanceFlyer";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getProfile } from "@/lib/auth";
 import { TIER_LABELS } from "@/lib/access";
@@ -74,6 +75,7 @@ export default async function PortalLayout({ children }: { children: React.React
           </div>
         )}
       </div>
+      {profile && !needsApproval && <LowBalanceFlyer />}
     </div>
   );
 }
