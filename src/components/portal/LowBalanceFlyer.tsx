@@ -162,7 +162,15 @@ export function LowBalanceFlyer() {
   const decided = genx?.decided ?? 0;
   const winRate = genx?.winRate ?? null;
   const confident = decided >= MIN_CONFIDENT && winRate != null;
-  const recentWins = genx?.recent || [];
+  // Collapse literal same-day duplicates so the list reads as distinct wins,
+  // then cap it so the flyer stays short on mobile.
+  const seenWin = new Set<string>();
+  const recentWins = (genx?.recent || []).filter((r) => {
+    const sig = `${r.mode}|${r.tp}|${r.pips}|${(r.at || "").slice(0, 10)}`;
+    if (seenWin.has(sig)) return false;
+    seenWin.add(sig);
+    return true;
+  }).slice(0, 4);
   const netPips = genx?.netPips ?? 0;
   const avgRr = genx?.avgRr ?? null;
 
@@ -229,23 +237,22 @@ export function LowBalanceFlyer() {
             {/* recent GENX winning calls */}
             {recentWins.length > 0 ? (
               <div className="mt-3 space-y-1.5">
-                {recentWins.slice(0, 5).map((r, i) => (
-                  <div key={i} className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                {recentWins.map((r, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <span className="grid h-6 w-6 flex-shrink-0 place-items-center rounded-full" style={{ background: "rgba(46,232,143,0.14)", color: BULL }}>
                         {r.direction === "short" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
                       </span>
-                      <span className="truncate text-[13px] font-semibold text-white">Gold</span>
-                      <span className="hidden text-[11px] text-white/35 sm:inline">{r.mode ? (MODE_LABEL[r.mode] ?? r.mode) : "GENX"}</span>
+                      <span className="text-[13px] font-semibold text-white">Gold</span>
+                      <span className="truncate text-[11px] text-white/40">{r.mode ? (MODE_LABEL[r.mode] ?? r.mode) : "GENX"}{r.at ? ` · ${ago(r.at)}` : ""}</span>
                     </div>
                     <div className="flex flex-shrink-0 items-center gap-2">
                       {r.pips != null && (
                         <span className="text-[12px] font-semibold tabular-nums" style={{ color: BULL }}>+{r.pips}p</span>
                       )}
                       <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: "rgba(46,232,143,0.14)", color: BULL }}>
-                        {r.tp ? `TP${r.tp} hit` : "Win"}
+                        {r.tp ? `TP${r.tp}` : "Win"}
                       </span>
-                      <span className="hidden text-[10px] text-white/30 sm:inline">{ago(r.at)}</span>
                     </div>
                   </div>
                 ))}
@@ -268,27 +275,30 @@ export function LowBalanceFlyer() {
           </div>
           {msg && <div className="mt-2 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[12px] text-amber-200">{msg}</div>}
 
-          <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-2.5">
             {packs.map((p) => (
               <button
                 key={p.id}
                 onClick={() => void buy(p.id)}
                 disabled={buying != null}
-                className="group relative flex flex-col items-center rounded-2xl border px-3 py-3.5 text-center transition disabled:opacity-60"
+                className="group relative flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition disabled:opacity-60 sm:flex-col sm:items-center sm:px-3 sm:py-3.5 sm:text-center"
                 style={p.best
                   ? { borderColor: "rgba(255,194,75,0.55)", background: "linear-gradient(180deg,rgba(255,194,75,0.12),rgba(255,194,75,0.02))" }
                   : { borderColor: "rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.02)" }}
               >
                 {p.best && (
-                  <span className="absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-black" style={{ background: GOLD }}>
+                  <span className="absolute right-3 top-3 whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-black sm:right-auto sm:left-1/2 sm:top-[-8px] sm:-translate-x-1/2" style={{ background: GOLD }}>
                     Best value
                   </span>
                 )}
-                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/60">{p.label}</span>
-                <span className="mt-1 font-serif text-2xl font-extrabold text-white">{p.credits.toLocaleString()}</span>
-                <span className="text-[10px] text-white/40">credits</span>
-                <span className="mt-1.5 flex items-center gap-1 text-[13px] font-bold" style={{ color: p.best ? GOLD : "#fff" }}>
-                  {buying === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : `$${p.priceUsd}`}
+                {/* label + credits — inline on mobile, stacked on desktop */}
+                <div className="flex items-baseline gap-2 sm:flex-col sm:items-center sm:gap-0">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/60">{p.label}</span>
+                  <span className="font-serif text-xl font-extrabold text-white sm:mt-1 sm:text-2xl">{p.credits.toLocaleString()}</span>
+                  <span className="text-[10px] text-white/40">credits</span>
+                </div>
+                <span className="flex items-center gap-1 text-[15px] font-bold sm:mt-1.5 sm:text-[13px]" style={{ color: p.best ? GOLD : "#fff" }}>
+                  {buying === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : `$${p.priceUsd}`}
                 </span>
               </button>
             ))}
