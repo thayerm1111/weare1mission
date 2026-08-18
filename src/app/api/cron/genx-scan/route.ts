@@ -201,11 +201,26 @@ async function run(): Promise<Response> {
   return json({ ok: true, asOf: nowIso, ...out }, 200);
 }
 
+// Connectivity probe: posts a one-line "connected" message to the channel so we
+// can confirm Telegram delivery works even when the market has no live setup.
+async function sendProbe(): Promise<Response> {
+  const tgReady = !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHANNEL_ID);
+  if (!tgReady) return json({ ok: false, error: "telegram_not_configured" }, 200);
+  const res = await sendTelegram([
+    "✅ <b>GENX alerts connected</b>",
+    "This channel is now wired to the GENX auto-scanner. You'll get a heads-up when a setup forms and an <b>ENTER NOW</b> the moment it triggers.",
+    "<i>Educational, not financial advice.</i>",
+  ].join("\n"));
+  return json({ ok: res.ok, probe: true, detail: res.detail }, res.ok ? 200 : 200);
+}
+
 export async function GET(req: NextRequest) {
   if (!authorized(req)) return json({ error: "unauthorized" }, 401);
+  if (new URL(req.url).searchParams.get("test")) return sendProbe();
   return run();
 }
 export async function POST(req: NextRequest) {
   if (!authorized(req)) return json({ error: "unauthorized" }, 401);
+  if (new URL(req.url).searchParams.get("test")) return sendProbe();
   return run();
 }
