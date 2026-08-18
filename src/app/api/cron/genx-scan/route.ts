@@ -139,7 +139,9 @@ async function run(): Promise<Response> {
       if (rowsRaw === "ratelimit") continue;
       const candles = (Array.isArray(rowsRaw) ? rowsRaw : []) as Array<{ datetime: string; high: string; low: string }>;
       const enterMs = a.enter_sent_at ? new Date(a.enter_sent_at).getTime() : 0;
-      const after = candles.filter((c) => new Date(c.datetime).getTime() >= enterMs - 5 * 60000);
+      // Only grade candles that OPENED strictly after entry — never the entry bar
+      // itself, whose pre-entry wick can sit at the stop and falsely score a loss.
+      const after = candles.filter((c) => new Date(c.datetime).getTime() > enterMs);
       const sell = a.side === "sell";
       let result: "win" | "loss" | null = null;
       for (const c of after) {
