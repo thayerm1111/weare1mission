@@ -100,6 +100,11 @@ async function run(): Promise<Response> {
   const admin = createAdminClient();
   if (!admin) return json({ error: "no_admin_client" }, 500);
   const tgReady = !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHANNEL_ID);
+  // Stay completely inert until Telegram is configured: don't run the engine,
+  // don't record setups, don't spend market-data calls. This guarantees the very
+  // first setups after go-live get their full heads-up → ENTER-NOW sequence
+  // instead of being silently recorded (and de-duped) before alerts can send.
+  if (!tgReady) return json({ ok: true, skipped: "telegram_not_configured" }, 200);
 
   // Expire stale pending setups so a fresh identical zone can re-alert later.
   const nowIso = new Date().toISOString();
