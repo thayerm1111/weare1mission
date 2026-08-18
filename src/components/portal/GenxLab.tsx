@@ -24,19 +24,47 @@ type Data = {
   by_mode: Row[]; by_action: Row[]; by_confidence: Row[]; recent: Recent[];
 };
 
+type AlertRow = {
+  mode: string | null; side: string | null; action: string | null;
+  entry_low: number | null; entry_high: number | null; stop: number | null; tp1: number | null; tp2: number | null;
+  confidence: number | null; state: string | null; created_at: string | null; enter_sent_at: string | null; updated_at: string | null;
+};
+type AlertsData = { configured: boolean; telegram: boolean; lastScanAt: string | null; tracking: AlertRow[]; recent: AlertRow[] };
+
 const outColor = (o: string | null) =>
   o === "WIN" ? "text-emerald-400" : o === "LOSS" ? "text-red-400" : o === "EXPIRED" ? "text-white/50" : "text-amber-300/80";
 const fmtDate = (s: string) => { try { return new Date(s).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); } catch { return s; } };
+const agoShort = (s: string | null): string => {
+  if (!s) return "—";
+  const ms = Date.now() - new Date(s).getTime();
+  if (!Number.isFinite(ms)) return "—";
+  const m = Math.max(0, Math.round(ms / 60000));
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
+};
+const zoneStr = (a: AlertRow) => (a.entry_low != null && a.entry_high != null ? `${a.entry_low}–${a.entry_high}` : "—");
+const sideColor = (s: string | null) => (s === "sell" ? "text-red-300" : "text-emerald-300");
 
 export function GenxLab() {
   const [data, setData] = useState<Data | null>(null);
+  const [alerts, setAlerts] = useState<AlertsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [grading, setGrading] = useState(false);
   const [note, setNote] = useState("");
   const [err, setErr] = useState("");
 
+  async function loadAlerts() {
+    try {
+      const res = await fetch("/api/genx/alerts-status", { cache: "no-store" });
+      const d = await res.json();
+      if (res.ok && d && d.configured !== false) setAlerts(d as AlertsData);
+    } catch { /* leave alerts as-is */ }
+  }
   async function load() {
     setLoading(true); setErr("");
+    void loadAlerts();
     try {
       const res = await fetch("/api/admin/genx", { cache: "no-store" });
       const d = await res.json();
@@ -82,6 +110,60 @@ export function GenxLab() {
       {note && <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/60">{note}</div>}
       {err && <div className="mt-4 rounded-xl border border-red-500/25 bg-red-500/[0.07] px-4 py-3 text-sm text-red-300">{err}</div>}
       {loading && !data && <div className="mt-6 flex items-center gap-2 text-white/50"><Loader2 className="h-4 w-4 animate-spin" /> Loading the ledger…</div>}
+
+      {alerts && (
+        <section className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/[0.04] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-amber-200/90">
+              <span className={`h-2 w-2 rounded-full ${alerts.telegram ? "bg-emerald-400" : "bg-white/30"} ${alerts.telegram ? "animate-pulse" : ""}`} />
+              Live Alerts {alerts.telegram ? "· Telegram connected" : "· Telegram not configured"}
+            </p>
+            <span className="text-[11px] text-white/45">Last scan {agoShort(alerts.lastScanAt)}</span>
+          </div>
+          <p className="mt-1 text-[12px] text-white/50">Scanning Quick (scalp) mode every ~5 min · a heads-up posts when a setup forms, then an ENTER NOW when it triggers.</p>
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-white/40">Tracking now ({alerts.tracking.length})</p>
+              {alerts.tracking.length === 0 ? (
+                <p className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-[12px] text-white/45">Nothing forming right now — you&apos;ll be alerted here and in Telegram the moment GENX calls one.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {alerts.tracking.map((a, i) => (
+                    <div key={i} className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
+                      <p className="text-[13px] font-bold">
+                        <span className={sideColor(a.side)}>{(a.side || "").toUpperCase()}</span>
+                        <span className="text-white/80"> {zoneStr(a)}</span>
+                        <span className="ml-1 text-[10px] font-normal text-amber-300/80">⏳ waiting</span>
+                      </p>
+                      <p className="mt-0.5 text-[10.5px] text-white/40">stop {a.stop ?? "—"} · TP1 {a.tp1 ?? "—"}{a.tp2 != null ? ` · TP2 ${a.tp2}` : ""}{a.confidence != null ? ` · conf ${a.confidence}` : ""} · {agoShort(a.created_at)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-white/40">Recently called ({alerts.recent.length})</p>
+              {alerts.recent.length === 0 ? (
+                <p className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-[12px] text-white/45">No entries or invalidations yet.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {alerts.recent.map((a, i) => (
+                    <div key={i} className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
+                      <p className="text-[13px] font-bold">
+                        <span className={sideColor(a.side)}>{(a.side || "").toUpperCase()}</span>
+                        <span className="text-white/80"> {zoneStr(a)}</span>
+                        <span className={`ml-1 text-[10px] font-normal ${a.state === "entered" ? "text-emerald-300" : "text-red-300"}`}>{a.state === "entered" ? "✅ entered" : "❌ invalid"}</span>
+                      </p>
+                      <p className="mt-0.5 text-[10.5px] text-white/40">stop {a.stop ?? "—"} · TP1 {a.tp1 ?? "—"} · {agoShort(a.state === "entered" ? a.enter_sent_at : a.updated_at)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       {data?.needs_migration && (
         <div className="mt-5 rounded-xl border border-sky-400/25 bg-sky-400/[0.06] px-4 py-4 text-sm text-sky-100">
