@@ -108,6 +108,14 @@ async function run(): Promise<Response> {
 
   // Expire stale pending setups so a fresh identical zone can re-alert later.
   const nowIso = new Date().toISOString();
+  // Heartbeat so the GENX Lab can show the true "last scan" time even when a scan
+  // finds no actionable setup (state 'meta' — excluded from every alert query).
+  try {
+    await admin.from("genx_alerts").upsert(
+      { dedupe_key: "__scan_heartbeat__", mode: "meta", side: "meta", action: "HEARTBEAT", state: "meta", last_checked_at: nowIso, updated_at: nowIso },
+      { onConflict: "dedupe_key" },
+    );
+  } catch { /* best effort */ }
   try {
     await admin.from("genx_alerts").update({ state: "expired", updated_at: nowIso })
       .eq("state", "forming").in("mode", ["quick", "intraday"]).lt("created_at", new Date(Date.now() - 8 * 3600e3).toISOString());
@@ -118,7 +126,9 @@ async function run(): Promise<Response> {
   const out: Record<string, unknown> = { modes: {}, sent: [] as string[], tgReady };
   const sent = out.sent as string[];
 
-  for (const mode of ["quick", "intraday", "swing"] as Mode[]) {
+  // Scalp only for now — the Quick (5-min, 30–80 pip) timeframe. Add "intraday"
+  // and "swing" back here to widen coverage later.
+  for (const mode of ["quick"] as Mode[]) {
     const modeOut: Record<string, unknown> = {};
     (out.modes as Record<string, unknown>)[mode] = modeOut;
     try {
