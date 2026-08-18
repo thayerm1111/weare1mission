@@ -1682,8 +1682,142 @@ input{font:inherit}
     </svg>`;
   }
 
+  // ── GENX live-confirmation + tracked setups (ported to match the web portal) ──
+  var GX_TRACK_KEY = "genx-tracked-v1";
+  function gxIsWait(action) { var a = String(action || ""); return a.indexOf("WAIT") >= 0 || a.indexOf("LIMIT") >= 0; }
+  function gxSideOf(action) { return String(action || "").indexOf("SELL") >= 0 ? "sell" : "buy"; }
+  function gxAgo(ms) { var m = Math.max(0, Math.round((Date.now() - ms) / 60000)); if (m < 1) return "just now"; if (m < 60) return m + "m ago"; var h = Math.round(m / 60); return h < 24 ? h + "h ago" : Math.round(h / 24) + "d ago"; }
+  function setupFromGenx(g, mode) {
+    var side = gxSideOf(g.action);
+    var watch = side === "sell" ? (g.closest_resistance != null ? g.closest_resistance : g.entry) : (g.closest_support != null ? g.closest_support : g.entry);
+    return {
+      side: side, action: g.action, mode: g.mode || mode,
+      entry: g.entry, entryLow: g.entry_low, entryHigh: g.entry_high, watch: watch,
+      invalidation: g.invalidation_price != null ? g.invalidation_price : g.stop_loss,
+      stop: g.stop_loss, tp1: g.tp1, tp2: g.tp2, triggerTf: g.trigger_tf,
+    };
+  }
+  function gxTrackKey(s) { return s.side + "|" + s.entryLow + "|" + s.entryHigh; }
+
+  // The "is it time to enter yet?" banner — reads CLOSED candles via /api/genx/confirm,
+  // auto-refreshes every 30s, stops once the call is CONFIRMED or INVALIDATED. Free.
+  function GxConfirm(props) {
+    var setup = props.setup;
+    var isWait = gxIsWait(setup.action);
+    var st = useState(null), loading = useState(false);
+    var timer = useRef(null);
+    var key = setup.side + "|" + setup.entryLow + "|" + setup.entryHigh + "|" + setup.mode;
+    function check() {
+      loading[1](true);
+      apiPost("/api/genx/confirm", {
+        side: setup.side,
+        entryLow: setup.entryLow != null ? setup.entryLow : setup.entry,
+        entryHigh: setup.entryHigh != null ? setup.entryHigh : setup.entry,
+        watch: setup.watch != null ? setup.watch : setup.entry,
+        invalidation: setup.invalidation != null ? setup.invalidation : setup.stop,
+        mode: setup.mode,
+      }).then(function (d) { if (d && d.state) st[1](d); }).catch(function () {}).then(function () { loading[1](false); });
+    }
+    useEffect(function () {
+      if (!isWait) return undefined;
+      check();
+      timer.current = setInterval(function () {
+        st[1](function (cur) {
+          if (cur && (cur.state === "CONFIRMED" || cur.state === "INVALIDATED")) return cur;
+          check(); return cur;
+        });
+      }, 30000);
+      return function () { if (timer.current) clearInterval(timer.current); };
+    }, [key]);
+    if (!isWait) return null;
+    var side = setup.side;
+    var STYLES = {
+      LOADING: { bg: "rgba(255,255,255,0.04)", bd: "rgba(255,255,255,0.14)", fg: "#8b94a7", icon: "…", title: "Checking the market…" },
+      BUSY: { bg: "rgba(255,255,255,0.04)", bd: "rgba(255,255,255,0.14)", fg: "#8b94a7", icon: "…", title: "Feed busy — retrying…" },
+      NO_DATA: { bg: "rgba(255,255,255,0.04)", bd: "rgba(255,255,255,0.14)", fg: "#8b94a7", icon: "…", title: "Waiting for data…" },
+      WAIT: { bg: "rgba(255,194,75,0.08)", bd: "rgba(255,194,75,0.4)", fg: "#ffc24b", icon: "⏳", title: "WAIT — not time to enter yet" },
+      AT_ZONE: { bg: "rgba(96,165,250,0.09)", bd: "rgba(96,165,250,0.45)", fg: "#7db6ff", icon: "👀", title: "AT THE ZONE — hold for the close" },
+      CONFIRMED: { bg: "rgba(46,232,143,0.13)", bd: "rgba(46,232,143,0.6)", fg: "#2ee88f", icon: "✅", title: side === "sell" ? "CONFIRMED — SELL IS LIVE" : "CONFIRMED — BUY IS LIVE" },
+      INVALIDATED: { bg: "rgba(255,93,108,0.1)", bd: "rgba(255,93,108,0.55)", fg: "#ff5d6c", icon: "❌", title: "INVALID — do not take this setup" },
+    };
+    var state = st[0] && st[0].state ? st[0].state : "LOADING";
+    var s = STYLES[state] || STYLES.NO_DATA;
+    var detail = st[0] && st[0].detail, enter = st[0] ? st[0].enter : null;
+    return html`<div style=${"margin-top:12px;border-radius:12px;border:1px solid " + s.bd + ";background:" + s.bg + ";padding:10px 13px"}>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <span style=${"font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;line-height:1.25;color:" + s.fg}>${s.icon} ${s.title}</span>
+        <button onClick=${function () { check(); }} disabled=${loading[0]} style="flex-shrink:0;background:none;border:none;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:rgba(255,255,255,.4);cursor:pointer">${loading[0] ? "…" : "↻ Check"}</button>
+      </div>
+      ${detail ? html`<p style="margin:4px 0 0;font-size:12px;line-height:1.5;color:rgba(255,255,255,.7)">${detail}</p>` : null}
+      ${state === "CONFIRMED" && enter != null ? html`<p style=${"margin:6px 0 0;font-size:12.5px;font-weight:700;color:" + s.fg}>${side === "sell" ? "SELL" : "BUY"} now ≈ ${enter} · stop ${setup.stop} · TP1 ${setup.tp1}</p>` : null}
+      <p style="margin:4px 0 0;font-size:10px;color:rgba(255,255,255,.3)">Reads closed ${setup.triggerTf || "trigger"} candles · auto-updates every 30s · educational, not financial advice.</p>
+    </div>`;
+  }
+
+  // Plain-language "what confirmation looks like" explainer with a mini diagram.
+  function GxConfirmHelp(props) {
+    var sell = props.sell, level = props.level;
+    var c = sell ? "#ff5d6c" : "#2ee88f";
+    var soft = sell ? "rgba(255,93,108,0.3)" : "rgba(46,232,143,0.3)";
+    var tint = sell ? "rgba(255,93,108,0.06)" : "rgba(46,232,143,0.06)";
+    var approach = [0, 1, 2].map(function (i) { var x = 5 + i * 9, top = sell ? 22 - i * 4 : 5 + i * 4; return html`<rect x=${x} y=${top} width="5" height="5" rx="1" fill=${sell ? "#2ee88f" : "#ff5d6c"} opacity="0.5" />`; });
+    var lb = level != null ? html`<b style="color:rgba(255,255,255,.85)">${level}</b>` : null;
+    return html`<div style=${"margin-top:12px;display:flex;align-items:flex-start;gap:12px;border-radius:12px;border:1px solid " + soft + ";background:" + tint + ";padding:10px 13px"}>
+      <svg width="64" height="34" viewBox="0 0 64 34" style="margin-top:2px;flex-shrink:0">
+        <line x1="0" x2="64" y1=${sell ? 9 : 25} y2=${sell ? 9 : 25} stroke="#fff" stroke-opacity="0.28" stroke-dasharray="2 2" />
+        ${approach}
+        <rect x="40" y=${sell ? 11 : 7} width="6" height="16" rx="1" fill=${c} />
+        <path d=${sell ? "M43 30 l-4 -5 h8 z" : "M43 4 l-4 5 h8 z"} fill=${c} />
+      </svg>
+      <div style="min-width:0">
+        <p style="margin:0;font-size:12.5px;font-weight:600;color:#fff">${sell ? "“Confirm sellers” = wait to SEE price get pushed back down." : "“Confirm buyers” = wait to SEE price bounce back up."}</p>
+        <p style="margin:2px 0 0;font-size:11.5px;line-height:1.5;color:rgba(255,255,255,.6)">${sell
+          ? html`Don’t sell while price is still rising. Wait until it reaches ${lb}, stalls, and prints a <span style=${"color:" + c}>red candle dropping away</span> — that’s proof sellers stepped in. <b style="color:rgba(255,255,255,.85)">Then</b> sell.`
+          : html`Don’t buy while price is still falling. Wait until it reaches ${lb}, stops, and prints a <span style=${"color:" + c}>green candle pushing up</span> — that’s proof buyers stepped in. <b style="color:rgba(255,255,255,.85)">Then</b> buy.`}</p>
+      </div>
+    </div>`;
+  }
+
+  // One saved setup you can return to — its own live confirmation keeps running.
+  function GxTrackedRow(props) {
+    var t = props.t, c = t.side === "sell" ? "#ff5d6c" : "#2ee88f";
+    return html`<div style="border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.02);padding:12px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+        <div style="min-width:0">
+          <p style=${"margin:0;font-size:13px;font-weight:700;color:" + c}>${t.label}</p>
+          <p style="margin:2px 0 0;font-size:10px;color:rgba(255,255,255,.4)">${(t.mode || "").toUpperCase()} · stop ${t.stop} · TP1 ${t.tp1}${t.tp2 != null ? " · TP2 " + t.tp2 : ""} · saved ${gxAgo(t.savedAt)}</p>
+        </div>
+        <button onClick=${props.onRemove} aria-label="Stop tracking" style="flex-shrink:0;background:none;border:none;border-radius:6px;padding:2px 6px;font-size:13px;color:rgba(255,255,255,.35);cursor:pointer">✕</button>
+      </div>
+      <${GxConfirm} setup=${t} />
+    </div>`;
+  }
+
   function GenxScreen(props) {
     var mode = useState("quick"), loading = useState(false), err = useState(""), res = useState(null), needCr = useState(false), open = useState(false);
+    var tracked = useState([]);
+    useEffect(function () {
+      try { var raw = localStorage.getItem(GX_TRACK_KEY); if (raw) tracked[1](JSON.parse(raw)); } catch (e) {}
+      apiGet("/api/genx/tracked").then(function (d) { if (d && Array.isArray(d.tracked)) { tracked[1](d.tracked); try { localStorage.setItem(GX_TRACK_KEY, JSON.stringify(d.tracked)); } catch (e) {} } });
+    }, []);
+    function persistTracked(next) { tracked[1](next); try { localStorage.setItem(GX_TRACK_KEY, JSON.stringify(next)); } catch (e) {} }
+    function trackCurrent(g) {
+      if (!g) return;
+      var base = setupFromGenx(g, mode[0]);
+      var label = (base.side === "sell" ? "SELL" : "BUY") + " " + ((g.entry_low != null && g.entry_high != null) ? (g.entry_low + "–" + g.entry_high) : g.entry);
+      var t = Object.assign({}, base, { id: String(Date.now()), savedAt: Date.now(), label: label });
+      var next = [t].concat(tracked[0].filter(function (x) { return gxTrackKey(x) !== gxTrackKey(t); })).slice(0, 8);
+      persistTracked(next);
+      apiPost("/api/genx/tracked", { tracked: t }).catch(function () {});
+    }
+    function untrack(id) {
+      persistTracked(tracked[0].filter(function (x) { return x.id !== id; }));
+      try {
+        var se = getSession(), o = { method: "DELETE", credentials: "same-origin", headers: {} };
+        if (se && se.access_token) o.headers.Authorization = "Bearer " + se.access_token;
+        fetch("/api/genx/tracked?id=" + encodeURIComponent(id), o).catch(function () {});
+      } catch (e) {}
+    }
     function run() {
       if (loading[0]) return; loading[1](true); err[1](""); needCr[1](false);
       apiPost("/api/genx", { mode: mode[0] }).then(function (d) {
@@ -1725,10 +1859,21 @@ input{font:inherit}
       ${err[0] ? html`<div class="err" style="margin-top:10px">${err[0]}${needCr[0] ? html` <a href="#" onClick=${function (e) { e.preventDefault(); try { window.open("/portal/credits", "_blank"); } catch (x) {} }} style="color:var(--sky);font-weight:700"> Get credits</a>` : null}</div>` : null}
       ${loading[0] ? html`<div class="gx-analyzing">◆ Reading live Gold — structure, momentum, levels, liquidity…</div>` : null}
 
+      ${tracked[0].length ? html`<div style="margin-top:16px;border-radius:16px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.02);padding:13px">
+        <p style="margin:0 0 9px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:rgba(255,255,255,.45)">📌 Tracked setups <span style="color:rgba(255,255,255,.25)">(${tracked[0].length})</span></p>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${tracked[0].map(function (t) { return html`<${GxTrackedRow} key=${t.id} t=${t} onRemove=${function () { untrack(t.id); }} />`; })}
+        </div>
+        <p style="margin:9px 0 0;font-size:10px;line-height:1.5;color:rgba(255,255,255,.3)">Synced to your account — same setups on your phone and the website. Each keeps checking live for its own confirmation, so re-analyzing never loses the setup you were waiting on.</p>
+      </div>` : null}
+
       ${g ? html`<div class=${"gx-card " + act.c}>
         <div class="gx-act">${act.t}</div>
         <div class="gx-conf"><b>${g.confidence_score}</b><span>/ 100 · ${gxConfLabel(g.confidence_score)}</span></div>
         <div class="gx-bias">Bias: ${g.directional_bias} · ${g.market_regime || "—"} · ${g.session}</div>
+
+        <${GxConfirm} setup=${setupFromGenx(g, mode[0])} />
+        ${hasPlan && gxIsWait(g.action) ? html`<button onClick=${function () { trackCurrent(g); }} style=${"margin-top:8px;width:100%;border-radius:9px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);padding:9px 12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.7);cursor:pointer"}>${(tracked[0].some(function (t) { return gxTrackKey(t) === gxTrackKey(setupFromGenx(g, mode[0])); })) ? "✓ Tracking this setup — you’ll find it up top" : "📌 Track this setup — come back to it later"}</button>` : null}
 
         ${hasPlan ? html`<div class="gx-levels">
           <div class="gx-lv"><div class="k">Entry</div><div class="v">${entryTxt}</div></div>
@@ -1744,6 +1889,8 @@ input{font:inherit}
         </div>
         ${g.trigger_condition ? html`<div class="gx-hold">Trigger: ${g.trigger_condition}</div>` : null}`}
       </div>
+
+      ${(g.action === "WAIT_FOR_BUY_TRIGGER" || g.action === "WAIT_FOR_SELL_TRIGGER") ? html`<${GxConfirmHelp} sell=${g.action === "WAIT_FOR_SELL_TRIGGER"} level=${g.action === "WAIT_FOR_SELL_TRIGGER" ? (g.closest_resistance != null ? g.closest_resistance : g.entry) : (g.closest_support != null ? g.closest_support : g.entry)} />` : null}
 
       <${GenxChart} candles=${d.candles} entry=${g.entry} stop=${g.stop_loss} tps=${tps} support=${g.closest_support} resistance=${g.closest_resistance} path=${g.projected_path} bias=${g.directional_bias} />
 
