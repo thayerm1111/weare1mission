@@ -3089,6 +3089,6 @@ input{font:inherit}
   render(html`<${App} />`, document.getElementById("app"));
 })();
 </script>
-<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("/app/sw.js").catch(function(){});}</script>
+<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("/app/sw.js").catch(function(){});var _omReloaded=false;navigator.serviceWorker.addEventListener("controllerchange",function(){if(_omReloaded)return;_omReloaded=true;location.reload();});}</script>
 </body>
 </html>
