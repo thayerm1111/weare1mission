@@ -51,10 +51,10 @@ function buildSteps(g: Genx, price: number | null): Step[] {
   const enter: Step = { t: "ENTER", s: g.entry_low != null && g.entry_high != null ? `$${fmtPrice(g.entry_low)}` : p(g.entry), tone: side === "sell" ? "sell" : "buy" };
 
   if (g.action === "WAIT_FOR_BUY_TRIGGER") {
-    return [now, { t: "PULLBACK", tone: "muted" }, { t: "WATCH", s: p(watch), tone: "wait" }, { t: "CONFIRM BUYERS", tone: "wait" }, enter, ...(t1 ? [t1] : []), ...(t2 ? [t2] : [])];
+    return [now, { t: "PULLBACK", tone: "muted" }, { t: "WATCH", s: p(watch), tone: "wait" }, { t: "CONFIRM BUYERS", s: "price bounces ↑", tone: "wait" }, enter, ...(t1 ? [t1] : []), ...(t2 ? [t2] : [])];
   }
   if (g.action === "WAIT_FOR_SELL_TRIGGER") {
-    return [now, { t: "RALLY", tone: "muted" }, { t: "WATCH", s: p(watchR), tone: "wait" }, { t: "CONFIRM SELLERS", tone: "wait" }, { ...enter }, ...(t1 ? [t1] : []), ...(t2 ? [t2] : [])];
+    return [now, { t: "RALLY", tone: "muted" }, { t: "WATCH", s: p(watchR), tone: "wait" }, { t: "CONFIRM SELLERS", s: "price drops ↓", tone: "wait" }, { ...enter }, ...(t1 ? [t1] : []), ...(t2 ? [t2] : [])];
   }
   if (side === "buy" || side === "sell") {
     return [now, enter, ...(t1 ? [t1] : []), ...(t2 ? [t2] : []), ...(g.tp3 != null ? [{ t: "TP3", s: p(g.tp3), tone: side === "sell" ? "sell" : "buy" } as Step] : [])];
@@ -351,6 +351,43 @@ function FlowTiles({ g }: { g: Genx }) {
 function shortStr(s: string): string { return s.length > 34 ? s.slice(0, 32).trimEnd() + "…" : s; }
 
 /* ── the exported experience ──────────────────────────────────────────────── */
+/* Plain-English explainer + mini picture of what "confirm buyers/sellers" looks
+   like, so a beginner knows exactly what to wait for before entering. */
+function ConfirmHelp({ sell, level }: { sell: boolean; level: number | null }) {
+  const c = sell ? BEAR : BULL;
+  const soft = sell ? "rgba(255,93,108,0.3)" : "rgba(46,232,143,0.3)";
+  const tint = sell ? "rgba(255,93,108,0.06)" : "rgba(46,232,143,0.06)";
+  // Mini diagram: 3 faint "approach" candles moving INTO the level, then one
+  // bright confirmation candle reacting AWAY from it (up for a buy, down for a sell).
+  const approach = [0, 1, 2].map((i) => {
+    const x = 5 + i * 9;
+    const top = sell ? 22 - i * 4 : 5 + i * 4; // sell: rising up to level; buy: falling down to level
+    return <rect key={i} x={x} y={top} width="5" height="5" rx="1" fill={sell ? BULL : BEAR} opacity="0.5" />;
+  });
+  return (
+    <div className="mt-2 flex items-start gap-3 rounded-xl border px-3 py-2.5" style={{ borderColor: soft, background: tint }}>
+      <svg width="64" height="34" viewBox="0 0 64 34" className="mt-0.5 flex-shrink-0" aria-hidden>
+        <line x1="0" x2="64" y1={sell ? 9 : 25} y2={sell ? 9 : 25} stroke="#fff" strokeOpacity="0.28" strokeDasharray="2 2" />
+        {approach}
+        <rect x="40" y={sell ? 11 : 7} width="6" height="16" rx="1" fill={c} />
+        <path d={sell ? "M43 30 l-4 -5 h8 z" : "M43 4 l-4 5 h8 z"} fill={c} />
+      </svg>
+      <div className="min-w-0">
+        <p className="text-[12.5px] font-semibold text-white">
+          {sell ? "“Confirm sellers” = wait to SEE price get pushed back down." : "“Confirm buyers” = wait to SEE price bounce back up."}
+        </p>
+        <p className="mt-0.5 text-[11.5px] leading-relaxed text-white/60">
+          {sell ? (
+            <>Don’t sell while price is still rising. Wait until it reaches {level != null && <b className="text-white/80">{level}</b>}, stalls, and prints a <span style={{ color: c }}>red candle dropping away</span> — that’s proof sellers stepped in. <b className="text-white/80">Then</b> sell.</>
+          ) : (
+            <>Don’t buy while price is still falling. Wait until it reaches {level != null && <b className="text-white/80">{level}</b>}, stops, and prints a <span style={{ color: c }}>green candle pushing up</span> — that’s proof buyers stepped in. <b className="text-white/80">Then</b> buy.</>
+          )}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function GenxFlow({ candles, g, price, live }: { candles: Candle[]; g: Genx; price: number | null; live: boolean }) {
   const [why, setWhy] = useState(false);
   const rr = useMemo(() => {
@@ -368,6 +405,13 @@ export function GenxFlow({ candles, g, price, live }: { candles: Candle[]; g: Ge
       </div>
 
       <MarketFlowHeader g={g} price={price} />
+
+      {(g.action === "WAIT_FOR_BUY_TRIGGER" || g.action === "WAIT_FOR_SELL_TRIGGER") && (
+        <ConfirmHelp
+          sell={g.action === "WAIT_FOR_SELL_TRIGGER"}
+          level={(g.action === "WAIT_FOR_SELL_TRIGGER" ? (g.closest_resistance ?? g.entry) : (g.closest_support ?? g.entry))}
+        />
+      )}
 
       <div className="relative mt-2">
         <FlowMap candles={candles} g={g} price={price} live={live} />
