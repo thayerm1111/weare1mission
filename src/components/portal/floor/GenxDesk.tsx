@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Gem, Loader2, ChevronDown } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
-import { GenxFlow } from "./GenxFlow";
+import { GenxFlow, ConfirmHelp } from "./GenxFlow";
 
 /**
  * GENX — flagship XAUUSD (Gold) decision engine, desktop portal edition.
@@ -88,7 +88,8 @@ function GenxChart({ candles, g }: { candles: Candle[]; g: Genx }) {
 
   // Layout: candles + projection live in the plot; price labels get their own
   // right-hand gutter so they can never collide with the candles or each other.
-  const W = 720, H = 264, padY = 22, padL = 10, gutterW = 78;
+  // Taller, near-square aspect so it fills a phone screen and reads clearly.
+  const W = 480, H = 372, padY = 20, padL = 10, gutterW = 78;
   const plotR = W - gutterW;
   const splitX = Math.round(padL + (plotR - padL) * 0.58);
 
@@ -119,7 +120,7 @@ function GenxChart({ candles, g }: { candles: Candle[]; g: Genx }) {
   const labelY = declutterY(levelsRaw.map((l) => y(l.price)), 13, padY + 4, H - padY);
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="mt-4 w-full" style={{ maxHeight: 300 }} preserveAspectRatio="xMidYMid meet" role="img" aria-label="GENX price chart with projected path">
+    <svg viewBox={`0 0 ${W} ${H}`} className="mt-4 w-full" style={{ minHeight: 280, maxHeight: 380 }} preserveAspectRatio="xMidYMid meet" role="img" aria-label="GENX price chart with projected path">
       {/* level lines (plot only) + decluttered labels in the right gutter */}
       {levelsRaw.map((l, i) => (
         <g key={`lv${i}`}>
@@ -162,6 +163,132 @@ function GenxChart({ candles, g }: { candles: Candle[]; g: Genx }) {
   );
 }
 
+/* ---------- LIVE entry confirmation ----------
+   The unmistakable "is it time to enter yet?" banner. It polls the free
+   /api/genx/confirm check (real closed candles) and tells the member plainly:
+   WAIT → AT THE ZONE → ✅ ENTER, or ❌ INVALID. No more eyeballing candles.
+   It takes a plain SetupLevels object, so the SAME banner powers both the
+   current signal AND each saved/tracked setup. */
+type ConfirmState = { state: string; detail?: string; enter?: number | null };
+type SetupLevels = {
+  side: "buy" | "sell"; action: string; mode: string;
+  entry: number | null; entryLow: number | null; entryHigh: number | null;
+  watch: number | null; invalidation: number | null; stop: number | null;
+  tp1: number | null; triggerTf?: string;
+};
+function setupFromGenx(g: Genx): SetupLevels {
+  const side: "buy" | "sell" = g.action.includes("SELL") ? "sell" : "buy";
+  return {
+    side, action: g.action, mode: g.mode,
+    entry: g.entry, entryLow: g.entry_low, entryHigh: g.entry_high,
+    watch: side === "sell" ? (g.closest_resistance ?? g.entry) : (g.closest_support ?? g.entry),
+    invalidation: g.invalidation_price ?? g.stop_loss, stop: g.stop_loss, tp1: g.tp1,
+    triggerTf: g.trigger_tf,
+  };
+}
+
+// A saved setup the member wants to return to later.
+type Tracked = SetupLevels & { id: string; savedAt: number; tp2: number | null; label: string };
+const TRACK_KEY = "genx-tracked-v1";
+function agoShort(ms: number): string {
+  const m = Math.max(0, Math.round((Date.now() - ms) / 60000));
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
+}
+
+function LiveConfirm({ setup }: { setup: SetupLevels }) {
+  const isWait = setup.action.includes("WAIT") || setup.action.includes("LIMIT");
+  const side = setup.side;
+  const [st, setSt] = useState<ConfirmState | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const check = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/genx/confirm", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          side,
+          entryLow: setup.entryLow ?? setup.entry,
+          entryHigh: setup.entryHigh ?? setup.entry,
+          watch: setup.watch ?? setup.entry,
+          invalidation: setup.invalidation ?? setup.stop,
+          mode: setup.mode,
+        }),
+      });
+      const d = await r.json();
+      if (d && d.state) setSt(d as ConfirmState);
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, [setup, side]);
+
+  useEffect(() => {
+    if (!isWait) return;
+    void check();
+    const id = setInterval(() => {
+      setSt((cur) => {
+        // Stop hammering the feed once the call is decided; keep the manual ↻.
+        if (cur && (cur.state === "CONFIRMED" || cur.state === "INVALIDATED")) return cur;
+        void check();
+        return cur;
+      });
+    }, 30000);
+    return () => clearInterval(id);
+  }, [isWait, check]);
+
+  if (!isWait) return null;
+  const state = st?.state ?? "LOADING";
+  const S: Record<string, { bg: string; bd: string; fg: string; icon: string; title: string }> = {
+    LOADING: { bg: "rgba(255,255,255,0.04)", bd: "rgba(255,255,255,0.12)", fg: "#8b94a7", icon: "…", title: "Checking the market…" },
+    BUSY: { bg: "rgba(255,255,255,0.04)", bd: "rgba(255,255,255,0.12)", fg: "#8b94a7", icon: "…", title: "Feed busy — retrying…" },
+    NO_DATA: { bg: "rgba(255,255,255,0.04)", bd: "rgba(255,255,255,0.12)", fg: "#8b94a7", icon: "…", title: "Waiting for data…" },
+    WAIT: { bg: "rgba(255,194,75,0.08)", bd: "rgba(255,194,75,0.4)", fg: "#ffc24b", icon: "⏳", title: "WAIT — not time to enter yet" },
+    AT_ZONE: { bg: "rgba(96,165,250,0.09)", bd: "rgba(96,165,250,0.45)", fg: "#7db6ff", icon: "👀", title: "AT THE ZONE — hold for the close" },
+    CONFIRMED: { bg: "rgba(46,232,143,0.13)", bd: "rgba(46,232,143,0.6)", fg: "#2ee88f", icon: "✅", title: side === "sell" ? "CONFIRMED — SELL IS LIVE" : "CONFIRMED — BUY IS LIVE" },
+    INVALIDATED: { bg: "rgba(255,93,108,0.1)", bd: "rgba(255,93,108,0.55)", fg: "#ff5d6c", icon: "❌", title: "INVALID — do not take this setup" },
+  };
+  const s = S[state] ?? S.NO_DATA;
+  return (
+    <div className={`mt-3 rounded-xl border px-3.5 py-3 ${state === "CONFIRMED" ? "animate-pulse" : ""}`} style={{ background: s.bg, borderColor: s.bd }}>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[13px] font-extrabold uppercase tracking-[0.06em]" style={{ color: s.fg }}>{s.icon} {s.title}</span>
+        <button onClick={() => void check()} disabled={loading}
+          className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide text-white/40 transition hover:text-white/70 disabled:opacity-50">
+          {loading ? "…" : "↻ Check"}
+        </button>
+      </div>
+      {st?.detail && <p className="mt-1 text-[12px] leading-relaxed text-white/70">{st.detail}</p>}
+      {state === "CONFIRMED" && st?.enter != null && (
+        <p className="mt-1.5 text-[12.5px] font-bold" style={{ color: s.fg }}>
+          {side === "sell" ? "SELL" : "BUY"} now ≈ {st.enter} · stop {setup.stop} · TP1 {setup.tp1}
+        </p>
+      )}
+      <p className="mt-1 text-[10px] text-white/30">Reads closed {setup.triggerTf || "trigger"} candles · auto-updates every 30s · educational, not financial advice.</p>
+    </div>
+  );
+}
+
+/* One saved setup you can return to — its own live confirmation keeps running. */
+function TrackedRow({ t, onRemove }: { t: Tracked; onRemove: () => void }) {
+  const c = t.side === "sell" ? "#ff5d6c" : "#2ee88f";
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[13px] font-bold" style={{ color: c }}>{t.label}</p>
+          <p className="mt-0.5 text-[10px] text-white/40">
+            {(t.mode || "").toUpperCase()} · stop {t.stop} · TP1 {t.tp1}{t.tp2 != null ? ` · TP2 ${t.tp2}` : ""} · saved {agoShort(t.savedAt)}
+          </p>
+        </div>
+        <button onClick={onRemove} aria-label="Stop tracking" className="flex-shrink-0 rounded-md px-1.5 py-0.5 text-[13px] text-white/35 transition hover:bg-white/5 hover:text-white/70">✕</button>
+      </div>
+      <LiveConfirm setup={t} />
+    </div>
+  );
+}
+
 /* ---------- level tile ---------- */
 function LTile({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: string }) {
   return (
@@ -179,6 +306,27 @@ export function GenxDesk() {
   const [res, setRes] = useState<Resp | null>(null);
   const [err, setErr] = useState("");
   const [open, setOpen] = useState(false);
+  const [tracked, setTracked] = useState<Tracked[]>([]);
+
+  // Tracked setups: localStorage for instant render, then the account (synced
+  // across the member's phone + computer) as the source of truth.
+  useEffect(() => {
+    try { const raw = localStorage.getItem(TRACK_KEY); if (raw) setTracked(JSON.parse(raw)); } catch { /* ignore */ }
+    (async () => {
+      try {
+        const r = await fetch("/api/genx/tracked", { cache: "no-store" });
+        const d = await r.json();
+        if (Array.isArray(d.tracked)) {
+          setTracked(d.tracked as Tracked[]);
+          try { localStorage.setItem(TRACK_KEY, JSON.stringify(d.tracked)); } catch { /* ignore */ }
+        }
+      } catch { /* offline — keep the local cache */ }
+    })();
+  }, []);
+  const persist = useCallback((next: Tracked[]) => {
+    setTracked(next);
+    try { localStorage.setItem(TRACK_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+  }, []);
 
   async function analyze() {
     setLoading(true); setErr("");
@@ -198,6 +346,21 @@ export function GenxDesk() {
   const hasPlan = g ? num(g.entry) != null && num(g.stop_loss) != null : false;
   const cardTone = side === "buy" ? "border-emerald-400/30" : side === "sell" ? "border-red-400/30" : "border-amber-400/30";
   const actTone = side === "buy" ? "text-emerald-400" : side === "sell" ? "text-red-400" : "text-amber-300";
+
+  const trackKey = (s: { side: string; entryLow: number | null; entryHigh: number | null }) => `${s.side}|${s.entryLow}|${s.entryHigh}`;
+  const isTracked = !!g && tracked.some((t) => trackKey(t) === trackKey(setupFromGenx(g)));
+  function trackCurrent() {
+    if (!g) return;
+    const base = setupFromGenx(g);
+    const label = `${base.side === "sell" ? "SELL" : "BUY"} ${g.entry_low != null && g.entry_high != null ? `${g.entry_low}–${g.entry_high}` : g.entry}`;
+    const t: Tracked = { ...base, id: String(Date.now()), savedAt: Date.now(), tp2: g.tp2, label };
+    persist([t, ...tracked.filter((x) => trackKey(x) !== trackKey(t))].slice(0, 8));
+    fetch("/api/genx/tracked", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tracked: t }) }).catch(() => { /* offline; local cache holds it */ });
+  }
+  function untrack(id: string) {
+    persist(tracked.filter((x) => x.id !== id));
+    fetch(`/api/genx/tracked?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => { /* ignore */ });
+  }
 
   return (
     <div className="rounded-2xl border border-amber-400/20 bg-[#0b0d14] p-5 text-white sm:p-6" style={{ backgroundImage: "radial-gradient(120% 80% at 0% 0%, rgba(255,194,75,0.06), transparent 60%)" }}>
@@ -234,6 +397,18 @@ export function GenxDesk() {
       {loading && <p className="mt-2 text-center text-xs text-white/40">◆ Reading live Gold — structure, momentum, levels, liquidity…</p>}
       {err && <div className="mt-4 rounded-xl border border-red-500/25 bg-red-500/[0.07] px-4 py-3 text-sm text-red-300">{err}</div>}
 
+      {tracked.length > 0 && (
+        <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-3.5">
+          <p className="mb-2.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-white/45">
+            📌 Tracked setups <span className="text-white/25">({tracked.length})</span>
+          </p>
+          <div className="space-y-2.5">
+            {tracked.map((t) => <TrackedRow key={t.id} t={t} onRemove={() => untrack(t.id)} />)}
+          </div>
+          <p className="mt-2.5 text-[10px] leading-relaxed text-white/30">Saved on this device. Each keeps checking live for its own confirmation — so re-analyzing never loses the setup you were waiting on.</p>
+        </div>
+      )}
+
       {g && (
         <>
           <div className={`mt-5 rounded-2xl border ${cardTone} bg-white/[0.02] p-5`}>
@@ -244,6 +419,15 @@ export function GenxDesk() {
             <p className="mt-1 text-[13px] text-white/50">
               Bias: {g.directional_bias === "bullish" ? "Bullish" : g.directional_bias === "bearish" ? "Bearish" : "Neutral"} · {g.market_structure} · {g.session}
             </p>
+
+            <LiveConfirm setup={setupFromGenx(g)} />
+
+            {hasPlan && (g.action.includes("WAIT") || g.action.includes("LIMIT")) && (
+              <button onClick={() => trackCurrent()}
+                className="mt-2 w-full rounded-lg border border-white/12 bg-white/[0.03] px-3 py-2 text-[12px] font-semibold text-white/70 transition hover:bg-white/[0.07]">
+                {isTracked ? "✓ Tracking this setup — you'll find it up top" : "📌 Track this setup — come back to it later"}
+              </button>
+            )}
 
             {hasPlan ? (
               <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
@@ -303,7 +487,21 @@ export function GenxDesk() {
             })()}
           </div>
 
-          <GenxFlow candles={res?.candles || []} g={g} price={res?.price ?? null} live={res?.data_status === "live"} />
+          {/* Phones: the clean, readable projected-path chart (fills the screen),
+              keeping the plain-language confirmation explainer. Desktop: the full
+              Market Flow Map, which has the width for all of its detail. */}
+          <div className="sm:hidden">
+            {(g.action === "WAIT_FOR_BUY_TRIGGER" || g.action === "WAIT_FOR_SELL_TRIGGER") && (
+              <ConfirmHelp
+                sell={g.action === "WAIT_FOR_SELL_TRIGGER"}
+                level={g.action === "WAIT_FOR_SELL_TRIGGER" ? (g.closest_resistance ?? g.entry) : (g.closest_support ?? g.entry)}
+              />
+            )}
+            <GenxChart candles={res?.candles || []} g={g} />
+          </div>
+          <div className="hidden sm:block">
+            <GenxFlow candles={res?.candles || []} g={g} price={res?.price ?? null} live={res?.data_status === "live"} />
+          </div>
 
           {g.market_story?.length > 0 && (
             <section className="mt-5">

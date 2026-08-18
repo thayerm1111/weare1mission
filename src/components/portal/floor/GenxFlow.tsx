@@ -353,7 +353,7 @@ function shortStr(s: string): string { return s.length > 34 ? s.slice(0, 32).tri
 /* ── the exported experience ──────────────────────────────────────────────── */
 /* Plain-English explainer + mini picture of what "confirm buyers/sellers" looks
    like, so a beginner knows exactly what to wait for before entering. */
-function ConfirmHelp({ sell, level }: { sell: boolean; level: number | null }) {
+export function ConfirmHelp({ sell, level }: { sell: boolean; level: number | null }) {
   const c = sell ? BEAR : BULL;
   const soft = sell ? "rgba(255,93,108,0.3)" : "rgba(46,232,143,0.3)";
   const tint = sell ? "rgba(255,93,108,0.06)" : "rgba(46,232,143,0.06)";
