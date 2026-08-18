@@ -23,7 +23,7 @@ jobs:
         env:
           KEY: ${{ secrets.GENX_CRON_KEY }}
         run: |
-          if [ -z "$KEY" ]; then echo "GENX_CRON_KEY secret is not set"; exit 1; fi
+          if [ -z "$KEY" ]; then echo "GENX_CRON_KEY secret not set yet — skipping until configured"; exit 0; fi
           code=$(curl -sS -o /tmp/out.json -w "%{http_code}" -X POST \
             "https://weare1mission.com/api/cron/genx-scan?key=$KEY")
           echo "HTTP $code"
