@@ -139,9 +139,14 @@ async function run(): Promise<Response> {
       if (rowsRaw === "ratelimit") continue;
       const candles = (Array.isArray(rowsRaw) ? rowsRaw : []) as Array<{ datetime: string; high: string; low: string }>;
       const enterMs = a.enter_sent_at ? new Date(a.enter_sent_at).getTime() : 0;
-      // Only grade candles that OPENED strictly after entry — never the entry bar
-      // itself, whose pre-entry wick can sit at the stop and falsely score a loss.
-      const after = candles.filter((c) => new Date(c.datetime).getTime() > enterMs);
+      // Select post-entry candles by COUNT of elapsed intervals, not by matching
+      // candle datetimes to the entry time — the feed's datetimes aren't guaranteed
+      // UTC, and an offset would pull in pre-entry bars (when Gold was up near the
+      // stop) and falsely score a loss. `candles` is oldest→newest, so the last N
+      // bars are exactly the ones since entry.
+      const ivMin = a.mode === "swing" ? 60 : a.mode === "intraday" ? 15 : 5;
+      const barsSince = Math.min(candles.length, Math.max(1, Math.floor((Date.now() - enterMs) / (ivMin * 60000))));
+      const after = candles.slice(-barsSince);
       const sell = a.side === "sell";
       let result: "win" | "loss" | null = null;
       for (const c of after) {
