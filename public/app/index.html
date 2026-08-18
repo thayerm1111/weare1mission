@@ -1849,22 +1849,81 @@ input{font:inherit}
       var by = railY[i];
       return html`<g><line x1=${plotR} x2=${plotR + 6} y1=${it.y} y2=${by} stroke=${it.c} stroke-width="1" opacity="0.4"/><rect x=${plotR + 7} y=${by - 8.5} width=${gutterW - 9} height="17" rx="4" fill="#0c0f17" stroke=${it.c} stroke-opacity="0.55"/><text x=${plotR + 11} y=${by + 3.5} fill=${it.c} font-size="9" font-weight="700">${it.t}</text></g>`;
     });
+    // Entry / reaction zone WITH labels (matches the desktop Market Flow Map).
+    var entryTop = eHigh != null ? eHigh : (eMid != null ? eMid + (hi - lo) * 0.01 : null);
+    var entryBot = eLow != null ? eLow : (eMid != null ? eMid - (hi - lo) * 0.01 : null);
     var zone = null;
-    if (eLow != null && eHigh != null) { var zt = y(eHigh), zb = y(eLow); zone = html`<g><rect x=${splitX} y=${zt} width=${plotR - splitX} height=${Math.max(5, zb - zt)} fill=${dir} opacity=${isWait ? 0.1 : 0.16}/><rect x=${splitX} y=${zt} width=${plotR - splitX} height=${Math.max(5, zb - zt)} fill="none" stroke=${dir} stroke-opacity="0.45" stroke-dasharray="3 3"/></g>`; }
+    if (entryTop != null && entryBot != null) {
+      var zt = y(entryTop), zb = y(entryBot);
+      var zlabel = isWait ? ((side === "sell" ? "SELL" : "BUY") + " REACTION ZONE") : "ENTRY ZONE";
+      zone = html`<g>
+        <rect x=${splitX} y=${zt} width=${plotR - splitX} height=${Math.max(5, zb - zt)} fill=${dir} opacity=${isWait ? 0.1 : 0.16}/>
+        <rect x=${splitX} y=${zt} width=${plotR - splitX} height=${Math.max(5, zb - zt)} fill="none" stroke=${dir} stroke-opacity="0.45" stroke-dasharray="3 3"/>
+        <text x=${splitX + 4} y=${zt - 3} fill=${dir} font-size="7.5" font-weight="700">${zlabel}</text>
+        ${isWait ? html`<text x=${splitX + 4} y=${zb + 9} fill=${dir} font-size="7" opacity="0.85">${side === "sell" ? "BEARISH CONFIRMATION REQUIRED" : "WAIT FOR CONFIRMATION"}</text>` : null}
+      </g>`;
+    }
+    // Invalidation band + label.
+    var invEls = stop != null ? html`<g>
+      <rect x=${splitX} y=${Math.min(y(stop), H - padB - 14)} width=${plotR - splitX} height="14" fill="#ff5d6c" opacity="0.12"/>
+      <text x=${splitX + 4} y=${y(stop) + 10} fill="#ff5d6c" font-size="7.5" font-weight="700">INVALIDATION ${gxFmtPrice(stop)}</text>
+    </g>` : null;
+
+    // Ghost / projected candles that trace the thesis into the future (visual only).
+    var GC = Math.min(11, Math.max(6, pn * 2)), ghost = [], prev0;
+    function interp(f) { var t = f * (pn - 1), i = Math.min(pn - 2, Math.max(0, Math.floor(t))), fr = t - i; return pn > 1 ? seq[i].price + (seq[i + 1].price - seq[i].price) * fr : seq[0].price; }
+    prev0 = interp(0);
+    for (var gk = 1; gk <= GC; gk++) { var gf = gk / GC, gp = interp(gf), gup = gp >= prev0, gwig = Math.abs(Math.sin(gk * 1.7)) * (hi - lo) * 0.012, gx = projStart + gf * (projEnd - projStart); ghost.push({ x: gx, open: prev0, close: gp, up: gup, hi: Math.max(gp, prev0) + gwig + (hi - lo) * 0.008, lo: Math.min(gp, prev0) - gwig * 0.6 - (hi - lo) * 0.004 }); prev0 = gp; }
+    var gcw = Math.max(2.4, ((projEnd - projStart) / GC) * 0.55);
+    var ghostEls = ghost.map(function (c) { var col = c.up ? "#2ee88f" : "#ff5d6c", yo = y(c.open), yc = y(c.close); return html`<g><line x1=${c.x} x2=${c.x} y1=${y(c.hi)} y2=${y(c.lo)} stroke=${col} stroke-width="1" opacity="0.3"/><rect x=${c.x - gcw / 2} y=${Math.min(yo, yc)} width=${gcw} height=${Math.max(1.4, Math.abs(yc - yo))} rx="0.6" fill=${col} opacity="0.25" stroke=${col} stroke-opacity="0.4"/></g>`; });
+
+    // Market-structure pivots (HH / HL / LH / LL) derived from the real candles.
+    var pivots = []; (function () {
+      var win = 2, lastHigh = null, lastLow = null, picks = [];
+      for (var i = win; i < cs.length - win; i++) {
+        var c = cs[i], isHigh = true, isLow = true;
+        for (var j = i - win; j <= i + win; j++) { if (cs[j].h > c.h) isHigh = false; if (cs[j].l < c.l) isLow = false; }
+        var x = padL + 2 + i * cw + cw / 2;
+        if (isHigh) { var tag = lastHigh != null ? (c.h >= lastHigh ? "HH" : "LH") : "HH"; lastHigh = c.h; picks.push({ x: x, y: y(c.h) - 6, tag: tag }); }
+        else if (isLow) { var tg = lastLow != null ? (c.l >= lastLow ? "HL" : "LL") : "HL"; lastLow = c.l; picks.push({ x: x, y: y(c.l) + 11, tag: tg }); }
+      }
+      pivots = picks.slice(-4);
+    })();
+    var pivotEls = pivots.map(function (p) { return html`<text x=${p.x} y=${p.y} fill="#8b94a7" font-size="7.5" font-weight="700" text-anchor="middle" opacity="0.7">${p.tag}</text>`; });
+
     var projEls = seq.map(function (s, i) { if (i === 0) return null; var last = i === seq.length - 1; return html`<g><circle cx=${spx(i)} cy=${y(s.price)} r="3" fill=${dir}/><text x=${last ? spx(i) - 3 : spx(i)} y=${y(s.price) - 7} fill=${dir} font-size="9" font-weight="700" text-anchor=${last ? "end" : "middle"}>${s.label}</text></g>`; });
 
     return html`<svg viewBox=${"0 0 " + W + " " + H} width="100%" preserveAspectRatio="xMidYMid meet" style="display:block">
       <rect x=${splitX} y=${padT} width=${plotR - splitX} height=${H - padT - padB} fill=${dir} opacity="0.05"/>
       ${lines}
+      ${invEls}
       ${zone}
       ${candleEls}
-      ${seq.length > 1 ? html`<polyline points=${traj} fill="none" stroke=${dir} stroke-width="2" stroke-dasharray="4 3" stroke-linecap="round" opacity="0.9"/>` : null}
+      ${pivotEls}
+      ${ghostEls}
+      ${seq.length > 1 ? html`<polyline points=${traj} fill="none" stroke=${dir} stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>` : null}
       ${projEls}
       <line x1=${splitX} x2=${splitX} y1=${padT - 2} y2=${H - padB} stroke="#fff" stroke-width="1" stroke-dasharray="2 5" opacity="0.16"/>
       <rect x=${splitX - 19} y=${padT - 18} width="38" height="14" rx="3" fill="#ffc24b"/>
       <text x=${splitX} y=${padT - 8} fill="#1a1204" font-size="9" font-weight="800" text-anchor="middle">NOW</text>
       ${badges}
     </svg>`;
+  }
+
+  // Wraps the map with the "GENX projected path" tag + a WHY toggle that reveals
+  // the engine's reasoning — the same affordance the desktop map has.
+  function GxFlowChart(props) {
+    var g = props.g, why = useState(false), reasons = arr(g.trade_reasoning).slice(0, 5);
+    return html`<div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="border-radius:7px;background:rgba(255,255,255,.06);padding:3px 8px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:rgba(255,255,255,.45)">GENX projected path</span>
+        ${reasons.length ? html`<button onClick=${function () { why[1](!why[0]); }} style="border-radius:7px;border:1px solid rgba(255,194,75,.28);background:rgba(255,194,75,.1);padding:3px 9px;font-size:9.5px;font-weight:700;color:#ffd47a;cursor:pointer">? WHY</button>` : null}
+      </div>
+      ${why[0] && reasons.length ? html`<div style="margin-bottom:8px;border-radius:12px;border:1px solid rgba(255,194,75,.25);background:rgba(255,194,75,.06);padding:10px 12px">
+        <ul style="margin:0;padding-left:16px;color:rgba(255,255,255,.8);font-size:12px;line-height:1.5">${reasons.map(function (r) { return html`<li>${r}</li>`; })}</ul>
+      </div>` : null}
+      <${GxFlowMap} candles=${props.candles} g=${g} price=${props.price} live=${props.live} />
+    </div>`;
   }
 
   function gxSteps(g, price) {
@@ -2040,7 +2099,7 @@ input{font:inherit}
           <${GxMarketFlowHeader} g=${g} price=${d.price} />
           ${(g.action === "WAIT_FOR_BUY_TRIGGER" || g.action === "WAIT_FOR_SELL_TRIGGER") ? html`<${GxConfirmHelp} sell=${g.action === "WAIT_FOR_SELL_TRIGGER"} level=${g.action === "WAIT_FOR_SELL_TRIGGER" ? (g.closest_resistance != null ? g.closest_resistance : g.entry) : (g.closest_support != null ? g.closest_support : g.entry)} />` : null}
           <div style="margin-top:8px">
-            <${GxFlowMap} candles=${d.candles} g=${g} price=${d.price} live=${d.data_status === "live"} />
+            <${GxFlowChart} candles=${d.candles} g=${g} price=${d.price} live=${d.data_status === "live"} />
           </div>
         </div>
         <${GxPressure} g=${g} />
