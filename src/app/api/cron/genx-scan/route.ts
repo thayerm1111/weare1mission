@@ -1,7 +1,8 @@
 import { type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { computeGenxRead, buildGenx, GOLD, MODES, type Mode } from "@/lib/genxCompute";
-import { confirmEntry } from "@/lib/genxConfirm";
+import { confirmEntry, CONFIRM_IV } from "@/lib/genxConfirm";
+import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
 
 export const runtime = "nodejs";
@@ -123,6 +124,51 @@ async function run(): Promise<Response> {
       .eq("state", "forming").eq("mode", "swing").lt("created_at", new Date(Date.now() - 48 * 3600e3).toISOString());
   } catch { /* best effort */ }
 
+  // Grade entered calls against the candles that printed after entry — flip each
+  // to win/loss, and post a 🏆 WIN recap when a called trade reaches its target.
+  // This is what powers the public wins wall (only real, hit-target calls count).
+  try {
+    const { data: openRows } = await admin.from("genx_alerts")
+      .select("id, mode, side, entry, entry_low, entry_high, stop, tp1, enter_price, enter_sent_at")
+      .eq("state", "entered").is("outcome", null).limit(20);
+    for (const a of (openRows ?? []) as Array<{ id: string; mode: string; side: string; entry: number | null; entry_low: number | null; entry_high: number | null; stop: number | null; tp1: number | null; enter_price: number | null; enter_sent_at: string | null }>) {
+      const tp1 = Number(a.tp1), stop = Number(a.stop);
+      if (!Number.isFinite(tp1) || !Number.isFinite(stop)) continue;
+      const iv = CONFIRM_IV[a.mode] ?? "5min";
+      const rowsRaw = await series("XAU/USD", iv, 120, mdKey, true);
+      if (rowsRaw === "ratelimit") continue;
+      const candles = (Array.isArray(rowsRaw) ? rowsRaw : []) as Array<{ datetime: string; high: string; low: string }>;
+      const enterMs = a.enter_sent_at ? new Date(a.enter_sent_at).getTime() : 0;
+      const after = candles.filter((c) => new Date(c.datetime).getTime() >= enterMs - 5 * 60000);
+      const sell = a.side === "sell";
+      let result: "win" | "loss" | null = null;
+      for (const c of after) {
+        const hi = +c.high, lo = +c.low;
+        const hitTp = sell ? lo <= tp1 : hi >= tp1;
+        const hitStop = sell ? hi >= stop : lo <= stop;
+        if (hitTp && !hitStop) { result = "win"; break; }
+        if (hitStop) { result = "loss"; break; } // stop first (or same candle) → conservative loss
+      }
+      const ageH = (Date.now() - enterMs) / 3600e3;
+      if (!result) {
+        if (ageH > 8) await admin.from("genx_alerts").update({ outcome: "expired", resolved_at: nowIso, updated_at: nowIso }).eq("id", a.id);
+        continue;
+      }
+      const ref = Number(a.enter_price ?? a.entry ?? ((Number(a.entry_low) + Number(a.entry_high)) / 2));
+      const target = result === "win" ? tp1 : stop;
+      const pips = Math.round(Math.abs(ref - target) / GOLD.pip) * (result === "win" ? 1 : -1);
+      await admin.from("genx_alerts").update({ outcome: result, result_pips: pips, resolved_at: nowIso, updated_at: nowIso, win_posted_at: result === "win" ? nowIso : null }).eq("id", a.id);
+      if (result === "win" && tgReady) {
+        await sendTelegram([
+          `🏆 <b>GENX WIN · ${sell ? "SELL" : "BUY"} · ${MODE_LABEL[a.mode as Mode] || a.mode}</b>`,
+          `Gold hit its target for <b>+${pips} pips</b>.`,
+          `Called ${fmt(a.entry_low)}–${fmt(a.entry_high)} → TP1 ${fmt(tp1)}.`,
+          `<i>Educational, not financial advice.</i>`,
+        ].join("\n"));
+      }
+    }
+  } catch { /* grading is best effort */ }
+
   const out: Record<string, unknown> = { modes: {}, sent: [] as string[], tgReady };
   const sent = out.sent as string[];
 
@@ -163,7 +209,7 @@ async function run(): Promise<Response> {
             entry: genx.entry, entry_low: genx.entry_low, entry_high: genx.entry_high,
             stop: genx.stop_loss, tp1: genx.tp1, tp2: genx.tp2, tp3: genx.tp3,
             invalidation, watch, confidence: genx.confidence_score, trigger_tf: genx.trigger_tf,
-            state: "entered", heads_up_sent_at: nowIso, enter_sent_at: nowIso, last_checked_at: nowIso,
+            state: "entered", enter_price: rr.price, heads_up_sent_at: nowIso, enter_sent_at: nowIso, last_checked_at: nowIso,
           });
           sent.push(`${mode}:ENTER(immediate)`); modeOut.result = "enter_immediate";
         } else {
@@ -190,7 +236,7 @@ async function run(): Promise<Response> {
         });
         if (conf.state === "CONFIRMED") {
           if (tgReady) await sendTelegram(enterMsg(side, mode, { entry_low: row.entry_low, entry_high: row.entry_high, stop: row.stop, tp1: row.tp1, tp2: row.tp2, tp3: row.tp3 }, conf.enter ?? conf.price, false));
-          await admin.from("genx_alerts").update({ state: "entered", enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
+          await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
           sent.push(`${mode}:ENTER`); modeOut.result = "enter";
         } else if (conf.state === "INVALIDATED") {
           if (tgReady) await sendTelegram(invalidMsg(side, mode, { entry_low: row.entry_low, entry_high: row.entry_high, invalidation: row.invalidation }));
