@@ -1,0 +1,32 @@
+name: GENX auto-scan + alerts
+
+# Runs the GENX scanner across all three modes (Quick / Intraday / Swing) on a
+# tight schedule so setup heads-ups and ENTER-NOW alerts reach Telegram promptly.
+# The Vercel Hobby plan caps native crons at once/day, so this GitHub-hosted
+# schedule is what gives us frequent scanning. It just pings the protected
+# endpoint; all the work (engine, confirmation, Telegram send) happens server-side.
+
+on:
+  schedule:
+    - cron: "*/5 * * * 1-5"   # every 5 min, Mon–Fri (UTC) — gold trades ~24x5
+  workflow_dispatch: {}         # allow manual runs from the Actions tab
+
+concurrency:
+  group: genx-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger GENX scan + alerts
+        env:
+          KEY: ${{ secrets.GENX_CRON_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then echo "GENX_CRON_KEY secret is not set"; exit 1; fi
+          code=$(curl -sS -o /tmp/out.json -w "%{http_code}" -X POST \
+            "https://weare1mission.com/api/cron/genx-scan?key=$KEY")
+          echo "HTTP $code"
+          cat /tmp/out.json || true
+          echo ""
+          if [ "$code" != "200" ]; then echo "::error::GENX scan returned HTTP $code"; exit 1; fi
