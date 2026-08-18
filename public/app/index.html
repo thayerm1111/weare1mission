@@ -1818,7 +1818,7 @@ input{font:inherit}
     var nowPrice = price != null ? price : cs[cs.length - 1].c;
     var seq = (rawPath.length && /now/i.test(rawPath[0].label)) ? rawPath : [{ label: "Now", price: nowPrice }].concat(rawPath);
 
-    var W = 380, H = 452, padT = 24, padB = 24, padL = 8, gutterW = 76;
+    var W = 380, H = 452, padT = 24, padB = 24, padL = 8, gutterW = 86;
     var plotR = W - gutterW, splitX = Math.round(padL + (plotR - padL) * 0.56);
     var levels = [g.entry, g.entry_low, g.entry_high, g.stop_loss, g.tp1, g.tp2, g.tp3, g.closest_support, g.closest_resistance, g.invalidation_price, price].map(num).filter(function (n) { return n != null; });
     var pricesArr = Array.prototype.concat.apply([], cs.map(function (c) { return [c.h, c.l]; })).concat(seq.map(function (s) { return s.price; })).concat(levels);
@@ -1839,7 +1839,7 @@ input{font:inherit}
     if (price != null) gitems.push({ y: y(price), t: "$" + gxFmtPrice(price), c: "#ffc24b" });
     var eMid = num(g.entry), eLow = num(g.entry_low), eHigh = num(g.entry_high);
     var entryShow = eMid != null ? eMid : (eLow != null && eHigh != null ? (eLow + eHigh) / 2 : null);
-    if (entryShow != null) gitems.push({ y: y(entryShow), t: "ENTRY " + gxFmtPrice(entryShow), c: dir });
+    if (entryShow != null) gitems.push({ y: y(entryShow), t: "ENT " + gxFmtPrice(entryShow), c: dir });
     var stop = num(g.stop_loss) != null ? num(g.stop_loss) : num(g.invalidation_price);
     if (stop != null) gitems.push({ y: y(stop), t: "SL " + gxFmtPrice(stop), c: "#ff5d6c" });
     [["TP1", num(g.tp1)], ["TP2", num(g.tp2)], ["TP3", num(g.tp3)]].forEach(function (t) { if (t[1] != null) gitems.push({ y: y(t[1]), t: t[0] + " " + gxFmtPrice(t[1]), c: "#2ee88f" }); });
@@ -1847,7 +1847,7 @@ input{font:inherit}
     var lines = gitems.map(function (it) { return html`<line x1=${padL} x2=${plotR} y1=${it.y} y2=${it.y} stroke=${it.c} stroke-width="1" stroke-dasharray="1 6" opacity="0.22"/>`; });
     var badges = gitems.map(function (it, i) {
       var by = railY[i];
-      return html`<g><line x1=${plotR} x2=${plotR + 6} y1=${it.y} y2=${by} stroke=${it.c} stroke-width="1" opacity="0.4"/><rect x=${plotR + 7} y=${by - 8.5} width=${gutterW - 9} height="17" rx="4" fill="#0c0f17" stroke=${it.c} stroke-opacity="0.55"/><text x=${plotR + 11} y=${by + 3.5} fill=${it.c} font-size="9.5" font-weight="700">${it.t}</text></g>`;
+      return html`<g><line x1=${plotR} x2=${plotR + 6} y1=${it.y} y2=${by} stroke=${it.c} stroke-width="1" opacity="0.4"/><rect x=${plotR + 7} y=${by - 8.5} width=${gutterW - 9} height="17" rx="4" fill="#0c0f17" stroke=${it.c} stroke-opacity="0.55"/><text x=${plotR + 11} y=${by + 3.5} fill=${it.c} font-size="9" font-weight="700">${it.t}</text></g>`;
     });
     var zone = null;
     if (eLow != null && eHigh != null) { var zt = y(eHigh), zb = y(eLow); zone = html`<g><rect x=${splitX} y=${zt} width=${plotR - splitX} height=${Math.max(5, zb - zt)} fill=${dir} opacity=${isWait ? 0.1 : 0.16}/><rect x=${splitX} y=${zt} width=${plotR - splitX} height=${Math.max(5, zb - zt)} fill="none" stroke=${dir} stroke-opacity="0.45" stroke-dasharray="3 3"/></g>`; }
