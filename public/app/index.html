@@ -333,6 +333,55 @@ input{font:inherit}
 .gx-conf b{font-size:26px;font-weight:900;font-variant-numeric:tabular-nums}
 .gx-conf span{font-size:11px;color:var(--faint);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
 .gx-bias{margin-top:3px;font-size:12px;color:var(--muted);text-transform:capitalize}
+/* ── FLOW Entry Engine block ─────────────────────────────────────────── */
+.fe{margin-top:14px;border-radius:16px;border:1px solid var(--line);background:rgba(8,16,32,.5);padding:14px;position:relative;overflow:hidden}
+.fe.enternow{border-color:rgba(46,232,143,.55);background:linear-gradient(180deg,rgba(46,232,143,.14),rgba(8,16,32,.5));box-shadow:0 0 0 1px rgba(46,232,143,.25),0 8px 30px rgba(46,232,143,.12)}
+.fe.armed{border-color:rgba(255,194,75,.5);background:linear-gradient(180deg,rgba(255,194,75,.10),rgba(8,16,32,.5))}
+.fe.pullback{border-color:rgba(120,170,255,.45)}
+.fe.approaching{border-color:rgba(120,170,255,.35)}
+.fe.missed,.fe.invalidated,.fe.expired{border-color:rgba(255,93,108,.4);background:linear-gradient(180deg,rgba(255,93,108,.08),rgba(8,16,32,.5))}
+.fe-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.fe-hl{font-size:23px;font-weight:900;letter-spacing:.01em;line-height:1.05;display:flex;align-items:center;gap:8px}
+.fe.enternow .fe-hl{color:var(--green)} .fe.armed .fe-hl{color:var(--amber)} .fe.approaching .fe-hl,.fe.pullback .fe-hl{color:#8ab4ff}
+.fe.missed .fe-hl,.fe.invalidated .fe-hl,.fe.expired .fe-hl{color:var(--red)} .fe.wait .fe-hl{color:var(--muted)}
+.fe.enternow .fe-hl .dot{width:9px;height:9px;border-radius:99px;background:var(--green);box-shadow:0 0 0 0 rgba(46,232,143,.6);animation:fepulse 1.4s infinite}
+@keyframes fepulse{0%{box-shadow:0 0 0 0 rgba(46,232,143,.55)}70%{box-shadow:0 0 0 10px rgba(46,232,143,0)}100%{box-shadow:0 0 0 0 rgba(46,232,143,0)}}
+.fe-side{font-size:12px;font-weight:900;padding:4px 11px;border-radius:99px;letter-spacing:.06em}
+.fe-side.buy{background:rgba(46,232,143,.16);color:var(--green)} .fe-side.sell{background:rgba(255,93,108,.16);color:var(--red)}
+.fe-detail{margin-top:7px;font-size:12.5px;line-height:1.45;color:var(--muted)}
+.fe-scores{display:flex;gap:8px;margin-top:12px}
+.fe-sc{flex:1;border-radius:11px;border:1px solid var(--line);background:rgba(0,0,0,.28);padding:9px 11px}
+.fe-sc .k{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--faint)}
+.fe-sc .v{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.1}
+.fe-sc .v small{font-size:11px;font-weight:700;color:var(--faint)}
+.fe-sc.q .v{color:#8ab4ff}
+/* entry meter */
+.fe-meter{margin-top:13px}
+.fe-mlabels{display:flex;justify-content:space-between;font-size:9px;font-weight:800;letter-spacing:.06em;color:var(--faint);text-transform:uppercase;margin-bottom:5px}
+.fe-mtrack{position:relative;height:9px;border-radius:99px;background:linear-gradient(90deg,rgba(120,170,255,.35) 0%,rgba(46,232,143,.55) 42%,rgba(46,232,143,.55) 58%,rgba(255,194,75,.5) 82%,rgba(255,93,108,.55) 100%)}
+.fe-mmark{position:absolute;top:-4px;width:4px;height:17px;border-radius:3px;background:#fff;box-shadow:0 0 8px rgba(255,255,255,.7);transform:translateX(-50%)}
+.fe-mzone{position:absolute;top:0;bottom:0;left:42%;width:16%;border-left:1px dashed rgba(255,255,255,.35);border-right:1px dashed rgba(255,255,255,.35)}
+/* copy-trade ticket */
+.ct{margin-top:13px;border-radius:13px;border:1px solid var(--line);background:rgba(0,0,0,.32);padding:6px}
+.ct-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 8px;border-radius:9px}
+.ct-row+.ct-row{border-top:1px solid rgba(255,255,255,.05)}
+.ct-k{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);min-width:74px}
+.ct-v{flex:1;text-align:right;font-size:15px;font-weight:800;font-variant-numeric:tabular-nums}
+.ct-cp{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);color:var(--muted);border-radius:8px;font-size:10px;font-weight:800;padding:5px 9px;cursor:pointer;white-space:nowrap}
+.ct-cp:active{transform:scale(.95)}
+.fe-actions{display:flex;gap:8px;margin-top:12px}
+.fe-btn{flex:1;border-radius:12px;padding:13px 12px;font-size:13px;font-weight:900;letter-spacing:.02em;cursor:pointer;border:1px solid transparent}
+.fe-btn.tl{background:linear-gradient(180deg,#2ee88f,#16b46c);color:#04140b}
+.fe-btn.tl:disabled{opacity:.55;cursor:not-allowed}
+.fe-btn.cp{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.14);color:#fff}
+.fe-lots{display:flex;align-items:center;gap:7px;margin-top:11px;flex-wrap:wrap}
+.fe-lots .lb{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
+.fe-chip{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.03);color:var(--muted);border-radius:99px;font-size:12px;font-weight:800;padding:5px 11px;cursor:pointer;font-variant-numeric:tabular-nums}
+.fe-chip.on{background:rgba(46,232,143,.16);border-color:rgba(46,232,143,.5);color:var(--green)}
+.fe-conds{margin-top:11px;border-top:1px solid rgba(255,255,255,.06);padding-top:10px}
+.fe-cond{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.4;color:var(--muted);padding:3px 0}
+.fe-cond .ci{margin-top:1px;font-size:11px}
+.fe-cond.done{color:rgba(255,255,255,.85)}
 .gx-levels{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
 .gx-lv{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:rgba(8,16,32,.4)}
 .gx-lv .k{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
@@ -1992,9 +2041,71 @@ input{font:inherit}
     </div>`;
   }
 
+  function feMeta(st) {
+    switch (st) {
+      case "ENTER_NOW": return { cls: "enternow", emoji: "🔥" };
+      case "ARMED": return { cls: "armed", emoji: "🎯" };
+      case "ENTER_ON_PULLBACK": return { cls: "pullback", emoji: "⏳" };
+      case "APPROACHING": return { cls: "approaching", emoji: "🟡" };
+      case "MISSED": return { cls: "missed", emoji: "🚫" };
+      case "INVALIDATED": return { cls: "invalidated", emoji: "✖" };
+      case "EXPIRED": return { cls: "expired", emoji: "⌛" };
+      default: return { cls: "wait", emoji: "👀" };
+    }
+  }
+  var FLOW_LOTS = ["0.01", "0.05", "0.10", "0.25", "0.50", "1.00"];
+  // FLOW Entry Engine card — the "should I act NOW?" moment (spec §6,7,15,31).
+  function GxEntry(props) {
+    var ee = props.ee, g = props.g; if (!ee || !g) return null;
+    var side = ee.direction === "SHORT" ? "sell" : "buy";
+    var meta = feMeta(ee.entryState);
+    var lot = props.lot, setLot = props.setLot;
+    var copied = useState(""), note = useState(false);
+    function cp(key, val) { copy(val); copied[1](key); setTimeout(function () { copied[1](""); }, 1200); }
+    var entryDisp = (num(g.entry_low) != null && num(g.entry_high) != null && g.entry_low !== g.entry_high) ? (g.entry_low + "–" + g.entry_high) : (num(g.entry) != null ? String(g.entry) : "—");
+    var entryCopy = num(ee.preferredEntry) != null ? String(ee.preferredEntry) : (num(g.entry) != null ? String(g.entry) : "");
+    var sl = num(g.stop_loss) != null ? String(g.stop_loss) : "";
+    var tps = [g.tp1, g.tp2, g.tp3];
+    var allText = "XAUUSD " + (side === "sell" ? "SELL" : "BUY") + "\nENTRY: " + entryCopy + "\nSL: " + sl
+      + (num(g.tp1) != null ? "\nTP1: " + g.tp1 : "") + (num(g.tp2) != null ? "\nTP2: " + g.tp2 : "") + (num(g.tp3) != null ? "\nTP3: " + g.tp3 : "") + "\nLOTS: " + lot;
+    var actionable = ee.entryState === "ENTER_NOW" || ee.entryState === "ENTER_ON_PULLBACK";
+    var conds = ee.confirmationConditions || [];
+    var mk = Math.max(2, Math.min(98, Math.round((ee.meter != null ? ee.meter : 0.5) * 100)));
+    return html`<div class=${"fe " + meta.cls}>
+      <div class="fe-top">
+        <div class="fe-hl">${meta.cls === "enternow" ? html`<span class="dot"></span>` : null}<span>${meta.emoji} ${ee.headline}</span></div>
+        <span class=${"fe-side " + side}>${side === "sell" ? "SELL" : "BUY"} · XAUUSD</span>
+      </div>
+      ${ee.detail ? html`<div class="fe-detail">${ee.detail}</div>` : null}
+      <div class="fe-scores">
+        <div class="fe-sc"><div class="k">Edge · setup</div><div class="v">${ee.edgeScore}<small>/100</small></div></div>
+        <div class="fe-sc q"><div class="k">Entry quality</div><div class="v">${ee.entryQuality}<small>/100</small></div></div>
+        ${num(ee.remainingRR) != null ? html`<div class="fe-sc"><div class="k">R:R left</div><div class="v">${ee.remainingRR}<small>R</small></div></div>` : null}
+      </div>
+      <div class="fe-meter">
+        <div class="fe-mlabels"><span>Too early</span><span>Ideal</span><span>Getting late</span></div>
+        <div class="fe-mtrack"><div class="fe-mzone"></div><div class="fe-mmark" style=${"left:" + mk + "%"}></div></div>
+      </div>
+      ${num(g.entry) != null ? html`<div class="ct">
+        <div class="ct-row"><span class="ct-k">Entry</span><span class="ct-v">${entryDisp}</span><button class="ct-cp" onClick=${function () { cp("e", entryCopy); }}>${copied[0] === "e" ? "✓" : "Copy"}</button></div>
+        <div class="ct-row"><span class="ct-k">Stop</span><span class="ct-v">${g.stop_loss}</span><button class="ct-cp" onClick=${function () { cp("s", sl); }}>${copied[0] === "s" ? "✓" : "Copy"}</button></div>
+        ${[0, 1, 2].map(function (i) { return num(tps[i]) != null ? html`<div class="ct-row"><span class="ct-k">TP${i + 1}</span><span class="ct-v">${tps[i]}</span><button class="ct-cp" onClick=${function () { cp("t" + i, String(tps[i])); }}>${copied[0] === "t" + i ? "✓" : "Copy"}</button></div>` : null; })}
+        <div class="ct-row"><span class="ct-k">Lots</span><span class="ct-v">${lot}</span><button class="ct-cp" onClick=${function () { cp("l", lot); }}>${copied[0] === "l" ? "✓" : "Copy"}</button></div>
+      </div>` : null}
+      <div class="fe-lots"><span class="lb">Trade size</span>${FLOW_LOTS.map(function (p) { return html`<button class=${"fe-chip " + (lot === p ? "on" : "")} onClick=${function () { setLot(p); }}>${p}</button>`; })}</div>
+      <div class="fe-actions">
+        <button class="fe-btn tl" onClick=${function () { note[1](!note[0]); }}>Trade on TradeLocker</button>
+        <button class="fe-btn cp" onClick=${function () { cp("all", allText); }}>${copied[0] === "all" ? "✓ Copied" : "Copy trade"}</button>
+      </div>
+      ${note[0] ? html`<div class="fe-detail" style="margin-top:8px">One-tap TradeLocker orders arrive in the next FLOW update. For now tap <b>Copy trade</b>, open TradeLocker, and place it — your levels are ready to paste.</div>` : null}
+      ${(!actionable && conds.length) ? html`<div class="fe-conds"><div class="ct-k" style="margin-bottom:5px">What FLOW is waiting for</div>${conds.map(function (c) { return html`<div class="fe-cond"><span class="ci">○</span><span>${c}</span></div>`; })}</div>` : null}
+    </div>`;
+  }
   function GenxScreen(props) {
     var mode = useState("quick"), loading = useState(false), err = useState(""), res = useState(null), needCr = useState(false), open = useState(false);
     var tracked = useState([]);
+    var lot = useState((function () { try { return localStorage.getItem("FLOW_LOT") || "0.50"; } catch (e) { return "0.50"; } })());
+    function setLot(v) { lot[1](v); try { localStorage.setItem("FLOW_LOT", v); } catch (e) {} }
     useEffect(function () {
       try { var raw = localStorage.getItem(GX_TRACK_KEY); if (raw) tracked[1](JSON.parse(raw)); } catch (e) {}
       apiGet("/api/genx/tracked").then(function (d) { if (d && Array.isArray(d.tracked)) { tracked[1](d.tracked); try { localStorage.setItem(GX_TRACK_KEY, JSON.stringify(d.tracked)); } catch (e) {} } });
@@ -2070,6 +2181,8 @@ input{font:inherit}
         <div class="gx-act">${act.t}</div>
         <div class="gx-conf"><b>${g.confidence_score}</b><span>/ 100 · ${gxConfLabel(g.confidence_score)}</span></div>
         <div class="gx-bias">Bias: ${g.directional_bias} · ${g.market_regime || "—"} · ${g.session}</div>
+
+        ${g.entry_engine ? html`<${GxEntry} ee=${g.entry_engine} g=${g} lot=${lot[0]} setLot=${setLot} />` : null}
 
         <${GxConfirm} setup=${setupFromGenx(g, mode[0])} />
         ${hasPlan && gxIsWait(g.action) ? html`<button onClick=${function () { trackCurrent(g); }} style=${"margin-top:8px;width:100%;border-radius:9px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);padding:9px 12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.7);cursor:pointer"}>${(tracked[0].some(function (t) { return gxTrackKey(t) === gxTrackKey(setupFromGenx(g, mode[0])); })) ? "✓ Tracking this setup — you’ll find it up top" : "📌 Track this setup — come back to it later"}</button>` : null}
