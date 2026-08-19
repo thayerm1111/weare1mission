@@ -262,11 +262,15 @@ function FlowMap({ candles, g, price, live }: { candles: Candle[]; g: Genx; pric
       {seq.map((s, i) => {
         if (i === 0) return null;
         const anchor: "start" | "middle" | "end" = i === seq.length - 1 ? "end" : "middle";
+        // Skip the "Now"/"Entry" path labels — the NOW pill and the labelled
+        // reaction-zone band already name those, and drawing them here collides
+        // with the zone label. Keep the dot; only label the targets.
+        const showLabel = !/^(now|entry)$/i.test(String(s.label || ""));
         return (
           <g key={`sp${i}`} opacity={0}>
             <animate attributeName="opacity" from="0" to="1" dur="0.4s" begin={`${0.5 + i * 0.12}s`} fill="freeze" />
             <circle cx={spx(i)} cy={y(s.price)} r={3.5} fill={dir} />
-            <text x={i === seq.length - 1 ? spx(i) - 4 : spx(i)} y={y(s.price) - 9} fill={dir} fontSize={9.5} fontWeight={700} textAnchor={anchor}>{s.label}</text>
+            {showLabel && <text x={i === seq.length - 1 ? spx(i) - 4 : spx(i)} y={y(s.price) - 9} fill={dir} fontSize={9.5} fontWeight={700} textAnchor={anchor}>{s.label}</text>}
           </g>
         );
       })}
