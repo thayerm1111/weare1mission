@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Decision mapping → GENX result (all numbers from the engine) ──
-  const genx = buildGenx(read, { mode, price: rr.price, session: rr.session, dataStatus: rr.dataStatus, hold: m.hold, triggerTf: m.triggerTf, contextTf: m.contextTf, pip: GOLD.pip, dec: GOLD.dec, marketStory, volatility: rr.volatility, atr: rr.atr, m15: rr.m15 });
+  const genx = buildGenx(read, { mode, price: rr.price, session: rr.session, dataStatus: rr.dataStatus, hold: m.hold, triggerTf: m.triggerTf, contextTf: m.contextTf, pip: GOLD.pip, dec: GOLD.dec, marketStory, volatility: rr.volatility, atr: rr.atr, m15: rr.m15, nowMs: rr.nowMs });
 
   // Charge only when GENX produces an actionable read.
   const chargeable = read.state === "TRADE_READY" || read.state === "DEVELOPING_SETUP" || read.state === "WATCHLIST";
