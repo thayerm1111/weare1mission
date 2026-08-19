@@ -2180,13 +2180,55 @@ input{font:inherit}
       ${okmsg[0] ? html`<div class="bk-ok">${okmsg[0]}</div>` : null}
     </div>`;
   }
+  // ── FLOW — the AI Trade Desk (separate from GENX). Answers "enter NOW, wait,
+  // or missed?" via the FLOW Entry Engine, with Copy Trade + TradeLocker connect.
+  function FlowScreen(props) {
+    var mode = useState("quick"), loading = useState(false), err = useState(""), res = useState(null), broker = useState(false);
+    var lot = useState((function () { try { return localStorage.getItem("FLOW_LOT") || "0.50"; } catch (e) { return "0.50"; } })());
+    function setLot(v) { lot[1](v); try { localStorage.setItem("FLOW_LOT", v); } catch (e) {} }
+    function run() {
+      if (loading[0]) return; loading[1](true); err[1]("");
+      apiPost("/api/flow/read", { mode: mode[0] }).then(function (d) {
+        if (!d || d.error) {
+          if (d && (d.notConfigured || d.error === "marketdata_error")) return err[1]("Gold market data isn't available right now — try again shortly.");
+          if (d && d.error === "ratelimit") return err[1](d.detail || "Market-data limit hit — give it a minute.");
+          if (d && d.error === "insufficient_data") return err[1](d.detail || "Not enough recent Gold candles yet — try again shortly.");
+          return err[1]((d && d.detail) || "FLOW couldn't read Gold right now — try again.");
+        }
+        res[1](d);
+      }).catch(function (e) { if (e && e.code === 401) props.onLogout(); else err[1]("Something went wrong — try again."); })
+        .then(function () { loading[1](false); });
+    }
+    useEffect(function () { run(); }, [mode[0]]);
+    if (broker[0]) return html`<${GxBrokerConnect} onClose=${function () { broker[1](false); }} onLogout=${props.onLogout} />`;
+    var d = res[0];
+    return html`<div class="scr gx">
+      <div class="gx-head">
+        <div>
+          <div class="gx-title">FLOW</div>
+          <div class="gx-sub">AI Trade Desk · Gold</div>
+          ${d && d.price != null ? html`<div class="gx-price">$${d.price}</div>` : null}
+        </div>
+        ${d ? html`<span class=${"gx-live " + (d.data_status === "live" ? "live" : "stale")}><span class="p"></span>${d.data_status === "live" ? "Live" : "Delayed"}</span>` : null}
+      </div>
+
+      <div class="gx-modes">
+        ${GENX_MODES.map(function (mo) { return html`<button class=${"gx-mode " + (mode[0] === mo.k ? "on" : "")} onClick=${function () { if (!loading[0]) mode[1](mo.k); }}><b>${mo.label}</b><span>${mo.sub}</span></button>`; })}
+      </div>
+
+      <button class="gx-analyze" disabled=${loading[0]} onClick=${run}>${loading[0] ? "Finding your trade…" : "Find my trade"}</button>
+      <div style="text-align:center;margin-top:6px;font-size:11px;opacity:.5"><a href="#" onClick=${function (e) { e.preventDefault(); broker[1](true); }} style="color:var(--sky);font-weight:700;text-decoration:none">◆ Connect TradeLocker ›</a></div>
+      ${err[0] ? html`<div class="err" style="margin-top:10px">${err[0]}</div>` : null}
+      ${loading[0] && !d ? html`<div class="gx-analyzing">◆ Reading live Gold — checking whether NOW is a clean entry…</div>` : null}
+
+      ${d && d.entry_engine ? html`<${GxEntry} ee=${d.entry_engine} g=${d.g} lot=${lot[0]} setLot=${setLot} onTrade=${function () { broker[1](true); }} />` : null}
+
+      ${d ? html`<div class="gx-foot" style="margin-top:16px">FLOW times entries on the shared Gold engine · educational analysis, not financial advice · never trades without your confirmation.</div>` : null}
+    </div>`;
+  }
   function GenxScreen(props) {
     var mode = useState("quick"), loading = useState(false), err = useState(""), res = useState(null), needCr = useState(false), open = useState(false);
     var tracked = useState([]);
-    var broker = useState(false);
-    var lot = useState((function () { try { return localStorage.getItem("FLOW_LOT") || "0.50"; } catch (e) { return "0.50"; } })());
-    function setLot(v) { lot[1](v); try { localStorage.setItem("FLOW_LOT", v); } catch (e) {} }
-    if (broker[0]) return html`<${GxBrokerConnect} onClose=${function () { broker[1](false); }} onLogout=${props.onLogout} />`;
     useEffect(function () {
       try { var raw = localStorage.getItem(GX_TRACK_KEY); if (raw) tracked[1](JSON.parse(raw)); } catch (e) {}
       apiGet("/api/genx/tracked").then(function (d) { if (d && Array.isArray(d.tracked)) { tracked[1](d.tracked); try { localStorage.setItem(GX_TRACK_KEY, JSON.stringify(d.tracked)); } catch (e) {} } });
@@ -2234,8 +2276,8 @@ input{font:inherit}
     return html`<div class="scr gx">
       <div class="gx-head">
         <div>
-          <div class="gx-title">FLOW</div>
-          <div class="gx-sub">AI Trade Desk · GENX Gold engine</div>
+          <div class="gx-title">GENX</div>
+          <div class="gx-sub">Gold Intelligence Engine</div>
           ${d ? html`<div class="gx-price">$${d.price}</div>` : null}
         </div>
         ${d ? html`<span class=${"gx-live " + (d.data_status === "live" ? "live" : "stale")}><span class="p"></span>${d.data_status === "live" ? "Live" : "Delayed"}</span>` : null}
@@ -2246,7 +2288,7 @@ input{font:inherit}
       </div>
 
       <button class="gx-analyze" disabled=${loading[0]} onClick=${run}>${loading[0] ? "Analyzing Gold…" : (d ? "Re-analyze Gold" : "Analyze Gold Now")}</button>
-      <div style="text-align:center;margin-top:6px;font-size:11px;opacity:.5">3 credits per read · <a href="#" onClick=${function (e) { e.preventDefault(); broker[1](true); }} style="color:var(--sky);font-weight:700;text-decoration:none">Connect TradeLocker ›</a></div>
+      <div style="text-align:center;margin-top:6px;font-size:11px;opacity:.5">3 credits per read</div>
       ${err[0] ? html`<div class="err" style="margin-top:10px">${err[0]}${needCr[0] ? html` <a href="#" onClick=${function (e) { e.preventDefault(); try { window.open("/portal/credits", "_blank"); } catch (x) {} }} style="color:var(--sky);font-weight:700"> Get credits</a>` : null}</div>` : null}
       ${loading[0] ? html`<div class="gx-analyzing">◆ Reading live Gold — structure, momentum, levels, liquidity…</div>` : null}
 
@@ -2262,8 +2304,6 @@ input{font:inherit}
         <div class="gx-act">${act.t}</div>
         <div class="gx-conf"><b>${g.confidence_score}</b><span>/ 100 · ${gxConfLabel(g.confidence_score)}</span></div>
         <div class="gx-bias">Bias: ${g.directional_bias} · ${g.market_regime || "—"} · ${g.session}</div>
-
-        ${g.entry_engine ? html`<${GxEntry} ee=${g.entry_engine} g=${g} lot=${lot[0]} setLot=${setLot} onTrade=${function () { broker[1](true); }} />` : null}
 
         <${GxConfirm} setup=${setupFromGenx(g, mode[0])} />
         ${hasPlan && gxIsWait(g.action) ? html`<button onClick=${function () { trackCurrent(g); }} style=${"margin-top:8px;width:100%;border-radius:9px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);padding:9px 12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.7);cursor:pointer"}>${(tracked[0].some(function (t) { return gxTrackKey(t) === gxTrackKey(setupFromGenx(g, mode[0])); })) ? "✓ Tracking this setup — you’ll find it up top" : "📌 Track this setup — come back to it later"}</button>` : null}
@@ -3239,7 +3279,7 @@ input{font:inherit}
     function goFloor(v) { floorInit[1](v || ""); sec[1]("floor"); }
     return html`<div class="shell">
       <main class="main">
-        ${sec[0] === "flow" ? html`<${GenxScreen} key="flowdesk" onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "flow" ? html`<${FlowScreen} key="flowdesk" onLogout=${props.onLogout} />` : null}
         ${sec[0] === "dashboard" ? html`<${DashboardScreen} go=${go} goFloor=${goFloor} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "floor" ? html`<${FloorSection} key=${"fl" + floorInit[0]} init=${floorInit[0]} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "account" ? html`<${AccountScreen} onLogout=${props.onLogout} onOpenXperf=${function () { sec[1]("xperf"); }} onOpenAcademy=${function () { sec[1]("academy"); }} />` : null}
