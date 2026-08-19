@@ -66,7 +66,7 @@ export function MarketPulse() {
       const r = await fetch("/api/om-scan", { method: "POST" });
       const d = await r.json();
       if (d.notConfigured) { setMsg("Live market data isn't connected yet."); return; }
-      if (r.status === 402 || d.error === "insufficient_credits") { setMsg("You're out of credits — a scan costs 2. Free credits reset weekly, or top up on the Credits page."); return; }
+      if (r.status === 402 || d.error === "insufficient_credits") { setMsg("You're out of credits — a scan costs 5. Free credits reset weekly, or top up on the Credits page."); return; }
       if (d.error === "system_busy") { setMsg(d.detail || "The scanner is at capacity for a moment — try again in a few seconds."); return; }
       const fresh = Array.isArray(d.setups) ? d.setups : [];
       setSetups(fresh); setAsOf(d.asOf || "");

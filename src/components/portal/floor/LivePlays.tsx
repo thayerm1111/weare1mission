@@ -54,19 +54,28 @@ export function LivePlays({ isCaller = false, followerCount = 0 }: { isCaller?: 
     setHydrated(true);
   }, []);
 
-  const load = useCallback(async () => {
+  // Live Plays are shared by everyone and cached ~2h server-side. A plain load
+  // just reads that shared set (cheap); Refresh asks the server to regenerate,
+  // which it only does if the shared set is older than 2h (otherwise throttled).
+  const load = useCallback(async (refresh = false) => {
     setLoading(true); setMsg("");
     try {
-      const r = await fetch("/api/om-weekly", { method: "POST" });
+      const r = await fetch("/api/om-weekly", refresh
+        ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ refresh: true }) }
+        : { method: "GET" });
       const d = await r.json();
       if (d.notConfigured) { setMsg("OM AI isn't switched on yet."); return; }
-      if (d.error) { setMsg("Couldn't load this week's plays — try again shortly."); return; }
+      if (d.error && !Array.isArray(d.plays)) { setMsg("Couldn't load this week's plays — try again shortly."); return; }
       const fresh = Array.isArray(d.plays) ? d.plays : [];
       setPlays(fresh); setNote(d.note || ""); setWeek(d.week || "");
+      if (refresh && d.throttled) setMsg(`Live Plays refresh at most every couple of hours — showing the latest shared set${typeof d.ageMinutes === "number" ? ` (updated ${d.ageMinutes}m ago)` : ""}.`);
       try { localStorage.setItem("om_weekly_v1", JSON.stringify({ plays: fresh, note: d.note || "", week: d.week || "" })); } catch { /* ignore */ }
     } catch { setMsg("Couldn't load this week's plays — try again shortly."); }
     finally { setLoading(false); }
   }, []);
+
+  // Load the current shared set on open (cheap — reads the 2h cache, never regenerates).
+  useEffect(() => { void load(false); }, [load]);
 
   return (
     <div className="space-y-4">
@@ -77,7 +86,7 @@ export function LivePlays({ isCaller = false, followerCount = 0 }: { isCaller?: 
           </h2>
           <p className="text-xs text-charcoal/50">AI buy-&-hold desk · stocks + crypto {week && `· ${week}`}</p>
         </div>
-        <button onClick={() => void load()} disabled={loading}
+        <button onClick={() => void load(true)} disabled={loading}
           className="inline-flex items-center gap-2 rounded-full border border-ice bg-white px-4 py-2 text-sm font-semibold text-charcoal/70 transition-colors hover:bg-offwhite focus-ring disabled:opacity-50">
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
         </button>

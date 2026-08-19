@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { LayoutGrid, Sparkles, Zap, Activity, TrendingUp, Ghost, Gem } from "lucide-react";
+import { LayoutGrid, Sparkles, Zap, Activity, TrendingUp, Gem } from "lucide-react";
 import { FloorHome } from "./FloorHome";
 import { LivePlays } from "./LivePlays";
 import { MarketPulse } from "./MarketPulse";
@@ -32,7 +32,6 @@ const SWITCHER: SwitchItem[] = [
   { key: "signals", label: "OM AI Plays", icon: Zap, href: "/portal/signals" },
   { key: "pulse", label: "Market Pulse", icon: Activity, view: "pulse" },
   { key: "plays", label: "Live Plays", icon: TrendingUp, view: "plays" },
-  { key: "xaughost", label: "MFXGHOST", icon: Ghost, href: "/portal/xaughost" },
 ];
 
 export function FloorWorkspace({
