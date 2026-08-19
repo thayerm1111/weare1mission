@@ -1,5 +1,6 @@
 import { series, livePrice, livePriceSane } from "@/lib/marketData";
 import { runEngine, type EngineCfg } from "@/lib/omEngine";
+import { decideEntry, type ConfirmSignal } from "@/lib/entryEngine";
 
 /**
  * GENX shared compute — the single source of truth for a GENX read.
@@ -128,7 +129,7 @@ export async function computeGenxRead(opts: { mode: Mode; mdKey: string; fresh: 
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /** Layer 4 mapping — turn the locked engine object into the GENX result shape. */
-export function buildGenx(read: Record<string, unknown>, ctx: { mode: Mode; price: number; session: string; dataStatus: string; hold: [number, number]; triggerTf: string; contextTf: string; pip: number; dec: number; marketStory: string[]; volatility: string; atr: number | null; m15: Row[] | null }) {
+export function buildGenx(read: Record<string, unknown>, ctx: { mode: Mode; price: number; session: string; dataStatus: string; hold: [number, number]; triggerTf: string; contextTf: string; pip: number; dec: number; marketStory: string[]; volatility: string; atr: number | null; m15: Row[] | null; nowMs?: number; confirm?: { state: ConfirmSignal; confirmedAtMs?: number | null }; activatedAtMs?: number | null; spread?: number | null }) {
   const r = read as any;
   const { pip, dec, price } = ctx;
   const pips = (a: number | null, b: number | null): number | null => (num(a) != null && num(b) != null ? Math.round(Math.abs((a as number) - (b as number)) / pip) : null);
@@ -271,8 +272,31 @@ export function buildGenx(read: Record<string, unknown>, ctx: { mode: Mode; pric
 
   const [holdLow, holdHigh] = ctx.hold;
 
+  // ── FLOW Entry Engine (spec §1–5): separate entry-timing lifecycle + Entry
+  // Quality, layered on top of the setup. Deterministic; additive to the read.
+  const entry_engine = decideEntry({
+    side: dir,
+    engineState: state,
+    action,
+    edgeScore: Math.round(confidence),
+    preferredEntry: entry,
+    entryLow, entryHigh,
+    invalidation: stop,
+    tp1,
+    currentPrice: ctx.price,
+    atr: ctx.atr,
+    pip, dec,
+    mode: ctx.mode,
+    triggerTf: ctx.triggerTf,
+    nowMs: ctx.nowMs ?? Date.now(),
+    confirm: ctx.confirm,
+    activatedAtMs: ctx.activatedAtMs ?? null,
+    spread: ctx.spread ?? null,
+  });
+
   return {
     symbol: "XAUUSD", mode: ctx.mode, market_regime: regime,
+    entry_engine,
     directional_bias: bias, action, lifecycle,
     confidence_score: Math.round(confidence),
     entry, entry_low: entryLow, entry_high: entryHigh,
