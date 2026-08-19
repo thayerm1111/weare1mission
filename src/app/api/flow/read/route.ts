@@ -88,6 +88,7 @@ export async function POST(req: NextRequest) {
     invalidation: g.invalidation_price, tp1: g.tp1, currentPrice: rr.price, atr: rr.atr,
     pip: inst.pipSize, dec: inst.pricePrecision, mode, triggerTf: m.triggerTf, nowMs: rr.nowMs,
     confirm: { state: confirmState, confirmedAtMs: confirmState === "CONFIRMED" ? rr.nowMs : null },
+    regime: String(g.market_regime ?? ""), structure: String(g.market_structure ?? ""), momentum: String(g.momentum ?? ""),
   });
 
   return json({
