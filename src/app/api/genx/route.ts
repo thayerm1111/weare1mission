@@ -4,6 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { gateCredits, chargeCredit } from "@/lib/credits";
 import { isPriorityEmail } from "@/lib/marketData";
 import { computeGenxRead, buildGenx, GOLD, MODES, type Mode } from "@/lib/genxCompute";
+import { confirmEntry } from "@/lib/genxConfirm";
+import { decideEntry, type ConfirmSignal } from "@/lib/entryEngine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,6 +90,35 @@ export async function POST(req: NextRequest) {
 
   // ── Decision mapping → GENX result (all numbers from the engine) ──
   const genx = buildGenx(read, { mode, price: rr.price, session: rr.session, dataStatus: rr.dataStatus, hold: m.hold, triggerTf: m.triggerTf, contextTf: m.contextTf, pip: GOLD.pip, dec: GOLD.dec, marketStory, volatility: rr.volatility, atr: rr.atr, m15: rr.m15, nowMs: rr.nowMs });
+
+  // ── FLOW Entry Engine: run the live candle-close confirmation and fold it into
+  // the entry decision so the on-demand read can reach a true ENTER_NOW (not just
+  // the distance-based ARMED). Same confirmEntry rule the scanner + alerts use. ──
+  try {
+    const side: "buy" | "sell" = genx.directional_bias === "bearish" ? "sell" : "buy";
+    if (genx.entry_low != null && genx.entry_high != null && genx.invalidation_price != null && genx.engine_state !== "NO_TRADE") {
+      const conf = await confirmEntry({
+        side,
+        entryLow: genx.entry_low as number,
+        entryHigh: genx.entry_high as number,
+        watch: (genx.entry as number) ?? (genx.entry_low as number),
+        invalidation: genx.invalidation_price as number,
+        mode, mdKey, fresh,
+      });
+      const map: Record<string, ConfirmSignal> = { WAIT: "WAIT", AT_ZONE: "AT_ZONE", CONFIRMED: "CONFIRMED", INVALIDATED: "INVALIDATED", BUSY: "NONE", NO_DATA: "NONE" };
+      const signal: ConfirmSignal = map[conf.state] ?? "NONE";
+      if (signal !== "NONE") {
+        genx.entry_engine = decideEntry({
+          side, engineState: genx.engine_state, action: genx.action, edgeScore: genx.confidence_score,
+          preferredEntry: genx.entry, entryLow: genx.entry_low, entryHigh: genx.entry_high,
+          invalidation: genx.invalidation_price, tp1: genx.tp1, currentPrice: rr.price, atr: rr.atr,
+          pip: GOLD.pip, dec: GOLD.dec, mode, triggerTf: m.triggerTf, nowMs: rr.nowMs,
+          confirm: { state: signal, confirmedAtMs: signal === "CONFIRMED" ? rr.nowMs : null },
+        });
+        (genx as Record<string, unknown>).entry_confirm = { state: conf.state, detail: conf.detail, interval: conf.interval };
+      }
+    }
+  } catch { /* confirm is best-effort; entry_engine already has a distance-based decision */ }
 
   // Charge only when GENX produces an actionable read.
   const chargeable = read.state === "TRADE_READY" || read.state === "DEVELOPING_SETUP" || read.state === "WATCHLIST";
