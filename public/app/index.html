@@ -1891,7 +1891,7 @@ input{font:inherit}
     })();
     var pivotEls = pivots.map(function (p) { return html`<text x=${p.x} y=${p.y} fill="#8b94a7" font-size="7.5" font-weight="700" text-anchor="middle" opacity="0.7">${p.tag}</text>`; });
 
-    var projEls = seq.map(function (s, i) { if (i === 0) return null; var last = i === seq.length - 1; return html`<g><circle cx=${spx(i)} cy=${y(s.price)} r="3" fill=${dir}/><text x=${last ? spx(i) - 3 : spx(i)} y=${y(s.price) - 7} fill=${dir} font-size="9" font-weight="700" text-anchor=${last ? "end" : "middle"}>${s.label}</text></g>`; });
+    var projEls = seq.map(function (s, i) { if (i === 0) return null; var last = i === seq.length - 1; var lbl = String(s.label || ""); var showLabel = !/^(now|entry)$/i.test(lbl); return html`<g><circle cx=${spx(i)} cy=${y(s.price)} r="3" fill=${dir}/>${showLabel ? html`<text x=${last ? spx(i) - 3 : spx(i)} y=${y(s.price) - 7} fill=${dir} font-size="9" font-weight="700" text-anchor=${last ? "end" : "middle"}>${lbl}</text>` : null}</g>`; });
 
     return html`<svg viewBox=${"0 0 " + W + " " + H} width="100%" preserveAspectRatio="xMidYMid meet" style="display:block">
       <rect x=${splitX} y=${padT} width=${plotR - splitX} height=${H - padT - padB} fill=${dir} opacity="0.05"/>
