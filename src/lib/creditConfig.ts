@@ -23,11 +23,11 @@ export const DAILY_FREE = Number(process.env.NEXT_PUBLIC_DAILY_FREE_CREDITS ?? 5
 // (cached/shared for everyone) so they aren't listed here.
 export const CREDIT_COST = {
   chat: 1,       // one OM AI message
-  signal: 1,     // generate a play on OM AI Plays
+  signal: 3,     // generate a play on OM AI Plays
   deepdive: 1,   // open the full reasoning breakdown
-  scan: 2,       // Market Pulse scan (heaviest — up to 8 data calls)
+  scan: 5,       // Market Pulse scan (heaviest — up to 8 data calls)
   ghost: 5,      // MFXGHOST full institutional read — the heaviest AI call (up to 4k-token output + multi-timeframe data). Priced as a premium action so its margin holds even on the cheapest credit pack.
-  genx: 3,       // GENX flagship Gold decision engine — deterministic engine + a short AI market story. Priced below MFXGHOST since the AI output is a brief narrative, not a full 4k-token read.
+  genx: 5,       // GENX flagship Gold decision engine — deterministic engine + a short AI market story. Every analyze/re-analyze charges the full read.
   chartread: 2,  // OM Charts AI read — vision analysis of a marked-up chart + live data
   command: 1,    // OM AI Market Command — full deterministic qualification run (multi-TF + risk engine)
 } as const;
