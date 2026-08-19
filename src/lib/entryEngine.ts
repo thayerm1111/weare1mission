@@ -31,7 +31,8 @@ export type EntryState =
   | "ENTER_ON_PULLBACK"
   | "MISSED"
   | "INVALIDATED"
-  | "EXPIRED";
+  | "EXPIRED"
+  | "STAND_ASIDE"; // counter-trend: don't buy a falling market / sell a rising one
 export type EntryType =
   | "MARKET_NOW"
   | "LIMIT"
@@ -82,6 +83,10 @@ export type EntryEngineInput = {
   activatedAtMs?: number | null;
   /** Broker spread in price units, when a TradeLocker account is connected. */
   spread?: number | null;
+  /** Trend context so FLOW won't buy a falling market / sell a rising one. */
+  regime?: string;      // e.g. "Bearish trend", "Bullish", "Range/chop"
+  structure?: string;   // "Bullish" | "Bearish" | "Range"
+  momentum?: string;    // "Strong" | "Moderate" | "Weak"
 };
 
 export type EntryQualityFactor = { label: string; delta: number; note: string };
@@ -114,6 +119,7 @@ export type EntryDecision = {
   actionable: boolean;                  // true ⇒ user can act now (ENTER_NOW or place-limit)
   headline: string;                     // short label e.g. "ENTER NOW", "APPROACHING", "DO NOT CHASE"
   detail: string;                       // one-line plain-English explanation
+  trend: "aligned" | "counter" | "neutral"; // setup vs. the prevailing trend
 };
 
 const isNum = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
@@ -206,6 +212,17 @@ export function decideEntry(inp: EntryEngineInput): EntryDecision {
   const tooStale = isNum(minsSinceConfirm) && minsSinceConfirm > tune.maxMinutesSinceConfirm;
   const rrTooLow = isNum(remainingRR) && remainingRR < tune.minRemainingRR;
 
+  // ── Trend guard: FLOW does not buy a falling market or sell a rising one.
+  // GENX keeps proposing "buy the next support" as price drops; FLOW instead
+  // stands aside until the move stabilises, unless a real reaction confirms.
+  const regimeTxt = (inp.regime || "").toLowerCase();
+  const structTxt = (inp.structure || "").toLowerCase();
+  const trendDown = /bear|down/.test(regimeTxt) || /bear|down/.test(structTxt);
+  const trendUp = /bull|up/.test(regimeTxt) || /bull|up/.test(structTxt);
+  const counterTrend = (side === "buy" && trendDown && !trendUp) || (side === "sell" && trendUp && !trendDown);
+  const withTrend = (side === "buy" && trendUp && !trendDown) || (side === "sell" && trendDown && !trendUp);
+  const trend: EntryDecision["trend"] = counterTrend ? "counter" : withTrend ? "aligned" : "neutral";
+
   let entryState: EntryState;
 
   if (setupState === "NO_EDGE") {
@@ -215,11 +232,15 @@ export function decideEntry(inp: EntryEngineInput): EntryDecision {
   } else if (conf === "CONFIRMED" && (tooExtended || tooStale || rrTooLow)) {
     entryState = "MISSED";
   } else if (conf === "CONFIRMED") {
-    entryState = "ENTER_NOW";
+    entryState = "ENTER_NOW"; // a real reaction confirmed — allowed even counter-trend, but flagged below
   } else if (expired && setupState !== "READY") {
     entryState = "EXPIRED";
   } else if (conf === "AT_ZONE" || (conf === "NONE" && inZone)) {
     entryState = "ARMED";
+  } else if (counterTrend) {
+    // Pre-entry, price still travelling toward a counter-trend zone ⇒ don't chase
+    // the falling knife. Stand aside until price stabilises or actually reacts.
+    entryState = "STAND_ASIDE";
   } else if (
     entryType === "LIMIT" &&
     isNum(distanceToEntry) &&
@@ -279,6 +300,9 @@ export function decideEntry(inp: EntryEngineInput): EntryDecision {
       if (spreadRatio > 0.08) penalise("Spread", -Math.round(clamp(spreadRatio * 60, 0, 20)), `spread is ${Math.round(inp.spread / pip)} pips`);
     }
   }
+  // 6. Trend alignment — a counter-trend entry is a much lower-quality entry.
+  if (counterTrend) penalise("Counter-trend", -35, `${side === "buy" ? "buying into a downtrend" : "selling into an uptrend"}`);
+  else if (withTrend) penalise("With trend", +5, "setup is aligned with the prevailing trend");
   const entryQuality = Math.round(clamp(q, 0, 100));
 
   // ── Meter position (0 = too early, 0.5 = ideal, 1 = missed) ─────────────
@@ -286,6 +310,8 @@ export function decideEntry(inp: EntryEngineInput): EntryDecision {
   let meterBand: EntryDecision["meterBand"] = "ideal";
   if (entryState === "MISSED" || entryState === "INVALIDATED" || entryState === "EXPIRED") {
     meter = 1; meterBand = "missed";
+  } else if (entryState === "STAND_ASIDE") {
+    meter = 0.06; meterBand = "too_early";
   } else if (chasing) {
     const r = clamp((extension as number) / maxChase, 0, 1);
     meter = 0.5 + r * 0.5;
@@ -339,6 +365,12 @@ export function decideEntry(inp: EntryEngineInput): EntryDecision {
       headline = "WINDOW CLOSED";
       detail = `The actionable window for this setup has elapsed. FLOW will re-arm if it sets up again.`;
       break;
+    case "STAND_ASIDE":
+      headline = "STAND ASIDE";
+      detail = side === "buy"
+        ? `The only ${dirWord} here is against a downtrend — FLOW won't buy a falling market. Waiting for price to stabilise or actually reclaim before it's a clean entry.`
+        : `The only ${dirWord} here is against an uptrend — FLOW won't sell a rising market. Waiting for price to stall or actually reject before it's a clean entry.`;
+      break;
     default:
       headline = "WAIT";
       detail = isNum(distanceToEntryPips) && distanceToEntryPips > 0
@@ -374,6 +406,7 @@ export function decideEntry(inp: EntryEngineInput): EntryDecision {
     actionable,
     headline,
     detail,
+    trend,
   };
 }
 
