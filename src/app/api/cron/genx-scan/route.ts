@@ -187,7 +187,7 @@ async function run(): Promise<Response> {
     try {
       const rr = await computeGenxRead({ mode, mdKey, fresh: true });
       if (!rr.ok) { modeOut.skip = rr.error; continue; }
-      const genx = buildGenx(rr.read, { mode, price: rr.price, session: rr.session, dataStatus: rr.dataStatus, hold: MODES[mode].hold, triggerTf: MODES[mode].triggerTf, contextTf: MODES[mode].contextTf, pip: GOLD.pip, dec: GOLD.dec, marketStory: [], volatility: rr.volatility, atr: rr.atr, m15: rr.m15, nowMs: rr.nowMs });
+      const genx = buildGenx(rr.read, { mode, price: rr.price, session: rr.session, dataStatus: rr.dataStatus, hold: MODES[mode].hold, triggerTf: MODES[mode].triggerTf, contextTf: MODES[mode].contextTf, pip: GOLD.pip, dec: GOLD.dec, marketStory: [], volatility: rr.volatility, atr: rr.atr, m15: rr.m15 });
 
       const engineState = String(genx.engine_state || "");
       const actionable = engineState === "TRADE_READY" || engineState === "DEVELOPING_SETUP";
