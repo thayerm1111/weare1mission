@@ -63,19 +63,18 @@ const ONES_ONLY = ["trading", "genx", "signals", "xaughost", "charts", "command"
 type FloorChild =
   | { kind: "view"; view: string; label: string; icon: typeof LineChart }
   | { kind: "page"; key: string };
-// The five Floor experiences, in the flywheel order:
-// OM AI (intelligence) → OM AI Plays (execution) → Market Pulse (discovery) →
-// Live Plays (long game) → MFXGHOST (deep analysis). Market Command stays admin-
-// only. Archived from the customer Floor menu (routes/components kept intact):
-// The Room, xGhost (5-pair), OM Scalp, OM Charts, OM Strategy Scanner.
+// The Floor experiences, in the flywheel order:
+// GENX (flagship) → OM AI (intelligence) → OM AI Plays (execution) →
+// Market Pulse (discovery). Live Plays moved to the Dashboard (surfaced there as
+// "Live Setups"). MFXGHOST and OM AI Market Command are hidden for now — routes
+// and components are kept intact so they can be switched back on later.
+// Also archived from the customer Floor menu: The Room, xGhost (5-pair), OM
+// Scalp, OM Charts, OM Strategy Scanner.
 const FLOOR_CHILDREN: FloorChild[] = [
   { kind: "page", key: "genx" },
   { kind: "page", key: "omai" },
   { kind: "page", key: "signals" },
   { kind: "view", view: "pulse", label: "Market Pulse", icon: Activity },
-  { kind: "view", view: "plays", label: "Live Plays", icon: Zap },
-  { kind: "page", key: "xaughost" },
-  { kind: "page", key: "command" },
 ];
 // Page keys that now live inside The Floor submenu (used for active detection).
 const FLOOR_PAGE_KEYS = FLOOR_CHILDREN.filter((c): c is Extract<FloorChild, { kind: "page" }> => c.kind === "page").map((c) => c.key);
