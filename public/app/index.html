@@ -236,9 +236,10 @@ input{font:inherit}
 .bnav{position:fixed;left:0;right:0;bottom:0;max-width:600px;margin:0 auto;display:flex;
   background:rgba(8,12,24,.92);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
 .bn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;color:var(--faint)}
-.bn-i{font-size:17px;line-height:1}
-.bn-l{font-size:10px;font-weight:700;letter-spacing:.03em}
+.bn-i{font-size:16px;line-height:1}
+.bn-l{font-size:9.5px;font-weight:700;letter-spacing:.02em;white-space:nowrap}
 .bn.on{color:var(--sky)}
+.bn[data-id=flow]{color:var(--green)} .bn[data-id=flow].on{color:var(--green)} .bn[data-id=flow].on .bn-i{text-shadow:0 0 12px rgba(46,232,143,.6)}
 .bn.on .bn-i{text-shadow:0 0 12px rgba(57,198,255,.5)}
 .scr{padding:6px 2px 8px}
 .scr-h{font-size:20px;font-weight:800;letter-spacing:.01em;padding:4px 4px 2px}
@@ -2233,8 +2234,8 @@ input{font:inherit}
     return html`<div class="scr gx">
       <div class="gx-head">
         <div>
-          <div class="gx-title">GENX</div>
-          <div class="gx-sub">Gold Intelligence Engine</div>
+          <div class="gx-title">FLOW</div>
+          <div class="gx-sub">AI Trade Desk · GENX Gold engine</div>
           ${d ? html`<div class="gx-price">$${d.price}</div>` : null}
         </div>
         ${d ? html`<span class=${"gx-live " + (d.data_status === "live" ? "live" : "stale")}><span class="p"></span>${d.data_status === "live" ? "Live" : "Delayed"}</span>` : null}
@@ -2585,7 +2586,8 @@ input{font:inherit}
   }
 
   var NAV = [
-    { id: "floor", label: "The Floor", icon: "▦" }, { id: "dashboard", label: "Dashboard", icon: "⌂" },
+    { id: "flow", label: "FLOW", icon: "◆" },
+    { id: "floor", label: "Floor", icon: "▦" }, { id: "dashboard", label: "Dashboard", icon: "⌂" },
     { id: "academy", label: "Academy", icon: "🎓" },
     { id: "account", label: "Account", icon: "◉" }, { id: "plugin", label: "Plug In", icon: "⌁" }
   ];
@@ -3237,6 +3239,7 @@ input{font:inherit}
     function goFloor(v) { floorInit[1](v || ""); sec[1]("floor"); }
     return html`<div class="shell">
       <main class="main">
+        ${sec[0] === "flow" ? html`<${GenxScreen} key="flowdesk" onLogout=${props.onLogout} />` : null}
         ${sec[0] === "dashboard" ? html`<${DashboardScreen} go=${go} goFloor=${goFloor} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "floor" ? html`<${FloorSection} key=${"fl" + floorInit[0]} init=${floorInit[0]} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "account" ? html`<${AccountScreen} onLogout=${props.onLogout} onOpenXperf=${function () { sec[1]("xperf"); }} onOpenAcademy=${function () { sec[1]("academy"); }} />` : null}
@@ -3244,7 +3247,7 @@ input{font:inherit}
         ${sec[0] === "xperf" ? html`<${XGhostStatsScreen} onBack=${function () { sec[1]("account"); }} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "academy" ? html`<${AcademyScreen} onBack=${function () { sec[1]("dashboard"); }} onLogout=${props.onLogout} />` : null}
       </main>
-      <nav class="bnav">${NAV.map(function (n) { var on = sec[0] === n.id || (sec[0] === "xperf" && n.id === "account"); return html`<button class=${"bn " + (on ? "on" : "")} onClick=${function () { if (n.id === "floor") goFloor(""); else go(n.id); }}><span class="bn-i">${n.icon}</span><span class="bn-l">${n.label}</span></button>`; })}</nav>
+      <nav class="bnav">${NAV.map(function (n) { var on = sec[0] === n.id || (sec[0] === "xperf" && n.id === "account"); return html`<button class=${"bn " + (on ? "on" : "")} data-id=${n.id} onClick=${function () { if (n.id === "floor") goFloor(""); else go(n.id); }}><span class="bn-i">${n.icon}</span><span class="bn-l">${n.label}</span></button>`; })}</nav>
     </div>`;
   }
   function Login(props) {
