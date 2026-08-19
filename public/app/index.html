@@ -797,7 +797,7 @@ input{font:inherit}
  * derived client-side from the candles the backend already sent, for display). */
 (function () {
   "use strict";
-  var h = preact.h, render = preact.render;
+  var h = preact.h, render = preact.render, Fragment = preact.Fragment;
   var useState = preactHooks.useState, useEffect = preactHooks.useEffect, useRef = preactHooks.useRef;
   var html = htm.bind(h);
 
@@ -1862,11 +1862,13 @@ input{font:inherit}
   // One saved setup you can return to — its own live confirmation keeps running.
   function GxTrackedRow(props) {
     var t = props.t, c = t.side === "sell" ? "#ff5d6c" : "#2ee88f";
+    var canOpen = !!(props.onOpen && t.snapshot && t.snapshot.g);
     return html`<div style="border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.02);padding:12px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
-        <div style="min-width:0">
+        <div style=${"min-width:0;" + (canOpen ? "cursor:pointer" : "")} onClick=${canOpen ? props.onOpen : null}>
           <p style=${"margin:0;font-size:13px;font-weight:700;color:" + c}>${t.label}</p>
           <p style="margin:2px 0 0;font-size:10px;color:rgba(255,255,255,.4)">${(t.mode || "").toUpperCase()} · stop ${t.stop} · TP1 ${t.tp1}${t.tp2 != null ? " · TP2 " + t.tp2 : ""} · saved ${gxAgo(t.savedAt)}</p>
+          ${canOpen ? html`<p style="margin:3px 0 0;font-size:11px;font-weight:600;color:var(--sky)">View full details ›</p>` : null}
         </div>
         <button onClick=${props.onRemove} aria-label="Stop tracking" style="flex-shrink:0;background:none;border:none;border-radius:6px;padding:2px 6px;font-size:13px;color:rgba(255,255,255,.35);cursor:pointer">✕</button>
       </div>
@@ -2242,87 +2244,23 @@ input{font:inherit}
       ${d ? html`<div class="gx-foot" style="margin-top:16px">FLOW times entries across pairs on the shared deterministic engine · educational analysis, not financial advice · never trades without your confirmation.</div>` : null}
     </div>`;
   }
-  function GenxScreen(props) {
-    var mode = useState("quick"), loading = useState(false), err = useState(""), res = useState(null), needCr = useState(false), open = useState(false);
-    var tracked = useState([]);
-    useEffect(function () {
-      try { var raw = localStorage.getItem(GX_TRACK_KEY); if (raw) tracked[1](JSON.parse(raw)); } catch (e) {}
-      apiGet("/api/genx/tracked").then(function (d) { if (d && Array.isArray(d.tracked)) { tracked[1](d.tracked); try { localStorage.setItem(GX_TRACK_KEY, JSON.stringify(d.tracked)); } catch (e) {} } });
-    }, []);
-    function persistTracked(next) { tracked[1](next); try { localStorage.setItem(GX_TRACK_KEY, JSON.stringify(next)); } catch (e) {} }
-    function trackCurrent(g) {
-      if (!g) return;
-      var base = setupFromGenx(g, mode[0]);
-      var label = (base.side === "sell" ? "SELL" : "BUY") + " " + ((g.entry_low != null && g.entry_high != null) ? (g.entry_low + "–" + g.entry_high) : g.entry);
-      var t = Object.assign({}, base, { id: String(Date.now()), savedAt: Date.now(), label: label });
-      var next = [t].concat(tracked[0].filter(function (x) { return gxTrackKey(x) !== gxTrackKey(t); })).slice(0, 8);
-      persistTracked(next);
-      apiPost("/api/genx/tracked", { tracked: t }).catch(function () {});
-    }
-    function untrack(id) {
-      persistTracked(tracked[0].filter(function (x) { return x.id !== id; }));
-      try {
-        var se = getSession(), o = { method: "DELETE", credentials: "same-origin", headers: {} };
-        if (se && se.access_token) o.headers.Authorization = "Bearer " + se.access_token;
-        fetch("/api/genx/tracked?id=" + encodeURIComponent(id), o).catch(function () {});
-      } catch (e) {}
-    }
-    function run() {
-      if (loading[0]) return; loading[1](true); err[1](""); needCr[1](false);
-      apiPost("/api/genx", { mode: mode[0] }).then(function (d) {
-        if (!d || d.error) {
-          if (d && (d.notConfigured || d.error === "marketdata_error")) return err[1]("Gold market data isn't available right now — try again shortly.");
-          if (d && d.error === "ratelimit") return err[1](d.detail || "Market-data limit hit — give it a minute.");
-          if (d && d.error === "insufficient_data") return err[1](d.detail || "Not enough recent Gold candles yet — try again shortly.");
-          return err[1]((d && d.detail) || "GENX couldn't read Gold right now — try again.");
-        }
-        res[1](d);
-      }).catch(function (e) {
-        if (e && e.code === 402) { needCr[1](true); err[1]("You're out of credits — a GENX read costs 3. They reset weekly, or top up from Account."); }
-        else if (e && e.code === 401) props.onLogout();
-        else err[1]("Something went wrong — try again.");
-      }).then(function () { loading[1](false); });
-    }
-    var d = res[0], g = d && d.genx ? d.genx : null;
-    var act = g ? gxAction(g.action) : null;
-    var hasPlan = g && num(g.entry) != null && num(g.stop_loss) != null;
-    var tps = g ? [g.tp1, g.tp2, g.tp3].map(function (p, i) { return num(p) != null ? { price: p, label: "TP" + (i + 1), pips: [g.tp1_pips, g.tp2_pips, g.tp3_pips][i] } : null; }).filter(Boolean) : [];
-    var entryTxt = g ? (num(g.entry_low) != null && num(g.entry_high) != null && g.entry_low !== g.entry_high ? g.entry_low + "–" + g.entry_high : (num(g.entry) != null ? String(g.entry) : "—")) : "—";
-
-    return html`<div class="scr gx">
-      <div class="gx-head">
-        <div>
-          <div class="gx-title">GENX</div>
-          <div class="gx-sub">Gold Intelligence Engine</div>
-          ${d ? html`<div class="gx-price">$${d.price}</div>` : null}
-        </div>
-        ${d ? html`<span class=${"gx-live " + (d.data_status === "live" ? "live" : "stale")}><span class="p"></span>${d.data_status === "live" ? "Live" : "Delayed"}</span>` : null}
-      </div>
-
-      <div class="gx-modes">
-        ${GENX_MODES.map(function (mo) { return html`<button class=${"gx-mode " + (mode[0] === mo.k ? "on" : "")} onClick=${function () { if (!loading[0]) mode[1](mo.k); }}><b>${mo.label}</b><span>${mo.sub}</span></button>`; })}
-      </div>
-
-      <button class="gx-analyze" disabled=${loading[0]} onClick=${run}>${loading[0] ? "Analyzing Gold…" : (d ? "Re-analyze Gold" : "Analyze Gold Now")}</button>
-      <div style="text-align:center;margin-top:6px;font-size:11px;opacity:.5">3 credits per read</div>
-      ${err[0] ? html`<div class="err" style="margin-top:10px">${err[0]}${needCr[0] ? html` <a href="#" onClick=${function (e) { e.preventDefault(); try { window.open("/portal/credits", "_blank"); } catch (x) {} }} style="color:var(--sky);font-weight:700"> Get credits</a>` : null}</div>` : null}
-      ${loading[0] ? html`<div class="gx-analyzing">◆ Reading live Gold — structure, momentum, levels, liquidity…</div>` : null}
-
-      ${tracked[0].length ? html`<div style="margin-top:16px;border-radius:16px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.02);padding:13px">
-        <p style="margin:0 0 9px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:rgba(255,255,255,.45)">📌 Tracked setups <span style="color:rgba(255,255,255,.25)">(${tracked[0].length})</span></p>
-        <div style="display:flex;flex-direction:column;gap:10px">
-          ${tracked[0].map(function (t) { return html`<${GxTrackedRow} key=${t.id} t=${t} onRemove=${function () { untrack(t.id); }} />`; })}
-        </div>
-        <p style="margin:9px 0 0;font-size:10px;line-height:1.5;color:rgba(255,255,255,.3)">Synced to your account — same setups on your phone and the website. Each keeps checking live for its own confirmation, so re-analyzing never loses the setup you were waiting on.</p>
-      </div>` : null}
-
-      ${g ? html`<div class=${"gx-card " + act.c}>
+  // The full GENX readout — action card, live confirmation, levels, market flow,
+  // story and the full breakdown. Rendered for a LIVE analysis and, unchanged,
+  // for a SAVED snapshot the member reopens from their tracked setups.
+  function GxReadDetail(props) {
+    var g = props.g, price = props.price, candles = props.candles || [], dataStatus = props.dataStatus, mode = props.mode || "quick";
+    var open = useState(false);
+    var act = gxAction(g.action);
+    var hasPlan = num(g.entry) != null && num(g.stop_loss) != null;
+    var tps = [g.tp1, g.tp2, g.tp3].map(function (p, i) { return num(p) != null ? { price: p, label: "TP" + (i + 1), pips: [g.tp1_pips, g.tp2_pips, g.tp3_pips][i] } : null; }).filter(Boolean);
+    var entryTxt = (num(g.entry_low) != null && num(g.entry_high) != null && g.entry_low !== g.entry_high) ? g.entry_low + "–" + g.entry_high : (num(g.entry) != null ? String(g.entry) : "—");
+    return html`<${Fragment}><div class=${"gx-card " + act.c}>
         <div class="gx-act">${act.t}</div>
         <div class="gx-conf"><b>${g.confidence_score}</b><span>/ 100 · ${gxConfLabel(g.confidence_score)}</span></div>
         <div class="gx-bias">Bias: ${g.directional_bias} · ${g.market_regime || "—"} · ${g.session}</div>
 
-        <${GxConfirm} setup=${setupFromGenx(g, mode[0])} />
-        ${hasPlan && gxIsWait(g.action) ? html`<button onClick=${function () { trackCurrent(g); }} style=${"margin-top:8px;width:100%;border-radius:9px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);padding:9px 12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.7);cursor:pointer"}>${(tracked[0].some(function (t) { return gxTrackKey(t) === gxTrackKey(setupFromGenx(g, mode[0])); })) ? "✓ Tracking this setup — you’ll find it up top" : "📌 Track this setup — come back to it later"}</button>` : null}
+        <${GxConfirm} setup=${setupFromGenx(g, mode)} />
+        ${props.showTrack ? html`<button onClick=${props.onTrack} style=${"margin-top:8px;width:100%;border-radius:9px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);padding:9px 12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.7);cursor:pointer"}>${props.isTracked ? "✓ Tracking this setup — you’ll find it up top" : "📌 Track this setup — come back to it later"}</button>` : null}
 
         ${hasPlan ? html`<div class="gx-levels">
           <div class="gx-lv"><div class="k">Entry</div><div class="v">${entryTxt}</div></div>
@@ -2346,10 +2284,10 @@ input{font:inherit}
             <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.16em;color:rgba(255,255,255,.4)">Market Flow</p>
             ${rr ? html`<span style="border-radius:99px;border:1px solid rgba(255,194,75,.3);background:rgba(255,194,75,.1);padding:2px 9px;font-size:11px;font-weight:700;color:#ffd47a">R:R 1:${rr}</span>` : null}
           </div>
-          <${GxMarketFlowHeader} g=${g} price=${d.price} />
+          <${GxMarketFlowHeader} g=${g} price=${price} />
           ${(g.action === "WAIT_FOR_BUY_TRIGGER" || g.action === "WAIT_FOR_SELL_TRIGGER") ? html`<${GxConfirmHelp} sell=${g.action === "WAIT_FOR_SELL_TRIGGER"} level=${g.action === "WAIT_FOR_SELL_TRIGGER" ? (g.closest_resistance != null ? g.closest_resistance : g.entry) : (g.closest_support != null ? g.closest_support : g.entry)} />` : null}
           <div style="margin-top:8px">
-            <${GxFlowChart} candles=${d.candles} g=${g} price=${d.price} live=${d.data_status === "live"} />
+            <${GxFlowChart} candles=${candles} g=${g} price=${price} live=${dataStatus === "live"} />
           </div>
         </div>
         <${GxPressure} g=${g} />
@@ -2379,7 +2317,110 @@ input{font:inherit}
         ${(g.risk_factors || []).length ? html`<div class="gx-sec-k">Watch for</div><ul class="gx-why">${(g.risk_factors || []).map(function (t) { return html`<li>${t}</li>`; })}</ul>` : null}
       </div>` : null}
 
-      <div class="gx-foot">GENX Confidence Score reflects setup strength, not a guaranteed outcome · educational analysis, not financial advice.</div>` : null}
+      <div class="gx-foot">GENX Confidence Score reflects setup strength, not a guaranteed outcome · educational analysis, not financial advice.</div><//>`;
+  }
+
+  function GenxScreen(props) {
+    var mode = useState("quick"), loading = useState(false), err = useState(""), res = useState(null), needCr = useState(false), open = useState(false);
+    var tracked = useState([]), opened = useState(null);
+    useEffect(function () {
+      try { var raw = localStorage.getItem(GX_TRACK_KEY); if (raw) tracked[1](JSON.parse(raw)); } catch (e) {}
+      apiGet("/api/genx/tracked").then(function (d) { if (d && Array.isArray(d.tracked)) { tracked[1](d.tracked); try { localStorage.setItem(GX_TRACK_KEY, JSON.stringify(d.tracked)); } catch (e) {} } });
+    }, []);
+    function persistTracked(next) { tracked[1](next); try { localStorage.setItem(GX_TRACK_KEY, JSON.stringify(next)); } catch (e) {} }
+    function trackCurrent(g) {
+      if (!g) return;
+      var dd = res[0];
+      var base = setupFromGenx(g, mode[0]);
+      var label = (base.side === "sell" ? "SELL" : "BUY") + " " + ((g.entry_low != null && g.entry_high != null) ? (g.entry_low + "–" + g.entry_high) : g.entry);
+      // Snapshot the full read so the saved setup can reopen its original detail
+      // later. Candles are trimmed to what the chart needs to keep the row small.
+      var snapshot = { g: g, price: dd ? dd.price : null, candles: (dd && dd.candles ? dd.candles.slice(-60) : []), data_status: dd ? dd.data_status : "" };
+      var t = Object.assign({}, base, { id: String(Date.now()), savedAt: Date.now(), label: label, snapshot: snapshot });
+      var next = [t].concat(tracked[0].filter(function (x) { return gxTrackKey(x) !== gxTrackKey(t); })).slice(0, 8);
+      persistTracked(next);
+      apiPost("/api/genx/tracked", { tracked: t }).catch(function () {});
+    }
+    function untrack(id) {
+      persistTracked(tracked[0].filter(function (x) { return x.id !== id; }));
+      try {
+        var se = getSession(), o = { method: "DELETE", credentials: "same-origin", headers: {} };
+        if (se && se.access_token) o.headers.Authorization = "Bearer " + se.access_token;
+        fetch("/api/genx/tracked?id=" + encodeURIComponent(id), o).catch(function () {});
+      } catch (e) {}
+    }
+    function run() {
+      if (loading[0]) return; loading[1](true); err[1](""); needCr[1](false);
+      apiPost("/api/genx", { mode: mode[0] }).then(function (d) {
+        if (!d || d.error) {
+          if (d && (d.notConfigured || d.error === "marketdata_error")) return err[1]("Gold market data isn't available right now — try again shortly.");
+          if (d && d.error === "ratelimit") return err[1](d.detail || "Market-data limit hit — give it a minute.");
+          if (d && d.error === "insufficient_data") return err[1](d.detail || "Not enough recent Gold candles yet — try again shortly.");
+          return err[1]((d && d.detail) || "GENX couldn't read Gold right now — try again.");
+        }
+        res[1](d);
+      }).catch(function (e) {
+        if (e && e.code === 402) { needCr[1](true); err[1]("You're out of credits — a GENX read costs 5. They reset weekly, or top up from Account."); }
+        else if (e && e.code === 401) props.onLogout();
+        else err[1]("Something went wrong — try again.");
+      }).then(function () { loading[1](false); });
+    }
+    var d = res[0], g = d && d.genx ? d.genx : null;
+    var act = g ? gxAction(g.action) : null;
+    var hasPlan = g && num(g.entry) != null && num(g.stop_loss) != null;
+    var tps = g ? [g.tp1, g.tp2, g.tp3].map(function (p, i) { return num(p) != null ? { price: p, label: "TP" + (i + 1), pips: [g.tp1_pips, g.tp2_pips, g.tp3_pips][i] } : null; }).filter(Boolean) : [];
+    var entryTxt = g ? (num(g.entry_low) != null && num(g.entry_high) != null && g.entry_low !== g.entry_high ? g.entry_low + "–" + g.entry_high : (num(g.entry) != null ? String(g.entry) : "—")) : "—";
+
+    // Reopened saved setup — show its original full readout (frozen snapshot),
+    // with the live confirmation still running against the current market.
+    if (opened[0] && opened[0].snapshot && opened[0].snapshot.g) {
+      var sv = opened[0], sn = sv.snapshot, sg = sn.g;
+      return html`<div class="scr gx">
+        <button class="floor-back" onClick=${function () { opened[1](null); }}>‹ Back to GENX</button>
+        <div class="gx-head">
+          <div>
+            <div class="gx-title">Saved setup</div>
+            <div class="gx-sub">${sv.label || "GENX"} · saved ${gxAgo(sv.savedAt)}</div>
+            ${sn.price != null ? html`<div class="gx-price">$${sn.price}</div>` : null}
+          </div>
+        </div>
+        <div class="wknote" style="margin:0 0 12px">This is the full read from when you saved it. The confirmation below keeps checking live for when it's time to enter.</div>
+        <${GxReadDetail} g=${sg} price=${sn.price} candles=${sn.candles || []} dataStatus=${sn.data_status} mode=${sg.mode || "quick"} showTrack=${false} />
+      </div>`;
+    }
+
+    return html`<div class="scr gx">
+      <div class="gx-head">
+        <div>
+          <div class="gx-title">GENX</div>
+          <div class="gx-sub">Gold Intelligence Engine</div>
+          ${d ? html`<div class="gx-price">$${d.price}</div>` : null}
+        </div>
+        ${d ? html`<span class=${"gx-live " + (d.data_status === "live" ? "live" : "stale")}><span class="p"></span>${d.data_status === "live" ? "Live" : "Delayed"}</span>` : null}
+      </div>
+
+      <div class="gx-modes">
+        ${GENX_MODES.map(function (mo) { return html`<button class=${"gx-mode " + (mode[0] === mo.k ? "on" : "")} onClick=${function () { if (!loading[0]) mode[1](mo.k); }}><b>${mo.label}</b><span>${mo.sub}</span></button>`; })}
+      </div>
+
+      <button class="gx-analyze" disabled=${loading[0]} onClick=${run}>${loading[0] ? "Analyzing Gold…" : (d ? "Re-analyze Gold" : "Analyze Gold Now")}</button>
+      <div style="text-align:center;margin-top:6px;font-size:11px;opacity:.5">5 credits per read</div>
+      ${err[0] ? html`<div class="err" style="margin-top:10px">${err[0]}${needCr[0] ? html` <a href="#" onClick=${function (e) { e.preventDefault(); try { window.open("/portal/credits", "_blank"); } catch (x) {} }} style="color:var(--sky);font-weight:700"> Get credits</a>` : null}</div>` : null}
+      ${loading[0] ? html`<div class="gx-analyzing">◆ Reading live Gold — structure, momentum, levels, liquidity…</div>` : null}
+
+      ${tracked[0].length ? html`<div style="margin-top:16px;border-radius:16px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.02);padding:13px">
+        <p style="margin:0 0 9px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:rgba(255,255,255,.45)">📌 Tracked setups <span style="color:rgba(255,255,255,.25)">(${tracked[0].length})</span></p>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${tracked[0].map(function (t) { return html`<${GxTrackedRow} key=${t.id} t=${t} onOpen=${function () { opened[1](t); }} onRemove=${function () { untrack(t.id); }} />`; })}
+        </div>
+        <p style="margin:9px 0 0;font-size:10px;line-height:1.5;color:rgba(255,255,255,.3)">Synced to your account — same setups on your phone and the website. Each keeps checking live for its own confirmation, so re-analyzing never loses the setup you were waiting on.</p>
+      </div>` : null}
+
+      ${g ? html`<${GxReadDetail}
+        g=${g} price=${d.price} candles=${d.candles} dataStatus=${d.data_status} mode=${mode[0]}
+        showTrack=${hasPlan && gxIsWait(g.action)}
+        isTracked=${tracked[0].some(function (t) { return gxTrackKey(t) === gxTrackKey(setupFromGenx(g, mode[0])); })}
+        onTrack=${function () { trackCurrent(g); }} />` : null}
     </div>`;
   }
 
@@ -2427,19 +2468,6 @@ input{font:inherit}
           <div class="fl-bl">AI-generated opportunities.</div>
           <div class="fl-cta">View ›</div>
         </button>
-        <button class="flcard span" onClick=${open("live")}>
-          <div class="fl-ic">↗</div>
-          <div class="fl-nm">Live Plays</div>
-          <div class="fl-bl">Longer-horizon trades shared with the community.</div>
-          <div class="fl-cta">View ›</div>
-        </button>
-        <button class="flcard span adv" onClick=${open("ghost")}>
-          <span class="fl-tag">Advanced analysis</span>
-          <div class="fl-ic">⬟</div>
-          <div class="fl-nm">MFXGHOST</div>
-          <div class="fl-bl">Deep market intelligence — structure, liquidity, institutional confluence.</div>
-          <div class="fl-cta">Open ›</div>
-        </button>
       </div>
     </div>`;
   }
@@ -2467,9 +2495,48 @@ input{font:inherit}
   var DASH_QUICK = [
     { k: "omai", icon: "✦", label: "OM AI" },
     { k: "pulse", icon: "◈", label: "Market Pulse" },
-    { k: "plays", icon: "⚡", label: "OM AI Plays" },
-    { k: "ghost", icon: "⬟", label: "MFXGHOST" }
+    { k: "plays", icon: "⚡", label: "OM AI Plays" }
   ];
+  // Live Plays on the Dashboard — one shared, community-wide set cached ~2h on the
+  // server. Opening reads that shared set (cheap); Refresh asks the server to
+  // regenerate, which it only does if the set is older than 2h (else throttled).
+  function dlpAgo(min) { if (min == null) return null; if (min < 1) return "just now"; if (min < 60) return min + "m ago"; var h = Math.round(min / 60); return h + "h ago"; }
+  function DashLivePlays() {
+    var busy = useState(true), refreshing = useState(false), err = useState(""), data = useState(null), meta = useState(null);
+    function apply(dd) {
+      if (!dd || (dd.error && !arr(dd.plays).length)) { err[1]((dd && dd.detail) || "Live Plays will load shortly."); return; }
+      err[1]("");
+      data[1]({ plays: arr(dd.plays), note: dd.note || "" });
+      meta[1]({ ageMinutes: dd.ageMinutes, nextRefreshMinutes: dd.nextRefreshMinutes, throttled: !!dd.throttled });
+    }
+    useEffect(function () {
+      apiGet("/api/om-weekly").then(function (dd) { apply(dd); }).catch(function () { err[1]("Couldn't load Live Plays."); }).then(function () { busy[1](false); });
+    }, []);
+    function refresh() {
+      if (refreshing[0] || busy[0]) return; refreshing[1](true);
+      apiPost("/api/om-weekly", { refresh: true }).then(function (dd) { apply(dd); }).catch(function () {}).then(function () { refreshing[1](false); });
+    }
+    var pl = data[0] ? data[0].plays : [];
+    var m = meta[0] || {};
+    var updated = dlpAgo(m.ageMinutes);
+    return html`<div>
+      <div class="dsec-k"><span>Live Plays</span><button disabled=${refreshing[0] || busy[0]} onClick=${refresh}>${refreshing[0] ? "Refreshing…" : (updated ? "↻ Refresh · " + updated : "↻ Refresh")}</button></div>
+      ${busy[0] ? html`<div class="load">Loading Live Plays…</div>` : null}
+      ${err[0] ? html`<div class="err">${err[0]}</div>` : null}
+      ${!busy[0] && data[0] && data[0].note ? html`<div class="wknote">${data[0].note}</div>` : null}
+      ${m.throttled ? html`<div class="wknote" style="opacity:.65">Showing the latest shared set${m.nextRefreshMinutes ? " · next refresh in ~" + m.nextRefreshMinutes + "m" : ""}.</div>` : null}
+      ${pl.map(function (p) { return html`<div class="wk">
+        <div class="wk-t"><span class="wk-tk">${p.ticker}</span><span class="wk-nm">${p.name} · ${p.type}</span>${p.conviction ? html`<span class=${"wk-cv " + String(p.conviction).toLowerCase()}>${p.conviction}</span>` : null}</div>
+        <p class="wk-th">${p.thesis}</p>
+        <div class="wk-kv"><span>Buy zone</span><b>${p.buyZone}</b></div>
+        ${p.horizon ? html`<div class="wk-kv"><span>Horizon</span><b>${p.horizon}</b></div>` : null}
+        ${p.risk ? html`<div class="wk-risk">Risk: ${p.risk}</div>` : null}
+      </div>`; })}
+      ${!busy[0] && !err[0] && !pl.length ? html`<div class="load">No Live Plays yet — tap Refresh.</div>` : null}
+      <p class="scr-blurb" style="margin-top:8px">Longer-horizon, buy-&-hold ideas shared with the community — educational, not financial advice.</p>
+    </div>`;
+  }
+
   function DashboardScreen(props) {
     var me = useState(null), stats = useState(undefined), nextCall = useState(undefined);
     useEffect(function () {
@@ -2526,6 +2593,8 @@ input{font:inherit}
           <span class="qa-ic">${q.icon}</span><span class="qa-l">${q.label}</span>
         </button>`; })}
       </div>
+
+      <${DashLivePlays} />
 
       ${hasCommunity ? html`<div>
         <div class="dsec-k">Community today</div>
