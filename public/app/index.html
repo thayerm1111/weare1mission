@@ -2082,6 +2082,7 @@ input{font:inherit}
       case "MISSED": return { cls: "missed", emoji: "🚫" };
       case "INVALIDATED": return { cls: "invalidated", emoji: "✖" };
       case "EXPIRED": return { cls: "expired", emoji: "⌛" };
+      case "STAND_ASIDE": return { cls: "wait", emoji: "✋" };
       default: return { cls: "wait", emoji: "👀" };
     }
   }
@@ -2102,6 +2103,7 @@ input{font:inherit}
     var allText = sym + " " + (side === "sell" ? "SELL" : "BUY") + "\nENTRY: " + entryCopy + "\nSL: " + sl
       + (num(g.tp1) != null ? "\nTP1: " + g.tp1 : "") + (num(g.tp2) != null ? "\nTP2: " + g.tp2 : "") + (num(g.tp3) != null ? "\nTP3: " + g.tp3 : "") + "\nLOTS: " + lot;
     var actionable = ee.entryState === "ENTER_NOW" || ee.entryState === "ENTER_ON_PULLBACK";
+    var noTrade = ee.entryState === "STAND_ASIDE" || ee.entryState === "INVALIDATED" || ee.entryState === "EXPIRED";
     var conds = ee.confirmationConditions || [];
     var mk = Math.max(2, Math.min(98, Math.round((ee.meter != null ? ee.meter : 0.5) * 100)));
     return html`<div class=${"fe " + meta.cls}>
@@ -2119,18 +2121,18 @@ input{font:inherit}
         <div class="fe-mlabels"><span>Too early</span><span>Ideal</span><span>Getting late</span></div>
         <div class="fe-mtrack"><div class="fe-mzone"></div><div class="fe-mmark" style=${"left:" + mk + "%"}></div></div>
       </div>
-      ${num(g.entry) != null ? html`<div class="ct">
+      ${!noTrade && num(g.entry) != null ? html`<div class="ct">
         <div class="ct-row"><span class="ct-k">Entry</span><span class="ct-v">${entryDisp}</span><button class="ct-cp" onClick=${function () { cp("e", entryCopy); }}>${copied[0] === "e" ? "✓" : "Copy"}</button></div>
         <div class="ct-row"><span class="ct-k">Stop</span><span class="ct-v">${g.stop_loss}</span><button class="ct-cp" onClick=${function () { cp("s", sl); }}>${copied[0] === "s" ? "✓" : "Copy"}</button></div>
         ${[0, 1, 2].map(function (i) { return num(tps[i]) != null ? html`<div class="ct-row"><span class="ct-k">TP${i + 1}</span><span class="ct-v">${tps[i]}</span><button class="ct-cp" onClick=${function () { cp("t" + i, String(tps[i])); }}>${copied[0] === "t" + i ? "✓" : "Copy"}</button></div>` : null; })}
         <div class="ct-row"><span class="ct-k">Lots</span><span class="ct-v">${lot}</span><button class="ct-cp" onClick=${function () { cp("l", lot); }}>${copied[0] === "l" ? "✓" : "Copy"}</button></div>
       </div>` : null}
-      <div class="fe-lots"><span class="lb">Trade size</span>${FLOW_LOTS.map(function (p) { return html`<button class=${"fe-chip " + (lot === p ? "on" : "")} onClick=${function () { setLot(p); }}>${p}</button>`; })}</div>
-      <div class="fe-actions">
+      ${!noTrade ? html`<div class="fe-lots"><span class="lb">Trade size</span>${FLOW_LOTS.map(function (p) { return html`<button class=${"fe-chip " + (lot === p ? "on" : "")} onClick=${function () { setLot(p); }}>${p}</button>`; })}</div>` : null}
+      ${!noTrade ? html`<div class="fe-actions">
         <button class="fe-btn tl" onClick=${props.onTrade || function () { note[1](!note[0]); }}>Trade on TradeLocker</button>
         <button class="fe-btn cp" onClick=${function () { cp("all", allText); }}>${copied[0] === "all" ? "✓ Copied" : "Copy trade"}</button>
-      </div>
-      ${note[0] ? html`<div class="fe-detail" style="margin-top:8px">One-tap TradeLocker orders arrive in the next FLOW update. For now tap <b>Copy trade</b>, open TradeLocker, and place it — your levels are ready to paste.</div>` : null}
+      </div>` : null}
+      ${!noTrade && note[0] ? html`<div class="fe-detail" style="margin-top:8px">One-tap TradeLocker orders arrive in the next FLOW update. For now tap <b>Copy trade</b>, open TradeLocker, and place it — your levels are ready to paste.</div>` : null}
       ${(!actionable && conds.length) ? html`<div class="fe-conds"><div class="ct-k" style="margin-bottom:5px">What FLOW is waiting for</div>${conds.map(function (c) { return html`<div class="fe-cond"><span class="ci">○</span><span>${c}</span></div>`; })}</div>` : null}
     </div>`;
   }
