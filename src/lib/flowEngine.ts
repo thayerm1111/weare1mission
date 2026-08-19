@@ -128,8 +128,17 @@ export async function flowConfirm(opts: {
     const priorTested = recentClosed.length >= 2 && recentClosed[recentClosed.length - 2].l <= zoneHi + buf;
     const testedZone = lastClosed.l <= zoneHi + buf || priorTested;
     const confirmed = lastClosed.c > lastClosed.o && bodyOk && testedZone && lastClosed.c >= zoneLo - buf && lastClosed.c > inv;
+    // Reclaim: price swept into/below the zone within the last few candles and a
+    // green momentum candle has now CLOSED back above it while holding the
+    // invalidation — a bullish reclaim. Catches fast V-bounces that never paused
+    // to close a candle *inside* the zone (the reason strict confirmation misses
+    // sharp reversals). The entry engine's chase guard still turns a reclaim into
+    // MISSED if price has already run too far, so this can't chase a spent move.
+    const sweptRecent = recentClosed.slice(-3).some((k) => k.l <= zoneHi + buf) || lastClosed.l <= zoneHi + buf;
+    const reclaimed = !confirmed && sweptRecent && lastClosed.c > lastClosed.o && bodyOk && lastClosed.c > zoneLo - buf && lastClosed.c > inv;
     if (invalidated) { state = "INVALIDATED"; detail = `A candle closed below the invalidation (${inv}). This buy is done.`; }
     else if (confirmed) { state = "CONFIRMED"; enter = dp(price); detail = `A green candle closed reacting off ${zoneLo}–${zoneHi} while holding ${inv}. Buyers confirmed.`; }
+    else if (reclaimed) { state = "CONFIRMED"; enter = dp(price); detail = `Price swept ${zoneLo}–${zoneHi} and a green candle reclaimed it, holding ${inv}. Bullish reclaim confirmed.`; }
     else if (reachedZone) { state = "AT_ZONE"; detail = `Price is at the ${zoneLo}–${zoneHi} buy zone. Waiting for a green candle to CLOSE here.`; }
     else { state = "WAIT"; detail = `Price is above the zone. Waiting for a pullback to ${zoneLo}–${zoneHi}.`; }
   } else {
@@ -138,8 +147,14 @@ export async function flowConfirm(opts: {
     const priorTested = recentClosed.length >= 2 && recentClosed[recentClosed.length - 2].h >= zoneLo - buf;
     const testedZone = lastClosed.h >= zoneLo - buf || priorTested;
     const confirmed = lastClosed.c < lastClosed.o && bodyOk && testedZone && lastClosed.c <= zoneHi + buf && lastClosed.c < inv;
+    // Reclaim (mirror of the buy side): price spiked up into/above the zone within
+    // the last few candles and a red momentum candle has now CLOSED back below it
+    // while holding the invalidation — a bearish reclaim. Catches fast rejections.
+    const sweptRecent = recentClosed.slice(-3).some((k) => k.h >= zoneLo - buf) || lastClosed.h >= zoneLo - buf;
+    const reclaimed = !confirmed && sweptRecent && lastClosed.c < lastClosed.o && bodyOk && lastClosed.c < zoneHi + buf && lastClosed.c < inv;
     if (invalidated) { state = "INVALIDATED"; detail = `A candle closed above the invalidation (${inv}). This sell is done.`; }
     else if (confirmed) { state = "CONFIRMED"; enter = dp(price); detail = `A red candle closed reacting off ${zoneLo}–${zoneHi} while holding ${inv}. Sellers confirmed.`; }
+    else if (reclaimed) { state = "CONFIRMED"; enter = dp(price); detail = `Price swept ${zoneLo}–${zoneHi} and a red candle reclaimed it, holding ${inv}. Bearish reclaim confirmed.`; }
     else if (reachedZone) { state = "AT_ZONE"; detail = `Price is at the ${zoneLo}–${zoneHi} sell zone. Waiting for a red candle to CLOSE here.`; }
     else { state = "WAIT"; detail = `Price is below the zone. Waiting for a rally to ${zoneLo}–${zoneHi}.`; }
   }
