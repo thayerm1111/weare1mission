@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { reserveMarketData } from "@/lib/marketData";
 
 export const runtime = "nodejs";
@@ -7,13 +8,21 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * AI Plays of the Week — a professional buy-&-hold desk. Picks the best
- * longer-horizon ideas across stocks + crypto, grounded in current prices, with
- * a thesis, a buy zone, a horizon and a risk note. Regenerated once per ISO week
- * and cached in memory so it's cheap. Educational only, not financial advice.
+ * Live Plays — a professional buy-&-hold desk. Picks the best longer-horizon
+ * ideas across stocks + crypto, grounded in current prices, with a thesis, a buy
+ * zone, a horizon and a risk note. Educational only, not financial advice.
+ *
+ * SHARED, GLOBAL cache with a 2-hour floor (public.live_plays_cache, one row):
+ *   - GET               → the current shared plays (generates once if empty).
+ *   - POST {}           → same as GET (a plain load, never regenerates if cached).
+ *   - POST {refresh:true}→ regenerate ONLY if the shared set is >2h old; otherwise
+ *     return the cached set flagged `throttled` (so it can't be run over and over).
+ * Everyone sees the same latest set; one member's refresh updates it for all.
  */
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = process.env.OM_AI_MODEL || "claude-sonnet-4-6";
+const CACHE_ID = "global";
+const TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 // Kept to 7 so all price lookups fit the free market-data rate limit (8/min),
 // which keeps every buy zone grounded in a real current price. Expand on Grow+.
@@ -27,17 +36,10 @@ const UNIVERSE: { ticker: string; name: string; td: string; type: "Stock" | "Cry
   { ticker: "ETH", name: "Ethereum", td: "ETH/USD", type: "Crypto" },
 ];
 
-type Cache = { week: string; data: unknown } | null;
-let CACHE: Cache = null;
+type Payload = { plays: unknown[]; note: string };
 
-function isoWeek(): string {
-  const d = new Date();
-  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const day = t.getUTCDay() || 7;
-  t.setUTCDate(t.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
-  const week = Math.ceil((((t.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-  return `${t.getUTCFullYear()}-W${week}`;
+function json(obj: unknown, status = 200) {
+  return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }
 
 async function quote(td: string, key: string): Promise<{ price: number; pct: number | null } | null> {
@@ -51,28 +53,57 @@ async function quote(td: string, key: string): Promise<{ price: number; pct: num
   } catch { return null; }
 }
 
-export async function POST(req: NextRequest) {
-  void req;
+// ── Shared cache (public.live_plays_cache, single row keyed by CACHE_ID) ──
+async function readCache(): Promise<{ payload: Payload; generatedAt: number } | null> {
+  try {
+    const admin = createAdminClient();
+    if (!admin) return null;
+    const { data, error } = await admin.from("live_plays_cache").select("payload, generated_at").eq("id", CACHE_ID).maybeSingle();
+    if (error || !data || !data.payload) return null;
+    return { payload: data.payload as Payload, generatedAt: new Date(data.generated_at as string).getTime() };
+  } catch { return null; }
+}
+
+async function writeCache(payload: Payload): Promise<void> {
+  try {
+    const admin = createAdminClient();
+    if (!admin) return;
+    await admin.from("live_plays_cache").upsert({ id: CACHE_ID, payload, generated_at: new Date().toISOString() }, { onConflict: "id" });
+  } catch { /* best-effort — a failed write just means the next request regenerates */ }
+}
+
+function shape(payload: Payload, generatedAt: number, extra: Record<string, unknown> = {}) {
+  const age = Date.now() - generatedAt;
+  const ageMinutes = Math.max(0, Math.round(age / 60000));
+  const stale = age >= TTL_MS;
+  const nextRefreshMinutes = Math.max(0, Math.ceil((TTL_MS - age) / 60000));
+  return json({ ...payload, generatedAt: new Date(generatedAt).toISOString(), ageMinutes, stale, nextRefreshMinutes, ...extra });
+}
+
+async function requireUser(): Promise<boolean> {
   const supabase = createClient();
-  if (supabase) { const { data: { user } } = await supabase.auth.getUser(); if (!user) return json({ error: "unauthorized" }, 401); }
+  if (!supabase) return true; // no auth layer configured → fail open
+  const { data: { user } } = await supabase.auth.getUser();
+  return !!user;
+}
+
+// ── Generate a fresh shared set. Returns the payload, or an error Response. ──
+async function generatePlays(): Promise<{ ok: true; data: Payload } | { ok: false; resp: Response }> {
   const aiKey = process.env.ANTHROPIC_API_KEY;
   const mdKey = process.env.TWELVEDATA_API_KEY;
-  if (!aiKey) return json({ notConfigured: "ai" }, 200);
-
-  const week = isoWeek();
-  if (CACHE && CACHE.week === week) return json({ week, cached: true, ...(CACHE.data as object) }, 200);
+  if (!aiKey) return { ok: false, resp: json({ notConfigured: "ai" }, 200) };
 
   // Ground the analysis in current prices. Only tickers we could actually price
   // reach the AI, so it can never reason about (or quote) a stale price.
   if (mdKey) {
     const md = await reserveMarketData(UNIVERSE.length);
-    if (!md.ok) return json({ error: "no_prices", detail: "The data desk is busy — this week's plays will load shortly." }, 200);
+    if (!md.ok) return { ok: false, resp: json({ error: "no_prices", detail: "The data desk is busy — this week's plays will load shortly." }, 200) };
   }
   const quoted = mdKey
     ? await Promise.all(UNIVERSE.map(async (a) => ({ ...a, q: await quote(a.td, mdKey) })))
     : [];
   const priced = quoted.filter((a) => a.q) as (typeof UNIVERSE[number] & { q: { price: number; pct: number | null } })[];
-  if (priced.length === 0) return json({ error: "no_prices", detail: "Couldn't fetch current prices — try again shortly." }, 200);
+  if (priced.length === 0) return { ok: false, resp: json({ error: "no_prices", detail: "Couldn't fetch current prices — try again shortly." }, 200) };
   const priceByTicker: Record<string, number> = {};
   for (const a of priced) priceByTicker[a.ticker.toUpperCase()] = a.q.price;
 
@@ -97,14 +128,14 @@ Respond with ONLY valid minified JSON, exactly:
       body: JSON.stringify({ model: MODEL, max_tokens: 1200, system, messages: [{ role: "user", content: user }] }),
     });
     ai = await r.json();
-    if (!r.ok) return json({ error: "ai_error", detail: (ai?.error?.message || `status ${r.status}`).slice(0, 200) }, 502);
-  } catch { return json({ error: "ai_unreachable" }, 502); }
+    if (!r.ok) return { ok: false, resp: json({ error: "ai_error", detail: (ai?.error?.message || `status ${r.status}`).slice(0, 200) }, 502) };
+  } catch { return { ok: false, resp: json({ error: "ai_unreachable" }, 502) }; }
 
   const raw = Array.isArray(ai.content) ? ai.content.filter((b) => b?.type === "text").map((b) => b.text ?? "").join("") : "";
   const match = raw.match(/\{[\s\S]*\}/);
-  if (!match) return json({ error: "parse_error" }, 502);
+  if (!match) return { ok: false, resp: json({ error: "parse_error" }, 502) };
   let parsed: { plays?: unknown; note?: unknown };
-  try { parsed = JSON.parse(match[0]); } catch { return json({ error: "parse_error" }, 502); }
+  try { parsed = JSON.parse(match[0]); } catch { return { ok: false, resp: json({ error: "parse_error" }, 502) }; }
 
   const fmtP = (n: number) => (n >= 1000 ? Math.round(n).toLocaleString() : n >= 1 ? n.toFixed(2) : n.toFixed(4));
   const rawPlays = Array.isArray(parsed.plays) ? (parsed.plays as Record<string, unknown>[]) : [];
@@ -123,11 +154,45 @@ Respond with ONLY valid minified JSON, exactly:
     })
     .filter(Boolean);
 
-  const data = { plays, note: typeof parsed.note === "string" ? parsed.note : "" };
-  CACHE = { week, data };
-  return json({ week, cached: false, ...data }, 200);
+  return { ok: true, data: { plays, note: typeof parsed.note === "string" ? parsed.note : "" } };
 }
 
-function json(obj: unknown, status: number) {
-  return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+// Serve the shared cache; generate the first set if the cache is empty.
+async function loadShared(): Promise<Response> {
+  const cached = await readCache();
+  if (cached) return shape(cached.payload, cached.generatedAt, { cached: true });
+  const g = await generatePlays();
+  if (!g.ok) return g.resp;
+  await writeCache(g.data);
+  return shape(g.data, Date.now(), { cached: false });
+}
+
+export async function GET() {
+  if (!(await requireUser())) return json({ error: "unauthorized" }, 401);
+  return loadShared();
+}
+
+export async function POST(req: NextRequest) {
+  if (!(await requireUser())) return json({ error: "unauthorized" }, 401);
+  let body: { refresh?: unknown } = {};
+  try { body = await req.json(); } catch { /* plain load */ }
+  const refresh = body?.refresh === true;
+
+  const cached = await readCache();
+  const fresh = cached ? Date.now() - cached.generatedAt < TTL_MS : false;
+
+  // Plain load, or a refresh while the shared set is still fresh → serve cache.
+  if (cached && (!refresh || fresh)) {
+    return shape(cached.payload, cached.generatedAt, { cached: true, throttled: refresh && fresh });
+  }
+
+  // Refresh with a stale/empty shared set → regenerate for everyone.
+  const g = await generatePlays();
+  if (!g.ok) {
+    // Generation failed — serve the stale set rather than nothing, if we have one.
+    if (cached) return shape(cached.payload, cached.generatedAt, { cached: true });
+    return g.resp;
+  }
+  await writeCache(g.data);
+  return shape(g.data, Date.now(), { cached: false });
 }
