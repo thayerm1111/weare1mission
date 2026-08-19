@@ -382,6 +382,32 @@ input{font:inherit}
 .fe-cond{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.4;color:var(--muted);padding:3px 0}
 .fe-cond .ci{margin-top:1px;font-size:11px}
 .fe-cond.done{color:rgba(255,255,255,.85)}
+/* ── FLOW broker connect ─────────────────────────────────────────────── */
+.bk-back{background:none;border:none;color:var(--muted);font-size:13px;font-weight:700;cursor:pointer;padding:6px 0;margin-bottom:4px}
+.bk-h{font-size:20px;font-weight:900}
+.bk-sub{font-size:12.5px;color:var(--muted);margin-top:4px;line-height:1.5}
+.bk-field{margin-top:13px}
+.bk-field label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);display:block;margin-bottom:6px}
+.bk-input{width:100%;box-sizing:border-box;border:1px solid var(--line);background:rgba(0,0,0,.35);color:#fff;border-radius:11px;padding:12px 13px;font-size:16px;outline:none;font-family:inherit}
+.bk-input:focus{border-color:rgba(46,232,143,.5)}
+.bk-seg{display:flex;gap:8px}
+.bk-seg button{flex:1;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--muted);border-radius:11px;padding:11px;font-size:13px;font-weight:800;cursor:pointer}
+.bk-seg button.on{border-color:rgba(46,232,143,.5);background:rgba(46,232,143,.12);color:var(--green)}
+.bk-seg button.live.on{border-color:rgba(255,194,75,.5);background:rgba(255,194,75,.12);color:var(--amber)}
+.bk-go{width:100%;margin-top:15px;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:900;background:linear-gradient(180deg,#2ee88f,#16b46c);color:#04140b;cursor:pointer}
+.bk-go:disabled{opacity:.55;cursor:not-allowed}
+.bk-ghost{width:100%;margin-top:9px;border:1px solid var(--line);background:none;color:var(--muted);border-radius:12px;padding:12px;font-size:13px;font-weight:700;cursor:pointer}
+.bk-note{font-size:11px;color:var(--muted);margin-top:12px;line-height:1.55}
+.bk-card{border:1px solid rgba(46,232,143,.4);background:linear-gradient(180deg,rgba(46,232,143,.10),rgba(8,16,32,.5));border-radius:14px;padding:15px;margin-top:12px}
+.bk-ck{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.bk-cv{font-size:16px;font-weight:800;margin-top:2px}
+.bk-grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.bk-acct{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:11px;padding:11px 12px;margin-top:8px;cursor:pointer;background:rgba(0,0,0,.25)}
+.bk-acct.on{border-color:rgba(46,232,143,.5);background:rgba(46,232,143,.1)}
+.bk-err{border:1px solid rgba(255,93,108,.4);background:rgba(255,93,108,.08);color:#ffb3ba;border-radius:11px;padding:11px 12px;font-size:12.5px;margin-top:12px;line-height:1.5}
+.bk-ok{border:1px solid rgba(46,232,143,.4);background:rgba(46,232,143,.08);color:#8ff0c2;border-radius:11px;padding:11px 12px;font-size:12.5px;margin-top:12px;line-height:1.5}
+.bk-badge{font-size:10px;font-weight:900;padding:3px 9px;border-radius:99px;letter-spacing:.06em}
+.bk-badge.demo{background:rgba(46,232,143,.16);color:var(--green)} .bk-badge.live{background:rgba(255,194,75,.16);color:var(--amber)}
 .gx-levels{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
 .gx-lv{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:rgba(8,16,32,.4)}
 .gx-lv .k{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
@@ -2094,18 +2120,72 @@ input{font:inherit}
       </div>` : null}
       <div class="fe-lots"><span class="lb">Trade size</span>${FLOW_LOTS.map(function (p) { return html`<button class=${"fe-chip " + (lot === p ? "on" : "")} onClick=${function () { setLot(p); }}>${p}</button>`; })}</div>
       <div class="fe-actions">
-        <button class="fe-btn tl" onClick=${function () { note[1](!note[0]); }}>Trade on TradeLocker</button>
+        <button class="fe-btn tl" onClick=${props.onTrade || function () { note[1](!note[0]); }}>Trade on TradeLocker</button>
         <button class="fe-btn cp" onClick=${function () { cp("all", allText); }}>${copied[0] === "all" ? "✓ Copied" : "Copy trade"}</button>
       </div>
       ${note[0] ? html`<div class="fe-detail" style="margin-top:8px">One-tap TradeLocker orders arrive in the next FLOW update. For now tap <b>Copy trade</b>, open TradeLocker, and place it — your levels are ready to paste.</div>` : null}
       ${(!actionable && conds.length) ? html`<div class="fe-conds"><div class="ct-k" style="margin-bottom:5px">What FLOW is waiting for</div>${conds.map(function (c) { return html`<div class="fe-cond"><span class="ci">○</span><span>${c}</span></div>`; })}</div>` : null}
     </div>`;
   }
+  function fmtMoney(n) { n = num(n); if (n == null) return "—"; return "$" + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  // FLOW ↔ TradeLocker connect screen (spec §9,10,11). Credentials are entered
+  // here and posted straight to the server; the browser never stores a token.
+  function GxBrokerConnect(props) {
+    var st = useState(null), loading = useState(true), busy = useState(false), err = useState(""), okmsg = useState("");
+    var env = useState("demo"), server = useState(""), email = useState(""), pw = useState("");
+    function load() { loading[1](true); apiGet("/api/flow/broker").then(function (d) { st[1](d || {}); loading[1](false); }).catch(function () { loading[1](false); }); }
+    useEffect(function () { load(); }, []);
+    function connect() {
+      if (busy[0]) return; err[1](""); okmsg[1](""); busy[1](true);
+      apiPost("/api/flow/broker", { action: "connect", environment: env[0], server: server[0].trim(), email: email[0].trim(), password: pw[0] }).then(function (d) {
+        busy[1](false);
+        if (!d || d.error) { err[1]((d && d.detail) || "Couldn't connect — check your details."); return; }
+        pw[1](""); okmsg[1]("Connected — " + (d.accountsFound || 0) + " account(s) loaded."); load();
+      }).catch(function (e) { busy[1](false); if (e && e.code === 401) props.onLogout && props.onLogout(); else err[1]("Something went wrong — try again."); });
+    }
+    function select(id) { apiPost("/api/flow/broker", { action: "select", accountId: id }).then(function () { load(); }).catch(function () {}); }
+    function disconnect() { busy[1](true); apiPost("/api/flow/broker", { action: "disconnect" }).then(function () { busy[1](false); okmsg[1](""); err[1](""); load(); }).catch(function () { busy[1](false); }); }
+    var s = st[0], connected = s && s.connected, accounts = (s && s.accounts) || [];
+    return html`<div class="scr bk">
+      <button class="bk-back" onClick=${props.onClose}>‹ Back to FLOW</button>
+      ${loading[0] ? html`<div class="gx-analyzing">◆ Checking your broker connection…</div>` : (connected ? html`<div>
+        <div class="bk-h">TradeLocker <span class=${"bk-badge " + (s.connection.environment === "live" ? "live" : "demo")}>${(s.connection.environment || "").toUpperCase()}</span></div>
+        <div class="bk-sub">Connected · server ${s.connection.server} · ${s.connection.email}</div>
+        ${accounts.map(function (a) { return html`<div class=${"bk-acct " + (a.selected ? "on" : "")} onClick=${function () { select(a.accountId); }}>
+          <div><div class="bk-cv">${a.name || ("Account " + a.accountId)}</div><div class="bk-ck" style="margin-top:3px">#${a.accountId}${a.currency ? " · " + a.currency : ""}</div></div>
+          <div style="text-align:right"><div class="bk-cv">${fmtMoney(a.equity != null ? a.equity : a.balance)}</div><div class="bk-ck" style="margin-top:3px">${a.selected ? "✓ FLOW account" : "tap to use"}</div></div>
+        </div>`; })}
+        ${!accounts.length ? html`<div class="bk-note">No account details loaded yet. Tap re-check, or reconnect.</div>` : null}
+        <div class="bk-grid2">
+          <button class="bk-ghost" onClick=${load}>Re-check</button>
+          <button class="bk-ghost" onClick=${disconnect} disabled=${busy[0]} style="color:var(--red);border-color:rgba(255,93,108,.3)">Disconnect</button>
+        </div>
+        <div class="bk-note">FLOW uses this account only to show balances and — once you connect a demo account — to place orders you confirm. It never trades on its own, and never places a live-money order without your explicit confirmation.</div>
+      </div>` : html`<div>
+        <div class="bk-h">Connect TradeLocker</div>
+        <div class="bk-sub">Link your broker so FLOW can show your account and prepare your trades. Your login is sent straight to the broker and stored encrypted — it never sits in this app.</div>
+        <div class="bk-field"><label>Environment</label><div class="bk-seg">
+          <button class=${env[0] === "demo" ? "on" : ""} onClick=${function () { env[1]("demo"); }}>Demo</button>
+          <button class=${"live " + (env[0] === "live" ? "on" : "")} onClick=${function () { env[1]("live"); }}>Live</button>
+        </div></div>
+        <div class="bk-field"><label>Server</label><input class="bk-input" placeholder="e.g. CRUC" value=${server[0]} onInput=${function (e) { server[1](e.target.value); }} /></div>
+        <div class="bk-field"><label>Email</label><input class="bk-input" type="email" autocomplete="off" placeholder="you@email.com" value=${email[0]} onInput=${function (e) { email[1](e.target.value); }} /></div>
+        <div class="bk-field"><label>Password</label><input class="bk-input" type="password" autocomplete="off" placeholder="TradeLocker password" value=${pw[0]} onInput=${function (e) { pw[1](e.target.value); }} /></div>
+        ${err[0] ? html`<div class="bk-err">${err[0]}</div>` : null}
+        <button class="bk-go" disabled=${busy[0] || !server[0] || !email[0] || !pw[0]} onClick=${connect}>${busy[0] ? "Connecting…" : "Connect account"}</button>
+        ${env[0] === "live" ? html`<div class="bk-note" style="color:var(--amber)">You've selected a LIVE account. FLOW will show balances and prepare trades, but will never place a live-money order without your explicit per-trade confirmation.</div>` : null}
+        <div class="bk-note">Powered by the official TradeLocker API. FLOW stores only an encrypted session — never your password in plain text.</div>
+      </div>`)}
+      ${okmsg[0] ? html`<div class="bk-ok">${okmsg[0]}</div>` : null}
+    </div>`;
+  }
   function GenxScreen(props) {
     var mode = useState("quick"), loading = useState(false), err = useState(""), res = useState(null), needCr = useState(false), open = useState(false);
     var tracked = useState([]);
+    var broker = useState(false);
     var lot = useState((function () { try { return localStorage.getItem("FLOW_LOT") || "0.50"; } catch (e) { return "0.50"; } })());
     function setLot(v) { lot[1](v); try { localStorage.setItem("FLOW_LOT", v); } catch (e) {} }
+    if (broker[0]) return html`<${GxBrokerConnect} onClose=${function () { broker[1](false); }} onLogout=${props.onLogout} />`;
     useEffect(function () {
       try { var raw = localStorage.getItem(GX_TRACK_KEY); if (raw) tracked[1](JSON.parse(raw)); } catch (e) {}
       apiGet("/api/genx/tracked").then(function (d) { if (d && Array.isArray(d.tracked)) { tracked[1](d.tracked); try { localStorage.setItem(GX_TRACK_KEY, JSON.stringify(d.tracked)); } catch (e) {} } });
@@ -2165,7 +2245,7 @@ input{font:inherit}
       </div>
 
       <button class="gx-analyze" disabled=${loading[0]} onClick=${run}>${loading[0] ? "Analyzing Gold…" : (d ? "Re-analyze Gold" : "Analyze Gold Now")}</button>
-      <div style="text-align:center;margin-top:6px;font-size:11px;opacity:.5">3 credits per read</div>
+      <div style="text-align:center;margin-top:6px;font-size:11px;opacity:.5">3 credits per read · <a href="#" onClick=${function (e) { e.preventDefault(); broker[1](true); }} style="color:var(--sky);font-weight:700;text-decoration:none">Connect TradeLocker ›</a></div>
       ${err[0] ? html`<div class="err" style="margin-top:10px">${err[0]}${needCr[0] ? html` <a href="#" onClick=${function (e) { e.preventDefault(); try { window.open("/portal/credits", "_blank"); } catch (x) {} }} style="color:var(--sky);font-weight:700"> Get credits</a>` : null}</div>` : null}
       ${loading[0] ? html`<div class="gx-analyzing">◆ Reading live Gold — structure, momentum, levels, liquidity…</div>` : null}
 
@@ -2182,7 +2262,7 @@ input{font:inherit}
         <div class="gx-conf"><b>${g.confidence_score}</b><span>/ 100 · ${gxConfLabel(g.confidence_score)}</span></div>
         <div class="gx-bias">Bias: ${g.directional_bias} · ${g.market_regime || "—"} · ${g.session}</div>
 
-        ${g.entry_engine ? html`<${GxEntry} ee=${g.entry_engine} g=${g} lot=${lot[0]} setLot=${setLot} />` : null}
+        ${g.entry_engine ? html`<${GxEntry} ee=${g.entry_engine} g=${g} lot=${lot[0]} setLot=${setLot} onTrade=${function () { broker[1](true); }} />` : null}
 
         <${GxConfirm} setup=${setupFromGenx(g, mode[0])} />
         ${hasPlan && gxIsWait(g.action) ? html`<button onClick=${function () { trackCurrent(g); }} style=${"margin-top:8px;width:100%;border-radius:9px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);padding:9px 12px;font-size:12px;font-weight:600;color:rgba(255,255,255,.7);cursor:pointer"}>${(tracked[0].some(function (t) { return gxTrackKey(t) === gxTrackKey(setupFromGenx(g, mode[0])); })) ? "✓ Tracking this setup — you’ll find it up top" : "📌 Track this setup — come back to it later"}</button>` : null}
