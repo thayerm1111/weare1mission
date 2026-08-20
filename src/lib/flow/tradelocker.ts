@@ -150,8 +150,21 @@ export async function createOrder(env: TLEnv, accessToken: string, inp: CreateOr
   if (inp.takeProfit != null) { body.takeProfit = inp.takeProfit; body.takeProfitType = "absolute"; }
   const { status, json, text } = await tlFetch(env, `/trade/accounts/${encodeURIComponent(inp.accountId)}/orders`, { method: "POST", accessToken, accNum: inp.accNum, body: JSON.stringify(body) });
   if (status < 200 || status >= 300) return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+  // TradeLocker wraps every response in { s: "ok"|"error", d, errmsg } and can
+  // return HTTP 200 with s:"error" (market closed, bad field, throttled, etc.).
+  // Treat that — and a 200 that carries no order/position id — as a REJECTION,
+  // never a silent "placed".
+  const sVal = String(pick(json, "s") ?? "").toLowerCase();
+  if (sVal === "error" || sVal === "fail" || sVal === "rejected") {
+    return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+  }
   const d = pick(json, "d") ?? json;
-  return { ok: true, data: { orderId: strOr(pick(d, "orderId", "id")), positionId: strOr(pick(d, "positionId")), raw: json } };
+  const orderId = strOr(pick(d, "orderId", "id"));
+  const positionId = strOr(pick(d, "positionId"));
+  if (!orderId && !positionId) {
+    return { ok: false, status, error: `Broker accepted the request but returned no order id — the order did not reach the market. ${String(text).slice(0, 200)}`.trim(), raw: json ?? text };
+  }
+  return { ok: true, data: { orderId, positionId, raw: json } };
 }
 
 /** GET /trade/accounts/{accountId}/orders — list working/filled orders. */

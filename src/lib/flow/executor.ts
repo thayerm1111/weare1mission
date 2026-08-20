@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeQuantity } from "@/lib/flow/instruments";
 import { freshAccessToken } from "@/lib/flow/connection";
-import { listInstruments, createOrder, type TLInstrument } from "@/lib/flow/tradelocker";
+import { listInstruments, createOrder, getQuote, listOrders, listPositions, type TLInstrument } from "@/lib/flow/tradelocker";
 
 /**
  * FLOW order placement (server-only). Places a single market order on the
@@ -90,4 +90,50 @@ export async function placeMarketOrder(opts: {
   const orderId = ord.data.orderId ?? null;
   await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty, status: "placed", reason: opts.source, order_id: orderId });
   return { status: "placed", symbol: canonical, side: opts.side, qty, orderId, positionId: ord.data.positionId ?? null, environment: fresh.env, accountId };
+}
+
+/**
+ * Read-only diagnostics — places NO order. Confirms the connection, the matched
+ * instrument + its quantity rules, a live quote (is the market open / are we
+ * getting prices?), and any working orders / open positions on the account.
+ * Used to explain why a test order "didn't enter."
+ */
+export async function probeBroker(userId: string, symbol = "XAUUSD"): Promise<Record<string, unknown>> {
+  const canonical = normSym(symbol) || "XAUUSD";
+  const fresh = await freshAccessToken(userId);
+  if (!fresh.ok) return { ok: false, reason: fresh.error };
+  const conn = fresh.conn;
+  const accountId = conn.selected_account_id;
+  if (!accountId) return { ok: false, reason: "no_account_selected", environment: fresh.env };
+
+  const admin = createAdminClient();
+  const { data: acctRow } = admin
+    ? await admin.from("flow_broker_accounts").select("acc_num").eq("connection_id", conn.id).eq("account_id", accountId).maybeSingle()
+    : { data: null };
+  const accNum = acctRow?.acc_num ? String(acctRow.acc_num) : null;
+  if (!accNum) return { ok: false, reason: "no_acc_num", environment: fresh.env };
+
+  const instRes = await listInstruments(fresh.env, fresh.token, accNum, accountId);
+  if (!instRes.ok) return { ok: false, reason: `instrument_list_failed: ${instRes.error}`, environment: fresh.env };
+  const tl = matchInstrument(canonical, instRes.data);
+  if (!tl) {
+    return { ok: false, reason: `instrument_not_found: ${canonical}`, environment: fresh.env, availableSymbols: instRes.data.slice(0, 40).map((i) => i.brokerSymbol) };
+  }
+
+  const norm = normalizeQuantity(canonical, 0.01, { quantityStep: tl.quantityStep, minQuantity: tl.minQuantity });
+  const quote = await getQuote(fresh.env, fresh.token, accNum, tl.tradableInstrumentId, tl.routeId);
+  const orders = await listOrders(fresh.env, fresh.token, accNum, accountId);
+  const positions = await listPositions(fresh.env, fresh.token, accNum, accountId);
+
+  return {
+    ok: true,
+    environment: fresh.env,
+    accountId,
+    accNum,
+    instrument: { brokerSymbol: tl.brokerSymbol, tradableInstrumentId: tl.tradableInstrumentId, routeId: tl.routeId, quantityStep: tl.quantityStep, minQuantity: tl.minQuantity },
+    normalizedQty: { qty: norm.qty, ok: norm.ok, reason: norm.reason },
+    quote: quote.ok ? quote.data : { error: quote.error },
+    orders: orders.ok ? orders.data : { error: orders.error },
+    positions: positions.ok ? positions.data : { error: positions.error },
+  };
 }
