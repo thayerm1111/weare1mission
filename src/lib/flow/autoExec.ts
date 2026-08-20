@@ -1,8 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { flowDecision } from "@/lib/flow/decision";
-import { placeMarketOrder } from "@/lib/flow/executor";
+import { placeMarketOrder, accountEquity } from "@/lib/flow/executor";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
+import { sizeFromRisk } from "@/lib/flow/sizing";
 import { ENTRY_TUNING } from "@/lib/entryEngine";
 import type { Mode } from "@/lib/genxCompute";
 
@@ -59,11 +60,18 @@ async function recentAutoEvents(admin: Admin, userId: string): Promise<AutoEvent
   return (data ?? []) as AutoEvent[];
 }
 
+// Absolute per-order lot ceiling (fat-finger backstop, even after risk sizing).
+const MAX_LOTS = 100;
+
 // ── per-member guard context (shared by the ENTER_NOW and fast-watch paths) ──
 type GuardCtx = {
   mode: Mode; symbols: string[]; maxLot: number; cooldownMs: number;
   now: number; events: AutoEvent[]; placed: AutoEvent[];
   hourBudget: number; openSymbols: Set<string>; maxOpen: number;
+  // Risk-based sizing: each trade risks riskPct of `equity` (live broker balance,
+  // falling back to a saved account size), not a flat lot. maxLot is the fallback
+  // only when equity can't be determined.
+  equity: number | null; riskPct: number;
 };
 
 async function buildGuardCtx(admin: Admin, settings: AutoSettings): Promise<GuardCtx> {
@@ -79,7 +87,15 @@ async function buildGuardCtx(admin: Admin, settings: AutoSettings): Promise<Guar
   const placedLastHour = placed.filter((p) => now - new Date(p.created_at).getTime() < 3600e3).length;
   const hourBudget = Math.max(0, maxPerHour - placedLastHour);
   const openSymbols = new Set(placed.filter((p) => now - new Date(p.created_at).getTime() < cooldownMs).map((p) => String(p.symbol).toUpperCase()));
-  return { mode, symbols, maxLot, cooldownMs, now, events, placed, hourBudget, openSymbols, maxOpen };
+
+  // Risk sizing inputs: live broker equity + the member's saved risk %.
+  const { data: pref } = await admin.from("flow_trade_prefs").select("account_size, risk_pct").eq("user_id", settings.user_id).maybeSingle();
+  const p = (pref as { account_size?: number | null; risk_pct?: number | null } | null) ?? null;
+  const eq = await accountEquity(settings.user_id);
+  const equity = eq.ok ? eq.equity : (p && typeof p.account_size === "number" && p.account_size > 0 ? p.account_size : null);
+  const riskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : 1;
+
+  return { mode, symbols, maxLot, cooldownMs, now, events, placed, hourBudget, openSymbols, maxOpen, equity, riskPct };
 }
 
 /** Apply the per-member guardrails and, if they pass, place ONE market order. Mutates ctx. */
@@ -93,7 +109,19 @@ async function guardAndPlace(settings: AutoSettings, ctx: GuardCtx, symbol: stri
   if (ctx.hourBudget <= 0) return { symbol, action: "hour_cap" };
   if (!ctx.openSymbols.has(symbol) && ctx.openSymbols.size >= ctx.maxOpen) return { symbol, action: "max_open" };
 
-  const out = await placeMarketOrder({ userId: settings.user_id, symbol, side, qty: ctx.maxLot, stop: levels.stop, tp: levels.tp1, source: "auto" });
+  // Size the trade to risk riskPct of equity across the entry→stop distance,
+  // instead of a flat lot. Fall back to the configured lot only if equity or a
+  // usable stop is missing.
+  let qty = ctx.maxLot;
+  const entry = levels.entryLow != null && levels.entryHigh != null ? (levels.entryLow + levels.entryHigh) / 2 : (levels.entryLow ?? levels.entryHigh);
+  const stop = levels.stop ?? levels.invalidation;
+  if (ctx.equity != null && entry != null && stop != null) {
+    const s = sizeFromRisk({ canonical: symbol, entry, stop, equity: ctx.equity, riskPct: ctx.riskPct });
+    if (s.ok && s.lots > 0) qty = s.lots;
+  }
+  if (qty > MAX_LOTS) qty = MAX_LOTS;
+
+  const out = await placeMarketOrder({ userId: settings.user_id, symbol, side, qty, stop: levels.stop, tp: levels.tp1, source: "auto" });
   if (out.status === "placed") {
     ctx.hourBudget -= 1;
     ctx.openSymbols.add(symbol);
