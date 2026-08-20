@@ -69,7 +69,15 @@ async function logEvent(userId: string, e: Record<string, unknown>): Promise<voi
 
 /** Core: place ONE market order on a specific (env, token, account). No logging;
  *  the caller records the event so multi-account fan-out can log per account. */
-async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string }> {
+/** Broker rejections that mean "not this session" — rollover, closed, pre-open,
+ *  or the instrument's session phase forbids protected orders. These are NOT
+ *  failures to fix; the executor simply retries on the next tick once the session
+ *  reopens. Matched case-insensitively against the broker's message. */
+function isSessionClosedReject(msg: string): boolean {
+  return /session|market[^a-z]*(clos|halt)|forbidden|not[^a-z]*open|trading[^a-z]*(clos|halt|disabl)/i.test(String(msg || ""));
+}
+
+async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean }> {
   const instRes = await listInstruments(a.env, a.token, a.accNum, a.accountId);
   if (!instRes.ok) return { ok: false, error: `instrument_list_failed: ${instRes.error}`.slice(0, 160) };
   const tl = matchInstrument(canonical, instRes.data);
@@ -82,13 +90,28 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
     side, type: "market" as const, qty: norm.qty, validity: "IOC" as const,
   };
   const hasBracket = stop != null || tp != null;
+  const hasStop = stop != null;
   let ord = await createOrder(a.env, a.token, { ...base, stopLoss: stop ?? null, takeProfit: tp ?? null });
   let note = "";
   if (!ord.ok && hasBracket) {
-    const bare = await createOrder(a.env, a.token, { ...base, stopLoss: null, takeProfit: null });
-    if (bare.ok) { ord = bare; note = " (SL/TP rejected — opened bare)"; }
+    // Session-closed / rollover / pre-open: the broker won't accept a protected
+    // order right now. Do NOT open anything — defer and let the next tick retry
+    // once the session reopens. (This is the gold 21:00–22:00 UTC window.)
+    if (isSessionClosedReject(ord.error)) return { ok: false, error: ord.error, deferred: true };
+    // Non-session rejection. Take-profit is the leg brokers most often restrict,
+    // so retry with the STOP still attached (drop only the TP). We NEVER open a
+    // position without its stop-loss — an unprotected fill defeats the risk model
+    // and is catastrophic on a large account. If a stop was required and the
+    // stop-only retry still fails, we skip rather than open bare.
+    if (hasStop) {
+      const stopOnly = await createOrder(a.env, a.token, { ...base, stopLoss: stop, takeProfit: null });
+      if (stopOnly.ok) { ord = stopOnly; note = " (TP dropped — SL kept)"; }
+    } else {
+      const bare = await createOrder(a.env, a.token, { ...base, stopLoss: null, takeProfit: null });
+      if (bare.ok) { ord = bare; note = " (TP rejected — opened)"; }
+    }
   }
-  if (!ord.ok) return { ok: false, error: ord.error };
+  if (!ord.ok) return { ok: false, error: ord.error, deferred: isSessionClosedReject(ord.error) };
   return { ok: true, qty: norm.qty, orderId: ord.data.orderId ?? null, positionId: ord.data.positionId ?? null, note };
 }
 
@@ -115,8 +138,8 @@ export async function placeMarketOrder(opts: {
 
   const r = await placeOnAccount({ env: fresh.env, token: fresh.token, accNum, accountId }, canonical, opts.side, opts.qty, opts.stop, opts.tp);
   if (!r.ok) {
-    await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: opts.qty, status: "error", reason: `${opts.source}: ${r.error}`.slice(0, 200), account_id: accountId });
-    return { status: "error", reason: r.error, environment: fresh.env };
+    await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: opts.qty, status: r.deferred ? "deferred" : "error", reason: `${opts.source}: ${r.error}`.slice(0, 200), account_id: accountId });
+    return { status: "error", reason: r.deferred ? "Market session closed — will retry when it reopens." : r.error, environment: fresh.env };
   }
   await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: r.qty, status: "placed", reason: `${opts.source}${r.note}`.slice(0, 60), order_id: r.orderId, account_id: accountId });
   return { status: "placed", symbol: canonical, side: opts.side, qty: r.qty, orderId: r.orderId, positionId: r.positionId, environment: fresh.env, accountId };
@@ -152,8 +175,11 @@ export async function placeOnActiveAccounts(opts: {
     const lots = Math.min(s.lots, 100); // fat-finger backstop
     const r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId }, canonical, opts.side, lots, opts.stop, opts.tp ?? null);
     if (!r.ok) {
-      await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: s.lots, status: "error", reason: `${opts.source}: ${r.error}`.slice(0, 200), account_id: a.accountId });
-      fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "error", lots: s.lots, reason: r.error });
+      // Session-closed rejection isn't a failure — the next tick retries once the
+      // market reopens. Record it as "deferred"/skipped so it doesn't spam errors.
+      const st = r.deferred ? "deferred" : "error";
+      await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: s.lots, status: st, reason: `${opts.source}: ${r.error}`.slice(0, 200), account_id: a.accountId });
+      fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: r.deferred ? "skipped" : "error", lots: s.lots, reason: r.deferred ? "session_closed" : r.error });
       continue;
     }
     await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: r.qty, status: "placed", reason: `${opts.source}${r.note}`.slice(0, 60), order_id: r.orderId, account_id: a.accountId });
