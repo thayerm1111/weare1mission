@@ -219,6 +219,25 @@ input{font:inherit}
 .savetrade.saved{color:#04121f;background:linear-gradient(180deg,#3cf0a0,#22c483);border-color:transparent}
 .savetrade.saving{opacity:.7}
 .savetrade.err{color:var(--red);border-color:rgba(255,93,108,.4);background:rgba(255,93,108,.1)}
+.xrisk{margin-top:12px;border:1px solid var(--line);border-radius:14px;padding:12px 13px;background:rgba(8,16,32,.55);display:flex;flex-direction:column;gap:9px}
+.xrisk-hd{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--faint)}
+.xrisk-row{display:flex;align-items:center;gap:10px}
+.xrisk-lb{font-size:12px;color:var(--faint);min-width:64px}
+.xrisk-chips{display:flex;gap:6px;flex-wrap:wrap}
+.xrchip{padding:6px 11px;border-radius:10px;border:1px solid var(--line);background:rgba(8,16,32,.5);color:var(--faint);font-size:12px;font-weight:800}
+.xrchip.on{color:var(--sky);border-color:var(--sky);background:rgba(57,198,255,.1)}
+.xrisk-in{flex:1;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:rgba(8,16,32,.6);color:var(--fg);font-size:14px;font-weight:700}
+.xrisk-eq{font-size:12px;color:var(--faint)}.xrisk-eq b{color:var(--fg)}
+.xrisk-size{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:13px;color:var(--faint)}
+.xrisk-size b{color:var(--fg);font-size:16px}
+.xrisk-risk{font-size:11px;color:var(--faint)}
+.xrisk-go{width:100%;padding:13px;border-radius:12px;font-size:15px;font-weight:800;border:1px solid transparent;color:#04121f}
+.xrisk-go.buy{background:linear-gradient(180deg,#3cf0a0,#22c483)}
+.xrisk-go.sell{background:linear-gradient(180deg,#ff8a94,#ff5d6c)}
+.xrisk-go[disabled]{opacity:.5}
+.xrisk-ok{width:100%;padding:12px;border-radius:12px;text-align:center;font-size:13px;font-weight:800;color:#04121f;background:linear-gradient(180deg,#3cf0a0,#22c483)}
+.xrisk-err{font-size:12px;color:var(--red)}
+.xrisk-note{font-size:10px;color:var(--faint);line-height:1.4}
 .tchat{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}
 .tchat-t{width:100%;display:flex;align-items:center;justify-content:space-between;padding:12px 13px;border-radius:12px;
   border:1px solid rgba(57,198,255,.35);background:rgba(57,198,255,.08);color:var(--sky);font-size:13.5px;font-weight:800}
@@ -1233,6 +1252,69 @@ input{font:inherit}
       ${st[0] === "saved" ? "✓ Saved to your trades" : st[0] === "saving" ? "Saving…" : st[0] === "err" ? "Couldn't save — tap to retry" : "＋ I took this trade"}
     </button>`;
   }
+  // Semi-auto risk-sized execution — size a generated play by risk % against the
+  // member's live TradeLocker equity (or a saved account size), then place it at
+  // MARKET with stop + TP1 attached, ONLY when the member taps Execute.
+  function ExecutePlay(props) {
+    var m = props.m, lv = tradeLevels(m);
+    var risk = useState(1), acct = useState(""), equity = useState(null), connected = useState(false);
+    var lots = useState(null), sizing = useState(null), busy = useState(false), done = useState(null), err = useState(""), loaded = useState(false);
+    if (!lv.ok || lv.ep == null || lv.stop == null || !lv.tps.length) { return null; }
+    var side = m.direction === "SHORT" ? "sell" : "buy";
+    var sym = m.symbol || "";
+    function baseBody(extra) {
+      var b = { source: "play", symbol: sym, side: side, entry: lv.ep, stop: lv.stop, tp: lv.tps[0], riskPct: +risk[0] };
+      if (!connected[0] && acct[0]) b.accountSize = +acct[0];
+      return Object.assign(b, extra || {});
+    }
+    useEffect(function () {
+      apiGet("/api/flow/prefs").then(function (d) {
+        if (d) {
+          if (d.riskPct) risk[1](d.riskPct);
+          if (d.connected) { connected[1](true); equity[1](d.liveEquity); }
+          else if (d.accountSize) acct[1](String(d.accountSize));
+        }
+        loaded[1](true);
+      }).catch(function () { loaded[1](true); });
+    }, []);
+    function preview() {
+      apiPost("/api/flow/execute", baseBody({ preview: true })).then(function (d) {
+        if (d && d.preview) { lots[1](d.lots); sizing[1](d.sizing); if (d.equity != null) equity[1](d.equity); err[1](""); }
+        else if (d && d.detail) { lots[1](null); err[1](d.detail); }
+      }).catch(function () {});
+    }
+    useEffect(function () { if (loaded[0]) preview(); }, [loaded[0], risk[0], acct[0]]);
+    function execute() {
+      if (busy[0] || lots[0] == null) return; busy[1](true); err[1]("");
+      apiPost("/api/flow/execute", baseBody()).then(function (d) {
+        busy[1](false);
+        if (d && d.ok && d.outcome && d.outcome.status === "placed") { done[1](d.outcome); }
+        else { err[1]((d && (d.detail || (d.outcome && d.outcome.reason))) || "Couldn't place the order."); }
+      }).catch(function () { busy[1](false); err[1]("Network error — try again."); });
+    }
+    function saveAcct() { if (acct[0]) apiPost("/api/flow/prefs", { accountSize: +acct[0], riskPct: +risk[0] }).catch(function () {}); }
+    var RISKS = [0.5, 1, 2, 3];
+    return html`<div class="xrisk">
+      <div class="xrisk-hd">Execute · risk-sized</div>
+      <div class="xrisk-row"><span class="xrisk-lb">Risk</span>
+        <div class="xrisk-chips">${RISKS.map(function (r) { return html`<button class=${"xrchip" + (+risk[0] === r ? " on" : "")} onClick=${function () { risk[1](r); }}>${r}%</button>`; })}</div>
+      </div>
+      ${connected[0]
+        ? html`<div class="xrisk-eq">Equity <b>${equity[0] != null ? "$" + Math.round(equity[0]).toLocaleString() : "—"}</b> · live from TradeLocker</div>`
+        : html`<div class="xrisk-row"><span class="xrisk-lb">Account $</span><input class="xrisk-in" type="number" inputmode="decimal" value=${acct[0]} placeholder="e.g. 5000" onInput=${function (e) { acct[1](e.target.value); }} onBlur=${saveAcct} /></div>`}
+      <div class="xrisk-size">
+        ${lots[0] != null
+          ? html`<span>Size <b>${lots[0]} lots</b></span><span class="xrisk-risk">risking ~$${sizing[0] ? sizing[0].estLossAtStop : "—"} at stop</span>`
+          : html`<span class="xrisk-risk">${err[0] || "Calculating size…"}</span>`}
+      </div>
+      ${done[0]
+        ? html`<div class="xrisk-ok">✓ Order placed${done[0].orderId ? " · #" + done[0].orderId : ""} · ${lots[0]} lots ${side === "sell" ? "SELL" : "BUY"} ${sym.replace("/", "")}</div>`
+        : html`<button class=${"xrisk-go " + side} disabled=${busy[0] || lots[0] == null} onClick=${execute}>${busy[0] ? "Placing…" : "Execute " + (side === "sell" ? "SELL" : "BUY") + (lots[0] != null ? " · " + lots[0] + " lots" : "")}</button>`}
+      ${err[0] && !done[0] ? html`<div class="xrisk-err">${err[0]}</div>` : null}
+      <div class="xrisk-note">Places a real order on your connected account when you tap Execute. Stop + TP1 attached automatically.</div>
+    </div>`;
+  }
+
   // Per-trade AI chat — ask about THIS specific setup (/api/trade-chat).
   function TradeChat(props) {
     var m = props.m, lv = tradeLevels(m);
@@ -1318,6 +1400,7 @@ input{font:inherit}
           <div><span>POTENTIAL</span><b class="pot">${potential != null ? "+" + potential + " PIPS" : "—"}</b></div>
         </div>
         <${SaveTrade} m=${m} />
+        <${ExecutePlay} m=${m} />
       </div>` : null}
 
       <${TradeChat} m=${m} />
