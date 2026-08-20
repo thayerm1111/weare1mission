@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { placeMarketOrder } from "@/lib/flow/executor";
+import { placeMarketOrder, probeBroker } from "@/lib/flow/executor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,7 +25,13 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { /* */ }
   const symbol = typeof body.symbol === "string" ? body.symbol : "XAUUSD";
   const side: "buy" | "sell" = body.side === "sell" ? "sell" : "buy";
-  const source = body.source === "test" ? "test" : "manual";
+  const source = body.source === "test" ? "test" : body.source === "probe" ? "probe" : "manual";
+
+  if (source === "probe") {
+    // Read-only diagnostics — places no order.
+    const probe = await probeBroker(user.id, symbol);
+    return json({ ok: probe.ok === true, probe }, 200);
+  }
 
   if (source === "test") {
     // Hard-capped tiny order — this path is only for proving the broker pipe.
