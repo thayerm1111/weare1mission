@@ -1,0 +1,35 @@
+name: FLOW auto-executor
+
+# Runs the FLOW auto-executor for every armed member on a tight schedule so a
+# live ENTER_NOW is acted on within a few minutes. The Vercel Hobby plan caps
+# native crons at once/day, so this GitHub-hosted schedule is what gives us
+# frequent execution. It just pings the protected endpoint; all the work
+# (engine read, entry decision, broker order) happens server-side.
+#
+# Reuses the existing GENX_CRON_KEY secret (the endpoint accepts GENX_CRON_KEY,
+# FLOW_CRON_KEY, or CRON_SECRET) so it goes live with no new configuration.
+
+on:
+  schedule:
+    - cron: "*/5 * * * 1-5"   # every 5 min, Mon–Fri (UTC) — FX/metals/index hours
+  workflow_dispatch: {}         # allow manual runs from the Actions tab
+
+concurrency:
+  group: flow-exec
+  cancel-in-progress: false
+
+jobs:
+  exec:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger FLOW auto-executor
+        env:
+          KEY: ${{ secrets.FLOW_CRON_KEY || secrets.GENX_CRON_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then echo "No FLOW_CRON_KEY/GENX_CRON_KEY secret set — skipping until configured"; exit 0; fi
+          code=$(curl -sS -o /tmp/out.json -w "%{http_code}" -X POST \
+            "https://weare1mission.com/api/cron/flow-exec?key=$KEY")
+          echo "HTTP $code"
+          cat /tmp/out.json || true
+          echo ""
+          if [ "$code" != "200" ]; then echo "::error::FLOW auto-exec returned HTTP $code"; exit 1; fi
