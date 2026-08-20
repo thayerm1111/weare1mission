@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeQuantity } from "@/lib/flow/instruments";
 import { freshAccessToken } from "@/lib/flow/connection";
-import { listInstruments, createOrder, getQuote, listOrders, listPositions, type TLInstrument } from "@/lib/flow/tradelocker";
+import { listInstruments, createOrder, getQuote, listOrders, listPositions, listAccounts, type TLInstrument } from "@/lib/flow/tradelocker";
 
 /**
  * FLOW order placement (server-only). Places a single market order on the
@@ -38,6 +38,25 @@ function matchInstrument(canonical: string, instruments: TLInstrument[]): TLInst
     if (bs.startsWith(want) || aliases.some((a) => bs.startsWith(a))) return i;
   }
   return null;
+}
+
+/**
+ * Live equity of the member's SELECTED connected account (for risk-based sizing).
+ * Returns { ok:false } when no account is connected so callers can fall back to a
+ * saved account size.
+ */
+export async function accountEquity(userId: string): Promise<{ ok: true; equity: number; balance: number | null; currency: string | null; accountId: string; environment: string } | { ok: false; reason: string }> {
+  const fresh = await freshAccessToken(userId);
+  if (!fresh.ok) return { ok: false, reason: fresh.error };
+  const accountId = fresh.conn.selected_account_id;
+  if (!accountId) return { ok: false, reason: "no_account_selected" };
+  const res = await listAccounts(fresh.env, fresh.token);
+  if (!res.ok) return { ok: false, reason: res.error };
+  const acc = res.data.find((a) => String(a.accountId) === String(accountId)) ?? res.data[0];
+  if (!acc) return { ok: false, reason: "account_not_found" };
+  const equity = typeof acc.equity === "number" ? acc.equity : (typeof acc.balance === "number" ? acc.balance : NaN);
+  if (!Number.isFinite(equity)) return { ok: false, reason: "no_equity" };
+  return { ok: true, equity, balance: acc.balance ?? null, currency: acc.currency ?? null, accountId, environment: fresh.env };
 }
 
 async function logEvent(userId: string, e: Record<string, unknown>): Promise<void> {
