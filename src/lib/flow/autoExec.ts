@@ -7,6 +7,7 @@ import { getInstrument } from "@/lib/flow/instruments";
 import { ENTRY_TUNING } from "@/lib/entryEngine";
 import type { Mode } from "@/lib/genxCompute";
 import { CREDIT_COST, DAILY_FREE } from "@/lib/creditConfig";
+import { hasActiveSuite } from "@/lib/subscription";
 
 /**
  * FLOW AUTO-EXECUTOR (server-only).
@@ -72,6 +73,9 @@ function isMarketOpenNow(d: Date = new Date()): boolean {
  */
 async function meterAutoRun(admin: Admin, settings: AutoSettings): Promise<boolean> {
   if (!isMarketOpenNow()) return false; // never bill or place while closed
+  // Trading Suite members get auto-run FREE — no per-window credit charge.
+  // Non-members fall through to the pay-per-use meter below.
+  if (await hasActiveSuite(settings.user_id, admin)) return true;
   const last = settings.last_credit_at ? Date.parse(settings.last_credit_at) : 0;
   const due = !!settings.credit_paused || !last || Date.now() - last >= AUTORUN_WINDOW_MS;
   if (!due) return true; // still inside an already-paid 30-min window
