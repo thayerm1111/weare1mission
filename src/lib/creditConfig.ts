@@ -44,3 +44,15 @@ export const PACKS: Pack[] = [
   { id: "pro", label: "Pro", credits: 500, priceUsd: 79.99, blurb: "For heavy users & power days" },
 ];
 export const packById = (id: string): Pack | null => PACKS.find((p) => p.id === id) || null;
+
+// Trading Suite — the $39/mo add-on membership. One flat price unlocks everything,
+// grants a monthly credit allowance (topped up to the floor each billing period,
+// no rollover), and makes FLOW auto-run FREE (non-members keep the pay-per-use
+// meter). Overridable via env so the price can be tuned without a redeploy.
+export const SUITE = {
+  key: "trading_suite",
+  label: "Trading Suite",
+  priceUsd: Number(process.env.NEXT_PUBLIC_SUITE_PRICE_USD ?? 39),
+  monthlyCredits: Number(process.env.NEXT_PUBLIC_SUITE_CREDITS ?? 250),
+  interval: "month" as const,
+} as const;

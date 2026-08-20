@@ -5,6 +5,7 @@ import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
 import { SignOutButton } from "@/components/portal/SignOutButton";
 import { AccountForm } from "@/components/portal/AccountForm";
 import { PasswordForm } from "@/components/portal/PasswordForm";
+import { SubscriptionCard } from "@/components/portal/SubscriptionCard";
 import { TIER_LABELS } from "@/lib/access";
 import { packById } from "@/lib/creditConfig";
 
@@ -82,6 +83,8 @@ export default async function AccountPage() {
           <PasswordForm />
         </div>
       </section>
+
+      <SubscriptionCard />
 
       <section className="rounded-2xl border border-[#E4DCCB] bg-offwhite/60 p-6">
         <h2 className="text-base font-bold text-navy">Membership</h2>
