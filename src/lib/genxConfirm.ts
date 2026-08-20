@@ -25,7 +25,7 @@ export const CONFIRM_IV: Record<string, string> = { quick: "5min", intraday: "15
 export async function confirmEntry(opts: {
   side: "buy" | "sell";
   entryLow: number; entryHigh: number; watch: number; invalidation: number;
-  mode: string; mdKey: string; fresh: boolean;
+  mode: string; mdKey: string; fresh: boolean; interval?: string;
 }): Promise<ConfirmResult> {
   const side = opts.side;
   const inv = Number(opts.invalidation);
@@ -35,7 +35,10 @@ export async function confirmEntry(opts: {
   if (zoneLo > zoneHi) { const t = zoneLo; zoneLo = zoneHi; zoneHi = t; }
 
   const base = { side, zoneLow: zoneLo, zoneHigh: zoneHi, invalidation: inv, price: null as number | null, enter: null as number | null };
-  const interval = CONFIRM_IV[String(opts.mode)] ?? "5min";
+  // Optional interval override — the fast-watch passes "1min" so an ENTER can
+  // fire on a 1-minute close once price is already at the zone (catches the move
+  // ~4 min sooner than waiting for the 5-min close).
+  const interval = opts.interval || CONFIRM_IV[String(opts.mode)] || "5min";
   if (!numOk(inv) || (!numOk(zoneLo) && !numOk(watch))) return { state: "NO_DATA", detail: "Missing setup levels.", interval, ...base };
 
   const rowsRaw = await series("XAU/USD", interval, 24, opts.mdKey, opts.fresh);

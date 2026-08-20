@@ -94,13 +94,15 @@ const numOk = (n: unknown): n is number => typeof n === "number" && Number.isFin
 export async function flowConfirm(opts: {
   tdSymbol: string; pip: number; side: "buy" | "sell";
   entryLow: number; entryHigh: number; watch: number; invalidation: number;
-  mode: string; mdKey: string; fresh: boolean;
+  mode: string; mdKey: string; fresh: boolean; interval?: string;
 }): Promise<{ state: FlowConfirmState; detail: string; enter: number | null; price: number | null; interval: string }> {
   const side = opts.side, inv = Number(opts.invalidation), watch = Number(opts.watch);
   let zoneLo = Number(opts.entryLow), zoneHi = Number(opts.entryHigh);
   if (!numOk(zoneLo) || !numOk(zoneHi)) { zoneLo = watch; zoneHi = watch; }
   if (zoneLo > zoneHi) { const t = zoneLo; zoneLo = zoneHi; zoneHi = t; }
-  const interval = CONFIRM_IV[String(opts.mode)] ?? "5min";
+  // Optional interval override (the fast-watch passes "1min" so an entry can
+  // confirm on a 1-minute close once price is already sitting in the zone).
+  const interval = opts.interval || CONFIRM_IV[String(opts.mode)] || "5min";
   if (!numOk(inv) || (!numOk(zoneLo) && !numOk(watch))) return { state: "NO_DATA", detail: "Missing setup levels.", enter: null, price: null, interval };
 
   const rowsRaw = await series(opts.tdSymbol, interval, 24, opts.mdKey, opts.fresh);
