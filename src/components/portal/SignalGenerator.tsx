@@ -672,6 +672,133 @@ function UpdatePanel({ u }: { u: TradeUpdate }) {
   );
 }
 
+/* ---------- Execute (risk-sized) — take this OM AI play on TradeLocker ---------- */
+
+type SizingInfo = { estLossAtStop?: number } | null;
+
+function ExecuteSignal({ symbol, direction, entry, stop, tp }: { symbol: string; direction: "LONG" | "SHORT"; entry: number; stop: number; tp: number | null }) {
+  const side: "buy" | "sell" = direction === "SHORT" ? "sell" : "buy";
+  const [risk, setRisk] = useState(1);
+  const [acct, setAcct] = useState("");
+  const [connected, setConnected] = useState(false);
+  const [equity, setEquity] = useState<number | null>(null);
+  const [lots, setLots] = useState<number | null>(null);
+  const [sizing, setSizing] = useState<SizingInfo>(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<{ orderId?: string | null } | null>(null);
+  const [err, setErr] = useState("");
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/flow/prefs", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d) {
+          if (d.riskPct) setRisk(d.riskPct);
+          if (d.connected) { setConnected(true); setEquity(d.liveEquity ?? null); }
+          else if (d.accountSize) setAcct(String(d.accountSize));
+        }
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  const bodyFor = (extra?: Record<string, unknown>) => {
+    const b: Record<string, unknown> = { source: "play", symbol, side, entry, stop, tp, riskPct: risk };
+    if (!connected && acct) b.accountSize = +acct;
+    return { ...b, ...(extra || {}) };
+  };
+
+  const preview = useCallback(() => {
+    fetch("/api/flow/execute", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(bodyFor({ preview: true })) })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.preview) { setLots(d.lots); setSizing(d.sizing ?? null); if (d.equity != null) setEquity(d.equity); setErr(""); }
+        else if (d && d.detail) { setLots(null); setErr(d.detail); }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [risk, acct, connected]);
+
+  useEffect(() => { if (loaded) preview(); }, [loaded, risk, acct, preview]);
+
+  function execute() {
+    if (busy || lots == null) return;
+    setBusy(true); setErr("");
+    fetch("/api/flow/execute", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(bodyFor()) })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.ok && d.outcome && d.outcome.status === "placed") setDone(d.outcome);
+        else setErr((d && (d.detail || (d.outcome && d.outcome.reason))) || "Couldn't place the order.");
+      })
+      .catch(() => setErr("Network error — try again."))
+      .finally(() => setBusy(false));
+  }
+
+  function saveAcct() {
+    if (acct) fetch("/api/flow/prefs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ accountSize: +acct, riskPct: risk }) }).catch(() => {});
+  }
+
+  const RISKS = [0.5, 1, 2, 3];
+  const sym = symbol.replace("/", "");
+  return (
+    <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-400/[0.04] p-4">
+      <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-300/80">Execute · risk-sized</p>
+
+      <div className="mt-3 flex items-center gap-2">
+        <span className="text-xs text-white/50">Risk</span>
+        <div className="flex gap-1.5">
+          {RISKS.map((rp) => (
+            <button key={rp} onClick={() => setRisk(rp)}
+              className={`rounded-lg px-2.5 py-1 text-xs font-bold transition-colors ${risk === rp ? "bg-emerald-500 text-[#04140b]" : "border border-white/15 text-white/70 hover:bg-white/10"}`}>
+              {rp}%
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {connected ? (
+        <p className="mt-2 text-xs text-white/55">Equity <b className="text-white/85">{equity != null ? "$" + Math.round(equity).toLocaleString() : "—"}</b> · live from TradeLocker</p>
+      ) : (
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-xs text-white/50">Account $</span>
+          <input type="number" inputMode="decimal" value={acct} placeholder="e.g. 5000" onChange={(e) => setAcct(e.target.value)} onBlur={saveAcct}
+            className="w-28 rounded-lg border border-white/15 bg-white/[0.04] px-2 py-1 text-sm text-white placeholder:text-white/25 focus:border-emerald-400/40 focus:outline-none" />
+        </div>
+      )}
+
+      <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+        {lots != null ? (
+          <>
+            <span className="text-white/80">Size <b className="text-white">{lots} lots</b></span>
+            <span className="text-xs text-white/45">risking ~${sizing?.estLossAtStop ?? "—"} at stop</span>
+          </>
+        ) : (
+          <span className="text-xs text-white/45">{err || "Calculating size…"}</span>
+        )}
+      </div>
+
+      {!connected && (
+        <a href="/portal/trading?view=flow" className="mt-2 inline-block text-xs font-semibold text-sky-300 hover:underline">◆ Connect TradeLocker to execute →</a>
+      )}
+
+      {done ? (
+        <p className="mt-3 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-sm font-semibold text-emerald-300">
+          ✓ Order placed{done.orderId ? " · #" + done.orderId : ""} · {lots} lots {side === "sell" ? "SELL" : "BUY"} {sym}
+        </p>
+      ) : (
+        <button onClick={execute} disabled={busy || lots == null}
+          className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${side === "sell" ? "bg-red-500 text-white hover:bg-red-400" : "bg-emerald-500 text-[#04140b] hover:bg-emerald-400"}`}>
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          {busy ? "Placing…" : `Execute ${side === "sell" ? "SELL" : "BUY"}${lots != null ? " · " + lots + " lots" : ""}`}
+        </button>
+      )}
+      {err && !done && <p className="mt-2 text-xs text-red-300">{err}</p>}
+      <p className="mt-2 text-[11px] text-white/35">Places a real order on your connected account when you tap Execute. Stop + TP1 attached automatically.</p>
+    </div>
+  );
+}
+
 function FullCard({ r, onCheck, checking, onUpdate, updating, update }: { r: Result; onCheck: () => void; checking: boolean; onUpdate?: () => void; updating?: boolean; update?: TradeUpdate }) {
   const s = r.signal; const { color, Icon } = dirStyle(s.direction);
   return (
@@ -824,6 +951,16 @@ function FullCard({ r, onCheck, checking, onUpdate, updating, update }: { r: Res
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <CopyAllBtn text={buildTradeText({ direction: s.direction, entry: s.entry, stopLoss: s.stopLoss, takeProfits: s.takeProfits, fmt })} />
         </div>
+      )}
+
+      {(s.direction === "LONG" || s.direction === "SHORT") && s.status !== "no_trade" && numOk(s.entry) && numOk(s.stopLoss) && (s.takeProfits || []).some(numOk) && (
+        <ExecuteSignal
+          symbol={r.symbol}
+          direction={s.direction}
+          entry={s.entry as number}
+          stop={s.stopLoss as number}
+          tp={(s.takeProfits || []).filter(numOk)[0] ?? null}
+        />
       )}
 
       {s.direction !== "NEUTRAL" && s.status !== "no_trade" && numOk(s.entry) && numOk(s.stopLoss) && (
