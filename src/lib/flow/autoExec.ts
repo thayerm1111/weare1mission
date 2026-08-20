@@ -1,25 +1,26 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { flowDecision } from "@/lib/flow/decision";
 import { placeMarketOrder } from "@/lib/flow/executor";
+import { flowConfirm } from "@/lib/flowEngine";
+import { getInstrument } from "@/lib/flow/instruments";
 import type { Mode } from "@/lib/genxCompute";
 
 /**
  * FLOW AUTO-EXECUTOR (server-only).
  *
- * For each ARMED member, run the exact same setup→confirm→entry-engine pipeline
- * the FLOW screen shows, and when it reads ENTER_NOW, place ONE market order on
- * that member's connected TradeLocker account. Deterministic and guardrailed:
+ * Two tiers:
+ *  1. FULL SCAN (runAutoExecAll, every ~5 min) — runs the same setup→confirm→
+ *     entry-engine pipeline the FLOW screen shows for each armed symbol. It places
+ *     immediately on ENTER_NOW, and records any setup that is AT/near its zone into
+ *     a shared watch list.
+ *  2. FAST-WATCH (runFlowWatch, every ~30s) — for the at-zone setups only, it
+ *     re-confirms on 1-MINUTE candles and fires the instant buyers/sellers activate,
+ *     so an entry isn't missed waiting up to 5 minutes for the next full scan.
  *
- *  • per-symbol COOLDOWN — a standing ENTER_NOW can't re-fire every scan tick,
- *    and it never stacks a second position on the same symbol inside the window.
- *  • HOURLY CAP — at most `max_orders_per_hour` auto orders per member.
- *  • only fires on entryState === "ENTER_NOW" && actionable (never on a limit /
- *    pullback / approaching / stand-aside state). The entry engine's chase +
- *    expiry guards still gate every fill. (Note: a CONFIRMED counter-trend setup
- *    can still reach ENTER_NOW by design — STAND_ASIDE only blocks pre-confirmation.)
- *
- * Members opt in explicitly (flow_auto_settings.enabled). This module never runs
- * for anyone who hasn't armed it.
+ * Guardrails (per member): per-symbol COOLDOWN (a standing signal can't re-fire
+ * every tick / stack a second position), an ORDERS-PER-HOUR cap, a max concurrent
+ * cap, and an error backoff so an ambiguous fill isn't duplicated. Only ARMED
+ * members (flow_auto_settings.enabled) are ever touched.
  */
 
 export type AutoSettings = {
@@ -35,19 +36,19 @@ export type AutoSettings = {
 };
 
 const DEFAULT_SYMBOLS = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "NAS100"];
-// Per-symbol cooldown by mode: long enough that a persistent ENTER_NOW doesn't
-// re-enter on the next 5-min tick, short enough to catch a genuinely new setup.
 const COOLDOWN_MIN: Record<string, number> = { quick: 90, intraday: 180, swing: 480 };
-
-// A recent ambiguous failure (e.g. the broker filled but our request timed out
-// before we saw the id) must NOT be retried on the very next tick, or it stacks
-// a duplicate. So after an error we hold the symbol for a short backoff.
 const ERROR_BACKOFF_MS = 8 * 60000;
+// The at-zone watch list lives in the shared kv (live_plays_cache) under this id.
+const WATCH_CACHE_ID = "flow_watch";
+const WATCH_STALE_MS = 12 * 60000; // ignore a watch list older than this (scan is 5-min)
 
+type Levels = { entryLow: number | null; entryHigh: number | null; stop: number | null; tp1: number | null; invalidation: number | null };
+type WatchSetup = { symbol: string; side: "buy" | "sell"; levels: Levels };
 type AutoEvent = { symbol: string; created_at: string; status: string };
 type SymbolResult = { symbol: string; action: string; detail?: string; orderId?: string | null; side?: string };
+type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
 
-async function recentAutoEvents(admin: NonNullable<ReturnType<typeof createAdminClient>>, userId: string): Promise<AutoEvent[]> {
+async function recentAutoEvents(admin: Admin, userId: string): Promise<AutoEvent[]> {
   const sinceIso = new Date(Date.now() - 8 * 3600e3).toISOString();
   const { data } = await admin.from("flow_auto_events")
     .select("symbol, created_at, status")
@@ -57,92 +58,174 @@ async function recentAutoEvents(admin: NonNullable<ReturnType<typeof createAdmin
   return (data ?? []) as AutoEvent[];
 }
 
-/** Run the auto-executor for a SINGLE armed member. */
-export async function runAutoExecForUser(settings: AutoSettings, mdKey: string): Promise<{ userId: string; results: SymbolResult[] }> {
-  const admin = createAdminClient();
-  const results: SymbolResult[] = [];
-  if (!admin) return { userId: settings.user_id, results: [{ symbol: "-", action: "error", detail: "no_admin_client" }] };
-  if (!settings.enabled) return { userId: settings.user_id, results: [{ symbol: "-", action: "disabled" }] };
+// ── per-member guard context (shared by the ENTER_NOW and fast-watch paths) ──
+type GuardCtx = {
+  mode: Mode; symbols: string[]; maxLot: number; cooldownMs: number;
+  now: number; events: AutoEvent[]; placed: AutoEvent[];
+  hourBudget: number; openSymbols: Set<string>; maxOpen: number;
+};
 
+async function buildGuardCtx(admin: Admin, settings: AutoSettings): Promise<GuardCtx> {
   const mode = (settings.mode === "intraday" || settings.mode === "swing" ? settings.mode : "quick") as Mode;
   const symbols = (settings.symbols && settings.symbols.length ? settings.symbols : DEFAULT_SYMBOLS).map((s) => String(s).toUpperCase());
   const maxLot = settings.max_lot && settings.max_lot > 0 ? settings.max_lot : 0.01;
   const maxPerHour = settings.max_orders_per_hour && settings.max_orders_per_hour > 0 ? settings.max_orders_per_hour : 10;
   const maxOpen = settings.max_open && settings.max_open > 0 ? settings.max_open : symbols.length;
   const cooldownMs = (COOLDOWN_MIN[mode] ?? 90) * 60000;
-  // Auto-exec always reads FRESH market data — a background order decision must
-  // use the most current price, and it keeps every armed member consistent
-  // regardless of their data tier.
-  const fresh = true;
   const now = Date.now();
-  const ms = (iso: string) => now - new Date(iso).getTime();
-
   const events = await recentAutoEvents(admin, settings.user_id);
   const placed = events.filter((e) => e.status === "placed");
-  const placedLastHour = placed.filter((p) => ms(p.created_at) < 3600e3).length;
-  let hourBudget = Math.max(0, maxPerHour - placedLastHour);
-  // Symbols with a placed order still inside their cooldown ≈ currently-open auto
-  // positions. Used both as one-position-per-symbol and to cap total concurrency.
-  const openSymbols = new Set(placed.filter((p) => ms(p.created_at) < cooldownMs).map((p) => String(p.symbol).toUpperCase()));
+  const placedLastHour = placed.filter((p) => now - new Date(p.created_at).getTime() < 3600e3).length;
+  const hourBudget = Math.max(0, maxPerHour - placedLastHour);
+  const openSymbols = new Set(placed.filter((p) => now - new Date(p.created_at).getTime() < cooldownMs).map((p) => String(p.symbol).toUpperCase()));
+  return { mode, symbols, maxLot, cooldownMs, now, events, placed, hourBudget, openSymbols, maxOpen };
+}
 
-  for (const symbol of symbols) {
+/** Apply the per-member guardrails and, if they pass, place ONE market order. Mutates ctx. */
+async function guardAndPlace(settings: AutoSettings, ctx: GuardCtx, symbol: string, side: "buy" | "sell", levels: Levels): Promise<SymbolResult> {
+  const ms = (iso: string) => ctx.now - new Date(iso).getTime();
+  if (!ctx.symbols.includes(symbol)) return { symbol, action: "not_in_list" };
+  const lastPlaced = ctx.placed.find((p) => String(p.symbol).toUpperCase() === symbol);
+  if (lastPlaced && ms(lastPlaced.created_at) < ctx.cooldownMs) return { symbol, action: "cooldown" };
+  const lastErr = ctx.events.find((e) => e.status === "error" && String(e.symbol).toUpperCase() === symbol);
+  if (lastErr && ms(lastErr.created_at) < ERROR_BACKOFF_MS) return { symbol, action: "error_backoff" };
+  if (ctx.hourBudget <= 0) return { symbol, action: "hour_cap" };
+  if (!ctx.openSymbols.has(symbol) && ctx.openSymbols.size >= ctx.maxOpen) return { symbol, action: "max_open" };
+
+  const out = await placeMarketOrder({ userId: settings.user_id, symbol, side, qty: ctx.maxLot, stop: levels.stop, tp: levels.tp1, source: "auto" });
+  if (out.status === "placed") {
+    ctx.hourBudget -= 1;
+    ctx.openSymbols.add(symbol);
+    // Reflect the just-placed order so a same-run duplicate can't slip through.
+    ctx.placed.unshift({ symbol, created_at: new Date(ctx.now).toISOString(), status: "placed" });
+    return { symbol, action: "placed", side, orderId: out.orderId };
+  }
+  ctx.events.unshift({ symbol, created_at: new Date(ctx.now).toISOString(), status: "error" });
+  return { symbol, action: "order_error", side, detail: out.reason };
+}
+
+// A setup is "in the area" (worth fast-watching) when price has reached the zone
+// or the entry engine has it armed/approaching, and it carries usable levels.
+function nearZone(dec: Extract<Awaited<ReturnType<typeof flowDecision>>, { ok: true }>): boolean {
+  const st = dec.entry.entryState;
+  const atZone = dec.confirm.state === "AT_ZONE" || st === "ARMED" || st === "APPROACHING";
+  const hasLevels = dec.levels.entryLow != null && dec.levels.entryHigh != null && dec.levels.invalidation != null;
+  return atZone && hasLevels;
+}
+
+// ── shared at-zone watch list (live_plays_cache, id=WATCH_CACHE_ID) ──
+async function writeWatchList(admin: Admin, setups: WatchSetup[]): Promise<void> {
+  try { await admin.from("live_plays_cache").upsert({ id: WATCH_CACHE_ID, payload: { setups }, generated_at: new Date().toISOString() }, { onConflict: "id" }); }
+  catch { /* best-effort */ }
+}
+async function readWatchList(admin: Admin): Promise<WatchSetup[]> {
+  try {
+    const { data } = await admin.from("live_plays_cache").select("payload, generated_at").eq("id", WATCH_CACHE_ID).maybeSingle();
+    if (!data?.payload) return [];
+    if (Date.now() - new Date(data.generated_at as string).getTime() > WATCH_STALE_MS) return [];
+    const setups = (data.payload as { setups?: unknown }).setups;
+    return Array.isArray(setups) ? (setups as WatchSetup[]) : [];
+  } catch { return []; }
+}
+
+/** FULL SCAN for a single member. Returns results + the setups that are at/near their zone. */
+async function scanUser(admin: Admin, settings: AutoSettings, mdKey: string): Promise<{ userId: string; results: SymbolResult[]; near: WatchSetup[] }> {
+  const results: SymbolResult[] = [];
+  const near: WatchSetup[] = [];
+  if (!settings.enabled) return { userId: settings.user_id, results: [{ symbol: "-", action: "disabled" }], near };
+  const ctx = await buildGuardCtx(admin, settings);
+
+  for (const symbol of ctx.symbols) {
     try {
-      // Per-symbol cooldown: skip if we placed an auto order on this symbol recently.
-      const lastPlaced = placed.find((p) => String(p.symbol).toUpperCase() === symbol);
-      if (lastPlaced && ms(lastPlaced.created_at) < cooldownMs) {
-        results.push({ symbol, action: "cooldown" });
-        continue;
-      }
-      // Error backoff: a recent ambiguous failure holds the symbol briefly so an
-      // order that may have actually filled isn't duplicated on the next tick.
-      const lastErr = events.find((e) => e.status === "error" && String(e.symbol).toUpperCase() === symbol);
-      if (lastErr && ms(lastErr.created_at) < ERROR_BACKOFF_MS) {
-        results.push({ symbol, action: "error_backoff" });
-        continue;
-      }
-      if (hourBudget <= 0) { results.push({ symbol, action: "hour_cap" }); continue; }
-      // Concurrency cap across all symbols (best-effort, log-based).
-      if (!openSymbols.has(symbol) && openSymbols.size >= maxOpen) { results.push({ symbol, action: "max_open" }); continue; }
-
-      const dec = await flowDecision({ canonical: symbol, mode, mdKey, fresh });
+      const dec = await flowDecision({ canonical: symbol, mode: ctx.mode, mdKey, fresh: true });
       if (!dec.ok) { results.push({ symbol, action: "read_skip", detail: dec.error }); continue; }
-
-      const st = dec.entry.entryState;
-      if (st !== "ENTER_NOW" || !dec.entry.actionable) {
-        results.push({ symbol, action: "no_entry", detail: st });
-        continue;
-      }
-
-      // ENTER NOW → place one market order with the setup's stop + first target.
-      const out = await placeMarketOrder({
-        userId: settings.user_id, symbol, side: dec.side, qty: maxLot,
-        stop: dec.levels.stop, tp: dec.levels.tp1, source: "auto",
-      });
-      if (out.status === "placed") {
-        hourBudget -= 1;
-        openSymbols.add(symbol);
-        results.push({ symbol, action: "placed", side: dec.side, orderId: out.orderId });
+      if (dec.entry.entryState === "ENTER_NOW" && dec.entry.actionable) {
+        results.push(await guardAndPlace(settings, ctx, symbol, dec.side, dec.levels));
       } else {
-        results.push({ symbol, action: "order_error", side: dec.side, detail: out.reason });
+        results.push({ symbol, action: "no_entry", detail: dec.entry.entryState });
+        if (nearZone(dec)) near.push({ symbol, side: dec.side, levels: dec.levels });
       }
     } catch (e) {
       results.push({ symbol, action: "error", detail: e instanceof Error ? e.message.slice(0, 160) : "error" });
     }
   }
-  return { userId: settings.user_id, results };
+  return { userId: settings.user_id, results, near };
 }
 
-/** Run the auto-executor for EVERY armed member (cron entry point). */
-export async function runAutoExecAll(mdKey: string): Promise<{ users: number; runs: Array<{ userId: string; results: SymbolResult[] }> }> {
+/** Back-compat single-user entry point (member on-demand run = full scan). */
+export async function runAutoExecForUser(settings: AutoSettings, mdKey: string): Promise<{ userId: string; results: SymbolResult[] }> {
   const admin = createAdminClient();
-  if (!admin) return { users: 0, runs: [] };
+  if (!admin) return { userId: settings.user_id, results: [{ symbol: "-", action: "error", detail: "no_admin_client" }] };
+  const r = await scanUser(admin, settings, mdKey);
+  return { userId: r.userId, results: r.results };
+}
+
+/** FULL SCAN for every armed member; refreshes the at-zone watch list for the fast-watch. */
+export async function runAutoExecAll(mdKey: string): Promise<{ users: number; runs: Array<{ userId: string; results: SymbolResult[] }>; watching: string[] }> {
+  const admin = createAdminClient();
+  if (!admin) return { users: 0, runs: [], watching: [] };
   const { data } = await admin.from("flow_auto_settings").select("*").eq("enabled", true);
   const rows = (data ?? []) as AutoSettings[];
   const runs: Array<{ userId: string; results: SymbolResult[] }> = [];
+  const nearBySymbol = new Map<string, WatchSetup>();
   for (const s of rows) {
-    // Best-effort per user — one member's error never blocks the others.
-    try { runs.push(await runAutoExecForUser(s, mdKey)); }
-    catch (e) { runs.push({ userId: s.user_id, results: [{ symbol: "-", action: "error", detail: e instanceof Error ? e.message.slice(0, 160) : "error" }] }); }
+    try {
+      const r = await scanUser(admin, s, mdKey);
+      runs.push({ userId: r.userId, results: r.results });
+      for (const n of r.near) nearBySymbol.set(n.symbol, n); // setup is global per symbol
+    } catch (e) {
+      runs.push({ userId: s.user_id, results: [{ symbol: "-", action: "error", detail: e instanceof Error ? e.message.slice(0, 160) : "error" }] });
+    }
   }
-  return { users: rows.length, runs };
+  const watching = [...nearBySymbol.values()];
+  await writeWatchList(admin, watching);
+  return { users: rows.length, runs, watching: watching.map((w) => w.symbol) };
+}
+
+/** FAST-WATCH: re-confirm the at-zone setups on 1-min candles and fire on CONFIRMED. */
+export async function runFlowWatch(mdKey: string): Promise<{ watched: number; confirmed: string[]; runs: Array<{ userId: string; results: SymbolResult[] }>; states: Array<{ symbol: string; state: string }> }> {
+  const admin = createAdminClient();
+  if (!admin) return { watched: 0, confirmed: [], runs: [], states: [] };
+  const setups = await readWatchList(admin);
+  if (!setups.length) return { watched: 0, confirmed: [], runs: [], states: [] };
+
+  // Confirm each setup ONCE (setups are global per symbol), on 1-minute closes.
+  const confirmed: WatchSetup[] = [];
+  const states: Array<{ symbol: string; state: string }> = [];
+  for (const s of setups) {
+    try {
+      const inst = getInstrument(s.symbol);
+      const lo = s.levels.entryLow, hi = s.levels.entryHigh, inv = s.levels.invalidation;
+      if (lo == null || hi == null || inv == null) { states.push({ symbol: s.symbol, state: "no_levels" }); continue; }
+      const conf = await flowConfirm({
+        tdSymbol: inst.twelveDataSymbol, pip: inst.pipSize, side: s.side,
+        entryLow: lo, entryHigh: hi, watch: lo, invalidation: inv,
+        mode: "quick", mdKey, fresh: true, interval: "1min",
+      });
+      states.push({ symbol: s.symbol, state: conf.state });
+      if (conf.state === "CONFIRMED") confirmed.push(s);
+    } catch (e) {
+      states.push({ symbol: s.symbol, state: e instanceof Error ? e.message.slice(0, 60) : "error" });
+    }
+  }
+  if (!confirmed.length) return { watched: setups.length, confirmed: [], runs: [], states };
+
+  // A 1-min confirmation fired → place for every armed member (guardrails apply).
+  const { data } = await admin.from("flow_auto_settings").select("*").eq("enabled", true);
+  const rows = (data ?? []) as AutoSettings[];
+  const runs: Array<{ userId: string; results: SymbolResult[] }> = [];
+  for (const settings of rows) {
+    try {
+      const ctx = await buildGuardCtx(admin, settings);
+      const results: SymbolResult[] = [];
+      for (const c of confirmed) {
+        if (!ctx.symbols.includes(c.symbol)) continue;
+        results.push(await guardAndPlace(settings, ctx, c.symbol, c.side, c.levels));
+      }
+      runs.push({ userId: settings.user_id, results });
+    } catch (e) {
+      runs.push({ userId: settings.user_id, results: [{ symbol: "-", action: "error", detail: e instanceof Error ? e.message.slice(0, 160) : "error" }] });
+    }
+  }
+  return { watched: setups.length, confirmed: confirmed.map((c) => c.symbol), runs, states };
 }
