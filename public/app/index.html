@@ -2284,7 +2284,7 @@ input{font:inherit}
           <button class=${env[0] === "demo" ? "on" : ""} onClick=${function () { env[1]("demo"); }}>Demo</button>
           <button class=${"live " + (env[0] === "live" ? "on" : "")} onClick=${function () { env[1]("live"); }}>Live</button>
         </div></div>
-        <div class="bk-field"><label>Server</label><input class="bk-input" placeholder="e.g. CRUC" value=${server[0]} onInput=${function (e) { server[1](e.target.value); }} /></div>
+        <div class="bk-field"><label>Server</label><input class="bk-input" placeholder="e.g. GENFX" value=${server[0]} onInput=${function (e) { server[1](e.target.value); }} /></div>
         <div class="bk-field"><label>Email</label><input class="bk-input" type="email" autocomplete="off" placeholder="you@email.com" value=${email[0]} onInput=${function (e) { email[1](e.target.value); }} /></div>
         <div class="bk-field"><label>Password</label><input class="bk-input" type="password" autocomplete="off" placeholder="TradeLocker password" value=${pw[0]} onInput=${function (e) { pw[1](e.target.value); }} /></div>
         ${err[0] ? html`<div class="bk-err">${err[0]}</div>` : null}
