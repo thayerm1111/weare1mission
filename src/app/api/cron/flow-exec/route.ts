@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runAutoExecAll, runAutoExecForUser, runFlowWatch, type AutoSettings } from "@/lib/flow/autoExec";
+import { manageOpenPositions } from "@/lib/flow/flowManage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,8 +40,11 @@ async function run(req: NextRequest): Promise<Response> {
     // Fast-watch tier: re-confirm at-zone setups on 1-min candles (cheap, runs
     // every ~30s). Full scan otherwise (heavy, runs every ~5 min).
     if (new URL(req.url).searchParams.get("watch") === "1") {
-      const w = await runFlowWatch(mdKey);
-      return json({ ok: true, scope: "watch", asOf: new Date().toISOString(), ...w }, 200);
+      // Fast tick does two jobs: (1) catch at-zone entries on 1-min candles, and
+      // (2) manage OPEN positions (break-even + partial at +1R, then trail). The
+      // manager is independent of whether any new entry fired this tick.
+      const [w, m] = await Promise.all([runFlowWatch(mdKey), manageOpenPositions()]);
+      return json({ ok: true, scope: "watch", asOf: new Date().toISOString(), ...w, manage: m }, 200);
     }
     const out = await runAutoExecAll(mdKey);
     return json({ ok: true, scope: "all", asOf: new Date().toISOString(), ...out }, 200);
