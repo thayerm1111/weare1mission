@@ -3,6 +3,7 @@ import { flowDecision } from "@/lib/flow/decision";
 import { placeMarketOrder } from "@/lib/flow/executor";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
+import { ENTRY_TUNING } from "@/lib/entryEngine";
 import type { Mode } from "@/lib/genxCompute";
 
 /**
@@ -202,8 +203,24 @@ export async function runFlowWatch(mdKey: string): Promise<{ watched: number; co
         entryLow: lo, entryHigh: hi, watch: lo, invalidation: inv,
         mode: "quick", mdKey, fresh: true, interval: "1min",
       });
-      states.push({ symbol: s.symbol, state: conf.state });
-      if (conf.state === "CONFIRMED") confirmed.push(s);
+      if (conf.state !== "CONFIRMED") { states.push({ symbol: s.symbol, state: conf.state }); continue; }
+      // Don't chase a spent move: require real reward left (the SAME R:R floor the
+      // full entry engine applies) so the 1-min speed-up can't fire a late entry
+      // that has already run most of the way to target.
+      const px = conf.price ?? conf.enter;
+      const tp1 = s.levels.tp1;
+      let rr: number | null = null;
+      if (px != null && tp1 != null) {
+        const risk = Math.abs(px - inv);
+        const reward = Math.abs(tp1 - px);
+        rr = risk > 0 ? reward / risk : null;
+      }
+      if (rr != null && rr < ENTRY_TUNING.quick.minRemainingRR) {
+        states.push({ symbol: s.symbol, state: `chase_skip_rr_${rr.toFixed(2)}` });
+        continue;
+      }
+      states.push({ symbol: s.symbol, state: rr != null ? `confirmed_rr_${rr.toFixed(2)}` : "confirmed" });
+      confirmed.push(s);
     } catch (e) {
       states.push({ symbol: s.symbol, state: e instanceof Error ? e.message.slice(0, 60) : "error" });
     }
