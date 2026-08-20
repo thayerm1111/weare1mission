@@ -200,6 +200,32 @@ export async function listPositions(env: TLEnv, accessToken: string, accNum: str
   return { ok: true, data: arr };
 }
 
+/**
+ * PATCH /trade/positions/{positionId} — modify an open position's SL/TP (prices).
+ * Per official docs: body { stopLoss, takeProfit, trailingOffset }; 204 on success;
+ * set a field to null to remove it. Used by the trade-manager to move stops.
+ */
+export async function modifyPosition(env: TLEnv, accessToken: string, accNum: string, positionId: string, mod: { stopLoss?: number | null; takeProfit?: number | null }): Promise<TLResult<true>> {
+  const body: Record<string, unknown> = {};
+  if (mod.stopLoss !== undefined) body.stopLoss = mod.stopLoss;
+  if (mod.takeProfit !== undefined) body.takeProfit = mod.takeProfit;
+  const { status, json, text } = await tlFetch(env, `/trade/positions/${encodeURIComponent(positionId)}`, { method: "PATCH", accessToken, accNum, body: JSON.stringify(body) });
+  if (status === 204 || (status >= 200 && status < 300)) return { ok: true, data: true };
+  return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+}
+
+/**
+ * DELETE /trade/positions/{positionId} — close a position. Per official docs a
+ * PARTIAL close sets body { qty: <lots to close> }; qty 0 (or omitted) closes it
+ * in full. Broker places an IOC-then-GTC closing order, so it may not be instant.
+ */
+export async function closePosition(env: TLEnv, accessToken: string, accNum: string, positionId: string, qty?: number): Promise<TLResult<true>> {
+  const body = qty && qty > 0 ? JSON.stringify({ qty }) : JSON.stringify({ qty: 0 });
+  const { status, json, text } = await tlFetch(env, `/trade/positions/${encodeURIComponent(positionId)}`, { method: "DELETE", accessToken, accNum, body });
+  if (status >= 200 && status < 300) return { ok: true, data: true };
+  return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+}
+
 // ── helpers ──
 function numOr(v: unknown): number | undefined { const n = typeof v === "string" ? parseFloat(v) : (v as number); return typeof n === "number" && Number.isFinite(n) ? n : undefined; }
 function strOr(v: unknown): string | undefined { return v == null ? undefined : String(v); }

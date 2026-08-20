@@ -27,7 +27,7 @@ const ALIASES: Record<string, string[]> = {
   US30: ["US30", "DJ30", "US30USD", "DOW"],
   USOIL: ["USOIL", "WTI", "CRUDE", "OIL", "USOUSD"],
 };
-function matchInstrument(canonical: string, instruments: TLInstrument[]): TLInstrument | null {
+export function matchInstrument(canonical: string, instruments: TLInstrument[]): TLInstrument | null {
   const want = normSym(canonical);
   const aliases = (ALIASES[canonical] ?? [canonical]).map(normSym);
   for (const i of instruments) {
@@ -159,6 +159,19 @@ export async function placeOnActiveAccounts(opts: {
     await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: r.qty, status: "placed", reason: `${opts.source}${r.note}`.slice(0, 60), order_id: r.orderId, account_id: a.accountId });
     fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "placed", qty: r.qty, lots: r.qty, estLossAtStop: s.estLossAtStop, orderId: r.orderId });
     placed += 1;
+    // Hand the fill to the trade-manager (breakeven → partial → trail). Needs a
+    // positionId + a real stop; a bare/unstopped fill isn't managed.
+    if (r.positionId && opts.stop != null) {
+      try {
+        const admin = createAdminClient();
+        if (admin) await admin.from("flow_managed_positions").insert({
+          user_id: opts.userId, connection_id: a.connId, account_id: a.accountId, acc_num: a.accNum, environment: a.env,
+          position_id: r.positionId, symbol: canonical, side: opts.side,
+          entry: opts.entry, init_stop: opts.stop, tp1: opts.tp ?? null,
+          r: Math.abs(opts.entry - opts.stop), qty: r.qty, cur_stop: opts.stop, best_price: opts.entry,
+        });
+      } catch { /* management is best-effort */ }
+    }
   }
   return { accounts: fills, placed };
 }

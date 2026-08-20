@@ -71,6 +71,16 @@ export async function freshAccessToken(userId: string): Promise<
   return t.ok ? { ok: true, token: t.token, env: t.env, conn } : t;
 }
 
+/** Mint a token for a SPECIFIC connection id (used by the trade-manager to reach
+ *  the account that holds a managed position, regardless of auto-run toggles). */
+export async function connectionToken(connectionId: string): Promise<{ ok: true; token: string; env: TLEnv } | { ok: false; error: string }> {
+  const admin = createAdminClient();
+  if (!admin) return { ok: false, error: "Server not configured." };
+  const { data } = await admin.from("flow_broker_connections").select("*").eq("id", connectionId).maybeSingle();
+  if (!data) return { ok: false, error: "Connection not found." };
+  return mintTokenForConn(data as FlowConnRow);
+}
+
 export type ActiveAccount = {
   connId: string; env: TLEnv; token: string;
   accountId: string; accNum: string;
