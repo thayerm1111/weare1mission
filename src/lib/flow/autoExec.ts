@@ -152,7 +152,7 @@ async function buildGuardCtx(admin: Admin, settings: AutoSettings): Promise<Guar
 }
 
 /** Apply the per-member guardrails and, if they pass, place ONE market order. Mutates ctx. */
-async function guardAndPlace(settings: AutoSettings, ctx: GuardCtx, symbol: string, side: "buy" | "sell", levels: Levels): Promise<SymbolResult> {
+async function guardAndPlace(settings: AutoSettings, ctx: GuardCtx, symbol: string, side: "buy" | "sell", levels: Levels, price?: number | null): Promise<SymbolResult> {
   const ms = (iso: string) => ctx.now - new Date(iso).getTime();
   if (!ctx.symbols.includes(symbol)) return { symbol, action: "not_in_list" };
   const lastPlaced = ctx.placed.find((p) => String(p.symbol).toUpperCase() === symbol);
@@ -162,19 +162,26 @@ async function guardAndPlace(settings: AutoSettings, ctx: GuardCtx, symbol: stri
   if (ctx.hourBudget <= 0) return { symbol, action: "hour_cap" };
   if (!ctx.openSymbols.has(symbol) && ctx.openSymbols.size >= ctx.maxOpen) return { symbol, action: "max_open" };
 
-  // Size the trade to risk riskPct of equity across the entry→stop distance,
-  // instead of a flat lot. Fall back to the configured lot only if equity or a
-  // usable stop is missing.
-  let qty = ctx.maxLot;
-  const entry = levels.entryLow != null && levels.entryHigh != null ? (levels.entryLow + levels.entryHigh) / 2 : (levels.entryLow ?? levels.entryHigh);
-  const stop = levels.stop ?? levels.invalidation;
-  if (ctx.equity != null && entry != null && stop != null) {
-    const s = sizeFromRisk({ canonical: symbol, entry, stop, equity: ctx.equity, riskPct: ctx.riskPct });
-    if (s.ok && s.lots > 0) qty = s.lots;
-  }
+  // Size the trade to risk riskPct of equity across the entry→stop distance.
+  // A protective stop is REQUIRED (fall back to the invalidation), and the entry
+  // falls back to the live price when a setup enters "at market" with no pullback
+  // zone (common on momentum ENTER_NOW). If we can't both risk-size AND attach a
+  // stop, we SKIP — we never place a blind, flat max-lot order (that's how a tiny
+  // account ended up firing 1.00-lot Gold orders that the broker margin-rejected).
+  const stopPx = levels.stop ?? levels.invalidation ?? null;
+  const zoneMid = levels.entryLow != null && levels.entryHigh != null
+    ? (levels.entryLow + levels.entryHigh) / 2
+    : (levels.entryLow ?? levels.entryHigh ?? null);
+  const entryPx = zoneMid ?? (price != null && price > 0 ? price : null);
+
+  if (stopPx == null) return { symbol, action: "skip_no_stop" };
+  if (ctx.equity == null || entryPx == null) return { symbol, action: "skip_no_size" };
+  const s = sizeFromRisk({ canonical: symbol, entry: entryPx, stop: stopPx, equity: ctx.equity, riskPct: ctx.riskPct, price: price ?? undefined });
+  if (!s.ok || !(s.lots > 0)) return { symbol, action: "skip_size_too_small", detail: s.reason };
+  let qty = s.lots; // risk-sized; maxLot is a fallback (unused now), only the fat-finger backstop caps.
   if (qty > MAX_LOTS) qty = MAX_LOTS;
 
-  const out = await placeMarketOrder({ userId: settings.user_id, symbol, side, qty, stop: levels.stop, tp: levels.tp1, source: "auto" });
+  const out = await placeMarketOrder({ userId: settings.user_id, symbol, side, qty, stop: stopPx, tp: levels.tp1, source: "auto" });
   if (out.status === "placed") {
     ctx.hourBudget -= 1;
     ctx.openSymbols.add(symbol);
@@ -222,7 +229,7 @@ async function scanUser(admin: Admin, settings: AutoSettings, mdKey: string): Pr
       const dec = await flowDecision({ canonical: symbol, mode: ctx.mode, mdKey, fresh: true });
       if (!dec.ok) { results.push({ symbol, action: "read_skip", detail: dec.error }); continue; }
       if (dec.entry.entryState === "ENTER_NOW" && dec.entry.actionable) {
-        results.push(await guardAndPlace(settings, ctx, symbol, dec.side, dec.levels));
+        results.push(await guardAndPlace(settings, ctx, symbol, dec.side, dec.levels, dec.price));
       } else {
         results.push({ symbol, action: "no_entry", detail: dec.entry.entryState });
         if (nearZone(dec)) near.push({ symbol, side: dec.side, levels: dec.levels });
