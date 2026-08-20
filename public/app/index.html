@@ -511,6 +511,25 @@ input{font:inherit}
 .ac-quote{text-align:center;font-style:italic;color:var(--muted);font-size:13px;padding:14px 8px 4px}
 .ac-ovl{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center;padding:12px}
 .ac-sheet{width:100%;max-width:520px;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;max-height:80vh;overflow-y:auto}
+.sf-sheet{width:100%;max-width:500px;border-radius:20px;padding:22px 20px 18px;max-height:88vh;overflow-y:auto;background:linear-gradient(165deg,#111319 0%,#0b0c10 46%,#14110a 100%);border:1px solid rgba(255,194,75,.3)}
+.sf-ey{font-size:11px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:#ffc24b}
+.sf-h{margin-top:10px;font-size:24px;font-weight:900;line-height:1.15;color:#fff}
+.sf-h span{color:#ffc24b}
+.sf-p{margin-top:8px;font-size:13.5px;line-height:1.5;color:rgba(255,255,255,.62)}
+.sf-list{margin-top:14px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);border-radius:14px;padding:12px 14px}
+.sf-li{display:flex;gap:9px;font-size:13px;color:rgba(255,255,255,.86);padding:4px 0}
+.sf-li span{color:#2ee88f;font-weight:800;flex:0 0 auto}
+.sf-li b{color:#fff}
+.sf-msg{margin-top:12px;border:1px solid rgba(255,194,75,.3);background:rgba(255,194,75,.1);border-radius:11px;padding:8px 11px;font-size:12px;color:#ffd77a}
+.sf-cta{width:100%;margin-top:16px;padding:14px;border:0;border-radius:14px;font-size:15.5px;font-weight:900;color:#20160a;cursor:pointer;background:linear-gradient(135deg,#ffd77a,#e0a83c)}
+.sf-cta:disabled{opacity:.6}
+.sf-fine{margin-top:11px;text-align:center;font-size:11px;color:rgba(255,255,255,.4)}
+.sf-later{display:block;margin:12px auto 0;background:none;border:0;font-size:12px;font-weight:600;color:rgba(255,255,255,.42);cursor:pointer}
+.sf-card{margin-top:12px;border-radius:14px;padding:14px;background:linear-gradient(135deg,rgba(255,194,75,.14),rgba(255,194,75,.03));border:1px solid rgba(255,194,75,.4)}
+.sf-card .t{font-size:13px;font-weight:800;color:#fff}
+.sf-card .s{font-size:11px;color:rgba(255,255,255,.6);margin-top:2px}
+.sf-card button{margin-top:10px;width:100%;padding:11px;border:0;border-radius:11px;font-size:13px;font-weight:800;cursor:pointer;background:linear-gradient(135deg,#ffd77a,#e0a83c);color:#20160a}
+.sf-card button.ghost{background:rgba(255,255,255,.1);color:#fff}
 .ac-hgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
 .ac-hbtn{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--bg2);color:var(--ink);font-weight:800;font-size:14px;text-align:left;cursor:pointer}
 .ac-res{display:block;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--bg2);margin-bottom:8px;text-decoration:none;color:var(--ink)}
@@ -1522,6 +1541,76 @@ input{font:inherit}
       </div>`; })}
     </div>`;
   }
+  // ── Trading Suite subscribe card (Account screen) ───────────────────────────
+  function SuiteCard() {
+    var sub = useState(null);
+    function load() { apiGet("/api/subscription").then(function (d) { if (d && d.ok) sub[1](d); }).catch(function () {}); }
+    useEffect(load, []);
+    var s = sub[0];
+    if (!s) return null;
+    function act(action) { apiPost("/api/subscription", { action: action }).then(function (d) { if (d && d.url) { window.location.href = d.url; return; } load(); }).catch(function () {}); }
+    var price = s.price != null ? s.price : 39, credits = s.credits != null ? s.credits : 250;
+    if (s.active) {
+      return html`<div class="sf-card">
+        <div class="t">✦ Trading Suite · ${s.cancelAtPeriodEnd ? "ending soon" : "active"}</div>
+        <div class="s">${s.cancelAtPeriodEnd ? "Access continues until your billing period ends." : "Auto-run free · " + credits + " credits/mo · every tool unlocked."}</div>
+        ${s.cancelAtPeriodEnd
+        ? html`<button onClick=${function () { act("resume"); }}>Keep my subscription</button>`
+        : html`<button class="ghost" onClick=${function () { act("cancel"); }}>Cancel subscription</button>`}
+      </div>`;
+    }
+    return html`<div class="sf-card">
+      <div class="t">✦ Trading Suite — $${price}/mo</div>
+      <div class="s">Free auto-run every 5 min, the pro trade-manager, ${credits} credits/mo, and every tool unlocked. Cancel anytime.</div>
+      <button onClick=${function () { act("subscribe"); }}>Add the Trading Suite</button>
+    </div>`;
+  }
+
+  // ── Trading Suite one-time welcome flyer (once per account) ──────────────────
+  function SuiteFlyerModal() {
+    var open = useState(false), price = useState(39), credits = useState(250), busy = useState(false), msg = useState("");
+    function markSeen() { try { localStorage.setItem("om-suite-flyer-v1", "1"); } catch (e) {} try { apiPost("/api/flyer", {}); } catch (e) {} }
+    useEffect(function () {
+      var forced = false; try { forced = location.search.indexOf("suiteflyer=1") > -1; } catch (e) {}
+      var localSeen = false; try { localSeen = localStorage.getItem("om-suite-flyer-v1") === "1"; } catch (e) {}
+      if (localSeen && !forced) return;
+      apiGet("/api/flyer").then(function (f) {
+        if (f && f.seen && !forced) { try { localStorage.setItem("om-suite-flyer-v1", "1"); } catch (e) {} return; }
+        return apiGet("/api/subscription").then(function (d) {
+          if (d && typeof d.price === "number") price[1](d.price);
+          if (d && typeof d.credits === "number") credits[1](d.credits);
+          if (d && d.active && !forced) { markSeen(); return; }
+          open[1](true);
+        });
+      }).catch(function () { open[1](true); });
+    }, []);
+    function dismiss() { markSeen(); open[1](false); }
+    function subscribe() {
+      if (busy[0]) return; busy[1](true); msg[1]("");
+      apiPost("/api/subscription", { action: "subscribe" }).then(function (d) {
+        if (d && d.url) { markSeen(); window.location.href = d.url; return; }
+        busy[1](false);
+        msg[1](d && d.error === "stripe_not_configured" ? "Payments aren't switched on yet." : "Couldn't start checkout — try again.");
+      }).catch(function () { busy[1](false); msg[1]("Couldn't start checkout — try again."); });
+    }
+    if (!open[0]) return null;
+    return html`<div class="ac-ovl" onClick=${dismiss}><div class="sf-sheet" onClick=${function (e) { e.stopPropagation(); }}>
+      <div class="sf-ey">✦ One Mission · New</div>
+      <div class="sf-h">Let the platform <span>trade for you</span>.</div>
+      <div class="sf-p">Auto-run every 5 minutes, breakeven &amp; partials handled for you, and every tool unlocked — added to your membership for just $${price[0]}/mo.</div>
+      <div class="sf-list">
+        <div class="sf-li"><span>✓</span><div><b>Free auto-run</b> every 5 min — no per-run credit</div></div>
+        <div class="sf-li"><span>✓</span><div>Pro trade-manager on every fill — breakeven, partials, trail</div></div>
+        <div class="sf-li"><span>✓</span><div>GENX, FLOW &amp; OM AI Plays on all your accounts</div></div>
+        <div class="sf-li"><span>✓</span><div><b>${credits[0]} credits</b> every month</div></div>
+      </div>
+      ${msg[0] ? html`<div class="sf-msg">${msg[0]}</div>` : null}
+      <button class="sf-cta" disabled=${busy[0]} onClick=${subscribe}>${busy[0] ? "…" : "Add the Trading Suite — $" + price[0] + "/mo"}</button>
+      <div class="sf-fine">Cancel anytime in your account · secure checkout by Stripe</div>
+      <button class="sf-later" onClick=${dismiss}>Maybe later</button>
+    </div></div>`;
+  }
+
   function AccountScreen(props) {
     var me = useState(null), trades = useState(null), flow = useState(null);
     useEffect(function () { apiGet("/api/me").then(function (d) { me[1](d || {}); }).catch(function () { me[1]({}); }); apiGet("/api/signals").then(function (d) { trades[1](arr(d && d.signals)); }).catch(function () { trades[1]([]); }); apiGet("/api/flow/autorun").then(function (d) { flow[1](d || {}); }).catch(function () {}); }, []);
@@ -1544,6 +1633,7 @@ input{font:inherit}
           <button onClick=${goConnect} style="flex:0 0 auto;padding:10px 14px;border:0;border-radius:11px;background:${fl.connected ? "rgba(255,255,255,.1)" : "linear-gradient(135deg,#3cb4ff,#2e7bff)"};color:${fl.connected ? "#fff" : "#02122b"};font-size:12.5px;font-weight:800;cursor:pointer">${fl.connected ? "Manage" : "◆ Connect"}</button>
         </div>
       </div>
+      <${SuiteCard} />
       <button class="run" onClick=${function () { try { window.open("/portal/credits", "_blank"); } catch (e) {} }}>Get more credits</button>
       <button class="ac-open" onClick=${props.onOpenAcademy}><span>🎓 Affiliate Academy</span><em>Your step-by-step roadmap to build One Mission</em></button>
       ${m && m.role === "admin" ? html`<button class="xperf-open" onClick=${props.onOpenXperf}><span>◆ xGhost Performance</span><em>admin · win rate, expectancy, by-pair</em></button>` : null}
@@ -3587,6 +3677,7 @@ input{font:inherit}
         ${sec[0] === "academy" ? html`<${AcademyScreen} onBack=${function () { sec[1]("dashboard"); }} onLogout=${props.onLogout} />` : null}
       </main>
       <nav class="bnav">${NAV.map(function (n) { var on = sec[0] === n.id || (sec[0] === "xperf" && n.id === "account"); return html`<button class=${"bn " + (on ? "on" : "")} data-id=${n.id} onClick=${function () { if (n.id === "floor") goFloor(""); else go(n.id); }}><span class="bn-i">${n.icon}</span><span class="bn-l">${n.label}</span></button>`; })}</nav>
+      <${SuiteFlyerModal} />
     </div>`;
   }
   function Login(props) {
