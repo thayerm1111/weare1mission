@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Zap, Activity, Radio, ChevronRight, TrendingUp, TrendingDown, Ghost, Gem } from "lucide-react";
+import { Zap, Activity, Radio, ChevronRight, TrendingUp, TrendingDown, Ghost, Gem, Link2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { LIVE_URL, CALLS } from "@/lib/liveCalls";
 
@@ -154,6 +154,20 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
           </div>
           <ChevronRight className="h-5 w-5 flex-shrink-0 text-amber-300/80 transition group-hover:translate-x-0.5" />
         </Link>
+
+        {/* FLOW — connect a broker (AI Trade Desk) */}
+        <button
+          onClick={() => onGo("flow")}
+          className="group relative flex w-full items-center justify-between gap-3 overflow-hidden rounded-2xl border border-primary/40 bg-white px-5 py-4 text-left transition hover:border-primary/70 hover:shadow-cardhover"
+          style={{ backgroundImage: "radial-gradient(120% 120% at 0% 0%, rgba(111,106,93,0.08), transparent 55%)" }}
+        >
+          <div className="min-w-0">
+            <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary"><Link2 className="h-3 w-3" /> AI Trade Desk</p>
+            <p className="mt-0.5 bg-gradient-to-r from-navy via-charcoal to-gold-deep bg-clip-text text-2xl font-black tracking-tight text-transparent">FLOW · Connect broker</p>
+            <p className="text-xs text-charcoal/55">Link your TradeLocker account — FLOW prepares your trades, you approve every one.</p>
+          </div>
+          <ChevronRight className="h-5 w-5 flex-shrink-0 text-primary transition group-hover:translate-x-0.5" />
+        </button>
 
         {/* Real stat band */}
         <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
