@@ -2,7 +2,7 @@ import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { placeMarketOrder, probeBroker, accountEquity } from "@/lib/flow/executor";
-import { sizeFromRisk } from "@/lib/flow/sizing";
+import { sizeFromRisk, contractKey } from "@/lib/flow/sizing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,7 +83,10 @@ export async function POST(req: NextRequest) {
       lots = explicitLots;
     } else {
       if (equity == null) return json({ ok: false, error: "no_account_size", detail: "Connect your TradeLocker account or save an account size so I can size the trade." }, 200);
-      sizing = sizeFromRisk({ canonical: symbol, entry, stop, equity, riskPct: riskPct as number });
+      // Small-account Gold rule: under $500 on Gold, take the 0.01 minimum even if
+      // 1% rounds below it (rather than refusing the trade).
+      const floorToMinLot = contractKey(symbol) === "XAUUSD" && equity < 500;
+      sizing = sizeFromRisk({ canonical: symbol, entry, stop, equity, riskPct: riskPct as number, floorToMinLot });
       if (!sizing.ok) return json({ ok: false, error: "size_failed", detail: sizing.reason, sizing }, 200);
       lots = sizing.lots;
     }
