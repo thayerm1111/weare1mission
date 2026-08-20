@@ -1,10 +1,13 @@
 name: GENX auto-scan + alerts
 
-# Runs the GENX scanner across all three modes (Quick / Intraday / Swing) on a
-# tight schedule so setup heads-ups and ENTER-NOW alerts reach Telegram promptly.
+# Two-tier scanning on one 5-min schedule:
+#   • one FULL scan (finds setups, sends heads-ups, fires ENTER on 5-min closes)
+#   • then a FAST-WATCH every ~30s for the rest of the window — re-confirms setups
+#     already 'forming' on 1-minute closes, so an ENTER NOW alert reaches Telegram
+#     the moment price activates at the zone instead of waiting for the 5-min close.
 # The Vercel Hobby plan caps native crons at once/day, so this GitHub-hosted
-# schedule is what gives us frequent scanning. It just pings the protected
-# endpoint; all the work (engine, confirmation, Telegram send) happens server-side.
+# in-job loop is what gives us sub-minute responsiveness. All work (engine,
+# confirmation, Telegram send) happens server-side.
 
 on:
   schedule:
@@ -19,14 +22,19 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger GENX scan + alerts
+      - name: GENX full scan + fast-watch loop
         env:
           KEY: ${{ secrets.GENX_CRON_KEY }}
         run: |
           if [ -z "$KEY" ]; then echo "GENX_CRON_KEY secret not set yet — skipping until configured"; exit 0; fi
-          code=$(curl -sS -o /tmp/out.json -w "%{http_code}" -X POST \
-            "https://weare1mission.com/api/cron/genx-scan?key=$KEY")
-          echo "HTTP $code"
-          cat /tmp/out.json || true
-          echo ""
-          if [ "$code" != "200" ]; then echo "::error::GENX scan returned HTTP $code"; exit 1; fi
+          BASE="https://weare1mission.com/api/cron/genx-scan?key=$KEY"
+          echo "== full scan =="
+          code=$(curl -sS -o /tmp/out.json -w "%{http_code}" -m 60 -X POST "$BASE")
+          echo "full HTTP $code"; cat /tmp/out.json || true; echo ""
+          if [ "$code" != "200" ]; then echo "::error::GENX full scan returned HTTP $code"; fi
+          # fast-watch every 30s for the rest of the ~5-min window (1-min confirm)
+          for i in $(seq 1 8); do
+            sleep 30
+            wc=$(curl -sS -o /tmp/w.json -w "%{http_code}" -m 30 -X POST "$BASE&watch=1" || echo "000")
+            echo "watch$i HTTP $wc"; head -c 300 /tmp/w.json || true; echo ""
+          done

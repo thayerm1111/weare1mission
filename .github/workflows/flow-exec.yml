@@ -1,18 +1,17 @@
 name: FLOW auto-executor
 
-# Runs the FLOW auto-executor for every armed member on a tight schedule so a
-# live ENTER_NOW is acted on within a few minutes. The Vercel Hobby plan caps
-# native crons at once/day, so this GitHub-hosted schedule is what gives us
-# frequent execution. It just pings the protected endpoint; all the work
-# (engine read, entry decision, broker order) happens server-side.
-#
-# Reuses the existing GENX_CRON_KEY secret (the endpoint accepts GENX_CRON_KEY,
-# FLOW_CRON_KEY, or CRON_SECRET) so it goes live with no new configuration.
+# Two-tier execution on one 5-min schedule:
+#   • one FULL scan (finds setups, places on ENTER_NOW, refreshes the at-zone list)
+#   • then a FAST-WATCH every ~30s for the rest of the window — re-confirms at-zone
+#     setups on 1-minute closes so an entry fires the moment buyers/sellers activate.
+# This in-job loop is how we poll far more often than GitHub's ~5-min floor.
+# Reuses the existing GENX_CRON_KEY secret (endpoint accepts FLOW_CRON_KEY,
+# GENX_CRON_KEY, or CRON_SECRET) so it needs no new configuration.
 
 on:
   schedule:
-    - cron: "*/5 * * * 1-5"   # every 5 min, Mon–Fri (UTC) — FX/metals/index hours
-  workflow_dispatch: {}         # allow manual runs from the Actions tab
+    - cron: "*/5 * * * 1-5"   # every 5 min, Mon–Fri (UTC)
+  workflow_dispatch: {}
 
 concurrency:
   group: flow-exec
@@ -22,14 +21,18 @@ jobs:
   exec:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger FLOW auto-executor
+      - name: FLOW full scan + fast-watch loop
         env:
           KEY: ${{ secrets.FLOW_CRON_KEY || secrets.GENX_CRON_KEY }}
         run: |
-          if [ -z "$KEY" ]; then echo "No FLOW_CRON_KEY/GENX_CRON_KEY secret set — skipping until configured"; exit 0; fi
-          code=$(curl -sS -o /tmp/out.json -w "%{http_code}" -X POST \
-            "https://weare1mission.com/api/cron/flow-exec?key=$KEY")
-          echo "HTTP $code"
-          cat /tmp/out.json || true
-          echo ""
-          if [ "$code" != "200" ]; then echo "::error::FLOW auto-exec returned HTTP $code"; exit 1; fi
+          if [ -z "$KEY" ]; then echo "No FLOW_CRON_KEY/GENX_CRON_KEY secret set — skipping"; exit 0; fi
+          BASE="https://weare1mission.com/api/cron/flow-exec?key=$KEY"
+          echo "== full scan =="
+          curl -sS -m 60 -X POST "$BASE" -o /tmp/o.json -w "full HTTP %{http_code}\n" || true
+          head -c 700 /tmp/o.json; echo
+          # fast-watch every 30s for the rest of the ~5-min window (1-min confirm)
+          for i in $(seq 1 8); do
+            sleep 30
+            curl -sS -m 30 -X POST "$BASE&watch=1" -o /tmp/o.json -w "watch$i HTTP %{http_code}\n" || true
+            head -c 400 /tmp/o.json; echo
+          done
