@@ -75,20 +75,29 @@ export async function placeMarketOrder(opts: {
   const norm = normalizeQuantity(canonical, opts.qty, { quantityStep: tl.quantityStep, minQuantity: tl.minQuantity });
   const qty = norm.qty;
 
-  const ord = await createOrder(fresh.env, fresh.token, {
+  const base = {
     accountId, accNum,
     tradableInstrumentId: tl.tradableInstrumentId, routeId: tl.routeId,
-    side: opts.side, type: "market", qty,
-    stopLoss: opts.stop ?? null, takeProfit: opts.tp ?? null,
-    validity: "IOC",
-  });
+    side: opts.side, type: "market" as const, qty, validity: "IOC" as const,
+  };
+  const hasBracket = opts.stop != null || opts.tp != null;
+  let ord = await createOrder(fresh.env, fresh.token, { ...base, stopLoss: opts.stop ?? null, takeProfit: opts.tp ?? null });
+
+  // If the broker rejected the bracketed order (a stop/TP too close to market,
+  // wrong side after a move, etc.), fall back to a bare market order so the
+  // position still opens rather than the member silently taking no trade.
+  let bracketNote = "";
+  if (!ord.ok && hasBracket) {
+    const bare = await createOrder(fresh.env, fresh.token, { ...base, stopLoss: null, takeProfit: null });
+    if (bare.ok) { ord = bare; bracketNote = " (SL/TP rejected — opened bare)"; }
+  }
 
   if (!ord.ok) {
     await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty, status: "error", reason: `${opts.source}: ${ord.error}`.slice(0, 200) });
     return { status: "error", reason: ord.error, environment: fresh.env };
   }
   const orderId = ord.data.orderId ?? null;
-  await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty, status: "placed", reason: opts.source, order_id: orderId });
+  await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty, status: "placed", reason: `${opts.source}${bracketNote}`.slice(0, 60), order_id: orderId });
   return { status: "placed", symbol: canonical, side: opts.side, qty, orderId, positionId: ord.data.positionId ?? null, environment: fresh.env, accountId };
 }
 
