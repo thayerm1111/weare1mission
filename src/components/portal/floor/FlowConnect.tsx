@@ -497,7 +497,7 @@ export function FlowConnect() {
                 <input
                   value={server}
                   onChange={(e) => setServer(e.target.value)}
-                  placeholder="e.g. CRUC"
+                  placeholder="e.g. GENFX"
                   className="w-full rounded-lg border border-ice bg-offwhite px-3 py-2.5 text-sm text-navy placeholder:text-charcoal/30 focus:border-charcoal/30 focus:outline-none"
                 />
               </Field>
