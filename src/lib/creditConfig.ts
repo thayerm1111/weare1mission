@@ -30,6 +30,7 @@ export const CREDIT_COST = {
   genx: 5,       // GENX flagship Gold decision engine — deterministic engine + a short AI market story. Every analyze/re-analyze charges the full read.
   chartread: 2,  // OM Charts AI read — vision analysis of a marked-up chart + live data
   command: 1,    // OM AI Market Command — full deterministic qualification run (multi-TF + risk engine)
+  flow_autorun: 1, // FLOW auto-run — billed once per 30-min window while auto-run is ON and markets are open (charged by the executor cron via spend_credits_for).
 } as const;
 
 export type Feature = keyof typeof CREDIT_COST;
