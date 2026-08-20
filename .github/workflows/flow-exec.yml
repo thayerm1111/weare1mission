@@ -1,38 +1,43 @@
 name: FLOW auto-executor
 
-# Two-tier execution on one 5-min schedule:
-#   • one FULL scan (finds setups, places on ENTER_NOW, refreshes the at-zone list)
-#   • then a FAST-WATCH every ~30s for the rest of the window — re-confirms at-zone
-#     setups on 1-minute closes so an entry fires the moment buyers/sellers activate.
-# This in-job loop is how we poll far more often than GitHub's ~5-min floor.
+# CONTINUOUS coverage that does NOT depend on GitHub's (unreliable) 5-min
+# scheduler. Each run self-loops for hours: a FULL scan every ~5 min (finds
+# setups, places on ENTER_NOW, refreshes the at-zone list) and a FAST-WATCH
+# every 30s (re-confirms at-zone setups on 1-minute closes and fires the moment
+# buyers/sellers activate). cancel-in-progress means a newer trigger simply
+# restarts a fresh loop, so there's always exactly one running.
+#
 # Reuses the existing GENX_CRON_KEY secret (endpoint accepts FLOW_CRON_KEY,
 # GENX_CRON_KEY, or CRON_SECRET) so it needs no new configuration.
 
 on:
   schedule:
-    - cron: "*/5 * * * 1-5"   # every 5 min, Mon–Fri (UTC)
-  workflow_dispatch: {}
+    - cron: "*/5 * * * 1-5"   # a heartbeat to (re)start the loop if it ever ends
+  workflow_dispatch: {}         # start it on demand from the Actions tab
 
 concurrency:
   group: flow-exec
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   exec:
     runs-on: ubuntu-latest
+    timeout-minutes: 350
     steps:
-      - name: FLOW full scan + fast-watch loop
+      - name: FLOW continuous full-scan + 30s fast-watch
         env:
           KEY: ${{ secrets.FLOW_CRON_KEY || secrets.GENX_CRON_KEY }}
         run: |
           if [ -z "$KEY" ]; then echo "No FLOW_CRON_KEY/GENX_CRON_KEY secret set — skipping"; exit 0; fi
           BASE="https://weare1mission.com/api/cron/flow-exec?key=$KEY"
-          echo "== full scan =="
-          curl -sS -m 60 -X POST "$BASE" -o /tmp/o.json -w "full HTTP %{http_code}\n" || true
-          head -c 700 /tmp/o.json; echo
-          # fast-watch every 30s for the rest of the ~5-min window (1-min confirm)
-          for i in $(seq 1 8); do
+          # ~5.75h of continuous coverage: full scan every 10th tick (~5 min),
+          # fast-watch (1-min confirm) every 30s in between.
+          for i in $(seq 0 690); do
+            if [ $((i % 10)) -eq 0 ]; then
+              curl -sS -m 60 -X POST "$BASE" -o /tmp/o.json -w "t$i full HTTP %{http_code}\n" || true
+            else
+              curl -sS -m 30 -X POST "$BASE&watch=1" -o /tmp/o.json -w "t$i watch HTTP %{http_code}\n" || true
+            fi
+            head -c 220 /tmp/o.json; echo
             sleep 30
-            curl -sS -m 30 -X POST "$BASE&watch=1" -o /tmp/o.json -w "watch$i HTTP %{http_code}\n" || true
-            head -c 400 /tmp/o.json; echo
           done
