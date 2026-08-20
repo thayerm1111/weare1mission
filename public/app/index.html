@@ -1302,6 +1302,7 @@ input{font:inherit}
       ${connected[0]
         ? html`<div class="xrisk-eq">Equity <b>${equity[0] != null ? "$" + Math.round(equity[0]).toLocaleString() : "—"}</b> · live from TradeLocker</div>`
         : html`<div class="xrisk-row"><span class="xrisk-lb">Account $</span><input class="xrisk-in" type="number" inputmode="decimal" value=${acct[0]} placeholder="e.g. 5000" onInput=${function (e) { acct[1](e.target.value); }} onBlur=${saveAcct} /></div>`}
+      ${(!connected[0] && loaded[0]) ? html`<button onClick=${function () { try { window.__omGoConnect && window.__omGoConnect(); } catch (e) {} }} style="width:100%;margin-top:8px;padding:11px;border:0;border-radius:11px;background:linear-gradient(135deg,#3cb4ff,#2e7bff);color:#02122b;font-size:13px;font-weight:800;cursor:pointer">◆ Connect TradeLocker to auto-execute</button>` : null}
       <div class="xrisk-size">
         ${lots[0] != null
           ? html`<span>Size <b>${lots[0]} lots</b></span><span class="xrisk-risk">risking ~$${sizing[0] ? sizing[0].estLossAtStop : "—"} at stop</span>`
@@ -1522,9 +1523,10 @@ input{font:inherit}
     </div>`;
   }
   function AccountScreen(props) {
-    var me = useState(null), trades = useState(null);
-    useEffect(function () { apiGet("/api/me").then(function (d) { me[1](d || {}); }).catch(function () { me[1]({}); }); apiGet("/api/signals").then(function (d) { trades[1](arr(d && d.signals)); }).catch(function () { trades[1]([]); }); }, []);
-    var m = me[0];
+    var me = useState(null), trades = useState(null), flow = useState(null);
+    useEffect(function () { apiGet("/api/me").then(function (d) { me[1](d || {}); }).catch(function () { me[1]({}); }); apiGet("/api/signals").then(function (d) { trades[1](arr(d && d.signals)); }).catch(function () { trades[1]([]); }); apiGet("/api/flow/autorun").then(function (d) { flow[1](d || {}); }).catch(function () {}); }, []);
+    var m = me[0], fl = flow[0] || {};
+    function goConnect() { try { window.__omGoConnect && window.__omGoConnect(); } catch (e) {} }
     return html`<div class="scr">
       <div class="scr-h">Account</div>
       ${m ? html`<div class="acct">
@@ -1533,6 +1535,15 @@ input{font:inherit}
         ${m.membership ? html`<div class="acct-row"><span>Plan</span><b>${m.membership}</b></div>` : null}
         <div class="acct-row big"><span>Credits</span><b class="cr">${m.credits != null ? m.credits : "—"}</b></div>
       </div>` : html`<div class="load">Loading…</div>`}
+      <div style="margin-top:12px;border-radius:14px;border:1px solid ${fl.connected ? "rgba(46,232,143,.35)" : "rgba(60,180,255,.4)"};background:${fl.connected ? "rgba(46,232,143,.05)" : "linear-gradient(135deg,rgba(60,180,255,.12),rgba(60,180,255,.03))"};padding:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <div style="min-width:0">
+            <div style="font-size:13px;font-weight:800;color:#fff">FLOW · TradeLocker</div>
+            <div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:2px">${fl.connected ? ("Connected" + (fl.enabled ? " · auto-run " + (fl.paused ? "paused (out of credits)" : "ON") : " · auto-run off")) : "Not connected — link your broker to auto-execute trades."}</div>
+          </div>
+          <button onClick=${goConnect} style="flex:0 0 auto;padding:10px 14px;border:0;border-radius:11px;background:${fl.connected ? "rgba(255,255,255,.1)" : "linear-gradient(135deg,#3cb4ff,#2e7bff)"};color:${fl.connected ? "#fff" : "#02122b"};font-size:12.5px;font-weight:800;cursor:pointer">${fl.connected ? "Manage" : "◆ Connect"}</button>
+        </div>
+      </div>
       <button class="run" onClick=${function () { try { window.open("/portal/credits", "_blank"); } catch (e) {} }}>Get more credits</button>
       <button class="ac-open" onClick=${props.onOpenAcademy}><span>🎓 Affiliate Academy</span><em>Your step-by-step roadmap to build One Mission</em></button>
       ${m && m.role === "admin" ? html`<button class="xperf-open" onClick=${props.onOpenXperf}><span>◆ xGhost Performance</span><em>admin · win rate, expectancy, by-pair</em></button>` : null}
@@ -2273,6 +2284,84 @@ input{font:inherit}
       ${okmsg[0] ? html`<div class="bk-ok">${okmsg[0]}</div>` : null}
     </div>`;
   }
+  // ── FLOW auto-run panel — the prominent "connect + set risk + turn on auto"
+  // control. Shows a big Connect CTA until a broker is linked; once linked, a
+  // risk% you lock in and an auto-run switch. Auto-run costs 1 credit / 30 min
+  // while markets are open (billed server-side by the executor cron).
+  var RISK_CHIPS = [0.5, 1, 2, 3];
+  function FlowAutoRun(props) {
+    var st = useState(null), loading = useState(true), saving = useState(false), risk = useState(1), locked = useState(false), msg = useState(""), err = useState("");
+    function load() {
+      apiGet("/api/flow/autorun").then(function (d) {
+        st[1](d || {});
+        if (d && d.riskPct != null) { risk[1](d.riskPct); locked[1](true); }
+        loading[1](false);
+      }).catch(function (e) { if (e && e.code === 401) props.onLogout && props.onLogout(); loading[1](false); });
+    }
+    useEffect(function () { load(); }, []);
+    function lockRisk(v) {
+      risk[1](v); locked[1](false); msg[1](""); saving[1](true);
+      apiPost("/api/flow/prefs", { riskPct: v }).then(function () { locked[1](true); msg[1]("Risk locked at " + v + "% per trade."); saving[1](false); load(); })
+        .catch(function () { err[1]("Couldn't save your risk — try again."); saving[1](false); });
+    }
+    function toggle(on) {
+      if (saving[0]) return; err[1](""); msg[1](""); saving[1](true);
+      apiPost("/api/flow/autorun", { action: on ? "enable" : "disable" }).then(function (d) {
+        saving[1](false);
+        if (!d || d.error) { err[1]((d && d.detail) || "Couldn't update auto-run."); return; }
+        if (d.lowCredits) msg[1]("Auto-run is on, but you're low on credits — it'll pause until you top up.");
+        else msg[1](on ? "Auto-run is ON. FLOW will place your trades automatically." : "Auto-run is off.");
+        load();
+      }).catch(function (e) { saving[1](false); if (e && e.code === 401) props.onLogout && props.onLogout(); else err[1]("Something went wrong — try again."); });
+    }
+    var s = st[0] || {}, connected = !!s.connected, enabled = !!s.enabled, paused = !!s.paused, credits = s.credits, cost = s.costPer30m || 1;
+    if (loading[0]) return html`<div style="margin-top:14px;border-radius:16px;border:1px solid rgba(60,180,255,.25);background:rgba(60,180,255,.05);padding:16px;text-align:center;font-size:12px;opacity:.6">◆ Loading your FLOW setup…</div>`;
+    return html`<div style="margin-top:14px;border-radius:16px;border:1px solid ${connected ? "rgba(46,232,143,.35)" : "rgba(60,180,255,.4)"};background:${connected ? "rgba(46,232,143,.05)" : "linear-gradient(135deg,rgba(60,180,255,.14),rgba(60,180,255,.04))"};padding:16px">
+      ${!connected ? html`<div>
+        <div style="font-size:13px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#7cc4ff">Step 1 · Connect your broker</div>
+        <div style="font-size:13px;line-height:1.5;color:rgba(255,255,255,.75);margin-top:6px">Link your TradeLocker account so FLOW can place your trades. You approve every setup and set your own risk.</div>
+        <button onClick=${props.onConnect} style="width:100%;margin-top:12px;padding:16px;border:0;border-radius:14px;background:linear-gradient(135deg,#3cb4ff,#2e7bff);color:#02122b;font-size:16px;font-weight:800;box-shadow:0 6px 20px rgba(60,150,255,.35);cursor:pointer">◆ Connect TradeLocker</button>
+        <div style="font-size:10.5px;color:rgba(255,255,255,.4);margin-top:8px;text-align:center">Official TradeLocker API · stored encrypted · never your withdrawal password</div>
+      </div>` : html`<div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <div style="font-size:13px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#2ee88f">✓ Broker connected</div>
+          <button onClick=${props.onConnect} style="background:none;border:1px solid rgba(255,255,255,.18);border-radius:8px;color:rgba(255,255,255,.7);font-size:11px;font-weight:700;padding:5px 10px;cursor:pointer">Manage</button>
+        </div>
+
+        <div style="font-size:12px;font-weight:800;color:rgba(255,255,255,.85);margin-top:14px">Your risk per trade</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:2px">FLOW sizes every trade to this % of your account. Lock it in.</div>
+        <div style="display:flex;gap:8px;margin-top:9px">
+          ${RISK_CHIPS.map(function (v) { return html`<button onClick=${function () { lockRisk(v); }} disabled=${saving[0]} style="flex:1;padding:11px 0;border-radius:11px;border:1px solid ${(risk[0] === v && locked[0]) ? "rgba(46,232,143,.7)" : "rgba(255,255,255,.15)"};background:${(risk[0] === v && locked[0]) ? "rgba(46,232,143,.16)" : "rgba(255,255,255,.03)"};color:${(risk[0] === v && locked[0]) ? "#2ee88f" : "rgba(255,255,255,.85)"};font-size:14px;font-weight:800;cursor:pointer">${v}%</button>`; })}
+        </div>
+        ${(risk[0] != null && locked[0]) ? html`<div style="font-size:11px;color:#2ee88f;margin-top:7px">✓ Locked at ${risk[0]}% per trade</div>` : null}
+
+        <div style="margin-top:16px;border-top:1px solid rgba(255,255,255,.08);padding-top:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+            <div style="min-width:0">
+              <div style="font-size:14px;font-weight:800;color:#fff">Auto-run FLOW</div>
+              <div style="font-size:11px;line-height:1.5;color:rgba(255,255,255,.55);margin-top:3px">FLOW places your trades automatically the moment a setup confirms — no tapping.</div>
+            </div>
+            <button onClick=${function () { toggle(!enabled); }} disabled=${saving[0]} style="flex:0 0 auto;width:58px;height:32px;border-radius:999px;border:0;cursor:pointer;position:relative;background:${enabled ? "#2ee88f" : "rgba(255,255,255,.18)"};transition:background .2s">
+              <span style="position:absolute;top:3px;left:${enabled ? "29px" : "3px"};width:26px;height:26px;border-radius:50%;background:#fff;transition:left .2s"></span>
+            </button>
+          </div>
+          <div style="margin-top:11px;border-radius:11px;border:1px solid rgba(255,194,75,.3);background:rgba(255,194,75,.06);padding:10px 12px">
+            <div style="font-size:11.5px;line-height:1.55;color:#ffce6b"><b>Costs ${cost} credit every 30 min</b> that auto-run is on and the market is open. FLOW isn't free to run — you're only charged while it's actively watching for you.</div>
+            <div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:5px">Credits: <b style="color:#fff">${credits != null ? credits : "—"}</b> · <a href="#" onClick=${function (e) { e.preventDefault(); try { window.open("/portal/credits", "_blank"); } catch (x) {} }} style="color:#7cc4ff;font-weight:700;text-decoration:none">Get more ›</a></div>
+          </div>
+          ${enabled ? html`<div style="font-size:11.5px;font-weight:700;margin-top:9px;color:${paused ? "#ff9d3c" : "#2ee88f"}">${paused ? "⏸ Paused — out of credits. Top up and it resumes automatically." : "● Auto-run active" + (isMarketOpenPWA() ? " — markets open, watching now." : " — markets closed, resumes at the open.")}</div>` : null}
+        </div>
+      </div>`}
+      ${msg[0] ? html`<div style="font-size:11.5px;color:#2ee88f;margin-top:10px">${msg[0]}</div>` : null}
+      ${err[0] ? html`<div class="err" style="margin-top:10px">${err[0]}</div>` : null}
+    </div>`;
+  }
+  function isMarketOpenPWA() {
+    try { var d = new Date(); var day = d.getUTCDay(), h = d.getUTCHours();
+      if (day === 6) return false; if (day === 0) return h >= 22; if (day === 5) return h < 22; return true;
+    } catch (e) { return true; }
+  }
+
   // ── FLOW — the AI Trade Desk (separate from GENX). Answers "enter NOW, wait,
   // or missed?" via the FLOW Entry Engine, with Copy Trade + TradeLocker connect.
   function FlowScreen(props) {
@@ -2307,6 +2396,7 @@ input{font:inherit}
     }
     useEffect(function () { apiGet("/api/flow/read").then(function (d) { if (d && Array.isArray(d.instruments) && d.instruments.length) instruments[1](d.instruments); }).catch(function () {}); }, []);
     useEffect(function () { run(); }, [mode[0], symbol[0]]);
+    useEffect(function () { if (props.initConnect) { broker[1](true); props.onConnectHandled && props.onConnectHandled(); } }, [props.initConnect]);
     if (broker[0]) return html`<${GxBrokerConnect} onClose=${function () { broker[1](false); }} onLogout=${props.onLogout} />`;
     var d = res[0];
     return html`<div class="scr gx">
@@ -2328,7 +2418,8 @@ input{font:inherit}
       </div>
 
       <button class="gx-analyze" disabled=${loading[0]} onClick=${run}>${loading[0] ? "Finding your trade…" : "Find my trade"}</button>
-      <div style="text-align:center;margin-top:6px;font-size:11px;opacity:.5"><a href="#" onClick=${function (e) { e.preventDefault(); broker[1](true); }} style="color:var(--sky);font-weight:700;text-decoration:none">◆ Connect TradeLocker ›</a></div>
+
+      <${FlowAutoRun} onConnect=${function () { broker[1](true); }} onLogout=${props.onLogout} />
 
       <div style="margin-top:14px;border-radius:14px;border:1px solid rgba(255,194,75,.35);background:rgba(255,194,75,.06);padding:13px">
         <div style="font-size:12px;font-weight:800;color:#ffc24b;text-transform:uppercase;letter-spacing:.06em">Auto-execute · test order</div>
@@ -3465,11 +3556,18 @@ input{font:inherit}
   function Shell(props) {
     var sec = useState("dashboard");
     var floorInit = useState("");
+    var flowConnect = useState(false);
     function go(id) { sec[1](id); }
     function goFloor(v) { floorInit[1](v || ""); sec[1]("floor"); }
+    // Global connect deep-link: any screen (OM AI Plays, Account) can call
+    // window.__omGoConnect() to jump to FLOW with the TradeLocker connect open.
+    useEffect(function () {
+      window.__omGoConnect = function () { flowConnect[1](true); window.scrollTo(0, 0); sec[1]("flow"); };
+      return function () { window.__omGoConnect = null; };
+    }, []);
     return html`<div class="shell">
       <main class="main">
-        ${sec[0] === "flow" ? html`<${FlowScreen} key="flowdesk" onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "flow" ? html`<${FlowScreen} key="flowdesk" onLogout=${props.onLogout} initConnect=${flowConnect[0]} onConnectHandled=${function () { flowConnect[1](false); }} />` : null}
         ${sec[0] === "dashboard" ? html`<${DashboardScreen} go=${go} goFloor=${goFloor} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "floor" ? html`<${FloorSection} key=${"fl" + floorInit[0]} init=${floorInit[0]} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "account" ? html`<${AccountScreen} onLogout=${props.onLogout} onOpenXperf=${function () { sec[1]("xperf"); }} onOpenAcademy=${function () { sec[1]("academy"); }} />` : null}
