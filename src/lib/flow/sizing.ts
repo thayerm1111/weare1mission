@@ -64,6 +64,12 @@ export type SizeResult = {
 export function sizeFromRisk(opts: {
   canonical: string; entry: number; stop: number; equity: number; riskPct: number;
   price?: number; broker?: { quantityStep?: number | null; minQuantity?: number | null };
+  // When the risk-based size rounds BELOW the broker minimum lot, normally we
+  // report ok:false (too small — caller skips rather than over-risk). Set
+  // floorToMinLot:true to instead accept the minimum lot (ok:true) — used for the
+  // "small account trading Gold" case where the member wants the 0.01 minimum
+  // even though it risks a touch more than their %.
+  floorToMinLot?: boolean;
 }): SizeResult {
   const canonical = contractKey(opts.canonical);
   const stopDistance = Math.abs(Number(opts.entry) - Number(opts.stop));
@@ -75,6 +81,8 @@ export function sizeFromRisk(opts: {
   }
   const raw = riskAmount / (stopDistance * valuePerLot);
   const norm = normalizeQuantity(canonical, raw, opts.broker);
+  // Below-minimum: accept the minimum lot when the caller asked us to floor.
+  const ok = norm.ok || (!!opts.floorToMinLot && norm.qty > 0);
   const estLossAtStop = +(norm.qty * stopDistance * valuePerLot).toFixed(2);
-  return { ok: norm.ok, lots: norm.qty, riskAmount: +riskAmount.toFixed(2), stopDistance, valuePerLot, estLossAtStop, reason: norm.reason };
+  return { ok, lots: norm.qty, riskAmount: +riskAmount.toFixed(2), stopDistance, valuePerLot, estLossAtStop, reason: ok ? undefined : norm.reason };
 }

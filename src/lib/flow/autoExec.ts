@@ -3,7 +3,7 @@ import { flowDecision } from "@/lib/flow/decision";
 import { placeMarketOrder, accountEquity } from "@/lib/flow/executor";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
-import { sizeFromRisk } from "@/lib/flow/sizing";
+import { sizeFromRisk, contractKey } from "@/lib/flow/sizing";
 import { ENTRY_TUNING } from "@/lib/entryEngine";
 import type { Mode } from "@/lib/genxCompute";
 import { CREDIT_COST, DAILY_FREE } from "@/lib/creditConfig";
@@ -176,7 +176,12 @@ async function guardAndPlace(settings: AutoSettings, ctx: GuardCtx, symbol: stri
 
   if (stopPx == null) return { symbol, action: "skip_no_stop" };
   if (ctx.equity == null || entryPx == null) return { symbol, action: "skip_no_size" };
-  const s = sizeFromRisk({ canonical: symbol, entry: entryPx, stop: stopPx, equity: ctx.equity, riskPct: ctx.riskPct, price: price ?? undefined });
+  // Small-account Gold rule: if the account is under $500 and 1% risk on Gold
+  // rounds below the 0.01 minimum, still take it at the 0.01 minimum instead of
+  // skipping. (Applies to Gold only, per the product decision.)
+  const isGold = contractKey(symbol) === "XAUUSD";
+  const floorToMinLot = isGold && ctx.equity < 500;
+  const s = sizeFromRisk({ canonical: symbol, entry: entryPx, stop: stopPx, equity: ctx.equity, riskPct: ctx.riskPct, price: price ?? undefined, floorToMinLot });
   if (!s.ok || !(s.lots > 0)) return { symbol, action: "skip_size_too_small", detail: s.reason };
   let qty = s.lots; // risk-sized; maxLot is a fallback (unused now), only the fat-finger backstop caps.
   if (qty > MAX_LOTS) qty = MAX_LOTS;
