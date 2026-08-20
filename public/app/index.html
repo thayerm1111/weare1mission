@@ -2194,6 +2194,16 @@ input{font:inherit}
   // or missed?" via the FLOW Entry Engine, with Copy Trade + TradeLocker connect.
   function FlowScreen(props) {
     var mode = useState("quick"), loading = useState(false), err = useState(""), res = useState(null), broker = useState(false);
+    var testBusy = useState(false), testMsg = useState(""), testErr = useState("");
+    function placeTest(side) {
+      if (testBusy[0]) return; testBusy[1](true); testMsg[1](""); testErr[1]("");
+      apiPost("/api/flow/execute", { source: "test", symbol: symbol[0], side: side }).then(function (d) {
+        testBusy[1](false);
+        var o = d && d.outcome;
+        if (o && o.status === "placed") { testMsg[1]("✓ Order placed on " + (o.environment || "") + " account — " + side.toUpperCase() + " " + o.qty + " lot " + o.symbol + (o.orderId ? " (order " + o.orderId + ")" : "") + ". Check your TradeLocker Trades tab to confirm it filled."); }
+        else { testErr[1]("Not placed" + (o && o.reason ? " — " + o.reason : ".") + " (Nothing was sent to your account.)"); }
+      }).catch(function (e) { testBusy[1](false); if (e && e.code === 401) props.onLogout(); else testErr[1]("Couldn't reach the broker — try again."); });
+    }
     var symbol = useState((function () { try { return localStorage.getItem("FLOW_SYM") || "XAUUSD"; } catch (e) { return "XAUUSD"; } })());
     var instruments = useState([]);
     var lot = useState((function () { try { return localStorage.getItem("FLOW_LOT") || "0.50"; } catch (e) { return "0.50"; } })());
@@ -2236,6 +2246,18 @@ input{font:inherit}
 
       <button class="gx-analyze" disabled=${loading[0]} onClick=${run}>${loading[0] ? "Finding your trade…" : "Find my trade"}</button>
       <div style="text-align:center;margin-top:6px;font-size:11px;opacity:.5"><a href="#" onClick=${function (e) { e.preventDefault(); broker[1](true); }} style="color:var(--sky);font-weight:700;text-decoration:none">◆ Connect TradeLocker ›</a></div>
+
+      <div style="margin-top:14px;border-radius:14px;border:1px solid rgba(255,194,75,.35);background:rgba(255,194,75,.06);padding:13px">
+        <div style="font-size:12px;font-weight:800;color:#ffc24b;text-transform:uppercase;letter-spacing:.06em">Auto-execute · test order</div>
+        <div style="font-size:11.5px;line-height:1.5;color:rgba(255,255,255,.7);margin-top:5px">One-tap test: places the smallest possible 0.01-lot market order on your connected TradeLocker account to prove the order path works. Use this on a demo/paper account first.</div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="fe-btn cp" style="flex:1;background:#2ee88f;color:#04140b" disabled=${testBusy[0]} onClick=${function () { placeTest("buy"); }}>${testBusy[0] ? "Placing…" : "Test BUY 0.01 " + symbol[0]}</button>
+          <button class="fe-btn cp" style="flex:1;background:#ff5d6c;color:#fff" disabled=${testBusy[0]} onClick=${function () { placeTest("sell"); }}>${testBusy[0] ? "Placing…" : "Test SELL 0.01 " + symbol[0]}</button>
+        </div>
+        ${testMsg[0] ? html`<div style="font-size:11.5px;line-height:1.5;color:#2ee88f;margin-top:9px">${testMsg[0]}</div>` : null}
+        ${testErr[0] ? html`<div class="err" style="margin-top:9px">${testErr[0]}</div>` : null}
+        <div style="font-size:10px;color:rgba(255,255,255,.35);margin-top:8px">Places a real order on whatever account is connected. Only tap this if that account is a demo/paper account.</div>
+      </div>
       ${err[0] ? html`<div class="err" style="margin-top:10px">${err[0]}</div>` : null}
       ${loading[0] && !d ? html`<div class="gx-analyzing">◆ Reading live Gold — checking whether NOW is a clean entry…</div>` : null}
 
