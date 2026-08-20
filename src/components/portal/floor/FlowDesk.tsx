@@ -183,9 +183,10 @@ function ExecuteFlow({ symbol, side, entry, stop, tp, actionable, state }: { sym
   const [lots, setLots] = useState<number | null>(null);
   const [sizing, setSizing] = useState<SizingInfo>(null);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ orderId?: string | null } | null>(null);
+  const [done, setDone] = useState<{ orderId?: string | null; placed?: number } | null>(null);
   const [err, setErr] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [acctCount, setAcctCount] = useState(0);
 
   useEffect(() => {
     fetch("/api/flow/prefs", { cache: "no-store" }).then((r) => r.json()).then((d) => {
@@ -208,7 +209,7 @@ function ExecuteFlow({ symbol, side, entry, stop, tp, actionable, state }: { sym
     fetch("/api/flow/execute", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(bodyFor({ preview: true })) })
       .then((r) => r.json())
       .then((d) => {
-        if (d && d.preview) { setLots(d.lots); setSizing(d.sizing ?? null); if (d.equity != null) setEquity(d.equity); setErr(""); }
+        if (d && d.preview) { setLots(d.lots); setSizing(d.sizing ?? null); if (d.equity != null) setEquity(d.equity); setAcctCount(d.accountCount ?? 0); setErr(""); }
         else if (d && d.detail) { setLots(null); setErr(d.detail); }
       }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -222,7 +223,7 @@ function ExecuteFlow({ symbol, side, entry, stop, tp, actionable, state }: { sym
     fetch("/api/flow/execute", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(bodyFor()) })
       .then((r) => r.json())
       .then((d) => {
-        if (d && d.ok && d.outcome && d.outcome.status === "placed") setDone(d.outcome);
+        if (d && d.ok && d.outcome && d.outcome.status === "placed") setDone({ ...d.outcome, placed: d.placed });
         else setErr((d && (d.detail || (d.outcome && d.outcome.reason))) || "Couldn't place the order.");
       }).catch(() => setErr("Network error — try again.")).finally(() => setBusy(false));
   }
@@ -275,13 +276,13 @@ function ExecuteFlow({ symbol, side, entry, stop, tp, actionable, state }: { sym
 
       {done ? (
         <p className="mt-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-600">
-          ✓ Order placed{done.orderId ? " · #" + done.orderId : ""} · {lots} lots {side === "sell" ? "SELL" : "BUY"} {sym}
+          ✓ Placed {side === "sell" ? "SELL" : "BUY"} {sym}{done.placed && done.placed > 1 ? ` on ${done.placed} accounts` : (done.orderId ? " · #" + done.orderId : "")}
         </p>
       ) : (
         <button onClick={execute} disabled={busy || lots == null}
           className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${side === "sell" ? "bg-red-500 text-white hover:bg-red-400" : "bg-emerald-500 text-[#04140b] hover:bg-emerald-400"}`}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
-          {busy ? "Placing…" : `Execute ${side === "sell" ? "SELL" : "BUY"}${lots != null ? " · " + lots + " lots" : ""}`}
+          {busy ? "Placing…" : acctCount > 1 ? `Execute ${side === "sell" ? "SELL" : "BUY"} · ${acctCount} accounts` : `Execute ${side === "sell" ? "SELL" : "BUY"}${lots != null ? " · " + lots + " lots" : ""}`}
         </button>
       )}
       {err && !done && <p className="mt-2 text-xs text-red-500">{err}</p>}

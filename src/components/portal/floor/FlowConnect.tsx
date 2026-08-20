@@ -29,6 +29,10 @@ type Account = {
   equity?: number | null;
   openPositions?: number | null;
   selected?: boolean;
+  autotradeEnabled?: boolean;
+  connectionId?: string;
+  environment?: string;
+  server?: string;
 };
 
 type ConnView = {
@@ -82,6 +86,7 @@ export function FlowConnect() {
   const [server, setServer] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [addingAccount, setAddingAccount] = useState(false);
 
   const [auto, setAuto] = useState<AutoRun | null>(null);
   const [risk, setRisk] = useState<number>(1);
@@ -187,6 +192,9 @@ export function FlowConnect() {
         setErr((d && d.detail) || "Couldn't connect — check your details.");
       } else {
         setPassword("");
+        setServer("");
+        setEmail("");
+        setAddingAccount(false);
         setOk(`Connected — ${d.accountsFound || 0} account(s) loaded.`);
         await load();
       }
@@ -197,16 +205,17 @@ export function FlowConnect() {
     }
   }
 
-  async function selectAccount(id: string) {
+  async function toggleAccount(a: Account, enabled: boolean) {
+    // Optimistic: flip locally, then persist.
+    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, autotradeEnabled: enabled } : x) } : prev);
     try {
       await fetch("/api/flow/broker", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "select", accountId: id }),
+        body: JSON.stringify({ action: "toggle", accountId: a.accountId, connectionId: a.connectionId, enabled }),
       });
-      await load();
     } catch {
-      /* noop */
+      void load();
     }
   }
 
@@ -250,7 +259,7 @@ export function FlowConnect() {
         <div className="flex items-center gap-2 rounded-2xl border border-ice bg-white p-6 text-sm text-charcoal/60">
           <Loader2 className="h-4 w-4 animate-spin text-navy" /> Checking your broker connection…
         </div>
-      ) : connected ? (
+      ) : connected && !addingAccount ? (
         /* ---------------- Connected ---------------- */
         <div className="space-y-4">
           <div className="rounded-2xl border border-ice bg-white p-5">
@@ -283,11 +292,14 @@ export function FlowConnect() {
                 </button>
               </div>
             </div>
-            {conn && (
-              <p className="mt-1 text-xs text-charcoal/45">
-                server {conn.server} · {conn.email}
-              </p>
-            )}
+            {(() => {
+              const activeN = accounts.filter((a) => a.autotradeEnabled).length;
+              return (
+                <p className="mt-1 text-xs text-charcoal/45">
+                  {accounts.length} account{accounts.length === 1 ? "" : "s"} connected · <b className="text-emerald-600">{activeN} trading</b>. FLOW takes every trade on all the accounts switched on below.
+                </p>
+              );
+            })()}
 
             <div className="mt-4 space-y-2">
               {accounts.length === 0 && (
@@ -296,39 +308,47 @@ export function FlowConnect() {
                 </p>
               )}
               {accounts.map((a) => {
-                const on = a.selected;
+                const on = a.autotradeEnabled !== false;
                 return (
-                  <button
-                    key={a.accountId}
-                    onClick={() => void selectAccount(a.accountId)}
-                    className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors ${
-                      on
-                        ? "border-gold/50 bg-gold/[0.06]"
-                        : "border-ice bg-offwhite/50 hover:border-charcoal/25"
+                  <div
+                    key={`${a.connectionId || ""}-${a.accountId}`}
+                    className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3.5 py-3 ${
+                      on ? "border-emerald-500/40 bg-emerald-500/[0.05]" : "border-ice bg-offwhite/50"
                     }`}
                   >
                     <div className="min-w-0">
                       <p className="truncate text-sm font-bold text-navy">
                         {a.name || `Account ${a.accountId}`}
+                        {a.environment && (
+                          <span className={`ml-2 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${a.environment === "live" ? "bg-amber-500/15 text-amber-600" : "bg-navy/[0.06] text-navy"}`}>{a.environment}</span>
+                        )}
                       </p>
                       <p className="mt-0.5 text-[11px] text-charcoal/45">
                         #{a.accNum || a.accountId}
-                        {a.currency ? ` · ${a.currency}` : ""}
+                        {a.currency ? ` · ${a.currency}` : ""} · <span className="inline-flex items-center gap-0.5"><Wallet className="inline h-3 w-3" />{money(a.equity != null ? a.equity : a.balance)}</span>
                       </p>
                     </div>
-                    <div className="text-right">
-                      <p className="inline-flex items-center gap-1.5 text-sm font-bold text-navy">
-                        <Wallet className="h-3.5 w-3.5 text-charcoal/40" />
-                        {money(a.equity != null ? a.equity : a.balance)}
-                      </p>
-                      <p className="mt-0.5 text-[11px] font-semibold text-charcoal/45">
-                        {on ? "✓ FLOW account" : "tap to use"}
-                      </p>
+                    <div className="flex flex-shrink-0 items-center gap-2">
+                      <span className={`text-[11px] font-semibold ${on ? "text-emerald-600" : "text-charcoal/40"}`}>{on ? "Trading" : "Off"}</span>
+                      <button
+                        onClick={() => void toggleAccount(a, !on)}
+                        aria-pressed={on}
+                        className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${on ? "bg-emerald-500" : "bg-charcoal/20"}`}
+                      >
+                        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${on ? "left-[22px]" : "left-0.5"}`} />
+                      </button>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
+
+            <button
+              onClick={() => { setAddingAccount(true); setOk(""); setErr(""); }}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-charcoal/25 px-3 py-2 text-xs font-semibold text-navy hover:bg-offwhite"
+            >
+              <Link2 className="h-3.5 w-3.5" /> Connect another account
+            </button>
           </div>
 
           {/* Risk % lock-in */}
@@ -433,9 +453,19 @@ export function FlowConnect() {
         /* ---------------- Connect form ---------------- */
         <div className="space-y-4">
           <div className="rounded-2xl border border-ice bg-white p-5">
-            <p className="inline-flex items-center gap-2 text-sm font-bold">
-              <Link2 className="h-4 w-4 text-navy" /> Connect TradeLocker
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="inline-flex items-center gap-2 text-sm font-bold">
+                <Link2 className="h-4 w-4 text-navy" /> {addingAccount ? "Connect another account" : "Connect TradeLocker"}
+              </p>
+              {addingAccount && (
+                <button onClick={() => { setAddingAccount(false); setErr(""); }} className="text-xs font-semibold text-charcoal/60 hover:text-navy">
+                  ‹ Back to accounts
+                </button>
+              )}
+            </div>
+            {addingAccount && (
+              <p className="mt-1 text-xs text-charcoal/50">Link a second TradeLocker login (another broker or account). FLOW will trade every account you switch on.</p>
+            )}
 
             {/* Environment */}
             <div className="mt-4">
