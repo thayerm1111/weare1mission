@@ -25,9 +25,29 @@ const CONTRACT: Record<string, { size: number; quote: "USD" | "JPY" }> = {
   USOIL: { size: 1000, quote: "USD" },
 };
 
+// Common symbol aliases → canonical CONTRACT key. Callers pass all sorts of
+// formats ("XAU/USD", "GOLD", "US100", "NASDAQ"); we normalise so the contract
+// size can never silently fall back to 1 (which would over-size ~100x on Gold).
+const ALIAS: Record<string, string> = {
+  GOLD: "XAUUSD", XAU: "XAUUSD",
+  SILVER: "XAGUSD", XAG: "XAGUSD",
+  US100: "NAS100", NASDAQ: "NAS100", NASDAQ100: "NAS100", USTEC: "NAS100", NDX: "NAS100", NAS: "NAS100",
+  DOW: "US30", DJI: "US30", WALLSTREET: "US30", US30USD: "US30",
+  OIL: "USOIL", WTI: "USOIL", CRUDE: "USOIL", USOUSD: "USOIL",
+};
+
+/** Normalise any symbol form to a CONTRACT key: strip non-alphanumerics + upper,
+ *  then apply the alias table (so "XAU/USD" → "XAUUSD", "US100" → "NAS100"). */
+export function contractKey(symbol: string): string {
+  const raw = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (CONTRACT[raw]) return raw;
+  if (ALIAS[raw]) return ALIAS[raw];
+  return raw;
+}
+
 /** USD value of a 1.0 PRICE-unit move, per 1.0 lot. */
 export function valuePerPricePerLot(canonical: string, price: number): number {
-  const c = CONTRACT[String(canonical).toUpperCase()] ?? { size: 1, quote: "USD" as const };
+  const c = CONTRACT[contractKey(canonical)] ?? { size: 1, quote: "USD" as const };
   if (c.quote === "JPY") return price > 0 ? c.size / price : c.size;
   return c.size;
 }
@@ -45,7 +65,7 @@ export function sizeFromRisk(opts: {
   canonical: string; entry: number; stop: number; equity: number; riskPct: number;
   price?: number; broker?: { quantityStep?: number | null; minQuantity?: number | null };
 }): SizeResult {
-  const canonical = String(opts.canonical).toUpperCase();
+  const canonical = contractKey(opts.canonical);
   const stopDistance = Math.abs(Number(opts.entry) - Number(opts.stop));
   const riskAmount = Number(opts.equity) * (Number(opts.riskPct) / 100);
   const px = opts.price && opts.price > 0 ? opts.price : Number(opts.entry);
