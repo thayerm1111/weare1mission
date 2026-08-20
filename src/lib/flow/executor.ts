@@ -1,7 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeQuantity } from "@/lib/flow/instruments";
-import { freshAccessToken } from "@/lib/flow/connection";
-import { listInstruments, createOrder, getQuote, listOrders, listPositions, listAccounts, type TLInstrument } from "@/lib/flow/tradelocker";
+import { freshAccessToken, activeAccounts, type ActiveAccount } from "@/lib/flow/connection";
+import { sizeFromRisk, contractKey } from "@/lib/flow/sizing";
+import { listInstruments, createOrder, getQuote, listOrders, listPositions, listAccounts, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 
 /**
  * FLOW order placement (server-only). Places a single market order on the
@@ -66,7 +67,33 @@ async function logEvent(userId: string, e: Record<string, unknown>): Promise<voi
   } catch { /* logging is best-effort */ }
 }
 
-/** Place ONE market order on the member's selected account. */
+/** Core: place ONE market order on a specific (env, token, account). No logging;
+ *  the caller records the event so multi-account fan-out can log per account. */
+async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string }> {
+  const instRes = await listInstruments(a.env, a.token, a.accNum, a.accountId);
+  if (!instRes.ok) return { ok: false, error: `instrument_list_failed: ${instRes.error}`.slice(0, 160) };
+  const tl = matchInstrument(canonical, instRes.data);
+  if (!tl) return { ok: false, error: `instrument_not_found: ${canonical}` };
+
+  const norm = normalizeQuantity(canonical, qty, { quantityStep: tl.quantityStep, minQuantity: tl.minQuantity });
+  const base = {
+    accountId: a.accountId, accNum: a.accNum,
+    tradableInstrumentId: tl.tradableInstrumentId, routeId: tl.routeId,
+    side, type: "market" as const, qty: norm.qty, validity: "IOC" as const,
+  };
+  const hasBracket = stop != null || tp != null;
+  let ord = await createOrder(a.env, a.token, { ...base, stopLoss: stop ?? null, takeProfit: tp ?? null });
+  let note = "";
+  if (!ord.ok && hasBracket) {
+    const bare = await createOrder(a.env, a.token, { ...base, stopLoss: null, takeProfit: null });
+    if (bare.ok) { ord = bare; note = " (SL/TP rejected — opened bare)"; }
+  }
+  if (!ord.ok) return { ok: false, error: ord.error };
+  return { ok: true, qty: norm.qty, orderId: ord.data.orderId ?? null, positionId: ord.data.positionId ?? null, note };
+}
+
+/** Place ONE market order on the member's PRIMARY selected account (single-account
+ *  path — the read-only test button and legacy callers). */
 export async function placeMarketOrder(opts: {
   userId: string; symbol: string; side: "buy" | "sell"; qty: number;
   stop?: number | null; tp?: number | null; source: string;
@@ -86,38 +113,54 @@ export async function placeMarketOrder(opts: {
   const accNum = acctRow?.acc_num ? String(acctRow.acc_num) : null;
   if (!accNum) return { status: "error", reason: "no_acc_num", environment: fresh.env };
 
-  const instRes = await listInstruments(fresh.env, fresh.token, accNum, accountId);
-  if (!instRes.ok) return { status: "error", reason: `instrument_list_failed: ${instRes.error}`.slice(0, 160), environment: fresh.env };
-  const tl = matchInstrument(canonical, instRes.data);
-  if (!tl) return { status: "error", reason: `instrument_not_found: ${canonical}`, environment: fresh.env };
-
-  const norm = normalizeQuantity(canonical, opts.qty, { quantityStep: tl.quantityStep, minQuantity: tl.minQuantity });
-  const qty = norm.qty;
-
-  const base = {
-    accountId, accNum,
-    tradableInstrumentId: tl.tradableInstrumentId, routeId: tl.routeId,
-    side: opts.side, type: "market" as const, qty, validity: "IOC" as const,
-  };
-  const hasBracket = opts.stop != null || opts.tp != null;
-  let ord = await createOrder(fresh.env, fresh.token, { ...base, stopLoss: opts.stop ?? null, takeProfit: opts.tp ?? null });
-
-  // If the broker rejected the bracketed order (a stop/TP too close to market,
-  // wrong side after a move, etc.), fall back to a bare market order so the
-  // position still opens rather than the member silently taking no trade.
-  let bracketNote = "";
-  if (!ord.ok && hasBracket) {
-    const bare = await createOrder(fresh.env, fresh.token, { ...base, stopLoss: null, takeProfit: null });
-    if (bare.ok) { ord = bare; bracketNote = " (SL/TP rejected — opened bare)"; }
+  const r = await placeOnAccount({ env: fresh.env, token: fresh.token, accNum, accountId }, canonical, opts.side, opts.qty, opts.stop, opts.tp);
+  if (!r.ok) {
+    await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: opts.qty, status: "error", reason: `${opts.source}: ${r.error}`.slice(0, 200), account_id: accountId });
+    return { status: "error", reason: r.error, environment: fresh.env };
   }
+  await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: r.qty, status: "placed", reason: `${opts.source}${r.note}`.slice(0, 60), order_id: r.orderId, account_id: accountId });
+  return { status: "placed", symbol: canonical, side: opts.side, qty: r.qty, orderId: r.orderId, positionId: r.positionId, environment: fresh.env, accountId };
+}
 
-  if (!ord.ok) {
-    await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty, status: "error", reason: `${opts.source}: ${ord.error}`.slice(0, 200) });
-    return { status: "error", reason: ord.error, environment: fresh.env };
+export type AccountFill = {
+  accountId: string; accNum: string; name: string | null; environment: string;
+  status: "placed" | "error" | "skipped"; qty?: number; lots?: number; estLossAtStop?: number;
+  orderId?: string | null; reason?: string;
+};
+
+/**
+ * Risk-size and place THE SAME setup on EVERY account the member has toggled ON
+ * (across all their connections), each sized to its own live equity. This is what
+ * auto-run and one-tap Execute use. Returns a per-account outcome list. Billing /
+ * guardrails are handled by the caller (they're per-member, not per-account).
+ */
+export async function placeOnActiveAccounts(opts: {
+  userId: string; symbol: string; side: "buy" | "sell";
+  entry: number; stop: number; tp?: number | null; riskPct: number; source: string;
+  accounts?: ActiveAccount[]; // pass a pre-fetched list to avoid re-minting tokens
+}): Promise<{ accounts: AccountFill[]; placed: number }> {
+  const canonical = normSym(opts.symbol) || "XAUUSD";
+  const isGold = contractKey(canonical) === "XAUUSD";
+  const accts = opts.accounts ?? (await activeAccounts(opts.userId));
+  const fills: AccountFill[] = [];
+  let placed = 0;
+  for (const a of accts) {
+    if (a.equity == null) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: "no_equity" }); continue; }
+    const floorToMinLot = isGold && a.equity < 500;
+    const s = sizeFromRisk({ canonical, entry: opts.entry, stop: opts.stop, equity: a.equity, riskPct: opts.riskPct, floorToMinLot });
+    if (!s.ok || !(s.lots > 0)) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: s.reason || "size_too_small" }); continue; }
+    const lots = Math.min(s.lots, 100); // fat-finger backstop
+    const r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId }, canonical, opts.side, lots, opts.stop, opts.tp ?? null);
+    if (!r.ok) {
+      await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: s.lots, status: "error", reason: `${opts.source}: ${r.error}`.slice(0, 200), account_id: a.accountId });
+      fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "error", lots: s.lots, reason: r.error });
+      continue;
+    }
+    await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: r.qty, status: "placed", reason: `${opts.source}${r.note}`.slice(0, 60), order_id: r.orderId, account_id: a.accountId });
+    fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "placed", qty: r.qty, lots: r.qty, estLossAtStop: s.estLossAtStop, orderId: r.orderId });
+    placed += 1;
   }
-  const orderId = ord.data.orderId ?? null;
-  await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty, status: "placed", reason: `${opts.source}${bracketNote}`.slice(0, 60), order_id: orderId });
-  return { status: "placed", symbol: canonical, side: opts.side, qty, orderId, positionId: ord.data.positionId ?? null, environment: fresh.env, accountId };
+  return { accounts: fills, placed };
 }
 
 /**

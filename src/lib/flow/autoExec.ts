@@ -1,9 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { flowDecision } from "@/lib/flow/decision";
-import { placeMarketOrder, accountEquity } from "@/lib/flow/executor";
+import { placeOnActiveAccounts } from "@/lib/flow/executor";
+import { activeAccounts, type ActiveAccount } from "@/lib/flow/connection";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
-import { sizeFromRisk, contractKey } from "@/lib/flow/sizing";
 import { ENTRY_TUNING } from "@/lib/entryEngine";
 import type { Mode } from "@/lib/genxCompute";
 import { CREDIT_COST, DAILY_FREE } from "@/lib/creditConfig";
@@ -121,10 +121,10 @@ type GuardCtx = {
   mode: Mode; symbols: string[]; maxLot: number; cooldownMs: number;
   now: number; events: AutoEvent[]; placed: AutoEvent[];
   hourBudget: number; openSymbols: Set<string>; maxOpen: number;
-  // Risk-based sizing: each trade risks riskPct of `equity` (live broker balance,
-  // falling back to a saved account size), not a flat lot. maxLot is the fallback
-  // only when equity can't be determined.
-  equity: number | null; riskPct: number;
+  // Risk-based sizing: each trade risks riskPct of EACH active account's own live
+  // equity. `accounts` is every account the member toggled ON, across all their
+  // connections — a placement fans out over all of them. Fetched once per cycle.
+  riskPct: number; accounts: ActiveAccount[];
 };
 
 async function buildGuardCtx(admin: Admin, settings: AutoSettings): Promise<GuardCtx> {
@@ -141,14 +141,14 @@ async function buildGuardCtx(admin: Admin, settings: AutoSettings): Promise<Guar
   const hourBudget = Math.max(0, maxPerHour - placedLastHour);
   const openSymbols = new Set(placed.filter((p) => now - new Date(p.created_at).getTime() < cooldownMs).map((p) => String(p.symbol).toUpperCase()));
 
-  // Risk sizing inputs: live broker equity + the member's saved risk %.
-  const { data: pref } = await admin.from("flow_trade_prefs").select("account_size, risk_pct").eq("user_id", settings.user_id).maybeSingle();
-  const p = (pref as { account_size?: number | null; risk_pct?: number | null } | null) ?? null;
-  const eq = await accountEquity(settings.user_id);
-  const equity = eq.ok ? eq.equity : (p && typeof p.account_size === "number" && p.account_size > 0 ? p.account_size : null);
+  // Risk sizing inputs: the member's saved risk % + all their active accounts
+  // (each carrying its own live equity, fetched once for the whole cycle).
+  const { data: pref } = await admin.from("flow_trade_prefs").select("risk_pct").eq("user_id", settings.user_id).maybeSingle();
+  const p = (pref as { risk_pct?: number | null } | null) ?? null;
   const riskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : 1;
+  const accounts = await activeAccounts(settings.user_id);
 
-  return { mode, symbols, maxLot, cooldownMs, now, events, placed, hourBudget, openSymbols, maxOpen, equity, riskPct };
+  return { mode, symbols, maxLot, cooldownMs, now, events, placed, hourBudget, openSymbols, maxOpen, riskPct, accounts };
 }
 
 /** Apply the per-member guardrails and, if they pass, place ONE market order. Mutates ctx. */
@@ -162,12 +162,10 @@ async function guardAndPlace(settings: AutoSettings, ctx: GuardCtx, symbol: stri
   if (ctx.hourBudget <= 0) return { symbol, action: "hour_cap" };
   if (!ctx.openSymbols.has(symbol) && ctx.openSymbols.size >= ctx.maxOpen) return { symbol, action: "max_open" };
 
-  // Size the trade to risk riskPct of equity across the entry→stop distance.
   // A protective stop is REQUIRED (fall back to the invalidation), and the entry
   // falls back to the live price when a setup enters "at market" with no pullback
-  // zone (common on momentum ENTER_NOW). If we can't both risk-size AND attach a
-  // stop, we SKIP — we never place a blind, flat max-lot order (that's how a tiny
-  // account ended up firing 1.00-lot Gold orders that the broker margin-rejected).
+  // zone (common on momentum ENTER_NOW). If we can't attach a stop or don't have a
+  // usable entry, we SKIP — we never place a blind, unsized order.
   const stopPx = levels.stop ?? levels.invalidation ?? null;
   const zoneMid = levels.entryLow != null && levels.entryHigh != null
     ? (levels.entryLow + levels.entryHigh) / 2
@@ -175,27 +173,25 @@ async function guardAndPlace(settings: AutoSettings, ctx: GuardCtx, symbol: stri
   const entryPx = zoneMid ?? (price != null && price > 0 ? price : null);
 
   if (stopPx == null) return { symbol, action: "skip_no_stop" };
-  if (ctx.equity == null || entryPx == null) return { symbol, action: "skip_no_size" };
-  // Small-account Gold rule: if the account is under $500 and 1% risk on Gold
-  // rounds below the 0.01 minimum, still take it at the 0.01 minimum instead of
-  // skipping. (Applies to Gold only, per the product decision.)
-  const isGold = contractKey(symbol) === "XAUUSD";
-  const floorToMinLot = isGold && ctx.equity < 500;
-  const s = sizeFromRisk({ canonical: symbol, entry: entryPx, stop: stopPx, equity: ctx.equity, riskPct: ctx.riskPct, price: price ?? undefined, floorToMinLot });
-  if (!s.ok || !(s.lots > 0)) return { symbol, action: "skip_size_too_small", detail: s.reason };
-  let qty = s.lots; // risk-sized; maxLot is a fallback (unused now), only the fat-finger backstop caps.
-  if (qty > MAX_LOTS) qty = MAX_LOTS;
+  if (entryPx == null) return { symbol, action: "skip_no_entry" };
+  if (!ctx.accounts.length) return { symbol, action: "skip_no_accounts" };
 
-  const out = await placeMarketOrder({ userId: settings.user_id, symbol, side, qty, stop: stopPx, tp: levels.tp1, source: "auto" });
-  if (out.status === "placed") {
+  // Fan out: place the SAME setup on every active account, each risk-sized to its
+  // own live equity (gold<$500 floors to 0.01 inside placeOnActiveAccounts).
+  const res = await placeOnActiveAccounts({
+    userId: settings.user_id, symbol, side, entry: entryPx, stop: stopPx, tp: levels.tp1,
+    riskPct: ctx.riskPct, source: "auto", accounts: ctx.accounts,
+  });
+  if (res.placed > 0) {
     ctx.hourBudget -= 1;
     ctx.openSymbols.add(symbol);
-    // Reflect the just-placed order so a same-run duplicate can't slip through.
     ctx.placed.unshift({ symbol, created_at: new Date(ctx.now).toISOString(), status: "placed" });
-    return { symbol, action: "placed", side, orderId: out.orderId };
+    const first = res.accounts.find((a) => a.status === "placed");
+    return { symbol, action: "placed", side, orderId: first?.orderId ?? null, detail: `${res.placed}/${res.accounts.length} accounts` };
   }
   ctx.events.unshift({ symbol, created_at: new Date(ctx.now).toISOString(), status: "error" });
-  return { symbol, action: "order_error", side, detail: out.reason };
+  const firstErr = res.accounts.find((a) => a.status === "error");
+  return { symbol, action: res.accounts.length ? "order_error" : "skip_no_accounts", side, detail: firstErr?.reason || "no fills" };
 }
 
 // A setup is "in the area" (worth fast-watching) when price has reached the zone
