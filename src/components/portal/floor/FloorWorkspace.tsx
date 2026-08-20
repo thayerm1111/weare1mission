@@ -6,7 +6,7 @@ import { LayoutGrid, Sparkles, Zap, Activity, TrendingUp, Gem, Link2 } from "luc
 import { FloorHome } from "./FloorHome";
 import { LivePlays } from "./LivePlays";
 import { MarketPulse } from "./MarketPulse";
-import { FlowConnect } from "./FlowConnect";
+import { FlowDesk } from "./FlowDesk";
 
 // The Floor workspace holds the launcher (home) plus the two in-desk views:
 // Market Pulse and Live Plays. OM AI, OM AI Plays and MFXGHOST are their own
@@ -14,7 +14,7 @@ import { FlowConnect } from "./FlowConnect";
 // and xGhost are archived from the customer Floor (routes/components preserved).
 const VIEW_TABS = [
   { id: "home", label: "Floor" },
-  { id: "flow", label: "FLOW · Connect" },
+  { id: "flow", label: "FLOW" },
   { id: "pulse", label: "Market Pulse" },
   { id: "plays", label: "Live Plays" },
 ] as const;
@@ -29,7 +29,7 @@ type SwitchItem = { key: string; label: string; icon: typeof LayoutGrid } & (
 );
 const SWITCHER: SwitchItem[] = [
   { key: "home", label: "Floor", icon: LayoutGrid, view: "home" },
-  { key: "flow", label: "FLOW · Connect", icon: Link2, view: "flow" },
+  { key: "flow", label: "FLOW", icon: Link2, view: "flow" },
   { key: "genx", label: "GENX", icon: Gem, href: "/portal/genx" },
   { key: "omai", label: "OM AI", icon: Sparkles, href: "/portal/om-ai" },
   { key: "signals", label: "OM AI Plays", icon: Zap, href: "/portal/signals" },
@@ -88,7 +88,7 @@ export function FloorWorkspace({
 
       <div className="p-2.5 sm:p-3">
         {tab === "home" && <FloorHome onGo={go} />}
-        {tab === "flow" && <FlowConnect />}
+        {tab === "flow" && <FlowDesk />}
         {tab === "plays" && <LivePlays isCaller={isCaller} followerCount={followerCount} />}
         {tab === "pulse" && <MarketPulse />}
       </div>
