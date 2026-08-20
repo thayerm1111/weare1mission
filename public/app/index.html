@@ -1258,7 +1258,7 @@ input{font:inherit}
   function ExecutePlay(props) {
     var m = props.m, lv = tradeLevels(m);
     var risk = useState(1), acct = useState(""), equity = useState(null), connected = useState(false);
-    var lots = useState(null), sizing = useState(null), busy = useState(false), done = useState(null), err = useState(""), loaded = useState(false);
+    var lots = useState(null), sizing = useState(null), busy = useState(false), done = useState(null), err = useState(""), loaded = useState(false), acctCount = useState(0);
     if (!lv.ok || lv.ep == null || lv.stop == null || !lv.tps.length) { return null; }
     var side = m.direction === "SHORT" ? "sell" : "buy";
     var sym = m.symbol || "";
@@ -1279,7 +1279,7 @@ input{font:inherit}
     }, []);
     function preview() {
       apiPost("/api/flow/execute", baseBody({ preview: true })).then(function (d) {
-        if (d && d.preview) { lots[1](d.lots); sizing[1](d.sizing); if (d.equity != null) equity[1](d.equity); err[1](""); }
+        if (d && d.preview) { lots[1](d.lots); sizing[1](d.sizing); if (d.equity != null) equity[1](d.equity); acctCount[1](d.accountCount || 0); err[1](""); }
         else if (d && d.detail) { lots[1](null); err[1](d.detail); }
       }).catch(function () {});
     }
@@ -1288,7 +1288,7 @@ input{font:inherit}
       if (busy[0] || lots[0] == null) return; busy[1](true); err[1]("");
       apiPost("/api/flow/execute", baseBody()).then(function (d) {
         busy[1](false);
-        if (d && d.ok && d.outcome && d.outcome.status === "placed") { done[1](d.outcome); }
+        if (d && d.ok && d.outcome && d.outcome.status === "placed") { done[1](Object.assign({}, d.outcome, { placed: d.placed })); }
         else { err[1]((d && (d.detail || (d.outcome && d.outcome.reason))) || "Couldn't place the order."); }
       }).catch(function () { busy[1](false); err[1]("Network error — try again."); });
     }
@@ -1309,10 +1309,10 @@ input{font:inherit}
           : html`<span class="xrisk-risk">${err[0] || "Calculating size…"}</span>`}
       </div>
       ${done[0]
-        ? html`<div class="xrisk-ok">✓ Order placed${done[0].orderId ? " · #" + done[0].orderId : ""} · ${lots[0]} lots ${side === "sell" ? "SELL" : "BUY"} ${sym.replace("/", "")}</div>`
-        : html`<button class=${"xrisk-go " + side} disabled=${busy[0] || lots[0] == null} onClick=${execute}>${busy[0] ? "Placing…" : "Execute " + (side === "sell" ? "SELL" : "BUY") + (lots[0] != null ? " · " + lots[0] + " lots" : "")}</button>`}
+        ? html`<div class="xrisk-ok">✓ Placed ${side === "sell" ? "SELL" : "BUY"} ${sym.replace("/", "")}${(done[0].placed && done[0].placed > 1) ? (" on " + done[0].placed + " accounts") : (done[0].orderId ? " · #" + done[0].orderId : "")}</div>`
+        : html`<button class=${"xrisk-go " + side} disabled=${busy[0] || lots[0] == null} onClick=${execute}>${busy[0] ? "Placing…" : (acctCount[0] > 1 ? ("Execute " + (side === "sell" ? "SELL" : "BUY") + " · " + acctCount[0] + " accounts") : ("Execute " + (side === "sell" ? "SELL" : "BUY") + (lots[0] != null ? " · " + lots[0] + " lots" : "")))}</button>`}
       ${err[0] && !done[0] ? html`<div class="xrisk-err">${err[0]}</div>` : null}
-      <div class="xrisk-note">Places a real order on your connected account when you tap Execute. Stop + TP1 attached automatically.</div>
+      <div class="xrisk-note">${acctCount[0] > 1 ? ("Places on all " + acctCount[0] + " active accounts, each sized to its own equity. ") : "Places a real order on your connected account when you tap Execute. "}Stop + TP1 attached automatically.</div>
     </div>`;
   }
 
@@ -2237,7 +2237,7 @@ input{font:inherit}
   // here and posted straight to the server; the browser never stores a token.
   function GxBrokerConnect(props) {
     var st = useState(null), loading = useState(true), busy = useState(false), err = useState(""), okmsg = useState("");
-    var env = useState("demo"), server = useState(""), email = useState(""), pw = useState("");
+    var env = useState("demo"), server = useState(""), email = useState(""), pw = useState(""), adding = useState(false);
     function load() { loading[1](true); apiGet("/api/flow/broker").then(function (d) { st[1](d || {}); loading[1](false); }).catch(function () { loading[1](false); }); }
     useEffect(function () { load(); }, []);
     function connect() {
@@ -2245,29 +2245,40 @@ input{font:inherit}
       apiPost("/api/flow/broker", { action: "connect", environment: env[0], server: server[0].trim(), email: email[0].trim(), password: pw[0] }).then(function (d) {
         busy[1](false);
         if (!d || d.error) { err[1]((d && d.detail) || "Couldn't connect — check your details."); return; }
-        pw[1](""); okmsg[1]("Connected — " + (d.accountsFound || 0) + " account(s) loaded."); load();
+        pw[1](""); server[1](""); email[1](""); adding[1](false); okmsg[1]("Connected — " + (d.accountsFound || 0) + " account(s) loaded."); load();
       }).catch(function (e) { busy[1](false); if (e && e.code === 401) props.onLogout && props.onLogout(); else err[1]("Something went wrong — try again."); });
     }
-    function select(id) { apiPost("/api/flow/broker", { action: "select", accountId: id }).then(function () { load(); }).catch(function () {}); }
+    function toggleAcct(a, on) {
+      // optimistic flip
+      var cur = st[0] || {}; var accts = (cur.accounts || []).map(function (x) { return (x.accountId === a.accountId && x.connectionId === a.connectionId) ? Object.assign({}, x, { autotradeEnabled: on }) : x; });
+      st[1](Object.assign({}, cur, { accounts: accts }));
+      apiPost("/api/flow/broker", { action: "toggle", accountId: a.accountId, connectionId: a.connectionId, enabled: on }).catch(function () { load(); });
+    }
     function disconnect() { busy[1](true); apiPost("/api/flow/broker", { action: "disconnect" }).then(function () { busy[1](false); okmsg[1](""); err[1](""); load(); }).catch(function () { busy[1](false); }); }
     var s = st[0], connected = s && s.connected, accounts = (s && s.accounts) || [];
+    var activeN = accounts.filter(function (a) { return a.autotradeEnabled !== false; }).length;
     return html`<div class="scr bk">
       <button class="bk-back" onClick=${props.onClose}>‹ Back to FLOW</button>
-      ${loading[0] ? html`<div class="gx-analyzing">◆ Checking your broker connection…</div>` : (connected ? html`<div>
-        <div class="bk-h">TradeLocker <span class=${"bk-badge " + (s.connection.environment === "live" ? "live" : "demo")}>${(s.connection.environment || "").toUpperCase()}</span></div>
-        <div class="bk-sub">Connected · server ${s.connection.server} · ${s.connection.email}</div>
-        ${accounts.map(function (a) { return html`<div class=${"bk-acct " + (a.selected ? "on" : "")} onClick=${function () { select(a.accountId); }}>
-          <div><div class="bk-cv">${a.name || ("Account " + a.accountId)}</div><div class="bk-ck" style="margin-top:3px">#${a.accountId}${a.currency ? " · " + a.currency : ""}</div></div>
-          <div style="text-align:right"><div class="bk-cv">${fmtMoney(a.equity != null ? a.equity : a.balance)}</div><div class="bk-ck" style="margin-top:3px">${a.selected ? "✓ FLOW account" : "tap to use"}</div></div>
+      ${loading[0] ? html`<div class="gx-analyzing">◆ Checking your broker connection…</div>` : ((connected && !adding[0]) ? html`<div>
+        <div class="bk-h">TradeLocker connected</div>
+        <div class="bk-sub">${accounts.length} account${accounts.length === 1 ? "" : "s"} · <b style="color:#2ee88f">${activeN} trading</b>. FLOW takes every trade on all accounts switched on.</div>
+        ${accounts.map(function (a) { var on = a.autotradeEnabled !== false; return html`<div class=${"bk-acct " + (on ? "on" : "")}>
+          <div><div class="bk-cv">${a.name || ("Account " + a.accountId)} ${a.environment ? html`<span class=${"bk-badge " + (a.environment === "live" ? "live" : "demo")} style="font-size:9px;padding:1px 5px">${(a.environment || "").toUpperCase()}</span>` : null}</div><div class="bk-ck" style="margin-top:3px">#${a.accNum || a.accountId}${a.currency ? " · " + a.currency : ""} · ${fmtMoney(a.equity != null ? a.equity : a.balance)}</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style=${"font-size:11px;font-weight:700;color:" + (on ? "#2ee88f" : "rgba(255,255,255,.4)")}>${on ? "Trading" : "Off"}</span>
+            <button onClick=${function () { toggleAcct(a, !on); }} style=${"position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (on ? "#2ee88f" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (on ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
+          </div>
         </div>`; })}
         ${!accounts.length ? html`<div class="bk-note">No account details loaded yet. Tap re-check, or reconnect.</div>` : null}
-        <div class="bk-grid2">
+        <button class="bk-ghost" onClick=${function () { adding[1](true); okmsg[1](""); err[1](""); }} style="margin-top:10px;width:100%;border-style:dashed">◆ Connect another account</button>
+        <div class="bk-grid2" style="margin-top:8px">
           <button class="bk-ghost" onClick=${load}>Re-check</button>
-          <button class="bk-ghost" onClick=${disconnect} disabled=${busy[0]} style="color:var(--red);border-color:rgba(255,93,108,.3)">Disconnect</button>
+          <button class="bk-ghost" onClick=${disconnect} disabled=${busy[0]} style="color:var(--red);border-color:rgba(255,93,108,.3)">Disconnect all</button>
         </div>
-        <div class="bk-note">FLOW uses this account only to show balances and — once you connect a demo account — to place orders you confirm. It never trades on its own, and never places a live-money order without your explicit confirmation.</div>
+        <div class="bk-note">FLOW places on every account switched on, each sized to its own equity at your risk %. It never places a live-money order without your confirmation (or, for auto-run, without you arming it).</div>
       </div>` : html`<div>
-        <div class="bk-h">Connect TradeLocker</div>
+        ${adding[0] ? html`<button class="bk-back" onClick=${function () { adding[1](false); err[1](""); }} style="margin-bottom:8px">‹ Back to accounts</button>` : null}
+        <div class="bk-h">${adding[0] ? "Connect another account" : "Connect TradeLocker"}</div>
         <div class="bk-sub">Link your broker so FLOW can show your account and prepare your trades. Your login is sent straight to the broker and stored encrypted — it never sits in this app.</div>
         <div class="bk-field"><label>Environment</label><div class="bk-seg">
           <button class=${env[0] === "demo" ? "on" : ""} onClick=${function () { env[1]("demo"); }}>Demo</button>
