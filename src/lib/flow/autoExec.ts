@@ -6,6 +6,7 @@ import { getInstrument } from "@/lib/flow/instruments";
 import { sizeFromRisk } from "@/lib/flow/sizing";
 import { ENTRY_TUNING } from "@/lib/entryEngine";
 import type { Mode } from "@/lib/genxCompute";
+import { CREDIT_COST, DAILY_FREE } from "@/lib/creditConfig";
 
 /**
  * FLOW AUTO-EXECUTOR (server-only).
@@ -35,9 +36,61 @@ export type AutoSettings = {
   max_orders_per_hour: number | null;
   daily_loss_limit: number | null;
   email?: string | null;
+  last_credit_at?: string | null;
+  credit_paused?: boolean | null;
 };
 
 const DEFAULT_SYMBOLS = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "NAS100"];
+
+// ── FLOW auto-run billing ───────────────────────────────────────────────
+// Running auto-run costs 1 credit per 30-minute window, charged only while the
+// market is open (nothing fills when it's closed, so we never burn a member's
+// credits overnight/weekends). When a member can't cover the charge we PAUSE
+// (skip placing) but keep enabled=true, so it auto-resumes the moment they top
+// up. A transient billing/system error fails OPEN — a paid member is never
+// blocked by a DB blip; only a genuinely-empty balance stops auto-run.
+const AUTORUN_COST = CREDIT_COST.flow_autorun ?? 1;
+const AUTORUN_WINDOW_MS = 30 * 60000;
+
+// Gold/FX cash market: open Sun 22:00 UTC → Fri 22:00 UTC, continuous. Holidays
+// aren't modelled (the engine simply won't confirm on stale data), which is fine
+// — this gate only decides whether to bill + place, not correctness of a fill.
+function isMarketOpenNow(d: Date = new Date()): boolean {
+  const day = d.getUTCDay(); // 0 Sun … 6 Sat
+  const h = d.getUTCHours();
+  if (day === 6) return false;      // Saturday — closed
+  if (day === 0) return h >= 22;    // Sunday — opens 22:00 UTC
+  if (day === 5) return h < 22;     // Friday — closes 22:00 UTC
+  return true;                      // Mon–Thu — open
+}
+
+/**
+ * Decide whether an armed member may run THIS tick, billing the 30-min window
+ * when it's due. Mutates flow_auto_settings.last_credit_at / credit_paused.
+ * Returns false (skip placing for this member) when the market is closed or the
+ * member is out of credits.
+ */
+async function meterAutoRun(admin: Admin, settings: AutoSettings): Promise<boolean> {
+  if (!isMarketOpenNow()) return false; // never bill or place while closed
+  const last = settings.last_credit_at ? Date.parse(settings.last_credit_at) : 0;
+  const due = !!settings.credit_paused || !last || Date.now() - last >= AUTORUN_WINDOW_MS;
+  if (!due) return true; // still inside an already-paid 30-min window
+  let ok = true;
+  try {
+    const { data, error } = await admin.rpc("spend_credits_for", {
+      p_user_id: settings.user_id, p_cost: AUTORUN_COST, p_daily_allowance: DAILY_FREE, p_feature: "flow_autorun",
+    });
+    if (error) ok = true; // system fault → fail open (don't punish a paid member)
+    else ok = !!(data && (data as { ok?: boolean }).ok);
+  } catch { ok = true; }
+  const nowIso = new Date().toISOString();
+  if (ok) {
+    await admin.from("flow_auto_settings").update({ last_credit_at: nowIso, credit_paused: false }).eq("user_id", settings.user_id);
+    return true;
+  }
+  if (!settings.credit_paused) await admin.from("flow_auto_settings").update({ credit_paused: true }).eq("user_id", settings.user_id);
+  return false;
+}
 const COOLDOWN_MIN: Record<string, number> = { quick: 90, intraday: 180, swing: 480 };
 const ERROR_BACKOFF_MS = 8 * 60000;
 // The at-zone watch list lives in the shared kv (live_plays_cache) under this id.
@@ -199,6 +252,10 @@ export async function runAutoExecAll(mdKey: string): Promise<{ users: number; ru
   const nearBySymbol = new Map<string, WatchSetup>();
   for (const s of rows) {
     try {
+      if (!(await meterAutoRun(admin, s))) {
+        runs.push({ userId: s.user_id, results: [{ symbol: "-", action: isMarketOpenNow() ? "paused_no_credits" : "market_closed" }] });
+        continue;
+      }
       const r = await scanUser(admin, s, mdKey);
       runs.push({ userId: r.userId, results: r.results });
       for (const n of r.near) nearBySymbol.set(n.symbol, n); // setup is global per symbol
@@ -261,6 +318,10 @@ export async function runFlowWatch(mdKey: string): Promise<{ watched: number; co
   const runs: Array<{ userId: string; results: SymbolResult[] }> = [];
   for (const settings of rows) {
     try {
+      if (!(await meterAutoRun(admin, settings))) {
+        runs.push({ userId: settings.user_id, results: [{ symbol: "-", action: isMarketOpenNow() ? "paused_no_credits" : "market_closed" }] });
+        continue;
+      }
       const ctx = await buildGuardCtx(admin, settings);
       const results: SymbolResult[] = [];
       for (const c of confirmed) {
