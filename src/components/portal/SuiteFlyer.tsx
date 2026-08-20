@@ -34,13 +34,21 @@ export function SuiteFlyer() {
     if (document.documentElement.classList.contains("om-embed")) return;
     let forced = false;
     try { forced = new URLSearchParams(window.location.search).get("suiteflyer") === "1"; } catch { /* */ }
-    let seen = false;
-    try { seen = localStorage.getItem(SEEN_KEY) === "1"; } catch { /* */ }
-    if (seen && !forced) return;
+    // localStorage is only an instant-suppress cache; the per-ACCOUNT flag in the
+    // DB (via /api/flyer) is the source of truth so it shows once across devices.
+    let localSeen = false;
+    try { localSeen = localStorage.getItem(SEEN_KEY) === "1"; } catch { /* */ }
+    if (localSeen && !forced) return;
 
     let cancelled = false;
     (async () => {
       try {
+        // Per-account seen flag first.
+        const fr = await fetch("/api/flyer", { cache: "no-store" });
+        const fd = await fr.json();
+        if (cancelled) return;
+        if (fd?.seen && !forced) { try { localStorage.setItem(SEEN_KEY, "1"); } catch { /* */ } return; }
+
         const r = await fetch("/api/subscription", { cache: "no-store" });
         const d = await r.json();
         if (cancelled) return;
@@ -61,7 +69,11 @@ export function SuiteFlyer() {
     return () => { document.body.style.overflow = prev; };
   }, [open]);
 
-  function markSeen() { try { localStorage.setItem(SEEN_KEY, "1"); } catch { /* */ } }
+  function markSeen() {
+    try { localStorage.setItem(SEEN_KEY, "1"); } catch { /* */ }
+    // Persist per-account so it never shows again on any device.
+    try { fetch("/api/flyer", { method: "POST" }); } catch { /* best-effort */ }
+  }
   function dismiss() { markSeen(); setOpen(false); }
 
   async function subscribe() {
