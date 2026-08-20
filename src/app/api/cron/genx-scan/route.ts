@@ -277,13 +277,57 @@ async function sendProbe(): Promise<Response> {
   return json({ ok: res.ok, probe: true, detail: res.detail }, res.ok ? 200 : 200);
 }
 
+/**
+ * FAST-WATCH — the light, high-frequency tier (every ~30s). It does NOT run the
+ * heavy full scan; it only re-checks setups already in 'forming' and confirms
+ * them on 1-MINUTE closes, so an ENTER NOW fires the moment buyers/sellers
+ * activate at the zone instead of waiting for the 5-minute close.
+ */
+async function runWatch(): Promise<Response> {
+  const mdKey = process.env.TWELVEDATA_API_KEY;
+  if (!mdKey) return json({ error: "no_market_data_key" }, 500);
+  const admin = createAdminClient();
+  if (!admin) return json({ error: "no_admin_client" }, 500);
+  const tgReady = !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHANNEL_ID);
+  const nowIso = new Date().toISOString();
+  const { data } = await admin.from("genx_alerts").select("*").eq("state", "forming");
+  const rows = (data ?? []) as AlertRow[];
+  const sent: string[] = [];
+  for (const row of rows) {
+    try {
+      const side = row.side;
+      const conf = await confirmEntry({
+        side, entryLow: (row.entry_low ?? 0) as number, entryHigh: (row.entry_high ?? 0) as number,
+        watch: (row.watch ?? row.entry_low ?? 0) as number, invalidation: (row.invalidation ?? row.stop ?? 0) as number,
+        mode: row.mode, mdKey, fresh: true, interval: "1min",
+      });
+      if (conf.state === "CONFIRMED") {
+        if (tgReady) await sendTelegram(enterMsg(side, row.mode, { entry_low: row.entry_low, entry_high: row.entry_high, stop: row.stop, tp1: row.tp1, tp2: row.tp2, tp3: row.tp3 }, conf.enter ?? conf.price, false));
+        await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
+        sent.push(`${row.mode}:ENTER`);
+      } else if (conf.state === "INVALIDATED") {
+        if (tgReady) await sendTelegram(invalidMsg(side, row.mode, { entry_low: row.entry_low, entry_high: row.entry_high, invalidation: row.invalidation }));
+        await admin.from("genx_alerts").update({ state: "invalidated", last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
+        sent.push(`${row.mode}:INVALID`);
+      } else {
+        await admin.from("genx_alerts").update({ last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
+      }
+    } catch { /* per-row best effort */ }
+  }
+  return json({ ok: true, watch: true, asOf: nowIso, checked: rows.length, sent }, 200);
+}
+
 export async function GET(req: NextRequest) {
   if (!authorized(req)) return json({ error: "unauthorized" }, 401);
-  if (new URL(req.url).searchParams.get("test")) return sendProbe();
+  const sp = new URL(req.url).searchParams;
+  if (sp.get("test")) return sendProbe();
+  if (sp.get("watch") === "1") return runWatch();
   return run();
 }
 export async function POST(req: NextRequest) {
   if (!authorized(req)) return json({ error: "unauthorized" }, 401);
-  if (new URL(req.url).searchParams.get("test")) return sendProbe();
+  const sp = new URL(req.url).searchParams;
+  if (sp.get("test")) return sendProbe();
+  if (sp.get("watch") === "1") return runWatch();
   return run();
 }
