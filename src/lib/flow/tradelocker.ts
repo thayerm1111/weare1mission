@@ -26,7 +26,7 @@ export const TL_HOSTS: Record<TLEnv, string> = {
 
 export type TLTokens = { accessToken: string; refreshToken: string; raw?: unknown };
 export type TLAccount = { accountId: string; accNum: string; currency?: string; name?: string; balance?: number; equity?: number; raw?: unknown };
-export type TLInstrument = { canonical?: string; brokerSymbol: string; tradableInstrumentId: string; routeId: string; quantityStep?: number; minQuantity?: number; pricePrecision?: number; raw?: unknown };
+export type TLInstrument = { canonical?: string; brokerSymbol: string; tradableInstrumentId: string; routeId: string; infoRouteId?: string; quantityStep?: number; minQuantity?: number; pricePrecision?: number; raw?: unknown };
 export type TLQuote = { bid: number | null; ask: number | null; raw?: unknown };
 export type TLResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string; raw?: unknown };
 
@@ -101,14 +101,27 @@ export async function listInstruments(env: TLEnv, accessToken: string, accNum: s
   const { status, json, text } = await tlFetch(env, `/trade/accounts/${encodeURIComponent(accountId)}/instruments`, { method: "GET", accessToken, accNum });
   if (status < 200 || status >= 300) return { ok: false, status, error: "Couldn't load broker instruments.", raw: json ?? text };
   const arr = (pick<unknown[]>(json, "instruments") ?? pick<unknown[]>(pick(json, "d"), "instruments") ?? (Array.isArray(json) ? json : [])) as unknown[];
-  const out: TLInstrument[] = arr.map((i) => ({
-    brokerSymbol: String(pick(i, "name", "symbol", "tradableInstrument") ?? ""),
-    tradableInstrumentId: String(pick(i, "tradableInstrumentId", "id") ?? ""),
-    routeId: String(pick(i, "routeId", "tradableInstrumentRouteId") ?? ""),
-    quantityStep: numOr(pick(i, "lotSize", "quantityStep", "minLot")),
-    minQuantity: numOr(pick(i, "minLot", "minQuantity")),
-    raw: i,
-  })).filter((i) => i.tradableInstrumentId);
+  const out: TLInstrument[] = arr.map((i) => {
+    // TradeLocker carries routing in a `routes` array on each instrument:
+    // a TRADE route (used to place orders) and an INFO route (used for quotes).
+    // The old code read a non-existent top-level `routeId`, so orders went out
+    // with an empty route and the broker rejected them.
+    const routes = (pick<unknown[]>(i, "routes") ?? []) as unknown[];
+    const routeType = (r: unknown) => String(pick(r, "type") ?? "").toUpperCase();
+    const routeId = (r: unknown) => strOr(pick(r, "id", "routeId"));
+    const tradeRoute = routes.find((r) => ["TRADE", "PRIMARY", "ORDER"].includes(routeType(r)));
+    const infoRoute = routes.find((r) => routeType(r) === "INFO");
+    const firstRouteId = routes.length ? routeId(routes[0]) : undefined;
+    return {
+      brokerSymbol: String(pick(i, "name", "symbol", "tradableInstrument") ?? ""),
+      tradableInstrumentId: String(pick(i, "tradableInstrumentId", "id") ?? ""),
+      routeId: String((tradeRoute ? routeId(tradeRoute) : undefined) ?? pick(i, "routeId", "tradableInstrumentRouteId") ?? firstRouteId ?? ""),
+      infoRouteId: (infoRoute ? routeId(infoRoute) : undefined) ?? firstRouteId,
+      quantityStep: numOr(pick(i, "lotSize", "quantityStep", "minLot")),
+      minQuantity: numOr(pick(i, "minLot", "minQuantity")),
+      raw: i,
+    };
+  }).filter((i) => i.tradableInstrumentId);
   return { ok: true, data: out };
 }
 

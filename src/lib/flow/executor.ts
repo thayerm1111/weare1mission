@@ -121,16 +121,18 @@ export async function probeBroker(userId: string, symbol = "XAUUSD"): Promise<Re
   }
 
   const norm = normalizeQuantity(canonical, 0.01, { quantityStep: tl.quantityStep, minQuantity: tl.minQuantity });
-  const quote = await getQuote(fresh.env, fresh.token, accNum, tl.tradableInstrumentId, tl.routeId);
+  const quote = await getQuote(fresh.env, fresh.token, accNum, tl.tradableInstrumentId, tl.infoRouteId || tl.routeId);
   const orders = await listOrders(fresh.env, fresh.token, accNum, accountId);
   const positions = await listPositions(fresh.env, fresh.token, accNum, accountId);
+  const rawRoutes = (tl.raw && typeof tl.raw === "object") ? (tl.raw as Record<string, unknown>).routes : undefined;
 
   return {
     ok: true,
     environment: fresh.env,
     accountId,
     accNum,
-    instrument: { brokerSymbol: tl.brokerSymbol, tradableInstrumentId: tl.tradableInstrumentId, routeId: tl.routeId, quantityStep: tl.quantityStep, minQuantity: tl.minQuantity },
+    instrument: { brokerSymbol: tl.brokerSymbol, tradableInstrumentId: tl.tradableInstrumentId, routeId: tl.routeId, infoRouteId: tl.infoRouteId, quantityStep: tl.quantityStep, minQuantity: tl.minQuantity },
+    rawRoutes,
     normalizedQty: { qty: norm.qty, ok: norm.ok, reason: norm.reason },
     quote: quote.ok ? quote.data : { error: quote.error },
     orders: orders.ok ? orders.data : { error: orders.error },
