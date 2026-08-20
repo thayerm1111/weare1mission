@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authenticate, listAccounts, type TLEnv } from "@/lib/flow/tradelocker";
 import { encryptSecret, encryptionReady } from "@/lib/flow/crypto";
-import { getConnection, safeConnView } from "@/lib/flow/connection";
+import { getConnection, getAllConnections, safeConnView } from "@/lib/flow/connection";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,21 +18,37 @@ async function authUser() {
   return user ?? null;
 }
 
-/** GET /api/flow/broker — connection + accounts (no secrets). */
+/** GET /api/flow/broker — ALL connections + ALL accounts (no secrets). Each
+ *  account carries autotradeEnabled so the UI can show a per-account on/off. */
 export async function GET() {
   const user = await authUser();
   if (!user) return json({ error: "unauthorized" }, 401);
-  const conn = await getConnection(user.id);
-  if (!conn) return json({ connected: false });
+  const conns = await getAllConnections(user.id);
+  if (!conns.length) return json({ connected: false, accounts: [], connections: [] });
   const admin = createAdminClient();
-  const { data: accts } = admin
-    ? await admin.from("flow_broker_accounts").select("account_id, acc_num, name, currency, balance, equity, open_positions, is_selected").eq("connection_id", conn.id).order("created_at", { ascending: true })
-    : { data: [] };
+
+  const accounts: Record<string, unknown>[] = [];
+  for (const c of conns) {
+    const { data: accts } = admin
+      ? await admin.from("flow_broker_accounts").select("account_id, acc_num, name, currency, balance, equity, open_positions, is_selected, autotrade_enabled").eq("connection_id", c.id).order("created_at", { ascending: true })
+      : { data: [] };
+    for (const a of accts ?? []) {
+      accounts.push({
+        accountId: a.account_id, accNum: a.acc_num, name: a.name, currency: a.currency,
+        balance: a.balance, equity: a.equity, openPositions: a.open_positions,
+        selected: a.is_selected, autotradeEnabled: a.autotrade_enabled !== false,
+        connectionId: c.id, environment: c.environment, server: c.server,
+      });
+    }
+  }
+  const primary = conns[0];
   return json({
-    connected: conn.status === "connected",
-    connection: safeConnView(conn),
-    accounts: (accts ?? []).map((a) => ({ accountId: a.account_id, accNum: a.acc_num, name: a.name, currency: a.currency, balance: a.balance, equity: a.equity, openPositions: a.open_positions, selected: a.is_selected })),
-    selectedAccountId: conn.selected_account_id,
+    connected: conns.some((c) => c.status === "connected"),
+    connection: safeConnView(primary), // primary (most-recent) login, for the header
+    connections: conns.map((c) => ({ ...safeConnView(c), connectionId: c.id })),
+    accounts,
+    selectedAccountId: primary.selected_account_id,
+    activeCount: accounts.filter((a) => a.autotradeEnabled).length,
   });
 }
 
@@ -47,9 +63,22 @@ export async function POST(req: NextRequest) {
   if (!admin) return json({ error: "server", detail: "Storage unavailable." }, 200);
 
   if (action === "disconnect") {
-    const conn = await getConnection(user.id);
-    if (conn) await admin.from("flow_broker_connections").delete().eq("id", conn.id).eq("user_id", user.id);
+    // With a connectionId, remove just that login; without one, remove all logins.
+    const connectionId = String(body.connectionId || "");
+    if (connectionId) await admin.from("flow_broker_connections").delete().eq("id", connectionId).eq("user_id", user.id);
+    else await admin.from("flow_broker_connections").delete().eq("user_id", user.id);
     return json({ ok: true });
+  }
+
+  if (action === "toggle") {
+    // Turn a single account ON/OFF for trading (auto-run + one-tap Execute).
+    const accountId = String(body.accountId || "");
+    if (!accountId) return json({ error: "missing_account" }, 200);
+    const enabled = body.enabled !== false; // default ON
+    let q = admin.from("flow_broker_accounts").update({ autotrade_enabled: enabled, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
+    if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
+    await q;
+    return json({ ok: true, accountId, autotradeEnabled: enabled });
   }
 
   if (action === "select") {
