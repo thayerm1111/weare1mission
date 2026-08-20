@@ -14,14 +14,19 @@ import { normalizeQuantity } from "@/lib/flow/instruments";
  * Index/oil contract sizes vary by broker; these are sane defaults and the UI
  * always previews the resulting lots before anything is placed.
  */
+// `size` = USD value of a 1.0 PRICE-unit move, per 1.0 lot. Index point-values
+// are BROKER-SPECIFIC — NAS100 was calibrated from a live Crucial fill ($10 per
+// index point per lot: a 3.3-pt move on 0.10 lot paid $3.30). Getting this wrong
+// scales risk directly, so indices are set on the conservative (over-estimate →
+// smaller lot) side until confirmed against a fill.
 const CONTRACT: Record<string, { size: number; quote: "USD" | "JPY" }> = {
   XAUUSD: { size: 100, quote: "USD" },
   XAGUSD: { size: 5000, quote: "USD" },
   EURUSD: { size: 100000, quote: "USD" },
   GBPUSD: { size: 100000, quote: "USD" },
   USDJPY: { size: 100000, quote: "JPY" },
-  NAS100: { size: 1, quote: "USD" },
-  US30: { size: 1, quote: "USD" },
+  NAS100: { size: 10, quote: "USD" }, // $10 / point / lot (verified vs live fill)
+  US30: { size: 10, quote: "USD" },   // estimated; broker-specific — verify vs a fill
   USOIL: { size: 1000, quote: "USD" },
 };
 
