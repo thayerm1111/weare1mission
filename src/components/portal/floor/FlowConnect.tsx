@@ -10,6 +10,9 @@ import {
   AlertTriangle,
   Lock,
   Wallet,
+  Gauge,
+  Coins,
+  Zap,
 } from "lucide-react";
 
 /* FLOW ↔ TradeLocker connect (desktop portal parity with the app's GxBrokerConnect).
@@ -41,6 +44,27 @@ type BrokerState = {
   selectedAccountId?: string | null;
 };
 
+type AutoRun = {
+  enabled?: boolean;
+  paused?: boolean;
+  connected?: boolean;
+  riskPct?: number | null;
+  credits?: number | null;
+  costPer30m?: number;
+};
+
+const RISK_CHIPS = [0.5, 1, 2, 3];
+
+function marketOpenNow(): boolean {
+  const d = new Date();
+  const day = d.getUTCDay();
+  const h = d.getUTCHours();
+  if (day === 6) return false;
+  if (day === 0) return h >= 22;
+  if (day === 5) return h < 22;
+  return true;
+}
+
 function money(n: number | null | undefined) {
   const v = typeof n === "number" ? n : null;
   if (v == null) return "—";
@@ -59,6 +83,26 @@ export function FlowConnect() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  const [auto, setAuto] = useState<AutoRun | null>(null);
+  const [risk, setRisk] = useState<number>(1);
+  const [riskLocked, setRiskLocked] = useState(false);
+  const [autoBusy, setAutoBusy] = useState(false);
+  const [autoMsg, setAutoMsg] = useState("");
+
+  const loadAuto = useCallback(async () => {
+    try {
+      const r = await fetch("/api/flow/autorun", { cache: "no-store" });
+      const d = (await r.json()) as AutoRun;
+      setAuto(d || {});
+      if (d && typeof d.riskPct === "number" && d.riskPct > 0) {
+        setRisk(d.riskPct);
+        setRiskLocked(true);
+      }
+    } catch {
+      /* noop */
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -70,11 +114,56 @@ export function FlowConnect() {
     } finally {
       setLoading(false);
     }
-  }, []);
+    void loadAuto();
+  }, [loadAuto]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function lockRisk(v: number) {
+    setRisk(v);
+    setRiskLocked(false);
+    setAutoMsg("");
+    try {
+      await fetch("/api/flow/prefs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ riskPct: v }),
+      });
+      setRiskLocked(true);
+      setAutoMsg(`Risk locked at ${v}% per trade.`);
+      void loadAuto();
+    } catch {
+      setAutoMsg("Couldn't save your risk — try again.");
+    }
+  }
+
+  async function toggleAuto(on: boolean) {
+    if (autoBusy) return;
+    setAutoBusy(true);
+    setAutoMsg("");
+    try {
+      const r = await fetch("/api/flow/autorun", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: on ? "enable" : "disable" }),
+      });
+      const d = await r.json();
+      if (!d || d.error) {
+        setAutoMsg(d?.detail || "Couldn't update auto-run.");
+      } else if (d.lowCredits) {
+        setAutoMsg("Auto-run is on, but you're low on credits — it'll pause until you top up.");
+      } else {
+        setAutoMsg(on ? "Auto-run is ON. FLOW will place your trades automatically." : "Auto-run is off.");
+      }
+      await loadAuto();
+    } catch {
+      setAutoMsg("Something went wrong — try again.");
+    } finally {
+      setAutoBusy(false);
+    }
+  }
 
   async function connect() {
     if (busy) return;
@@ -240,6 +329,95 @@ export function FlowConnect() {
                 );
               })}
             </div>
+          </div>
+
+          {/* Risk % lock-in */}
+          <div className="rounded-2xl border border-ice bg-white p-5">
+            <p className="inline-flex items-center gap-2 text-sm font-bold">
+              <Gauge className="h-4 w-4 text-navy" /> Your risk per trade
+            </p>
+            <p className="mt-1 text-xs text-charcoal/50">
+              FLOW sizes every trade to this % of your account. Lock it in.
+            </p>
+            <div className="mt-3 grid grid-cols-4 gap-2">
+              {RISK_CHIPS.map((v) => {
+                const on = risk === v && riskLocked;
+                return (
+                  <button
+                    key={v}
+                    onClick={() => void lockRisk(v)}
+                    className={`rounded-xl border px-3 py-2.5 text-sm font-bold transition-colors ${
+                      on
+                        ? "border-emerald-500/60 bg-emerald-500/[0.08] text-emerald-600"
+                        : "border-ice bg-offwhite/60 text-navy hover:border-charcoal/25"
+                    }`}
+                  >
+                    {v}%
+                  </button>
+                );
+              })}
+            </div>
+            {riskLocked && (
+              <p className="mt-2 text-xs font-semibold text-emerald-600">✓ Locked at {risk}% per trade</p>
+            )}
+          </div>
+
+          {/* Auto-run toggle */}
+          <div className="rounded-2xl border border-ice bg-white p-5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="inline-flex items-center gap-2 text-sm font-bold">
+                  <Zap className="h-4 w-4 text-navy" /> Auto-run FLOW
+                </p>
+                <p className="mt-1 text-xs text-charcoal/55">
+                  FLOW places your trades automatically the moment a setup confirms — no clicking.
+                </p>
+              </div>
+              <button
+                onClick={() => void toggleAuto(!auto?.enabled)}
+                disabled={autoBusy}
+                aria-pressed={!!auto?.enabled}
+                className={`relative h-8 w-[58px] flex-shrink-0 rounded-full transition-colors disabled:opacity-60 ${
+                  auto?.enabled ? "bg-emerald-500" : "bg-charcoal/20"
+                }`}
+              >
+                <span
+                  className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-all ${
+                    auto?.enabled ? "left-[29px]" : "left-1"
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-3">
+              <p className="text-xs leading-relaxed text-amber-700">
+                <b>Costs {auto?.costPer30m ?? 1} credit every 30 min</b> that auto-run is on and the
+                market is open. FLOW isn&apos;t free to run — you&apos;re only charged while it&apos;s
+                actively watching for you.
+              </p>
+              <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-charcoal/60">
+                <Coins className="h-3.5 w-3.5" /> Credits:{" "}
+                <b className="text-navy">{auto?.credits ?? "—"}</b>
+                <a href="/portal/credits" className="ml-1 font-semibold text-primary hover:underline">
+                  Get more ›
+                </a>
+              </p>
+            </div>
+
+            {auto?.enabled && (
+              <p
+                className={`mt-2 text-xs font-semibold ${
+                  auto?.paused ? "text-amber-600" : "text-emerald-600"
+                }`}
+              >
+                {auto?.paused
+                  ? "⏸ Paused — out of credits. Top up and it resumes automatically."
+                  : `● Auto-run active${
+                      marketOpenNow() ? " — markets open, watching now." : " — markets closed, resumes at the open."
+                    }`}
+              </p>
+            )}
+            {autoMsg && <p className="mt-2 text-xs text-charcoal/60">{autoMsg}</p>}
           </div>
 
           <div className="flex items-start gap-2 rounded-2xl border border-ice bg-offwhite/60 p-4 text-xs text-charcoal/55">
