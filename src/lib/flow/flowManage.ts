@@ -80,6 +80,17 @@ function partialTriggerR(entry: number, initStop: number, tp1: number | null): n
 const BE_TRIGGER_R = 0.5;
 const BE_MIN_PIPS = 8;
 
+// PROTECTIVE TRAIL (beyond break-even): cap how much profit can be handed back from the
+// PEAK. Normally the stop rides GIVEBACK_R behind the best price (loose enough to let a
+// trade breathe toward its partial/target); but once the move gets CLOSE — within
+// NEAR_TP_R of the take-profit, or within NEAR_PARTIAL_R below the partial level — it
+// tightens to GIVEBACK_NEAR_R, so a run that gets "super close" and reverses locks in
+// most of the gain instead of round-tripping.
+const GIVEBACK_R = 0.6;          // normal: give back at most 0.6R from the peak
+const GIVEBACK_NEAR_R = 0.25;    // near target/partial: tighten to 0.25R
+const NEAR_TP_R = 0.4;           // "near target" = peak within 0.4R of tp1
+const NEAR_PARTIAL_R = 0.2;      // "near partial" = peak within 0.2R below the partial level
+
 export type FlowOutcomeKind = "stop" | "breakeven" | "trail" | "target";
 export type FlowOutcome = { outcome: FlowOutcomeKind; result_pips: number; exit_price: number; partial_taken: boolean };
 
@@ -279,17 +290,24 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         }
       }
 
-      // ── STEP 3: TRAIL. Once break-even is set, ratchet the stop 1R behind the best
-      //    price — but never back below break-even. ──
+      // ── STEP 3: PROTECTIVE TRAIL. Once break-even is set, ratchet the stop up under the
+      //    best price with a CAPPED giveback — tightening as the move nears the target — so
+      //    a run that gets close and reverses keeps most of the gain. Never below BE. ──
       if (row.be_done) {
-        let candidate = roundPx(row.symbol, long ? best - R : best + R);
+        const peakR = (long ? best - row.entry : row.entry - best) / R;
+        const partialR = partialTriggerR(row.entry, row.init_stop, row.tp1);
+        const toTargetR = row.tp1 != null ? (long ? row.tp1 - best : best - row.tp1) / R : 99;
+        // Close to the take-profit OR closing in on the partial level → tighten the trail.
+        const near = toTargetR <= NEAR_TP_R || peakR >= partialR - NEAR_PARTIAL_R;
+        const givebackR = near ? GIVEBACK_NEAR_R : GIVEBACK_R;
+        let candidate = roundPx(row.symbol, long ? best - givebackR * R : best + givebackR * R);
         candidate = long ? Math.max(candidate, bePx) : Math.min(candidate, bePx); // never below BE
         const cur = row.cur_stop ?? bePx;
         const eps = R * 0.05; // don't spam the broker on sub-5%-of-R nudges
         const improved = long ? candidate > cur + eps : candidate < cur - eps;
         if (improved) {
           const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: candidate });
-          if (mv.ok) { update.cur_stop = candidate; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail", detail: `SL→${candidate}` }); }
+          if (mv.ok) { update.cur_stop = candidate; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail", detail: `SL→${candidate} gb${givebackR}R` }); }
           else actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail_err", detail: mv.error.slice(0, 60) });
         }
       }
