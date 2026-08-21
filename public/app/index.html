@@ -2883,6 +2883,53 @@ input{font:inherit}
     </div>`;
   }
 
+  // ── Trading Desk Results — the headline scoreboard, front & center on the
+  //    dashboard. Combines GOLD (GENX engine, /api/genx-stats) + FOREX (FLOW
+  //    engine, /api/flow/stats) into ONE desk-wide record. A stop is the only loss.
+  function DeskResultsCard() {
+    var gx = useState(null), fl = useState(null), loaded = useState(false);
+    function load() {
+      Promise.all([
+        apiGet("/api/genx-stats").then(function (d) { return d && !d.error ? d : null; }).catch(function () { return null; }),
+        apiGet("/api/flow/stats").then(function (d) { return d && !d.error ? d : null; }).catch(function () { return null; })
+      ]).then(function (r) { gx[1](r[0]); fl[1](r[1]); loaded[1](true); });
+    }
+    useEffect(function () { load(); var t = setInterval(load, 60000); return function () { clearInterval(t); }; }, []);
+    var g = gx[0], f = fl[0];
+    var nf = function (n) { return Math.round(n || 0).toLocaleString(); };
+    var goldW = (g && g.wins) || 0, goldL = (g && g.losses) || 0, goldP = (g && g.netPips) || 0;
+    var fxW = (f && f.wins) || 0, fxS = (f && f.stops) || 0, fxP = (f && f.pips) || 0;
+    var totW = goldW + fxW, dec = goldW + goldL + fxW + fxS;
+    var wr = dec ? Math.round(totW / dec * 100) : null, totP = goldP + fxP;
+    if (!loaded[0] && !g && !f) {
+      return html`<div style="margin:2px 0 4px;border-radius:18px;padding:22px;text-align:center;background:linear-gradient(135deg,#101a34,#0d1428);color:rgba(255,255,255,.5);font-size:12px">Loading desk results…</div>`;
+    }
+    var big = function (label, val, color) { return html`<div style="flex:1;text-align:center"><div style=${"font-size:29px;font-weight:900;line-height:1;color:" + (color || "#fff")}>${val}</div><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:rgba(255,255,255,.55);margin-top:4px">${label}</div></div>`; };
+    var row = function (name, w, l, wrr, pips, accent) { return html`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;background:rgba(255,255,255,.03)">
+      <span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:#fff"><span style=${"width:8px;height:8px;border-radius:9px;flex-shrink:0;background:" + accent}></span>${name}</span>
+      <span style="font-size:11.5px;color:rgba(255,255,255,.75);white-space:nowrap"><b style="color:#fff">${nf(w)}W</b> / ${nf(l)}L${wrr != null ? " · " + wrr + "%" : ""}<span style=${"margin-left:7px;font-weight:800;color:" + (pips >= 0 ? "#2ee88f" : "#ff5d6c")}>${pips >= 0 ? "+" : ""}${nf(pips)}p</span></span>
+    </div>`; };
+    return html`<div style="margin:2px 0 6px;border-radius:18px;overflow:hidden;background:linear-gradient(135deg,#101a34 0%,#0d1428 55%,#1a1330 100%);box-shadow:0 10px 30px rgba(0,0,0,.35);border:1px solid rgba(255,194,75,.18)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 16px 4px">
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="font-size:18px">🏆</span>
+          <div><div style="font-size:15px;font-weight:900;color:#fff">Trading Desk Results</div><div style="font-size:9px;text-transform:uppercase;letter-spacing:.11em;color:rgba(255,255,255,.5)">FLOW + GENX · live, auto-tracked</div></div>
+        </div>
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:800;color:#2ee88f;background:rgba(46,232,143,.14);padding:3px 8px;border-radius:20px"><span style="width:6px;height:6px;border-radius:9px;background:#2ee88f"></span>LIVE</span>
+      </div>
+      <div style="display:flex;gap:6px;padding:13px 16px 15px">
+        ${big("Win rate", wr != null ? wr + "%" : "—")}
+        ${big("Total pips", (totP >= 0 ? "+" : "") + nf(totP), "#ffc24b")}
+        ${big("Winning trades", nf(totW))}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:1px;background:rgba(255,255,255,.06)">
+        ${row("Gold · GENX engine", goldW, goldL, (g && g.winRate != null ? g.winRate : null), goldP, "#ffc24b")}
+        ${row("Forex · FLOW engine", fxW, fxS, (f && f.winRate != null ? f.winRate : null), fxP, "#2ee88f")}
+      </div>
+      <div style="padding:9px 16px 12px;font-size:9px;line-height:1.5;color:rgba(255,255,255,.4);text-align:center">Recorded outcomes from the live engines — a stop is the only loss. Educational, not financial advice. Past results never guarantee future outcomes.</div>
+    </div>`;
+  }
+
   function DashboardScreen(props) {
     var me = useState(null), stats = useState(undefined), nextCall = useState(undefined);
     useEffect(function () {
@@ -2922,6 +2969,8 @@ input{font:inherit}
         </div>
         ${openNow > 0 ? html`<span class="dlive"><span class="p"></span>${openNow} live</span>` : null}
       </div>
+
+      <${DeskResultsCard} />
 
       <button class="dfeat" onClick=${function () { props.go("academy"); }}>
         <span class="dfeat-ic">🎓</span>
