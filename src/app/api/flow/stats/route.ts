@@ -57,6 +57,23 @@ function summarize(t: Tally) {
   };
 }
 
+// GOLD comes from the GENX engine's own outcome ledger (genx_signals) — GENX is
+// gold-only, so every decided signal is a gold trade. A GENX WIN banks the pips of
+// the highest target it filled; a LOSS books the stop distance. We fold gold into
+// the same desk-wide "flow results" so the member sees ONE record that already
+// includes the gold wins + pips, plus a gold/forex split for the scoreboard.
+type GoldSig = {
+  created_at: string; resolved_at: string | null; direction: string | null; outcome: string | null;
+  stop_pips: number | null; tp1_pips: number | null; tp2_pips: number | null; tp3_pips: number | null;
+  tp1_hit: boolean | null; tp2_hit: boolean | null; tp3_hit: boolean | null;
+};
+function goldWinPips(s: GoldSig): number {
+  if (s.tp3_hit && s.tp3_pips) return s.tp3_pips;
+  if (s.tp2_hit && s.tp2_pips) return s.tp2_pips;
+  if (s.tp1_hit && s.tp1_pips) return s.tp1_pips;
+  return s.tp1_pips ?? 0;
+}
+
 export async function GET() {
   // Signed-in members only (protects the aggregate from anonymous scraping).
   const supabase = createClient();
@@ -68,12 +85,11 @@ export async function GET() {
   const admin = createAdminClient();
   if (!admin) return json({ error: "not_configured" }, 200);
 
-  // FLOW's track record covers FOREX/indices only — GOLD is reported by the GENX
-  // engine (which sources it) via /api/genx-stats, so it isn't double-counted here.
-  // Scoped to the LEAD account, since every member copies the lead's trades — this
-  // is the desk's canonical result, free of any per-member divergence.
+  // FOREX comes from FLOW's own ledger, scoped to the LEAD account (every member
+  // copies the lead, so this is the desk's canonical, divergence-free result).
+  // GOLD comes from the GENX ledger below and is merged in.
   const LEAD_USER_ID = "3b5e06e5-258c-4880-b1f2-d1623cbca100";
-  const [{ count: openCount }, { data, error }] = await Promise.all([
+  const [{ count: openCount }, { data, error }, gold] = await Promise.all([
     admin.from("flow_managed_positions").select("id", { count: "exact", head: true }).eq("status", "open").eq("user_id", LEAD_USER_ID).neq("symbol", "XAUUSD"),
     admin
       .from("flow_managed_positions")
@@ -84,6 +100,12 @@ export async function GET() {
       .neq("outcome", "excluded")
       .order("resolved_at", { ascending: false, nullsFirst: false })
       .limit(2000),
+    admin
+      .from("genx_signals")
+      .select("created_at,resolved_at,direction,outcome,stop_pips,tp1_pips,tp2_pips,tp3_pips,tp1_hit,tp2_hit,tp3_hit")
+      .not("outcome", "is", null)
+      .order("resolved_at", { ascending: false, nullsFirst: false })
+      .limit(1000),
   ]);
   if (error) return json({ error: "load_failed", detail: error.message }, 200);
 
@@ -99,6 +121,7 @@ export async function GET() {
   }
   const signals = [...bySignal.values()];
 
+  // ── FOREX tally (from FLOW's outcome ledger) ──
   const overall = emptyTally();
   const perPairMap = new Map<string, Tally>();
   for (const s of signals) {
@@ -109,28 +132,59 @@ export async function GET() {
     if (!perPairMap.has(sym)) perPairMap.set(sym, emptyTally());
     add(perPairMap.get(sym)!, o, pips);
   }
+  const forexSummary = summarize(overall); // capture BEFORE folding gold in
+
+  // ── GOLD tally (from the GENX ledger) — WIN → banked target pips, LOSS → stop. ──
+  const goldRows = ((gold?.data || []) as GoldSig[]).filter((s) => s.outcome === "WIN" || s.outcome === "LOSS");
+  const goldT = emptyTally();
+  const goldRecent: { symbol: string; side: string; outcome: string; win: boolean; pips: number | null; at: string }[] = [];
+  for (const s of goldRows) {
+    const win = s.outcome === "WIN";
+    const pips = win ? goldWinPips(s) : -(s.stop_pips ?? 0);
+    // Map to the flow taxonomy: a gold win hit its target; a gold loss is a stop.
+    add(goldT, win ? "target" : "stop", pips);
+    goldRecent.push({
+      symbol: "XAUUSD",
+      side: (s.direction || "").toLowerCase(),
+      outcome: win ? "target" : "stop",
+      win,
+      pips: Math.round(pips),
+      at: s.resolved_at || s.created_at,
+    });
+  }
+  const goldSummary = summarize(goldT);
+  // Gold banks the WHOLE position at target (no half-partial), so don't inflate the
+  // desk-wide "partials banked" count with gold wins.
+  goldT.partials = 0;
+
+  // ── Fold gold into the desk-wide totals + add its own per-pair row. ──
+  overall.trades += goldT.trades; overall.wins += goldT.wins; overall.stop += goldT.stop;
+  overall.target += goldT.target; overall.pips += goldT.pips;
+  if (goldT.trades > 0) perPairMap.set("XAUUSD", goldT);
 
   const perPair = [...perPairMap.entries()]
     .map(([symbol, t]) => ({ symbol, ...summarize(t) }))
     .sort((a, b) => b.trades - a.trades);
 
-  const recent = signals
-    .slice()
-    .sort((a, b) => new Date(b.resolved_at || b.created_at).getTime() - new Date(a.resolved_at || a.created_at).getTime())
-    .slice(0, 10)
-    .map((s) => ({
-      symbol: String(s.symbol).toUpperCase(),
-      side: (s.side || "").toLowerCase(),
-      outcome: s.outcome,
-      win: WIN.has(String(s.outcome)),
-      pips: typeof s.result_pips === "number" ? Math.round(s.result_pips) : null,
-      at: s.resolved_at || s.created_at,
-    }));
+  const forexRecent = signals.map((s) => ({
+    symbol: String(s.symbol).toUpperCase(),
+    side: (s.side || "").toLowerCase(),
+    outcome: s.outcome as string,
+    win: WIN.has(String(s.outcome)),
+    pips: typeof s.result_pips === "number" ? Math.round(s.result_pips) : null,
+    at: s.resolved_at || s.created_at,
+  }));
+  const recent = forexRecent.concat(goldRecent)
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+    .slice(0, 10);
 
   return json({
     open: openCount ?? 0,
-    ...summarize(overall),
+    ...summarize(overall),          // COMBINED desk-wide totals (forex + gold)
     perPair,
     recent,
+    // Split for the scoreboard cards — same numbers, grouped by engine.
+    gold: { wins: goldSummary.wins, losses: goldSummary.stops, pips: goldSummary.pips, winRate: goldSummary.winRate, trades: goldSummary.trades },
+    forex: { wins: forexSummary.wins, stops: forexSummary.stops, pips: forexSummary.pips, winRate: forexSummary.winRate, trades: forexSummary.trades, open: openCount ?? 0 },
   }, 200);
 }
