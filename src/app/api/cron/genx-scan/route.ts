@@ -4,6 +4,7 @@ import { computeGenxRead, buildGenx, GOLD, MODES, type Mode } from "@/lib/genxCo
 import { confirmEntry, CONFIRM_IV } from "@/lib/genxConfirm";
 import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
+import { placeGenxGold } from "@/lib/flow/autoExec";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -218,6 +219,8 @@ async function run(): Promise<Response> {
             invalidation, watch, confidence: genx.confidence_score, trigger_tf: genx.trigger_tf,
             state: "entered", enter_price: rr.price, heads_up_sent_at: nowIso, enter_sent_at: nowIso, last_checked_at: nowIso,
           });
+          // FLOW takes this gold ENTER NOW on armed accounts (once per move — the claim blocks GENX's repeats).
+          try { await placeGenxGold({ side, entryLow: genx.entry_low, entryHigh: genx.entry_high, stop: genx.stop_loss, tp: genx.tp1 }); } catch { /* placement is best-effort */ }
           sent.push(`${mode}:ENTER(immediate)`); modeOut.result = "enter_immediate";
         } else {
           // Developing → heads-up now, watch for the entry on future ticks.
@@ -244,6 +247,7 @@ async function run(): Promise<Response> {
         if (conf.state === "CONFIRMED") {
           if (tgReady) await sendTelegram(enterMsg(side, mode, { entry_low: row.entry_low, entry_high: row.entry_high, stop: row.stop, tp1: row.tp1, tp2: row.tp2, tp3: row.tp3 }, conf.enter ?? conf.price, false));
           await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
+          try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1 }); } catch { /* placement is best-effort */ }
           sent.push(`${mode}:ENTER`); modeOut.result = "enter";
         } else if (conf.state === "INVALIDATED") {
           if (tgReady) await sendTelegram(invalidMsg(side, mode, { entry_low: row.entry_low, entry_high: row.entry_high, invalidation: row.invalidation }));
@@ -304,6 +308,7 @@ async function runWatch(): Promise<Response> {
       if (conf.state === "CONFIRMED") {
         if (tgReady) await sendTelegram(enterMsg(side, row.mode, { entry_low: row.entry_low, entry_high: row.entry_high, stop: row.stop, tp1: row.tp1, tp2: row.tp2, tp3: row.tp3 }, conf.enter ?? conf.price, false));
         await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
+        try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1 }); } catch { /* placement is best-effort */ }
         sent.push(`${row.mode}:ENTER`);
       } else if (conf.state === "INVALIDATED") {
         if (tgReady) await sendTelegram(invalidMsg(side, row.mode, { entry_low: row.entry_low, entry_high: row.entry_high, invalidation: row.invalidation }));
