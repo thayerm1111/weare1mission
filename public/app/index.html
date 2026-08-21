@@ -2935,37 +2935,54 @@ input{font:inherit}
     </div>`;
   }
 
-  // ── Market News + economic calendar (reads /api/news). Shows upcoming high/medium
-  //    events for the desk's pairs and a live "news hold" banner when the falling-knife
-  //    guard is pausing new entries around a high-impact release.
+  // ── MARKETS DESK — a Bloomberg-style news terminal for members: a live headline
+  //    ticker, a "Breaking" feed (RSS), and the economic calendar for the desk's pairs,
+  //    plus the falling-knife "news hold" banner. Reads /api/news.
   function MarketNewsCard() {
     var d = useState(null), loaded = useState(false);
     function load() { apiGet("/api/news").then(function (x) { d[1](x && !x.error ? x : null); loaded[1](true); }).catch(function () { loaded[1](true); }); }
     useEffect(function () { load(); var t = setInterval(load, 120000); return function () { clearInterval(t); }; }, []);
     var n = d[0];
     if (!loaded[0] && !n) return null;
+    var heads = (n && n.headlines) || [];
     var events = (n && n.events) || [];
-    if (!events.length && !(n && n.holdNow)) return null;
+    if (!heads.length && !events.length && !(n && n.holdNow)) return null;
+    var ago = function (m) { if (m == null) return ""; if (m < 1) return "now"; if (m < 60) return m + "m"; var h = Math.floor(m / 60); return h + "h"; };
     var rel = function (m) { if (m == null) return ""; if (m < 0) { var a = -m; return a < 60 ? a + "m ago" : Math.round(a / 60) + "h ago"; } if (m < 60) return "in " + m + "m"; var h = Math.floor(m / 60), mm = m % 60; return "in " + h + "h" + (mm ? " " + mm + "m" : ""); };
-    var impColor = function (i) { return i === "High" ? "#ff5d6c" : i === "Medium" ? "#ffc24b" : "#7fd1ff"; };
-    return html`<div style="margin:2px 0 8px;border-radius:18px;overflow:hidden;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.02)">
-      <div style="display:flex;align-items:center;gap:8px;padding:14px 16px 8px">
-        <span style="font-size:16px">📰</span>
-        <div><div style="font-size:14px;font-weight:900;color:#fff">Market News</div><div style="font-size:9px;text-transform:uppercase;letter-spacing:.11em;color:rgba(255,255,255,.45)">Economic calendar · your pairs</div></div>
+    var imp = function (i) { return i === "High" ? "#ff5d6c" : i === "Medium" ? "#ffc24b" : "#7fd1ff"; };
+    var tick = heads.slice(0, 12).map(function (h) { return h.title; });
+    return html`<div style="margin:2px 0 8px;border-radius:16px;overflow:hidden;border:1px solid rgba(255,176,0,.28);background:linear-gradient(180deg,#0a0f18,#070a12)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 14px 9px;border-bottom:1px solid rgba(255,176,0,.16)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:14px">📈</span>
+          <span style="font-size:12.5px;font-weight:900;letter-spacing:.14em;color:#ffb000">MARKETS DESK</span>
+        </div>
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:9px;font-weight:800;letter-spacing:.1em;color:#2ee88f"><span style="width:6px;height:6px;border-radius:9px;background:#2ee88f;animation:dpulse 1.6s infinite"></span>LIVE</span>
       </div>
-      ${n && n.holdNow ? html`<div style="margin:0 12px 10px;border-radius:12px;background:rgba(255,93,108,.12);border:1px solid rgba(255,93,108,.3);padding:10px 12px">
-        <div style="font-size:12px;font-weight:800;color:#ff8f9a">⚠️ News hold active</div>
-        <div style="font-size:11px;line-height:1.45;color:rgba(255,255,255,.72);margin-top:2px">High-impact event${n.holdEvent ? " — " + n.holdEvent.title + " (" + n.holdEvent.currency + ")" : ""}. The desk is holding new entries through the release.</div>
+      ${tick.length ? html`<div class="dticker" style="border:none;border-bottom:1px solid rgba(255,255,255,.06);border-radius:0;background:rgba(255,176,0,.05);margin:0;padding:7px 0">
+        <div class="dticker-row">${tick.concat(tick).map(function (t) { return html`<span style="color:#ffd98a;font-weight:700;font-size:12px">▪ ${t}</span>`; })}</div>
       </div>` : null}
-      <div style="padding:0 4px 6px">
-        ${events.slice(0, 7).map(function (e) { return html`<div style="display:flex;align-items:center;gap:9px;padding:8px 12px;border-top:1px solid rgba(255,255,255,.04)">
-          <span style=${"width:8px;height:8px;border-radius:9px;flex-shrink:0;background:" + impColor(e.impact)}></span>
-          <span style="font-size:9.5px;font-weight:800;color:#cbd5e1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:1px 6px">${e.currency}</span>
-          <span style="flex:1;font-size:12px;color:#e5e7eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.title}</span>
-          <span style=${"font-size:11px;font-weight:700;white-space:nowrap;color:" + (e.minsAway != null && e.minsAway >= 0 && e.minsAway <= 60 ? "#ffc24b" : "rgba(255,255,255,.5)")}>${rel(e.minsAway)}</span>
+      ${n && n.holdNow ? html`<div style="margin:10px 12px 2px;border-radius:10px;background:rgba(255,93,108,.12);border:1px solid rgba(255,93,108,.3);padding:9px 11px">
+        <div style="font-size:11.5px;font-weight:800;color:#ff8f9a">⚠️ News hold active</div>
+        <div style="font-size:10.5px;line-height:1.45;color:rgba(255,255,255,.72);margin-top:2px">${n.holdEvent ? n.holdEvent.title + " (" + n.holdEvent.currency + ") — " : ""}desk holding new entries through the release.</div>
+      </div>` : null}
+      ${heads.length ? html`<div style="padding:10px 0 2px">
+        <div style="font-size:9.5px;font-weight:800;letter-spacing:.14em;color:rgba(255,255,255,.4);padding:0 14px 4px">BREAKING</div>
+        ${heads.slice(0, 6).map(function (h) { return html`<a href=${h.url} target="_blank" rel="noopener noreferrer" style="display:flex;gap:10px;align-items:baseline;padding:8px 14px;border-top:1px solid rgba(255,255,255,.04);text-decoration:none">
+          <span style="flex-shrink:0;font-size:10px;font-weight:800;color:#ffb000;min-width:30px;font-variant-numeric:tabular-nums">${ago(h.minsAgo)}</span>
+          <span style="flex:1;font-size:12.5px;line-height:1.35;color:#e8edf5">${h.title}</span>
+        </a>`; })}
+      </div>` : null}
+      ${events.length ? html`<div style="padding:6px 0 2px;border-top:1px solid rgba(255,255,255,.06)">
+        <div style="font-size:9.5px;font-weight:800;letter-spacing:.14em;color:rgba(255,255,255,.4);padding:8px 14px 4px">ECONOMIC CALENDAR · YOUR PAIRS</div>
+        ${events.slice(0, 6).map(function (e) { return html`<div style="display:flex;align-items:center;gap:9px;padding:7px 14px;border-top:1px solid rgba(255,255,255,.04)">
+          <span style=${"width:7px;height:7px;border-radius:9px;flex-shrink:0;background:" + imp(e.impact)}></span>
+          <span style="font-size:9.5px;font-weight:800;color:#cbd5e1;background:rgba(255,255,255,.06);border-radius:5px;padding:1px 6px">${e.currency}</span>
+          <span style="flex:1;font-size:12px;color:#dfe6f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.title}</span>
+          <span style=${"font-size:10.5px;font-weight:700;white-space:nowrap;color:" + (e.minsAway != null && e.minsAway >= 0 && e.minsAway <= 60 ? "#ffc24b" : "rgba(255,255,255,.5)")}>${rel(e.minsAway)}</span>
         </div>`; })}
-      </div>
-      <div style="padding:2px 16px 12px;font-size:9px;line-height:1.5;color:rgba(255,255,255,.35);text-align:center">Red = high impact. The desk pauses new entries around high-impact releases (falling-knife guard) and resumes after.</div>
+      </div>` : null}
+      <div style="padding:9px 14px 12px;font-size:8.5px;line-height:1.5;color:rgba(255,255,255,.32);text-align:center;border-top:1px solid rgba(255,255,255,.05)">Live headlines + economic calendar. The desk auto-pauses entries around high-impact releases (falling-knife guard). Headlines via InvestingLive · red = high impact · not financial advice.</div>
     </div>`;
   }
 
