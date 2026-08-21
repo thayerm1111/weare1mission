@@ -2935,6 +2935,40 @@ input{font:inherit}
     </div>`;
   }
 
+  // ── Market News + economic calendar (reads /api/news). Shows upcoming high/medium
+  //    events for the desk's pairs and a live "news hold" banner when the falling-knife
+  //    guard is pausing new entries around a high-impact release.
+  function MarketNewsCard() {
+    var d = useState(null), loaded = useState(false);
+    function load() { apiGet("/api/news").then(function (x) { d[1](x && !x.error ? x : null); loaded[1](true); }).catch(function () { loaded[1](true); }); }
+    useEffect(function () { load(); var t = setInterval(load, 120000); return function () { clearInterval(t); }; }, []);
+    var n = d[0];
+    if (!loaded[0] && !n) return null;
+    var events = (n && n.events) || [];
+    if (!events.length && !(n && n.holdNow)) return null;
+    var rel = function (m) { if (m == null) return ""; if (m < 0) { var a = -m; return a < 60 ? a + "m ago" : Math.round(a / 60) + "h ago"; } if (m < 60) return "in " + m + "m"; var h = Math.floor(m / 60), mm = m % 60; return "in " + h + "h" + (mm ? " " + mm + "m" : ""); };
+    var impColor = function (i) { return i === "High" ? "#ff5d6c" : i === "Medium" ? "#ffc24b" : "#7fd1ff"; };
+    return html`<div style="margin:2px 0 8px;border-radius:18px;overflow:hidden;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.02)">
+      <div style="display:flex;align-items:center;gap:8px;padding:14px 16px 8px">
+        <span style="font-size:16px">📰</span>
+        <div><div style="font-size:14px;font-weight:900;color:#fff">Market News</div><div style="font-size:9px;text-transform:uppercase;letter-spacing:.11em;color:rgba(255,255,255,.45)">Economic calendar · your pairs</div></div>
+      </div>
+      ${n && n.holdNow ? html`<div style="margin:0 12px 10px;border-radius:12px;background:rgba(255,93,108,.12);border:1px solid rgba(255,93,108,.3);padding:10px 12px">
+        <div style="font-size:12px;font-weight:800;color:#ff8f9a">⚠️ News hold active</div>
+        <div style="font-size:11px;line-height:1.45;color:rgba(255,255,255,.72);margin-top:2px">High-impact event${n.holdEvent ? " — " + n.holdEvent.title + " (" + n.holdEvent.currency + ")" : ""}. The desk is holding new entries through the release.</div>
+      </div>` : null}
+      <div style="padding:0 4px 6px">
+        ${events.slice(0, 7).map(function (e) { return html`<div style="display:flex;align-items:center;gap:9px;padding:8px 12px;border-top:1px solid rgba(255,255,255,.04)">
+          <span style=${"width:8px;height:8px;border-radius:9px;flex-shrink:0;background:" + impColor(e.impact)}></span>
+          <span style="font-size:9.5px;font-weight:800;color:#cbd5e1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:1px 6px">${e.currency}</span>
+          <span style="flex:1;font-size:12px;color:#e5e7eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.title}</span>
+          <span style=${"font-size:11px;font-weight:700;white-space:nowrap;color:" + (e.minsAway != null && e.minsAway >= 0 && e.minsAway <= 60 ? "#ffc24b" : "rgba(255,255,255,.5)")}>${rel(e.minsAway)}</span>
+        </div>`; })}
+      </div>
+      <div style="padding:2px 16px 12px;font-size:9px;line-height:1.5;color:rgba(255,255,255,.35);text-align:center">Red = high impact. The desk pauses new entries around high-impact releases (falling-knife guard) and resumes after.</div>
+    </div>`;
+  }
+
   function DashboardScreen(props) {
     var me = useState(null), stats = useState(undefined), nextCall = useState(undefined);
     useEffect(function () {
@@ -2976,6 +3010,8 @@ input{font:inherit}
       </div>
 
       <${DeskResultsCard} />
+
+      <${MarketNewsCard} />
 
       <button class="dfeat" onClick=${function () { props.go("academy"); }}>
         <span class="dfeat-ic">🎓</span>
