@@ -2,37 +2,37 @@
 
 /**
  * Trading Desk Results — the headline scoreboard, shown front-and-center on the
- * dashboard. Combines the two engines that actually place trades:
- *   • GOLD  → GENX engine (its ENTER NOW calls), read from /api/genx-stats
- *   • FOREX → FLOW engine (the lead account's trades), read from /api/flow/stats
- * Every number comes straight from the recorded outcome ledgers — nothing here is
- * made up. Win rate is over decided trades; a stop is the only loss.
+ * dashboard. Reads ONE combined source, /api/flow/stats, which now folds the GENX
+ * gold results INTO the desk-wide flow record and also returns a gold/forex split:
+ *   • combined totals (top level) → the big headline
+ *   • gold  { wins, losses, pips, winRate } → GENX gold engine
+ *   • forex { wins, stops, pips, winRate }  → FLOW forex engine
+ * Every number comes straight from the recorded outcome ledgers. Win rate is over
+ * decided trades; a stop is the only loss.
  */
 
 import { useEffect, useState } from "react";
 import { Trophy, TrendingUp, Target, Loader2 } from "lucide-react";
 
-type Genx = { wins: number; losses: number; winRate: number | null; netPips: number };
-type Flow = { wins: number; stops: number; winRate: number | null; pips: number; open: number };
+type Split = { wins: number; losses?: number; stops?: number; pips: number; winRate: number | null };
+type Stats = {
+  wins: number; stops: number; winRate: number | null; pips: number;
+  gold?: Split; forex?: Split & { open?: number };
+};
 
 const nf = (n: number) => Math.round(n).toLocaleString();
 
 export function DeskResults() {
-  const [gx, setGx] = useState<Genx | null>(null);
-  const [fl, setFl] = useState<Flow | null>(null);
+  const [st, setSt] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
     async function load() {
       try {
-        const [g, f] = await Promise.all([
-          fetch("/api/genx-stats", { cache: "no-store" }).then((r) => r.json()).catch(() => null),
-          fetch("/api/flow/stats", { cache: "no-store" }).then((r) => r.json()).catch(() => null),
-        ]);
+        const f = await fetch("/api/flow/stats", { cache: "no-store" }).then((r) => r.json()).catch(() => null);
         if (!alive) return;
-        if (g && !g.error) setGx(g as Genx);
-        if (f && !f.error) setFl(f as Flow);
+        if (f && !f.error) setSt(f as Stats);
       } finally { if (alive) setLoading(false); }
     }
     void load();
@@ -40,7 +40,7 @@ export function DeskResults() {
     return () => { alive = false; clearInterval(t); };
   }, []);
 
-  if (loading && !gx && !fl) {
+  if (loading && !st) {
     return (
       <div className="grid place-items-center rounded-3xl bg-gradient-to-br from-navy to-primary py-14 text-cream/70 shadow-card">
         <Loader2 className="h-6 w-6 animate-spin" />
@@ -48,12 +48,13 @@ export function DeskResults() {
     );
   }
 
-  const goldWins = gx?.wins ?? 0, goldLosses = gx?.losses ?? 0, goldPips = gx?.netPips ?? 0;
-  const fxWins = fl?.wins ?? 0, fxStops = fl?.stops ?? 0, fxPips = fl?.pips ?? 0;
-  const totalWins = goldWins + fxWins;
-  const decided = goldWins + goldLosses + fxWins + fxStops;
-  const winRate = decided ? Math.round((totalWins / decided) * 100) : null;
-  const totalPips = goldPips + fxPips;
+  const gold = st?.gold;
+  const forex = st?.forex;
+  const goldWins = gold?.wins ?? 0, goldLosses = gold?.losses ?? 0, goldPips = gold?.pips ?? 0;
+  const fxWins = forex?.wins ?? 0, fxStops = forex?.stops ?? 0, fxPips = forex?.pips ?? 0;
+  const totalWins = st?.wins ?? goldWins + fxWins;
+  const winRate = st?.winRate ?? null;
+  const totalPips = st?.pips ?? goldPips + fxPips;
 
   return (
     <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-navy via-navy to-primary shadow-card">
@@ -82,13 +83,13 @@ export function DeskResults() {
         <EngineRow
           icon={<Target className="h-4 w-4 text-gold" />}
           name="Gold — GENX engine"
-          wins={goldWins} losses={goldLosses} winRate={gx?.winRate ?? null} pips={goldPips}
+          wins={goldWins} losses={goldLosses} winRate={gold?.winRate ?? null} pips={goldPips}
         />
         <EngineRow
           icon={<TrendingUp className="h-4 w-4 text-emerald-300" />}
           name="Forex — FLOW engine"
-          wins={fxWins} losses={fxStops} winRate={fl?.winRate ?? null} pips={fxPips}
-          extra={fl && fl.open > 0 ? `${fl.open} open` : undefined}
+          wins={fxWins} losses={fxStops} winRate={forex?.winRate ?? null} pips={fxPips}
+          extra={forex && forex.open && forex.open > 0 ? `${forex.open} open` : undefined}
         />
       </div>
 
