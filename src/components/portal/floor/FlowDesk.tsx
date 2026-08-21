@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Search, TrendingUp, TrendingDown, Zap, Link2, Gauge } from "lucide-react";
 import { FlowConnect } from "./FlowConnect";
+import { FlowTrackRecord } from "./FlowTrackRecord";
 
 /* FLOW trade desk (desktop portal). Pick a pair + horizon, read the live setup on
  * the shared engine, and take it on TradeLocker at your risk % with one button.
@@ -158,6 +159,11 @@ export function FlowDesk() {
       {/* Broker connect + risk lock-in + auto-run all live here */}
       <div className="pt-2">
         <FlowConnect />
+      </div>
+
+      {/* How FLOW's trades have actually resolved */}
+      <div className="pt-2">
+        <FlowTrackRecord />
       </div>
     </div>
   );
