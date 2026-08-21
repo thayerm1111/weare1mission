@@ -295,6 +295,9 @@ async function scanUser(admin: Admin, settings: AutoSettings, mdKey: string): Pr
 
   for (const symbol of ctx.symbols) {
     try {
+      // Gold is handled by the GENX engine (placeGenxGold), not FLOW's own read.
+      // FLOW only takes forex/indices here; gold comes from the GENX ENTER NOW.
+      if (symbol === "XAUUSD" || symbol === "GOLD") { results.push({ symbol, action: "genx_gold" }); continue; }
       const dec = await flowDecision({ canonical: symbol, mode: ctx.mode, mdKey, fresh: true });
       if (!dec.ok) { results.push({ symbol, action: "read_skip", detail: dec.error }); continue; }
       if (dec.entry.entryState === "ENTER_NOW" && dec.entry.actionable) {
@@ -401,6 +404,7 @@ export async function runFlowWatch(mdKey: string): Promise<{ watched: number; co
       const ctx = await buildGuardCtx(admin, settings);
       const results: SymbolResult[] = [];
       for (const c of confirmed) {
+        if (c.symbol === "XAUUSD" || c.symbol === "GOLD") continue; // gold is GENX-driven
         if (!ctx.symbols.includes(c.symbol)) continue;
         results.push(await guardAndPlace(admin, settings, ctx, c.symbol, c.side, c.levels));
       }
@@ -412,5 +416,60 @@ export async function runFlowWatch(mdKey: string): Promise<{ watched: number; co
   return { watched: setups.length, confirmed: confirmed.map((c) => c.symbol), runs, states };
 }
 
-// (The GENX→FLOW gold bridge was removed — gold is handled by FLOW's own engine,
-//  the same as every other pair, through scanUser/guardAndPlace below.)
+// ── GENX → FLOW gold bridge ──────────────────────────────────────────────────
+// GOLD is driven by the dedicated GENX engine (the one that broadcasts ENTER NOW
+// to Telegram) — NOT FLOW's own read — because that engine's gold calls play out.
+// FOREX (EUR/GBP/JPY/NAS) stays on FLOW's own engine. genx-scan calls this at each
+// gold ENTER NOW moment.
+//
+// It follows the LEAD like everything else: gold only runs when the lead account
+// has gold enabled, and it copies to EVERY enabled member (gated only by credits) —
+// a member's own gold toggle doesn't matter, same as the rest of the copy model.
+// The atomic flow_try_claim gate + strict-mirror guard guarantee ONE gold entry
+// per member per move (GENX re-fires ENTER NOW several times for one move; every
+// repeat after the first is refused). Placement is free, same as any FLOW fill.
+const GOLD_GENX_COOLDOWN_SEC = 120 * 60; // one gold entry per member per 2 hours
+
+export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null }): Promise<{ members: number; placed: number }> {
+  const admin = createAdminClient();
+  if (!admin) return { members: 0, placed: 0 };
+  const entry = (sig.entryLow != null && sig.entryHigh != null) ? (sig.entryLow + sig.entryHigh) / 2 : (sig.entryLow ?? sig.entryHigh);
+  if (entry == null || sig.stop == null) return { members: 0, placed: 0 };
+
+  // Gold is a LEAD decision — only copy it if the lead account is armed with gold.
+  const { data: leadRow } = await admin.from("flow_auto_settings").select("enabled, symbols").eq("user_id", MASTER_USER_ID).maybeSingle();
+  const lead = leadRow as { enabled?: boolean | null; symbols?: string[] | null } | null;
+  const leadSyms = (lead?.symbols && lead.symbols.length ? lead.symbols : DEFAULT_SYMBOLS).map((x) => String(x).toUpperCase());
+  if (!lead?.enabled || !(leadSyms.includes("XAUUSD") || leadSyms.includes("GOLD"))) return { members: 0, placed: 0 };
+
+  // STRICT MIRROR: if the desk is already in an OPEN gold trade from an earlier
+  // ENTER NOW, don't open a later divergent gold entry — everyone sits out until it
+  // closes. Checked once so all members still mirror THIS same ENTER NOW.
+  if (await deskInActiveTrade(admin, "XAUUSD")) return { members: 0, placed: 0 };
+
+  const { data } = await admin.from("flow_auto_settings").select("*").eq("enabled", true);
+  const rows = (data ?? []) as AutoSettings[];
+  let placedTotal = 0, members = 0;
+  for (const s of rows) {
+    try {
+      if (s.credit_paused) continue; // out of credits → paused → they don't copy (the only gate)
+
+      // Claim gold for this member. FALSE → a gold entry is already live within the
+      // cooldown → skip (this blocks GENX's back-to-back ENTER NOW repeats).
+      const { data: won } = await admin.rpc("flow_try_claim", { p_user: s.user_id, p_symbol: "XAUUSD", p_cooldown_secs: GOLD_GENX_COOLDOWN_SEC });
+      if (won === false) continue;
+
+      const accounts = await activeAccounts(s.user_id);
+      if (!accounts.length) { await admin.rpc("flow_release_claim", { p_user: s.user_id, p_symbol: "XAUUSD" }); continue; }
+
+      const { data: pref } = await admin.from("flow_trade_prefs").select("risk_pct").eq("user_id", s.user_id).maybeSingle();
+      const p = (pref as { risk_pct?: number | null } | null) ?? null;
+      const riskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : 1;
+
+      const res = await placeOnActiveAccounts({ userId: s.user_id, symbol: "XAUUSD", side: sig.side, entry, stop: sig.stop, tp: sig.tp, riskPct, source: "genx", accounts });
+      if (res.placed === 0) await admin.rpc("flow_release_claim", { p_user: s.user_id, p_symbol: "XAUUSD" }); // nothing filled → let the next ENTER NOW retry
+      else { placedTotal += res.placed; members += 1; }
+    } catch { /* per-member best-effort */ }
+  }
+  return { members, placed: placedTotal };
+}
