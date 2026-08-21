@@ -2465,6 +2465,53 @@ input{font:inherit}
 
   // ── FLOW — the AI Trade Desk (separate from GENX). Answers "enter NOW, wait,
   // or missed?" via the FLOW Entry Engine, with Copy Trade + TradeLocker connect.
+  // FLOW track record card — win rate, total pips, outcome mix + per-pair, read
+  // from /api/flow/stats (the flow_managed_positions outcome ledger). Mirrors the
+  // desktop portal's FlowTrackRecord. A stop is the only losing outcome.
+  function FlowTrackCard() {
+    var data = useState(null);
+    function load() { apiGet("/api/flow/stats").then(function (d) { if (d && !d.error) data[1](d); }).catch(function () {}); }
+    useEffect(function () { load(); }, []);
+    var d = data[0];
+    if (!d) return null;
+    var sg = function (n) { return typeof n === "number" ? (n > 0 ? "+" + n : "" + n) : "—"; };
+    var oc = { target: "Full target", trail: "Trailed", breakeven: "Break-even", stop: "Stopped" };
+    var wrap = "margin-top:14px;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);padding:14px";
+    if (d.trades === 0) {
+      return html`<div style=${wrap}>
+        <div style="font-size:12px;font-weight:800;color:#ffc24b;text-transform:uppercase;letter-spacing:.06em">FLOW track record</div>
+        <div style="font-size:11.5px;line-height:1.5;color:rgba(255,255,255,.6);margin-top:6px">No trades have fully closed yet. Every FLOW trade is recorded the moment it resolves — break-even, partial, full target, or stop.${d.open ? " " + d.open + " open now." : ""}</div>
+      </div>`;
+    }
+    var tile = function (label, val, color) { return html`<div style="flex:1;min-width:60px;border-radius:10px;border:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.02);padding:8px 6px;text-align:center"><div style=${"font-size:20px;font-weight:800;color:" + (color || "#fff")}>${val}</div><div style="font-size:9.5px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.04em;margin-top:2px">${label}</div></div>`; };
+    return html`<div style=${wrap}>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:12px;font-weight:800;color:#ffc24b;text-transform:uppercase;letter-spacing:.06em">FLOW track record</div>
+        <button onClick=${load} style="background:none;border:none;color:rgba(255,255,255,.4);font-size:14px;cursor:pointer">↻</button>
+      </div>
+      <div style="display:flex;gap:18px;align-items:flex-end;margin-top:9px">
+        <div><div style="font-size:30px;font-weight:900;color:#fff;line-height:1">${d.winRate != null ? d.winRate + "%" : "—"}</div><div style="font-size:10px;color:rgba(255,255,255,.5);margin-top:2px">win rate · ${d.wins}W/${d.stops}L${d.open ? " · " + d.open + " open" : ""}</div></div>
+        <div><div style=${"font-size:22px;font-weight:800;line-height:1;color:" + (d.pips >= 0 ? "#2ee88f" : "#ff5d6c")}>${sg(d.pips)}</div><div style="font-size:10px;color:rgba(255,255,255,.5);margin-top:2px">total pips</div></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:11px">
+        ${tile("Full", d.fullTarget, "#2ee88f")}
+        ${tile("Trail", d.trailed, "#2ee88f")}
+        ${tile("BE", d.breakeven, "#7fd1ff")}
+        ${tile("Stop", d.stops, "#ff5d6c")}
+      </div>
+      <div style="font-size:10.5px;color:rgba(255,255,255,.5);margin-top:8px">Partials banked on ${d.partialsTaken} of ${d.trades} trades.</div>
+      ${(d.perPair && d.perPair.length) ? html`<div style="margin-top:11px">
+        <div style="display:flex;font-size:9.5px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.04em;padding:0 2px 4px"><span style="flex:1">Pair</span><span style="width:44px;text-align:right">Win%</span><span style="width:44px;text-align:right">Pips</span><span style="width:66px;text-align:right">F/T/B/S</span></div>
+        ${d.perPair.map(function (p) { return html`<div style="display:flex;align-items:center;font-size:12px;padding:5px 2px;border-top:1px solid rgba(255,255,255,.05)"><span style="flex:1;font-weight:700;color:#fff">${p.symbol}</span><span style="width:44px;text-align:right;color:#fff">${p.winRate != null ? p.winRate + "%" : "—"}</span><span style=${"width:44px;text-align:right;color:" + (p.pips >= 0 ? "#2ee88f" : "#ff5d6c")}>${sg(p.pips)}</span><span style="width:66px;text-align:right;color:rgba(255,255,255,.55);font-size:11px">${p.fullTarget}/${p.trailed}/${p.breakeven}/${p.stops}</span></div>`; })}
+      </div>` : null}
+      ${(d.recent && d.recent.length) ? html`<div style="margin-top:11px">
+        <div style="font-size:9.5px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Recent closes</div>
+        ${d.recent.slice(0, 6).map(function (r) { return html`<div style="display:flex;align-items:center;gap:8px;font-size:11.5px;padding:4px 2px"><span style="flex:1;font-weight:700;color:#fff">${r.symbol} <span style="color:rgba(255,255,255,.4);font-weight:500;text-transform:uppercase">${r.side}</span></span>${r.pips != null ? html`<span style=${"color:" + (r.pips >= 0 ? "#2ee88f" : "#ff5d6c")}>${sg(r.pips)}p</span>` : null}<span style=${"font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:" + (r.win ? "rgba(46,232,143,.15);color:#2ee88f" : "rgba(255,93,108,.15);color:#ff5d6c")}>${oc[r.outcome] || r.outcome}</span></div>`; })}
+      </div>` : null}
+      <div style="font-size:9.5px;color:rgba(255,255,255,.35);margin-top:10px;line-height:1.5">One entry per signal. A stop is the only loss. Small samples are directional, not a guarantee.</div>
+    </div>`;
+  }
+
   function FlowScreen(props) {
     var mode = useState("quick"), loading = useState(false), err = useState(""), res = useState(null), broker = useState(false);
     var testBusy = useState(false), testMsg = useState(""), testErr = useState("");
@@ -2537,6 +2584,8 @@ input{font:inherit}
       ${loading[0] && !d ? html`<div class="gx-analyzing">◆ Reading live Gold — checking whether NOW is a clean entry…</div>` : null}
 
       ${d && d.entry_engine ? html`<${GxEntry} ee=${d.entry_engine} g=${d.g} lot=${lot[0]} setLot=${setLot} onTrade=${function () { broker[1](true); }} />` : null}
+
+      <${FlowTrackCard} />
 
       ${d ? html`<div class="gx-foot" style="margin-top:16px">FLOW times entries across pairs on the shared deterministic engine · educational analysis, not financial advice · never trades without your confirmation.</div>` : null}
     </div>`;
