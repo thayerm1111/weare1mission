@@ -16,7 +16,7 @@ import { Trophy, TrendingUp, Target, Loader2 } from "lucide-react";
 
 type Split = { wins: number; losses?: number; stops?: number; pips: number; winRate: number | null };
 type Stats = {
-  wins: number; stops: number; winRate: number | null; pips: number;
+  wins: number; stops: number; winRate: number | null; pips: number; pipsWon?: number;
   gold?: Split; forex?: Split & { open?: number };
 };
 
@@ -54,7 +54,7 @@ export function DeskResults() {
   const fxWins = forex?.wins ?? 0, fxStops = forex?.stops ?? 0, fxPips = forex?.pips ?? 0;
   const totalWins = st?.wins ?? goldWins + fxWins;
   const winRate = st?.winRate ?? null;
-  const totalPips = st?.pips ?? goldPips + fxPips;
+  const totalPips = st?.pipsWon ?? goldPips + fxPips; // gross pips won by winners
 
   return (
     <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-navy via-navy to-primary shadow-card">
@@ -74,7 +74,7 @@ export function DeskResults() {
       {/* Headline numbers */}
       <div className="grid grid-cols-3 gap-2 px-6 py-5">
         <Big label="Win rate" value={winRate != null ? `${winRate}%` : "—"} />
-        <Big label="Total pips" value={`${totalPips >= 0 ? "+" : ""}${nf(totalPips)}`} accent />
+        <Big label="Pips won" value={`${totalPips >= 0 ? "+" : ""}${nf(totalPips)}`} accent />
         <Big label="Winning trades" value={nf(totalWins)} />
       </div>
 
