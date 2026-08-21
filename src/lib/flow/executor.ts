@@ -77,6 +77,36 @@ function isSessionClosedReject(msg: string): boolean {
   return /session|market[^a-z]*(clos|halt)|forbidden|not[^a-z]*open|trading[^a-z]*(clos|halt|disabl)/i.test(String(msg || ""));
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Pull a position id out of a TradeLocker position entry (object OR columnar array). */
+function posIdOf(p: unknown): string {
+  if (Array.isArray(p)) return p.length ? String(p[0]) : "";
+  if (p && typeof p === "object") { const o = p as Record<string, unknown>; const v = o.id ?? o.positionId ?? o.positionID; return v == null ? "" : String(v); }
+  return "";
+}
+
+/**
+ * Find the position a just-placed MARKET order created. TradeLocker returns an
+ * orderId (not a positionId) for market orders, and the position registers a beat
+ * after the order call returns — so we diff the open-position ids against a
+ * pre-order snapshot and poll briefly for the new one. This is what lets the
+ * trade-manager track the fill for break-even + partials.
+ */
+async function resolveNewPositionId(a: { env: TLEnv; token: string; accNum: string; accountId: string }, beforeIds: Set<string>): Promise<string | null> {
+  for (let i = 0; i < 4; i++) {
+    await sleep(600);
+    try {
+      const pp = await listPositions(a.env, a.token, a.accNum, a.accountId);
+      if (pp.ok) {
+        const fresh = pp.data.map(posIdOf).filter(Boolean).find((id) => !beforeIds.has(id));
+        if (fresh) return fresh;
+      }
+    } catch { /* keep polling */ }
+  }
+  return null;
+}
+
 async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean }> {
   const instRes = await listInstruments(a.env, a.token, a.accNum, a.accountId);
   if (!instRes.ok) return { ok: false, error: `instrument_list_failed: ${instRes.error}`.slice(0, 160) };
@@ -91,6 +121,13 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
   };
   const hasBracket = stop != null || tp != null;
   const hasStop = stop != null;
+  // Snapshot open positions BEFORE a stop-protected order so we can identify the
+  // NEW position after the fill (needed for the trade-manager, since market
+  // orders return an orderId, not a positionId).
+  let beforeIds = new Set<string>();
+  if (hasStop) {
+    try { const bp = await listPositions(a.env, a.token, a.accNum, a.accountId); if (bp.ok) beforeIds = new Set(bp.data.map(posIdOf).filter(Boolean)); } catch { /* best-effort */ }
+  }
   let ord = await createOrder(a.env, a.token, { ...base, stopLoss: stop ?? null, takeProfit: tp ?? null });
   let note = "";
   if (!ord.ok && hasBracket) {
@@ -112,7 +149,11 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
     }
   }
   if (!ord.ok) return { ok: false, error: ord.error, deferred: isSessionClosedReject(ord.error) };
-  return { ok: true, qty: norm.qty, orderId: ord.data.orderId ?? null, positionId: ord.data.positionId ?? null, note };
+  // Resolve the position id for the trade-manager when the broker didn't hand one
+  // back (the usual case for market orders).
+  let positionId = ord.data.positionId ?? null;
+  if (!positionId && hasStop) positionId = await resolveNewPositionId(a, beforeIds);
+  return { ok: true, qty: norm.qty, orderId: ord.data.orderId ?? null, positionId, note };
 }
 
 /** Place ONE market order on the member's PRIMARY selected account (single-account
