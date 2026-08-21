@@ -72,6 +72,14 @@ function partialTriggerR(entry: number, initStop: number, tp1: number | null): n
   return rr <= 1.5 ? 0.5 : 1; // ~1:1 → +0.5R ; 1:2 or wider → +1R
 }
 
+// BREAK-EVEN is DECOUPLED from the partial: the stop slides to entry as soon as the
+// trade is up ~half its risk — so a trade that runs well into profit and reverses at
+// least scratches at break-even instead of round-tripping to a loss (the partial can
+// still be further out on a 1:2/1:3). Floored to a few pips so it never moves the stop
+// at a spread-width scratch on an ultra-tight forex stop.
+const BE_TRIGGER_R = 0.5;
+const BE_MIN_PIPS = 8;
+
 export type FlowOutcomeKind = "stop" | "breakeven" | "trail" | "target";
 export type FlowOutcome = { outcome: FlowOutcomeKind; result_pips: number; exit_price: number; partial_taken: boolean };
 
@@ -245,55 +253,49 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       const update: Record<string, unknown> = { best_price: best, last_error: null, updated_at: new Date().toISOString() };
       let didAction = false;
 
-      // Partial + break-even trigger, scaled by the signal's reward:risk (1:1 → +0.5R,
-      // 1:2/1:3 → +1R). `trigger` is ALWAYS a positive profit distance, so nothing fires
-      // while the trade is in drawdown.
-      const triggerR = partialTriggerR(row.entry, row.init_stop, row.tp1);
-      const trigger = R * triggerR;
-      if (!row.be_done) {
-        // ── Phase 1: once the trade is in profit at the trigger, bank a 50% partial
-        //    (only once) and slide the stop to the BROKER ENTRY (true break-even — the
-        //    runner can no longer lose). be_done is set ONLY after the broker confirms
-        //    the stop moved; if it fails we retry next tick (without re-partialing). ──
-        if (profit >= trigger) {
-          // 1) 50% partial — guarded by partial_done so it can never repeat.
-          let remaining = row.qty;
-          let tookPartial = !!row.partial_done;
-          let partialNote = row.partial_done ? "partial_done" : "no_partial";
-          if (!row.partial_done) {
-            const half = normalizeQuantity(contractKey(row.symbol), row.qty * 0.5, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity });
-            if (half.ok && half.qty > 0 && half.qty < row.qty) {
-              const cl = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, half.qty);
-              if (cl.ok) { remaining = +(row.qty - half.qty).toFixed(6); partialNote = `−${half.qty}`; tookPartial = true; }
-              else partialNote = `partial_err:${cl.error}`.slice(0, 60);
-            }
-          }
-          // 2) Move the stop to break-even = entry. Only mark be_done when the broker
-          //    accepts it, so a failed modify can't leave the runner on its original stop
-          //    while we believe it's protected.
-          const bePx = roundPx(row.symbol, row.entry);
-          const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: bePx });
-          update.partial_done = tookPartial;
-          if (tookPartial) update.qty = remaining;
-          if (mv.ok) { update.be_done = true; update.cur_stop = bePx; }
-          didAction = true;
-          actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: mv.ok ? "breakeven+partial" : "partial_only(be_retry)", detail: `${mv.ok ? "SL→BE" : "SL_err:" + mv.error} ${partialNote} rr@${triggerR}R`.slice(0, 90) });
-        } else {
-          actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "watching", detail: `${(profit / R).toFixed(2)}R / need ${triggerR}R` });
+      // Profit distances are always positive, so nothing below fires while in drawdown.
+      const pip = getInstrument(contractKey(row.symbol)).pipSize || 0.0001;
+      const beTrigger = Math.max(BE_TRIGGER_R * R, BE_MIN_PIPS * pip);   // protect profit
+      const partialTrigger = partialTriggerR(row.entry, row.init_stop, row.tp1) * R; // bank 50%
+      const bePx = roundPx(row.symbol, row.entry);
+
+      // ── STEP 1: BREAK-EVEN. As soon as we're up ~half the risk, slide the stop to the
+      //    broker entry so the trade can no longer lose. Decoupled from the partial, so a
+      //    big winner that reverses before the partial level still scratches at BE. ──
+      if (!row.be_done && profit >= beTrigger) {
+        const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: bePx });
+        if (mv.ok) { update.be_done = true; update.cur_stop = bePx; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "breakeven", detail: `SL→BE @${(profit / R).toFixed(2)}R` }); }
+        else actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_err", detail: mv.error.slice(0, 60) });
+      }
+
+      // ── STEP 2: PARTIAL. Bank 50% at the R:R-scaled trigger (1:1 → +0.5R, 1:2/1:3 → +1R).
+      //    Guarded by partial_done so it can never repeat. ──
+      if (!row.partial_done && profit >= partialTrigger) {
+        const half = normalizeQuantity(contractKey(row.symbol), row.qty * 0.5, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity });
+        if (half.ok && half.qty > 0 && half.qty < row.qty) {
+          const cl = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, half.qty);
+          if (cl.ok) { update.partial_done = true; update.qty = +(row.qty - half.qty).toFixed(6); didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `−${half.qty} @${(partialTrigger / R).toFixed(1)}R` }); }
+          else actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_err", detail: cl.error.slice(0, 60) });
         }
-      } else {
-        // ── Phase 2: runner — trail the stop 1R behind the best price (ratchet). ──
-        const candidate = roundPx(row.symbol, long ? best - R : best + R);
-        const cur = row.cur_stop ?? (long ? row.entry : row.entry);
+      }
+
+      // ── STEP 3: TRAIL. Once break-even is set, ratchet the stop 1R behind the best
+      //    price — but never back below break-even. ──
+      if (row.be_done) {
+        let candidate = roundPx(row.symbol, long ? best - R : best + R);
+        candidate = long ? Math.max(candidate, bePx) : Math.min(candidate, bePx); // never below BE
+        const cur = row.cur_stop ?? bePx;
         const eps = R * 0.05; // don't spam the broker on sub-5%-of-R nudges
         const improved = long ? candidate > cur + eps : candidate < cur - eps;
         if (improved) {
           const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: candidate });
           if (mv.ok) { update.cur_stop = candidate; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail", detail: `SL→${candidate}` }); }
           else actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail_err", detail: mv.error.slice(0, 60) });
-        } else {
-          actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "runner_hold", detail: `${(profit / R).toFixed(2)}R` });
         }
+      }
+
+      if (!didAction) {
+        actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "watching", detail: `${(profit / R).toFixed(2)}R` });
       }
 
       await admin.from("flow_managed_positions").update(update).eq("id", row.id);
