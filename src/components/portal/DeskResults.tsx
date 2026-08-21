@@ -1,23 +1,19 @@
 "use client";
 
 /**
- * Trading Desk Results — the headline scoreboard, shown front-and-center on the
- * dashboard. Reads ONE combined source, /api/flow/stats, which now folds the GENX
- * gold results INTO the desk-wide flow record and also returns a gold/forex split:
- *   • combined totals (top level) → the big headline
- *   • gold  { wins, losses, pips, winRate } → GENX gold engine
- *   • forex { wins, stops, pips, winRate }  → FLOW forex engine
- * Every number comes straight from the recorded outcome ledgers. Win rate is over
- * decided trades; a stop is the only loss.
+ * Trading Desk Results — the ONE unified, front-and-center scoreboard for the whole
+ * auto-desk: FLOW forex + GENX gold folded into a single record. Reads /api/flow/stats
+ * (which already merges gold in — no double-count) and is built to showcase.
+ * `pipsWon` is GROSS pips banked by winners; a stop is the only loss.
  */
 
 import { useEffect, useState } from "react";
-import { Trophy, TrendingUp, Target, Loader2 } from "lucide-react";
+import { Trophy } from "lucide-react";
 
-type Split = { wins: number; losses?: number; stops?: number; pips: number; winRate: number | null };
+type Recent = { symbol: string; win: boolean; pips: number | null };
 type Stats = {
-  wins: number; stops: number; winRate: number | null; pips: number; pipsWon?: number;
-  gold?: Split; forex?: Split & { open?: number };
+  wins: number; stops: number; trades: number; winRate: number | null; pips: number; pipsWon?: number;
+  gold?: { wins: number }; recent?: Recent[];
 };
 
 const nf = (n: number) => Math.round(n).toLocaleString();
@@ -41,83 +37,71 @@ export function DeskResults() {
   }, []);
 
   if (loading && !st) {
-    return (
-      <div className="grid place-items-center rounded-3xl bg-gradient-to-br from-navy to-primary py-14 text-cream/70 shadow-card">
-        <Loader2 className="h-6 w-6 animate-spin" />
-      </div>
-    );
+    return <div className="grid place-items-center rounded-[26px] bg-gradient-to-br from-navy to-primary py-16 text-cream/60 shadow-card">Loading desk results…</div>;
   }
 
-  const gold = st?.gold;
-  const forex = st?.forex;
-  const goldWins = gold?.wins ?? 0, goldLosses = gold?.losses ?? 0, goldPips = gold?.pips ?? 0;
-  const fxWins = forex?.wins ?? 0, fxStops = forex?.stops ?? 0, fxPips = forex?.pips ?? 0;
-  const totalWins = st?.wins ?? goldWins + fxWins;
+  const pipsWon = st?.pipsWon ?? st?.pips ?? 0;
   const winRate = st?.winRate ?? null;
-  const totalPips = st?.pipsWon ?? goldPips + fxPips; // gross pips won by winners
+  const wins = st?.wins ?? 0;
+  const trades = st?.trades ?? 0;
+  const goldWins = st?.gold?.wins ?? 0;
+  const recent = (st?.recent ?? []).filter((r) => r.win && r.pips != null).slice(0, 8);
 
   return (
-    <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-navy via-navy to-primary shadow-card">
-      <div className="flex items-center justify-between gap-3 px-6 pt-5">
-        <div className="flex items-center gap-2.5">
-          <span className="grid h-9 w-9 place-items-center rounded-full bg-cream/15"><Trophy className="h-5 w-5 text-gold" /></span>
+    <section className="relative overflow-hidden rounded-[26px] border border-gold/25 bg-gradient-to-br from-navy via-[#131033] to-[#241436] shadow-[0_18px_50px_rgba(0,0,0,0.5)]">
+      {/* glow */}
+      <div className="pointer-events-none absolute -top-16 left-1/2 h-56 w-[420px] -translate-x-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(255,193,75,0.22),transparent_70%)]" />
+
+      <div className="relative flex items-center justify-between px-7 pt-6">
+        <div className="flex items-center gap-3">
+          <span className="grid h-10 w-10 place-items-center rounded-full bg-cream/10"><Trophy className="h-5 w-5 text-gold" /></span>
           <div className="leading-tight">
-            <h2 className="font-serif text-lg font-extrabold text-cream">Trading Desk Results</h2>
-            <p className="text-[11px] uppercase tracking-[0.14em] text-cream/60">FLOW + GENX · live, auto-tracked</p>
+            <h2 className="font-serif text-xl font-black text-cream">Trading Desk Results</h2>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-cream/50">Auto-traded · forex + GENX gold</p>
           </div>
         </div>
-        <span className="hidden items-center gap-1.5 rounded-full bg-emerald-400/20 px-2.5 py-1 text-[11px] font-bold text-emerald-300 sm:inline-flex">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /> LIVE
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/20 px-3 py-1 text-[11px] font-bold text-emerald-300">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" /> LIVE
         </span>
       </div>
 
-      {/* Headline numbers */}
-      <div className="grid grid-cols-3 gap-2 px-6 py-5">
-        <Big label="Win rate" value={winRate != null ? `${winRate}%` : "—"} />
-        <Big label="Pips won" value={`${totalPips >= 0 ? "+" : ""}${nf(totalPips)}`} accent />
-        <Big label="Winning trades" value={nf(totalWins)} />
+      {/* hero */}
+      <div className="relative py-4 text-center">
+        <div className="font-serif text-6xl font-black leading-none tracking-tight text-gold drop-shadow-[0_3px_26px_rgba(255,180,60,0.4)] sm:text-7xl">+{nf(pipsWon)}</div>
+        <div className="mt-2 text-xs font-bold uppercase tracking-[0.18em] text-cream/60">Pips won</div>
       </div>
 
-      {/* Per-engine breakdown */}
-      <div className="grid gap-px bg-cream/10 sm:grid-cols-2">
-        <EngineRow
-          icon={<Target className="h-4 w-4 text-gold" />}
-          name="Gold — GENX engine"
-          wins={goldWins} losses={goldLosses} winRate={gold?.winRate ?? null} pips={goldPips}
-        />
-        <EngineRow
-          icon={<TrendingUp className="h-4 w-4 text-emerald-300" />}
-          name="Forex — FLOW engine"
-          wins={fxWins} losses={fxStops} winRate={forex?.winRate ?? null} pips={fxPips}
-          extra={forex && forex.open && forex.open > 0 ? `${forex.open} open` : undefined}
-        />
+      {/* stat trio */}
+      <div className="relative grid grid-cols-3 gap-3 px-7 pb-2 pt-3">
+        <Stat value={winRate != null ? `${winRate}%` : "—"} label="Win rate" accent />
+        <Stat value={nf(wins)} label="Winning trades" />
+        <Stat value={nf(trades)} label="Total trades" />
       </div>
 
-      <p className="px-6 py-3 text-center text-[10.5px] leading-relaxed text-cream/45">
-        Recorded outcomes from the live engines — a stop is the only loss. Educational, not financial advice. Past results never guarantee future outcomes.
+      {/* recent wins */}
+      {recent.length > 0 && (
+        <div className="relative flex items-center gap-2 overflow-x-auto px-7 pb-1 pt-3">
+          <span className="flex-shrink-0 text-[10px] font-bold uppercase tracking-[0.1em] text-cream/40">Recent</span>
+          {recent.map((r, i) => (
+            <span key={i} className="flex-shrink-0 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-[12px] font-bold text-emerald-300 whitespace-nowrap">
+              {r.symbol} +{nf(r.pips as number)}p
+            </span>
+          ))}
+        </div>
+      )}
+
+      <p className="relative px-7 pb-5 pt-3 text-center text-[10.5px] leading-relaxed text-cream/45">
+        Includes <b className="text-cream/70">{nf(goldWins)}</b> GENX gold wins · every trade auto-tracked from the live ledger. A stop is the only loss. Educational, not financial advice — past results never guarantee future outcomes.
       </p>
     </section>
   );
 }
 
-function Big({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function Stat({ value, label, accent }: { value: string; label: string; accent?: boolean }) {
   return (
-    <div className="text-center">
-      <p className={`font-serif text-3xl font-black tabular-nums sm:text-4xl ${accent ? "text-gold" : "text-cream"}`}>{value}</p>
-      <p className="mt-0.5 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-cream/55">{label}</p>
-    </div>
-  );
-}
-
-function EngineRow({ icon, name, wins, losses, winRate, pips, extra }: { icon: React.ReactNode; name: string; wins: number; losses: number; winRate: number | null; pips: number; extra?: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 bg-navy/40 px-6 py-3.5">
-      <span className="inline-flex items-center gap-2 text-[13px] font-bold text-cream">{icon} {name}</span>
-      <span className="text-right text-[12px] tabular-nums text-cream/75">
-        <b className="text-cream">{nf(wins)}W</b> / {nf(losses)}L{winRate != null ? ` · ${winRate}%` : ""}
-        <span className={`ml-2 font-bold ${pips >= 0 ? "text-emerald-300" : "text-red-300"}`}>{pips >= 0 ? "+" : ""}{nf(pips)}p</span>
-        {extra ? <span className="ml-2 text-cream/45">{extra}</span> : null}
-      </span>
+    <div className="rounded-2xl border border-cream/10 bg-cream/[0.045] py-3 text-center">
+      <p className={`font-serif text-2xl font-black tabular-nums ${accent ? "text-emerald-300" : "text-cream"}`}>{value}</p>
+      <p className="mt-1 text-[9px] font-bold uppercase tracking-[0.06em] text-cream/50">{label}</p>
     </div>
   );
 }
