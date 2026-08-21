@@ -107,8 +107,32 @@ async function resolveNewPositionId(a: { env: TLEnv; token: string; accNum: stri
   return null;
 }
 
+// Instrument lists change rarely, but we were re-fetching the WHOLE list from the
+// broker on every single order, for every account. With many accounts trading the
+// same minute that tripped TradeLocker's rate limit (429 → "Couldn't load broker
+// instruments"), so a trade would fill on some accounts and fail on others.
+// Cache the list per account for a few minutes and retry once on a transient
+// failure — dramatically fewer broker calls, so fills land on all accounts.
+const INSTRUMENT_TTL_MS = 10 * 60_000;
+const instrumentCache = new Map<string, { at: number; data: TLInstrument[] }>();
+async function instrumentsFor(a: { env: TLEnv; token: string; accNum: string; accountId: string }): Promise<{ ok: true; data: TLInstrument[] } | { ok: false; error: string }> {
+  const key = `${a.env}:${a.accountId}`;
+  const hit = instrumentCache.get(key);
+  if (hit && Date.now() - hit.at < INSTRUMENT_TTL_MS) return { ok: true, data: hit.data };
+  let lastErr = "instrument_list_failed";
+  for (let i = 0; i < 2; i++) {
+    const r = await listInstruments(a.env, a.token, a.accNum, a.accountId);
+    if (r.ok && r.data.length) { instrumentCache.set(key, { at: Date.now(), data: r.data }); return { ok: true, data: r.data }; }
+    lastErr = r.ok ? "no_instruments" : r.error;
+    if (i === 0) await sleep(500); // brief backoff, then one retry
+  }
+  // Fall back to a stale cached copy if we have one — better than dropping the trade.
+  if (hit) return { ok: true, data: hit.data };
+  return { ok: false, error: lastErr };
+}
+
 async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean }> {
-  const instRes = await listInstruments(a.env, a.token, a.accNum, a.accountId);
+  const instRes = await instrumentsFor(a);
   if (!instRes.ok) return { ok: false, error: `instrument_list_failed: ${instRes.error}`.slice(0, 160) };
   const tl = matchInstrument(canonical, instRes.data);
   if (!tl) return { ok: false, error: `instrument_not_found: ${canonical}` };
