@@ -2887,21 +2887,20 @@ input{font:inherit}
   //    dashboard. Combines GOLD (GENX engine, /api/genx-stats) + FOREX (FLOW
   //    engine, /api/flow/stats) into ONE desk-wide record. A stop is the only loss.
   function DeskResultsCard() {
-    var gx = useState(null), fl = useState(null), loaded = useState(false);
+    var fl = useState(null), loaded = useState(false);
     function load() {
-      Promise.all([
-        apiGet("/api/genx-stats").then(function (d) { return d && !d.error ? d : null; }).catch(function () { return null; }),
-        apiGet("/api/flow/stats").then(function (d) { return d && !d.error ? d : null; }).catch(function () { return null; })
-      ]).then(function (r) { gx[1](r[0]); fl[1](r[1]); loaded[1](true); });
+      apiGet("/api/flow/stats").then(function (d) { fl[1](d && !d.error ? d : null); loaded[1](true); }).catch(function () { loaded[1](true); });
     }
     useEffect(function () { load(); var t = setInterval(load, 60000); return function () { clearInterval(t); }; }, []);
-    var g = gx[0], f = fl[0];
+    var f = fl[0];
+    var g = f && f.gold, x = f && f.forex;
     var nf = function (n) { return Math.round(n || 0).toLocaleString(); };
-    var goldW = (g && g.wins) || 0, goldL = (g && g.losses) || 0, goldP = (g && g.netPips) || 0;
-    var fxW = (f && f.wins) || 0, fxS = (f && f.stops) || 0, fxP = (f && f.pips) || 0;
-    var totW = goldW + fxW, dec = goldW + goldL + fxW + fxS;
-    var wr = dec ? Math.round(totW / dec * 100) : null, totP = goldP + fxP;
-    if (!loaded[0] && !g && !f) {
+    var goldW = (g && g.wins) || 0, goldL = (g && g.losses) || 0, goldP = (g && g.pips) || 0;
+    var fxW = (x && x.wins) || 0, fxS = (x && x.stops) || 0, fxP = (x && x.pips) || 0;
+    var totW = (f && f.wins) != null ? f.wins : goldW + fxW;
+    var wr = f && f.winRate != null ? f.winRate : null;
+    var totP = (f && f.pips) != null ? f.pips : goldP + fxP;
+    if (!loaded[0] && !f) {
       return html`<div style="margin:2px 0 4px;border-radius:18px;padding:22px;text-align:center;background:linear-gradient(135deg,#101a34,#0d1428);color:rgba(255,255,255,.5);font-size:12px">Loading desk results…</div>`;
     }
     var big = function (label, val, color) { return html`<div style="flex:1;text-align:center"><div style=${"font-size:29px;font-weight:900;line-height:1;color:" + (color || "#fff")}>${val}</div><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:rgba(255,255,255,.55);margin-top:4px">${label}</div></div>`; };
@@ -2924,7 +2923,7 @@ input{font:inherit}
       </div>
       <div style="display:flex;flex-direction:column;gap:1px;background:rgba(255,255,255,.06)">
         ${row("Gold · GENX engine", goldW, goldL, (g && g.winRate != null ? g.winRate : null), goldP, "#ffc24b")}
-        ${row("Forex · FLOW engine", fxW, fxS, (f && f.winRate != null ? f.winRate : null), fxP, "#2ee88f")}
+        ${row("Forex · FLOW engine", fxW, fxS, (x && x.winRate != null ? x.winRate : null), fxP, "#2ee88f")}
       </div>
       <div style="padding:9px 16px 12px;font-size:9px;line-height:1.5;color:rgba(255,255,255,.4);text-align:center">Recorded outcomes from the live engines — a stop is the only loss. Educational, not financial advice. Past results never guarantee future outcomes.</div>
     </div>`;
