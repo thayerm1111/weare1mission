@@ -6,7 +6,11 @@ import { manageOpenPositions } from "@/lib/flow/flowManage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// Headroom for the rare tick that actually PLACES across many accounts: outbound
+// broker calls are now paced (150ms/host) + retried on a rate-limit, so a heavy
+// fan-out can take longer than the old 60s. Overlap with the next minute's cron is
+// harmless — the per-symbol cooldown guard de-dupes placement.
+export const maxDuration = 120;
 
 /**
  * FLOW AUTO-EXECUTOR endpoint.
