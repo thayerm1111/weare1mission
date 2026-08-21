@@ -58,22 +58,19 @@ function roundPx(symbol: string, price: number): number {
 }
 
 /**
- * De-risk trigger as a fraction of R. FOREX signals run tight ~1:1 targets, where
- * a +1R partial would sit PAST the take-profit — the TP closes the whole lot first,
- * so the partial/break-even step never gets to run. So forex de-risks at +0.5R
- * (halfway to its risk distance): stop→break-even + 50% partial actually fire on a
- * normal winner. Gold/indices/other classes keep the classic +1R trigger, where the
- * target leaves room for a runner. Single source of truth for both the live manager
- * and the outcome classifier so the banked-half pips always match where it triggered.
+ * Where the 50% partial fires + the stop slides to break-even, as a fraction of R,
+ * chosen by the signal's REWARD:RISK. A ~1:1 target (reward ≈ risk) banks halfway, at
+ * +0.5R. A 1:2 / 1:3 (or wider) target has room for the runner, so it banks at +1R —
+ * still comfortably before the take-profit. This is the single source of truth for
+ * both the live manager and the outcome classifier, so banked pips always match where
+ * the partial actually triggered.
  */
-function deRiskFrac(symbol: string): number {
-  return getInstrument(contractKey(symbol)).assetClass === "forex" ? 0.5 : 1;
+function partialTriggerR(entry: number, initStop: number, tp1: number | null): number {
+  const risk = Math.abs(entry - initStop);
+  const reward = tp1 != null && tp1 > 0 ? Math.abs(tp1 - entry) : risk;
+  const rr = risk > 0 ? reward / risk : 1;
+  return rr <= 1.5 ? 0.5 : 1; // ~1:1 → +0.5R ; 1:2 or wider → +1R
 }
-
-// FOREX only: the stop won't slide to break-even until the trade is up at least this
-// many pips of REAL profit — so a signal with a tiny (~4-pip) stop doesn't get its
-// stop moved at a spread-width scratch. Forex takes no partial (break-even only).
-const FOREX_MIN_BE_PIPS = 10;
 
 export type FlowOutcomeKind = "stop" | "breakeven" | "trail" | "target";
 export type FlowOutcome = { outcome: FlowOutcomeKind; result_pips: number; exit_price: number; partial_taken: boolean };
@@ -102,11 +99,11 @@ export function classifyOutcome(
   const pip = getInstrument(sym).pipSize || 0.0001;
   const long = row.side === "buy";
   const rPips = Math.round(Math.abs(row.entry - row.init_stop) / pip);
-  // The half banked at the partial is locked in at the de-risk trigger (forex +0.5R,
-  // else +1R), NOT always at +1R — so the banked pips must track that trigger.
-  const bankPips = Math.round(deRiskFrac(row.symbol) * rPips);
-  // Did this trade actually bank a partial? Forex is break-even-only (no partial), so
-  // its whole position exits at one price — don't apply the half-and-half weighting.
+  // The half banked at the partial is locked in at the R:R-scaled trigger (1:1 → +0.5R,
+  // 1:2/1:3 → +1R), so the banked pips must track that same trigger.
+  const bankPips = Math.round(partialTriggerR(row.entry, row.init_stop, row.tp1) * rPips);
+  // Did this trade actually bank a partial? If not, its whole position exits at one
+  // price — don't apply the half-and-half weighting.
   const banked = !!row.partial_done;
   const tp1 = row.tp1;
   const best = row.best_price;
@@ -248,25 +245,22 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       const update: Record<string, unknown> = { best_price: best, last_error: null, updated_at: new Date().toISOString() };
       let didAction = false;
 
-      const frac = deRiskFrac(row.symbol);
-      const isForex = getInstrument(contractKey(row.symbol)).assetClass === "forex";
-      // FOREX de-risk trigger: the LATER of +0.5R and a modest absolute profit floor,
-      // so ultra-tight-stop signals don't move the stop at a 2-pip scratch. Forex takes
-      // NO partial — it only slides the stop to break-even, then the full position runs.
-      const pipSz = getInstrument(contractKey(row.symbol)).pipSize || 0.0001;
-      const forexTrigger = Math.max(R * frac, FOREX_MIN_BE_PIPS * pipSz);
-      const trigger = isForex ? forexTrigger : R * frac;
+      // Partial + break-even trigger, scaled by the signal's reward:risk (1:1 → +0.5R,
+      // 1:2/1:3 → +1R). `trigger` is ALWAYS a positive profit distance, so nothing fires
+      // while the trade is in drawdown.
+      const triggerR = partialTriggerR(row.entry, row.init_stop, row.tp1);
+      const trigger = R * triggerR;
       if (!row.be_done) {
-        // ── Phase 1: reached the de-risk trigger → break-even stop. Non-forex also
-        //    banks a 50% partial; forex is break-even-only (no partial). ──
+        // ── Phase 1: once the trade is in profit at the trigger, bank a 50% partial
+        //    (only once) and slide the stop to the BROKER ENTRY (true break-even — the
+        //    runner can no longer lose). be_done is set ONLY after the broker confirms
+        //    the stop moved; if it fails we retry next tick (without re-partialing). ──
         if (profit >= trigger) {
-          const bePx = roundPx(row.symbol, row.entry);
-          const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: bePx });
+          // 1) 50% partial — guarded by partial_done so it can never repeat.
           let remaining = row.qty;
-          let partialNote = "no_partial";
-          let tookPartial = false;
-          if (!isForex) {
-            // Partial: close half the CURRENT lots (broker-rounded); keep the runner.
+          let tookPartial = !!row.partial_done;
+          let partialNote = row.partial_done ? "partial_done" : "no_partial";
+          if (!row.partial_done) {
             const half = normalizeQuantity(contractKey(row.symbol), row.qty * 0.5, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity });
             if (half.ok && half.qty > 0 && half.qty < row.qty) {
               const cl = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, half.qty);
@@ -274,15 +268,18 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
               else partialNote = `partial_err:${cl.error}`.slice(0, 60);
             }
           }
-          update.be_done = true;
+          // 2) Move the stop to break-even = entry. Only mark be_done when the broker
+          //    accepts it, so a failed modify can't leave the runner on its original stop
+          //    while we believe it's protected.
+          const bePx = roundPx(row.symbol, row.entry);
+          const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: bePx });
           update.partial_done = tookPartial;
-          update.cur_stop = bePx;
-          update.qty = remaining;
+          if (tookPartial) update.qty = remaining;
+          if (mv.ok) { update.be_done = true; update.cur_stop = bePx; }
           didAction = true;
-          const label = isForex ? "breakeven" : (mv.ok ? "breakeven+partial" : "partial_only");
-          actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: label, detail: `${mv.ok ? "SL→BE" : "SL_err:" + mv.error} ${partialNote}`.slice(0, 90) });
+          actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: mv.ok ? "breakeven+partial" : "partial_only(be_retry)", detail: `${mv.ok ? "SL→BE" : "SL_err:" + mv.error} ${partialNote} rr@${triggerR}R`.slice(0, 90) });
         } else {
-          actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "watching", detail: `${(profit / R).toFixed(2)}R` });
+          actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "watching", detail: `${(profit / R).toFixed(2)}R / need ${triggerR}R` });
         }
       } else {
         // ── Phase 2: runner — trail the stop 1R behind the best price (ratchet). ──
