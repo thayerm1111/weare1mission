@@ -70,6 +70,11 @@ function deRiskFrac(symbol: string): number {
   return getInstrument(contractKey(symbol)).assetClass === "forex" ? 0.5 : 1;
 }
 
+// FOREX only: the stop won't slide to break-even until the trade is up at least this
+// many pips of REAL profit — so a signal with a tiny (~4-pip) stop doesn't get its
+// stop moved at a spread-width scratch. Forex takes no partial (break-even only).
+const FOREX_MIN_BE_PIPS = 10;
+
 export type FlowOutcomeKind = "stop" | "breakeven" | "trail" | "target";
 export type FlowOutcome = { outcome: FlowOutcomeKind; result_pips: number; exit_price: number; partial_taken: boolean };
 
@@ -100,15 +105,20 @@ export function classifyOutcome(
   // The half banked at the partial is locked in at the de-risk trigger (forex +0.5R,
   // else +1R), NOT always at +1R — so the banked pips must track that trigger.
   const bankPips = Math.round(deRiskFrac(row.symbol) * rPips);
+  // Did this trade actually bank a partial? Forex is break-even-only (no partial), so
+  // its whole position exits at one price — don't apply the half-and-half weighting.
+  const banked = !!row.partial_done;
   const tp1 = row.tp1;
   const best = row.best_price;
   const hitTarget = tp1 != null && best != null && (long ? best >= tp1 : best <= tp1);
   // Signed pips from entry to a price: POSITIVE in profit, NEGATIVE in loss.
   const signed = (px: number) => Math.round((long ? px - row.entry : row.entry - px) / pip);
 
-  // Full target hit → 'target' (half banked at the de-risk trigger, half at the target).
+  // Full target hit → 'target'. With a partial: half banked at the trigger, half at
+  // target. Without (forex): the whole position rode to the target.
   if (row.be_done && hitTarget && tp1 != null) {
-    return { outcome: "target", result_pips: Math.round(0.5 * bankPips + 0.5 * signed(tp1)), exit_price: tp1, partial_taken: true };
+    const pips = banked ? Math.round(0.5 * bankPips + 0.5 * signed(tp1)) : signed(tp1);
+    return { outcome: "target", result_pips: pips, exit_price: tp1, partial_taken: banked };
   }
 
   // Exit price: prefer the ACTUAL close price the broker gives us at close-detection;
@@ -119,10 +129,11 @@ export function classifyOutcome(
   const exitPips = signed(exit);
 
   if (row.be_done) {
-    // Partial banked at the de-risk trigger on half; the runner exited at `exit`.
-    const total = Math.round(0.5 * bankPips + 0.5 * exitPips);
+    // With a partial: half banked at the trigger + the runner's exit. Without (forex,
+    // break-even-only): the WHOLE position exited at `exit`.
+    const total = banked ? Math.round(0.5 * bankPips + 0.5 * exitPips) : exitPips;
     const isBE = Math.abs(exitPips) <= Math.max(1, 0.2 * rPips);
-    return { outcome: isBE ? "breakeven" : (exitPips > 0 ? "trail" : "breakeven"), result_pips: total, exit_price: exit, partial_taken: true };
+    return { outcome: isBE ? "breakeven" : (exitPips > 0 ? "trail" : "breakeven"), result_pips: total, exit_price: exit, partial_taken: banked };
   }
   // Never reached +1R (no partial). Whole position exited at `exit`. Profit → a
   // (manually-closed) WIN booked as 'trail'; a loss/scratch → 'stop' (the only loss).
@@ -238,27 +249,38 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       let didAction = false;
 
       const frac = deRiskFrac(row.symbol);
+      const isForex = getInstrument(contractKey(row.symbol)).assetClass === "forex";
+      // FOREX de-risk trigger: the LATER of +0.5R and a modest absolute profit floor,
+      // so ultra-tight-stop signals don't move the stop at a 2-pip scratch. Forex takes
+      // NO partial — it only slides the stop to break-even, then the full position runs.
+      const pipSz = getInstrument(contractKey(row.symbol)).pipSize || 0.0001;
+      const forexTrigger = Math.max(R * frac, FOREX_MIN_BE_PIPS * pipSz);
+      const trigger = isForex ? forexTrigger : R * frac;
       if (!row.be_done) {
-        // ── Phase 1: reached the de-risk trigger (forex +0.5R, else +1R) →
-        //    break-even stop + 50% partial. ──
-        if (profit >= R * frac) {
+        // ── Phase 1: reached the de-risk trigger → break-even stop. Non-forex also
+        //    banks a 50% partial; forex is break-even-only (no partial). ──
+        if (profit >= trigger) {
           const bePx = roundPx(row.symbol, row.entry);
           const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: bePx });
-          // Partial: close half the CURRENT lots (broker-rounded); keep the runner.
-          const half = normalizeQuantity(contractKey(row.symbol), row.qty * 0.5, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity });
           let remaining = row.qty;
           let partialNote = "no_partial";
-          if (half.ok && half.qty > 0 && half.qty < row.qty) {
-            const cl = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, half.qty);
-            if (cl.ok) { remaining = +(row.qty - half.qty).toFixed(6); partialNote = `−${half.qty}`; }
-            else partialNote = `partial_err:${cl.error}`.slice(0, 60);
+          let tookPartial = false;
+          if (!isForex) {
+            // Partial: close half the CURRENT lots (broker-rounded); keep the runner.
+            const half = normalizeQuantity(contractKey(row.symbol), row.qty * 0.5, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity });
+            if (half.ok && half.qty > 0 && half.qty < row.qty) {
+              const cl = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, half.qty);
+              if (cl.ok) { remaining = +(row.qty - half.qty).toFixed(6); partialNote = `−${half.qty}`; tookPartial = true; }
+              else partialNote = `partial_err:${cl.error}`.slice(0, 60);
+            }
           }
           update.be_done = true;
-          update.partial_done = true;
+          update.partial_done = tookPartial;
           update.cur_stop = bePx;
           update.qty = remaining;
           didAction = true;
-          actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: mv.ok ? "breakeven+partial" : "partial_only", detail: `${mv.ok ? "SL→BE" : "SL_err:" + mv.error} ${partialNote}`.slice(0, 90) });
+          const label = isForex ? "breakeven" : (mv.ok ? "breakeven+partial" : "partial_only");
+          actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: label, detail: `${mv.ok ? "SL→BE" : "SL_err:" + mv.error} ${partialNote}`.slice(0, 90) });
         } else {
           actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "watching", detail: `${(profit / R).toFixed(2)}R` });
         }
