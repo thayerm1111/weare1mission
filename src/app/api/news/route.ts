@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchCalendar, newsHold, OUR_CCY } from "@/lib/news/calendar";
+import { fetchHeadlines } from "@/lib/news/headlines";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ export async function GET() {
     if (!user) return json({ error: "unauthorized" }, 401);
   }
 
-  const events = await fetchCalendar();
+  const [events, headlines] = await Promise.all([fetchCalendar(), fetchHeadlines()]);
   const now = Date.now();
 
   const relevant = events
@@ -45,8 +46,17 @@ export async function GET() {
   ]);
   const active = [gold, eur, gbp, jpy].find((h) => h.hold) || null;
 
+  const news = headlines.slice(0, 20).map((h) => ({
+    title: h.title,
+    url: h.url,
+    source: h.source,
+    at: h.at,
+    minsAgo: Math.max(0, Math.round((now - h.ts) / 60000)),
+  }));
+
   return json({
     events: relevant,
+    headlines: news,
     holdNow: !!active,
     holdEvent: active?.event ? { title: active.event.title, currency: active.event.country, at: active.event.date } : null,
   }, 200);
