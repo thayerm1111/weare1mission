@@ -2950,6 +2950,62 @@ input{font:inherit}
     </div>`;
   }
 
+  // ── GENX FOLLOWER — the raw GENX gold signal record (wins AND losses), read from
+  //    /api/genx/follower (the genx_signals ledger, same source the desk card uses).
+  //    A follower account takes every one of these at a flat 0.01, unmanaged — so this
+  //    is exactly what that account mirrors. `takenCount` builds up as it places.
+  function GenxFollowerCard() {
+    var st = useState(null), loaded = useState(false);
+    function load() { apiGet("/api/genx/follower").then(function (d) { st[1](d && d.ok ? d : null); loaded[1](true); }).catch(function () { loaded[1](true); }); }
+    useEffect(function () { load(); var t = setInterval(load, 60000); return function () { clearInterval(t); }; }, []);
+    var d = st[0];
+    var nf = function (n) { return Math.round(n || 0).toLocaleString(); };
+    if (!loaded[0] && !d) {
+      return html`<div style="margin:2px 0 8px;border-radius:22px;padding:26px;text-align:center;background:linear-gradient(150deg,#160e2e,#241046);color:rgba(255,255,255,.5);font-size:12px">Loading GENX record…</div>`;
+    }
+    var r = (d && d.record) || { wins: 0, losses: 0, winRate: 0, grossWon: 0, grossLost: 0, netPips: 0 };
+    if (!r.total) return null; // nothing graded yet → don't render an empty card
+    var taken = (d && d.takenCount) || 0;
+    var recent = (d && d.recent ? d.recent : []).slice(0, 8);
+    var net = r.netPips || 0;
+    var stat = function (val, label, color) { return html`<div style="flex:1;text-align:center;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);border-radius:13px;padding:11px 4px">
+      <div style=${"font-size:20px;font-weight:900;line-height:1;color:" + (color || "#fff")}>${val}</div>
+      <div style="font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:rgba(255,255,255,.5);margin-top:4px">${label}</div>
+    </div>`; };
+    return html`<div style="position:relative;margin:2px 0 8px;border-radius:22px;overflow:hidden;background:linear-gradient(150deg,#160e2e 0%,#1d1140 46%,#2a1250 100%);box-shadow:0 16px 46px rgba(0,0,0,.5);border:1px solid rgba(167,120,255,.28)">
+      <div style="position:absolute;top:-46px;left:50%;transform:translateX(-50%);width:300px;height:190px;background:radial-gradient(ellipse at center,rgba(167,120,255,.24),transparent 70%);pointer-events:none"></div>
+      <div style="position:relative;padding:16px 18px 4px;display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="font-size:20px">⚡</span>
+          <div><div style="font-size:15px;font-weight:900;color:#fff;letter-spacing:.2px">GENX Follower</div>
+          <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:rgba(255,255,255,.5)">Every gold signal · raw 0.01, no filters</div></div>
+        </div>
+        ${taken > 0
+          ? html`<span style="display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:800;color:#c9a6ff;background:rgba(167,120,255,.16);padding:4px 9px;border-radius:20px"><span style="width:6px;height:6px;border-radius:9px;background:#c9a6ff;box-shadow:0 0 8px #c9a6ff"></span>${nf(taken)} taken</span>`
+          : html`<span style="font-size:9.5px;font-weight:800;color:rgba(255,255,255,.45);background:rgba(255,255,255,.07);padding:4px 9px;border-radius:20px">RAW RECORD</span>`}
+      </div>
+      <div style="position:relative;text-align:center;padding:10px 16px 2px">
+        <div style="font-size:52px;font-weight:900;line-height:1;letter-spacing:-1.5px;color:#b98cff;text-shadow:0 3px 26px rgba(167,120,255,.45)">${net >= 0 ? "+" : ""}${nf(net)}</div>
+        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.17em;color:rgba(255,255,255,.62);margin-top:5px">Net gold pips</div>
+      </div>
+      <div style="position:relative;display:flex;gap:8px;padding:13px 16px 6px">
+        ${stat(r.winRate + "%", "Win rate", "#2ee88f")}
+        ${stat(nf(r.wins) + "W", "Wins", "#2ee88f")}
+        ${stat(nf(r.losses) + "L", "Losses", "#ff8a9b")}
+      </div>
+      <div style="position:relative;display:flex;gap:8px;padding:0 16px 6px">
+        ${stat("+" + nf(r.grossWon), "Pips won", "#2ee88f")}
+        ${stat("−" + nf(r.grossLost), "Pips lost", "#ff8a9b")}
+        ${stat(nf(r.total), "Signals", "#fff")}
+      </div>
+      ${recent.length ? html`<div style="position:relative;display:flex;gap:6px;overflow-x:auto;padding:9px 16px 5px;-webkit-overflow-scrolling:touch">
+        <span style="flex:0 0 auto;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.4);align-self:center;padding-right:2px">Recent</span>
+        ${recent.map(function (x) { var w = x.win; return html`<span style=${"flex:0 0 auto;font-size:11px;font-weight:800;white-space:nowrap;padding:4px 10px;border-radius:20px;color:" + (w ? "#2ee88f" : "#ff8a9b") + ";background:" + (w ? "rgba(46,232,143,.1)" : "rgba(255,93,108,.1)") + ";border:1px solid " + (w ? "rgba(46,232,143,.22)" : "rgba(255,93,108,.22)")}>${(x.side === "sell" ? "SELL" : "BUY")} ${w ? "+" : ""}${nf(x.pips)}p</span>`; })}
+      </div>` : null}
+      <div style="position:relative;padding:9px 16px 13px;font-size:9px;line-height:1.5;color:rgba(255,255,255,.4);text-align:center">GENX's raw signal record — every ENTER NOW graded to its stop or target. A follower account takes <b style="color:rgba(255,255,255,.6)">every</b> one at 0.01, unmanaged. Educational, not financial advice — past results never guarantee future outcomes.</div>
+    </div>`;
+  }
+
   // ── MARKETS DESK — a Bloomberg-style news terminal for members: a live headline
   //    ticker, a "Breaking" feed (RSS), and the economic calendar for the desk's pairs,
   //    plus the falling-knife "news hold" banner. Reads /api/news.
@@ -3042,6 +3098,8 @@ input{font:inherit}
       </div>
 
       <${DeskResultsCard} />
+
+      <${GenxFollowerCard} />
 
       <${MarketNewsCard} />
 
