@@ -12,7 +12,8 @@ import { listInstruments, listPositions, getQuote, modifyPosition, closePosition
  * bank into strength. This runs that playbook automatically on every position
  * FLOW opened (recorded in flow_managed_positions by executor.placeOnActiveAccounts):
  *
- *   Phase 1 — at +1R (price has moved its own initial risk distance in profit):
+ *   Phase 1 — at the de-risk trigger (FOREX +0.5R, gold/other +1R — forex TPs are
+ *     tight ~1:1, so +1R would land past the target and never fire):
  *     • move the STOP to break-even (entry), so the trade can no longer lose, AND
  *     • take a 50% PARTIAL, banking profit and de-risking the position.
  *   Phase 2 — after break-even is done, TRAIL the runner's stop 1R behind the
@@ -56,6 +57,19 @@ function roundPx(symbol: string, price: number): number {
   return +price.toFixed(prec);
 }
 
+/**
+ * De-risk trigger as a fraction of R. FOREX signals run tight ~1:1 targets, where
+ * a +1R partial would sit PAST the take-profit — the TP closes the whole lot first,
+ * so the partial/break-even step never gets to run. So forex de-risks at +0.5R
+ * (halfway to its risk distance): stop→break-even + 50% partial actually fire on a
+ * normal winner. Gold/indices/other classes keep the classic +1R trigger, where the
+ * target leaves room for a runner. Single source of truth for both the live manager
+ * and the outcome classifier so the banked-half pips always match where it triggered.
+ */
+function deRiskFrac(symbol: string): number {
+  return getInstrument(contractKey(symbol)).assetClass === "forex" ? 0.5 : 1;
+}
+
 export type FlowOutcomeKind = "stop" | "breakeven" | "trail" | "target";
 export type FlowOutcome = { outcome: FlowOutcomeKind; result_pips: number; exit_price: number; partial_taken: boolean };
 
@@ -83,15 +97,18 @@ export function classifyOutcome(
   const pip = getInstrument(sym).pipSize || 0.0001;
   const long = row.side === "buy";
   const rPips = Math.round(Math.abs(row.entry - row.init_stop) / pip);
+  // The half banked at the partial is locked in at the de-risk trigger (forex +0.5R,
+  // else +1R), NOT always at +1R — so the banked pips must track that trigger.
+  const bankPips = Math.round(deRiskFrac(row.symbol) * rPips);
   const tp1 = row.tp1;
   const best = row.best_price;
   const hitTarget = tp1 != null && best != null && (long ? best >= tp1 : best <= tp1);
   // Signed pips from entry to a price: POSITIVE in profit, NEGATIVE in loss.
   const signed = (px: number) => Math.round((long ? px - row.entry : row.entry - px) / pip);
 
-  // Full target hit → 'target' (half banked at +1R, half at the target).
+  // Full target hit → 'target' (half banked at the de-risk trigger, half at the target).
   if (row.be_done && hitTarget && tp1 != null) {
-    return { outcome: "target", result_pips: Math.round(0.5 * rPips + 0.5 * signed(tp1)), exit_price: tp1, partial_taken: true };
+    return { outcome: "target", result_pips: Math.round(0.5 * bankPips + 0.5 * signed(tp1)), exit_price: tp1, partial_taken: true };
   }
 
   // Exit price: prefer the ACTUAL close price the broker gives us at close-detection;
@@ -102,8 +119,8 @@ export function classifyOutcome(
   const exitPips = signed(exit);
 
   if (row.be_done) {
-    // Partial banked at +1R on half; the runner exited at `exit`.
-    const total = Math.round(0.5 * rPips + 0.5 * exitPips);
+    // Partial banked at the de-risk trigger on half; the runner exited at `exit`.
+    const total = Math.round(0.5 * bankPips + 0.5 * exitPips);
     const isBE = Math.abs(exitPips) <= Math.max(1, 0.2 * rPips);
     return { outcome: isBE ? "breakeven" : (exitPips > 0 ? "trail" : "breakeven"), result_pips: total, exit_price: exit, partial_taken: true };
   }
@@ -220,9 +237,11 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       const update: Record<string, unknown> = { best_price: best, last_error: null, updated_at: new Date().toISOString() };
       let didAction = false;
 
+      const frac = deRiskFrac(row.symbol);
       if (!row.be_done) {
-        // ── Phase 1: reached +1R → break-even stop + 50% partial. ──
-        if (profit >= R) {
+        // ── Phase 1: reached the de-risk trigger (forex +0.5R, else +1R) →
+        //    break-even stop + 50% partial. ──
+        if (profit >= R * frac) {
           const bePx = roundPx(row.symbol, row.entry);
           const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: bePx });
           // Partial: close half the CURRENT lots (broker-rounded); keep the runner.
