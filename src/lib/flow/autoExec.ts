@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { flowDecision } from "@/lib/flow/decision";
-import { placeOnActiveAccounts } from "@/lib/flow/executor";
-import { activeAccounts, type ActiveAccount } from "@/lib/flow/connection";
+import { placeOnActiveAccounts, placeFixedLotFollower } from "@/lib/flow/executor";
+import { activeAccounts, connectionToken, type ActiveAccount } from "@/lib/flow/connection";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
@@ -555,4 +555,70 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     } catch { /* per-member best-effort */ }
   }
   return { members, placed: placedTotal };
+}
+
+// ── GENX FOLLOWER accounts ─────────────────────────────────────────────────────
+// A completely SEPARATE path from FLOW. Any account flagged genx_follower=true (its
+// own toggle, independent of autotrade_enabled / credits / the lead) takes EVERY
+// gold ENTER NOW at a flat 0.01 lot — no risk sizing, no caps, no cooldown, no news
+// or trend guard, no strict-mirror. It rides the signal's broker-held SL/TP raw
+// (the trade-manager never touches it). This exists to record GENX's unfiltered
+// track record on a dedicated account. GENX is gold-only, so "every GENX signal"
+// = every gold ENTER NOW. Dedup (genx_follower_fills, unique signal_key+account_id)
+// makes it idempotent across the scanner's overlapping runs / repeated ENTER NOWs.
+const FOLLOWER_LOT = 0.01;
+
+export async function placeGenxFollower(sig: {
+  signalKey: string; side: "buy" | "sell"; stop: number | null; tp: number | null;
+}): Promise<{ accounts: number; placed: number }> {
+  const admin = createAdminClient();
+  if (!admin) return { accounts: 0, placed: 0 };
+  const signalKey = String(sig.signalKey || "").slice(0, 200);
+  if (!signalKey) return { accounts: 0, placed: 0 };
+
+  // Every follower account, across every user/connection (independent of FLOW).
+  const { data: rows } = await admin
+    .from("flow_broker_accounts")
+    .select("user_id, account_id, acc_num, connection_id")
+    .eq("genx_follower", true);
+  const accts = (rows ?? []) as { user_id: string; account_id: string; acc_num: string | null; connection_id: string }[];
+  if (!accts.length) return { accounts: 0, placed: 0 };
+
+  // Mint one token per connection (a connection can hold several follower accounts).
+  const tokenCache = new Map<string, { token: string; env: "demo" | "live" } | null>();
+  async function tokenFor(connId: string) {
+    if (tokenCache.has(connId)) return tokenCache.get(connId)!;
+    const t = await connectionToken(connId);
+    const v = t.ok ? { token: t.token, env: t.env } : null;
+    tokenCache.set(connId, v);
+    return v;
+  }
+
+  let placed = 0, touched = 0;
+  for (const a of accts) {
+    if (!a.acc_num) continue;
+    touched += 1;
+    try {
+      // Idempotent claim: one fill per (signal, account). A duplicate row → already
+      // handled this ENTER NOW on this account → skip.
+      const { error: dupErr } = await admin.from("genx_follower_fills").insert({ signal_key: signalKey, account_id: a.account_id });
+      if (dupErr) continue;
+
+      const tok = await tokenFor(a.connection_id);
+      if (!tok) { await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id); continue; }
+
+      const r = await placeFixedLotFollower({
+        userId: a.user_id, env: tok.env, token: tok.token, connId: a.connection_id,
+        accountId: a.account_id, accNum: String(a.acc_num),
+        symbol: "XAUUSD", side: sig.side, qty: FOLLOWER_LOT, stop: sig.stop, tp: sig.tp, source: "genx_follow",
+      });
+      if (r.ok) placed += 1;
+      else {
+        // Nothing filled (session closed / token blip) → release the claim so a later
+        // ENTER NOW re-fire for this same signal can retry on this account.
+        await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id);
+      }
+    } catch { /* per-account best-effort */ }
+  }
+  return { accounts: touched, placed };
 }

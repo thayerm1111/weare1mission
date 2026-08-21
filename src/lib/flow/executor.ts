@@ -214,6 +214,32 @@ export async function placeMarketOrder(opts: {
   return { status: "placed", symbol: canonical, side: opts.side, qty: r.qty, orderId: r.orderId, positionId: r.positionId, environment: fresh.env, accountId };
 }
 
+/**
+ * GENX FOLLOWER placement — place ONE raw market order at a FIXED lot on a SPECIFIC
+ * account (identified by a pre-minted token + connId/accountId/accNum). Unlike
+ * placeOnActiveAccounts this does NO risk sizing (flat qty), NO guards, and does
+ * NOT hand the fill to the trade-manager — the follower account simply mirrors every
+ * GENX gold call at 0.01 and rides the broker-held SL/TP to its outcome, untouched.
+ * The caller owns dedup (one fill per signal per account).
+ */
+export async function placeFixedLotFollower(opts: {
+  userId: string; env: TLEnv; token: string; connId: string; accountId: string; accNum: string;
+  symbol: string; side: "buy" | "sell"; qty: number; stop?: number | null; tp?: number | null; source: string;
+}): Promise<{ ok: true; orderId: string | null; qty: number } | { ok: false; reason: string; deferred: boolean }> {
+  const canonical = normSym(opts.symbol) || "XAUUSD";
+  const r = await placeOnAccount(
+    { env: opts.env, token: opts.token, accNum: opts.accNum, accountId: opts.accountId, connId: opts.connId },
+    canonical, opts.side, opts.qty, opts.stop ?? null, opts.tp ?? null,
+  );
+  if (!r.ok) {
+    const st = r.deferred ? "deferred" : "error";
+    await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: opts.qty, status: st, reason: `${opts.source}: ${r.error}`.slice(0, 200), account_id: opts.accountId });
+    return { ok: false, reason: r.error, deferred: !!r.deferred };
+  }
+  await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: r.qty, status: "placed", reason: `${opts.source}${r.note}`.slice(0, 60), order_id: r.orderId, account_id: opts.accountId });
+  return { ok: true, orderId: r.orderId, qty: r.qty };
+}
+
 export type AccountFill = {
   accountId: string; accNum: string; name: string | null; environment: string;
   status: "placed" | "error" | "skipped"; qty?: number; lots?: number; estLossAtStop?: number;
