@@ -5,6 +5,8 @@ import { activeAccounts, type ActiveAccount } from "@/lib/flow/connection";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
+import { series } from "@/lib/marketData";
+import { trendOfCloses, closedBars } from "@/lib/mtf";
 import { ENTRY_TUNING } from "@/lib/entryEngine";
 import type { Mode } from "@/lib/genxCompute";
 import { CREDIT_COST, DAILY_FREE } from "@/lib/creditConfig";
@@ -436,17 +438,36 @@ export async function runFlowWatch(mdKey: string): Promise<{ watched: number; co
 // repeat after the first is refused). Placement is free, same as any FLOW fill.
 const GOLD_GENX_COOLDOWN_SEC = 120 * 60; // one gold entry per member per 2 hours
 
-// PROTECTIVE LOSS-STREAK GUARD (gold) — DIRECTIONAL. After this many consecutive losing
-// gold trades ON THE SAME SIDE, pause NEW gold entries FOR THAT SIDE only for a cooldown.
-// The other side keeps trading — so in a bull run it stops re-shorting (2 sells lost) but
-// still takes the winning buys, and vice-versa in a downtrend. Pullback trades are fine;
-// it only steps aside when a side loses repeatedly. Self-resets: after the cooldown that
-// side takes one probe; a win clears its streak, another loss re-arms it.
-const GOLD_LOSS_STREAK = 2;
+// SMART, TREND-AWARE GOLD ENTRY GATE.
+// GENX still makes the call; this layer only steps aside when GENX would be FIGHTING the
+// trend and stacking losses. It reads the higher-timeframe (1h) gold trend and applies a
+// graduated per-side loss guard:
+//   • WITH the trend  → take it freely (loose 3-loss safety net in case a trend reverses).
+//   • COUNTER-trend   → allow ONE pullback shot; pause that side after a single loss.
+//   • Ranging/unknown → normal read; pause a side after 2 losses in a row.
+// A paused side self-resets after the cooldown (takes one probe; a win clears the streak).
 const GOLD_LOSS_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6h protective pause per side
+const GOLD_STREAK_WITH_TREND = 3;
+const GOLD_STREAK_RANGE = 2;
+const GOLD_STREAK_COUNTER_TREND = 1;
 
-/** True while a gold SIDE (buy/sell) is halted because its last GOLD_LOSS_STREAK trades lost. */
-async function goldDirectionHalt(admin: Admin, side: "buy" | "sell"): Promise<boolean> {
+/** Higher-timeframe (1h) gold trend, on CLOSED candles. null = couldn't read → treat neutral. */
+async function goldTrend(): Promise<"bullish" | "bearish" | "ranging" | null> {
+  const key = process.env.TWELVEDATA_API_KEY;
+  if (!key) return null;
+  try {
+    const rows = await series("XAU/USD", "1h", 120, key);
+    if (!rows || rows === "ratelimit" || !Array.isArray(rows)) return null;
+    const closed = closedBars(rows, 52) ?? rows;
+    const closes = closed.map((r) => +r.close).filter((n) => Number.isFinite(n));
+    if (closes.length < 52) return "ranging";
+    return trendOfCloses(closes);
+  } catch { return null; }
+}
+
+/** True while a gold SIDE is paused because its last `streak` trades on that side all lost. */
+async function goldDirectionHalt(admin: Admin, side: "buy" | "sell", streak: number): Promise<boolean> {
+  if (streak <= 0) return false;
   const wantDir = side === "buy" ? "bullish" : "bearish";
   const { data } = await admin
     .from("genx_signals")
@@ -457,20 +478,30 @@ async function goldDirectionHalt(admin: Admin, side: "buy" | "sell"): Promise<bo
     .limit(30);
   const rows = (data ?? []) as { outcome: string; resolved_at: string | null }[];
   // Collapse signals that resolved at the SAME instant (fan-out / one market event) into
-  // a single outcome, newest first — so "2 in a row" counts distinct trades on this side.
+  // a single outcome, newest first — so a "streak" counts distinct trades on this side.
   const events: { outcome: string; ts: number }[] = [];
   let lastKey = "";
   for (const r of rows) {
-    const key = String(r.resolved_at);
-    if (key === lastKey) continue;
-    lastKey = key;
+    const k = String(r.resolved_at);
+    if (k === lastKey) continue;
+    lastKey = k;
     events.push({ outcome: r.outcome, ts: r.resolved_at ? new Date(r.resolved_at).getTime() : 0 });
   }
-  if (events.length < GOLD_LOSS_STREAK) return false;
-  const recent = events.slice(0, GOLD_LOSS_STREAK);
+  if (events.length < streak) return false;
+  const recent = events.slice(0, streak);
   if (!recent.every((e) => e.outcome === "LOSS")) return false;
-  // Halt THIS side for the cooldown, measured from its most recent loss.
   return Date.now() < recent[0].ts + GOLD_LOSS_COOLDOWN_MS;
+}
+
+/** The smart gate: returns true to HOLD this gold entry (skip), false to allow it. */
+async function goldEntryHold(admin: Admin, side: "buy" | "sell"): Promise<boolean> {
+  const trend = await goldTrend();
+  const wantDir = side === "buy" ? "bullish" : "bearish";
+  let streak = GOLD_STREAK_RANGE; // ranging or unknown trend
+  if (trend === "bullish" || trend === "bearish") {
+    streak = trend === wantDir ? GOLD_STREAK_WITH_TREND : GOLD_STREAK_COUNTER_TREND;
+  }
+  return goldDirectionHalt(admin, side, streak);
 }
 
 export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null }): Promise<{ members: number; placed: number }> {
@@ -494,10 +525,10 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // inside the blackout window, hold this ENTER NOW. GENX will re-offer once it passes.
   try { if ((await newsHold("XAUUSD")).hold) return { members: 0, placed: 0 }; } catch { /* feed down → don't block */ }
 
-  // PROTECTIVE HALT (directional): if THIS side just lost 2 in a row, pause new gold
-  // entries on this side for the cooldown — so it stops trading into a trend (e.g. keeps
-  // re-shorting a bull run) while the winning side stays open.
-  try { if (await goldDirectionHalt(admin, sig.side)) return { members: 0, placed: 0 }; } catch { /* read error → don't block */ }
+  // SMART TREND-AWARE HALT: take with-trend entries freely, give a counter-trend entry
+  // one pullback shot, and stop feeding a side that keeps losing — so gold trades WITH
+  // the trend and doesn't stack losses fighting it.
+  try { if (await goldEntryHold(admin, sig.side)) return { members: 0, placed: 0 }; } catch { /* read error → don't block */ }
 
   const { data } = await admin.from("flow_auto_settings").select("*").eq("enabled", true);
   const rows = (data ?? []) as AutoSettings[];
