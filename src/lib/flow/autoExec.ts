@@ -4,6 +4,7 @@ import { placeOnActiveAccounts } from "@/lib/flow/executor";
 import { activeAccounts, type ActiveAccount } from "@/lib/flow/connection";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
+import { newsHold } from "@/lib/news/calendar";
 import { ENTRY_TUNING } from "@/lib/entryEngine";
 import type { Mode } from "@/lib/genxCompute";
 import { CREDIT_COST, DAILY_FREE } from "@/lib/creditConfig";
@@ -223,6 +224,11 @@ async function guardAndPlace(admin: Admin, settings: AutoSettings, ctx: GuardCtx
   if (stopPx == null) return { symbol, action: "skip_no_stop" };
   if (entryPx == null) return { symbol, action: "skip_no_entry" };
   if (!ctx.accounts.length) return { symbol, action: "skip_no_accounts" };
+
+  // NEWS GUARD (falling-knife): if a HIGH-impact event for this pair's currency is
+  // inside the blackout window (about to drop or just dropped), HOLD — don't buy blind
+  // into the volatility spike. The desk resumes automatically once the window passes.
+  try { if ((await newsHold(symbol)).hold) return { symbol, action: "news_hold" }; } catch { /* feed down → don't block trading */ }
 
   // STRICT MIRROR: if the desk is already in an OPEN trade on this pair from an
   // earlier signal, sit this account out — don't open a later, divergent entry.
@@ -446,6 +452,10 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // ENTER NOW, don't open a later divergent gold entry — everyone sits out until it
   // closes. Checked once so all members still mirror THIS same ENTER NOW.
   if (await deskInActiveTrade(admin, "XAUUSD")) return { members: 0, placed: 0 };
+
+  // NEWS GUARD (falling-knife): gold reacts to USD data — if a HIGH-impact USD event is
+  // inside the blackout window, hold this ENTER NOW. GENX will re-offer once it passes.
+  try { if ((await newsHold("XAUUSD")).hold) return { members: 0, placed: 0 }; } catch { /* feed down → don't block */ }
 
   const { data } = await admin.from("flow_auto_settings").select("*").eq("enabled", true);
   const rows = (data ?? []) as AutoSettings[];
