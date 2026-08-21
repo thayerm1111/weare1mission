@@ -156,7 +156,7 @@ async function buildGuardCtx(admin: Admin, settings: AutoSettings): Promise<Guar
 }
 
 /** Apply the per-member guardrails and, if they pass, place ONE market order. Mutates ctx. */
-async function guardAndPlace(settings: AutoSettings, ctx: GuardCtx, symbol: string, side: "buy" | "sell", levels: Levels, price?: number | null): Promise<SymbolResult> {
+async function guardAndPlace(admin: Admin, settings: AutoSettings, ctx: GuardCtx, symbol: string, side: "buy" | "sell", levels: Levels, price?: number | null): Promise<SymbolResult> {
   const ms = (iso: string) => ctx.now - new Date(iso).getTime();
   if (!ctx.symbols.includes(symbol)) return { symbol, action: "not_in_list" };
   const lastPlaced = ctx.placed.find((p) => String(p.symbol).toUpperCase() === symbol);
@@ -180,12 +180,28 @@ async function guardAndPlace(settings: AutoSettings, ctx: GuardCtx, symbol: stri
   if (entryPx == null) return { symbol, action: "skip_no_entry" };
   if (!ctx.accounts.length) return { symbol, action: "skip_no_accounts" };
 
+  // ATOMIC anti-duplicate gate. The in-memory cooldown check above is a snapshot
+  // read at run start, so two OVERLAPPING scheduler runs (Vercel 1-min cron +
+  // GitHub 30s fast-watch, in separate isolates) can both pass it and double-enter
+  // the same signal. This claim is decided inside Postgres under an advisory lock,
+  // so exactly ONE run wins the right to place this symbol for the cooldown window.
+  const claimSecs = Math.max(1, Math.floor(ctx.cooldownMs / 1000));
+  try {
+    const { data: won } = await admin.rpc("flow_try_claim", { p_user: settings.user_id, p_symbol: symbol, p_cooldown_secs: claimSecs });
+    if (won === false) return { symbol, action: "cooldown" };
+  } catch { /* if the claim RPC is unavailable, fall through to the in-memory guard */ }
+
   // Fan out: place the SAME setup on every active account, each risk-sized to its
   // own live equity (gold<$500 floors to 0.01 inside placeOnActiveAccounts).
   const res = await placeOnActiveAccounts({
     userId: settings.user_id, symbol, side, entry: entryPx, stop: stopPx, tp: levels.tp1,
     riskPct: ctx.riskPct, source: "auto", accounts: ctx.accounts,
   });
+  if (res.placed === 0) {
+    // Nothing filled — release the claim so the next tick can retry this symbol
+    // (subject to the error backoff) instead of waiting out the whole cooldown.
+    try { await admin.rpc("flow_release_claim", { p_user: settings.user_id, p_symbol: symbol }); } catch { /* best-effort */ }
+  }
   if (res.placed > 0) {
     ctx.hourBudget -= 1;
     ctx.openSymbols.add(symbol);
@@ -234,7 +250,7 @@ async function scanUser(admin: Admin, settings: AutoSettings, mdKey: string): Pr
       const dec = await flowDecision({ canonical: symbol, mode: ctx.mode, mdKey, fresh: true });
       if (!dec.ok) { results.push({ symbol, action: "read_skip", detail: dec.error }); continue; }
       if (dec.entry.entryState === "ENTER_NOW" && dec.entry.actionable) {
-        results.push(await guardAndPlace(settings, ctx, symbol, dec.side, dec.levels, dec.price));
+        results.push(await guardAndPlace(admin, settings, ctx, symbol, dec.side, dec.levels, dec.price));
       } else {
         results.push({ symbol, action: "no_entry", detail: dec.entry.entryState });
         if (nearZone(dec)) near.push({ symbol, side: dec.side, levels: dec.levels });
@@ -338,7 +354,7 @@ export async function runFlowWatch(mdKey: string): Promise<{ watched: number; co
       const results: SymbolResult[] = [];
       for (const c of confirmed) {
         if (!ctx.symbols.includes(c.symbol)) continue;
-        results.push(await guardAndPlace(settings, ctx, c.symbol, c.side, c.levels));
+        results.push(await guardAndPlace(admin, settings, ctx, c.symbol, c.side, c.levels));
       }
       runs.push({ userId: settings.user_id, results });
     } catch (e) {
