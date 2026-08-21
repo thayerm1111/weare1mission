@@ -99,7 +99,10 @@ export async function getConfig(env: TLEnv, accessToken: string, accNum: string)
 /** GET /trade/accounts/{accountId}/instruments — resolve tradable instrument + route. */
 export async function listInstruments(env: TLEnv, accessToken: string, accNum: string, accountId: string): Promise<TLResult<TLInstrument[]>> {
   const { status, json, text } = await tlFetch(env, `/trade/accounts/${encodeURIComponent(accountId)}/instruments`, { method: "GET", accessToken, accNum });
-  if (status < 200 || status >= 300) return { ok: false, status, error: "Couldn't load broker instruments.", raw: json ?? text };
+  if (status < 200 || status >= 300) {
+    const detail = (pick<string>(json, "message", "error", "errmsg") || String(text).slice(0, 100)).trim();
+    return { ok: false, status, error: `Couldn't load broker instruments (${status})${detail ? ": " + detail : ""}`, raw: json ?? text };
+  }
   const arr = (pick<unknown[]>(json, "instruments") ?? pick<unknown[]>(pick(json, "d"), "instruments") ?? (Array.isArray(json) ? json : [])) as unknown[];
   const out: TLInstrument[] = arr.map((i) => {
     // TradeLocker carries routing in a `routes` array on each instrument:
