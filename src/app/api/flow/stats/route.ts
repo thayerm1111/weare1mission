@@ -68,11 +68,18 @@ export async function GET() {
   const admin = createAdminClient();
   if (!admin) return json({ error: "not_configured" }, 200);
 
+  // FLOW's track record covers FOREX/indices only — GOLD is reported by the GENX
+  // engine (which sources it) via /api/genx-stats, so it isn't double-counted here.
+  // Scoped to the LEAD account, since every member copies the lead's trades — this
+  // is the desk's canonical result, free of any per-member divergence.
+  const LEAD_USER_ID = "3b5e06e5-258c-4880-b1f2-d1623cbca100";
   const [{ count: openCount }, { data, error }] = await Promise.all([
-    admin.from("flow_managed_positions").select("id", { count: "exact", head: true }).eq("status", "open"),
+    admin.from("flow_managed_positions").select("id", { count: "exact", head: true }).eq("status", "open").eq("user_id", LEAD_USER_ID).neq("symbol", "XAUUSD"),
     admin
       .from("flow_managed_positions")
       .select("symbol,side,entry,qty,outcome,result_pips,resolved_at,created_at")
+      .eq("user_id", LEAD_USER_ID)
+      .neq("symbol", "XAUUSD")
       .not("outcome", "is", null)
       .neq("outcome", "excluded")
       .order("resolved_at", { ascending: false, nullsFirst: false })
