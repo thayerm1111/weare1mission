@@ -75,31 +75,42 @@ export type FlowOutcome = { outcome: FlowOutcomeKind; result_pips: number; exit_
  * Note: a member who MANUALLY closes a trade before +1R is recorded as 'stop'
  * since we don't have their manual exit price — rare, and flagged in the UI copy.
  */
-export function classifyOutcome(row: Pick<ManagedRow, "symbol" | "side" | "entry" | "init_stop" | "tp1" | "best_price" | "cur_stop" | "be_done" | "partial_done">): FlowOutcome {
+export function classifyOutcome(
+  row: Pick<ManagedRow, "symbol" | "side" | "entry" | "init_stop" | "tp1" | "best_price" | "cur_stop" | "be_done" | "partial_done">,
+  exitPrice?: number | null,
+): FlowOutcome {
   const sym = contractKey(row.symbol);
+  const pip = getInstrument(sym).pipSize || 0.0001;
   const long = row.side === "buy";
-  const rPips = priceToPips(sym, Math.abs(row.entry - row.init_stop));
-
-  if (!row.be_done) {
-    return { outcome: "stop", result_pips: -rPips, exit_price: row.init_stop, partial_taken: false };
-  }
+  const rPips = Math.round(Math.abs(row.entry - row.init_stop) / pip);
   const tp1 = row.tp1;
   const best = row.best_price;
   const hitTarget = tp1 != null && best != null && (long ? best >= tp1 : best <= tp1);
-  if (hitTarget && tp1 != null) {
-    const tpPips = priceToPips(sym, Math.abs(tp1 - row.entry));
-    return { outcome: "target", result_pips: Math.round(0.5 * rPips + 0.5 * tpPips), exit_price: tp1, partial_taken: true };
+  // Signed pips from entry to a price: POSITIVE in profit, NEGATIVE in loss.
+  const signed = (px: number) => Math.round((long ? px - row.entry : row.entry - px) / pip);
+
+  // Full target hit → 'target' (half banked at +1R, half at the target).
+  if (row.be_done && hitTarget && tp1 != null) {
+    return { outcome: "target", result_pips: Math.round(0.5 * rPips + 0.5 * signed(tp1)), exit_price: tp1, partial_taken: true };
   }
-  // Runner exited at its trailing/break-even stop (ratchet keeps it at/above entry).
-  const exit = row.cur_stop ?? row.entry;
-  const runnerPips = priceToPips(sym, Math.abs(exit - row.entry)); // >= 0 after break-even
-  const isBE = runnerPips <= Math.max(1, 0.2 * rPips);
-  return {
-    outcome: isBE ? "breakeven" : "trail",
-    result_pips: Math.round(0.5 * rPips + 0.5 * runnerPips),
-    exit_price: exit,
-    partial_taken: true,
-  };
+
+  // Exit price: prefer the ACTUAL close price the broker gives us at close-detection;
+  // otherwise fall back to the trailed stop (if +1R was reached) or the initial stop.
+  const exit = (exitPrice != null && exitPrice > 0)
+    ? exitPrice
+    : (row.be_done ? (row.cur_stop ?? row.entry) : row.init_stop);
+  const exitPips = signed(exit);
+
+  if (row.be_done) {
+    // Partial banked at +1R on half; the runner exited at `exit`.
+    const total = Math.round(0.5 * rPips + 0.5 * exitPips);
+    const isBE = Math.abs(exitPips) <= Math.max(1, 0.2 * rPips);
+    return { outcome: isBE ? "breakeven" : (exitPips > 0 ? "trail" : "breakeven"), result_pips: total, exit_price: exit, partial_taken: true };
+  }
+  // Never reached +1R (no partial). Whole position exited at `exit`. Profit → a
+  // (manually-closed) WIN booked as 'trail'; a loss/scratch → 'stop' (the only loss).
+  if (exitPips > 0) return { outcome: "trail", result_pips: exitPips, exit_price: exit, partial_taken: false };
+  return { outcome: "stop", result_pips: exitPips, exit_price: exit, partial_taken: false };
 }
 
 /**
@@ -175,9 +186,15 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       if (!st) { await admin.from("flow_managed_positions").update({ last_error: "account_read", updated_at: new Date().toISOString() }).eq("id", row.id); continue; }
 
       // Position gone from the broker → it closed (SL/TP hit, or member closed it).
-      // Classify the outcome for the track record from the lifecycle we recorded.
+      // Grab the current price as the EXIT proxy (it closed within the last ~tick,
+      // so this is close to the real fill). This is what stops a manual close in
+      // PROFIT from being mis-booked as a stop; classifyOutcome falls back to the
+      // recorded stop levels only if no quote is available.
       if (!st.openIds.has(String(row.position_id))) {
-        const oc = classifyOutcome(row);
+        let exitPx: number | null = null;
+        const cinst = matchInstrument(contractKey(row.symbol), st.instruments) ?? matchInstrument(row.symbol, st.instruments);
+        if (cinst) { try { exitPx = await exitPrice(tok, row.acc_num, cinst, row.symbol, row.side, row.account_id); } catch { /* fall back to recorded levels */ } }
+        const oc = classifyOutcome(row, exitPx);
         await admin.from("flow_managed_positions").update({
           status: "closed", last_error: null,
           outcome: oc.outcome, result_pips: oc.result_pips, exit_price: oc.exit_price, partial_taken: oc.partial_taken,
