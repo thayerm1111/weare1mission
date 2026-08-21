@@ -436,24 +436,28 @@ export async function runFlowWatch(mdKey: string): Promise<{ watched: number; co
 // repeat after the first is refused). Placement is free, same as any FLOW fill.
 const GOLD_GENX_COOLDOWN_SEC = 120 * 60; // one gold entry per member per 2 hours
 
-// PROTECTIVE LOSS-STREAK GUARD (gold): after this many consecutive losing gold trades,
-// pause NEW gold entries for a cooldown — so the desk stops feeding a losing counter-
-// trend read (e.g. shorting into a bull run) until things settle. Self-resets: once the
-// cooldown lapses it takes one probe; a win clears the streak, another loss re-arms it.
+// PROTECTIVE LOSS-STREAK GUARD (gold) — DIRECTIONAL. After this many consecutive losing
+// gold trades ON THE SAME SIDE, pause NEW gold entries FOR THAT SIDE only for a cooldown.
+// The other side keeps trading — so in a bull run it stops re-shorting (2 sells lost) but
+// still takes the winning buys, and vice-versa in a downtrend. Pullback trades are fine;
+// it only steps aside when a side loses repeatedly. Self-resets: after the cooldown that
+// side takes one probe; a win clears its streak, another loss re-arms it.
 const GOLD_LOSS_STREAK = 2;
-const GOLD_LOSS_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6h protective pause
+const GOLD_LOSS_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6h protective pause per side
 
-/** True while gold should be halted because its last GOLD_LOSS_STREAK trades all lost. */
-async function goldLossHalt(admin: Admin): Promise<boolean> {
+/** True while a gold SIDE (buy/sell) is halted because its last GOLD_LOSS_STREAK trades lost. */
+async function goldDirectionHalt(admin: Admin, side: "buy" | "sell"): Promise<boolean> {
+  const wantDir = side === "buy" ? "bullish" : "bearish";
   const { data } = await admin
     .from("genx_signals")
     .select("outcome, resolved_at")
     .in("outcome", ["WIN", "LOSS"])
+    .eq("direction", wantDir)
     .order("resolved_at", { ascending: false, nullsFirst: false })
     .limit(30);
   const rows = (data ?? []) as { outcome: string; resolved_at: string | null }[];
-  // Collapse signals that resolved at the SAME instant (fan-out / one market event)
-  // into a single outcome, newest first — so "2 in a row" counts distinct trades.
+  // Collapse signals that resolved at the SAME instant (fan-out / one market event) into
+  // a single outcome, newest first — so "2 in a row" counts distinct trades on this side.
   const events: { outcome: string; ts: number }[] = [];
   let lastKey = "";
   for (const r of rows) {
@@ -465,7 +469,7 @@ async function goldLossHalt(admin: Admin): Promise<boolean> {
   if (events.length < GOLD_LOSS_STREAK) return false;
   const recent = events.slice(0, GOLD_LOSS_STREAK);
   if (!recent.every((e) => e.outcome === "LOSS")) return false;
-  // Halt for the cooldown measured from the MOST RECENT loss.
+  // Halt THIS side for the cooldown, measured from its most recent loss.
   return Date.now() < recent[0].ts + GOLD_LOSS_COOLDOWN_MS;
 }
 
@@ -490,9 +494,10 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // inside the blackout window, hold this ENTER NOW. GENX will re-offer once it passes.
   try { if ((await newsHold("XAUUSD")).hold) return { members: 0, placed: 0 }; } catch { /* feed down → don't block */ }
 
-  // PROTECTIVE HALT: if gold just lost 2 in a row, pause new gold entries for the
-  // cooldown so the desk isn't repeatedly trading into a trend (e.g. shorting a bull run).
-  try { if (await goldLossHalt(admin)) return { members: 0, placed: 0 }; } catch { /* read error → don't block */ }
+  // PROTECTIVE HALT (directional): if THIS side just lost 2 in a row, pause new gold
+  // entries on this side for the cooldown — so it stops trading into a trend (e.g. keeps
+  // re-shorting a bull run) while the winning side stays open.
+  try { if (await goldDirectionHalt(admin, sig.side)) return { members: 0, placed: 0 }; } catch { /* read error → don't block */ }
 
   const { data } = await admin.from("flow_auto_settings").select("*").eq("enabled", true);
   const rows = (data ?? []) as AutoSettings[];
