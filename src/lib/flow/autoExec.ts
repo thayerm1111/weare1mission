@@ -43,6 +43,14 @@ export type AutoSettings = {
 
 const DEFAULT_SYMBOLS = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "NAS100"];
 
+// The LEAD account everyone copies. TRADE SELECTION — which pairs, which horizon,
+// how many can be open at once, how many per hour — follows the lead, so every
+// member takes the EXACT same trades as the lead. Only two things stay per-member:
+// SIZE (each account risk-sizes to its own equity) and whether they COPY AT ALL
+// (credits: out of credits → paused → they don't copy). This makes the lead the
+// single source of truth for what gets traded, so no member can drift.
+const MASTER_USER_ID = "3b5e06e5-258c-4880-b1f2-d1623cbca100"; // Matthew
+
 // ── FLOW auto-run billing ───────────────────────────────────────────────
 // Running auto-run costs 1 credit per 30-minute window, charged only while the
 // market is open (nothing fills when it's closed, so we never burn a member's
@@ -132,11 +140,21 @@ type GuardCtx = {
 };
 
 async function buildGuardCtx(admin: Admin, settings: AutoSettings): Promise<GuardCtx> {
-  const mode = (settings.mode === "intraday" || settings.mode === "swing" ? settings.mode : "quick") as Mode;
-  const symbols = (settings.symbols && settings.symbols.length ? settings.symbols : DEFAULT_SYMBOLS).map((s) => String(s).toUpperCase());
-  const maxLot = settings.max_lot && settings.max_lot > 0 ? settings.max_lot : 0.01;
-  const maxPerHour = settings.max_orders_per_hour && settings.max_orders_per_hour > 0 ? settings.max_orders_per_hour : 10;
-  const maxOpen = settings.max_open && settings.max_open > 0 ? settings.max_open : symbols.length;
+  // Trade-SELECTION knobs come from the LEAD account so every member mirrors it
+  // (pairs, horizon, max concurrent, hourly cap). A member's own selection settings
+  // are intentionally ignored — the lead decides WHAT trades; the member only brings
+  // their accounts + risk %. Falls back to the member's own settings if the lead
+  // can't be read, so a lookup blip never halts trading.
+  let lead = settings;
+  if (settings.user_id !== MASTER_USER_ID) {
+    const { data: leadRow } = await admin.from("flow_auto_settings").select("*").eq("user_id", MASTER_USER_ID).maybeSingle();
+    if (leadRow) lead = leadRow as AutoSettings;
+  }
+  const mode = (lead.mode === "intraday" || lead.mode === "swing" ? lead.mode : "quick") as Mode;
+  const symbols = (lead.symbols && lead.symbols.length ? lead.symbols : DEFAULT_SYMBOLS).map((s) => String(s).toUpperCase());
+  const maxLot = lead.max_lot && lead.max_lot > 0 ? lead.max_lot : 0.01;
+  const maxPerHour = lead.max_orders_per_hour && lead.max_orders_per_hour > 0 ? lead.max_orders_per_hour : 10;
+  const maxOpen = lead.max_open && lead.max_open > 0 ? lead.max_open : symbols.length;
   const cooldownMs = (COOLDOWN_MIN[mode] ?? 90) * 60000;
   const now = Date.now();
   const events = await recentAutoEvents(admin, settings.user_id);
