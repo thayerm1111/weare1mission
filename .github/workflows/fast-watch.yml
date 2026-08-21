@@ -1,0 +1,37 @@
+name: FLOW/GENX fast-watch (30s)
+
+# Sub-minute coverage that COMPLEMENTS the native Vercel Cron (which runs every
+# minute). This loops every ~30s and hits ONLY the fast entry-watch tier, so an
+# at-zone ENTER_NOW is caught in between the minute-boundary Vercel runs and
+# nothing is missed. It passes manage=0 so it NEVER runs the trade-manager — that
+# stays on the once-a-minute Vercel cron alone, so there is no chance of a double
+# break-even / double partial. New-entry placement is de-duplicated server-side
+# by the per-symbol cooldown, so overlapping with the Vercel cron is safe.
+
+on:
+  schedule:
+    - cron: "*/5 * * * 1-5"   # heartbeat that (re)starts the 30s loop if it ends
+  workflow_dispatch: {}         # start it on demand from the Actions tab
+
+concurrency:
+  group: fast-watch
+  cancel-in-progress: true      # a newer trigger restarts a single fresh loop
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: 30s entry watch (FLOW entries + GENX alerts)
+        env:
+          KEY: ${{ secrets.GENX_CRON_KEY || secrets.FLOW_CRON_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then echo "No GENX_CRON_KEY/FLOW_CRON_KEY secret set — skipping"; exit 0; fi
+          FLOW="https://weare1mission.com/api/cron/flow-exec?key=$KEY&watch=1&manage=0"
+          GENX="https://weare1mission.com/api/cron/genx-scan?key=$KEY&watch=1"
+          # ~5.75h of 30-second coverage per run; the schedule restarts a fresh loop.
+          for i in $(seq 0 690); do
+            curl -sS -m 25 -X POST "$FLOW" -o /dev/null -w "t$i flow-watch HTTP %{http_code}\n" || true
+            curl -sS -m 25 -X POST "$GENX" -o /dev/null -w "t$i genx-watch HTTP %{http_code}\n" || true
+            sleep 30
+          done
