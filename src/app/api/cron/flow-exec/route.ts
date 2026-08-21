@@ -41,9 +41,12 @@ async function run(req: NextRequest): Promise<Response> {
     // every ~30s). Full scan otherwise (heavy, runs every ~5 min).
     if (new URL(req.url).searchParams.get("watch") === "1") {
       // Fast tick does two jobs: (1) catch at-zone entries on 1-min candles, and
-      // (2) manage OPEN positions (break-even + partial at +1R, then trail). The
-      // manager is independent of whether any new entry fired this tick.
-      const [w, m] = await Promise.all([runFlowWatch(mdKey), manageOpenPositions()]);
+      // (2) manage OPEN positions (break-even + partial at +1R, then trail).
+      // `manage=0` runs ONLY the entry check — used by the 30-second GitHub
+      // watcher so it can't race the once-a-minute Vercel cron into a double
+      // partial. The trade-manager therefore runs on exactly one scheduler.
+      const doManage = new URL(req.url).searchParams.get("manage") !== "0";
+      const [w, m] = await Promise.all([runFlowWatch(mdKey), doManage ? manageOpenPositions() : Promise.resolve(null)]);
       return json({ ok: true, scope: "watch", asOf: new Date().toISOString(), ...w, manage: m }, 200);
     }
     const out = await runAutoExecAll(mdKey);
