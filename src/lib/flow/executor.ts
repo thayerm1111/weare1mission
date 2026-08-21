@@ -232,14 +232,16 @@ export async function placeOnActiveAccounts(opts: {
   accounts?: ActiveAccount[]; // pass a pre-fetched list to avoid re-minting tokens
 }): Promise<{ accounts: AccountFill[]; placed: number }> {
   const canonical = normSym(opts.symbol) || "XAUUSD";
-  const isGold = contractKey(canonical) === "XAUUSD";
   const accts = opts.accounts ?? (await activeAccounts(opts.userId));
   const fills: AccountFill[] = [];
   let placed = 0;
   for (const a of accts) {
     if (a.equity == null) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: "no_equity" }); continue; }
-    const floorToMinLot = isGold && a.equity < 500;
-    const s = sizeFromRisk({ canonical, entry: opts.entry, stop: opts.stop, equity: a.equity, riskPct: opts.riskPct, floorToMinLot });
+    // Whenever risk-sizing rounds BELOW the broker minimum lot, take the minimum
+    // (e.g. 0.01) rather than skip — so a small account still gets the trade. On a
+    // tiny account that minimum may risk a bit more than the target %, but the broker
+    // minimum is the smallest tradeable size, so it's take-the-minimum or sit out.
+    const s = sizeFromRisk({ canonical, entry: opts.entry, stop: opts.stop, equity: a.equity, riskPct: opts.riskPct, floorToMinLot: true });
     if (!s.ok || !(s.lots > 0)) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: s.reason || "size_too_small" }); continue; }
     const lots = Math.min(s.lots, 100); // fat-finger backstop
     const r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, opts.stop, opts.tp ?? null);
