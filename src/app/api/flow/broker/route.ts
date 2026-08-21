@@ -30,13 +30,14 @@ export async function GET() {
   const accounts: Record<string, unknown>[] = [];
   for (const c of conns) {
     const { data: accts } = admin
-      ? await admin.from("flow_broker_accounts").select("account_id, acc_num, name, currency, balance, equity, open_positions, is_selected, autotrade_enabled").eq("connection_id", c.id).order("created_at", { ascending: true })
+      ? await admin.from("flow_broker_accounts").select("account_id, acc_num, name, currency, balance, equity, open_positions, is_selected, autotrade_enabled, genx_follower").eq("connection_id", c.id).order("created_at", { ascending: true })
       : { data: [] };
     for (const a of accts ?? []) {
       accounts.push({
         accountId: a.account_id, accNum: a.acc_num, name: a.name, currency: a.currency,
         balance: a.balance, equity: a.equity, openPositions: a.open_positions,
         selected: a.is_selected, autotradeEnabled: a.autotrade_enabled !== false,
+        genxFollower: a.genx_follower === true,
         connectionId: c.id, environment: c.environment, server: c.server,
       });
     }
@@ -79,6 +80,18 @@ export async function POST(req: NextRequest) {
     if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
     await q;
     return json({ ok: true, accountId, autotradeEnabled: enabled });
+  }
+
+  if (action === "genxfollow") {
+    // Turn a single account into a GENX FOLLOWER (takes every gold ENTER NOW at
+    // 0.01, raw) — or off. Independent of the FLOW autotrade toggle above.
+    const accountId = String(body.accountId || "");
+    if (!accountId) return json({ error: "missing_account" }, 200);
+    const enabled = body.enabled === true; // default OFF (opt-in)
+    let q = admin.from("flow_broker_accounts").update({ genx_follower: enabled, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
+    if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
+    await q;
+    return json({ ok: true, accountId, genxFollower: enabled });
   }
 
   if (action === "select") {
