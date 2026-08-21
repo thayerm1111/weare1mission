@@ -32,18 +32,72 @@ export type TLResult<T> = { ok: true; data: T } | { ok: false; status: number; e
 
 const TIMEOUT_MS = 15000;
 
+// ── Outbound request pacing + rate-limit retry ─────────────────────────────
+// TradeLocker's edge (Cloudflare) rate-limits by IP and returns HTTP 429 with
+// "Error 1015: You are being rate limited". When a member has several accounts
+// on one broker login, the auto-exec fan-out fires many calls to the SAME host
+// in the same tick and trips that limit — so a signal fills on some accounts
+// (e.g. Genesis) and fails on others (e.g. Crucial, which has 3 accounts).
+// Defense is two-layered: (1) serialize calls PER HOST with a minimum gap so a
+// burst is spread out instead of arriving all at once, and (2) retry a 429 /
+// 1015 with exponential backoff. A 1015 is blocked at the edge BEFORE it reaches
+// the broker, so retrying it is safe even for order placement (nothing was
+// submitted). Generic 429s without the 1015 marker are only retried for GETs.
+const HOST_MIN_GAP_MS = 150;
+const RL_MAX_RETRIES = 4;
+const _hostTail = new Map<string, Promise<unknown>>();
+const _hostLastAt = new Map<string, number>();
+const _sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Run `fn` after waiting out this host's minimum inter-request gap, serialized
+ *  so concurrent callers to the same host queue instead of bursting. */
+function pacedByHost<T>(host: string, fn: () => Promise<T>): Promise<T> {
+  const prev = _hostTail.get(host) ?? Promise.resolve();
+  const run = prev.then(async () => {
+    const gap = HOST_MIN_GAP_MS - (Date.now() - (_hostLastAt.get(host) ?? 0));
+    if (gap > 0) await _sleep(gap);
+    try { return await fn(); } finally { _hostLastAt.set(host, Date.now()); }
+  });
+  // keep the chain alive even if this call throws, so the queue never wedges
+  _hostTail.set(host, run.then(() => {}, () => {}));
+  return run;
+}
+
+function isCloudflare1015(status: number, text: string): boolean {
+  return status === 429 && /1015|error-1015|being rate limited/i.test(text);
+}
+
 async function tlFetch(env: TLEnv, path: string, init: RequestInit & { accessToken?: string; accNum?: string } = {}): Promise<{ status: number; json: unknown; text: string }> {
-  const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const host = TL_HOSTS[env];
+  const method = String(init.method || "GET").toUpperCase();
+  const isGet = method === "GET";
   const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json" };
   if (init.accessToken) headers["Authorization"] = `Bearer ${init.accessToken}`;
   if (init.accNum) headers["accNum"] = String(init.accNum);
-  try {
-    const r = await fetch(`${TL_HOSTS[env]}${path}`, { ...init, headers: { ...headers, ...(init.headers as Record<string, string> || {}) }, signal: ctrl.signal, cache: "no-store" });
-    const text = await r.text();
-    let json: unknown = null; try { json = text ? JSON.parse(text) : null; } catch { /* non-json */ }
-    return { status: r.status, json, text };
-  } finally { clearTimeout(to); }
+
+  const once = async (): Promise<{ status: number; json: unknown; text: string }> => {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    try {
+      const r = await fetch(`${host}${path}`, { ...init, headers: { ...headers, ...(init.headers as Record<string, string> || {}) }, signal: ctrl.signal, cache: "no-store" });
+      const text = await r.text();
+      let json: unknown = null; try { json = text ? JSON.parse(text) : null; } catch { /* non-json */ }
+      return { status: r.status, json, text };
+    } finally { clearTimeout(to); }
+  };
+
+  return pacedByHost(host, async () => {
+    let res = await once();
+    for (let attempt = 0; attempt < RL_MAX_RETRIES; attempt++) {
+      // Retry a rate-limit: always for the edge-level 1015 (request never reached
+      // the broker, so it's safe even for POSTs), and for any 429/503 on a GET.
+      const rateLimited = isCloudflare1015(res.status, res.text) || ((res.status === 429 || res.status === 503) && isGet);
+      if (!rateLimited) break;
+      await _sleep(400 * Math.pow(2, attempt) + Math.floor(Math.random() * 250)); // 0.4s,0.8s,1.6s,3.2s + jitter
+      res = await once();
+    }
+    return res;
+  });
 }
 
 function pick<T = unknown>(o: unknown, ...keys: string[]): T | undefined {

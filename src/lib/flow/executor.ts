@@ -115,8 +115,12 @@ async function resolveNewPositionId(a: { env: TLEnv; token: string; accNum: stri
 // failure — dramatically fewer broker calls, so fills land on all accounts.
 const INSTRUMENT_TTL_MS = 10 * 60_000;
 const instrumentCache = new Map<string, { at: number; data: TLInstrument[] }>();
-async function instrumentsFor(a: { env: TLEnv; token: string; accNum: string; accountId: string }): Promise<{ ok: true; data: TLInstrument[] } | { ok: false; error: string }> {
-  const key = `${a.env}:${a.accountId}`;
+async function instrumentsFor(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }): Promise<{ ok: true; data: TLInstrument[] } | { ok: false; error: string }> {
+  // Key by CONNECTION when we know it: every account under one broker login shares
+  // the same instrument universe, so the accounts on a multi-account login (e.g. the
+  // 3 Crucial accounts) reuse ONE fetch instead of each hammering the broker — which
+  // is what was tripping the broker's rate limit and failing all but one account.
+  const key = a.connId ? `conn:${a.env}:${a.connId}` : `${a.env}:${a.accountId}`;
   const hit = instrumentCache.get(key);
   if (hit && Date.now() - hit.at < INSTRUMENT_TTL_MS) return { ok: true, data: hit.data };
   let lastErr = "instrument_list_failed";
@@ -131,7 +135,7 @@ async function instrumentsFor(a: { env: TLEnv; token: string; accNum: string; ac
   return { ok: false, error: lastErr };
 }
 
-async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean }> {
+async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean }> {
   const instRes = await instrumentsFor(a);
   if (!instRes.ok) return { ok: false, error: `instrument_list_failed: ${instRes.error}`.slice(0, 160) };
   const tl = matchInstrument(canonical, instRes.data);
@@ -201,7 +205,7 @@ export async function placeMarketOrder(opts: {
   const accNum = acctRow?.acc_num ? String(acctRow.acc_num) : null;
   if (!accNum) return { status: "error", reason: "no_acc_num", environment: fresh.env };
 
-  const r = await placeOnAccount({ env: fresh.env, token: fresh.token, accNum, accountId }, canonical, opts.side, opts.qty, opts.stop, opts.tp);
+  const r = await placeOnAccount({ env: fresh.env, token: fresh.token, accNum, accountId, connId: conn.id }, canonical, opts.side, opts.qty, opts.stop, opts.tp);
   if (!r.ok) {
     await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: opts.qty, status: r.deferred ? "deferred" : "error", reason: `${opts.source}: ${r.error}`.slice(0, 200), account_id: accountId });
     return { status: "error", reason: r.deferred ? "Market session closed — will retry when it reopens." : r.error, environment: fresh.env };
@@ -238,7 +242,7 @@ export async function placeOnActiveAccounts(opts: {
     const s = sizeFromRisk({ canonical, entry: opts.entry, stop: opts.stop, equity: a.equity, riskPct: opts.riskPct, floorToMinLot });
     if (!s.ok || !(s.lots > 0)) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: s.reason || "size_too_small" }); continue; }
     const lots = Math.min(s.lots, 100); // fat-finger backstop
-    const r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId }, canonical, opts.side, lots, opts.stop, opts.tp ?? null);
+    const r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, opts.stop, opts.tp ?? null);
     if (!r.ok) {
       // Session-closed rejection isn't a failure — the next tick retries once the
       // market reopens. Record it as "deferred"/skipped so it doesn't spam errors.
