@@ -7,8 +7,9 @@ name: xGhost auto-scan
 # the work happens server-side.
 
 on:
-  schedule:
-    - cron: "*/15 * * * 1-5"   # every 15 min, Mon–Fri (UTC)
+  # Native Vercel Cron (see vercel.json) now runs the xGhost scan every 15 min on
+  # Vercel's own scheduler (Pro plan). The GitHub schedule is removed so the two
+  # don't double-run; kept as a manual-dispatch backup you can start any time.
   workflow_dispatch: {}         # allow manual runs from the Actions tab
 
 concurrency:

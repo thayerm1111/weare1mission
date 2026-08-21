@@ -11,8 +11,9 @@ name: FLOW auto-executor
 # GENX_CRON_KEY, or CRON_SECRET) so it needs no new configuration.
 
 on:
-  schedule:
-    - cron: "*/5 * * * 1-5"   # a heartbeat to (re)start the loop if it ever ends
+  # Native Vercel Cron (see vercel.json) now drives the executor every minute on
+  # Vercel's own scheduler (Pro plan). The GitHub schedule is removed so the two
+  # don't double-run; kept as a manual-dispatch backup you can start any time.
   workflow_dispatch: {}         # start it on demand from the Actions tab
 
 concurrency:
