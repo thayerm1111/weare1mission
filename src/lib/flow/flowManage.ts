@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { connectionToken } from "@/lib/flow/connection";
 import { matchInstrument } from "@/lib/flow/executor";
-import { normalizeQuantity, getInstrument } from "@/lib/flow/instruments";
+import { normalizeQuantity, getInstrument, priceToPips } from "@/lib/flow/instruments";
 import { contractKey } from "@/lib/flow/sizing";
 import { listInstruments, listPositions, getQuote, modifyPosition, closePosition, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 
@@ -54,6 +54,52 @@ function posIdOf(p: unknown): string {
 function roundPx(symbol: string, price: number): number {
   const prec = getInstrument(contractKey(symbol)).pricePrecision ?? 2;
   return +price.toFixed(prec);
+}
+
+export type FlowOutcomeKind = "stop" | "breakeven" | "trail" | "target";
+export type FlowOutcome = { outcome: FlowOutcomeKind; result_pips: number; exit_price: number; partial_taken: boolean };
+
+/**
+ * Classify a CLOSED managed position into the track-record outcome, from the
+ * lifecycle we recorded — no broker call needed. Logic mirrors what the manager
+ * actually does to the trade:
+ *   • Never reached +1R (be_done=false) → it stopped out → 'stop' (the only loss).
+ *   • Reached +1R (partial banked) and price tagged the target (best crossed tp1)
+ *     → 'target' (full winner: half at +1R, half at the target).
+ *   • Reached +1R, ran past break-even and trailed out in profit below target
+ *     → 'trail' (partial banked + the runner locked in extra via the trail).
+ *   • Reached +1R but the runner came right back to break-even → 'breakeven'
+ *     (partial banked, runner scratched — a small net win, no loss).
+ * result_pips is POSITION-WEIGHTED: the partial is half the size, the runner the
+ * other half (exiting at its trailing stop). 'stop' is the only negative outcome.
+ * Note: a member who MANUALLY closes a trade before +1R is recorded as 'stop'
+ * since we don't have their manual exit price — rare, and flagged in the UI copy.
+ */
+export function classifyOutcome(row: Pick<ManagedRow, "symbol" | "side" | "entry" | "init_stop" | "tp1" | "best_price" | "cur_stop" | "be_done" | "partial_done">): FlowOutcome {
+  const sym = contractKey(row.symbol);
+  const long = row.side === "buy";
+  const rPips = priceToPips(sym, Math.abs(row.entry - row.init_stop));
+
+  if (!row.be_done) {
+    return { outcome: "stop", result_pips: -rPips, exit_price: row.init_stop, partial_taken: false };
+  }
+  const tp1 = row.tp1;
+  const best = row.best_price;
+  const hitTarget = tp1 != null && best != null && (long ? best >= tp1 : best <= tp1);
+  if (hitTarget && tp1 != null) {
+    const tpPips = priceToPips(sym, Math.abs(tp1 - row.entry));
+    return { outcome: "target", result_pips: Math.round(0.5 * rPips + 0.5 * tpPips), exit_price: tp1, partial_taken: true };
+  }
+  // Runner exited at its trailing/break-even stop (ratchet keeps it at/above entry).
+  const exit = row.cur_stop ?? row.entry;
+  const runnerPips = priceToPips(sym, Math.abs(exit - row.entry)); // >= 0 after break-even
+  const isBE = runnerPips <= Math.max(1, 0.2 * rPips);
+  return {
+    outcome: isBE ? "breakeven" : "trail",
+    result_pips: Math.round(0.5 * rPips + 0.5 * runnerPips),
+    exit_price: exit,
+    partial_taken: true,
+  };
 }
 
 /**
@@ -129,9 +175,15 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       if (!st) { await admin.from("flow_managed_positions").update({ last_error: "account_read", updated_at: new Date().toISOString() }).eq("id", row.id); continue; }
 
       // Position gone from the broker → it closed (SL/TP hit, or member closed it).
+      // Classify the outcome for the track record from the lifecycle we recorded.
       if (!st.openIds.has(String(row.position_id))) {
-        await admin.from("flow_managed_positions").update({ status: "closed", last_error: null, updated_at: new Date().toISOString() }).eq("id", row.id);
-        actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "closed" });
+        const oc = classifyOutcome(row);
+        await admin.from("flow_managed_positions").update({
+          status: "closed", last_error: null,
+          outcome: oc.outcome, result_pips: oc.result_pips, exit_price: oc.exit_price, partial_taken: oc.partial_taken,
+          resolved_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        }).eq("id", row.id);
+        actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "closed", detail: `${oc.outcome} ${oc.result_pips>0?"+":""}${oc.result_pips}p` });
         continue;
       }
 
