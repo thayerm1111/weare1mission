@@ -155,6 +155,32 @@ async function buildGuardCtx(admin: Admin, settings: AutoSettings): Promise<Guar
   return { mode, symbols, maxLot, cooldownMs, now, events, placed, hourBudget, openSymbols, maxOpen, riskPct, accounts };
 }
 
+// ── STRICT MIRROR: one active trade per symbol, desk-wide ────────────────────
+// Every account should take the SAME signal at the SAME entry/stop. If an account
+// MISSES a signal's entry window (a disconnect, a broker hiccup, cooldown timing),
+// it must SIT OUT that trade — never fill a LATER, different entry on the same pair
+// while other accounts are still in the first one. (That's what put Matthew's
+// Genesis and Josh's Crucial into two different GBPUSD trades with different stops
+// and different outcomes.) We enforce it by checking, desk-wide, for an OPEN FLOW
+// position on this symbol that was opened more than a few minutes ago — i.e. from
+// an EARLIER signal, not this same fan-out. Same-pass placements (<5 min, so all
+// accounts still enter the SAME signal together) are allowed; a later divergent
+// entry is blocked until the shared trade closes.
+const MIRROR_SAME_PASS_MS = 5 * 60_000;
+async function deskInActiveTrade(admin: Admin, symbol: string): Promise<boolean> {
+  try {
+    const cutoff = new Date(Date.now() - MIRROR_SAME_PASS_MS).toISOString();
+    const { data } = await admin
+      .from("flow_managed_positions")
+      .select("id")
+      .eq("status", "open")
+      .eq("symbol", symbol)
+      .lt("created_at", cutoff)
+      .limit(1);
+    return !!(data && data.length);
+  } catch { return false; } // never block placement on a guard read error
+}
+
 /** Apply the per-member guardrails and, if they pass, place ONE market order. Mutates ctx. */
 async function guardAndPlace(admin: Admin, settings: AutoSettings, ctx: GuardCtx, symbol: string, side: "buy" | "sell", levels: Levels, price?: number | null): Promise<SymbolResult> {
   const ms = (iso: string) => ctx.now - new Date(iso).getTime();
@@ -179,6 +205,10 @@ async function guardAndPlace(admin: Admin, settings: AutoSettings, ctx: GuardCtx
   if (stopPx == null) return { symbol, action: "skip_no_stop" };
   if (entryPx == null) return { symbol, action: "skip_no_entry" };
   if (!ctx.accounts.length) return { symbol, action: "skip_no_accounts" };
+
+  // STRICT MIRROR: if the desk is already in an OPEN trade on this pair from an
+  // earlier signal, sit this account out — don't open a later, divergent entry.
+  if (await deskInActiveTrade(admin, symbol)) return { symbol, action: "mirror_wait" };
 
   // ATOMIC anti-duplicate gate. The in-memory cooldown check above is a snapshot
   // read at run start, so two OVERLAPPING scheduler runs (Vercel 1-min cron +
@@ -386,6 +416,11 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   if (!admin) return { members: 0, placed: 0 };
   const entry = (sig.entryLow != null && sig.entryHigh != null) ? (sig.entryLow + sig.entryHigh) / 2 : (sig.entryLow ?? sig.entryHigh);
   if (entry == null || sig.stop == null) return { members: 0, placed: 0 };
+
+  // STRICT MIRROR: if the desk is already in an OPEN gold trade from an earlier
+  // GENX ENTER NOW, don't open a later divergent gold entry — everyone sits out
+  // until it closes. Checked once so all members still mirror THIS same ENTER NOW.
+  if (await deskInActiveTrade(admin, "XAUUSD")) return { members: 0, placed: 0 };
 
   const { data } = await admin.from("flow_auto_settings").select("*").eq("enabled", true);
   const rows = (data ?? []) as AutoSettings[];
