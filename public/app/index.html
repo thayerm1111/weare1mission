@@ -2344,6 +2344,12 @@ input{font:inherit}
       st[1](Object.assign({}, cur, { accounts: accts }));
       apiPost("/api/flow/broker", { action: "toggle", accountId: a.accountId, connectionId: a.connectionId, enabled: on }).catch(function () { load(); });
     }
+    function toggleFollow(a, on) {
+      // optimistic flip of the GENX-follower flag (separate from FLOW autotrade)
+      var cur = st[0] || {}; var accts = (cur.accounts || []).map(function (x) { return (x.accountId === a.accountId && x.connectionId === a.connectionId) ? Object.assign({}, x, { genxFollower: on }) : x; });
+      st[1](Object.assign({}, cur, { accounts: accts }));
+      apiPost("/api/flow/broker", { action: "genxfollow", accountId: a.accountId, connectionId: a.connectionId, enabled: on }).catch(function () { load(); });
+    }
     function disconnect() { busy[1](true); apiPost("/api/flow/broker", { action: "disconnect" }).then(function () { busy[1](false); okmsg[1](""); err[1](""); load(); }).catch(function () { busy[1](false); }); }
     var s = st[0], connected = s && s.connected, accounts = (s && s.accounts) || [];
     var activeN = accounts.filter(function (a) { return a.autotradeEnabled !== false; }).length;
@@ -2352,11 +2358,20 @@ input{font:inherit}
       ${loading[0] ? html`<div class="gx-analyzing">◆ Checking your broker connection…</div>` : ((connected && !adding[0]) ? html`<div>
         <div class="bk-h">TradeLocker connected</div>
         <div class="bk-sub">${accounts.length} account${accounts.length === 1 ? "" : "s"} · <b style="color:#2ee88f">${activeN} trading</b>. FLOW takes every trade on all accounts switched on.</div>
-        ${accounts.map(function (a) { var on = a.autotradeEnabled !== false; return html`<div class=${"bk-acct " + (on ? "on" : "")}>
+        ${accounts.map(function (a) { var on = a.autotradeEnabled !== false; var fol = a.genxFollower === true; return html`<div>
+          <div class=${"bk-acct " + (on ? "on" : "")}>
           <div><div class="bk-cv">${a.name || ("Account " + a.accountId)} ${a.environment ? html`<span class=${"bk-badge " + (a.environment === "live" ? "live" : "demo")} style="font-size:9px;padding:1px 5px">${(a.environment || "").toUpperCase()}</span>` : null}</div><div class="bk-ck" style="margin-top:3px">#${a.accNum || a.accountId}${a.currency ? " · " + a.currency : ""} · ${fmtMoney(a.equity != null ? a.equity : a.balance)}</div></div>
           <div style="display:flex;align-items:center;gap:8px">
             <span style=${"font-size:11px;font-weight:700;color:" + (on ? "#2ee88f" : "rgba(255,255,255,.4)")}>${on ? "Trading" : "Off"}</span>
             <button onClick=${function () { toggleAcct(a, !on); }} style=${"position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (on ? "#2ee88f" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (on ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
+          </div>
+          </div>
+          <div style=${"display:flex;align-items:center;justify-content:space-between;border:1px solid " + (fol ? "rgba(245,180,60,.5)" : "var(--line)") + ";border-top:0;border-radius:0 0 11px 11px;padding:8px 12px;margin-top:-4px;background:" + (fol ? "rgba(245,180,60,.09)" : "rgba(0,0,0,.18)")}>
+            <div><div style="font-size:12px;font-weight:700;color:#f5c451">⚡ Follow every GENX signal</div><div class="bk-ck" style="margin-top:2px">Takes every gold call at a flat 0.01 lot — raw, no caps. Separate from FLOW.</div></div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style=${"font-size:11px;font-weight:700;color:" + (fol ? "#f5c451" : "rgba(255,255,255,.4)")}>${fol ? "On" : "Off"}</span>
+              <button onClick=${function () { toggleFollow(a, !fol); }} style=${"position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (fol ? "#f5b43c" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (fol ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
+            </div>
           </div>
         </div>`; })}
         ${!accounts.length ? html`<div class="bk-note">No account details loaded yet. Tap re-check, or reconnect.</div>` : null}
