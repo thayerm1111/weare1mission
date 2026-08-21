@@ -124,9 +124,11 @@ export async function GET() {
   // ── FOREX tally (from FLOW's outcome ledger) ──
   const overall = emptyTally();
   const perPairMap = new Map<string, Tally>();
+  let forexGross = 0; // pips banked by WINNERS only (losses shown in W/L, not netted out)
   for (const s of signals) {
     const o = s.outcome as string;
     const pips = typeof s.result_pips === "number" ? s.result_pips : 0;
+    if (WIN.has(o)) forexGross += pips;
     add(overall, o, pips);
     const sym = String(s.symbol).toUpperCase();
     if (!perPairMap.has(sym)) perPairMap.set(sym, emptyTally());
@@ -137,10 +139,12 @@ export async function GET() {
   // ── GOLD tally (from the GENX ledger) — WIN → banked target pips, LOSS → stop. ──
   const goldRows = ((gold?.data || []) as GoldSig[]).filter((s) => s.outcome === "WIN" || s.outcome === "LOSS");
   const goldT = emptyTally();
+  let goldGross = 0; // pips banked by GOLD winners only (losses shown in W/L, not netted out)
   const goldRecent: { symbol: string; side: string; outcome: string; win: boolean; pips: number | null; at: string }[] = [];
   for (const s of goldRows) {
     const win = s.outcome === "WIN";
     const pips = win ? goldWinPips(s) : -(s.stop_pips ?? 0);
+    if (win) goldGross += goldWinPips(s);
     // Map to the flow taxonomy: a gold win hit its target; a gold loss is a stop.
     add(goldT, win ? "target" : "stop", pips);
     goldRecent.push({
@@ -180,11 +184,12 @@ export async function GET() {
 
   return json({
     open: openCount ?? 0,
-    ...summarize(overall),          // COMBINED desk-wide totals (forex + gold)
+    ...summarize(overall),          // COMBINED desk-wide totals (forex + gold); `pips` here is NET (for the detailed FLOW track record)
+    pipsWon: Math.round(goldGross + forexGross), // GROSS pips banked by winners (the desk "Pips won" headline)
     perPair,
     recent,
-    // Split for the scoreboard cards — same numbers, grouped by engine.
-    gold: { wins: goldSummary.wins, losses: goldSummary.stops, pips: goldSummary.pips, winRate: goldSummary.winRate, trades: goldSummary.trades },
-    forex: { wins: forexSummary.wins, stops: forexSummary.stops, pips: forexSummary.pips, winRate: forexSummary.winRate, trades: forexSummary.trades, open: openCount ?? 0 },
+    // Split for the scoreboard cards — grouped by engine, pips = GROSS pips won.
+    gold: { wins: goldSummary.wins, losses: goldSummary.stops, pips: Math.round(goldGross), winRate: goldSummary.winRate, trades: goldSummary.trades },
+    forex: { wins: forexSummary.wins, stops: forexSummary.stops, pips: Math.round(forexGross), winRate: forexSummary.winRate, trades: forexSummary.trades, open: openCount ?? 0 },
   }, 200);
 }
