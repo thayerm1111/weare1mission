@@ -202,19 +202,32 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   if (!rows.length) return { managed: 0, actions: [] };
 
   // Per-account MANAGEMENT switch (breakeven + partials + trail). Default ON; a member
-  // can turn an account OFF so its trades ride the raw SL/TP untouched. Loaded once for
-  // every account that has an open position this tick. If the column doesn't exist yet,
-  // the select fails and the set stays empty → every account is managed (prior behavior).
+  // can turn an account OFF so its trades ride the raw SL/TP untouched. Also loads a
+  // per-account GOLD breakeven-pips override: when set (>0), gold trades on that account
+  // move to breakeven AND take the partial at exactly that many pips instead of the AI's
+  // R-based trigger. GOLD ONLY — forex is never affected, and a null value means "let the
+  // AI choose", i.e. today's behavior. Loaded once for every account with an open position
+  // this tick. If the columns don't exist yet, the select fails and both fall back to the
+  // prior behavior (all managed, AI-chosen triggers).
   const manageOff = new Set<string>();
+  const goldBePips = new Map<string, number>(); // account_id → custom gold BE/partial pips
   try {
     const acctIds = [...new Set(rows.map((r) => String(r.account_id)))];
     if (acctIds.length) {
-      const res = await admin.from("flow_broker_accounts").select("account_id, manage_trades").in("account_id", acctIds);
-      if (!res.error) for (const a of (res.data ?? []) as { account_id: string; manage_trades?: boolean | null }[]) {
+      type AcctCfg = { account_id: string; manage_trades?: boolean | null; gold_be_pips?: number | null };
+      let cfg: AcctCfg[] = [];
+      const withGold = await admin.from("flow_broker_accounts").select("account_id, manage_trades, gold_be_pips").in("account_id", acctIds);
+      if (!withGold.error) cfg = (withGold.data ?? []) as unknown as AcctCfg[];
+      else {
+        const fb = await admin.from("flow_broker_accounts").select("account_id, manage_trades").in("account_id", acctIds);
+        cfg = (fb.data ?? []) as unknown as AcctCfg[];
+      }
+      for (const a of cfg) {
         if (a.manage_trades === false) manageOff.add(String(a.account_id));
+        if (typeof a.gold_be_pips === "number" && a.gold_be_pips > 0) goldBePips.set(String(a.account_id), a.gold_be_pips);
       }
     }
-  } catch { /* column missing / read blip → treat all as managed */ }
+  } catch { /* column missing / read blip → treat all as managed, AI triggers */ }
 
   // One fresh token per connection; one instrument list + positions list + quote
   // cache per account — so N positions on one account cost one round-trip each.
@@ -323,8 +336,14 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
 
       // Profit distances are always positive, so nothing below fires while in drawdown.
       const pip = getInstrument(contractKey(row.symbol)).pipSize || 0.0001;
-      const beTrigger = Math.max(BE_TRIGGER_R * R, BE_MIN_PIPS * pip);   // protect profit
-      const partialTrigger = partialTriggerR(row.entry, row.init_stop, row.tp1) * R; // bank 50%
+      // GOLD custom breakeven pips: if this is a GOLD trade AND the account has a pip
+      // override set, breakeven + partial both fire at exactly that many pips of profit
+      // (pip = 0.1 for gold, so 40 pips = a $4.00 move). GOLD ONLY — forex always uses the
+      // AI's R-based triggers below, unchanged. A null/absent override → AI-chosen too.
+      const goldPipsOverride = contractKey(row.symbol) === "XAUUSD" ? goldBePips.get(String(row.account_id)) : undefined;
+      const useGoldPips = typeof goldPipsOverride === "number" && goldPipsOverride > 0;
+      const beTrigger = useGoldPips ? goldPipsOverride * pip : Math.max(BE_TRIGGER_R * R, BE_MIN_PIPS * pip);   // protect profit
+      const partialTrigger = useGoldPips ? goldPipsOverride * pip : partialTriggerR(row.entry, row.init_stop, row.tp1) * R; // bank 50%
       const bePx = roundPx(row.symbol, row.entry);
 
       // ── STEP 1: BREAK-EVEN. As soon as we're up ~half the risk, slide the stop to the
