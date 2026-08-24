@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { manageOpenPositions, acquireManageLock, extendManageLock, releaseManageLock } from "@/lib/flow/flowManage";
+import { beat } from "@/lib/flow/health";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,6 +53,7 @@ async function run(req: NextRequest): Promise<Response> {
       try { const r = await manageOpenPositions(); lastManaged = r?.managed ?? lastManaged; }
       catch { /* one bad tick never stops the loop */ }
       ticks += 1;
+      await beat(admin, "manager", { ticks, lastManaged }); // liveness signal for the watchdog
       await extendManageLock(admin, holder);
       const remaining = BUDGET_MS - (Date.now() - start);
       if (remaining <= 500) break;
