@@ -501,3 +501,24 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
 
   return { managed, actions };
 }
+
+// ── CONTINUOUS-MANAGER LOCK ──────────────────────────────────────────────────
+// The high-frequency manager loop (/api/cron/flow-manage) runs the break-even →
+// partial → trail check every few seconds. This DB lock guarantees only ONE run
+// manages at a time, so overlapping invocations (the loop + the 1-min fallback)
+// can never double-fire a partial. A crashed holder's lock simply expires.
+export async function acquireManageLock(admin: Admin, holder: string, ttlMs = 20000): Promise<boolean> {
+  const nowIso = new Date().toISOString();
+  const exp = new Date(Date.now() + ttlMs).toISOString();
+  const { data } = await admin.from("flow_manage_lock")
+    .update({ holder, expires_at: exp })
+    .eq("id", 1).lt("expires_at", nowIso).select("id");
+  return Array.isArray(data) && data.length > 0;
+}
+export async function extendManageLock(admin: Admin, holder: string, ttlMs = 20000): Promise<void> {
+  const exp = new Date(Date.now() + ttlMs).toISOString();
+  await admin.from("flow_manage_lock").update({ expires_at: exp }).eq("id", 1).eq("holder", holder);
+}
+export async function releaseManageLock(admin: Admin, holder: string): Promise<void> {
+  await admin.from("flow_manage_lock").update({ expires_at: new Date().toISOString() }).eq("id", 1).eq("holder", holder);
+}
