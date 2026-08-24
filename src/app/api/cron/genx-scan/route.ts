@@ -221,8 +221,8 @@ async function run(): Promise<Response> {
           });
           // FLOW copies this gold ENTER NOW to every credited member (once per move).
           try { await placeGenxGold({ side, entryLow: genx.entry_low, entryHigh: genx.entry_high, stop: genx.stop_loss, tp: genx.tp1 }); } catch { /* placement is best-effort */ }
-          // FOLLOWER accounts take EVERY GENX signal at a flat 0.01, raw (separate from FLOW).
-          try { await placeGenxFollower({ signalKey: dedupeKey, side, stop: genx.stop_loss, tp: genx.tp1 }); } catch { /* follower is best-effort */ }
+          // FOLLOWER accounts take EVERY GENX signal, risk-sized to each account's own % (separate from FLOW).
+          try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: genx.entry_low, entryHigh: genx.entry_high, stop: genx.stop_loss, tp: genx.tp1 }); } catch { /* follower is best-effort */ }
           sent.push(`${mode}:ENTER(immediate)`); modeOut.result = "enter_immediate";
         } else {
           // Developing → heads-up now, watch for the entry on future ticks.
@@ -250,7 +250,7 @@ async function run(): Promise<Response> {
           if (tgReady) await sendTelegram(enterMsg(side, mode, { entry_low: row.entry_low, entry_high: row.entry_high, stop: row.stop, tp1: row.tp1, tp2: row.tp2, tp3: row.tp3 }, conf.enter ?? conf.price, false));
           await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
           try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1 }); } catch { /* placement is best-effort */ }
-          try { await placeGenxFollower({ signalKey: dedupeKey, side, stop: row.stop, tp: row.tp1 }); } catch { /* follower is best-effort */ }
+          try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1 }); } catch { /* follower is best-effort */ }
           sent.push(`${mode}:ENTER`); modeOut.result = "enter";
         } else if (conf.state === "INVALIDATED") {
           if (tgReady) await sendTelegram(invalidMsg(side, mode, { entry_low: row.entry_low, entry_high: row.entry_high, invalidation: row.invalidation }));
@@ -316,7 +316,7 @@ async function runWatch(): Promise<Response> {
         // whether the ENTER NOW fired from the 5-min scan or this 1-min fast-watch.
         try {
           const fKey = (row.entry_low != null && row.entry_high != null) ? `${row.mode}:${side}:${r1(row.entry_low)}:${r1(row.entry_high)}` : `id:${row.id}`;
-          await placeGenxFollower({ signalKey: fKey, side, stop: row.stop, tp: row.tp1 });
+          await placeGenxFollower({ signalKey: fKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1 });
         } catch { /* follower is best-effort */ }
         sent.push(`${row.mode}:ENTER`);
       } else if (conf.state === "INVALIDATED") {
