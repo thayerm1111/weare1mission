@@ -108,6 +108,11 @@ const DOUBLE_RR = 1.8;
 // stop for a spread-width blip on an ultra-tight stop.
 const BE_MIN_PIPS = 8;
 
+// GOLD default break-even trigger (pips) when an account has no per-account gold_be_pips
+// override set. Gold moves the stop to entry once it's this many pips in profit — so every
+// account protects a gold winner early, not only ones with the override configured.
+const DEFAULT_GOLD_BE_PIPS = 35;
+
 // PROTECTIVE TRAIL (after break-even). The runner's stop rides GIVEBACK_R behind the best
 // price (loose enough to breathe toward target); once the move gets CLOSE — within NEAR_TP_R
 // of take-profit, or NEAR_PARTIAL_R below the halfway/partial level — it tightens to
@@ -407,9 +412,13 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
 
       // GOLD pips override (if set) moves break-even EARLIER than halfway. The floor keeps a
       // no-TP trade sane. Partial always uses the halfway-to-target point (1:2+ only).
-      const goldOverride = contractKey(row.symbol) === "XAUUSD" ? goldBePips.get(String(row.account_id)) : undefined;
-      const beByPips = typeof goldOverride === "number" && goldOverride > 0
-        ? (long ? entry + goldOverride * pip : entry - goldOverride * pip)
+      // Gold uses a break-even-pips trigger: the account's own override if set, else the gold
+      // default — so every gold trade protects early, not only accounts with a custom value.
+      const goldPips = contractKey(row.symbol) === "XAUUSD"
+        ? (goldBePips.get(String(row.account_id)) ?? DEFAULT_GOLD_BE_PIPS)
+        : undefined;
+      const beByPips = typeof goldPips === "number" && goldPips > 0
+        ? (long ? entry + goldPips * pip : entry - goldPips * pip)
         : null;
       const beFloor = long ? entry + BE_MIN_PIPS * pip : entry - BE_MIN_PIPS * pip;
       // Break-even trigger price = earliest of {gold-pips, halfway, +1R-fallback}, but never
