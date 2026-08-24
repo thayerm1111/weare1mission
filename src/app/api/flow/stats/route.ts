@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { goldTally, dedupeGold, goldWinPips, goldLossPips, type GoldSig } from "@/lib/genx/goldRecord";
+import { goldTally, dedupeGold, goldIsWin, goldOutcomePips, type GoldSig } from "@/lib/genx/goldRecord";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,7 +93,7 @@ export async function GET() {
       .limit(2000),
     admin
       .from("genx_signals")
-      .select("created_at,resolved_at,direction,outcome,entry,stop_loss,tp1,tp2,tp3,stop_pips,tp1_pips,tp2_pips,tp3_pips,tp1_hit,tp2_hit,tp3_hit")
+      .select("created_at,resolved_at,direction,outcome,entry,stop_loss,tp1,tp2,tp3,stop_pips,tp1_pips,tp2_pips,tp3_pips,tp1_hit,tp2_hit,tp3_hit,mfe_pips")
       .not("outcome", "is", null)
       .order("resolved_at", { ascending: false, nullsFirst: false })
       .limit(4000),
@@ -144,10 +144,11 @@ export async function GET() {
   const gDed = dedupeGold(gRows);   // deduped rows, for the recent feed
   const goldGross = gT.grossWon;    // pips banked by GOLD winners (deduped)
   const goldRecent = gDed.map((s) => {
-    const win = s.outcome === "WIN";
-    const pips = win ? goldWinPips(s) : -goldLossPips(s);
+    const win = goldIsWin(s); // a stop first saved at breakeven counts as a win
+    const beWin = win && s.outcome !== "WIN"; // breakeven-saved (scratch) rather than a target
+    const pips = goldOutcomePips(s);
     const hitTp = s.tp3_hit ? 3 : s.tp2_hit ? 2 : s.tp1_hit ? 1 : 0;
-    return { symbol: "XAUUSD", side: (s.direction || "").toLowerCase(), outcome: win ? "target" : "stop", win, hitTp, pips: Math.round(pips), at: s.resolved_at || s.created_at || "" };
+    return { symbol: "XAUUSD", side: (s.direction || "").toLowerCase(), outcome: win ? (beWin ? "breakeven" : "target") : "stop", win, hitTp, pips: Math.round(pips), at: s.resolved_at || s.created_at || "" };
   });
   const goldSummary = { wins: gT.wins, stops: gT.losses, winRate: gT.winRate, trades: gT.trades };
 
