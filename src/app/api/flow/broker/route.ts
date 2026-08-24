@@ -27,17 +27,24 @@ export async function GET() {
   if (!conns.length) return json({ connected: false, accounts: [], connections: [] });
   const admin = createAdminClient();
 
+  const baseCols = "account_id, acc_num, name, currency, balance, equity, open_positions, is_selected, autotrade_enabled, genx_follower";
   const accounts: Record<string, unknown>[] = [];
   for (const c of conns) {
-    const { data: accts } = admin
-      ? await admin.from("flow_broker_accounts").select("account_id, acc_num, name, currency, balance, equity, open_positions, is_selected, autotrade_enabled, genx_follower").eq("connection_id", c.id).order("created_at", { ascending: true })
-      : { data: [] };
-    for (const a of accts ?? []) {
+    let accts: Record<string, unknown>[] = [];
+    if (admin) {
+      // Include per-account risk_pct when the column exists; fall back if it hasn't
+      // been added yet so the accounts list never breaks.
+      const withRisk = await admin.from("flow_broker_accounts").select(baseCols + ", risk_pct").eq("connection_id", c.id).order("created_at", { ascending: true });
+      if (!withRisk.error) accts = (withRisk.data ?? []) as unknown as Record<string, unknown>[];
+      else { const fb = await admin.from("flow_broker_accounts").select(baseCols).eq("connection_id", c.id).order("created_at", { ascending: true }); accts = (fb.data ?? []) as unknown as Record<string, unknown>[]; }
+    }
+    for (const a of accts) {
       accounts.push({
         accountId: a.account_id, accNum: a.acc_num, name: a.name, currency: a.currency,
         balance: a.balance, equity: a.equity, openPositions: a.open_positions,
         selected: a.is_selected, autotradeEnabled: a.autotrade_enabled !== false,
         genxFollower: a.genx_follower === true,
+        riskPct: typeof a.risk_pct === "number" && (a.risk_pct as number) > 0 ? a.risk_pct : null,
         connectionId: c.id, environment: c.environment, server: c.server,
       });
     }
@@ -92,6 +99,24 @@ export async function POST(req: NextRequest) {
     if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
     await q;
     return json({ ok: true, accountId, genxFollower: enabled });
+  }
+
+  if (action === "risk") {
+    // Set (or clear) a single account's risk % override. null/empty → use the
+    // owner's default risk. Aggressive on one account, conservative on another.
+    const accountId = String(body.accountId || "");
+    if (!accountId) return json({ error: "missing_account" }, 200);
+    let risk: number | null = null;
+    const raw = body.riskPct;
+    if (raw != null && raw !== "") {
+      const n = Number(raw);
+      if (Number.isFinite(n) && n > 0) risk = Math.min(100, Math.max(0.01, n));
+    }
+    let q = admin.from("flow_broker_accounts").update({ risk_pct: risk, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
+    if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
+    const { error } = await q;
+    if (error) return json({ error: "needs_setup", detail: "Per-account risk isn't set up yet — the risk_pct column is missing." }, 200);
+    return json({ ok: true, accountId, riskPct: risk });
   }
 
   if (action === "select") {
