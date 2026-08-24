@@ -70,8 +70,11 @@ async function feedExtremes(symbol: string): Promise<{ high: number; low: number
  *      the ENTRY. The trade can no longer lose.
  *   2. PARTIAL: only on a 1:2 (or wider) target — bank a 50% partial at that same halfway
  *      point. On a ~1:1 there is no partial; the stop just moves to entry.
- *   3. The remaining runner rides to take-profit with its stop at break-even. (No trailing —
- *      kept deliberately simple.)
+ *   3. TRAIL (runner only): once break-even is set (and, on a 1:2, the partial is banked),
+ *      ratchet the remaining runner's stop up behind the best price it reaches — anchored to
+ *      the REAL fill and the true favorable excursion — so a winner that reverses keeps most
+ *      of its gain. Ratchet only (a long's stop never drops), never below break-even, and
+ *      never through the current market.
  *
  * HARD SAFETY: every stop-to-entry and every partial is gated on the broker itself showing
  * the position IN PROFIT (its unrealized P&L, or price beyond the real fill). We NEVER close
@@ -104,6 +107,15 @@ const DOUBLE_RR = 1.8;
 // Never move the break-even stop on a scratch smaller than this (pips) — avoids nudging the
 // stop for a spread-width blip on an ultra-tight stop.
 const BE_MIN_PIPS = 8;
+
+// PROTECTIVE TRAIL (after break-even). The runner's stop rides GIVEBACK_R behind the best
+// price (loose enough to breathe toward target); once the move gets CLOSE — within NEAR_TP_R
+// of take-profit, or NEAR_PARTIAL_R below the halfway/partial level — it tightens to
+// GIVEBACK_NEAR_R so a run that gets "super close" and reverses locks in most of the gain.
+const GIVEBACK_R = 0.6;
+const GIVEBACK_NEAR_R = 0.25;
+const NEAR_TP_R = 0.4;
+const NEAR_PARTIAL_R = 0.2;
 
 /** Extract a position id from a TradeLocker position entry (object OR column array). */
 function posIdOf(p: unknown): string {
@@ -434,6 +446,32 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
           const cl = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, half.qty);
           if (cl.ok) { update.partial_done = true; update.qty = +(row.qty - half.qty).toFixed(6); didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `−${half.qty} @${(rr).toFixed(1)}R` }); }
           else { update.last_error = `partial_err: ${cl.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_err", detail: cl.error.slice(0, 60) }); }
+        }
+      }
+
+      // ── STEP 3: TRAIL — runner only. After break-even (and, on a 1:2, after the partial),
+      //    ratchet the stop up behind the best price the trade has reached. Anchored to the
+      //    real fill + the favorable excursion; tightens near the target; never below break-
+      //    even and never through the current market. ──
+      if (manageOn && row.be_done && (!isDouble || row.partial_done)) {
+        const peakR = (long ? best - entry : entry - best) / R;
+        const toTargetR = tp != null ? (long ? tp - best : best - tp) / R : 99;
+        const partialR = halfway != null ? (long ? halfway - entry : entry - halfway) / R : 1;
+        const near = toTargetR <= NEAR_TP_R || peakR >= partialR - NEAR_PARTIAL_R;
+        const givebackR = near ? GIVEBACK_NEAR_R : GIVEBACK_R;
+        let candidate = roundPx(row.symbol, long ? best - givebackR * R : best + givebackR * R);
+        // Never through the current market (broker rejects it, and `best` may be a spike the
+        // price has pulled back from) — cap a small buffer inside the current price.
+        const trailBuf = Math.max(R * 0.1, pip * 2);
+        candidate = long ? Math.min(candidate, roundPx(row.symbol, price - trailBuf)) : Math.max(candidate, roundPx(row.symbol, price + trailBuf));
+        candidate = long ? Math.max(candidate, bePx) : Math.min(candidate, bePx); // never below BE
+        const cur = row.cur_stop ?? bePx;
+        const eps = R * 0.05; // don't spam the broker on sub-5%-of-R nudges
+        const improved = long ? candidate > cur + eps : candidate < cur - eps;
+        if (improved) {
+          const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: candidate });
+          if (mv.ok) { update.cur_stop = candidate; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail", detail: `SL→${candidate} gb${givebackR}R` }); }
+          else { update.last_error = `trail_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail_err", detail: mv.error.slice(0, 60) }); }
         }
       }
 
