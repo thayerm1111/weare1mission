@@ -85,6 +85,7 @@ export type ActiveAccount = {
   connId: string; env: TLEnv; token: string;
   accountId: string; accNum: string;
   equity: number | null; balance: number | null; currency: string | null; name: string | null;
+  riskPct?: number | null; // per-account risk override (null → caller's default)
 };
 
 /**
@@ -100,12 +101,20 @@ export async function activeAccounts(userId: string): Promise<ActiveAccount[]> {
   const conns = await getAllConnections(userId);
   const out: ActiveAccount[] = [];
   for (const conn of conns) {
-    const { data: rows } = await admin
-      .from("flow_broker_accounts")
-      .select("account_id, acc_num, name, currency, autotrade_enabled")
-      .eq("connection_id", conn.id)
-      .eq("autotrade_enabled", true);
-    const enabled = (rows ?? []) as { account_id: string; acc_num: string | null; name: string | null; currency: string | null }[];
+    // Include the per-account risk override when the column exists; if it hasn't
+    // been added yet, fall back to a select without it so trading never breaks.
+    type AcctRow = { account_id: string; acc_num: string | null; name: string | null; currency: string | null; risk_pct?: number | null };
+    let enabled: AcctRow[] = [];
+    const withRisk = await admin.from("flow_broker_accounts")
+      .select("account_id, acc_num, name, currency, autotrade_enabled, risk_pct")
+      .eq("connection_id", conn.id).eq("autotrade_enabled", true);
+    if (!withRisk.error) enabled = (withRisk.data ?? []) as AcctRow[];
+    else {
+      const fb = await admin.from("flow_broker_accounts")
+        .select("account_id, acc_num, name, currency, autotrade_enabled")
+        .eq("connection_id", conn.id).eq("autotrade_enabled", true);
+      enabled = (fb.data ?? []) as AcctRow[];
+    }
     if (!enabled.length) continue;
     const t = await mintTokenForConn(conn);
     if (!t.ok) continue;
@@ -120,6 +129,7 @@ export async function activeAccounts(userId: string): Promise<ActiveAccount[]> {
         accountId: String(a.account_id), accNum: String(a.acc_num),
         equity: l?.equity ?? l?.balance ?? null, balance: l?.balance ?? null,
         currency: l?.currency ?? a.currency ?? null, name: a.name ?? null,
+        riskPct: typeof a.risk_pct === "number" && a.risk_pct > 0 ? a.risk_pct : null,
       });
     }
   }
