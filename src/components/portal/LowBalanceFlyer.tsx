@@ -28,7 +28,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, Zap, TrendingUp, ArrowUp, ArrowDown, Loader2, ShieldCheck, Flame } from "lucide-react";
 
-const THRESHOLD = 2; // show when total credits are BELOW this many
+const THRESHOLD = 5; // show when total credits are BELOW this many (early "you're getting low" warning)
 const MIN_CONFIDENT = 10; // below this many decided GENX calls, show a count, not a headline %
 const SNOOZE_KEY = "om-lowbal-snooze"; // session-scoped: don't re-pop on every nav after a manual dismiss
 
@@ -308,6 +308,19 @@ export function LowBalanceFlyer() {
               </button>
             ))}
           </div>
+
+          {/* Auto-refill — the "never think about this again" option. Routes to the account
+              page's Auto-refill card (anchor #autorefill) where a card goes on file. */}
+          <button
+            onClick={() => { dismiss(); window.location.href = "/portal/account#autorefill"; }}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-[13px] font-bold text-white transition hover:brightness-110"
+            style={{ borderColor: "rgba(46,232,143,0.5)", background: "linear-gradient(180deg,rgba(46,232,143,0.16),rgba(46,232,143,0.02))" }}
+          >
+            <Zap className="h-4 w-4" style={{ color: BULL }} /> Set up Auto-Refill — never run out again
+          </button>
+          <p className="mt-1.5 text-center text-[10px] leading-relaxed text-white/35">
+            Keep a card on file and credits top up automatically whenever you drop below your threshold.
+          </p>
 
           <div className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-white/40">
             <ShieldCheck className="h-3.5 w-3.5" style={{ color: BULL }} />

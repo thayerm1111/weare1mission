@@ -69,7 +69,7 @@ export function AutoRefillCard() {
   const priceManual = dollars(d.manualPriceCents);
 
   return (
-    <section className="rounded-2xl border border-[#E4DCCB] bg-cream p-6 shadow-card">
+    <section id="autorefill" className="scroll-mt-24 rounded-2xl border border-[#E4DCCB] bg-cream p-6 shadow-card">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="flex items-center gap-2 text-base font-bold text-navy">
