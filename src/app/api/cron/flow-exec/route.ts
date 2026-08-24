@@ -2,7 +2,7 @@ import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runAutoExecAll, runAutoExecForUser, runFlowWatch, type AutoSettings } from "@/lib/flow/autoExec";
-import { manageOpenPositions } from "@/lib/flow/flowManage";
+import { manageOpenPositions, acquireManageLock, releaseManageLock } from "@/lib/flow/flowManage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,7 +50,20 @@ async function run(req: NextRequest): Promise<Response> {
       // watcher so it can't race the once-a-minute Vercel cron into a double
       // partial. The trade-manager therefore runs on exactly one scheduler.
       const doManage = new URL(req.url).searchParams.get("manage") !== "0";
-      const [w, m] = await Promise.all([runFlowWatch(mdKey), doManage ? manageOpenPositions() : Promise.resolve(null)]);
+      const w = await runFlowWatch(mdKey);
+      // Management runs continuously on /api/cron/flow-manage. This minute-tick only manages as
+      // a FALLBACK, and only if it can grab the lock (i.e. the continuous loop isn't running) —
+      // so the two schedulers can never race into a double partial.
+      let m: unknown = null;
+      if (doManage) {
+        const adminMgr = createAdminClient();
+        if (adminMgr) {
+          const holder = (globalThis.crypto?.randomUUID?.() ?? `fx-${Date.now()}`);
+          if (await acquireManageLock(adminMgr, holder)) {
+            try { m = await manageOpenPositions(); } finally { await releaseManageLock(adminMgr, holder); }
+          } else { m = { skipped: "locked" }; }
+        }
+      }
       return json({ ok: true, scope: "watch", asOf: new Date().toISOString(), ...w, manage: m }, 200);
     }
     const out = await runAutoExecAll(mdKey);
