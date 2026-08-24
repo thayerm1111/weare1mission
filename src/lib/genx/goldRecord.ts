@@ -24,9 +24,43 @@ export type GoldSig = {
   entry?: number | null; stop_loss?: number | null; tp1?: number | null; tp2?: number | null; tp3?: number | null;
   stop_pips: number | null; tp1_pips: number | null; tp2_pips: number | null; tp3_pips: number | null;
   tp1_hit: boolean | null; tp2_hit: boolean | null; tp3_hit: boolean | null;
+  mfe_pips?: number | null; // max favorable excursion (pips) reached before the trade closed
 };
 
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+// MANAGED-RECORD RULE. With manage mode on, the stop moves to breakeven once a trade is
+// up ~half its risk (+0.5R). So a signal that FIRST ran to +0.5R and only later returned
+// to its original stop would, on a managed account, have exited flat at breakeven — it is
+// NOT a loss. We reclassify those as a WIN worth ~0 pips (a scratch), using the max
+// favorable excursion the resolver already recorded. A signal that ran straight to the
+// stop without ever reaching +0.5R stays a loss.
+const BE_TRIGGER_R = 0.5;   // matches the trade-manager's breakeven trigger
+const BE_MIN_PIPS = 8;      // gold floor (matches BE_MIN_PIPS * gold pip)
+
+/** True when the trade's favorable excursion reached the breakeven trigger before closing. */
+export function reachedBreakeven(s: GoldSig): boolean {
+  const e = num(s.entry), st = num(s.stop_loss), mfe = num(s.mfe_pips ?? null);
+  if (e == null || st == null || mfe == null) return false;
+  const rPips = Math.abs(e - st) / GOLD_PIP;
+  const trigger = Math.max(BE_TRIGGER_R * rPips, BE_MIN_PIPS);
+  return mfe >= trigger;
+}
+
+/** Is this signal a win? A real target OR a stop that was first saved at breakeven. */
+export function goldIsWin(s: GoldSig): boolean {
+  if (s.outcome === "WIN") return true;
+  if (s.outcome === "LOSS" && reachedBreakeven(s)) return true;
+  return false;
+}
+
+/** Signed pips for a signal under the managed record: a target win banks its filled pips,
+ *  a breakeven-saved trade banks ~0 (scratch), a genuine loss loses the stop distance. */
+export function goldOutcomePips(s: GoldSig): number {
+  if (s.outcome === "WIN") return goldWinPips(s);
+  if (s.outcome === "LOSS" && reachedBreakeven(s)) return 0;
+  return -goldLossPips(s);
+}
 
 /** Pips banked on a win — highest FILLED target's price vs entry (pip 0.1),
  *  falling back to the stored pips only when a price is missing. */
@@ -74,8 +108,13 @@ export function goldTally(rows: GoldSig[]): GoldTally {
   const ded = dedupeGold(rows);
   let wins = 0, losses = 0, grossWon = 0, grossLost = 0, best = 0, worst = 0;
   for (const s of ded) {
-    if (s.outcome === "WIN") { const p = goldWinPips(s); wins++; grossWon += p; if (p > best) best = p; }
-    else { const p = goldLossPips(s); losses++; grossLost += p; if (-p < worst) worst = -p; }
+    if (goldIsWin(s)) {
+      // Target win banks its filled pips; a breakeven-saved trade banks ~0 (scratch).
+      const p = s.outcome === "WIN" ? goldWinPips(s) : 0;
+      wins++; grossWon += p; if (p > best) best = p;
+    } else {
+      const p = goldLossPips(s); losses++; grossLost += p; if (-p < worst) worst = -p;
+    }
   }
   const trades = wins + losses;
   return {
