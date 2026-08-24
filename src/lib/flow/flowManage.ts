@@ -439,7 +439,12 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // this is satisfied, so a "partial" can never execute at a loss.
       const brokerUpl = st.upl.get(String(row.position_id)) ?? null;
       const priceInProfit = long ? price > entry : price < entry;
-      const inProfit = brokerUpl != null ? brokerUpl > 0 : priceInProfit;
+      // In profit if the market is beyond the REAL fill (priceInProfit, the ground truth once
+      // entry is re-anchored) OR the broker's unrealized P&L is positive. Using OR — not "trust
+      // upl only" — so a mis-read/zero upl can't block a genuinely-profitable trade from moving
+      // to break-even. Every BE + partial also separately requires priceInProfit, so this can
+      // still never bank a partial at a loss.
+      const inProfit = priceInProfit || (brokerUpl != null && brokerUpl > 0);
       const bePx = roundPx(row.symbol, entry);
 
       // ── STEP 1: BREAK-EVEN — move the stop to the entry. Only while genuinely in profit and
@@ -507,7 +512,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
 // partial → trail check every few seconds. This DB lock guarantees only ONE run
 // manages at a time, so overlapping invocations (the loop + the 1-min fallback)
 // can never double-fire a partial. A crashed holder's lock simply expires.
-export async function acquireManageLock(admin: Admin, holder: string, ttlMs = 20000): Promise<boolean> {
+export async function acquireManageLock(admin: Admin, holder: string, ttlMs = 90000): Promise<boolean> {
   const nowIso = new Date().toISOString();
   const exp = new Date(Date.now() + ttlMs).toISOString();
   const { data } = await admin.from("flow_manage_lock")
@@ -515,7 +520,7 @@ export async function acquireManageLock(admin: Admin, holder: string, ttlMs = 20
     .eq("id", 1).lt("expires_at", nowIso).select("id");
   return Array.isArray(data) && data.length > 0;
 }
-export async function extendManageLock(admin: Admin, holder: string, ttlMs = 20000): Promise<void> {
+export async function extendManageLock(admin: Admin, holder: string, ttlMs = 90000): Promise<void> {
   const exp = new Date(Date.now() + ttlMs).toISOString();
   await admin.from("flow_manage_lock").update({ expires_at: exp }).eq("id", 1).eq("holder", holder);
 }
