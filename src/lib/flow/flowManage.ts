@@ -419,8 +419,11 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       beTriggerPx = long ? Math.max(beTriggerPx, beFloor) : Math.min(beTriggerPx, beFloor);
       const partialTriggerPx = halfway;
 
-      const favReachedBE = long ? favRaw >= beTriggerPx : favRaw <= beTriggerPx;
-      const favReachedPartial = partialTriggerPx != null && (long ? favRaw >= partialTriggerPx : favRaw <= partialTriggerPx);
+      // Compare against BEST (the furthest the trade has EVER reached), not this tick's momentary
+      // favRaw — otherwise a move that hit the trigger and ticked back before the once-a-minute
+      // sample is missed and break-even never fires even though best_price recorded it.
+      const favReachedBE = long ? best >= beTriggerPx : best <= beTriggerPx;
+      const favReachedPartial = partialTriggerPx != null && (long ? best >= partialTriggerPx : best <= partialTriggerPx);
 
       // HARD PROFIT GUARD — broker's own truth. Prefer the position's unrealized P&L; else fall
       // back to price beyond the real fill. We NEVER move to break-even or bank a partial unless
