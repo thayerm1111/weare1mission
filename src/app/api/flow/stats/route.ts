@@ -146,7 +146,8 @@ export async function GET() {
   const goldRecent = gDed.map((s) => {
     const win = s.outcome === "WIN";
     const pips = win ? goldWinPips(s) : -goldLossPips(s);
-    return { symbol: "XAUUSD", side: (s.direction || "").toLowerCase(), outcome: win ? "target" : "stop", win, pips: Math.round(pips), at: s.resolved_at || s.created_at || "" };
+    const hitTp = s.tp3_hit ? 3 : s.tp2_hit ? 2 : s.tp1_hit ? 1 : 0;
+    return { symbol: "XAUUSD", side: (s.direction || "").toLowerCase(), outcome: win ? "target" : "stop", win, hitTp, pips: Math.round(pips), at: s.resolved_at || s.created_at || "" };
   });
   const goldSummary = { wins: gT.wins, stops: gT.losses, winRate: gT.winRate, trades: gT.trades };
 
@@ -170,6 +171,9 @@ export async function GET() {
   const recent = forexRecent.concat(goldRecent)
     .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
     .slice(0, 10);
+  // Separate feeds so the Floor can show GENX (gold) and FLOW (forex) on their own.
+  const goldFeed = [...goldRecent].sort((a, b) => new Date(b.at || "").getTime() - new Date(a.at || "").getTime()).slice(0, 16);
+  const forexFeed = [...forexRecent].sort((a, b) => new Date(b.at || "").getTime() - new Date(a.at || "").getTime()).slice(0, 16);
 
   return json({
     open: openCount ?? 0,
@@ -180,6 +184,8 @@ export async function GET() {
     pipsWon: Math.round(goldGross + forexGross), // GROSS pips banked by winners (kept for the legacy "Pips won" card)
     perPair,
     recent,
+    goldRecent: goldFeed,   // GENX gold results (deduped) — for the GENX blotter
+    forexRecent: forexFeed, // FLOW forex trades — for the FLOW results ledger
     // Split for the scoreboard cards — grouped by engine, pips = GROSS pips won.
     gold: { wins: goldSummary.wins, losses: goldSummary.stops, pips: Math.round(goldGross), winRate: goldSummary.winRate, trades: goldSummary.trades },
     forex: { wins: forexSummary.wins, stops: forexSummary.stops, pips: Math.round(forexGross), winRate: forexSummary.winRate, trades: forexSummary.trades, open: openCount ?? 0 },
