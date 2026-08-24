@@ -79,7 +79,8 @@ export async function GET() {
   // copies the lead, so this is the desk's canonical, divergence-free result).
   // GOLD comes from the GENX ledger below and is merged in.
   const LEAD_USER_ID = "3b5e06e5-258c-4880-b1f2-d1623cbca100";
-  const [{ count: openCount }, { data, error }, gold] = await Promise.all([
+  const since7d = new Date(Date.now() - 7 * 24 * 3600e3).toISOString();
+  const [{ count: openCount }, { data, error }, gold, { count: liveOpenCount }, fx7d, gd7d] = await Promise.all([
     admin.from("flow_managed_positions").select("id", { count: "exact", head: true }).eq("status", "open").eq("user_id", LEAD_USER_ID).neq("symbol", "XAUUSD"),
     admin
       .from("flow_managed_positions")
@@ -96,8 +97,19 @@ export async function GET() {
       .not("outcome", "is", null)
       .order("resolved_at", { ascending: false, nullsFirst: false })
       .limit(4000),
+    // LIVE NOW — every open desk position (forex + gold), lead-scoped.
+    admin.from("flow_managed_positions").select("id", { count: "exact", head: true }).eq("status", "open").eq("user_id", LEAD_USER_ID),
+    // PLAYS · 7D — desk signals CALLED in the last 7 days (deduped below).
+    admin.from("flow_managed_positions").select("symbol,side,entry").eq("user_id", LEAD_USER_ID).neq("symbol", "XAUUSD").gte("created_at", since7d).limit(3000),
+    admin.from("genx_signals").select("direction,entry,stop_loss,tp1").gte("created_at", since7d).limit(3000),
   ]);
   if (error) return json({ error: "load_failed", detail: error.message }, 200);
+
+  // Deduped desk activity for the last 7 days (fan-out collapsed on both ledgers).
+  const forex7d = new Set(((fx7d.data || []) as { symbol: string; side: string; entry: number }[]).map((r) => `${String(r.symbol).toUpperCase()}|${r.side}|${r.entry}`)).size;
+  const gold7d = new Set(((gd7d.data || []) as { direction: string | null; entry: number | null; stop_loss: number | null; tp1: number | null }[]).map((r) => `${String(r.direction || "").toLowerCase()}|${r.entry ?? "?"}|${r.stop_loss ?? "?"}|${r.tp1 ?? "?"}`)).size;
+  const plays7d = forex7d + gold7d;
+  const liveOpen = liveOpenCount ?? 0;
 
   const rows = (data || []) as Row[];
 
@@ -162,6 +174,8 @@ export async function GET() {
   return json({
     open: openCount ?? 0,
     ...summarize(overall),          // COMBINED desk-wide totals (forex + gold); `pips` here is NET (for the detailed FLOW track record)
+    liveOpen,                       // open desk positions right now (forex + gold)
+    plays7d,                        // deduped desk signals called in the last 7 days
     pipsNet: Math.round(overall.pips), // NET desk pips (wins − losses), deduped — the honest "how far ahead" figure
     pipsWon: Math.round(goldGross + forexGross), // GROSS pips banked by winners (kept for the legacy "Pips won" card)
     perPair,
