@@ -46,7 +46,7 @@ export type AutoSettings = {
   credit_paused?: boolean | null;
 };
 
-const DEFAULT_SYMBOLS = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "NAS100"];
+const DEFAULT_SYMBOLS = ["XAUUSD", "NAS100"];
 
 // The LEAD account everyone copies. TRADE SELECTION — which pairs, which horizon,
 // how many can be open at once, how many per hour — follows the lead, so every
