@@ -201,6 +201,21 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   const rows = (data ?? []) as ManagedRow[];
   if (!rows.length) return { managed: 0, actions: [] };
 
+  // Per-account MANAGEMENT switch (breakeven + partials + trail). Default ON; a member
+  // can turn an account OFF so its trades ride the raw SL/TP untouched. Loaded once for
+  // every account that has an open position this tick. If the column doesn't exist yet,
+  // the select fails and the set stays empty → every account is managed (prior behavior).
+  const manageOff = new Set<string>();
+  try {
+    const acctIds = [...new Set(rows.map((r) => String(r.account_id)))];
+    if (acctIds.length) {
+      const res = await admin.from("flow_broker_accounts").select("account_id, manage_trades").in("account_id", acctIds);
+      if (!res.error) for (const a of (res.data ?? []) as { account_id: string; manage_trades?: boolean | null }[]) {
+        if (a.manage_trades === false) manageOff.add(String(a.account_id));
+      }
+    }
+  } catch { /* column missing / read blip → treat all as managed */ }
+
   // One fresh token per connection; one instrument list + positions list + quote
   // cache per account — so N positions on one account cost one round-trip each.
   const tokenCache = new Map<string, { token: string; env: TLEnv } | null>();
@@ -294,6 +309,9 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       if (price == null || !(price > 0)) { await admin.from("flow_managed_positions").update({ last_error: "no_quote", updated_at: new Date().toISOString() }).eq("id", row.id); continue; }
 
       const long = row.side === "buy";
+      // Management OFF for this account → keep tracking (best price + close detection
+      // above) but never touch the broker stop or take a partial; the trade rides raw.
+      const manageOn = !manageOff.has(String(row.account_id));
       const R = row.r && row.r > 0 ? row.r : Math.abs(row.entry - row.init_stop);
       if (!(R > 0)) { await admin.from("flow_managed_positions").update({ last_error: "no_R", updated_at: new Date().toISOString() }).eq("id", row.id); continue; }
 
@@ -312,7 +330,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // ── STEP 1: BREAK-EVEN. As soon as we're up ~half the risk, slide the stop to the
       //    broker entry so the trade can no longer lose. Decoupled from the partial, so a
       //    big winner that reverses before the partial level still scratches at BE. ──
-      if (!row.be_done && profit >= beTrigger) {
+      if (manageOn && !row.be_done && profit >= beTrigger) {
         const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: bePx });
         if (mv.ok) { update.be_done = true; update.cur_stop = bePx; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "breakeven", detail: `SL→BE @${(profit / R).toFixed(2)}R` }); }
         else { update.last_error = `be_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_err", detail: mv.error.slice(0, 60) }); }
@@ -320,7 +338,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
 
       // ── STEP 2: PARTIAL. Bank 50% at the R:R-scaled trigger (1:1 → +0.5R, 1:2/1:3 → +1R).
       //    Guarded by partial_done so it can never repeat. ──
-      if (!row.partial_done && profit >= partialTrigger) {
+      if (manageOn && !row.partial_done && profit >= partialTrigger) {
         const half = normalizeQuantity(contractKey(row.symbol), row.qty * 0.5, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity });
         if (half.ok && half.qty > 0 && half.qty < row.qty) {
           const cl = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, half.qty);
@@ -332,7 +350,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // ── STEP 3: PROTECTIVE TRAIL. Once break-even is set, ratchet the stop up under the
       //    best price with a CAPPED giveback — tightening as the move nears the target — so
       //    a run that gets close and reverses keeps most of the gain. Never below BE. ──
-      if (row.be_done) {
+      if (manageOn && row.be_done) {
         const peakR = (long ? best - row.entry : row.entry - best) / R;
         const partialR = partialTriggerR(row.entry, row.init_stop, row.tp1);
         const toTargetR = row.tp1 != null ? (long ? row.tp1 - best : best - row.tp1) / R : 99;
@@ -352,7 +370,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       }
 
       if (!didAction) {
-        actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "watching", detail: `${(profit / R).toFixed(2)}R` });
+        actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: manageOn ? "watching" : "unmanaged", detail: `${(profit / R).toFixed(2)}R` });
       }
 
       await admin.from("flow_managed_positions").update(update).eq("id", row.id);

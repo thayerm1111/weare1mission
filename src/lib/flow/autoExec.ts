@@ -595,13 +595,13 @@ export async function placeGenxFollower(sig: {
     : (sig.entryLow ?? sig.entryHigh ?? null);
 
   // Every follower account, across every user/connection (independent of FLOW).
-  // Pull the per-account risk override when the column exists; fall back to a select
-  // without it so the follower never breaks before the migration is run.
-  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; risk_pct?: number | null };
+  // Pull the per-account risk override + management toggle when those columns exist;
+  // fall back to a bare select so the follower never breaks before the migration is run.
+  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; risk_pct?: number | null; manage_trades?: boolean | null };
   let accts: FollowRow[] = [];
-  const withRisk = await admin.from("flow_broker_accounts")
-    .select("user_id, account_id, acc_num, connection_id, risk_pct").eq("genx_follower", true);
-  if (!withRisk.error) accts = (withRisk.data ?? []) as FollowRow[];
+  const withCols = await admin.from("flow_broker_accounts")
+    .select("user_id, account_id, acc_num, connection_id, risk_pct, manage_trades").eq("genx_follower", true);
+  if (!withCols.error) accts = (withCols.data ?? []) as FollowRow[];
   else {
     const fb = await admin.from("flow_broker_accounts")
       .select("user_id, account_id, acc_num, connection_id").eq("genx_follower", true);
@@ -681,8 +681,24 @@ export async function placeGenxFollower(sig: {
         accountId: a.account_id, accNum: String(a.acc_num),
         symbol: "XAUUSD", side: sig.side, qty, stop: sig.stop, tp: sig.tp, source: "genx_follow",
       });
-      if (r.ok) placed += 1;
-      else {
+      if (r.ok) {
+        placed += 1;
+        // MANAGEMENT: when this account has breakeven+partials turned on (manage_trades,
+        // default on), hand the follower fill to the trade-manager just like a FLOW fill —
+        // so it gets SL→breakeven and a 50% partial. With management off (or no stop) the
+        // fill is left unregistered and rides the raw signal SL/TP to its outcome.
+        const manageOn = a.manage_trades !== false;
+        if (manageOn && r.positionId && entry != null && sig.stop != null) {
+          try {
+            await admin.from("flow_managed_positions").insert({
+              user_id: a.user_id, connection_id: a.connection_id, account_id: a.account_id, acc_num: String(a.acc_num), environment: tok.env,
+              position_id: r.positionId, symbol: "XAUUSD", side: sig.side,
+              entry, init_stop: sig.stop, tp1: sig.tp ?? null,
+              r: Math.abs(entry - sig.stop), qty: r.qty, cur_stop: sig.stop, best_price: entry,
+            });
+          } catch { /* management is best-effort; the trade still stands unmanaged */ }
+        }
+      } else {
         // Nothing filled (session closed / token blip) → release the claim so a later
         // ENTER NOW re-fire for this same signal can retry on this account.
         await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id);
