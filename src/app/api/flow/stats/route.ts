@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { goldTally, dedupeGold, goldWinPips, goldLossPips, type GoldSig } from "@/lib/genx/goldRecord";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,21 +59,10 @@ function summarize(t: Tally) {
 }
 
 // GOLD comes from the GENX engine's own outcome ledger (genx_signals) — GENX is
-// gold-only, so every decided signal is a gold trade. A GENX WIN banks the pips of
-// the highest target it filled; a LOSS books the stop distance. We fold gold into
-// the same desk-wide "flow results" so the member sees ONE record that already
-// includes the gold wins + pips, plus a gold/forex split for the scoreboard.
-type GoldSig = {
-  created_at: string; resolved_at: string | null; direction: string | null; outcome: string | null;
-  stop_pips: number | null; tp1_pips: number | null; tp2_pips: number | null; tp3_pips: number | null;
-  tp1_hit: boolean | null; tp2_hit: boolean | null; tp3_hit: boolean | null;
-};
-function goldWinPips(s: GoldSig): number {
-  if (s.tp3_hit && s.tp3_pips) return s.tp3_pips;
-  if (s.tp2_hit && s.tp2_pips) return s.tp2_pips;
-  if (s.tp1_hit && s.tp1_pips) return s.tp1_pips;
-  return s.tp1_pips ?? 0;
-}
+// gold-only, so every decided signal is a gold trade. The record is built by the
+// shared goldRecord helper, which DEDUPES fan-out (the same call is recorded once
+// per member/view, so raw sums multiply it) and derives pips from the filled PRICE
+// at the standard gold pip (0.1) — so this reads as one honest per-signal record.
 
 export async function GET() {
   // Signed-in members only (protects the aggregate from anonymous scraping).
@@ -102,10 +92,10 @@ export async function GET() {
       .limit(2000),
     admin
       .from("genx_signals")
-      .select("created_at,resolved_at,direction,outcome,stop_pips,tp1_pips,tp2_pips,tp3_pips,tp1_hit,tp2_hit,tp3_hit")
+      .select("created_at,resolved_at,direction,outcome,entry,stop_loss,tp1,tp2,tp3,stop_pips,tp1_pips,tp2_pips,tp3_pips,tp1_hit,tp2_hit,tp3_hit")
       .not("outcome", "is", null)
       .order("resolved_at", { ascending: false, nullsFirst: false })
-      .limit(1000),
+      .limit(4000),
   ]);
   if (error) return json({ error: "load_failed", detail: error.message }, 200);
 
@@ -136,35 +126,22 @@ export async function GET() {
   }
   const forexSummary = summarize(overall); // capture BEFORE folding gold in
 
-  // ── GOLD tally (from the GENX ledger) — WIN → banked target pips, LOSS → stop. ──
-  const goldRows = ((gold?.data || []) as GoldSig[]).filter((s) => s.outcome === "WIN" || s.outcome === "LOSS");
-  const goldT = emptyTally();
-  let goldGross = 0; // pips banked by GOLD winners only (losses shown in W/L, not netted out)
-  const goldRecent: { symbol: string; side: string; outcome: string; win: boolean; pips: number | null; at: string }[] = [];
-  for (const s of goldRows) {
+  // ── GOLD tally — deduped (one row per signal) + price-derived, via goldRecord. ──
+  const gRows = (gold?.data || []) as GoldSig[];
+  const gT = goldTally(gRows);      // per-signal record (fan-out collapsed, pips from price)
+  const gDed = dedupeGold(gRows);   // deduped rows, for the recent feed
+  const goldGross = gT.grossWon;    // pips banked by GOLD winners (deduped)
+  const goldRecent = gDed.map((s) => {
     const win = s.outcome === "WIN";
-    const pips = win ? goldWinPips(s) : -(s.stop_pips ?? 0);
-    if (win) goldGross += goldWinPips(s);
-    // Map to the flow taxonomy: a gold win hit its target; a gold loss is a stop.
-    add(goldT, win ? "target" : "stop", pips);
-    goldRecent.push({
-      symbol: "XAUUSD",
-      side: (s.direction || "").toLowerCase(),
-      outcome: win ? "target" : "stop",
-      win,
-      pips: Math.round(pips),
-      at: s.resolved_at || s.created_at,
-    });
-  }
-  const goldSummary = summarize(goldT);
-  // Gold banks the WHOLE position at target (no half-partial), so don't inflate the
-  // desk-wide "partials banked" count with gold wins.
-  goldT.partials = 0;
+    const pips = win ? goldWinPips(s) : -goldLossPips(s);
+    return { symbol: "XAUUSD", side: (s.direction || "").toLowerCase(), outcome: win ? "target" : "stop", win, pips: Math.round(pips), at: s.resolved_at || s.created_at || "" };
+  });
+  const goldSummary = { wins: gT.wins, stops: gT.losses, winRate: gT.winRate, trades: gT.trades };
 
-  // ── Fold gold into the desk-wide totals + add its own per-pair row. ──
-  overall.trades += goldT.trades; overall.wins += goldT.wins; overall.stop += goldT.stop;
-  overall.target += goldT.target; overall.pips += goldT.pips;
-  if (goldT.trades > 0) perPairMap.set("XAUUSD", goldT);
+  // ── Fold gold into the desk-wide totals + add its own per-pair row. `pips` is NET. ──
+  overall.trades += gT.trades; overall.wins += gT.wins; overall.stop += gT.losses;
+  overall.target += gT.wins; overall.pips += gT.net;
+  if (gT.trades > 0) perPairMap.set("XAUUSD", { trades: gT.trades, wins: gT.wins, stop: gT.losses, breakeven: 0, trail: 0, target: gT.wins, partials: 0, pips: gT.net });
 
   const perPair = [...perPairMap.entries()]
     .map(([symbol, t]) => ({ symbol, ...summarize(t) }))
@@ -185,7 +162,8 @@ export async function GET() {
   return json({
     open: openCount ?? 0,
     ...summarize(overall),          // COMBINED desk-wide totals (forex + gold); `pips` here is NET (for the detailed FLOW track record)
-    pipsWon: Math.round(goldGross + forexGross), // GROSS pips banked by winners (the desk "Pips won" headline)
+    pipsNet: Math.round(overall.pips), // NET desk pips (wins − losses), deduped — the honest "how far ahead" figure
+    pipsWon: Math.round(goldGross + forexGross), // GROSS pips banked by winners (kept for the legacy "Pips won" card)
     perPair,
     recent,
     // Split for the scoreboard cards — grouped by engine, pips = GROSS pips won.
