@@ -19,12 +19,14 @@ import { normalizeQuantity } from "@/lib/flow/instruments";
 // index point per lot: a 3.3-pt move on 0.10 lot paid $3.30). Getting this wrong
 // scales risk directly, so indices are set on the conservative (over-estimate →
 // smaller lot) side until confirmed against a fill.
-const CONTRACT: Record<string, { size: number; quote: "USD" | "JPY" }> = {
+const CONTRACT: Record<string, { size: number; quote: "USD" | "JPY" | "CAD" }> = {
   XAUUSD: { size: 100, quote: "USD" },
   XAGUSD: { size: 5000, quote: "USD" },
   EURUSD: { size: 100000, quote: "USD" },
   GBPUSD: { size: 100000, quote: "USD" },
   USDJPY: { size: 100000, quote: "JPY" },
+  AUDUSD: { size: 100000, quote: "USD" }, // USD-quoted (AUD base) → $100 per 0.0100 move
+  USDCAD: { size: 100000, quote: "CAD" }, // CAD-quoted (USD base) → pip value in CAD, convert by /price
   NAS100: { size: 10, quote: "USD" }, // $10 / point / lot (verified vs live fill)
   US30: { size: 10, quote: "USD" },   // estimated; broker-specific — verify vs a fill
   USOIL: { size: 1000, quote: "USD" },
@@ -50,10 +52,13 @@ export function contractKey(symbol: string): string {
   return raw;
 }
 
-/** USD value of a 1.0 PRICE-unit move, per 1.0 lot. */
+/** USD value of a 1.0 PRICE-unit move, per 1.0 lot. For a USD-quoted pair this is
+ *  just `size`; for a pair quoted in another currency where the BASE is USD (USD/JPY,
+ *  USD/CAD) the value lands in the quote currency, so divide by the price to convert
+ *  it back to USD. */
 export function valuePerPricePerLot(canonical: string, price: number): number {
   const c = CONTRACT[contractKey(canonical)] ?? { size: 1, quote: "USD" as const };
-  if (c.quote === "JPY") return price > 0 ? c.size / price : c.size;
+  if (c.quote !== "USD") return price > 0 ? c.size / price : c.size;
   return c.size;
 }
 
