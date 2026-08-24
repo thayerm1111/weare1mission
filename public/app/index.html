@@ -2350,6 +2350,25 @@ input{font:inherit}
       st[1](Object.assign({}, cur, { accounts: accts }));
       apiPost("/api/flow/broker", { action: "genxfollow", accountId: a.accountId, connectionId: a.connectionId, enabled: on }).catch(function () { load(); });
     }
+    function setRisk(a, pct) {
+      // per-account risk % override (null → account uses the owner default). Applies to FLOW + GENX.
+      var cur = st[0] || {}; var accts = (cur.accounts || []).map(function (x) { return (x.accountId === a.accountId && x.connectionId === a.connectionId) ? Object.assign({}, x, { riskPct: pct }) : x; });
+      st[1](Object.assign({}, cur, { accounts: accts }));
+      apiPost("/api/flow/broker", { action: "risk", accountId: a.accountId, connectionId: a.connectionId, riskPct: pct }).catch(function () { load(); });
+    }
+    function setManage(a, onv) {
+      // manage mode: breakeven + partials for this account's FLOW + GENX trades. Off → ride raw.
+      var cur = st[0] || {}; var accts = (cur.accounts || []).map(function (x) { return (x.accountId === a.accountId && x.connectionId === a.connectionId) ? Object.assign({}, x, { manageTrades: onv }) : x; });
+      st[1](Object.assign({}, cur, { accounts: accts }));
+      apiPost("/api/flow/broker", { action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: onv }).catch(function () { load(); });
+    }
+    function setGoldBe(a, pips) {
+      // gold-only breakeven/partial pip trigger. null/"" → AI chooses. Forex unaffected.
+      var v = (pips === "" || pips == null) ? null : Number(pips); if (!(v > 0)) v = null;
+      var cur = st[0] || {}; var accts = (cur.accounts || []).map(function (x) { return (x.accountId === a.accountId && x.connectionId === a.connectionId) ? Object.assign({}, x, { goldBePips: v }) : x; });
+      st[1](Object.assign({}, cur, { accounts: accts }));
+      apiPost("/api/flow/broker", { action: "goldbe", accountId: a.accountId, connectionId: a.connectionId, goldBePips: v }).catch(function () { load(); });
+    }
     function disconnect() { busy[1](true); apiPost("/api/flow/broker", { action: "disconnect" }).then(function () { busy[1](false); okmsg[1](""); err[1](""); load(); }).catch(function () { busy[1](false); }); }
     var s = st[0], connected = s && s.connected, accounts = (s && s.accounts) || [];
     var activeN = accounts.filter(function (a) { return a.autotradeEnabled !== false; }).length;
@@ -2358,7 +2377,7 @@ input{font:inherit}
       ${loading[0] ? html`<div class="gx-analyzing">◆ Checking your broker connection…</div>` : ((connected && !adding[0]) ? html`<div>
         <div class="bk-h">TradeLocker connected</div>
         <div class="bk-sub">${accounts.length} account${accounts.length === 1 ? "" : "s"} · <b style="color:#2ee88f">${activeN} trading</b>. FLOW takes every trade on all accounts switched on.</div>
-        ${accounts.map(function (a) { var on = a.autotradeEnabled !== false; var fol = a.genxFollower === true; return html`<div>
+        ${accounts.map(function (a) { var on = a.autotradeEnabled !== false; var fol = a.genxFollower === true; var mng = a.manageTrades !== false; var rp = (a.riskPct != null ? a.riskPct : null); var gp = (a.goldBePips != null ? a.goldBePips : ""); var chipOn = "font-size:11px;font-weight:800;padding:5px 9px;border-radius:9px;cursor:pointer;border:1px solid rgba(46,232,143,.55);background:rgba(46,232,143,.13);color:#2ee88f"; var chipOff = "font-size:11px;font-weight:800;padding:5px 9px;border-radius:9px;cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#fff"; var subRow = "display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-top:0;padding:8px 12px;background:rgba(0,0,0,.18)"; return html`<div>
           <div class=${"bk-acct " + (on ? "on" : "")}>
           <div><div class="bk-cv">${a.name || ("Account " + a.accountId)} ${a.environment ? html`<span class=${"bk-badge " + (a.environment === "live" ? "live" : "demo")} style="font-size:9px;padding:1px 5px">${(a.environment || "").toUpperCase()}</span>` : null}</div><div class="bk-ck" style="margin-top:3px">#${a.accNum || a.accountId}${a.currency ? " · " + a.currency : ""} · ${fmtMoney(a.equity != null ? a.equity : a.balance)}</div></div>
           <div style="display:flex;align-items:center;gap:8px">
@@ -2366,13 +2385,32 @@ input{font:inherit}
             <button onClick=${function () { toggleAcct(a, !on); }} style=${"position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (on ? "#2ee88f" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (on ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
           </div>
           </div>
-          <div style=${"display:flex;align-items:center;justify-content:space-between;border:1px solid " + (fol ? "rgba(245,180,60,.5)" : "var(--line)") + ";border-top:0;border-radius:0 0 11px 11px;padding:8px 12px;margin-top:-4px;background:" + (fol ? "rgba(245,180,60,.09)" : "rgba(0,0,0,.18)")}>
-            <div><div style="font-size:12px;font-weight:700;color:#f5c451">⚡ Follow every GENX signal</div><div class="bk-ck" style="margin-top:2px">Takes every gold call at a flat 0.01 lot — raw, no caps. Separate from FLOW.</div></div>
+          <div style=${"display:flex;align-items:center;justify-content:space-between;border:1px solid " + (fol ? "rgba(245,180,60,.5)" : "var(--line)") + ";border-top:0;padding:8px 12px;margin-top:-4px;background:" + (fol ? "rgba(245,180,60,.09)" : "rgba(0,0,0,.18)")}>
+            <div><div style="font-size:12px;font-weight:700;color:#f5c451">⚡ Follow every GENX signal</div><div class="bk-ck" style="margin-top:2px">Takes every GENX gold call on this account, sized to the risk % below. Separate from FLOW.</div></div>
             <div style="display:flex;align-items:center;gap:8px">
               <span style=${"font-size:11px;font-weight:700;color:" + (fol ? "#f5c451" : "rgba(255,255,255,.4)")}>${fol ? "On" : "Off"}</span>
               <button onClick=${function () { toggleFollow(a, !fol); }} style=${"position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (fol ? "#f5b43c" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (fol ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
             </div>
           </div>
+          <div style=${subRow + ";flex-wrap:wrap;gap:6px;justify-content:flex-start"}>
+            <span style="font-size:11px;font-weight:700;color:var(--faint);margin-right:2px">Risk</span>
+            <button onClick=${function () { setRisk(a, null); }} style=${rp == null ? chipOn : chipOff}>Default</button>
+            ${[0.25, 0.5, 1, 1.5, 2, 3, 5].map(function (v) { return html`<button onClick=${function () { setRisk(a, v); }} style=${rp === v ? chipOn : chipOff}>${v}%</button>`; })}
+          </div>
+          <div style=${subRow + (mng ? "" : ";border-radius:0 0 11px 11px")}>
+            <div><div style="font-size:12px;font-weight:700;color:#fff">Manage trades</div><div class="bk-ck" style="margin-top:2px">Stop to breakeven + 50% partial (FLOW &amp; GENX). Off = ride raw.</div></div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style=${"font-size:11px;font-weight:700;color:" + (mng ? "#2ee88f" : "rgba(255,255,255,.4)")}>${mng ? "On" : "Off"}</span>
+              <button onClick=${function () { setManage(a, !mng); }} style=${"position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (mng ? "#2ee88f" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (mng ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
+            </div>
+          </div>
+          ${mng ? html`<div style=${subRow + ";border-radius:0 0 11px 11px"}>
+            <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:700;color:#fff">Gold breakeven pips</div><div class="bk-ck" style="margin-top:2px">Gold only. BE + partial at this many pips. Blank = AI. Forex always AI.</div></div>
+            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+              <input type="number" min="1" inputmode="numeric" placeholder="AI" value=${gp} onBlur=${function (e) { setGoldBe(a, e.target.value.trim()); }} style="width:60px;padding:7px 9px;border-radius:9px;border:1px solid var(--line);background:rgba(8,16,32,.6);color:#fff;font-size:13px;font-weight:700;text-align:right" />
+              <span style="font-size:11px;color:var(--faint)">pips</span>
+            </div>
+          </div>` : null}
         </div>`; })}
         ${!accounts.length ? html`<div class="bk-note">No account details loaded yet. Tap re-check, or reconnect.</div>` : null}
         <button class="bk-ghost" onClick=${function () { adding[1](true); okmsg[1](""); err[1](""); }} style="margin-top:10px;width:100%;border-style:dashed">◆ Connect another account</button>
