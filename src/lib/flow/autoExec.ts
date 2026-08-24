@@ -205,6 +205,57 @@ async function deskInActiveTrade(admin: Admin, symbol: string): Promise<boolean>
 }
 
 /** Apply the per-member guardrails and, if they pass, place ONE market order. Mutates ctx. */
+// ── FOREX CIRCUIT BREAKER ────────────────────────────────────────────────────
+// After this many consecutive LOSING forex signals (desk-wide — one count per signal even
+// though it fanned out to many accounts), pause NEW forex entries for a cooldown so a bad
+// run can't stack losses. Gold + indices are never affected, and a single forex WIN resets
+// the streak. Fails OPEN — a read error never blocks trading.
+const FOREX_BREAKER_STREAK = 3;
+const FOREX_BREAKER_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
+const FOREX_BREAKER_SYMBOLS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD"];
+
+function isForexSymbol(symbol: string): boolean {
+  try { return getInstrument(symbol)?.assetClass === "forex"; } catch { return false; }
+}
+
+async function forexBreakerHalt(admin: Admin): Promise<{ halt: boolean; streak: number; until?: string }> {
+  try {
+    const sinceIso = new Date(Date.now() - 12 * 3600e3).toISOString();
+    const { data } = await admin
+      .from("flow_managed_positions")
+      .select("symbol, side, outcome, created_at, resolved_at")
+      .in("symbol", FOREX_BREAKER_SYMBOLS)
+      .eq("status", "closed")
+      .not("outcome", "is", null)
+      .gte("created_at", sinceIso)
+      .order("resolved_at", { ascending: false })
+      .limit(500);
+    const rows = (data ?? []) as Array<{ symbol: string; side: string; outcome: string; created_at: string; resolved_at: string | null }>;
+    if (!rows.length) return { halt: false, streak: 0 };
+    // Collapse fan-out legs → one entry per SIGNAL (same pair+side opened in the same minute).
+    // A signal is a WIN if ANY leg won; only an all-stop signal counts as a loss.
+    const sig = new Map<string, { closedAt: number; win: boolean }>();
+    for (const r of rows) {
+      const key = `${r.symbol}|${r.side}|${(r.created_at || "").slice(0, 16)}`;
+      const closedAt = r.resolved_at ? new Date(r.resolved_at).getTime() : new Date(r.created_at).getTime();
+      const win = r.outcome !== "stop";
+      const cur = sig.get(key);
+      if (!cur) sig.set(key, { closedAt, win });
+      else sig.set(key, { closedAt: Math.max(cur.closedAt, closedAt), win: cur.win || win });
+    }
+    const signals = [...sig.values()].sort((a, b) => b.closedAt - a.closedAt); // newest first
+    let streak = 0;
+    for (const s of signals) { if (s.win) break; streak += 1; }
+    if (streak >= FOREX_BREAKER_STREAK) {
+      const until = signals[0].closedAt + FOREX_BREAKER_COOLDOWN_MS; // cooldown from the latest loss
+      if (Date.now() < until) return { halt: true, streak, until: new Date(until).toISOString() };
+    }
+    return { halt: false, streak };
+  } catch {
+    return { halt: false, streak: 0 }; // fail open — never block trading on a read error
+  }
+}
+
 async function guardAndPlace(admin: Admin, settings: AutoSettings, ctx: GuardCtx, symbol: string, side: "buy" | "sell", levels: Levels, price?: number | null): Promise<SymbolResult> {
   const ms = (iso: string) => ctx.now - new Date(iso).getTime();
   if (!ctx.symbols.includes(symbol)) return { symbol, action: "not_in_list" };
@@ -214,6 +265,13 @@ async function guardAndPlace(admin: Admin, settings: AutoSettings, ctx: GuardCtx
   if (lastErr && ms(lastErr.created_at) < ERROR_BACKOFF_MS) return { symbol, action: "error_backoff" };
   if (ctx.hourBudget <= 0) return { symbol, action: "hour_cap" };
   if (!ctx.openSymbols.has(symbol) && ctx.openSymbols.size >= ctx.maxOpen) return { symbol, action: "max_open" };
+
+  // FOREX CIRCUIT BREAKER — after a run of losing forex signals, sit forex out for the
+  // cooldown so a bad patch doesn't stack losses. Gold + indices are never gated here.
+  if (isForexSymbol(symbol)) {
+    const brk = await forexBreakerHalt(admin);
+    if (brk.halt) return { symbol, action: "forex_cooldown", detail: `${brk.streak} losses in a row` };
+  }
 
   // A protective stop is REQUIRED (fall back to the invalidation), and the entry
   // falls back to the live price when a setup enters "at market" with no pullback
