@@ -30,13 +30,13 @@ type Stats = {
 };
 type FlowStats = {
   pipsWon?: number; pipsNet?: number; pips?: number; winRate?: number | null; wins?: number; trades?: number;
+  liveOpen?: number; plays7d?: number;
   gold?: { wins: number; losses: number; pips: number; winRate: number | null; trades: number };
   forex?: { wins: number; stops: number; pips: number; winRate: number | null; trades: number; open: number };
   recent?: { symbol: string; side: string; outcome: string; win: boolean; pips: number | null; at: string }[];
   error?: string;
 };
 
-const MIN_CONFIDENT = 20;
 const isLong = (d: string) => /long|buy/i.test(String(d || ""));
 const short = (s: string) => String(s || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
 const ENGINE: Record<string, string> = { scanner: "Scanner", plays: "OM Plays", command: "Command", ghost: "MFXGHOST", signal: "Signal", charts: "Charts", pulse: "Pulse", weekly: "Plays of the Week" };
@@ -115,13 +115,15 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
     return () => { alive = false; clearInterval(iv); };
   }, []);
 
+  // The KPI strip reads the REAL desk (FLOW + GENX gold) from /api/flow/stats, not
+  // the low-volume community ledger. The OM AI Plays blotter / ledger / intel feed
+  // below still use the community `recent` calls.
   const live = data?.live;
-  const resolved = (live?.resolved ?? 0) + (data?.launch.resolved ?? 0);
-  const wins = (live?.wins ?? 0) + (data?.launch.wins ?? 0);
-  const losses = (live?.losses ?? 0) + (data?.launch.losses ?? 0);
-  const wr = resolved >= MIN_CONFIDENT && wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : null;
   const recent = useMemo(() => live?.recent ?? [], [live]);
-  const openCount = live?.open ?? 0;
+  const liveOpen = flow?.liveOpen ?? 0;
+  const deskWr = flow?.winRate ?? null;
+  const deskWins = flow?.wins ?? 0;
+  const plays7d = flow?.plays7d ?? 0;
   const flowNet = flow?.pipsNet ?? flow?.pips ?? 0;
 
   const feed = useMemo(() => {
@@ -177,11 +179,11 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
 
         {/* ── SECTION 2 · KPI STRIP ── */}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-          <Kpi label="Live now" value={openCount} accent={C.cyan} live={openCount > 0} />
-          <Kpi label="Plays · 7D" value={live?.generated_7d ?? 0} />
-          <Kpi label="Win rate" value={wr ?? 0} suffix="%" dash={wr == null} accent={C.green} />
+          <Kpi label="Live now" value={liveOpen} accent={C.cyan} live={liveOpen > 0} />
+          <Kpi label="Plays · 7D" value={plays7d} />
+          <Kpi label="Win rate" value={deskWr ?? 0} suffix="%" dash={deskWr == null} accent={C.green} />
           <Kpi label="FLOW net pips" value={flowNet} signed accent={flowNet >= 0 ? C.green : C.red} />
-          <Kpi label="Wins resolved" value={wins} />
+          <Kpi label="Wins resolved" value={deskWins} />
         </div>
 
         {/* ── SECTION 5 · LIVE INTELLIGENCE RAIL ── */}
