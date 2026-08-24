@@ -2,6 +2,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { flowDecision } from "@/lib/flow/decision";
 import { placeOnActiveAccounts, placeFixedLotFollower } from "@/lib/flow/executor";
 import { activeAccounts, connectionToken, type ActiveAccount } from "@/lib/flow/connection";
+import { listAccounts } from "@/lib/flow/tradelocker";
+import { sizeFromRisk } from "@/lib/flow/sizing";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
@@ -560,31 +562,55 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
 // ── GENX FOLLOWER accounts ─────────────────────────────────────────────────────
 // A completely SEPARATE path from FLOW. Any account flagged genx_follower=true (its
 // own toggle, independent of autotrade_enabled / credits / the lead) takes EVERY
-// gold ENTER NOW at a flat 0.01 lot — no risk sizing, no caps, no cooldown, no news
-// or trend guard, no strict-mirror. It rides the signal's broker-held SL/TP raw
-// (the trade-manager never touches it). This exists to record GENX's unfiltered
-// track record on a dedicated account. GENX is gold-only, so "every GENX signal"
-// = every gold ENTER NOW. Dedup (genx_follower_fills, unique signal_key+account_id)
-// makes it idempotent across the scanner's overlapping runs / repeated ENTER NOWs.
+// gold ENTER NOW — no caps, no cooldown, no news or trend guard, no strict-mirror.
+// It rides the signal's broker-held SL/TP raw (the trade-manager never touches it).
+// GENX is gold-only, so "every GENX signal" = every gold ENTER NOW. Dedup
+// (genx_follower_fills, unique signal_key+account_id) makes it idempotent across the
+// scanner's overlapping runs / repeated ENTER NOWs.
+//
+// SIZING: each follower account is risk-sized to ITS OWN risk % — the per-account
+// risk_pct override if one is set, else the owner's default risk (flow_trade_prefs),
+// else a 1% fallback — off that account's live equity and the signal's entry→stop
+// distance. So one follower can ride GENX aggressively and another conservatively.
+// FOLLOWER_LOT (0.01) is only the safety floor: if we can't read the entry, stop, or
+// equity to size a trade, the follower still takes the signal at the broker minimum
+// rather than silently sitting out.
 const FOLLOWER_LOT = 0.01;
+const FOLLOWER_DEFAULT_RISK = 1; // % of equity when no per-account and no owner default is set
 
 export async function placeGenxFollower(sig: {
-  signalKey: string; side: "buy" | "sell"; stop: number | null; tp: number | null;
+  signalKey: string; side: "buy" | "sell";
+  entryLow?: number | null; entryHigh?: number | null;
+  stop: number | null; tp: number | null;
 }): Promise<{ accounts: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { accounts: 0, placed: 0 };
   const signalKey = String(sig.signalKey || "").slice(0, 200);
   if (!signalKey) return { accounts: 0, placed: 0 };
 
+  // Entry price for risk sizing: midpoint of the zone (fallbacks handle a one-sided
+  // zone). null → we can't size, so those accounts fall back to the 0.01 floor.
+  const entry = (sig.entryLow != null && sig.entryHigh != null)
+    ? (sig.entryLow + sig.entryHigh) / 2
+    : (sig.entryLow ?? sig.entryHigh ?? null);
+
   // Every follower account, across every user/connection (independent of FLOW).
-  const { data: rows } = await admin
-    .from("flow_broker_accounts")
-    .select("user_id, account_id, acc_num, connection_id")
-    .eq("genx_follower", true);
-  const accts = (rows ?? []) as { user_id: string; account_id: string; acc_num: string | null; connection_id: string }[];
+  // Pull the per-account risk override when the column exists; fall back to a select
+  // without it so the follower never breaks before the migration is run.
+  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; risk_pct?: number | null };
+  let accts: FollowRow[] = [];
+  const withRisk = await admin.from("flow_broker_accounts")
+    .select("user_id, account_id, acc_num, connection_id, risk_pct").eq("genx_follower", true);
+  if (!withRisk.error) accts = (withRisk.data ?? []) as FollowRow[];
+  else {
+    const fb = await admin.from("flow_broker_accounts")
+      .select("user_id, account_id, acc_num, connection_id").eq("genx_follower", true);
+    accts = (fb.data ?? []) as FollowRow[];
+  }
   if (!accts.length) return { accounts: 0, placed: 0 };
 
-  // Mint one token per connection (a connection can hold several follower accounts).
+  // Mint one token per connection (a connection can hold several follower accounts),
+  // and read that connection's live account equities ONCE (cached) for risk sizing.
   const tokenCache = new Map<string, { token: string; env: "demo" | "live" } | null>();
   async function tokenFor(connId: string) {
     if (tokenCache.has(connId)) return tokenCache.get(connId)!;
@@ -592,6 +618,36 @@ export async function placeGenxFollower(sig: {
     const v = t.ok ? { token: t.token, env: t.env } : null;
     tokenCache.set(connId, v);
     return v;
+  }
+  const equityCache = new Map<string, Map<string, number>>(); // connId → (accountId → equity)
+  async function equityFor(connId: string, accountId: string, tok: { token: string; env: "demo" | "live" }): Promise<number | null> {
+    let m = equityCache.get(connId);
+    if (!m) {
+      m = new Map();
+      try {
+        const res = await listAccounts(tok.env, tok.token);
+        if (res.ok) for (const x of res.data) {
+          const eq = x.equity ?? x.balance;
+          if (typeof eq === "number") m.set(String(x.accountId), eq);
+        }
+      } catch { /* equity read failed → callers fall back to the 0.01 floor */ }
+      equityCache.set(connId, m);
+    }
+    const v = m.get(String(accountId));
+    return typeof v === "number" ? v : null;
+  }
+  // Owner default risk (flow_trade_prefs.risk_pct), cached per user_id.
+  const defaultRiskCache = new Map<string, number>();
+  async function defaultRiskFor(userId: string): Promise<number> {
+    if (defaultRiskCache.has(userId)) return defaultRiskCache.get(userId)!;
+    let risk = FOLLOWER_DEFAULT_RISK;
+    try {
+      const { data: pref } = await admin!.from("flow_trade_prefs").select("risk_pct").eq("user_id", userId).maybeSingle();
+      const p = (pref as { risk_pct?: number | null } | null) ?? null;
+      if (p && typeof p.risk_pct === "number" && p.risk_pct > 0) risk = p.risk_pct;
+    } catch { /* keep fallback */ }
+    defaultRiskCache.set(userId, risk);
+    return risk;
   }
 
   let placed = 0, touched = 0;
@@ -607,10 +663,23 @@ export async function placeGenxFollower(sig: {
       const tok = await tokenFor(a.connection_id);
       if (!tok) { await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id); continue; }
 
+      // Risk-size this account to its own % (override → owner default → 1% fallback).
+      // If we can't size (missing entry/stop/equity), take the 0.01 floor so the
+      // follower still records the signal instead of sitting it out.
+      let qty = FOLLOWER_LOT;
+      if (entry != null && sig.stop != null) {
+        const equity = await equityFor(a.connection_id, a.account_id, tok);
+        if (equity != null && equity > 0) {
+          const acctRisk = (typeof a.risk_pct === "number" && a.risk_pct > 0) ? a.risk_pct : await defaultRiskFor(a.user_id);
+          const s = sizeFromRisk({ canonical: "XAUUSD", entry, stop: sig.stop, equity, riskPct: acctRisk, floorToMinLot: true });
+          if (s.ok && s.lots > 0) qty = Math.min(s.lots, 100); // fat-finger backstop
+        }
+      }
+
       const r = await placeFixedLotFollower({
         userId: a.user_id, env: tok.env, token: tok.token, connId: a.connection_id,
         accountId: a.account_id, accNum: String(a.acc_num),
-        symbol: "XAUUSD", side: sig.side, qty: FOLLOWER_LOT, stop: sig.stop, tp: sig.tp, source: "genx_follow",
+        symbol: "XAUUSD", side: sig.side, qty, stop: sig.stop, tp: sig.tp, source: "genx_follow",
       });
       if (r.ok) placed += 1;
       else {
