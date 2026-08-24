@@ -29,7 +29,7 @@ type Stats = {
   launch: { resolved: number; wins: number; losses: number };
 };
 type FlowStats = {
-  pipsWon?: number; winRate?: number | null; wins?: number; trades?: number;
+  pipsWon?: number; pipsNet?: number; pips?: number; winRate?: number | null; wins?: number; trades?: number;
   gold?: { wins: number; losses: number; pips: number; winRate: number | null; trades: number };
   forex?: { wins: number; stops: number; pips: number; winRate: number | null; trades: number; open: number };
   recent?: { symbol: string; side: string; outcome: string; win: boolean; pips: number | null; at: string }[];
@@ -122,6 +122,7 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
   const wr = resolved >= MIN_CONFIDENT && wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : null;
   const recent = useMemo(() => live?.recent ?? [], [live]);
   const openCount = live?.open ?? 0;
+  const flowNet = flow?.pipsNet ?? flow?.pips ?? 0;
 
   const feed = useMemo(() => {
     const t = (x: Recent) => statusMeta(x.status).tone;
@@ -179,7 +180,7 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
           <Kpi label="Live now" value={openCount} accent={C.cyan} live={openCount > 0} />
           <Kpi label="Plays · 7D" value={live?.generated_7d ?? 0} />
           <Kpi label="Win rate" value={wr ?? 0} suffix="%" dash={wr == null} accent={C.green} />
-          <Kpi label="FLOW pips won" value={flow?.pipsWon ?? 0} prefix="+" accent={C.green} />
+          <Kpi label="FLOW net pips" value={flowNet} signed accent={flowNet >= 0 ? C.green : C.red} />
           <Kpi label="Wins resolved" value={wins} />
         </div>
 
@@ -255,13 +256,15 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
 }
 
 /* ── KPI tile ── */
-function Kpi({ label, value, suffix = "", prefix = "", dash = false, accent = C.text, live = false }: { label: string; value: number; suffix?: string; prefix?: string; dash?: boolean; accent?: string; live?: boolean }) {
+function Kpi({ label, value, suffix = "", prefix = "", dash = false, accent = C.text, live = false, signed = false }: { label: string; value: number; suffix?: string; prefix?: string; dash?: boolean; accent?: string; live?: boolean; signed?: boolean }) {
   const v = useCountUp(value);
+  const rounded = Math.round(v);
+  const pre = signed ? (rounded >= 0 ? "+" : "") : prefix;
   return (
     <div className="relative overflow-hidden rounded-lg border px-3 py-2.5" style={{ borderColor: C.line, background: C.panel }}>
       {live && <span className="absolute right-2.5 top-2.5 h-1.5 w-1.5 rounded-full" style={{ background: C.cyan, boxShadow: `0 0 6px ${C.cyan}` }} />}
       <p className="font-mono text-[22px] font-black leading-none tabular-nums sm:text-[26px]" style={{ color: dash ? C.mut2 : accent }}>
-        {dash ? "—" : `${prefix}${Math.round(v).toLocaleString()}${suffix}`}
+        {dash ? "—" : `${pre}${rounded.toLocaleString()}${suffix}`}
       </p>
       <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.mut }}>{label}</p>
     </div>
@@ -327,6 +330,7 @@ function PlaysBlotter({ rows }: { rows: Recent[] }) {
 function FlowPanel({ flow, onConnect }: { flow: FlowStats | null; onConnect: () => void }) {
   const rec = flow?.recent ?? [];
   const hasData = !!flow && !flow.error && (flow.trades ?? 0) > 0;
+  const net = flow?.pipsNet ?? flow?.pips ?? 0;
   // cumulative pips curve (chronological)
   const curve = useMemo(() => {
     const chron = [...rec].reverse();
@@ -358,8 +362,8 @@ function FlowPanel({ flow, onConnect }: { flow: FlowStats | null; onConnect: () 
         <div className="flex flex-1 flex-col p-3.5">
           <div className="flex items-end justify-between">
             <div>
-              <p className="font-mono text-[30px] font-black leading-none tabular-nums" style={{ color: C.green }}>+{(flow?.pipsWon ?? 0).toLocaleString()}</p>
-              <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.mut }}>Pips won</p>
+              <p className="font-mono text-[30px] font-black leading-none tabular-nums" style={{ color: net >= 0 ? C.green : C.red }}>{net >= 0 ? "+" : ""}{net.toLocaleString()}</p>
+              <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.mut }}>Net pips</p>
             </div>
             <div className="text-right">
               <p className="font-mono text-lg font-black tabular-nums">{flow?.winRate != null ? `${flow.winRate}%` : "—"}</p>
