@@ -3,7 +3,7 @@ import { flowDecision } from "@/lib/flow/decision";
 import { placeOnActiveAccounts, placeFixedLotFollower } from "@/lib/flow/executor";
 import { activeAccounts, connectionToken, type ActiveAccount } from "@/lib/flow/connection";
 import { listAccounts } from "@/lib/flow/tradelocker";
-import { sizeFromRisk } from "@/lib/flow/sizing";
+import { sizeFromRisk, floorStop } from "@/lib/flow/sizing";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
@@ -593,6 +593,9 @@ export async function placeGenxFollower(sig: {
   const entry = (sig.entryLow != null && sig.entryHigh != null)
     ? (sig.entryLow + sig.entryHigh) / 2
     : (sig.entryLow ?? sig.entryHigh ?? null);
+  // Widen a too-tight signal stop to gold's minimum distance before sizing + placing, so the
+  // follower isn't over-sized off a noise-width stop (same risk %, professional position size).
+  const fstop = (entry != null && sig.stop != null) ? floorStop("XAUUSD", sig.side, entry, sig.stop) : sig.stop;
 
   // Every follower account, across every user/connection (independent of FLOW).
   // Pull the per-account risk override + management toggle when those columns exist;
@@ -667,11 +670,11 @@ export async function placeGenxFollower(sig: {
       // If we can't size (missing entry/stop/equity), take the 0.01 floor so the
       // follower still records the signal instead of sitting it out.
       let qty = FOLLOWER_LOT;
-      if (entry != null && sig.stop != null) {
+      if (entry != null && fstop != null) {
         const equity = await equityFor(a.connection_id, a.account_id, tok);
         if (equity != null && equity > 0) {
           const acctRisk = (typeof a.risk_pct === "number" && a.risk_pct > 0) ? a.risk_pct : await defaultRiskFor(a.user_id);
-          const s = sizeFromRisk({ canonical: "XAUUSD", entry, stop: sig.stop, equity, riskPct: acctRisk, floorToMinLot: true });
+          const s = sizeFromRisk({ canonical: "XAUUSD", entry, stop: fstop, equity, riskPct: acctRisk, floorToMinLot: true });
           if (s.ok && s.lots > 0) qty = Math.min(s.lots, 100); // fat-finger backstop
         }
       }
@@ -679,7 +682,7 @@ export async function placeGenxFollower(sig: {
       const r = await placeFixedLotFollower({
         userId: a.user_id, env: tok.env, token: tok.token, connId: a.connection_id,
         accountId: a.account_id, accNum: String(a.acc_num),
-        symbol: "XAUUSD", side: sig.side, qty, stop: sig.stop, tp: sig.tp, source: "genx_follow",
+        symbol: "XAUUSD", side: sig.side, qty, stop: fstop, tp: sig.tp, source: "genx_follow",
       });
       if (r.ok) {
         placed += 1;
@@ -688,13 +691,13 @@ export async function placeGenxFollower(sig: {
         // so it gets SL→breakeven and a 50% partial. With management off (or no stop) the
         // fill is left unregistered and rides the raw signal SL/TP to its outcome.
         const manageOn = a.manage_trades !== false;
-        if (manageOn && r.positionId && entry != null && sig.stop != null) {
+        if (manageOn && r.positionId && entry != null && fstop != null) {
           try {
             await admin.from("flow_managed_positions").insert({
               user_id: a.user_id, connection_id: a.connection_id, account_id: a.account_id, acc_num: String(a.acc_num), environment: tok.env,
               position_id: r.positionId, symbol: "XAUUSD", side: sig.side,
-              entry, init_stop: sig.stop, tp1: sig.tp ?? null,
-              r: Math.abs(entry - sig.stop), qty: r.qty, cur_stop: sig.stop, best_price: entry,
+              entry, init_stop: fstop, tp1: sig.tp ?? null,
+              r: Math.abs(entry - fstop), qty: r.qty, cur_stop: fstop, best_price: entry,
             });
           } catch { /* management is best-effort; the trade still stands unmanaged */ }
         }

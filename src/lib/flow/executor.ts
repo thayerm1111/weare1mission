@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeQuantity } from "@/lib/flow/instruments";
 import { freshAccessToken, activeAccounts, type ActiveAccount } from "@/lib/flow/connection";
-import { sizeFromRisk, contractKey } from "@/lib/flow/sizing";
+import { sizeFromRisk, contractKey, floorStop } from "@/lib/flow/sizing";
 import { listInstruments, createOrder, getQuote, listOrders, listPositions, listAccounts, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 
 /**
@@ -259,6 +259,10 @@ export async function placeOnActiveAccounts(opts: {
   accounts?: ActiveAccount[]; // pass a pre-fetched list to avoid re-minting tokens
 }): Promise<{ accounts: AccountFill[]; placed: number }> {
   const canonical = normSym(opts.symbol) || "XAUUSD";
+  // Widen a too-tight signal stop to the instrument's minimum distance BEFORE sizing and
+  // placing — so the position is sized off a sane stop (no ballooned lots) and the broker
+  // holds a stop with room to breathe (no noise whipsaw). Same risk %, professional size.
+  const stop = floorStop(canonical, opts.side, opts.entry, opts.stop);
   const accts = opts.accounts ?? (await activeAccounts(opts.userId));
   const fills: AccountFill[] = [];
   let placed = 0;
@@ -271,10 +275,10 @@ export async function placeOnActiveAccounts(opts: {
     // Each account risk-sizes to ITS OWN risk % when one is set, else the caller's
     // default — so one account can run aggressive and another conservative.
     const acctRisk = a.riskPct != null && a.riskPct > 0 ? a.riskPct : opts.riskPct;
-    const s = sizeFromRisk({ canonical, entry: opts.entry, stop: opts.stop, equity: a.equity, riskPct: acctRisk, floorToMinLot: true });
+    const s = sizeFromRisk({ canonical, entry: opts.entry, stop, equity: a.equity, riskPct: acctRisk, floorToMinLot: true });
     if (!s.ok || !(s.lots > 0)) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: s.reason || "size_too_small" }); continue; }
     const lots = Math.min(s.lots, 100); // fat-finger backstop
-    const r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, opts.stop, opts.tp ?? null);
+    const r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, opts.tp ?? null);
     if (!r.ok) {
       // Session-closed rejection isn't a failure — the next tick retries once the
       // market reopens. Record it as "deferred"/skipped so it doesn't spam errors.
@@ -288,14 +292,14 @@ export async function placeOnActiveAccounts(opts: {
     placed += 1;
     // Hand the fill to the trade-manager (breakeven → partial → trail). Needs a
     // positionId + a real stop; a bare/unstopped fill isn't managed.
-    if (r.positionId && opts.stop != null) {
+    if (r.positionId && stop != null) {
       try {
         const admin = createAdminClient();
         if (admin) await admin.from("flow_managed_positions").insert({
           user_id: opts.userId, connection_id: a.connId, account_id: a.accountId, acc_num: a.accNum, environment: a.env,
           position_id: r.positionId, symbol: canonical, side: opts.side,
-          entry: opts.entry, init_stop: opts.stop, tp1: opts.tp ?? null,
-          r: Math.abs(opts.entry - opts.stop), qty: r.qty, cur_stop: opts.stop, best_price: opts.entry,
+          entry: opts.entry, init_stop: stop, tp1: opts.tp ?? null,
+          r: Math.abs(opts.entry - stop), qty: r.qty, cur_stop: stop, best_price: opts.entry,
         });
       } catch { /* management is best-effort */ }
     }

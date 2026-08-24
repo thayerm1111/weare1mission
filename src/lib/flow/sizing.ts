@@ -62,6 +62,48 @@ export function valuePerPricePerLot(canonical: string, price: number): number {
   return c.size;
 }
 
+// MINIMUM SANE STOP DISTANCE per instrument (in price units). A stop tighter than this both
+// balloons the lot size (risk% / a tiny distance = a huge, over-leveraged position) AND gets
+// whipsawed by normal noise. Placement widens the stop to this floor before sizing — the risk
+// % is unchanged, but the position is professionally sized with room to breathe.
+const MIN_STOP: Record<string, number> = {
+  XAUUSD: 8.0,      // $8 on gold (~80 pips)
+  XAGUSD: 0.15,
+  EURUSD: 0.0012,   // ~12 pips
+  GBPUSD: 0.0012,
+  USDJPY: 0.12,
+  AUDUSD: 0.0012,
+  USDCAD: 0.0012,
+  NAS100: 20,       // 20 index points
+  US30: 25,
+  USOIL: 0.15,
+};
+
+/** Minimum sane stop distance (price units) for an instrument; 0 if none configured. */
+export function minStopDistance(canonical: string): number {
+  return MIN_STOP[contractKey(canonical)] ?? 0;
+}
+
+/** Widen a stop to the instrument's minimum distance when the signal's stop is tighter.
+ *  Returns the (possibly widened) stop price, on the correct side of entry. */
+export function floorStop(canonical: string, side: "buy" | "sell", entry: number, stop: number): number {
+  const min = minStopDistance(canonical);
+  if (!(min > 0) || !(entry > 0) || !(stop > 0)) return stop;
+  if (Math.abs(entry - stop) >= min) return stop;
+  return side === "buy" ? +(entry - min) : +(entry + min);
+}
+
+// LEVERAGE BACKSTOP: no single position's notional (contract size × price × lots) may exceed
+// this multiple of account equity — a professional ceiling so one trade can't run extreme
+// leverage even at a "correct" risk % on a tight stop.
+const MAX_NOTIONAL_MULT = 20;
+
+/** Notional (USD face value) of 1.0 lot at the given price. */
+export function notionalPerLot(canonical: string, price: number): number {
+  const c = CONTRACT[contractKey(canonical)] ?? { size: 1, quote: "USD" as const };
+  return c.size * (price > 0 ? price : 0);
+}
+
 export type SizeResult = {
   ok: boolean; lots: number; riskAmount: number; stopDistance: number;
   valuePerLot: number; estLossAtStop: number; reason?: string;
@@ -90,7 +132,12 @@ export function sizeFromRisk(opts: {
     return { ok: false, lots: 0, riskAmount, stopDistance, valuePerLot, estLossAtStop: 0, reason: "Missing account size, risk %, or a valid stop distance." };
   }
   const raw = riskAmount / (stopDistance * valuePerLot);
-  const norm = normalizeQuantity(canonical, raw, opts.broker);
+  // LEVERAGE CAP: never let a single position's notional exceed MAX_NOTIONAL_MULT× equity,
+  // even when a tight stop would imply more. Caps the lots regardless of the risk %.
+  const npl = notionalPerLot(canonical, px);
+  const maxLotsByLeverage = npl > 0 ? (Number(opts.equity) * MAX_NOTIONAL_MULT) / npl : raw;
+  const capped = Math.min(raw, maxLotsByLeverage);
+  const norm = normalizeQuantity(canonical, capped, opts.broker);
   // Below-minimum: accept the minimum lot when the caller asked us to floor.
   const ok = norm.ok || (!!opts.floorToMinLot && norm.qty > 0);
   const estLossAtStop = +(norm.qty * stopDistance * valuePerLot).toFixed(2);
