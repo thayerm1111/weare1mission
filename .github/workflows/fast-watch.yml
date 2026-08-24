@@ -29,9 +29,15 @@ jobs:
           if [ -z "$KEY" ]; then echo "No GENX_CRON_KEY/FLOW_CRON_KEY secret set — skipping"; exit 0; fi
           FLOW="https://weare1mission.com/api/cron/flow-exec?key=$KEY&watch=1&manage=0"
           GENX="https://weare1mission.com/api/cron/genx-scan?key=$KEY&watch=1"
+          DOG="https://weare1mission.com/api/cron/flow-watchdog?key=$KEY"
           # ~5.75h of 30-second coverage per run; the schedule restarts a fresh loop.
           for i in $(seq 0 690); do
             curl -sS -m 25 -X POST "$FLOW" -o /dev/null -w "t$i flow-watch HTTP %{http_code}\n" || true
             curl -sS -m 25 -X POST "$GENX" -o /dev/null -w "t$i genx-watch HTTP %{http_code}\n" || true
+            # Self-healing watchdog ~every 2 min (redundant with the Vercel cron): if a
+            # component's heartbeat has gone stale it re-kicks it, so nothing stays down.
+            if [ $((i % 4)) -eq 0 ]; then
+              curl -sS -m 25 -X POST "$DOG" -o /dev/null -w "t$i watchdog HTTP %{http_code}\n" || true
+            fi
             sleep 30
           done
