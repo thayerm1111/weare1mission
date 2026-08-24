@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { goldTally, dedupeGold, goldWinPips, goldLossPips, type GoldSig } from "@/lib/genx/goldRecord";
+import { goldTally, dedupeGold, goldIsWin, goldOutcomePips, type GoldSig } from "@/lib/genx/goldRecord";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +26,7 @@ export async function GET() {
 
   const [{ data: sigRaw }, { data: fillsRaw }] = await Promise.all([
     admin.from("genx_signals")
-      .select("created_at,resolved_at,direction,outcome,entry,stop_loss,tp1,tp2,tp3,stop_pips,tp1_pips,tp2_pips,tp3_pips,tp1_hit,tp2_hit,tp3_hit")
+      .select("created_at,resolved_at,direction,outcome,entry,stop_loss,tp1,tp2,tp3,stop_pips,tp1_pips,tp2_pips,tp3_pips,tp1_hit,tp2_hit,tp3_hit,mfe_pips")
       .not("outcome", "is", null)
       .order("resolved_at", { ascending: false, nullsFirst: false })
       .limit(4000),
@@ -43,8 +43,8 @@ export async function GET() {
   };
 
   const recent = dedupeGold(rows).slice(0, 14).map((s) => {
-    const win = s.outcome === "WIN";
-    return { side: (s.direction || "").toLowerCase(), win, pips: Math.round(win ? goldWinPips(s) : -goldLossPips(s)), at: s.resolved_at || s.created_at };
+    const win = goldIsWin(s); // breakeven-saved stops count as wins
+    return { side: (s.direction || "").toLowerCase(), win, pips: Math.round(goldOutcomePips(s)), at: s.resolved_at || s.created_at };
   });
 
   // How many signals a follower account has actually placed so far (builds up live).
