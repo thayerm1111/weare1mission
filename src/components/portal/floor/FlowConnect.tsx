@@ -30,6 +30,7 @@ type Account = {
   openPositions?: number | null;
   selected?: boolean;
   autotradeEnabled?: boolean;
+  riskPct?: number | null;
   connectionId?: string;
   environment?: string;
   server?: string;
@@ -58,6 +59,8 @@ type AutoRun = {
 };
 
 const RISK_CHIPS = [0.5, 1, 2, 3];
+// Per-account risk options — conservative → aggressive. "" clears the override.
+const ACCT_RISK_OPTS = [0.25, 0.5, 1, 1.5, 2, 3, 5];
 
 function marketOpenNow(): boolean {
   const d = new Date();
@@ -219,6 +222,20 @@ export function FlowConnect() {
     }
   }
 
+  async function setAccountRisk(a: Account, riskPct: number | null) {
+    // Optimistic: set locally, then persist. null → clear override (use default).
+    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, riskPct } : x) } : prev);
+    try {
+      await fetch("/api/flow/broker", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "risk", accountId: a.accountId, connectionId: a.connectionId, riskPct }),
+      });
+    } catch {
+      void load();
+    }
+  }
+
   async function disconnect() {
     setBusy(true);
     setOk("");
@@ -312,31 +329,55 @@ export function FlowConnect() {
                 return (
                   <div
                     key={`${a.connectionId || ""}-${a.accountId}`}
-                    className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3.5 py-3 ${
+                    className={`w-full rounded-xl border px-3.5 py-3 ${
                       on ? "border-emerald-500/40 bg-emerald-500/[0.05]" : "border-ice bg-offwhite/50"
                     }`}
                   >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-navy">
-                        {a.name || `Account ${a.accountId}`}
-                        {a.environment && (
-                          <span className={`ml-2 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${a.environment === "live" ? "bg-amber-500/15 text-amber-600" : "bg-navy/[0.06] text-navy"}`}>{a.environment}</span>
-                        )}
-                      </p>
-                      <p className="mt-0.5 text-[11px] text-charcoal/45">
-                        #{a.accNum || a.accountId}
-                        {a.currency ? ` · ${a.currency}` : ""} · <span className="inline-flex items-center gap-0.5"><Wallet className="inline h-3 w-3" />{money(a.equity != null ? a.equity : a.balance)}</span>
-                      </p>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-navy">
+                          {a.name || `Account ${a.accountId}`}
+                          {a.environment && (
+                            <span className={`ml-2 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${a.environment === "live" ? "bg-amber-500/15 text-amber-600" : "bg-navy/[0.06] text-navy"}`}>{a.environment}</span>
+                          )}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-charcoal/45">
+                          #{a.accNum || a.accountId}
+                          {a.currency ? ` · ${a.currency}` : ""} · <span className="inline-flex items-center gap-0.5"><Wallet className="inline h-3 w-3" />{money(a.equity != null ? a.equity : a.balance)}</span>
+                        </p>
+                      </div>
+                      <div className="flex flex-shrink-0 items-center gap-2">
+                        <span className={`text-[11px] font-semibold ${on ? "text-emerald-600" : "text-charcoal/40"}`}>{on ? "Trading" : "Off"}</span>
+                        <button
+                          onClick={() => void toggleAccount(a, !on)}
+                          aria-pressed={on}
+                          className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${on ? "bg-emerald-500" : "bg-charcoal/20"}`}
+                        >
+                          <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${on ? "left-[22px]" : "left-0.5"}`} />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex flex-shrink-0 items-center gap-2">
-                      <span className={`text-[11px] font-semibold ${on ? "text-emerald-600" : "text-charcoal/40"}`}>{on ? "Trading" : "Off"}</span>
+                    {/* Per-account risk override */}
+                    <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-ice/70 pt-2.5">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55"><Gauge className="h-3.5 w-3.5" /> Risk</span>
                       <button
-                        onClick={() => void toggleAccount(a, !on)}
-                        aria-pressed={on}
-                        className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${on ? "bg-emerald-500" : "bg-charcoal/20"}`}
+                        onClick={() => void setAccountRisk(a, null)}
+                        className={`rounded-lg border px-2 py-1 text-[11px] font-bold transition-colors ${a.riskPct == null ? "border-navy/40 bg-navy/[0.06] text-navy" : "border-ice bg-white text-charcoal/50 hover:border-charcoal/25"}`}
                       >
-                        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${on ? "left-[22px]" : "left-0.5"}`} />
+                        Default ({risk}%)
                       </button>
+                      {ACCT_RISK_OPTS.map((v) => {
+                        const sel = a.riskPct === v;
+                        return (
+                          <button
+                            key={v}
+                            onClick={() => void setAccountRisk(a, v)}
+                            className={`rounded-lg border px-2 py-1 text-[11px] font-bold transition-colors ${sel ? "border-emerald-500/60 bg-emerald-500/[0.10] text-emerald-600" : "border-ice bg-white text-navy hover:border-charcoal/25"}`}
+                          >
+                            {v}%
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -354,10 +395,10 @@ export function FlowConnect() {
           {/* Risk % lock-in */}
           <div className="rounded-2xl border border-ice bg-white p-5">
             <p className="inline-flex items-center gap-2 text-sm font-bold">
-              <Gauge className="h-4 w-4 text-navy" /> Your risk per trade
+              <Gauge className="h-4 w-4 text-navy" /> Default risk per trade
             </p>
             <p className="mt-1 text-xs text-charcoal/50">
-              FLOW sizes every trade to this % of your account. Lock it in.
+              The fallback size FLOW uses for any account without its own risk set above. Lock it in.
             </p>
             <div className="mt-3 grid grid-cols-4 gap-2">
               {RISK_CHIPS.map((v) => {
