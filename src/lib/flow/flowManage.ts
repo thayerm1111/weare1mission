@@ -105,6 +105,20 @@ function posIdOf(p: unknown): string {
   return "";
 }
 
+/** Extract the AVERAGE OPEN (fill) price from a TradeLocker position (object OR columnar
+ *  array). TradeLocker's positions come back column-ordered
+ *  [id, tradableInstrumentId, routeId, side, qty, avgPrice, ...] — index 5 is the fill
+ *  price; object form exposes it by name. Returns null if it isn't a sane positive number. */
+function avgPxOf(p: unknown): number | null {
+  let v: number = NaN;
+  if (Array.isArray(p)) v = Number(p[5]);
+  else if (p && typeof p === "object") {
+    const o = p as Record<string, unknown>;
+    v = Number(o.avgPrice ?? o.openPrice ?? o.avg_price ?? o.price);
+  }
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
 /** Round a stop price to the instrument's own precision so the broker accepts it. */
 function roundPx(symbol: string, price: number): number {
   const prec = getInstrument(contractKey(symbol)).pricePrecision ?? 2;
@@ -261,7 +275,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   // One fresh token per connection; one instrument list + positions list + quote
   // cache per account — so N positions on one account cost one round-trip each.
   const tokenCache = new Map<string, { token: string; env: TLEnv } | null>();
-  const acctCache = new Map<string, { openIds: Set<string>; instruments: TLInstrument[] } | null>();
+  const acctCache = new Map<string, { openIds: Set<string>; avgPx: Map<string, number>; instruments: TLInstrument[] } | null>();
   const quoteCache = new Map<string, number | null>(); // key: acctKey|symbol → exit price
 
   const actions: ManageAction[] = [];
@@ -279,8 +293,10 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     if (acctCache.has(key)) return acctCache.get(key)!;
     const pos = await listPositions(tok.env, tok.token, accNum, accountId);
     const inst = await listInstruments(tok.env, tok.token, accNum, accountId);
+    const avgPx = new Map<string, number>();
+    if (pos.ok) for (const p of pos.data) { const id = posIdOf(p); const px = avgPxOf(p); if (id && px != null) avgPx.set(id, px); }
     const v = pos.ok && inst.ok
-      ? { openIds: new Set(pos.data.map(posIdOf).filter(Boolean)), instruments: inst.data }
+      ? { openIds: new Set(pos.data.map(posIdOf).filter(Boolean)), avgPx, instruments: inst.data }
       : null;
     acctCache.set(key, v);
     return v;
@@ -351,13 +367,35 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       if (price == null || !(price > 0)) { await admin.from("flow_managed_positions").update({ last_error: "no_quote", updated_at: new Date().toISOString() }).eq("id", row.id); continue; }
 
       const long = row.side === "buy";
+      const pip = getInstrument(contractKey(row.symbol)).pipSize || 0.0001;
+
+      // ── RE-ANCHOR TO THE REAL FILL. The row was recorded with the SIGNAL's entry, which is
+      //    identical for every account — but each account fills at its OWN price, and on a fast
+      //    gold market that can be several dollars away. Anchoring break-even/partials/trail to
+      //    the signal price makes "break-even" a real loss on that account, and books losers as
+      //    winners in the track record (we saw a broker −$775 stop recorded as "trail +116p").
+      //    As soon as we can read the broker's average open price, correct entry + r to it.
+      //    Guarded to a sane band so a bad parse can never corrupt the anchor, and thresholded
+      //    so it writes once (drift ≈ 0 thereafter). ──
+      const brokerAvg = st.avgPx.get(String(row.position_id)) ?? null;
+      if (brokerAvg != null) {
+        const drift = Math.abs(brokerAvg - row.entry);
+        const band = Math.max(row.entry * 0.01, Math.abs(row.entry - row.init_stop) * 4);
+        if (drift > pip * 2 && drift <= band) {
+          const newR = Math.abs(brokerAvg - row.init_stop);
+          const newBest = row.best_price == null ? brokerAvg : (row.side === "buy" ? Math.max(row.best_price, brokerAvg) : Math.min(row.best_price, brokerAvg));
+          await admin.from("flow_managed_positions").update({ entry: brokerAvg, r: newR, best_price: newBest, updated_at: new Date().toISOString() }).eq("id", row.id);
+          actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "reanchor", detail: `entry ${row.entry.toFixed(2)}→${brokerAvg.toFixed(2)}` });
+          row.entry = brokerAvg; row.r = newR; row.best_price = newBest;
+        }
+      }
+
       // Management OFF for this account → keep tracking (best price + close detection
       // above) but never touch the broker stop or take a partial; the trade rides raw.
       const manageOn = !manageOff.has(String(row.account_id));
       const R = row.r && row.r > 0 ? row.r : Math.abs(row.entry - row.init_stop);
       if (!(R > 0)) { await admin.from("flow_managed_positions").update({ last_error: "no_R", updated_at: new Date().toISOString() }).eq("id", row.id); continue; }
 
-      const pip = getInstrument(contractKey(row.symbol)).pipSize || 0.0001;
       // FAVORABLE EXCURSION: the best price the trade actually reached, from the recent
       // 1-min candle extremes as well as the current sample — so a spike that reversed
       // within the once-a-minute window still counts toward break-even/partial triggers.
