@@ -31,6 +31,7 @@ type Account = {
   selected?: boolean;
   autotradeEnabled?: boolean;
   riskPct?: number | null;
+  manageTrades?: boolean;
   connectionId?: string;
   environment?: string;
   server?: string;
@@ -236,6 +237,21 @@ export function FlowConnect() {
     }
   }
 
+  async function setAccountManage(a: Account, enabled: boolean) {
+    // Optimistic: flip locally, then persist. Controls breakeven + partials (the
+    // trade-manager) for this account's FLOW and GENX trades alike.
+    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, manageTrades: enabled } : x) } : prev);
+    try {
+      await fetch("/api/flow/broker", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled }),
+      });
+    } catch {
+      void load();
+    }
+  }
+
   async function disconnect() {
     setBusy(true);
     setOk("");
@@ -379,6 +395,28 @@ export function FlowConnect() {
                         );
                       })}
                     </div>
+                    {/* Per-account trade management: breakeven + partials (FLOW & GENX) */}
+                    {(() => {
+                      const managed = a.manageTrades !== false;
+                      return (
+                        <div className="mt-2 flex items-center justify-between gap-3 border-t border-ice/70 pt-2.5">
+                          <div className="min-w-0">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55"><ShieldCheck className="h-3.5 w-3.5" /> Manage trades</span>
+                            <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">Move stop to breakeven + take a 50% partial. Off = ride the raw stop/target.</p>
+                          </div>
+                          <div className="flex flex-shrink-0 items-center gap-2">
+                            <span className={`text-[11px] font-semibold ${managed ? "text-emerald-600" : "text-charcoal/40"}`}>{managed ? "On" : "Off"}</span>
+                            <button
+                              onClick={() => void setAccountManage(a, !managed)}
+                              aria-pressed={managed}
+                              className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${managed ? "bg-emerald-500" : "bg-charcoal/20"}`}
+                            >
+                              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${managed ? "left-[22px]" : "left-0.5"}`} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
