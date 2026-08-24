@@ -17,6 +17,7 @@ import {
   classify, applyDataQuality, type Classification, type DataQuality,
 } from "./odds";
 import type { GameOdds, League, OddsMarket } from "./provider";
+import { modelBlendWeight, blendSide, type GameModel } from "./model";
 
 export type Opportunity = {
   league: League;
@@ -108,12 +109,15 @@ function twoWayFairProbs(
  * it. Either way we still surface whether a sharper price exists elsewhere, as
  * line-shopping context only. Never fabricates a number.
  */
-export function analyzeGame(g: GameOdds, preferredBook?: string | null): Opportunity[] {
+export function analyzeGame(g: GameOdds, preferredBook?: string | null, model?: GameModel): Opportunity[] {
   const out: Opportunity[] = [];
   const matchup = `${g.awayTeam} @ ${g.homeTeam}`;
   // Provider gives no injuries/lineups here -> data quality is capped at MEDIUM.
   const dq: DataQuality = "MEDIUM";
   const pref = preferredBook ? preferredBook.toLowerCase() : null;
+  // Model win probabilities (from real ESPN context) apply to the MONEYLINE only in v1.
+  const modelW = model ? modelBlendWeight(model) : 0;
+  const modelApplied = !!model?.applied && modelW > 0;
 
   const consider = (
     betType: Opportunity["betType"], marketKey: OddsMarket["key"],
@@ -130,17 +134,22 @@ export function analyzeGame(g: GameOdds, preferredBook?: string | null): Opportu
     const implied = americanToImplied(primary.price);
     const fair = twoWayFairProbs(g.books, marketKey, selName, oppName);
     if (implied == null || !fair) return;
-    const modelProb = fair.a; // baseline model = market consensus fair prob
+    // MODEL: on the moneyline, blend the AI's OWN win prob (built from real ESPN context) toward
+    // the market fair line so the edge reflects genuine model-vs-market disagreement. Other
+    // markets stay on the market-consensus baseline until the model is extended to margins (v1).
+    const usingModel = modelApplied && betType === "moneyline" && model != null;
+    const rawModelSide = usingModel ? (selName === g.homeTeam ? model!.pHome : model!.pAway) : null;
+    const modelProb = usingModel ? blendSide(rawModelSide!, fair.a, modelW) : fair.a;
     const edge = edgePoints(modelProb, implied);
     if (edge == null) return;
     const base = baselineConfidence(edge, rows.length);
-    // OUTLIER GUARD: a real market almost never leaves a huge price gap vs the
-    // consensus. An edge this large is far more likely a stale/limited line or a
-    // data hiccup than free money — so we downgrade data quality, cut confidence
-    // hard, and let the classifier fall to PASS/LEAN rather than ELITE.
-    const OUTLIER_PTS = 8;
+    // OUTLIER GUARD: a real market almost never leaves a huge price gap vs the consensus, so a
+    // giant MARKET-only edge is a likely stale/limited line. A MODEL edge is a real disagreement,
+    // so its distrust bar is higher (12 vs 8 pts) before we downgrade it.
+    const OUTLIER_PTS = usingModel ? 12 : 8;
     const isOutlier = edge >= OUTLIER_PTS;
-    const dqEff: DataQuality = isOutlier ? "LOW" : dq;
+    // Data quality: the model's own quality when it drove the number; else the market baseline.
+    const dqEff: DataQuality = isOutlier ? "LOW" : (usingModel ? model!.dataQuality : dq);
     const confidence = isOutlier ? Math.min(applyDataQuality(base, dqEff), 32) : applyDataQuality(base, dqEff);
     const classification = classify(edge, confidence);
     const pointStr = primary.point != null ? ` ${primary.point > 0 ? "+" : ""}${primary.point}` : "";
@@ -152,12 +161,17 @@ export function analyzeGame(g: GameOdds, preferredBook?: string | null): Opportu
 
     const supporting = [
       `${rows.length} book(s) priced this market (consensus breadth).`,
-      `No-vig fair prob ${(modelProb * 100).toFixed(1)}% vs your priced ${(implied * 100).toFixed(1)}%.`,
+      usingModel
+        ? `Model win prob ${(modelProb * 100).toFixed(1)}% (blended ${Math.round(modelW * 100)}% model / ${Math.round((1 - modelW) * 100)}% market) vs your priced ${(implied * 100).toFixed(1)}%.`
+        : `No-vig fair prob ${(modelProb * 100).toFixed(1)}% vs your priced ${(implied * 100).toFixed(1)}%.`,
     ];
+    if (usingModel && model) for (const f of model.factors) supporting.push(`Model: ${f}`);
     if (betterElsewhere) supporting.push(`A sharper price exists at ${betterElsewhere.book} (${betterElsewhere.price > 0 ? "+" : ""}${betterElsewhere.price}) — context only.`);
 
     const risks = [
-      "Model prob here is market-consensus only; no injury/lineup/situational data is baked into this number.",
+      usingModel
+        ? "Model uses real records, MLB starters and injuries — but not full lineups or advanced metrics — and is blended with the market. Treat it as a data-informed lean, not certainty."
+        : "Model prob here is market-consensus only; no injury/lineup/situational data is baked into this number.",
       "Odds move — verify the price is still live at your book before betting.",
     ];
     if (isOutlier) {
@@ -189,13 +203,16 @@ export function analyzeGame(g: GameOdds, preferredBook?: string | null): Opportu
       side: selName,
       point: primary.point,
       reasoning:
-        `${bookLabel} price ${primary.price > 0 ? "+" : ""}${primary.price} implies ${(implied * 100).toFixed(1)}%, ` +
-        `vs a no-vig market consensus of ${(modelProb * 100).toFixed(1)}% across ${rows.length} book(s). ` +
+        `${bookLabel} price ${primary.price > 0 ? "+" : ""}${primary.price} implies ${(implied * 100).toFixed(1)}%, vs ` +
+        (usingModel
+          ? `the AI model's ${(modelProb * 100).toFixed(1)}% win prob (real records/starters/injuries, blended with the market) `
+          : `a no-vig market consensus of ${(modelProb * 100).toFixed(1)}% `) +
+        `across ${rows.length} book(s). ` +
         (isOutlier
           ? `That is a ${edge.toFixed(1)}-pt gap — implausibly large, so treat it as a likely stale/limited line, NOT a real edge.`
           : edge > 0
-            ? `That is a ${edge.toFixed(1)}-pt value edge on the line you can bet.`
-            : `No positive edge vs consensus at this price — not a value spot.`) +
+            ? `That is a ${edge.toFixed(1)}-pt ${usingModel ? "model" : "value"} edge on the line you can bet.`
+            : `No positive edge at this price — not a value spot.`) +
         (prefRow ? "" : pref ? ` (${pref} hasn't posted this market; showing best available.)` : ""),
       supporting,
       risks,
@@ -219,9 +236,10 @@ export function analyzeGame(g: GameOdds, preferredBook?: string | null): Opportu
   return out;
 }
 
-/** Analyze many games and rank by statistical edge (not by favorite). */
-export function rankOpportunities(games: GameOdds[], preferredBook?: string | null): Opportunity[] {
-  const all = games.flatMap((g) => analyzeGame(g, preferredBook));
+/** Analyze many games and rank by statistical edge (not by favorite). `models` (keyed by game
+ *  id) injects the AI win-probability model per game; omit it to run pure market-consensus. */
+export function rankOpportunities(games: GameOdds[], preferredBook?: string | null, models?: Map<string, GameModel>): Opportunity[] {
+  const all = games.flatMap((g) => analyzeGame(g, preferredBook, models?.get(g.gameId)));
   return all.sort((a, b) => {
     // Rank by edge first, then confidence — never by "biggest favorite".
     if (b.edgePts !== a.edgePts) return b.edgePts - a.edgePts;
@@ -230,8 +248,8 @@ export function rankOpportunities(games: GameOdds[], preferredBook?: string | nu
 }
 
 /** Best moneylines ranked by edge (not by shortest price). */
-export function bestMoneylines(games: GameOdds[], preferredBook?: string | null): Opportunity[] {
-  return rankOpportunities(games, preferredBook).filter((o) => o.betType === "moneyline");
+export function bestMoneylines(games: GameOdds[], preferredBook?: string | null, models?: Map<string, GameModel>): Opportunity[] {
+  return rankOpportunities(games, preferredBook, models).filter((o) => o.betType === "moneyline");
 }
 
 export { decimalToAmerican };

@@ -108,12 +108,47 @@ function teamFromCompetitor(c: AnyObj): TeamContext {
   };
 }
 
+// Short-lived promise cache so a batch of per-game context lookups (each of
+// which needs the league scoreboard + injury feed) triggers ONE ESPN fetch per
+// league, not one per game. We cache the in-flight Promise itself, so even
+// concurrent calls that start before the first resolves share a single request.
+const FEED_TTL_MS = 30_000;
+type CacheEntry<T> = { at: number; p: Promise<T> };
+const scoreboardCache = new Map<League, CacheEntry<AnyObj[]>>();
+const injuriesCache = new Map<League, CacheEntry<Map<string, Injury[]>>>();
+
 async function espnScoreboard(league: League): Promise<AnyObj[]> {
+  const hit = scoreboardCache.get(league);
+  if (hit && Date.now() - hit.at < FEED_TTL_MS) return hit.p;
+  const p = espnScoreboardUncached(league);
+  scoreboardCache.set(league, { at: Date.now(), p });
+  try {
+    return await p;
+  } catch (e) {
+    scoreboardCache.delete(league); // don't pin a failed fetch for the whole TTL
+    throw e;
+  }
+}
+
+async function espnScoreboardUncached(league: League): Promise<AnyObj[]> {
   const j = await fetchJson(`https://site.api.espn.com/apis/site/v2/sports/${SPORT_PATH[league]}/scoreboard`);
   return j ? arr(j.events) : [];
 }
 
 async function espnInjuries(league: League): Promise<Map<string, Injury[]>> {
+  const hit = injuriesCache.get(league);
+  if (hit && Date.now() - hit.at < FEED_TTL_MS) return hit.p;
+  const p = espnInjuriesUncached(league);
+  injuriesCache.set(league, { at: Date.now(), p });
+  try {
+    return await p;
+  } catch (e) {
+    injuriesCache.delete(league);
+    throw e;
+  }
+}
+
+async function espnInjuriesUncached(league: League): Promise<Map<string, Injury[]>> {
   const map = new Map<string, Injury[]>();
   const j = await fetchJson(`https://site.api.espn.com/apis/site/v2/sports/${SPORT_PATH[league]}/injuries`);
   if (!j) return map;
