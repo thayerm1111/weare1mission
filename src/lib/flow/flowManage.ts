@@ -5,6 +5,30 @@ import { normalizeQuantity, getInstrument, priceToPips } from "@/lib/flow/instru
 import { contractKey } from "@/lib/flow/sizing";
 import { listInstruments, listPositions, getQuote, modifyPosition, closePosition, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 
+// Fallback price source. The broker's own quote endpoint is intermittently down for
+// a symbol/account (we've observed a persistent "no_quote" on an open gold position
+// while the broker still held it), which stalls break-even/partials indefinitely.
+// When the broker quote is unavailable we fall back to the market-data feed so the
+// manager keeps protecting the trade. Cached briefly so many positions on one symbol
+// share a single upstream call.
+const feedCache = new Map<string, { at: number; px: number }>();
+const FEED_TTL_MS = 20_000;
+async function feedPrice(symbol: string): Promise<number | null> {
+  try {
+    const td = getInstrument(symbol)?.twelveDataSymbol;
+    if (!td) return null;
+    const hit = feedCache.get(td);
+    if (hit && Date.now() - hit.at < FEED_TTL_MS) return hit.px;
+    const key = process.env.TWELVEDATA_API_KEY;
+    if (!key) return null;
+    const r = await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(td)}&apikey=${key}`, { cache: "no-store" });
+    const j = (await r.json()) as { price?: unknown };
+    const p = Number(j?.price);
+    if (Number.isFinite(p) && p > 0) { feedCache.set(td, { at: Date.now(), px: p }); return p; }
+  } catch { /* feed down → null */ }
+  return null;
+}
+
 /**
  * FLOW AUTO TRADE-MANAGER (server-only).
  *
@@ -32,6 +56,7 @@ export type ManagedRow = {
   position_id: string; symbol: string; side: "buy" | "sell";
   entry: number; init_stop: number; tp1: number | null; r: number; qty: number;
   cur_stop: number | null; best_price: number | null; be_done: boolean | null; partial_done: boolean | null; status: string;
+  last_error?: string | null;
 };
 
 export type ManageAction = { positionId: string; symbol: string; account: string; action: string; detail?: string };
@@ -216,6 +241,8 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       const bid = q.data.bid, ask = q.data.ask;
       px = side === "buy" ? (bid ?? ask) : (ask ?? bid);
     }
+    // Broker quote unavailable → market-data feed fallback (keeps BE/partials alive).
+    if (px == null || !(px > 0)) px = await feedPrice(symbol);
     quoteCache.set(key, px);
     return px;
   }
@@ -235,6 +262,18 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // PROFIT from being mis-booked as a stop; classifyOutcome falls back to the
       // recorded stop levels only if no quote is available.
       if (!st.openIds.has(String(row.position_id))) {
+        // GUARD: don't abandon a live position on a single missing read. A freshly
+        // filled position may not be queryable yet, and a multi-account / paginated
+        // positions read can omit one that's actually still open (we saw a live gold
+        // position wrongly booked 'closed' this way). Require 3 CONSECUTIVE misses
+        // before closing; any tick that finds the position resets the counter (the
+        // normal management path below writes last_error=null).
+        const goneN = (typeof row.last_error === "string" && row.last_error.startsWith("gone_")) ? (parseInt(row.last_error.slice(5)) || 0) : 0;
+        if (goneN < 2) {
+          await admin.from("flow_managed_positions").update({ last_error: `gone_${goneN + 1}`, updated_at: new Date().toISOString() }).eq("id", row.id);
+          actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "gone_wait", detail: `${goneN + 1}/3` });
+          continue;
+        }
         let exitPx: number | null = null;
         const cinst = matchInstrument(contractKey(row.symbol), st.instruments) ?? matchInstrument(row.symbol, st.instruments);
         if (cinst) { try { exitPx = await exitPrice(tok, row.acc_num, cinst, row.symbol, row.side, row.account_id); } catch { /* fall back to recorded levels */ } }
