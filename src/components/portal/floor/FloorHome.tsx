@@ -2,17 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Zap, Activity, Radio, ChevronRight, TrendingUp, TrendingDown, Ghost, Gem, Link2, Sparkles, Circle } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { Zap, Activity, Radio, ChevronRight, TrendingUp, TrendingDown, Ghost, Gem, Link2, Sparkles } from "lucide-react";
 import { LIVE_URL, CALLS } from "@/lib/liveCalls";
 
 /* ============================================================================
    THE FLOOR — dark, results-first trading command center.
-   All numbers come from real sources:
-     • community_signal_stats RPC  → KPIs, OM AI Plays blotter, results ledger,
-       intelligence feed (open / plays-7d / resolved / wins / losses / recent[])
-     • /api/flow/stats             → FLOW results panel (pips won, win rate, curve)
-   Nothing on this page is fabricated; a metric with no reliable source is hidden.
+   Every number is real, all from /api/flow/stats:
+     • KPI strip        → live desk (open positions, 7-day plays, win rate, net pips)
+     • GENX Results     → the GENX gold record (deduped, price-derived)
+     • FLOW Results     → the FLOW net-pips summary + curve
+     • FLOW Trades      → the FLOW forex trade blotter
    ========================================================================== */
 
 /* palette (mockup): #0B0F14 base · #111820 panel · #1A1F2B raised · cyan #22D3EE */
@@ -23,24 +22,22 @@ const C = {
   green: "#34D399", red: "#F87171", amber: "#FBBF24", gold: "#FFC24B",
 };
 
-type Recent = { engine: string; instrument: string; direction: string; status: string; hit_tp: number | null; realized_r: number | null; at: string };
-type Stats = {
-  live: { open: number; generated_7d: number; resolved: number; wins: number; losses: number; recent: Recent[] };
-  launch: { resolved: number; wins: number; losses: number };
-};
+type GoldRec = { symbol: string; side: string; outcome: string; win: boolean; hitTp: number; pips: number | null; at: string };
+type FlowRec = { symbol: string; side: string; outcome: string; win: boolean; pips: number | null; at: string };
 type FlowStats = {
   pipsWon?: number; pipsNet?: number; pips?: number; winRate?: number | null; wins?: number; trades?: number;
   liveOpen?: number; plays7d?: number;
   gold?: { wins: number; losses: number; pips: number; winRate: number | null; trades: number };
   forex?: { wins: number; stops: number; pips: number; winRate: number | null; trades: number; open: number };
   recent?: { symbol: string; side: string; outcome: string; win: boolean; pips: number | null; at: string }[];
+  goldRecent?: GoldRec[];
+  forexRecent?: FlowRec[];
   error?: string;
 };
 
 const isLong = (d: string) => /long|buy/i.test(String(d || ""));
+const genxLong = (d: string) => /bull|long|buy/i.test(String(d || ""));
 const short = (s: string) => String(s || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-const ENGINE: Record<string, string> = { scanner: "Scanner", plays: "OM Plays", command: "Command", ghost: "MFXGHOST", signal: "Signal", charts: "Charts", pulse: "Pulse", weekly: "Plays of the Week" };
-const engineLabel = (e: string) => ENGINE[String(e || "").toLowerCase()] || (e ? e.charAt(0).toUpperCase() + e.slice(1) : "Desk");
 function ago(iso: string) {
   const t = new Date(iso).getTime();
   if (!Number.isFinite(t)) return "";
@@ -51,14 +48,6 @@ function ago(iso: string) {
   if (h < 24) return `${h}h`;
   return `${Math.round(h / 24)}d`;
 }
-function statusMeta(status: string): { word: string; tone: "win" | "loss" | "live" | "mute" } {
-  const s = String(status || "").toLowerCase();
-  if (s === "win") return { word: "TARGET", tone: "win" };
-  if (s === "loss") return { word: "STOPPED", tone: "loss" };
-  if (s === "expired") return { word: "EXPIRED", tone: "mute" };
-  return { word: "LIVE", tone: "live" };
-}
-const toneColor = (t: string) => (t === "win" ? C.green : t === "loss" ? C.red : t === "live" ? C.cyan : C.mut2);
 
 function useCountUp(target: number, duration = 900) {
   const [v, setV] = useState(0);
@@ -92,63 +81,50 @@ function useClock() {
 /* ============================================================================ */
 
 export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
-  const [data, setData] = useState<Stats | null>(null);
   const [flow, setFlow] = useState<FlowStats | null>(null);
-  const [filter, setFilter] = useState<"all" | "live" | "wins">("all");
+  const [filter, setFilter] = useState<"all" | "wins" | "losses">("all");
   const clock = useClock();
 
   useEffect(() => {
-    const supabase = createClient();
     let alive = true;
     const load = async () => {
-      if (supabase) {
-        const { data: d, error } = await supabase.rpc("community_signal_stats");
-        if (!error && d && alive) setData(d as Stats);
-      }
       try {
         const r = await fetch("/api/flow/stats", { cache: "no-store" });
         if (r.ok && alive) setFlow((await r.json()) as FlowStats);
-      } catch { /* FLOW panel degrades gracefully */ }
+      } catch { /* degrades gracefully */ }
     };
     void load();
     const iv = setInterval(() => void load(), 60000);
     return () => { alive = false; clearInterval(iv); };
   }, []);
 
-  // The KPI strip reads the REAL desk (FLOW + GENX gold) from /api/flow/stats, not
-  // the low-volume community ledger. The OM AI Plays blotter / ledger / intel feed
-  // below still use the community `recent` calls.
-  const live = data?.live;
-  const recent = useMemo(() => live?.recent ?? [], [live]);
   const liveOpen = flow?.liveOpen ?? 0;
   const deskWr = flow?.winRate ?? null;
   const deskWins = flow?.wins ?? 0;
   const plays7d = flow?.plays7d ?? 0;
   const flowNet = flow?.pipsNet ?? flow?.pips ?? 0;
 
-  const feed = useMemo(() => {
-    const t = (x: Recent) => statusMeta(x.status).tone;
-    const list = filter === "live" ? recent.filter((r) => t(r) === "live")
-      : filter === "wins" ? recent.filter((r) => t(r) === "win")
-      : recent;
+  // GENX gold results, filtered for the blotter.
+  const goldRows = useMemo(() => {
+    const all = flow?.goldRecent ?? [];
+    const list = filter === "wins" ? all.filter((g) => g.win) : filter === "losses" ? all.filter((g) => !g.win) : all;
     return list.slice(0, 12);
-  }, [recent, filter]);
+  }, [flow, filter]);
+  const forexRows = useMemo(() => (flow?.forexRecent ?? []).slice(0, 8), [flow]);
 
-  // Intelligence feed — real headlines only (resolved OM AI plays + FLOW closes).
+  // Intelligence rail — real desk headlines (GENX gold + FLOW forex closes).
   const intel = useMemo(() => {
     const items: { kind: string; text: string; tone: string; at: string }[] = [];
-    for (const r of recent) {
-      const m = statusMeta(r.status);
-      if (m.tone !== "win" && m.tone !== "loss") continue;
-      items.push({ kind: engineLabel(r.engine), tone: m.tone, at: r.at,
-        text: `${short(r.instrument)} ${isLong(r.direction) ? "LONG" : "SHORT"} · ${m.tone === "win" ? "target hit" : "stopped"}${r.hit_tp != null ? ` · TP${r.hit_tp}` : ""}${r.realized_r != null ? ` · ${r.realized_r > 0 ? "+" : ""}${r.realized_r}R` : ""}` });
+    for (const g of flow?.goldRecent ?? []) {
+      items.push({ kind: "GENX", tone: g.win ? "win" : "loss", at: g.at,
+        text: `XAUUSD ${genxLong(g.side) ? "LONG" : "SHORT"} · ${g.win ? "target" : "stopped"}${g.pips != null ? ` · ${g.pips > 0 ? "+" : ""}${g.pips}p` : ""}` });
     }
-    for (const f of (flow?.recent ?? []).slice(0, 4)) {
+    for (const f of flow?.forexRecent ?? []) {
       items.push({ kind: "FLOW", tone: f.win ? "win" : "loss", at: f.at,
         text: `${short(f.symbol)} ${String(f.side).toUpperCase()} · ${f.win ? "win" : "loss"}${f.pips != null ? ` · ${f.pips > 0 ? "+" : ""}${f.pips}p` : ""}` });
     }
-    return items.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, 8);
-  }, [recent, flow]);
+    return items.filter((x) => x.at).sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, 8);
+  }, [flow]);
 
   return (
     <div className="relative overflow-hidden rounded-xl" style={{ background: C.base, color: C.text }}>
@@ -196,8 +172,8 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
               <div className="flex w-max gap-8 whitespace-nowrap py-2 pl-6" style={{ animation: "floorMarquee 40s linear infinite" }}>
                 {[...intel, ...intel].map((it, i) => (
                   <span key={i} className="inline-flex items-center gap-2 text-[12px]">
-                    <span className="font-bold uppercase tracking-wide" style={{ color: it.tone === "win" ? C.green : it.tone === "loss" ? C.red : C.cyan }}>{it.kind}</span>
-                    <span style={{ color: C.mut }}>{it.text}</span>
+                    <span className="font-bold uppercase tracking-wide" style={{ color: it.kind === "GENX" ? C.gold : C.cyan }}>{it.kind}</span>
+                    <span style={{ color: it.tone === "win" ? C.green : C.red }}>{it.text}</span>
                     <span className="font-mono" style={{ color: C.mut2 }}>· {ago(it.at)}</span>
                   </span>
                 ))}
@@ -206,19 +182,19 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
           </div>
         )}
 
-        {/* ── SECTIONS 3 + 4 · OM AI PLAYS (≈60%) + FLOW RESULTS (≈40%) ── */}
+        {/* ── SECTIONS 3 + 4 · GENX RESULTS (≈60%) + FLOW RESULTS (≈40%) ── */}
         <div className="grid gap-3 lg:grid-cols-5">
           <section className="lg:col-span-3 rounded-xl border" style={{ borderColor: C.line, background: C.panel }}>
             <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
-              <p className="inline-flex items-center gap-2 text-[13px] font-bold"><Zap className="h-4 w-4" style={{ color: C.cyan }} /> Live OM AI Plays</p>
+              <p className="inline-flex items-center gap-2 text-[13px] font-bold"><Gem className="h-4 w-4" style={{ color: C.gold }} /> GENX Results <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.mut2 }}>· Gold</span></p>
               <div className="flex gap-1">
-                {(["all", "live", "wins"] as const).map((f) => (
+                {(["all", "wins", "losses"] as const).map((f) => (
                   <button key={f} onClick={() => setFilter(f)} className="rounded-md px-2.5 py-1 text-[11px] font-semibold capitalize transition-colors"
-                    style={filter === f ? { background: "rgba(34,211,238,0.14)", color: C.cyan } : { color: C.mut }}>{f}</button>
+                    style={filter === f ? { background: "rgba(255,194,75,0.16)", color: C.gold } : { color: C.mut }}>{f}</button>
                 ))}
               </div>
             </div>
-            <PlaysBlotter rows={feed} />
+            <GenxBlotter rows={goldRows} />
           </section>
 
           <section className="lg:col-span-2 rounded-xl border" style={{ borderColor: C.line, background: C.panel }}>
@@ -238,13 +214,13 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
           <LiveDeskTile />
         </div>
 
-        {/* ── SECTION 7 · RESULTS LEDGER ── */}
+        {/* ── SECTION 7 · FLOW TRADES LEDGER ── */}
         <section className="rounded-xl border" style={{ borderColor: C.line, background: C.panel }}>
           <div className="flex items-center justify-between border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
-            <p className="inline-flex items-center gap-2 text-[13px] font-bold"><Circle className="h-3.5 w-3.5" style={{ color: C.green }} /> Recent Results</p>
-            <span className="text-[10px] uppercase tracking-wider" style={{ color: C.mut2 }}>Desk blotter</span>
+            <p className="inline-flex items-center gap-2 text-[13px] font-bold"><Link2 className="h-3.5 w-3.5" style={{ color: C.cyan }} /> FLOW Trades <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.mut2 }}>· Forex</span></p>
+            <span className="text-[10px] uppercase tracking-wider" style={{ color: C.mut2 }}>Auto desk blotter</span>
           </div>
-          <Ledger rows={recent.slice(0, 8)} />
+          <FlowLedger rows={forexRows} />
         </section>
 
         <p className="pb-1 text-center text-[11px]" style={{ color: C.mut2 }}>
@@ -252,7 +228,7 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
         </p>
       </div>
 
-      <style>{`@keyframes floorMarquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}@keyframes floorFlash{0%{background:rgba(34,211,238,0.18)}100%{background:transparent}}`}</style>
+      <style>{`@keyframes floorMarquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}`}</style>
     </div>
   );
 }
@@ -273,25 +249,22 @@ function Kpi({ label, value, suffix = "", prefix = "", dash = false, accent = C.
   );
 }
 
-/* ── OM AI Plays blotter ── */
-function tp(hit: number | null, n: number, live: boolean) {
-  const h = Number(hit);
-  if (Number.isFinite(h) && h >= n) return <span style={{ color: C.green }}>✓</span>;
-  if (live) return <span style={{ color: C.mut2 }}>·</span>;
+/* ── GENX gold results blotter ── */
+function tpMark(hit: number, n: number) {
+  if (hit >= n) return <span style={{ color: C.green }}>✓</span>;
   return <span style={{ color: C.mut2 }}>—</span>;
 }
-function PlaysBlotter({ rows }: { rows: Recent[] }) {
+function GenxBlotter({ rows }: { rows: GoldRec[] }) {
   if (rows.length === 0) {
-    return <div className="px-4 py-10 text-center"><p className="text-sm font-semibold" style={{ color: C.mut }}>Desk quiet</p><p className="mt-1 text-[12px]" style={{ color: C.mut2 }}>OM AI is scanning the market — no qualified setups active right now.</p></div>;
+    return <div className="px-4 py-10 text-center"><p className="text-sm font-semibold" style={{ color: C.mut }}>Desk quiet</p><p className="mt-1 text-[12px]" style={{ color: C.mut2 }}>No graded GENX gold results in this view yet.</p></div>;
   }
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[520px] text-[12px]">
+      <table className="w-full min-w-[500px] text-[12px]">
         <thead>
           <tr style={{ color: C.mut2 }} className="text-left text-[10px] uppercase tracking-wider">
             <th className="px-3.5 py-2 font-semibold">Pair</th>
             <th className="py-2 font-semibold">Dir</th>
-            <th className="py-2 font-semibold">Engine</th>
             <th className="py-2 text-center font-semibold">TP1</th>
             <th className="py-2 text-center font-semibold">TP2</th>
             <th className="py-2 text-center font-semibold">TP3</th>
@@ -301,24 +274,17 @@ function PlaysBlotter({ rows }: { rows: Recent[] }) {
         </thead>
         <tbody>
           {rows.map((r, i) => {
-            const m = statusMeta(r.status);
-            const long = isLong(r.direction);
-            const isLive = m.tone === "live";
-            const rr = r.realized_r != null ? `${r.realized_r > 0 ? "+" : ""}${r.realized_r}R` : "";
+            const long = genxLong(r.side);
+            const pips = r.pips ?? 0;
             return (
-              <tr key={`${r.instrument}-${r.at}-${i}`} className="border-t" style={{ borderColor: C.lineSoft }}>
-                <td className="px-3.5 py-2 font-mono font-bold">{short(r.instrument).slice(0, 6)}</td>
+              <tr key={`${r.at}-${i}`} className="border-t" style={{ borderColor: C.lineSoft }}>
+                <td className="px-3.5 py-2 font-mono font-bold">XAUUSD</td>
                 <td className="py-2"><span className="rounded px-1.5 py-0.5 text-[10px] font-bold" style={long ? { background: "rgba(52,211,153,0.12)", color: C.green } : { background: "rgba(248,113,113,0.12)", color: C.red }}>{long ? "LONG" : "SHORT"}</span></td>
-                <td className="py-2" style={{ color: C.mut }}>{engineLabel(r.engine)}</td>
-                <td className="py-2 text-center font-mono">{tp(r.hit_tp, 1, isLive)}</td>
-                <td className="py-2 text-center font-mono">{tp(r.hit_tp, 2, isLive)}</td>
-                <td className="py-2 text-center font-mono">{tp(r.hit_tp, 3, isLive)}</td>
-                <td className="py-2">
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide" style={{ color: toneColor(m.tone) }}>
-                    {isLive && <span className="h-1.5 w-1.5 rounded-full" style={{ background: C.cyan, boxShadow: `0 0 5px ${C.cyan}` }} />}{m.word}
-                  </span>
-                </td>
-                <td className="px-3.5 py-2 text-right font-mono font-bold" style={{ color: m.tone === "win" ? C.green : m.tone === "loss" ? C.red : C.mut }}>{rr || <span style={{ color: C.mut2 }}>{ago(r.at)}</span>}</td>
+                <td className="py-2 text-center font-mono">{tpMark(r.hitTp, 1)}</td>
+                <td className="py-2 text-center font-mono">{tpMark(r.hitTp, 2)}</td>
+                <td className="py-2 text-center font-mono">{tpMark(r.hitTp, 3)}</td>
+                <td className="py-2"><span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: r.win ? C.green : C.red }}>{r.win ? "TARGET" : "STOPPED"}</span></td>
+                <td className="px-3.5 py-2 text-right font-mono font-bold" style={{ color: r.win ? C.green : C.red }}>{pips > 0 ? "+" : ""}{pips.toLocaleString()}p</td>
               </tr>
             );
           })}
@@ -440,22 +406,21 @@ function LiveDeskTile() {
   );
 }
 
-/* ── results ledger (compact blotter) ── */
-function Ledger({ rows }: { rows: Recent[] }) {
-  if (rows.length === 0) return <p className="px-4 py-8 text-center text-[12px]" style={{ color: C.mut2 }}>No resolved results yet — they post here as the desk closes trades.</p>;
+/* ── FLOW forex trades ledger ── */
+function FlowLedger({ rows }: { rows: FlowRec[] }) {
+  if (rows.length === 0) return <p className="px-4 py-8 text-center text-[12px]" style={{ color: C.mut2 }}>No FLOW forex trades yet — they post here as the desk closes trades.</p>;
   return (
     <div className="divide-y" style={{ borderColor: C.lineSoft }}>
       {rows.map((r, i) => {
-        const m = statusMeta(r.status);
-        const long = isLong(r.direction);
-        const rr = r.realized_r != null ? `${r.realized_r > 0 ? "+" : ""}${r.realized_r}R` : m.word;
+        const long = isLong(r.side);
+        const pips = r.pips;
         return (
-          <div key={`${r.instrument}-${r.at}-${i}`} className="flex items-center gap-3 px-3.5 py-2" style={{ borderColor: C.lineSoft }}>
-            <span className="font-mono text-[12px] font-bold" style={{ width: 62 }}>{short(r.instrument).slice(0, 6)}</span>
-            <span className="text-[11px]" style={{ color: C.mut, width: 74 }}>{engineLabel(r.engine)}</span>
+          <div key={`${r.symbol}-${r.at}-${i}`} className="flex items-center gap-3 px-3.5 py-2" style={{ borderColor: C.lineSoft }}>
+            <span className="font-mono text-[12px] font-bold" style={{ width: 62 }}>{short(r.symbol).slice(0, 6)}</span>
+            <span className="text-[11px]" style={{ color: C.mut, width: 52 }}>FLOW</span>
             <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={long ? { background: "rgba(52,211,153,0.12)", color: C.green } : { background: "rgba(248,113,113,0.12)", color: C.red }}>{long ? "LONG" : "SHORT"}</span>
-            <span className="ml-auto inline-flex items-center gap-1 font-mono text-[12px] font-bold" style={{ color: toneColor(m.tone) }}>
-              {m.tone === "win" ? <TrendingUp className="h-3.5 w-3.5" /> : m.tone === "loss" ? <TrendingDown className="h-3.5 w-3.5" /> : null}{rr}
+            <span className="ml-auto inline-flex items-center gap-1 font-mono text-[12px] font-bold" style={{ color: r.win ? C.green : C.red }}>
+              {r.win ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}{pips != null ? `${pips > 0 ? "+" : ""}${pips}p` : (r.win ? "WIN" : "LOSS")}
             </span>
             <span className="font-mono text-[11px]" style={{ color: C.mut2, width: 38, textAlign: "right" }}>{ago(r.at)}</span>
           </div>
