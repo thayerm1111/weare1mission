@@ -1541,6 +1541,42 @@ input{font:inherit}
       </div>`; })}
     </div>`;
   }
+  // ── Auto-refill credits card (Account screen) — card on file + off-session top-ups.
+  function AutoRefillCard() {
+    var st = useState(null), busy = useState(false);
+    function load() { apiGet("/api/autorefill").then(function (d) { if (d && d.ok) st[1](d); }).catch(function () {}); }
+    useEffect(load, []);
+    var d = st[0];
+    if (!d) return null;
+    function go(action) { if (busy[0]) return; busy[1](true); apiPost("/api/autorefill", { action: action }).then(function (r) { if (r && r.url) { window.location.href = r.url; return; } busy[1](false); load(); }).catch(function () { busy[1](false); }); }
+    function toggle(on) {
+      if (busy[0]) return;
+      if (on && !d.hasCard) { go("setup"); return; }        // no card yet → send to Stripe to add one
+      busy[1](true);
+      apiPost("/api/autorefill", { action: "toggle", enabled: on }).then(function (r) { busy[1](false); if (r && r.error === "needs_card") { go("setup"); return; } load(); }).catch(function () { busy[1](false); });
+    }
+    var priceRefill = "$" + (d.refillPriceCents / 100).toFixed(2);
+    var priceManual = "$" + (d.manualPriceCents / 100).toFixed(2);
+    var on = !!d.enabled, paused = d.status === "paused";
+    return html`<div style="margin-top:12px;border-radius:16px;border:1px solid rgba(46,232,143,.32);background:linear-gradient(150deg,rgba(46,232,143,.07),rgba(8,16,32,.35));padding:15px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div style="min-width:0"><div style="font-size:14px;font-weight:900;color:#fff">⚡ Auto-refill credits</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:2px">Never run out — keep a card on file.</div></div>
+        <button onClick=${function () { toggle(!on); }} aria-pressed=${on} style=${"position:relative;flex:0 0 auto;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (on ? "#2ee88f" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (on ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
+      </div>
+      ${paused ? html`<div style="margin-top:10px;font-size:11px;font-weight:700;color:#ffb4b4;background:rgba(255,93,108,.1);border:1px solid rgba(255,93,108,.25);border-radius:10px;padding:8px 10px">Auto-refill paused — we couldn't charge your card. Re-add it below to turn it back on.</div>` : null}
+      <div style="margin-top:10px;font-size:11px;line-height:1.5;color:rgba(255,255,255,.5)">When your balance drops below <b style="color:rgba(255,255,255,.75)">${d.threshold}</b> credits, we charge your card <b style="color:rgba(255,255,255,.75)">${priceRefill}</b> for <b style="color:rgba(255,255,255,.75)">${d.refillCredits}</b> credits — automatically, until you turn this off.</div>
+      <div style="margin-top:11px;display:flex;gap:8px">
+        ${d.hasCard
+        ? html`<div style="flex:1;min-width:0;font-size:12px;font-weight:700;color:#fff;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 11px">💳 ${(d.card && d.card.brand ? String(d.card.brand).toUpperCase() : "Card")} ···· ${d.card && d.card.last4 ? d.card.last4 : "••••"}</div>
+             <button onClick=${function () { go("setup"); }} style="flex:0 0 auto;padding:9px 12px;border:1px solid rgba(255,255,255,.15);border-radius:10px;background:rgba(255,255,255,.05);color:#fff;font-size:12px;font-weight:700;cursor:pointer">Replace</button>`
+        : html`<button onClick=${function () { go("setup"); }} disabled=${busy[0]} style="flex:1;padding:11px;border:0;border-radius:11px;background:linear-gradient(135deg,#3cf0a0,#22c483);color:#04121f;font-size:13px;font-weight:800;cursor:pointer">${busy[0] ? "…" : "Add a card"}</button>`}
+      </div>
+      <button onClick=${function () { go("manual"); }} disabled=${busy[0]} style="margin-top:9px;width:100%;padding:12px;border:1px solid rgba(255,255,255,.14);border-radius:11px;background:rgba(255,255,255,.04);color:#fff;font-size:13px;font-weight:800;cursor:pointer">${busy[0] ? "…" : ("Add " + d.manualCredits + " credits now — " + priceManual)}</button>
+      <div style="margin-top:8px;font-size:9.5px;color:rgba(255,255,255,.35);text-align:center">Secure checkout by Stripe · cancel anytime</div>
+    </div>`;
+  }
+
   // ── Trading Suite subscribe card (Account screen) ───────────────────────────
   function SuiteCard() {
     var sub = useState(null);
@@ -1559,6 +1595,10 @@ input{font:inherit}
         : html`<button class="ghost" onClick=${function () { act("cancel"); }}>Cancel subscription</button>`}
       </div>`;
     }
+    // Hidden offer: the Trading Suite subscribe is no longer promoted. It stays
+    // reachable only at #suite (e.g. /app/#suite) for anyone who knows to look.
+    var showSuite = false; try { showSuite = String(location.hash || "").toLowerCase().indexOf("suite") > -1; } catch (e) {}
+    if (!showSuite) return null;
     return html`<div class="sf-card">
       <div class="t">✦ Trading Suite — $${price}/mo</div>
       <div class="s">Free auto-run every 5 min, the pro trade-manager, ${credits} credits/mo, and every tool unlocked. Cancel anytime.</div>
@@ -1572,6 +1612,7 @@ input{font:inherit}
     function markSeen() { try { localStorage.setItem("om-suite-flyer-v1", "1"); } catch (e) {} try { apiPost("/api/flyer", {}); } catch (e) {} }
     useEffect(function () {
       var forced = false; try { forced = location.search.indexOf("suiteflyer=1") > -1; } catch (e) {}
+      if (!forced) return; // Suite is no longer promoted — the flyer only shows when explicitly forced.
       var localSeen = false; try { localSeen = localStorage.getItem("om-suite-flyer-v1") === "1"; } catch (e) {}
       if (localSeen && !forced) return;
       apiGet("/api/flyer").then(function (f) {
@@ -1633,8 +1674,8 @@ input{font:inherit}
           <button onClick=${goConnect} style="flex:0 0 auto;padding:10px 14px;border:0;border-radius:11px;background:${fl.connected ? "rgba(255,255,255,.1)" : "linear-gradient(135deg,#3cb4ff,#2e7bff)"};color:${fl.connected ? "#fff" : "#02122b"};font-size:12.5px;font-weight:800;cursor:pointer">${fl.connected ? "Manage" : "◆ Connect"}</button>
         </div>
       </div>
+      <${AutoRefillCard} />
       <${SuiteCard} />
-      <button class="run" onClick=${function () { try { window.open("/portal/credits", "_blank"); } catch (e) {} }}>Get more credits</button>
       <button class="ac-open" onClick=${props.onOpenAcademy}><span>🎓 Affiliate Academy</span><em>Your step-by-step roadmap to build One Mission</em></button>
       ${m && m.role === "admin" ? html`<button class="xperf-open" onClick=${props.onOpenXperf}><span>◆ xGhost Performance</span><em>admin · win rate, expectancy, by-pair</em></button>` : null}
       <div class="scr-sub">Your saved plays</div>
