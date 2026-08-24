@@ -30,6 +30,7 @@ type Account = {
   openPositions?: number | null;
   selected?: boolean;
   autotradeEnabled?: boolean;
+  genxFollower?: boolean;
   riskPct?: number | null;
   manageTrades?: boolean;
   goldBePips?: number | null;
@@ -268,6 +269,21 @@ export function FlowConnect() {
     }
   }
 
+  async function setAccountFollow(a: Account, enabled: boolean) {
+    // Optimistic: flip locally, then persist. Turns this account into a GENX follower —
+    // it takes EVERY GENX gold signal, sized to this account's risk % (separate from FLOW).
+    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, genxFollower: enabled } : x) } : prev);
+    try {
+      await fetch("/api/flow/broker", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "genxfollow", accountId: a.accountId, connectionId: a.connectionId, enabled }),
+      });
+    } catch {
+      void load();
+    }
+  }
+
   async function disconnect() {
     setBusy(true);
     setOk("");
@@ -389,6 +405,28 @@ export function FlowConnect() {
                         </button>
                       </div>
                     </div>
+                    {/* Follow every GENX signal — takes every gold call, sized to this account's risk % */}
+                    {(() => {
+                      const follows = a.genxFollower === true;
+                      return (
+                        <div className={`mt-2.5 flex items-center justify-between gap-3 rounded-lg border px-2.5 py-2 ${follows ? "border-amber-500/45 bg-amber-500/[0.07]" : "border-ice bg-offwhite/40"}`}>
+                          <div className="min-w-0">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600"><Zap className="h-3.5 w-3.5" /> Follow every GENX signal</span>
+                            <p className="mt-0.5 text-[10px] leading-tight text-charcoal/45">Takes every GENX gold call on this account, sized to the risk % below. Separate from FLOW.</p>
+                          </div>
+                          <div className="flex flex-shrink-0 items-center gap-2">
+                            <span className={`text-[11px] font-semibold ${follows ? "text-amber-600" : "text-charcoal/40"}`}>{follows ? "On" : "Off"}</span>
+                            <button
+                              onClick={() => void setAccountFollow(a, !follows)}
+                              aria-pressed={follows}
+                              className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${follows ? "bg-amber-500" : "bg-charcoal/20"}`}
+                            >
+                              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${follows ? "left-[22px]" : "left-0.5"}`} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                     {/* Per-account risk override */}
                     <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-ice/70 pt-2.5">
                       <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55"><Gauge className="h-3.5 w-3.5" /> Risk</span>
