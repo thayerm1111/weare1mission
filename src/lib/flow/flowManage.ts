@@ -315,7 +315,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       if (!row.be_done && profit >= beTrigger) {
         const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: bePx });
         if (mv.ok) { update.be_done = true; update.cur_stop = bePx; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "breakeven", detail: `SL→BE @${(profit / R).toFixed(2)}R` }); }
-        else actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_err", detail: mv.error.slice(0, 60) });
+        else { update.last_error = `be_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_err", detail: mv.error.slice(0, 60) }); }
       }
 
       // ── STEP 2: PARTIAL. Bank 50% at the R:R-scaled trigger (1:1 → +0.5R, 1:2/1:3 → +1R).
@@ -325,7 +325,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         if (half.ok && half.qty > 0 && half.qty < row.qty) {
           const cl = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, half.qty);
           if (cl.ok) { update.partial_done = true; update.qty = +(row.qty - half.qty).toFixed(6); didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `−${half.qty} @${(partialTrigger / R).toFixed(1)}R` }); }
-          else actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_err", detail: cl.error.slice(0, 60) });
+          else { update.last_error = `partial_err: ${cl.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_err", detail: cl.error.slice(0, 60) }); }
         }
       }
 
@@ -347,7 +347,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         if (improved) {
           const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: candidate });
           if (mv.ok) { update.cur_stop = candidate; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail", detail: `SL→${candidate} gb${givebackR}R` }); }
-          else actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail_err", detail: mv.error.slice(0, 60) });
+          else { update.last_error = `trail_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail_err", detail: mv.error.slice(0, 60) }); }
         }
       }
 
