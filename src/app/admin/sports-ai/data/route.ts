@@ -4,6 +4,9 @@ import { getProvider, type League } from "@/lib/sports/provider";
 import { rankOpportunities, bestMoneylines, type Opportunity } from "@/lib/sports/engine";
 import { classify } from "@/lib/sports/odds";
 import { calibrationFactor } from "@/lib/sports/grade";
+import { getGameContext } from "@/lib/sports/context";
+import { computeGameModel, type GameModel } from "@/lib/sports/model";
+import type { GameOdds } from "@/lib/sports/provider";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -98,6 +101,23 @@ async function logCalls(opps: Opportunity[]) {
   } catch { /* logging is best-effort — never block the response */ }
 }
 
+// Build the AI prediction model per game from REAL ESPN context (records, home/road
+// splits, MLB starters, injuries). The per-league ESPN feeds are cached/deduped in
+// context.ts, so a whole slate costs ~one scoreboard + one injury fetch per league
+// (plus MLB weather). Any game we can't match/model simply gets no entry and the
+// engine falls back to the market consensus for it — never a guessed number.
+async function buildModels(games: GameOdds[]): Promise<Map<string, GameModel>> {
+  const map = new Map<string, GameModel>();
+  await Promise.all(games.map(async (g) => {
+    try {
+      const ctx = await getGameContext(g.league, g.homeTeam, g.awayTeam);
+      const model = computeGameModel(g.league, ctx, null);
+      if (model.applied) map.set(g.gameId, model);
+    } catch { /* one game's context failing must not sink the batch */ }
+  }));
+  return map;
+}
+
 export async function POST(req: NextRequest) {
   const gate = await gateAdmin();
   if (!gate.ok) return json({ error: "not_found" }, 404); // no signal the feature exists
@@ -163,7 +183,8 @@ export async function POST(req: NextRequest) {
 
     const pref = await preferredBook();
     const cal = await loadCalibration();
-    const rankedRaw = action === "moneylines" ? bestMoneylines(allGames, pref) : rankOpportunities(allGames, pref);
+    const models = await buildModels(allGames);
+    const rankedRaw = action === "moneylines" ? bestMoneylines(allGames, pref, models) : rankOpportunities(allGames, pref, models);
     const ranked = applyCalibration(rankedRaw, cal);
     void logCalls(ranked); // fire-and-forget: record every called bet
     const positive = ranked.filter((o) => o.edgePts > 0);
