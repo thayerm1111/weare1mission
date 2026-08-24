@@ -29,6 +29,35 @@ async function feedPrice(symbol: string): Promise<number | null> {
   return null;
 }
 
+// Recent intra-minute EXTREMES from the market-data feed. The manager runs once a minute
+// off the instantaneous bid/ask, so a spike that reverses inside the minute (common on
+// gold around news) is invisible to the sample — break-even/partials never fire even though
+// the trade clearly reached the level on the chart. We pull the last few 1-min candle
+// highs/lows so the trigger sees the TRUE favorable excursion the trade reached. Cached per
+// symbol for the tick. Feed down / no key → null (caller falls back to the sampled price).
+const extCache = new Map<string, { at: number; high: number; low: number }>();
+async function feedExtremes(symbol: string): Promise<{ high: number; low: number } | null> {
+  try {
+    const td = getInstrument(contractKey(symbol))?.twelveDataSymbol;
+    if (!td) return null;
+    const hit = extCache.get(td);
+    if (hit && Date.now() - hit.at < FEED_TTL_MS) return { high: hit.high, low: hit.low };
+    const key = process.env.TWELVEDATA_API_KEY;
+    if (!key) return null;
+    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=1min&outputsize=3&apikey=${key}`, { cache: "no-store" });
+    const j = (await r.json()) as { values?: Array<{ high?: unknown; low?: unknown }> };
+    const vals = Array.isArray(j?.values) ? j.values : [];
+    let hi = 0, lo = Infinity;
+    for (const v of vals) {
+      const h = Number(v.high), l = Number(v.low);
+      if (Number.isFinite(h) && h > 0) hi = Math.max(hi, h);
+      if (Number.isFinite(l) && l > 0) lo = Math.min(lo, l);
+    }
+    if (hi > 0 && Number.isFinite(lo)) { extCache.set(td, { at: Date.now(), high: hi, low: lo }); return { high: hi, low: lo }; }
+  } catch { /* feed down → null */ }
+  return null;
+}
+
 /**
  * FLOW AUTO TRADE-MANAGER (server-only).
  *
@@ -328,14 +357,23 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       const R = row.r && row.r > 0 ? row.r : Math.abs(row.entry - row.init_stop);
       if (!(R > 0)) { await admin.from("flow_managed_positions").update({ last_error: "no_R", updated_at: new Date().toISOString() }).eq("id", row.id); continue; }
 
+      const pip = getInstrument(contractKey(row.symbol)).pipSize || 0.0001;
+      // FAVORABLE EXCURSION: the best price the trade actually reached, from the recent
+      // 1-min candle extremes as well as the current sample — so a spike that reversed
+      // within the once-a-minute window still counts toward break-even/partial triggers.
+      const ext = await feedExtremes(row.symbol);
+      const favRaw = long
+        ? Math.max(price, ext?.high && ext.high > 0 ? ext.high : price)
+        : Math.min(price, ext?.low && ext.low > 0 ? ext.low : price);
+      // `profit` = the CURRENT sample (used for stop-validity checks); `favProfit` = the
+      // favorable excursion (used to decide whether BE/partial should have fired). Both are
+      // positive in profit, so nothing below fires while the trade is in drawdown.
       const profit = long ? price - row.entry : row.entry - price;
+      const favProfit = long ? favRaw - row.entry : row.entry - favRaw;
       const bestPrev = row.best_price ?? row.entry;
-      const best = long ? Math.max(bestPrev, price) : Math.min(bestPrev, price);
+      const best = long ? Math.max(bestPrev, favRaw) : Math.min(bestPrev, favRaw);
       const update: Record<string, unknown> = { best_price: best, last_error: null, updated_at: new Date().toISOString() };
       let didAction = false;
-
-      // Profit distances are always positive, so nothing below fires while in drawdown.
-      const pip = getInstrument(contractKey(row.symbol)).pipSize || 0.0001;
       // GOLD custom breakeven pips: if this is a GOLD trade AND the account has a pip
       // override set, breakeven + partial both fire at exactly that many pips of profit
       // (pip = 0.1 for gold, so 40 pips = a $4.00 move). GOLD ONLY — forex always uses the
@@ -349,15 +387,21 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // ── STEP 1: BREAK-EVEN. As soon as we're up ~half the risk, slide the stop to the
       //    broker entry so the trade can no longer lose. Decoupled from the partial, so a
       //    big winner that reverses before the partial level still scratches at BE. ──
-      if (manageOn && !row.be_done && profit >= beTrigger) {
-        const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: bePx });
-        if (mv.ok) { update.be_done = true; update.cur_stop = bePx; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "breakeven", detail: `SL→BE @${(profit / R).toFixed(2)}R` }); }
-        else { update.last_error = `be_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_err", detail: mv.error.slice(0, 60) }); }
+      if (manageOn && !row.be_done && favProfit >= beTrigger) {
+        // Only place the break-even stop while the market is still on the winning side of
+        // entry — a stop through the current market is rejected by the broker. If a spike
+        // already fully reversed past entry, the initial stop still protects and we retry.
+        const canBE = long ? price > row.entry : price < row.entry;
+        if (canBE) {
+          const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: bePx });
+          if (mv.ok) { update.be_done = true; update.cur_stop = bePx; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "breakeven", detail: `SL→BE @${(favProfit / R).toFixed(2)}R` }); }
+          else { update.last_error = `be_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_err", detail: mv.error.slice(0, 60) }); }
+        }
       }
 
       // ── STEP 2: PARTIAL. Bank 50% at the R:R-scaled trigger (1:1 → +0.5R, 1:2/1:3 → +1R).
       //    Guarded by partial_done so it can never repeat. ──
-      if (manageOn && !row.partial_done && profit >= partialTrigger) {
+      if (manageOn && !row.partial_done && favProfit >= partialTrigger) {
         const half = normalizeQuantity(contractKey(row.symbol), row.qty * 0.5, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity });
         if (half.ok && half.qty > 0 && half.qty < row.qty) {
           const cl = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, half.qty);
@@ -377,6 +421,11 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         const near = toTargetR <= NEAR_TP_R || peakR >= partialR - NEAR_PARTIAL_R;
         const givebackR = near ? GIVEBACK_NEAR_R : GIVEBACK_R;
         let candidate = roundPx(row.symbol, long ? best - givebackR * R : best + givebackR * R);
+        // Never place the trailing stop THROUGH the current market — the broker rejects it,
+        // and `best` can now be a spike high the price has already pulled back from. Cap it a
+        // small buffer inside the current price (which, after a spike, tightly locks the gain).
+        const trailBuf = Math.max(R * 0.1, pip * 2);
+        candidate = long ? Math.min(candidate, roundPx(row.symbol, price - trailBuf)) : Math.max(candidate, roundPx(row.symbol, price + trailBuf));
         candidate = long ? Math.max(candidate, bePx) : Math.min(candidate, bePx); // never below BE
         const cur = row.cur_stop ?? bePx;
         const eps = R * 0.05; // don't spam the broker on sub-5%-of-R nudges
