@@ -56,3 +56,16 @@ export const SUITE = {
   monthlyCredits: Number(process.env.NEXT_PUBLIC_SUITE_CREDITS ?? 250),
   interval: "month" as const,
 } as const;
+
+// Auto-refill — card on file, off-session top-ups (replaces the subscription as the
+// primary path). When a member turns it ON and their spendable balance drops BELOW
+// `threshold`, the auto-refill cron charges their saved card `priceCents` and grants
+// `credits`. The one-tap manual top-up buys `manualCredits` for `manualPriceCents`.
+// All amounts overridable via env so pricing can be tuned without a redeploy.
+export const AUTOREFILL = {
+  threshold: Number(process.env.NEXT_PUBLIC_AUTOREFILL_THRESHOLD ?? 3),
+  credits: Number(process.env.NEXT_PUBLIC_AUTOREFILL_CREDITS ?? 50),
+  priceCents: Number(process.env.NEXT_PUBLIC_AUTOREFILL_PRICE_CENTS ?? 1999), // $19.99 / 50
+  manualCredits: Number(process.env.NEXT_PUBLIC_AUTOREFILL_MANUAL_CREDITS ?? 200),
+  manualPriceCents: Number(process.env.NEXT_PUBLIC_AUTOREFILL_MANUAL_PRICE_CENTS ?? 3999), // $39.99 / 200
+} as const;
