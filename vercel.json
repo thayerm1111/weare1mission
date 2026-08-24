@@ -2,6 +2,7 @@
   "crons": [
     { "path": "/api/cron/flow-exec?watch=1", "schedule": "* * * * *" },
     { "path": "/api/cron/flow-exec", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/flow-manage", "schedule": "* * * * *" },
     { "path": "/api/cron/genx-scan?watch=1", "schedule": "* * * * *" },
     { "path": "/api/cron/genx-scan", "schedule": "*/5 * * * *" },
     { "path": "/api/cron/xghost-scan", "schedule": "*/15 * * * *" },
