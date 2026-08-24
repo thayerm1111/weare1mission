@@ -3015,11 +3015,11 @@ input{font:inherit}
         <div style="display:flex;align-items:center;gap:9px">
           <span style="font-size:20px">⚡</span>
           <div><div style="font-size:15px;font-weight:900;color:#fff;letter-spacing:.2px">GENX Follower</div>
-          <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:rgba(255,255,255,.5)">Every gold signal · raw 0.01, no filters</div></div>
+          <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:rgba(255,255,255,.5)">Every gold signal · managed to breakeven</div></div>
         </div>
         ${taken > 0
           ? html`<span style="display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:800;color:#c9a6ff;background:rgba(167,120,255,.16);padding:4px 9px;border-radius:20px"><span style="width:6px;height:6px;border-radius:9px;background:#c9a6ff;box-shadow:0 0 8px #c9a6ff"></span>${nf(taken)} taken</span>`
-          : html`<span style="font-size:9.5px;font-weight:800;color:rgba(255,255,255,.45);background:rgba(255,255,255,.07);padding:4px 9px;border-radius:20px">RAW RECORD</span>`}
+          : html`<span style="font-size:9.5px;font-weight:800;color:rgba(255,255,255,.45);background:rgba(255,255,255,.07);padding:4px 9px;border-radius:20px">GENX RECORD</span>`}
       </div>
       <div style="position:relative;text-align:center;padding:10px 16px 2px">
         <div style="font-size:52px;font-weight:900;line-height:1;letter-spacing:-1.5px;color:#b98cff;text-shadow:0 3px 26px rgba(167,120,255,.45)">${r.winRate}%</div>
@@ -3034,7 +3034,7 @@ input{font:inherit}
         <span style="flex:0 0 auto;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.4);align-self:center;padding-right:2px">Recent</span>
         ${recent.map(function (x) { var w = x.win; return html`<span style=${"flex:0 0 auto;font-size:11px;font-weight:800;white-space:nowrap;padding:4px 10px;border-radius:20px;color:" + (w ? "#2ee88f" : "#ff8a9b") + ";background:" + (w ? "rgba(46,232,143,.1)" : "rgba(255,93,108,.1)") + ";border:1px solid " + (w ? "rgba(46,232,143,.22)" : "rgba(255,93,108,.22)")}>${(x.side === "sell" ? "SELL" : "BUY")} ${w ? "✓" : "✗"}</span>`; })}
       </div>` : null}
-      <div style="position:relative;padding:9px 16px 13px;font-size:9px;line-height:1.5;color:rgba(255,255,255,.4);text-align:center">GENX's raw signal record${taken > 0 ? html` · <b style="color:rgba(255,255,255,.6)">${nf(taken)}</b> taken so far` : null} — every ENTER NOW graded to its stop or target. A follower account takes <b style="color:rgba(255,255,255,.6)">every</b> one at 0.01, unmanaged. Educational, not financial advice — past results never guarantee future outcomes.</div>
+      <div style="position:relative;padding:9px 16px 13px;font-size:9px;line-height:1.5;color:rgba(255,255,255,.4);text-align:center">GENX's gold signal record${taken > 0 ? html` · <b style="color:rgba(255,255,255,.6)">${nf(taken)}</b> taken so far` : null} — every ENTER NOW graded. With manage mode, a trade that reaches <b style="color:rgba(255,255,255,.6)">breakeven</b> before the stop counts as a win, not a loss; only trades that run straight to the stop are losses. Educational, not financial advice — past results never guarantee future outcomes.</div>
     </div>`;
   }
 
