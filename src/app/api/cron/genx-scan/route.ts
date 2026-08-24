@@ -5,6 +5,7 @@ import { confirmEntry, CONFIRM_IV } from "@/lib/genxConfirm";
 import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
 import { placeGenxGold, placeGenxFollower } from "@/lib/flow/autoExec";
+import { beat } from "@/lib/flow/health";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -107,6 +108,7 @@ async function run(): Promise<Response> {
   // first setups after go-live get their full heads-up → ENTER-NOW sequence
   // instead of being silently recorded (and de-duped) before alerts can send.
   if (!tgReady) return json({ ok: true, skipped: "telegram_not_configured" }, 200);
+  await beat(admin, "genx", { tier: "full" }); // liveness signal for the watchdog
 
   // Expire stale pending setups so a fresh identical zone can re-alert later.
   const nowIso = new Date().toISOString();
@@ -296,6 +298,7 @@ async function runWatch(): Promise<Response> {
   const admin = createAdminClient();
   if (!admin) return json({ error: "no_admin_client" }, 500);
   const tgReady = !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHANNEL_ID);
+  if (tgReady) await beat(admin, "genx", { tier: "watch" }); // liveness signal for the watchdog
   const nowIso = new Date().toISOString();
   const { data } = await admin.from("genx_alerts").select("*").eq("state", "forming");
   const rows = (data ?? []) as AlertRow[];
