@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runAutoExecAll, runAutoExecForUser, runFlowWatch, type AutoSettings } from "@/lib/flow/autoExec";
 import { manageOpenPositions, acquireManageLock, releaseManageLock } from "@/lib/flow/flowManage";
+import { beat } from "@/lib/flow/health";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,13 +61,15 @@ async function run(req: NextRequest): Promise<Response> {
         if (adminMgr) {
           const holder = (globalThis.crypto?.randomUUID?.() ?? `fx-${Date.now()}`);
           if (await acquireManageLock(adminMgr, holder)) {
-            try { m = await manageOpenPositions(); } finally { await releaseManageLock(adminMgr, holder); }
+            try { m = await manageOpenPositions(); await beat(adminMgr, "manager", { via: "flow-exec-fallback" }); } finally { await releaseManageLock(adminMgr, holder); }
           } else { m = { skipped: "locked" }; }
         }
       }
+      { const a = createAdminClient(); if (a) await beat(a, "exec", { scope: "watch" }); }
       return json({ ok: true, scope: "watch", asOf: new Date().toISOString(), ...w, manage: m }, 200);
     }
     const out = await runAutoExecAll(mdKey);
+    { const a = createAdminClient(); if (a) await beat(a, "exec", { scope: "all" }); }
     return json({ ok: true, scope: "all", asOf: new Date().toISOString(), ...out }, 200);
   }
 
