@@ -335,13 +335,20 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       const st = await acctState(tok, row.acc_num, row.account_id, cols);
       if (!st) { await admin.from("flow_managed_positions").update({ last_error: "account_read", updated_at: new Date().toISOString() }).eq("id", row.id); continue; }
 
-      // Position gone from the broker → it closed (SL/TP hit, or member closed it). Require 3
-      // consecutive misses before booking closed (a fresh fill / paginated read can omit one).
+      // Position gone from the broker → it closed (SL/TP hit, or member closed it). Require
+      // BOTH ≥3 consecutive misses AND ≥45s elapsed before booking closed — a fresh fill or a
+      // transiently-incomplete (but ok) positions read can omit a position for a few ticks, and
+      // at the 4s loop cadence a pure tick-count of 3 would abandon a still-open position after
+      // only ~12s. Wall-clock gating keeps ~45s of tolerance regardless of loop speed, so an
+      // in-profit position is never booked closed (as a loss) and left unmanaged.
       if (!st.openIds.has(String(row.position_id))) {
-        const goneN = (typeof row.last_error === "string" && row.last_error.startsWith("gone_")) ? (parseInt(row.last_error.slice(5)) || 0) : 0;
-        if (goneN < 2) {
-          await admin.from("flow_managed_positions").update({ last_error: `gone_${goneN + 1}`, updated_at: new Date().toISOString() }).eq("id", row.id);
-          actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "gone_wait", detail: `${goneN + 1}/3` });
+        const gm = /^gone_(\d+)(?:_(\d+))?$/.exec(typeof row.last_error === "string" ? row.last_error : "");
+        const goneN = gm ? (parseInt(gm[1]) || 0) : 0;
+        const firstMs = gm && gm[2] ? (parseInt(gm[2]) || Date.now()) : Date.now();
+        const elapsed = Date.now() - firstMs;
+        if (goneN < 2 || elapsed < 45_000) {
+          await admin.from("flow_managed_positions").update({ last_error: `gone_${goneN + 1}_${firstMs}`, updated_at: new Date().toISOString() }).eq("id", row.id);
+          actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "gone_wait", detail: `${goneN + 1} · ${Math.round(elapsed / 1000)}s` });
           continue;
         }
         let exitPx: number | null = null;
@@ -511,8 +518,10 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
 // The high-frequency manager loop (/api/cron/flow-manage) runs the break-even →
 // partial → trail check every few seconds. This DB lock guarantees only ONE run
 // manages at a time, so overlapping invocations (the loop + the 1-min fallback)
-// can never double-fire a partial. A crashed holder's lock simply expires.
-export async function acquireManageLock(admin: Admin, holder: string, ttlMs = 90000): Promise<boolean> {
+// can never double-fire a partial. The loop extends the lock every ~4s, so a short
+// 20s TTL is safe (5x headroom) and bounds the window in which a hard-killed holder
+// leaves positions unmanaged to ~20s (was 90s), keeping the "always managing" guarantee tight.
+export async function acquireManageLock(admin: Admin, holder: string, ttlMs = 20000): Promise<boolean> {
   const nowIso = new Date().toISOString();
   const exp = new Date(Date.now() + ttlMs).toISOString();
   const { data } = await admin.from("flow_manage_lock")
@@ -520,7 +529,7 @@ export async function acquireManageLock(admin: Admin, holder: string, ttlMs = 90
     .eq("id", 1).lt("expires_at", nowIso).select("id");
   return Array.isArray(data) && data.length > 0;
 }
-export async function extendManageLock(admin: Admin, holder: string, ttlMs = 90000): Promise<void> {
+export async function extendManageLock(admin: Admin, holder: string, ttlMs = 20000): Promise<void> {
   const exp = new Date(Date.now() + ttlMs).toISOString();
   await admin.from("flow_manage_lock").update({ expires_at: exp }).eq("id", 1).eq("holder", holder);
 }

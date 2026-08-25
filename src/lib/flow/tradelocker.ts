@@ -267,8 +267,17 @@ export async function modifyPosition(env: TLEnv, accessToken: string, accNum: st
   if (mod.stopLoss !== undefined) body.stopLoss = mod.stopLoss;
   if (mod.takeProfit !== undefined) body.takeProfit = mod.takeProfit;
   const { status, json, text } = await tlFetch(env, `/trade/positions/${encodeURIComponent(positionId)}`, { method: "PATCH", accessToken, accNum, body: JSON.stringify(body) });
-  if (status === 204 || (status >= 200 && status < 300)) return { ok: true, data: true };
-  return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+  if (status < 200 || status >= 300) return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+  // TradeLocker can return HTTP 200 with s:"error" (stop too close to market, market
+  // closed, bad price, throttled) — that is a REJECTION, not a success. Mirror createOrder:
+  // NEVER report a stop move the broker didn't apply, or the manager writes a phantom
+  // break-even/trail while the real broker stop stays at the initial loss and the trade
+  // stops out for the full loss. A genuine success is 204 (empty body → no `s` field).
+  const sVal = String(pick(json, "s") ?? "").toLowerCase();
+  if (sVal === "error" || sVal === "fail" || sVal === "rejected") {
+    return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+  }
+  return { ok: true, data: true };
 }
 
 /**
@@ -279,8 +288,14 @@ export async function modifyPosition(env: TLEnv, accessToken: string, accNum: st
 export async function closePosition(env: TLEnv, accessToken: string, accNum: string, positionId: string, qty?: number): Promise<TLResult<true>> {
   const body = qty && qty > 0 ? JSON.stringify({ qty }) : JSON.stringify({ qty: 0 });
   const { status, json, text } = await tlFetch(env, `/trade/positions/${encodeURIComponent(positionId)}`, { method: "DELETE", accessToken, accNum, body });
-  if (status >= 200 && status < 300) return { ok: true, data: true };
-  return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+  if (status < 200 || status >= 300) return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+  // Same HTTP-200-with-s:"error" rejection as modify/create — never record a partial the
+  // broker rejected (partial_done=true while the position is still fully open).
+  const sVal = String(pick(json, "s") ?? "").toLowerCase();
+  if (sVal === "error" || sVal === "fail" || sVal === "rejected") {
+    return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+  }
+  return { ok: true, data: true };
 }
 
 // ── helpers ──
