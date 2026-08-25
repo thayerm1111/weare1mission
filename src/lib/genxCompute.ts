@@ -294,4 +294,64 @@ export function buildGenx(read: Record<string, unknown>, ctx: { mode: Mode; pric
     scalp,
   };
 }
+
+// ── CONSERVATIVE QUALITY GATE (per-account, opt-in) ──────────────────────────
+// Extra confluence checks that apply ONLY to CONSERVATIVE accounts. AGGRESSIVE
+// accounts ignore this entirely and take EVERY gold ENTER NOW exactly as before —
+// nothing in the signal, the engine, or aggressive placement changes. This is a
+// pure, unit-tested verdict computed at arm time and carried on the alert row so
+// the confirm/fast-watch paths (which only have the stored row) grade identically.
+//
+// A conservative account SKIPS a setup that fails any factor:
+//   1. Momentum must not be "Weak" (a weak/fading push is the classic chop loser).
+//   2. Confidence must clear a floor.
+//   3. Reward:risk (entry→tp1 vs entry→stop) must clear a floor.
+//   4. Structure alignment — don't SELL a clearly Bullish structure / BUY a clearly
+//      Bearish one. "Range"/neutral is allowed (a range fade is legitimate).
+//   5. Skip the thin Off-session window (illiquid gold chop).
+export const CONSERVATIVE_MIN_CONFIDENCE = 62;
+export const CONSERVATIVE_MIN_RR = 1.5;
+
+export function genxConservativeGate(g: {
+  confidence_score?: number | null;
+  momentum?: string | null;
+  market_structure?: string | null;
+  action?: string | null;
+  side?: "buy" | "sell" | null;
+  entry?: number | null;
+  stop_loss?: number | null;
+  tp1?: number | null;
+  session?: string | null;
+}): { ok: boolean; reason: string } {
+  const side: "buy" | "sell" =
+    g.side === "sell" || String(g.action ?? "").toUpperCase().includes("SELL") ? "sell" : "buy";
+
+  // 1) Momentum must not be weak.
+  if (String(g.momentum ?? "").toLowerCase().includes("weak")) return { ok: false, reason: "weak momentum" };
+
+  // 2) Confidence floor.
+  const conf = typeof g.confidence_score === "number" ? g.confidence_score : 0;
+  if (conf < CONSERVATIVE_MIN_CONFIDENCE) return { ok: false, reason: `confidence ${conf} < ${CONSERVATIVE_MIN_CONFIDENCE}` };
+
+  // 3) Reward:risk floor (only when we have the three levels to measure it).
+  const entry = g.entry, stop = g.stop_loss, tp1 = g.tp1;
+  if (entry != null && stop != null && tp1 != null) {
+    const risk = Math.abs(entry - stop);
+    const reward = Math.abs(tp1 - entry);
+    const rr = risk > 0 ? reward / risk : 0;
+    if (rr < CONSERVATIVE_MIN_RR) return { ok: false, reason: `R:R ${rr.toFixed(2)} < ${CONSERVATIVE_MIN_RR}` };
+  }
+
+  // 4) Structure alignment (Range/neutral passes).
+  const struct = String(g.market_structure ?? "").toLowerCase();
+  const bullish = struct.includes("bull");
+  const bearish = struct.includes("bear");
+  if (side === "sell" && bullish) return { ok: false, reason: "sell vs bullish structure" };
+  if (side === "buy" && bearish) return { ok: false, reason: "buy vs bearish structure" };
+
+  // 5) Thin session.
+  if (String(g.session ?? "").toLowerCase().includes("off-session")) return { ok: false, reason: "off-session (thin)" };
+
+  return { ok: true, reason: "ok" };
+}
 /* eslint-enable @typescript-eslint/no-explicit-any */
