@@ -2403,6 +2403,13 @@ input{font:inherit}
       st[1](Object.assign({}, cur, { accounts: accts }));
       apiPost("/api/flow/broker", { action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: onv }).catch(function () { load(); });
     }
+    function setMode(a, mode) {
+      // per-account safety mode: conservative auto-pauses THIS account 4h after 2 losses in a
+      // row (gold + forex tracked separately); aggressive has no cap.
+      var cur = st[0] || {}; var accts = (cur.accounts || []).map(function (x) { return (x.accountId === a.accountId && x.connectionId === a.connectionId) ? Object.assign({}, x, { riskMode: mode }) : x; });
+      st[1](Object.assign({}, cur, { accounts: accts }));
+      apiPost("/api/flow/broker", { action: "mode", accountId: a.accountId, connectionId: a.connectionId, mode: mode }).catch(function () { load(); });
+    }
     function setGoldBe(a, pips) {
       // gold-only breakeven/partial pip trigger. null/"" → AI chooses. Forex unaffected.
       var v = (pips === "" || pips == null) ? null : Number(pips); if (!(v > 0)) v = null;
@@ -2438,20 +2445,27 @@ input{font:inherit}
             <button onClick=${function () { setRisk(a, null); }} style=${rp == null ? chipOn : chipOff}>Default</button>
             ${[0.25, 0.5, 1, 1.5, 2, 3, 5].map(function (v) { return html`<button onClick=${function () { setRisk(a, v); }} style=${rp === v ? chipOn : chipOff}>${v}%</button>`; })}
           </div>
-          <div style=${subRow + (mng ? "" : ";border-radius:0 0 11px 11px")}>
+          <div style=${subRow}>
             <div><div style="font-size:12px;font-weight:700;color:#fff">Manage trades</div><div class="bk-ck" style="margin-top:2px">Stop to breakeven + 50% partial (FLOW &amp; GENX). Off = ride raw.</div></div>
             <div style="display:flex;align-items:center;gap:8px">
               <span style=${"font-size:11px;font-weight:700;color:" + (mng ? "#2ee88f" : "rgba(255,255,255,.4)")}>${mng ? "On" : "Off"}</span>
               <button onClick=${function () { setManage(a, !mng); }} style=${"position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (mng ? "#2ee88f" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (mng ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
             </div>
           </div>
-          ${mng ? html`<div style=${subRow + ";border-radius:0 0 11px 11px"}>
+          ${mng ? html`<div style=${subRow}>
             <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:700;color:#fff">Gold breakeven pips</div><div class="bk-ck" style="margin-top:2px">Gold only. BE + partial at this many pips. Blank = AI. Forex always AI.</div></div>
             <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
               <input type="number" min="1" inputmode="numeric" placeholder="AI" value=${gp} onBlur=${function (e) { setGoldBe(a, e.target.value.trim()); }} style="width:60px;padding:7px 9px;border-radius:9px;border:1px solid var(--line);background:rgba(8,16,32,.6);color:#fff;font-size:13px;font-weight:700;text-align:right" />
               <span style="font-size:11px;color:var(--faint)">pips</span>
             </div>
           </div>` : null}
+          ${(function () { var md = a.riskMode === "aggressive" ? "aggressive" : "conservative"; var mOn = "font-size:11px;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1px solid rgba(46,232,143,.55);background:rgba(46,232,143,.13);color:#2ee88f"; var mAg = "font-size:11px;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1px solid rgba(245,180,60,.55);background:rgba(245,180,60,.13);color:#f5c451"; var mOff = "font-size:11px;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,.04);color:rgba(255,255,255,.5)"; return html`<div style=${subRow + ";border-radius:0 0 11px 11px"}>
+            <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:700;color:#fff">🛡 Safety mode</div><div class="bk-ck" style="margin-top:2px">Conservative pauses THIS account 4h after 2 losses in a row (gold &amp; forex separate). Aggressive has no cap.</div></div>
+            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+              <button onClick=${function () { setMode(a, "conservative"); }} style=${md === "conservative" ? mOn : mOff}>Cons.</button>
+              <button onClick=${function () { setMode(a, "aggressive"); }} style=${md === "aggressive" ? mAg : mOff}>Aggr.</button>
+            </div>
+          </div>`; })()}
         </div>`; })}
         ${!accounts.length ? html`<div class="bk-note">No account details loaded yet. Tap re-check, or reconnect.</div>` : null}
         <button class="bk-ghost" onClick=${function () { adding[1](true); okmsg[1](""); err[1](""); }} style="margin-top:10px;width:100%;border-style:dashed">◆ Connect another account</button>
