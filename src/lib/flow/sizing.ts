@@ -98,9 +98,16 @@ export function floorStop(canonical: string, side: "buy" | "sell", entry: number
 // leverage even at a "correct" risk % on a tight stop.
 const MAX_NOTIONAL_MULT = 20;
 
-/** Notional (USD face value) of 1.0 lot at the given price. */
+/** Notional (USD face value) of 1.0 lot at the given price.
+ *  USD-QUOTED instruments (EUR/USD, gold, indices): base isn't USD, so USD notional is
+ *  size × price (100,000 EUR × 1.08 ≈ $108k; 100 oz × $2400 = $240k).
+ *  USD-BASE pairs (USD/JPY, USD/CAD): `size` is ALREADY the USD notional (100,000 USD/lot),
+ *  so the quote-currency price must NOT be multiplied in — otherwise the leverage cap
+ *  over-states notional ~price-fold and clamps the position to ~1/price of its correct size
+ *  (this is what made a $150k account place a $10-risk USD/JPY trade). */
 export function notionalPerLot(canonical: string, price: number): number {
   const c = CONTRACT[contractKey(canonical)] ?? { size: 1, quote: "USD" as const };
+  if (c.quote !== "USD") return c.size; // USD-base pair: 100,000 is already the USD notional
   return c.size * (price > 0 ? price : 0);
 }
 
