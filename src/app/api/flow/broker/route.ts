@@ -34,7 +34,7 @@ export async function GET() {
     if (admin) {
       // Include per-account risk_pct + manage_trades + gold_be_pips when those columns
       // exist; fall back if they haven't been added yet so the accounts list never breaks.
-      const withCols = await admin.from("flow_broker_accounts").select(baseCols + ", risk_pct, manage_trades, gold_be_pips").eq("connection_id", c.id).order("created_at", { ascending: true });
+      const withCols = await admin.from("flow_broker_accounts").select(baseCols + ", risk_pct, manage_trades, gold_be_pips, risk_mode").eq("connection_id", c.id).order("created_at", { ascending: true });
       if (!withCols.error) accts = (withCols.data ?? []) as unknown as Record<string, unknown>[];
       else { const fb = await admin.from("flow_broker_accounts").select(baseCols).eq("connection_id", c.id).order("created_at", { ascending: true }); accts = (fb.data ?? []) as unknown as Record<string, unknown>[]; }
     }
@@ -46,6 +46,7 @@ export async function GET() {
         genxFollower: a.genx_follower === true,
         riskPct: typeof a.risk_pct === "number" && (a.risk_pct as number) > 0 ? a.risk_pct : null,
         manageTrades: a.manage_trades !== false, // default ON (breakeven + partials)
+        riskMode: a.risk_mode === "aggressive" ? "aggressive" : "conservative", // per-account safety mode; default conservative
         goldBePips: typeof a.gold_be_pips === "number" && (a.gold_be_pips as number) > 0 ? a.gold_be_pips : null, // gold-only BE/partial pips; null = AI
         connectionId: c.id, environment: c.environment, server: c.server,
       });
@@ -132,6 +133,20 @@ export async function POST(req: NextRequest) {
     const { error } = await q;
     if (error) return json({ error: "needs_setup", detail: "Trade management isn't set up yet — the manage_trades column is missing." }, 200);
     return json({ ok: true, accountId, manageTrades: enabled });
+  }
+
+  if (action === "mode") {
+    // Set the per-account SAFETY MODE. 'conservative' (default) auto-pauses that account
+    // for 4h after 2 losing trades in a row (gold + forex tracked separately); 'aggressive'
+    // removes that cap. Applies to that account's FLOW and GENX trades alike.
+    const accountId = String(body.accountId || "");
+    if (!accountId) return json({ error: "missing_account" }, 200);
+    const mode = String(body.mode || "").toLowerCase() === "aggressive" ? "aggressive" : "conservative";
+    let q = admin.from("flow_broker_accounts").update({ risk_mode: mode, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
+    if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
+    const { error } = await q;
+    if (error) return json({ error: "needs_setup", detail: "Safety mode isn't set up yet — the risk_mode column is missing." }, 200);
+    return json({ ok: true, accountId, riskMode: mode });
   }
 
   if (action === "goldbe") {
