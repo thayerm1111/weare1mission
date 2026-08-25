@@ -757,10 +757,14 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // personal symbol toggle any more — that was a single point of failure that could
   // silently stop gold for EVERY account if the lead's own gold toggle was off.
 
-  // STRICT MIRROR: if the desk is already in an OPEN gold trade from an earlier
-  // ENTER NOW, don't open a later divergent gold entry — everyone sits out until it
-  // closes. Checked once so all members still mirror THIS same ENTER NOW.
-  if (await deskInActiveTrade(admin, "XAUUSD")) return { members: 0, placed: 0 };
+  // PER-ACCOUNT MIRROR: an account skips a new gold entry ONLY if IT already holds an
+  // open gold position — it is NEVER blocked because some OTHER account is in a trade. The
+  // old check was desk-wide, so a single lingering position (even on a demo follower) froze
+  // gold for EVERY account. We fetch the set of accounts currently holding open gold once,
+  // then drop only those accounts from THIS signal's fan-out (below, per member). Every
+  // other opted-in account still takes the entry — no account can freeze another.
+  const { data: openGoldRows } = await admin.from("flow_managed_positions").select("account_id").eq("status", "open").eq("symbol", "XAUUSD");
+  const accountsHoldingGold = new Set(((openGoldRows ?? []) as { account_id: string | null }[]).map((r) => String(r.account_id)));
 
   // NEWS GUARD (falling-knife): gold reacts to USD data — if a HIGH-impact USD event is
   // inside the blackout window, hold this ENTER NOW. GENX will re-offer once it passes.
@@ -809,6 +813,10 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       // touched — they take every gold ENTER NOW). conservativeOk defaults to true so an
       // ungraded call still behaves exactly as before.
       if (sig.conservativeOk === false) accounts = accounts.filter((a) => !isConservative(a.riskMode));
+      // PER-ACCOUNT MIRROR: drop only the accounts that ALREADY hold an open gold position
+      // (no stacking a 2nd gold trade on the same account). Accounts with no open gold still
+      // take this entry — one account's open trade never blocks another's.
+      accounts = accounts.filter((a) => !accountsHoldingGold.has(String(a.accountId)));
       if (!accounts.length) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); continue; }
 
       const { data: pref } = await admin.from("flow_trade_prefs").select("risk_pct").eq("user_id", userId).maybeSingle();
