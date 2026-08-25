@@ -1,8 +1,10 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { connectionToken } from "@/lib/flow/connection";
-import { listPositions } from "@/lib/flow/tradelocker";
+import { connectionToken, freshAccessToken } from "@/lib/flow/connection";
+import { listPositions, listInstruments } from "@/lib/flow/tradelocker";
+import { matchInstrument, accountEquity } from "@/lib/flow/executor";
+import { assumedPointValue, brokerPointValue, riskImpact, pointValueVerdict } from "@/lib/flow/metaAudit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +39,42 @@ export async function GET(req: NextRequest) {
   if (!admin) return json({ error: "not_configured" }, 200);
 
   const sp = req.nextUrl.searchParams;
+
+  // ── INSTRUMENT METADATA AUDIT (?instruments=1) ──────────────────────────────────────────
+  // Shows, for each FLOW instrument on the OWNER's broker: the point value FLOW ASSUMES for
+  // sizing vs what the broker reports, the ratio, a verdict, and the risk-% impact — so a
+  // sizing constant (e.g. NAS100) is only ever changed on evidence. READ-ONLY; changes nothing.
+  if (sp.get("instruments") === "1") {
+    const fresh = await freshAccessToken(MASTER);
+    if (!fresh.ok) return json({ error: "no_owner_connection", detail: fresh.error }, 200);
+    const acc = fresh.conn.selected_account_id;
+    if (!acc) return json({ error: "no_account_selected" }, 200);
+    const { data: acctRow } = await admin.from("flow_broker_accounts").select("acc_num").eq("connection_id", fresh.conn.id).eq("account_id", acc).maybeSingle();
+    const accNum = acctRow?.acc_num ? String(acctRow.acc_num) : null;
+    if (!accNum) return json({ error: "no_acc_num" }, 200);
+    const eq = await accountEquity(MASTER);
+    const equity = eq.ok ? eq.equity : 100000;
+    const instRes = await listInstruments(fresh.env, fresh.token, accNum, acc);
+    if (!instRes.ok) return json({ error: "instrument_list_failed", detail: instRes.error }, 200);
+    const FLOW_SYMBOLS = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "NAS100", "US30", "USOIL"];
+    const rows = FLOW_SYMBOLS.map((sym) => {
+      const inst = matchInstrument(sym, instRes.data);
+      if (!inst) return { symbol: sym, found: false };
+      const assumedPV = assumedPointValue(sym);
+      const actualPV = brokerPointValue(inst);
+      const { verdict, ratio } = pointValueVerdict(assumedPV, actualPV);
+      return {
+        symbol: sym, brokerSymbol: inst.brokerSymbol, found: true,
+        assumedPointValue: assumedPV,
+        broker: { contractSize: inst.contractSize ?? null, tickSize: inst.tickSize ?? null, tickValue: inst.tickValue ?? null, lotSize: inst.lotSize ?? null },
+        brokerDerivedPointValue: actualPV,
+        ratio, verdict,
+        impact: riskImpact(assumedPV, actualPV, equity),
+      };
+    });
+    return json({ note: "Assumed = FLOW sizing constant. brokerDerivedPointValue = tickValue/tickSize (or contractSize). verdict 'diverges' means the constant should be reviewed. Sizing is UNCHANGED by this endpoint.", equityUsed: equity, environment: fresh.env, instruments: rows });
+  }
+
   const idsParam = (sp.get("ids") || "").split(",").map((s) => s.trim()).filter(Boolean);
   const live = sp.get("live") === "1";
   const includeDemo = sp.get("all") === "1";   // demo accounts are hidden by default; ?all=1 shows them
