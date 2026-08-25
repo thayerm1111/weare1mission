@@ -665,18 +665,16 @@ export async function runFlowWatch(mdKey: string): Promise<{ watched: number; co
 // immediately — the only cap is "max one OPEN at a time".
 const GOLD_CLAIM_SEC = 90;
 
-// CHASE GUARD floor. A gold ENTER NOW is placed at MARKET, so if price has already run
-// toward TP by the time the fill lands, the reward:risk AT THE LIVE PRICE collapses — a
-// tiny TP with a full-width SL (e.g. filled ~4666 on a 4655 signal: +2 to TP, −14 to SL =
-// ~0.15 R:R). We reject such a chased entry desk-wide.
+// CHASE GUARD floor — the MINIMUM reward:risk, measured at the LIVE price, for a gold ENTER
+// NOW to be placed at all. Gold fills at MARKET, so if price has already run toward TP by the
+// time the fill lands, the reward:risk collapses (e.g. filled ~4666 on a 4655 signal: +2 to
+// TP, −14 to SL ≈ 0.15 R:R). We reject any such entry desk-wide.
 //
-// Set to 1.5 (STRICTER than the 1.2 FLOW floor, on purpose): a trade can only be placed
-// when the target is at least 1.5× FARTHER from the live price than the stop is. That makes
-// the "tiny TP / huge SL" geometry structurally impossible — the target is always the
-// farther line — and leaves margin for the slippage between this price check and the fill.
-// Trade-off: on a fast move that has already run past the zone, gold now SKIPS rather than
-// chase. Quality over frequency, by design.
-const GOLD_MIN_PLACEMENT_RR = 1.5;
+// Set to 1.0 = STRICTLY 1:1. A trade enters only when the target is AT LEAST as far as the
+// stop — the profit must never be smaller than the risk. 1:1 is allowed (that's fine); a
+// stop bigger than the target is rejected. Combined with sizing off the live entry (below),
+// the dollar risk is also capped at the member's risk %, so a 1:1 trade risks ~1% to make ~1%.
+const GOLD_MIN_PLACEMENT_RR = 1.0;
 
 /** Current gold price for the chase check (own key, like goldTrend). null on any failure. */
 async function goldLivePrice(): Promise<number | null> {
