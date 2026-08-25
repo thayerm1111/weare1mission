@@ -294,25 +294,4 @@ export function buildGenx(read: Record<string, unknown>, ctx: { mode: Mode; pric
     scalp,
   };
 }
-
-/**
- * PROFESSIONAL QUALITY GATE for taking a GENX gold entry. A disciplined trader doesn't take
- * a directional trade its own read isn't convinced of. Rejects a setup when:
- *   • the engine's own directional strength is "Weak" (directional score < 55) — i.e. it
- *     wanted to fade/chase without conviction (this is what took the losing weak-momentum
- *     sell into up-momentum), or
- *   • overall confidence is below the floor.
- * Moderate/Strong-momentum setups above the floor still pass — so strong with-trend
- * continuations and momentum breakouts are unaffected. Pure + unit-tested.
- */
-export function genxQualityGate(
-  g: { confidence_score?: number | null; momentum?: string | null },
-  minConfidence = 62,
-): { ok: boolean; reason: string } {
-  const conf = Number(g.confidence_score) || 0;
-  const mom = String(g.momentum ?? "");
-  if (mom === "Weak") return { ok: false, reason: `weak directional conviction (momentum ${mom})` };
-  if (conf < minConfidence) return { ok: false, reason: `confidence ${conf} below floor ${minConfidence}` };
-  return { ok: true, reason: `confidence ${conf}, ${mom || "?"} momentum` };
-}
 /* eslint-enable @typescript-eslint/no-explicit-any */
