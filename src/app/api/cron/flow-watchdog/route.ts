@@ -1,6 +1,10 @@
 import { type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { computeHealth, stalledComponents, logIncident, type ComponentName } from "@/lib/flow/health";
+import { sendTelegram, esc } from "@/lib/telegram";
+
+// How long to wait between outage pings so a sustained DOWN state alerts ONCE, not every minute.
+const ALERT_COOLDOWN_MIN = 15;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,6 +80,32 @@ async function run(req: NextRequest): Promise<Response> {
   // parked at a loss), so the phone-alert task and the history have a trail.
   if (report.status === "DOWN") {
     await logIncident(admin, "system", "down", { reasons: report.reasons, checks: report.checks });
+
+    // SERVER-SIDE OUTAGE ALERT. The app notifies the owner itself — no external Claude routine
+    // (which can't WebFetch unattended) needed. Cooldown via the incident log so a sustained
+    // outage pings once every ALERT_COOLDOWN_MIN. Prefers a private admin chat if configured,
+    // else the main channel. Fails CLOSED (skips sending) on any read error so it can't spam.
+    let alertedRecently = true;
+    try {
+      const since = new Date(Date.now() - ALERT_COOLDOWN_MIN * 60_000).toISOString();
+      const { data: recent } = await admin.from("flow_incidents")
+        .select("id").eq("kind", "down_alert").gte("created_at", since).limit(1);
+      alertedRecently = !!(recent && recent.length);
+    } catch { alertedRecently = true; }
+
+    if (!alertedRecently) {
+      const adminChat = process.env.TELEGRAM_ADMIN_CHAT_ID;
+      const lines = [
+        "🚨 <b>Auto-trading system DOWN</b>",
+        ...report.reasons.slice(0, 6).map((r) => "• " + esc(r)),
+        healed.length ? `Auto-recovery restarted: ${esc(healed.join(", "))}.` : "No stalled component to auto-restart.",
+        "The watchdog will keep trying to self-heal; check the health page if this repeats.",
+      ];
+      try {
+        await sendTelegram(lines.join("\n"), adminChat ? { chatId: adminChat } : undefined);
+        await logIncident(admin, "system", "down_alert", { reasons: report.reasons });
+      } catch { /* alerting is best-effort */ }
+    }
   }
 
   return json({
