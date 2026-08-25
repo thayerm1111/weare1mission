@@ -31,16 +31,17 @@ export async function GET() {
   const user = await getUser();
   if (!user) return json({ error: "unauthorized" }, 401);
   const admin = createAdminClient();
-  type Saved = { account_size?: number | null; risk_pct?: number | null };
+  type Saved = { account_size?: number | null; risk_pct?: number | null; risk_mode?: string | null };
   let saved: Saved | null = null;
   if (admin) {
-    const { data } = await admin.from("flow_trade_prefs").select("account_size, risk_pct").eq("user_id", user.id).maybeSingle();
+    const { data } = await admin.from("flow_trade_prefs").select("account_size, risk_pct, risk_mode").eq("user_id", user.id).maybeSingle();
     saved = (data as Saved | null) ?? null;
   }
   const eq = await accountEquity(user.id);
   return json({
     accountSize: saved && num(saved.account_size) != null ? num(saved.account_size) : null,
     riskPct: saved && num(saved.risk_pct) != null ? num(saved.risk_pct) : 1,
+    riskMode: saved?.risk_mode === "aggressive" ? "aggressive" : "conservative", // default conservative
     liveEquity: eq.ok ? eq.equity : null,
     liveCurrency: eq.ok ? eq.currency : null,
     connected: eq.ok,
@@ -57,12 +58,15 @@ export async function POST(req: NextRequest) {
   try { body = (await req.json()) as Record<string, unknown>; } catch { /* */ }
   const accountSize = num(body.accountSize);
   const riskPct = num(body.riskPct);
+  const riskModeRaw = typeof body.riskMode === "string" ? body.riskMode.toLowerCase() : null;
+  const riskMode = riskModeRaw === "aggressive" || riskModeRaw === "conservative" ? riskModeRaw : null;
 
   const row: Record<string, unknown> = { user_id: user.id, updated_at: new Date().toISOString() };
   if (accountSize != null) row.account_size = Math.max(0, accountSize);
   if (riskPct != null) row.risk_pct = Math.min(100, Math.max(0.01, riskPct));
+  if (riskMode != null) row.risk_mode = riskMode;
 
   const { error } = await admin.from("flow_trade_prefs").upsert(row, { onConflict: "user_id" });
   if (error) return json({ ok: false, error: error.message }, 200);
-  return json({ ok: true, accountSize: accountSize ?? null, riskPct: riskPct ?? null });
+  return json({ ok: true, accountSize: accountSize ?? null, riskPct: riskPct ?? null, riskMode: riskMode ?? null });
 }
