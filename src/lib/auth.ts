@@ -11,6 +11,14 @@ export interface Profile {
   username: string | null;
   phone: string | null;
   referred_by: string | null;
+  access_expires_at: string | null;
+}
+
+/** True once a time-limited (promo) grant has lapsed. Members with no expiry are unlimited. */
+export function accessExpired(accessExpiresAt: string | null | undefined): boolean {
+  if (!accessExpiresAt) return false;
+  const t = Date.parse(accessExpiresAt);
+  return Number.isFinite(t) && t <= Date.now();
 }
 
 /**
@@ -29,11 +37,19 @@ export async function getProfile(): Promise<Profile | null> {
 
   const { data } = await supabase
     .from("profiles")
-    .select("id, email, full_name, role, tier, status, username, phone, referred_by")
+    .select("id, email, full_name, role, tier, status, username, phone, referred_by, access_expires_at")
     .eq("id", user.id)
     .single();
 
-  if (data) return data as Profile;
+  if (data) {
+    const p = data as Profile;
+    // Time-limited (promo) access: once the grant lapses, treat the member as
+    // suspended so the portal gate pauses them — no cron required, enforced on read.
+    if (p.status === "active" && accessExpired(p.access_expires_at)) {
+      return { ...p, status: "suspended" };
+    }
+    return p;
+  }
 
   // Fallback if the profile row hasn't been created yet.
   return {
@@ -46,5 +62,6 @@ export async function getProfile(): Promise<Profile | null> {
     username: null,
     phone: null,
     referred_by: null,
+    access_expires_at: null,
   };
 }
