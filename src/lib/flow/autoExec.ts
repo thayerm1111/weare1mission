@@ -311,34 +311,61 @@ function isConservative(mode: unknown): boolean {
   return String(mode ?? "conservative").toLowerCase() !== "aggressive";
 }
 
-/** Per-MEMBER consecutive-loss cutoff for ONE asset class (gold or forex). Fails open. */
-async function memberAssetCutoff(admin: Admin, userId: string, asset: MemberAsset): Promise<{ halt: boolean; streak: number; until?: string }> {
+/** Per-ACCOUNT consecutive-loss cutoff for ONE asset class (gold or forex). Fails open. */
+async function accountAssetCutoff(admin: Admin, accountId: string, asset: MemberAsset): Promise<{ halt: boolean; streak: number }> {
   try {
     const symbols = asset === "gold" ? GOLD_SYMS : FOREX_BREAKER_SYMBOLS;
     const sinceIso = new Date(Date.now() - 12 * 3600e3).toISOString();
     const { data } = await admin
       .from("flow_managed_positions")
       .select("symbol, side, outcome, created_at, resolved_at")
-      .eq("user_id", userId)
+      .eq("account_id", accountId)
       .in("symbol", symbols)
       .eq("status", "closed")
       .not("outcome", "is", null)
       .gte("created_at", sinceIso)
       .order("resolved_at", { ascending: false })
-      .limit(300);
+      .limit(200);
     const rows = (data ?? []) as SigRow[];
     if (!rows.length) return { halt: false, streak: 0 };
     const signals = collapseSignals(rows); // cluster fan-out legs → distinct signals (see helper)
     if (!signals.length) return { halt: false, streak: 0 };
     let streak = 0;
     for (const s of signals) { if (s.win) break; streak += 1; }
-    if (streak >= MEMBER_BREAKER_STREAK) {
-      const until = signals[0].closedAt + MEMBER_BREAKER_COOLDOWN_MS; // cooldown from the latest loss
-      if (Date.now() < until) return { halt: true, streak, until: new Date(until).toISOString() };
+    if (streak >= MEMBER_BREAKER_STREAK && Date.now() < signals[0].closedAt + MEMBER_BREAKER_COOLDOWN_MS) {
+      return { halt: true, streak };
     }
     return { halt: false, streak };
   } catch {
     return { halt: false, streak: 0 }; // fail open
+  }
+}
+
+/** Drop CONSERVATIVE accounts that are in a loss-cutoff for this symbol's asset class.
+ *  Aggressive accounts, and symbols that aren't gold/forex, pass through untouched. */
+async function filterAccountsForAsset(admin: Admin, accounts: ActiveAccount[], symbol: string): Promise<ActiveAccount[]> {
+  const asset = memberAssetOf(symbol);
+  if (!asset || !accounts.length) return accounts;
+  const keep: ActiveAccount[] = [];
+  for (const a of accounts) {
+    if (!isConservative(a.riskMode)) { keep.push(a); continue; } // aggressive → no cap
+    const cut = await accountAssetCutoff(admin, a.accountId, asset);
+    if (!cut.halt) keep.push(a);
+  }
+  return keep;
+}
+
+// ── GLOBAL KILL SWITCH (admin) ────────────────────────────────────────────────
+// The owner can pause FLOW and/or GENX for EVERYONE from the admin panel (e.g. to
+// fix something). Reads the single flow_switches row; fails OPEN (both ON) so a DB
+// blip never silently halts trading.
+async function systemSwitches(admin: Admin): Promise<{ flow: boolean; genx: boolean }> {
+  try {
+    const { data } = await admin.from("flow_switches").select("flow_enabled, genx_enabled").eq("id", 1).maybeSingle();
+    const r = data as { flow_enabled?: boolean | null; genx_enabled?: boolean | null } | null;
+    return { flow: r?.flow_enabled !== false, genx: r?.genx_enabled !== false };
+  } catch {
+    return { flow: true, genx: true };
   }
 }
 
@@ -357,14 +384,6 @@ async function guardAndPlace(admin: Admin, settings: AutoSettings, ctx: GuardCtx
   if (isForexSymbol(symbol)) {
     const brk = await forexBreakerHalt(admin);
     if (brk.halt) return { symbol, action: "forex_cooldown", detail: `${brk.streak} losses in a row` };
-  }
-
-  // PER-MEMBER CONSERVATIVE CUTOFF (forex leg). A conservative member sits forex out
-  // for 4h after 2 of THEIR OWN losing forex signals in a row. Gold is gated in the
-  // GENX path; indices are exempt. Aggressive members skip this entirely.
-  if (isConservative(ctx.riskMode) && memberAssetOf(symbol) === "forex") {
-    const cut = await memberAssetCutoff(admin, settings.user_id, "forex");
-    if (cut.halt) return { symbol, action: "forex_member_cooldown", detail: `conservative: ${cut.streak} losses in a row` };
   }
 
   // A protective stop is REQUIRED (fall back to the invalidation), and the entry
@@ -401,11 +420,20 @@ async function guardAndPlace(admin: Admin, settings: AutoSettings, ctx: GuardCtx
     if (won === false) return { symbol, action: "cooldown" };
   } catch { /* if the claim RPC is unavailable, fall through to the in-memory guard */ }
 
-  // Fan out: place the SAME setup on every active account, each risk-sized to its
+  // PER-ACCOUNT SAFETY MODE: drop this member's accounts that are conservative AND in a
+  // loss-cutoff for this symbol's asset (aggressive accounts pass). If none survive, the
+  // claim was taken above — release it so a later tick/account can still enter.
+  const acctsForSymbol = await filterAccountsForAsset(admin, ctx.accounts, symbol);
+  if (!acctsForSymbol.length) {
+    try { await admin.rpc("flow_release_claim", { p_user: settings.user_id, p_symbol: symbol }); } catch { /* best-effort */ }
+    return { symbol, action: "safety_cooldown", detail: "all eligible accounts paused (2 losses in a row)" };
+  }
+
+  // Fan out: place the SAME setup on every eligible account, each risk-sized to its
   // own live equity (gold<$500 floors to 0.01 inside placeOnActiveAccounts).
   const res = await placeOnActiveAccounts({
     userId: settings.user_id, symbol, side, entry: entryPx, stop: stopPx, tp: levels.tp1,
-    riskPct: ctx.riskPct, source: "auto", accounts: ctx.accounts,
+    riskPct: ctx.riskPct, source: "auto", accounts: acctsForSymbol,
   });
   if (res.placed === 0) {
     // Nothing filled — release the claim so the next tick can retry this symbol
@@ -487,6 +515,7 @@ export async function runAutoExecForUser(settings: AutoSettings, mdKey: string):
 export async function runAutoExecAll(mdKey: string): Promise<{ users: number; runs: Array<{ userId: string; results: SymbolResult[] }>; watching: string[] }> {
   const admin = createAdminClient();
   if (!admin) return { users: 0, runs: [], watching: [] };
+  if (!(await systemSwitches(admin)).flow) return { users: 0, runs: [], watching: [] }; // admin FLOW kill switch
   const { data } = await admin.from("flow_auto_settings").select("*").eq("enabled", true);
   const rows = (data ?? []) as AutoSettings[];
   const runs: Array<{ userId: string; results: SymbolResult[] }> = [];
@@ -513,6 +542,7 @@ export async function runAutoExecAll(mdKey: string): Promise<{ users: number; ru
 export async function runFlowWatch(mdKey: string): Promise<{ watched: number; confirmed: string[]; runs: Array<{ userId: string; results: SymbolResult[] }>; states: Array<{ symbol: string; state: string }> }> {
   const admin = createAdminClient();
   if (!admin) return { watched: 0, confirmed: [], runs: [], states: [] };
+  if (!(await systemSwitches(admin)).flow) return { watched: 0, confirmed: [], runs: [], states: [] }; // admin FLOW kill switch
   const setups = await readWatchList(admin);
   if (!setups.length) return { watched: 0, confirmed: [], runs: [], states: [] };
 
@@ -661,6 +691,7 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell"): Promise<boolea
 export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null }): Promise<{ members: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { members: 0, placed: 0 };
+  if (!(await systemSwitches(admin)).genx) return { members: 0, placed: 0 }; // admin GENX kill switch
   const entry = (sig.entryLow != null && sig.entryHigh != null) ? (sig.entryLow + sig.entryHigh) / 2 : (sig.entryLow ?? sig.entryHigh);
   if (entry == null || sig.stop == null) return { members: 0, placed: 0 };
 
@@ -691,23 +722,15 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     try {
       if (s.credit_paused) continue; // out of credits → paused → they don't copy (the only gate)
 
-      // PER-MEMBER CONSERVATIVE CUTOFF (gold). A conservative member sits gold out for
-      // 4h after 2 of THEIR OWN losing gold signals in a row. Aggressive members skip
-      // this. Checked BEFORE the claim so a skipped member isn't consumed/cooled-down.
-      try {
-        const { data: pm } = await admin.from("flow_trade_prefs").select("risk_mode").eq("user_id", s.user_id).maybeSingle();
-        if (isConservative((pm as { risk_mode?: string | null } | null)?.risk_mode)) {
-          const cut = await memberAssetCutoff(admin, s.user_id, "gold");
-          if (cut.halt) continue; // conservative member on a gold cooldown → sit this one out
-        }
-      } catch { /* fail open — a read error never blocks a member's trade */ }
-
       // Claim gold for this member. FALSE → a gold entry is already live within the
       // cooldown → skip (this blocks GENX's back-to-back ENTER NOW repeats).
       const { data: won } = await admin.rpc("flow_try_claim", { p_user: s.user_id, p_symbol: "XAUUSD", p_cooldown_secs: GOLD_GENX_COOLDOWN_SEC });
       if (won === false) continue;
 
-      const accounts = await activeAccounts(s.user_id);
+      const allAccounts = await activeAccounts(s.user_id);
+      // PER-ACCOUNT SAFETY MODE: drop this member's accounts that are conservative AND in
+      // a gold loss-cutoff. Aggressive accounts still take it. None left → release claim.
+      const accounts = await filterAccountsForAsset(admin, allAccounts, "XAUUSD");
       if (!accounts.length) { await admin.rpc("flow_release_claim", { p_user: s.user_id, p_symbol: "XAUUSD" }); continue; }
 
       const { data: pref } = await admin.from("flow_trade_prefs").select("risk_pct").eq("user_id", s.user_id).maybeSingle();
@@ -748,6 +771,7 @@ export async function placeGenxFollower(sig: {
 }): Promise<{ accounts: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { accounts: 0, placed: 0 };
+  if (!(await systemSwitches(admin)).genx) return { accounts: 0, placed: 0 }; // admin GENX kill switch
   const signalKey = String(sig.signalKey || "").slice(0, 200);
   if (!signalKey) return { accounts: 0, placed: 0 };
 
@@ -763,10 +787,10 @@ export async function placeGenxFollower(sig: {
   // Every follower account, across every user/connection (independent of FLOW).
   // Pull the per-account risk override + management toggle when those columns exist;
   // fall back to a bare select so the follower never breaks before the migration is run.
-  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; risk_pct?: number | null; manage_trades?: boolean | null };
+  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; risk_pct?: number | null; manage_trades?: boolean | null; risk_mode?: string | null };
   let accts: FollowRow[] = [];
   const withCols = await admin.from("flow_broker_accounts")
-    .select("user_id, account_id, acc_num, connection_id, risk_pct, manage_trades").eq("genx_follower", true);
+    .select("user_id, account_id, acc_num, connection_id, risk_pct, manage_trades, risk_mode").eq("genx_follower", true);
   if (!withCols.error) accts = (withCols.data ?? []) as FollowRow[];
   else {
     const fb = await admin.from("flow_broker_accounts")
@@ -821,6 +845,12 @@ export async function placeGenxFollower(sig: {
     if (!a.acc_num) continue;
     touched += 1;
     try {
+      // PER-ACCOUNT SAFETY MODE: a CONSERVATIVE follower account sits gold out for 4h
+      // after 2 losing gold trades in a row. Aggressive follower accounts take it raw.
+      if (isConservative(a.risk_mode)) {
+        const cut = await accountAssetCutoff(admin, a.account_id, "gold");
+        if (cut.halt) continue;
+      }
       // Idempotent claim: one fill per (signal, account). A duplicate row → already
       // handled this ENTER NOW on this account → skip.
       const { error: dupErr } = await admin.from("genx_follower_fills").insert({ signal_key: signalKey, account_id: a.account_id });

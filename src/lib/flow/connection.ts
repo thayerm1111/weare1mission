@@ -86,6 +86,7 @@ export type ActiveAccount = {
   accountId: string; accNum: string;
   equity: number | null; balance: number | null; currency: string | null; name: string | null;
   riskPct?: number | null; // per-account risk override (null → caller's default)
+  riskMode?: string | null; // per-account safety mode: 'conservative' (default) | 'aggressive'
 };
 
 /**
@@ -103,10 +104,10 @@ export async function activeAccounts(userId: string): Promise<ActiveAccount[]> {
   for (const conn of conns) {
     // Include the per-account risk override when the column exists; if it hasn't
     // been added yet, fall back to a select without it so trading never breaks.
-    type AcctRow = { account_id: string; acc_num: string | null; name: string | null; currency: string | null; risk_pct?: number | null };
+    type AcctRow = { account_id: string; acc_num: string | null; name: string | null; currency: string | null; risk_pct?: number | null; risk_mode?: string | null };
     let enabled: AcctRow[] = [];
     const withRisk = await admin.from("flow_broker_accounts")
-      .select("account_id, acc_num, name, currency, autotrade_enabled, risk_pct")
+      .select("account_id, acc_num, name, currency, autotrade_enabled, risk_pct, risk_mode")
       .eq("connection_id", conn.id).eq("autotrade_enabled", true);
     if (!withRisk.error) enabled = (withRisk.data ?? []) as AcctRow[];
     else {
@@ -130,6 +131,7 @@ export async function activeAccounts(userId: string): Promise<ActiveAccount[]> {
         equity: l?.equity ?? l?.balance ?? null, balance: l?.balance ?? null,
         currency: l?.currency ?? a.currency ?? null, name: a.name ?? null,
         riskPct: typeof a.risk_pct === "number" && a.risk_pct > 0 ? a.risk_pct : null,
+        riskMode: a.risk_mode || "conservative",
       });
     }
   }
