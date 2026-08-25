@@ -142,6 +142,9 @@ type GuardCtx = {
   // equity. `accounts` is every account the member toggled ON, across all their
   // connections — a placement fans out over all of them. Fetched once per cycle.
   riskPct: number; accounts: ActiveAccount[];
+  // Per-member safety mode ('conservative' default | 'aggressive'). Conservative
+  // arms the 2-loss-in-a-row cutoff (gold/forex separate); aggressive removes it.
+  riskMode: string;
 };
 
 async function buildGuardCtx(admin: Admin, settings: AutoSettings): Promise<GuardCtx> {
@@ -170,12 +173,13 @@ async function buildGuardCtx(admin: Admin, settings: AutoSettings): Promise<Guar
 
   // Risk sizing inputs: the member's saved risk % + all their active accounts
   // (each carrying its own live equity, fetched once for the whole cycle).
-  const { data: pref } = await admin.from("flow_trade_prefs").select("risk_pct").eq("user_id", settings.user_id).maybeSingle();
-  const p = (pref as { risk_pct?: number | null } | null) ?? null;
+  const { data: pref } = await admin.from("flow_trade_prefs").select("risk_pct, risk_mode").eq("user_id", settings.user_id).maybeSingle();
+  const p = (pref as { risk_pct?: number | null; risk_mode?: string | null } | null) ?? null;
   const riskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : 1;
+  const riskMode = p?.risk_mode || "conservative"; // default conservative
   const accounts = await activeAccounts(settings.user_id);
 
-  return { mode, symbols, maxLot, cooldownMs, now, events, placed, hourBudget, openSymbols, maxOpen, riskPct, accounts };
+  return { mode, symbols, maxLot, cooldownMs, now, events, placed, hourBudget, openSymbols, maxOpen, riskPct, accounts, riskMode };
 }
 
 // ── STRICT MIRROR: one active trade per symbol, desk-wide ────────────────────
@@ -256,6 +260,70 @@ async function forexBreakerHalt(admin: Admin): Promise<{ halt: boolean; streak: 
   }
 }
 
+// ── PER-MEMBER RISK MODE (Aggressive / Conservative) ──────────────────────────
+// Each member picks their OWN protection. CONSERVATIVE (the default) is a hard
+// personal breaker: after 2 losing trades IN A ROW on an asset class, it pauses
+// that asset class for 4h — GOLD and FOREX are tracked SEPARATELY, so a bad gold
+// run never touches forex and vice-versa. AGGRESSIVE removes the per-member cap
+// (desk-wide guards like the forex breaker + gold trend gate still apply to both).
+// A single win resets the streak. Fails OPEN — a read error never blocks trading.
+const MEMBER_BREAKER_STREAK = 2;
+const MEMBER_BREAKER_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
+const GOLD_SYMS = ["XAUUSD", "GOLD"];
+
+type MemberAsset = "gold" | "forex";
+function memberAssetOf(symbol: string): MemberAsset | null {
+  const s = symbol.toUpperCase();
+  if (GOLD_SYMS.includes(s)) return "gold";
+  if (isForexSymbol(s) || FOREX_BREAKER_SYMBOLS.includes(s)) return "forex";
+  return null; // indices etc. are not covered by the per-member toggle
+}
+/** Default is CONSERVATIVE — only an explicit 'aggressive' opts out of the cap. */
+function isConservative(mode: unknown): boolean {
+  return String(mode ?? "conservative").toLowerCase() !== "aggressive";
+}
+
+/** Per-MEMBER consecutive-loss cutoff for ONE asset class (gold or forex). Fails open. */
+async function memberAssetCutoff(admin: Admin, userId: string, asset: MemberAsset): Promise<{ halt: boolean; streak: number; until?: string }> {
+  try {
+    const symbols = asset === "gold" ? GOLD_SYMS : FOREX_BREAKER_SYMBOLS;
+    const sinceIso = new Date(Date.now() - 12 * 3600e3).toISOString();
+    const { data } = await admin
+      .from("flow_managed_positions")
+      .select("symbol, side, outcome, created_at, resolved_at")
+      .eq("user_id", userId)
+      .in("symbol", symbols)
+      .eq("status", "closed")
+      .not("outcome", "is", null)
+      .gte("created_at", sinceIso)
+      .order("resolved_at", { ascending: false })
+      .limit(300);
+    const rows = (data ?? []) as Array<{ symbol: string; side: string; outcome: string; created_at: string; resolved_at: string | null }>;
+    if (!rows.length) return { halt: false, streak: 0 };
+    // Collapse fan-out legs → one entry per SIGNAL (same symbol+side+minute); a signal
+    // is a WIN if ANY leg won, so only an all-stop signal counts as a loss.
+    const sig = new Map<string, { closedAt: number; win: boolean }>();
+    for (const r of rows) {
+      const key = `${r.symbol}|${r.side}|${(r.created_at || "").slice(0, 16)}`;
+      const closedAt = r.resolved_at ? new Date(r.resolved_at).getTime() : new Date(r.created_at).getTime();
+      const win = r.outcome !== "stop";
+      const cur = sig.get(key);
+      if (!cur) sig.set(key, { closedAt, win });
+      else sig.set(key, { closedAt: Math.max(cur.closedAt, closedAt), win: cur.win || win });
+    }
+    const signals = [...sig.values()].sort((a, b) => b.closedAt - a.closedAt); // newest first
+    let streak = 0;
+    for (const s of signals) { if (s.win) break; streak += 1; }
+    if (streak >= MEMBER_BREAKER_STREAK) {
+      const until = signals[0].closedAt + MEMBER_BREAKER_COOLDOWN_MS; // cooldown from the latest loss
+      if (Date.now() < until) return { halt: true, streak, until: new Date(until).toISOString() };
+    }
+    return { halt: false, streak };
+  } catch {
+    return { halt: false, streak: 0 }; // fail open
+  }
+}
+
 async function guardAndPlace(admin: Admin, settings: AutoSettings, ctx: GuardCtx, symbol: string, side: "buy" | "sell", levels: Levels, price?: number | null): Promise<SymbolResult> {
   const ms = (iso: string) => ctx.now - new Date(iso).getTime();
   if (!ctx.symbols.includes(symbol)) return { symbol, action: "not_in_list" };
@@ -271,6 +339,14 @@ async function guardAndPlace(admin: Admin, settings: AutoSettings, ctx: GuardCtx
   if (isForexSymbol(symbol)) {
     const brk = await forexBreakerHalt(admin);
     if (brk.halt) return { symbol, action: "forex_cooldown", detail: `${brk.streak} losses in a row` };
+  }
+
+  // PER-MEMBER CONSERVATIVE CUTOFF (forex leg). A conservative member sits forex out
+  // for 4h after 2 of THEIR OWN losing forex signals in a row. Gold is gated in the
+  // GENX path; indices are exempt. Aggressive members skip this entirely.
+  if (isConservative(ctx.riskMode) && memberAssetOf(symbol) === "forex") {
+    const cut = await memberAssetCutoff(admin, settings.user_id, "forex");
+    if (cut.halt) return { symbol, action: "forex_member_cooldown", detail: `conservative: ${cut.streak} losses in a row` };
   }
 
   // A protective stop is REQUIRED (fall back to the invalidation), and the entry
@@ -596,6 +672,17 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   for (const s of rows) {
     try {
       if (s.credit_paused) continue; // out of credits → paused → they don't copy (the only gate)
+
+      // PER-MEMBER CONSERVATIVE CUTOFF (gold). A conservative member sits gold out for
+      // 4h after 2 of THEIR OWN losing gold signals in a row. Aggressive members skip
+      // this. Checked BEFORE the claim so a skipped member isn't consumed/cooled-down.
+      try {
+        const { data: pm } = await admin.from("flow_trade_prefs").select("risk_mode").eq("user_id", s.user_id).maybeSingle();
+        if (isConservative((pm as { risk_mode?: string | null } | null)?.risk_mode)) {
+          const cut = await memberAssetCutoff(admin, s.user_id, "gold");
+          if (cut.halt) continue; // conservative member on a gold cooldown → sit this one out
+        }
+      } catch { /* fail open — a read error never blocks a member's trade */ }
 
       // Claim gold for this member. FALSE → a gold entry is already live within the
       // cooldown → skip (this blocks GENX's back-to-back ENTER NOW repeats).
