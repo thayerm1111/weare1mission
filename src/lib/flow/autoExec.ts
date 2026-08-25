@@ -133,6 +133,24 @@ async function recentAutoEvents(admin: Admin, userId: string): Promise<AutoEvent
 // Absolute per-order lot ceiling (fat-finger backstop, even after risk sizing).
 const MAX_LOTS = 100;
 
+// ── HARD REWARD:RISK FLOOR (placement backstop) ──────────────────────────────
+// Never fan a trade out to the desk when its TARGET is closer than its STOP — i.e. a
+// reward:risk below this. Computed from the ACTUAL entry / stop / TP about to be sent (not the
+// signal-time price), so a setup that got chased or filled into an inverted R:R — target already
+// reached, stop parked far away — is rejected on EVERY account instead of placed and sized at
+// full risk. This is the guard that was missing when a GBPUSD sell went out at ~0.16 R:R and
+// stopped the whole desk out. It is NOT the broker-min-lot gate and NOT spread protection — it
+// is purely "don't take a trade whose target is nearer than its stop". Lives only at the single
+// placement chokepoint, so it touches nothing in sizing / mirror / management.
+const MIN_PLACEMENT_RR = 1.2;
+export function rewardRisk(entry: number | null, stop: number | null, tp: number | null): number | null {
+  if (entry == null || stop == null || tp == null) return null;
+  const risk = Math.abs(entry - stop);
+  const reward = Math.abs(tp - entry);
+  if (!(risk > 0)) return null;
+  return reward / risk;
+}
+
 // ── per-member guard context (shared by the ENTER_NOW and fast-watch paths) ──
 type GuardCtx = {
   mode: Mode; symbols: string[]; maxLot: number; cooldownMs: number;
@@ -412,6 +430,15 @@ async function guardAndPlace(admin: Admin, settings: AutoSettings, ctx: GuardCtx
   if (stopPx == null) return { symbol, action: "skip_no_stop" };
   if (entryPx == null) return { symbol, action: "skip_no_entry" };
   if (!ctx.accounts.length) return { symbol, action: "skip_no_accounts" };
+
+  // REWARD:RISK FLOOR — reject a trade whose target is closer than its stop before it ever
+  // reaches an account. Uses the entry/stop/TP about to be sent, so a chased/inverted setup
+  // (the GBPUSD ~0.16 R:R that stopped the desk out) is skipped desk-wide. A setup with no TP
+  // (rr == null) is not blocked here — the stop still protects it.
+  const rrAtPlacement = rewardRisk(entryPx, stopPx, levels.tp1);
+  if (rrAtPlacement != null && rrAtPlacement < MIN_PLACEMENT_RR) {
+    return { symbol, action: "skip_bad_rr", side, detail: `R:R ${rrAtPlacement.toFixed(2)} < ${MIN_PLACEMENT_RR}` };
+  }
 
   // NEWS GUARD (falling-knife): if a HIGH-impact event for this pair's currency is
   // inside the blackout window (about to drop or just dropped), HOLD — don't buy blind
