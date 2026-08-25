@@ -203,14 +203,39 @@ export async function POST(req: NextRequest) {
   }, { onConflict: "user_id,broker,environment,server,email" }).select("*").maybeSingle();
   if (connErr || !connRow) return json({ error: "server", detail: "Couldn't save the connection." }, 200);
 
-  await admin.from("flow_broker_accounts").delete().eq("connection_id", connRow.id);
-  if (accounts.length) {
-    await admin.from("flow_broker_accounts").insert(accounts.map((ac) => ({
-      user_id: user.id, connection_id: connRow.id, account_id: ac.accountId, acc_num: ac.accNum,
+  // Refresh the broker's account list WITHOUT wiping the member's per-account settings.
+  // (Previously this did delete()+insert(), which silently reset EVERY toggle — autotrade,
+  // genx_follower, manage_trades, risk_mode, risk_pct, gold_be_pips — back to defaults on every
+  // reconnect / re-check. So an account the member had switched ON came back OFF and quietly
+  // stopped trading while the app still showed it on.) Now: refresh market fields on the rows we
+  // already have, insert only genuinely-new accounts (with defaults), and drop only accounts the
+  // broker no longer returns. Toggle columns on existing rows are never touched.
+  const { data: existingRows } = await admin.from("flow_broker_accounts")
+    .select("account_id").eq("connection_id", connRow.id);
+  const existingIds = new Set((existingRows ?? []).map((r) => String((r as { account_id: string }).account_id)));
+  const incomingIds = new Set(accounts.map((ac) => String(ac.accountId)));
+
+  for (const ac of accounts) {
+    const refresh = {
       name: ac.name ?? null, currency: ac.currency ?? null, environment: env,
-      balance: ac.balance ?? null, equity: ac.equity ?? null,
-      is_selected: ac.accountId === firstAccount, updated_at: nowIso,
-    })));
+      balance: ac.balance ?? null, equity: ac.equity ?? null, updated_at: nowIso,
+    };
+    if (existingIds.has(String(ac.accountId))) {
+      // Existing account → refresh market data only; leave every toggle/setting as the member left it.
+      await admin.from("flow_broker_accounts").update(refresh)
+        .eq("connection_id", connRow.id).eq("account_id", ac.accountId);
+    } else {
+      // Brand-new account → insert with default settings.
+      await admin.from("flow_broker_accounts").insert({
+        user_id: user.id, connection_id: connRow.id, account_id: ac.accountId, acc_num: ac.accNum,
+        is_selected: ac.accountId === firstAccount, ...refresh,
+      });
+    }
+  }
+  // Remove only accounts that no longer exist at the broker — never the ones we still see.
+  const staleIds = [...existingIds].filter((id) => !incomingIds.has(id));
+  if (staleIds.length) {
+    await admin.from("flow_broker_accounts").delete().eq("connection_id", connRow.id).in("account_id", staleIds);
   }
 
   return json({
