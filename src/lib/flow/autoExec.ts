@@ -728,6 +728,23 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell"): Promise<boolea
   return goldDirectionHalt(admin, side, streak);
 }
 
+export type GoldRoute = "copy" | "follower" | "none";
+/**
+ * THE single routing rule for a gold signal, so the two placement paths can never
+ * disagree about which accounts they own:
+ *   - autotrade_enabled → "copy"     (risk-sized fill via placeGenxGold)
+ *   - else genx_follower → "follower" (fill via placeGenxFollower)
+ *   - else               → "none"     (opted out — left alone)
+ * Exactly ONE route per account. autotrade wins over follower so an account that has
+ * BOTH toggles takes the copy fill only (never both). Union of copy+follower = every
+ * opted-in account, covered once, with no gap and no double-fill. Pure + unit-tested.
+ */
+export function goldRoute(acc: { autotrade_enabled?: boolean | null; genx_follower?: boolean | null }): GoldRoute {
+  if (acc.autotrade_enabled === true) return "copy";
+  if (acc.genx_follower === true) return "follower";
+  return "none";
+}
+
 export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; conservativeOk?: boolean }): Promise<{ members: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { members: 0, placed: 0 };
@@ -735,11 +752,10 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   const entry = (sig.entryLow != null && sig.entryHigh != null) ? (sig.entryLow + sig.entryHigh) / 2 : (sig.entryLow ?? sig.entryHigh);
   if (entry == null || sig.stop == null) return { members: 0, placed: 0 };
 
-  // Gold is a LEAD decision — only copy it if the lead account is armed with gold.
-  const { data: leadRow } = await admin.from("flow_auto_settings").select("enabled, symbols").eq("user_id", MASTER_USER_ID).maybeSingle();
-  const lead = leadRow as { enabled?: boolean | null; symbols?: string[] | null } | null;
-  const leadSyms = (lead?.symbols && lead.symbols.length ? lead.symbols : DEFAULT_SYMBOLS).map((x) => String(x).toUpperCase());
-  if (!lead?.enabled || !(leadSyms.includes("XAUUSD") || leadSyms.includes("GOLD"))) return { members: 0, placed: 0 };
+  // GENX is the single gold authority: the admin genx switch (checked above) is the ONE
+  // global gate. We deliberately do NOT gate the whole userbase on the lead account's
+  // personal symbol toggle any more — that was a single point of failure that could
+  // silently stop gold for EVERY account if the lead's own gold toggle was off.
 
   // STRICT MIRROR: if the desk is already in an OPEN gold trade from an earlier
   // ENTER NOW, don't open a later divergent gold entry — everyone sits out until it
@@ -755,19 +771,36 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // the trend and doesn't stack losses fighting it.
   try { if (await goldEntryHold(admin, sig.side)) return { members: 0, placed: 0 }; } catch { /* read error → don't block */ }
 
-  const { data } = await admin.from("flow_auto_settings").select("*").eq("enabled", true);
-  const rows = (data ?? []) as AutoSettings[];
+  // UNIFIED FAN-OUT: drive off the ACCOUNT table, not the auto-run settings table. EVERY
+  // member who owns at least one autotrade-enabled account is included — even if they have
+  // no `flow_auto_settings` row at all. This closes the gap where an autotrade-enabled
+  // account with no settings row fell through BOTH paths and silently took nothing. Pure
+  // genx_follower accounts (autotrade OFF) are handled by placeGenxFollower; together the
+  // two partitions cover every opted-in account exactly once — no gap, no double-fill.
+  const { data: onRows } = await admin.from("flow_broker_accounts").select("user_id").eq("autotrade_enabled", true);
+  const userIds = [...new Set(((onRows ?? []) as { user_id: string | null }[]).map((r) => r.user_id).filter((x): x is string => !!x))];
+  // Credit state per user (absent row → NOT paused, so a no-settings member still trades).
+  // We KEEP the credits gate per the owner's decision, but a credit-paused skip is now
+  // LOGGED to flow_auto_events instead of being silently dropped, so it is never invisible.
+  const { data: setRows } = userIds.length
+    ? await admin.from("flow_auto_settings").select("user_id, credit_paused").in("user_id", userIds)
+    : { data: [] as { user_id: string; credit_paused?: boolean | null }[] };
+  const pausedBy = new Map(((setRows ?? []) as { user_id: string; credit_paused?: boolean | null }[]).map((r) => [r.user_id, !!r.credit_paused]));
   let placedTotal = 0, members = 0;
-  for (const s of rows) {
+  for (const userId of userIds) {
     try {
-      if (s.credit_paused) continue; // out of credits → paused → they don't copy (the only gate)
+      if (pausedBy.get(userId)) {
+        // KEEP the credits gate, but make the skip visible instead of silent.
+        try { await admin.from("flow_auto_events").insert({ user_id: userId, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: "genx: credit_paused" }); } catch { /* log best-effort */ }
+        continue;
+      }
 
       // Claim gold for this member. FALSE → a gold entry is already live within the
       // cooldown → skip (this blocks GENX's back-to-back ENTER NOW repeats).
-      const { data: won } = await admin.rpc("flow_try_claim", { p_user: s.user_id, p_symbol: "XAUUSD", p_cooldown_secs: GOLD_GENX_COOLDOWN_SEC });
+      const { data: won } = await admin.rpc("flow_try_claim", { p_user: userId, p_symbol: "XAUUSD", p_cooldown_secs: GOLD_GENX_COOLDOWN_SEC });
       if (won === false) continue;
 
-      const allAccounts = await activeAccounts(s.user_id);
+      const allAccounts = await activeAccounts(userId);
       // PER-ACCOUNT SAFETY MODE: drop this member's accounts that are conservative AND in
       // a gold loss-cutoff. Aggressive accounts still take it. None left → release claim.
       let accounts = await filterAccountsForAsset(admin, allAccounts, "XAUUSD");
@@ -776,14 +809,14 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       // touched — they take every gold ENTER NOW). conservativeOk defaults to true so an
       // ungraded call still behaves exactly as before.
       if (sig.conservativeOk === false) accounts = accounts.filter((a) => !isConservative(a.riskMode));
-      if (!accounts.length) { await admin.rpc("flow_release_claim", { p_user: s.user_id, p_symbol: "XAUUSD" }); continue; }
+      if (!accounts.length) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); continue; }
 
-      const { data: pref } = await admin.from("flow_trade_prefs").select("risk_pct").eq("user_id", s.user_id).maybeSingle();
+      const { data: pref } = await admin.from("flow_trade_prefs").select("risk_pct").eq("user_id", userId).maybeSingle();
       const p = (pref as { risk_pct?: number | null } | null) ?? null;
       const riskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : 1;
 
-      const res = await placeOnActiveAccounts({ userId: s.user_id, symbol: "XAUUSD", side: sig.side, entry, stop: sig.stop, tp: sig.tp, riskPct, source: "genx", accounts });
-      if (res.placed === 0) await admin.rpc("flow_release_claim", { p_user: s.user_id, p_symbol: "XAUUSD" }); // nothing filled → let the next ENTER NOW retry
+      const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry, stop: sig.stop, tp: sig.tp, riskPct, source: "genx", accounts });
+      if (res.placed === 0) await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); // nothing filled → let the next ENTER NOW retry
       else { placedTotal += res.placed; members += 1; }
     } catch { /* per-member best-effort */ }
   }
@@ -842,11 +875,11 @@ export async function placeGenxFollower(sig: {
       .select("user_id, account_id, acc_num, connection_id").eq("genx_follower", true);
     accts = (fb.data ?? []) as FollowRow[];
   }
-  // ONE PATH PER ACCOUNT: an account that is ALSO autotrade-enabled takes the risk-sized
-  // GENX copy (placeGenxGold) instead — skip it here so it never gets both the copy fill AND
-  // this fixed-lot follower fill for the same setup. Pure-follower accounts (autotrade off)
-  // are handled here.
-  accts = accts.filter((a) => a.autotrade_enabled !== true);
+  // ONE PATH PER ACCOUNT: an account that is ALSO autotrade-enabled routes to the risk-sized
+  // GENX copy (placeGenxGold) instead — drop it here so it never gets both the copy fill AND
+  // this follower fill for the same setup. Pure-follower accounts (autotrade off) route here.
+  // Uses the shared goldRoute() rule so the two paths can never disagree on ownership.
+  accts = accts.filter((a) => goldRoute(a) === "follower");
   if (!accts.length) return { accounts: 0, placed: 0 };
 
   // Mint one token per connection (a connection can hold several follower accounts),
