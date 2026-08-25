@@ -97,7 +97,9 @@ export async function computeHealth(admin: Admin): Promise<HealthReport> {
     const { data: pos } = await admin
       .from("flow_managed_positions")
       .select("status,be_done,side,entry,init_stop,cur_stop,updated_at,last_error")
-      .eq("status", "open");
+      .eq("status", "open")
+      .neq("environment", "demo");   // LIVE-ONLY health: demo test accounts are still managed,
+                                      // but never drive the OK/DEGRADED/DOWN verdict or the counts.
     for (const p of (pos ?? []) as Array<{ status: string; be_done: boolean; side: string; entry: number; init_stop: number; cur_stop: number; updated_at: string; last_error: string | null }>) {
       openPositions += 1;
       const ageSec = (now - Date.parse(p.updated_at)) / 1000;

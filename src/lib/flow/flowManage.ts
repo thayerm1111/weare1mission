@@ -151,6 +151,39 @@ function numAt(p: unknown, idx: number, keys: string[]): number | null {
 
 const AVG_KEYS = ["avgPrice", "openPrice", "avg_price", "price"];
 const UPL_KEYS = ["unrealizedPl", "unrealizedPnl", "unrealizedPnL", "upl", "rpl"];
+const SL_KEYS = ["stopLoss", "stopLossPrice", "sl", "stop_loss"];
+
+/** True when the broker's actual stop-loss price matches what we asked for, within a
+ *  small per-instrument tolerance (half a pip, floored at the price rounding unit). Used
+ *  to CONFIRM a break-even / trailing modify actually applied at the broker before we
+ *  record it — a stop that "didn't move" differs by ~R (many pips) and fails this. */
+export function slWithinTolerance(symbol: string, requested: number, actual: number): boolean {
+  if (!(requested > 0) || !(actual > 0)) return false;
+  const inst = getInstrument(contractKey(symbol));
+  const pip = inst.pipSize || 0.0001;
+  const unit = Math.pow(10, -(inst.pricePrecision ?? 2));
+  const tol = Math.max(pip * 0.5, unit * 1.5);
+  return Math.abs(requested - actual) <= tol;
+}
+
+/** CONFIRM a stop modify from a fresh broker positions read: find this position and
+ *  check its live stop-loss equals `requested` within tolerance. Returns false when the
+ *  position isn't found or its SL can't be read (→ caller does NOT record the move and
+ *  re-sends next tick). If `slIdx < 0` the broker doesn't expose the SL on the position
+ *  row, so read-back is impossible — returns true to preserve the pre-existing behavior
+ *  (trust the acknowledgement) rather than break break-even entirely. */
+export function stopConfirmedFromPositions(
+  positions: unknown[], positionId: string, slIdx: number, symbol: string, requested: number,
+): boolean {
+  if (slIdx < 0) return true;                       // SL not exposed on the position → can't verify; trust ack
+  for (const p of positions) {
+    if (posIdOf(p) === String(positionId)) {
+      const sl = numAt(p, slIdx, SL_KEYS);
+      return sl != null && slWithinTolerance(symbol, requested, sl);
+    }
+  }
+  return false;                                     // position not found on read-back → not confirmed
+}
 
 /** Round a stop price to the instrument's own precision so the broker accepts it. */
 function roundPx(symbol: string, price: number): number {
@@ -332,7 +365,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   } catch { /* column missing / read blip → treat all as managed */ }
 
   const tokenCache = new Map<string, { token: string; env: TLEnv } | null>();
-  const colCache = new Map<string, { avgIdx: number; uplIdx: number }>();
+  const colCache = new Map<string, { avgIdx: number; uplIdx: number; slIdx: number }>();
   const histColCache = new Map<string, Record<string, number> | undefined>();
   const acctCache = new Map<string, { openIds: Set<string>; avgPx: Map<string, number>; upl: Map<string, number>; instruments: TLInstrument[] } | null>();
   const quoteCache = new Map<string, number | null>();
@@ -351,9 +384,9 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   // config's positionsConfig. Read it once per connection to find the avgPrice (real fill)
   // and unrealizedPl columns — so we never hardcode a fragile index. Falls back to the
   // documented TradeLocker layout (avgPrice at index 5) if the config can't be parsed.
-  async function colsFor(connId: string, tok: { token: string; env: TLEnv }, accNum: string): Promise<{ avgIdx: number; uplIdx: number }> {
+  async function colsFor(connId: string, tok: { token: string; env: TLEnv }, accNum: string): Promise<{ avgIdx: number; uplIdx: number; slIdx: number }> {
     if (colCache.has(connId)) return colCache.get(connId)!;
-    let v = { avgIdx: 5, uplIdx: -1 };
+    let v = { avgIdx: 5, uplIdx: -1, slIdx: -1 };
     try {
       const cfg = await getConfig(tok.env, tok.token, accNum);
       if (cfg.ok) {
@@ -364,7 +397,11 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
           const idOf = (c: unknown) => String((c as Record<string, unknown>)?.id ?? (c as Record<string, unknown>)?.key ?? (c as Record<string, unknown>)?.name ?? "");
           const ai = cols.findIndex((c) => idOf(c) === "avgPrice");
           const ui = cols.findIndex((c) => UPL_KEYS.includes(idOf(c)));
-          if (ai >= 0) v = { avgIdx: ai, uplIdx: ui };
+          // stopLoss price column (for read-back verification). -1 if the broker doesn't
+          // carry the SL on the position row → verification falls back to trusting the ack.
+          const si = cols.findIndex((c) => { const id = idOf(c).toLowerCase(); return id === "stoploss" || id === "stoplossprice" || id === "sl"; });
+          if (ai >= 0) v = { avgIdx: ai, uplIdx: ui, slIdx: si };
+          else v = { ...v, slIdx: si };
         }
       }
     } catch { /* keep defaults */ }
@@ -397,7 +434,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     return map;
   }
 
-  async function acctState(tok: { token: string; env: TLEnv }, accNum: string, accountId: string, cols: { avgIdx: number; uplIdx: number }) {
+  async function acctState(tok: { token: string; env: TLEnv }, accNum: string, accountId: string, cols: { avgIdx: number; uplIdx: number; slIdx: number }) {
     const key = `${accountId}`;
     if (acctCache.has(key)) return acctCache.get(key)!;
     const pos = await listPositions(tok.env, tok.token, accNum, accountId);
@@ -432,6 +469,19 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     if (px == null || !(px > 0)) px = await feedPrice(symbol);
     quoteCache.set(key, px);
     return px;
+  }
+
+  // Read the broker back after a stop modify and confirm it actually applied before we
+  // record the move. ONE short settle wait + ONE fresh positions read — NOT a retry loop:
+  // an unconfirmed modify is simply re-sent on the next ~4s tick (idempotent). When the
+  // broker doesn't expose the SL on the position row (slIdx<0) this returns true, trusting
+  // the acknowledgement, so break-even/trailing never breaks where read-back isn't possible.
+  async function verifyStop(t: { token: string; env: TLEnv }, accNum: string, accountId: string, positionId: string, slIdx: number, symbol: string, requested: number): Promise<boolean> {
+    if (slIdx < 0) return true;
+    await new Promise((r) => setTimeout(r, 500));
+    const pos = await listPositions(t.env, t.token, accNum, accountId);
+    if (!pos.ok) return false;
+    return stopConfirmedFromPositions(pos.data, positionId, slIdx, symbol, requested);
   }
 
   let managed = 0;
@@ -578,7 +628,14 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       //    with the market still beyond entry (so the stop isn't rejected / isn't a loss). ──
       if (manageOn && !row.be_done && favReachedBE && inProfit && priceInProfit) {
         const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: bePx });
-        if (mv.ok) { update.be_done = true; update.cur_stop = bePx; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "breakeven", detail: `SL→entry ${bePx}` }); }
+        if (mv.ok) {
+          // BROKER READ-BACK: only record break-even once the broker's live SL actually
+          // shows the move. If it doesn't confirm, leave be_done=false so the next tick
+          // re-sends (never a phantom break-even while the real stop sits at a loss).
+          const confirmed = await verifyStop(tok, row.acc_num, row.account_id, row.position_id, cols.slIdx, row.symbol, bePx);
+          if (confirmed) { update.be_done = true; update.cur_stop = bePx; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "breakeven", detail: `SL→entry ${bePx}${cols.slIdx >= 0 ? " ✓" : ""}` }); }
+          else { update.last_error = `be_unconfirmed: broker SL != ${bePx}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_unconfirmed", detail: "retry next tick" }); }
+        }
         else { update.last_error = `be_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_err", detail: mv.error.slice(0, 60) }); }
       }
 
@@ -614,7 +671,13 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         const improved = long ? candidate > cur + eps : candidate < cur - eps;
         if (improved) {
           const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: candidate });
-          if (mv.ok) { update.cur_stop = candidate; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail", detail: `SL→${candidate} gb${givebackR}R` }); }
+          if (mv.ok) {
+            // BROKER READ-BACK: only advance the recorded trail once the broker confirms the
+            // new stop. Unconfirmed → leave cur_stop where it was so the next tick re-sends.
+            const confirmed = await verifyStop(tok, row.acc_num, row.account_id, row.position_id, cols.slIdx, row.symbol, candidate);
+            if (confirmed) { update.cur_stop = candidate; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail", detail: `SL→${candidate} gb${givebackR}R${cols.slIdx >= 0 ? " ✓" : ""}` }); }
+            else { update.last_error = `trail_unconfirmed: broker SL != ${candidate}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail_unconfirmed", detail: "retry next tick" }); }
+          }
           else { update.last_error = `trail_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail_err", detail: mv.error.slice(0, 60) }); }
         }
       }
