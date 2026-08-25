@@ -23,9 +23,11 @@ const numOk = (n: unknown): n is number => typeof n === "number" && Number.isFin
 export const CONFIRM_IV: Record<string, string> = { quick: "5min", intraday: "15min", swing: "1h" };
 
 // MOMENTUM / BREAKOUT entry — how far PAST the zone it will still take the trade, as a
-// multiple of the stop distance. "Balanced": enter a decisive breakout up to 1× the stop
-// distance beyond the zone; past that the move is too extended (chasing) and it's skipped.
-export const MOMENTUM_MAX_EXT = 1.0;
+// multiple of the stop distance. "Moderate": enter a decisive breakout up to 1.5× the stop
+// distance beyond the zone (raised from 1.0, which was too tight — strong trends that ran
+// without ever pulling back just expired in WAIT and never got taken). Past 1.5× the move is
+// over-extended (chasing) and it's skipped, so it still won't buy a blow-off top.
+export const MOMENTUM_MAX_EXT = 1.5;
 
 /**
  * Momentum/breakout trigger: a DECISIVE candle closed continuing the trend (a new local
@@ -44,11 +46,11 @@ export function momentumBreakout(o: {
   const k = o.lastClosed;
   const range = Math.max(k.h - k.l, 1e-9);
   const body = Math.abs(k.c - k.o) / range;
-  if (body < 0.5) return false; // only a decisive-bodied candle
+  if (body < 0.45) return false; // only a decisive-bodied candle (moderate: 0.45, was 0.5)
   const riskDist = Math.max(Math.abs(o.zoneHi - o.inv), o.zoneHi - o.zoneLo, 0.2);
   if (o.side === "buy") {
     const green = k.c > k.o;
-    const closesStrong = (k.c - k.l) / range >= 0.6; // closes in the top 40% of its range
+    const closesStrong = (k.c - k.l) / range >= 0.55; // closes in the top ~45% of its range (moderate)
     const priorHigh = o.priorClosed.length ? Math.max(...o.priorClosed.map((p) => p.h)) : k.h;
     const brokeOut = k.c > priorHigh; // new local high = trend continuation
     const holdsInv = k.c > o.inv;
@@ -56,7 +58,7 @@ export function momentumBreakout(o: {
     return green && closesStrong && brokeOut && holdsInv && notExtended;
   }
   const red = k.c < k.o;
-  const closesStrong = (k.h - k.c) / range >= 0.6; // closes in the bottom 40% of its range
+  const closesStrong = (k.h - k.c) / range >= 0.55; // closes in the bottom ~45% of its range (moderate)
   const priorLow = o.priorClosed.length ? Math.min(...o.priorClosed.map((p) => p.l)) : k.l;
   const brokeOut = k.c < priorLow;
   const holdsInv = k.c < o.inv;
