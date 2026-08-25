@@ -5,6 +5,7 @@ import { normalizeQuantity, getInstrument } from "@/lib/flow/instruments";
 import { contractKey } from "@/lib/flow/sizing";
 import { listInstruments, listPositions, getQuote, getConfig, modifyPosition, closePosition, listOrdersHistory, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 import { recoverOrphans } from "@/lib/flow/recover";
+import { logTrade } from "@/lib/flow/tradeLog";
 
 // Fallback price source. The broker's own quote endpoint is intermittently down for
 // a symbol/account (we've observed a persistent "no_quote" on an open gold position
@@ -582,6 +583,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
           resolved_at: new Date().toISOString(), updated_at: new Date().toISOString(),
         }).eq("id", row.id);
         actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "closed", detail: `${oc.outcome}[${rec.reason}] ${oc.result_pips>0?"+":""}${oc.result_pips}p` });
+        await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "closed", reason: `${oc.outcome}/${rec.reason}`, price: oc.exit_price, detail: { result_pips: oc.result_pips, partial_taken: oc.partial_taken } });
         continue;
       }
 
@@ -610,8 +612,10 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       }
       if (Math.abs(entry - row.entry) > pip * 2) {
         const newR = Math.abs(entry - row.init_stop);
+        const slipPips = Math.round((entry - row.entry) / pip);
         update.entry = entry; update.r = newR;
         actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "reanchor", detail: `entry ${row.entry.toFixed(2)}→${entry.toFixed(2)}` });
+        await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "fill_reconciled", reason: "reanchor_to_broker_fill", price: entry, detail: { signalEntry: row.entry, brokerFill: entry, slippagePips: slipPips } });
         row.entry = entry; row.r = newR;
       }
 
@@ -625,7 +629,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       if (recon.reconciled !== "none") {
         update.qty = recon.qty; row.qty = recon.qty;
         if (recon.partialDone && !row.partial_done) { update.partial_done = true; row.partial_done = true; }
-        if (recon.reconciled === "partial_detected") actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_reconciled", detail: `broker qty ${recon.qty}` });
+        if (recon.reconciled === "partial_detected") { actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_reconciled", detail: `broker qty ${recon.qty}` }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "partial_reconciled", reason: "broker_qty_reduced", qty: recon.qty }); }
       }
 
       const R = row.r && row.r > 0 ? row.r : Math.abs(entry - row.init_stop);
@@ -697,8 +701,8 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
           // shows the move. If it doesn't confirm, leave be_done=false so the next tick
           // re-sends (never a phantom break-even while the real stop sits at a loss).
           const confirmed = await verifyStop(tok, row.acc_num, row.account_id, row.position_id, cols.slIdx, row.symbol, bePx);
-          if (confirmed) { update.be_done = true; update.cur_stop = bePx; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "breakeven", detail: `SL→entry ${bePx}${cols.slIdx >= 0 ? " ✓" : ""}` }); }
-          else { update.last_error = `be_unconfirmed: broker SL != ${bePx}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_unconfirmed", detail: "retry next tick" }); }
+          if (confirmed) { update.be_done = true; update.cur_stop = bePx; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "breakeven", detail: `SL→entry ${bePx}${cols.slIdx >= 0 ? " ✓" : ""}` }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "break_even", reason: cols.slIdx >= 0 ? "broker_confirmed" : "acked_no_readback", price: bePx }); }
+          else { update.last_error = `be_unconfirmed: broker SL != ${bePx}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_unconfirmed", detail: "retry next tick" }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "be_unconfirmed", reason: "readback_mismatch", price: bePx }); }
         }
         else { update.last_error = `be_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_err", detail: mv.error.slice(0, 60) }); }
       }
@@ -720,6 +724,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
                 const closedAmt = +(row.qty - remaining).toFixed(2);
                 update.partial_done = true; update.qty = +remaining.toFixed(6); row.qty = remaining; didAction = true;
                 actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `−${closedAmt}→${remaining} @${(rr).toFixed(1)}R ✓` });
+                await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "partial", reason: "broker_confirmed", qty: closedAmt, detail: { remaining, rr: +rr.toFixed(2) } });
               } else {
                 update.last_error = `partial_unconfirmed`; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_unconfirmed", detail: "retry next tick" });
               }
@@ -758,8 +763,8 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
             // BROKER READ-BACK: only advance the recorded trail once the broker confirms the
             // new stop. Unconfirmed → leave cur_stop where it was so the next tick re-sends.
             const confirmed = await verifyStop(tok, row.acc_num, row.account_id, row.position_id, cols.slIdx, row.symbol, candidate);
-            if (confirmed) { update.cur_stop = candidate; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail", detail: `SL→${candidate} gb${givebackR}R${cols.slIdx >= 0 ? " ✓" : ""}` }); }
-            else { update.last_error = `trail_unconfirmed: broker SL != ${candidate}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail_unconfirmed", detail: "retry next tick" }); }
+            if (confirmed) { update.cur_stop = candidate; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail", detail: `SL→${candidate} gb${givebackR}R${cols.slIdx >= 0 ? " ✓" : ""}` }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "trail", reason: cols.slIdx >= 0 ? "broker_confirmed" : "acked_no_readback", price: candidate }); }
+            else { update.last_error = `trail_unconfirmed: broker SL != ${candidate}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail_unconfirmed", detail: "retry next tick" }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "trail_unconfirmed", reason: "readback_mismatch", price: candidate }); }
           }
           else { update.last_error = `trail_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail_err", detail: mv.error.slice(0, 60) }); }
         }

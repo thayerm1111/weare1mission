@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { logTrade } from "@/lib/flow/tradeLog";
 import { normalizeQuantity } from "@/lib/flow/instruments";
 import { freshAccessToken, activeAccounts, type ActiveAccount } from "@/lib/flow/connection";
 import { sizeFromRisk, contractKey, floorStop } from "@/lib/flow/sizing";
@@ -264,6 +265,7 @@ export async function placeOnActiveAccounts(opts: {
   // holds a stop with room to breathe (no noise whipsaw). Same risk %, professional size.
   const stop = floorStop(canonical, opts.side, opts.entry, opts.stop);
   const accts = opts.accounts ?? (await activeAccounts(opts.userId));
+  const tlog = createAdminClient(); // flight-recorder handle (best-effort; null-safe below)
   const fills: AccountFill[] = [];
   let placed = 0;
   for (const a of accts) {
@@ -278,6 +280,8 @@ export async function placeOnActiveAccounts(opts: {
     const s = sizeFromRisk({ canonical, entry: opts.entry, stop, equity: a.equity, riskPct: acctRisk, floorToMinLot: true });
     if (!s.ok || !(s.lots > 0)) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: s.reason || "size_too_small" }); continue; }
     const lots = Math.min(s.lots, 100); // fat-finger backstop
+    const t0 = Date.now();
+    if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_submitted", reason: opts.source, price: opts.entry, qty: lots, detail: { side: opts.side, stop, tp: opts.tp ?? null } });
     let r: Awaited<ReturnType<typeof placeOnAccount>>;
     try {
       r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, opts.tp ?? null);
@@ -287,6 +291,7 @@ export async function placeOnActiveAccounts(opts: {
       // 'uncertain' intent (with the levels) so the manager's orphan-recovery can find and
       // adopt the live position if it did fill, then move on to the next account.
       await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: lots, status: "uncertain", reason: `${opts.source}: ${(e instanceof Error ? e.message : "order_threw")}`.slice(0, 200), account_id: a.accountId, entry: opts.entry, stop, tp: opts.tp ?? null });
+      if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_uncertain", reason: (e instanceof Error ? e.message : "order_threw").slice(0, 80), price: opts.entry, qty: lots, detail: { latencyMs: Date.now() - t0 } });
       fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "error", lots: s.lots, reason: "order_uncertain (timeout — recovery will adopt if it filled)" });
       continue;
     }
@@ -300,6 +305,7 @@ export async function placeOnActiveAccounts(opts: {
     }
     await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: r.qty, status: "placed", reason: `${opts.source}${r.note}`.slice(0, 60), order_id: r.orderId, account_id: a.accountId, entry: opts.entry, stop, tp: opts.tp ?? null });
     fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "placed", qty: r.qty, lots: r.qty, estLossAtStop: s.estLossAtStop, orderId: r.orderId });
+    if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_confirmed", reason: opts.source, position_id: r.positionId, price: opts.entry, qty: r.qty, detail: { latencyMs: Date.now() - t0, orderId: r.orderId, estLossAtStop: s.estLossAtStop } });
     placed += 1;
     // Hand the fill to the trade-manager (breakeven → partial → trail). Needs a
     // positionId + a real stop; a bare/unstopped fill isn't managed.

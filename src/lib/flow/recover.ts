@@ -3,6 +3,7 @@ import { connectionToken } from "@/lib/flow/connection";
 import { listPositions, listInstruments, getConfig, type TLEnv } from "@/lib/flow/tradelocker";
 import { matchInstrument } from "@/lib/flow/executor";
 import { contractKey } from "@/lib/flow/sizing";
+import { logTrade } from "@/lib/flow/tradeLog";
 
 /**
  * ORPHAN-POSITION RECOVERY (P1-F).
@@ -184,7 +185,10 @@ export async function recoverOrphans(admin: Admin): Promise<{ adopted: number; c
         position_id: match.positionId, symbol: canon(e.symbol), side: e.side,
         entry, init_stop: sl, tp1: tp, r: Math.abs(entry - sl), qty: match.qty, cur_stop: sl, best_price: entry, status: "open",
       });
-      if (!ins.error) { adopted += 1; tracked.add(String(match.positionId)); }
+      if (!ins.error) {
+        adopted += 1; tracked.add(String(match.positionId));
+        await logTrade(admin, { position_id: match.positionId, account_id: accountId, user_id: e.user_id, symbol: canon(e.symbol), phase: "adopted", reason: `orphan_recovered_from_${e.status}`, price: entry, qty: match.qty, detail: { init_stop: sl, tp1: tp } });
+      }
     }
     trackedByAcct.set(accountId, tracked);
   }

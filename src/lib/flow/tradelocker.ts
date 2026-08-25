@@ -26,7 +26,12 @@ export const TL_HOSTS: Record<TLEnv, string> = {
 
 export type TLTokens = { accessToken: string; refreshToken: string; raw?: unknown };
 export type TLAccount = { accountId: string; accNum: string; currency?: string; name?: string; balance?: number; equity?: number; raw?: unknown };
-export type TLInstrument = { canonical?: string; brokerSymbol: string; tradableInstrumentId: string; routeId: string; infoRouteId?: string; quantityStep?: number; minQuantity?: number; pricePrecision?: number; raw?: unknown };
+export type TLInstrument = { canonical?: string; brokerSymbol: string; tradableInstrumentId: string; routeId: string; infoRouteId?: string; quantityStep?: number; minQuantity?: number; pricePrecision?: number;
+  // Broker-reported contract metadata (READ-ONLY diagnostics — NOT wired into sizing; sizing
+  // uses the validated constants in sizing.ts). Any of these may be undefined if the broker's
+  // instrument list doesn't carry it. Used to compare assumed vs actual point value.
+  contractSize?: number; tickSize?: number; tickValue?: number; lotSize?: number;
+  raw?: unknown };
 export type TLQuote = { bid: number | null; ask: number | null; raw?: unknown };
 export type TLResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string; raw?: unknown };
 
@@ -176,6 +181,12 @@ export async function listInstruments(env: TLEnv, accessToken: string, accNum: s
       infoRouteId: (infoRoute ? routeId(infoRoute) : undefined) ?? firstRouteId,
       quantityStep: numOr(pick(i, "lotSize", "quantityStep", "minLot")),
       minQuantity: numOr(pick(i, "minLot", "minQuantity")),
+      // Diagnostics-only metadata (see TLInstrument). Parsed defensively from whatever the
+      // broker carries; often nested under a details object, so look there too.
+      contractSize: numOr(pick(i, "contractSize", "contract_size") ?? pick(pick(i, "details"), "contractSize", "contract_size")),
+      tickSize: numOr(pick(i, "tickSize", "tick_size", "minPriceIncrement") ?? pick(pick(i, "details"), "tickSize", "tick_size")),
+      tickValue: numOr(pick(i, "tickValue", "tick_value", "valuePerTick") ?? pick(pick(i, "details"), "tickValue", "tick_value")),
+      lotSize: numOr(pick(i, "lotSize", "lot_size") ?? pick(pick(i, "details"), "lotSize", "lot_size")),
       raw: i,
     };
   }).filter((i) => i.tradableInstrumentId);
