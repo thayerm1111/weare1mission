@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { computeGenxRead, buildGenx, genxQualityGate, GOLD, MODES, type Mode } from "@/lib/genxCompute";
+import { computeGenxRead, buildGenx, GOLD, MODES, type Mode } from "@/lib/genxCompute";
 import { confirmEntry, CONFIRM_IV } from "@/lib/genxConfirm";
 import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
@@ -46,10 +46,6 @@ function authorized(req: NextRequest): boolean {
 
 const MODE_LABEL: Record<Mode, string> = { quick: "Quick", intraday: "Intraday", swing: "Swing" };
 const r1 = (n: number) => Math.round(n);
-// PROFESSIONAL QUALITY FLOOR: a GENX gold setup must be at least this confident AND not be
-// graded "Weak" directional momentum to be tradeable. Tunable. Skips low-conviction fades
-// like the weak-momentum sell-into-up-momentum that stopped out.
-const GENX_MIN_CONFIDENCE = 62;
 const fmt = (n: number | null | undefined) => (typeof n === "number" && Number.isFinite(n) ? n.toFixed(2) : "—");
 
 type AlertRow = {
@@ -201,11 +197,6 @@ async function run(): Promise<Response> {
       modeOut.action = genx.action; modeOut.state = engineState; modeOut.conf = genx.confidence_score;
       if (!actionable || genx.entry_low == null || genx.entry_high == null || genx.stop_loss == null) { modeOut.skip = "not_actionable"; continue; }
 
-      // PROFESSIONAL QUALITY GATE — skip the low-conviction / weak-momentum setups a
-      // disciplined trader would pass on (this is what would have filtered the losing sell).
-      const gate = genxQualityGate(genx, GENX_MIN_CONFIDENCE);
-      if (!gate.ok) { modeOut.skip = `low_quality: ${gate.reason}`; modeOut.action = genx.action; modeOut.conf = genx.confidence_score; continue; }
-
       const side: "buy" | "sell" = String(genx.action).includes("SELL") ? "sell" : "buy";
       const watch = side === "sell" ? (genx.closest_resistance ?? genx.entry) : (genx.closest_support ?? genx.entry);
       const invalidation = genx.invalidation_price ?? genx.stop_loss;
@@ -315,8 +306,6 @@ async function runWatch(): Promise<Response> {
   for (const row of rows) {
     try {
       const side = row.side;
-      // QUALITY FLOOR: don't let a low-confidence forming setup enter via the fast-watch.
-      if ((Number((row as { confidence?: number | null }).confidence) || 0) < GENX_MIN_CONFIDENCE) continue;
       const conf = await confirmEntry({
         side, entryLow: (row.entry_low ?? 0) as number, entryHigh: (row.entry_high ?? 0) as number,
         watch: (row.watch ?? row.entry_low ?? 0) as number, invalidation: (row.invalidation ?? row.stop ?? 0) as number,
