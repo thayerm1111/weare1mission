@@ -692,10 +692,8 @@ async function goldLivePrice(): Promise<number | null> {
  *  below the floor (or price is already at/through TP) — a chased entry that should be
  *  skipped desk-wide. FAILS OPEN (returns false) when the feed is down, so a feed blip never
  *  halts gold entirely; the trade still carries its protective stop either way. */
-async function goldEntryChased(side: "buy" | "sell", stop: number | null, tp: number | null): Promise<boolean> {
-  if (stop == null || tp == null) return false;
-  const lp = await goldLivePrice();
-  if (lp == null) return false; // feed down → don't block
+function goldChasedAt(side: "buy" | "sell", stop: number | null, tp: number | null, lp: number | null): boolean {
+  if (stop == null || tp == null || lp == null) return false; // feed down / no levels → don't block
   if (side === "buy" && lp >= tp) return true;   // already at/through target — no reward left
   if (side === "sell" && lp <= tp) return true;
   const rr = rewardRisk(lp, stop, tp);
@@ -815,10 +813,21 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // the trend and doesn't stack losses fighting it.
   try { if (await goldEntryHold(admin, sig.side)) return { members: 0, placed: 0 }; } catch { /* read error → don't block */ }
 
+  // Live gold price, fetched ONCE. Used for BOTH the chase guard AND position sizing.
+  let goldLp: number | null = null;
+  try { goldLp = await goldLivePrice(); } catch { goldLp = null; }
+
   // CHASE GUARD (desk-wide): if price has already run toward TP so the live-price R:R is
   // below the floor, this ENTER NOW is chased — skip it for everyone rather than fill a
   // tiny-TP / huge-SL trade. Same reward:risk protection the FLOW path has, now on gold.
-  try { if (await goldEntryChased(sig.side, sig.stop, sig.tp)) return { members: 0, placed: 0 }; } catch { /* feed error → don't block */ }
+  if (goldChasedAt(sig.side, sig.stop, sig.tp, goldLp)) return { members: 0, placed: 0 };
+
+  // SIZING ENTRY = the LIVE price, not the (possibly stale) signal zone. This is the fix for
+  // the $8k-risk trade: the position is risk-sized off where it will ACTUALLY fill, so the
+  // dollar risk always equals the member's risk % — a chased fill can no longer balloon the
+  // real entry→stop distance (and the loss) beyond what was intended. Falls back to the
+  // signal entry only if the feed is down.
+  const sizeEntry = goldLp != null ? goldLp : entry;
 
   // UNIFIED FAN-OUT: drive off the ACCOUNT table, not the auto-run settings table. EVERY
   // member who owns at least one autotrade-enabled account is included — even if they have
@@ -868,7 +877,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       const p = (pref as { risk_pct?: number | null } | null) ?? null;
       const riskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : 1;
 
-      const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry, stop: sig.stop, tp: sig.tp, riskPct, source: "genx", accounts });
+      const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry: sizeEntry, stop: sig.stop, tp: sig.tp, riskPct, source: "genx", accounts });
       if (res.placed === 0) await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); // nothing filled → let the next ENTER NOW retry
       else { placedTotal += res.placed; members += 1; }
     } catch { /* per-member best-effort */ }
@@ -915,10 +924,19 @@ export async function placeGenxFollower(sig: {
   // follower isn't over-sized off a noise-width stop (same risk %, professional position size).
   const fstop = (entry != null && sig.stop != null) ? floorStop("XAUUSD", sig.side, entry, sig.stop) : sig.stop;
 
+  // Live gold price, fetched ONCE — used for the chase guard AND for risk-sizing below.
+  let goldLp: number | null = null;
+  try { goldLp = await goldLivePrice(); } catch { goldLp = null; }
+
   // CHASE GUARD (desk-wide): same reward:risk floor as the copy path — if price has run
   // toward TP so the live-price R:R is below the floor, this ENTER NOW is chased; no
   // follower takes a tiny-TP / huge-SL fill. Fails open if the feed is down.
-  try { if (await goldEntryChased(sig.side, fstop, sig.tp)) return { accounts: 0, placed: 0 }; } catch { /* feed error → don't block */ }
+  if (goldChasedAt(sig.side, fstop, sig.tp, goldLp)) return { accounts: 0, placed: 0 };
+
+  // SIZING ENTRY = the LIVE price (falls back to the signal zone only if the feed is down),
+  // so each follower's risk is off where it ACTUALLY fills — a chased fill can't balloon the
+  // dollar risk past the account's risk %.
+  const sizeEntry = goldLp != null ? goldLp : entry;
 
   // Every follower account, across every user/connection (independent of FLOW).
   // Pull the per-account risk override + management toggle when those columns exist;
@@ -1014,11 +1032,11 @@ export async function placeGenxFollower(sig: {
       // If we can't size (missing entry/stop/equity), take the 0.01 floor so the
       // follower still records the signal instead of sitting it out.
       let qty = FOLLOWER_LOT;
-      if (entry != null && fstop != null) {
+      if (sizeEntry != null && fstop != null) {
         const equity = await equityFor(a.connection_id, a.account_id, tok);
         if (equity != null && equity > 0) {
           const acctRisk = (typeof a.risk_pct === "number" && a.risk_pct > 0) ? a.risk_pct : await defaultRiskFor(a.user_id);
-          const s = sizeFromRisk({ canonical: "XAUUSD", entry, stop: fstop, equity, riskPct: acctRisk, floorToMinLot: true });
+          const s = sizeFromRisk({ canonical: "XAUUSD", entry: sizeEntry, stop: fstop, equity, riskPct: acctRisk, floorToMinLot: true });
           if (s.ok && s.lots > 0) qty = Math.min(s.lots, 100); // fat-finger backstop
         }
       }
@@ -1038,13 +1056,13 @@ export async function placeGenxFollower(sig: {
         // management is off the manager only books the outcome; per-account manage_trades=false
         // still means it does NOT move breakeven / take partials / trail (the position rides
         // its raw broker SL/TP, untouched). Needs a real positionId + stop to be manageable.
-        if (r.positionId && entry != null && fstop != null) {
+        if (r.positionId && sizeEntry != null && fstop != null) {
           try {
             await admin.from("flow_managed_positions").insert({
               user_id: a.user_id, connection_id: a.connection_id, account_id: a.account_id, acc_num: String(a.acc_num), environment: tok.env,
               position_id: r.positionId, symbol: "XAUUSD", side: sig.side,
-              entry, init_stop: fstop, tp1: sig.tp ?? null,
-              r: Math.abs(entry - fstop), qty: r.qty, cur_stop: fstop, best_price: entry,
+              entry: sizeEntry, init_stop: fstop, tp1: sig.tp ?? null,
+              r: Math.abs(sizeEntry - fstop), qty: r.qty, cur_stop: fstop, best_price: sizeEntry,
             });
           } catch { /* best-effort; the trade still stands even if the ledger insert fails */ }
         }
