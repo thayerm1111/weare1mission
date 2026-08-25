@@ -222,6 +222,44 @@ function isForexSymbol(symbol: string): boolean {
   try { return getInstrument(symbol)?.assetClass === "forex"; } catch { return false; }
 }
 
+// Collapse fan-out legs into distinct SIGNALS. A signal fans out across many accounts
+// within seconds, but that burst can straddle a clock-minute boundary — so bucketing by
+// minute would count ONE trade as two. Instead we group by symbol+side and cluster legs
+// whose OPEN times fall within SIGNAL_CLUSTER_MS of each other. A signal WINS if any leg
+// won; only an all-stop cluster is a loss. Entry cooldowns keep genuinely distinct signals
+// far more than this window apart, so real back-to-back losses are never merged.
+const SIGNAL_CLUSTER_MS = 180_000; // 3 min — wider than any fan-out, tighter than entry cooldowns
+type SigRow = { symbol?: string | null; side: string; outcome: string; created_at: string; resolved_at: string | null };
+function collapseSignals(rows: SigRow[]): { closedAt: number; win: boolean }[] {
+  const groups = new Map<string, { openAt: number; closedAt: number; win: boolean }[]>();
+  for (const r of rows) {
+    const openAt = new Date(r.created_at).getTime();
+    if (!Number.isFinite(openAt)) continue;
+    const key = `${r.symbol ?? ""}|${r.side}`;
+    const closedAt = r.resolved_at ? new Date(r.resolved_at).getTime() : openAt;
+    const arr = groups.get(key) ?? [];
+    arr.push({ openAt, closedAt, win: r.outcome !== "stop" });
+    groups.set(key, arr);
+  }
+  const signals: { closedAt: number; win: boolean }[] = [];
+  for (const arr of groups.values()) {
+    arr.sort((a, b) => b.openAt - a.openAt); // newest open first
+    let cur: { anchor: number; closedAt: number; win: boolean } | null = null;
+    for (const l of arr) {
+      if (cur && Math.abs(l.openAt - cur.anchor) <= SIGNAL_CLUSTER_MS) {
+        cur.win = cur.win || l.win;
+        cur.closedAt = Math.max(cur.closedAt, l.closedAt);
+        cur.anchor = Math.min(cur.anchor, l.openAt);
+      } else {
+        if (cur) signals.push({ closedAt: cur.closedAt, win: cur.win });
+        cur = { anchor: l.openAt, closedAt: l.closedAt, win: l.win };
+      }
+    }
+    if (cur) signals.push({ closedAt: cur.closedAt, win: cur.win });
+  }
+  return signals.sort((a, b) => b.closedAt - a.closedAt); // newest close first, for streak counting
+}
+
 async function forexBreakerHalt(admin: Admin): Promise<{ halt: boolean; streak: number; until?: string }> {
   try {
     const sinceIso = new Date(Date.now() - 12 * 3600e3).toISOString();
@@ -234,20 +272,10 @@ async function forexBreakerHalt(admin: Admin): Promise<{ halt: boolean; streak: 
       .gte("created_at", sinceIso)
       .order("resolved_at", { ascending: false })
       .limit(500);
-    const rows = (data ?? []) as Array<{ symbol: string; side: string; outcome: string; created_at: string; resolved_at: string | null }>;
+    const rows = (data ?? []) as SigRow[];
     if (!rows.length) return { halt: false, streak: 0 };
-    // Collapse fan-out legs → one entry per SIGNAL (same pair+side opened in the same minute).
-    // A signal is a WIN if ANY leg won; only an all-stop signal counts as a loss.
-    const sig = new Map<string, { closedAt: number; win: boolean }>();
-    for (const r of rows) {
-      const key = `${r.symbol}|${r.side}|${(r.created_at || "").slice(0, 16)}`;
-      const closedAt = r.resolved_at ? new Date(r.resolved_at).getTime() : new Date(r.created_at).getTime();
-      const win = r.outcome !== "stop";
-      const cur = sig.get(key);
-      if (!cur) sig.set(key, { closedAt, win });
-      else sig.set(key, { closedAt: Math.max(cur.closedAt, closedAt), win: cur.win || win });
-    }
-    const signals = [...sig.values()].sort((a, b) => b.closedAt - a.closedAt); // newest first
+    const signals = collapseSignals(rows); // cluster fan-out legs → distinct signals (see helper)
+    if (!signals.length) return { halt: false, streak: 0 };
     let streak = 0;
     for (const s of signals) { if (s.win) break; streak += 1; }
     if (streak >= FOREX_BREAKER_STREAK) {
@@ -298,20 +326,10 @@ async function memberAssetCutoff(admin: Admin, userId: string, asset: MemberAsse
       .gte("created_at", sinceIso)
       .order("resolved_at", { ascending: false })
       .limit(300);
-    const rows = (data ?? []) as Array<{ symbol: string; side: string; outcome: string; created_at: string; resolved_at: string | null }>;
+    const rows = (data ?? []) as SigRow[];
     if (!rows.length) return { halt: false, streak: 0 };
-    // Collapse fan-out legs → one entry per SIGNAL (same symbol+side+minute); a signal
-    // is a WIN if ANY leg won, so only an all-stop signal counts as a loss.
-    const sig = new Map<string, { closedAt: number; win: boolean }>();
-    for (const r of rows) {
-      const key = `${r.symbol}|${r.side}|${(r.created_at || "").slice(0, 16)}`;
-      const closedAt = r.resolved_at ? new Date(r.resolved_at).getTime() : new Date(r.created_at).getTime();
-      const win = r.outcome !== "stop";
-      const cur = sig.get(key);
-      if (!cur) sig.set(key, { closedAt, win });
-      else sig.set(key, { closedAt: Math.max(cur.closedAt, closedAt), win: cur.win || win });
-    }
-    const signals = [...sig.values()].sort((a, b) => b.closedAt - a.closedAt); // newest first
+    const signals = collapseSignals(rows); // cluster fan-out legs → distinct signals (see helper)
+    if (!signals.length) return { halt: false, streak: 0 };
     let streak = 0;
     for (const s of signals) { if (s.win) break; streak += 1; }
     if (streak >= MEMBER_BREAKER_STREAK) {
