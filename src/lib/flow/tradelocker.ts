@@ -246,6 +246,27 @@ export async function listOrders(env: TLEnv, accessToken: string, accNum: string
 }
 
 /**
+ * GET /trade/accounts/{accountId}/ordersHistory — filled/cancelled order history.
+ * This is the broker's OWN record of how a position ended (the SL/TP/close execution
+ * and its fill price), used to book a closed trade's true outcome instead of guessing
+ * from a live quote fetched after the position is already gone. Read-only. The row
+ * shape is columnar (indices from /trade/config ordersHistoryConfig) OR object-keyed
+ * depending on the broker; the reconciler handles both, so this just returns the array.
+ */
+export async function listOrdersHistory(env: TLEnv, accessToken: string, accNum: string, accountId: string): Promise<TLResult<unknown[]>> {
+  const { status, json, text } = await tlFetch(env, `/trade/accounts/${encodeURIComponent(accountId)}/ordersHistory`, { method: "GET", accessToken, accNum });
+  if (status < 200 || status >= 300) return { ok: false, status, error: "Couldn't load broker order history.", raw: json ?? text };
+  const arr = (
+    pick<unknown[]>(pick(json, "d"), "ordersHistory") ??
+    pick<unknown[]>(json, "ordersHistory") ??
+    pick<unknown[]>(pick(json, "d"), "orders") ??
+    pick<unknown[]>(json, "orders") ??
+    (Array.isArray(json) ? json : [])
+  ) as unknown[];
+  return { ok: true, data: arr };
+}
+
+/**
  * GET /trade/accounts/{accountId}/positions — list open positions.
  * (Path pattern per TradeLocker /trade/accounts/{id}/* grouping; the exact
  * response shape is confirmed against the demo account on first connect.)

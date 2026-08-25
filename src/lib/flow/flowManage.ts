@@ -3,7 +3,7 @@ import { connectionToken } from "@/lib/flow/connection";
 import { matchInstrument } from "@/lib/flow/executor";
 import { normalizeQuantity, getInstrument } from "@/lib/flow/instruments";
 import { contractKey } from "@/lib/flow/sizing";
-import { listInstruments, listPositions, getQuote, getConfig, modifyPosition, closePosition, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
+import { listInstruments, listPositions, getQuote, getConfig, modifyPosition, closePosition, listOrdersHistory, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 
 // Fallback price source. The broker's own quote endpoint is intermittently down for
 // a symbol/account (we've observed a persistent "no_quote" on an open gold position
@@ -166,8 +166,12 @@ function partialTriggerR(entry: number, initStop: number, tp1: number | null): n
   return rr <= 1.5 ? 0.5 : 1;
 }
 
-export type FlowOutcomeKind = "stop" | "breakeven" | "trail" | "target";
+export type FlowOutcomeKind = "stop" | "breakeven" | "trail" | "target" | "manual";
 export type FlowOutcome = { outcome: FlowOutcomeKind; result_pips: number; exit_price: number; partial_taken: boolean };
+// WHY a position closed, read from the broker's own order history. Only "stop" is a
+// losing outcome that feeds the conservative loss streak; "manual" is a hand-close
+// and is deliberately excluded from win/loss streak logic.
+export type CloseReason = "stop" | "target" | "manual" | "unknown";
 
 /**
  * Classify a CLOSED managed position into the track-record outcome, from the lifecycle we
@@ -177,6 +181,7 @@ export type FlowOutcome = { outcome: FlowOutcomeKind; result_pips: number; exit_
 export function classifyOutcome(
   row: Pick<ManagedRow, "symbol" | "side" | "entry" | "init_stop" | "tp1" | "best_price" | "cur_stop" | "be_done" | "partial_done">,
   exitPrice?: number | null,
+  reason?: CloseReason,
 ): FlowOutcome {
   const sym = contractKey(row.symbol);
   const pip = getInstrument(sym).pipSize || 0.0001;
@@ -188,6 +193,15 @@ export function classifyOutcome(
   const best = row.best_price;
   const hitTarget = tp1 != null && best != null && (long ? best >= tp1 : best <= tp1);
   const signed = (px: number) => Math.round((long ? px - row.entry : row.entry - px) / pip);
+
+  // MANUAL user close (broker order history says the position was closed by a market
+  // order the user placed). It is neither a win nor a loss for streak purposes — it is
+  // recorded as its own outcome and excluded from the conservative loss streak. Booked
+  // at the real close fill when known, else at entry (0 pips) rather than a guessed level.
+  if (reason === "manual") {
+    const px = exitPrice != null && exitPrice > 0 ? exitPrice : row.entry;
+    return { outcome: "manual", result_pips: signed(px), exit_price: px, partial_taken: banked };
+  }
 
   if (row.be_done && hitTarget && tp1 != null) {
     const pips = banked ? Math.round(0.5 * bankPips + 0.5 * signed(tp1)) : signed(tp1);
@@ -206,6 +220,71 @@ export function classifyOutcome(
   }
   if (exitPips > 0) return { outcome: "trail", result_pips: exitPips, exit_price: exit, partial_taken: false };
   return { outcome: "stop", result_pips: exitPips, exit_price: exit, partial_taken: false };
+}
+
+/** Read a field from a broker order-history row that may be an OBJECT (by key) or a
+ *  columnar ARRAY (by config-derived index in `cols`). Returns undefined if absent. */
+function histGet(rowu: unknown, cols: Record<string, number> | undefined, keys: string[]): unknown {
+  if (Array.isArray(rowu)) {
+    if (!cols) return undefined;
+    for (const k of keys) { const i = cols[k]; if (typeof i === "number" && i >= 0 && i < rowu.length) return rowu[i]; }
+    return undefined;
+  }
+  if (rowu && typeof rowu === "object") {
+    const o = rowu as Record<string, unknown>;
+    for (const k of keys) { if (o[k] !== undefined && o[k] !== null) return o[k]; }
+  }
+  return undefined;
+}
+
+/**
+ * Reconcile a CLOSED position against the broker's OWN order history — the source of
+ * truth for how a trade actually ended. Returns the real closing fill price and WHY it
+ * closed (stop / target / manual), so:
+ *   • a stop-out that later rebounds is still booked as the loss the broker realized
+ *     (we never classify from a live quote fetched after the position is gone), and
+ *   • a hand-close is identified so it can be excluded from the conservative loss streak.
+ *
+ * The closing execution is a FILLED order on the side OPPOSITE the open (you sell to
+ * close a long), matched by positionId when the broker provides it. The order TYPE tells
+ * us why: a STOP order = stop-loss, a LIMIT order = take-profit, a MARKET order = a manual
+ * user close. SAFE BY DESIGN: if history can't be parsed it returns
+ * {exitPrice:null, reason:"unknown"} and the caller falls back to the recorded stop/entry
+ * levels (which correctly book a stopped-out trade as a loss) — never to a live quote.
+ */
+export function reconcileClosedTrade(
+  row: Pick<ManagedRow, "position_id" | "side">,
+  history: unknown[],
+  cols?: Record<string, number>,
+): { exitPrice: number | null; reason: CloseReason } {
+  const pid = String(row.position_id).toLowerCase();
+  const closeSide = row.side === "buy" ? "sell" : "buy";
+  const num = (v: unknown) => { const n = typeof v === "string" ? parseFloat(v) : Number(v); return Number.isFinite(n) ? n : null; };
+  const str = (v: unknown) => (v == null ? "" : String(v)).toLowerCase();
+
+  const candidates: Array<{ price: number | null; type: string; ts: number }> = [];
+  for (const h of history) {
+    const hpid = str(histGet(h, cols, ["positionId", "positionID", "posId"]));
+    if (hpid && hpid !== pid) continue;                                   // different position
+    const status = str(histGet(h, cols, ["status", "orderStatus"]));
+    if (status && !/fill|closed|done|executed/.test(status)) continue;    // only realized fills
+    const side = str(histGet(h, cols, ["side"]));
+    if (side && side !== closeSide) continue;                             // drop the OPEN fill
+    const price = num(histGet(h, cols, ["avgPrice", "avgFillPrice", "filledPrice", "fillPrice", "price", "executionPrice"]));
+    const type = str(histGet(h, cols, ["type", "orderType"]));
+    const tsRaw = histGet(h, cols, ["lastModified", "createdDateTime", "createdDate", "closeTime", "timestamp", "date"]);
+    let ts = num(tsRaw);
+    if (ts == null) { const p = Date.parse(String(tsRaw ?? "")); ts = Number.isFinite(p) ? p : 0; }
+    candidates.push({ price, type, ts });
+  }
+  if (!candidates.length) return { exitPrice: null, reason: "unknown" };
+  candidates.sort((a, b) => b.ts - a.ts);   // the closing execution is the latest matching fill
+  const close = candidates[0];
+  let reason: CloseReason = "unknown";
+  if (/stop/.test(close.type)) reason = "stop";
+  else if (/limit/.test(close.type)) reason = "target";
+  else if (/market/.test(close.type)) reason = "manual";
+  return { exitPrice: close.price != null && close.price > 0 ? close.price : null, reason };
 }
 
 /**
@@ -250,6 +329,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
 
   const tokenCache = new Map<string, { token: string; env: TLEnv } | null>();
   const colCache = new Map<string, { avgIdx: number; uplIdx: number }>();
+  const histColCache = new Map<string, Record<string, number> | undefined>();
   const acctCache = new Map<string, { openIds: Set<string>; avgPx: Map<string, number>; upl: Map<string, number>; instruments: TLInstrument[] } | null>();
   const quoteCache = new Map<string, number | null>();
 
@@ -286,6 +366,31 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     } catch { /* keep defaults */ }
     colCache.set(connId, v);
     return v;
+  }
+
+  // ordersHistory rows come back columnar too; the column ORDER is in the account
+  // config's ordersHistoryConfig. Build a fieldName→index map once per connection so the
+  // outcome reconciler can read positionId/side/type/status/price from an array row.
+  // undefined (config missing/unparseable) → reconciler treats array rows as unparseable
+  // and the caller falls back to the recorded levels — never a live quote.
+  async function histColsFor(connId: string, tok: { token: string; env: TLEnv }, accNum: string): Promise<Record<string, number> | undefined> {
+    if (histColCache.has(connId)) return histColCache.get(connId);
+    let map: Record<string, number> | undefined;
+    try {
+      const cfg = await getConfig(tok.env, tok.token, accNum);
+      if (cfg.ok) {
+        const d = ((cfg.data as Record<string, unknown>)?.d ?? cfg.data) as Record<string, unknown>;
+        const raw = d?.ordersHistoryConfig as unknown;
+        const cols = (Array.isArray(raw) ? raw : (raw as Record<string, unknown>)?.columns) as unknown[] | undefined;
+        if (Array.isArray(cols) && cols.length) {
+          const idOf = (c: unknown) => String((c as Record<string, unknown>)?.id ?? (c as Record<string, unknown>)?.key ?? (c as Record<string, unknown>)?.name ?? "");
+          map = {};
+          cols.forEach((c, i) => { const id = idOf(c); if (id) map![id] = i; });
+        }
+      }
+    } catch { /* keep undefined */ }
+    histColCache.set(connId, map);
+    return map;
   }
 
   async function acctState(tok: { token: string; env: TLEnv }, accNum: string, accountId: string, cols: { avgIdx: number; uplIdx: number }) {
@@ -351,16 +456,27 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
           actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "gone_wait", detail: `${goneN + 1} · ${Math.round(elapsed / 1000)}s` });
           continue;
         }
-        let exitPx: number | null = null;
-        const cinst = matchInstrument(contractKey(row.symbol), st.instruments) ?? matchInstrument(row.symbol, st.instruments);
-        if (cinst) { try { exitPx = await exitPrice(tok, row.acc_num, cinst, row.symbol, row.side, row.account_id); } catch { /* fall back to recorded levels */ } }
-        const oc = classifyOutcome(row, exitPx);
+        // SOURCE OF TRUTH = the broker's OWN order history, not a live quote fetched after
+        // the position is already gone. A stop-out that rebounds within the reconciliation
+        // window must still book the loss the broker realized; a hand-close must be tagged
+        // 'manual' so it is excluded from the conservative loss streak. If history can't be
+        // read/parsed we fall back to the recorded stop/entry levels (which correctly book a
+        // stopped-out trade as a loss) — the post-close live quote is never used to classify.
+        let rec: { exitPrice: number | null; reason: CloseReason } = { exitPrice: null, reason: "unknown" };
+        try {
+          const hist = await listOrdersHistory(tok.env, tok.token, row.acc_num, row.account_id);
+          if (hist.ok) {
+            const hcols = await histColsFor(row.connection_id, tok, row.acc_num);
+            rec = reconcileClosedTrade(row, hist.data, hcols);
+          }
+        } catch { /* history unavailable → safe fallback below */ }
+        const oc = classifyOutcome(row, rec.exitPrice, rec.reason);
         await admin.from("flow_managed_positions").update({
           status: "closed", last_error: null,
           outcome: oc.outcome, result_pips: oc.result_pips, exit_price: oc.exit_price, partial_taken: oc.partial_taken,
           resolved_at: new Date().toISOString(), updated_at: new Date().toISOString(),
         }).eq("id", row.id);
-        actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "closed", detail: `${oc.outcome} ${oc.result_pips>0?"+":""}${oc.result_pips}p` });
+        actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "closed", detail: `${oc.outcome}[${rec.reason}] ${oc.result_pips>0?"+":""}${oc.result_pips}p` });
         continue;
       }
 
