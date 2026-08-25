@@ -38,6 +38,9 @@ const WIN = new Set(["breakeven", "trail", "target"]);
 type Tally = { trades: number; wins: number; stop: number; breakeven: number; trail: number; target: number; partials: number; pips: number };
 const emptyTally = (): Tally => ({ trades: 0, wins: 0, stop: 0, breakeven: 0, trail: 0, target: 0, partials: 0, pips: 0 });
 function add(t: Tally, o: string, pips: number) {
+  // A MANUAL user close is neither a win nor a loss — exclude it from the tally entirely
+  // (win rate, trade count, pips) so hand-closing can't inflate performance stats.
+  if (o === "manual" || o === "excluded") return;
   t.trades++;
   t.pips += pips;
   if (o === "stop") t.stop++;
