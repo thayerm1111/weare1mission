@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { flowDecision } from "@/lib/flow/decision";
 import { placeOnActiveAccounts, placeFixedLotFollower } from "@/lib/flow/executor";
 import { activeAccounts, connectionToken, type ActiveAccount } from "@/lib/flow/connection";
-import { listAccounts } from "@/lib/flow/tradelocker";
+import { listAccounts, listPositions, type TLEnv } from "@/lib/flow/tradelocker";
 import { sizeFromRisk, floorStop } from "@/lib/flow/sizing";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
@@ -658,8 +658,8 @@ export async function runFlowWatch(mdKey: string): Promise<{ watched: number; co
 // has gold enabled, and it copies to EVERY enabled member (gated only by credits) —
 // a member's own gold toggle doesn't matter, same as the rest of the copy model.
 // Placement is free, same as any FLOW fill. The ONE-open-gold-trade-per-account rule is
-// enforced by an OPEN-POSITION check (copy path: accountsHoldingGold; follower path: an
-// open-XAUUSD lookup) — NOT by a time throttle. GOLD_CLAIM_SEC below is only a short
+// enforced by a BROKER-VERIFIED open-position check (only a GENX/FLOW gold the broker
+// confirms is still open blocks a new one) — NOT by a time throttle. GOLD_CLAIM_SEC below is only a short
 // idempotency window that dedupes the SAME ENTER NOW across the overlapping scanner runs
 // (1-min cron + 30s fast-watch). Once a position CLOSES, the account takes the next signal
 // immediately — the only cap is "max one OPEN at a time".
@@ -675,6 +675,33 @@ const GOLD_CLAIM_SEC = 90;
 // stop bigger than the target is rejected. Combined with sizing off the live entry (below),
 // the dollar risk is also capped at the member's risk %, so a 1:1 trade risks ~1% to make ~1%.
 const GOLD_MIN_PLACEMENT_RR = 1.0;
+
+/** Does a recorded GENX/FLOW gold position still count as OPEN for the "max one" cap? TRUE
+ *  only when the broker's live open set actually contains one of this account's ledger gold
+ *  ids. brokerOpen === null (broker unreadable) → FALSE, so we DON'T block and DON'T miss the
+ *  trade. Empty ledger → FALSE. Manual trades are never in the ledger, so they never reach
+ *  here. Pure + unit-tested. */
+export function genxGoldStillOpen(ledgerPids: Iterable<string>, brokerOpen: Set<string> | null): boolean {
+  if (!brokerOpen) return false;
+  for (const pid of ledgerPids) if (brokerOpen.has(pid)) return true;
+  return false;
+}
+
+/** Live OPEN position ids on the BROKER for one account (TradeLocker). Returns null when the
+ *  broker can't be read — callers treat null as "can't confirm", and (per the owner's "don't
+ *  miss trades" rule) fall through to TAKING the trade rather than blocking on a failed read.
+ *  This is the source of truth for whether a recorded GENX/FLOW gold trade is ACTUALLY still
+ *  open, so a stale ledger row can never cause a missed entry. */
+async function brokerOpenPosIds(a: { env: TLEnv; token: string; accNum: string; accountId: string }): Promise<Set<string> | null> {
+  try {
+    const pos = await listPositions(a.env, a.token, a.accNum, a.accountId);
+    if (!pos.ok) return null;
+    const idOf = (p: unknown): string =>
+      Array.isArray(p) ? (p.length ? String(p[0]) : "")
+      : (p && typeof p === "object" ? String((p as Record<string, unknown>).id ?? (p as Record<string, unknown>).positionId ?? (p as Record<string, unknown>).positionID ?? "") : "");
+    return new Set((pos.data as unknown[]).map(idOf).filter(Boolean));
+  } catch { return null; }
+}
 
 /** Current gold price for the chase check (own key, like goldTrend). null on any failure. */
 async function goldLivePrice(): Promise<number | null> {
@@ -793,14 +820,21 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // personal symbol toggle any more — that was a single point of failure that could
   // silently stop gold for EVERY account if the lead's own gold toggle was off.
 
-  // PER-ACCOUNT MIRROR: an account skips a new gold entry ONLY if IT already holds an
-  // open gold position — it is NEVER blocked because some OTHER account is in a trade. The
-  // old check was desk-wide, so a single lingering position (even on a demo follower) froze
-  // gold for EVERY account. We fetch the set of accounts currently holding open gold once,
-  // then drop only those accounts from THIS signal's fan-out (below, per member). Every
-  // other opted-in account still takes the entry — no account can freeze another.
-  const { data: openGoldRows } = await admin.from("flow_managed_positions").select("account_id").eq("status", "open").eq("symbol", "XAUUSD");
-  const accountsHoldingGold = new Set(((openGoldRows ?? []) as { account_id: string | null }[]).map((r) => String(r.account_id)));
+  // MAX ONE OPEN GENX/FLOW GOLD PER ACCOUNT — candidates from the ledger, CONFIRMED on the
+  // broker below. flow_managed_positions holds ONLY engine-placed (GENX/FLOW) trades, so a
+  // MANUAL gold trade is never in here and never counts toward the cap. We map each account
+  // to its ledger-"open" gold position ids; before blocking an account we check TradeLocker
+  // to see if any of those are ACTUALLY still open (a stale row the broker already closed
+  // must NOT block, or the account misses the next signal). Per-account, so no account can
+  // freeze another.
+  const { data: openGoldRows } = await admin.from("flow_managed_positions").select("account_id, position_id").eq("status", "open").eq("symbol", "XAUUSD");
+  const ledgerGoldByAcct = new Map<string, Set<string>>();
+  for (const r of ((openGoldRows ?? []) as { account_id: string | null; position_id: string | null }[])) {
+    const aid = String(r.account_id ?? ""); const pid = String(r.position_id ?? "");
+    if (!aid || !pid) continue;
+    if (!ledgerGoldByAcct.has(aid)) ledgerGoldByAcct.set(aid, new Set());
+    ledgerGoldByAcct.get(aid)!.add(pid);
+  }
 
   // NEWS GUARD (falling-knife): gold reacts to USD data — if a HIGH-impact USD event is
   // inside the blackout window, hold this ENTER NOW. GENX will re-offer once it passes.
@@ -865,10 +899,20 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       // touched — they take every gold ENTER NOW). conservativeOk defaults to true so an
       // ungraded call still behaves exactly as before.
       if (sig.conservativeOk === false) accounts = accounts.filter((a) => !isConservative(a.riskMode));
-      // PER-ACCOUNT MIRROR: drop only the accounts that ALREADY hold an open gold position
-      // (no stacking a 2nd gold trade on the same account). Accounts with no open gold still
-      // take this entry — one account's open trade never blocks another's.
-      accounts = accounts.filter((a) => !accountsHoldingGold.has(String(a.accountId)));
+      // MAX ONE OPEN GENX/FLOW GOLD PER ACCOUNT — broker-verified. An account is dropped ONLY
+      // when it has a GENX/FLOW gold position the BROKER confirms is still open. No ledger
+      // record → free to take. Broker unreadable → take it (don't miss the trade). Ledger row
+      // the broker already closed (stale) → take it. A hand-placed manual trade is never in
+      // the ledger, so it never blocks. One account's open trade never blocks another's.
+      const verified: ActiveAccount[] = [];
+      for (const a of accounts) {
+        const ledgerPids = ledgerGoldByAcct.get(String(a.accountId));
+        if (!ledgerPids || !ledgerPids.size) { verified.push(a); continue; }
+        const brokerOpen = await brokerOpenPosIds({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId });
+        if (genxGoldStillOpen(ledgerPids, brokerOpen)) continue; // genuinely open → max 1, skip
+        verified.push(a); // no ledger, broker says closed, or broker unreadable → take it
+      }
+      accounts = verified;
       if (!accounts.length) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); continue; }
 
       const { data: pref } = await admin.from("flow_trade_prefs").select("risk_pct").eq("user_id", userId).maybeSingle();
@@ -1011,13 +1055,22 @@ export async function placeGenxFollower(sig: {
         const cut = await accountAssetCutoff(admin, a.account_id, "gold");
         if (cut.halt) continue;
       }
-      // MAX ONE OPEN GOLD TRADE PER ACCOUNT: if this account already holds an OPEN gold
-      // position, skip — never stack a second. This is the whole throttle now: no time
-      // window, so the moment that position CLOSES the account is free to take the next
-      // ENTER NOW. Same rule the copy path enforces (accountsHoldingGold), applied here.
+      // MAX ONE OPEN GENX/FLOW GOLD PER ACCOUNT — broker-verified (same rule as the copy
+      // path). The ledger holds only engine-placed trades, so a MANUAL gold trade never
+      // counts. We only skip when the BROKER confirms a recorded GENX/FLOW gold is still
+      // open; a stale ledger row (already closed on the broker) or an unreadable broker does
+      // NOT block — the account still takes the signal. No time window: the moment the real
+      // position closes, the account is free for the next ENTER NOW.
       const { data: openGold } = await admin.from("flow_managed_positions")
-        .select("id").eq("account_id", a.account_id).eq("symbol", "XAUUSD").eq("status", "open").limit(1);
-      if (openGold && openGold.length) continue;
+        .select("position_id").eq("account_id", a.account_id).eq("symbol", "XAUUSD").eq("status", "open");
+      const ledgerPids = ((openGold ?? []) as { position_id: string | null }[]).map((r) => String(r.position_id ?? "")).filter(Boolean);
+      if (ledgerPids.length) {
+        const tokChk = await tokenFor(a.connection_id);
+        if (tokChk) {
+          const brokerOpen = await brokerOpenPosIds({ env: tokChk.env, token: tokChk.token, accNum: String(a.acc_num), accountId: a.account_id });
+          if (genxGoldStillOpen(ledgerPids, brokerOpen)) continue; // genuinely open → skip
+        }
+      }
       // Idempotent claim: one fill per (signal, account). A duplicate row → already
       // handled this ENTER NOW on this account → skip.
       const { error: dupErr } = await admin.from("genx_follower_fills").insert({ signal_key: signalKey, account_id: a.account_id });
