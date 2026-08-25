@@ -668,9 +668,15 @@ const GOLD_CLAIM_SEC = 90;
 // CHASE GUARD floor. A gold ENTER NOW is placed at MARKET, so if price has already run
 // toward TP by the time the fill lands, the reward:risk AT THE LIVE PRICE collapses — a
 // tiny TP with a full-width SL (e.g. filled ~4666 on a 4655 signal: +2 to TP, −14 to SL =
-// ~0.15 R:R). We reject such a chased entry desk-wide, using the same 1.2 floor as the FLOW
-// placement guard. This is the gold twin of MIN_PLACEMENT_RR.
-const GOLD_MIN_PLACEMENT_RR = 1.2;
+// ~0.15 R:R). We reject such a chased entry desk-wide.
+//
+// Set to 1.5 (STRICTER than the 1.2 FLOW floor, on purpose): a trade can only be placed
+// when the target is at least 1.5× FARTHER from the live price than the stop is. That makes
+// the "tiny TP / huge SL" geometry structurally impossible — the target is always the
+// farther line — and leaves margin for the slippage between this price check and the fill.
+// Trade-off: on a fast move that has already run past the zone, gold now SKIPS rather than
+// chase. Quality over frequency, by design.
+const GOLD_MIN_PLACEMENT_RR = 1.5;
 
 /** Current gold price for the chase check (own key, like goldTrend). null on any failure. */
 async function goldLivePrice(): Promise<number | null> {
