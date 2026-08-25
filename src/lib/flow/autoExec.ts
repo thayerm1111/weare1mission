@@ -800,16 +800,21 @@ export async function placeGenxFollower(sig: {
   // Every follower account, across every user/connection (independent of FLOW).
   // Pull the per-account risk override + management toggle when those columns exist;
   // fall back to a bare select so the follower never breaks before the migration is run.
-  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; risk_pct?: number | null; manage_trades?: boolean | null; risk_mode?: string | null };
+  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; risk_pct?: number | null; manage_trades?: boolean | null; risk_mode?: string | null; autotrade_enabled?: boolean | null };
   let accts: FollowRow[] = [];
   const withCols = await admin.from("flow_broker_accounts")
-    .select("user_id, account_id, acc_num, connection_id, risk_pct, manage_trades, risk_mode").eq("genx_follower", true);
+    .select("user_id, account_id, acc_num, connection_id, risk_pct, manage_trades, risk_mode, autotrade_enabled").eq("genx_follower", true);
   if (!withCols.error) accts = (withCols.data ?? []) as FollowRow[];
   else {
     const fb = await admin.from("flow_broker_accounts")
       .select("user_id, account_id, acc_num, connection_id").eq("genx_follower", true);
     accts = (fb.data ?? []) as FollowRow[];
   }
+  // ONE PATH PER ACCOUNT: an account that is ALSO autotrade-enabled takes the risk-sized
+  // GENX copy (placeGenxGold) instead — skip it here so it never gets both the copy fill AND
+  // this fixed-lot follower fill for the same setup. Pure-follower accounts (autotrade off)
+  // are handled here.
+  accts = accts.filter((a) => a.autotrade_enabled !== true);
   if (!accts.length) return { accounts: 0, placed: 0 };
 
   // Mint one token per connection (a connection can hold several follower accounts),
@@ -864,6 +869,14 @@ export async function placeGenxFollower(sig: {
         const cut = await accountAssetCutoff(admin, a.account_id, "gold");
         if (cut.halt) continue;
       }
+      // ONE GOLD TRADE PER SETUP (per account): if this account already has a XAUUSD fill
+      // inside the gold cooldown window, skip — this matches the copy path's one-entry-per-2h
+      // cadence and kills the drift-duplicate where a slightly-shifted zone mints a NEW
+      // signal_key and re-enters the same move on the same account.
+      const goldSinceIso = new Date(Date.now() - GOLD_GENX_COOLDOWN_SEC * 1000).toISOString();
+      const { data: recentGold } = await admin.from("flow_managed_positions")
+        .select("id").eq("account_id", a.account_id).eq("symbol", "XAUUSD").gte("created_at", goldSinceIso).limit(1);
+      if (recentGold && recentGold.length) continue;
       // Idempotent claim: one fill per (signal, account). A duplicate row → already
       // handled this ENTER NOW on this account → skip.
       const { error: dupErr } = await admin.from("genx_follower_fills").insert({ signal_key: signalKey, account_id: a.account_id });
