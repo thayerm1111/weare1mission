@@ -7,7 +7,7 @@ import { sizeFromRisk, floorStop } from "@/lib/flow/sizing";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
-import { series } from "@/lib/marketData";
+import { series, livePrice } from "@/lib/marketData";
 import { trendOfCloses, closedBars } from "@/lib/mtf";
 import { ENTRY_TUNING } from "@/lib/entryEngine";
 import type { Mode } from "@/lib/genxCompute";
@@ -665,6 +665,37 @@ export async function runFlowWatch(mdKey: string): Promise<{ watched: number; co
 // immediately — the only cap is "max one OPEN at a time".
 const GOLD_CLAIM_SEC = 90;
 
+// CHASE GUARD floor. A gold ENTER NOW is placed at MARKET, so if price has already run
+// toward TP by the time the fill lands, the reward:risk AT THE LIVE PRICE collapses — a
+// tiny TP with a full-width SL (e.g. filled ~4666 on a 4655 signal: +2 to TP, −14 to SL =
+// ~0.15 R:R). We reject such a chased entry desk-wide, using the same 1.2 floor as the FLOW
+// placement guard. This is the gold twin of MIN_PLACEMENT_RR.
+const GOLD_MIN_PLACEMENT_RR = 1.2;
+
+/** Current gold price for the chase check (own key, like goldTrend). null on any failure. */
+async function goldLivePrice(): Promise<number | null> {
+  try {
+    const key = process.env.TWELVEDATA_API_KEY;
+    if (!key) return null;
+    const p = await livePrice("XAU/USD", key, true);
+    return typeof p === "number" && Number.isFinite(p) && p > 0 ? p : null;
+  } catch { return null; }
+}
+
+/** True when price has already run so far toward TP that the R:R at the LIVE fill price is
+ *  below the floor (or price is already at/through TP) — a chased entry that should be
+ *  skipped desk-wide. FAILS OPEN (returns false) when the feed is down, so a feed blip never
+ *  halts gold entirely; the trade still carries its protective stop either way. */
+async function goldEntryChased(side: "buy" | "sell", stop: number | null, tp: number | null): Promise<boolean> {
+  if (stop == null || tp == null) return false;
+  const lp = await goldLivePrice();
+  if (lp == null) return false; // feed down → don't block
+  if (side === "buy" && lp >= tp) return true;   // already at/through target — no reward left
+  if (side === "sell" && lp <= tp) return true;
+  const rr = rewardRisk(lp, stop, tp);
+  return rr != null && rr < GOLD_MIN_PLACEMENT_RR;
+}
+
 // SMART, TREND-AWARE GOLD ENTRY GATE.
 // GENX still makes the call; this layer only steps aside when GENX would be FIGHTING the
 // trend and stacking losses. It reads the higher-timeframe (1h) gold trend and applies a
@@ -778,6 +809,11 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // the trend and doesn't stack losses fighting it.
   try { if (await goldEntryHold(admin, sig.side)) return { members: 0, placed: 0 }; } catch { /* read error → don't block */ }
 
+  // CHASE GUARD (desk-wide): if price has already run toward TP so the live-price R:R is
+  // below the floor, this ENTER NOW is chased — skip it for everyone rather than fill a
+  // tiny-TP / huge-SL trade. Same reward:risk protection the FLOW path has, now on gold.
+  try { if (await goldEntryChased(sig.side, sig.stop, sig.tp)) return { members: 0, placed: 0 }; } catch { /* feed error → don't block */ }
+
   // UNIFIED FAN-OUT: drive off the ACCOUNT table, not the auto-run settings table. EVERY
   // member who owns at least one autotrade-enabled account is included — even if they have
   // no `flow_auto_settings` row at all. This closes the gap where an autotrade-enabled
@@ -872,6 +908,11 @@ export async function placeGenxFollower(sig: {
   // Widen a too-tight signal stop to gold's minimum distance before sizing + placing, so the
   // follower isn't over-sized off a noise-width stop (same risk %, professional position size).
   const fstop = (entry != null && sig.stop != null) ? floorStop("XAUUSD", sig.side, entry, sig.stop) : sig.stop;
+
+  // CHASE GUARD (desk-wide): same reward:risk floor as the copy path — if price has run
+  // toward TP so the live-price R:R is below the floor, this ENTER NOW is chased; no
+  // follower takes a tiny-TP / huge-SL fill. Fails open if the feed is down.
+  try { if (await goldEntryChased(sig.side, fstop, sig.tp)) return { accounts: 0, placed: 0 }; } catch { /* feed error → don't block */ }
 
   // Every follower account, across every user/connection (independent of FLOW).
   // Pull the per-account risk override + management toggle when those columns exist;
