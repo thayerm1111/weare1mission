@@ -142,9 +142,10 @@ type GuardCtx = {
   // equity. `accounts` is every account the member toggled ON, across all their
   // connections — a placement fans out over all of them. Fetched once per cycle.
   riskPct: number; accounts: ActiveAccount[];
-  // Per-member safety mode ('conservative' default | 'aggressive'). Conservative
-  // arms the 2-loss-in-a-row cutoff (gold/forex separate); aggressive removes it.
-  riskMode: string;
+  // NOTE: safety mode (conservative/aggressive) is authoritative PER-ACCOUNT
+  // (flow_broker_accounts.risk_mode → ActiveAccount.riskMode, consumed in
+  // filterAccountsForAsset). There is intentionally NO member-level mode in the
+  // decision path — a member sets it on each account — so there is a single source of truth.
 };
 
 async function buildGuardCtx(admin: Admin, settings: AutoSettings): Promise<GuardCtx> {
@@ -173,13 +174,12 @@ async function buildGuardCtx(admin: Admin, settings: AutoSettings): Promise<Guar
 
   // Risk sizing inputs: the member's saved risk % + all their active accounts
   // (each carrying its own live equity, fetched once for the whole cycle).
-  const { data: pref } = await admin.from("flow_trade_prefs").select("risk_pct, risk_mode").eq("user_id", settings.user_id).maybeSingle();
-  const p = (pref as { risk_pct?: number | null; risk_mode?: string | null } | null) ?? null;
+  const { data: pref } = await admin.from("flow_trade_prefs").select("risk_pct").eq("user_id", settings.user_id).maybeSingle();
+  const p = (pref as { risk_pct?: number | null } | null) ?? null;
   const riskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : 1;
-  const riskMode = p?.risk_mode || "conservative"; // default conservative
   const accounts = await activeAccounts(settings.user_id);
 
-  return { mode, symbols, maxLot, cooldownMs, now, events, placed, hourBudget, openSymbols, maxOpen, riskPct, accounts, riskMode };
+  return { mode, symbols, maxLot, cooldownMs, now, events, placed, hourBudget, openSymbols, maxOpen, riskPct, accounts };
 }
 
 // ── STRICT MIRROR: one active trade per symbol, desk-wide ────────────────────
@@ -260,6 +260,20 @@ function collapseSignals(rows: SigRow[]): { closedAt: number; win: boolean }[] {
   return signals.sort((a, b) => b.closedAt - a.closedAt); // newest close first, for streak counting
 }
 
+/**
+ * Consecutive-loss streak from the most recent CLOSED signals, per the conservative rule.
+ * Only a broker-confirmed 'stop' is a LOSS; every other outcome — a win / target / trail, a
+ * true break-even, or a MANUAL close — BREAKS the streak. So LOSS→LOSS reaches two-in-a-row
+ * (cooldown), while LOSS→WIN→LOSS, LOSS→BE→LOSS and LOSS→MANUAL→LOSS never do. Pure + tested.
+ */
+export function consecutiveLossStreak(rows: SigRow[]): { streak: number; lastClosedAt: number } {
+  const signals = collapseSignals(rows);
+  if (!signals.length) return { streak: 0, lastClosedAt: 0 };
+  let streak = 0;
+  for (const s of signals) { if (s.win) break; streak += 1; }
+  return { streak, lastClosedAt: signals[0].closedAt };
+}
+
 async function forexBreakerHalt(admin: Admin): Promise<{ halt: boolean; streak: number; until?: string }> {
   try {
     const sinceIso = new Date(Date.now() - 12 * 3600e3).toISOString();
@@ -315,6 +329,9 @@ function isConservative(mode: unknown): boolean {
 async function accountAssetCutoff(admin: Admin, accountId: string, asset: MemberAsset): Promise<{ halt: boolean; streak: number }> {
   try {
     const symbols = asset === "gold" ? GOLD_SYMS : FOREX_BREAKER_SYMBOLS;
+    // Look back at recently CLOSED trades by RESOLVE time (not open time) — so a loss on a
+    // longer-held position is counted even if it opened >12h ago. Broker-confirmed only:
+    // status closed + a non-null outcome (never a rejected/cancelled/duplicate order).
     const sinceIso = new Date(Date.now() - 12 * 3600e3).toISOString();
     const { data } = await admin
       .from("flow_managed_positions")
@@ -323,16 +340,12 @@ async function accountAssetCutoff(admin: Admin, accountId: string, asset: Member
       .in("symbol", symbols)
       .eq("status", "closed")
       .not("outcome", "is", null)
-      .gte("created_at", sinceIso)
+      .gte("resolved_at", sinceIso)
       .order("resolved_at", { ascending: false })
       .limit(200);
     const rows = (data ?? []) as SigRow[];
-    if (!rows.length) return { halt: false, streak: 0 };
-    const signals = collapseSignals(rows); // cluster fan-out legs → distinct signals (see helper)
-    if (!signals.length) return { halt: false, streak: 0 };
-    let streak = 0;
-    for (const s of signals) { if (s.win) break; streak += 1; }
-    if (streak >= MEMBER_BREAKER_STREAK && Date.now() < signals[0].closedAt + MEMBER_BREAKER_COOLDOWN_MS) {
+    const { streak, lastClosedAt } = consecutiveLossStreak(rows);
+    if (streak >= MEMBER_BREAKER_STREAK && Date.now() < lastClosedAt + MEMBER_BREAKER_COOLDOWN_MS) {
       return { halt: true, streak };
     }
     return { halt: false, streak };
@@ -879,12 +892,15 @@ export async function placeGenxFollower(sig: {
       });
       if (r.ok) {
         placed += 1;
-        // MANAGEMENT: when this account has breakeven+partials turned on (manage_trades,
-        // default on), hand the follower fill to the trade-manager just like a FLOW fill —
-        // so it gets SL→breakeven and a 50% partial. With management off (or no stop) the
-        // fill is left unregistered and rides the raw signal SL/TP to its outcome.
-        const manageOn = a.manage_trades !== false;
-        if (manageOn && r.positionId && entry != null && fstop != null) {
+        // Record the fill in the manager's ledger REGARDLESS of the management toggle. The
+        // trade-manager books a CONFIRMED closed-trade outcome for every tracked row (its
+        // gone/close detection runs before the management steps), and that outcome is what the
+        // conservative 2-loss cutoff reads — so a follower with management OFF must still be
+        // recorded, or it could lose repeatedly on gold and never trip the cutoff. When
+        // management is off the manager only books the outcome; per-account manage_trades=false
+        // still means it does NOT move breakeven / take partials / trail (the position rides
+        // its raw broker SL/TP, untouched). Needs a real positionId + stop to be manageable.
+        if (r.positionId && entry != null && fstop != null) {
           try {
             await admin.from("flow_managed_positions").insert({
               user_id: a.user_id, connection_id: a.connection_id, account_id: a.account_id, acc_num: String(a.acc_num), environment: tok.env,
@@ -892,7 +908,7 @@ export async function placeGenxFollower(sig: {
               entry, init_stop: fstop, tp1: sig.tp ?? null,
               r: Math.abs(entry - fstop), qty: r.qty, cur_stop: fstop, best_price: entry,
             });
-          } catch { /* management is best-effort; the trade still stands unmanaged */ }
+          } catch { /* best-effort; the trade still stands even if the ledger insert fails */ }
         }
       } else {
         // Nothing filled (session closed / token blip) → release the claim so a later
