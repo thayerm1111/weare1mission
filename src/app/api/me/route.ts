@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { DAILY_FREE } from "@/lib/creditConfig";
 import { bearerClient, bearerFromReq } from "@/lib/supabase/bearer";
+import { accessExpired } from "@/lib/auth";
 
 /**
  * GET /api/me — launch-hydration for the native app.
@@ -45,9 +46,11 @@ export async function GET(req: NextRequest) {
   let membership: "active" | "pending" | "none" = "active";
   let role = "member";
   try {
-    const { data: p } = await supabase.from("profiles").select("full_name, status, role").eq("id", user.id).single();
+    const { data: p } = await supabase.from("profiles").select("full_name, status, role, access_expires_at").eq("id", user.id).single();
     if (p?.full_name) name = p.full_name as string;
-    if (p?.status && p.status !== "active") membership = "pending";
+    // A lapsed time-limited (promo) grant counts as not-active, same as the portal gate.
+    const expired = accessExpired((p as { access_expires_at?: string | null } | null)?.access_expires_at);
+    if ((p?.status && p.status !== "active") || expired) membership = "pending";
     if (p?.role) role = String(p.role);
   } catch { /* fall back to defaults */ }
 
