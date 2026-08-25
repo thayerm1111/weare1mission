@@ -657,10 +657,13 @@ export async function runFlowWatch(mdKey: string): Promise<{ watched: number; co
 // It follows the LEAD like everything else: gold only runs when the lead account
 // has gold enabled, and it copies to EVERY enabled member (gated only by credits) —
 // a member's own gold toggle doesn't matter, same as the rest of the copy model.
-// The atomic flow_try_claim gate + strict-mirror guard guarantee ONE gold entry
-// per member per move (GENX re-fires ENTER NOW several times for one move; every
-// repeat after the first is refused). Placement is free, same as any FLOW fill.
-const GOLD_GENX_COOLDOWN_SEC = 120 * 60; // one gold entry per member per 2 hours
+// Placement is free, same as any FLOW fill. The ONE-open-gold-trade-per-account rule is
+// enforced by an OPEN-POSITION check (copy path: accountsHoldingGold; follower path: an
+// open-XAUUSD lookup) — NOT by a time throttle. GOLD_CLAIM_SEC below is only a short
+// idempotency window that dedupes the SAME ENTER NOW across the overlapping scanner runs
+// (1-min cron + 30s fast-watch). Once a position CLOSES, the account takes the next signal
+// immediately — the only cap is "max one OPEN at a time".
+const GOLD_CLAIM_SEC = 90;
 
 // SMART, TREND-AWARE GOLD ENTRY GATE.
 // GENX still makes the call; this layer only steps aside when GENX would be FIGHTING the
@@ -801,7 +804,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
 
       // Claim gold for this member. FALSE → a gold entry is already live within the
       // cooldown → skip (this blocks GENX's back-to-back ENTER NOW repeats).
-      const { data: won } = await admin.rpc("flow_try_claim", { p_user: userId, p_symbol: "XAUUSD", p_cooldown_secs: GOLD_GENX_COOLDOWN_SEC });
+      const { data: won } = await admin.rpc("flow_try_claim", { p_user: userId, p_symbol: "XAUUSD", p_cooldown_secs: GOLD_CLAIM_SEC });
       if (won === false) continue;
 
       const allAccounts = await activeAccounts(userId);
@@ -945,14 +948,13 @@ export async function placeGenxFollower(sig: {
         const cut = await accountAssetCutoff(admin, a.account_id, "gold");
         if (cut.halt) continue;
       }
-      // ONE GOLD TRADE PER SETUP (per account): if this account already has a XAUUSD fill
-      // inside the gold cooldown window, skip — this matches the copy path's one-entry-per-2h
-      // cadence and kills the drift-duplicate where a slightly-shifted zone mints a NEW
-      // signal_key and re-enters the same move on the same account.
-      const goldSinceIso = new Date(Date.now() - GOLD_GENX_COOLDOWN_SEC * 1000).toISOString();
-      const { data: recentGold } = await admin.from("flow_managed_positions")
-        .select("id").eq("account_id", a.account_id).eq("symbol", "XAUUSD").gte("created_at", goldSinceIso).limit(1);
-      if (recentGold && recentGold.length) continue;
+      // MAX ONE OPEN GOLD TRADE PER ACCOUNT: if this account already holds an OPEN gold
+      // position, skip — never stack a second. This is the whole throttle now: no time
+      // window, so the moment that position CLOSES the account is free to take the next
+      // ENTER NOW. Same rule the copy path enforces (accountsHoldingGold), applied here.
+      const { data: openGold } = await admin.from("flow_managed_positions")
+        .select("id").eq("account_id", a.account_id).eq("symbol", "XAUUSD").eq("status", "open").limit(1);
+      if (openGold && openGold.length) continue;
       // Idempotent claim: one fill per (signal, account). A duplicate row → already
       // handled this ENTER NOW on this account → skip.
       const { error: dupErr } = await admin.from("genx_follower_fills").insert({ signal_key: signalKey, account_id: a.account_id });
