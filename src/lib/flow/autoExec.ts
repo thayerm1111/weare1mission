@@ -701,7 +701,7 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell"): Promise<boolea
   return goldDirectionHalt(admin, side, streak);
 }
 
-export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null }): Promise<{ members: number; placed: number }> {
+export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; conservativeOk?: boolean }): Promise<{ members: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { members: 0, placed: 0 };
   if (!(await systemSwitches(admin)).genx) return { members: 0, placed: 0 }; // admin GENX kill switch
@@ -743,7 +743,12 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       const allAccounts = await activeAccounts(s.user_id);
       // PER-ACCOUNT SAFETY MODE: drop this member's accounts that are conservative AND in
       // a gold loss-cutoff. Aggressive accounts still take it. None left → release claim.
-      const accounts = await filterAccountsForAsset(admin, allAccounts, "XAUUSD");
+      let accounts = await filterAccountsForAsset(admin, allAccounts, "XAUUSD");
+      // CONSERVATIVE QUALITY GATE: when this setup FAILED the conservative confluence
+      // checks, drop conservative accounts for THIS entry (aggressive accounts are never
+      // touched — they take every gold ENTER NOW). conservativeOk defaults to true so an
+      // ungraded call still behaves exactly as before.
+      if (sig.conservativeOk === false) accounts = accounts.filter((a) => !isConservative(a.riskMode));
       if (!accounts.length) { await admin.rpc("flow_release_claim", { p_user: s.user_id, p_symbol: "XAUUSD" }); continue; }
 
       const { data: pref } = await admin.from("flow_trade_prefs").select("risk_pct").eq("user_id", s.user_id).maybeSingle();
@@ -780,7 +785,7 @@ const FOLLOWER_DEFAULT_RISK = 1; // % of equity when no per-account and no owner
 export async function placeGenxFollower(sig: {
   signalKey: string; side: "buy" | "sell";
   entryLow?: number | null; entryHigh?: number | null;
-  stop: number | null; tp: number | null;
+  stop: number | null; tp: number | null; conservativeOk?: boolean;
 }): Promise<{ accounts: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { accounts: 0, placed: 0 };
@@ -866,6 +871,9 @@ export async function placeGenxFollower(sig: {
       // PER-ACCOUNT SAFETY MODE: a CONSERVATIVE follower account sits gold out for 4h
       // after 2 losing gold trades in a row. Aggressive follower accounts take it raw.
       if (isConservative(a.risk_mode)) {
+        // CONSERVATIVE QUALITY GATE: skip this setup on conservative followers when it
+        // failed the confluence checks (aggressive followers below still take it).
+        if (sig.conservativeOk === false) continue;
         const cut = await accountAssetCutoff(admin, a.account_id, "gold");
         if (cut.halt) continue;
       }
