@@ -152,6 +152,7 @@ function numAt(p: unknown, idx: number, keys: string[]): number | null {
 const AVG_KEYS = ["avgPrice", "openPrice", "avg_price", "price"];
 const UPL_KEYS = ["unrealizedPl", "unrealizedPnl", "unrealizedPnL", "upl", "rpl"];
 const SL_KEYS = ["stopLoss", "stopLossPrice", "sl", "stop_loss"];
+const QTY_KEYS = ["qty", "quantity", "volume", "size", "lots", "positionQty"];
 
 /** True when the broker's actual stop-loss price matches what we asked for, within a
  *  small per-instrument tolerance (half a pip, floored at the price rounding unit). Used
@@ -183,6 +184,33 @@ export function stopConfirmedFromPositions(
     }
   }
   return false;                                     // position not found on read-back → not confirmed
+}
+
+/**
+ * PARTIAL-CLOSE IDEMPOTENCY via broker truth. Each tick, reconcile the recorded position
+ * quantity against what the broker ACTUALLY holds, so a partial that executed at the broker
+ * but wasn't durably recorded (API timeout / crash / lost DB write) is DETECTED and never
+ * fired again:
+ *   • broker qty meaningfully below the recorded full size, and we haven't recorded a partial
+ *     → a partial (auto or manual) already happened → mark it done and adopt the real qty.
+ *   • broker qty merely drifted (partial fill / rounding) → sync the recorded qty to truth.
+ *   • broker qty implausibly ABOVE recorded (× >1.05, e.g. a mis-mapped column) → ignore, to
+ *     never corrupt the qty from a bad read.
+ * Pure + unit-tested. `brokerQty == null` (broker doesn't expose qty) → no change.
+ */
+export function reconcilePartialQty(
+  recordedQty: number, partialDone: boolean, brokerQty: number | null, partialFraction = PARTIAL_FRACTION,
+): { partialDone: boolean; qty: number; reconciled: "none" | "partial_detected" | "synced" } {
+  if (brokerQty == null || !(brokerQty > 0) || !(recordedQty > 0)) return { partialDone, qty: recordedQty, reconciled: "none" };
+  if (brokerQty > recordedQty * 1.05) return { partialDone, qty: recordedQty, reconciled: "none" }; // implausible read → ignore
+  const eps = Math.max(recordedQty * 0.01, 1e-9);
+  if (!partialDone && brokerQty < recordedQty * (1 - 0.5 * partialFraction)) {
+    return { partialDone: true, qty: brokerQty, reconciled: "partial_detected" };
+  }
+  if (Math.abs(brokerQty - recordedQty) > eps) {
+    return { partialDone, qty: brokerQty, reconciled: "synced" };
+  }
+  return { partialDone, qty: recordedQty, reconciled: "none" };
 }
 
 /** Round a stop price to the instrument's own precision so the broker accepts it. */
@@ -365,9 +393,9 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   } catch { /* column missing / read blip → treat all as managed */ }
 
   const tokenCache = new Map<string, { token: string; env: TLEnv } | null>();
-  const colCache = new Map<string, { avgIdx: number; uplIdx: number; slIdx: number }>();
+  const colCache = new Map<string, { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number }>();
   const histColCache = new Map<string, Record<string, number> | undefined>();
-  const acctCache = new Map<string, { openIds: Set<string>; avgPx: Map<string, number>; upl: Map<string, number>; instruments: TLInstrument[] } | null>();
+  const acctCache = new Map<string, { openIds: Set<string>; avgPx: Map<string, number>; upl: Map<string, number>; qty: Map<string, number>; instruments: TLInstrument[] } | null>();
   const quoteCache = new Map<string, number | null>();
 
   const actions: ManageAction[] = [];
@@ -384,9 +412,9 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   // config's positionsConfig. Read it once per connection to find the avgPrice (real fill)
   // and unrealizedPl columns — so we never hardcode a fragile index. Falls back to the
   // documented TradeLocker layout (avgPrice at index 5) if the config can't be parsed.
-  async function colsFor(connId: string, tok: { token: string; env: TLEnv }, accNum: string): Promise<{ avgIdx: number; uplIdx: number; slIdx: number }> {
+  async function colsFor(connId: string, tok: { token: string; env: TLEnv }, accNum: string): Promise<{ avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number }> {
     if (colCache.has(connId)) return colCache.get(connId)!;
-    let v = { avgIdx: 5, uplIdx: -1, slIdx: -1 };
+    let v = { avgIdx: 5, uplIdx: -1, slIdx: -1, qtyIdx: -1 };
     try {
       const cfg = await getConfig(tok.env, tok.token, accNum);
       if (cfg.ok) {
@@ -400,8 +428,10 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
           // stopLoss price column (for read-back verification). -1 if the broker doesn't
           // carry the SL on the position row → verification falls back to trusting the ack.
           const si = cols.findIndex((c) => { const id = idOf(c).toLowerCase(); return id === "stoploss" || id === "stoplossprice" || id === "sl"; });
-          if (ai >= 0) v = { avgIdx: ai, uplIdx: ui, slIdx: si };
-          else v = { ...v, slIdx: si };
+          // qty column (for partial-close idempotency / broker-truth reconciliation).
+          const qi = cols.findIndex((c) => { const id = idOf(c).toLowerCase(); return id === "qty" || id === "quantity" || id === "volume" || id === "positionqty"; });
+          if (ai >= 0) v = { avgIdx: ai, uplIdx: ui, slIdx: si, qtyIdx: qi };
+          else v = { ...v, slIdx: si, qtyIdx: qi };
         }
       }
     } catch { /* keep defaults */ }
@@ -434,21 +464,23 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     return map;
   }
 
-  async function acctState(tok: { token: string; env: TLEnv }, accNum: string, accountId: string, cols: { avgIdx: number; uplIdx: number; slIdx: number }) {
+  async function acctState(tok: { token: string; env: TLEnv }, accNum: string, accountId: string, cols: { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number }) {
     const key = `${accountId}`;
     if (acctCache.has(key)) return acctCache.get(key)!;
     const pos = await listPositions(tok.env, tok.token, accNum, accountId);
     const inst = await listInstruments(tok.env, tok.token, accNum, accountId);
     const avgPx = new Map<string, number>();
     const upl = new Map<string, number>();
+    const qty = new Map<string, number>();
     if (pos.ok) for (const p of pos.data) {
       const id = posIdOf(p);
       if (!id) continue;
       const a = numAt(p, cols.avgIdx, AVG_KEYS); if (a != null && a > 0) avgPx.set(id, a);
       const u = numAt(p, cols.uplIdx, UPL_KEYS); if (u != null) upl.set(id, u);
+      const qn = numAt(p, cols.qtyIdx, QTY_KEYS); if (qn != null && qn > 0) qty.set(id, qn);
     }
     const v = pos.ok && inst.ok
-      ? { openIds: new Set(pos.data.map(posIdOf).filter(Boolean)), avgPx, upl, instruments: inst.data }
+      ? { openIds: new Set(pos.data.map(posIdOf).filter(Boolean)), avgPx, upl, qty, instruments: inst.data }
       : null;
     acctCache.set(key, v);
     return v;
@@ -482,6 +514,18 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     const pos = await listPositions(t.env, t.token, accNum, accountId);
     if (!pos.ok) return false;
     return stopConfirmedFromPositions(pos.data, positionId, slIdx, symbol, requested);
+  }
+
+  // After a partial close, read the broker back to learn the ACTUAL remaining quantity
+  // (source of truth) rather than trusting a computed remainder. Returns null if the broker
+  // doesn't expose qty or the read fails (caller then keeps the pre-existing computed path).
+  async function readBrokerQty(t: { token: string; env: TLEnv }, accNum: string, accountId: string, positionId: string, qtyIdx: number): Promise<number | null> {
+    if (qtyIdx < 0) return null;
+    await new Promise((r) => setTimeout(r, 500));
+    const pos = await listPositions(t.env, t.token, accNum, accountId);
+    if (!pos.ok) return null;
+    for (const p of pos.data) { if (posIdOf(p) === String(positionId)) return numAt(p, qtyIdx, QTY_KEYS); }
+    return null;
   }
 
   let managed = 0;
@@ -562,6 +606,19 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         update.entry = entry; update.r = newR;
         actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "reanchor", detail: `entry ${row.entry.toFixed(2)}→${entry.toFixed(2)}` });
         row.entry = entry; row.r = newR;
+      }
+
+      // ── PARTIAL IDEMPOTENCY: reconcile the recorded qty against BROKER TRUTH before any
+      //    partial decision. If a partial executed at the broker but wasn't recorded (API
+      //    timeout / crash / lost DB write), the broker now holds less than the recorded full
+      //    size — detect that here, mark the partial done, and adopt the real qty, so the
+      //    partial block below can NEVER fire a second time. ──
+      const brokerQty = cols.qtyIdx >= 0 ? (st.qty.get(String(row.position_id)) ?? null) : null;
+      const recon = reconcilePartialQty(row.qty, !!row.partial_done, brokerQty);
+      if (recon.reconciled !== "none") {
+        update.qty = recon.qty; row.qty = recon.qty;
+        if (recon.partialDone && !row.partial_done) { update.partial_done = true; row.partial_done = true; }
+        if (recon.reconciled === "partial_detected") actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_reconciled", detail: `broker qty ${recon.qty}` });
       }
 
       const R = row.r && row.r > 0 ? row.r : Math.abs(entry - row.init_stop);
@@ -645,7 +702,26 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         const part = normalizeQuantity(contractKey(row.symbol), row.qty * PARTIAL_FRACTION, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity });
         if (part.ok && part.qty > 0 && part.qty < row.qty) {
           const cl = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, part.qty);
-          if (cl.ok) { update.partial_done = true; update.qty = +(row.qty - part.qty).toFixed(6); didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `−${part.qty} @${(rr).toFixed(1)}R` }); }
+          if (cl.ok) {
+            if (cols.qtyIdx >= 0) {
+              // Read the broker back for the ACTUAL remaining qty (source of truth). Only mark
+              // the partial done once the broker confirms the reduction; if it hasn't reflected
+              // yet, leave it unmarked — next tick's reconcile detects the reduced position and
+              // marks it, so the close can never fire twice.
+              const remaining = await readBrokerQty(tok, row.acc_num, row.account_id, row.position_id, cols.qtyIdx);
+              if (remaining != null && remaining > 0 && remaining <= row.qty - part.qty * 0.5) {
+                const closedAmt = +(row.qty - remaining).toFixed(2);
+                update.partial_done = true; update.qty = +remaining.toFixed(6); row.qty = remaining; didAction = true;
+                actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `−${closedAmt}→${remaining} @${(rr).toFixed(1)}R ✓` });
+              } else {
+                update.last_error = `partial_unconfirmed`; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_unconfirmed", detail: "retry next tick" });
+              }
+            } else {
+              // Broker doesn't expose qty → pre-existing computed-remainder behavior.
+              update.partial_done = true; update.qty = +(row.qty - part.qty).toFixed(6); didAction = true;
+              actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `−${part.qty} @${(rr).toFixed(1)}R` });
+            }
+          }
           else { update.last_error = `partial_err: ${cl.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_err", detail: cl.error.slice(0, 60) }); }
         }
       }
