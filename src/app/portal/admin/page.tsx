@@ -16,7 +16,7 @@ export default async function AdminPage() {
   // Admins can read all profiles (row-level security allows it).
   const { data } = await supabase
     .from("profiles")
-    .select("id, email, full_name, role, tier, status, is_creator, created_at, conectiv_username, conectiv_id")
+    .select("id, email, full_name, role, tier, status, is_creator, created_at, conectiv_username, conectiv_id, access_expires_at")
     .order("created_at", { ascending: false });
 
   return (
