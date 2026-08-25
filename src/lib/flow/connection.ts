@@ -117,8 +117,22 @@ export async function activeAccounts(userId: string): Promise<ActiveAccount[]> {
       enabled = (fb.data ?? []) as AcctRow[];
     }
     if (!enabled.length) continue;
-    const t = await mintTokenForConn(conn);
-    if (!t.ok) continue;
+    // Token for this connection, with ONE retry. A transient broker-auth blip (GenesisFX in
+    // particular) must NOT silently drop the whole connection's autotrade-enabled accounts
+    // from the fan-out — that is what skipped a live account on a signal every other account
+    // took. Retry once; if it STILL fails, log a VISIBLE skip (never a silent miss) so the
+    // reason is on record instead of the account just vanishing from the fan-out.
+    let t = await mintTokenForConn(conn);
+    if (!t.ok) { await new Promise((r) => setTimeout(r, 500)); t = await mintTokenForConn(conn); }
+    if (!t.ok) {
+      try {
+        await admin.from("flow_auto_events").insert({
+          user_id: userId, symbol: "XAUUSD", status: "skipped",
+          reason: `connection_unreachable: ${conn.broker || "broker"} auth failed — ${t.error}`.slice(0, 200),
+        });
+      } catch { /* logging is best-effort */ }
+      continue;
+    }
     // Live equity per account (best-effort; falls back to null → caller may skip sizing).
     const accRes = await listAccounts(t.env, t.token);
     const live = accRes.ok ? accRes.data : [];
