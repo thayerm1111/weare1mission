@@ -68,7 +68,7 @@ async function feedExtremes(symbol: string): Promise<{ high: number; low: number
  *   1. BREAK-EVEN: when price reaches the break-even point (the halfway mark to take-profit,
  *      or an earlier per-account gold-pips setting if one is configured), move the STOP to
  *      the ENTRY. The trade can no longer lose.
- *   2. PARTIAL: only on a 1:2 (or wider) target — bank a 50% partial at that same halfway
+ *   2. PARTIAL: only on a 1:2 (or wider) target — bank a 25% partial at that same halfway
  *      point. On a ~1:1 there is no partial; the stop just moves to entry.
  *   3. TRAIL (runner only): once break-even is set (and, on a 1:2, the partial is banked),
  *      ratchet the remaining runner's stop up behind the best price it reaches — anchored to
@@ -104,6 +104,10 @@ const MAX_PER_TICK = 300;
 // A target counts as "1:2 or wider" (→ take the partial) at this reward:risk or above.
 // Below it the trade is treated as ~1:1 (→ break-even only, no partial).
 const DOUBLE_RR = 1.8;
+// Fraction of the position banked at the partial-profit milestone (de-risk, let the
+// runner run). Used for BOTH the close size AND the outcome-pips weighting so the two
+// always agree. 0.25 = take 25% off, 75% runs.
+const PARTIAL_FRACTION = 0.25;
 // Never move the break-even stop on a scratch smaller than this (pips) — avoids nudging the
 // stop for a spread-width blip on an ultra-tight stop.
 const BE_MIN_PIPS = 8;
@@ -155,7 +159,7 @@ function roundPx(symbol: string, price: number): number {
 }
 
 /**
- * Where the 50% partial fires, as a fraction of R, from the signal's REWARD:RISK — used by
+ * Where the partial fires, as a fraction of R, from the signal's REWARD:RISK — used by
  * the outcome classifier to weight banked pips. ~1:1 banks at +0.5R (halfway to a 1R target),
  * 1:2/1:3 banks at +1R (halfway to a 2R target) — i.e. always the halfway-to-target point.
  */
@@ -204,7 +208,7 @@ export function classifyOutcome(
   }
 
   if (row.be_done && hitTarget && tp1 != null) {
-    const pips = banked ? Math.round(0.5 * bankPips + 0.5 * signed(tp1)) : signed(tp1);
+    const pips = banked ? Math.round(PARTIAL_FRACTION * bankPips + (1 - PARTIAL_FRACTION) * signed(tp1)) : signed(tp1);
     return { outcome: "target", result_pips: pips, exit_price: tp1, partial_taken: banked };
   }
 
@@ -214,7 +218,7 @@ export function classifyOutcome(
   const exitPips = signed(exit);
 
   if (row.be_done) {
-    const total = banked ? Math.round(0.5 * bankPips + 0.5 * exitPips) : exitPips;
+    const total = banked ? Math.round(PARTIAL_FRACTION * bankPips + (1 - PARTIAL_FRACTION) * exitPips) : exitPips;
     const isBE = Math.abs(exitPips) <= Math.max(1, 0.2 * rPips);
     return { outcome: isBE ? "breakeven" : (exitPips > 0 ? "trail" : "breakeven"), result_pips: total, exit_price: exit, partial_taken: banked };
   }
@@ -578,13 +582,13 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         else { update.last_error = `be_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_err", detail: mv.error.slice(0, 60) }); }
       }
 
-      // ── STEP 2: PARTIAL — 1:2 or wider only, 50% at the halfway-to-target point. Gated on the
-      //    same in-profit guard, so it can only ever bank a WIN. ──
+      // ── STEP 2: PARTIAL — 1:2 or wider only, bank PARTIAL_FRACTION (25%) at the halfway-to-
+      //    target point. Gated on the same in-profit guard, so it can only ever bank a WIN. ──
       if (manageOn && isDouble && !row.partial_done && favReachedPartial && inProfit && priceInProfit) {
-        const half = normalizeQuantity(contractKey(row.symbol), row.qty * 0.5, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity });
-        if (half.ok && half.qty > 0 && half.qty < row.qty) {
-          const cl = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, half.qty);
-          if (cl.ok) { update.partial_done = true; update.qty = +(row.qty - half.qty).toFixed(6); didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `−${half.qty} @${(rr).toFixed(1)}R` }); }
+        const part = normalizeQuantity(contractKey(row.symbol), row.qty * PARTIAL_FRACTION, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity });
+        if (part.ok && part.qty > 0 && part.qty < row.qty) {
+          const cl = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, part.qty);
+          if (cl.ok) { update.partial_done = true; update.qty = +(row.qty - part.qty).toFixed(6); didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `−${part.qty} @${(rr).toFixed(1)}R` }); }
           else { update.last_error = `partial_err: ${cl.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_err", detail: cl.error.slice(0, 60) }); }
         }
       }
