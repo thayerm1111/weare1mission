@@ -100,6 +100,36 @@ export function FlowConnect() {
   const [riskLocked, setRiskLocked] = useState(false);
   const [autoBusy, setAutoBusy] = useState(false);
   const [autoMsg, setAutoMsg] = useState("");
+  // Owner-only global kill switch. GET returns 404 for non-owners → stays null → hidden.
+  const [adminSw, setAdminSw] = useState<{ flow: boolean; genx: boolean } | null>(null);
+  const [swBusy, setSwBusy] = useState<string | null>(null);
+
+  const loadAdmin = useCallback(async () => {
+    try {
+      const r = await fetch("/api/admin/switches", { cache: "no-store" });
+      if (r.status === 404) { setAdminSw(null); return; }
+      const d = (await r.json()) as { flow?: boolean; genx?: boolean };
+      setAdminSw({ flow: d.flow !== false, genx: d.genx !== false });
+    } catch { /* noop */ }
+  }, []);
+
+  async function saveSwitch(which: "flow" | "genx", next: boolean) {
+    if (swBusy) return;
+    setSwBusy(which);
+    setAdminSw((p) => p ? { ...p, [which]: next } : p); // optimistic
+    try {
+      const r = await fetch("/api/admin/switches", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ [which]: next }),
+      });
+      const d = (await r.json()) as { flow?: boolean; genx?: boolean };
+      if (d) setAdminSw({ flow: d.flow !== false, genx: d.genx !== false });
+    } catch {
+      void loadAdmin();
+    } finally {
+      setSwBusy(null);
+    }
+  }
 
   const loadAuto = useCallback(async () => {
     try {
@@ -127,7 +157,8 @@ export function FlowConnect() {
       setLoading(false);
     }
     void loadAuto();
-  }, [loadAuto]);
+    void loadAdmin();
+  }, [loadAuto, loadAdmin]);
 
   useEffect(() => {
     void load();
@@ -343,6 +374,43 @@ export function FlowConnect() {
       ) : connected && !addingAccount ? (
         /* ---------------- Connected ---------------- */
         <div className="space-y-4">
+          {adminSw && (
+            <div className="rounded-2xl border-2 border-amber-500/30 bg-amber-500/[0.04] p-5">
+              <p className="inline-flex items-center gap-2 text-sm font-bold text-amber-700">
+                <ShieldCheck className="h-4 w-4" /> Admin · Trading controls
+              </p>
+              <p className="mt-1 text-xs text-charcoal/55">
+                Global on/off for everyone. Turning an engine off pauses <b>new</b> trades community-wide — open trades keep being managed. Only you can see this.
+              </p>
+              <div className="mt-3 space-y-2">
+                {([
+                  { key: "flow" as const, label: "FLOW", desc: "Auto-executes forex + index setups for every armed member." },
+                  { key: "genx" as const, label: "GENX (gold)", desc: "Places the GENX gold ENTER-NOW calls across members + followers." },
+                ]).map(({ key, label, desc }) => {
+                  const on = adminSw[key];
+                  return (
+                    <div key={key} className="flex items-center justify-between gap-3 rounded-xl border border-ice bg-white p-3">
+                      <div className="min-w-0">
+                        <span className="inline-flex items-center gap-2 text-sm font-bold">
+                          {label}
+                          <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${on ? "bg-emerald-500/12 text-emerald-600" : "bg-red-500/12 text-red-500"}`}>{on ? "ON" : "OFF — PAUSED"}</span>
+                        </span>
+                        <p className="mt-0.5 text-[11px] leading-tight text-charcoal/45">{desc}</p>
+                      </div>
+                      <button
+                        onClick={() => void saveSwitch(key, !on)}
+                        disabled={swBusy === key}
+                        aria-pressed={on}
+                        className={`relative h-8 w-[58px] flex-shrink-0 rounded-full transition-colors disabled:opacity-60 ${on ? "bg-emerald-500" : "bg-red-400"}`}
+                      >
+                        <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-all ${on ? "left-[29px]" : "left-1"}`} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="rounded-2xl border border-ice bg-white p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="inline-flex items-center gap-2 text-sm font-bold">
