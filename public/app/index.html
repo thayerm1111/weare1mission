@@ -2369,8 +2369,16 @@ input{font:inherit}
   function GxBrokerConnect(props) {
     var st = useState(null), loading = useState(true), busy = useState(false), err = useState(""), okmsg = useState("");
     var env = useState("demo"), server = useState(""), email = useState(""), pw = useState(""), adding = useState(false);
+    var adminSw = useState(null), swBusy = useState(""); // owner-only global kill switch (hidden for non-owners)
     function load() { loading[1](true); apiGet("/api/flow/broker").then(function (d) { st[1](d || {}); loading[1](false); }).catch(function () { loading[1](false); }); }
-    useEffect(function () { load(); }, []);
+    function loadAdmin() { apiGet("/api/admin/switches").then(function (d) { if (d && d.ok) adminSw[1]({ flow: d.flow !== false, genx: d.genx !== false }); }).catch(function () { adminSw[1](null); }); }
+    function setSwitch(which, next) {
+      if (swBusy[0]) return; swBusy[1](which);
+      var cur = adminSw[0] || {}; var nx = {}; nx[which] = next; adminSw[1](Object.assign({}, cur, nx));
+      var body = {}; body[which] = next;
+      apiPost("/api/admin/switches", body).then(function (d) { if (d && d.ok) adminSw[1]({ flow: d.flow !== false, genx: d.genx !== false }); swBusy[1](""); }).catch(function () { swBusy[1](""); loadAdmin(); });
+    }
+    useEffect(function () { load(); loadAdmin(); }, []);
     function connect() {
       if (busy[0]) return; err[1](""); okmsg[1](""); busy[1](true);
       apiPost("/api/flow/broker", { action: "connect", environment: env[0], server: server[0].trim(), email: email[0].trim(), password: pw[0] }).then(function (d) {
@@ -2422,6 +2430,17 @@ input{font:inherit}
     var activeN = accounts.filter(function (a) { return a.autotradeEnabled !== false; }).length;
     return html`<div class="scr bk">
       <button class="bk-back" onClick=${props.onClose}>‹ Back to FLOW</button>
+      ${adminSw[0] ? html`<div style="border:2px solid rgba(245,180,60,.35);background:rgba(245,180,60,.06);border-radius:14px;padding:14px;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:800;color:#f5c451">🛡 Admin · Trading controls</div>
+        <div class="bk-ck" style="margin-top:3px">Global on/off for everyone. Off pauses NEW trades community-wide — open trades keep being managed. Only you see this.</div>
+        ${[{ k: "flow", label: "FLOW", desc: "Forex + index auto-execution for every member." }, { k: "genx", label: "GENX (gold)", desc: "GENX gold ENTER-NOW across members + followers." }].map(function (row) {
+          var onv = adminSw[0][row.k] !== false;
+          return html`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(0,0,0,.22);border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin-top:8px">
+            <div style="min-width:0"><div style="font-size:13px;font-weight:800;color:#fff">${row.label} <span style=${"font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;margin-left:4px;" + (onv ? "background:rgba(46,232,143,.14);color:#2ee88f" : "background:rgba(255,93,108,.16);color:#ff5d6c")}>${onv ? "ON" : "OFF — PAUSED"}</span></div><div class="bk-ck" style="margin-top:2px">${row.desc}</div></div>
+            <button onClick=${function () { setSwitch(row.k, !onv); }} disabled=${swBusy[0] === row.k} style=${"position:relative;width:52px;height:28px;border:0;border-radius:999px;cursor:pointer;flex-shrink:0;background:" + (onv ? "#2ee88f" : "#ff5d6c")}><span style=${"position:absolute;top:3px;left:" + (onv ? "27px" : "3px") + ";width:22px;height:22px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
+          </div>`;
+        })}
+      </div>` : null}
       ${loading[0] ? html`<div class="gx-analyzing">◆ Checking your broker connection…</div>` : ((connected && !adding[0]) ? html`<div>
         <div class="bk-h">TradeLocker connected</div>
         <div class="bk-sub">${accounts.length} account${accounts.length === 1 ? "" : "s"} · <b style="color:#2ee88f">${activeN} trading</b>. FLOW takes every trade on all accounts switched on.</div>
