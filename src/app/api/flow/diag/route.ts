@@ -39,14 +39,16 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const idsParam = (sp.get("ids") || "").split(",").map((s) => s.trim()).filter(Boolean);
   const live = sp.get("live") === "1";
+  const includeDemo = sp.get("all") === "1";   // demo accounts are hidden by default; ?all=1 shows them
 
   // Recent managed positions (any status) — target specific ids if given, else the
   // last 24h of gold, so we can see the Crucial vs Genesis rows side by side.
   let q = admin.from("flow_managed_positions")
-    .select("position_id, user_id, account_id, acc_num, connection_id, symbol, side, qty, status, be_done, partial_done, entry, init_stop, cur_stop, tp1, last_error, created_at, updated_at")
+    .select("position_id, user_id, account_id, acc_num, connection_id, symbol, side, qty, status, be_done, partial_done, entry, init_stop, cur_stop, tp1, last_error, environment, created_at, updated_at")
     .order("created_at", { ascending: false }).limit(60);
   if (idsParam.length) q = q.in("position_id", idsParam);
   else q = q.eq("symbol", "XAUUSD").gte("created_at", new Date(Date.now() - 24 * 3600e3).toISOString());
+  if (!includeDemo) q = q.neq("environment", "demo");   // LIVE-ONLY by default
   const { data: rows } = await q;
   const tracked = (rows ?? []) as Record<string, unknown>[];
 
