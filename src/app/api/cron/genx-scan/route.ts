@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { computeGenxRead, buildGenx, GOLD, MODES, type Mode } from "@/lib/genxCompute";
+import { computeGenxRead, buildGenx, genxConservativeGate, GOLD, MODES, type Mode } from "@/lib/genxCompute";
 import { confirmEntry, CONFIRM_IV } from "@/lib/genxConfirm";
 import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
@@ -54,6 +54,7 @@ type AlertRow = {
   stop: number | null; tp1: number | null; tp2: number | null; tp3: number | null;
   invalidation: number | null; watch: number | null; confidence: number | null;
   trigger_tf: string | null; state: string; created_at: string;
+  quality_ok: boolean | null;
 };
 
 function headsUpMsg(side: "buy" | "sell", mode: Mode, a: { entry_low: number | null; entry_high: number | null; stop: number | null; tp1: number | null; tp2: number | null; confidence: number | null }): string {
@@ -203,6 +204,16 @@ async function run(): Promise<Response> {
       const dedupeKey = `${mode}:${side}:${r1(genx.entry_low)}:${r1(genx.entry_high)}`;
       modeOut.dedupe = dedupeKey;
 
+      // CONSERVATIVE QUALITY GATE — verdict computed ONCE from the fresh read and stored on
+      // the alert row, so the confirm/fast-watch paths (which only see the stored row) grade
+      // identically. Aggressive accounts ignore this; only conservative placement uses it.
+      const qGate = genxConservativeGate({
+        confidence_score: genx.confidence_score, momentum: genx.momentum, market_structure: genx.market_structure,
+        action: genx.action, side, entry: genx.entry, stop_loss: genx.stop_loss, tp1: genx.tp1, session: genx.session,
+      });
+      const qOk = qGate.ok;
+      modeOut.quality_ok = qOk; modeOut.quality_reason = qGate.reason;
+
       // Existing alert for this exact setup?
       const { data: existing } = await admin.from("genx_alerts").select("*").eq("dedupe_key", dedupeKey).maybeSingle();
       const row = existing as AlertRow | null;
@@ -220,11 +231,13 @@ async function run(): Promise<Response> {
             stop: genx.stop_loss, tp1: genx.tp1, tp2: genx.tp2, tp3: genx.tp3,
             invalidation, watch, confidence: genx.confidence_score, trigger_tf: genx.trigger_tf,
             state: "entered", enter_price: rr.price, heads_up_sent_at: nowIso, enter_sent_at: nowIso, last_checked_at: nowIso,
+            quality_ok: qOk,
           });
           // FLOW copies this gold ENTER NOW to every credited member (once per move).
-          try { await placeGenxGold({ side, entryLow: genx.entry_low, entryHigh: genx.entry_high, stop: genx.stop_loss, tp: genx.tp1 }); } catch { /* placement is best-effort */ }
+          // conservativeOk gates ONLY conservative accounts; aggressive take it regardless.
+          try { await placeGenxGold({ side, entryLow: genx.entry_low, entryHigh: genx.entry_high, stop: genx.stop_loss, tp: genx.tp1, conservativeOk: qOk }); } catch { /* placement is best-effort */ }
           // FOLLOWER accounts take EVERY GENX signal, risk-sized to each account's own % (separate from FLOW).
-          try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: genx.entry_low, entryHigh: genx.entry_high, stop: genx.stop_loss, tp: genx.tp1 }); } catch { /* follower is best-effort */ }
+          try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: genx.entry_low, entryHigh: genx.entry_high, stop: genx.stop_loss, tp: genx.tp1, conservativeOk: qOk }); } catch { /* follower is best-effort */ }
           sent.push(`${mode}:ENTER(immediate)`); modeOut.result = "enter_immediate";
         } else {
           // Developing → heads-up now, watch for the entry on future ticks.
@@ -235,6 +248,7 @@ async function run(): Promise<Response> {
             stop: genx.stop_loss, tp1: genx.tp1, tp2: genx.tp2, tp3: genx.tp3,
             invalidation, watch, confidence: genx.confidence_score, trigger_tf: genx.trigger_tf,
             state: "forming", heads_up_sent_at: nowIso, last_checked_at: nowIso,
+            quality_ok: qOk,
           });
           sent.push(`${mode}:HEADSUP`); modeOut.result = "headsup";
         }
@@ -251,8 +265,9 @@ async function run(): Promise<Response> {
         if (conf.state === "CONFIRMED") {
           if (tgReady) await sendTelegram(enterMsg(side, mode, { entry_low: row.entry_low, entry_high: row.entry_high, stop: row.stop, tp1: row.tp1, tp2: row.tp2, tp3: row.tp3 }, conf.enter ?? conf.price, false));
           await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
-          try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1 }); } catch { /* placement is best-effort */ }
-          try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1 }); } catch { /* follower is best-effort */ }
+          const cOk = row.quality_ok !== false; // stored at arm time; null (old rows) → allowed
+          try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk }); } catch { /* placement is best-effort */ }
+          try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk }); } catch { /* follower is best-effort */ }
           sent.push(`${mode}:ENTER`); modeOut.result = "enter";
         } else if (conf.state === "INVALIDATED") {
           if (tgReady) await sendTelegram(invalidMsg(side, mode, { entry_low: row.entry_low, entry_high: row.entry_high, invalidation: row.invalidation }));
@@ -314,12 +329,13 @@ async function runWatch(): Promise<Response> {
       if (conf.state === "CONFIRMED") {
         if (tgReady) await sendTelegram(enterMsg(side, row.mode, { entry_low: row.entry_low, entry_high: row.entry_high, stop: row.stop, tp1: row.tp1, tp2: row.tp2, tp3: row.tp3 }, conf.enter ?? conf.price, false));
         await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
-        try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1 }); } catch { /* placement is best-effort */ }
+        const cOk = row.quality_ok !== false; // stored at arm time; null (old rows) → allowed
+        try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk }); } catch { /* placement is best-effort */ }
         // Same dedupe_key scheme the full scan uses, so the follower dedup lines up
         // whether the ENTER NOW fired from the 5-min scan or this 1-min fast-watch.
         try {
           const fKey = (row.entry_low != null && row.entry_high != null) ? `${row.mode}:${side}:${r1(row.entry_low)}:${r1(row.entry_high)}` : `id:${row.id}`;
-          await placeGenxFollower({ signalKey: fKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1 });
+          await placeGenxFollower({ signalKey: fKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk });
         } catch { /* follower is best-effort */ }
         sent.push(`${row.mode}:ENTER`);
       } else if (conf.state === "INVALIDATED") {
