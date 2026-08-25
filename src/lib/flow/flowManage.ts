@@ -4,6 +4,7 @@ import { matchInstrument } from "@/lib/flow/executor";
 import { normalizeQuantity, getInstrument } from "@/lib/flow/instruments";
 import { contractKey } from "@/lib/flow/sizing";
 import { listInstruments, listPositions, getQuote, getConfig, modifyPosition, closePosition, listOrdersHistory, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
+import { recoverOrphans } from "@/lib/flow/recover";
 
 // Fallback price source. The broker's own quote endpoint is intermittently down for
 // a symbol/account (we've observed a persistent "no_quote" on an open gold position
@@ -359,6 +360,12 @@ export function reconcileClosedTrade(
 export async function manageOpenPositions(): Promise<{ managed: number; actions: ManageAction[]; note?: string }> {
   const admin = createAdminClient();
   if (!admin) return { managed: 0, actions: [], note: "no_admin_client" };
+
+  // ORPHAN RECOVERY: adopt any live broker position FLOW opened but failed to record
+  // (entry timeout / crash / missed position-id poll) so it gets managed. Best-effort;
+  // cheap when there's nothing to recover. Runs before the manage loop so an adopted
+  // position is managed in this same tick.
+  try { await recoverOrphans(admin); } catch { /* recovery is best-effort */ }
 
   const { data, error } = await admin
     .from("flow_managed_positions")

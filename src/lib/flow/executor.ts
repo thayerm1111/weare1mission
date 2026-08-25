@@ -278,7 +278,18 @@ export async function placeOnActiveAccounts(opts: {
     const s = sizeFromRisk({ canonical, entry: opts.entry, stop, equity: a.equity, riskPct: acctRisk, floorToMinLot: true });
     if (!s.ok || !(s.lots > 0)) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: s.reason || "size_too_small" }); continue; }
     const lots = Math.min(s.lots, 100); // fat-finger backstop
-    const r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, opts.tp ?? null);
+    let r: Awaited<ReturnType<typeof placeOnAccount>>;
+    try {
+      r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, opts.tp ?? null);
+    } catch (e) {
+      // The order request THREW (e.g. a network timeout AFTER the broker may already have
+      // filled). Never assume it failed and never abort the rest of the fan-out — log an
+      // 'uncertain' intent (with the levels) so the manager's orphan-recovery can find and
+      // adopt the live position if it did fill, then move on to the next account.
+      await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: lots, status: "uncertain", reason: `${opts.source}: ${(e instanceof Error ? e.message : "order_threw")}`.slice(0, 200), account_id: a.accountId, entry: opts.entry, stop, tp: opts.tp ?? null });
+      fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "error", lots: s.lots, reason: "order_uncertain (timeout — recovery will adopt if it filled)" });
+      continue;
+    }
     if (!r.ok) {
       // Session-closed rejection isn't a failure — the next tick retries once the
       // market reopens. Record it as "deferred"/skipped so it doesn't spam errors.
@@ -287,7 +298,7 @@ export async function placeOnActiveAccounts(opts: {
       fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: r.deferred ? "skipped" : "error", lots: s.lots, reason: r.deferred ? "session_closed" : r.error });
       continue;
     }
-    await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: r.qty, status: "placed", reason: `${opts.source}${r.note}`.slice(0, 60), order_id: r.orderId, account_id: a.accountId });
+    await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: r.qty, status: "placed", reason: `${opts.source}${r.note}`.slice(0, 60), order_id: r.orderId, account_id: a.accountId, entry: opts.entry, stop, tp: opts.tp ?? null });
     fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "placed", qty: r.qty, lots: r.qty, estLossAtStop: s.estLossAtStop, orderId: r.orderId });
     placed += 1;
     // Hand the fill to the trade-manager (breakeven → partial → trail). Needs a
