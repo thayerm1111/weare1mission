@@ -33,6 +33,7 @@ type Account = {
   genxFollower?: boolean;
   riskPct?: number | null;
   manageTrades?: boolean;
+  riskMode?: string | null;
   goldBePips?: number | null;
   connectionId?: string;
   environment?: string;
@@ -97,7 +98,6 @@ export function FlowConnect() {
   const [auto, setAuto] = useState<AutoRun | null>(null);
   const [risk, setRisk] = useState<number>(1);
   const [riskLocked, setRiskLocked] = useState(false);
-  const [riskMode, setRiskMode] = useState<"conservative" | "aggressive">("conservative");
   const [autoBusy, setAutoBusy] = useState(false);
   const [autoMsg, setAutoMsg] = useState("");
 
@@ -110,13 +110,6 @@ export function FlowConnect() {
         setRisk(d.riskPct);
         setRiskLocked(true);
       }
-    } catch {
-      /* noop */
-    }
-    try {
-      const pr = await fetch("/api/flow/prefs", { cache: "no-store" });
-      const pd = (await pr.json()) as { riskMode?: string };
-      if (pd?.riskMode === "aggressive" || pd?.riskMode === "conservative") setRiskMode(pd.riskMode);
     } catch {
       /* noop */
     }
@@ -155,28 +148,6 @@ export function FlowConnect() {
       void loadAuto();
     } catch {
       setAutoMsg("Couldn't save your risk — try again.");
-    }
-  }
-
-  async function saveMode(m: "conservative" | "aggressive") {
-    const prev = riskMode;
-    setRiskMode(m);
-    setAutoMsg("");
-    try {
-      const r = await fetch("/api/flow/prefs", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ riskMode: m }),
-      });
-      if (!r.ok) throw new Error();
-      setAutoMsg(
-        m === "conservative"
-          ? "Conservative: auto-trading pauses for 4 hours after 2 losing trades in a row — gold and forex counted separately."
-          : "Aggressive: no automatic loss cutoff — your trades keep running through losing streaks.",
-      );
-    } catch {
-      setRiskMode(prev);
-      setAutoMsg("Couldn't save your safety mode — try again.");
     }
   }
 
@@ -293,6 +264,21 @@ export function FlowConnect() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled }),
+      });
+    } catch {
+      void load();
+    }
+  }
+
+  async function setAccountMode(a: Account, mode: "conservative" | "aggressive") {
+    // Optimistic: flip locally, then persist. Conservative auto-pauses THIS account for 4h
+    // after 2 losing trades in a row (gold + forex tracked separately); aggressive has no cap.
+    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, riskMode: mode } : x) } : prev);
+    try {
+      await fetch("/api/flow/broker", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "mode", accountId: a.accountId, connectionId: a.connectionId, mode }),
       });
     } catch {
       void load();
@@ -500,6 +486,24 @@ export function FlowConnect() {
                               </button>
                             </div>
                           </div>
+                          {/* Per-account SAFETY MODE: conservative (2-loss cutoff) vs aggressive */}
+                          {(() => {
+                            const mode = a.riskMode === "aggressive" ? "aggressive" : "conservative";
+                            return (
+                              <div className="mt-2 flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55"><ShieldCheck className="h-3.5 w-3.5" /> Safety mode</span>
+                                  <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">Conservative pauses THIS account 4h after 2 losses in a row (gold &amp; forex separate). Aggressive has no cap.</p>
+                                </div>
+                                <div className="flex flex-shrink-0 items-center gap-1">
+                                  <button onClick={() => void setAccountMode(a, "conservative")} aria-pressed={mode === "conservative"}
+                                    className={`rounded-lg border px-2 py-1 text-[11px] font-bold transition-colors ${mode === "conservative" ? "border-emerald-500/60 bg-emerald-500/[0.08] text-emerald-600" : "border-ice bg-offwhite/60 text-charcoal/50 hover:border-charcoal/25"}`}>🛡 Cons.</button>
+                                  <button onClick={() => void setAccountMode(a, "aggressive")} aria-pressed={mode === "aggressive"}
+                                    className={`rounded-lg border px-2 py-1 text-[11px] font-bold transition-colors ${mode === "aggressive" ? "border-amber-500/60 bg-amber-500/[0.08] text-amber-600" : "border-ice bg-offwhite/60 text-charcoal/50 hover:border-charcoal/25"}`}>⚡ Aggr.</button>
+                                </div>
+                              </div>
+                            );
+                          })()}
                           {managed && (
                             <div className="mt-2 flex items-center justify-between gap-3">
                               <div className="min-w-0">
@@ -571,43 +575,6 @@ export function FlowConnect() {
             {riskLocked && (
               <p className="mt-2 text-xs font-semibold text-emerald-600">✓ Locked at {risk}% per trade</p>
             )}
-          </div>
-
-          {/* Safety mode: Conservative vs Aggressive */}
-          <div className="rounded-2xl border border-ice bg-white p-5">
-            <p className="inline-flex items-center gap-2 text-sm font-bold">
-              <ShieldCheck className="h-4 w-4 text-navy" /> Safety mode
-            </p>
-            <p className="mt-1 text-xs text-charcoal/50">
-              Conservative pauses your auto-trading for 4 hours after 2 losing trades in a row — gold and forex are counted
-              separately. Aggressive removes that cap and keeps trading through losing streaks.
-            </p>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
-                onClick={() => void saveMode("conservative")}
-                aria-pressed={riskMode === "conservative"}
-                className={`rounded-xl border px-3 py-3 text-sm font-bold transition-colors ${
-                  riskMode === "conservative"
-                    ? "border-emerald-500/60 bg-emerald-500/[0.08] text-emerald-600"
-                    : "border-ice bg-offwhite/60 text-navy hover:border-charcoal/25"
-                }`}
-              >
-                🛡 Conservative
-                <span className="mt-0.5 block text-[11px] font-medium text-charcoal/55">Cuts off after 2 losses in a row</span>
-              </button>
-              <button
-                onClick={() => void saveMode("aggressive")}
-                aria-pressed={riskMode === "aggressive"}
-                className={`rounded-xl border px-3 py-3 text-sm font-bold transition-colors ${
-                  riskMode === "aggressive"
-                    ? "border-amber-500/60 bg-amber-500/[0.08] text-amber-600"
-                    : "border-ice bg-offwhite/60 text-navy hover:border-charcoal/25"
-                }`}
-              >
-                ⚡ Aggressive
-                <span className="mt-0.5 block text-[11px] font-medium text-charcoal/55">No automatic cutoff</span>
-              </button>
-            </div>
           </div>
 
           {/* Auto-run toggle */}
