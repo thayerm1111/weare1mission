@@ -17,6 +17,7 @@ export interface MemberRow {
   created_at: string;
   conectiv_username: string | null;
   conectiv_id: string | null;
+  access_expires_at: string | null;
 }
 
 const statusStyle: Record<string, string> = {
@@ -24,6 +25,28 @@ const statusStyle: Record<string, string> = {
   active: "bg-emerald-100 text-emerald-700",
   suspended: "bg-red-100 text-red-700",
 };
+
+// PROMO CODE: a member who signed up with this Conectiv "ID" gets a time-limited trial rather
+// than unlimited access. Approving them stamps access_expires_at; getProfile() pauses them the
+// moment it lapses. Change the code or the number of days here.
+const PROMO_ID = "rich";
+const PROMO_DAYS = 7;
+function isPromoMember(m: MemberRow): boolean {
+  return (m.conectiv_id ?? "").trim().toLowerCase() === PROMO_ID;
+}
+/** What to write when Approve is clicked: promo members get a 7-day clock; everyone else unlimited. */
+function approvePatch(m: MemberRow): Record<string, unknown> {
+  return isPromoMember(m)
+    ? { status: "active", access_expires_at: new Date(Date.now() + PROMO_DAYS * 86400000).toISOString() }
+    : { status: "active", access_expires_at: null };
+}
+/** Whole days left on a promo grant (negative once expired); null when there's no expiry. */
+function daysLeft(iso: string | null): number | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  return Math.ceil((t - Date.now()) / 86400000);
+}
 
 export function AdminMembers({ members }: { members: MemberRow[] }) {
   const router = useRouter();
@@ -97,8 +120,17 @@ function Section({
                   <p className="mt-0.5 truncate text-xs text-charcoal/55">
                     Conectiv: {m.conectiv_username || "—"}
                     {m.conectiv_id ? ` · ID ${m.conectiv_id}` : ""}
+                    {isPromoMember(m) ? ` · promo (${PROMO_DAYS}-day)` : ""}
                   </p>
                 )}
+                {m.access_expires_at && (() => {
+                  const d = daysLeft(m.access_expires_at);
+                  return (
+                    <p className={`mt-0.5 text-xs font-medium ${d != null && d <= 0 ? "text-red-600" : "text-amber-700"}`}>
+                      {d != null && d <= 0 ? "Promo access expired" : `Promo access — ${d} day${d === 1 ? "" : "s"} left`}
+                    </p>
+                  );
+                })()}
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -114,9 +146,9 @@ function Section({
                 </select>
 
                 {m.status !== "active" ? (
-                  <button disabled={busy === m.id} onClick={() => onUpdate(m.id, { status: "active" })}
+                  <button disabled={busy === m.id} onClick={() => onUpdate(m.id, approvePatch(m))}
                     className="inline-flex items-center gap-1.5 rounded-full bg-gradient-primary px-4 py-2 text-sm font-semibold text-cream disabled:opacity-60">
-                    <Check className="h-4 w-4" aria-hidden="true" /> Approve
+                    <Check className="h-4 w-4" aria-hidden="true" /> {isPromoMember(m) ? `Approve · ${PROMO_DAYS}d` : "Approve"}
                   </button>
                 ) : (
                   <button disabled={busy === m.id} onClick={() => onUpdate(m.id, { status: "suspended" })}
