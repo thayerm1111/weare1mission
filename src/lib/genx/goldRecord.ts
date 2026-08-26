@@ -35,22 +35,20 @@ const num = (v: unknown): number | null => (typeof v === "number" && Number.isFi
 // NOT a loss. We reclassify those as a WIN worth ~0 pips (a scratch), using the max
 // favorable excursion the resolver already recorded. A signal that ran straight to the
 // stop without ever reaching +0.5R stays a loss.
-const BE_TRIGGER_R = 0.5;   // half-R fallback for a tight-stop setup
-const BE_MIN_PIPS = 8;      // gold floor (matches BE_MIN_PIPS * gold pip)
-const GOLD_BE_PIPS = 35;    // the trade-manager's DEFAULT gold break-even trigger. On a wide-stop
-                            // signal this fires EARLIER than 0.5R, so the account exits flat at
-                            // break-even while the old 0.5R rule still booked a full loss. Grade it
-                            // the way the account is ACTUALLY managed: break-even at the EARLIER of
-                            // 35 pips or half-R (never below the small floor).
+// COMMUNITY-RECORD RULE (owner's directive): a trade that ran at least this many pips INTO
+// PROFIT before reversing is recorded as a BREAK-EVEN scratch, NOT a loss — it went (or could
+// have gone) break-even, so it is not shown to the community as a loss. A trade that never got
+// this far into profit stays a genuine loss. This is a DISPLAY/record rule for the public
+// boards only (Floor, follower feed, genx-stats); it does not change any trade or how the
+// account is actually managed.
+const BE_DISPLAY_PIPS = 15;
 
-/** True when the trade's favorable excursion reached the breakeven trigger before closing —
- *  measured against the SAME trigger the trade-manager uses (earliest of 35 pips / half-R). */
+/** True when the trade ran far enough into profit to be recorded as a break-even scratch
+ *  rather than a loss (owner's community-record rule: ≥ BE_DISPLAY_PIPS of favorable move). */
 export function reachedBreakeven(s: GoldSig): boolean {
-  const e = num(s.entry), st = num(s.stop_loss), mfe = num(s.mfe_pips ?? null);
-  if (e == null || st == null || mfe == null) return false;
-  const rPips = Math.abs(e - st) / GOLD_PIP;
-  const trigger = Math.max(BE_MIN_PIPS, Math.min(GOLD_BE_PIPS, BE_TRIGGER_R * rPips));
-  return mfe >= trigger;
+  const mfe = num(s.mfe_pips ?? null);
+  if (mfe == null) return false;
+  return mfe >= BE_DISPLAY_PIPS;
 }
 
 /** Is this signal a win? A real target OR a stop that was first saved at breakeven. */
