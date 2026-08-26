@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 import { DAILY_FREE } from "@/lib/creditConfig";
 import { bearerClient, bearerFromReq } from "@/lib/supabase/bearer";
 import { accessExpired } from "@/lib/auth";
+import { ensurePromoRichCredits } from "@/lib/promo";
 
 /**
  * GET /api/me — launch-hydration for the native app.
@@ -32,6 +33,11 @@ export async function GET(req: NextRequest) {
 
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return json({ error: "unauthorized" }, 401);
+
+  // Promo "rich" one-time 100-credit grant — self-healing, before we read the
+  // balance so the grant shows up on the very first qualifying load. No-op for
+  // everyone who isn't a 'rich' promo member or who was already granted.
+  await ensurePromoRichCredits(user.id);
 
   // Credits — same RPC + shape the web uses (daily_left + purchased).
   let credits = DAILY_FREE;
