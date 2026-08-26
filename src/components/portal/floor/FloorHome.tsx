@@ -123,7 +123,10 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
       try { const r = await fetch(`/api/floor/setup?mode=${setupMode}`, { cache: "no-store" }); if (r.ok && alive) setSetup((await r.json()) as SetupPayload); } catch { /* degrades */ }
     };
     void load();
-    const iv = setInterval(() => void load(), 45000);
+    // Live-ish: poll every 15s. The shared market-data cache (MD_CACHE_TTL 30s)
+    // means faster polling costs no extra upstream calls — it just picks up new
+    // price/candles as soon as they refresh.
+    const iv = setInterval(() => void load(), 15000);
     return () => { alive = false; clearInterval(iv); };
   }, [setupMode]);
 
