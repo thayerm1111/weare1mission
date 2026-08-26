@@ -10,6 +10,7 @@ import { newsHold } from "@/lib/news/calendar";
 import { series, livePrice } from "@/lib/marketData";
 import { trendOfCloses, closedBars } from "@/lib/mtf";
 import { sendTelegram } from "@/lib/telegram";
+import { BE_DISPLAY_PIPS } from "@/lib/genx/goldRecord";
 import { ENTRY_TUNING } from "@/lib/entryEngine";
 import type { Mode } from "@/lib/genxCompute";
 import { CREDIT_COST, DAILY_FREE } from "@/lib/creditConfig";
@@ -769,21 +770,25 @@ async function goldSignalLossStreak(admin: Admin, side: "buy" | "sell", streak: 
   const wantDir = side === "buy" ? "bullish" : "bearish";
   const { data } = await admin
     .from("genx_signals")
-    .select("outcome, resolved_at")
+    .select("outcome, resolved_at, mfe_pips")
     .in("outcome", ["WIN", "LOSS"])
     .eq("direction", wantDir)
     .order("resolved_at", { ascending: false, nullsFirst: false })
     .limit(30);
-  const rows = (data ?? []) as { outcome: string; resolved_at: string | null }[];
+  const rows = (data ?? []) as { outcome: string; resolved_at: string | null; mfe_pips: number | null }[];
   // Collapse signals that resolved at the SAME instant (fan-out / one market event) into
   // a single outcome, newest first — so a "streak" counts distinct trades on this side.
+  // A "LOSS" that ran ≥ BE_DISPLAY_PIPS into profit first is a BREAK-EVEN scratch, NOT a loss —
+  // count it the SAME way the board and the account do (owner's rule), so the streak reflects
+  // only GENUINE losing signals and never inflates off break-even-saved ones.
   const events: { outcome: string; ts: number }[] = [];
   let lastKey = "";
   for (const r of rows) {
     const k = String(r.resolved_at);
     if (k === lastKey) continue;
     lastKey = k;
-    events.push({ outcome: r.outcome, ts: r.resolved_at ? new Date(r.resolved_at).getTime() : 0 });
+    const isBreakEven = r.outcome === "LOSS" && Number(r.mfe_pips) >= BE_DISPLAY_PIPS;
+    events.push({ outcome: isBreakEven ? "WIN" : r.outcome, ts: r.resolved_at ? new Date(r.resolved_at).getTime() : 0 });
   }
   // How many losses in a row from the newest signal (for the visibility note).
   let run = 0;
