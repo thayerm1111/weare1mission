@@ -6,14 +6,16 @@ import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
 import { placeGenxGold, placeGenxFollower, rewardRisk } from "@/lib/flow/autoExec";
 
-// GOLD ENTRY PREFERENCE (owner directive): when GENX calls a trade but price has already run
-// past the zone (a chased fill below 1:1), DON'T take the bad fill and DON'T miss it — ARM the
-// setup and WAIT for price to pull back INTO the called entry zone, then fill there for the full
-// reward:risk (like a resting limit at the zone). Order of preference while armed:
-//   1) price back IN the entry zone (or R:R ≥ 1:1) → enter now (the ideal fill), any time in the window
-//   2) after GOLD_WORSTCASE_MS with no good pullback → accept the best fill ≥ 0.5 ("worst case 1:0.5")
-//   3) after GOLD_ARM_MAX_MS, or a close beyond the stop → abandon (setup is stale/invalidated)
-// A fresh confirmation that ALREADY offers ≥ 1:1 (or is in-zone) enters immediately (fast).
+// GOLD ENTRY PREFERENCE (owner directive): get IN when the trade is working; only wait for a
+// pull-back when the fill is genuinely too rich.
+//   • Confirmed and IN the zone / ≥ 1:1              → enter now (the ideal fill).
+//   • Confirmed and price has broken PAST the zone in the TRADE'S FAVOR (a sell filling below the
+//     zone / a buy above it) AND the fill still clears the 0.5 floor → enter NOW as a momentum
+//     fill. Do NOT wait for a bounce back into the zone — on a gap-through move that pull-back
+//     often never comes and a working trade gets missed (the exact case the owner flagged).
+//   • Confirmed but price ran SO far the fill is < 0.5 R:R → ARM and wait for a pull-back that
+//     brings it back to ≥ 0.5 (like a resting limit at the zone); accept ≥0.5 after
+//     GOLD_WORSTCASE_MS; abandon after GOLD_ARM_MAX_MS or on invalidation.
 const GOLD_ENTRY_FLOOR_RR = 0.5;      // absolute worst-case reward:risk the desk will ever fill
 const GOLD_WORSTCASE_MS = 20 * 60_000; // prefer the zone/1:1 for this long; then accept ≥0.5
 const GOLD_ARM_MAX_MS = 25 * 60_000;   // hard cap — give up waiting for a pullback after this
@@ -33,14 +35,23 @@ function decideGoldEntry(o: {
   const inZone = o.lp != null && Number.isFinite(zLo) && o.lp >= zLo - buf && o.lp <= zHi + buf;
   const goodFill = inZone || (rr != null && rr >= 1.0);
   const okFill = rr != null && rr >= GOLD_ENTRY_FLOOR_RR;
+  // Which way is the trade? sell → TP below stop; buy → TP above stop.
+  const isSell = o.tp1 != null && o.stop != null ? o.tp1 < o.stop : false;
+  // Price has broken PAST the zone in the trade's FAVOR (already moving toward target):
+  //   sell → price below the zone;  buy → price above the zone.
+  const favorBeyond = o.lp != null && Number.isFinite(zLo)
+    ? (isSell ? o.lp < zLo - buf : o.lp > zHi + buf)
+    : false;
   const elapsed = o.nowMs - o.armedAtMs;
   if (!o.armed) {
     if (o.confState !== "CONFIRMED") return { do: "wait", reason: "pending:" + o.confState };
-    if (goodFill) return { do: "enter", reason: "confirmed_full_rr" };  // fast full-1:1 / in-zone fill
-    return { do: "arm", reason: "chased_arm" };                          // chased → wait for the pull-back
+    if (goodFill) return { do: "enter", reason: "confirmed_full_rr" };       // fast full-1:1 / in-zone fill
+    if (favorBeyond && okFill) return { do: "enter", reason: "confirmed_momentum" }; // moving our way, ≥floor → take it now
+    return { do: "arm", reason: "chased_arm" };                              // ran past the floor → wait for the pull-back
   }
   // armed: watch price directly (not a fresh confirmation) for the pull-back into the zone
   if (goodFill) return { do: "enter", reason: "pullback_to_zone" };
+  if (favorBeyond && okFill) return { do: "enter", reason: "momentum_min_rr" }; // still moving our way, ≥floor → take it, don't keep waiting
   if (elapsed > GOLD_WORSTCASE_MS && okFill) return { do: "enter", reason: "worstcase_min_rr" };
   if (elapsed > GOLD_ARM_MAX_MS) return { do: "invalidate", reason: "arm_expired" };
   return { do: "wait", reason: "armed_waiting" };
