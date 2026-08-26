@@ -835,14 +835,16 @@ function GenxResults({ rows }: { rows: GoldRec[] }) {
           <tbody>
             {list.map((r, i) => {
               const long = genxLong(r.side); const pips = r.pips ?? 0;
-              const tp = r.hitTp >= 3 ? "Target 3" : r.hitTp === 2 ? "Target 2" : r.hitTp === 1 ? "Target 1" : r.win ? "Target" : "Stopped";
+              const be = r.outcome === "breakeven"; // saved at break-even — shown as a scratch, never a loss
+              const tp = be ? "Break Even" : r.hitTp >= 3 ? "Target 3" : r.hitTp === 2 ? "Target 2" : r.hitTp === 1 ? "Target 1" : r.win ? "Target" : "Stopped";
+              const col = be ? C.mut : r.win ? C.green : C.red; // neutral for break-even
               return (
                 <tr key={i} className="border-t" style={{ borderColor: C.lineSoft }}>
                   <td className="whitespace-nowrap px-3.5 py-2 font-mono" style={{ color: C.mut }}>{clockTime(r.at)}</td>
                   <td className="py-2 font-mono font-bold">XAUUSD</td>
                   <td className="py-2"><span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={long ? { background: "rgba(52,211,153,0.12)", color: C.green } : { background: "rgba(248,113,113,0.12)", color: C.red }}>{long ? "LONG" : "SHORT"}</span></td>
-                  <td className="py-2 text-[10px] font-semibold" style={{ color: r.win ? C.green : C.red }}>{tp}</td>
-                  <td className="px-3.5 py-2 text-right font-mono font-bold" style={{ color: r.win ? C.green : C.red }}>{pips > 0 ? "+" : ""}{pips.toLocaleString()}p</td>
+                  <td className="py-2 text-[10px] font-semibold" style={{ color: col }}>{tp}</td>
+                  <td className="px-3.5 py-2 text-right font-mono font-bold" style={{ color: col }}>{be ? "0p" : `${pips > 0 ? "+" : ""}${pips.toLocaleString()}p`}</td>
                 </tr>
               );
             })}
