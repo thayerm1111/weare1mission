@@ -6,13 +6,45 @@ import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
 import { placeGenxGold, placeGenxFollower, rewardRisk } from "@/lib/flow/autoExec";
 
-// Gold entry preference (owner directive): PREFER a full 1:1, but never MISS a trade over it.
-// When the ENTER NOW fill is chased below GOLD_ENTRY_FLOOR_RR, hold the setup as 'forming' and
-// keep re-checking (the ~30s fast-watch does this) for up to GOLD_RETRY_WINDOW_MS so it can fill
-// on a retrace to a takeable (ideally 1:1) R:R; after the window it takes the best fill ≥0.5
-// (placeGenxGold enforces the 0.5 floor, so a still-blown-out fill simply no-ops).
-const GOLD_ENTRY_FLOOR_RR = 0.5;
-const GOLD_RETRY_WINDOW_MS = 5 * 60_000;
+// GOLD ENTRY PREFERENCE (owner directive): when GENX calls a trade but price has already run
+// past the zone (a chased fill below 1:1), DON'T take the bad fill and DON'T miss it — ARM the
+// setup and WAIT for price to pull back INTO the called entry zone, then fill there for the full
+// reward:risk (like a resting limit at the zone). Order of preference while armed:
+//   1) price back IN the entry zone (or R:R ≥ 1:1) → enter now (the ideal fill), any time in the window
+//   2) after GOLD_WORSTCASE_MS with no good pullback → accept the best fill ≥ 0.5 ("worst case 1:0.5")
+//   3) after GOLD_ARM_MAX_MS, or a close beyond the stop → abandon (setup is stale/invalidated)
+// A fresh confirmation that ALREADY offers ≥ 1:1 (or is in-zone) enters immediately (fast).
+const GOLD_ENTRY_FLOOR_RR = 0.5;      // absolute worst-case reward:risk the desk will ever fill
+const GOLD_WORSTCASE_MS = 20 * 60_000; // prefer the zone/1:1 for this long; then accept ≥0.5
+const GOLD_ARM_MAX_MS = 25 * 60_000;   // hard cap — give up waiting for a pullback after this
+
+/** Pure decision for a gold entry: enter now, arm-and-wait, abandon, or keep waiting.
+ *  `armed` = we already fired ENTER NOW once and are holding for a pull-back fill. */
+function decideGoldEntry(o: {
+  armed: boolean; confState: string; lp: number | null;
+  entryLow: number | null; entryHigh: number | null; stop: number | null; tp1: number | null;
+  armedAtMs: number; nowMs: number;
+}): { do: "enter" | "arm" | "invalidate" | "wait"; reason: string } {
+  if (o.confState === "INVALIDATED") return { do: "invalidate", reason: "invalidated" };
+  const rr = rewardRisk(o.lp, o.stop, o.tp1);
+  const zLo = Math.min(Number(o.entryLow), Number(o.entryHigh));
+  const zHi = Math.max(Number(o.entryLow), Number(o.entryHigh));
+  const buf = Number.isFinite(zHi - zLo) ? Math.max(0.2, (zHi - zLo) * 0.15) : 0.2;
+  const inZone = o.lp != null && Number.isFinite(zLo) && o.lp >= zLo - buf && o.lp <= zHi + buf;
+  const goodFill = inZone || (rr != null && rr >= 1.0);
+  const okFill = rr != null && rr >= GOLD_ENTRY_FLOOR_RR;
+  const elapsed = o.nowMs - o.armedAtMs;
+  if (!o.armed) {
+    if (o.confState !== "CONFIRMED") return { do: "wait", reason: "pending:" + o.confState };
+    if (goodFill) return { do: "enter", reason: "confirmed_full_rr" };  // fast full-1:1 / in-zone fill
+    return { do: "arm", reason: "chased_arm" };                          // chased → wait for the pull-back
+  }
+  // armed: watch price directly (not a fresh confirmation) for the pull-back into the zone
+  if (goodFill) return { do: "enter", reason: "pullback_to_zone" };
+  if (elapsed > GOLD_WORSTCASE_MS && okFill) return { do: "enter", reason: "worstcase_min_rr" };
+  if (elapsed > GOLD_ARM_MAX_MS) return { do: "invalidate", reason: "arm_expired" };
+  return { do: "wait", reason: "armed_waiting" };
+}
 import { beat } from "@/lib/flow/health";
 
 export const runtime = "nodejs";
@@ -270,32 +302,31 @@ async function run(): Promise<Response> {
           watch: (row.watch ?? watch) as number, invalidation: (row.invalidation ?? invalidation) as number,
           mode, mdKey, fresh: true,
         });
-        if (conf.state === "CONFIRMED") {
-          const cOk = row.quality_ok !== false; // stored at arm time; null (old rows) → allowed
-          const lp = conf.price ?? conf.enter;
-          const rrLive = rewardRisk(lp, row.stop, row.tp1);
-          const armedAt = row.enter_sent_at ? new Date(row.enter_sent_at).getTime() : Date.now();
-          const withinWindow = Date.now() - armedAt < GOLD_RETRY_WINDOW_MS;
-          // Announce ENTER NOW once (on first confirmation), even if the auto holds for a better fill.
-          if (!row.enter_sent_at && tgReady) await sendTelegram(enterMsg(side, mode, { entry_low: row.entry_low, entry_high: row.entry_high, stop: row.stop, tp1: row.tp1, tp2: row.tp2, tp3: row.tp3 }, lp, false));
-          if (rrLive != null && rrLive < GOLD_ENTRY_FLOOR_RR && withinWindow) {
-            // Chased past the zone → hold up to ~5 min for a retrace to a takeable (≥0.5, ideally 1:1)
-            // R:R rather than fill a blown-out entry. Stays 'forming' so the fast-watch re-checks.
-            await admin.from("genx_alerts").update({ enter_sent_at: row.enter_sent_at ?? nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
-            modeOut.result = `hold_retrace:${rrLive.toFixed(2)}`;
-          } else {
-            await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
-            try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk }); } catch { /* placement is best-effort */ }
-            try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk }); } catch { /* follower is best-effort */ }
-            sent.push(`${mode}:ENTER`); modeOut.result = "enter";
-          }
-        } else if (conf.state === "INVALIDATED") {
+        const cOk = row.quality_ok !== false; // stored at arm time; null (old rows) → allowed
+        const armedNow = !!row.enter_sent_at;
+        const lp = conf.price ?? conf.enter;
+        const armedAtMs = row.enter_sent_at ? new Date(row.enter_sent_at).getTime() : Date.now();
+        const tgMsg = { entry_low: row.entry_low, entry_high: row.entry_high, stop: row.stop, tp1: row.tp1, tp2: row.tp2, tp3: row.tp3 };
+        const act = decideGoldEntry({ armed: armedNow, confState: conf.state, lp, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp1: row.tp1, armedAtMs, nowMs: Date.now() });
+        if (act.do === "arm") {
+          // Chased on first confirmation → announce ENTER NOW once, then hold (stay 'forming') and
+          // wait for price to pull back into the entry zone for the full R:R.
+          if (tgReady) await sendTelegram(enterMsg(side, mode, tgMsg, lp, false));
+          await admin.from("genx_alerts").update({ enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
+          sent.push(`${mode}:ARM`); modeOut.result = `arm:${act.reason}`;
+        } else if (act.do === "enter") {
+          if (!armedNow && tgReady) await sendTelegram(enterMsg(side, mode, tgMsg, lp, false));
+          await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
+          try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk }); } catch { /* placement is best-effort */ }
+          try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk }); } catch { /* follower is best-effort */ }
+          sent.push(`${mode}:ENTER`); modeOut.result = `enter:${act.reason}`;
+        } else if (act.do === "invalidate") {
           if (tgReady) await sendTelegram(invalidMsg(side, mode, { entry_low: row.entry_low, entry_high: row.entry_high, invalidation: row.invalidation }));
           await admin.from("genx_alerts").update({ state: "invalidated", last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
-          sent.push(`${mode}:INVALID`); modeOut.result = "invalidated";
+          sent.push(`${mode}:INVALID`); modeOut.result = `invalid:${act.reason}`;
         } else {
           await admin.from("genx_alerts").update({ last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
-          modeOut.result = `pending:${conf.state}`;
+          modeOut.result = act.reason;
         }
       } else {
         modeOut.result = `already:${row.state}`;
@@ -346,29 +377,26 @@ async function runWatch(): Promise<Response> {
         watch: (row.watch ?? row.entry_low ?? 0) as number, invalidation: (row.invalidation ?? row.stop ?? 0) as number,
         mode: row.mode, mdKey, fresh: true, interval: "1min",
       });
-      if (conf.state === "CONFIRMED") {
-        const cOk = row.quality_ok !== false; // stored at arm time; null (old rows) → allowed
-        const lp = conf.price ?? conf.enter;
-        const rrLive = rewardRisk(lp, row.stop, row.tp1);
-        const armedAt = row.enter_sent_at ? new Date(row.enter_sent_at).getTime() : Date.now();
-        const withinWindow = Date.now() - armedAt < GOLD_RETRY_WINDOW_MS;
-        if (!row.enter_sent_at && tgReady) await sendTelegram(enterMsg(side, row.mode, { entry_low: row.entry_low, entry_high: row.entry_high, stop: row.stop, tp1: row.tp1, tp2: row.tp2, tp3: row.tp3 }, lp, false));
-        if (rrLive != null && rrLive < GOLD_ENTRY_FLOOR_RR && withinWindow) {
-          // Chased → hold for a retrace to a takeable R:R (owner directive); stays 'forming'.
-          await admin.from("genx_alerts").update({ enter_sent_at: row.enter_sent_at ?? nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
-          sent.push(`${row.mode}:HOLD`);
-        } else {
-          await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
-          try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk }); } catch { /* placement is best-effort */ }
-          // Same dedupe_key scheme the full scan uses, so the follower dedup lines up
-          // whether the ENTER NOW fired from the 5-min scan or this 1-min fast-watch.
-          try {
-            const fKey = (row.entry_low != null && row.entry_high != null) ? `${row.mode}:${side}:${r1(row.entry_low)}:${r1(row.entry_high)}` : `id:${row.id}`;
-            await placeGenxFollower({ signalKey: fKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk });
-          } catch { /* follower is best-effort */ }
-          sent.push(`${row.mode}:ENTER`);
-        }
-      } else if (conf.state === "INVALIDATED") {
+      const cOk = row.quality_ok !== false; // stored at arm time; null (old rows) → allowed
+      const armedNow = !!row.enter_sent_at;
+      const lp = conf.price ?? conf.enter;
+      const armedAtMs = row.enter_sent_at ? new Date(row.enter_sent_at).getTime() : Date.now();
+      const tgMsg = { entry_low: row.entry_low, entry_high: row.entry_high, stop: row.stop, tp1: row.tp1, tp2: row.tp2, tp3: row.tp3 };
+      const act = decideGoldEntry({ armed: armedNow, confState: conf.state, lp, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp1: row.tp1, armedAtMs, nowMs: Date.now() });
+      if (act.do === "arm") {
+        if (tgReady) await sendTelegram(enterMsg(side, row.mode, tgMsg, lp, false));
+        await admin.from("genx_alerts").update({ enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
+        sent.push(`${row.mode}:ARM`);
+      } else if (act.do === "enter") {
+        if (!armedNow && tgReady) await sendTelegram(enterMsg(side, row.mode, tgMsg, lp, false));
+        await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
+        try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk }); } catch { /* placement is best-effort */ }
+        try {
+          const fKey = (row.entry_low != null && row.entry_high != null) ? `${row.mode}:${side}:${r1(row.entry_low)}:${r1(row.entry_high)}` : `id:${row.id}`;
+          await placeGenxFollower({ signalKey: fKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk });
+        } catch { /* follower is best-effort */ }
+        sent.push(`${row.mode}:ENTER`);
+      } else if (act.do === "invalidate") {
         if (tgReady) await sendTelegram(invalidMsg(side, row.mode, { entry_low: row.entry_low, entry_high: row.entry_high, invalidation: row.invalidation }));
         await admin.from("genx_alerts").update({ state: "invalidated", last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
         sent.push(`${row.mode}:INVALID`);
