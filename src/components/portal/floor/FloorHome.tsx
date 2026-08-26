@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Radio, Filter, Zap, Clock, ChevronRight, Maximize2 } from "lucide-react";
+import { Radio, Filter, Zap, Clock, ChevronRight, Maximize2, X, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { LIVE_URL, CALLS } from "@/lib/liveCalls";
 
 /* ============================================================================
@@ -39,7 +39,7 @@ type Setup = {
 };
 type Metrics = { toEntry: number | null; risk: number | null; reward: number | null; rr: number | null };
 type SetupPayload = { setup: Setup | null; candles: Candle[]; price: number | null; session: string; conditions: { label: string; met: boolean }[]; statusText: string; phase?: string; guidance?: string; metrics?: Metrics | null };
-type IntelEvent = { time: string; ts: number; headline: string; impact: "HIGH" | "MED" | "LOW"; assets: string[]; when: string };
+type IntelEvent = { time: string; ts: number; headline: string; impact: "HIGH" | "MED" | "LOW"; assets: string[]; when: string; ccy: string; forecast: string; previous: string };
 type IntelPayload = { featured: IntelEvent | null; events: IntelEvent[] };
 
 const genxLong = (d: string) => /bull|long|buy/i.test(String(d || ""));
@@ -523,13 +523,14 @@ function CandleChart({ candles, setup, price }: { candles: Candle[]; setup: Setu
   );
 }
 
-/* ── MARKET INTELLIGENCE (calendar + desk activity) ── */
+/* ── MARKET INTELLIGENCE (calendar + desk activity, clickable news) ── */
 function MarketIntel({ intel, flow }: { intel: IntelPayload | null; flow: FlowStats | null }) {
-  type Item = { time: string; ts: number; headline: string; impact: string; tone: "high" | "med" | "low" | "win" | "loss"; assets: string[] };
+  type Item = { time: string; ts: number; headline: string; impact: string; tone: "high" | "med" | "low" | "win" | "loss"; assets: string[]; ev?: IntelEvent };
+  const [sel, setSel] = useState<IntelEvent | null>(null);
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     for (const e of intel?.events ?? []) {
-      out.push({ time: e.time, ts: e.ts, headline: e.headline, impact: e.impact, tone: e.impact === "HIGH" ? "high" : e.impact === "MED" ? "med" : "low", assets: e.assets });
+      out.push({ time: e.time, ts: e.ts, headline: e.headline, impact: e.impact, tone: e.impact === "HIGH" ? "high" : e.impact === "MED" ? "med" : "low", assets: e.assets, ev: e });
     }
     for (const g of flow?.goldRecent ?? []) {
       const ts = new Date(g.at).getTime(); if (!Number.isFinite(ts)) continue;
@@ -539,7 +540,7 @@ function MarketIntel({ intel, flow }: { intel: IntelPayload | null; flow: FlowSt
       const ts = new Date(f.at).getTime(); if (!Number.isFinite(ts)) continue;
       out.push({ time: clockTime(f.at), ts, headline: `FLOW ${short(f.symbol)} ${String(f.side).toUpperCase()} ${f.win ? "win" : "loss"}${f.pips != null ? ` (${f.pips > 0 ? "+" : ""}${f.pips}p)` : ""}`, impact: f.win ? "WIN" : "LOSS", tone: f.win ? "win" : "loss", assets: [short(f.symbol)] });
     }
-    return out.sort((a, b) => b.ts - a.ts).slice(0, 12);
+    return out.sort((a, b) => b.ts - a.ts).slice(0, 14);
   }, [intel, flow]);
 
   const feat = intel?.featured ?? null;
@@ -553,21 +554,21 @@ function MarketIntel({ intel, flow }: { intel: IntelPayload | null; flow: FlowSt
         <Filter className="h-3.5 w-3.5" style={{ color: C.mut2 }} />
       </div>
       {feat && (
-        <div className="flex items-center gap-2 border-b px-3.5 py-2" style={{ borderColor: C.line, background: "rgba(251,191,36,0.06)" }}>
+        <button onClick={() => setSel(feat)} className="flex w-full items-center gap-2 border-b px-3.5 py-2 text-left transition hover:brightness-125" style={{ borderColor: C.line, background: "rgba(251,191,36,0.06)" }}>
           <Zap className="h-3.5 w-3.5 flex-shrink-0" style={{ color: C.amber }} />
           <div className="min-w-0 flex-1">
-            <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: C.amber }}>Featured Alert</p>
+            <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: C.amber }}>Featured Alert · tap for breakdown</p>
             <p className="truncate text-[12px] font-semibold">{feat.headline} <span style={{ color: C.mut }}>expected {feat.when}</span></p>
           </div>
           <span className="flex-shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ background: "rgba(248,113,113,0.16)", color: C.red }}>{feat.impact} IMPACT</span>
-        </div>
+        </button>
       )}
       <div className="flex-1 overflow-y-auto" style={{ maxHeight: 360 }}>
         {items.length === 0 ? (
           <p className="px-4 py-10 text-center text-[12px]" style={{ color: C.mut2 }}>Intelligence feed syncing…</p>
         ) : (
           <table className="w-full text-[11px]">
-            <thead className="sticky top-0" style={{ background: C.panel }}>
+            <thead className="sticky top-0 z-[1]" style={{ background: C.panel }}>
               <tr style={{ color: C.mut2 }} className="text-left text-[9px] uppercase tracking-wider">
                 <th className="px-3.5 py-2 font-semibold">Time</th>
                 <th className="py-2 font-semibold">Headline</th>
@@ -576,17 +577,156 @@ function MarketIntel({ intel, flow }: { intel: IntelPayload | null; flow: FlowSt
               </tr>
             </thead>
             <tbody>
-              {items.map((it, i) => (
-                <tr key={i} className="border-t align-top" style={{ borderColor: C.lineSoft }}>
-                  <td className="whitespace-nowrap px-3.5 py-2 font-mono" style={{ color: C.mut }}>{it.time}</td>
-                  <td className="py-2 pr-2" style={{ color: C.text }}>{it.headline}</td>
-                  <td className="py-2"><span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ background: toneBg(it.tone), color: toneColor(it.tone) }}>{it.impact}</span></td>
-                  <td className="px-3.5 py-2 text-right font-mono text-[10px]" style={{ color: C.mut }}>{it.assets.slice(0, 2).join(", ")}</td>
-                </tr>
-              ))}
+              {items.map((it, i) => {
+                const clickable = !!it.ev;
+                return (
+                  <tr key={i} onClick={clickable ? () => setSel(it.ev!) : undefined} className="border-t align-top transition" style={{ borderColor: C.lineSoft, cursor: clickable ? "pointer" : "default", ...(clickable ? {} : {}) }}
+                    onMouseEnter={clickable ? (e) => (e.currentTarget.style.background = "rgba(255,255,255,0.03)") : undefined}
+                    onMouseLeave={clickable ? (e) => (e.currentTarget.style.background = "transparent") : undefined}>
+                    <td className="whitespace-nowrap px-3.5 py-2 font-mono" style={{ color: C.mut }}>{it.time}</td>
+                    <td className="py-2 pr-2" style={{ color: C.text }}>
+                      <span className="inline-flex items-center gap-1">{it.headline}{clickable && <ChevronRight className="h-3 w-3 flex-shrink-0" style={{ color: C.mut2 }} />}</span>
+                    </td>
+                    <td className="py-2"><span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ background: toneBg(it.tone), color: toneColor(it.tone) }}>{it.impact}</span></td>
+                    <td className="px-3.5 py-2 text-right font-mono text-[10px]" style={{ color: C.mut }}>{it.assets.slice(0, 2).join(", ")}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
+      </div>
+      {sel && <NewsDetail ev={sel} onClose={() => setSel(null)} />}
+    </div>
+  );
+}
+
+/* Event analysis — deterministic, educational (no fabricated price predictions). */
+type Dir = 1 | -1 | 0;
+function analyzeEvent(ev: IntelEvent): { category: string; what: string; inverted: boolean; ccyHot: Dir; goldRelevant: boolean } {
+  const h = ev.headline.toLowerCase();
+  const isUSD = ev.ccy === "USD";
+  let category = "Economic data";
+  let what = `A scheduled ${ev.ccy} release. Readings that beat or miss the forecast drive the near-term move; the bigger the surprise, the bigger the swing.`;
+  let inverted = false;
+  if (/unemployment/.test(h)) { category = "Employment"; what = "The share of the labor force out of work. A HIGHER-than-forecast reading is currency-negative (a softer labor market points to easier policy)."; inverted = true; }
+  else if (/payroll|non-?farm|employment change|\bnfp\b|\bjobs\b/.test(h)) { category = "Employment"; what = "Net new jobs. More jobs than forecast signals a strong economy and a firmer central bank — currency-positive."; }
+  else if (/cpi|pce|inflation|ppi|price index/.test(h)) { category = "Inflation"; what = "An inflation gauge. A hotter print pushes the central bank toward higher-for-longer rates — currency-positive, and a headwind for gold."; }
+  else if (/gdp|growth/.test(h)) { category = "Growth"; what = "Economic output. Stronger growth supports the currency and lifts rate expectations."; }
+  else if (/rate|fomc|interest|fed funds|cash rate|monetary|policy/.test(h)) { category = "Central bank"; what = "A policy / rate signal. A hawkish surprise (higher or held-high rates) lifts the currency and weighs on gold."; }
+  else if (/retail|consumer|spending|\bsales\b/.test(h)) { category = "Consumption"; what = "Consumer demand. Stronger spending is currency-supportive and mildly inflationary."; }
+  else if (/pmi|ism|manufactur|services|business|sentiment|confidence/.test(h)) { category = "Activity / sentiment"; what = "A business-activity survey. Above forecast signals expansion and currency strength."; }
+  const ccyHot: Dir = inverted ? -1 : 1; // currency direction on an ABOVE-forecast reading
+  return { category, what, inverted, ccyHot, goldRelevant: isUSD };
+}
+
+function DirArrow({ d }: { d: Dir }) {
+  if (d === 1) return <TrendingUp className="inline h-3.5 w-3.5" style={{ color: C.green }} />;
+  if (d === -1) return <TrendingDown className="inline h-3.5 w-3.5" style={{ color: C.red }} />;
+  return <Minus className="inline h-3.5 w-3.5" style={{ color: C.mut2 }} />;
+}
+
+function NewsDetail({ ev, onClose }: { ev: IntelEvent; onClose: () => void }) {
+  const [nowMs, setNowMs] = useState(Date.now());
+  useEffect(() => { const id = setInterval(() => setNowMs(Date.now()), 1000); return () => clearInterval(id); }, []);
+  const a = analyzeEvent(ev);
+  const future = ev.ts > nowMs;
+  const diffMin = Math.round(Math.abs(ev.ts - nowMs) / 60000);
+  const cd = diffMin >= 60 ? `${Math.floor(diffMin / 60)}h ${diffMin % 60}m` : `${diffMin}m`;
+  const countdown = future ? `in ${cd}` : `${cd} ago`;
+  const fullDate = (() => { try { return new Date(ev.ts).toLocaleString("en-US", { timeZone: "America/Chicago", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) + " CST"; } catch { return ev.time; } })();
+  const impColor = ev.impact === "HIGH" ? C.red : ev.impact === "MED" ? C.amber : C.mut2;
+  const pair = ev.assets.find((x) => /USD|EUR|GBP|JPY/.test(x) && x !== "USD") ?? ev.assets[0] ?? ev.ccy;
+
+  // scenario directions
+  const goldHot: Dir = a.goldRelevant ? ((a.ccyHot * -1) as Dir) : 0;
+  const flip = (d: Dir): Dir => ((d * -1) as Dir);
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: "rgba(4,7,11,0.72)" }} onClick={onClose}>
+      <div className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-2xl border shadow-2xl" style={{ borderColor: C.line, background: C.panel, color: C.text }} onClick={(e) => e.stopPropagation()}>
+        {/* header */}
+        <div className="flex items-start justify-between gap-3 border-b p-4" style={{ borderColor: C.line }}>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider" style={{ background: `${impColor}22`, color: impColor }}>{ev.impact} impact</span>
+              <span className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider" style={{ background: "rgba(255,255,255,0.06)", color: C.mut }}>{ev.ccy}</span>
+              <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: C.mut2 }}>{a.category}</span>
+            </div>
+            <h3 className="mt-1.5 text-lg font-black leading-tight">{ev.headline}</h3>
+          </div>
+          <button onClick={onClose} className="flex-shrink-0 rounded-lg p-1.5" style={{ color: C.mut }} aria-label="Close"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="space-y-4 p-4">
+          {/* when */}
+          <div className="flex items-center gap-3 rounded-xl border p-3" style={{ borderColor: C.lineSoft, background: C.raised }}>
+            <Clock className="h-5 w-5 flex-shrink-0" style={{ color: future ? C.cyan : C.mut2 }} />
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-bold">{fullDate}</p>
+              <p className="text-[11px]" style={{ color: C.mut }}>{ev.headline} · {ev.ccy}</p>
+            </div>
+            <div className="text-right">
+              <p className="font-mono text-base font-black tabular-nums" style={{ color: future ? C.cyan : C.mut2 }}>{countdown}</p>
+              <p className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: C.mut2 }}>{future ? "until release" : "since release"}</p>
+            </div>
+          </div>
+
+          {/* forecast / previous */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-xl border p-3" style={{ borderColor: C.lineSoft, background: C.raised }}>
+              <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: C.mut }}>Forecast</p>
+              <p className="font-mono text-lg font-black tabular-nums">{ev.forecast || "—"}</p>
+            </div>
+            <div className="rounded-xl border p-3" style={{ borderColor: C.lineSoft, background: C.raised }}>
+              <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: C.mut }}>Previous</p>
+              <p className="font-mono text-lg font-black tabular-nums">{ev.previous || "—"}</p>
+            </div>
+          </div>
+
+          {/* what it is */}
+          <div>
+            <p className="mb-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mut }}>What it is</p>
+            <p className="text-[13px] leading-relaxed" style={{ color: C.text }}>{a.what}</p>
+          </div>
+
+          {/* how it moves price */}
+          <div>
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mut }}>How it moves price</p>
+            <div className="overflow-hidden rounded-xl border" style={{ borderColor: C.lineSoft }}>
+              <div className="grid grid-cols-3 px-3 py-2 text-[9px] font-bold uppercase tracking-wider" style={{ background: C.raised, color: C.mut2 }}>
+                <span>Scenario</span><span className="text-center">{ev.ccy}</span><span className="text-right">Gold (XAUUSD)</span>
+              </div>
+              <div className="grid grid-cols-3 items-center border-t px-3 py-2.5 text-[12px]" style={{ borderColor: C.lineSoft }}>
+                <span className="font-semibold" style={{ color: C.green }}>Above forecast</span>
+                <span className="text-center"><DirArrow d={a.ccyHot} /></span>
+                <span className="text-right"><DirArrow d={goldHot} /> <span style={{ color: C.mut2 }}>{a.goldRelevant ? "" : "indirect"}</span></span>
+              </div>
+              <div className="grid grid-cols-3 items-center border-t px-3 py-2.5 text-[12px]" style={{ borderColor: C.lineSoft }}>
+                <span className="font-semibold" style={{ color: C.red }}>Below forecast</span>
+                <span className="text-center"><DirArrow d={flip(a.ccyHot)} /></span>
+                <span className="text-right"><DirArrow d={flip(goldHot)} /> <span style={{ color: C.mut2 }}>{a.goldRelevant ? "" : "indirect"}</span></span>
+              </div>
+            </div>
+            <p className="mt-2 text-[12px] leading-relaxed" style={{ color: C.mut }}>
+              {a.goldRelevant
+                ? `Gold trades inverse to the dollar: a stronger-than-forecast ${ev.ccy} print typically pressures XAUUSD lower, a weaker print supports it.`
+                : `This is a ${ev.ccy} release, so the direct move is in ${pair}. Gold reacts mainly to USD data — expect limited direct effect on XAUUSD here.`}
+            </p>
+          </div>
+
+          {/* GENX behavior */}
+          {ev.impact === "HIGH" && a.goldRelevant && (
+            <div className="flex items-start gap-2 rounded-xl border p-3" style={{ borderColor: "rgba(34,211,238,0.25)", background: "rgba(34,211,238,0.06)" }}>
+              <Zap className="mt-0.5 h-4 w-4 flex-shrink-0" style={{ color: C.cyan }} />
+              <p className="text-[12px] leading-relaxed" style={{ color: C.text }}>
+                <span className="font-bold" style={{ color: C.cyan }}>GENX around this release:</span> the desk holds new gold entries for ~15 minutes before and after this event to avoid the volatility spike (the falling-knife guard), then resumes once price settles.
+              </p>
+            </div>
+          )}
+
+          <p className="text-[10px] leading-relaxed" style={{ color: C.mut2 }}>Typical market reactions shown for education — actual moves depend on the surprise vs. forecast, positioning, and the wider tape. Not financial advice.</p>
+        </div>
       </div>
     </div>
   );
