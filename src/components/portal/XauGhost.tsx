@@ -25,6 +25,7 @@ type Read = Record<string, unknown> & {
   what_next?: string[]; desk_read?: string[]; reasoning?: string[]; risk_warnings?: string[]; instrument_note?: string;
   levels?: Record<string, number> | null; educational_disclaimer?: string;
   news_status?: string; news_warning?: string; news_check_currencies?: string[]; news_check_note?: string;
+  news?: { title: string; ccy: string; impact: string; when: string; forecast?: string; previous?: string; ts?: number }[];
   trigger?: { monitorTimeframe?: string; triggerType?: string; triggerLevel?: number | null; retestZoneLow?: number | null; retestZoneHigh?: number | null; invalidationLevel?: number | null; expirationCondition?: string; recheckInstruction?: string } | null;
   provisional_trade?: { direction?: string; entry?: { price: number; zone_low?: number; zone_high?: number }; stop_loss?: { price: number }; take_profits?: TP[]; risk_reward_tp1?: number; entry_status?: string } | null;
   setup_zone?: { direction?: string; setup_type?: string; zone_low?: number; zone_high?: number; zone_source?: string; setup_timeframe?: string; why?: string[]; what_price_must_do?: string[]; confirmation?: string; invalidation?: string; first_target?: number; second_target?: number | null; cancels?: string } | null;
@@ -140,6 +141,7 @@ function ReadyView({ res }: { res: Result }) {
       )}
       {s.stop_loss?.reason && <p className="mt-3 text-xs text-white/50"><span className="text-white/60">Invalidation:</span> {s.stop_loss.reason}</p>}
 
+      <GhostNews s={s} />
       <DeskRead s={s} />
       <SetupZone s={s} />
       <Proximity s={s} />
@@ -211,6 +213,7 @@ function InfoView({ res }: { res: Result }) {
       <SetupZone s={s} />
       <Proximity s={s} />
       <Alternative s={s} />
+      <GhostNews s={s} />
       <DeskRead s={s} />
       <NewsWarning s={s} />
 
@@ -276,6 +279,30 @@ function DeskRead({ s }: { s: Read }) {
     <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.02] p-3">
       <p className="text-[10px] font-bold uppercase tracking-wide text-white/40">Desk read</p>
       <ul className="mt-1 space-y-1 text-sm text-white/75">{r.map((w, i) => <li key={i}>{w}</li>)}</ul>
+    </div>
+  );
+}
+function GhostNews({ s }: { s: Read }) {
+  const items = s.news;
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const imminent = items.some((n) => String(n.impact) === "High" && /in \d+m$/.test(String(n.when)));
+  return (
+    <div className={`mt-3 rounded-xl border p-3 ${imminent ? "border-amber-400/30 bg-amber-400/[0.06]" : "border-white/10 bg-white/[0.02]"}`}>
+      <p className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${imminent ? "text-amber-300" : "text-white/40"}`}>
+        <AlertTriangle className="h-3.5 w-3.5" /> High-impact news {imminent ? "· imminent" : "· next 24h"}
+      </p>
+      <ul className="mt-1.5 space-y-1 text-xs text-white/75">
+        {items.map((n, i) => (
+          <li key={i} className="flex items-baseline justify-between gap-3">
+            <span>
+              <span className={`mr-1.5 rounded px-1 py-px text-[9px] font-bold uppercase ${String(n.impact) === "High" ? "bg-red-500/20 text-red-300" : "bg-amber-500/15 text-amber-200"}`}>{n.ccy}</span>
+              {n.title}
+              {n.forecast ? <span className="text-white/40"> · f/c {n.forecast}{n.previous ? `, prev ${n.previous}` : ""}</span> : null}
+            </span>
+            <span className={`whitespace-nowrap text-[11px] ${/in \d+m$/.test(String(n.when)) ? "font-semibold text-amber-300" : "text-white/45"}`}>{n.when}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
