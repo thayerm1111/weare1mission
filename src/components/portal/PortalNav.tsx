@@ -64,14 +64,15 @@ type FloorChild =
   | { kind: "view"; view: string; label: string; icon: typeof LineChart }
   | { kind: "page"; key: string };
 // The Floor experiences, in the flywheel order:
-// GENX (flagship) → OM AI (intelligence) → OM AI Plays (execution) →
-// Market Pulse (discovery). Live Plays moved to the Dashboard (surfaced there as
-// "Live Setups"). MFXGHOST and OM AI Market Command are hidden for now — routes
-// and components are kept intact so they can be switched back on later.
+// GENX (flagship) → MFXGHOST (deep single-instrument desk) → OM AI (intelligence) →
+// OM AI Plays (execution) → Market Pulse (discovery). Live Plays moved to the Dashboard
+// (surfaced there as "Live Setups"). OM AI Market Command is hidden for now — routes and
+// components are kept intact so it can be switched back on later.
 // Also archived from the customer Floor menu: The Room, xGhost (5-pair), OM
 // Scalp, OM Charts, OM Strategy Scanner.
 const FLOOR_CHILDREN: FloorChild[] = [
   { kind: "page", key: "genx" },
+  { kind: "page", key: "xaughost" },
   { kind: "page", key: "omai" },
   { kind: "page", key: "signals" },
   { kind: "view", view: "pulse", label: "Market Pulse", icon: Activity },
