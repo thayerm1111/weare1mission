@@ -15,7 +15,7 @@ export const maxDuration = 15;
  * unavailable it returns an empty list and the panel falls back to desk activity.
  */
 
-type IntelEvent = { time: string; ts: number; headline: string; impact: "HIGH" | "MED" | "LOW"; assets: string[]; when: string };
+type IntelEvent = { time: string; ts: number; headline: string; impact: "HIGH" | "MED" | "LOW"; assets: string[]; when: string; ccy: string; forecast: string; previous: string };
 
 let CACHE: { at: number; featured: IntelEvent | null; events: IntelEvent[] } | null = null;
 const TTL_MS = 5 * 60_000;
@@ -73,6 +73,7 @@ export async function GET() {
       .map((e) => ({
         time: timeLabel(e.ts), ts: e.ts, headline: e.title,
         impact: impactTag(e.impact), assets: assetsFor(e.country), when: whenLabel(e.ts, now),
+        ccy: String(e.country || "").toUpperCase(), forecast: String(e.forecast || ""), previous: String(e.previous || ""),
       }))
       .filter((e) => e.impact === "HIGH" || e.impact === "MED");
 
