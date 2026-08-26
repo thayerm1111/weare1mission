@@ -33,25 +33,20 @@ function decideGoldEntry(o: {
   const zHi = Math.max(Number(o.entryLow), Number(o.entryHigh));
   const buf = Number.isFinite(zHi - zLo) ? Math.max(0.2, (zHi - zLo) * 0.15) : 0.2;
   const inZone = o.lp != null && Number.isFinite(zLo) && o.lp >= zLo - buf && o.lp <= zHi + buf;
+  // ONLY fill at market when price is IN the called zone or still offers a full ≥1:1 — i.e. a
+  // GOOD price. We do NOT market-chase a sell down below the zone (or a buy up above it): on a
+  // fast move that just fills "way too low" for a poor R:R. Getting the trade IN at the CALLED
+  // price when it runs away is the job of the resting limit order at the zone, not a chase.
   const goodFill = inZone || (rr != null && rr >= 1.0);
   const okFill = rr != null && rr >= GOLD_ENTRY_FLOOR_RR;
-  // Which way is the trade? sell → TP below stop; buy → TP above stop.
-  const isSell = o.tp1 != null && o.stop != null ? o.tp1 < o.stop : false;
-  // Price has broken PAST the zone in the trade's FAVOR (already moving toward target):
-  //   sell → price below the zone;  buy → price above the zone.
-  const favorBeyond = o.lp != null && Number.isFinite(zLo)
-    ? (isSell ? o.lp < zLo - buf : o.lp > zHi + buf)
-    : false;
   const elapsed = o.nowMs - o.armedAtMs;
   if (!o.armed) {
     if (o.confState !== "CONFIRMED") return { do: "wait", reason: "pending:" + o.confState };
     if (goodFill) return { do: "enter", reason: "confirmed_full_rr" };       // fast full-1:1 / in-zone fill
-    if (favorBeyond && okFill) return { do: "enter", reason: "confirmed_momentum" }; // moving our way, ≥floor → take it now
-    return { do: "arm", reason: "chased_arm" };                              // ran past the floor → wait for the pull-back
+    return { do: "arm", reason: "chased_arm" };                              // ran past the zone → wait / rest a limit at the zone
   }
   // armed: watch price directly (not a fresh confirmation) for the pull-back into the zone
   if (goodFill) return { do: "enter", reason: "pullback_to_zone" };
-  if (favorBeyond && okFill) return { do: "enter", reason: "momentum_min_rr" }; // still moving our way, ≥floor → take it, don't keep waiting
   if (elapsed > GOLD_WORSTCASE_MS && okFill) return { do: "enter", reason: "worstcase_min_rr" };
   if (elapsed > GOLD_ARM_MAX_MS) return { do: "invalidate", reason: "arm_expired" };
   return { do: "wait", reason: "armed_waiting" };
