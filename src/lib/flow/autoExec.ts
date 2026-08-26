@@ -670,11 +670,14 @@ const GOLD_CLAIM_SEC = 90;
 // time the fill lands, the reward:risk collapses (e.g. filled ~4666 on a 4655 signal: +2 to
 // TP, −14 to SL ≈ 0.15 R:R). We reject any such entry desk-wide.
 //
-// Set to 1.0 = STRICTLY 1:1. A trade enters only when the target is AT LEAST as far as the
-// stop — the profit must never be smaller than the risk. 1:1 is allowed (that's fine); a
-// stop bigger than the target is rejected. Combined with sizing off the live entry (below),
-// the dollar risk is also capped at the member's risk %, so a 1:1 trade risks ~1% to make ~1%.
-const GOLD_MIN_PLACEMENT_RR = 1.0;
+// Set to 0.5 = the desk will take a chased fill down to 0.5:1 (risking ~2 to make ~1) rather
+// than MISS the trade — the owner's directive: "it can take from time to time a 1 to .5, that's
+// fine … worst case it can take that 1 to .5." The scanner PREFERS a full 1:1: it holds a
+// chased entry (R:R below this floor) as 'forming' for a short retrace window and fills the
+// moment price traces back to a takeable R:R (see GOLD_RETRY_WINDOW_MS in the scanner); only a
+// truly blown-out fill (still under 0.5 after the window) is skipped. Combined with sizing off
+// the live entry, the dollar risk is still capped at the member's risk %.
+const GOLD_MIN_PLACEMENT_RR = 0.5;
 
 /** Does a recorded GENX/FLOW gold position still count as OPEN for the "max one" cap? TRUE
  *  only when the broker's live open set actually contains one of this account's ledger gold
