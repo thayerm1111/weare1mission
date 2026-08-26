@@ -947,7 +947,7 @@ input{font:inherit}
       riskReward: r.riskReward || (r.rr_tp1 != null ? "1:" + r.rr_tp1 : null),
       reasoning: arr(r.desk_read).concat(arr(r.reasoning)).concat(r.reason ? [r.reason] : []),
       whatNext: arr(r.what_next), setupZone: sz, proximity: r.proximity,
-      newsWarning: r.news_warning, newsCurrencies: r.news_check_currencies,
+      newsWarning: r.news_warning, newsCurrencies: r.news_check_currencies, news: arr(r.news),
       candles: candlesFrom(r.candles), mtf: mtfFrom(r.mtf),
       levels: buildLevels(lv, sz), timeframe: "15 MIN",
       extras: { regime: r.market_regime || r.regime, bias: r.current_bias || r.bias, session: r.session },
@@ -1460,6 +1460,8 @@ input{font:inherit}
       ${m.scouts && m.scouts.length ? html`<${Section} title=${"Strategies used · " + m.scouts.filter(function (s) { return s.fired; }).length + "/" + m.scouts.length + " fired"} open=${true}>
         <ul class="scouts">${m.scouts.map(function (s) { return html`<li class=${"scout " + (s.fired ? "fired" : "quiet")}><span class=${"sdot " + (s.dir === "LONG" ? "long" : s.dir === "SHORT" ? "short" : "flat")}></span><span class="sname">${s.label}</span><span class="sread">${s.read}</span></li>`; })}</ul>
       <//>` : null}
+
+      ${m.news && m.news.length ? html`<div class="news"><b>◆ High-impact news · next 24h</b><ul style="margin:7px 0 0;padding:0;list-style:none">${m.news.map(function (n) { return html`<li style="display:flex;justify-content:space-between;gap:10px;margin-top:4px"><span><b>${n.ccy}</b> ${n.title}${n.forecast ? html`<span style="opacity:.6"> · f/c ${n.forecast}</span>` : null}</span><span style=${"white-space:nowrap;font-weight:700;" + (/in \d+m$/.test(String(n.when)) ? "color:var(--amber)" : "opacity:.65")}>${n.when}</span></li>`; })}</ul></div>` : null}
 
       ${m.newsWarning ? html`<div class="news"><b>⚠ Check the calendar.</b> ${m.newsWarning}${m.newsCurrencies && m.newsCurrencies.length ? " (" + m.newsCurrencies.join(", ") + ")" : ""}</div>` : null}
 
