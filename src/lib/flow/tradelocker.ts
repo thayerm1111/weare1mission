@@ -330,6 +330,30 @@ export async function closePosition(env: TLEnv, accessToken: string, accNum: str
   return { ok: true, data: true };
 }
 
+/**
+ * DELETE /trade/orders/{orderId} — cancel a WORKING (pending) order, e.g. a resting
+ * limit that hasn't filled yet. This is the counterpart to createOrder(type:"limit")
+ * and is REQUIRED to run resting entries safely: a setup that invalidates must be able
+ * to pull its unfilled order so it can't fill later at a dead level. Same HTTP-200-with
+ * -s:"error" rejection handling as the other mutators — a broker "error" is NOT a
+ * success. A not-found (order already filled/cancelled) is treated as ok (nothing to
+ * cancel) so the reconciler is idempotent.
+ */
+export async function cancelOrder(env: TLEnv, accessToken: string, accNum: string, orderId: string): Promise<TLResult<true>> {
+  const { status, json, text } = await tlFetch(env, `/trade/orders/${encodeURIComponent(orderId)}`, { method: "DELETE", accessToken, accNum });
+  // 404/410 → the order is already gone (filled or cancelled). Nothing to do → success.
+  if (status === 404 || status === 410) return { ok: true, data: true };
+  if (status < 200 || status >= 300) return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+  const sVal = String(pick(json, "s") ?? "").toLowerCase();
+  if (sVal === "error" || sVal === "fail" || sVal === "rejected") {
+    // "order not found / not working" from the broker also means it's already gone → ok.
+    const msg = String(pick(json, "errmsg", "message", "error") ?? "").toLowerCase();
+    if (/not found|no such|already|not working|unknown order/.test(msg)) return { ok: true, data: true };
+    return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+  }
+  return { ok: true, data: true };
+}
+
 // ── helpers ──
 function numOr(v: unknown): number | undefined { const n = typeof v === "string" ? parseFloat(v) : (v as number); return typeof n === "number" && Number.isFinite(n) ? n : undefined; }
 function strOr(v: unknown): string | undefined { return v == null ? undefined : String(v); }

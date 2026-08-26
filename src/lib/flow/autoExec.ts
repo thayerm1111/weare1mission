@@ -881,6 +881,25 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell"): Promise<{ hold
   return { hold: true, reason: `Pausing ${dir} gold: ${sig.count} ${dir} signal losses AND a real ${side} trade hit its stop, and the market isn't confirming ${dir}${momTxt}. Will resume on a ${side === "sell" ? "buy" : "sell"} setup, a win, or after the cooldown.` };
 }
 
+/**
+ * RESTING-LIMIT ENTRY PRICE — where to sit a limit order so it fills at the CALLED zone
+ * instead of chasing to a bad market price. We rest at the zone edge CLOSEST to where price
+ * currently is, so it fills the moment price returns to the zone (max fill-probability while
+ * still an in-zone, full-R:R price):
+ *   • sell  → the LOWER edge (a sell-limit fills at its price or higher → fills as price rises back up)
+ *   • buy   → the UPPER edge (a buy-limit fills at its price or lower  → fills as price dips back down)
+ * Pure + unit-tested. Returns null if the zone is unusable.
+ */
+export function genxLimitPrice(side: "buy" | "sell", entryLow: number | null, entryHigh: number | null): number | null {
+  const num = (v: number | null): number => (v == null ? NaN : Number(v)); // Number(null)===0, so guard nulls first
+  const lo = num(entryLow), hi = num(entryHigh);
+  const loOk = Number.isFinite(lo), hiOk = Number.isFinite(hi);
+  if (!loOk && !hiOk) return null;
+  const a = loOk ? lo : hi, b = hiOk ? hi : lo;
+  const zLo = Math.min(a, b), zHi = Math.max(a, b);
+  return side === "sell" ? zLo : zHi;
+}
+
 export type GoldRoute = "copy" | "follower" | "none";
 /**
  * THE single routing rule for a gold signal, so the two placement paths can never
