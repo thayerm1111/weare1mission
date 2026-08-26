@@ -354,6 +354,79 @@ export function reconcileClosedTrade(
   return { exitPrice: close.price != null && close.price > 0 ? close.price : null, reason };
 }
 
+// ── GOLD "CHOP / LEFT-MONEY-ON-THE-TABLE" REGIME ──────────────────────────────
+// The reality the owner flagged: in chop, a gold trade often runs 15-30 pips into
+// profit and then reverses. With the 35-pip break-even trigger, that green move never
+// locks anything in — the stop never moves, price returns, and the trade takes the FULL
+// stop. So a directionally-correct entry books as a real loss even though there was
+// profit to take. When we SEE that pattern repeating on a side (recent trades that went
+// green but ended flat/lost, and NO clean target win among them), we shift that side into
+// "bank-early" mode: take the normal partial EARLY — at roughly the distance those trades
+// were actually reaching — and pull break-even up to the same point, so the runner is
+// protected at entry instead of giving the whole move back. Self-resets the moment a full
+// target hits (that clears the regime — the full TP is reachable again).
+const GOLD_CHOP_LOOKBACK_MS = 8 * 60 * 60 * 1000; // recent trades window
+const GOLD_CHOP_WINDOW = 4;          // among the last N distinct trades on the side
+const GOLD_CHOP_MIN_HITS = 2;        // ≥ this many "went green then didn't hold it"
+const GOLD_CHOP_MIN_GREEN_PIPS = 15; // "there was profit to take" bar (best excursion)
+const GOLD_EARLY_PARTIAL_MIN = 12;   // clamp for the early bank point (pips)
+const GOLD_EARLY_PARTIAL_MAX = 22;
+const GOLD_CHOP_SYMS = ["XAUUSD", "GOLD"];
+
+export type ChopSide = { active: boolean; earlyPips: number };
+/** Pure regime test on a side's recent DISTINCT trades. Exported for unit testing. */
+export function computeChopSide(reps: { fav: number; outcome: string }[]): ChopSide {
+  if (reps.length < GOLD_CHOP_MIN_HITS) return { active: false, earlyPips: 0 };
+  const window = reps.slice(0, GOLD_CHOP_WINDOW);
+  const cleanWin = window.some((x) => x.outcome === "target"); // full TP reachable → don't shrink
+  const leftMoney = window.filter((x) => (x.outcome === "stop" || x.outcome === "breakeven") && x.fav >= GOLD_CHOP_MIN_GREEN_PIPS);
+  if (cleanWin || leftMoney.length < GOLD_CHOP_MIN_HITS) return { active: false, earlyPips: 0 };
+  const avgFav = leftMoney.reduce((s, x) => s + x.fav, 0) / leftMoney.length;
+  // Bank at ~60% of how far they were actually reaching, clamped — comfortably BEFORE the
+  // typical reversal point, and always below the 35-pip BE trigger so it fires first.
+  const earlyPips = Math.min(GOLD_EARLY_PARTIAL_MAX, Math.max(GOLD_EARLY_PARTIAL_MIN, Math.round(avgFav * 0.6)));
+  return { active: true, earlyPips };
+}
+
+/** Per-side gold chop regime from the ledger. Fan-out legs are collapsed by resolve-minute
+ *  + entry so one signal counts once. Fails to an empty (all-off) map on any read error. */
+async function goldChopRegime(admin: Admin): Promise<Map<"buy" | "sell", ChopSide>> {
+  const out = new Map<"buy" | "sell", ChopSide>();
+  try {
+    const pip = getInstrument("XAUUSD").pipSize || 0.1;
+    const sinceIso = new Date(Date.now() - GOLD_CHOP_LOOKBACK_MS).toISOString();
+    const { data } = await admin
+      .from("flow_managed_positions")
+      .select("side, entry, best_price, outcome, resolved_at")
+      .in("symbol", GOLD_CHOP_SYMS)
+      .eq("status", "closed")
+      .not("outcome", "is", null)
+      .gte("resolved_at", sinceIso)
+      .order("resolved_at", { ascending: false })
+      .limit(80);
+    const rows = (data ?? []) as { side: string; entry: number | null; best_price: number | null; outcome: string; resolved_at: string | null }[];
+    for (const side of ["buy", "sell"] as const) {
+      const seen = new Set<string>();
+      const reps: { fav: number; outcome: string }[] = [];
+      for (const r of rows) {
+        if (r.side !== side) continue;
+        const minute = r.resolved_at ? new Date(r.resolved_at).toISOString().slice(0, 16) : "";
+        const key = `${minute}|${r.entry != null ? Math.round(r.entry) : ""}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const long = side === "buy";
+        const fav = (r.entry != null && r.best_price != null)
+          ? Math.max(0, Math.round((long ? r.best_price - r.entry : r.entry - r.best_price) / pip))
+          : 0;
+        reps.push({ fav, outcome: r.outcome });
+        if (reps.length >= GOLD_CHOP_WINDOW) break;
+      }
+      out.set(side, computeChopSide(reps));
+    }
+  } catch { /* read error → empty map = regime off everywhere */ }
+  return out;
+}
+
 /**
  * Manage every OPEN position FLOW is tracking, per THE RULES in the file header.
  * Safe to call blind — if the tracking table doesn't exist yet, it no-ops.
@@ -399,6 +472,13 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       }
     }
   } catch { /* column missing / read blip → treat all as managed */ }
+
+  // GOLD CHOP REGIME per side, computed ONCE for this tick (not per-position). When a side is
+  // in "bank-early" mode, gold trades on that side take their partial early and move to
+  // break-even early — so a 15-30 pip green run that keeps reversing books SOME profit instead
+  // of giving the whole move back to the stop. Empty map when nothing qualifies.
+  let goldChop = new Map<"buy" | "sell", ChopSide>();
+  try { goldChop = await goldChopRegime(admin); } catch { /* regime off on read error */ }
 
   const tokenCache = new Map<string, { token: string; env: TLEnv } | null>();
   const colCache = new Map<string, { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number }>();
@@ -659,9 +739,19 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // no-TP trade sane. Partial always uses the halfway-to-target point (1:2+ only).
       // Gold uses a break-even-pips trigger: the account's own override if set, else the gold
       // default — so every gold trade protects early, not only accounts with a custom value.
-      const goldPips = contractKey(row.symbol) === "XAUUSD"
+      // GOLD CHOP "bank-early" mode for THIS side (computed once above). When active, gold
+      // trades on this side pull BOTH the partial and break-even in to ~earlyPips, so the
+      // 15-30 pip move that keeps reversing is banked + protected instead of round-tripping.
+      const chop = contractKey(row.symbol) === "XAUUSD" ? goldChop.get(row.side as "buy" | "sell") : undefined;
+      const chopOn = !!(chop && chop.active && chop.earlyPips > 0);
+
+      const goldPipsBase = contractKey(row.symbol) === "XAUUSD"
         ? (goldBePips.get(String(row.account_id)) ?? DEFAULT_GOLD_BE_PIPS)
         : undefined;
+      // In chop mode, move break-even in to the early point (never later than the base trigger).
+      const goldPips = chopOn
+        ? Math.min(goldPipsBase ?? DEFAULT_GOLD_BE_PIPS, chop!.earlyPips)
+        : goldPipsBase;
       const beByPips = typeof goldPips === "number" && goldPips > 0
         ? (long ? entry + goldPips * pip : entry - goldPips * pip)
         : null;
@@ -671,7 +761,14 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       const beCandidates = [beByPips, halfway, long ? entry + R : entry - R].filter((x): x is number => x != null);
       let beTriggerPx = long ? Math.min(...beCandidates) : Math.max(...beCandidates);
       beTriggerPx = long ? Math.max(beTriggerPx, beFloor) : Math.min(beTriggerPx, beFloor);
-      const partialTriggerPx = halfway;
+      // Early bank point in chop mode (pips from entry). Normal partial is the halfway point.
+      const earlyPartialPx = chopOn ? (long ? entry + chop!.earlyPips * pip : entry - chop!.earlyPips * pip) : null;
+      // Effective partial trigger = the CLOSER of {halfway, early} when chop is on; else halfway.
+      const partialTriggerPx = earlyPartialPx != null
+        ? (halfway != null ? (long ? Math.min(halfway, earlyPartialPx) : Math.max(halfway, earlyPartialPx)) : earlyPartialPx)
+        : halfway;
+      // Chop mode qualifies a partial even on a ~1:1 setup (which normally banks nothing).
+      const partialAllowed = isDouble || chopOn;
 
       // Compare against BEST (the furthest the trade has EVER reached), not this tick's momentary
       // favRaw — otherwise a move that hit the trigger and ticked back before the once-a-minute
@@ -707,9 +804,12 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         else { update.last_error = `be_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_err", detail: mv.error.slice(0, 60) }); }
       }
 
-      // ── STEP 2: PARTIAL — 1:2 or wider only, bank PARTIAL_FRACTION (25%) at the halfway-to-
-      //    target point. Gated on the same in-profit guard, so it can only ever bank a WIN. ──
-      if (manageOn && isDouble && !row.partial_done && favReachedPartial && inProfit && priceInProfit) {
+      // ── STEP 2: PARTIAL — bank PARTIAL_FRACTION (25%) and let the runner run. Normally 1:2+
+      //    only, at the halfway-to-target point. In GOLD chop mode it ALSO fires on ~1:1 setups,
+      //    early (~earlyPips), so a repeatedly-reversing green run banks some profit instead of
+      //    round-tripping to the stop. Gated on the same in-profit guard → only ever banks a WIN.
+      const chopPartial = chopOn && !isDouble; // a partial we take ONLY because of chop mode
+      if (manageOn && partialAllowed && !row.partial_done && favReachedPartial && inProfit && priceInProfit) {
         const part = normalizeQuantity(contractKey(row.symbol), row.qty * PARTIAL_FRACTION, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity });
         if (part.ok && part.qty > 0 && part.qty < row.qty) {
           const cl = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, part.qty);
@@ -723,15 +823,15 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
               if (remaining != null && remaining > 0 && remaining <= row.qty - part.qty * 0.5) {
                 const closedAmt = +(row.qty - remaining).toFixed(2);
                 update.partial_done = true; update.qty = +remaining.toFixed(6); row.qty = remaining; didAction = true;
-                actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `−${closedAmt}→${remaining} @${(rr).toFixed(1)}R ✓` });
-                await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "partial", reason: "broker_confirmed", qty: closedAmt, detail: { remaining, rr: +rr.toFixed(2) } });
+                actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `−${closedAmt}→${remaining} ${chopPartial ? `@${chop!.earlyPips}p chop-early` : `@${(rr).toFixed(1)}R`} ✓` });
+                await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "partial", reason: chopPartial ? "chop_early_bank" : "broker_confirmed", qty: closedAmt, detail: { remaining, rr: +rr.toFixed(2), chop: chopPartial ? chop!.earlyPips : undefined } });
               } else {
                 update.last_error = `partial_unconfirmed`; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_unconfirmed", detail: "retry next tick" });
               }
             } else {
               // Broker doesn't expose qty → pre-existing computed-remainder behavior.
               update.partial_done = true; update.qty = +(row.qty - part.qty).toFixed(6); didAction = true;
-              actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `−${part.qty} @${(rr).toFixed(1)}R` });
+              actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `−${part.qty} ${chopPartial ? `@${chop!.earlyPips}p chop-early` : `@${(rr).toFixed(1)}R`}` });
             }
           }
           else { update.last_error = `partial_err: ${cl.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_err", detail: cl.error.slice(0, 60) }); }
