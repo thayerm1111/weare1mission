@@ -795,26 +795,36 @@ async function goldSignalLossStreak(admin: Admin, side: "buy" | "sell", streak: 
   return { hit: withinCooldown, count: run };
 }
 
-/** LAYER 2 — a REAL account trade on this side actually lost. Reads flow_managed_positions
- *  (engine-placed gold only), this side, broker-CONFIRMED closed with outcome 'stop' (the one
- *  losing outcome), resolved inside the cooldown window. This is the owner's required second
- *  layer: the signal-loss math alone won't pause a side unless a live trade really lost. */
+// A "loss" smaller than this (in pips) is a BREAK-EVEN scratch — the broker still labels a
+// stop-order exit "Stop loss" even when the stop was at entry and the trade only gave back
+// slippage + fees. That is NOT a real losing trade and must not feed the halt.
+const GOLD_REAL_LOSS_MIN_PIPS = 5;
+
+/** LAYER 2 — a REAL account trade on this side actually LOST money. Reads flow_managed_positions
+ *  (engine-placed gold only), this side, closed inside the cooldown window. A row counts as a
+ *  real loss ONLY when BOTH: (a) NO partial was banked — a banked partial means the trade already
+ *  took profit on the way (owner's case: partials + a break-even runner = a WIN), and (b) the net
+ *  result is a MEANINGFUL loss, not a slippage/fee-sized break-even scratch that the broker still
+ *  tags "Stop loss". So a scratch, a trailing-stop win, or a partial-and-scratch never pauses a
+ *  side — only a genuine stop-out does. */
 async function goldRealLossOnSide(admin: Admin, side: "buy" | "sell"): Promise<{ lost: boolean; whenMs: number }> {
   try {
     const sinceIso = new Date(Date.now() - GOLD_LOSS_COOLDOWN_MS).toISOString();
     const { data } = await admin
       .from("flow_managed_positions")
-      .select("resolved_at")
+      .select("resolved_at, result_pips, partial_taken, outcome")
       .in("symbol", GOLD_SYMS)
       .eq("side", side)
       .eq("status", "closed")
       .eq("outcome", "stop")
       .gte("resolved_at", sinceIso)
       .order("resolved_at", { ascending: false })
-      .limit(1);
-    const rows = (data ?? []) as { resolved_at: string | null }[];
-    if (!rows.length) return { lost: false, whenMs: 0 };
-    return { lost: true, whenMs: rows[0].resolved_at ? new Date(rows[0].resolved_at).getTime() : Date.now() };
+      .limit(20);
+    const rows = (data ?? []) as { resolved_at: string | null; result_pips: number | null; partial_taken: boolean | null }[];
+    // Newest genuine stop-out that lost real money (no partial banked + a meaningful negative result).
+    const real = rows.find((r) => !r.partial_taken && Number(r.result_pips) <= -GOLD_REAL_LOSS_MIN_PIPS);
+    if (!real) return { lost: false, whenMs: 0 };
+    return { lost: true, whenMs: real.resolved_at ? new Date(real.resolved_at).getTime() : Date.now() };
   } catch {
     return { lost: false, whenMs: 0 }; // read error → treat as "no real loss" (don't halt on layer 2)
   }
@@ -878,7 +888,7 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell"): Promise<{ hold
 
   const dir = side === "sell" ? "SELL" : "BUY";
   const momTxt = mom === "up" ? " (market rising)" : mom === "down" ? " (market falling)" : mom === "flat" ? " (market flat)" : "";
-  return { hold: true, reason: `Pausing ${dir} gold: ${sig.count} ${dir} signal losses AND a real ${side} trade hit its stop, and the market isn't confirming ${dir}${momTxt}. Will resume on a ${side === "sell" ? "buy" : "sell"} setup, a win, or after the cooldown.` };
+  return { hold: true, reason: `Pausing ${dir} gold: ${sig.count} ${dir} signal losses AND a real ${side} trade that LOST money (a genuine stop-out, not a break-even scratch or a partial-and-win), and the market isn't confirming ${dir}${momTxt}. Will resume on a ${side === "sell" ? "buy" : "sell"} setup, a win, or after the cooldown.` };
 }
 
 /**
