@@ -3,6 +3,33 @@ import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
 import { series, livePrice, isPriorityEmail, livePriceSane } from "@/lib/marketData";
 import { runEngine, type EngineCfg, type Row } from "@/lib/omEngine";
+import { fetchCalendar, symbolCurrencies } from "@/lib/news/calendar";
+
+// Economic-calendar news for MFX GHOST: the HIGH/Medium-impact events for THIS
+// instrument's currencies, from ~2h ago (a just-released print still matters) to the
+// next 24h. `when` is human-relative ("in 35m", "20m ago"). Best-effort — returns [] on
+// any feed issue so the desk read still renders.
+type GhostNews = { title: string; ccy: string; impact: string; ts: number; when: string; forecast: string; previous: string };
+async function ghostNews(td: string): Promise<GhostNews[]> {
+  try {
+    const ccys = symbolCurrencies(td);
+    const events = await fetchCalendar();
+    const now = Date.now();
+    const from = now - 2 * 60 * 60 * 1000;   // include a release from the last 2h
+    const to = now + 24 * 60 * 60 * 1000;    // and everything scheduled in the next 24h
+    return events
+      .filter((e) => e.impact === "High" || e.impact === "Medium")
+      .filter((e) => ccys.includes(e.country))
+      .filter((e) => e.ts >= from && e.ts <= to)
+      .sort((a, b) => a.ts - b.ts)
+      .slice(0, 6)
+      .map((e) => {
+        const mins = Math.round((e.ts - now) / 60000);
+        const when = mins <= 0 ? (mins > -120 ? `${-mins}m ago` : "earlier") : mins < 60 ? `in ${mins}m` : `in ${Math.round(mins / 60)}h`;
+        return { title: e.title, ccy: e.country, impact: e.impact, ts: e.ts, when, forecast: e.forecast, previous: e.previous };
+      });
+  } catch { return []; }
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -99,6 +126,10 @@ export async function POST(req: NextRequest) {
   const read = runEngine(cfg, { d1: arr(d1), h4: arr(h4), h1: arr(h1), m30: arr(m30), m15: arr(m15), m5: arr(m5), price, nowMs, session });
   read.instrument_note = cfg.personality;
 
+  // ── News: the real economic calendar for this instrument's currencies ──
+  const news = await ghostNews(TD);
+  (read as Record<string, unknown>).news = news;
+
   // Charge only when we actually deliver something actionable (a trade or a
   // developing setup with a trigger). Watchlist / no-trade / data errors are free.
   const chargeable = read.state === "TRADE_READY" || read.state === "DEVELOPING_SETUP";
@@ -107,7 +138,10 @@ export async function POST(req: NextRequest) {
   // ── Layer 2: the AI writes the DESK NARRATIVE only (numbers are locked) ──
   if (aiKey && read.state !== "INSUFFICIENT_DATA" && read.state !== "DATA_UNAVAILABLE") {
     try {
-      const sys = `You are MFX GHOST's desk-narration layer for ${cfg.label}. You are given a FINAL, LOCKED analysis object that a deterministic engine already produced. Your ONLY job is to write a short institutional "desk read". You MUST NOT change, recompute, or invent any number, level, direction, score or state. Do NOT add price levels that aren't in the JSON. You have NO news feed — never claim to have checked news or that it is "clear". Instrument character: ${cfg.personality}. Return ONLY a JSON array of 3-5 short plain-English sentences (no markdown) covering: the regime + why this strategy fits, what price is doing / where liquidity sits, and — if not TRADE READY — what must happen at the setup zone. Educational only.`;
+      const newsLine = news.length
+        ? `NEWS FEED (a REAL economic calendar for ${cfg.label}'s currencies — you MAY reference it, but never invent an event not in this list): ${news.map((n) => `${n.impact}-impact ${n.ccy} "${n.title}" ${n.when}${n.forecast ? ` (forecast ${n.forecast}, prev ${n.previous})` : ""}`).join("; ")}. If a HIGH-impact event is imminent (within ~1h) or just released, call it out and note it can whip the setup; otherwise you may note the calendar looks clear near-term.`
+        : `You have NO news for this instrument right now — do NOT claim to have checked news or that it is "clear".`;
+      const sys = `You are MFX GHOST's desk-narration layer for ${cfg.label}. You are given a FINAL, LOCKED analysis object that a deterministic engine already produced. Your ONLY job is to write a short institutional "desk read". You MUST NOT change, recompute, or invent any number, level, direction, score or state. Do NOT add price levels that aren't in the JSON. ${newsLine} Instrument character: ${cfg.personality}. Return ONLY a JSON array of 3-5 short plain-English sentences (no markdown) covering: the regime + why this strategy fits, what price is doing / where liquidity sits, any imminent high-impact news, and — if not TRADE READY — what must happen at the setup zone. Educational only.`;
       const r = await fetch(ANTHROPIC_URL, {
         method: "POST", headers: { "content-type": "application/json", "x-api-key": aiKey, "anthropic-version": "2023-06-01" },
         body: JSON.stringify({ model: MODEL, max_tokens: 500, system: sys, messages: [{ role: "user", content: `LOCKED ANALYSIS JSON:\n${JSON.stringify(read)}\n\nReturn the JSON array of desk-read sentences now.` }] }),
