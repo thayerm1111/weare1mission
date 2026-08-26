@@ -37,7 +37,8 @@ type Setup = {
   stop: number | null; tp1: number | null; tp2: number | null; tp3: number | null;
   breakLevel: number | null; readiness: number; createdAt: string;
 };
-type SetupPayload = { setup: Setup | null; candles: Candle[]; price: number | null; session: string; conditions: { label: string; met: boolean }[]; statusText: string };
+type Metrics = { toEntry: number | null; risk: number | null; reward: number | null; rr: number | null };
+type SetupPayload = { setup: Setup | null; candles: Candle[]; price: number | null; session: string; conditions: { label: string; met: boolean }[]; statusText: string; phase?: string; guidance?: string; metrics?: Metrics | null };
 type IntelEvent = { time: string; ts: number; headline: string; impact: "HIGH" | "MED" | "LOW"; assets: string[]; when: string };
 type IntelPayload = { featured: IntelEvent | null; events: IntelEvent[] };
 
@@ -283,18 +284,28 @@ function Donut({ pct, color }: { pct: number; color: string }) {
   );
 }
 
-/* ── SETUP FORMING (live GENX gold + candlestick chart) ── */
+/* ── SETUP FORMING (live GENX gold — guidance-first chart) ── */
+const PHASE_META: Record<string, { label: string; color: string }> = {
+  in_trade: { label: "In Trade", color: C.green },
+  in_zone: { label: "At Zone · Arming", color: C.amber },
+  await_pullback: { label: "Waiting for Pullback", color: C.cyan },
+  reclaim: { label: "Needs Reclaim", color: C.amber },
+  scanning: { label: "Scanning", color: C.mut2 },
+};
 function SetupForming({ data, onExpand }: { data: SetupPayload | null; onExpand: () => void }) {
   const setup = data?.setup ?? null;
   const candles = data?.candles ?? [];
   const price = data?.price ?? (candles.length ? candles[candles.length - 1].c : null);
   const buy = setup?.side !== "sell";
+  const metrics = data?.metrics ?? null;
+  const phase = data?.phase ?? "scanning";
+  const pm = PHASE_META[phase] ?? PHASE_META.scanning;
   const TFS = ["1m", "5m", "15m", "1h", "4h", "1D"];
 
   return (
     <div>
       <div className="flex items-center justify-between border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
-        <p className="inline-flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider"><Zap className="h-3.5 w-3.5" style={{ color: C.cyan }} /> Setup Forming</p>
+        <p className="inline-flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider"><Zap className="h-3.5 w-3.5" style={{ color: C.cyan }} /> Gold Setup · XAUUSD</p>
         <div className="flex items-center gap-1">
           {TFS.map((t) => (
             <span key={t} className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={t === "15m" ? { background: "rgba(34,211,238,0.14)", color: C.cyan } : { color: C.mut2 }}>{t}</span>
@@ -302,118 +313,212 @@ function SetupForming({ data, onExpand }: { data: SetupPayload | null; onExpand:
           <button onClick={onExpand} className="ml-1 rounded p-1" style={{ color: C.mut2 }} aria-label="Expand"><Maximize2 className="h-3.5 w-3.5" /></button>
         </div>
       </div>
-      <div className="flex flex-col md:flex-row">
+
+      {/* GUIDANCE BANNER — the plain-English "what has to happen to enter" */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b px-3.5 py-2.5" style={{ borderColor: C.line, background: `linear-gradient(90deg, ${pm.color}12, transparent 60%)` }}>
+        <span className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ background: `${pm.color}22`, color: pm.color }}>
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: pm.color, boxShadow: `0 0 6px ${pm.color}` }} />{pm.label}
+        </span>
+        <p className="min-w-0 flex-1 text-[12.5px] font-medium leading-snug" style={{ color: C.text }}>{data?.guidance ?? "Loading the live gold read…"}</p>
+        {metrics && (
+          <div className="flex flex-shrink-0 items-center gap-3">
+            {metrics.toEntry != null && metrics.toEntry > 0 && <Metric label="To entry" value={`${metrics.toEntry}p`} color={C.cyan} />}
+            {metrics.risk != null && <Metric label="Risk" value={`${metrics.risk}p`} color={C.red} />}
+            {metrics.reward != null && <Metric label="Reward" value={`${metrics.reward}p`} color={C.green} />}
+            {metrics.rr != null && <Metric label="R:R" value={`${metrics.rr}`} color={metrics.rr >= 1 ? C.green : C.amber} />}
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col lg:flex-row">
         {/* left rail */}
-        <div className="w-full flex-shrink-0 border-b p-3.5 md:w-52 md:border-b-0 md:border-r" style={{ borderColor: C.line }}>
-          <p className="text-2xl font-black tracking-tight">XAUUSD</p>
-          <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.mut2 }}>Gold / US Dollar</p>
+        <div className="w-full flex-shrink-0 border-b p-3.5 lg:w-48 lg:border-b-0 lg:border-r" style={{ borderColor: C.line }}>
           {setup ? (
             <>
-              <span className="mt-2.5 inline-block rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider" style={buy ? { background: "rgba(52,211,153,0.14)", color: C.green } : { background: "rgba(248,113,113,0.14)", color: C.red }}>{buy ? "Long" : "Short"} Bias</span>
+              <span className="inline-block rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider" style={buy ? { background: "rgba(52,211,153,0.14)", color: C.green } : { background: "rgba(248,113,113,0.14)", color: C.red }}>{buy ? "Long" : "Short"} Bias</span>
               <div className="mt-3">
                 <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.mut }}>Readiness</p>
-                <p className="font-mono text-xl font-black tabular-nums" style={{ color: C.cyan }}>{setup.readiness}%</p>
+                <p className="font-mono text-2xl font-black tabular-nums" style={{ color: C.cyan }}>{setup.readiness}%</p>
                 <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.08)" }}>
                   <div className="h-full rounded-full" style={{ width: `${Math.max(3, Math.min(100, setup.readiness))}%`, background: `linear-gradient(90deg, ${C.blue}, ${C.cyan})` }} />
                 </div>
               </div>
-              <div className="mt-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.mut }}>Status</p>
-                <p className="text-[12px] font-bold" style={{ color: C.amber }}>{(data?.statusText ?? "").toUpperCase()}</p>
-              </div>
-              <div className="mt-3">
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.mut }}>Conditions</p>
+              <div className="mt-3.5">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.mut }}>Trigger checklist</p>
                 {(data?.conditions ?? []).map((c, i) => (
-                  <p key={i} className="flex items-center gap-1.5 py-0.5 text-[11px]">
-                    <span style={{ color: c.met ? C.green : C.mut2 }}>{c.met ? "✓" : "○"}</span>
+                  <p key={i} className="flex items-center gap-2 py-1 text-[11.5px]">
+                    <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-[9px]" style={{ background: c.met ? "rgba(52,211,153,0.16)" : "rgba(255,255,255,0.06)", color: c.met ? C.green : C.mut2 }}>{c.met ? "✓" : (i + 1)}</span>
                     <span style={{ color: c.met ? C.text : C.mut }}>{c.label}</span>
                   </p>
                 ))}
+                <p className="mt-2 text-[10px] leading-snug" style={{ color: C.mut2 }}>All three flip green → GENX takes the {buy ? "long" : "short"}.</p>
               </div>
+              <LevelList setup={setup} />
             </>
           ) : (
-            <p className="mt-3 text-[12px]" style={{ color: C.mut }}>GENX is scanning gold. The next forming setup appears here with its entry, stop, targets, and live readiness.</p>
+            <p className="text-[12px]" style={{ color: C.mut }}>GENX is scanning gold. The next forming setup appears here with its entry zone, stop, targets, and the exact trigger to enter.</p>
           )}
         </div>
         {/* chart */}
-        <div className="min-w-0 flex-1 p-2">
+        <div className="min-w-0 flex-1 p-2.5">
           <CandleChart candles={candles} setup={setup} price={price} />
         </div>
       </div>
     </div>
   );
 }
+function Metric({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div className="text-right">
+      <p className="font-mono text-[13px] font-bold leading-none tabular-nums" style={{ color }}>{value}</p>
+      <p className="text-[8px] font-semibold uppercase tracking-wider" style={{ color: C.mut2 }}>{label}</p>
+    </div>
+  );
+}
+function LevelList({ setup }: { setup: Setup }) {
+  const rows: { label: string; v: number | null; color: string }[] = [
+    { label: "TP3", v: setup.tp3, color: C.green }, { label: "TP2", v: setup.tp2, color: C.green }, { label: "TP1", v: setup.tp1, color: C.green },
+    { label: "Entry", v: setup.entry, color: C.amber }, { label: "Stop", v: setup.stop, color: C.red }, { label: "Break", v: setup.breakLevel, color: C.blue },
+  ].filter((r) => r.v != null);
+  return (
+    <div className="mt-3.5 border-t pt-3" style={{ borderColor: C.lineSoft }}>
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.mut }}>Levels</p>
+      {rows.map((r) => (
+        <div key={r.label} className="flex items-center justify-between py-0.5 text-[11px]">
+          <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-sm" style={{ background: r.color }} /><span style={{ color: C.mut }}>{r.label}</span></span>
+          <span className="font-mono font-semibold tabular-nums">{fmt2(r.v)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function CandleChart({ candles, setup, price }: { candles: Candle[]; setup: Setup | null; price: number | null }) {
-  const W = 1000, H = 380, padR = 86, padT = 12, padB = 20;
+  const W = 1000, H = 460, padL = 6, padR = 152, padT = 14, padB = 26;
   const view = useMemo(() => {
     if (candles.length < 2) return null;
-    const cs = candles.slice(-60);
+    const cs = candles.slice(-44);
     const levels = setup ? [setup.tp1, setup.tp2, setup.tp3, setup.stop, setup.entry, setup.entryLow, setup.entryHigh, setup.breakLevel] : [];
     const lows = cs.map((c) => c.l).concat(levels.filter((n): n is number => n != null));
     const highs = cs.map((c) => c.h).concat(levels.filter((n): n is number => n != null));
     if (price != null) { lows.push(price); highs.push(price); }
     let min = Math.min(...lows), max = Math.max(...highs);
-    const pad = (max - min) * 0.06 || 1; min -= pad; max += pad;
-    const plotW = W - padR, plotH = H - padT - padB;
+    const pad = (max - min) * 0.08 || 1; min -= pad; max += pad;
+    const plotW = W - padR - padL, plotH = H - padT - padB;
     const bw = plotW / cs.length;
+    const sx = (i: number) => padL + i * bw + bw / 2;
     const sy = (v: number) => padT + (1 - (v - min) / (max - min || 1)) * plotH;
-    return { cs, min, max, plotW, plotH, bw, sy };
+    return { cs, min, max, plotW, plotH, bw, sx, sy };
   }, [candles, setup, price]);
 
-  if (!view) return <div className="flex h-[300px] items-center justify-center text-[12px]" style={{ color: C.mut2 }}>Loading XAUUSD candles…</div>;
-  const { cs, plotW, bw, sy } = view;
+  if (!view) return <div className="flex h-[360px] items-center justify-center text-[12px]" style={{ color: C.mut2 }}>Loading live XAUUSD candles…</div>;
+  const { cs, plotW, sx, sy, min, max } = view;
+  const rightX = padL + plotW;
+  const buy = setup?.side !== "sell";
 
-  const lines: { v: number; label: string; color: string; dash?: boolean }[] = [];
+  // level labels (right gutter) with simple collision avoidance
+  type Lab = { v: number; text: string; color: string; strong?: boolean };
+  const labs: Lab[] = [];
   if (setup) {
-    const push = (v: number | null, label: string, color: string, dash = true) => { if (v != null) lines.push({ v, label, color, dash }); };
-    push(setup.tp3, `TARGET 3  ${fmt2(setup.tp3)}`, C.green);
-    push(setup.tp2, `TARGET 2  ${fmt2(setup.tp2)}`, C.green);
-    push(setup.tp1, `TARGET 1  ${fmt2(setup.tp1)}`, C.green);
-    push(setup.breakLevel, `BREAK  ${fmt2(setup.breakLevel)}`, C.blue);
-    push(setup.entry, `ENTRY  ${fmt2(setup.entry)}`, C.amber);
-    push(setup.stop, `STOP  ${fmt2(setup.stop)}`, C.red);
+    const add = (v: number | null, text: string, color: string, strong = false) => { if (v != null) labs.push({ v, text, color, strong }); };
+    add(setup.tp3, `TP3  ${fmt2(setup.tp3)}`, C.green);
+    add(setup.tp2, `TP2  ${fmt2(setup.tp2)}`, C.green);
+    add(setup.tp1, `TP1  ${fmt2(setup.tp1)}`, C.green, true);
+    add(setup.entry, `ENTRY  ${fmt2(setup.entry)}`, C.amber, true);
+    add(setup.stop, `STOP  ${fmt2(setup.stop)}`, C.red, true);
+    add(setup.breakLevel, `BREAK  ${fmt2(setup.breakLevel)}`, C.blue);
   }
+  // compute non-overlapping y positions for labels
+  const labY = labs.map((l) => ({ ...l, y: sy(l.v) })).sort((a, b) => a.y - b.y);
+  const MINGAP = 15;
+  for (let i = 1; i < labY.length; i++) if (labY[i].y - labY[i - 1].y < MINGAP) labY[i].y = labY[i - 1].y + MINGAP;
+
+  // y-axis price ticks
+  const ticks = 5;
+  const tickVals = Array.from({ length: ticks }, (_, i) => min + ((max - min) * i) / (ticks - 1));
+  // sparse time labels
+  const timeIdx = [0, Math.floor(cs.length / 3), Math.floor((2 * cs.length) / 3), cs.length - 1];
+  const timeLbl = (t: string) => { try { return new Date(t).toLocaleTimeString("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit", hour12: false }); } catch { return ""; } };
+
+  const eLo = setup?.entryLow ?? null, eHi = setup?.entryHigh ?? null, e = setup?.entry ?? null;
+  const zLo = eLo != null && eHi != null ? Math.min(eLo, eHi) : e, zHi = eLo != null && eHi != null ? Math.max(eLo, eHi) : e;
+  const furthestTp = setup ? [setup.tp1, setup.tp2, setup.tp3].filter((n): n is number => n != null).sort((a, b) => (buy ? b - a : a - b))[0] ?? null : null;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" style={{ maxHeight: 360 }} preserveAspectRatio="xMidYMid meet">
-      {/* entry zone band */}
-      {setup && setup.entryLow != null && setup.entryHigh != null && (
-        <rect x={0} y={sy(Math.max(setup.entryLow, setup.entryHigh))} width={plotW} height={Math.abs(sy(setup.entryLow) - sy(setup.entryHigh)) || 2} fill={C.amber} opacity={0.07} />
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" style={{ maxHeight: 440 }} preserveAspectRatio="xMidYMid meet">
+      {/* horizontal gridlines + price ticks */}
+      {tickVals.map((tv, i) => (
+        <g key={`t${i}`}>
+          <line x1={padL} y1={sy(tv)} x2={rightX} y2={sy(tv)} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
+        </g>
+      ))}
+
+      {/* REWARD band (entry → furthest target) */}
+      {setup && e != null && furthestTp != null && (
+        <rect x={padL} y={sy(Math.max(e, furthestTp))} width={plotW} height={Math.abs(sy(e) - sy(furthestTp)) || 1} fill={C.green} opacity={0.06} />
       )}
-      {/* target zones (shaded above entry to targets) */}
-      {lines.filter((l) => l.color === C.green).map((l, i) => (
-        <line key={`gl${i}`} x1={0} y1={sy(l.v)} x2={plotW} y2={sy(l.v)} stroke={l.color} strokeWidth="1" strokeDasharray="5 4" opacity={0.5} />
+      {/* RISK band (entry → stop) */}
+      {setup && e != null && setup.stop != null && (
+        <rect x={padL} y={sy(Math.max(e, setup.stop))} width={plotW} height={Math.abs(sy(e) - sy(setup.stop)) || 1} fill={C.red} opacity={0.06} />
+      )}
+      {/* ENTRY ZONE band */}
+      {setup && zLo != null && zHi != null && (
+        <g>
+          <rect x={padL} y={sy(zHi)} width={plotW} height={Math.max(3, Math.abs(sy(zLo) - sy(zHi)))} fill={C.amber} opacity={0.16} />
+          <line x1={padL} y1={sy(zHi)} x2={rightX} y2={sy(zHi)} stroke={C.amber} strokeWidth="1" strokeDasharray="4 3" opacity={0.7} />
+          <line x1={padL} y1={sy(zLo)} x2={rightX} y2={sy(zLo)} stroke={C.amber} strokeWidth="1" strokeDasharray="4 3" opacity={0.7} />
+          <text x={padL + 6} y={sy(zHi) - 4} fontSize="9.5" fontWeight="700" fontFamily="ui-monospace, monospace" fill={C.amber} opacity={0.9}>ENTRY ZONE</text>
+        </g>
+      )}
+      {/* target / stop / break level lines */}
+      {setup && [setup.tp1, setup.tp2, setup.tp3].map((v, i) => v != null && (
+        <line key={`tp${i}`} x1={padL} y1={sy(v)} x2={rightX} y2={sy(v)} stroke={C.green} strokeWidth="1" strokeDasharray="6 4" opacity={0.45} />
       ))}
-      {lines.filter((l) => l.color !== C.green).map((l, i) => (
-        <line key={`ll${i}`} x1={0} y1={sy(l.v)} x2={plotW} y2={sy(l.v)} stroke={l.color} strokeWidth="1" strokeDasharray={l.color === C.blue ? "2 3" : "5 4"} opacity={0.6} />
-      ))}
-      {/* right-edge labels */}
-      {lines.map((l, i) => (
-        <text key={`lb${i}`} x={plotW + 6} y={sy(l.v) + 3} fontSize="10" fontFamily="ui-monospace, monospace" fill={l.color} opacity={0.95}>{l.label}</text>
-      ))}
+      {setup && setup.stop != null && <line x1={padL} y1={sy(setup.stop)} x2={rightX} y2={sy(setup.stop)} stroke={C.red} strokeWidth="1.2" strokeDasharray="6 4" opacity={0.7} />}
+      {setup && setup.breakLevel != null && <line x1={padL} y1={sy(setup.breakLevel)} x2={rightX} y2={sy(setup.breakLevel)} stroke={C.blue} strokeWidth="1" strokeDasharray="2 3" opacity={0.6} />}
+
       {/* candles */}
       {cs.map((c, i) => {
-        const x = i * bw + bw / 2;
+        const x = sx(i);
         const up = c.c >= c.o; const col = up ? C.green : C.red;
         const bodyTop = sy(Math.max(c.o, c.c)); const bodyBot = sy(Math.min(c.o, c.c));
-        const bh = Math.max(1, bodyBot - bodyTop);
-        const cw = Math.max(1.5, bw * 0.62);
+        const bh = Math.max(1.2, bodyBot - bodyTop);
+        const cw = Math.max(2.5, view.bw * 0.66);
         return (
           <g key={i}>
-            <line x1={x} y1={sy(c.h)} x2={x} y2={sy(c.l)} stroke={col} strokeWidth="1" opacity={0.85} />
-            <rect x={x - cw / 2} y={bodyTop} width={cw} height={bh} fill={col} opacity={up ? 0.9 : 0.85} rx="0.5" />
+            <line x1={x} y1={sy(c.h)} x2={x} y2={sy(c.l)} stroke={col} strokeWidth="1.1" opacity={0.9} />
+            <rect x={x - cw / 2} y={bodyTop} width={cw} height={bh} fill={col} opacity={up ? 0.95 : 0.9} rx="0.6" />
           </g>
         );
       })}
-      {/* live price tag */}
+
+      {/* live price line + tag */}
       {price != null && (
         <g>
-          <line x1={0} y1={sy(price)} x2={plotW} y2={sy(price)} stroke={C.cyan} strokeWidth="0.8" opacity={0.5} />
-          <rect x={plotW} y={sy(price) - 9} width={padR} height={18} rx="2" fill={C.cyan} />
-          <text x={plotW + padR / 2} y={sy(price) + 3.5} fontSize="11" fontWeight="700" fontFamily="ui-monospace, monospace" fill="#04252b" textAnchor="middle">{fmt2(price)}</text>
+          <line x1={padL} y1={sy(price)} x2={rightX} y2={sy(price)} stroke={C.cyan} strokeWidth="1" opacity={0.85} />
+          <rect x={rightX + 2} y={sy(price) - 9} width={padR - 6} height={18} rx="3" fill={C.cyan} />
+          <text x={rightX + 2 + (padR - 6) / 2} y={sy(price) + 4} fontSize="12" fontWeight="800" fontFamily="ui-monospace, monospace" fill="#04252b" textAnchor="middle">{fmt2(price)}</text>
         </g>
       )}
+
+      {/* right-gutter level labels (collision-avoided) */}
+      {labY.map((l, i) => (
+        <g key={`lab${i}`}>
+          <line x1={rightX} y1={sy(l.v)} x2={rightX + 5} y2={l.y} stroke={l.color} strokeWidth="0.8" opacity={0.5} />
+          <circle cx={rightX + 8} cy={l.y} r="2" fill={l.color} />
+          <text x={rightX + 13} y={l.y + 3.5} fontSize="10.5" fontWeight={l.strong ? 700 : 500} fontFamily="ui-monospace, monospace" fill={l.color} opacity={0.98}>{l.text}</text>
+        </g>
+      ))}
+
+      {/* y-axis tick prices (faint, left of gutter labels not needed — put at far right top/bottom) */}
+      {tickVals.filter((_, i) => i === 0 || i === ticks - 1).map((tv, i) => (
+        <text key={`ty${i}`} x={rightX - 2} y={sy(tv) + (i === 0 ? -3 : 11)} fontSize="9" fontFamily="ui-monospace, monospace" fill={C.mut2} textAnchor="end">{fmt2(tv)}</text>
+      ))}
+
+      {/* time axis */}
+      {timeIdx.map((ti, i) => (
+        <text key={`tx${i}`} x={sx(ti)} y={H - 8} fontSize="9" fontFamily="ui-monospace, monospace" fill={C.mut2} textAnchor="middle">{timeLbl(cs[ti]?.t ?? "")}</text>
+      ))}
     </svg>
   );
 }
