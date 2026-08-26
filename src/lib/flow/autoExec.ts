@@ -9,6 +9,7 @@ import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
 import { series, livePrice } from "@/lib/marketData";
 import { trendOfCloses, closedBars } from "@/lib/mtf";
+import { sendTelegram } from "@/lib/telegram";
 import { ENTRY_TUNING } from "@/lib/entryEngine";
 import type { Mode } from "@/lib/genxCompute";
 import { CREDIT_COST, DAILY_FREE } from "@/lib/creditConfig";
@@ -755,9 +756,16 @@ async function goldTrend(): Promise<"bullish" | "bearish" | "ranging" | null> {
   } catch { return null; }
 }
 
-/** True while a gold SIDE is paused because its last `streak` trades on that side all lost. */
-async function goldDirectionHalt(admin: Admin, side: "buy" | "sell", streak: number): Promise<boolean> {
-  if (streak <= 0) return false;
+// Lead/owner user id — used only as a stable marker on the desk-wide halt breadcrumb
+// written to flow_auto_events (the pause is desk-wide, so it has no single member).
+const GOLD_HALT_MARKER_UID = "3b5e06e5-258c-4880-b1f2-d1623cbca100";
+
+/** LAYER 1 — the signal-grade loss streak. Counts how many of the most recent DISTINCT
+ *  genx_signals on this side lost in a row, and whether that streak (a) meets the threshold
+ *  and (b) is still inside the cooldown window. This is the "the system is calculating
+ *  losses" read the owner wanted to KEEP — but on its own it no longer halts anything. */
+async function goldSignalLossStreak(admin: Admin, side: "buy" | "sell", streak: number): Promise<{ hit: boolean; count: number }> {
+  if (streak <= 0) return { hit: false, count: 0 };
   const wantDir = side === "buy" ? "bullish" : "bearish";
   const { data } = await admin
     .from("genx_signals")
@@ -777,21 +785,100 @@ async function goldDirectionHalt(admin: Admin, side: "buy" | "sell", streak: num
     lastKey = k;
     events.push({ outcome: r.outcome, ts: r.resolved_at ? new Date(r.resolved_at).getTime() : 0 });
   }
-  if (events.length < streak) return false;
+  // How many losses in a row from the newest signal (for the visibility note).
+  let run = 0;
+  for (const e of events) { if (e.outcome !== "LOSS") break; run += 1; }
+  if (events.length < streak) return { hit: false, count: run };
   const recent = events.slice(0, streak);
-  if (!recent.every((e) => e.outcome === "LOSS")) return false;
-  return Date.now() < recent[0].ts + GOLD_LOSS_COOLDOWN_MS;
+  if (!recent.every((e) => e.outcome === "LOSS")) return { hit: false, count: run };
+  const withinCooldown = Date.now() < recent[0].ts + GOLD_LOSS_COOLDOWN_MS;
+  return { hit: withinCooldown, count: run };
 }
 
-/** The smart gate: returns true to HOLD this gold entry (skip), false to allow it. */
-async function goldEntryHold(admin: Admin, side: "buy" | "sell"): Promise<boolean> {
+/** LAYER 2 — a REAL account trade on this side actually lost. Reads flow_managed_positions
+ *  (engine-placed gold only), this side, broker-CONFIRMED closed with outcome 'stop' (the one
+ *  losing outcome), resolved inside the cooldown window. This is the owner's required second
+ *  layer: the signal-loss math alone won't pause a side unless a live trade really lost. */
+async function goldRealLossOnSide(admin: Admin, side: "buy" | "sell"): Promise<{ lost: boolean; whenMs: number }> {
+  try {
+    const sinceIso = new Date(Date.now() - GOLD_LOSS_COOLDOWN_MS).toISOString();
+    const { data } = await admin
+      .from("flow_managed_positions")
+      .select("resolved_at")
+      .in("symbol", GOLD_SYMS)
+      .eq("side", side)
+      .eq("status", "closed")
+      .eq("outcome", "stop")
+      .gte("resolved_at", sinceIso)
+      .order("resolved_at", { ascending: false })
+      .limit(1);
+    const rows = (data ?? []) as { resolved_at: string | null }[];
+    if (!rows.length) return { lost: false, whenMs: 0 };
+    return { lost: true, whenMs: rows[0].resolved_at ? new Date(rows[0].resolved_at).getTime() : Date.now() };
+  } catch {
+    return { lost: false, whenMs: 0 }; // read error → treat as "no real loss" (don't halt on layer 2)
+  }
+}
+
+/** MARKET AWARENESS — the short-term direction gold is ACTUALLY moving right now, on closed
+ *  15-min candles (latest close vs ~1.5h ago). "down"/"up" only when the move clears a small
+ *  noise band; else "flat". null = couldn't read. Lets the gate SEE that the market is still
+ *  falling/rising so it doesn't pause a side the market is currently proving right. */
+async function goldShortMomentum(): Promise<"up" | "down" | "flat" | null> {
+  const key = process.env.TWELVEDATA_API_KEY;
+  if (!key) return null;
+  try {
+    const rows = await series("XAU/USD", "15min", 12, key);
+    if (!rows || rows === "ratelimit" || !Array.isArray(rows)) return null;
+    const closed = closedBars(rows, 8) ?? rows;
+    const closes = closed.map((r) => +r.close).filter((n) => Number.isFinite(n));
+    if (closes.length < 4) return null;
+    const last = closes[closes.length - 1];
+    const back = closes[Math.max(0, closes.length - 6)]; // ~1.5h ago
+    const band = Math.max(last * 0.0008, 1.5); // ~0.08% of price (≈$3.6 at 4500), min $1.5
+    if (last <= back - band) return "down";
+    if (last >= back + band) return "up";
+    return "flat";
+  } catch { return null; }
+}
+
+/**
+ * THE gold entry gate. Returns { hold, reason }. It pauses a side ONLY when ALL of:
+ *   1. the signal-grade loss streak for this side has met its (trend-aware) threshold, AND
+ *   2. a REAL account trade on this side actually lost (broker-confirmed 'stop') recently, AND
+ *   3. the market is NOT currently still moving in this side's favor.
+ * If a buy is forming, a sell-side pause never touches it (the gate is per-side). And if the
+ * market is still going this side's way, the recent losses were whipsaw — it lets the trade
+ * through. `reason` explains the decision for the visible Telegram note + event log.
+ */
+async function goldEntryHold(admin: Admin, side: "buy" | "sell"): Promise<{ hold: boolean; reason: string }> {
   const trend = await goldTrend();
   const wantDir = side === "buy" ? "bullish" : "bearish";
   let streak = GOLD_STREAK_RANGE; // ranging or unknown trend
   if (trend === "bullish" || trend === "bearish") {
     streak = trend === wantDir ? GOLD_STREAK_WITH_TREND : GOLD_STREAK_COUNTER_TREND;
   }
-  return goldDirectionHalt(admin, side, streak);
+
+  // LAYER 1 — signal-grade loss streak (kept, but no longer halts on its own).
+  const sig = await goldSignalLossStreak(admin, side, streak);
+  if (!sig.hit) return { hold: false, reason: "" };
+
+  // LAYER 2 — required: a real account trade on this side actually lost.
+  const real = await goldRealLossOnSide(admin, side);
+  if (!real.lost) {
+    return { hold: false, reason: `${sig.count} losing ${side.toUpperCase()} signals in a row, but NO real ${side} trade has actually lost — taking the trade.` };
+  }
+
+  // MARKET AWARENESS — if price is STILL moving this side's way, the losses were whipsaw.
+  const mom = await goldShortMomentum();
+  const favors = mom == null ? null : (side === "sell" ? mom === "down" : mom === "up");
+  if (favors === true) {
+    return { hold: false, reason: `${sig.count} ${side.toUpperCase()} losses + a real losing trade, but gold is still ${mom === "down" ? "falling" : "rising"} in this trade's favor — taking it.` };
+  }
+
+  const dir = side === "sell" ? "SELL" : "BUY";
+  const momTxt = mom === "up" ? " (market rising)" : mom === "down" ? " (market falling)" : mom === "flat" ? " (market flat)" : "";
+  return { hold: true, reason: `Pausing ${dir} gold: ${sig.count} ${dir} signal losses AND a real ${side} trade hit its stop, and the market isn't confirming ${dir}${momTxt}. Will resume on a ${side === "sell" ? "buy" : "sell"} setup, a win, or after the cooldown.` };
 }
 
 export type GoldRoute = "copy" | "follower" | "none";
@@ -843,10 +930,18 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // inside the blackout window, hold this ENTER NOW. GENX will re-offer once it passes.
   try { if ((await newsHold("XAUUSD")).hold) return { members: 0, placed: 0 }; } catch { /* feed down → don't block */ }
 
-  // SMART TREND-AWARE HALT: take with-trend entries freely, give a counter-trend entry
-  // one pullback shot, and stop feeding a side that keeps losing — so gold trades WITH
-  // the trend and doesn't stack losses fighting it.
-  try { if (await goldEntryHold(admin, sig.side)) return { members: 0, placed: 0 }; } catch { /* read error → don't block */ }
+  // SMART TREND-AWARE HALT (two required layers + market awareness — see goldEntryHold):
+  // a side pauses ONLY when the signal-loss streak is met AND a real trade on that side has
+  // actually lost AND the market isn't still moving that way. A pause is VISIBLE: it posts a
+  // Telegram note ("why it didn't enter") and logs a breadcrumb, instead of silently dropping.
+  try {
+    const gate = await goldEntryHold(admin, sig.side);
+    if (gate.hold) {
+      try { await sendTelegram(`⏸️ <b>GENX gold — entry paused</b>\n${gate.reason}`); } catch { /* note best-effort */ }
+      try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: gold_halt ${sig.side}` }); } catch { /* log best-effort */ }
+      return { members: 0, placed: 0 };
+    }
+  } catch { /* read error → don't block */ }
 
   // Live gold price, fetched ONCE. Used for BOTH the chase guard AND position sizing.
   let goldLp: number | null = null;
