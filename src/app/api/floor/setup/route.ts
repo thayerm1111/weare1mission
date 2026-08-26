@@ -20,7 +20,10 @@ export const maxDuration = 20;
  * window, and the underlying series/price come from the shared community cache.
  */
 
-const TTL_MS = 45_000;
+// Short cache so the Floor chart stays live. The underlying series/price come
+// from the shared community cache (MD_CACHE_TTL ~30s), so a 15s payload cache
+// refreshes as soon as new market data lands without adding upstream calls.
+const TTL_MS = 15_000;
 const CACHE: Record<string, { at: number; body: Record<string, unknown> }> = {};
 
 function json(o: unknown, s = 200) {
