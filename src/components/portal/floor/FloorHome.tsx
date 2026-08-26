@@ -162,6 +162,31 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
     return { trades: tCount || (flow?.trades ?? 0), wins: wCount || (flow?.wins ?? 0), isToday: tCount > 0 };
   }, [allRecent, flow]);
 
+  // TODAY'S SESSION — a live daily scoreboard (CST day) from the real feed. Falls back to the
+  // most recent activity if nothing has closed since midnight yet, so the panel is never blank.
+  const todayStats = useMemo(() => {
+    const start = new Date(); start.setHours(0, 0, 0, 0); const t0 = start.getTime();
+    const todays = allRecent.filter((r) => new Date(r.at).getTime() >= t0);
+    const rows = todays.length ? todays : allRecent.slice(-10); // chronological (asc)
+    const isToday = todays.length > 0;
+    const trades = rows.length;
+    const wins = rows.filter((r) => r.win).length;
+    const losses = trades - wins;
+    const net = rows.reduce((a, r) => a + (Number(r.pips) || 0), 0);
+    const best = rows.reduce((m, r) => Math.max(m, Number(r.pips) || 0), 0);
+    const winRate = trades ? Math.round((wins / trades) * 100) : null;
+    // current streak, counting back from the most recent close
+    let streak = 0; let streakWin: boolean | null = null;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const w = !!rows[i].win;
+      if (streakWin === null) { streakWin = w; streak = 1; }
+      else if (w === streakWin) streak += 1;
+      else break;
+    }
+    const recent = [...rows].reverse().slice(0, 10); // newest first, for the outcome dots
+    return { isToday, trades, wins, losses, net, best, winRate, streak, streakWin, recent, has: trades > 0 };
+  }, [allRecent]);
+
   const netPips = flow?.pipsNet ?? flow?.pips ?? 0;
   const winRate = flow?.winRate ?? null;
   const plays7d = flow?.plays7d ?? 0;
@@ -223,7 +248,7 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
             <FlowPerformance flow={flow} series={netSeries} onConnect={() => onGo("flow")} />
           </section>
           <section className="overflow-hidden rounded-xl border" style={{ borderColor: C.line, background: C.panel }}>
-            <RecentTrades rows={allRecent} />
+            <TodaySession s={todayStats} />
           </section>
         </div>
 
@@ -884,49 +909,77 @@ function Split({ label, pips, trades, wr, accent }: { label: string; pips: numbe
   );
 }
 
-/* ── RECENT TRADES ── */
-function RecentTrades({ rows }: { rows: (FlowRec & { kind?: string })[] }) {
-  const [filter, setFilter] = useState<"all" | "wins" | "losses">("all");
-  const list = useMemo(() => {
-    const desc = [...rows].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-    const f = filter === "wins" ? desc.filter((r) => r.win) : filter === "losses" ? desc.filter((r) => !r.win) : desc;
-    return f.slice(0, 9);
-  }, [rows, filter]);
+/* ── TODAY'S SESSION — live daily scoreboard (replaces the duplicate Recent Trades) ── */
+function TodaySession({ s }: { s: {
+  isToday: boolean; trades: number; wins: number; losses: number; net: number; best: number;
+  winRate: number | null; streak: number; streakWin: boolean | null;
+  recent: { at: string; win: boolean; pips?: number | null }[]; has: boolean;
+} }) {
+  const netUp = s.net >= 0;
   return (
-    <div>
+    <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
-        <p className="inline-flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider"><Clock className="h-3.5 w-3.5" style={{ color: C.mut }} /> Recent Trades</p>
-        <div className="flex gap-1">
-          {(["all", "wins", "losses"] as const).map((f) => (
-            <button key={f} onClick={() => setFilter(f)} className="rounded px-1.5 py-0.5 text-[10px] font-semibold capitalize" style={filter === f ? { background: "rgba(34,211,238,0.14)", color: C.cyan } : { color: C.mut2 }}>{f}</button>
-          ))}
-        </div>
+        <p className="inline-flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider">
+          <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full" style={{ background: C.cyan, opacity: 0.6 }} /><span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: C.cyan }} /></span>
+          Today&apos;s Session
+        </p>
+        <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ color: C.mut2 }}>{s.isToday ? "CST" : "latest"}</span>
       </div>
-      {list.length === 0 ? (
-        <p className="px-4 py-10 text-center text-[12px]" style={{ color: C.mut2 }}>Trades post here as the desk closes them.</p>
+
+      {!s.has ? (
+        <p className="px-4 py-10 text-center text-[12px]" style={{ color: C.mut2 }}>No trades closed yet today — this fills in as the desk books results.</p>
       ) : (
-        <table className="w-full text-[11px]">
-          <thead>
-            <tr style={{ color: C.mut2 }} className="text-left text-[9px] uppercase tracking-wider">
-              <th className="px-3.5 py-2 font-semibold">Time</th><th className="py-2 font-semibold">Pair</th><th className="py-2 font-semibold">Direction</th><th className="py-2 font-semibold">Outcome</th><th className="px-3.5 py-2 text-right font-semibold">Pips</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((r, i) => {
-              const long = genxLong(r.side); const pips = r.pips;
-              return (
-                <tr key={i} className="border-t" style={{ borderColor: C.lineSoft }}>
-                  <td className="whitespace-nowrap px-3.5 py-2 font-mono" style={{ color: C.mut }}>{clockTime(r.at)}</td>
-                  <td className="py-2 font-mono font-bold">{short(r.symbol)}</td>
-                  <td className="py-2"><span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={long ? { background: "rgba(52,211,153,0.12)", color: C.green } : { background: "rgba(248,113,113,0.12)", color: C.red }}>{long ? "LONG" : "SHORT"}</span></td>
-                  <td className="py-2 text-[10px] font-bold uppercase" style={{ color: r.win ? C.green : C.red }}>{r.win ? "Win" : "Loss"}</td>
-                  <td className="px-3.5 py-2 text-right font-mono font-bold" style={{ color: r.win ? C.green : C.red }}>{pips != null ? `${pips > 0 ? "+" : ""}${pips}p` : "—"}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div className="flex flex-1 flex-col p-3.5">
+          {/* headline: net pips today */}
+          <div className="flex items-end justify-between">
+            <div>
+              <p className="font-mono text-[28px] font-black leading-none tabular-nums" style={{ color: netUp ? C.green : C.red }}>{netUp ? "+" : ""}{s.net.toLocaleString()}</p>
+              <p className="mt-1 text-[9px] font-bold uppercase tracking-wider" style={{ color: C.mut }}>Net pips {s.isToday ? "today" : "(latest)"}</p>
+            </div>
+            <div className="text-right">
+              <p className="font-mono text-lg font-black tabular-nums" style={{ color: C.text }}>{s.winRate != null ? `${s.winRate}%` : "—"}</p>
+              <p className="text-[9px] uppercase tracking-wider" style={{ color: C.mut2 }}>Win rate</p>
+            </div>
+          </div>
+
+          {/* stat tiles */}
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <SessTile label="Trades" value={String(s.trades)} accent={C.cyan} />
+            <SessTile label="W / L" value={`${s.wins} / ${s.losses}`} accent={C.green} />
+            <SessTile label="Best" value={`+${s.best.toLocaleString()}p`} accent={C.gold} />
+          </div>
+
+          {/* current streak */}
+          <div className="mt-2 flex items-center justify-between rounded-lg border px-2.5 py-2" style={{ borderColor: C.lineSoft, background: C.raised }}>
+            <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mut2 }}>Current streak</span>
+            <span className="font-mono text-[12px] font-bold" style={{ color: s.streakWin ? C.green : C.red }}>
+              {s.streak} {s.streakWin ? (s.streak === 1 ? "win" : "wins") : (s.streak === 1 ? "loss" : "losses")} in a row
+            </span>
+          </div>
+
+          {/* recent outcome dots (newest first) */}
+          <div className="mt-auto pt-3">
+            <p className="mb-1.5 text-[9px] font-bold uppercase tracking-wider" style={{ color: C.mut2 }}>Last results</p>
+            <div className="flex flex-wrap gap-1">
+              {s.recent.map((r, i) => (
+                <span key={i} title={`${clockTime(r.at)} · ${r.win ? "win" : "loss"}${r.pips != null ? ` ${r.pips > 0 ? "+" : ""}${r.pips}p` : ""}`}
+                  className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded px-1 font-mono text-[9px] font-bold"
+                  style={r.win ? { background: "rgba(52,211,153,0.14)", color: C.green } : { background: "rgba(248,113,113,0.14)", color: C.red }}>
+                  {r.win ? "W" : "L"}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
+    </div>
+  );
+}
+function SessTile({ label, value, accent }: { label: string; value: string; accent: string }) {
+  return (
+    <div className="rounded-lg border px-2.5 py-2" style={{ borderColor: C.lineSoft, background: C.raised }}>
+      <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: accent }}>{label}</p>
+      <p className="mt-0.5 font-mono text-sm font-bold tabular-nums" style={{ color: C.text }}>{value}</p>
     </div>
   );
 }
