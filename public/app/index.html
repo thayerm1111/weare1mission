@@ -2901,8 +2901,10 @@ input{font:inherit}
     var view = useState(props.init || "");
     var pulseTool = TOOLS.filter(function (t) { return t.id === "pulse"; })[0];
     var playsTool = TOOLS.filter(function (t) { return t.id === "liveplays"; })[0];
+    var mfxGhostTool = TOOLS.filter(function (t) { return t.id === "ghost"; })[0];
     function back() { return html`<button class="floor-back" onClick=${function () { view[1](""); }}>‹ The Floor</button>`; }
     if (view[0] === "omai") return html`<div>${back()}<${ChatScreen} onLogout=${props.onLogout} /></div>`;
+    if (view[0] === "mfxghost") return html`<div>${back()}<${ToolRunner} key="ghost" tool=${mfxGhostTool} onLogout=${props.onLogout} /></div>`;
     if (view[0] === "pulse") return html`<div>${back()}<${ToolRunner} key="pulse" tool=${pulseTool} onLogout=${props.onLogout} /></div>`;
     if (view[0] === "plays") return html`<div>${back()}<${ToolRunner} key="liveplays" tool=${playsTool} onLogout=${props.onLogout} /></div>`;
     if (view[0] === "live") return html`<div>${back()}<${WeeklyScreen} onLogout=${props.onLogout} /></div>`;
@@ -2940,6 +2942,12 @@ input{font:inherit}
           <div class="fl-nm">OM AI Plays</div>
           <div class="fl-bl">AI-generated opportunities.</div>
           <div class="fl-cta">View ›</div>
+        </button>
+        <button class="flcard" onClick=${open("mfxghost")}>
+          <div class="fl-ic">◆</div>
+          <div class="fl-nm">MFXGHOST</div>
+          <div class="fl-bl">Deep single-instrument desk — full trade plan and setup zone for Gold or an FX major.</div>
+          <div class="fl-cta">Open ›</div>
         </button>
       </div>
     </div>`;
