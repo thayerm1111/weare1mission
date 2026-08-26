@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { readBalance } from "@/lib/credits";
+import { ensurePromoRichCredits } from "@/lib/promo";
 import { DAILY_FREE, CREDIT_COST, PACKS } from "@/lib/creditConfig";
 
 export const runtime = "nodejs";
@@ -11,6 +12,10 @@ export async function GET() {
   if (supabase) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return json({ error: "unauthorized" }, 401);
+    // Promo "rich" one-time 100-credit grant — self-healing, before readBalance
+    // so a first-time 'rich' member sees the credits on this same load. No-op
+    // for non-'rich' members and for anyone already granted.
+    await ensurePromoRichCredits(user.id);
   }
   const balance = await readBalance();
   return json({
