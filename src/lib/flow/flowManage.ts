@@ -6,6 +6,7 @@ import { contractKey } from "@/lib/flow/sizing";
 import { listInstruments, listPositions, getQuote, getConfig, modifyPosition, closePosition, listOrdersHistory, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 import { recoverOrphans } from "@/lib/flow/recover";
 import { logTrade } from "@/lib/flow/tradeLog";
+import { beat } from "@/lib/flow/health";
 
 // Fallback price source. The broker's own quote endpoint is intermittently down for
 // a symbol/account (we've observed a persistent "no_quote" on an open gold position
@@ -617,7 +618,17 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   }
 
   let managed = 0;
+  // LIVENESS DURING A LONG PASS: with many open positions, one full pass over the broker (each
+  // position = several serial broker calls) can run past the watchdog's 120s "stale" threshold.
+  // The route only beats AFTER a whole pass, so a slow-but-WORKING manager was being falsely
+  // flagged "DOWN" and restarted. Beat mid-pass every ~15s so the watchdog sees it's alive —
+  // this changes no trading logic, it only reports liveness while it works through the list.
+  let lastBeatMs = Date.now();
   for (const row of rows) {
+    if (Date.now() - lastBeatMs > 15_000) {
+      try { await beat(admin, "manager", { inPass: true, managed }); } catch { /* liveness best-effort */ }
+      lastBeatMs = Date.now();
+    }
     try {
       const tok = await tokenFor(row.connection_id);
       if (!tok) { await admin.from("flow_managed_positions").update({ last_error: "token", updated_at: new Date().toISOString() }).eq("id", row.id); continue; }
