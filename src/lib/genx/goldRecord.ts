@@ -41,7 +41,7 @@ const num = (v: unknown): number | null => (typeof v === "number" && Number.isFi
 // this far into profit stays a genuine loss. This is a DISPLAY/record rule for the public
 // boards only (Floor, follower feed, genx-stats); it does not change any trade or how the
 // account is actually managed.
-const BE_DISPLAY_PIPS = 15;
+export const BE_DISPLAY_PIPS = 15;
 
 /** True when the trade ran far enough into profit to be recorded as a break-even scratch
  *  rather than a loss (owner's community-record rule: ≥ BE_DISPLAY_PIPS of favorable move). */
