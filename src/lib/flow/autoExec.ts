@@ -830,6 +830,12 @@ async function goldSignalLossStreak(admin: Admin, side: "buy" | "sell", streak: 
 // slippage + fees. That is NOT a real losing trade and must not feed the halt.
 const GOLD_REAL_LOSS_MIN_PIPS = 5;
 
+// OWNER "better level" exception to the post-loss cooldown: a new same-side entry must be at least
+// this many pips BEYOND where the last trade stopped out (a sell higher than the old stop, a buy
+// lower than it) to count as a genuinely NEW liquidity area worth taking during the cooldown —
+// otherwise it's revenge-trading the same failed level and stays blocked. Tunable.
+const GOLD_BETTER_LEVEL_PIPS = 30; // ~$3 beyond the prior stop
+
 /** LAYER 2 — a REAL account trade on this side actually LOST money. Reads flow_managed_positions
  *  (engine-placed gold only), this side, closed inside the cooldown window. A row counts as a
  *  real loss ONLY when BOTH: (a) NO partial was banked — a banked partial means the trade already
@@ -837,12 +843,12 @@ const GOLD_REAL_LOSS_MIN_PIPS = 5;
  *  result is a MEANINGFUL loss, not a slippage/fee-sized break-even scratch that the broker still
  *  tags "Stop loss". So a scratch, a trailing-stop win, or a partial-and-scratch never pauses a
  *  side — only a genuine stop-out does. */
-async function goldRealLossOnSide(admin: Admin, side: "buy" | "sell"): Promise<{ lost: boolean; whenMs: number }> {
+async function goldRealLossOnSide(admin: Admin, side: "buy" | "sell"): Promise<{ lost: boolean; whenMs: number; stopPx: number | null }> {
   try {
     const sinceIso = new Date(Date.now() - GOLD_LOSS_COOLDOWN_MS).toISOString();
     const { data } = await admin
       .from("flow_managed_positions")
-      .select("resolved_at, result_pips, partial_taken, outcome")
+      .select("resolved_at, result_pips, partial_taken, outcome, init_stop")
       .in("symbol", GOLD_SYMS)
       .eq("side", side)
       .eq("status", "closed")
@@ -851,13 +857,13 @@ async function goldRealLossOnSide(admin: Admin, side: "buy" | "sell"): Promise<{
       .gte("resolved_at", sinceIso)
       .order("resolved_at", { ascending: false })
       .limit(20);
-    const rows = (data ?? []) as { resolved_at: string | null; result_pips: number | null; partial_taken: boolean | null }[];
+    const rows = (data ?? []) as { resolved_at: string | null; result_pips: number | null; partial_taken: boolean | null; init_stop: number | null }[];
     // Newest genuine stop-out that lost real money (no partial banked + a meaningful negative result).
     const real = rows.find((r) => !r.partial_taken && Number(r.result_pips) <= -GOLD_REAL_LOSS_MIN_PIPS);
-    if (!real) return { lost: false, whenMs: 0 };
-    return { lost: true, whenMs: real.resolved_at ? new Date(real.resolved_at).getTime() : Date.now() };
+    if (!real) return { lost: false, whenMs: 0, stopPx: null };
+    return { lost: true, whenMs: real.resolved_at ? new Date(real.resolved_at).getTime() : Date.now(), stopPx: typeof real.init_stop === "number" ? real.init_stop : null };
   } catch {
-    return { lost: false, whenMs: 0 }; // read error → treat as "no real loss" (don't halt on layer 2)
+    return { lost: false, whenMs: 0, stopPx: null }; // read error → treat as "no real loss" (don't halt on layer 2)
   }
 }
 
@@ -970,17 +976,30 @@ async function goldChangeOfCharacter(): Promise<"bullish" | "bearish" | null> {
  * partial banked, result_pips <= -GOLD_REAL_LOSS_MIN_PIPS), and it only looks back
  * GOLD_LOSS_COOLDOWN_MS — so the lookback window and the cooldown are the same ~2h.
  */
-async function goldEntryHold(admin: Admin, side: "buy" | "sell"): Promise<{ hold: boolean; reason: string }> {
+async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: number | null): Promise<{ hold: boolean; reason: string }> {
   const dir = side === "sell" ? "SELL" : "BUY";
 
   // RULE 1 — a real stop-out cools THIS side for ~2h so losers can't stack.
   const real = await goldRealLossOnSide(admin, side);
   if (real.lost && Date.now() < real.whenMs + GOLD_LOSS_COOLDOWN_MS) {
-    const mins = Math.max(1, Math.round((real.whenMs + GOLD_LOSS_COOLDOWN_MS - Date.now()) / 60000));
-    return {
-      hold: true,
-      reason: `Pausing ${dir} gold ~${mins} min: a real ${side} trade just hit its stop and lost money (a genuine stop-out — not a break-even or ≤${GOLD_REAL_LOSS_MIN_PIPS}-pip scratch). Cooling this direction so losers don't stack. Resumes after the cooldown, on a win, or on a ${side === "sell" ? "BUY" : "SELL"} setup.`,
-    };
+    // BETTER-LEVEL EXCEPTION (owner): the cooldown blocks re-selling the SAME level that just
+    // failed — but if price has since run PAST where the last trade stopped out and the engine now
+    // calls a fresh entry at a genuinely BETTER level (a NEW higher resistance for a sell / lower
+    // support for a buy, clear of the old stop by GOLD_BETTER_LEVEL_PIPS), that is new liquidity,
+    // not a revenge trade, so we allow it. The change-of-character guard below still blocks it if
+    // structure has actually flipped, so this can't turn into selling a confirmed reversal.
+    const betterLevel = newEntry != null && real.stopPx != null && (
+      side === "sell" ? newEntry >= real.stopPx + GOLD_BETTER_LEVEL_PIPS * 0.1
+                      : newEntry <= real.stopPx - GOLD_BETTER_LEVEL_PIPS * 0.1
+    );
+    if (!betterLevel) {
+      const mins = Math.max(1, Math.round((real.whenMs + GOLD_LOSS_COOLDOWN_MS - Date.now()) / 60000));
+      return {
+        hold: true,
+        reason: `Pausing ${dir} gold ~${mins} min: a real ${side} trade just hit its stop and lost money (a genuine stop-out — not a break-even or ≤${GOLD_REAL_LOSS_MIN_PIPS}-pip scratch). Cooling this direction so losers don't stack. Resumes after the cooldown, on a better-located level, a win, or a ${side === "sell" ? "BUY" : "SELL"} setup.`,
+      };
+    }
+    // else: a fresh, better-located ${dir} at new liquidity — fall through and let it trade.
   }
 
   // RE-ANALYZE AFTER A WIN — after a full win on this side, pause new same-side entries briefly
@@ -1091,7 +1110,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // within the ~2h cooldown. A pause is VISIBLE: it posts a Telegram note ("why it didn't enter")
   // and logs a breadcrumb, instead of silently dropping.
   try {
-    const gate = await goldEntryHold(admin, sig.side);
+    const gate = await goldEntryHold(admin, sig.side, entry);
     if (gate.hold) {
       try { await sendTelegram(`⏸️ <b>GENX gold — entry paused</b>\n${gate.reason}`); } catch { /* note best-effort */ }
       await deskDrop(`gold_halt ${sig.side}`);
