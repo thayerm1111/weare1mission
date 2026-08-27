@@ -8,17 +8,16 @@ import { placeGenxGold, placeGenxFollower, rewardRisk } from "@/lib/flow/autoExe
 
 // GOLD ENTRY PREFERENCE (owner directive): get IN when the trade is working; only wait for a
 // pull-back when the fill is genuinely too rich.
-//   • Confirmed and IN the zone / ≥ 1:1              → enter now (the ideal fill).
-//   • Confirmed and price has broken PAST the zone in the TRADE'S FAVOR (a sell filling below the
-//     zone / a buy above it) AND the fill still clears the 0.5 floor → enter NOW as a momentum
-//     fill. Do NOT wait for a bounce back into the zone — on a gap-through move that pull-back
-//     often never comes and a working trade gets missed (the exact case the owner flagged).
-//   • Confirmed but price ran SO far the fill is < 0.5 R:R → ARM and wait for a pull-back that
-//     brings it back to ≥ 0.5 (like a resting limit at the zone); accept ≥0.5 after
-//     GOLD_WORSTCASE_MS; abandon after GOLD_ARM_MAX_MS or on invalidation.
-const GOLD_ENTRY_FLOOR_RR = 0.5;      // absolute worst-case reward:risk the desk will ever fill
-const GOLD_WORSTCASE_MS = 20 * 60_000; // prefer the zone/1:1 for this long; then accept ≥0.5
-const GOLD_ARM_MAX_MS = 25 * 60_000;   // hard cap — give up waiting for a pullback after this
+// OWNER RULES 2 + 5 — take the trade whenever the fill still clears the 0.5 floor, so the desk
+// stops missing working momentum entries:
+//   • Confirmed and IN the zone, at a full 1:1, OR anywhere from 0.5→1.0 R:R (a MOMENTUM fill /
+//     the normal analysis) → ENTER NOW. This is the fix for missed shorts: a 0.5–1.0 fill used to
+//     be held ("armed") and usually never taken; now it is taken immediately.
+//   • Confirmed but price ran SO far that the live R:R is BELOW 0.5 → ARM and wait UP TO 5 MINUTES
+//     for price to trade back to the called entry (a takeable ≥0.5 fill); if it returns we enter,
+//     otherwise we abandon — we never chase a sub-0.5 fill.
+const GOLD_ENTRY_FLOOR_RR = 0.5;       // the floor: fill any confirmed setup down to this R:R (in-zone / 1:1 / 0.5–1.0 momentum); below it, wait for a pullback
+const GOLD_ARM_MAX_MS = 5 * 60_000;    // owner rule 2: wait only 5 min for price to return to the called entry, then abandon
 
 /** Pure decision for a gold entry: enter now, arm-and-wait, abandon, or keep waiting.
  *  `armed` = we already fired ENTER NOW once and are holding for a pull-back fill. */
@@ -33,22 +32,20 @@ function decideGoldEntry(o: {
   const zHi = Math.max(Number(o.entryLow), Number(o.entryHigh));
   const buf = Number.isFinite(zHi - zLo) ? Math.max(0.2, (zHi - zLo) * 0.15) : 0.2;
   const inZone = o.lp != null && Number.isFinite(zLo) && o.lp >= zLo - buf && o.lp <= zHi + buf;
-  // ONLY fill at market when price is IN the called zone or still offers a full ≥1:1 — i.e. a
-  // GOOD price. We do NOT market-chase a sell down below the zone (or a buy up above it): on a
-  // fast move that just fills "way too low" for a poor R:R. Getting the trade IN at the CALLED
-  // price when it runs away is the job of the resting limit order at the zone, not a chase.
-  const goodFill = inZone || (rr != null && rr >= 1.0);
-  const okFill = rr != null && rr >= GOLD_ENTRY_FLOOR_RR;
+  // OWNER RULES 2 + 5 — TAKEABLE = in the called zone, OR the live R:R still clears the 0.5 floor.
+  // That covers the ideal in-zone fill, a full 1:1, AND a 0.5→1.0 MOMENTUM fill (the working trades
+  // that used to be armed-and-missed). We still never MARKET-CHASE a fill whose R:R has collapsed
+  // below 0.5 — that case arms and waits for a pullback (below).
+  const takeable = inZone || (rr != null && rr >= GOLD_ENTRY_FLOOR_RR);
   const elapsed = o.nowMs - o.armedAtMs;
   if (!o.armed) {
     if (o.confState !== "CONFIRMED") return { do: "wait", reason: "pending:" + o.confState };
-    if (goodFill) return { do: "enter", reason: "confirmed_full_rr" };       // fast full-1:1 / in-zone fill
-    return { do: "arm", reason: "chased_arm" };                              // ran past the zone → wait / rest a limit at the zone
+    if (takeable) return { do: "enter", reason: "confirmed_rr_ok" };         // in-zone / 1:1 / 0.5–1.0 momentum → take it now
+    return { do: "arm", reason: "chased_below_floor" };                      // ran past → wait up to 5 min for a pullback to the called entry
   }
-  // armed: watch price directly (not a fresh confirmation) for the pull-back into the zone
-  if (goodFill) return { do: "enter", reason: "pullback_to_zone" };
-  if (elapsed > GOLD_WORSTCASE_MS && okFill) return { do: "enter", reason: "worstcase_min_rr" };
-  if (elapsed > GOLD_ARM_MAX_MS) return { do: "invalidate", reason: "arm_expired" };
+  // armed: watch price directly (not a fresh confirmation) for the pull-back to a takeable (≥0.5) fill
+  if (takeable) return { do: "enter", reason: "pullback_to_entry" };
+  if (elapsed > GOLD_ARM_MAX_MS) return { do: "invalidate", reason: "arm_expired_5min" };
   return { do: "wait", reason: "armed_waiting" };
 }
 import { beat } from "@/lib/flow/health";
