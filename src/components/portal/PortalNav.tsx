@@ -283,6 +283,21 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
         />
       )}
 
+      {/* My Results — private, honest record of the owner's own live accounts.
+          Lives at /admin/results (outside the portal layout, admin-gated by the
+          API which 404s non-admins), so a plain full-load <a> like the other
+          /admin/* links below rather than a client-side <Link>. */}
+      {isAdmin && (
+        <a
+          href="/admin/results"
+          onClick={() => setOpen(false)}
+          className="focus-ring inline-flex w-full items-center gap-2.5 whitespace-nowrap rounded-xl px-3.5 py-2.5 text-sm font-semibold text-charcoal/75 transition-colors hover:bg-ice"
+        >
+          <Activity className="h-4 w-4" aria-hidden="true" />
+          My Results
+        </a>
+      )}
+
       {/* Fantasy — private tool, rendered ONLY for the owner account (isOwner is
           Matthew's email). A plain full-load <a> because /admin/fantasy serves raw
           HTML, which Next's client-side <Link> navigation can't handle. */}
