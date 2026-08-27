@@ -738,7 +738,7 @@ function goldChasedAt(side: "buy" | "sell", stop: number | null, tp: number | nu
 //   • COUNTER-trend   → allow ONE pullback shot; pause that side after a single loss.
 //   • Ranging/unknown → normal read; pause a side after 2 losses in a row.
 // A paused side self-resets after the cooldown (takes one probe; a win clears the streak).
-const GOLD_LOSS_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6h protective pause per side
+const GOLD_LOSS_COOLDOWN_MS = 2 * 60 * 60 * 1000; // OWNER RULE 1: ~2h pause on a side after ONE real stop-out
 const GOLD_STREAK_WITH_TREND = 3;
 const GOLD_STREAK_RANGE = 2;
 const GOLD_STREAK_COUNTER_TREND = 1;
@@ -822,6 +822,7 @@ async function goldRealLossOnSide(admin: Admin, side: "buy" | "sell"): Promise<{
       .eq("side", side)
       .eq("status", "closed")
       .eq("outcome", "stop")
+      .neq("environment", "demo")   // OWNER RULE 1: only a REAL (live) stop-out cools the side — a demo/test loss never pauses live trading
       .gte("resolved_at", sinceIso)
       .order("resolved_at", { ascending: false })
       .limit(20);
@@ -858,43 +859,33 @@ async function goldShortMomentum(): Promise<"up" | "down" | "flat" | null> {
 }
 
 /**
- * THE gold entry gate. Returns { hold, reason }. It pauses a side ONLY when ALL of:
- *   1. the signal-grade loss streak for this side has met its (trend-aware) threshold, AND
- *   2. a REAL account trade on this side actually lost (broker-confirmed 'stop') recently, AND
- *   3. the market is NOT currently still moving in this side's favor.
- * If a buy is forming, a sell-side pause never touches it (the gate is per-side). And if the
- * market is still going this side's way, the recent losses were whipsaw — it lets the trade
- * through. `reason` explains the decision for the visible Telegram note + event log.
+ * THE gold entry gate — OWNER RULE 1 (simple + predictable).
+ *
+ * A side pauses ONLY when a trade the desk ACTUALLY TOOK on that side hit its stop and lost real
+ * money — a genuine stop-out, NOT a break-even scratch and NOT a ≤5-pip slippage exit. That single
+ * real loss cools THAT DIRECTION for ~2h (GOLD_LOSS_COOLDOWN_MS) so a bad read can't stack losers.
+ * Everything else is intentionally gone: no signal-grade streak, no 1h-trend model, no
+ * market-direction guard — those over-paused a side (off break-evens / whipsaw signals) and cost
+ * the desk real winners. The opposite side is never touched; a win / break-even / partial never
+ * pauses anything; the pause self-clears the moment the cooldown elapses (or on the other side).
+ * `goldRealLossOnSide` is the single source of truth for "a real stop-out" (outcome='stop', no
+ * partial banked, result_pips <= -GOLD_REAL_LOSS_MIN_PIPS), and it only looks back
+ * GOLD_LOSS_COOLDOWN_MS — so the lookback window and the cooldown are the same ~2h.
  */
 async function goldEntryHold(admin: Admin, side: "buy" | "sell"): Promise<{ hold: boolean; reason: string }> {
-  const trend = await goldTrend();
-  const wantDir = side === "buy" ? "bullish" : "bearish";
-  let streak = GOLD_STREAK_RANGE; // ranging or unknown trend
-  if (trend === "bullish" || trend === "bearish") {
-    streak = trend === wantDir ? GOLD_STREAK_WITH_TREND : GOLD_STREAK_COUNTER_TREND;
-  }
-
-  // LAYER 1 — signal-grade loss streak (kept, but no longer halts on its own).
-  const sig = await goldSignalLossStreak(admin, side, streak);
-  if (!sig.hit) return { hold: false, reason: "" };
-
-  // LAYER 2 — required: a real account trade on this side actually lost.
   const real = await goldRealLossOnSide(admin, side);
-  if (!real.lost) {
-    return { hold: false, reason: `${sig.count} losing ${side.toUpperCase()} signals in a row, but NO real ${side} trade has actually lost — taking the trade.` };
-  }
-
-  // MARKET AWARENESS — if price is STILL moving this side's way, the losses were whipsaw.
-  const mom = await goldShortMomentum();
-  const favors = mom == null ? null : (side === "sell" ? mom === "down" : mom === "up");
-  if (favors === true) {
-    return { hold: false, reason: `${sig.count} ${side.toUpperCase()} losses + a real losing trade, but gold is still ${mom === "down" ? "falling" : "rising"} in this trade's favor — taking it.` };
-  }
-
+  if (!real.lost) return { hold: false, reason: "" };
+  if (Date.now() >= real.whenMs + GOLD_LOSS_COOLDOWN_MS) return { hold: false, reason: "" }; // cooldown elapsed
   const dir = side === "sell" ? "SELL" : "BUY";
-  const momTxt = mom === "up" ? " (market rising)" : mom === "down" ? " (market falling)" : mom === "flat" ? " (market flat)" : "";
-  return { hold: true, reason: `Pausing ${dir} gold: ${sig.count} ${dir} signal losses AND a real ${side} trade that LOST money (a genuine stop-out, not a break-even scratch or a partial-and-win), and the market isn't confirming ${dir}${momTxt}. Will resume on a ${side === "sell" ? "buy" : "sell"} setup, a win, or after the cooldown.` };
+  const mins = Math.max(1, Math.round((real.whenMs + GOLD_LOSS_COOLDOWN_MS - Date.now()) / 60000));
+  return {
+    hold: true,
+    reason: `Pausing ${dir} gold ~${mins} min: a real ${side} trade just hit its stop and lost money (a genuine stop-out — not a break-even or ≤${GOLD_REAL_LOSS_MIN_PIPS}-pip scratch). Cooling this direction so losers don't stack. Resumes after the cooldown, on a win, or on a ${side === "sell" ? "BUY" : "SELL"} setup.`,
+  };
 }
+// NOTE: goldTrend / goldSignalLossStreak / goldShortMomentum / GOLD_STREAK_* remain defined below
+// but are no longer part of the entry gate after the Rule-1 simplification (kept for reference /
+// possible future use; they make no API calls unless invoked).
 
 /**
  * RESTING-LIMIT ENTRY PRICE — where to sit a limit order so it fills at the CALLED zone
@@ -960,19 +951,24 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     ledgerGoldByAcct.get(aid)!.add(pid);
   }
 
+  // A desk-wide breadcrumb for the guards that have no single member — so a "no trade" is NEVER
+  // silent: every drop leaves a row in flow_auto_events explaining exactly why.
+  const deskDrop = async (reason: string): Promise<void> => {
+    try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: ${reason}` }); } catch { /* breadcrumb best-effort */ }
+  };
+
   // NEWS GUARD (falling-knife): gold reacts to USD data — if a HIGH-impact USD event is
   // inside the blackout window, hold this ENTER NOW. GENX will re-offer once it passes.
-  try { if ((await newsHold("XAUUSD")).hold) return { members: 0, placed: 0 }; } catch { /* feed down → don't block */ }
+  try { if ((await newsHold("XAUUSD")).hold) { await deskDrop(`news_blackout ${sig.side}`); return { members: 0, placed: 0 }; } } catch { /* feed down → don't block */ }
 
-  // SMART TREND-AWARE HALT (two required layers + market awareness — see goldEntryHold):
-  // a side pauses ONLY when the signal-loss streak is met AND a real trade on that side has
-  // actually lost AND the market isn't still moving that way. A pause is VISIBLE: it posts a
-  // Telegram note ("why it didn't enter") and logs a breadcrumb, instead of silently dropping.
+  // OWNER RULE 1 HALT (see goldEntryHold): a side pauses ONLY after a real stop-out on that side
+  // within the ~2h cooldown. A pause is VISIBLE: it posts a Telegram note ("why it didn't enter")
+  // and logs a breadcrumb, instead of silently dropping.
   try {
     const gate = await goldEntryHold(admin, sig.side);
     if (gate.hold) {
       try { await sendTelegram(`⏸️ <b>GENX gold — entry paused</b>\n${gate.reason}`); } catch { /* note best-effort */ }
-      try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: gold_halt ${sig.side}` }); } catch { /* log best-effort */ }
+      await deskDrop(`gold_halt ${sig.side}`);
       return { members: 0, placed: 0 };
     }
   } catch { /* read error → don't block */ }
@@ -981,10 +977,14 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   let goldLp: number | null = null;
   try { goldLp = await goldLivePrice(); } catch { goldLp = null; }
 
-  // CHASE GUARD (desk-wide): if price has already run toward TP so the live-price R:R is
-  // below the floor, this ENTER NOW is chased — skip it for everyone rather than fill a
-  // tiny-TP / huge-SL trade. Same reward:risk protection the FLOW path has, now on gold.
-  if (goldChasedAt(sig.side, sig.stop, sig.tp, goldLp)) return { members: 0, placed: 0 };
+  // CHASE GUARD (desk-wide): if price has already run toward TP so the live-price R:R is below the
+  // 0.5 floor, this ENTER NOW is chased — skip it for everyone rather than fill a tiny-TP / huge-SL
+  // trade. (Owner rule 2: a sub-0.5 fill is never chased; the scanner arms it for a 5-min pullback.)
+  if (goldChasedAt(sig.side, sig.stop, sig.tp, goldLp)) {
+    const rr = rewardRisk(goldLp, sig.stop, sig.tp);
+    await deskDrop(`chased_below_0.5RR${rr != null ? ` (rr ${rr.toFixed(2)})` : ""} ${sig.side}`);
+    return { members: 0, placed: 0 };
+  }
 
   // SIZING ENTRY = the LIVE price, not the (possibly stale) signal zone. This is the fix for
   // the $8k-risk trade: the position is risk-sized off where it will ACTUALLY fill, so the
