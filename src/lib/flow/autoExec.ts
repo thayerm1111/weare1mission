@@ -861,6 +861,40 @@ async function goldRealLossOnSide(admin: Admin, side: "buy" | "sell"): Promise<{
   }
 }
 
+// OWNER "RE-ANALYZE AFTER A WIN" RULE. After a full gold win on a side, pause NEW entries on
+// that side for this long so the engine reads FRESH price action before re-entering — instead of
+// instantly re-firing the same read at an extended price and giving the win straight back (the
+// "sold the bottom of the range right after a TP and got stopped" case). Short by design: it
+// blocks the immediate machine-gun re-entry but still lets a genuinely new setup develop. The
+// opposite side is never touched. Tunable.
+const GOLD_POST_WIN_REANALYZE_MS = 15 * 60 * 1000; // ~15 min re-analysis pause after a win
+
+/** A recent FULL WIN on this side (a hit target or a positive trailing-stop exit) within the
+ *  re-analysis window. Live trades only. This is what triggers the short post-win pause so the
+ *  desk reassesses before re-entering the same side. */
+async function goldRecentWinOnSide(admin: Admin, side: "buy" | "sell"): Promise<{ won: boolean; whenMs: number }> {
+  try {
+    const sinceIso = new Date(Date.now() - GOLD_POST_WIN_REANALYZE_MS).toISOString();
+    const { data } = await admin
+      .from("flow_managed_positions")
+      .select("resolved_at, result_pips, outcome")
+      .in("symbol", GOLD_SYMS)
+      .eq("side", side)
+      .eq("status", "closed")
+      .in("outcome", ["target", "trail"])   // a TP hit or a positive trailing-stop exit = a win
+      .neq("environment", "demo")
+      .gte("resolved_at", sinceIso)
+      .order("resolved_at", { ascending: false })
+      .limit(5);
+    const rows = (data ?? []) as { resolved_at: string | null; result_pips: number | null }[];
+    const win = rows.find((r) => Number(r.result_pips) > 0);
+    if (!win) return { won: false, whenMs: 0 };
+    return { won: true, whenMs: win.resolved_at ? new Date(win.resolved_at).getTime() : Date.now() };
+  } catch {
+    return { won: false, whenMs: 0 }; // read error → don't hold
+  }
+}
+
 /** MARKET AWARENESS — the short-term direction gold is ACTUALLY moving right now, on closed
  *  15-min candles (latest close vs ~1.5h ago). "down"/"up" only when the move clears a small
  *  noise band; else "flat". null = couldn't read. Lets the gate SEE that the market is still
@@ -898,15 +932,31 @@ async function goldShortMomentum(): Promise<"up" | "down" | "flat" | null> {
  * GOLD_LOSS_COOLDOWN_MS — so the lookback window and the cooldown are the same ~2h.
  */
 async function goldEntryHold(admin: Admin, side: "buy" | "sell"): Promise<{ hold: boolean; reason: string }> {
-  const real = await goldRealLossOnSide(admin, side);
-  if (!real.lost) return { hold: false, reason: "" };
-  if (Date.now() >= real.whenMs + GOLD_LOSS_COOLDOWN_MS) return { hold: false, reason: "" }; // cooldown elapsed
   const dir = side === "sell" ? "SELL" : "BUY";
-  const mins = Math.max(1, Math.round((real.whenMs + GOLD_LOSS_COOLDOWN_MS - Date.now()) / 60000));
-  return {
-    hold: true,
-    reason: `Pausing ${dir} gold ~${mins} min: a real ${side} trade just hit its stop and lost money (a genuine stop-out — not a break-even or ≤${GOLD_REAL_LOSS_MIN_PIPS}-pip scratch). Cooling this direction so losers don't stack. Resumes after the cooldown, on a win, or on a ${side === "sell" ? "BUY" : "SELL"} setup.`,
-  };
+
+  // RULE 1 — a real stop-out cools THIS side for ~2h so losers can't stack.
+  const real = await goldRealLossOnSide(admin, side);
+  if (real.lost && Date.now() < real.whenMs + GOLD_LOSS_COOLDOWN_MS) {
+    const mins = Math.max(1, Math.round((real.whenMs + GOLD_LOSS_COOLDOWN_MS - Date.now()) / 60000));
+    return {
+      hold: true,
+      reason: `Pausing ${dir} gold ~${mins} min: a real ${side} trade just hit its stop and lost money (a genuine stop-out — not a break-even or ≤${GOLD_REAL_LOSS_MIN_PIPS}-pip scratch). Cooling this direction so losers don't stack. Resumes after the cooldown, on a win, or on a ${side === "sell" ? "BUY" : "SELL"} setup.`,
+    };
+  }
+
+  // RE-ANALYZE AFTER A WIN — after a full win on this side, pause new same-side entries briefly
+  // so the engine re-reads fresh price before re-entering, instead of instantly re-firing the same
+  // read at an extended price and giving the win back (owner's directive).
+  const win = await goldRecentWinOnSide(admin, side);
+  if (win.won && Date.now() < win.whenMs + GOLD_POST_WIN_REANALYZE_MS) {
+    const mins = Math.max(1, Math.round((win.whenMs + GOLD_POST_WIN_REANALYZE_MS - Date.now()) / 60000));
+    return {
+      hold: true,
+      reason: `Re-analyzing after a ${dir} win — holding new ${dir} gold entries ~${mins} min so the engine reads fresh price before re-entering (instead of re-selling straight into a bounce right after banking the win). Resumes once the market re-develops or on the opposite side.`,
+    };
+  }
+
+  return { hold: false, reason: "" };
 }
 // NOTE: goldTrend / goldSignalLossStreak / goldShortMomentum / GOLD_STREAK_* remain defined below
 // but are no longer part of the entry gate after the Rule-1 simplification (kept for reference /
