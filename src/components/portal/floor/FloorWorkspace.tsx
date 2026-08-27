@@ -8,6 +8,9 @@ import { FloorHome } from "./FloorHome";
 import { LivePlays } from "./LivePlays";
 import { MarketPulse } from "./MarketPulse";
 import { FlowDesk } from "./FlowDesk";
+import { GenxDesk } from "./GenxDesk";
+import { OmAiChat } from "../OmAiChat";
+import { SignalGenerator } from "../SignalGenerator";
 
 /* The Floor workspace — a dark trading-desk shell around the launcher (home) and
    the in-desk tools. Adds: a premium entry transition (with a tasteful WebAudio
@@ -17,9 +20,15 @@ import { FlowDesk } from "./FlowDesk";
 
 const C = { base: "#0B0F14", panel: "#111820", line: "rgba(255,255,255,0.07)", text: "#F1F5F9", mut: "rgba(241,245,249,0.55)", cyan: "#22D3EE", green: "#34D399", red: "#F87171" };
 
+// Every desk tool renders INLINE on the Floor (as a `view`) so the whole workspace
+// flows together — clicking GENX / OM AI / OM AI Plays / Market Pulse / Live Plays
+// stays on the Floor exactly like FLOW, instead of navigating to a separate page.
 const VIEW_TABS = [
   { id: "home", label: "Floor" },
   { id: "flow", label: "FLOW" },
+  { id: "genx", label: "GENX" },
+  { id: "omai", label: "OM AI" },
+  { id: "signals", label: "OM AI Plays" },
   { id: "pulse", label: "Market Pulse" },
   { id: "plays", label: "Live Plays" },
 ] as const;
@@ -29,9 +38,9 @@ type SwitchItem = { key: string; label: string; icon: typeof LayoutGrid } & ({ v
 const SWITCHER: SwitchItem[] = [
   { key: "home", label: "Floor", icon: LayoutGrid, view: "home" },
   { key: "flow", label: "FLOW", icon: Link2, view: "flow" },
-  { key: "genx", label: "GENX", icon: Gem, href: "/portal/genx" },
-  { key: "omai", label: "OM AI", icon: Sparkles, href: "/portal/om-ai" },
-  { key: "signals", label: "OM AI Plays", icon: Zap, href: "/portal/signals" },
+  { key: "genx", label: "GENX", icon: Gem, view: "genx" },
+  { key: "omai", label: "OM AI", icon: Sparkles, view: "omai" },
+  { key: "signals", label: "OM AI Plays", icon: Zap, view: "signals" },
   { key: "pulse", label: "Market Pulse", icon: Activity, view: "pulse" },
   { key: "plays", label: "Live Plays", icon: TrendingUp, view: "plays" },
 ];
@@ -140,6 +149,9 @@ export function FloorWorkspace({ isCaller = false, followerCount = 0 }: { isCall
         {tab !== "home" && (
           <div className="rounded-xl bg-cream p-2.5 text-charcoal sm:p-3">
             {tab === "flow" && <FlowDesk />}
+            {tab === "genx" && <GenxDesk />}
+            {tab === "omai" && <OmAiChat />}
+            {tab === "signals" && <SignalGenerator />}
             {tab === "plays" && <LivePlays isCaller={isCaller} followerCount={followerCount} />}
             {tab === "pulse" && <MarketPulse />}
           </div>
