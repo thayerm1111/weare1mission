@@ -27,6 +27,17 @@ const OWNER_USER_ID = "3b5e06e5-258c-4880-b1f2-d1623cbca100";
 // never filled on his broker). Kept out of every stat, per-symbol row and learning.
 const EXCLUDED_SYMBOLS = new Set(["BTCUSD", "BTC", "XBTUSD", "BTCUSDT", "BTCUSDC"]);
 
+// Specific erroneous position rows to drop from the private record. These are the
+// two NAS100 buy legs (entry 28912.45, stop 28857.3, 2026-08-24) the manager
+// mis-recorded as -55 "stop" outcomes: the same buy actually ran UP to 28971.67 and
+// trailed out +47 on its winning leg, so it never touched the 28857 stop — those two
+// stop rows contradict the real price action and the confirmed win. Kept out of every
+// stat; the genuine winning trail leg stays and represents the NAS100 result.
+const EXCLUDED_POSITION_IDS = new Set([
+  "14243f57-c7fe-407c-a576-b7d5d6a5fcab",
+  "c7005f0d-eabb-4884-9144-c67f22dabcda",
+]);
+
 /** Price size of one pip for this instrument. */
 function pipSize(symbol: string): number {
   const s = symbol.toUpperCase();
@@ -55,7 +66,7 @@ function sessionOf(iso: string): "Asian" | "London" | "London/NY" | "New York" |
 }
 
 type Row = {
-  symbol: string; side: string; entry: number | null; init_stop: number | null; qty: number | null;
+  id: string; symbol: string; side: string; entry: number | null; init_stop: number | null; qty: number | null;
   outcome: string | null; result_pips: number | null; best_price: number | null;
   created_at: string; resolved_at: string | null; environment: string | null;
 };
@@ -73,14 +84,16 @@ export async function GET(_req: NextRequest) {
 
   const { data } = await admin
     .from("flow_managed_positions")
-    .select("symbol,side,entry,init_stop,qty,outcome,result_pips,best_price,created_at,resolved_at,environment")
+    .select("id,symbol,side,entry,init_stop,qty,outcome,result_pips,best_price,created_at,resolved_at,environment")
     .eq("user_id", OWNER_USER_ID)
     .eq("status", "closed")
     .neq("environment", "demo")
     .not("outcome", "is", null)
     .order("resolved_at", { ascending: false, nullsFirst: false })
     .limit(1500);
-  const rows = ((data ?? []) as Row[]).filter((r) => !EXCLUDED_SYMBOLS.has((r.symbol || "").toUpperCase()));
+  const rows = ((data ?? []) as Row[]).filter(
+    (r) => !EXCLUDED_SYMBOLS.has((r.symbol || "").toUpperCase()) && !EXCLUDED_POSITION_IDS.has(r.id),
+  );
 
   // ── HONEST RECORD (a stop is a loss; target/trail is a win; breakeven is a scratch; manual out). ──
   const isLoss = (o: string | null) => o === "stop";
