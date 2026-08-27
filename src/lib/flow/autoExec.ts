@@ -917,6 +917,45 @@ async function goldShortMomentum(): Promise<"up" | "down" | "flat" | null> {
   } catch { return null; }
 }
 
+// CHANGE OF CHARACTER (structure break). A trend "changes character" when price reclaims the swing
+// that preceded the leg's extreme: a HIGHER HIGH after a down-leg = bullish flip; a LOWER LOW after
+// an up-leg = bearish flip. We use it to STOP taking a new entry that fights a fresh flip — no new
+// SELL once a bullish change-of-character has printed, no new BUY once a bearish one has — so the
+// desk quits selling into a confirmed reversal instead of following the lagging trend read down. A
+// NORMAL pullback inside a trend does NOT reclaim the prior swing, so it is not treated as a flip;
+// and the leg must clear CHOCH_MIN_USD so noise never trips it. Reads closed 5-min candles; null (no
+// block) on any failure so a feed blip never halts trading.
+const CHOCH_MIN_USD = 4.0; // ~40 gold pips — a real structure move, not chop
+async function goldChangeOfCharacter(): Promise<"bullish" | "bearish" | null> {
+  const key = process.env.TWELVEDATA_API_KEY;
+  if (!key) return null;
+  try {
+    const raw = await series("XAU/USD", "5min", 60, key);
+    if (!raw || raw === "ratelimit" || !Array.isArray(raw)) return null;
+    const bars = (closedBars(raw, 30) ?? raw)
+      .map((r) => ({ h: +r.high, l: +r.low, c: +r.close }))
+      .filter((b) => Number.isFinite(b.h) && Number.isFinite(b.l) && Number.isFinite(b.c));
+    if (bars.length < 8) return null;
+    const lastClose = bars[bars.length - 1].c;
+    let loIdx = 0, hiIdx = 0;
+    for (let i = 1; i < bars.length; i++) { if (bars[i].l < bars[loIdx].l) loIdx = i; if (bars[i].h > bars[hiIdx].h) hiIdx = i; }
+    if (bars[hiIdx].h - bars[loIdx].l < CHOCH_MIN_USD) return null; // leg too small → no real reversal
+    // Bullish: price bottomed FIRST (loIdx earlier), then rallied and the latest close reclaimed the
+    // swing high that PRECEDED the low — a higher high vs the down-leg's structure.
+    if (loIdx < hiIdx) {
+      const priorHigh = Math.max(...bars.slice(0, loIdx + 1).map((b) => b.h));
+      if (lastClose > priorHigh) return "bullish";
+    }
+    // Bearish: price topped FIRST, then sold off and the latest close broke the swing low that
+    // preceded the high — a lower low vs the up-leg's structure.
+    if (hiIdx < loIdx) {
+      const priorLow = Math.min(...bars.slice(0, hiIdx + 1).map((b) => b.l));
+      if (lastClose < priorLow) return "bearish";
+    }
+    return null;
+  } catch { return null; }
+}
+
 /**
  * THE gold entry gate — OWNER RULE 1 (simple + predictable).
  *
@@ -953,6 +992,18 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell"): Promise<{ hold
     return {
       hold: true,
       reason: `Re-analyzing after a ${dir} win — holding new ${dir} gold entries ~${mins} min so the engine reads fresh price before re-entering (instead of re-selling straight into a bounce right after banking the win). Resumes once the market re-develops or on the opposite side.`,
+    };
+  }
+
+  // CHANGE OF CHARACTER — don't take a NEW entry that fights a fresh structure flip. Once gold has
+  // reclaimed the swing it fell from (bullish flip), stop taking sells; once it breaks the swing it
+  // rose from (bearish flip), stop taking buys. This is what keeps it from continuing to sell a
+  // confirmed reversal (the exact case: caught the down-move, then kept selling as price turned up).
+  const choch = await goldChangeOfCharacter();
+  if ((side === "sell" && choch === "bullish") || (side === "buy" && choch === "bearish")) {
+    return {
+      hold: true,
+      reason: `Change of character: gold structure just flipped ${choch} (a ${choch === "bullish" ? "higher high — price reclaimed the level it fell from" : "lower low — price broke the level it rose from"}). Not taking a new ${dir} into the reversal; the engine will re-read and align with the new direction.`,
     };
   }
 
