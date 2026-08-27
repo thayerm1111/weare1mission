@@ -22,6 +22,11 @@ function json(obj: unknown, status = 200) {
 // The owner's account owner_id. His live accounts hang off this user.
 const OWNER_USER_ID = "3b5e06e5-258c-4880-b1f2-d1623cbca100";
 
+// Instruments that were never actually traded on the owner's live accounts and
+// should not appear in his private record (e.g. BTC signals that were tracked but
+// never filled on his broker). Kept out of every stat, per-symbol row and learning.
+const EXCLUDED_SYMBOLS = new Set(["BTCUSD", "BTC", "XBTUSD", "BTCUSDT", "BTCUSDC"]);
+
 /** Price size of one pip for this instrument. */
 function pipSize(symbol: string): number {
   const s = symbol.toUpperCase();
@@ -75,7 +80,7 @@ export async function GET(_req: NextRequest) {
     .not("outcome", "is", null)
     .order("resolved_at", { ascending: false, nullsFirst: false })
     .limit(1500);
-  const rows = (data ?? []) as Row[];
+  const rows = ((data ?? []) as Row[]).filter((r) => !EXCLUDED_SYMBOLS.has((r.symbol || "").toUpperCase()));
 
   // ── HONEST RECORD (a stop is a loss; target/trail is a win; breakeven is a scratch; manual out). ──
   const isLoss = (o: string | null) => o === "stop";
