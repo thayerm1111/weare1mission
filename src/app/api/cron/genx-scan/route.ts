@@ -52,7 +52,9 @@ import { beat } from "@/lib/flow/health";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// Safety margin for the fan-out: placement now runs members concurrently (fast), but a wider
+// ceiling means a slow broker patch can never cut the fan-out off partway and starve members.
+export const maxDuration = 300;
 
 /**
  * GENX AUTOMATED SCANNER → Telegram alerts.
