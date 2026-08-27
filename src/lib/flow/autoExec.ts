@@ -667,6 +667,31 @@ export async function runFlowWatch(mdKey: string): Promise<{ watched: number; co
 // immediately — the only cap is "max one OPEN at a time".
 const GOLD_CLAIM_SEC = 90;
 
+// How many members' fan-out legs run CONCURRENTLY when a gold signal places. The desk grew to
+// ~57 autotrade members and the old one-at-a-time loop (several broker calls each) ran past the
+// scanner's time budget, so most members silently missed every signal. A modest cap places every
+// member within a few seconds while staying well under TradeLocker's per-connection rate limits
+// (the executor already caches instruments per connection and retries on 429).
+const FANOUT_CONCURRENCY = 8;
+
+/** Run `fn` over `items` with a bounded number in flight at once, preserving result order.
+ *  Single-threaded JS: the shared cursor is incremented synchronously, so no two workers ever
+ *  take the same index. This is what lets a gold signal reach ALL members inside the function's
+ *  time budget instead of timing out partway through a long sequential loop. */
+async function mapPool<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length || 1)) }, async () => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= items.length) break;
+      results[i] = await fn(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 // CHASE GUARD floor — the MINIMUM reward:risk, measured at the LIVE price, for a gold ENTER
 // NOW to be placed at all. Gold fills at MARKET, so if price has already run toward TP by the
 // time the fill lands, the reward:risk collapses (e.g. filled ~4666 on a 4655 signal: +2 to
@@ -992,6 +1017,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // real entry→stop distance (and the loss) beyond what was intended. Falls back to the
   // signal entry only if the feed is down.
   const sizeEntry = goldLp != null ? goldLp : entry;
+  const goldStop: number = sig.stop; // narrowed non-null above; captured so the closure keeps the type
 
   // UNIFIED FAN-OUT: drive off the ACCOUNT table, not the auto-run settings table. EVERY
   // member who owns at least one autotrade-enabled account is included — even if they have
@@ -1009,18 +1035,22 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     : { data: [] as { user_id: string; credit_paused?: boolean | null }[] };
   const pausedBy = new Map(((setRows ?? []) as { user_id: string; credit_paused?: boolean | null }[]).map((r) => [r.user_id, !!r.credit_paused]));
   let placedTotal = 0, members = 0;
-  for (const userId of userIds) {
+  // PARALLEL FAN-OUT (concurrency-capped). The old sequential loop did several broker
+  // round-trips PER MEMBER one member at a time; on a 57-member desk that ran past the
+  // scanner's function budget, so members late in the order silently missed every signal
+  // (only a handful got filled per signal). Running members concurrently (cap below) fans a
+  // signal out to EVERY eligible member in seconds. Same per-member logic, just not serial.
+  const perMember = async (userId: string): Promise<number> => {
     try {
       if (pausedBy.get(userId)) {
         // KEEP the credits gate, but make the skip visible instead of silent.
         try { await admin.from("flow_auto_events").insert({ user_id: userId, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: "genx: credit_paused" }); } catch { /* log best-effort */ }
-        continue;
+        return 0;
       }
-
       // Claim gold for this member. FALSE → a gold entry is already live within the
       // cooldown → skip (this blocks GENX's back-to-back ENTER NOW repeats).
       const { data: won } = await admin.rpc("flow_try_claim", { p_user: userId, p_symbol: "XAUUSD", p_cooldown_secs: GOLD_CLAIM_SEC });
-      if (won === false) continue;
+      if (won === false) return 0;
 
       const allAccounts = await activeAccounts(userId);
       // PER-ACCOUNT SAFETY MODE: drop this member's accounts that are conservative AND in
@@ -1032,10 +1062,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       // ungraded call still behaves exactly as before.
       if (sig.conservativeOk === false) accounts = accounts.filter((a) => !isConservative(a.riskMode));
       // MAX ONE OPEN GENX/FLOW GOLD PER ACCOUNT — broker-verified. An account is dropped ONLY
-      // when it has a GENX/FLOW gold position the BROKER confirms is still open. No ledger
-      // record → free to take. Broker unreadable → take it (don't miss the trade). Ledger row
-      // the broker already closed (stale) → take it. A hand-placed manual trade is never in
-      // the ledger, so it never blocks. One account's open trade never blocks another's.
+      // when it has a GENX/FLOW gold position the BROKER confirms is still open.
       const verified: ActiveAccount[] = [];
       for (const a of accounts) {
         const ledgerPids = ledgerGoldByAcct.get(String(a.accountId));
@@ -1045,17 +1072,22 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
         verified.push(a); // no ledger, broker says closed, or broker unreadable → take it
       }
       accounts = verified;
-      if (!accounts.length) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); continue; }
+      if (!accounts.length) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); return 0; }
 
       const { data: pref } = await admin.from("flow_trade_prefs").select("risk_pct").eq("user_id", userId).maybeSingle();
       const p = (pref as { risk_pct?: number | null } | null) ?? null;
       const riskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : 1;
 
-      const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry: sizeEntry, stop: sig.stop, tp: sig.tp, riskPct, source: "genx", accounts });
-      if (res.placed === 0) await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); // nothing filled → let the next ENTER NOW retry
-      else { placedTotal += res.placed; members += 1; }
-    } catch { /* per-member best-effort */ }
-  }
+      const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry: sizeEntry, stop: goldStop, tp: sig.tp, riskPct, source: "genx", accounts });
+      if (res.placed === 0) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); return 0; } // nothing filled → let the next ENTER NOW retry
+      return res.placed;
+    } catch { return 0; } // per-member best-effort
+  };
+  const placedPer = await mapPool(userIds, FANOUT_CONCURRENCY, perMember);
+  for (const n of placedPer) { if (n > 0) { placedTotal += n; members += 1; } }
+  // COVERAGE BREADCRUMB — how many of the eligible members this signal actually reached, so an
+  // under-fan-out can never hide again. With the parallel fan-out this should be ~all of them.
+  try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "fanout", reason: `genx: fanout ${members}/${userIds.length} members` }); } catch { /* best-effort */ }
   return { members, placed: placedTotal };
 }
 
@@ -1173,19 +1205,22 @@ export async function placeGenxFollower(sig: {
     return risk;
   }
 
-  let placed = 0, touched = 0;
-  for (const a of accts) {
-    if (!a.acc_num) continue;
-    touched += 1;
+  // PARALLEL FAN-OUT (same fix as the copy path): follower accounts also fan out concurrently
+  // (capped) so a signal reaches EVERY follower account within the function budget instead of
+  // timing out partway through a long sequential loop. The shared token/equity caches only ever
+  // double-fetch on a race (harmless), and genx_follower_fills' unique (signal_key, account_id)
+  // makes each fill idempotent even under concurrency.
+  const perAccount = async (a: FollowRow): Promise<{ touched: number; placed: number }> => {
+    if (!a.acc_num) return { touched: 0, placed: 0 };
     try {
       // PER-ACCOUNT SAFETY MODE: a CONSERVATIVE follower account sits gold out for 4h
       // after 2 losing gold trades in a row. Aggressive follower accounts take it raw.
       if (isConservative(a.risk_mode)) {
         // CONSERVATIVE QUALITY GATE: skip this setup on conservative followers when it
         // failed the confluence checks (aggressive followers below still take it).
-        if (sig.conservativeOk === false) continue;
+        if (sig.conservativeOk === false) return { touched: 1, placed: 0 };
         const cut = await accountAssetCutoff(admin, a.account_id, "gold");
-        if (cut.halt) continue;
+        if (cut.halt) return { touched: 1, placed: 0 };
       }
       // MAX ONE OPEN GENX/FLOW GOLD PER ACCOUNT — broker-verified (same rule as the copy
       // path). The ledger holds only engine-placed trades, so a MANUAL gold trade never
@@ -1200,16 +1235,16 @@ export async function placeGenxFollower(sig: {
         const tokChk = await tokenFor(a.connection_id);
         if (tokChk) {
           const brokerOpen = await brokerOpenPosIds({ env: tokChk.env, token: tokChk.token, accNum: String(a.acc_num), accountId: a.account_id });
-          if (genxGoldStillOpen(ledgerPids, brokerOpen)) continue; // genuinely open → skip
+          if (genxGoldStillOpen(ledgerPids, brokerOpen)) return { touched: 1, placed: 0 }; // genuinely open → skip
         }
       }
       // Idempotent claim: one fill per (signal, account). A duplicate row → already
       // handled this ENTER NOW on this account → skip.
       const { error: dupErr } = await admin.from("genx_follower_fills").insert({ signal_key: signalKey, account_id: a.account_id });
-      if (dupErr) continue;
+      if (dupErr) return { touched: 1, placed: 0 };
 
       const tok = await tokenFor(a.connection_id);
-      if (!tok) { await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id); continue; }
+      if (!tok) { await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id); return { touched: 1, placed: 0 }; }
 
       // Risk-size this account to its own % (override → owner default → 1% fallback).
       // If we can't size (missing entry/stop/equity), take the 0.01 floor so the
@@ -1230,7 +1265,6 @@ export async function placeGenxFollower(sig: {
         symbol: "XAUUSD", side: sig.side, qty, stop: fstop, tp: sig.tp, source: "genx_follow",
       });
       if (r.ok) {
-        placed += 1;
         // Record the fill in the manager's ledger REGARDLESS of the management toggle. The
         // trade-manager books a CONFIRMED closed-trade outcome for every tracked row (its
         // gone/close detection runs before the management steps), and that outcome is what the
@@ -1249,12 +1283,16 @@ export async function placeGenxFollower(sig: {
             });
           } catch { /* best-effort; the trade still stands even if the ledger insert fails */ }
         }
-      } else {
-        // Nothing filled (session closed / token blip) → release the claim so a later
-        // ENTER NOW re-fire for this same signal can retry on this account.
-        await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id);
+        return { touched: 1, placed: 1 };
       }
-    } catch { /* per-account best-effort */ }
-  }
+      // Nothing filled (session closed / token blip) → release the claim so a later
+      // ENTER NOW re-fire for this same signal can retry on this account.
+      await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id);
+      return { touched: 1, placed: 0 };
+    } catch { return { touched: 1, placed: 0 }; } // per-account best-effort
+  };
+  const results = await mapPool(accts, FANOUT_CONCURRENCY, perAccount);
+  let placed = 0, touched = 0;
+  for (const r of results) { touched += r.touched; placed += r.placed; }
   return { accounts: touched, placed };
 }
