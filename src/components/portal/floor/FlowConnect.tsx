@@ -661,7 +661,7 @@ export function FlowConnect() {
                 disabled={autoBusy}
                 aria-pressed={!!auto?.enabled}
                 className={`relative h-8 w-[58px] flex-shrink-0 rounded-full transition-colors disabled:opacity-60 ${
-                  auto?.enabled ? "bg-emerald-500" : "bg-charcoal/20"
+                  auto?.enabled ? "bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.55)]" : "bg-charcoal/20"
                 }`}
               >
                 <span
