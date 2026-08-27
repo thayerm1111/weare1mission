@@ -7,6 +7,7 @@
     { "path": "/api/cron/genx-scan", "schedule": "*/5 * * * *" },
     { "path": "/api/cron/xghost-scan", "schedule": "*/15 * * * *" },
     { "path": "/api/cron/autorefill", "schedule": "*/3 * * * *" },
-    { "path": "/api/cron/flow-watchdog", "schedule": "* * * * *" }
+    { "path": "/api/cron/flow-watchdog", "schedule": "* * * * *" },
+    { "path": "/api/cron/flow-monitor", "schedule": "*/5 * * * *" }
   ]
 }
