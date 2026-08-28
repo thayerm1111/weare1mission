@@ -501,7 +501,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   const tokenCache = new Map<string, { token: string; env: TLEnv } | null>();
   const colCache = new Map<string, { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number }>();
   const histColCache = new Map<string, Record<string, number> | undefined>();
-  const acctCache = new Map<string, { openIds: Set<string>; avgPx: Map<string, number>; upl: Map<string, number>; qty: Map<string, number>; instruments: TLInstrument[] } | null>();
+  const acctCache = new Map<string, { openIds: Set<string>; avgPx: Map<string, number>; upl: Map<string, number>; qty: Map<string, number>; sl: Map<string, number>; instruments: TLInstrument[] } | null>();
   const quoteCache = new Map<string, number | null>();
 
   const actions: ManageAction[] = [];
@@ -578,15 +578,17 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     const avgPx = new Map<string, number>();
     const upl = new Map<string, number>();
     const qty = new Map<string, number>();
+    const sl = new Map<string, number>();
     if (pos.ok) for (const p of pos.data) {
       const id = posIdOf(p);
       if (!id) continue;
       const a = numAt(p, cols.avgIdx, AVG_KEYS); if (a != null && a > 0) avgPx.set(id, a);
       const u = numAt(p, cols.uplIdx, UPL_KEYS); if (u != null) upl.set(id, u);
       const qn = numAt(p, cols.qtyIdx, QTY_KEYS); if (qn != null && qn > 0) qty.set(id, qn);
+      const s = numAt(p, cols.slIdx, SL_KEYS); if (s != null && s > 0) sl.set(id, s);
     }
     const v = pos.ok && inst.ok
-      ? { openIds: new Set(pos.data.map(posIdOf).filter(Boolean)), avgPx, upl, qty, instruments: inst.data }
+      ? { openIds: new Set(pos.data.map(posIdOf).filter(Boolean)), avgPx, upl, qty, sl, instruments: inst.data }
       : null;
     acctCache.set(key, v);
     return v;
@@ -816,6 +818,23 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // still never bank a partial at a loss.
       const inProfit = priceInProfit || (brokerUpl != null && brokerUpl > 0);
       const bePx = roundPx(row.symbol, entry);
+
+      // ── STEP 0: ADOPT a break-even that already exists on the BROKER. The broker is the
+      //    source of truth: if the live SL already sits at/beyond entry — the owner moved it
+      //    manually, or a previous modify acked without a confirmed read-back — record BE as
+      //    done instead of re-sending modifies forever ("Nothing to change") with the trail
+      //    never engaging. (Owner case 08-28: manual BE moves left be_done=false in the
+      //    ledger, so the manager fought the broker instead of continuing from it.) ──
+      if (manageOn && !row.be_done) {
+        const brokerSl = st.sl.get(String(row.position_id)) ?? null;
+        const tol = pip * 2;
+        const atOrBeyond = brokerSl != null && (long ? brokerSl >= entry - tol : brokerSl <= entry + tol);
+        if (atOrBeyond) {
+          update.be_done = true; update.cur_stop = brokerSl; row.be_done = true; row.cur_stop = brokerSl; didAction = true;
+          actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_adopted", detail: `broker SL already ${brokerSl}` });
+          await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "break_even", reason: "adopted_from_broker", price: brokerSl });
+        }
+      }
 
       // ── STEP 1: BREAK-EVEN — move the stop to the entry. Only while genuinely in profit and
       //    with the market still beyond entry (so the stop isn't rejected / isn't a loss). ──
