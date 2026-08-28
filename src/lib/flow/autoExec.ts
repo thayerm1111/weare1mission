@@ -902,7 +902,7 @@ async function goldRealLossOnSide(admin: Admin, side: "buy" | "sell"): Promise<{
     const sinceIso = new Date(Date.now() - GOLD_LOSS_COOLDOWN_MS).toISOString();
     const { data } = await admin
       .from("flow_managed_positions")
-      .select("resolved_at, result_pips, partial_taken, outcome, init_stop")
+      .select("resolved_at, result_pips, partial_taken, outcome, init_stop, account_id, created_at")
       .in("symbol", GOLD_SYMS)
       .eq("side", side)
       .eq("status", "closed")
@@ -911,9 +911,19 @@ async function goldRealLossOnSide(admin: Admin, side: "buy" | "sell"): Promise<{
       .gte("resolved_at", sinceIso)
       .order("resolved_at", { ascending: false })
       .limit(20);
-    const rows = (data ?? []) as { resolved_at: string | null; result_pips: number | null; partial_taken: boolean | null; init_stop: number | null }[];
-    // Newest genuine stop-out that lost real money (no partial banked + a meaningful negative result).
-    const real = rows.find((r) => !r.partial_taken && Number(r.result_pips) <= -GOLD_REAL_LOSS_MIN_PIPS);
+    const rows = (data ?? []) as { resolved_at: string | null; result_pips: number | null; partial_taken: boolean | null; init_stop: number | null; account_id: string | null; created_at: string }[];
+    // OWNER RULE: only an AUTOMATED (GENX/FLOW) trade's stop-out cools the desk. A member's
+    // hand-clicked "play"/"test" stopping out is THEIR trade, not a desk read failing — it
+    // must never pause every account's entries (live case 08-28: one member's $8-stop play
+    // clipped at 02:32 froze all sells for the whole desk while the GENX trades never came
+    // near their stops). Origin is resolved from the placement event, same as the one-open cap.
+    const manuals = await manualGoldPlacements(admin);
+    // Newest genuine AUTOMATED stop-out that lost real money (no partial banked + meaningful negative).
+    const real = rows.find((r) =>
+      !r.partial_taken &&
+      Number(r.result_pips) <= -GOLD_REAL_LOSS_MIN_PIPS &&
+      !isManualGoldRow(manuals, String(r.account_id ?? ""), r.created_at),
+    );
     if (!real) return { lost: false, whenMs: 0, stopPx: null };
     return { lost: true, whenMs: real.resolved_at ? new Date(real.resolved_at).getTime() : Date.now(), stopPx: typeof real.init_stop === "number" ? real.init_stop : null };
   } catch {
@@ -937,7 +947,7 @@ async function goldRecentWinOnSide(admin: Admin, side: "buy" | "sell"): Promise<
     const sinceIso = new Date(Date.now() - GOLD_POST_WIN_REANALYZE_MS).toISOString();
     const { data } = await admin
       .from("flow_managed_positions")
-      .select("resolved_at, result_pips, outcome")
+      .select("resolved_at, result_pips, outcome, account_id, created_at")
       .in("symbol", GOLD_SYMS)
       .eq("side", side)
       .eq("status", "closed")
@@ -946,8 +956,11 @@ async function goldRecentWinOnSide(admin: Admin, side: "buy" | "sell"): Promise<
       .gte("resolved_at", sinceIso)
       .order("resolved_at", { ascending: false })
       .limit(5);
-    const rows = (data ?? []) as { resolved_at: string | null; result_pips: number | null }[];
-    const win = rows.find((r) => Number(r.result_pips) > 0);
+    const rows = (data ?? []) as { resolved_at: string | null; result_pips: number | null; account_id: string | null; created_at: string }[];
+    // Same origin rule as the loss cooldown: only an AUTOMATED trade's win triggers the
+    // desk-wide re-analysis pause — a member's personal play banking a TP never holds the desk.
+    const manuals = await manualGoldPlacements(admin);
+    const win = rows.find((r) => Number(r.result_pips) > 0 && !isManualGoldRow(manuals, String(r.account_id ?? ""), r.created_at));
     if (!win) return { won: false, whenMs: 0 };
     return { won: true, whenMs: win.resolved_at ? new Date(win.resolved_at).getTime() : Date.now() };
   } catch {
