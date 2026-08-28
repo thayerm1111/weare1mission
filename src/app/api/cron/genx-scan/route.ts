@@ -240,7 +240,7 @@ async function run(): Promise<Response> {
 
       const engineState = String(genx.engine_state || "");
       const actionable = engineState === "TRADE_READY" || engineState === "DEVELOPING_SETUP";
-      modeOut.action = genx.action; modeOut.state = engineState; modeOut.conf = genx.confidence_score;
+      modeOut.action = genx.action; modeOut.state = engineState; modeOut.conf = genx.confidence_score; modeOut.profile = genx.entry_profile;
       if (!actionable || genx.entry_low == null || genx.entry_high == null || genx.stop_loss == null) { modeOut.skip = "not_actionable"; continue; }
 
       const side: "buy" | "sell" = String(genx.action).includes("SELL") ? "sell" : "buy";
@@ -255,6 +255,7 @@ async function run(): Promise<Response> {
       const qGate = genxConservativeGate({
         confidence_score: genx.confidence_score, momentum: genx.momentum, market_structure: genx.market_structure,
         action: genx.action, side, entry: genx.entry, stop_loss: genx.stop_loss, tp1: genx.tp1, session: genx.session,
+        entry_profile: genx.entry_profile,
       });
       const qOk = qGate.ok;
       modeOut.quality_ok = qOk; modeOut.quality_reason = qGate.reason;
@@ -339,6 +340,14 @@ async function run(): Promise<Response> {
     } catch (e) {
       modeOut.error = e instanceof Error ? e.message : "error";
     }
+    // OBSERVABILITY: persist the exact decision of every full scan into the genx
+    // heartbeat detail (upsert — zero row growth). Before this, skip reasons only
+    // existed in the HTTP response and were invisible after the fact, so "why did
+    // it not trade?" required guesswork. The latest decision is now always
+    // readable from flow_heartbeat.detail.last_decision.
+    try {
+      await beat(admin, "genx", { tier: "full", last_decision: { at: nowIso, mode, ...modeOut } });
+    } catch { /* liveness/observability best-effort */ }
   }
 
   return json({ ok: true, asOf: nowIso, ...out }, 200);
