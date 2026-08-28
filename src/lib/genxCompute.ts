@@ -331,10 +331,14 @@ export function genxConservativeGate(g: {
   const side: "buy" | "sell" =
     g.side === "sell" || String(g.action ?? "").toUpperCase().includes("SELL") ? "sell" : "buy";
 
-  // 0) Setup-family eligibility: aggressive-only families (moderate trend,
-  //    compression edge-fade) are earlier/opportunistic tiers — conservative
-  //    accounts never take them regardless of score.
-  if (g.entry_profile === "aggressive_only") return { ok: false, reason: "aggressive-only setup family" };
+  // 0) Setup family: aggressive-only families (moderate trend, compression
+  //    edge-fade) are NOT categorically rejected. 65 of the desk's 107 auto-on
+  //    accounts run conservative, so a blanket family ban meant most of the
+  //    community missed every new-family entry (owner: "nobody is getting the
+  //    trades"). The real mode split stands elsewhere: AGGRESSIVE takes every
+  //    desk entry with no gate at all; CONSERVATIVE must pass ALL the confluence
+  //    checks below (momentum, confidence, R:R, structure, session) on EVERY
+  //    family — new families included.
 
   // 1) Momentum must not be weak.
   if (String(g.momentum ?? "").toLowerCase().includes("weak")) return { ok: false, reason: "weak momentum" };
