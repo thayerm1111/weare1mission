@@ -80,6 +80,28 @@ function isMarketOpenNow(d: Date = new Date()): boolean {
   return true;                      // Mon–Thu — open
 }
 
+// WEEKEND-CLOSE ENTRY BLACKOUT (owner rule, 08-28): never open a NEW trade in the last
+// 30 minutes before the Friday close (17:00 New York, DST-aware). A fill taken that late
+// has no time to work, gets marked-to-market across the weekend gap, and often reopens
+// Sunday straight into a stop. Open positions are still managed normally — this blocks
+// fresh ENTRIES only. Applies to every automated path (GENX gold, followers, FLOW auto);
+// nothing here touches manual plays.
+export function inWeekendCloseWindow(d: Date = new Date()): boolean {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", hour12: false, weekday: "short", hour: "2-digit", minute: "2-digit",
+    }).formatToParts(d);
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+    if (get("weekday") !== "Fri") return false;
+    const h = Number(get("hour")) % 24; // some ICU builds report midnight as "24"
+    const m = Number(get("minute"));
+    return h > 16 || (h === 16 && m >= 30); // 4:30pm NY → the 5pm close (and past it)
+  } catch {
+    // Intl unavailable → UTC approximation of the same window (22:00 UTC close).
+    return d.getUTCDay() === 5 && (d.getUTCHours() > 21 || (d.getUTCHours() === 21 && d.getUTCMinutes() >= 30));
+  }
+}
+
 /**
  * Decide whether an armed member may run THIS tick, billing the 30-min window
  * when it's due. Mutates flow_auto_settings.last_credit_at / credit_paused.
@@ -88,6 +110,7 @@ function isMarketOpenNow(d: Date = new Date()): boolean {
  */
 async function meterAutoRun(admin: Admin, settings: AutoSettings): Promise<boolean> {
   if (!isMarketOpenNow()) return false; // never bill or place while closed
+  if (inWeekendCloseWindow()) return false; // no new entries (or billing) in the last 30 min before Friday close
   // Trading Suite members get auto-run FREE — no per-window credit charge.
   // Non-members fall through to the pay-per-use meter below.
   if (await hasActiveSuite(settings.user_id, admin)) return true;
@@ -1051,6 +1074,14 @@ async function goldChangeOfCharacter(): Promise<"bullish" | "bearish" | null> {
 async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: number | null): Promise<{ hold: boolean; reason: string; scope?: "desk" | "conservative" }> {
   const dir = side === "sell" ? "SELL" : "BUY";
 
+  // WEEKEND-CLOSE BLACKOUT — no new entries in the final 30 min before Friday's close.
+  if (inWeekendCloseWindow()) {
+    return {
+      hold: true, scope: "desk",
+      reason: `Weekend-close blackout: no new ${dir} entries in the final 30 minutes before Friday's close. Open positions keep being managed; fresh setups resume at the Sunday reopen.`,
+    };
+  }
+
   // RULE 1 — a real stop-out cools THIS side for ~2h so losers can't stack.
   const real = await goldRealLossOnSide(admin, side);
   if (real.lost && Date.now() < real.whenMs + GOLD_LOSS_COOLDOWN_MS) {
@@ -1323,6 +1354,7 @@ export async function placeGenxFollower(sig: {
 }): Promise<{ accounts: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { accounts: 0, placed: 0 };
+  if (inWeekendCloseWindow()) return { accounts: 0, placed: 0 }; // no new entries near Friday close
   if (!(await systemSwitches(admin)).genx) return { accounts: 0, placed: 0 }; // admin GENX kill switch
   const signalKey = String(sig.signalKey || "").slice(0, 200);
   if (!signalKey) return { accounts: 0, placed: 0 };
