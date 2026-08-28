@@ -339,15 +339,17 @@ async function run(): Promise<Response> {
       }
     } catch (e) {
       modeOut.error = e instanceof Error ? e.message : "error";
+    } finally {
+      // OBSERVABILITY: persist the exact decision of every full scan into the genx
+      // heartbeat detail (upsert — zero row growth). Before this, skip reasons only
+      // existed in the HTTP response and were invisible after the fact, so "why did
+      // it not trade?" required guesswork. In a FINALLY because the loop body
+      // `continue`s on its most common paths (not_actionable, new-setup handled) —
+      // a beat placed after the try/catch never ran for those decisions.
+      try {
+        await beat(admin, "genx", { tier: "full", last_decision: { at: nowIso, mode, ...modeOut } });
+      } catch { /* liveness/observability best-effort */ }
     }
-    // OBSERVABILITY: persist the exact decision of every full scan into the genx
-    // heartbeat detail (upsert — zero row growth). Before this, skip reasons only
-    // existed in the HTTP response and were invisible after the fact, so "why did
-    // it not trade?" required guesswork. The latest decision is now always
-    // readable from flow_heartbeat.detail.last_decision.
-    try {
-      await beat(admin, "genx", { tier: "full", last_decision: { at: nowIso, mode, ...modeOut } });
-    } catch { /* liveness/observability best-effort */ }
   }
 
   return json({ ok: true, asOf: nowIso, ...out }, 200);
