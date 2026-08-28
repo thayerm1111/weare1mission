@@ -4,7 +4,7 @@ import { computeGenxRead, buildGenx, genxConservativeGate, GOLD, MODES, type Mod
 import { confirmEntry, CONFIRM_IV } from "@/lib/genxConfirm";
 import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
-import { placeGenxGold, placeGenxFollower, rewardRisk } from "@/lib/flow/autoExec";
+import { placeGenxGold, placeGenxFollower, rewardRisk, inWeekendCloseWindow } from "@/lib/flow/autoExec";
 
 // GOLD ENTRY PREFERENCE (owner directive): get IN when the trade is working; only wait for a
 // pull-back when the fill is genuinely too rich.
@@ -249,6 +249,11 @@ async function run(): Promise<Response> {
       const dedupeKey = `${mode}:${side}:${r1(genx.entry_low)}:${r1(genx.entry_high)}`;
       modeOut.dedupe = dedupeKey;
 
+      // WEEKEND-CLOSE BLACKOUT (owner rule): in the final 30 min before Friday's close no new
+      // alert is sent, nothing confirms, and nothing is placed — a late-Friday fill just carries
+      // weekend-gap risk. Forming setups simply pause; expiry cleans them up over the weekend.
+      if (inWeekendCloseWindow()) { modeOut.skip = "weekend_close_window"; continue; }
+
       // CONSERVATIVE QUALITY GATE — verdict computed ONCE from the fresh read and stored on
       // the alert row, so the confirm/fast-watch paths (which only see the stored row) grade
       // identically. Aggressive accounts ignore this; only conservative placement uses it.
@@ -393,6 +398,9 @@ async function runWatch(): Promise<Response> {
   if (!admin) return json({ error: "no_admin_client" }, 500);
   const tgReady = !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHANNEL_ID);
   if (tgReady) await beatKeepDecision(admin, { tier: "watch" }); // liveness signal for the watchdog
+  // WEEKEND-CLOSE BLACKOUT — the fast watch confirms entries, so it stops confirming in the
+  // final 30 min before Friday's close (same rule as the full scan and every placement path).
+  if (inWeekendCloseWindow()) return json({ ok: true, skipped: "weekend_close_window" });
   const nowIso = new Date().toISOString();
   const { data } = await admin.from("genx_alerts").select("*").eq("state", "forming");
   const rows = (data ?? []) as AlertRow[];
