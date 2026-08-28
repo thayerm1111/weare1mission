@@ -154,7 +154,7 @@ async function run(): Promise<Response> {
   // first setups after go-live get their full heads-up → ENTER-NOW sequence
   // instead of being silently recorded (and de-duped) before alerts can send.
   if (!tgReady) return json({ ok: true, skipped: "telegram_not_configured" }, 200);
-  await beat(admin, "genx", { tier: "full" }); // liveness signal for the watchdog
+  await beatKeepDecision(admin, { tier: "full" }); // liveness signal for the watchdog
 
   // Expire stale pending setups so a fresh identical zone can re-alert later.
   const nowIso = new Date().toISOString();
@@ -353,6 +353,18 @@ async function run(): Promise<Response> {
   return json({ ok: true, asOf: nowIso, ...out }, 200);
 }
 
+/** Liveness beat that PRESERVES the stored last_decision. beat() replaces the whole
+ *  detail JSON, so the 30s watch tier and the start-of-run beat were erasing the
+ *  full scan's decision record within seconds of it being written — making the
+ *  observability useless. This merges the existing last_decision back in. */
+async function beatKeepDecision(admin: NonNullable<ReturnType<typeof createAdminClient>>, extra: Record<string, unknown>): Promise<void> {
+  try {
+    const { data } = await admin.from("flow_heartbeat").select("detail").eq("component", "genx").maybeSingle();
+    const last = (data as { detail?: { last_decision?: unknown } } | null)?.detail?.last_decision;
+    await beat(admin, "genx", { ...extra, ...(last !== undefined ? { last_decision: last } : {}) });
+  } catch { try { await beat(admin, "genx", extra); } catch { /* liveness best-effort */ } }
+}
+
 // Connectivity probe: posts a one-line "connected" message to the channel so we
 // can confirm Telegram delivery works even when the market has no live setup.
 async function sendProbe(): Promise<Response> {
@@ -378,7 +390,7 @@ async function runWatch(): Promise<Response> {
   const admin = createAdminClient();
   if (!admin) return json({ error: "no_admin_client" }, 500);
   const tgReady = !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHANNEL_ID);
-  if (tgReady) await beat(admin, "genx", { tier: "watch" }); // liveness signal for the watchdog
+  if (tgReady) await beatKeepDecision(admin, { tier: "watch" }); // liveness signal for the watchdog
   const nowIso = new Date().toISOString();
   const { data } = await admin.from("genx_alerts").select("*").eq("state", "forming");
   const rows = (data ?? []) as AlertRow[];
