@@ -38,25 +38,41 @@ async function feedPrice(symbol: string): Promise<number | null> {
 // the trade clearly reached the level on the chart. We pull the last few 1-min candle
 // highs/lows so the trigger sees the TRUE favorable excursion the trade reached. Cached per
 // symbol for the tick. Feed down / no key → null (caller falls back to the sampled price).
-const extCache = new Map<string, { at: number; high: number; low: number }>();
-async function feedExtremes(symbol: string): Promise<{ high: number; low: number } | null> {
+// 15-minute lookback (was 3): a row that goes several minutes without a manage tick — a slow
+// pass over many positions, an invocation gap, a deploy swap — used to permanently LOSE any
+// spike older than 3 minutes, so its best_price never learned the extreme and break-even never
+// fired even though the chart clearly reached it (live case 08-28: same signal, the rows ticked
+// near the spike got break-even, the rows ticked late sat at full risk). Bars are cached with
+// their timestamps and each ROW folds in only the extremes printed since ITS OWN entry, so a
+// pre-entry spike can never count as favorable excursion.
+const EXT_LOOKBACK_BARS = 15;
+const extCache = new Map<string, { at: number; bars: Array<{ t: number; high: number; low: number }> }>();
+async function feedExtremes(symbol: string, sinceMs?: number | null): Promise<{ high: number; low: number } | null> {
   try {
     const td = getInstrument(contractKey(symbol))?.twelveDataSymbol;
     if (!td) return null;
-    const hit = extCache.get(td);
-    if (hit && Date.now() - hit.at < FEED_TTL_MS) return { high: hit.high, low: hit.low };
-    const key = process.env.TWELVEDATA_API_KEY;
-    if (!key) return null;
-    const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=1min&outputsize=3&apikey=${key}`, { cache: "no-store" });
-    const j = (await r.json()) as { values?: Array<{ high?: unknown; low?: unknown }> };
-    const vals = Array.isArray(j?.values) ? j.values : [];
-    let hi = 0, lo = Infinity;
-    for (const v of vals) {
-      const h = Number(v.high), l = Number(v.low);
-      if (Number.isFinite(h) && h > 0) hi = Math.max(hi, h);
-      if (Number.isFinite(l) && l > 0) lo = Math.min(lo, l);
+    let entry = extCache.get(td);
+    if (!entry || Date.now() - entry.at >= FEED_TTL_MS) {
+      const key = process.env.TWELVEDATA_API_KEY;
+      if (!key) return null;
+      const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=1min&outputsize=${EXT_LOOKBACK_BARS}&apikey=${key}`, { cache: "no-store" });
+      const j = (await r.json()) as { values?: Array<{ datetime?: unknown; high?: unknown; low?: unknown }> };
+      const vals = Array.isArray(j?.values) ? j.values : [];
+      const bars: Array<{ t: number; high: number; low: number }> = [];
+      for (const v of vals) {
+        const h = Number(v.high), l = Number(v.low);
+        const t = Date.parse(String(v.datetime ?? "").replace(" ", "T") + "Z");
+        if (Number.isFinite(h) && h > 0 && Number.isFinite(l) && l > 0 && Number.isFinite(t)) bars.push({ t, high: h, low: l });
+      }
+      if (!bars.length) return null;
+      entry = { at: Date.now(), bars };
+      extCache.set(td, entry);
     }
-    if (hi > 0 && Number.isFinite(lo)) { extCache.set(td, { at: Date.now(), high: hi, low: lo }); return { high: hi, low: lo }; }
+    // Fold only bars printed since the row's entry (60s slack for the entry's own bar).
+    const cut = typeof sinceMs === "number" && Number.isFinite(sinceMs) ? sinceMs - 60_000 : 0;
+    let hi = 0, lo = Infinity;
+    for (const b of entry.bars) { if (b.t >= cut) { hi = Math.max(hi, b.high); lo = Math.min(lo, b.low); } }
+    if (hi > 0 && Number.isFinite(lo)) return { high: hi, low: lo };
   } catch { /* feed down → null */ }
   return null;
 }
@@ -96,6 +112,7 @@ export type ManagedRow = {
   entry: number; init_stop: number; tp1: number | null; r: number; qty: number;
   cur_stop: number | null; best_price: number | null; be_done: boolean | null; partial_done: boolean | null; status: string;
   last_error?: string | null;
+  created_at?: string | null;
 };
 
 export type ManageAction = { positionId: string; symbol: string; account: string; action: string; detail?: string };
@@ -729,7 +746,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // FAVORABLE EXCURSION: the best price the trade actually reached (current sample + recent
       // 1-min candle extremes), so a spike that reversed inside the once-a-minute window still
       // counts toward the triggers.
-      const ext = await feedExtremes(row.symbol);
+      const ext = await feedExtremes(row.symbol, row.created_at ? Date.parse(row.created_at) : null);
       const favRaw = long
         ? Math.max(price, ext?.high && ext.high > 0 ? ext.high : price)
         : Math.min(price, ext?.low && ext.low > 0 ? ext.low : price);
