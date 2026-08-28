@@ -469,6 +469,15 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   const rows = (data ?? []) as ManagedRow[];
   if (!rows.length) return { managed: 0, actions: [] };
 
+  // PASS-START TOUCH — stamp every row this pass will cover, in ONE write. Rows used to be
+  // touched only as each FINISHED, so with many open positions + serialized broker calls the
+  // tail of the list went "stale" (>160s) while the manager was actively working the list —
+  // firing false "system DOWN — N open position(s) not managed" alarms (live 08-28: 11:43 PM
+  // and 11:59 PM with 13/12 open, manager healthy both times per the watchdog's own "no
+  // stalled component"). Staleness now measures "no pass is covering this position" — a
+  // genuine outage still alarms, a long pass never does.
+  try { await admin.from("flow_managed_positions").update({ updated_at: new Date().toISOString() }).in("id", rows.map((r) => r.id)); } catch { /* liveness stamp best-effort */ }
+
   // Per-account MANAGEMENT switch + optional GOLD break-even-pips override (moves BE earlier
   // than the halfway-to-target point, gold only). Loaded once for every account this tick.
   const manageOff = new Set<string>();
