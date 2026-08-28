@@ -985,7 +985,7 @@ async function goldShortMomentum(): Promise<"up" | "down" | "flat" | null> {
 // NORMAL pullback inside a trend does NOT reclaim the prior swing, so it is not treated as a flip;
 // and the leg must clear CHOCH_MIN_USD so noise never trips it. Reads closed 5-min candles; null (no
 // block) on any failure so a feed blip never halts trading.
-const CHOCH_MIN_USD = 4.0; // ~40 gold pips — a real structure move, not chop
+const CHOCH_MIN_USD = 4.0; // FLOOR only — the live threshold is volatility-normalized below
 async function goldChangeOfCharacter(): Promise<"bullish" | "bearish" | null> {
   const key = process.env.TWELVEDATA_API_KEY;
   if (!key) return null;
@@ -999,7 +999,13 @@ async function goldChangeOfCharacter(): Promise<"bullish" | "bearish" | null> {
     const lastClose = bars[bars.length - 1].c;
     let loIdx = 0, hiIdx = 0;
     for (let i = 1; i < bars.length; i++) { if (bars[i].l < bars[loIdx].l) loIdx = i; if (bars[i].h > bars[hiIdx].h) hiIdx = i; }
-    if (bars[hiIdx].h - bars[loIdx].l < CHOCH_MIN_USD) return null; // leg too small → no real reversal
+    // VOLATILITY-NORMALIZED structural threshold: a fixed $4 leg is chop in a wild
+    // session and a huge move in tight overnight compression. The leg must clear
+    // ~5× the recent 5-min bar range (clamped 2.5–8 USD) to count as a real flip.
+    const tr14 = bars.slice(-15).map((b) => b.h - b.l).filter((v) => Number.isFinite(v) && v >= 0);
+    const atr5 = tr14.length ? tr14.reduce((a, b) => a + b, 0) / tr14.length : 0;
+    const legMin = Math.max(2.5, Math.min(8, atr5 > 0 ? atr5 * 5 : CHOCH_MIN_USD));
+    if (bars[hiIdx].h - bars[loIdx].l < legMin) return null; // leg too small → no real reversal
     // Bullish: price bottomed FIRST (loIdx earlier), then rallied and the latest close reclaimed the
     // swing high that PRECEDED the low — a higher high vs the down-leg's structure.
     if (loIdx < hiIdx) {
@@ -1030,7 +1036,7 @@ async function goldChangeOfCharacter(): Promise<"bullish" | "bearish" | null> {
  * partial banked, result_pips <= -GOLD_REAL_LOSS_MIN_PIPS), and it only looks back
  * GOLD_LOSS_COOLDOWN_MS — so the lookback window and the cooldown are the same ~2h.
  */
-async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: number | null): Promise<{ hold: boolean; reason: string }> {
+async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: number | null): Promise<{ hold: boolean; reason: string; scope?: "desk" | "conservative" }> {
   const dir = side === "sell" ? "SELL" : "BUY";
 
   // RULE 1 — a real stop-out cools THIS side for ~2h so losers can't stack.
@@ -1049,7 +1055,7 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: numb
     if (!betterLevel) {
       const mins = Math.max(1, Math.round((real.whenMs + GOLD_LOSS_COOLDOWN_MS - Date.now()) / 60000));
       return {
-        hold: true,
+        hold: true, scope: "desk",
         reason: `Pausing ${dir} gold ~${mins} min: a real ${side} trade just hit its stop and lost money (a genuine stop-out — not a break-even or ≤${GOLD_REAL_LOSS_MIN_PIPS}-pip scratch). Cooling this direction so losers don't stack. Resumes after the cooldown, on a better-located level, a win, or a ${side === "sell" ? "BUY" : "SELL"} setup.`,
       };
     }
@@ -1063,7 +1069,7 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: numb
   if (win.won && Date.now() < win.whenMs + GOLD_POST_WIN_REANALYZE_MS) {
     const mins = Math.max(1, Math.round((win.whenMs + GOLD_POST_WIN_REANALYZE_MS - Date.now()) / 60000));
     return {
-      hold: true,
+      hold: true, scope: "desk",
       reason: `Re-analyzing after a ${dir} win — holding new ${dir} gold entries ~${mins} min so the engine reads fresh price before re-entering (instead of re-selling straight into a bounce right after banking the win). Resumes once the market re-develops or on the opposite side.`,
     };
   }
@@ -1074,9 +1080,14 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: numb
   // confirmed reversal (the exact case: caught the down-move, then kept selling as price turned up).
   const choch = await goldChangeOfCharacter();
   if ((side === "sell" && choch === "bullish") || (side === "buy" && choch === "bearish")) {
+    // MODE SPLIT: an unconfirmed flip against the entry is a CONSERVATIVE hold, not
+    // a desk hold. Conservative waits for the reclaim to confirm; AGGRESSIVE is
+    // allowed the earlier sweep-reversal entry (its defined role) — with the same
+    // stop, sizing, and all desk-wide guards (Rule-1 cooldown, post-win, news,
+    // chase floor) still applying to it.
     return {
-      hold: true,
-      reason: `Change of character: gold structure just flipped ${choch} (a ${choch === "bullish" ? "higher high — price reclaimed the level it fell from" : "lower low — price broke the level it rose from"}). Not taking a new ${dir} into the reversal; the engine will re-read and align with the new direction.`,
+      hold: true, scope: "conservative",
+      reason: `Change of character: gold structure just flipped ${choch} (a ${choch === "bullish" ? "higher high — price reclaimed the level it fell from" : "lower low — price broke the level it rose from"}). Conservative accounts wait for confirmation; aggressive accounts may take the early reversal entry.`,
     };
   }
 
@@ -1167,9 +1178,14 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // OWNER RULE 1 HALT (see goldEntryHold): a side pauses ONLY after a real stop-out on that side
   // within the ~2h cooldown. A pause is VISIBLE: it posts a Telegram note ("why it didn't enter")
   // and logs a breadcrumb, instead of silently dropping.
+  let conservativeHold = false; // choch conflict: conservative sits out, aggressive takes the early reversal
   try {
     const gate = await goldEntryHold(admin, sig.side, entry);
-    if (gate.hold) {
+    if (gate.hold && gate.scope === "conservative") {
+      conservativeHold = true;
+      try { await sendTelegram(`⏸️ <b>GENX gold — conservative accounts held</b>\n${gate.reason}`); } catch { /* note best-effort */ }
+      try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: choch_conservative_hold ${sig.side} (aggressive proceeding)` }); } catch { /* breadcrumb best-effort */ }
+    } else if (gate.hold) {
       try { await sendTelegram(`⏸️ <b>GENX gold — entry paused</b>\n${gate.reason}`); } catch { /* note best-effort */ }
       await deskDrop(`gold_halt ${sig.side}`);
       return { members: 0, placed: 0 };
@@ -1238,7 +1254,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       // checks, drop conservative accounts for THIS entry (aggressive accounts are never
       // touched — they take every gold ENTER NOW). conservativeOk defaults to true so an
       // ungraded call still behaves exactly as before.
-      if (sig.conservativeOk === false) accounts = accounts.filter((a) => !isConservative(a.riskMode));
+      if (sig.conservativeOk === false || conservativeHold) accounts = accounts.filter((a) => !isConservative(a.riskMode));
       // MAX ONE OPEN GENX/FLOW GOLD PER ACCOUNT — broker-verified. An account is dropped ONLY
       // when it has a GENX/FLOW gold position the BROKER confirms is still open.
       const verified: ActiveAccount[] = [];
