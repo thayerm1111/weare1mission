@@ -45,6 +45,13 @@ async function run(req: NextRequest): Promise<Response> {
   const got = await acquireManageLock(admin, holder);
   if (!got) return json({ ok: true, scope: "fast-manage", skipped: "locked" }, 200);
 
+  // Beat IMMEDIATELY on startup, before the first tick. A tick can run long (several
+  // positions × serialized broker calls with retries), and a deploy swap kills the
+  // previous invocation mid-loop — without this beat the heartbeat gap spans cron
+  // latency PLUS the whole first tick, which is what tripped the 120s "manager
+  // stalled" watchdog alarms even when nothing was actually wrong.
+  await beat(admin, "manager", { ticks: 0, starting: true });
+
   const start = Date.now();
   let ticks = 0;
   let lastManaged = 0;
