@@ -290,6 +290,10 @@ export function buildGenx(read: Record<string, unknown>, ctx: { mode: Mode; pric
     trade_reasoning, risk_factors,
     invalidation_reason, trigger_condition,
     setup_type: String(r.strategy ?? ""), engine_state: state,
+    // "core" families are eligible for both modes; "aggressive_only" families
+    // (moderate trend, compression edge-fade) are earlier tiers conservative
+    // accounts never take — enforced by genxConservativeGate below.
+    entry_profile: (r.entry_profile === "aggressive_only" ? "aggressive_only" : "core") as "core" | "aggressive_only",
     projected_path: path, invalidation_price: stop,
     scalp,
   };
@@ -322,9 +326,15 @@ export function genxConservativeGate(g: {
   stop_loss?: number | null;
   tp1?: number | null;
   session?: string | null;
+  entry_profile?: string | null;
 }): { ok: boolean; reason: string } {
   const side: "buy" | "sell" =
     g.side === "sell" || String(g.action ?? "").toUpperCase().includes("SELL") ? "sell" : "buy";
+
+  // 0) Setup-family eligibility: aggressive-only families (moderate trend,
+  //    compression edge-fade) are earlier/opportunistic tiers — conservative
+  //    accounts never take them regardless of score.
+  if (g.entry_profile === "aggressive_only") return { ok: false, reason: "aggressive-only setup family" };
 
   // 1) Momentum must not be weak.
   if (String(g.momentum ?? "").toLowerCase().includes("weak")) return { ok: false, reason: "weak momentum" };

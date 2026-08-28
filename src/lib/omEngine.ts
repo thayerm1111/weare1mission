@@ -158,14 +158,34 @@ export function runEngine(cfg: EngineCfg, input: EngineInput): EngineResult {
   const trendDn = s20 != null && s50 != null && px < s20 && s20 < s50;
   const strongTrend = adxV >= 40;
 
+  const piv = pivots(highs1, lows1, 2);
+
+  // ── MULTI-EVIDENCE TREND (ADX is no longer a single-indicator veto) ─────────
+  // Trend used to require ADX ≥ 25 outright, so a clean SMA stack with confirmed
+  // HH/HL structure at ADX 21 produced NO setup family at all. Trend is now a
+  // weighted evidence score per side; each evidence CATEGORY is counted once
+  // (stack alignment, stack slope, ADX band, swing structure) so related signals
+  // can't masquerade as independent confirmations.
+  //  • evidence ≥ 70 → full trend regime (both modes — same as the old ADX≥25 path)
+  //  • evidence 55–69 → "moderate trend" (AGGRESSIVE-ONLY profile; conservative skips)
+  const s20prev = closes1.length >= 25 ? sma(closes1.slice(0, -5), 20) : null;
+  const slopeAtr = s20 != null && s20prev != null && a1 ? (s20 - s20prev) / a1 : 0; // SMA20 drift over 5 bars, ATR-normalized
+  const sh2 = piv.sh.slice(-2), sl2 = piv.sl.slice(-2);
+  const hh = sh2.length === 2 && sh2[1].p > sh2[0].p, hl = sl2.length === 2 && sl2[1].p > sl2[0].p;
+  const lh = sh2.length === 2 && sh2[1].p < sh2[0].p, ll = sl2.length === 2 && sl2[1].p < sl2[0].p;
+  const adxPts = adxV >= 25 ? 25 : adxV >= 20 ? 15 : adxV >= 18 ? 8 : 0;
+  const evidenceBuy = (trendUp ? 35 : 0) + (slopeAtr > 0.08 ? 20 : slopeAtr > 0.03 ? 10 : 0) + adxPts + (hh && hl ? 20 : hh || hl ? 8 : 0);
+  const evidenceSell = (trendDn ? 35 : 0) + (slopeAtr < -0.08 ? 20 : slopeAtr < -0.03 ? 10 : 0) + adxPts + (lh && ll ? 20 : lh || ll ? 8 : 0);
+
   let regime = "Unclear / conflicting", regimeDir: Dir | null = null, regimeScore = 40;
+  let moderateTrend = false; // aggressive-only trend tier
   if (adxV >= 25 && trendUp) { regime = strongTrend ? "Strong bullish trend" : "Weak bullish trend"; regimeDir = "buy"; regimeScore = strongTrend ? 90 : 68; }
   else if (adxV >= 25 && trendDn) { regime = strongTrend ? "Strong bearish trend" : "Weak bearish trend"; regimeDir = "sell"; regimeScore = strongTrend ? 90 : 68; }
+  else if (evidenceBuy >= 55 && evidenceBuy > evidenceSell) { regime = "Moderate bullish trend"; regimeDir = "buy"; regimeScore = 60; moderateTrend = true; }
+  else if (evidenceSell >= 55 && evidenceSell > evidenceBuy) { regime = "Moderate bearish trend"; regimeDir = "sell"; regimeScore = 60; moderateTrend = true; }
   else if (adxV < 18 && atrPct < 35) { regime = "Volatility compression"; regimeScore = 45; }
   else if (adxV < 20) { regime = "Range / mean-reversion"; regimeScore = 55; }
   else if (atrPct > 80) { regime = "Volatility expansion"; regimeScore = 50; }
-
-  const piv = pivots(highs1, lows1, 2);
   const rangeHi = Math.max(...highs1.slice(-40)), rangeLo = Math.min(...lows1.slice(-40)), eq = (rangeHi + rangeLo) / 2;
   const prevDayHi = RD.length >= 2 ? +RD[RD.length - 2].high : rangeHi;
   const prevDayLo = RD.length >= 2 ? +RD[RD.length - 2].low : rangeLo;
@@ -177,8 +197,14 @@ export function runEngine(cfg: EngineCfg, input: EngineInput): EngineResult {
   };
 
   // ── Strategy selection (regime-appropriate) → direction, entry, stop ──
+  // entry_profile: "core" families are eligible for BOTH modes (the conservative
+  // confluence gate still applies at placement); "aggressive_only" families are
+  // earlier/opportunistic tiers (moderate trend, compression edge-fade) that
+  // conservative accounts never take. This is how the two modes get genuinely
+  // different setup eligibility — not just different thresholds on one signal.
   let strategy = "", dir: Dir | null = null, entry = px, stop = px, invalidation = "", entryQ = 40, structureQ = 40;
   let orderType: "market" | "limit" = "limit";
+  let entryProfile: "core" | "aggressive_only" = moderateTrend ? "aggressive_only" : "core";
   if (regimeDir === "buy") {
     dir = "buy";
     const freshBreak = strongTrend && px >= lastSH && px <= lastSH + a1 * 0.8;
@@ -189,10 +215,18 @@ export function runEngine(cfg: EngineCfg, input: EngineInput): EngineResult {
     const freshBreak = strongTrend && px <= lastSL && px >= lastSL - a1 * 0.8;
     if (freshBreak) { strategy = "Trend breakout (short)"; entry = f(px); orderType = "market"; stop = f(lastSL + a1 * 0.6); invalidation = `close back above the broken low (${f(lastSL)})`; structureQ = 82; entryQ = 74; }
     else { strategy = "Trend pullback (short)"; entry = f(Math.min(s20 ?? px + a1 * 0.5, px + a1 * 0.6)); orderType = entry > px ? "limit" : "market"; stop = f(Math.max(lastSH, entry + a1 * 1.0)); invalidation = `close above the last swing high / SMA20 (${f(lastSH)})`; structureQ = trendDn ? 78 : 60; entryQ = px < eq ? 55 : 72; }
-  } else if (regime.startsWith("Range")) {
+  } else if (regime.startsWith("Range") || regime.startsWith("Volatility compression")) {
+    // Compression previously never reached this branch, so range-edge fades were
+    // impossible in exactly the regime where ranges form — the engine sat in
+    // "mid-structure WATCHLIST" for hours even with price at a clean edge (live
+    // evidence: 11 straight hours on 08-27). A compression fade is a legitimate
+    // but earlier/lower-energy setup, so it carries a quality penalty and is
+    // AGGRESSIVE-ONLY; the classic Range regime fade stays a core family.
+    const compression = regime.startsWith("Volatility compression");
+    const q = compression ? -8 : 0;
     const nearHi = Math.abs(px - rangeHi) < Math.abs(px - rangeLo);
-    if (nearHi && px >= rangeHi - a1 * 0.6) { strategy = "Range rejection (fade high)"; dir = "sell"; entry = f(px); orderType = "market"; stop = f(rangeHi + a1 * 0.8); invalidation = `close above the range high (${f(rangeHi)})`; structureQ = 62; entryQ = 66; }
-    else if (!nearHi && px <= rangeLo + a1 * 0.6) { strategy = "Range rejection (fade low)"; dir = "buy"; entry = f(px); orderType = "market"; stop = f(rangeLo - a1 * 0.8); invalidation = `close below the range low (${f(rangeLo)})`; structureQ = 62; entryQ = 66; }
+    if (nearHi && px >= rangeHi - a1 * 0.6) { strategy = compression ? "Compression edge fade (high)" : "Range rejection (fade high)"; dir = "sell"; entry = f(px); orderType = "market"; stop = f(rangeHi + a1 * 0.8); invalidation = `close above the range high (${f(rangeHi)})`; structureQ = 62 + q; entryQ = 66 + q; if (compression) entryProfile = "aggressive_only"; }
+    else if (!nearHi && px <= rangeLo + a1 * 0.6) { strategy = compression ? "Compression edge fade (low)" : "Range rejection (fade low)"; dir = "buy"; entry = f(px); orderType = "market"; stop = f(rangeLo - a1 * 0.8); invalidation = `close below the range low (${f(rangeLo)})`; structureQ = 62 + q; entryQ = 66 + q; if (compression) entryProfile = "aggressive_only"; }
   }
 
   const trig = (over: Partial<Trigger>): Trigger => ({
@@ -331,7 +365,7 @@ export function runEngine(cfg: EngineCfg, input: EngineInput): EngineResult {
   const alternative_scenario = { direction: dir === "buy" ? "SELL" : "BUY", trigger: `A close ${dir === "buy" ? "below" : "above"} ${f(stop)} then a retest from the ${dir === "buy" ? "underside" : "topside"}`, activation_zone: `${f(stop)} area (broken ${dir === "buy" ? "support → resistance" : "resistance → support"})`, invalidates_current: `${dir === "buy" ? "Below" : "Above"} ${f(stop)} the ${wantDir} idea is cancelled` };
   const current_bias = `${dir === "buy" ? "Bullish" : "Bearish"} while ${dir === "buy" ? "above" : "below"} ${f(stop)}`;
 
-  const diagnostics = { tool: "engine", asset: cfg.symbol, regime, session, mtf: mtf.label, scores, blockers: blockers.map((b) => b.key), entry_status: entryStatus, band: cfg.bands, state, strategy, rr1: +rr1.toFixed(2), mtf_aligned: mtfAligned };
+  const diagnostics = { tool: "engine", asset: cfg.symbol, regime, session, mtf: mtf.label, scores, blockers: blockers.map((b) => b.key), entry_status: entryStatus, band: cfg.bands, state, strategy, rr1: +rr1.toFixed(2), mtf_aligned: mtfAligned, entry_profile: entryProfile, trend_evidence: { buy: evidenceBuy, sell: evidenceSell, slope_atr: +slopeAtr.toFixed(3), adx: Math.round(adxV) } };
 
   if (state === "TRADE_READY") {
     const confidence = overall >= 82 ? "High" : overall >= 74 ? "Medium" : "Qualified";
@@ -345,7 +379,7 @@ export function runEngine(cfg: EngineCfg, input: EngineInput): EngineResult {
       what_next: [`Entry available at ${entry}; stop ${f(stop)}; first target ${targets[0]} (${rr1.toFixed(1)}R).`, `Size to your risk % — never widen the stop.`, `Reanalyze if price runs before you enter.`],
       setup_zone, proximity, alternative_scenario, levels, scores, reason: `A ${strategy} qualifies now (score ${overall}/100). ${mtfAligned ? "The execution stack agrees." : mtf.dir == null ? "The higher timeframe is neutral — the setup stands on its own structure." : "The higher timeframe is opposed — a lower-confidence, location-based trade."}`,
       risk_warnings: [`Position sizing is your responsibility — risk a fixed % and confirm contract specs with your broker.`],
-      candles: candleOut, reasoning: [], strategy, rr_tp1: +rr1.toFixed(2), diagnostics,
+      candles: candleOut, reasoning: [], strategy, rr_tp1: +rr1.toFixed(2), diagnostics, entry_profile: entryProfile,
     });
   }
 
@@ -368,6 +402,6 @@ export function runEngine(cfg: EngineCfg, input: EngineInput): EngineResult {
     levels, provisional_trade: state === "NO_TRADE" ? null : provisional, setup_zone, proximity, alternative_scenario,
     market_regime: regime, session, mtf: mtf.byTf, scores, confidence: confBreak,
     risk_warnings: [`Position sizing is your responsibility — risk a fixed % and confirm contract specs with your broker.`],
-    candles: candleOut, reasoning: [], diagnostics,
+    candles: candleOut, reasoning: [], diagnostics, entry_profile: entryProfile,
   });
 }
