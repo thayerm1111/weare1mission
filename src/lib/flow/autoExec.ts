@@ -726,14 +726,13 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T, index: num
 // time the fill lands, the reward:risk collapses (e.g. filled ~4666 on a 4655 signal: +2 to
 // TP, −14 to SL ≈ 0.15 R:R). We reject any such entry desk-wide.
 //
-// Set to 0.5 = the desk will take a chased fill down to 0.5:1 (risking ~2 to make ~1) rather
-// than MISS the trade — the owner's directive: "it can take from time to time a 1 to .5, that's
-// fine … worst case it can take that 1 to .5." The scanner PREFERS a full 1:1: it holds a
-// chased entry (R:R below this floor) as 'forming' for a short retrace window and fills the
-// moment price traces back to a takeable R:R (see GOLD_RETRY_WINDOW_MS in the scanner); only a
-// truly blown-out fill (still under 0.5 after the window) is skipped. Combined with sizing off
-// the live entry, the dollar risk is still capped at the member's risk %.
-const GOLD_MIN_PLACEMENT_RR = 0.5;
+// Set to 0.65 — the owner's floor (08-28): "I don't want it to enter unless it's at least a
+// 1 to .65." The scanner still PREFERS a full 1:1: it holds a chased entry (R:R below this
+// floor) as 'forming' for a short retrace window and fills the moment price traces back to a
+// takeable R:R (see GOLD_RETRY_WINDOW_MS in the scanner); only a fill still under the floor
+// after the window is skipped. Combined with sizing off the live entry, the dollar risk is
+// still capped at the member's risk %.
+const GOLD_MIN_PLACEMENT_RR = 0.65;
 
 /** Does a recorded GENX/FLOW gold position still count as OPEN for the "max one" cap? TRUE
  *  only when the broker's live open set actually contains one of this account's ledger gold
@@ -1214,7 +1213,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // trade. (Owner rule 2: a sub-0.5 fill is never chased; the scanner arms it for a 5-min pullback.)
   if (goldChasedAt(sig.side, sig.stop, sig.tp, goldLp)) {
     const rr = rewardRisk(goldLp, sig.stop, sig.tp);
-    await deskDrop(`chased_below_0.5RR${rr != null ? ` (rr ${rr.toFixed(2)})` : ""} ${sig.side}`);
+    await deskDrop(`chased_below_${GOLD_MIN_PLACEMENT_RR}RR${rr != null ? ` (rr ${rr.toFixed(2)})` : ""} ${sig.side}`);
     return { members: 0, placed: 0 };
   }
 
