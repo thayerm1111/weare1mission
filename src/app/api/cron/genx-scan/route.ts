@@ -16,7 +16,7 @@ import { placeGenxGold, placeGenxFollower, rewardRisk } from "@/lib/flow/autoExe
 //   • Confirmed but price ran SO far that the live R:R is BELOW 0.5 → ARM and wait UP TO 5 MINUTES
 //     for price to trade back to the called entry (a takeable ≥0.5 fill); if it returns we enter,
 //     otherwise we abandon — we never chase a sub-0.5 fill.
-const GOLD_ENTRY_FLOOR_RR = 0.5;       // the floor: fill any confirmed setup down to this R:R (in-zone / 1:1 / 0.5–1.0 momentum); below it, wait for a pullback
+const GOLD_ENTRY_FLOOR_RR = 0.65;      // owner floor (08-28): never enter below 1:0.65       // the floor: fill any confirmed setup down to this R:R (in-zone / 1:1 / 0.5–1.0 momentum); below it, wait for a pullback
 const GOLD_ARM_MAX_MS = 5 * 60_000;    // owner rule 2: wait only 5 min for price to return to the called entry, then abandon
 
 /** Pure decision for a gold entry: enter now, arm-and-wait, abandon, or keep waiting.
