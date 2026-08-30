@@ -14,6 +14,7 @@ type AutoRefillView = {
   refillPriceCents: number;
   manualCredits: number;
   manualPriceCents: number;
+  options?: { credits: number; priceCents: number }[];
 };
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -44,6 +45,16 @@ export function AutoRefillCard() {
       const r = await fetch("/api/autorefill", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
       const j = await r.json();
       if (j?.url) { window.location.href = j.url as string; return; }
+      await load();
+    } catch { /* ignore */ }
+    setBusy(false);
+  }
+
+  async function pickPlan(credits: number) {
+    if (busy || d?.refillCredits === credits) return;
+    setBusy(true);
+    try {
+      await fetch("/api/autorefill", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "plan", credits }) });
       await load();
     } catch { /* ignore */ }
     setBusy(false);
@@ -99,6 +110,35 @@ export function AutoRefillCard() {
         When your balance drops below <b className="text-navy">{d.threshold}</b> credits, we charge your card{" "}
         <b className="text-navy">{priceRefill}</b> for <b className="text-navy">{d.refillCredits}</b> credits — automatically, until you turn this off.
       </p>
+
+      {/* Refill size — the member's choice of how much each automatic top-up adds. */}
+      {(d.options?.length ?? 0) > 0 && (
+        <div className="mt-3">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-charcoal/45">Refill amount</div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {d.options!.map((o) => {
+              const selected = d.refillCredits === o.credits;
+              return (
+                <button
+                  key={o.credits}
+                  type="button"
+                  onClick={() => void pickPlan(o.credits)}
+                  disabled={busy}
+                  aria-pressed={selected}
+                  className={`rounded-xl border px-3 py-2.5 text-sm font-bold transition-colors disabled:opacity-60 ${
+                    selected
+                      ? "border-emerald-500 bg-emerald-500/10 text-navy ring-1 ring-emerald-500"
+                      : "border-[#E4DCCB] bg-offwhite/60 text-charcoal/70 hover:bg-offwhite"
+                  }`}
+                >
+                  {o.credits} credits
+                  <span className={`block text-[11px] font-semibold ${selected ? "text-emerald-700" : "text-charcoal/45"}`}>{dollars(o.priceCents)} per refill</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 flex items-center gap-2">
         {d.hasCard ? (
