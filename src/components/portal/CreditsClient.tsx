@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Zap, Sparkles, TrendingUp, Search, Activity, Check, Loader2, AlertTriangle, CreditCard,
 } from "lucide-react";
+import { AutoRefillCard } from "@/components/portal/AutoRefillCard";
 
 type Balance = { dailyLeft: number; purchased: number; dailyAllowance: number };
 type Pack = { id: string; label: string; credits: number; priceUsd: number; blurb: string; best?: boolean };
@@ -106,6 +107,11 @@ export function CreditsClient() {
           <p className="mt-0.5 text-[11px] text-charcoal/45">never expires</p>
         </div>
       </div>
+
+      {/* Auto-refill — FRONT AND CENTER (owner directive 08-30): every member who lands on the
+          credits page sees the card-on-file option before the one-time packs. The card itself
+          handles setup, toggle, and status; it links to Stripe's hosted page for the card. */}
+      <AutoRefillCard />
 
       {/* What costs what */}
       <div className="rounded-2xl border border-[#E7E4DD] bg-white p-5 shadow-card">
