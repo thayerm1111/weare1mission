@@ -69,3 +69,13 @@ export const AUTOREFILL = {
   manualCredits: Number(process.env.NEXT_PUBLIC_AUTOREFILL_MANUAL_CREDITS ?? 200),
   manualPriceCents: Number(process.env.NEXT_PUBLIC_AUTOREFILL_MANUAL_PRICE_CENTS ?? 3999), // $39.99 / 200
 } as const;
+
+// Refill sizes a member can pick for auto-refill (owner directive 08-30): each automatic
+// charge tops up by their chosen amount. Mirrors the credit packs' pricing. The choice is
+// stored per member in user_autorefill.refill_credits / refill_price_cents; the cron
+// charges exactly what the row says, so changing this list never affects existing members
+// until they re-pick.
+export const AUTOREFILL_OPTIONS: ReadonlyArray<{ credits: number; priceCents: number }> = [
+  { credits: 50, priceCents: 1999 },  // $19.99
+  { credits: 200, priceCents: 3999 }, // $39.99 — best value
+];
