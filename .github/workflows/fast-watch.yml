@@ -10,7 +10,7 @@ name: FLOW/GENX fast-watch (30s)
 
 on:
   schedule:
-    - cron: "*/5 * * * 1-5"   # heartbeat that (re)starts the 30s loop if it ends
+    - cron: "*/5 * * * 0-5"   # heartbeat that (re)starts the 30s loop if it ends — Sun–Fri, so the Sunday-evening reopen gets 30s coverage too
   workflow_dispatch: {}         # start it on demand from the Actions tab
 
 concurrency:
