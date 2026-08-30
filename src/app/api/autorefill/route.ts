@@ -2,7 +2,7 @@ import { type NextRequest } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { AUTOREFILL } from "@/lib/creditConfig";
+import { AUTOREFILL, AUTOREFILL_OPTIONS } from "@/lib/creditConfig";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +45,7 @@ export async function GET() {
     refillPriceCents: r?.refill_price_cents ?? AUTOREFILL.priceCents,
     manualCredits: AUTOREFILL.manualCredits,
     manualPriceCents: AUTOREFILL.manualPriceCents,
+    options: AUTOREFILL_OPTIONS,
   });
 }
 
@@ -70,10 +71,23 @@ export async function POST(req: NextRequest) {
   const admin = createAdminClient();
   if (!admin) return json({ error: "server", detail: "Storage unavailable." }, 200);
 
-  let body: { action?: string; enabled?: boolean } = {};
+  let body: { action?: string; enabled?: boolean; credits?: number } = {};
   try { body = await req.json(); } catch { /* */ }
   const action = String(body.action || "");
   const origin = req.headers.get("origin") || `https://${req.headers.get("host")}`;
+
+  if (action === "plan") {
+    // Pick the refill size (owner directive 08-30): each automatic charge tops up by the
+    // member's chosen amount. Only the published options are accepted — price comes from
+    // OUR list, never from the client, so a tampered request can't set its own pricing.
+    const opt = AUTOREFILL_OPTIONS.find((o) => o.credits === Number(body.credits));
+    if (!opt) return json({ error: "bad_plan", detail: "Pick one of the offered refill sizes." }, 400);
+    await admin.from("user_autorefill").upsert(
+      { user_id: user.id, refill_credits: opt.credits, refill_price_cents: opt.priceCents, updated_at: new Date().toISOString() },
+      { onConflict: "user_id" },
+    );
+    return json({ ok: true, refillCredits: opt.credits, refillPriceCents: opt.priceCents });
+  }
 
   if (action === "setup") {
     // Save a card (no charge) so future refills can run off-session. Stripe's hosted
