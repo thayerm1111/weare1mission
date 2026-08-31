@@ -675,6 +675,7 @@ function UpdatePanel({ u }: { u: TradeUpdate }) {
 /* ---------- Execute (risk-sized) — take this OM AI play on TradeLocker ---------- */
 
 type SizingInfo = { estLossAtStop?: number } | null;
+type PerAcct = { accountId: string; name?: string | null; accNum?: string | null; environment?: string | null; equity?: number | null; lots?: number | null };
 
 function ExecuteSignal({ symbol, direction, entry, stop, tp }: { symbol: string; direction: "LONG" | "SHORT"; entry: number; stop: number; tp: number | null }) {
   const side: "buy" | "sell" = direction === "SHORT" ? "sell" : "buy";
@@ -689,6 +690,10 @@ function ExecuteSignal({ symbol, direction, entry, stop, tp }: { symbol: string;
   const [err, setErr] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [acctCount, setAcctCount] = useState(0);
+  // WHERE the play lands (owner directive 08-31): every connected account, or one the
+  // member picks. "all" keeps the classic fan-out; an accountId places on that one only.
+  const [target, setTarget] = useState<string>("all");
+  const [acctList, setAcctList] = useState<PerAcct[]>([]);
 
   useEffect(() => {
     fetch("/api/flow/prefs", { cache: "no-store" })
@@ -706,6 +711,7 @@ function ExecuteSignal({ symbol, direction, entry, stop, tp }: { symbol: string;
 
   const bodyFor = (extra?: Record<string, unknown>) => {
     const b: Record<string, unknown> = { source: "play", symbol, side, entry, stop, tp, riskPct: risk };
+    if (target !== "all") b.accountId = target;
     if (!connected && acct) b.accountSize = +acct;
     return { ...b, ...(extra || {}) };
   };
@@ -714,14 +720,18 @@ function ExecuteSignal({ symbol, direction, entry, stop, tp }: { symbol: string;
     fetch("/api/flow/execute", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(bodyFor({ preview: true })) })
       .then((r) => r.json())
       .then((d) => {
-        if (d && d.preview) { setLots(d.lots); setSizing(d.sizing ?? null); if (d.equity != null) setEquity(d.equity); setAcctCount(d.accountCount ?? 0); setErr(""); }
+        if (d && d.preview) {
+          setLots(d.lots); setSizing(d.sizing ?? null); if (d.equity != null) setEquity(d.equity); setAcctCount(d.accountCount ?? 0); setErr("");
+          // Only an unfiltered ("all") preview carries the FULL account list — keep it for the picker.
+          if (target === "all" && Array.isArray(d.accounts)) setAcctList(d.accounts as PerAcct[]);
+        }
         else if (d && d.detail) { setLots(null); setErr(d.detail); }
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [risk, acct, connected]);
+  }, [risk, acct, connected, target]);
 
-  useEffect(() => { if (loaded) preview(); }, [loaded, risk, acct, preview]);
+  useEffect(() => { if (loaded) preview(); }, [loaded, risk, acct, target, preview]);
 
   function execute() {
     if (busy || lots == null) return;
@@ -757,6 +767,37 @@ function ExecuteSignal({ symbol, direction, entry, stop, tp }: { symbol: string;
           ))}
         </div>
       </div>
+
+      {/* Account picker (owner directive 08-31): choose where this play lands — every
+          connected account (classic fan-out) or one specific account. Only shows when
+          the member actually has more than one account. */}
+      {connected && acctList.length > 1 && (
+        <div className="mt-3">
+          <span className="text-xs text-white/50">Place on</span>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setTarget("all")}
+              className={`rounded-lg px-2.5 py-1 text-xs font-bold transition-colors ${target === "all" ? "bg-emerald-500 text-[#04140b]" : "border border-white/15 text-white/70 hover:bg-white/10"}`}
+            >
+              All accounts ({acctList.length})
+            </button>
+            {acctList.map((a) => {
+              const sel = target === String(a.accountId);
+              const label = `#${a.accNum || a.accountId}${a.equity != null ? ` · $${Math.round(a.equity).toLocaleString()}` : ""}`;
+              return (
+                <button
+                  key={a.accountId}
+                  onClick={() => setTarget(String(a.accountId))}
+                  title={a.name || undefined}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-bold transition-colors ${sel ? "bg-emerald-500 text-[#04140b]" : "border border-white/15 text-white/70 hover:bg-white/10"}`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {connected ? (
         <p className="mt-2 text-xs text-white/55">Equity <b className="text-white/85">{equity != null ? "$" + Math.round(equity).toLocaleString() : "—"}</b> · live from TradeLocker</p>
