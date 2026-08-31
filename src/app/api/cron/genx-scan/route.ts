@@ -286,9 +286,9 @@ async function run(): Promise<Response> {
           });
           // FLOW copies this gold ENTER NOW to every credited member (once per move).
           // conservativeOk gates ONLY conservative accounts; aggressive take it regardless.
-          try { await placeGenxGold({ side, entryLow: genx.entry_low, entryHigh: genx.entry_high, stop: genx.stop_loss, tp: genx.tp1, conservativeOk: qOk }); } catch { /* placement is best-effort */ }
+          try { await placeGenxGold({ side, entryLow: genx.entry_low, entryHigh: genx.entry_high, stop: genx.stop_loss, tp: genx.tp1, conservativeOk: qOk, confidence: genx.confidence_score }); } catch { /* placement is best-effort */ }
           // FOLLOWER accounts take EVERY GENX signal, risk-sized to each account's own % (separate from FLOW).
-          try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: genx.entry_low, entryHigh: genx.entry_high, stop: genx.stop_loss, tp: genx.tp1, conservativeOk: qOk }); } catch { /* follower is best-effort */ }
+          try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: genx.entry_low, entryHigh: genx.entry_high, stop: genx.stop_loss, tp: genx.tp1, conservativeOk: qOk, confidence: genx.confidence_score }); } catch { /* follower is best-effort */ }
           sent.push(`${mode}:ENTER(immediate)`); modeOut.result = "enter_immediate";
         } else {
           // Developing → heads-up now, watch for the entry on future ticks.
@@ -328,8 +328,8 @@ async function run(): Promise<Response> {
         } else if (act.do === "enter") {
           if (!armedNow && tgReady) await sendTelegram(enterMsg(side, mode, tgMsg, lp, false));
           await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
-          try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk }); } catch { /* placement is best-effort */ }
-          try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk }); } catch { /* follower is best-effort */ }
+          try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence }); } catch { /* placement is best-effort */ }
+          try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence }); } catch { /* follower is best-effort */ }
           sent.push(`${mode}:ENTER`); modeOut.result = `enter:${act.reason}`;
         } else if (act.do === "invalidate") {
           if (tgReady) await sendTelegram(invalidMsg(side, mode, { entry_low: row.entry_low, entry_high: row.entry_high, invalidation: row.invalidation }));
@@ -426,10 +426,10 @@ async function runWatch(): Promise<Response> {
       } else if (act.do === "enter") {
         if (!armedNow && tgReady) await sendTelegram(enterMsg(side, row.mode, tgMsg, lp, false));
         await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
-        try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk }); } catch { /* placement is best-effort */ }
+        try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence }); } catch { /* placement is best-effort */ }
         try {
           const fKey = (row.entry_low != null && row.entry_high != null) ? `${row.mode}:${side}:${r1(row.entry_low)}:${r1(row.entry_high)}` : `id:${row.id}`;
-          await placeGenxFollower({ signalKey: fKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk });
+          await placeGenxFollower({ signalKey: fKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence });
         } catch { /* follower is best-effort */ }
         sent.push(`${row.mode}:ENTER`);
       } else if (act.do === "invalidate") {
