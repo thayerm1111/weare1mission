@@ -69,8 +69,15 @@ export async function POST(req: NextRequest) {
     const riskPct = (num(body.riskPct) ?? (pref && num(pref.risk_pct)) ?? 1) as number;
     const isGold = contractKey(symbol) === "XAUUSD";
 
-    // Connected? Size + (on place) fan out across EVERY active account.
-    const accts = await activeAccounts(user.id);
+    // Connected? Size + (on place) fan out across EVERY active account — or, when the member
+    // picked a specific account (owner directive 08-31), ONLY that one. The pick is filtered
+    // against the member's OWN active accounts, so nobody can ever target another account.
+    let accts = await activeAccounts(user.id);
+    const pickedAccountId = typeof body.accountId === "string" && body.accountId && body.accountId !== "all" ? body.accountId : null;
+    if (accts.length && pickedAccountId) {
+      accts = accts.filter((a) => String(a.accountId) === pickedAccountId);
+      if (!accts.length) return json({ ok: false, error: "account_not_found", detail: "That account isn't connected (or isn't switched on) anymore — pick another." }, 200);
+    }
     if (accts.length) {
       const per = accts.map((a) => {
         const floor = isGold && (a.equity ?? 0) < 500;
