@@ -34,7 +34,8 @@ function keyAuthorized(req: NextRequest): boolean {
 }
 
 const BUDGET_MS = 112_000;  // loop for ~112s of the 120s function budget
-const INTERVAL_MS = 4_000;  // re-check every ~4 seconds
+const INTERVAL_MS = 2_500;  // re-check every ~2.5s — with the parallel account prefetch a
+                            // pass is short, so BE/partials land seconds after the trigger
 
 async function run(req: NextRequest): Promise<Response> {
   if (!keyAuthorized(req)) return json({ error: "unauthorized" }, 401);
