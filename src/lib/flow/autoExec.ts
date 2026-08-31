@@ -969,6 +969,36 @@ const GOLD_POST_WIN_REANALYZE_MS = 15 * 60 * 1000; // ~15 min re-analysis pause 
 const GOLD_WIN_PICKY_MS = 90 * 60 * 1000;  // how long the higher bar applies after a win
 const GOLD_WIN_PICKY_RR = 1.0;             // live R:R must clear a full 1:1 (normal floor 0.65)
 const GOLD_WIN_PICKY_CONF = 68;            // engine confidence must clear this when provided
+const GOLD_BE_PICKY_COUNT = 2;             // ≥ this many break-even scratches also arms the higher bar
+
+/** Distinct automated break-even exits on this side within the window (live only). Rows from
+ *  one fan-out (many accounts, same signal) are bucketed to ONE scratch by placement minute.
+ *  Two or more = the market keeps kicking this side back to entry — chop. The desk then
+ *  demands a premium setup before re-entering (owner directive 08-31: "after a couple break
+ *  even trades, be a little more strict"). */
+async function goldRecentBeScratches(admin: Admin, side: "buy" | "sell", windowMs: number): Promise<number> {
+  try {
+    const sinceIso = new Date(Date.now() - windowMs).toISOString();
+    const { data } = await admin
+      .from("flow_managed_positions")
+      .select("account_id, created_at")
+      .in("symbol", GOLD_SYMS)
+      .eq("side", side)
+      .eq("status", "closed")
+      .eq("outcome", "breakeven")
+      .neq("environment", "demo")
+      .gte("resolved_at", sinceIso)
+      .limit(40);
+    const rows = (data ?? []) as { account_id: string | null; created_at: string }[];
+    const manuals = await manualGoldPlacements(admin);
+    const setups = new Set<string>();
+    for (const r of rows) {
+      if (isManualGoldRow(manuals, String(r.account_id ?? ""), r.created_at)) continue; // manual plays never count
+      setups.add(String(r.created_at).slice(0, 16)); // minute bucket ≈ one signal's fan-out
+    }
+    return setups.size;
+  } catch { return 0; }
+}
 
 /** A recent FULL WIN on this side (a hit target or a positive trailing-stop exit) within the
  *  given window (default: the short re-analysis window). Live trades only. Triggers the post-win
@@ -1257,25 +1287,28 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     return { members: 0, placed: 0 };
   }
 
-  // PROTECT-THE-PROFITS GATE (owner directive 08-31): within GOLD_WIN_PICKY_MS of a banked
-  // automated win on this side, only a PREMIUM same-side setup re-enters — live R:R must clear
-  // a full 1:1 and the engine's confidence must clear 68 (when the signal carries one). A
-  // mediocre re-entry right after banking a move is how profits go back to the market. The
-  // opposite side is untouched, and a genuinely premium setup still fires immediately.
+  // PROTECT-THE-PROFITS GATE (owner directives 08-31): the desk demands a PREMIUM same-side
+  // setup — live R:R ≥ 1:1 and confidence ≥ 68 (when carried) — whenever EITHER:
+  //   • a win was banked on this side within GOLD_WIN_PICKY_MS (don't give profits back), or
+  //   • ≥ GOLD_BE_PICKY_COUNT break-even scratches landed on this side in the same window
+  //     (the market keeps kicking this side back to entry — chop; stop feeding it).
+  // The opposite side is untouched, and a genuinely premium setup still fires immediately.
   try {
     const w = await goldRecentWinOnSide(admin, sig.side, GOLD_WIN_PICKY_MS);
-    if (w.won) {
+    const scratches = await goldRecentBeScratches(admin, sig.side, GOLD_WIN_PICKY_MS);
+    const armed = w.won || scratches >= GOLD_BE_PICKY_COUNT;
+    if (armed) {
       const rrLive = rewardRisk(goldLp != null ? goldLp : entry, sig.stop, sig.tp);
       const rrOk = rrLive == null ? true : rrLive >= GOLD_WIN_PICKY_RR;       // feed down → judge on confidence alone
       const confOk = sig.confidence == null ? true : sig.confidence >= GOLD_WIN_PICKY_CONF;
       if (!rrOk || !confOk) {
-        const mins = Math.max(1, Math.round((w.whenMs + GOLD_WIN_PICKY_MS - Date.now()) / 60000));
+        const why = w.won ? `Just banked a ${sig.side.toUpperCase()} win` : `${scratches} break-even ${sig.side.toUpperCase()} scratches in a row`;
         const detail = [
           rrLive != null ? `R:R ${rrLive.toFixed(2)} (needs ≥ ${GOLD_WIN_PICKY_RR.toFixed(1)})` : null,
           sig.confidence != null ? `confidence ${sig.confidence} (needs ≥ ${GOLD_WIN_PICKY_CONF})` : null,
         ].filter(Boolean).join(" · ");
-        try { await sendTelegram(`🎯 <b>GENX gold — protecting profits</b>\nJust banked a ${sig.side.toUpperCase()} win, so the next ${sig.side.toUpperCase()} needs a premium entry for ~${mins} min${detail ? `.\nThis one: ${detail}` : ""}. A top-quality setup still fires immediately.`); } catch { /* note best-effort */ }
-        await deskDrop(`post_win_picky ${sig.side}${rrLive != null ? ` rr=${rrLive.toFixed(2)}` : ""}${sig.confidence != null ? ` conf=${sig.confidence}` : ""}`);
+        try { await sendTelegram(`🎯 <b>GENX gold — being selective</b>\n${why}, so the next ${sig.side.toUpperCase()} needs a premium entry${detail ? `.\nThis one: ${detail}` : ""}. A top-quality setup still fires immediately.`); } catch { /* note best-effort */ }
+        await deskDrop(`${w.won ? "post_win_picky" : "post_be_picky"} ${sig.side}${rrLive != null ? ` rr=${rrLive.toFixed(2)}` : ""}${sig.confidence != null ? ` conf=${sig.confidence}` : ""}`);
         return { members: 0, placed: 0 };
       }
     }
@@ -1416,12 +1449,13 @@ export async function placeGenxFollower(sig: {
   // follower takes a tiny-TP / huge-SL fill. Fails open if the feed is down.
   if (goldChasedAt(sig.side, fstop, sig.tp, goldLp)) return { accounts: 0, placed: 0 };
 
-  // PROTECT-THE-PROFITS GATE — same desk rule as the copy path (owner directive 08-31): within
-  // GOLD_WIN_PICKY_MS of a banked automated win on this side, followers also skip anything but a
-  // premium same-side setup (live R:R ≥ 1:1, confidence ≥ 68 when carried). Don't give it back.
+  // PROTECT-THE-PROFITS GATE — same desk rule as the copy path (owner directives 08-31): after
+  // a banked win OR ≥2 break-even scratches on this side in the window, followers also skip
+  // anything but a premium same-side setup (live R:R ≥ 1:1, confidence ≥ 68 when carried).
   try {
     const w = await goldRecentWinOnSide(admin, sig.side, GOLD_WIN_PICKY_MS);
-    if (w.won) {
+    const scratches = await goldRecentBeScratches(admin, sig.side, GOLD_WIN_PICKY_MS);
+    if (w.won || scratches >= GOLD_BE_PICKY_COUNT) {
       const rrLive = rewardRisk(goldLp != null ? goldLp : entry, fstop, sig.tp);
       const rrOk = rrLive == null ? true : rrLive >= GOLD_WIN_PICKY_RR;
       const confOk = sig.confidence == null ? true : sig.confidence >= GOLD_WIN_PICKY_CONF;
