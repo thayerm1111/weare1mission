@@ -656,6 +656,48 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     return null;
   }
 
+  // PARALLEL PREFETCH (owner 08-31: "taking way too long to move stops to break even").
+  // The row loop below is fully serialized — correct, but it spent most of its time WAITING
+  // on one-account-at-a-time broker reads, so with many accounts a single pass could take
+  // 30s+ and a break-even landed that late. Warm the token + account-state caches for every
+  // account this pass covers UP FRONT, in parallel — one lane per CONNECTION so a single
+  // TradeLocker connection is never hit concurrently (token/rate-limit safety; matches the
+  // executor's 8-wide account fan-out), up to 6 connections at once. The serial loop below
+  // is UNCHANGED and now mostly hits warm caches, so a pass finishes in a few seconds and a
+  // stop moves to break-even within one short tick of the trigger. Prefetch is best-effort:
+  // any failure here just falls through to the loop's own fresh read + retry.
+  try {
+    const seenAcct = new Set<string>();
+    const byConn = new Map<string, { accNum: string; accountId: string }[]>();
+    for (const r of rows) {
+      const aid = String(r.account_id);
+      if (seenAcct.has(aid)) continue;
+      seenAcct.add(aid);
+      const k = String(r.connection_id);
+      if (!byConn.has(k)) byConn.set(k, []);
+      byConn.get(k)!.push({ accNum: r.acc_num, accountId: aid });
+    }
+    const lanes = [...byConn.entries()];
+    let li = 0;
+    const PREFETCH_LANES = 6;
+    await Promise.all(Array.from({ length: Math.min(PREFETCH_LANES, lanes.length) }, async () => {
+      for (;;) {
+        const lane = lanes[li];
+        li += 1;
+        if (!lane) break;
+        const [connId, accts] = lane;
+        const tok = await tokenFor(connId);
+        if (!tok) continue;
+        for (const a of accts) {
+          try {
+            const cols = await colsFor(connId, tok, a.accNum);
+            await acctState(tok, a.accNum, a.accountId, cols);
+          } catch { /* per-account prefetch is best-effort — the row loop reads fresh */ }
+        }
+      }
+    }));
+  } catch { /* prefetch is an optimization only — the serial pass still does everything */ }
+
   let managed = 0;
   // LIVENESS DURING A LONG PASS: with many open positions, one full pass over the broker (each
   // position = several serial broker calls) can run past the watchdog's 120s "stale" threshold.
