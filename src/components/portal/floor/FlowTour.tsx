@@ -173,6 +173,10 @@ export function FlowTour({ connected }: { connected: boolean }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [mode, setMode] = useState<"connect" | "controls">("connect");
   const [i, setI] = useState(0);
+  // Snoozed = closed without completing. The tour stays quiet for THIS visit but comes
+  // back next time — only pressing "Completed" at the finale dismisses it for good
+  // (owner directive 08-31: they have to select completed).
+  const [snoozed, setSnoozed] = useState(false);
   const [rect, setRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   const wasConnected = useRef(connected);
 
@@ -180,10 +184,10 @@ export function FlowTour({ connected }: { connected: boolean }) {
 
   // Auto-launch rules.
   useEffect(() => {
-    if (phase !== "idle") return;
+    if (phase !== "idle" || snoozed) return;
     if (!connected && !lsGet(LS_CONNECT)) { setMode("connect"); setPhase("welcome"); return; }
     if (connected && !lsGet(LS_CONTROLS)) { setMode("controls"); setPhase("welcome"); }
-  }, [connected, phase]);
+  }, [connected, phase, snoozed]);
 
   // The magic hand-off: the moment the member connects mid-tour, jump straight into the controls tour.
   useEffect(() => {
@@ -221,10 +225,16 @@ export function FlowTour({ connected }: { connected: boolean }) {
     return () => { alive = false; window.cancelAnimationFrame(raf); };
   }, [phase, i, steps]);
 
-  const finish = useCallback(() => {
+  // COMPLETE — the only path that dismisses the tour permanently.
+  const complete = useCallback(() => {
     lsSet(mode === "connect" ? LS_CONNECT : LS_CONTROLS);
-    setPhase("idle"); setI(0);
+    setPhase("idle"); setI(0); setSnoozed(true);
   }, [mode]);
+
+  // Close without completing — quiet for this visit, offered again next time.
+  const snooze = useCallback(() => {
+    setPhase("idle"); setI(0); setSnoozed(true);
+  }, []);
 
   const next = useCallback(() => {
     // Skip any step whose target isn't rendered (e.g. breakeven pips when Manage trades is off).
@@ -232,9 +242,9 @@ export function FlowTour({ connected }: { connected: boolean }) {
     while (n < steps.length && !document.querySelector(`[data-tour="${steps[n].sel}"]`)) n++;
     if (n >= steps.length) {
       if (mode === "controls") { setPhase("finale"); }
-      else { finish(); }
+      else { snooze(); } // connect walkthrough ends when they actually connect — not before
     } else setI(n);
-  }, [i, steps, mode, finish]);
+  }, [i, steps, mode, snooze]);
 
   const back = useCallback(() => {
     let p = i - 1;
@@ -245,12 +255,13 @@ export function FlowTour({ connected }: { connected: boolean }) {
   const start = () => {
     let n = 0;
     while (n < steps.length && !document.querySelector(`[data-tour="${steps[n].sel}"]`)) n++;
-    if (n >= steps.length) { finish(); return; }
+    if (n >= steps.length) { snooze(); return; }
     setI(n); setPhase("steps");
   };
 
   const replay = () => {
     setMode(connected ? "controls" : "connect");
+    setSnoozed(false);
     setI(0); setPhase("welcome");
   };
 
@@ -260,7 +271,7 @@ export function FlowTour({ connected }: { connected: boolean }) {
       onClick={replay}
       className="fixed bottom-5 right-5 z-[90] inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-[#0c1220]/95 px-4 py-2 text-xs font-bold text-emerald-400 shadow-lg backdrop-blur transition hover:bg-emerald-500/10"
     >
-      ❓ Guide
+      ❓ FLOW Guide
     </button>
   );
 
@@ -288,8 +299,8 @@ export function FlowTour({ connected }: { connected: boolean }) {
             >
               {isConnect ? "▶ Start the walkthrough" : "▶ Show me the switches"}
             </button>
-            <button onClick={finish} className="w-full rounded-xl px-4 py-2 text-xs font-semibold text-white/40 hover:text-white/70">
-              Skip — I know what I&apos;m doing
+            <button onClick={snooze} className="w-full rounded-xl px-4 py-2 text-xs font-semibold text-white/40 hover:text-white/70">
+              Not now — remind me next time
             </button>
           </div>
         </div>
@@ -321,9 +332,13 @@ export function FlowTour({ connected }: { connected: boolean }) {
             >
               💳 Set up auto-refill →
             </a>
-            <button onClick={finish} className="w-full rounded-xl border border-white/15 px-4 py-2.5 text-sm font-bold text-white/80 hover:bg-white/5">
-              ✓ Finish — I&apos;m ready to trade
+            <button
+              onClick={complete}
+              className="w-full rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-600 px-4 py-3 text-sm font-extrabold text-white shadow-[0_0_20px_rgba(16,185,129,0.4)] transition hover:brightness-110"
+            >
+              ✓ Completed — I&apos;m ready to trade
             </button>
+            <p className="text-center text-[10px] text-white/35">Pressing Completed is what closes this guide for good — until then it&apos;ll offer again next visit.</p>
           </div>
         </div>
       </div>
@@ -367,7 +382,7 @@ export function FlowTour({ connected }: { connected: boolean }) {
           <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-emerald-400">
             {done + 1} / {total}
           </span>
-          <button onClick={finish} className="text-[11px] font-semibold text-white/35 hover:text-white/70">✕ Exit tour</button>
+          <button onClick={snooze} className="text-[11px] font-semibold text-white/35 hover:text-white/70">✕ Exit tour</button>
         </div>
         <h3 className="mt-2 text-sm font-extrabold">{step.title}</h3>
         <p className="mt-1.5 text-[13px] leading-relaxed text-white/70">{step.body}</p>
@@ -380,7 +395,7 @@ export function FlowTour({ connected }: { connected: boolean }) {
             ‹ Back
           </button>
           {mode === "connect" && done + 1 === total ? (
-            <button onClick={finish} className="rounded-lg bg-gradient-to-r from-emerald-400 to-emerald-600 px-4 py-1.5 text-xs font-extrabold text-white hover:brightness-110">
+            <button onClick={snooze} className="rounded-lg bg-gradient-to-r from-emerald-400 to-emerald-600 px-4 py-1.5 text-xs font-extrabold text-white hover:brightness-110">
               Got it — connecting now ✓
             </button>
           ) : (
