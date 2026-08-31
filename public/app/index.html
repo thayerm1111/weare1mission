@@ -1278,12 +1278,14 @@ input{font:inherit}
     var m = props.m, lv = tradeLevels(m);
     var risk = useState(1), acct = useState(""), equity = useState(null), connected = useState(false);
     var lots = useState(null), sizing = useState(null), busy = useState(false), done = useState(null), err = useState(""), loaded = useState(false), acctCount = useState(0);
+    var target = useState("all"), acctList = useState([]); // account picker — "all" or a specific accountId
     if (!lv.ok || lv.ep == null || lv.stop == null || !lv.tps.length) { return null; }
     var side = m.direction === "SHORT" ? "sell" : "buy";
     var sym = m.symbol || "";
     function baseBody(extra) {
       var b = { source: "play", symbol: sym, side: side, entry: lv.ep, stop: lv.stop, tp: lv.tps[0], riskPct: +risk[0] };
       if (!connected[0] && acct[0]) b.accountSize = +acct[0];
+      if (connected[0] && target[0] !== "all") b.accountId = target[0];
       return Object.assign(b, extra || {});
     }
     useEffect(function () {
@@ -1298,11 +1300,11 @@ input{font:inherit}
     }, []);
     function preview() {
       apiPost("/api/flow/execute", baseBody({ preview: true })).then(function (d) {
-        if (d && d.preview) { lots[1](d.lots); sizing[1](d.sizing); if (d.equity != null) equity[1](d.equity); acctCount[1](d.accountCount || 0); err[1](""); }
+        if (d && d.preview) { lots[1](d.lots); sizing[1](d.sizing); if (d.equity != null) equity[1](d.equity); acctCount[1](d.accountCount || 0); if (target[0] === "all" && d.accounts && d.accounts.length) acctList[1](d.accounts); err[1](""); }
         else if (d && d.detail) { lots[1](null); err[1](d.detail); }
       }).catch(function () {});
     }
-    useEffect(function () { if (loaded[0]) preview(); }, [loaded[0], risk[0], acct[0]]);
+    useEffect(function () { if (loaded[0]) preview(); }, [loaded[0], risk[0], acct[0], target[0]]);
     function execute() {
       if (busy[0] || lots[0] == null) return; busy[1](true); err[1]("");
       apiPost("/api/flow/execute", baseBody()).then(function (d) {
@@ -1318,6 +1320,12 @@ input{font:inherit}
       <div class="xrisk-row"><span class="xrisk-lb">Risk</span>
         <div class="xrisk-chips">${RISKS.map(function (r) { return html`<button class=${"xrchip" + (+risk[0] === r ? " on" : "")} onClick=${function () { risk[1](r); }}>${r}%</button>`; })}</div>
       </div>
+      ${(connected[0] && acctList[0].length > 1) ? html`<div class="xrisk-row" style="align-items:flex-start"><span class="xrisk-lb" style="padding-top:6px">Place on</span>
+        <div class="xrisk-chips" style="flex-wrap:wrap;justify-content:flex-end">
+          <button class=${"xrchip" + (target[0] === "all" ? " on" : "")} onClick=${function () { target[1]("all"); }}>All accounts (${acctList[0].length})</button>
+          ${acctList[0].map(function (p) { var id = String(p.accountId); return html`<button class=${"xrchip" + (target[0] === id ? " on" : "")} onClick=${function () { target[1](id); }}>#${p.accNum || id}${p.equity != null ? " · $" + Math.round(p.equity).toLocaleString() : ""}</button>`; })}
+        </div>
+      </div>` : null}
       ${connected[0]
         ? html`<div class="xrisk-eq">Equity <b>${equity[0] != null ? "$" + Math.round(equity[0]).toLocaleString() : "—"}</b> · live from TradeLocker</div>`
         : html`<div class="xrisk-row"><span class="xrisk-lb">Account $</span><input class="xrisk-in" type="number" inputmode="decimal" value=${acct[0]} placeholder="e.g. 5000" onInput=${function (e) { acct[1](e.target.value); }} onBlur=${saveAcct} /></div>`}
