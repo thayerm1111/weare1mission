@@ -582,8 +582,17 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   async function acctState(tok: { token: string; env: TLEnv }, accNum: string, accountId: string, cols: { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number }) {
     const key = `${accountId}`;
     if (acctCache.has(key)) return acctCache.get(key)!;
-    const pos = await listPositions(tok.env, tok.token, accNum, accountId);
-    const inst = await listInstruments(tok.env, tok.token, accNum, accountId);
+    let pos = await listPositions(tok.env, tok.token, accNum, accountId);
+    let inst = await listInstruments(tok.env, tok.token, accNum, accountId);
+    // ONE in-tick retry on a failed read (owner incident 08-31: intermittent account reads on
+    // one connection left its positions unmanaged — break-even never fired and the member had
+    // to move his stop by hand). A short settle + retry rides out the transient blips that a
+    // concurrent app login / token rotation causes on TradeLocker.
+    if (!pos.ok || !inst.ok) {
+      await new Promise((r) => setTimeout(r, 400));
+      if (!pos.ok) pos = await listPositions(tok.env, tok.token, accNum, accountId);
+      if (!inst.ok) inst = await listInstruments(tok.env, tok.token, accNum, accountId);
+    }
     const avgPx = new Map<string, number>();
     const upl = new Map<string, number>();
     const qty = new Map<string, number>();
@@ -599,7 +608,9 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     const v = pos.ok && inst.ok
       ? { openIds: new Set(pos.data.map(posIdOf).filter(Boolean)), avgPx, upl, qty, sl, instruments: inst.data }
       : null;
-    acctCache.set(key, v);
+    // NEVER cache a failed read: a null in the cache would black out EVERY position on this
+    // account for the rest of the tick. Failures fall through so the next row retries fresh.
+    if (v) acctCache.set(key, v);
     return v;
   }
 
@@ -664,6 +675,11 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       const cols = await colsFor(row.connection_id, tok, row.acc_num);
       const st = await acctState(tok, row.acc_num, row.account_id, cols);
       if (!st) { await admin.from("flow_managed_positions").update({ last_error: "account_read", updated_at: new Date().toISOString() }).eq("id", row.id); continue; }
+      // Read succeeded → clear a stale read/token error so diagnostics reflect reality.
+      if (row.last_error === "account_read" || row.last_error === "token") {
+        try { await admin.from("flow_managed_positions").update({ last_error: null }).eq("id", row.id); } catch { /* cosmetic */ }
+        row.last_error = null;
+      }
 
       // Position gone from the broker → it closed (SL/TP hit, or member closed it). Require
       // BOTH ≥3 consecutive misses AND ≥45s elapsed before booking closed — a fresh fill or a
