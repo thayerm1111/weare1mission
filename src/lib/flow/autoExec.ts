@@ -961,12 +961,21 @@ async function goldRealLossOnSide(admin: Admin, side: "buy" | "sell"): Promise<{
 // opposite side is never touched. Tunable.
 const GOLD_POST_WIN_REANALYZE_MS = 15 * 60 * 1000; // ~15 min re-analysis pause after a win
 
+// PROTECT-THE-PROFITS (owner directive 08-31: "if there's been wins in a direction, be a little
+// pickier on the next setup — don't give profits back to the market"). After a banked automated
+// WIN on a side, the SAME side gets a HIGHER quality bar for a while: only a premium setup
+// re-enters. Layered with the re-analyze pause above: 0–15 min after a win = full hold;
+// 15–90 min = premium-only (live R:R ≥ 1:1 and engine confidence ≥ 68 when the signal has one).
+const GOLD_WIN_PICKY_MS = 90 * 60 * 1000;  // how long the higher bar applies after a win
+const GOLD_WIN_PICKY_RR = 1.0;             // live R:R must clear a full 1:1 (normal floor 0.65)
+const GOLD_WIN_PICKY_CONF = 68;            // engine confidence must clear this when provided
+
 /** A recent FULL WIN on this side (a hit target or a positive trailing-stop exit) within the
- *  re-analysis window. Live trades only. This is what triggers the short post-win pause so the
- *  desk reassesses before re-entering the same side. */
-async function goldRecentWinOnSide(admin: Admin, side: "buy" | "sell"): Promise<{ won: boolean; whenMs: number }> {
+ *  given window (default: the short re-analysis window). Live trades only. Triggers the post-win
+ *  pause and, over the longer window, the protect-the-profits quality bar. */
+async function goldRecentWinOnSide(admin: Admin, side: "buy" | "sell", windowMs: number = GOLD_POST_WIN_REANALYZE_MS): Promise<{ won: boolean; whenMs: number }> {
   try {
-    const sinceIso = new Date(Date.now() - GOLD_POST_WIN_REANALYZE_MS).toISOString();
+    const sinceIso = new Date(Date.now() - windowMs).toISOString();
     const { data } = await admin
       .from("flow_managed_positions")
       .select("resolved_at, result_pips, outcome, account_id, created_at")
@@ -1176,7 +1185,7 @@ export function goldRoute(acc: { autotrade_enabled?: boolean | null; genx_follow
   return "none";
 }
 
-export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; conservativeOk?: boolean }): Promise<{ members: number; placed: number }> {
+export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null }): Promise<{ members: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { members: 0, placed: 0 };
   if (!(await systemSwitches(admin)).genx) return { members: 0, placed: 0 }; // admin GENX kill switch
@@ -1247,6 +1256,30 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     await deskDrop(`chased_below_${GOLD_MIN_PLACEMENT_RR}RR${rr != null ? ` (rr ${rr.toFixed(2)})` : ""} ${sig.side}`);
     return { members: 0, placed: 0 };
   }
+
+  // PROTECT-THE-PROFITS GATE (owner directive 08-31): within GOLD_WIN_PICKY_MS of a banked
+  // automated win on this side, only a PREMIUM same-side setup re-enters — live R:R must clear
+  // a full 1:1 and the engine's confidence must clear 68 (when the signal carries one). A
+  // mediocre re-entry right after banking a move is how profits go back to the market. The
+  // opposite side is untouched, and a genuinely premium setup still fires immediately.
+  try {
+    const w = await goldRecentWinOnSide(admin, sig.side, GOLD_WIN_PICKY_MS);
+    if (w.won) {
+      const rrLive = rewardRisk(goldLp != null ? goldLp : entry, sig.stop, sig.tp);
+      const rrOk = rrLive == null ? true : rrLive >= GOLD_WIN_PICKY_RR;       // feed down → judge on confidence alone
+      const confOk = sig.confidence == null ? true : sig.confidence >= GOLD_WIN_PICKY_CONF;
+      if (!rrOk || !confOk) {
+        const mins = Math.max(1, Math.round((w.whenMs + GOLD_WIN_PICKY_MS - Date.now()) / 60000));
+        const detail = [
+          rrLive != null ? `R:R ${rrLive.toFixed(2)} (needs ≥ ${GOLD_WIN_PICKY_RR.toFixed(1)})` : null,
+          sig.confidence != null ? `confidence ${sig.confidence} (needs ≥ ${GOLD_WIN_PICKY_CONF})` : null,
+        ].filter(Boolean).join(" · ");
+        try { await sendTelegram(`🎯 <b>GENX gold — protecting profits</b>\nJust banked a ${sig.side.toUpperCase()} win, so the next ${sig.side.toUpperCase()} needs a premium entry for ~${mins} min${detail ? `.\nThis one: ${detail}` : ""}. A top-quality setup still fires immediately.`); } catch { /* note best-effort */ }
+        await deskDrop(`post_win_picky ${sig.side}${rrLive != null ? ` rr=${rrLive.toFixed(2)}` : ""}${sig.confidence != null ? ` conf=${sig.confidence}` : ""}`);
+        return { members: 0, placed: 0 };
+      }
+    }
+  } catch { /* read error → don't block */ }
 
   // SIZING ENTRY = the LIVE price, not the (possibly stale) signal zone. This is the fix for
   // the $8k-risk trade: the position is risk-sized off where it will ACTUALLY fill, so the
@@ -1356,7 +1389,7 @@ const FOLLOWER_DEFAULT_RISK = 1; // % of equity when no per-account and no owner
 export async function placeGenxFollower(sig: {
   signalKey: string; side: "buy" | "sell";
   entryLow?: number | null; entryHigh?: number | null;
-  stop: number | null; tp: number | null; conservativeOk?: boolean;
+  stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null;
 }): Promise<{ accounts: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { accounts: 0, placed: 0 };
@@ -1382,6 +1415,19 @@ export async function placeGenxFollower(sig: {
   // toward TP so the live-price R:R is below the floor, this ENTER NOW is chased; no
   // follower takes a tiny-TP / huge-SL fill. Fails open if the feed is down.
   if (goldChasedAt(sig.side, fstop, sig.tp, goldLp)) return { accounts: 0, placed: 0 };
+
+  // PROTECT-THE-PROFITS GATE — same desk rule as the copy path (owner directive 08-31): within
+  // GOLD_WIN_PICKY_MS of a banked automated win on this side, followers also skip anything but a
+  // premium same-side setup (live R:R ≥ 1:1, confidence ≥ 68 when carried). Don't give it back.
+  try {
+    const w = await goldRecentWinOnSide(admin, sig.side, GOLD_WIN_PICKY_MS);
+    if (w.won) {
+      const rrLive = rewardRisk(goldLp != null ? goldLp : entry, fstop, sig.tp);
+      const rrOk = rrLive == null ? true : rrLive >= GOLD_WIN_PICKY_RR;
+      const confOk = sig.confidence == null ? true : sig.confidence >= GOLD_WIN_PICKY_CONF;
+      if (!rrOk || !confOk) return { accounts: 0, placed: 0 }; // copy path posts the Telegram note
+    }
+  } catch { /* read error → don't block */ }
 
   // SIZING ENTRY = the LIVE price (falls back to the signal zone only if the feed is down),
   // so each follower's risk is off where it ACTUALLY fills — a chased fill can't balloon the
