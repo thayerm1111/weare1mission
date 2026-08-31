@@ -11,6 +11,7 @@ import { FlowDesk } from "./FlowDesk";
 import { GenxDesk } from "./GenxDesk";
 import { OmAiChat } from "../OmAiChat";
 import { SignalGenerator } from "../SignalGenerator";
+import { FlowIntro } from "./FlowTour";
 
 /* The Floor workspace — a dark trading-desk shell around the launcher (home) and
    the in-desk tools. Adds: a premium entry transition (with a tasteful WebAudio
@@ -145,6 +146,8 @@ export function FloorWorkspace({ isCaller = false, followerCount = 0 }: { isCall
 
       {/* content */}
       <div className="p-2 sm:p-2.5">
+        {/* First-visit "Connect to FLOW" popup — routes into the FLOW tab where the guided tour takes over. */}
+        {tab === "home" && <FlowIntro onGo={() => go("flow")} />}
         {tab === "home" && <FloorHome onGo={go} />}
         {tab !== "home" && (
           <div className="rounded-xl bg-cream p-2.5 text-charcoal sm:p-3">

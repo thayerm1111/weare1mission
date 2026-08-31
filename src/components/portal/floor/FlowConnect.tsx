@@ -14,6 +14,7 @@ import {
   Coins,
   Zap,
 } from "lucide-react";
+import { FlowTour } from "./FlowTour";
 
 /* FLOW ↔ TradeLocker connect (desktop portal parity with the app's GxBrokerConnect).
  * Credentials are POSTed straight to /api/flow/broker; the browser never stores a
@@ -355,6 +356,8 @@ export function FlowConnect() {
 
   return (
     <div className="space-y-4">
+      {/* Guided tour: connect walkthrough → per-toggle explainers → credits reminder. */}
+      {!loading && <FlowTour connected={connected} />}
       <div>
         <h2 className="flex items-center gap-2 text-xl font-extrabold tracking-tight">
           <span className="bg-gradient-to-r from-navy via-charcoal to-gold-deep bg-clip-text text-transparent">
@@ -456,10 +459,12 @@ export function FlowConnect() {
                   No account details loaded yet. Tap re-check, or reconnect.
                 </p>
               )}
-              {accounts.map((a) => {
+              {accounts.map((a, ai) => {
                 const on = a.autotradeEnabled !== false;
+                const tour = (name: string) => (ai === 0 ? { "data-tour": name } : {}); // tour spotlights the FIRST account only
                 return (
                   <div
+                    {...tour("ft-account")}
                     key={`${a.connectionId || ""}-${a.accountId}`}
                     className={`w-full rounded-xl border px-3.5 py-3 ${
                       on ? "border-emerald-500/40 bg-emerald-500/[0.05]" : "border-ice bg-offwhite/50"
@@ -478,7 +483,7 @@ export function FlowConnect() {
                           {a.currency ? ` · ${a.currency}` : ""} · <span className="inline-flex items-center gap-0.5"><Wallet className="inline h-3 w-3" />{money(a.equity != null ? a.equity : a.balance)}</span>
                         </p>
                       </div>
-                      <div className="flex flex-shrink-0 items-center gap-2">
+                      <div className="flex flex-shrink-0 items-center gap-2" {...tour("ft-trading")}>
                         <span className={`text-[11px] font-semibold ${on ? "text-emerald-600" : "text-charcoal/40"}`}>{on ? "Trading" : "Off"}</span>
                         <button
                           onClick={() => void toggleAccount(a, !on)}
@@ -493,7 +498,7 @@ export function FlowConnect() {
                     {(() => {
                       const follows = a.genxFollower === true;
                       return (
-                        <div className={`mt-2.5 flex items-center justify-between gap-3 rounded-lg border px-2.5 py-2 ${follows ? "border-amber-500/45 bg-amber-500/[0.07]" : "border-ice bg-offwhite/40"}`}>
+                        <div {...tour("ft-genx")} className={`mt-2.5 flex items-center justify-between gap-3 rounded-lg border px-2.5 py-2 ${follows ? "border-amber-500/45 bg-amber-500/[0.07]" : "border-ice bg-offwhite/40"}`}>
                           <div className="min-w-0">
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600"><Zap className="h-3.5 w-3.5" /> Follow every GENX signal</span>
                             <p className="mt-0.5 text-[10px] leading-tight text-charcoal/45">Takes every GENX gold call on this account, sized to the risk % below. Separate from FLOW.</p>
@@ -512,7 +517,7 @@ export function FlowConnect() {
                       );
                     })()}
                     {/* Per-account risk override */}
-                    <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-ice/70 pt-2.5">
+                    <div {...tour("ft-risk")} className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-ice/70 pt-2.5">
                       <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55"><Gauge className="h-3.5 w-3.5" /> Risk</span>
                       <button
                         onClick={() => void setAccountRisk(a, null)}
@@ -538,7 +543,7 @@ export function FlowConnect() {
                       const managed = a.manageTrades !== false;
                       return (
                         <>
-                          <div className="mt-2 flex items-center justify-between gap-3 border-t border-ice/70 pt-2.5">
+                          <div {...tour("ft-manage")} className="mt-2 flex items-center justify-between gap-3 border-t border-ice/70 pt-2.5">
                             <div className="min-w-0">
                               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55"><ShieldCheck className="h-3.5 w-3.5" /> Manage trades</span>
                               <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">Move stop to breakeven + take a 50% partial. Off = ride the raw stop/target.</p>
@@ -558,7 +563,7 @@ export function FlowConnect() {
                           {(() => {
                             const mode = a.riskMode === "aggressive" ? "aggressive" : "conservative";
                             return (
-                              <div className="mt-2 flex items-center justify-between gap-3">
+                              <div {...tour("ft-safety")} className="mt-2 flex items-center justify-between gap-3">
                                 <div className="min-w-0">
                                   <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55"><ShieldCheck className="h-3.5 w-3.5" /> Safety mode</span>
                                   <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">Conservative pauses THIS account 4h after 2 losses in a row (gold &amp; forex separate). Aggressive has no cap.</p>
@@ -573,7 +578,7 @@ export function FlowConnect() {
                             );
                           })()}
                           {managed && (
-                            <div className="mt-2 flex items-center justify-between gap-3">
+                            <div {...tour("ft-bepips")} className="mt-2 flex items-center justify-between gap-3">
                               <div className="min-w-0">
                                 <span className="text-[11px] font-semibold text-charcoal/55">Gold breakeven pips</span>
                                 <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">Gold only. Breakeven + partial fire at this many pips. Blank = AI decides. Forex is always AI.</p>
@@ -607,6 +612,7 @@ export function FlowConnect() {
             </div>
 
             <button
+              data-tour="ft-addaccount"
               onClick={() => { setAddingAccount(true); setOk(""); setErr(""); }}
               className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-charcoal/25 px-3 py-2 text-xs font-semibold text-navy hover:bg-offwhite"
             >
@@ -615,7 +621,7 @@ export function FlowConnect() {
           </div>
 
           {/* Risk % lock-in */}
-          <div className="rounded-2xl border border-ice bg-white p-5">
+          <div data-tour="ft-defaultrisk" className="rounded-2xl border border-ice bg-white p-5">
             <p className="inline-flex items-center gap-2 text-sm font-bold">
               <Gauge className="h-4 w-4 text-navy" /> Default risk per trade
             </p>
@@ -646,7 +652,7 @@ export function FlowConnect() {
           </div>
 
           {/* Auto-run toggle */}
-          <div className="rounded-2xl border border-ice bg-white p-5">
+          <div data-tour="ft-autorun" className="rounded-2xl border border-ice bg-white p-5">
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <p className="inline-flex items-center gap-2 text-sm font-bold">
@@ -731,7 +737,7 @@ export function FlowConnect() {
             )}
 
             {/* Environment */}
-            <div className="mt-4">
+            <div className="mt-4" data-tour="ft-env">
               <label className="text-[11px] font-semibold uppercase tracking-wide text-charcoal/45">
                 Environment
               </label>
@@ -758,6 +764,7 @@ export function FlowConnect() {
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <Field label="Server">
                 <input
+                  data-tour="ft-server"
                   value={server}
                   onChange={(e) => setServer(e.target.value)}
                   placeholder="e.g. GENFX"
@@ -766,6 +773,7 @@ export function FlowConnect() {
               </Field>
               <Field label="Email">
                 <input
+                  data-tour="ft-email"
                   type="email"
                   autoComplete="off"
                   value={email}
@@ -776,6 +784,7 @@ export function FlowConnect() {
               </Field>
               <Field label="Password" className="sm:col-span-2">
                 <input
+                  data-tour="ft-password"
                   type="password"
                   autoComplete="off"
                   value={password}
@@ -793,6 +802,7 @@ export function FlowConnect() {
             )}
 
             <button
+              data-tour="ft-connect"
               onClick={() => void connect()}
               disabled={busy || !server || !email || !password}
               className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-navy to-primary px-5 py-3 text-sm font-bold text-cream shadow-card transition hover:shadow-cardhover disabled:cursor-not-allowed disabled:opacity-50"
