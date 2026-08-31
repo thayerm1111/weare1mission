@@ -1305,8 +1305,14 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
         const ledgerPids = ledgerGoldByAcct.get(String(a.accountId));
         if (!ledgerPids || !ledgerPids.size) { verified.push(a); continue; }
         const brokerOpen = await brokerOpenPosIds({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId });
+        // FAIL CLOSED (owner incident 08-31, double gold entry on one account): the ledger says
+        // this account already holds an automated gold trade. If the broker can't be read to
+        // confirm it closed, we DO NOT place — a missed entry is recoverable, a stacked double
+        // position is not. Stale rows still never block: a READABLE broker that shows the
+        // position closed frees the account instantly.
+        if (brokerOpen === null) continue;
         if (genxGoldStillOpen(ledgerPids, brokerOpen)) continue; // genuinely open → max 1, skip
-        verified.push(a); // no ledger, broker says closed, or broker unreadable → take it
+        verified.push(a); // broker confirms it closed → free for the next signal
       }
       accounts = verified;
       if (!accounts.length) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); return 0; }
@@ -1462,10 +1468,10 @@ export async function placeGenxFollower(sig: {
       }
       // MAX ONE OPEN GENX/FLOW GOLD PER ACCOUNT — broker-verified (same rule as the copy
       // path). The ledger holds only engine-placed trades, so a MANUAL gold trade never
-      // counts. We only skip when the BROKER confirms a recorded GENX/FLOW gold is still
-      // open; a stale ledger row (already closed on the broker) or an unreadable broker does
-      // NOT block — the account still takes the signal. No time window: the moment the real
-      // position closes, the account is free for the next ENTER NOW.
+      // counts. A stale ledger row (already closed on the broker) does not block — but when
+      // the ledger shows an open automated gold and the broker CANNOT be read to confirm,
+      // we FAIL CLOSED and skip (owner incident 08-31): a missed entry is recoverable, a
+      // stacked double position is not.
       const { data: openGold } = await admin.from("flow_managed_positions")
         .select("position_id, created_at").eq("account_id", a.account_id).eq("symbol", "XAUUSD").eq("status", "open");
       const manualGoldF = await manualGoldPlacements(admin);
@@ -1474,10 +1480,10 @@ export async function placeGenxFollower(sig: {
         .map((r) => String(r.position_id ?? "")).filter(Boolean);
       if (ledgerPids.length) {
         const tokChk = await tokenFor(a.connection_id);
-        if (tokChk) {
-          const brokerOpen = await brokerOpenPosIds({ env: tokChk.env, token: tokChk.token, accNum: String(a.acc_num), accountId: a.account_id });
-          if (genxGoldStillOpen(ledgerPids, brokerOpen)) return { touched: 1, placed: 0 }; // genuinely open → skip
-        }
+        if (!tokChk) return { touched: 1, placed: 0 }; // can't verify → fail closed, never stack
+        const brokerOpen = await brokerOpenPosIds({ env: tokChk.env, token: tokChk.token, accNum: String(a.acc_num), accountId: a.account_id });
+        if (brokerOpen === null) return { touched: 1, placed: 0 }; // broker unreadable → fail closed, never stack
+        if (genxGoldStillOpen(ledgerPids, brokerOpen)) return { touched: 1, placed: 0 }; // genuinely open → skip
       }
       // Idempotent claim: one fill per (signal, account). A duplicate row → already
       // handled this ENTER NOW on this account → skip.
