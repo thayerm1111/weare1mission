@@ -969,35 +969,69 @@ const GOLD_POST_WIN_REANALYZE_MS = 15 * 60 * 1000; // ~15 min re-analysis pause 
 const GOLD_WIN_PICKY_MS = 90 * 60 * 1000;  // how long the higher bar applies after a win
 const GOLD_WIN_PICKY_RR = 1.0;             // live R:R must clear a full 1:1 (normal floor 0.65)
 const GOLD_WIN_PICKY_CONF = 68;            // engine confidence must clear this when provided
-const GOLD_BE_PICKY_COUNT = 2;             // ≥ this many break-even scratches also arms the higher bar
+// SAME-SETUP BREAK-EVEN ESCALATION (owner directive 08-31 v2): break-evens are judged per
+// SETUP (zone), not as a blanket count. A zone that scratched once may be re-entered — but
+// only at a genuinely BETTER price or on a premium read. A zone that scratched TWICE is done:
+// the desk sits it out and waits for a NEW setup to form somewhere else.
+const GOLD_SAME_SETUP_PIPS = 15;   // a new entry within this many pips of a scratched entry = the SAME setup
+const GOLD_RETRY_BETTER_PIPS = 10; // a retry must improve the entry by ≥ this many pips (else it must be premium)
 
-/** Distinct automated break-even exits on this side within the window (live only). Rows from
- *  one fan-out (many accounts, same signal) are bucketed to ONE scratch by placement minute.
- *  Two or more = the market keeps kicking this side back to entry — chop. The desk then
- *  demands a premium setup before re-entering (owner directive 08-31: "after a couple break
- *  even trades, be a little more strict"). */
-async function goldRecentBeScratches(admin: Admin, side: "buy" | "sell", windowMs: number): Promise<number> {
+/** Entry prices of distinct automated break-even exits on this side within the window (live
+ *  only). Rows from one fan-out (many accounts, same signal) are bucketed to ONE scratch by
+ *  placement minute; each bucket contributes its entry price, which is what identifies the
+ *  SETUP for the same-zone escalation. Manual plays never count. */
+async function goldRecentBeEntries(admin: Admin, side: "buy" | "sell", windowMs: number): Promise<number[]> {
   try {
     const sinceIso = new Date(Date.now() - windowMs).toISOString();
     const { data } = await admin
       .from("flow_managed_positions")
-      .select("account_id, created_at")
+      .select("account_id, created_at, entry")
       .in("symbol", GOLD_SYMS)
       .eq("side", side)
       .eq("status", "closed")
       .eq("outcome", "breakeven")
       .neq("environment", "demo")
       .gte("resolved_at", sinceIso)
-      .limit(40);
-    const rows = (data ?? []) as { account_id: string | null; created_at: string }[];
+      .limit(60);
+    const rows = (data ?? []) as { account_id: string | null; created_at: string; entry: number | null }[];
     const manuals = await manualGoldPlacements(admin);
-    const setups = new Set<string>();
+    const buckets = new Map<string, number>(); // minute bucket → entry price
     for (const r of rows) {
       if (isManualGoldRow(manuals, String(r.account_id ?? ""), r.created_at)) continue; // manual plays never count
-      setups.add(String(r.created_at).slice(0, 16)); // minute bucket ≈ one signal's fan-out
+      if (r.entry == null || !(r.entry > 0)) continue;
+      const key = String(r.created_at).slice(0, 16); // minute bucket ≈ one signal's fan-out
+      if (!buckets.has(key)) buckets.set(key, r.entry);
     }
-    return setups.size;
-  } catch { return 0; }
+    return [...buckets.values()];
+  } catch { return []; }
+}
+
+/** The per-setup break-even gate. Given where the NEW signal wants to enter, checks the
+ *  scratched entries on this side: unrelated zones don't interfere (a NEW setup trades on
+ *  normal rules); one scratch at this zone → retry allowed only at a better price or on a
+ *  premium read; two scratches at this zone → sit the setup out entirely. */
+async function goldBeSetupGate(
+  admin: Admin, side: "buy" | "sell", newEntry: number | null,
+  rrLive: number | null, confidence: number | null | undefined,
+): Promise<{ block: boolean; kind?: "exhausted" | "retry"; detail?: string }> {
+  if (newEntry == null || !(newEntry > 0)) return { block: false };
+  const scratched = await goldRecentBeEntries(admin, side, GOLD_WIN_PICKY_MS);
+  const near = scratched.filter((e) => Math.abs(e - newEntry) <= GOLD_SAME_SETUP_PIPS * 0.1);
+  if (!near.length) return { block: false }; // a NEW setup — normal rules apply
+  if (near.length >= 2) {
+    return { block: true, kind: "exhausted", detail: `this zone already went to break-even ${near.length} times` };
+  }
+  // One scratch at this zone → the retry needs to EARN it: a better entry, or a premium read.
+  const old = near[0];
+  const betterByPips = (side === "sell" ? newEntry - old : old - newEntry) * 10; // pips the location improved
+  if (betterByPips >= GOLD_RETRY_BETTER_PIPS) return { block: false }; // genuinely better level → take it
+  const rrOk = rrLive == null ? true : rrLive >= GOLD_WIN_PICKY_RR;
+  const confOk = confidence == null ? true : confidence >= GOLD_WIN_PICKY_CONF;
+  if (rrOk && confOk) return { block: false }; // premium read → take it
+  return {
+    block: true, kind: "retry",
+    detail: `same zone as the break-even scratch (entry ${betterByPips >= 0 ? "+" : ""}${betterByPips.toFixed(0)}p vs last try${rrLive != null ? `, R:R ${rrLive.toFixed(2)}` : ""}${confidence != null ? `, conf ${confidence}` : ""})`,
+  };
 }
 
 /** A recent FULL WIN on this side (a hit target or a positive trailing-stop exit) within the
@@ -1287,28 +1321,36 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     return { members: 0, placed: 0 };
   }
 
-  // PROTECT-THE-PROFITS GATE (owner directives 08-31): the desk demands a PREMIUM same-side
-  // setup — live R:R ≥ 1:1 and confidence ≥ 68 (when carried) — whenever EITHER:
-  //   • a win was banked on this side within GOLD_WIN_PICKY_MS (don't give profits back), or
-  //   • ≥ GOLD_BE_PICKY_COUNT break-even scratches landed on this side in the same window
-  //     (the market keeps kicking this side back to entry — chop; stop feeding it).
+  // SELECTIVITY GATES (owner directives 08-31):
+  //   1. SAME-SETUP BE ESCALATION — a zone that scratched to break-even once may be retried
+  //      only at a better price or on a premium read; a zone that scratched twice is DONE
+  //      (sit out, wait for a new setup to form). Unrelated zones trade on normal rules.
+  //   2. PROTECT THE PROFITS — after a banked win on this side, only a premium same-side
+  //      setup (live R:R ≥ 1:1, confidence ≥ 68 when carried) re-enters for a while.
   // The opposite side is untouched, and a genuinely premium setup still fires immediately.
   try {
+    const rrLive = rewardRisk(goldLp != null ? goldLp : entry, sig.stop, sig.tp);
+    const beGate = await goldBeSetupGate(admin, sig.side, entry, rrLive, sig.confidence);
+    if (beGate.block) {
+      const dir = sig.side.toUpperCase();
+      const msg = beGate.kind === "exhausted"
+        ? `⛔️ <b>GENX gold — sitting this one out</b>\nThis ${dir} zone already hit break-even twice — the setup is done. Waiting for a NEW setup to form.`
+        : `🎯 <b>GENX gold — retry needs to earn it</b>\nThis ${dir} zone already went to break-even once. Re-entering only at a better price (≥${GOLD_RETRY_BETTER_PIPS}p improvement) or on a premium read${beGate.detail ? `.\nThis one: ${beGate.detail}` : ""}.`;
+      try { await sendTelegram(msg); } catch { /* note best-effort */ }
+      await deskDrop(`${beGate.kind === "exhausted" ? "setup_exhausted" : "be_retry_not_earned"} ${sig.side}${beGate.detail ? ` (${beGate.detail})` : ""}`);
+      return { members: 0, placed: 0 };
+    }
     const w = await goldRecentWinOnSide(admin, sig.side, GOLD_WIN_PICKY_MS);
-    const scratches = await goldRecentBeScratches(admin, sig.side, GOLD_WIN_PICKY_MS);
-    const armed = w.won || scratches >= GOLD_BE_PICKY_COUNT;
-    if (armed) {
-      const rrLive = rewardRisk(goldLp != null ? goldLp : entry, sig.stop, sig.tp);
+    if (w.won) {
       const rrOk = rrLive == null ? true : rrLive >= GOLD_WIN_PICKY_RR;       // feed down → judge on confidence alone
       const confOk = sig.confidence == null ? true : sig.confidence >= GOLD_WIN_PICKY_CONF;
       if (!rrOk || !confOk) {
-        const why = w.won ? `Just banked a ${sig.side.toUpperCase()} win` : `${scratches} break-even ${sig.side.toUpperCase()} scratches in a row`;
         const detail = [
           rrLive != null ? `R:R ${rrLive.toFixed(2)} (needs ≥ ${GOLD_WIN_PICKY_RR.toFixed(1)})` : null,
           sig.confidence != null ? `confidence ${sig.confidence} (needs ≥ ${GOLD_WIN_PICKY_CONF})` : null,
         ].filter(Boolean).join(" · ");
-        try { await sendTelegram(`🎯 <b>GENX gold — being selective</b>\n${why}, so the next ${sig.side.toUpperCase()} needs a premium entry${detail ? `.\nThis one: ${detail}` : ""}. A top-quality setup still fires immediately.`); } catch { /* note best-effort */ }
-        await deskDrop(`${w.won ? "post_win_picky" : "post_be_picky"} ${sig.side}${rrLive != null ? ` rr=${rrLive.toFixed(2)}` : ""}${sig.confidence != null ? ` conf=${sig.confidence}` : ""}`);
+        try { await sendTelegram(`🎯 <b>GENX gold — protecting profits</b>\nJust banked a ${sig.side.toUpperCase()} win, so the next ${sig.side.toUpperCase()} needs a premium entry${detail ? `.\nThis one: ${detail}` : ""}. A top-quality setup still fires immediately.`); } catch { /* note best-effort */ }
+        await deskDrop(`post_win_picky ${sig.side}${rrLive != null ? ` rr=${rrLive.toFixed(2)}` : ""}${sig.confidence != null ? ` conf=${sig.confidence}` : ""}`);
         return { members: 0, placed: 0 };
       }
     }
@@ -1449,14 +1491,15 @@ export async function placeGenxFollower(sig: {
   // follower takes a tiny-TP / huge-SL fill. Fails open if the feed is down.
   if (goldChasedAt(sig.side, fstop, sig.tp, goldLp)) return { accounts: 0, placed: 0 };
 
-  // PROTECT-THE-PROFITS GATE — same desk rule as the copy path (owner directives 08-31): after
-  // a banked win OR ≥2 break-even scratches on this side in the window, followers also skip
-  // anything but a premium same-side setup (live R:R ≥ 1:1, confidence ≥ 68 when carried).
+  // SELECTIVITY GATES — same desk rules as the copy path (owner directives 08-31): the
+  // same-setup break-even escalation (retry must earn it; twice-scratched zone sits out)
+  // plus the post-win premium bar. Followers skip silently; the copy path posts the note.
   try {
+    const rrLive = rewardRisk(goldLp != null ? goldLp : entry, fstop, sig.tp);
+    const beGate = await goldBeSetupGate(admin, sig.side, entry, rrLive, sig.confidence);
+    if (beGate.block) return { accounts: 0, placed: 0 };
     const w = await goldRecentWinOnSide(admin, sig.side, GOLD_WIN_PICKY_MS);
-    const scratches = await goldRecentBeScratches(admin, sig.side, GOLD_WIN_PICKY_MS);
-    if (w.won || scratches >= GOLD_BE_PICKY_COUNT) {
-      const rrLive = rewardRisk(goldLp != null ? goldLp : entry, fstop, sig.tp);
+    if (w.won) {
       const rrOk = rrLive == null ? true : rrLive >= GOLD_WIN_PICKY_RR;
       const confOk = sig.confidence == null ? true : sig.confidence >= GOLD_WIN_PICKY_CONF;
       if (!rrOk || !confOk) return { accounts: 0, placed: 0 }; // copy path posts the Telegram note
