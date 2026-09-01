@@ -58,10 +58,11 @@ async function run(req: NextRequest): Promise<Response> {
   let lastManaged = 0;
   try {
     while (Date.now() - start < BUDGET_MS) {
+      const t0 = Date.now();
       try { const r = await manageOpenPositions(); lastManaged = r?.managed ?? lastManaged; }
       catch { /* one bad tick never stops the loop */ }
       ticks += 1;
-      await beat(admin, "manager", { ticks, lastManaged }); // liveness signal for the watchdog
+      await beat(admin, "manager", { ticks, lastManaged, passMs: Date.now() - t0 }); // liveness + per-pass timing for the watchdog
       await extendManageLock(admin, holder);
       const remaining = BUDGET_MS - (Date.now() - start);
       if (remaining <= 500) break;
