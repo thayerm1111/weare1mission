@@ -50,22 +50,37 @@ const TIMEOUT_MS = 15000;
 // submitted). Generic 429s without the 1015 marker are only retried for GETs.
 const HOST_MIN_GAP_MS = 150;
 const RL_MAX_RETRIES = 4;
+// READS may run up to 3 lanes wide per host (owner 08-31: the manager reads 65+ accounts
+// per pass and single-file pacing made a pass take minutes — break-even landed that late).
+// Each lane still enforces the minimum inter-request gap, and the 1015/429 retry below
+// remains the backstop. WRITES (order placement/modify/close) stay strictly single-file,
+// exactly as before — bursting those risks dropped placements, since non-1015 429s on a
+// POST are deliberately never retried.
+const READ_LANES = 3;
 const _hostTail = new Map<string, Promise<unknown>>();
 const _hostLastAt = new Map<string, number>();
+const _readRR = new Map<string, number>();
 const _sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Run `fn` after waiting out this host's minimum inter-request gap, serialized
- *  so concurrent callers to the same host queue instead of bursting. */
-function pacedByHost<T>(host: string, fn: () => Promise<T>): Promise<T> {
-  const prev = _hostTail.get(host) ?? Promise.resolve();
+/** Run `fn` after waiting out this lane's minimum inter-request gap, serialized
+ *  per lane so concurrent callers queue instead of bursting. */
+function pacedByLane<T>(laneKey: string, fn: () => Promise<T>): Promise<T> {
+  const prev = _hostTail.get(laneKey) ?? Promise.resolve();
   const run = prev.then(async () => {
-    const gap = HOST_MIN_GAP_MS - (Date.now() - (_hostLastAt.get(host) ?? 0));
+    const gap = HOST_MIN_GAP_MS - (Date.now() - (_hostLastAt.get(laneKey) ?? 0));
     if (gap > 0) await _sleep(gap);
-    try { return await fn(); } finally { _hostLastAt.set(host, Date.now()); }
+    try { return await fn(); } finally { _hostLastAt.set(laneKey, Date.now()); }
   });
   // keep the chain alive even if this call throws, so the queue never wedges
-  _hostTail.set(host, run.then(() => {}, () => {}));
+  _hostTail.set(laneKey, run.then(() => {}, () => {}));
   return run;
+}
+
+function pacedByHost<T>(host: string, isGet: boolean, fn: () => Promise<T>): Promise<T> {
+  if (!isGet) return pacedByLane(`${host}|w`, fn); // writes: single-file, unchanged
+  const n = (_readRR.get(host) ?? 0) + 1;
+  _readRR.set(host, n);
+  return pacedByLane(`${host}|r${n % READ_LANES}`, fn);
 }
 
 function isCloudflare1015(status: number, text: string): boolean {
@@ -91,7 +106,7 @@ async function tlFetch(env: TLEnv, path: string, init: RequestInit & { accessTok
     } finally { clearTimeout(to); }
   };
 
-  return pacedByHost(host, async () => {
+  return pacedByHost(host, isGet, async () => {
     let res = await once();
     for (let attempt = 0; attempt < RL_MAX_RETRIES; attempt++) {
       // Retry a rate-limit: always for the edge-level 1015 (request never reached

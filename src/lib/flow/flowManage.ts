@@ -121,6 +121,14 @@ type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
 // Max positions to touch per tick (backstop; the manager runs every ~60s).
 const MAX_PER_TICK = 300;
 
+// CROSS-PASS INSTRUMENT CACHE (owner 08-31: BE latency). An account's instrument list is
+// effectively static, yet every pass refetched it for EVERY account — at 65+ managed
+// accounts that alone was half the broker calls of a pass. Cache it per account for 45
+// minutes (module scope: survives ticks and invocations on a warm instance; a cold start
+// simply refetches). Positions are ALWAYS read fresh — only the static metadata is cached.
+const _instCache = new Map<string, { at: number; data: TLInstrument[] }>();
+const INSTRUMENT_TTL_MS = 45 * 60 * 1000;
+
 // A target counts as "1:2 or wider" (→ take the partial) at this reward:risk or above.
 // Below it the trade is treated as ~1:1 (→ break-even only, no partial).
 const DOUBLE_RR = 1.8;
@@ -583,7 +591,10 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     const key = `${accountId}`;
     if (acctCache.has(key)) return acctCache.get(key)!;
     let pos = await listPositions(tok.env, tok.token, accNum, accountId);
-    let inst = await listInstruments(tok.env, tok.token, accNum, accountId);
+    const instHit = _instCache.get(String(accountId));
+    let inst = (instHit && Date.now() - instHit.at < INSTRUMENT_TTL_MS)
+      ? { ok: true as const, data: instHit.data }
+      : await listInstruments(tok.env, tok.token, accNum, accountId);
     // ONE in-tick retry on a failed read (owner incident 08-31: intermittent account reads on
     // one connection left its positions unmanaged — break-even never fired and the member had
     // to move his stop by hand). A short settle + retry rides out the transient blips that a
@@ -611,6 +622,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     // NEVER cache a failed read: a null in the cache would black out EVERY position on this
     // account for the rest of the tick. Failures fall through so the next row retries fresh.
     if (v) acctCache.set(key, v);
+    if (inst.ok && (!instHit || Date.now() - instHit.at >= INSTRUMENT_TTL_MS)) _instCache.set(String(accountId), { at: Date.now(), data: inst.data });
     return v;
   }
 
@@ -618,7 +630,12 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   // — conservative, so break-even/partials can't fire off a stale/one-sided quote. Cached
   // per account+symbol for the tick.
   async function exitPrice(tok: { token: string; env: TLEnv }, accNum: string, inst: TLInstrument, symbol: string, side: "buy" | "sell", accountId: string): Promise<number | null> {
-    const key = `${accountId}|${symbol}`;
+    // Keyed per ENV+symbol+side (not per account): 60+ gold positions used to each fetch
+    // their own quote every pass even though it's the same instrument on the same broker
+    // environment. One quote per env+symbol+side per tick now serves them all (cross-broker
+    // spread differences are cents on gold vs. the $5+ BE trigger distances — immaterial,
+    // and the conservative bid/ask side is preserved by keying on side).
+    const key = `${tok.env}|${symbol}|${side}`;
     if (quoteCache.has(key)) return quoteCache.get(key)!;
     const q = await getQuote(tok.env, tok.token, accNum, inst.tradableInstrumentId, inst.infoRouteId || inst.routeId);
     let px: number | null = null;
