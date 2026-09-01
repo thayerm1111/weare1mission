@@ -118,8 +118,14 @@ export type ManagedRow = {
 export type ManageAction = { positionId: string; symbol: string; account: string; action: string; detail?: string };
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
 
-// Max positions to touch per tick (backstop; the manager runs every ~60s).
-const MAX_PER_TICK = 300;
+// Positions per tick — a ROTATING BATCH, not a cap. Rows are selected oldest-touched
+// first and stamped on selection, so each ~2.5s tick takes the 24 positions that have
+// waited longest and the next tick automatically takes the others: the whole fleet is
+// covered every 2-3 ticks with BOUNDED tick time. (Owner 08-31: one pass tried to read
+// ALL 65+ accounts and could not finish inside the function budget at real broker
+// latency — the manager restarted every minute with zero completed ticks and stops
+// never moved to break-even. Batching makes tick time independent of fleet size.)
+const MAX_PER_TICK = 24;
 
 // CROSS-PASS INSTRUMENT CACHE (owner 08-31: BE latency). An account's instrument list is
 // effectively static, yet every pass refetched it for EVERY account — at 65+ managed
