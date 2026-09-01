@@ -129,6 +129,22 @@ const MAX_PER_TICK = 300;
 const _instCache = new Map<string, { at: number; data: TLInstrument[] }>();
 const INSTRUMENT_TTL_MS = 45 * 60 * 1000;
 
+// CROSS-PASS TOKEN CACHE — the ROOT of the manager's slowness at 54 connections:
+// connectionToken() does a FULL auth refresh round-trip (a POST, on the single-file
+// write lane) EVERY call, so every pass spent 30-90s just re-minting the same tokens
+// before reading a single position. A freshly-minted TradeLocker access token is valid
+// far longer than 5 minutes, so reuse it for 5; a failed account read invalidates the
+// connection's cached token immediately (see the row loop), so a genuinely expired
+// token costs at most one tick before a fresh mint.
+const _connTokCache = new Map<string, { at: number; v: { token: string; env: TLEnv } }>();
+const CONN_TOKEN_TTL_MS = 5 * 60 * 1000;
+export function _invalidateConnToken(connId: string) { _connTokCache.delete(connId); }
+
+// CROSS-PASS COLUMN-CONFIG CACHE — the broker's positionsConfig column layout is static
+// per connection; refetching it every pass for 54 connections was pure waste.
+const _colsCacheMod = new Map<string, { at: number; v: { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number } }>();
+const COLS_TTL_MS = 6 * 60 * 60 * 1000;
+
 // A target counts as "1:2 or wider" (→ take the partial) at this reward:risk or above.
 // Below it the trade is treated as ~1:1 (→ break-even only, no partial).
 const DOUBLE_RR = 1.8;
@@ -525,9 +541,12 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
 
   async function tokenFor(connId: string): Promise<{ token: string; env: TLEnv } | null> {
     if (tokenCache.has(connId)) return tokenCache.get(connId)!;
+    const hit = _connTokCache.get(connId);
+    if (hit && Date.now() - hit.at < CONN_TOKEN_TTL_MS) { tokenCache.set(connId, hit.v); return hit.v; }
     const t = await connectionToken(connId);
     const v = t.ok ? { token: t.token, env: t.env } : null;
     tokenCache.set(connId, v);
+    if (v) _connTokCache.set(connId, { at: Date.now(), v });
     return v;
   }
 
@@ -537,6 +556,8 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   // documented TradeLocker layout (avgPrice at index 5) if the config can't be parsed.
   async function colsFor(connId: string, tok: { token: string; env: TLEnv }, accNum: string): Promise<{ avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number }> {
     if (colCache.has(connId)) return colCache.get(connId)!;
+    const modHit = _colsCacheMod.get(connId);
+    if (modHit && Date.now() - modHit.at < COLS_TTL_MS) { colCache.set(connId, modHit.v); return modHit.v; }
     let v = { avgIdx: 5, uplIdx: -1, slIdx: -1, qtyIdx: -1 };
     try {
       const cfg = await getConfig(tok.env, tok.token, accNum);
@@ -559,6 +580,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       }
     } catch { /* keep defaults */ }
     colCache.set(connId, v);
+    if (v.avgIdx !== 5 || v.uplIdx >= 0 || v.slIdx >= 0 || v.qtyIdx >= 0) _colsCacheMod.set(connId, { at: Date.now(), v }); // only cache a PARSED layout across passes, never the blind fallback
     return v;
   }
 
@@ -733,7 +755,10 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
 
       const cols = await colsFor(row.connection_id, tok, row.acc_num);
       const st = await acctState(tok, row.acc_num, row.account_id, cols);
-      if (!st) { await admin.from("flow_managed_positions").update({ last_error: "account_read", updated_at: new Date().toISOString() }).eq("id", row.id); continue; }
+      if (!st) {
+        _invalidateConnToken(row.connection_id); // maybe an expired cached token — force a fresh mint next tick
+        await admin.from("flow_managed_positions").update({ last_error: "account_read", updated_at: new Date().toISOString() }).eq("id", row.id); continue;
+      }
       // Read succeeded → clear a stale read/token error so diagnostics reflect reality.
       if (row.last_error === "account_read" || row.last_error === "token") {
         try { await admin.from("flow_managed_positions").update({ last_error: null }).eq("id", row.id); } catch { /* cosmetic */ }
