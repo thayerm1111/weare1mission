@@ -16,7 +16,17 @@ export type FlowConnRow = {
   id: string; user_id: string; broker: string; environment: string; server: string;
   email: string; enc_refresh: string | null; enc_password: string | null;
   access_token: string | null; selected_account_id: string | null; status: string;
+  last_auth_at?: string | null;
 };
+
+// Reuse the STORED access token while it's this fresh, instead of a full auth
+// round-trip on every call (owner 08-31: the trade-manager was re-minting a token
+// for all ~54 connections on EVERY pass — that alone blew the pass budget and
+// stalled break-even moves platform-wide; every executor fan-out paid it too).
+// TradeLocker access tokens live ~1h, so 3 minutes is deeply conservative, and it
+// bounds the worst case if a token is killed broker-side (e.g. a concurrent app
+// login): reads fail for at most 3 minutes before the next call re-mints fresh.
+const TOKEN_REUSE_MS = 3 * 60 * 1000;
 
 export async function getConnection(userId: string): Promise<FlowConnRow | null> {
   const admin = createAdminClient();
@@ -39,6 +49,10 @@ async function mintTokenForConn(conn: FlowConnRow): Promise<{ ok: true; token: s
   const admin = createAdminClient();
   if (!admin) return { ok: false, error: "Server not configured." };
   const env: TLEnv = conn.environment === "live" ? "live" : "demo";
+  if (conn.access_token && conn.last_auth_at) {
+    const age = Date.now() - Date.parse(conn.last_auth_at);
+    if (Number.isFinite(age) && age >= 0 && age < TOKEN_REUSE_MS) return { ok: true, token: conn.access_token, env };
+  }
   if (conn.enc_refresh) {
     try {
       const rt = decryptSecret(conn.enc_refresh);
