@@ -51,15 +51,23 @@ async function saveAutorefillCard(admin: Admin, stripe: Stripe, userId: string, 
   try {
     const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
     brand = pm.card?.brand ?? null; last4 = pm.card?.last4 ?? null;
+    // Recover the customer from the payment method itself when the event didn't
+    // carry one — a card saved via setup_future_usage is already attached to a
+    // customer in Stripe, and WITHOUT the customer id on our row the auto-refill
+    // cron can never charge it (this is what silently disabled a member's refill).
+    if (!customerId) customerId = typeof pm.customer === "string" ? pm.customer : pm.customer?.id ?? null;
     if (customerId) {
       try { await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId }); } catch { /* already attached */ }
       try { await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: paymentMethodId } }); } catch { /* best-effort */ }
     }
   } catch { /* keep whatever we have */ }
   const patch: Record<string, unknown> = {
-    user_id: userId, stripe_customer_id: customerId, stripe_payment_method_id: paymentMethodId,
+    user_id: userId, stripe_payment_method_id: paymentMethodId,
     card_brand: brand, card_last4: last4, status: "active", last_error: null, updated_at: new Date().toISOString(),
   };
+  // NEVER write a null customer id — an upsert with null would clobber the id that
+  // /api/autorefill's customerFor() stored at setup time, orphaning the card.
+  if (customerId) patch.stripe_customer_id = customerId;
   if (enable) patch.enabled = true;
   await admin.from("user_autorefill").upsert(patch, { onConflict: "user_id" });
 }
