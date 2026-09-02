@@ -87,11 +87,12 @@ export function minStopDistance(canonical: string): number {
 // MAXIMUM STOP DISTANCE per instrument (price units). Owner rule 09-03 (gold): winners reach
 // the +35-pip break-even trigger without needing deep stops, while stop-outs with wider stops
 // just lost more — over the last 14 days losing gold trades averaged −104 pips and the ones
-// past −80 averaged −149. Cap the placed stop at 80 pips ($8); with the $8 floor this makes
-// every gold initial stop exactly $8. Sizing uses the clamped distance, so each member's %
-// risk is unchanged — the tail loss is what shrinks.
+// past −80 averaged −149. Cap the placed stop at 100 pips ($10) — the owner chose 100 over
+// 80 "just in case for now", leaving recovery room above the $8 floor while still cutting the
+// −120/−150-pip tail. Sizing uses the clamped distance, so each member's % risk is unchanged —
+// the tail loss is what shrinks.
 const MAX_STOP: Record<string, number> = {
-  XAUUSD: 8.0, // 80 pips
+  XAUUSD: 10.0, // 100 pips
 };
 
 /** Clamp a stop to the instrument's minimum AND maximum sane distance: widen a noise-width
