@@ -863,7 +863,7 @@ function goldChasedAt(side: "buy" | "sell", stop: number | null, tp: number | nu
 //   • COUNTER-trend   → allow ONE pullback shot; pause that side after a single loss.
 //   • Ranging/unknown → normal read; pause a side after 2 losses in a row.
 // A paused side self-resets after the cooldown (takes one probe; a win clears the streak).
-const GOLD_LOSS_COOLDOWN_MS = 2 * 60 * 60 * 1000; // OWNER RULE 1: ~2h pause on a side after ONE real stop-out
+const GOLD_LOSS_COOLDOWN_MS = 2 * 60 * 60 * 1000; // OWNER RULE 1 (09-03: two strikes): ~2h pause on a side after TWO real stop-outs inside this window
 const GOLD_STREAK_WITH_TREND = 3;
 const GOLD_STREAK_RANGE = 2;
 const GOLD_STREAK_COUNTER_TREND = 1;
@@ -943,7 +943,7 @@ const GOLD_BETTER_LEVEL_PIPS = 30; // ~$3 beyond the prior stop
  *  result is a MEANINGFUL loss, not a slippage/fee-sized break-even scratch that the broker still
  *  tags "Stop loss". So a scratch, a trailing-stop win, or a partial-and-scratch never pauses a
  *  side — only a genuine stop-out does. */
-async function goldRealLossOnSide(admin: Admin, side: "buy" | "sell"): Promise<{ lost: boolean; whenMs: number; stopPx: number | null }> {
+async function goldRealLossOnSide(admin: Admin, side: "buy" | "sell"): Promise<{ lost: boolean; whenMs: number; stopPx: number | null; strikes: number }> {
   try {
     const sinceIso = new Date(Date.now() - GOLD_LOSS_COOLDOWN_MS).toISOString();
     const { data } = await admin
@@ -964,16 +964,21 @@ async function goldRealLossOnSide(admin: Admin, side: "buy" | "sell"): Promise<{
     // clipped at 02:32 froze all sells for the whole desk while the GENX trades never came
     // near their stops). Origin is resolved from the placement event, same as the one-open cap.
     const manuals = await manualGoldPlacements(admin);
-    // Newest genuine AUTOMATED stop-out that lost real money (no partial banked + meaningful negative).
-    const real = rows.find((r) =>
+    // Genuine AUTOMATED stop-outs that lost real money (no partial banked + meaningful negative).
+    const reals = rows.filter((r) =>
       !r.partial_taken &&
       Number(r.result_pips) <= -GOLD_REAL_LOSS_MIN_PIPS &&
       !isManualGoldRow(manuals, String(r.account_id ?? ""), r.created_at),
     );
-    if (!real) return { lost: false, whenMs: 0, stopPx: null };
-    return { lost: true, whenMs: real.resolved_at ? new Date(real.resolved_at).getTime() : Date.now(), stopPx: typeof real.init_stop === "number" ? real.init_stop : null };
+    if (!reals.length) return { lost: false, whenMs: 0, stopPx: null, strikes: 0 };
+    // STRIKES = distinct DESK trades, not per-account rows — one desk entry fans out to ~50
+    // accounts and all their rows stop together, so rows are bucketed by placement time
+    // (3-min) and each bucket counts as ONE strike.
+    const strikes = new Set(reals.map((r) => Math.floor(new Date(r.created_at).getTime() / 180_000))).size;
+    const real = reals[0]; // newest
+    return { lost: true, whenMs: real.resolved_at ? new Date(real.resolved_at).getTime() : Date.now(), stopPx: typeof real.init_stop === "number" ? real.init_stop : null, strikes };
   } catch {
-    return { lost: false, whenMs: 0, stopPx: null }; // read error → treat as "no real loss" (don't halt on layer 2)
+    return { lost: false, whenMs: 0, stopPx: null, strikes: 0 }; // read error → treat as "no real loss" (don't halt on layer 2)
   }
 }
 
@@ -1189,9 +1194,13 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: numb
     };
   }
 
-  // RULE 1 — a real stop-out cools THIS side for ~2h so losers can't stack.
+  // RULE 1 — TWO STRIKES (owner rule 09-03, was one). A single real stop-out no longer pauses
+  // the side: the 7-day review of re-offers blocked after one stop-out showed 15 would-be wins
+  // (sells averaging +276 pips) against 13 losses — a clearly net-positive pool, so the first
+  // re-offered setup is TAKEABLE. A SECOND real stop-out on the same side inside the ~2h window
+  // is the falling-knife signal — that still cools the side for the cooldown.
   const real = await goldRealLossOnSide(admin, side);
-  if (real.lost && Date.now() < real.whenMs + GOLD_LOSS_COOLDOWN_MS) {
+  if (real.lost && real.strikes >= 2 && Date.now() < real.whenMs + GOLD_LOSS_COOLDOWN_MS) {
     // BETTER-LEVEL EXCEPTION (owner): the cooldown blocks re-selling the SAME level that just
     // failed — but if price has since run PAST where the last trade stopped out and the engine now
     // calls a fresh entry at a genuinely BETTER level (a NEW higher resistance for a sell / lower
@@ -1206,7 +1215,7 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: numb
       const mins = Math.max(1, Math.round((real.whenMs + GOLD_LOSS_COOLDOWN_MS - Date.now()) / 60000));
       return {
         hold: true, scope: "desk",
-        reason: `Pausing ${dir} gold ~${mins} min: a real ${side} trade just hit its stop and lost money (a genuine stop-out — not a break-even or ≤${GOLD_REAL_LOSS_MIN_PIPS}-pip scratch). Cooling this direction so losers don't stack. Resumes after the cooldown, on a better-located level, a win, or a ${side === "sell" ? "BUY" : "SELL"} setup.`,
+        reason: `Pausing ${dir} gold ~${mins} min: TWO real ${side} stop-outs inside the window (genuine stop-outs — not break-evens or ≤${GOLD_REAL_LOSS_MIN_PIPS}-pip scratches). One loss no longer pauses, but two in a row is the falling-knife signal. Resumes after the cooldown, on a better-located level, a win, or a ${side === "sell" ? "BUY" : "SELL"} setup.`,
       };
     }
     // else: a fresh, better-located ${dir} at new liquidity — fall through and let it trade.
