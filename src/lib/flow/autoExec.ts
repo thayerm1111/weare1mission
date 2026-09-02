@@ -102,6 +102,27 @@ export function inWeekendCloseWindow(d: Date = new Date()): boolean {
   }
 }
 
+// DAILY REOPEN ENTRY BLACKOUT (owner rule, 09-03): never open a NEW trade around the daily
+// futures close/reopen — from 4:45pm New York (15 min before the 5pm close) through 7:00pm
+// New York (a full hour after the 6pm reopen), DST-aware. Spreads are widest and liquidity
+// thinnest right there: the 09-03 gold buy placed 10 minutes after the reopen went straight
+// to its stop desk-wide. Open positions are still managed normally — this blocks fresh
+// ENTRIES only, on every automated path (GENX gold, followers, FLOW auto); manual plays are
+// untouched.
+export function inDailyReopenWindow(d: Date = new Date()): boolean {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit",
+    }).formatToParts(d);
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+    const mins = (Number(get("hour")) % 24) * 60 + Number(get("minute"));
+    return mins >= 16 * 60 + 45 && mins < 19 * 60; // 4:45pm–7:00pm New York
+  } catch {
+    const m = d.getUTCHours() * 60 + d.getUTCMinutes(); // Intl unavailable → UTC approximation (EDT)
+    return m >= 20 * 60 + 45 && m < 23 * 60;            // 20:45–23:00 UTC
+  }
+}
+
 /**
  * Decide whether an armed member may run THIS tick, billing the 30-min window
  * when it's due. Mutates flow_auto_settings.last_credit_at / credit_paused.
@@ -459,6 +480,9 @@ async function guardAndPlace(admin: Admin, settings: AutoSettings, ctx: GuardCtx
   if (lastPlaced && ms(lastPlaced.created_at) < ctx.cooldownMs) return { symbol, action: "cooldown" };
   const lastErr = ctx.events.find((e) => e.status === "error" && String(e.symbol).toUpperCase() === symbol);
   if (lastErr && ms(lastErr.created_at) < ERROR_BACKOFF_MS) return { symbol, action: "error_backoff" };
+  // DAILY REOPEN BLACKOUT — no fresh entries around the daily close/reopen (4:45–7:00pm NY);
+  // spreads/rollover make any fill there a coin-flip. Open positions still managed normally.
+  if (inDailyReopenWindow()) return { symbol, action: "reopen_blackout" };
   if (ctx.hourBudget <= 0) return { symbol, action: "hour_cap" };
   if (!ctx.openSymbols.has(symbol) && ctx.openSymbols.size >= ctx.maxOpen) return { symbol, action: "max_open" };
 
@@ -1155,6 +1179,16 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: numb
     };
   }
 
+  // DAILY REOPEN BLACKOUT — no new entries around the daily close/reopen (4:45–7:00pm New
+  // York): widest spreads + thinnest liquidity of the day, where a fresh fill goes straight
+  // to its stop. Open positions keep being managed; fresh setups resume after 7pm NY.
+  if (inDailyReopenWindow()) {
+    return {
+      hold: true, scope: "desk",
+      reason: `Daily-reopen blackout: no new ${dir} entries between 4:45pm and 7:00pm New York (around the daily market close/reopen — spreads are widest and liquidity thinnest right there). Open positions keep being managed; fresh setups resume after 7pm NY.`,
+    };
+  }
+
   // RULE 1 — a real stop-out cools THIS side for ~2h so losers can't stack.
   const real = await goldRealLossOnSide(admin, side);
   if (real.lost && Date.now() < real.whenMs + GOLD_LOSS_COOLDOWN_MS) {
@@ -1482,6 +1516,7 @@ export async function placeGenxFollower(sig: {
   const admin = createAdminClient();
   if (!admin) return { accounts: 0, placed: 0 };
   if (inWeekendCloseWindow()) return { accounts: 0, placed: 0 }; // no new entries near Friday close
+  if (inDailyReopenWindow()) return { accounts: 0, placed: 0 }; // no new entries around the daily close/reopen
   if (!(await systemSwitches(admin)).genx) return { accounts: 0, placed: 0 }; // admin GENX kill switch
   const signalKey = String(sig.signalKey || "").slice(0, 200);
   if (!signalKey) return { accounts: 0, placed: 0 };
