@@ -53,17 +53,31 @@ async function run(): Promise<Response> {
       // silently skipping this member forever.
       let customerId = r.stripe_customer_id;
       if (!customerId) {
+        let recoverErr = "";
         try {
           const pm = await stripe.paymentMethods.retrieve(r.stripe_payment_method_id);
           customerId = typeof pm.customer === "string" ? pm.customer : pm.customer?.id ?? null;
-        } catch { /* surfaced below */ }
+        } catch (e) { recoverErr = (e instanceof Error ? e.message : "pm_retrieve_failed").slice(0, 120); }
+        if (!customerId && !recoverErr) {
+          // The card was saved DETACHED (an early card-save flow stored the payment
+          // method without a customer). Create the member's customer and adopt the
+          // card. Stripe refuses to attach a card that was already used one-off —
+          // in that case the first charge attempt fails cleanly and the existing
+          // pause + "update your card" notification tells the member to re-add it.
+          try {
+            const { data: prof } = await admin.from("profiles").select("email").eq("id", r.user_id).maybeSingle();
+            const c = await stripe.customers.create({ email: (prof as { email?: string } | null)?.email || undefined, metadata: { user_id: r.user_id } });
+            customerId = c.id;
+            try { await stripe.paymentMethods.attach(r.stripe_payment_method_id, { customer: c.id }); } catch { /* charge attempt surfaces it */ }
+          } catch (e) { recoverErr = (e instanceof Error ? e.message : "customer_create_failed").slice(0, 120); }
+        }
         if (customerId) {
-          await admin.from("user_autorefill").update({ stripe_customer_id: customerId, updated_at: new Date().toISOString() }).eq("user_id", r.user_id);
+          // Persisting the id (even if the attach was refused) stops this branch from
+          // re-running — an unattached card then fails its first charge and pauses
+          // with the member-facing notice, which is the correct terminal state.
+          await admin.from("user_autorefill").update({ stripe_customer_id: customerId, last_error: null, updated_at: new Date().toISOString() }).eq("user_id", r.user_id);
         } else {
-          // Card exists but isn't linked to any Stripe customer — it can never be
-          // charged off-session. Surface it on the row (the UI shows last_error)
-          // rather than skipping without a trace.
-          await admin.from("user_autorefill").update({ last_error: "card_not_linked: re-add your card to finish auto-refill setup", updated_at: new Date().toISOString() }).eq("user_id", r.user_id);
+          await admin.from("user_autorefill").update({ last_error: `card_not_linked: ${recoverErr || "no_customer"} — re-add your card`, updated_at: new Date().toISOString() }).eq("user_id", r.user_id);
           skipped++; continue;
         }
       }
