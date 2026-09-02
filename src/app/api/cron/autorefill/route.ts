@@ -46,7 +46,27 @@ async function run(): Promise<Response> {
   const nowMs = Date.now();
   for (const r of rows) {
     try {
-      if (!r.stripe_customer_id || !r.stripe_payment_method_id) { skipped++; continue; }
+      if (!r.stripe_payment_method_id) { skipped++; continue; }
+      // SELF-HEAL a row that has a saved card but no customer id (an old webhook
+      // upsert could clobber it with null): the payment method knows its own
+      // customer in Stripe — recover it, persist it, and carry on, instead of
+      // silently skipping this member forever.
+      let customerId = r.stripe_customer_id;
+      if (!customerId) {
+        try {
+          const pm = await stripe.paymentMethods.retrieve(r.stripe_payment_method_id);
+          customerId = typeof pm.customer === "string" ? pm.customer : pm.customer?.id ?? null;
+        } catch { /* surfaced below */ }
+        if (customerId) {
+          await admin.from("user_autorefill").update({ stripe_customer_id: customerId, updated_at: new Date().toISOString() }).eq("user_id", r.user_id);
+        } else {
+          // Card exists but isn't linked to any Stripe customer — it can never be
+          // charged off-session. Surface it on the row (the UI shows last_error)
+          // rather than skipping without a trace.
+          await admin.from("user_autorefill").update({ last_error: "card_not_linked: re-add your card to finish auto-refill setup", updated_at: new Date().toISOString() }).eq("user_id", r.user_id);
+          skipped++; continue;
+        }
+      }
       if (r.last_refill_at && nowMs - Date.parse(r.last_refill_at) < REFILL_COOLDOWN_MS) { skipped++; continue; }
 
       // Trigger on the persistent (purchased) balance — the one that actually depletes
@@ -66,7 +86,7 @@ async function run(): Promise<Response> {
       let status = "";
       try {
         const pi = await stripe.paymentIntents.create({
-          amount, currency: "usd", customer: r.stripe_customer_id, payment_method: r.stripe_payment_method_id,
+          amount, currency: "usd", customer: customerId, payment_method: r.stripe_payment_method_id,
           off_session: true, confirm: true,
           metadata: { user_id: r.user_id, credits: String(credits), kind: "autorefill" },
           description: `1 Mission — auto-refill ${credits} credits`,
