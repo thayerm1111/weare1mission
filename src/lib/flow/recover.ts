@@ -106,7 +106,7 @@ function normalizePos(p: unknown, cols: PosCols): BrokerPos {
   };
 }
 
-type EvRow = { id: string; user_id: string; account_id: string; symbol: string; side: "buy" | "sell"; qty: number | null; entry: number | null; stop: number | null; tp: number | null; status: string; created_at: string };
+type EvRow = { id: string; user_id: string; account_id: string; symbol: string; side: "buy" | "sell"; qty: number | null; entry: number | null; stop: number | null; tp: number | null; status: string; reason?: string | null; created_at: string };
 type MrRow = { account_id: string; symbol: string; side: string; position_id: string | null; created_at: string };
 type AccRow = { account_id: string; connection_id: string; acc_num: string; environment?: string | null };
 
@@ -118,11 +118,13 @@ type AccRow = { account_id: string; connection_id: string; acc_num: string; envi
 export async function recoverOrphans(admin: Admin): Promise<{ adopted: number; checked: number }> {
   const sinceIso = new Date(Date.now() - 15 * 60_000).toISOString();
   const { data: ev } = await admin.from("flow_auto_events")
-    .select("id,user_id,account_id,symbol,side,qty,entry,stop,tp,status,created_at")
+    .select("id,user_id,account_id,symbol,side,qty,entry,stop,tp,status,reason,created_at")
     .in("status", ["placed", "uncertain"])
     .gte("created_at", sinceIso)
     .order("created_at", { ascending: false }).limit(100);
-  const events = (ev ?? []) as EvRow[];
+  // OM AI PLAYS are member-managed (owner directive 09-01) — never adopt them into the
+  // manager, or the recovery loop would undo the executor's play exclusion minutes later.
+  const events = ((ev ?? []) as EvRow[]).filter((e) => !String(e.reason ?? "").startsWith("play"));
   if (!events.length) return { adopted: 0, checked: 0 };
 
   const acctIds = [...new Set(events.map((e) => String(e.account_id)).filter(Boolean))];

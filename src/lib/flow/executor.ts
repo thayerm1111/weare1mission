@@ -308,8 +308,11 @@ export async function placeOnActiveAccounts(opts: {
     if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_confirmed", reason: opts.source, position_id: r.positionId, price: opts.entry, qty: r.qty, detail: { latencyMs: Date.now() - t0, orderId: r.orderId, estLossAtStop: s.estLossAtStop } });
     placed += 1;
     // Hand the fill to the trade-manager (breakeven → partial → trail). Needs a
-    // positionId + a real stop; a bare/unstopped fill isn't managed.
-    if (r.positionId && stop != null) {
+    // positionId + a real stop; a bare/unstopped fill isn't managed. OM AI PLAYS ARE
+    // NOT ENROLLED (owner directive 09-01: "OM AI plays should not be managed — only
+    // the FLOW and GENX trades"): a member who taps Execute on a play runs that trade
+    // themselves with the stop/TP exactly as placed; the manager never moves them.
+    if (opts.source !== "play" && r.positionId && stop != null) {
       try {
         const admin = createAdminClient();
         if (admin) await admin.from("flow_managed_positions").insert({
