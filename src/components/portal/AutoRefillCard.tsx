@@ -86,7 +86,7 @@ export function AutoRefillCard() {
           <h2 className="flex items-center gap-2 text-base font-bold text-navy">
             <Zap className="h-4 w-4 text-emerald-600" aria-hidden="true" /> Auto-refill credits
           </h2>
-          <p className="mt-1 text-sm text-charcoal/60">Never run out — keep a card on file.</p>
+          <p className="mt-1 text-sm text-charcoal/60">Keep FLOW auto-trading running — never miss a play.</p>
         </div>
         <button
           type="button"
@@ -106,7 +106,13 @@ export function AutoRefillCard() {
         </div>
       )}
 
-      <p className="mt-3 text-sm text-charcoal/70">
+      <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2.5 text-sm leading-relaxed text-charcoal/75">
+        <b className="text-emerald-700">Why keep a card on file?</b> FLOW spends 1 credit each auto-run. Hit 0 and auto-trading{" "}
+        <b className="text-navy">pauses</b> — the desk keeps taking plays without you until you top up. With auto-refill on, credits top up by
+        themselves the moment you run low, so FLOW never stops and you never miss a trade.
+      </div>
+
+      <p className="mt-2 text-sm text-charcoal/70">
         When your balance drops below <b className="text-navy">{d.threshold}</b> credits, we charge your card{" "}
         <b className="text-navy">{priceRefill}</b> for <b className="text-navy">{d.refillCredits}</b> credits — automatically, until you turn this off.
       </p>
