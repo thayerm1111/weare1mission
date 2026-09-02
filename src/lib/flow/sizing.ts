@@ -84,13 +84,30 @@ export function minStopDistance(canonical: string): number {
   return MIN_STOP[contractKey(canonical)] ?? 0;
 }
 
-/** Widen a stop to the instrument's minimum distance when the signal's stop is tighter.
- *  Returns the (possibly widened) stop price, on the correct side of entry. */
+// MAXIMUM STOP DISTANCE per instrument (price units). Owner rule 09-03 (gold): winners reach
+// the +35-pip break-even trigger without needing deep stops, while stop-outs with wider stops
+// just lost more — over the last 14 days losing gold trades averaged −104 pips and the ones
+// past −80 averaged −149. Cap the placed stop at 80 pips ($8); with the $8 floor this makes
+// every gold initial stop exactly $8. Sizing uses the clamped distance, so each member's %
+// risk is unchanged — the tail loss is what shrinks.
+const MAX_STOP: Record<string, number> = {
+  XAUUSD: 8.0, // 80 pips
+};
+
+/** Clamp a stop to the instrument's minimum AND maximum sane distance: widen a noise-width
+ *  stop to the floor, pull an over-deep stop in to the cap. Returns the (possibly moved)
+ *  stop price, on the correct side of entry; untouched when already inside the band. */
 export function floorStop(canonical: string, side: "buy" | "sell", entry: number, stop: number): number {
-  const min = minStopDistance(canonical);
-  if (!(min > 0) || !(entry > 0) || !(stop > 0)) return stop;
-  if (Math.abs(entry - stop) >= min) return stop;
-  return side === "buy" ? +(entry - min) : +(entry + min);
+  const key = contractKey(canonical);
+  const min = MIN_STOP[key] ?? 0;
+  const max = MAX_STOP[key] ?? 0;
+  if (!(entry > 0) || !(stop > 0)) return stop;
+  const dist = Math.abs(entry - stop);
+  let clamped = dist;
+  if (min > 0 && clamped < min) clamped = min;
+  if (max > 0 && clamped > max) clamped = max;
+  if (clamped === dist) return stop;
+  return side === "buy" ? +(entry - clamped) : +(entry + clamped);
 }
 
 // LEVERAGE BACKSTOP: no single position's notional (contract size × price × lots) may exceed
