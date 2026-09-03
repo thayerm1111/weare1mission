@@ -24,9 +24,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Step = { sel: string; title: string; body: string };
 
-const LS_INTRO = "w1m_flow_intro_seen_v1";
-const LS_CONNECT = "w1m_flow_tour_connect_v1";
-const LS_CONTROLS = "w1m_flow_tour_controls_v1";
+// v2 (owner 09-03): keys bumped so EVERY member — connected or not — walks the tour once
+// more and sees the new split Break-even / Partials / Send It controls.
+const LS_INTRO = "w1m_flow_intro_seen_v2";
+const LS_CONNECT = "w1m_flow_tour_connect_v2";
+const LS_CONTROLS = "w1m_flow_tour_controls_v2";
 
 const lsGet = (k: string) => { try { return window.localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k: string) => { try { window.localStorage.setItem(k, "1"); } catch { /* private mode */ } };
@@ -81,9 +83,14 @@ const CONTROL_STEPS: Step[] = [
     body: "This decides how much of the account is risked on each trade. 0.5% is cautious, 1–2% is standard, 5% is aggressive. Example: at 1% on a $10,000 account, a losing trade costs about $100. Start small — you can raise it any time.",
   },
   {
-    sel: "ft-manage",
-    title: "Manage trades",
-    body: "ON = FLOW protects your winners for you: when a trade moves in your favor it banks a 50% partial and moves your stop to breakeven, so a winner can't turn into a loser. OFF = the trade rides the original stop and target untouched. We recommend ON.",
+    sel: "ft-be",
+    title: "🎯 Break even",
+    body: "ON = when a trade moves your trigger distance into profit, FLOW moves the stop to entry +5 pips PROFIT — so a trade that comes back closes green (fees covered), never red. OFF = the trade rides its original stop. We recommend ON.",
+  },
+  {
+    sel: "ft-partials",
+    title: "💰 Partials",
+    body: "ON = on setups with a 1:2 or wider target, FLOW banks 25% of the position at the halfway point and lets the rest run. OFF = the full position rides to the stop or target. Break-even and partials are now separate switches — run either one alone.",
   },
   {
     sel: "ft-safety",
@@ -92,8 +99,13 @@ const CONTROL_STEPS: Step[] = [
   },
   {
     sel: "ft-bepips",
-    title: "Gold breakeven pips",
-    body: "Gold only: how many pips into profit before FLOW banks the partial and moves your stop to breakeven. Leave it blank and the AI picks the moment for you — that's the recommended setting. Forex trades are always AI-managed.",
+    title: "Break-even trigger pips",
+    body: "Gold only: how many pips into profit before the stop protects (at entry +5). Leave it blank and the AI picks the moment for you — that's the recommended setting. Forex trades are always AI-managed.",
+  },
+  {
+    sel: "ft-sendit",
+    title: "🚀 Send It",
+    body: "The max-action switch. ON = this account takes EVERY setup the AI calls — no pauses after losses, no blackout windows, no break-even protection: each trade runs to its stop or target at your risk %. Serious risk, serious action. Leave it OFF unless you fully understand that.",
   },
   {
     sel: "ft-defaultrisk",
@@ -119,18 +131,9 @@ export function FlowIntro({ onGo }: { onGo: () => void }) {
 
   useEffect(() => {
     if (lsGet(LS_INTRO) || lsGet(LS_CONTROLS)) return; // seen it, or already toured the controls
-    let alive = true;
-    (async () => {
-      try {
-        // Already connected members never see the connect pitch.
-        const r = await fetch("/api/flow/autorun", { cache: "no-store" });
-        const d = await r.json().catch(() => ({}));
-        if (!alive) return;
-        if (d?.connected) { lsSet(LS_INTRO); return; }
-      } catch { /* offline → still offer */ }
-      if (alive) setShow(true);
-    })();
-    return () => { alive = false; };
+    // v2 (owner 09-03): connected members are NOT skipped any more — everyone gets the intro
+    // once so the whole community walks the new controls (including the owner's own account).
+    setShow(true);
   }, []);
 
   if (!show) return null;
