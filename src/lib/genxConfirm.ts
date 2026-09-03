@@ -1,12 +1,9 @@
 import { series, livePrice } from "@/lib/marketData";
 
 /**
- * GENX live entry trigger — the deterministic "is it time to enter yet?" check
- * for a WAIT/LIMIT setup. The entry IS the setup's own trigger (owner rule
- * 09-03): price trading into the called entry zone while the invalidation holds.
- * CLOSED candles are still what kill a setup (a close beyond the invalidation,
- * never a wick) and what fires the momentum/breakout fallback for a trend that
- * runs without ever pulling back.
+ * GENX live entry confirmation — the deterministic "is it time to enter yet?"
+ * check for a WAIT/LIMIT setup. Reacts to CLOSED candles, never a live wick, so
+ * it won't flash ENTER on a bounce that reverses before the candle closes.
  *
  * Shared by the on-demand endpoint (/api/genx/confirm) and the alert scanner
  * (/api/cron/genx-scan), so "ENTER NOW" fires on exactly the same rule the member
@@ -101,39 +98,54 @@ export async function confirmEntry(opts: {
   const price = numOk(live) ? (live as number) : c[formingIdx].c;
   const buf = Math.max((zoneHi - zoneLo) * 0.15, 0.2);
 
+  const bodyAbs = Math.abs(lastClosed.c - lastClosed.o);
+  const range = Math.max(lastClosed.h - lastClosed.l, 1e-9);
+  const bodyOk = bodyAbs / range >= 0.4;
+
   let state: ConfirmState;
   let detail = "";
   let enter: number | null = null;
 
-  // ENTRY = THE SETUP'S OWN TRIGGER (owner rule 09-03). GENX called the setup with an entry
-  // zone, a stop, and an invalidation — when price trades into that zone while holding the
-  // invalidation, we TAKE it. No second-guessing "quality" confirmation candle (decisive
-  // body / strong close) any more: that layer left setups sitting in WAIT until they expired
-  // untaken, and didn't change outcomes. Closed candles are still used for the two things
-  // that ARE part of the setup's logic: invalidation (a CLOSE beyond it kills the setup, a
-  // wick doesn't) and the momentum/breakout fallback for a trend that runs without ever
-  // pulling back to the zone. Risk stays with the downstream gates: R:R floor, chase guard,
-  // BE/stop-loss calm-downs, news + reopen blackouts, one-open-per-account cap.
   if (side === "buy") {
     const invalidated = recentClosed.some((k) => k.c < inv);
     const reachedZone = recentClosed.some((k) => k.l <= zoneHi + buf) || price <= zoneHi + buf;
-    const triggered = reachedZone && price > inv; // in the called zone, invalidation holding
+    const priorTested = recentClosed.length >= 2 && recentClosed[recentClosed.length - 2].l <= zoneHi + buf;
+    const testedZone = lastClosed.l <= zoneHi + buf || priorTested;
+    const confirmed = lastClosed.c > lastClosed.o && bodyOk && testedZone && lastClosed.c >= zoneLo - buf && lastClosed.c > inv;
+    // Reclaim: price swept into/below the zone within the last few candles and a
+    // green momentum candle has now CLOSED back above it while holding the
+    // invalidation — a bullish reclaim. Catches fast V-bounces that never paused
+    // to close a candle *inside* the zone (the reason strict confirmation misses
+    // sharp reversals). Still requires momentum + holding invalidation.
+    const sweptRecent = recentClosed.slice(-3).some((k) => k.l <= zoneHi + buf) || lastClosed.l <= zoneHi + buf;
+    const reclaimed = !confirmed && sweptRecent && lastClosed.c > lastClosed.o && bodyOk && lastClosed.c > zoneLo - buf && lastClosed.c > inv;
     // MOMENTUM/BREAKOUT fallback — the trend ran without ever pulling back to the zone.
-    const momentum = !triggered && momentumBreakout({ side: "buy", lastClosed, priorClosed: recentClosed.slice(0, -1), zoneLo, zoneHi, inv, price, maxExtMult: MOMENTUM_MAX_EXT });
+    const momentum = !confirmed && !reclaimed && momentumBreakout({ side: "buy", lastClosed, priorClosed: recentClosed.slice(0, -1), zoneLo, zoneHi, inv, price, maxExtMult: MOMENTUM_MAX_EXT });
     if (invalidated) { state = "INVALIDATED"; detail = `A candle closed below the invalidation (${inv}). This buy setup is done — don't take it.`; }
-    else if (triggered) { state = "CONFIRMED"; enter = +price.toFixed(2); detail = `Price reached the ${zoneLo}–${zoneHi} buy zone while holding ${inv} — taking the setup. BUY is live.`; }
+    else if (confirmed) { state = "CONFIRMED"; enter = +price.toFixed(2); detail = `A green candle closed reacting off ${zoneLo}–${zoneHi} while holding ${inv}. Buyers confirmed — BUY is live.`; }
+    else if (reclaimed) { state = "CONFIRMED"; enter = +price.toFixed(2); detail = `Price swept ${zoneLo}–${zoneHi} and a green candle reclaimed it while holding ${inv}. Bullish reclaim — BUY is live.`; }
     else if (momentum) { state = "CONFIRMED"; enter = +price.toFixed(2); detail = `A decisive green candle broke to a new high in the trend while holding ${inv} — momentum BUY is live (price never pulled back to ${zoneLo}–${zoneHi}).`; }
-    else { state = "WAIT"; detail = `Price is above the zone. Waiting for a pullback to ${zoneLo}–${zoneHi} (or a breakout continuation).`; }
+    else if (reachedZone) { state = "AT_ZONE"; detail = `Price is at the ${zoneLo}–${zoneHi} buy zone. Waiting for a green candle to CLOSE here (not just wick) before entering.`; }
+    else { state = "WAIT"; detail = `Price is above the zone. Waiting for a pullback to ${zoneLo}–${zoneHi} first.`; }
   } else {
     const invalidated = recentClosed.some((k) => k.c > inv);
     const reachedZone = recentClosed.some((k) => k.h >= zoneLo - buf) || price >= zoneLo - buf;
-    const triggered = reachedZone && price < inv; // in the called zone, invalidation holding
+    const priorTested = recentClosed.length >= 2 && recentClosed[recentClosed.length - 2].h >= zoneLo - buf;
+    const testedZone = lastClosed.h >= zoneLo - buf || priorTested;
+    const confirmed = lastClosed.c < lastClosed.o && bodyOk && testedZone && lastClosed.c <= zoneHi + buf && lastClosed.c < inv;
+    // Reclaim (mirror of the buy side): price spiked up into/above the zone within
+    // the last few candles and a red momentum candle has now CLOSED back below it
+    // while holding the invalidation — a bearish reclaim. Catches fast rejections.
+    const sweptRecent = recentClosed.slice(-3).some((k) => k.h >= zoneLo - buf) || lastClosed.h >= zoneLo - buf;
+    const reclaimed = !confirmed && sweptRecent && lastClosed.c < lastClosed.o && bodyOk && lastClosed.c < zoneHi + buf && lastClosed.c < inv;
     // MOMENTUM/BREAKOUT fallback — the trend ran without ever rallying back to the zone.
-    const momentum = !triggered && momentumBreakout({ side: "sell", lastClosed, priorClosed: recentClosed.slice(0, -1), zoneLo, zoneHi, inv, price, maxExtMult: MOMENTUM_MAX_EXT });
+    const momentum = !confirmed && !reclaimed && momentumBreakout({ side: "sell", lastClosed, priorClosed: recentClosed.slice(0, -1), zoneLo, zoneHi, inv, price, maxExtMult: MOMENTUM_MAX_EXT });
     if (invalidated) { state = "INVALIDATED"; detail = `A candle closed above the invalidation (${inv}). This sell setup is done — don't take it.`; }
-    else if (triggered) { state = "CONFIRMED"; enter = +price.toFixed(2); detail = `Price reached the ${zoneLo}–${zoneHi} sell zone while holding ${inv} — taking the setup. SELL is live.`; }
+    else if (confirmed) { state = "CONFIRMED"; enter = +price.toFixed(2); detail = `A red candle closed reacting off ${zoneLo}–${zoneHi} while holding ${inv}. Sellers confirmed — SELL is live.`; }
+    else if (reclaimed) { state = "CONFIRMED"; enter = +price.toFixed(2); detail = `Price swept ${zoneLo}–${zoneHi} and a red candle reclaimed it while holding ${inv}. Bearish reclaim — SELL is live.`; }
     else if (momentum) { state = "CONFIRMED"; enter = +price.toFixed(2); detail = `A decisive red candle broke to a new low in the trend while holding ${inv} — momentum SELL is live (price never rallied back to ${zoneLo}–${zoneHi}).`; }
-    else { state = "WAIT"; detail = `Price is below the zone. Waiting for a rally up to ${zoneLo}–${zoneHi} (or a breakout continuation).`; }
+    else if (reachedZone) { state = "AT_ZONE"; detail = `Price is at the ${zoneLo}–${zoneHi} sell zone. Waiting for a red candle to CLOSE here (not just wick) before entering.`; }
+    else { state = "WAIT"; detail = `Price is below the zone. Waiting for a rally up to ${zoneLo}–${zoneHi} first.`; }
   }
 
   return { state, detail, side, price: +price.toFixed(2), enter, zoneLow: zoneLo, zoneHigh: zoneHi, invalidation: inv, interval };
