@@ -1330,9 +1330,14 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: ${reason}` }); } catch { /* breadcrumb best-effort */ }
   };
 
+  // 🚀 SEND IT (owner feature 09-03): when ANY desk gate below fires, instead of dropping the
+  // entry desk-wide we mark it send-it-only — accounts with the Send It toggle still take it
+  // (they opted out of every rule); everyone else is protected exactly as before.
+  let sendItOnly = false;
+
   // NEWS GUARD (falling-knife): gold reacts to USD data — if a HIGH-impact USD event is
   // inside the blackout window, hold this ENTER NOW. GENX will re-offer once it passes.
-  try { if ((await newsHold("XAUUSD")).hold) { await deskDrop(`news_blackout ${sig.side}`); return { members: 0, placed: 0 }; } } catch { /* feed down → don't block */ }
+  try { if ((await newsHold("XAUUSD")).hold) { await deskDrop(`news_blackout ${sig.side} (send-it only)`); sendItOnly = true; } } catch { /* feed down → don't block */ }
 
   // OWNER RULE 1 HALT (see goldEntryHold): a side pauses ONLY after a real stop-out on that side
   // within the ~2h cooldown. A pause is VISIBLE: it posts a Telegram note ("why it didn't enter")
@@ -1345,9 +1350,9 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       try { await sendTelegram(`⏸️ <b>GENX gold — conservative accounts held</b>\n${gate.reason}`); } catch { /* note best-effort */ }
       try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: choch_conservative_hold ${sig.side} (aggressive proceeding)` }); } catch { /* breadcrumb best-effort */ }
     } else if (gate.hold) {
-      try { await sendTelegram(`⏸️ <b>GENX gold — entry paused</b>\n${gate.reason}`); } catch { /* note best-effort */ }
-      await deskDrop(`gold_halt ${sig.side}`);
-      return { members: 0, placed: 0 };
+      try { await sendTelegram(`⏸️ <b>GENX gold — entry paused</b> (🚀 Send It accounts still take it)\n${gate.reason}`); } catch { /* note best-effort */ }
+      await deskDrop(`gold_halt ${sig.side} (send-it only)`);
+      sendItOnly = true;
     }
   } catch { /* read error → don't block */ }
 
@@ -1367,8 +1372,8 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // 5-min pullback.)
   if (goldChasedAt(sig.side, gstop, sig.tp, goldLp)) {
     const rr = rewardRisk(goldLp, gstop, sig.tp);
-    await deskDrop(`chased_below_${GOLD_MIN_PLACEMENT_RR}RR${rr != null ? ` (rr ${rr.toFixed(2)})` : ""} ${sig.side}`);
-    return { members: 0, placed: 0 };
+    await deskDrop(`chased_below_${GOLD_MIN_PLACEMENT_RR}RR${rr != null ? ` (rr ${rr.toFixed(2)})` : ""} ${sig.side} (send-it only)`);
+    sendItOnly = true;
   }
 
   // SELECTIVITY GATES (owner directives 08-31):
@@ -1387,8 +1392,8 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
         ? `⛔️ <b>GENX gold — sitting this one out</b>\nThis ${dir} zone already hit break-even twice — the setup is done. Waiting for a NEW setup to form.`
         : `🎯 <b>GENX gold — retry needs to earn it</b>\nThis ${dir} zone already went to break-even once. Re-entering only at a better price (≥${GOLD_RETRY_BETTER_PIPS}p improvement) or on a premium read${beGate.detail ? `.\nThis one: ${beGate.detail}` : ""}.`;
       try { await sendTelegram(msg); } catch { /* note best-effort */ }
-      await deskDrop(`${beGate.kind === "exhausted" ? "setup_exhausted" : "be_retry_not_earned"} ${sig.side}${beGate.detail ? ` (${beGate.detail})` : ""}`);
-      return { members: 0, placed: 0 };
+      await deskDrop(`${beGate.kind === "exhausted" ? "setup_exhausted" : "be_retry_not_earned"} ${sig.side}${beGate.detail ? ` (${beGate.detail})` : ""} (send-it only)`);
+      sendItOnly = true;
     }
     const w = await goldRecentWinOnSide(admin, sig.side, GOLD_WIN_PICKY_MS);
     // OWNER RULE 09-02: the premium bar applies after a recent WIN — or a recent BREAK-EVEN
@@ -1404,8 +1409,8 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
           sig.confidence != null ? `confidence ${sig.confidence} (needs ≥ ${GOLD_WIN_PICKY_CONF})` : null,
         ].filter(Boolean).join(" · ");
         try { await sendTelegram(`🎯 <b>GENX gold — protecting profits</b>\n${w.won ? `Just banked a ${sig.side.toUpperCase()} win` : `Just scratched a ${sig.side.toUpperCase()} at break-even`}, so the next ${sig.side.toUpperCase()} needs a premium entry (min 1:1)${detail ? `.\nThis one: ${detail}` : ""}. A top-quality setup still fires immediately.`); } catch { /* note best-effort */ }
-        await deskDrop(`post_win_picky ${sig.side}${rrLive != null ? ` rr=${rrLive.toFixed(2)}` : ""}${sig.confidence != null ? ` conf=${sig.confidence}` : ""}`);
-        return { members: 0, placed: 0 };
+        await deskDrop(`post_win_picky ${sig.side}${rrLive != null ? ` rr=${rrLive.toFixed(2)}` : ""}${sig.confidence != null ? ` conf=${sig.confidence}` : ""} (send-it only)`);
+        sendItOnly = true;
       }
     }
   } catch { /* read error → don't block */ }
@@ -1469,10 +1474,16 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       // touched — they take every gold ENTER NOW). conservativeOk defaults to true so an
       // ungraded call still behaves exactly as before.
       if (sig.conservativeOk === false || conservativeHold) accounts = accounts.filter((a) => !isConservative(a.riskMode));
+      // 🚀 SEND IT: these accounts bypass EVERY selectivity filter above (loss-cutoff safety
+      // mode, conservative gate) — re-add any that were dropped. When a desk gate fired
+      // (sendItOnly) they are the ONLY takers of this entry.
+      for (const sa of allAccounts) if (sa.sendIt === true && !accounts.some((x) => x.accountId === sa.accountId)) accounts.push(sa);
+      if (sendItOnly) accounts = accounts.filter((a) => a.sendIt === true);
       // MAX ONE OPEN GENX/FLOW GOLD PER ACCOUNT — broker-verified. An account is dropped ONLY
       // when it has a GENX/FLOW gold position the BROKER confirms is still open.
       const verified: ActiveAccount[] = [];
       for (const a of accounts) {
+        if (a.sendIt === true) { verified.push(a); continue; } // 🚀 Send It: no one-open cap — takes every setup
         const ledgerPids = ledgerGoldByAcct.get(String(a.accountId));
         if (!ledgerPids || !ledgerPids.size) { verified.push(a); continue; }
         const brokerOpen = await brokerOpenPosIds({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId });
@@ -1531,9 +1542,12 @@ export async function placeGenxFollower(sig: {
 }): Promise<{ accounts: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { accounts: 0, placed: 0 };
-  if (inWeekendCloseWindow()) return { accounts: 0, placed: 0 }; // no new entries near Friday close
-  if (inDailyReopenWindow()) return { accounts: 0, placed: 0 }; // no new entries around the daily close/reopen
-  if (!(await systemSwitches(admin)).genx) return { accounts: 0, placed: 0 }; // admin GENX kill switch
+  // 🚀 SEND IT (owner feature 09-03): when a desk gate fires, the entry becomes send-it-only —
+  // accounts with the Send It toggle still take it; everyone else is protected as before.
+  let sendItOnly = false;
+  if (inWeekendCloseWindow()) sendItOnly = true; // no new entries near Friday close (send-it excepted)
+  if (inDailyReopenWindow()) sendItOnly = true; // no new entries around the daily close/reopen (send-it excepted)
+  if (!(await systemSwitches(admin)).genx) return { accounts: 0, placed: 0 }; // admin GENX kill switch — hard, even for send-it
   const signalKey = String(sig.signalKey || "").slice(0, 200);
   if (!signalKey) return { accounts: 0, placed: 0 };
 
@@ -1553,7 +1567,7 @@ export async function placeGenxFollower(sig: {
   // CHASE GUARD (desk-wide): same reward:risk floor as the copy path — if price has run
   // toward TP so the live-price R:R is below the floor, this ENTER NOW is chased; no
   // follower takes a tiny-TP / huge-SL fill. Fails open if the feed is down.
-  if (goldChasedAt(sig.side, fstop, sig.tp, goldLp)) return { accounts: 0, placed: 0 };
+  if (goldChasedAt(sig.side, fstop, sig.tp, goldLp)) sendItOnly = true;
 
   // SELECTIVITY GATES — same desk rules as the copy path (owner directives 08-31): the
   // same-setup break-even escalation (retry must earn it; twice-scratched zone sits out)
@@ -1561,7 +1575,7 @@ export async function placeGenxFollower(sig: {
   try {
     const rrLive = rewardRisk(goldLp != null ? goldLp : entry, fstop, sig.tp);
     const beGate = await goldBeSetupGate(admin, sig.side, entry, rrLive, sig.confidence);
-    if (beGate.block) return { accounts: 0, placed: 0 };
+    if (beGate.block) sendItOnly = true;
     const w = await goldRecentWinOnSide(admin, sig.side, GOLD_WIN_PICKY_MS);
     // OWNER RULE 09-02: premium bar after a recent win OR break-even scratch (min 1:1).
     let raisedBar = w.won;
@@ -1569,7 +1583,7 @@ export async function placeGenxFollower(sig: {
     if (raisedBar) {
       const rrOk = rrLive == null ? true : rrLive >= GOLD_WIN_PICKY_RR;
       const confOk = sig.confidence == null ? true : sig.confidence >= GOLD_WIN_PICKY_CONF;
-      if (!rrOk || !confOk) return { accounts: 0, placed: 0 }; // copy path posts the Telegram note
+      if (!rrOk || !confOk) sendItOnly = true; // copy path posts the Telegram note
     }
   } catch { /* read error → don't block */ }
 
@@ -1581,10 +1595,10 @@ export async function placeGenxFollower(sig: {
   // Every follower account, across every user/connection (independent of FLOW).
   // Pull the per-account risk override + management toggle when those columns exist;
   // fall back to a bare select so the follower never breaks before the migration is run.
-  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; risk_pct?: number | null; manage_trades?: boolean | null; risk_mode?: string | null; autotrade_enabled?: boolean | null };
+  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; risk_pct?: number | null; manage_trades?: boolean | null; risk_mode?: string | null; autotrade_enabled?: boolean | null; send_it?: boolean | null };
   let accts: FollowRow[] = [];
   const withCols = await admin.from("flow_broker_accounts")
-    .select("user_id, account_id, acc_num, connection_id, risk_pct, manage_trades, risk_mode, autotrade_enabled").eq("genx_follower", true);
+    .select("user_id, account_id, acc_num, connection_id, risk_pct, manage_trades, risk_mode, autotrade_enabled, send_it").eq("genx_follower", true);
   if (!withCols.error) accts = (withCols.data ?? []) as FollowRow[];
   else {
     const fb = await admin.from("flow_broker_accounts")
@@ -1596,6 +1610,8 @@ export async function placeGenxFollower(sig: {
   // this follower fill for the same setup. Pure-follower accounts (autotrade off) route here.
   // Uses the shared goldRoute() rule so the two paths can never disagree on ownership.
   accts = accts.filter((a) => goldRoute(a) === "follower");
+  // 🚀 SEND IT: when a desk gate fired, only Send It followers take this entry.
+  if (sendItOnly) accts = accts.filter((a) => a.send_it === true);
   if (!accts.length) return { accounts: 0, placed: 0 };
 
   // Mint one token per connection (a connection can hold several follower accounts),
@@ -1649,7 +1665,8 @@ export async function placeGenxFollower(sig: {
     try {
       // PER-ACCOUNT SAFETY MODE: a CONSERVATIVE follower account sits gold out for 4h
       // after 2 losing gold trades in a row. Aggressive follower accounts take it raw.
-      if (isConservative(a.risk_mode)) {
+      // 🚀 Send It accounts bypass the safety mode entirely.
+      if (a.send_it !== true && isConservative(a.risk_mode)) {
         // CONSERVATIVE QUALITY GATE: skip this setup on conservative followers when it
         // failed the confluence checks (aggressive followers below still take it).
         if (sig.conservativeOk === false) return { touched: 1, placed: 0 };
@@ -1668,7 +1685,7 @@ export async function placeGenxFollower(sig: {
       const ledgerPids = ((openGold ?? []) as { position_id: string | null; created_at: string }[])
         .filter((r) => !isManualGoldRow(manualGoldF, String(a.account_id), r.created_at)) // manual play/test → never blocks
         .map((r) => String(r.position_id ?? "")).filter(Boolean);
-      if (ledgerPids.length) {
+      if (a.send_it !== true && ledgerPids.length) { // 🚀 Send It: no one-open cap — takes every setup
         const tokChk = await tokenFor(a.connection_id);
         if (!tokChk) return { touched: 1, placed: 0 }; // can't verify → fail closed, never stack
         const brokerOpen = await brokerOpenPosIds({ env: tokChk.env, token: tokChk.token, accNum: String(a.acc_num), accountId: a.account_id });

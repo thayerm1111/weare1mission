@@ -515,16 +515,19 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   try {
     const acctIds = [...new Set(rows.map((r) => String(r.account_id)))];
     if (acctIds.length) {
-      type AcctCfg = { account_id: string; manage_trades?: boolean | null; gold_be_pips?: number | null };
+      type AcctCfg = { account_id: string; manage_trades?: boolean | null; gold_be_pips?: number | null; send_it?: boolean | null };
       let cfg: AcctCfg[] = [];
-      const withGold = await admin.from("flow_broker_accounts").select("account_id, manage_trades, gold_be_pips").in("account_id", acctIds);
+      const withGold = await admin.from("flow_broker_accounts").select("account_id, manage_trades, gold_be_pips, send_it").in("account_id", acctIds);
       if (!withGold.error) cfg = (withGold.data ?? []) as unknown as AcctCfg[];
       else {
         const fb = await admin.from("flow_broker_accounts").select("account_id, manage_trades").in("account_id", acctIds);
         cfg = (fb.data ?? []) as unknown as AcctCfg[];
       }
       for (const a of cfg) {
-        if (a.manage_trades === false) manageOff.add(String(a.account_id));
+        // 🚀 SEND IT (owner feature 09-03): a Send It account's trades are HANDS-OFF — no
+        // break-even move, no trail, no partials. The trade runs to its stop or target
+        // exactly as placed; closes are still reconciled and outcomes recorded.
+        if (a.manage_trades === false || a.send_it === true) manageOff.add(String(a.account_id));
         if (typeof a.gold_be_pips === "number" && a.gold_be_pips > 0) goldBePips.set(String(a.account_id), a.gold_be_pips);
       }
     }
