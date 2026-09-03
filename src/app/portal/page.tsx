@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
 import { PathHub } from "@/components/portal/PathHub";
+import { DashboardTradingIntro } from "@/components/portal/DashboardTradingIntro";
 import { DeskResults } from "@/components/portal/DeskResults";
 import { fmtDateTime } from "@/lib/format";
 
@@ -24,6 +25,9 @@ export default async function PortalDashboard() {
 
   return (
     <div className="space-y-10">
+      {/* First-visit walkthrough (owner 09-03): baby-step prompts from the dashboard to The
+          Floor and FLOW — the spotlight tour takes over there. Shows once per browser. */}
+      <DashboardTradingIntro />
       {/* Side-aware hub — The One vs The Builder */}
       <PathHub firstName={firstName} />
 
