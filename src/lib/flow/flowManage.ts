@@ -68,8 +68,11 @@ async function feedExtremes(symbol: string, sinceMs?: number | null): Promise<{ 
       entry = { at: Date.now(), bars };
       extCache.set(td, entry);
     }
-    // Fold only bars printed since the row's entry (60s slack for the entry's own bar).
-    const cut = typeof sinceMs === "number" && Number.isFinite(sinceMs) ? sinceMs - 60_000 : 0;
+    // Fold only bars that STARTED at/after the row's entry. The old 60s backward slack let the
+    // minute BEFORE the fill count as the trade's own excursion — a trade entered right after a
+    // +30-pip spike instantly "reached" its BE trigger, parked the stop at entry, and the next
+    // wiggle tagged it out minutes after opening (owner case 09-03: 2–7-min scratches).
+    const cut = typeof sinceMs === "number" && Number.isFinite(sinceMs) ? sinceMs : 0;
     let hi = 0, lo = Infinity;
     for (const b of entry.bars) { if (b.t >= cut) { hi = Math.max(hi, b.high); lo = Math.min(lo, b.low); } }
     if (hi > 0 && Number.isFinite(lo)) return { high: hi, low: lo };
@@ -161,6 +164,11 @@ const PARTIAL_FRACTION = 0.25;
 // Never move the break-even stop on a scratch smaller than this (pips) — avoids nudging the
 // stop for a spread-width blip on an ultra-tight stop.
 const BE_MIN_PIPS = 8;
+// BREAK-EVEN PROFIT OFFSET (owner rule 09-03): the BE stop sits this many pips INTO PROFIT,
+// never exactly at entry — a stop parked at entry exits with the spread/commission as a small
+// LOSS (the −1…−8 pip "break-evens" that bled accounts). 5 pips covers fees so a scratched
+// trade closes green.
+const BE_PROFIT_PIPS = 5;
 
 // GOLD default break-even trigger (pips) when an account has no per-account gold_be_pips
 // override set. Gold moves the stop to entry once it's this many pips in profit — so every
@@ -511,13 +519,15 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   // Per-account MANAGEMENT switch + optional GOLD break-even-pips override (moves BE earlier
   // than the halfway-to-target point, gold only). Loaded once for every account this tick.
   const manageOff = new Set<string>();
+  const beOffAccts = new Set<string>();      // accounts with the Break-even toggle OFF
+  const partialOffAccts = new Set<string>(); // accounts with the Partials toggle OFF
   const goldBePips = new Map<string, number>();
   try {
     const acctIds = [...new Set(rows.map((r) => String(r.account_id)))];
     if (acctIds.length) {
-      type AcctCfg = { account_id: string; manage_trades?: boolean | null; gold_be_pips?: number | null; send_it?: boolean | null };
+      type AcctCfg = { account_id: string; manage_trades?: boolean | null; gold_be_pips?: number | null; send_it?: boolean | null; be_enabled?: boolean | null; partials_enabled?: boolean | null };
       let cfg: AcctCfg[] = [];
-      const withGold = await admin.from("flow_broker_accounts").select("account_id, manage_trades, gold_be_pips, send_it").in("account_id", acctIds);
+      const withGold = await admin.from("flow_broker_accounts").select("account_id, manage_trades, gold_be_pips, send_it, be_enabled, partials_enabled").in("account_id", acctIds);
       if (!withGold.error) cfg = (withGold.data ?? []) as unknown as AcctCfg[];
       else {
         const fb = await admin.from("flow_broker_accounts").select("account_id, manage_trades").in("account_id", acctIds);
@@ -528,6 +538,11 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         // break-even move, no trail, no partials. The trade runs to its stop or target
         // exactly as placed; closes are still reconciled and outcomes recorded.
         if (a.manage_trades === false || a.send_it === true) manageOff.add(String(a.account_id));
+        // SPLIT TOGGLES (owner 09-03): break-even and partials each have their own switch.
+        // null/undefined = ON (back-compat); the legacy manage_trades master still turns
+        // everything off at once, and 🚀 Send It always means fully hands-off.
+        if (a.be_enabled === false) beOffAccts.add(String(a.account_id));
+        if (a.partials_enabled === false) partialOffAccts.add(String(a.account_id));
         if (typeof a.gold_be_pips === "number" && a.gold_be_pips > 0) goldBePips.set(String(a.account_id), a.gold_be_pips);
       }
     }
@@ -875,6 +890,8 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       update.best_price = best;
 
       const manageOn = !manageOff.has(String(row.account_id));
+      const beOn = manageOn && !beOffAccts.has(String(row.account_id));
+      const partialOn = manageOn && !partialOffAccts.has(String(row.account_id));
 
       // ── THE LEVELS ──────────────────────────────────────────────────────────────────────
       const tp = row.tp1 != null && row.tp1 > 0 ? row.tp1 : null;
@@ -935,7 +952,11 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // to break-even. Every BE + partial also separately requires priceInProfit, so this can
       // still never bank a partial at a loss.
       const inProfit = priceInProfit || (brokerUpl != null && brokerUpl > 0);
-      const bePx = roundPx(row.symbol, entry);
+      // BE stop = entry pushed BE_PROFIT_PIPS into profit (owner 09-03) so fees never turn a
+      // protected trade into a loss. Only moved when the market is safely beyond it (beSafe),
+      // so the modify can't be rejected or instantly close the position.
+      const bePx = roundPx(row.symbol, long ? entry + BE_PROFIT_PIPS * pip : entry - BE_PROFIT_PIPS * pip);
+      const beSafe = long ? price > bePx + 2 * pip : price < bePx - 2 * pip;
 
       // ── STEP 0: ADOPT a break-even that already exists on the BROKER. The broker is the
       //    source of truth: if the live SL already sits at/beyond entry — the owner moved it
@@ -943,7 +964,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       //    done instead of re-sending modifies forever ("Nothing to change") with the trail
       //    never engaging. (Owner case 08-28: manual BE moves left be_done=false in the
       //    ledger, so the manager fought the broker instead of continuing from it.) ──
-      if (manageOn && !row.be_done) {
+      if (beOn && !row.be_done) {
         const brokerSl = st.sl.get(String(row.position_id)) ?? null;
         const tol = pip * 2;
         const atOrBeyond = brokerSl != null && (long ? brokerSl >= entry - tol : brokerSl <= entry + tol);
@@ -956,7 +977,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
 
       // ── STEP 1: BREAK-EVEN — move the stop to the entry. Only while genuinely in profit and
       //    with the market still beyond entry (so the stop isn't rejected / isn't a loss). ──
-      if (manageOn && !row.be_done && favReachedBE && inProfit && priceInProfit) {
+      if (beOn && !row.be_done && favReachedBE && inProfit && priceInProfit && beSafe) {
         const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: bePx });
         if (mv.ok) {
           // BROKER READ-BACK: only record break-even once the broker's live SL actually
@@ -974,7 +995,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       //    early (~earlyPips), so a repeatedly-reversing green run banks some profit instead of
       //    round-tripping to the stop. Gated on the same in-profit guard → only ever banks a WIN.
       const chopPartial = chopOn && !isDouble; // a partial we take ONLY because of chop mode
-      if (manageOn && partialAllowed && !row.partial_done && favReachedPartial && inProfit && priceInProfit) {
+      if (partialOn && partialAllowed && !row.partial_done && favReachedPartial && inProfit && priceInProfit) {
         const part = normalizeQuantity(contractKey(row.symbol), row.qty * PARTIAL_FRACTION, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity });
         if (part.ok && part.qty > 0 && part.qty < row.qty) {
           const cl = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, part.qty);
@@ -1007,7 +1028,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       //    ratchet the stop up behind the best price the trade has reached. Anchored to the
       //    real fill + the favorable excursion; tightens near the target; never below break-
       //    even and never through the current market. ──
-      if (manageOn && row.be_done && (!isDouble || row.partial_done)) {
+      if (beOn && row.be_done && (!isDouble || row.partial_done || !partialOn)) {
         const peakR = (long ? best - entry : entry - best) / R;
         const toTargetR = tp != null ? (long ? tp - best : best - tp) / R : 99;
         const partialR = halfway != null ? (long ? halfway - entry : entry - halfway) / R : 1;
