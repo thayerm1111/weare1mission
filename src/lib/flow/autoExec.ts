@@ -1292,7 +1292,7 @@ export function goldRoute(acc: { autotrade_enabled?: boolean | null; genx_follow
   return "none";
 }
 
-export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null }): Promise<{ members: number; placed: number }> {
+export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null; sendItOnly?: boolean }): Promise<{ members: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { members: 0, placed: 0 };
   if (!(await systemSwitches(admin)).genx) return { members: 0, placed: 0 }; // admin GENX kill switch
@@ -1332,8 +1332,11 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
 
   // 🚀 SEND IT (owner feature 09-03): when ANY desk gate below fires, instead of dropping the
   // entry desk-wide we mark it send-it-only — accounts with the Send It toggle still take it
-  // (they opted out of every rule); everyone else is protected exactly as before.
-  let sendItOnly = false;
+  // (they opted out of every rule); everyone else is protected exactly as before. The scanner
+  // can also START a call in send-it-only mode (sig.sendItOnly): a CHASED signal that only
+  // arms for a pullback still fires immediately for Send It accounts at market (09-04 case:
+  // an armed ENTER NOW that no account took, Send It included).
+  let sendItOnly = sig.sendItOnly === true;
 
   // NEWS GUARD (falling-knife): gold reacts to USD data — if a HIGH-impact USD event is
   // inside the blackout window, hold this ENTER NOW. GENX will re-offer once it passes.
@@ -1538,13 +1541,14 @@ const FOLLOWER_DEFAULT_RISK = 1; // % of equity when no per-account and no owner
 export async function placeGenxFollower(sig: {
   signalKey: string; side: "buy" | "sell";
   entryLow?: number | null; entryHigh?: number | null;
-  stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null;
+  stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null; sendItOnly?: boolean;
 }): Promise<{ accounts: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { accounts: 0, placed: 0 };
   // 🚀 SEND IT (owner feature 09-03): when a desk gate fires, the entry becomes send-it-only —
   // accounts with the Send It toggle still take it; everyone else is protected as before.
-  let sendItOnly = false;
+  // sig.sendItOnly starts the call that way (scanner arm-time fill for chased signals).
+  let sendItOnly = sig.sendItOnly === true;
   if (inWeekendCloseWindow()) sendItOnly = true; // no new entries near Friday close (send-it excepted)
   if (inDailyReopenWindow()) sendItOnly = true; // no new entries around the daily close/reopen (send-it excepted)
   if (!(await systemSwitches(admin)).genx) return { accounts: 0, placed: 0 }; // admin GENX kill switch — hard, even for send-it
