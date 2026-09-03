@@ -34,7 +34,7 @@ export async function GET() {
     if (admin) {
       // Include per-account risk_pct + manage_trades + gold_be_pips when those columns
       // exist; fall back if they haven't been added yet so the accounts list never breaks.
-      const withCols = await admin.from("flow_broker_accounts").select(baseCols + ", risk_pct, manage_trades, gold_be_pips, risk_mode, send_it").eq("connection_id", c.id).order("created_at", { ascending: true });
+      const withCols = await admin.from("flow_broker_accounts").select(baseCols + ", risk_pct, manage_trades, gold_be_pips, risk_mode, send_it, be_enabled, partials_enabled").eq("connection_id", c.id).order("created_at", { ascending: true });
       if (!withCols.error) accts = (withCols.data ?? []) as unknown as Record<string, unknown>[];
       else { const fb = await admin.from("flow_broker_accounts").select(baseCols).eq("connection_id", c.id).order("created_at", { ascending: true }); accts = (fb.data ?? []) as unknown as Record<string, unknown>[]; }
     }
@@ -48,6 +48,8 @@ export async function GET() {
         manageTrades: a.manage_trades !== false, // default ON (breakeven + partials)
         riskMode: a.risk_mode === "aggressive" ? "aggressive" : "conservative", // per-account safety mode; default conservative
         sendIt: a.send_it === true, // 🚀 Send It: every setup, every gate bypassed, hands-off management
+        beEnabled: a.manage_trades !== false && a.be_enabled !== false,          // split toggle (default ON; legacy master off = off)
+        partialsEnabled: a.manage_trades !== false && a.partials_enabled !== false, // split toggle (default ON; legacy master off = off)
         goldBePips: typeof a.gold_be_pips === "number" && (a.gold_be_pips as number) > 0 ? a.gold_be_pips : null, // gold-only BE/partial pips; null = AI
         connectionId: c.id, environment: c.environment, server: c.server,
       });
@@ -148,6 +150,32 @@ export async function POST(req: NextRequest) {
     const { error } = await q;
     if (error) return json({ error: "needs_setup", detail: "Safety mode isn't set up yet — the risk_mode column is missing." }, 200);
     return json({ ok: true, accountId, riskMode: mode });
+  }
+
+  if (action === "betoggle") {
+    // Break-even toggle (split from the old combined "manage" switch, owner 09-03): moves the
+    // stop to entry +5 pips profit once price runs the trigger. Default ON.
+    const accountId = String(body.accountId || "");
+    if (!accountId) return json({ error: "missing_account" }, 200);
+    const enabled = body.enabled !== false; // default ON
+    let q = admin.from("flow_broker_accounts").update({ be_enabled: enabled, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
+    if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
+    const { error } = await q;
+    if (error) return json({ error: "needs_setup", detail: "Break-even toggle isn't set up yet — the be_enabled column is missing." }, 200);
+    return json({ ok: true, accountId, beEnabled: enabled });
+  }
+
+  if (action === "partialtoggle") {
+    // Partials toggle (split from the old combined "manage" switch, owner 09-03): banks 25%
+    // at the halfway point on 1:2+ setups. Default ON.
+    const accountId = String(body.accountId || "");
+    if (!accountId) return json({ error: "missing_account" }, 200);
+    const enabled = body.enabled !== false; // default ON
+    let q = admin.from("flow_broker_accounts").update({ partials_enabled: enabled, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
+    if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
+    const { error } = await q;
+    if (error) return json({ error: "needs_setup", detail: "Partials toggle isn't set up yet — the partials_enabled column is missing." }, 200);
+    return json({ ok: true, accountId, partialsEnabled: enabled });
   }
 
   if (action === "sendit") {
