@@ -1879,13 +1879,22 @@ input{font:inherit}
     var mode = useState("institutional"), method = useState("best"), orderType = useState("limit");
     var scoutSel = useState(SCOUTS.map(function (s) { return s.k; })), loading = useState(false), err = useState(""), result = useState(null);
     var options = tool.syms || SYMBOLS;
+    // RECENT PLAYS (owner 09-04): every Analyze result is kept on this device (last 10 per
+    // tool) and listed at the bottom — tap one to reopen the full trade card any time.
+    var histKey = "om-play-hist:" + tool.id;
+    function loadHist() { try { var j = JSON.parse(localStorage.getItem(histKey) || "[]"); return Array.isArray(j) ? j : []; } catch (e) { return []; } }
+    var hist = useState(loadHist());
+    function saveHist(entry) { try { var h = [entry].concat(loadHist()).slice(0, 10); localStorage.setItem(histKey, JSON.stringify(h)); hist[1](h); } catch (e) { /* private mode / full — history is best-effort */ } }
+    function openHist(h) { err[1](""); if (h.sym) sym[1](h.sym); if (h.style) style[1](h.style); result[1](h.result); try { window.scrollTo(0, 0); } catch (e) {} }
+    function clearHist() { try { localStorage.removeItem(histKey); } catch (e) {} hist[1]([]); }
+    function agoTxt(ts) { var m = Math.max(0, Math.round((Date.now() - ts) / 60000)); if (m < 1) return "just now"; if (m < 60) return m + "m ago"; var hrs = Math.round(m / 60); if (hrs < 24) return hrs + "h ago"; return Math.round(hrs / 24) + "d ago"; }
     function run() {
       if (loading[0]) return; loading[1](true); err[1](""); result[1](null);
       var st = { sym: sym[0], style: style[0], scouts: scoutSel[0], mode: mode[0], method: method[0], orderType: orderType[0] };
       apiPost(tool.endpoint, bodyFor(tool, st)).then(function (d) {
         if (!d || d.error) { if (d && d.notConfigured) return err[1]("Live market data isn't connected yet."); return err[1]((d && (d.reason || d.detail)) || "Couldn't run that right now — try again."); }
-        if (tool.list) { result[1]({ list: arr(d.setups).map(function (x) { var m = tool.adapt(x); m.toolName = tool.label; return m; }) }); }
-        else { var m = tool.adapt(d); m.toolName = tool.label; result[1]({ one: m }); }
+        if (tool.list) { var rvL = { list: arr(d.setups).map(function (x) { var mm = tool.adapt(x); mm.toolName = tool.label; return mm; }) }; result[1](rvL); if (rvL.list.length) saveHist({ ts: Date.now(), sym: st.sym, style: st.style, dir: (rvL.list[0] && rvL.list[0].direction) || "", entry: null, result: rvL }); }
+        else { var m = tool.adapt(d); m.toolName = tool.label; var rv = { one: m }; result[1](rv); saveHist({ ts: Date.now(), sym: st.sym, style: st.style, dir: m.direction || "", entry: m.entry && m.entry.price != null ? m.entry.price : null, result: rv }); }
       }).catch(function (e2) {
         if (e2 && e2.code === 402) return err[1]("You're out of credits — they reset weekly, or grab more.");
         if (e2 && e2.code === 401) { props.onLogout(); return; }
@@ -1926,6 +1935,18 @@ input{font:inherit}
       ${loading[0] ? html`<div class="empty"><div class="empty-i">◈</div><p>Reading the live market…</p></div>` : null}
       ${result[0] && result[0].one ? html`<${TradeCard} m=${result[0].one} />` : null}
       ${result[0] && result[0].list ? (result[0].list.length ? html`<${PulseList} items=${result[0].list} />` : html`<div class="err">No clean setups right now — check back shortly.</div>`) : null}
+      ${hist[0].length ? html`<div style="margin-top:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Recent plays</div>
+          <button onClick=${clearHist} style="border:0;background:none;color:rgba(255,255,255,.35);font-size:11px;font-weight:700;cursor:pointer">Clear</button>
+        </div>
+        ${hist[0].map(function (h, i) { var dirUp = String(h.dir || "").toUpperCase(); var isL = dirUp.indexOf("LONG") >= 0 || dirUp.indexOf("BUY") >= 0; return html`<button key=${h.ts + ":" + i} onClick=${function () { openHist(h); }} style="width:100%;margin-top:6px;display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.03);cursor:pointer;text-align:left">
+          <span style=${"flex:0 0 auto;font-size:10px;font-weight:900;padding:3px 8px;border-radius:7px;" + (dirUp ? (isL ? "background:rgba(46,232,143,.14);color:#2ee88f" : "background:rgba(255,93,108,.14);color:#ff5d6c") : "background:rgba(255,255,255,.08);color:rgba(255,255,255,.6)")}>${dirUp || "PLAY"}</span>
+          <span style="flex:1;min-width:0;font-size:13px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h.sym || "—"}${h.entry != null ? html` <span style="font-weight:700;color:rgba(255,255,255,.6)">@ ${h.entry}</span>` : null} <span style="font-weight:600;color:rgba(255,255,255,.45)">· ${h.style || ""}</span></span>
+          <span style="flex:0 0 auto;font-size:11px;color:rgba(255,255,255,.4)">${agoTxt(h.ts)} ›</span>
+        </button>`; })}
+        <div style="margin-top:6px;font-size:10px;color:rgba(255,255,255,.3)">Tap a play to reopen its full card. Saved on this device.</div>
+      </div>` : null}
     </div>`;
   }
   var LIVE_URL = "https://1missionlive.com";
