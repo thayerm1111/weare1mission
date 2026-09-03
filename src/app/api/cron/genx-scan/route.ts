@@ -324,6 +324,11 @@ async function run(): Promise<Response> {
           // wait for price to pull back into the entry zone for the full R:R.
           if (tgReady) await sendTelegram(enterMsg(side, mode, tgMsg, lp, false));
           await admin.from("genx_alerts").update({ enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
+          // 🚀 SEND IT (owner 09-04): the desk waits for the pullback, but Send It accounts take
+          // EVERY call — fire a send-it-only placement at market right now. Fires once (the arm
+          // transition happens once per signal); followers dedupe on the signal key.
+          try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, sendItOnly: true }); } catch { /* best-effort */ }
+          try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, sendItOnly: true }); } catch { /* best-effort */ }
           sent.push(`${mode}:ARM`); modeOut.result = `arm:${act.reason}`;
         } else if (act.do === "enter") {
           if (!armedNow && tgReady) await sendTelegram(enterMsg(side, mode, tgMsg, lp, false));
@@ -422,6 +427,12 @@ async function runWatch(): Promise<Response> {
       if (act.do === "arm") {
         if (tgReady) await sendTelegram(enterMsg(side, row.mode, tgMsg, lp, false));
         await admin.from("genx_alerts").update({ enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
+        // 🚀 SEND IT (owner 09-04): chased signal arms for everyone else — Send It accounts fill at market now.
+        try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, sendItOnly: true }); } catch { /* best-effort */ }
+        try {
+          const fKey = (row.entry_low != null && row.entry_high != null) ? `${row.mode}:${side}:${r1(row.entry_low)}:${r1(row.entry_high)}` : `id:${row.id}`;
+          await placeGenxFollower({ signalKey: fKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, sendItOnly: true });
+        } catch { /* best-effort */ }
         sent.push(`${row.mode}:ARM`);
       } else if (act.do === "enter") {
         if (!armedNow && tgReady) await sendTelegram(enterMsg(side, row.mode, tgMsg, lp, false));
