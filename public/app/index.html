@@ -947,7 +947,7 @@ input{font:inherit}
       riskReward: r.riskReward || (r.rr_tp1 != null ? "1:" + r.rr_tp1 : null),
       reasoning: arr(r.desk_read).concat(arr(r.reasoning)).concat(r.reason ? [r.reason] : []),
       whatNext: arr(r.what_next), setupZone: sz, proximity: r.proximity,
-      newsWarning: r.news_warning, newsCurrencies: r.news_check_currencies,
+      newsWarning: r.news_warning, newsCurrencies: r.news_check_currencies, news: arr(r.news),
       candles: candlesFrom(r.candles), mtf: mtfFrom(r.mtf),
       levels: buildLevels(lv, sz), timeframe: "15 MIN",
       extras: { regime: r.market_regime || r.regime, bias: r.current_bias || r.bias, session: r.session },
@@ -1278,12 +1278,14 @@ input{font:inherit}
     var m = props.m, lv = tradeLevels(m);
     var risk = useState(1), acct = useState(""), equity = useState(null), connected = useState(false);
     var lots = useState(null), sizing = useState(null), busy = useState(false), done = useState(null), err = useState(""), loaded = useState(false), acctCount = useState(0);
+    var target = useState("all"), acctList = useState([]); // account picker — "all" or a specific accountId
     if (!lv.ok || lv.ep == null || lv.stop == null || !lv.tps.length) { return null; }
     var side = m.direction === "SHORT" ? "sell" : "buy";
     var sym = m.symbol || "";
     function baseBody(extra) {
       var b = { source: "play", symbol: sym, side: side, entry: lv.ep, stop: lv.stop, tp: lv.tps[0], riskPct: +risk[0] };
       if (!connected[0] && acct[0]) b.accountSize = +acct[0];
+      if (connected[0] && target[0] !== "all") b.accountId = target[0];
       return Object.assign(b, extra || {});
     }
     useEffect(function () {
@@ -1298,11 +1300,11 @@ input{font:inherit}
     }, []);
     function preview() {
       apiPost("/api/flow/execute", baseBody({ preview: true })).then(function (d) {
-        if (d && d.preview) { lots[1](d.lots); sizing[1](d.sizing); if (d.equity != null) equity[1](d.equity); acctCount[1](d.accountCount || 0); err[1](""); }
+        if (d && d.preview) { lots[1](d.lots); sizing[1](d.sizing); if (d.equity != null) equity[1](d.equity); acctCount[1](d.accountCount || 0); if (target[0] === "all" && d.accounts && d.accounts.length) acctList[1](d.accounts); err[1](""); }
         else if (d && d.detail) { lots[1](null); err[1](d.detail); }
       }).catch(function () {});
     }
-    useEffect(function () { if (loaded[0]) preview(); }, [loaded[0], risk[0], acct[0]]);
+    useEffect(function () { if (loaded[0]) preview(); }, [loaded[0], risk[0], acct[0], target[0]]);
     function execute() {
       if (busy[0] || lots[0] == null) return; busy[1](true); err[1]("");
       apiPost("/api/flow/execute", baseBody()).then(function (d) {
@@ -1318,6 +1320,12 @@ input{font:inherit}
       <div class="xrisk-row"><span class="xrisk-lb">Risk</span>
         <div class="xrisk-chips">${RISKS.map(function (r) { return html`<button class=${"xrchip" + (+risk[0] === r ? " on" : "")} onClick=${function () { risk[1](r); }}>${r}%</button>`; })}</div>
       </div>
+      ${(connected[0] && acctList[0].length > 1) ? html`<div class="xrisk-row" style="align-items:flex-start"><span class="xrisk-lb" style="padding-top:6px">Place on</span>
+        <div class="xrisk-chips" style="flex-wrap:wrap;justify-content:flex-end">
+          <button class=${"xrchip" + (target[0] === "all" ? " on" : "")} onClick=${function () { target[1]("all"); }}>All accounts (${acctList[0].length})</button>
+          ${acctList[0].map(function (p) { var id = String(p.accountId); return html`<button class=${"xrchip" + (target[0] === id ? " on" : "")} onClick=${function () { target[1](id); }}>#${p.accNum || id}${p.equity != null ? " · $" + Math.round(p.equity).toLocaleString() : ""}</button>`; })}
+        </div>
+      </div>` : null}
       ${connected[0]
         ? html`<div class="xrisk-eq">Equity <b>${equity[0] != null ? "$" + Math.round(equity[0]).toLocaleString() : "—"}</b> · live from TradeLocker</div>`
         : html`<div class="xrisk-row"><span class="xrisk-lb">Account $</span><input class="xrisk-in" type="number" inputmode="decimal" value=${acct[0]} placeholder="e.g. 5000" onInput=${function (e) { acct[1](e.target.value); }} onBlur=${saveAcct} /></div>`}
@@ -1461,6 +1469,8 @@ input{font:inherit}
         <ul class="scouts">${m.scouts.map(function (s) { return html`<li class=${"scout " + (s.fired ? "fired" : "quiet")}><span class=${"sdot " + (s.dir === "LONG" ? "long" : s.dir === "SHORT" ? "short" : "flat")}></span><span class="sname">${s.label}</span><span class="sread">${s.read}</span></li>`; })}</ul>
       <//>` : null}
 
+      ${m.news && m.news.length ? html`<div class="news"><b>◆ High-impact news · next 24h</b><ul style="margin:7px 0 0;padding:0;list-style:none">${m.news.map(function (n) { return html`<li style="display:flex;justify-content:space-between;gap:10px;margin-top:4px"><span><b>${n.ccy}</b> ${n.title}${n.forecast ? html`<span style="opacity:.6"> · f/c ${n.forecast}</span>` : null}</span><span style=${"white-space:nowrap;font-weight:700;" + (/in \d+m$/.test(String(n.when)) ? "color:var(--amber)" : "opacity:.65")}>${n.when}</span></li>`; })}</ul></div>` : null}
+
       ${m.newsWarning ? html`<div class="news"><b>⚠ Check the calendar.</b> ${m.newsWarning}${m.newsCurrencies && m.newsCurrencies.length ? " (" + m.newsCurrencies.join(", ") + ")" : ""}</div>` : null}
 
       <div class="creed"><b>The plan is simple. Execution is everything.</b><span>Discipline over emotions · Plan your trade · Execute with confidence</span></div>
@@ -1561,16 +1571,17 @@ input{font:inherit}
     return html`<div style="margin-top:12px;border-radius:16px;border:1px solid rgba(46,232,143,.32);background:linear-gradient(150deg,rgba(46,232,143,.07),rgba(8,16,32,.35));padding:15px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <div style="min-width:0"><div style="font-size:14px;font-weight:900;color:#fff">⚡ Auto-refill credits</div>
-          <div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:2px">Never run out — keep a card on file.</div></div>
+          <div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:2px">Keep FLOW auto-trading running — never miss a play.</div></div>
         <button onClick=${function () { toggle(!on); }} aria-pressed=${on} style=${"position:relative;flex:0 0 auto;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (on ? "#2ee88f" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (on ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
       </div>
       ${paused ? html`<div style="margin-top:10px;font-size:11px;font-weight:700;color:#ffb4b4;background:rgba(255,93,108,.1);border:1px solid rgba(255,93,108,.25);border-radius:10px;padding:8px 10px">Auto-refill paused — we couldn't charge your card. Re-add it below to turn it back on.</div>` : null}
-      <div style="margin-top:10px;font-size:11px;line-height:1.5;color:rgba(255,255,255,.5)">When your balance drops below <b style="color:rgba(255,255,255,.75)">${d.threshold}</b> credits, we charge your card <b style="color:rgba(255,255,255,.75)">${priceRefill}</b> for <b style="color:rgba(255,255,255,.75)">${d.refillCredits}</b> credits — automatically, until you turn this off.</div>
+      <div style="margin-top:10px;font-size:11px;line-height:1.55;color:rgba(255,255,255,.62);background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:9px 11px"><b style="color:#2ee88f">Why keep a card on file?</b> FLOW spends 1 credit each auto-run. Hit 0 and auto-trading <b style="color:rgba(255,255,255,.85)">pauses</b> — the desk keeps taking plays without you until you top up. With auto-refill on, credits top up by themselves the moment you run low, so FLOW never stops and you never miss a trade.</div>
+      <div style="margin-top:8px;font-size:11px;line-height:1.5;color:rgba(255,255,255,.5)">When your balance drops below <b style="color:rgba(255,255,255,.75)">${d.threshold}</b> credits, we charge your card <b style="color:rgba(255,255,255,.75)">${priceRefill}</b> for <b style="color:rgba(255,255,255,.75)">${d.refillCredits}</b> credits — automatically, until you turn this off.</div>
       <div style="margin-top:11px;display:flex;gap:8px">
         ${d.hasCard
         ? html`<div style="flex:1;min-width:0;font-size:12px;font-weight:700;color:#fff;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 11px">💳 ${(d.card && d.card.brand ? String(d.card.brand).toUpperCase() : "Card")} ···· ${d.card && d.card.last4 ? d.card.last4 : "••••"}</div>
              <button onClick=${function () { go("setup"); }} style="flex:0 0 auto;padding:9px 12px;border:1px solid rgba(255,255,255,.15);border-radius:10px;background:rgba(255,255,255,.05);color:#fff;font-size:12px;font-weight:700;cursor:pointer">Replace</button>`
-        : html`<button onClick=${function () { go("setup"); }} disabled=${busy[0]} style="flex:1;padding:11px;border:0;border-radius:11px;background:linear-gradient(135deg,#3cf0a0,#22c483);color:#04121f;font-size:13px;font-weight:800;cursor:pointer">${busy[0] ? "…" : "Add a card"}</button>`}
+        : html`<button onClick=${function () { go("setup"); }} disabled=${busy[0]} style="flex:1;padding:11px;border:0;border-radius:11px;background:linear-gradient(135deg,#3cf0a0,#22c483);color:#04121f;font-size:13px;font-weight:800;cursor:pointer">${busy[0] ? "…" : "Add a card — keep FLOW running"}</button>`}
       </div>
       <button onClick=${function () { go("manual"); }} disabled=${busy[0]} style="margin-top:9px;width:100%;padding:12px;border:1px solid rgba(255,255,255,.14);border-radius:11px;background:rgba(255,255,255,.04);color:#fff;font-size:13px;font-weight:800;cursor:pointer">${busy[0] ? "…" : ("Add " + d.manualCredits + " credits now — " + priceManual)}</button>
       <div style="margin-top:8px;font-size:9.5px;color:rgba(255,255,255,.35);text-align:center">Secure checkout by Stripe · cancel anytime</div>
@@ -2568,7 +2579,7 @@ input{font:inherit}
       apiPost("/api/flow/autorun", { action: on ? "enable" : "disable" }).then(function (d) {
         saving[1](false);
         if (!d || d.error) { err[1]((d && d.detail) || "Couldn't update auto-run."); return; }
-        if (d.lowCredits) msg[1]("Auto-run is on, but you're low on credits — it'll pause until you top up.");
+        if (d.lowCredits) msg[1]("Auto-run is on, but you're low on credits — it'll pause until you top up. Turn on Auto-refill in Account so it never stops.");
         else msg[1](on ? "Auto-run is ON. FLOW will place your trades automatically." : "Auto-run is off.");
         load();
       }).catch(function (e) { saving[1](false); if (e && e.code === 401) props.onLogout && props.onLogout(); else err[1]("Something went wrong — try again."); });
@@ -2608,7 +2619,7 @@ input{font:inherit}
             <div style="font-size:11.5px;line-height:1.55;color:#ffce6b"><b>Costs ${cost} credit every 30 min</b> that auto-run is on and the market is open. FLOW isn't free to run — you're only charged while it's actively watching for you.</div>
             <div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:5px">Credits: <b style="color:#fff">${credits != null ? credits : "—"}</b> · <a href="#" onClick=${function (e) { e.preventDefault(); try { window.open("/portal/credits", "_blank"); } catch (x) {} }} style="color:#7cc4ff;font-weight:700;text-decoration:none">Get more ›</a></div>
           </div>
-          ${enabled ? html`<div style="font-size:11.5px;font-weight:700;margin-top:9px;color:${paused ? "#ff9d3c" : "#2ee88f"}">${paused ? "⏸ Paused — out of credits. Top up and it resumes automatically." : "● Auto-run active" + (isMarketOpenPWA() ? " — markets open, watching now." : " — markets closed, resumes at the open.")}</div>` : null}
+          ${enabled ? html`<div style="font-size:11.5px;font-weight:700;margin-top:9px;color:${paused ? "#ff9d3c" : "#2ee88f"}">${paused ? "⏸ Paused — out of credits. Top up (Account → ⚡ Auto-refill) and it resumes automatically." : "● Auto-run active" + (isMarketOpenPWA() ? " — markets open, watching now." : " — markets closed, resumes at the open.")}</div>` : null}
         </div>
       </div>`}
       ${msg[0] ? html`<div style="font-size:11.5px;color:#2ee88f;margin-top:10px">${msg[0]}</div>` : null}
@@ -2932,8 +2943,10 @@ input{font:inherit}
     var view = useState(props.init || "");
     var pulseTool = TOOLS.filter(function (t) { return t.id === "pulse"; })[0];
     var playsTool = TOOLS.filter(function (t) { return t.id === "liveplays"; })[0];
+    var mfxGhostTool = TOOLS.filter(function (t) { return t.id === "ghost"; })[0];
     function back() { return html`<button class="floor-back" onClick=${function () { view[1](""); }}>‹ The Floor</button>`; }
     if (view[0] === "omai") return html`<div>${back()}<${ChatScreen} onLogout=${props.onLogout} /></div>`;
+    if (view[0] === "mfxghost") return html`<div>${back()}<${ToolRunner} key="ghost" tool=${mfxGhostTool} onLogout=${props.onLogout} /></div>`;
     if (view[0] === "pulse") return html`<div>${back()}<${ToolRunner} key="pulse" tool=${pulseTool} onLogout=${props.onLogout} /></div>`;
     if (view[0] === "plays") return html`<div>${back()}<${ToolRunner} key="liveplays" tool=${playsTool} onLogout=${props.onLogout} /></div>`;
     if (view[0] === "live") return html`<div>${back()}<${WeeklyScreen} onLogout=${props.onLogout} /></div>`;
@@ -2971,6 +2984,12 @@ input{font:inherit}
           <div class="fl-nm">OM AI Plays</div>
           <div class="fl-bl">AI-generated opportunities.</div>
           <div class="fl-cta">View ›</div>
+        </button>
+        <button class="flcard" onClick=${open("mfxghost")}>
+          <div class="fl-ic">◆</div>
+          <div class="fl-nm">MFXGHOST</div>
+          <div class="fl-bl">Deep single-instrument desk — full trade plan and setup zone for Gold or an FX major.</div>
+          <div class="fl-cta">Open ›</div>
         </button>
       </div>
     </div>`;
@@ -4020,6 +4039,64 @@ input{font:inherit}
       ${ql && !mods.length && !res.length ? html`<div class="ac-sub" style="margin-top:12px">No matches. Try a different word.</div>` : null}</div>`;
   }
 
+  // ── First-run FLOW walkthrough — baby-step prompts that show a new member where
+  // auto-trading lives and how to switch it on. Opens once on the dashboard (per
+  // device via localStorage) and skips itself if their broker is already connected.
+  // Steps 1–2 are a full sheet; steps 3–5 shrink to a floating coach card so the
+  // member can see and use the FLOW screen while following along.
+  function FlowIntroTour(props) {
+    var step = useState(0), open = useState(false);
+    function seen() { try { localStorage.setItem("om-flow-tour-v2", "1"); } catch (e) {} }
+    function close() { seen(); open[1](false); }
+    useEffect(function () {
+      var done = false; try { done = localStorage.getItem("om-flow-tour-v2") === "1"; } catch (e) {}
+      var forced = false; try { forced = location.search.indexOf("flowtour=1") > -1; } catch (e) {}
+      if (done && !forced) return;
+      // v2 (owner 09-03): connected members are no longer skipped — everyone walks the tour
+      // once more to see the new split Break-even / Partials / Send It controls.
+      open[1](true);
+    }, []);
+    if (!open[0]) return null;
+    var s = step[0];
+    var dots = html`<div style="display:flex;justify-content:center;margin-top:12px">${[0, 1, 2, 3, 4].map(function (i) { return html`<span style=${"width:6px;height:6px;border-radius:50%;display:inline-block;margin:0 3px;background:" + (i === s ? "#2ee88f" : "rgba(255,255,255,.22)")}></span>`; })}</div>`;
+    var btn = "width:100%;padding:13px;border:0;border-radius:12px;background:linear-gradient(135deg,#3cf0a0,#22c483);color:#04121f;font-size:14px;font-weight:800;cursor:pointer";
+    var ghost = "width:100%;margin-top:8px;padding:11px;border:0;border-radius:12px;background:none;color:rgba(255,255,255,.45);font-size:12px;font-weight:700;cursor:pointer";
+    if (s <= 1) {
+      return html`<div class="ac-ovl"><div class="sf-sheet" onClick=${function (e) { e.stopPropagation(); }}>
+        ${s === 0 ? html`
+          <div class="sf-ey">◆ FLOW · Auto-trading</div>
+          <div class="sf-h">Let the platform <span>trade for you</span>.</div>
+          <div class="sf-p">FLOW takes the desk's gold plays on your own broker account — entries, stop to breakeven, and exits all handled automatically. Setting it up takes about 2 minutes, and we'll walk you through it one step at a time.</div>
+          <button style=${btn} onClick=${function () { step[1](1); }}>Show me — step by step</button>
+          <button style=${ghost} onClick=${close}>I'll explore on my own</button>` : html`
+          <div class="sf-ey">Step 1 of 4</div>
+          <div class="sf-h">Find <span>FLOW</span>.</div>
+          <div class="sf-p">Auto-trading lives in the <b style="color:#2ee88f">◆ FLOW</b> tab — bottom-left corner of your screen. Everything happens from that one screen: connecting your broker, turning trading on, and watching your positions.</div>
+          <button style=${btn} onClick=${function () { props.go("flow"); step[1](2); }}>Take me to FLOW →</button>
+          <button style=${ghost} onClick=${close}>Skip the tour</button>`}
+        ${dots}
+      </div></div>`;
+    }
+    var card = "position:fixed;left:12px;right:12px;bottom:76px;z-index:70;max-width:576px;margin:0 auto;background:rgba(9,18,35,.97);border:1px solid rgba(46,232,143,.35);border-radius:16px;padding:14px 15px;box-shadow:0 12px 40px rgba(0,0,0,.55)";
+    var next = "flex:1;padding:11px;border:0;border-radius:11px;background:linear-gradient(135deg,#3cf0a0,#22c483);color:#04121f;font-size:13px;font-weight:800;cursor:pointer";
+    var head = function (t) { return html`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><div style="font-size:12.5px;font-weight:900;color:#2ee88f">${t}</div><button onClick=${close} aria-label="Close" style="flex:0 0 auto;border:0;background:none;color:rgba(255,255,255,.4);font-size:16px;cursor:pointer;padding:2px 6px">✕</button></div>`; };
+    return html`<div style=${card}>
+      ${s === 2 ? html`${head("Step 2 of 4 — connect your broker")}
+        <div style="margin-top:6px;font-size:12px;line-height:1.55;color:rgba(255,255,255,.75)">On this screen, tap <b style="color:#3cb4ff">◆ Connect</b> and sign in with your <b>TradeLocker</b> login (the one your broker emailed you). That links your account so plays can be placed for you — demo accounts work too.</div>
+        <div style="margin-top:10px;display:flex;gap:8px"><button style=${next} onClick=${function () { step[1](3); }}>I'm connected — next</button></div>` : null}
+      ${s === 3 ? html`${head("Step 3 of 4 — turn auto-trading on")}
+        <div style="margin-top:6px;font-size:12px;line-height:1.55;color:rgba(255,255,255,.75)">Pick the account you want and flip <b style="color:#2ee88f">Auto-trading ON</b>. That's the whole switch — from this moment FLOW takes the gold plays for you, hands-free, with your stop moved to breakeven automatically.</div>
+        <div style="margin-top:10px;display:flex;gap:8px"><button style=${next} onClick=${function () { step[1](4); }}>It's on — next</button></div>` : null}
+      ${s === 4 ? html`${head("Step 4 of 4 — never run out")}
+        <div style="margin-top:6px;font-size:12px;line-height:1.55;color:rgba(255,255,255,.75)">Each auto-run uses <b>1 credit</b>. If you hit 0, FLOW pauses and plays get missed. Put a card on file in <b style="color:#2ee88f">Account → ⚡ Auto-refill</b> and credits top up by themselves — FLOW never stops.</div>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button style=${next} onClick=${function () { seen(); open[1](false); props.go("account"); }}>Set up Auto-refill</button>
+          <button style="flex:0 0 auto;padding:11px 14px;border:1px solid rgba(255,255,255,.16);border-radius:11px;background:rgba(255,255,255,.05);color:#fff;font-size:13px;font-weight:700;cursor:pointer" onClick=${close}>Done</button>
+        </div>` : null}
+      ${dots}
+    </div>`;
+  }
+
   function Shell(props) {
     var sec = useState("dashboard");
     var floorInit = useState("");
@@ -4044,6 +4121,7 @@ input{font:inherit}
       </main>
       <nav class="bnav">${NAV.map(function (n) { var on = sec[0] === n.id || (sec[0] === "xperf" && n.id === "account"); return html`<button class=${"bn " + (on ? "on" : "")} data-id=${n.id} onClick=${function () { if (n.id === "floor") goFloor(""); else go(n.id); }}><span class="bn-i">${n.icon}</span><span class="bn-l">${n.label}</span></button>`; })}</nav>
       <${SuiteFlyerModal} />
+      <${FlowIntroTour} go=${go} />
     </div>`;
   }
   function Login(props) {
