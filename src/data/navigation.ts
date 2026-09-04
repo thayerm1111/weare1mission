@@ -17,10 +17,10 @@ export interface NavItem {
 // (see PortalNav.tsx), not the public top nav.
 export const mainNav: NavItem[] = [
   { label: "Platform", href: "/#platform" },
-  { label: "Trading", href: "/#om" },
+  { label: "OM", href: "/#om" },
   { label: "Live", href: "/#live" },
   { label: "Results", href: "/#proof" },
-  { label: "Community", href: "/experiences" },
+  { label: "Community", href: "/#community" },
   { label: "About", href: "/start-here" },
 ];
 
