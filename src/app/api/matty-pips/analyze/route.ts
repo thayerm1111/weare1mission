@@ -35,11 +35,13 @@ async function handle(symbol: string, modeRaw: string | null): Promise<Response>
 
   const res = await runEngine({ symbol: sym, mode, mdKey, fresh: isPriorityEmail(profile.email) });
   if (res.ok) {
-    // Best-effort archive + audit (works even before the tables exist).
-    void saveAnalysis(profile.id, res);
+    // Best-effort archive + audit (works even before the tables exist). The
+    // archive id comes back so the UI can SAVE this exact read and reopen it.
+    const analysisId = await saveAnalysis(profile.id, res);
     void logDecision({ userId: profile.id, symbol: sym, kind: "analyze", detail: { mode, status: res.status, score: res.score.total, trade: !!res.trade } });
+    return json({ ...res, analysisId }, 200);
   }
-  return json(res, res.ok ? 200 : 200);
+  return json(res, 200);
 }
 
 export async function POST(req: NextRequest) {
