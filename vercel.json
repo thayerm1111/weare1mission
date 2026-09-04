@@ -8,6 +8,8 @@
     { "path": "/api/cron/xghost-scan", "schedule": "*/15 * * * *" },
     { "path": "/api/cron/autorefill", "schedule": "*/3 * * * *" },
     { "path": "/api/cron/flow-watchdog", "schedule": "* * * * *" },
-    { "path": "/api/cron/flow-monitor", "schedule": "*/5 * * * *" }
+    { "path": "/api/cron/flow-monitor", "schedule": "*/5 * * * *" },
+    { "path": "/api/matty-pips/cron/scan", "schedule": "* * * * *" },
+    { "path": "/api/matty-pips/cron/manage", "schedule": "* * * * *" }
   ]
 }
