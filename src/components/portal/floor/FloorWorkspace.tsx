@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { LayoutGrid, Sparkles, Zap, Activity, TrendingUp, Gem, Link2, Volume2, VolumeX, Maximize2, Minimize2 } from "lucide-react";
+import { LayoutGrid, Sparkles, Zap, Activity, TrendingUp, Gem, Link2, Volume2, VolumeX, Maximize2, Minimize2, Brain } from "lucide-react";
+import MattyPips from "@/components/matty-pips/MattyPips";
 import { FloorHome } from "./FloorHome";
 import { LivePlays } from "./LivePlays";
 import { MarketPulse } from "./MarketPulse";
@@ -26,6 +27,7 @@ const C = { base: "#0B0F14", panel: "#111820", line: "rgba(255,255,255,0.07)", t
 // stays on the Floor exactly like FLOW, instead of navigating to a separate page.
 const VIEW_TABS = [
   { id: "home", label: "Floor" },
+  { id: "matty", label: "Matty Pips" },
   { id: "flow", label: "FLOW" },
   { id: "genx", label: "GENX" },
   { id: "omai", label: "OM AI" },
@@ -38,6 +40,7 @@ type TabId = (typeof VIEW_TABS)[number]["id"];
 type SwitchItem = { key: string; label: string; icon: typeof LayoutGrid } & ({ view: string } | { href: string });
 const SWITCHER: SwitchItem[] = [
   { key: "home", label: "Floor", icon: LayoutGrid, view: "home" },
+  { key: "matty", label: "Matty Pips", icon: Brain, view: "matty" },
   { key: "flow", label: "FLOW", icon: Link2, view: "flow" },
   { key: "genx", label: "GENX", icon: Gem, view: "genx" },
   { key: "omai", label: "OM AI", icon: Sparkles, view: "omai" },
@@ -151,6 +154,7 @@ export function FloorWorkspace({ isCaller = false, followerCount = 0 }: { isCall
         {tab === "home" && <FloorHome onGo={go} />}
         {tab !== "home" && (
           <div className="rounded-xl bg-cream p-2.5 text-charcoal sm:p-3">
+            {tab === "matty" && <MattyPips />}
             {tab === "flow" && <FlowDesk />}
             {tab === "genx" && <GenxDesk />}
             {tab === "omai" && <OmAiChat />}
