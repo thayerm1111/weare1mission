@@ -17,7 +17,7 @@ export default async function CommunityResultsPage() {
         <h1 className="mt-2 flex items-center gap-2 text-3xl font-extrabold tracking-tight text-navy">
           <BarChart3 className="h-7 w-7 text-primary" aria-hidden="true" /> Community Results
         </h1>
-        <p className="mt-2 text-charcoal/70">How the OM AI tools are performing across the whole community — shown honestly, with sample sizes and confidence intervals.</p>
+        <p className="mt-2 text-charcoal/70">How OM AI Plays are performing across the whole community — a fresh record, shown honestly with sample sizes and confidence intervals.</p>
       </header>
       <CommunityResults />
     </div>
