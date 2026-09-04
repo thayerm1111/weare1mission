@@ -147,9 +147,20 @@ function CallChart({ d, call }: { d: DecisionObject; call: NonNullable<DecisionO
     { label: `Entry ${fmt(call.entry)}`, v: call.entry, c: "#FFFFFF", bold: true },
     { label: `SL ${fmt(call.stopLoss)}`, v: call.stopLoss, c: DK.red },
   ].filter(Boolean) as { label: string; v: number; c: string; bold?: boolean }[];
+  const dirCol = call.direction === "buy" ? DK.green : DK.red;
+  // Expected path: sketched forward from the last candle into the right margin.
+  const path = (call.expectedPath ?? []).filter((p) => p.price <= hi && p.price >= lo);
+  const pathX0 = padL + (cs.length - 0.5) * iw;
+  const pathX1 = W - padR - 4;
+  const pathPts = path.length >= 2 ? path.map((p, i) => ({ x: pathX0 + ((pathX1 - pathX0) * i) / (path.length - 1), yy: y(p.price), label: p.label })) : [];
   return (
     <div style={{ background: "#05080D", border: `1px solid ${DK.line}`, borderRadius: 14, padding: "10px 6px 6px" }}>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block" }} aria-label="Matty's call levels on the 15M chart">
+        {call.entryPlan && Math.abs(y(call.entryPlan.zoneLow) - y(call.entryPlan.zoneHigh)) > 1 && (
+          <rect x={padL} y={y(call.entryPlan.zoneHigh)} width={W - padL - padR + 8}
+            height={Math.max(2, y(call.entryPlan.zoneLow) - y(call.entryPlan.zoneHigh))}
+            fill={dirCol} opacity={0.1} rx={2} />
+        )}
         {cs.map((k, i) => {
           const x = padL + i * iw + iw / 2, up = k.c >= k.o;
           const col = up ? DK.green : DK.red;
@@ -161,14 +172,31 @@ function CallChart({ d, call }: { d: DecisionObject; call: NonNullable<DecisionO
             </g>
           );
         })}
-        {lvls.map((L) => (
-          <g key={L.label}>
-            <line x1={padL} x2={W - padR + 8} y1={y(L.v)} y2={y(L.v)} stroke={L.c} strokeWidth={L.bold ? 1.4 : 1.1} strokeDasharray="6 5" opacity={L.bold ? 0.95 : 0.8} />
-            <text x={W - padR + 14} y={y(L.v) + 4} fontSize={15} fontWeight={700} fill={L.c}>
-              {clamped(L.v) ? `${L.label} ↑` : L.label}
-            </text>
+        {(() => {
+          // Push overlapping right-edge labels apart (Entry and SL can sit $3 apart)
+          // while the dashed lines stay at their true prices.
+          const rows = lvls.map((L) => ({ ...L, ly: y(L.v) })).sort((a, b) => a.ly - b.ly);
+          for (let i = 1; i < rows.length; i++) if (rows[i].ly - rows[i - 1].ly < 17) rows[i].ly = rows[i - 1].ly + 17;
+          for (let i = rows.length - 1; i >= 0; i--) if (rows[i].ly > H - 6) rows[i].ly = H - 6;
+          return rows.map((L) => (
+            <g key={L.label}>
+              <line x1={padL} x2={W - padR + 8} y1={y(L.v)} y2={y(L.v)} stroke={L.c} strokeWidth={L.bold ? 1.4 : 1.1} strokeDasharray="6 5" opacity={L.bold ? 0.95 : 0.8} />
+              <text x={W - padR + 14} y={L.ly + 4} fontSize={15} fontWeight={700} fill={L.c}>
+                {clamped(L.v) ? `${L.label} ↑` : L.label}
+              </text>
+            </g>
+          ));
+        })()}
+        {pathPts.length >= 2 && (
+          <g>
+            <polyline points={pathPts.map((p) => `${p.x},${p.yy}`).join(" ")}
+              fill="none" stroke={dirCol} strokeWidth={2} strokeDasharray="2 6"
+              strokeLinecap="round" opacity={0.85} />
+            {pathPts.map((p, i) => (
+              <circle key={i} cx={p.x} cy={p.yy} r={i === pathPts.length - 1 ? 4 : 2.6} fill={dirCol} opacity={0.9} />
+            ))}
           </g>
-        ))}
+        )}
       </svg>
     </div>
   );
@@ -189,7 +217,7 @@ function CopyCell({ label, value, pips, color, big }: { label: string; value: st
   );
 }
 
-function ExecutePanel({ call }: { call: NonNullable<DecisionObject["call"]> }) {
+function ExecutePanel({ call, livePrice }: { call: NonNullable<DecisionObject["call"]>; livePrice: number }) {
   const [accts, setAccts] = useState<MpAccount[]>([]);
   const [acct, setAcct] = useState<string>("");
   const [risk, setRisk] = useState<number>(1);
@@ -207,12 +235,20 @@ function ExecutePanel({ call }: { call: NonNullable<DecisionObject["call"]> }) {
 
   async function place() {
     setStep("placing"); setNote("");
+    // A market execution fills at the CURRENT price. When the plan is a
+    // LIMIT/STOP entry elsewhere, re-anchor the stop and TP1 at the live
+    // print so the dollar risk stays exactly what the card promised.
+    const marketNow = call.executionState && call.executionState !== "TAKE_NOW" && Number.isFinite(livePrice);
+    const up = call.direction === "buy";
+    const entry = marketNow ? livePrice : call.entry;
+    const stop = marketNow ? +(up ? livePrice - call.stopDollars : livePrice + call.stopDollars).toFixed(2) : call.stopLoss;
+    const tp = marketNow ? +(up ? livePrice + call.tp1Dollars : livePrice - call.tp1Dollars).toFixed(2) : call.tp1;
     try {
       const r = await fetch("/api/flow/execute", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
           source: "play", symbol: "XAUUSD", side: call.direction,
-          entry: call.entry, stop: call.stopLoss, tp: call.tp1,
+          entry, stop, tp,
           riskPct: risk, accountId: acct || "all",
         }),
       });
@@ -230,8 +266,14 @@ function ExecutePanel({ call }: { call: NonNullable<DecisionObject["call"]> }) {
       </div>
     );
   }
+  const notNow = call.executionState && call.executionState !== "TAKE_NOW";
   return (
     <div style={{ marginTop: 14, borderTop: `1px solid ${DK.line}`, paddingTop: 13 }}>
+      {notNow && call.entryPlan && (
+        <div style={{ marginBottom: 10, fontSize: 12, color: "#FBBF24", lineHeight: 1.5 }}>
+          ⚠ The plan is <b>{call.executionState === "WAIT_FOR_PRICE" ? `a LIMIT at ${fmt(call.entryPlan.price)}` : `a stop entry on the break of ${fmt(call.entryPlan.price)}`}</b> — executing here fills at market instead, with the same ${call.stopDollars.toFixed(2)} stop and ${call.tp1Dollars.toFixed(2)} TP1 re-anchored to your fill. Better price = wait for the zone.
+        </div>
+      )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
         <select value={acct} onChange={(e) => setAcct(e.target.value)} style={{ ...selStyle, maxWidth: 300 }}>
           {accts.map((a) => <option key={`${a.connection_id}:${a.account_id}`} value={String(a.account_id)}>{a.name || `Account ${a.acc_num}`}</option>)}
@@ -261,31 +303,82 @@ function ExecutePanel({ call }: { call: NonNullable<DecisionObject["call"]> }) {
   );
 }
 
+function MiniBar({ label, value, color, max = 100 }: { label: string; value: number; color: string; max?: number }) {
+  return (
+    <div style={{ flex: "1 1 130px", minWidth: 120 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: DK.faint }}>{label}</span>
+        <span style={{ fontSize: 11.5, fontWeight: 800, color, fontVariantNumeric: "tabular-nums" }}>{value}</span>
+      </div>
+      <div style={{ height: 6, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${Math.max(2, Math.min(100, (value / max) * 100))}%`, borderRadius: 999, background: color, transition: "width .5s" }} />
+      </div>
+    </div>
+  );
+}
+
+function Chip({ children, color }: { children: React.ReactNode; color?: string }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 999, border: `1px solid ${DK.line}`, background: DK.cell, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: color ?? DK.sub, whiteSpace: "nowrap" }}>
+      {children}
+    </span>
+  );
+}
+
+const EXEC_META: Record<string, { label: string; color: string; bg: string }> = {
+  TAKE_NOW: { label: "TAKE IT NOW", color: "#04121C", bg: DK.green },
+  WAIT_FOR_PRICE: { label: "WAIT FOR PRICE", color: "#1A1204", bg: "#FBBF24" },
+  BREAKOUT_ENTRY: { label: "BREAKOUT ENTRY", color: "#04121C", bg: DK.blue },
+};
+
 function MattysCall({ d }: { d: DecisionObject }) {
   const call = d.call!;
   const buy = call.direction === "buy";
   const col = buy ? DK.green : DK.red;
-  const conf = call.confidence;
+  const conf = call.conviction ?? call.confidence;
   const confCol = conf >= 70 ? DK.green : conf >= 55 ? "#FBBF24" : DK.sub;
   const pips = (v: number | null) => (v == null ? null : `${Math.round(Math.abs(v - call.entry) / 0.1).toLocaleString()}`);
+  const exec = call.executionState ? EXEC_META[call.executionState] : null;
+  const hasV2 = call.buyScore != null && call.sellScore != null;
   return (
     <div style={{ background: DK.bg, borderRadius: 20, border: `1px solid ${DK.line}`, boxShadow: "0 16px 40px rgba(0,0,0,0.35)", padding: "22px 24px", marginBottom: 14, color: DK.ink }}>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px 16px", marginBottom: 10 }}>
         <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 10.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: DK.faint }}>Matty&rsquo;s call · right now</div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 11.5, fontWeight: 800, color: confCol }}>{conf}% confident</span>
+          <span style={{ fontSize: 11.5, fontWeight: 800, color: confCol }}>{conf}% conviction</span>
           <span style={{ width: 92, height: 7, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden", display: "inline-block" }}>
             <span style={{ display: "block", height: "100%", width: `${conf}%`, borderRadius: 999, background: confCol, transition: "width .5s" }} />
           </span>
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap", marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 10 }}>
         <span style={{ fontSize: 30, fontWeight: 850, letterSpacing: "-0.01em", color: col }}>{buy ? "BUY GOLD" : "SELL GOLD"}</span>
+        {exec && (
+          <span style={{ padding: "6px 14px", borderRadius: 999, fontSize: 12, fontWeight: 900, letterSpacing: "0.08em", background: exec.bg, color: exec.color }}>
+            {exec.label}{call.executionState !== "TAKE_NOW" && call.entryPlan ? ` · ${fmt(call.entryPlan.price)}` : ""}
+          </span>
+        )}
         <span style={{ fontSize: 12.5, fontWeight: 700, color: DK.sub }}>Risk : Reward 1 : {call.rr1}</span>
       </div>
+      {(call.setupFamily || call.regime || call.session || call.volatility || call.expectedMove) && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+          {call.setupFamily && <Chip color={col}>{call.setupFamily.replace(/_/g, " ")}</Chip>}
+          {call.expectedMove && <Chip color={DK.ink}>next move ${call.expectedMove.min}–${call.expectedMove.max}</Chip>}
+          {call.regime && <Chip>4H {call.regime}</Chip>}
+          {call.session && <Chip>{call.session}</Chip>}
+          {call.volatility && <Chip color={call.volatility === "EXTREME" ? DK.red : call.volatility === "ELEVATED" ? "#FBBF24" : DK.sub}>vol {call.volatility}</Chip>}
+        </div>
+      )}
       <div style={{ margin: "0 0 14px", fontSize: 13.5, lineHeight: 1.6, color: DK.sub, borderLeft: `3px solid ${col}55`, paddingLeft: 12 }}>
-        Gun to the head, this is the side I take — {call.reasons[0]}. Stop ${call.stopDollars.toFixed(2)} away, first target ${call.tp1Dollars.toFixed(2)} out.
+        {call.entryPlan?.note ? call.entryPlan.note : <>Gun to the head, this is the side I take — {call.reasons[0]}. Stop ${call.stopDollars.toFixed(2)} away, first target ${call.tp1Dollars.toFixed(2)} out.</>}
       </div>
+      {hasV2 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px 18px", marginBottom: 14, padding: "12px 14px", borderRadius: 14, border: `1px solid ${DK.line}`, background: DK.cell }}>
+          <MiniBar label="Buy case" value={call.buyScore!} color={DK.green} />
+          <MiniBar label="Sell case" value={call.sellScore!} color={DK.red} />
+          {call.entryQualityScore != null && <MiniBar label="Entry quality" value={call.entryQualityScore} color={call.entryQualityScore >= 60 ? DK.green : call.entryQualityScore >= 40 ? "#FBBF24" : DK.red} />}
+        </div>
+      )}
 
       <CallChart d={d} call={call} />
 
@@ -313,7 +406,24 @@ function MattysCall({ d }: { d: DecisionObject }) {
           </div>
         )}
       </div>
-      <ExecutePanel call={call} />
+      {Array.isArray(call.timeframes) && call.timeframes.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, marginTop: 14 }}>
+          {call.timeframes.map((tf) => (
+            <div key={tf.tf} title={tf.note} style={{ background: DK.cell, border: `1px solid ${DK.line}`, borderRadius: 12, padding: "10px 10px", textAlign: "center" }}>
+              <div style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.16em", color: DK.faint }}>{tf.tf}</div>
+              <div style={{ marginTop: 4, fontSize: 12, fontWeight: 800, color: /UP|BUY/.test(tf.state) ? DK.green : /DOWN|SELL/.test(tf.state) ? DK.red : DK.sub }}>
+                {tf.state}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {Array.isArray(call.riskFactors) && call.riskFactors.length > 0 && (
+        <div style={{ marginTop: 12, fontSize: 12, color: DK.faint, lineHeight: 1.6 }}>
+          {call.riskFactors.slice(0, 3).map((r) => <div key={r}>⚠ {r}</div>)}
+        </div>
+      )}
+      <ExecutePanel call={call} livePrice={d.price} />
     </div>
   );
 }
