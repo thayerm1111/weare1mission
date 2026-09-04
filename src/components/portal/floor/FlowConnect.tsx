@@ -89,6 +89,24 @@ function money(n: number | null | undefined) {
 export function FlowConnect() {
   const [state, setState] = useState<BrokerState | null>(null);
   const [loading, setLoading] = useState(true);
+  // 🧠 Matty Pips per-account copy state (lives in matty_pips_* tables, read via the
+  // matty-pips API — FLOW's own API and tables are untouched by this feature).
+  const [mpMap, setMpMap] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/matty-pips/accounts");
+        const j = await r.json();
+        if (!dead && j?.ok && Array.isArray(j.accounts)) {
+          const m: Record<string, boolean> = {};
+          for (const a of j.accounts as { connection_id: string; account_id: string; enabled: boolean }[]) m[`${a.connection_id}:${a.account_id}`] = a.enabled === true;
+          setMpMap(m);
+        }
+      } catch { /* best-effort */ }
+    })();
+    return () => { dead = true; };
+  }, []);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
@@ -322,6 +340,19 @@ export function FlowConnect() {
       await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "partialtoggle", accountId: a.accountId, connectionId: a.connectionId, enabled }) });
       if (a.manageTrades === false) await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: true }) });
     } catch { void load(); }
+  }
+
+  async function setAccountMatty(a: Account, enabled: boolean) {
+    // 🧠 MATTY PIPS (owner 09-04): copy the standalone Matty Pips AI onto this account.
+    // Stored ONLY in matty_pips_* tables via the matty-pips API — FLOW's engine, tables
+    // and behavior are untouched; Matty Pips places and manages its own trades.
+    setMpMap((prev) => ({ ...prev, [`${a.connectionId}:${a.accountId}`]: enabled }));
+    try {
+      await fetch("/api/matty-pips/accounts", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accountId: a.accountId, connectionId: a.connectionId, accNum: a.accNum, enabled }),
+      });
+    } catch { /* optimistic; the Matty Pips page shows authoritative state */ }
   }
 
   async function setAccountSendIt(a: Account, enabled: boolean) {
@@ -671,6 +702,27 @@ export function FlowConnect() {
                               </button>
                             </div>
                           </div>
+                          {(() => {
+                            const mpOn = mpMap[`${a.connectionId}:${a.accountId}`] === true;
+                            return (
+                              <div className={`mt-2 flex items-center justify-between gap-3 rounded-lg border px-2.5 py-2 ${mpOn ? "border-sky-500/50 bg-sky-500/[0.07]" : "border-ice bg-offwhite/40"}`}>
+                                <div className="min-w-0">
+                                  <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${mpOn ? "text-sky-600" : "text-charcoal/55"}`}>🧠 Matty Pips</span>
+                                  <p className="mt-0.5 text-[10px] leading-tight text-charcoal/45">{mpOn ? "ON — this account copies Matty Pips AI trades (its own BE, partials and risk %). Fine-tune on the Matty Pips page." : "Copy the Matty Pips AI onto this account — level-first gold reads, structural stops, its own management. Configure risk on the Matty Pips page."}</p>
+                                </div>
+                                <div className="flex flex-shrink-0 items-center gap-2">
+                                  <span className={`text-[11px] font-semibold ${mpOn ? "text-sky-600" : "text-charcoal/40"}`}>{mpOn ? "On" : "Off"}</span>
+                                  <button
+                                    onClick={() => void setAccountMatty(a, !mpOn)}
+                                    aria-pressed={mpOn}
+                                    className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${mpOn ? "bg-sky-500" : "bg-charcoal/20"}`}
+                                  >
+                                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${mpOn ? "left-[22px]" : "left-0.5"}`} />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </>
                       );
                     })()}
