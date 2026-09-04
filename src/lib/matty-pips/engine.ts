@@ -29,7 +29,8 @@ import { dxyContext } from "./dxy";
 import { newsRead } from "./news";
 import { getInstrument, priceToPips, formatPrice } from "./pips";
 import { whyThisTrade, coachLines, watchLine } from "./narrate";
-import { buildCall } from "./verdict";
+import { decideGold } from "./decide";
+import { loadConfig } from "./configDb";
 
 const QUALITY_FLOOR: Record<Mode, TradeQuality[]> = {
   conservative: ["HIGH_QUALITY", "A_PLUS"],
@@ -273,16 +274,17 @@ export async function runEngine(o: {
   };
   decision.whyThisTrade = whyThisTrade(decision);
   decision.coach = coachLines(decision);
-  // MATTY'S CALL — the always-on directional decision (gold only; owner 09-04).
-  // Never gates or changes the TAKE_NOW engine above — purely additive.
+  // MATTY'S CALL — the GOLD DECISION ENGINE (always-on, gold only). ONE pure
+  // decision function shared with the replay harness; the live path injects
+  // the DXY verdict and the gated engine's direction as a tiebreak. Never
+  // gates or changes the TAKE_NOW engine above — purely additive.
   if (o.symbol === "XAUUSD") {
     try {
-      decision.call = buildCall({
-        price, atr15, levels, sctx, reaction,
-        engineDirection: direction, momentumV: momentumV ?? "WAIT_FOR_PULLBACK", sar, fractals,
-        sweep: liq.sweep ? { side: liq.sweep.side, extreme: liq.sweep.extreme } : null,
-        dxyVerdict: dxy.verdict, scoreTotal: score.total,
-      });
+      const cfg = await loadConfig();   // DB-tunable weights, 60s cache, fail-soft
+      decision.call = decideGold(
+        { d: mkt.d, h4: mkt.h4, h1: mkt.h1, m15: mkt.m15, m5: mkt.m5, price },
+        { dxyVerdict: dxy.verdict, engineDirection: direction, cfg },
+      );
     } catch { decision.call = null; }
   }
   return decision;

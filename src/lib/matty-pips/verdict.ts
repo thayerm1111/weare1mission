@@ -19,11 +19,19 @@ import type {
   DxyVerdict, FractalRead, MarketState, MomentumVerdict, RankedLevel,
   ReactionRead, SarRead, StructureContext,
 } from "./types";
+import type { EntryPlan, ExecutionState } from "./execution";
+import type { PathPoint } from "./path";
+
+export type SetupFamily =
+  | "SUPPORT_BUY" | "RESISTANCE_SELL" | "BREAKOUT"
+  | "TREND_PULLBACK" | "LIQUIDITY_SWEEP" | "MOMENTUM";
+
+export type TfSummary = { tf: "D" | "4H" | "1H" | "15M" | "5M"; state: string; note: string };
 
 export type MattyCall = {
   direction: "buy" | "sell";
-  confidence: number;              // 0–100
-  entry: number;
+  confidence: number;              // 0–100 (mirrors conviction in v2 calls)
+  entry: number;                   // the price ALL trade math anchors to (the plan's price)
   stopLoss: number;
   tp1: number;
   tp2: number | null;
@@ -34,6 +42,25 @@ export type MattyCall = {
   reasons: string[];               // what lines up behind the call
   against: string[];               // what argues against it (honesty)
   summary: string;                 // one Matty-voice sentence
+
+  /* ── GOLD DECISION ENGINE v2 (all optional — older saved calls lack them) ── */
+  conviction?: number;             // DIRECTIONAL CONVICTION 0–100, differential-driven
+  buyScore?: number;               // BUY side scored 0–100
+  sellScore?: number;              // SELL side scored 0–100
+  differential?: number;           // |buy − sell| — what conviction runs on
+  scoreParts?: { buy: Record<string, number>; sell: Record<string, number> };
+  executionState?: ExecutionState; // TAKE_NOW | WAIT_FOR_PRICE | BREAKOUT_ENTRY
+  entryPlan?: EntryPlan;           // MARKET/LIMIT/STOP + the fill zone
+  entryQualityScore?: number;      // ENTRY QUALITY 0–100 (separate from direction)
+  expectedMove?: { min: number; primary: number; max: number };  // dollars
+  setupFamily?: SetupFamily;
+  regime?: string;                 // 4H tide
+  session?: string;                // which session is live
+  volatility?: string;             // LOW/NORMAL/ELEVATED/EXTREME
+  timeframes?: TfSummary[];        // D / 4H / 1H / 15M / 5M one-liners
+  riskFactors?: string[];
+  expectedPath?: PathPoint[];      // drawable path sketch for the chart
+  engine?: string;                 // decision-engine version tag
 };
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
