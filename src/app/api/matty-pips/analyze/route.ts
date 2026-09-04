@@ -49,6 +49,16 @@ async function handle(symbol: string, modeRaw: string | null): Promise<Response>
         reaction: res.reaction.state, confirmed: res.reaction.confirmedByClose,
         entryQuality: res.entryQuality, tradeQuality: res.tradeQuality,
         zone: res.monitoring.zone, price: res.price,
+        // GOLD DECISION ENGINE snapshot — lets the outcome cron grade every call.
+        call: res.call ? {
+          direction: res.call.direction, conviction: res.call.conviction ?? res.call.confidence,
+          buyScore: res.call.buyScore, sellScore: res.call.sellScore,
+          executionState: res.call.executionState, setupFamily: res.call.setupFamily,
+          entry: res.call.entry, stopLoss: res.call.stopLoss,
+          tp1: res.call.tp1, tp2: res.call.tp2, tp3: res.call.tp3,
+          regime: res.call.regime, session: res.call.session, volatility: res.call.volatility,
+          engine: res.call.engine,
+        } : null,
       },
     });
     return json({ ...res, analysisId }, 200);
