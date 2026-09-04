@@ -184,9 +184,13 @@ export async function runEngine(o: {
   const roomToNext = direction ? roomFor(direction) : null;
   const asym = built?.trade ? asymmetry(roomToNext, built.riskDist) : null;
 
-  // 10) Bad-location filter + entry quality.
+  // 10) Bad-location filter + ENTRY TIMING ENGINE (dynamic extension, no fixed pips).
   const boxedIn = built?.trade && direction ? badLocation({ direction, price, riskDist: built.riskDist, levels, atr15 }) : null;
-  const eq = node && direction ? entryQuality({ price, node, reaction, atr15, continuationOk: momentumV === "CONTINUATION_ENTRY_AVAILABLE" }) : null;
+  const eq = node && direction ? entryQuality({
+    price, node, reaction, atr15,
+    riskDist: built?.riskDist ?? null, roomToNext,
+    continuationOk: momentumV === "CONTINUATION_ENTRY_AVAILABLE",
+  }) : null;
 
   // 11) Score + GOOD-vs-POSSIBLE verdict.
   const score = scoreDecision({
@@ -206,7 +210,11 @@ export async function runEngine(o: {
   let finalTrade: DecisionObject["trade"] = null;
   let noTradeReason: string | null = null;
 
-  if (built?.trade && direction && reaction.confirmedByClose && !gateReason && !boxedIn && qualityOk && newsOk) {
+  // PATIENT BEFORE CONFIRMATION, FAST AFTER: a confirmed reaction fires only
+  // while the entry window is still open (OPTIMAL/ACCEPTABLE extension).
+  const eqOk = !eq || eq.quality === "OPTIMAL" || eq.quality === "ACCEPTABLE";
+  const windowMissed = !!eq && reaction.confirmedByClose && (eq.quality === "LATE" || eq.quality === "CHASE");
+  if (built?.trade && direction && reaction.confirmedByClose && !gateReason && !boxedIn && qualityOk && newsOk && eqOk) {
     status = "TAKE_NOW";
     const runnerDesc = built.trade.runnerTarget != null
       ? `${formatPrice(o.symbol, built.trade.runnerTarget)} (range midpoint / next major level)`
@@ -216,7 +224,8 @@ export async function runEngine(o: {
     if (node && (["TESTING", "RESPECTING"].includes(reaction.state) || (["REJECTING", "FAILED_BREAK", "BREAK_RETEST"].includes(reaction.state) && !reaction.confirmedByClose))) status = "ARMED";
     else if (node && (reaction.state === "APPROACHING" || reaction.state === "ACCEPTED_BREAK" || reaction.state === "MOMENTUM_CONTINUATION" || reaction.state === "EXPANSION_BREAKOUT")) status = "APPROACHING";
     noTradeReason =
-      boxedIn ? boxedIn
+      windowMissed && eq ? `SETUP WAS VALID — ${eq.detail} MOVE IN PROGRESS: waiting for a pullback, new ${direction === "buy" ? "support" : "resistance"}, or new structure — not chasing.`
+      : boxedIn ? boxedIn
       : !newsOk ? news.note
       : gateReason ? gateReason
       : built?.trade && !qualityOk ? `Setup exists but grades ${quality.replace(/_/g, " ")} (score ${score.total}) — under the ${mode} floor. A possible trade isn't a good trade.`

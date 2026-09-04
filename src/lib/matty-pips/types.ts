@@ -142,7 +142,7 @@ export type LiquidityContext = {
 export type BreakoutQuality = "BREAKOUT_WEAK" | "BREAKOUT_VALID" | "BREAKOUT_STRONG";
 export type Acceptance = "ACCEPTANCE" | "REJECTION" | "UNDECIDED";
 export type TradeQuality = "NO_TRADE" | "LOW_QUALITY" | "VALID" | "HIGH_QUALITY" | "A_PLUS";
-export type EntryQuality = "EARLY" | "OPTIMAL" | "LATE" | "CHASE";
+export type EntryQuality = "EARLY" | "OPTIMAL" | "ACCEPTABLE" | "LATE" | "CHASE";
 
 // ── TRADE OUTPUT ────────────────────────────────────────────────────────────
 export type SetupType =

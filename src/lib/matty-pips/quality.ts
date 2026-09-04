@@ -57,21 +57,43 @@ export function acceptanceRead(o: {
   return { acceptance: "UNDECIDED", detail: "No clear acceptance or rejection beyond the level yet." };
 }
 
-/** Entry timing quality. CHASE is only rescued by the continuation evaluator. */
+/**
+ * ENTRY TIMING ENGINE — dynamic extension score, never one fixed pip number.
+ * Measures how far price has run from the reaction zone in ATR terms, against
+ * the structural stop, and as a share of the expected path to the target.
+ * PATIENT BEFORE CONFIRMATION, FAST AFTER: a confirmed reclaim right at the
+ * level is OPTIMAL; the same setup 50–70 pips later is LATE — wait, don't chase.
+ */
 export function entryQuality(o: {
   price: number;
   node: { low: number; high: number };
   reaction: ReactionRead;
   atr15: number;
-  continuationOk: boolean;
+  riskDist: number | null;      // entry → structural stop
+  roomToNext: number | null;    // remaining room to the next opposing level
+  continuationOk: boolean;      // the momentum engine found a valid NEW entry
 }): { quality: EntryQuality; detail: string } {
-  const dist = o.price > o.node.high ? o.price - o.node.high : o.price < o.node.low ? o.node.low - o.price : 0;
-  const atLevel = dist <= 0.7 * o.atr15;
-  if (atLevel && o.reaction.confirmedByClose) return { quality: "OPTIMAL", detail: "Confirmed right at the level — the entry Matty wants." };
-  if (atLevel) return { quality: "EARLY", detail: "At the level but the confirming 15M close hasn't printed yet." };
-  if (dist <= 1.8 * o.atr15) return { quality: "LATE", detail: `Already ${f(dist)} from the level — playable, but the best price is gone.` };
-  if (o.continuationOk) return { quality: "LATE", detail: `Extended ${f(dist)} from the level, but the continuation engine found a structurally valid new entry.` };
-  return { quality: "CHASE", detail: `${f(dist)} beyond the level with no fresh structure — chasing. Skip.` };
+  const ext = o.price > o.node.high ? o.price - o.node.high : o.price < o.node.low ? o.node.low - o.price : 0;
+  const extAtr = ext / Math.max(o.atr15, 1e-9);
+  const extRisk = o.riskDist && o.riskDist > 0 ? ext / o.riskDist : null;
+  const pathPct = o.roomToNext != null && ext + o.roomToNext > 0 ? ext / (ext + o.roomToNext) : null;
+  const nums = `${f(ext)} from the zone (${extAtr.toFixed(1)}×ATR${extRisk != null ? `, ${Math.round(extRisk * 100)}% of the stop` : ""}${pathPct != null ? `, ${Math.round(pathPct * 100)}% of the path used` : ""})`;
+
+  if (ext <= 0.6 * o.atr15 || (extRisk != null && extRisk <= 0.35)) {
+    return o.reaction.confirmedByClose
+      ? { quality: "OPTIMAL", detail: `Confirmed right at the level — ${nums}. The entry Matty wants.` }
+      : { quality: "EARLY", detail: `At the level (${nums}) but the trigger hasn't fired yet.` };
+  }
+  if ((extAtr <= 1.3 || (extRisk != null && extRisk <= 0.6)) && (pathPct == null || pathPct < 0.3)) {
+    return { quality: "ACCEPTABLE", detail: `Slightly extended — ${nums} — still close enough for the risk to make sense.` };
+  }
+  if (o.continuationOk) {
+    return { quality: "ACCEPTABLE", detail: `Extended ${nums}, but the continuation engine found a structurally valid NEW entry (fresh stop, room ahead).` };
+  }
+  if (extAtr <= 2.6 && (pathPct == null || pathPct < 0.55)) {
+    return { quality: "LATE", detail: `ENTRY HAS MOVED — ${nums}. The original risk/reward is gone; wait for a pullback, new support/resistance, or new structure.` };
+  }
+  return { quality: "CHASE", detail: `${nums} — substantially through the expected move with no fresh structure. Do not chase.` };
 }
 
 /**
@@ -113,6 +135,7 @@ export function tradeQualityVerdict(o: {
 }): TradeQuality {
   if (!o.hasTradeMath) return "NO_TRADE";
   if (o.boxedIn || o.entry === "CHASE") return "LOW_QUALITY";
+  if (o.entry === "LATE") return o.total >= 70 ? "VALID" : "LOW_QUALITY"; // the setup was right — the entry window wasn't
   if (!o.confirmed) return o.total >= 70 ? "VALID" : "LOW_QUALITY"; // unconfirmed can't be HQ
   if (o.total >= 88) return "A_PLUS";
   if (o.total >= 76) return "HIGH_QUALITY";

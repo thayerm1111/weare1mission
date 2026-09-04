@@ -96,22 +96,38 @@ export function readReaction(o: {
   const inside = o.price >= low - buf && o.price <= high + buf;
   const touchedRecently = recent.some((x) => x.l <= high + buf && x.h >= low - buf);
   if (inside || touchedRecently) {
-    // REJECTING: a candle reacted off the level AND a closed candle confirms direction
-    // (no size threshold — the question is "did it reject and did the close confirm?").
+    // REJECTING / RECLAIM — the entry-timing core. A CLEAN rejection matters
+    // more than a large candle body (owner rule): the level was tested, the
+    // other side failed to hold beyond it, and a completed 15M candle closed
+    // back on the right side. Confirmation comes from the EARLIEST reliable
+    // signal: (a) the reclaim candle itself closing directionally, (b) a later
+    // closed candle confirming, or (c) METHOD B — price breaking the completed
+    // rejection candle's extreme while still near the zone (the setup candle
+    // is already closed; the next price action is only the execution trigger).
     if (kind === "resistance") {
-      const rejBar = recent.slice(-3).find((x) => x.h >= low - buf && x.c < low && (x.h - Math.max(x.o, x.c)) / Math.max(x.h - x.l, 1e-9) >= 0.35);
-      const confirming = k.c < k.o && k.c < low;
-      if (rejBar && (confirming || (rejBar === k && k.c < k.o))) {
-        return { state: "REJECTING", brokeDirection: null, confirmedByClose: true, detail: `Rejected ${f(low)}–${f(high)}: wick to ${f(rejBar.h)}, closed ${f(rejBar.c)} back under, and a red candle confirms the move away.` };
+      const rejBar = recent.slice(-3).find((x) => x.h >= low - buf && x.c < low);
+      if (rejBar) {
+        const sellersFailing = recent.slice(-2).every((x) => x.c < high + buf);
+        const wickPct = Math.round(((rejBar.h - Math.max(rejBar.o, rejBar.c)) / Math.max(rejBar.h - rejBar.l, 1e-9)) * 100);
+        const closeConfirm = (k.c < k.o && k.c < low) || (rejBar === k && k.c < k.o);
+        const followThrough = o.price < rejBar.l && o.price > low - 2.5 * o.atr15; // broke the rejection candle's low, still near the zone
+        if ((closeConfirm || followThrough) && sellersFailing) {
+          return { state: "REJECTING", brokeDirection: null, confirmedByClose: true, detail: `RESISTANCE_RECLAIM: tested ${f(low)}–${f(high)} (wick ${wickPct}%, spiked ${f(rejBar.h)}), closed back at ${f(rejBar.c)} — buyers failed to hold it${closeConfirm ? "; red close confirms" : `; price broke the rejection candle's low ${f(rejBar.l)} — follow-through trigger`}.` };
+        }
+        return { state: "REJECTING", brokeDirection: null, confirmedByClose: false, detail: `Rejection forming at ${f(low)}–${f(high)} (spiked ${f(rejBar.h)}, closed ${f(rejBar.c)}) — trigger: a red close, or a break under ${f(rejBar.l)} while near the zone.` };
       }
-      if (rejBar) return { state: "REJECTING", brokeDirection: null, confirmedByClose: false, detail: `Wick rejection at ${f(low)}–${f(high)} (high ${f(rejBar.h)}, close ${f(rejBar.c)}) — waiting for the confirming red close.` };
     } else {
-      const rejBar = recent.slice(-3).find((x) => x.l <= high + buf && x.c > high && (Math.min(x.o, x.c) - x.l) / Math.max(x.h - x.l, 1e-9) >= 0.35);
-      const confirming = k.c > k.o && k.c > high;
-      if (rejBar && (confirming || (rejBar === k && k.c > k.o))) {
-        return { state: "REJECTING", brokeDirection: null, confirmedByClose: true, detail: `Rejected ${f(low)}–${f(high)}: wick to ${f(rejBar.l)}, closed ${f(rejBar.c)} back above, and a green candle confirms the move away.` };
+      const rejBar = recent.slice(-3).find((x) => x.l <= high + buf && x.c > high);
+      if (rejBar) {
+        const buyersHolding = recent.slice(-2).every((x) => x.c > low - buf);
+        const wickPct = Math.round(((Math.min(rejBar.o, rejBar.c) - rejBar.l) / Math.max(rejBar.h - rejBar.l, 1e-9)) * 100);
+        const closeConfirm = (k.c > k.o && k.c > high) || (rejBar === k && k.c > k.o);
+        const followThrough = o.price > rejBar.h && o.price < high + 2.5 * o.atr15; // broke the reclaim candle's high, still near the zone
+        if ((closeConfirm || followThrough) && buyersHolding) {
+          return { state: "REJECTING", brokeDirection: null, confirmedByClose: true, detail: `SUPPORT_RECLAIM: tested ${f(low)}–${f(high)} (wick ${wickPct}%, dipped ${f(rejBar.l)}), closed back at ${f(rejBar.c)} — sellers failed to hold below${closeConfirm ? "; green close confirms" : `; price broke the reclaim candle's high ${f(rejBar.h)} — follow-through trigger`}.` };
+        }
+        return { state: "REJECTING", brokeDirection: null, confirmedByClose: false, detail: `Reclaim forming at ${f(low)}–${f(high)} (dipped ${f(rejBar.l)}, closed ${f(rejBar.c)}) — trigger: a green close, or a break over ${f(rejBar.h)} while near the zone.` };
       }
-      if (rejBar) return { state: "REJECTING", brokeDirection: null, confirmedByClose: false, detail: `Wick rejection at ${f(low)}–${f(high)} (low ${f(rejBar.l)}, close ${f(rejBar.c)}) — waiting for the confirming green close.` };
     }
     // RESPECTING: multiple touches, closes keep holding the original side, no progress through.
     const touches = look.slice(-12).filter((x) => x.l <= high + buf && x.h >= low - buf).length;
