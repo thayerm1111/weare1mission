@@ -248,6 +248,10 @@ export type DecisionObject = {
   whyThisTrade: string[];
   engineVersion: string;
 
+  /** MATTY'S CALL (owner 09-04): the always-on "gun to the head" directional
+   *  decision with a confidence score — present on every read. See verdict.ts. */
+  call?: import("./verdict").MattyCall | null;
+
   /** Chart data so the UI can PAINT the picture: recent candles to draw
    *  against the level map, the trade lines, and the "what needs to happen"
    *  annotation. Snapshot travels with every saved read. */

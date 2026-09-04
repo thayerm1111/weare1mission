@@ -29,6 +29,7 @@ import { dxyContext } from "./dxy";
 import { newsRead } from "./news";
 import { getInstrument, priceToPips, formatPrice } from "./pips";
 import { whyThisTrade, coachLines, watchLine } from "./narrate";
+import { buildCall } from "./verdict";
 
 const QUALITY_FLOOR: Record<Mode, TradeQuality[]> = {
   conservative: ["HIGH_QUALITY", "A_PLUS"],
@@ -272,5 +273,17 @@ export async function runEngine(o: {
   };
   decision.whyThisTrade = whyThisTrade(decision);
   decision.coach = coachLines(decision);
+  // MATTY'S CALL — the always-on directional decision (gold only; owner 09-04).
+  // Never gates or changes the TAKE_NOW engine above — purely additive.
+  if (o.symbol === "XAUUSD") {
+    try {
+      decision.call = buildCall({
+        price, atr15, levels, sctx, reaction,
+        engineDirection: direction, momentumV: momentumV ?? "WAIT_FOR_PULLBACK", sar, fractals,
+        sweep: liq.sweep ? { side: liq.sweep.side, extreme: liq.sweep.extreme } : null,
+        dxyVerdict: dxy.verdict, scoreTotal: score.total,
+      });
+    } catch { decision.call = null; }
+  }
   return decision;
 }
