@@ -995,7 +995,10 @@ function FullCard({ r, onCheck, checking, onUpdate, updating, update }: { r: Res
         </div>
       )}
 
-      {(s.direction === "LONG" || s.direction === "SHORT") && s.status !== "no_trade" && numOk(s.entry) && numOk(s.stopLoss) && (s.takeProfits || []).some(numOk) && (
+      {/* Execute on desktop (owner 09-04): ANY directional play with an entry and a
+          stop can be placed on the member's accounts — no status gate, and a
+          missing TP no longer hides the panel (the order just goes out without one). */}
+      {(s.direction === "LONG" || s.direction === "SHORT") && numOk(s.entry) && numOk(s.stopLoss) && (
         <ExecuteSignal
           symbol={r.symbol}
           direction={s.direction}
