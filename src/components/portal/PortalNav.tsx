@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair, Radar, LifeBuoy, BarChart3, Smartphone, Gauge,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair, Radar, LifeBuoy, BarChart3, Smartphone, Gauge, Link2,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
@@ -28,7 +28,7 @@ const REG: Record<string, Item> = {
   scanner: { href: "/portal/strategy-scanner", label: "OM Strategy Scanner", icon: Radar },
   scalp: { href: "/portal/scalp", label: "OM Scalp", icon: Gauge },
   leaderboard: { href: "/portal/leaderboard", label: "Leaderboard", icon: Medal },
-  results: { href: "/portal/community", label: "Community Results", icon: BarChart3 },
+  results: { href: "/portal/community", label: "Results", icon: BarChart3 },
   trading: { href: "/portal/trading", label: "The Floor", icon: LineChart },
   schedule: { href: "/portal/schedule", label: "What's On", icon: CalendarClock },
   resources: { href: "/portal/resources", label: "Resources", icon: FolderOpen },
@@ -71,6 +71,7 @@ type FloorChild =
 // Also archived from the customer Floor menu: The Room, xGhost (5-pair), OM
 // Scalp, OM Charts, OM Strategy Scanner.
 const FLOOR_CHILDREN: FloorChild[] = [
+  { kind: "view", view: "flow", label: "FLOW", icon: Link2 },
   { kind: "page", key: "genx" },
   { kind: "page", key: "xaughost" },
   { kind: "page", key: "omai" },
@@ -142,7 +143,18 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
     </li>
   );
 
-  const Body = ({ compact }: { compact?: boolean }) => (
+  // Desktop-only grouping for The Ones (owner redesign 09-04): the same routes
+  // and items, organized under monospaced micro-headers for product clarity.
+  // Mobile keeps the existing flat list — the mobile experience is untouched.
+  const ONES_GROUPS: { label: string; keys: string[] }[] = [
+    { label: "Trading", keys: ["trading"] },
+    { label: "Performance", keys: ["results", "schedule"] },
+    { label: "One Mission", keys: ["startHere", "leadership"] },
+    { label: "Build", keys: ["updates"] },
+    { label: "More", keys: ["collection", "getApp", "account", "support"] },
+  ];
+
+  const Body = ({ compact, grouped }: { compact?: boolean; grouped?: boolean }) => (
     <div className="flex flex-col gap-1">
       {/* Dashboard (both sides) */}
       <NavLink item={REG.dashboard} active={pathname === "/portal"} onNav={() => setOpen(false)} />
@@ -236,6 +248,20 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
             </div>
           );
         };
+        if (side === "ones" && grouped) {
+          return (
+            <>
+              {ONES_GROUPS.map((g) => (
+                <div key={g.label}>
+                  <p className="px-3.5 pb-1 pt-3 font-mono text-[9.5px] font-bold uppercase tracking-[0.22em] text-charcoal/40" aria-hidden="true">
+                    {g.label}
+                  </p>
+                  {g.keys.map(renderKey)}
+                </div>
+              ))}
+            </>
+          );
+        }
         return side === "ones" ? (
           <>
             {ONES_PRIMARY.map(renderKey)}
@@ -355,7 +381,7 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
 
       {/* Desktop: sidebar */}
       <nav aria-label="Member portal" className="hidden min-w-0 lg:sticky lg:top-24 lg:block">
-        <Body />
+        <Body grouped />
       </nav>
     </>
   );
