@@ -121,7 +121,7 @@ export default function CommunityResults() {
           <span className="grid h-7 w-7 place-items-center rounded-full bg-gradient-primary"><Trophy className="h-4 w-4 text-cream" /></span>
           <div className="leading-tight">
             <h2 className="text-sm font-bold text-navy">Community track record</h2>
-            <p className="text-[11px] text-charcoal/55">All recorded outcomes across every OM AI tool</p>
+            <p className="text-[11px] text-charcoal/55">Every recorded OM AI Plays outcome — fresh record, live from the ledger</p>
           </div>
         </div>
 

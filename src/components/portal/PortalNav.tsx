@@ -380,7 +380,14 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
       </div>
 
       {/* Desktop: sidebar */}
-      <nav aria-label="Member portal" className="hidden min-w-0 lg:sticky lg:top-24 lg:block">
+      {/* Desktop sidebar scrolls INSIDE itself (owner 09-04): hover the nav and
+          the wheel moves the tabs, instead of having to scroll the whole page.
+          Thin quiet scrollbar; mobile dropdown untouched. */}
+      <nav
+        aria-label="Member portal"
+        className="portal-sidenav hidden min-w-0 lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-7.5rem)] lg:overflow-y-auto lg:overscroll-contain lg:pb-4 lg:pr-1"
+        style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(120,140,170,0.35) transparent" }}
+      >
         <Body grouped />
       </nav>
     </>
