@@ -10,15 +10,15 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <title>One Mission — Trade Desk</title>
 <style>:root{
-  --bg:#060912; --bg2:#0a1120; --panel:#0c1424; --panel2:#0e1830; --line:rgba(120,160,220,.14);
-  --ink:#eaf1ff; --muted:#93a3c4; --faint:#5f7099;
-  --green:#2ee88f; --greenglow:rgba(46,232,143,.45); --red:#ff5d6c; --amber:#ffc24b; --sky:#39c6ff; --slate:#7f8db0;
+  --bg:#04070d; --bg2:#0a1220; --panel:#0a1322; --panel2:#0c1728; --line:rgba(150,190,240,.12);
+  --ink:#f2f7ff; --muted:#8fa3c4; --faint:#5c6d92;
+  --green:#2ee8a0; --greenglow:rgba(46,232,160,.45); --red:#ff5d6c; --amber:#ffc24b; --sky:#41d8e6; --slate:#7f8db0;
   --navy:#6fa8ff;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:
-  radial-gradient(1200px 600px at 50% -10%,rgba(30,80,160,.18),transparent 60%),
-  radial-gradient(900px 500px at 100% 100%,rgba(20,120,90,.10),transparent 60%),
+  radial-gradient(1100px 560px at 50% -12%,rgba(28,90,150,.20),transparent 62%),
+  radial-gradient(800px 480px at 100% 104%,rgba(24,120,130,.10),transparent 60%),
   var(--bg);
   color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
@@ -253,13 +253,14 @@ input{font:inherit}
 /* bottom nav + screens */
 .shell{padding-top:calc(env(safe-area-inset-top,0px) + 6px);padding-bottom:76px}
 .bnav{position:fixed;left:0;right:0;bottom:0;max-width:600px;margin:0 auto;display:flex;
-  background:rgba(8,12,24,.92);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
-.bn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;color:var(--faint)}
-.bn-i{font-size:16px;line-height:1}
-.bn-l{font-size:9.5px;font-weight:700;letter-spacing:.02em;white-space:nowrap}
+  background:rgba(5,9,17,.94);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-top:1px solid rgba(150,190,240,.14);
+  border-radius:22px 22px 0 0;box-shadow:0 -14px 40px rgba(0,0,0,.55);padding:9px 6px calc(8px + env(safe-area-inset-bottom))}
+.bn{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;color:var(--faint);position:relative}
+.bn-i{font-size:18px;line-height:1}
+.bn-l{font-size:9.5px;font-weight:700;letter-spacing:.03em;white-space:nowrap}
 .bn.on{color:var(--sky)}
-.bn[data-id=flow]{color:var(--green)} .bn[data-id=flow].on{color:var(--green)} .bn[data-id=flow].on .bn-i{text-shadow:0 0 12px rgba(46,232,143,.6)}
-.bn.on .bn-i{text-shadow:0 0 12px rgba(57,198,255,.5)}
+.bn.on::after{content:"";position:absolute;bottom:-4px;width:4px;height:4px;border-radius:50%;background:var(--sky);box-shadow:0 0 8px var(--sky)}
+.bn.on .bn-i{text-shadow:0 0 14px rgba(65,216,230,.65)}
 .scr{padding:6px 2px 8px}
 .scr-h{font-size:20px;font-weight:800;letter-spacing:.01em;padding:4px 4px 2px}
 .scr-sub{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:20px 4px 10px}
@@ -815,6 +816,88 @@ input{font:inherit}
 .xres-rr{font-weight:800;font-size:14px;min-width:44px;text-align:right}
 .xres-rr.up{color:var(--green)} .xres-rr.dn{color:var(--red)}
 .xperf-foot{text-align:center;font-size:11px;color:var(--faint);margin:16px 0 4px;letter-spacing:.02em}
+
+/* ── HOME (CONEQTX-style tiles) ─────────────────────────────────────────── */
+.hx-top{display:flex;align-items:center;justify-content:space-between;padding:10px 4px 14px}
+.hx-menu{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.03);display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--muted)}
+.hx-logo{font-size:15px;font-weight:800;letter-spacing:.34em;color:var(--ink)}
+.hx-logo sup{color:var(--sky);font-size:10px;letter-spacing:0;margin-left:1px}
+.hx-ava{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.03);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:var(--sky)}
+.hxt{position:relative;overflow:hidden;border:1px solid rgba(150,190,240,.14);border-radius:24px;padding:20px 18px;margin-bottom:14px;
+  background:linear-gradient(168deg,rgba(22,36,62,.55),rgba(7,12,22,.92) 58%);box-shadow:0 18px 46px rgba(0,0,0,.42)}
+.hxt::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:radial-gradient(420px 200px at 88% -12%,rgba(65,216,230,.13),transparent 62%)}
+.hx-eyebrow{font-size:15px;color:var(--muted);font-weight:500}
+.hx-name{font-size:30px;font-weight:800;letter-spacing:.01em;line-height:1.12;margin-top:2px}
+.hx-sub{font-size:13.5px;color:var(--muted);line-height:1.55;margin-top:9px;max-width:275px}
+.hx-cta{display:inline-flex;align-items:center;gap:9px;margin-top:15px;padding:13px 20px;border-radius:999px;border:1px solid rgba(65,216,230,.5);
+  background:linear-gradient(100deg,rgba(65,216,230,.2),rgba(46,120,220,.24));color:var(--ink);font-size:14px;font-weight:700;
+  box-shadow:0 8px 26px rgba(46,150,220,.25), inset 0 0 18px rgba(65,216,230,.08)}
+.hx-cta .arr{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,#57e6f2,#2f8fe0);display:flex;align-items:center;justify-content:center;color:#03121c;font-size:12px;font-weight:900}
+.hx-bars{position:absolute;right:-6px;top:6px;bottom:6px;width:46%;pointer-events:none;opacity:.9}
+.hx-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;position:relative}
+.hx-h b{font-size:16.5px;font-weight:800;letter-spacing:.01em}
+.hx-h .lnk{font-size:12.5px;font-weight:700;color:var(--sky)}
+.hx-rows{position:relative}
+.hx-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 2px;border-bottom:1px solid rgba(150,190,240,.09)}
+.hx-row:last-child{border-bottom:0}
+.hx-row .k{font-size:13.5px;color:var(--muted)}
+.hx-row .v{font-size:13.5px;font-weight:700;color:var(--ink)}
+.hx-row .v.ok{color:var(--green)} .hx-row .v.bad{color:var(--red)} .hx-row .v.dim{color:var(--faint);font-weight:600}
+.hx-acct{border:1px solid rgba(150,190,240,.11);border-radius:16px;background:rgba(255,255,255,.025);padding:13px 14px;margin-top:10px;position:relative}
+.hx-acct.on{border-color:rgba(46,232,160,.35);box-shadow:inset 0 0 22px rgba(46,232,160,.05)}
+.hx-acct-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.hx-acct-nm{font-size:14px;font-weight:800;min-width:0;display:flex;align-items:center;gap:7px}
+.hx-acct-nm .env{font-size:8.5px;font-weight:800;letter-spacing:.08em;padding:2px 6px;border-radius:999px}
+.hx-acct-nm .env.live{background:rgba(255,93,108,.16);color:#ff8d99} .hx-acct-nm .env.demo{background:rgba(65,216,230,.14);color:var(--sky)}
+.hx-acct-eq{font-size:11.5px;color:var(--faint);margin-top:2px}
+.hx-tg{position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;flex-shrink:0;background:rgba(255,255,255,.16);transition:background .15s}
+.hx-tg.on{background:var(--green);box-shadow:0 0 14px rgba(46,232,160,.35)}
+.hx-tg span{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}
+.hx-tg.on span{left:23px}
+.hx-minis{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}
+.hx-mini{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--faint);cursor:pointer}
+.hx-mini.on{border-color:rgba(46,232,160,.5);background:rgba(46,232,160,.1);color:var(--green)}
+.hx-mini .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.hx-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;position:relative}
+.hx-stat{border:1px solid rgba(150,190,240,.1);border-radius:14px;background:rgba(255,255,255,.025);padding:11px 6px;text-align:center}
+.hx-stat b{display:block;font-size:17px;font-weight:800;letter-spacing:.01em}
+.hx-stat span{display:block;font-size:9px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);margin-top:3px}
+.hx-stat b.up{color:var(--green)} .hx-stat b.dn{color:var(--red)}
+.hx-res{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 2px;border-bottom:1px solid rgba(150,190,240,.08);position:relative}
+.hx-res:last-child{border-bottom:0}
+.hx-res .d{font-size:11px;font-weight:800;letter-spacing:.05em;padding:4px 9px;border-radius:8px}
+.hx-res .d.buy{background:rgba(46,232,160,.13);color:var(--green)} .hx-res .d.sell{background:rgba(255,93,108,.14);color:#ff8d99}
+.hx-res .m{flex:1;font-size:12px;color:var(--muted);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hx-res .p{font-size:13.5px;font-weight:800;color:var(--green)}
+.hx-res .w{font-size:10.5px;color:var(--faint);min-width:52px;text-align:right}
+.hx-trend{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:800;letter-spacing:.09em;padding:7px 12px;border-radius:999px;border:1px solid}
+.hx-trend.up{color:var(--green);border-color:rgba(46,232,160,.45);background:rgba(46,232,160,.09);box-shadow:0 0 16px rgba(46,232,160,.12)}
+.hx-trend.dn{color:#ff8d99;border-color:rgba(255,93,108,.45);background:rgba(255,93,108,.09);box-shadow:0 0 16px rgba(255,93,108,.12)}
+.hx-trend.fl{color:var(--amber);border-color:rgba(255,194,75,.45);background:rgba(255,194,75,.08);box-shadow:0 0 16px rgba(255,194,75,.1)}
+.hx-price{font-size:24px;font-weight:800;letter-spacing:.01em}
+.hx-price small{font-size:11px;font-weight:700;color:var(--faint);margin-left:6px;letter-spacing:.06em}
+.hx-chart{margin-top:12px;border:1px solid rgba(150,190,240,.1);border-radius:16px;background:rgba(3,7,14,.55);padding:10px 8px 6px;position:relative}
+.hx-refresh{width:100%;margin-top:12px;padding:13px;border-radius:999px;border:1px solid rgba(65,216,230,.45);background:rgba(65,216,230,.08);color:var(--sky);font-size:13.5px;font-weight:800;letter-spacing:.02em}
+.hx-refresh:disabled{opacity:.55}
+.hx-note{font-size:11px;color:var(--faint);margin-top:9px;line-height:1.5;position:relative}
+.hx-empty{font-size:13px;color:var(--muted);padding:14px 2px;position:relative;line-height:1.55}
+.hx-back{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--muted);padding:8px 4px 6px;cursor:pointer}
+/* Signals screen cards */
+.sg-card{border:1px solid rgba(150,190,240,.12);border-radius:18px;background:linear-gradient(168deg,rgba(20,32,56,.5),rgba(7,12,22,.9));padding:14px 15px;margin-bottom:10px}
+.sg-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sg-sym{font-size:15px;font-weight:800}
+.sg-dir{font-size:10.5px;font-weight:800;letter-spacing:.06em;padding:4px 10px;border-radius:999px}
+.sg-dir.buy{background:rgba(46,232,160,.13);color:var(--green)} .sg-dir.sell{background:rgba(255,93,108,.14);color:#ff8d99}
+.sg-lv{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-top:11px}
+.sg-l{border:1px solid rgba(150,190,240,.1);border-radius:11px;background:rgba(255,255,255,.02);padding:8px 6px;text-align:center}
+.sg-l span{display:block;font-size:8.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.sg-l b{display:block;font-size:13px;font-weight:800;margin-top:2px}
+.sg-meta{display:flex;align-items:center;justify-content:space-between;font-size:10.5px;color:var(--faint);margin-top:10px}
+.sg-st{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.sg-st.open{border-color:rgba(65,216,230,.4);color:var(--sky)}
+.sg-st.won{border-color:rgba(46,232,160,.4);color:var(--green)}
+.sg-st.lost{border-color:rgba(255,93,108,.4);color:#ff8d99}
 </style>
 </head>
 <body>
@@ -3414,10 +3497,11 @@ input{font:inherit}
   }
 
   var NAV = [
-    { id: "flow", label: "FLOW", icon: "◆" },
-    { id: "floor", label: "Floor", icon: "▦" }, { id: "dashboard", label: "Dashboard", icon: "⌂" },
-    { id: "academy", label: "Academy", icon: "🎓" },
-    { id: "account", label: "Account", icon: "◉" }, { id: "plugin", label: "Plug In", icon: "⌁" }
+    { id: "home", label: "Home", icon: "⌂" },
+    { id: "floor", label: "The Floor", icon: "▦" },
+    { id: "signals", label: "Signals", icon: "◇" },
+    { id: "account", label: "Account", icon: "◉" },
+    { id: "academy", label: "Learn", icon: "🎓" }
   ];
   function SignalsSection(props) {
     var active = useState(TOOLS[0].id), tool = TOOLS.filter(function (t) { return t.id === active[0]; })[0];
@@ -4118,8 +4202,207 @@ input{font:inherit}
     </div>`;
   }
 
+  // ── HOME — CONEQTX-style tile stack ───────────────────────────────────────
+  function agoTxt(iso) {
+    if (!iso) return "";
+    var t = new Date(iso).getTime(); if (!isFinite(t)) return "";
+    var s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 90) return "just now";
+    if (s < 3600) return Math.round(s / 60) + "m ago";
+    if (s < 86400) return Math.round(s / 3600) + "h ago";
+    return Math.round(s / 86400) + "d ago";
+  }
+  function HeroBars() {
+    var bars = [34, 58, 26, 72, 46, 92, 64, 108, 82, 126];
+    return html`<svg class="hx-bars" viewBox="0 0 150 170" preserveAspectRatio="xMaxYMid meet" aria-hidden="true">
+      <defs><linearGradient id="hxbar" x1="0" y1="1" x2="0" y2="0">
+        <stop offset="0" stop-color="rgba(65,216,230,0)"/><stop offset="1" stop-color="rgba(87,220,240,.85)"/>
+      </linearGradient></defs>
+      ${bars.map(function (h, i) { return html`<rect x=${8 + i * 14} y=${152 - h} width="6" height=${h} rx="3" fill="url(#hxbar)" opacity=${0.35 + (i / bars.length) * 0.6} />`; })}
+      ${[0, 1, 2, 3, 4].map(function (i) { return html`<circle cx=${20 + i * 28} cy=${34 - (i % 2) * 14} r="1.6" fill="rgba(120,225,240,.8)" />`; })}
+    </svg>`;
+  }
+  function GoldCandles(props) {
+    var cs = (props.candles || []).slice(-42);
+    if (cs.length < 8) return html`<div class="hx-empty">Chart data will appear after the first refresh.</div>`;
+    var W = 340, H = 150, padT = 8, padB = 10, padL = 4, padR = 46;
+    var hi = -Infinity, lo = Infinity;
+    cs.forEach(function (k) { if (k.h > hi) hi = k.h; if (k.l < lo) lo = k.l; });
+    var span = Math.max(hi - lo, 1e-6);
+    function y(v) { return padT + (hi - v) / span * (H - padT - padB); }
+    var iw = (W - padL - padR) / cs.length, bw = Math.max(2.4, iw * 0.55);
+    var last = cs[cs.length - 1];
+    var lp = props.price != null ? props.price : last.c;
+    var lpy = Math.min(H - padB, Math.max(padT, y(lp)));
+    return html`<svg viewBox=${"0 0 " + W + " " + H} style="width:100%;display:block" aria-label="Gold 15-minute candles">
+      ${[0.25, 0.5, 0.75].map(function (p) { return html`<line x1="0" x2=${W - padR + 6} y1=${padT + p * (H - padT - padB)} y2=${padT + p * (H - padT - padB)} stroke="rgba(150,190,240,.07)" stroke-width="1" />`; })}
+      ${cs.map(function (k, i) {
+        var x = padL + i * iw + iw / 2, up = k.c >= k.o;
+        var col = up ? "#2ee8a0" : "#ff5d6c";
+        var bt = y(Math.max(k.o, k.c)), bb = y(Math.min(k.o, k.c));
+        return html`<g>
+          <line x1=${x} x2=${x} y1=${y(k.h)} y2=${y(k.l)} stroke=${col} stroke-width="1" opacity=".8" />
+          <rect x=${x - bw / 2} y=${bt} width=${bw} height=${Math.max(1.4, bb - bt)} rx="1.1" fill=${col} />
+        </g>`;
+      })}
+      <line x1="0" x2=${W - padR + 6} y1=${lpy} y2=${lpy} stroke="rgba(65,216,230,.55)" stroke-width="1" stroke-dasharray="3 3" />
+      <rect x=${W - padR + 2} y=${lpy - 8} width=${padR - 4} height="16" rx="5" fill="rgba(65,216,230,.16)" stroke="rgba(65,216,230,.45)" stroke-width="1" />
+      <text x=${W - padR / 2} y=${lpy + 3.5} text-anchor="middle" font-size="8.5" font-weight="800" fill="#9feef7">${(+lp).toFixed(1)}</text>
+    </svg>`;
+  }
+  function GoldFlowTile() {
+    var st = useState(null), busy = useState(false);
+    function load() {
+      if (busy[0]) return; busy[1](true);
+      apiGet("/api/floor/setup?mode=intraday").then(function (d) { st[1](d || {}); busy[1](false); }).catch(function () { busy[1](false); if (!st[0]) st[1]({}); });
+    }
+    useEffect(load, []);
+    var d = st[0], g = (d && d.g) || null;
+    var struct = String((g && g.market_structure) || "").toLowerCase();
+    var tr = /bull/.test(struct) ? { cls: "up", icon: "↗", label: "UPTREND" }
+      : /bear/.test(struct) ? { cls: "dn", icon: "↘", label: "DOWNTREND" }
+      : { cls: "fl", icon: "↔", label: "CONSOLIDATION" };
+    return html`<div class="hxt">
+      <div class="hx-h"><b>Gold · Market flow</b>${g ? html`<span class=${"hx-trend " + tr.cls}>${tr.icon} ${tr.label}</span>` : null}</div>
+      ${d == null ? html`<div class="hx-empty">Reading the gold market…</div>` : (d.candles && d.candles.length ? html`<div style="position:relative">
+        <div class="hx-price">${d.price != null ? (+d.price).toFixed(2) : "—"}<small>XAU/USD · 15M</small></div>
+        <div class="hx-chart"><${GoldCandles} candles=${d.candles} price=${d.price} /></div>
+        <div class="hx-note">${tr.cls === "up" ? "Buyers are in control — the market is putting in higher highs." : tr.cls === "dn" ? "Sellers are in control — the market is putting in lower lows." : "No side is in control — price is moving sideways in a range."}${g && g.momentum ? " Momentum: " + g.momentum + "." : ""}</div>
+      </div>` : html`<div class="hx-empty">Couldn't load the gold read right now — tap refresh to try again.</div>`)}
+      <button class="hx-refresh" disabled=${busy[0]} onClick=${load}>${busy[0] ? "Scanning the market…" : "⟳ Refresh — re-look at gold"}</button>
+    </div>`;
+  }
+  function HomeScreen(props) {
+    var me = useState(null), bk = useState(null), gx = useState(null);
+    function loadBroker() { apiGet("/api/flow/broker").then(function (d) { bk[1](d || {}); }).catch(function () { bk[1]({}); }); }
+    useEffect(function () {
+      apiGet("/api/me").then(function (d) { me[1](d || {}); }).catch(function () { me[1]({}); });
+      loadBroker();
+      apiGet("/api/genx-stats").then(function (d) { gx[1](d || {}); }).catch(function () { gx[1]({}); });
+    }, []);
+    var m = me[0] || {}, b = bk[0], g = gx[0];
+    var accounts = arr(b && b.accounts);
+    var connected = !!(b && b.connected);
+    var first = String(m.name || (m.email || "").split("@")[0] || "Trader").split(" ")[0];
+    first = first ? first.charAt(0).toUpperCase() + first.slice(1) : "Trader";
+    var initials = String(m.name || m.email || "OM").split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map(function (w) { return w.charAt(0).toUpperCase(); }).join("") || "OM";
+    function setAcct(a, patch, action, extra) {
+      var next = accounts.map(function (x) { return x === a ? Object.assign({}, x, patch) : x; });
+      bk[1](Object.assign({}, b, { accounts: next }));
+      apiPost("/api/flow/broker", Object.assign({ action: action, accountId: a.accountId, connectionId: a.connectionId }, extra)).then(loadBroker).catch(loadBroker);
+    }
+    return html`<div class="scr">
+      <div class="hx-top">
+        <div class="hx-menu">☰</div>
+        <div class="hx-logo">ONE MISSION<sup>×</sup></div>
+        <button class="hx-ava" onClick=${function () { props.go("account"); }}>${initials}</button>
+      </div>
+
+      <div class="hxt" style="min-height:172px">
+        <${HeroBars} />
+        <div style="position:relative;max-width:62%">
+          <div class="hx-eyebrow">Welcome back,</div>
+          <div class="hx-name">${first}</div>
+          <div class="hx-sub">AI market intelligence, auto-trading and live tools to trade smarter — all in one desk.</div>
+          <button class="hx-cta" onClick=${props.goFlow}>${connected ? "Manage FLOW" : "Connect FLOW"}<span class="arr">›</span></button>
+        </div>
+        <div class="hx-rows" style="margin-top:16px">
+          <div class="hx-row"><span class="k">Trading account</span><span class=${"v " + (b == null ? "dim" : connected ? "ok" : "bad")}>${b == null ? "Checking…" : connected ? "Connected" : "Not connected"}</span></div>
+          <div class="hx-row"><span class="k">Membership</span><span class=${"v " + (m.membership ? "ok" : "dim")}>${m.membership || "Member"}</span></div>
+          <div class="hx-row"><span class="k">Credits</span><span class="v">${m.credits != null ? m.credits : "—"}</span></div>
+        </div>
+      </div>
+
+      <div class="hxt">
+        <div class="hx-h"><b>Your accounts</b><button class="lnk" onClick=${props.goFlow}>${connected ? "Manage ›" : "Connect ›"}</button></div>
+        ${b == null ? html`<div class="hx-empty">Checking your broker connection…</div>`
+        : !connected ? html`<div class="hx-empty">No trading account connected yet. Link your TradeLocker login and FLOW can take the plays for you — demo accounts work too.</div>`
+        : !accounts.length ? html`<div class="hx-empty">Connected — account details are still loading. Tap Manage to re-check.</div>`
+        : accounts.map(function (a) {
+            var on = a.autotradeEnabled !== false;
+            var mng = a.manageTrades !== false;
+            var beOn = a.beEnabled !== false && mng;
+            var parOn = a.partialsEnabled !== false && mng;
+            var needMng = a.manageTrades === false;
+            return html`<div class=${"hx-acct" + (on ? " on" : "")}>
+              <div class="hx-acct-top">
+                <div style="min-width:0">
+                  <div class="hx-acct-nm">${a.name || ("Account " + a.accountId)}${a.environment ? html`<span class=${"env " + (a.environment === "live" ? "live" : "demo")}>${String(a.environment).toUpperCase()}</span>` : null}</div>
+                  <div class="hx-acct-eq">#${a.accNum || a.accountId}${a.currency ? " · " + a.currency : ""} · ${fmtMoney(a.equity != null ? a.equity : a.balance)} · <b style=${"color:" + (on ? "var(--green)" : "var(--faint)")}>${on ? "Trading" : "Off"}</b></div>
+                </div>
+                <button class=${"hx-tg" + (on ? " on" : "")} aria-label="Auto-trading" onClick=${function () { setAcct(a, { autotradeEnabled: !on }, "toggle", { enabled: !on }); }}><span></span></button>
+              </div>
+              <div class="hx-minis">
+                <button class=${"hx-mini" + (beOn ? " on" : "")} onClick=${function () { setAcct(a, { beEnabled: !beOn, manageTrades: true }, "betoggle", { enabled: !beOn }); if (needMng) apiPost("/api/flow/broker", { action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: true }).catch(function () {}); }}><span class="dot"></span>Break even</button>
+                <button class=${"hx-mini" + (parOn ? " on" : "")} onClick=${function () { setAcct(a, { partialsEnabled: !parOn, manageTrades: true }, "partialtoggle", { enabled: !parOn }); if (needMng) apiPost("/api/flow/broker", { action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: true }).catch(function () {}); }}><span class="dot"></span>Partials</button>
+              </div>
+            </div>`;
+          })}
+      </div>
+
+      <div class="hxt">
+        <div class="hx-h"><b>GENX results</b><span style="font-size:10px;font-weight:800;letter-spacing:.12em;color:var(--faint);text-transform:uppercase">Gold desk</span></div>
+        ${g == null ? html`<div class="hx-empty">Loading the desk record…</div>` : (g.decided ? html`<div style="position:relative">
+          <div class="hx-stats">
+            <div class="hx-stat"><b class="up">${g.winRate != null ? g.winRate + "%" : "—"}</b><span>Win rate</span></div>
+            <div class="hx-stat"><b class="up">${g.wins != null ? g.wins : "—"}</b><span>Wins</span></div>
+            <div class="hx-stat"><b class="dn">${g.losses != null ? g.losses : "—"}</b><span>Losses</span></div>
+            <div class="hx-stat"><b class=${(g.netPips || 0) >= 0 ? "up" : "dn"}>${g.netPips != null ? ((g.netPips >= 0 ? "+" : "") + Math.round(g.netPips).toLocaleString()) : "—"}</b><span>Net pips</span></div>
+          </div>
+          ${arr(g.recent).length ? html`<div style="margin-top:11px">${arr(g.recent).slice(0, 5).map(function (r) {
+            return html`<div class="hx-res">
+              <span class=${"d " + (r.direction === "buy" ? "buy" : "sell")}>${r.direction === "buy" ? "BUY" : "SELL"}</span>
+              <span class="m">Gold${r.mode ? " · " + r.mode : ""}${r.tp ? " · TP" + r.tp + " hit" : ""}</span>
+              <span class="p">${r.pips != null ? "+" + r.pips + " pips" : "WIN"}</span>
+              <span class="w">${agoTxt(r.at)}</span>
+            </div>`;
+          })}</div>` : null}
+          <div class="hx-note">The engine's own record across ${g.decided.toLocaleString()} decided calls — wins vs losses, pips at gold's standard 0.1 pip.</div>
+        </div>` : html`<div class="hx-empty">The desk record will appear once GENX has resolved calls to show.</div>`)}
+      </div>
+
+      <${GoldFlowTile} />
+    </div>`;
+  }
+  // ── SIGNALS — every saved play, synced across devices ─────────────────────
+  function SignalsSavedScreen() {
+    var trades = useState(null);
+    useEffect(function () { apiGet("/api/signals").then(function (d) { trades[1](arr(d && d.signals)); }).catch(function () { trades[1]([]); }); }, []);
+    var list = trades[0];
+    return html`<div class="scr">
+      <div class="scr-h">Signals</div>
+      <div class="scr-blurb">Every play you saved — synced to your account across devices.</div>
+      ${list == null ? html`<div class="load">Loading your signals…</div>`
+      : !list.length ? html`<div class="hxt"><div class="hx-empty">Nothing saved yet. On any play in The Floor, tap “＋ I took this trade” and it will show up here.</div></div>`
+      : list.map(function (t) {
+          var sg = t.signal || {};
+          var dir = String(sg.direction || t.direction || "").toUpperCase();
+          var buy = dir === "BUY" || dir === "LONG";
+          var tps = arr(sg.takeProfits);
+          var stRaw = String(t.status || "open").toLowerCase();
+          var stCls = /won|win|tp/.test(stRaw) ? "won" : /lost|loss|stop/.test(stRaw) ? "lost" : "open";
+          return html`<div class="sg-card">
+            <div class="sg-top">
+              <span class="sg-sym">${t.symbol || t.td || ""}</span>
+              <span class=${"sg-dir " + (buy ? "buy" : "sell")}>${buy ? "▲ BUY" : "▼ SELL"}</span>
+            </div>
+            <div class="sg-lv">
+              <div class="sg-l"><span>Entry</span><b>${sg.entry != null ? sg.entry : "—"}</b></div>
+              <div class="sg-l"><span>Stop</span><b style="color:#ff8d99">${sg.stopLoss != null ? sg.stopLoss : "—"}</b></div>
+              <div class="sg-l"><span>${tps.length > 1 ? "Targets" : "Target"}</span><b style="color:var(--green)">${tps.length ? tps.slice(0, 2).join(" · ") : "—"}</b></div>
+            </div>
+            <div class="sg-meta">
+              <span>${(sg.timeframe || t.interval || "")}${t.asOf ? " · saved " + agoTxt(t.asOf) : (t.created_at ? " · saved " + agoTxt(t.created_at) : "")}</span>
+              <span class=${"sg-st " + stCls}>${stRaw}</span>
+            </div>
+          </div>`;
+        })}
+      <div class="foot">Signals are educational — you decide every trade you take.</div>
+    </div>`;
+  }
+
   function Shell(props) {
-    var sec = useState("dashboard");
+    var sec = useState("home");
     var floorInit = useState("");
     var flowConnect = useState(false);
     function go(id) { sec[1](id); }
@@ -4132,15 +4415,17 @@ input{font:inherit}
     }, []);
     return html`<div class="shell">
       <main class="main">
-        ${sec[0] === "flow" ? html`<${FlowScreen} key="flowdesk" onLogout=${props.onLogout} initConnect=${flowConnect[0]} onConnectHandled=${function () { flowConnect[1](false); }} />` : null}
+        ${sec[0] === "home" ? html`<${HomeScreen} key="home" go=${go} goFlow=${function () { window.scrollTo(0, 0); sec[1]("flow"); }} onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "signals" ? html`<${SignalsSavedScreen} key="sigs" onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "flow" ? html`<button class="hx-back" onClick=${function () { sec[1]("home"); }}>‹ Home</button><${FlowScreen} key="flowdesk" onLogout=${props.onLogout} initConnect=${flowConnect[0]} onConnectHandled=${function () { flowConnect[1](false); }} />` : null}
         ${sec[0] === "dashboard" ? html`<${DashboardScreen} go=${go} goFloor=${goFloor} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "floor" ? html`<${FloorSection} key=${"fl" + floorInit[0]} init=${floorInit[0]} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "account" ? html`<${AccountScreen} onLogout=${props.onLogout} onOpenXperf=${function () { sec[1]("xperf"); }} onOpenAcademy=${function () { sec[1]("academy"); }} />` : null}
         ${sec[0] === "plugin" ? html`<${PlugInScreen} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "xperf" ? html`<${XGhostStatsScreen} onBack=${function () { sec[1]("account"); }} onLogout=${props.onLogout} />` : null}
-        ${sec[0] === "academy" ? html`<${AcademyScreen} onBack=${function () { sec[1]("dashboard"); }} onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "academy" ? html`<${AcademyScreen} onBack=${function () { sec[1]("home"); }} onLogout=${props.onLogout} />` : null}
       </main>
-      <nav class="bnav">${NAV.map(function (n) { var on = sec[0] === n.id || (sec[0] === "xperf" && n.id === "account"); return html`<button class=${"bn " + (on ? "on" : "")} data-id=${n.id} onClick=${function () { if (n.id === "floor") goFloor(""); else go(n.id); }}><span class="bn-i">${n.icon}</span><span class="bn-l">${n.label}</span></button>`; })}</nav>
+      <nav class="bnav">${NAV.map(function (n) { var on = sec[0] === n.id || (sec[0] === "xperf" && n.id === "account") || ((sec[0] === "flow" || sec[0] === "dashboard") && n.id === "home"); return html`<button class=${"bn " + (on ? "on" : "")} data-id=${n.id} onClick=${function () { if (n.id === "floor") goFloor(""); else go(n.id); }}><span class="bn-i">${n.icon}</span><span class="bn-l">${n.label}</span></button>`; })}</nav>
       <${SuiteFlyerModal} />
       <${FlowIntroTour} go=${go} />
     </div>`;
