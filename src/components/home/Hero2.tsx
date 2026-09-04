@@ -52,7 +52,7 @@ export function Hero2() {
           <div className="relative ml-auto max-w-[400px] rounded-3xl border border-white/70 bg-white/75 p-7 shadow-[0_18px_50px_rgba(47,111,168,0.14)] backdrop-blur-md">
             <div className="mb-4 flex items-baseline justify-between">
               <div>
-                <div className="text-[10.5px] font-semibold uppercase tracking-label text-[#68798A]">Matty Pips</div>
+                <div className="text-[10.5px] font-semibold uppercase tracking-label text-[#68798A]">OM</div>
                 <div className="text-[19px] font-bold text-[#182633]">Gold · XAU/USD</div>
               </div>
               <div className="text-[11px] font-semibold text-[#2F6FA8]">15M</div>

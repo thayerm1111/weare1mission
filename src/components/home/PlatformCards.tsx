@@ -4,7 +4,7 @@ import { Reveal } from "./Reveal";
 /** Section 3 — the platform: four flagship product cards. */
 const PRODUCTS = [
   {
-    name: "Matty Pips",
+    name: "OM",
     tag: "The trading brain",
     copy: "Reads Gold through market structure, support, resistance, liquidity, breakouts, fakeouts and price reaction — then helps identify the trade forming.",
     href: "/matty-pips",

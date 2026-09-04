@@ -13,7 +13,7 @@ export function LiveTradingRoom() {
               Don&rsquo;t just watch.<br />Trade with the room.
             </h2>
             <p className="mt-6 max-w-[480px] text-[16px] leading-relaxed text-[#5D7183]">
-              Live Gold sessions, Matty Pips reads out loud, Get Paid Sessions and real-time market
+              Live Gold sessions, OM reads out loud, Get Paid Sessions and real-time market
               breakdowns — see how setups develop while they&rsquo;re developing, with the
               community in the room.
             </p>

@@ -1,25 +1,25 @@
 import Link from "next/link";
 import { Reveal } from "./Reveal";
 
-/** Section 5 — Matty Pips flagship moment. Clean mock read, no dense diagnostics. */
+/** Section 5 — flagship trading-brain moment (publicly branded OM). */
 export function MattyPipsShowcase() {
   return (
-    <section id="mattypips" className="bg-[#F7FAFC] py-28 lg:py-36">
+    <section id="om" className="bg-[#F7FAFC] py-28 lg:py-36">
       <div className="mx-auto max-w-content px-6">
         <div className="grid items-center gap-14 lg:grid-cols-2">
           <Reveal>
-            <p className="mb-5 text-[11px] font-semibold uppercase tracking-label text-[#2F6FA8]">Matty Pips</p>
+            <p className="mb-5 text-[11px] font-semibold uppercase tracking-label text-[#2F6FA8]">OM</p>
             <h2 className="text-[38px] font-extrabold leading-[1.08] tracking-tight text-[#182633] sm:text-[52px]">
               Know what Gold is telling you.
             </h2>
             <p className="mt-6 max-w-[460px] text-[16px] leading-relaxed text-[#5D7183]">
-              Levels first. Location first. Reaction first. Matty Pips maps the levels that matter,
+              Levels first. Location first. Reaction first. OM maps the levels that matter,
               watches how price behaves when it gets there, and answers the only question that
               counts — buy, sell, or wait.
             </p>
             <Link href="/matty-pips"
               className="mt-9 inline-block rounded-full bg-[#2F6FA8] px-8 py-4 text-[14px] font-semibold text-white transition hover:bg-[#182633]">
-              Explore Matty Pips
+              Explore OM
             </Link>
           </Reveal>
 
