@@ -5,9 +5,9 @@ import { PlatformCards } from "@/components/home/PlatformCards";
 import { ProcessRWE } from "@/components/home/ProcessRWE";
 import { MattyPipsShowcase } from "@/components/home/MattyPipsShowcase";
 import { AutomationFlow } from "@/components/home/AutomationFlow";
-import { LiveTradingRoom } from "@/components/home/LiveTradingRoom";
+import { CommunityBridge } from "@/components/home/CommunityBridge";
+import { TheRoom } from "@/components/home/TheRoom";
 import { ProofStats } from "@/components/home/ProofStats";
-import { BeforeAfter } from "@/components/home/BeforeAfter";
 import { Ecosystem } from "@/components/home/Ecosystem";
 import { CommunityMovement } from "@/components/home/CommunityMovement";
 import { CtaFinal } from "@/components/home/CtaFinal";
@@ -21,8 +21,10 @@ export const metadata = buildMetadata({
 });
 
 /**
- * PUBLIC HOMEPAGE — trading-first redesign (premium fintech presentation).
- * Public-only components; the member platform, engines and APIs are untouched.
+ * PUBLIC HOMEPAGE v2 — trading technology dominates the first 60%, then the
+ * community hits hard, then the movement lands earned. Public-only components;
+ * the member platform, engines and APIs are untouched. Social-proof section is
+ * intentionally absent until real permission-granted testimonials exist.
  */
 export default function HomePage() {
   return (
@@ -34,9 +36,9 @@ export default function HomePage() {
       <ProcessRWE />
       <MattyPipsShowcase />
       <AutomationFlow />
-      <LiveTradingRoom />
+      <CommunityBridge />
+      <TheRoom />
       <ProofStats />
-      <BeforeAfter />
       <Ecosystem />
       <CommunityMovement />
       <CtaFinal />
