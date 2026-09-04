@@ -119,7 +119,76 @@ function statusMeta(d: DecisionObject): { label: string; color: string } {
   return { label: "WAIT", color: C.sub };
 }
 
-/* ══ MATTY'S CALL — the always-on decision + one-tap execute (owner 09-04) ══ */
+/* ══ MATTY'S CALL — always-on decision, OM-AI-Plays-style presentation ══════
+   Dark chart with the TP/SL lines drawn on it + a copyable ENTRY/STOP/R:R/TP
+   card grid, per the owner's reference. Data comes from decision.call. */
+const DK = { bg: "#0B0E14", line: "rgba(150,190,240,0.12)", cell: "rgba(255,255,255,0.03)", ink: "#EDF2FA", sub: "#8FA0BC", faint: "#5E708E", green: "#34D399", red: "#F87171", blue: "#8FC6FF" };
+
+function CallChart({ d, call }: { d: DecisionObject; call: NonNullable<DecisionObject["call"]> }) {
+  const cs = d.chart.m15.slice(-44);
+  if (cs.length < 8) return null;
+  const W = 980, H = 340, padT = 14, padB = 14, padR = 150, padL = 10;
+  let hi = -Infinity, lo = Infinity;
+  cs.forEach((k) => { if (k.h > hi) hi = k.h; if (k.l < lo) lo = k.l; });
+  // Always include entry/stop/TP1 in the scale; pull TP2/TP3 in only when close
+  // enough that the candles stay readable — otherwise clamp them to the edge.
+  const range0 = hi - lo;
+  [call.entry, call.stopLoss, call.tp1].forEach((v) => { if (v > hi) hi = v; if (v < lo) lo = v; });
+  [call.tp2, call.tp3].forEach((v) => { if (v != null && Math.abs(v - call.entry) <= range0 * 1.9) { if (v > hi) hi = v; if (v < lo) lo = v; } });
+  hi += (hi - lo) * 0.05; lo -= (hi - lo) * 0.05;
+  const span = Math.max(hi - lo, 1e-6);
+  const y = (v: number) => Math.min(H - padB, Math.max(padT, padT + ((hi - v) / span) * (H - padT - padB)));
+  const iw = (W - padL - padR) / cs.length, bw = Math.max(3, iw * 0.55);
+  const clamped = (v: number) => v > hi || v < lo;
+  const lvls: { label: string; v: number; c: string; bold?: boolean }[] = [
+    call.tp3 != null ? { label: `TP3 ${fmt(call.tp3)}`, v: call.tp3, c: DK.green } : null,
+    call.tp2 != null ? { label: `TP2 ${fmt(call.tp2)}`, v: call.tp2, c: DK.green } : null,
+    { label: `TP1 ${fmt(call.tp1)}`, v: call.tp1, c: DK.green },
+    { label: `Entry ${fmt(call.entry)}`, v: call.entry, c: "#FFFFFF", bold: true },
+    { label: `SL ${fmt(call.stopLoss)}`, v: call.stopLoss, c: DK.red },
+  ].filter(Boolean) as { label: string; v: number; c: string; bold?: boolean }[];
+  return (
+    <div style={{ background: "#05080D", border: `1px solid ${DK.line}`, borderRadius: 14, padding: "10px 6px 6px" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block" }} aria-label="Matty's call levels on the 15M chart">
+        {cs.map((k, i) => {
+          const x = padL + i * iw + iw / 2, up = k.c >= k.o;
+          const col = up ? DK.green : DK.red;
+          const bt = y(Math.max(k.o, k.c)), bb = y(Math.min(k.o, k.c));
+          return (
+            <g key={i}>
+              <line x1={x} x2={x} y1={y(k.h)} y2={y(k.l)} stroke={col} strokeWidth={1.1} opacity={0.85} />
+              <rect x={x - bw / 2} y={bt} width={bw} height={Math.max(1.6, bb - bt)} rx={1.2} fill={col} />
+            </g>
+          );
+        })}
+        {lvls.map((L) => (
+          <g key={L.label}>
+            <line x1={padL} x2={W - padR + 8} y1={y(L.v)} y2={y(L.v)} stroke={L.c} strokeWidth={L.bold ? 1.4 : 1.1} strokeDasharray="6 5" opacity={L.bold ? 0.95 : 0.8} />
+            <text x={W - padR + 14} y={y(L.v) + 4} fontSize={15} fontWeight={700} fill={L.c}>
+              {clamped(L.v) ? `${L.label} ↑` : L.label}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function CopyCell({ label, value, pips, color, big }: { label: string; value: string; pips: string | null; color: string; big?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => { try { navigator.clipboard.writeText(value.replace(/,/g, "")); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* */ } }}
+      style={{ background: DK.cell, border: `1px solid ${DK.line}`, borderRadius: 14, padding: "16px 10px", textAlign: "center", cursor: "pointer", position: "relative" }}
+    >
+      <span style={{ position: "absolute", top: 9, right: 11, fontSize: 11, color: copied ? DK.green : DK.faint }}>{copied ? "✓" : "⧉"}</span>
+      <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: DK.faint }}>{label}</div>
+      <div style={{ marginTop: 6, fontSize: big ? 24 : 21, fontWeight: 800, letterSpacing: "-0.01em", color, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      {pips != null && <div style={{ marginTop: 4, fontSize: 12, color: DK.faint }}>({pips})</div>}
+    </button>
+  );
+}
+
 function ExecutePanel({ call }: { call: NonNullable<DecisionObject["call"]> }) {
   const [accts, setAccts] = useState<MpAccount[]>([]);
   const [acct, setAcct] = useState<string>("");
@@ -148,100 +217,99 @@ function ExecutePanel({ call }: { call: NonNullable<DecisionObject["call"]> }) {
         }),
       });
       const j = await r.json();
-      if (j?.ok) { setStep("done"); setNote("Order placed at market with your stop and TP1 attached. Manage it from your broker or let the desk manage it."); }
+      if (j?.ok) { setStep("done"); setNote("Order placed at market with your stop and TP1 attached."); }
       else { setStep("error"); setNote(j?.detail || j?.error || "Couldn't place the trade — check your connection in FLOW."); }
     } catch { setStep("error"); setNote("Network hiccup — nothing was placed. Try again."); }
   }
 
+  const selStyle: React.CSSProperties = { padding: "9px 10px", borderRadius: 10, border: `1px solid ${DK.line}`, fontSize: 12.5, fontWeight: 700, color: DK.ink, background: "#10151E" };
   if (!accts.length) {
     return (
-      <div style={{ marginTop: 14, borderTop: `1px solid ${C.line}`, paddingTop: 12, fontSize: 12.5, color: C.sub }}>
-        Connect your TradeLocker account in <b>FLOW</b> to execute this call with one tap — or flip <b>Auto trade</b> on and the AI takes its confirmed setups for you.
+      <div style={{ marginTop: 14, borderTop: `1px solid ${DK.line}`, paddingTop: 12, fontSize: 12.5, color: DK.sub }}>
+        Connect your TradeLocker account in <b style={{ color: DK.ink }}>FLOW</b> to execute this call with one tap — or flip <b style={{ color: DK.ink }}>Auto trade</b> on and the AI takes its confirmed setups for you.
       </div>
     );
   }
   return (
-    <div style={{ marginTop: 14, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+    <div style={{ marginTop: 14, borderTop: `1px solid ${DK.line}`, paddingTop: 13 }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-        <select value={acct} onChange={(e) => setAcct(e.target.value)}
-          style={{ padding: "8px 10px", borderRadius: 9, border: `1px solid ${C.line}`, fontSize: 12.5, fontWeight: 700, color: C.ink, background: "#fff" }}>
+        <select value={acct} onChange={(e) => setAcct(e.target.value)} style={{ ...selStyle, maxWidth: 300 }}>
           {accts.map((a) => <option key={`${a.connection_id}:${a.account_id}`} value={String(a.account_id)}>{a.name || `Account ${a.acc_num}`}</option>)}
         </select>
-        <select value={risk} onChange={(e) => setRisk(+e.target.value)}
-          style={{ padding: "8px 10px", borderRadius: 9, border: `1px solid ${C.line}`, fontSize: 12.5, fontWeight: 700, color: C.ink, background: "#fff" }}>
+        <select value={risk} onChange={(e) => setRisk(+e.target.value)} style={selStyle}>
           {[0.25, 0.5, 1, 1.5, 2, 3].map((v) => <option key={v} value={v}>{v}% risk</option>)}
         </select>
         {step === "confirm" ? (
           <>
-            <button onClick={place} style={{ padding: "9px 16px", borderRadius: 9, border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 800, background: call.direction === "buy" ? C.green : C.red, color: "#fff" }}>
+            <button onClick={place} style={{ padding: "10px 16px", borderRadius: 10, border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 800, background: call.direction === "buy" ? DK.green : DK.red, color: "#04121C" }}>
               Confirm — place {call.direction.toUpperCase()} now
             </button>
-            <button onClick={() => setStep("idle")} style={{ padding: "9px 12px", borderRadius: 9, border: `1px solid ${C.line}`, cursor: "pointer", fontSize: 12.5, fontWeight: 700, background: "#fff", color: C.sub }}>Cancel</button>
+            <button onClick={() => setStep("idle")} style={{ padding: "10px 12px", borderRadius: 10, border: `1px solid ${DK.line}`, cursor: "pointer", fontSize: 12.5, fontWeight: 700, background: "transparent", color: DK.sub }}>Cancel</button>
           </>
         ) : (
           <button onClick={() => (step === "placing" ? null : setStep("confirm"))} disabled={step === "placing"}
-            style={{ padding: "9px 16px", borderRadius: 9, border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 800, background: C.ink, color: "#fff", opacity: step === "placing" ? 0.6 : 1 }}>
+            style={{ padding: "10px 16px", borderRadius: 10, border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 800, background: DK.ink, color: "#0B0E14", opacity: step === "placing" ? 0.6 : 1 }}>
             {step === "placing" ? "Placing…" : step === "done" ? "✓ Placed — again?" : `⚡ Execute ${call.direction.toUpperCase()} on my account`}
           </button>
         )}
       </div>
-      {note && <div style={{ marginTop: 8, fontSize: 12, color: step === "error" ? C.red : C.green, lineHeight: 1.5 }}>{note}</div>}
-      <div style={{ marginTop: 8, fontSize: 11, color: C.sub }}>
-        Places at market on YOUR account, sized to {risk}% of live equity, stop and TP1 attached. Or turn on <b>Auto trade</b> and the AI takes its confirmed setups hands-free.
+      {note && <div style={{ marginTop: 8, fontSize: 12, color: step === "error" ? DK.red : DK.green, lineHeight: 1.5 }}>{note}</div>}
+      <div style={{ marginTop: 8, fontSize: 11, color: DK.faint }}>
+        Places at market on YOUR account, sized to {risk}% of live equity, stop and TP1 attached. Or turn on <b style={{ color: DK.sub }}>Auto trade</b> and the AI takes its confirmed setups hands-free.
       </div>
     </div>
   );
 }
 
-function MattysCall({ call }: { call: NonNullable<DecisionObject["call"]> }) {
+function MattysCall({ d }: { d: DecisionObject }) {
+  const call = d.call!;
   const buy = call.direction === "buy";
-  const col = buy ? C.green : C.red;
+  const col = buy ? DK.green : DK.red;
   const conf = call.confidence;
-  const confCol = conf >= 70 ? C.green : conf >= 55 ? C.amber : C.sub;
-  const rows = [
-    call.tp3 != null ? { l: "TP3 · structure", v: call.tp3, c: "#1B8B8B" } : null,
-    call.tp2 != null ? { l: "TP2 · structure", v: call.tp2, c: C.green } : null,
-    { l: `TP1 · $${call.tp1Dollars.toFixed(2)} move`, v: call.tp1, c: C.green },
-    { l: "Entry · at market", v: call.entry, c: C.blueDeep },
-    { l: `Stop · $${call.stopDollars.toFixed(2)} max`, v: call.stopLoss, c: C.red },
-  ].filter(Boolean) as { l: string; v: number; c: string }[];
-  rows.sort((a, b) => (buy ? b.v - a.v : a.v - b.v));
+  const confCol = conf >= 70 ? DK.green : conf >= 55 ? "#FBBF24" : DK.sub;
+  const pips = (v: number | null) => (v == null ? null : `${Math.round(Math.abs(v - call.entry) / 0.1).toLocaleString()}`);
   return (
-    <div style={{ background: C.card, borderRadius: 20, boxShadow: C.shadow, border: `1.5px solid ${col}33`, padding: "22px 24px", marginBottom: 14 }}>
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px 16px", marginBottom: 12 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: C.sub }}>Matty&rsquo;s call · right now</div>
+    <div style={{ background: DK.bg, borderRadius: 20, border: `1px solid ${DK.line}`, boxShadow: "0 16px 40px rgba(0,0,0,0.35)", padding: "22px 24px", marginBottom: 14, color: DK.ink }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px 16px", marginBottom: 10 }}>
+        <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 10.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: DK.faint }}>Matty&rsquo;s call · right now</div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 800, color: confCol }}>{conf}% confident</span>
-          <span style={{ width: 90, height: 7, borderRadius: 999, background: "#EDF2F7", overflow: "hidden", display: "inline-block" }}>
+          <span style={{ fontSize: 11.5, fontWeight: 800, color: confCol }}>{conf}% confident</span>
+          <span style={{ width: 92, height: 7, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden", display: "inline-block" }}>
             <span style={{ display: "block", height: "100%", width: `${conf}%`, borderRadius: 999, background: confCol, transition: "width .5s" }} />
           </span>
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap", marginBottom: 10 }}>
         <span style={{ fontSize: 30, fontWeight: 850, letterSpacing: "-0.01em", color: col }}>{buy ? "BUY GOLD" : "SELL GOLD"}</span>
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: C.sub }}>R:R 1 : {call.rr1}</span>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: DK.sub }}>Risk : Reward 1 : {call.rr1}</span>
       </div>
-      <div style={{ margin: "10px 0 14px", fontSize: 13.5, lineHeight: 1.6, color: C.ink, borderLeft: `3px solid ${col}44`, paddingLeft: 12 }}>
-        If the market puts a gun to my head right now, this is the side I take. {call.summary.split("— ")[1] ?? ""}
+      <div style={{ margin: "0 0 14px", fontSize: 13.5, lineHeight: 1.6, color: DK.sub, borderLeft: `3px solid ${col}55`, paddingLeft: 12 }}>
+        Gun to the head, this is the side I take — {call.reasons[0]}. Stop ${call.stopDollars.toFixed(2)} away, first target ${call.tp1Dollars.toFixed(2)} out.
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 12 }}>
-        {rows.map((row) => (
-          <div key={row.l} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ width: 150, fontSize: 12, fontWeight: 700, color: row.c }}>{row.l}</span>
-            <span style={{ flex: 1, height: 6, borderRadius: 999, background: `${row.c}15` }} />
-            <span style={{ width: 84, textAlign: "right", fontSize: 15, fontWeight: 800, color: C.ink }}>{fmt(row.v)}</span>
-          </div>
-        ))}
+
+      <CallChart d={d} call={call} />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginTop: 12 }}>
+        <CopyCell label="Entry" value={fmt(call.entry)} pips={null} color={DK.ink} big />
+        <CopyCell label="⛨ Stop" value={fmt(call.stopLoss)} pips={pips(call.stopLoss)} color={DK.red} />
+        <CopyCell label="Risk : Reward" value={`1 : ${call.rr1}`} pips={null} color={DK.blue} />
+        <CopyCell label="◎ TP1" value={fmt(call.tp1)} pips={pips(call.tp1)} color={DK.green} />
+        {call.tp2 != null && <CopyCell label="◎ TP2" value={fmt(call.tp2)} pips={pips(call.tp2)} color={DK.green} />}
+        {call.tp3 != null && <CopyCell label="◎ TP3" value={fmt(call.tp3)} pips={pips(call.tp3)} color={DK.green} />}
       </div>
-      <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))" }}>
+      <div style={{ marginTop: 9, fontSize: 11, color: DK.faint, textAlign: "center" }}>
+        {buy ? "Long" : "Short"} · figures in parentheses are pips from entry · tap a level to copy
+      </div>
+
+      <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", marginTop: 14 }}>
         <div>
-          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.green, marginBottom: 5 }}>Behind the call</div>
-          {call.reasons.slice(0, 4).map((r) => <div key={r} style={{ fontSize: 12, color: C.ink, lineHeight: 1.6 }}>✓ {r}</div>)}
+          <div style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: DK.green, marginBottom: 5 }}>Behind the call</div>
+          {call.reasons.slice(0, 4).map((r) => <div key={r} style={{ fontSize: 12.5, color: DK.sub, lineHeight: 1.6 }}>✓ {r}</div>)}
         </div>
         {call.against.length > 0 && (
           <div>
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.red, marginBottom: 5 }}>Against it</div>
-            {call.against.slice(0, 3).map((r) => <div key={r} style={{ fontSize: 12, color: C.sub, lineHeight: 1.6 }}>✗ {r}</div>)}
+            <div style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: DK.red, marginBottom: 5 }}>Against it</div>
+            {call.against.slice(0, 3).map((r) => <div key={r} style={{ fontSize: 12.5, color: DK.faint, lineHeight: 1.6 }}>✗ {r}</div>)}
           </div>
         )}
       </div>
@@ -407,7 +475,7 @@ export default function MattyPips() {
             </div>
 
             {/* 2.5 · MATTY'S CALL — the always-on decision with confidence + execute */}
-            {res.call && <MattysCall call={res.call} />}
+            {res.call && <MattysCall d={res} />}
 
             {/* 3+4+5 · WORKSTATION: chart ⅔ · decision + cases ⅓ */}
             <div className="mpx-grid" style={{ marginBottom: 14 }}>
