@@ -28,11 +28,10 @@ export default async function PortalDashboard() {
       {/* First-visit walkthrough (owner 09-03): baby-step prompts from the dashboard to The
           Floor and FLOW — the spotlight tour takes over there. Shows once per browser. */}
       <DashboardTradingIntro />
+      {/* Trading desk results — the first thing members see (owner 09-04) */}
+      <DeskResults />
       {/* Side-aware hub — The One vs The Builder */}
       <PathHub firstName={firstName} />
-
-      {/* Trading desk results — front and center */}
-      <DeskResults />
 
       {/* Latest updates */}
       <section>
