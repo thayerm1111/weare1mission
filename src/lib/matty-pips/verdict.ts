@@ -155,13 +155,17 @@ export function buildCall(o: {
   tp1Dollars = r2(clamp(tp1Dollars, 3, 7));
   const tp1 = r2(up ? price + tp1Dollars : price - tp1Dollars);
 
-  // TP2 / TP3 — market structure: the next major levels past TP1.
+  // TP2 / TP3 — market structure: the NEXT levels past TP1, in price order, so
+  // the ladder always reads entry → TP1 → TP2 → TP3 in the trade's direction.
   const beyond = opposing.filter((l) => (up ? l.low > tp1 + 0.5 : l.high < tp1 - 0.5));
-  const tp2Lvl = beyond.find((l) => l.rank >= 40) ?? beyond[0] ?? null;
-  const tp2 = tp2Lvl ? r2(up ? tp2Lvl.low - 0.2 : tp2Lvl.high + 0.2) : r2(up ? price + 2 * tp1Dollars : price - 2 * tp1Dollars);
-  const after2 = beyond.filter((l) => (up ? l.low > (tp2 ?? price) + 0.5 : l.high < (tp2 ?? price) - 0.5));
-  const tp3Lvl = after2.find((l) => l.rank >= 50) ?? after2[0] ?? null;
-  const tp3 = tp3Lvl ? r2(up ? tp3Lvl.low - 0.2 : tp3Lvl.high + 0.2) : r2(up ? price + 3 * tp1Dollars : price - 3 * tp1Dollars);
+  const tp2Lvl = beyond[0] ?? null;
+  let tp2 = tp2Lvl ? r2(up ? tp2Lvl.low - 0.2 : tp2Lvl.high + 0.2) : r2(up ? price + 2 * tp1Dollars : price - 2 * tp1Dollars);
+  const after2 = beyond.filter((l) => (up ? l.low > tp2 + 0.5 : l.high < tp2 - 0.5));
+  const tp3Lvl = after2[0] ?? null;
+  let tp3 = tp3Lvl ? r2(up ? tp3Lvl.low - 0.2 : tp3Lvl.high + 0.2) : r2(up ? Math.max(tp2 + tp1Dollars, price + 3 * tp1Dollars) : Math.min(tp2 - tp1Dollars, price - 3 * tp1Dollars));
+  // Monotonic guard — structure snapping can never invert the ladder.
+  if (up) { if (tp2 <= tp1) tp2 = r2(tp1 + tp1Dollars); if (tp3 <= tp2) tp3 = r2(tp2 + tp1Dollars); }
+  else { if (tp2 >= tp1) tp2 = r2(tp1 - tp1Dollars); if (tp3 >= tp2) tp3 = r2(tp2 - tp1Dollars); }
 
   const rr1 = r2(tp1Dollars / stopDollars);
 
