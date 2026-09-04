@@ -898,6 +898,26 @@ input{font:inherit}
 .sg-st.open{border-color:rgba(65,216,230,.4);color:var(--sky)}
 .sg-st.won{border-color:rgba(46,232,160,.4);color:var(--green)}
 .sg-st.lost{border-color:rgba(255,93,108,.4);color:#ff8d99}
+.sg-card{cursor:pointer;transition:transform .1s ease,border-color .1s ease}
+.sg-card:active{transform:scale(.985);border-color:rgba(65,216,230,.35)}
+.sg-open-hint{font-size:10.5px;font-weight:700;color:var(--sky);letter-spacing:.02em}
+/* Signal detail sheet */
+.sgm-wrap{position:fixed;inset:0;z-index:90;background:rgba(2,5,10,.74);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);display:flex;align-items:flex-end;justify-content:center}
+.sgm{width:100%;max-width:600px;max-height:90vh;overflow-y:auto;background:linear-gradient(172deg,#0e1a30,#060b16 52%);border:1px solid rgba(150,190,240,.18);border-bottom:0;border-radius:26px 26px 0 0;padding:12px 18px calc(22px + env(safe-area-inset-bottom));box-shadow:0 -20px 60px rgba(0,0,0,.6)}
+.sgm-grab{width:44px;height:4px;border-radius:999px;background:rgba(150,190,240,.28);margin:2px auto 14px}
+.sgm-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.sgm-sym{font-size:22px;font-weight:800;letter-spacing:.01em}
+.sgm-sub{font-size:11.5px;color:var(--faint);margin-top:3px}
+.sgm-sec{font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:16px 2px 4px}
+.sgm-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 2px;border-bottom:1px solid rgba(150,190,240,.08)}
+.sgm-row:last-child{border-bottom:0}
+.sgm-row span{font-size:13px;color:var(--muted)}
+.sgm-row b{font-size:13.5px;font-weight:700;text-align:right}
+.sgm-row b em{font-style:normal;font-size:11px;font-weight:700;color:var(--faint);margin-left:6px}
+.sgm-txt{font-size:13px;color:var(--muted);line-height:1.6;padding:8px 2px;border-bottom:1px solid rgba(150,190,240,.08);white-space:pre-wrap}
+.sgm-actions{display:flex;gap:9px;margin-top:16px}
+.sgm-btn{flex:1;padding:13px;border-radius:999px;font-size:13.5px;font-weight:800;border:1px solid rgba(65,216,230,.45);background:rgba(65,216,230,.08);color:var(--sky)}
+.sgm-btn.danger{flex:0 0 auto;padding:13px 18px;border-color:rgba(255,93,108,.35);background:rgba(255,93,108,.06);color:#ff8d99}
 </style>
 </head>
 <body>
@@ -4365,8 +4385,92 @@ input{font:inherit}
     </div>`;
   }
   // ── SIGNALS — every saved play, synced across devices ─────────────────────
+  function sigPipSize(sym) {
+    var s = String(sym || "").toUpperCase();
+    if (s.indexOf("XAU") >= 0) return 0.1;
+    if (s.indexOf("XAG") >= 0) return 0.01;
+    if (s.indexOf("BTC") >= 0 || s.indexOf("ETH") >= 0 || s.indexOf("SOL") >= 0 || s.indexOf("XRP") >= 0) return 1;
+    if (s.indexOf("NAS") >= 0 || s.indexOf("SPX") >= 0 || s.indexOf("US30") >= 0 || s.indexOf("SPY") >= 0 || s.indexOf("DIA") >= 0) return 1;
+    if (s.indexOf("JPY") >= 0) return 0.01;
+    if (/^[A-Z]{3}\/?[A-Z]{3}$/.test(s.replace("/", ""))) return 0.0001;
+    return null;
+  }
+  function sigWhen(t) {
+    var iso = t.asOf || t.created_at || null;
+    if (!iso) return "";
+    try { var d = new Date(iso); return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; }
+  }
+  var SGM_SKIP = { id: 1, td: 1, symbol: 1, interval: 1, asOf: 1, status: 1, savedManual: 1, signal: 1, hitTp: 1, created_at: 1, client_id: 1, direction: 1, entry: 1, stopLoss: 1, takeProfits: 1, confidence: 1, timeframe: 1, grade: 1 };
+  function prettyKey(k) { return String(k).replace(/([A-Z])/g, " $1").replace(/[_-]+/g, " ").replace(/^./, function (c) { return c.toUpperCase(); }).trim(); }
+  function SignalDetail(props) {
+    var t = props.t, sg = t.signal || {};
+    var dir = String(sg.direction || t.direction || "").toUpperCase();
+    var buy = dir === "BUY" || dir === "LONG";
+    var sym = t.symbol || t.td || "";
+    var tps = arr(sg.takeProfits);
+    var entry = sg.entry != null ? +sg.entry : null, stop = sg.stopLoss != null ? +sg.stopLoss : null;
+    var pip = sigPipSize(sym);
+    var riskPips = (entry != null && stop != null && pip) ? Math.round(Math.abs(entry - stop) / pip) : null;
+    var stRaw = String(t.status || "open").toLowerCase();
+    var busy = useState(false);
+    function removeIt() {
+      if (busy[0]) return; busy[1](true);
+      var s = getSession(), h = {}; if (s && s.access_token) h.Authorization = "Bearer " + s.access_token;
+      fetch("/api/signals?id=" + encodeURIComponent(t.id || t.client_id || ""), { method: "DELETE", credentials: "same-origin", headers: h })
+        .then(function () { busy[1](false); props.onRemoved(t); }).catch(function () { busy[1](false); });
+    }
+    // Anything extra the play was saved with (mode, style, method, notes, analysis…)
+    // shows up automatically — short values as rows, long text as paragraphs.
+    var extraRows = [], extraTexts = [];
+    [t, sg].forEach(function (o) {
+      Object.keys(o || {}).forEach(function (k) {
+        if (SGM_SKIP[k]) return;
+        var v = o[k];
+        if (v == null || v === "" || typeof v === "object" || typeof v === "boolean") return;
+        if (typeof v === "string" && v.length > 90) extraTexts.push({ k: prettyKey(k), v: v });
+        else extraRows.push({ k: prettyKey(k), v: v });
+      });
+    });
+    return html`<div class="sgm-wrap" onClick=${function (e) { if (e.target === e.currentTarget) props.onClose(); }}>
+      <div class="sgm">
+        <div class="sgm-grab"></div>
+        <div class="sgm-head">
+          <div>
+            <div class="sgm-sym">${sym}</div>
+            <div class="sgm-sub">${(sg.timeframe || t.interval || "").toString()}${sigWhen(t) ? " · saved " + sigWhen(t) : ""}</div>
+          </div>
+          <span class=${"sg-dir " + (buy ? "buy" : "sell")} style="font-size:12px;padding:7px 14px">${buy ? "▲ BUY" : "▼ SELL"}</span>
+        </div>
+
+        <div class="sgm-sec">The call</div>
+        <div class="sgm-row"><span>Entry</span><b>${entry != null ? entry : "—"}</b></div>
+        <div class="sgm-row"><span>Stop loss</span><b style="color:#ff8d99">${stop != null ? stop : "—"}${riskPips != null ? html`<em>${riskPips} pips risk</em>` : null}</b></div>
+        ${tps.map(function (tp, i) {
+          var tpn = +tp;
+          var gain = (entry != null && pip && isFinite(tpn)) ? Math.round(Math.abs(tpn - entry) / pip) : null;
+          var rr = (entry != null && stop != null && isFinite(tpn) && Math.abs(entry - stop) > 0) ? (Math.abs(tpn - entry) / Math.abs(entry - stop)) : null;
+          return html`<div class="sgm-row"><span>Target ${i + 1}</span><b style="color:var(--green)">${tp}${gain != null ? html`<em>+${gain} pips${rr != null ? " · " + rr.toFixed(1) + "R" : ""}</em>` : null}</b></div>`;
+        })}
+        ${!tps.length ? html`<div class="sgm-row"><span>Target</span><b>—</b></div>` : null}
+
+        <div class="sgm-sec">Status</div>
+        <div class="sgm-row"><span>Status</span><b><span class=${"sg-st " + (/won|win|tp/.test(stRaw) ? "won" : /lost|loss|stop/.test(stRaw) ? "lost" : "open")}>${stRaw}</span></b></div>
+        ${t.hitTp ? html`<div class="sgm-row"><span>Target hit</span><b style="color:var(--green)">TP${t.hitTp}</b></div>` : null}
+        ${sg.confidence != null ? html`<div class="sgm-row"><span>Confidence</span><b>${sg.confidence}${typeof sg.confidence === "number" ? "%" : ""}</b></div>` : null}
+        ${sg.grade ? html`<div class="sgm-row"><span>Setup grade</span><b>${sg.grade}</b></div>` : null}
+        ${extraRows.slice(0, 10).map(function (r) { return html`<div class="sgm-row"><span>${r.k}</span><b>${String(r.v)}</b></div>`; })}
+
+        ${extraTexts.length ? html`<div class="sgm-sec">The read</div>${extraTexts.slice(0, 4).map(function (r) { return html`<div class="sgm-txt">${r.v}</div>`; })}` : null}
+
+        <div class="sgm-actions">
+          <button class="sgm-btn" onClick=${props.onClose}>Close</button>
+          <button class="sgm-btn danger" disabled=${busy[0]} onClick=${removeIt}>${busy[0] ? "…" : "Remove"}</button>
+        </div>
+      </div>
+    </div>`;
+  }
   function SignalsSavedScreen() {
-    var trades = useState(null);
+    var trades = useState(null), sel = useState(null);
     useEffect(function () { apiGet("/api/signals").then(function (d) { trades[1](arr(d && d.signals)); }).catch(function () { trades[1]([]); }); }, []);
     var list = trades[0];
     return html`<div class="scr">
@@ -4381,7 +4485,7 @@ input{font:inherit}
           var tps = arr(sg.takeProfits);
           var stRaw = String(t.status || "open").toLowerCase();
           var stCls = /won|win|tp/.test(stRaw) ? "won" : /lost|loss|stop/.test(stRaw) ? "lost" : "open";
-          return html`<div class="sg-card">
+          return html`<div class="sg-card" onClick=${function () { sel[1](t); }}>
             <div class="sg-top">
               <span class="sg-sym">${t.symbol || t.td || ""}</span>
               <span class=${"sg-dir " + (buy ? "buy" : "sell")}>${buy ? "▲ BUY" : "▼ SELL"}</span>
@@ -4393,10 +4497,11 @@ input{font:inherit}
             </div>
             <div class="sg-meta">
               <span>${(sg.timeframe || t.interval || "")}${t.asOf ? " · saved " + agoTxt(t.asOf) : (t.created_at ? " · saved " + agoTxt(t.created_at) : "")}</span>
-              <span class=${"sg-st " + stCls}>${stRaw}</span>
+              <span style="display:flex;align-items:center;gap:8px"><span class=${"sg-st " + stCls}>${stRaw}</span><span class="sg-open-hint">View ›</span></span>
             </div>
           </div>`;
         })}
+      ${sel[0] ? html`<${SignalDetail} t=${sel[0]} onClose=${function () { sel[1](null); }} onRemoved=${function (t) { sel[1](null); trades[1]((trades[0] || []).filter(function (x) { return x !== t; })); }} />` : null}
       <div class="foot">Signals are educational — you decide every trade you take.</div>
     </div>`;
   }
