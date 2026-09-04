@@ -6,12 +6,12 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { DecisionObject } from "./types";
 
-/** Archive one FIND ME A TRADE result. */
-export async function saveAnalysis(userId: string, d: DecisionObject): Promise<void> {
+/** Archive one FIND ME A TRADE result. Returns the row id (for save/recall). */
+export async function saveAnalysis(userId: string, d: DecisionObject): Promise<string | null> {
   try {
     const admin = createAdminClient();
-    if (!admin) return;
-    await admin.from("matty_pips_analysis").insert({
+    if (!admin) return null;
+    const { data } = await admin.from("matty_pips_analysis").insert({
       user_id: userId,
       symbol: d.symbol,
       mode: d.mode,
@@ -20,8 +20,9 @@ export async function saveAnalysis(userId: string, d: DecisionObject): Promise<v
       score: d.score.total,
       price: d.price,
       decision: d as unknown as Record<string, unknown>,
-    });
-  } catch { /* table may not exist yet — analysis archive is best-effort */ }
+    }).select("id").single();
+    return (data as { id?: string } | null)?.id ?? null;
+  } catch { return null; /* table may not exist yet — archive is best-effort */ }
 }
 
 /** Append one decision to the audit log (used heavily by auto-trade later). */

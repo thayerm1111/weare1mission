@@ -256,6 +256,10 @@ export async function runEngine(o: {
       watching: watchLine({ symbol: o.symbol, node, distancePips, status, reaction }),
     },
     score, whyThisTrade: [], engineVersion: ENGINE_VERSION,
+    chart: {
+      m15: mkt.m15.slice(-72).map((c) => ({ t: c.t, o: +c.o.toFixed(meta.pricePrecision), h: +c.h.toFixed(meta.pricePrecision), l: +c.l.toFixed(meta.pricePrecision), c: +c.c.toFixed(meta.pricePrecision) })),
+      h1: mkt.h1.slice(-48).map((c) => ({ t: c.t, o: +c.o.toFixed(meta.pricePrecision), h: +c.h.toFixed(meta.pricePrecision), l: +c.l.toFixed(meta.pricePrecision), c: +c.c.toFixed(meta.pricePrecision) })),
+    },
   };
   decision.whyThisTrade = whyThisTrade(decision);
   decision.coach = coachLines(decision);

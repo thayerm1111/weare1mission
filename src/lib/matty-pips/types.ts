@@ -247,6 +247,11 @@ export type DecisionObject = {
   score: ScoreBreakdown;
   whyThisTrade: string[];
   engineVersion: string;
+
+  /** Chart data so the UI can PAINT the picture: recent candles to draw
+   *  against the level map, the trade lines, and the "what needs to happen"
+   *  annotation. Snapshot travels with every saved read. */
+  chart: { m15: Candle[]; h1: Candle[] };
 };
 
 export type EngineError = { ok: false; error: string; detail?: string };
