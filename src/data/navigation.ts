@@ -16,15 +16,18 @@ export interface NavItem {
 // NOTE: "Start Here" is member onboarding — it now lives in the portal sidebar
 // (see PortalNav.tsx), not the public top nav.
 export const mainNav: NavItem[] = [
-  { label: "Home", href: "/" },
-  { label: "1M Experiences", href: "/experiences" },
-  { label: "The Collection", href: "/collection" },
+  { label: "Platform", href: "/#platform" },
+  { label: "Trading", href: "/#mattypips" },
+  { label: "Live", href: "/#live" },
+  { label: "Results", href: "/#proof" },
+  { label: "Community", href: "/experiences" },
+  { label: "About", href: "/start-here" },
 ];
 
 // Prominent primary button in the header. Sends new people to sign up (create
 // an account) so they can request access and be approved into the back office.
 export const primaryCta: NavItem = {
-  label: "Request Access",
+  label: "Get Access",
   href: "/signup",
 };
 
