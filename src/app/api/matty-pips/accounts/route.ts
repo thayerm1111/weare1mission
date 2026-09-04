@@ -50,7 +50,8 @@ export async function POST(req: NextRequest) {
   if (riskPct != null && Number.isFinite(riskPct)) patch.risk_pct = riskPct;
   if (body.beEnabled != null) patch.be_enabled = body.beEnabled !== false;
   if (body.partialsEnabled != null) patch.partials_enabled = body.partialsEnabled !== false;
-  if (body.mode) patch.mode = body.mode === "aggressive" ? "aggressive" : "conservative";
+  // Aggressive is the only Matty Pips mode (owner 09-04) — every save migrates the row.
+  patch.mode = "aggressive";
 
   const { error } = await admin.from("matty_pips_accounts").upsert(patch, { onConflict: "user_id,account_id" });
   if (error) return json({ ok: false, error: error.message.slice(0, 140) }, 500);
