@@ -9,7 +9,8 @@ export function ProofStats() {
         <Reveal>
           <p className="mb-5 text-[11px] font-semibold uppercase tracking-label text-[#2F6FA8]">The proof</p>
           <h2 className="text-[38px] font-extrabold leading-[1.08] tracking-tight text-[#182633] sm:text-[52px]">
-            Let the work speak.
+            Built around
+            real execution.
           </h2>
         </Reveal>
         {homeStats.length > 0 ? (

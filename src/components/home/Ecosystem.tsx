@@ -16,10 +16,10 @@ export function Ecosystem() {
         <Reveal>
           <p className="mb-5 text-[11px] font-semibold uppercase tracking-label text-[#2F6FA8]">One Mission</p>
           <h2 className="text-[38px] font-extrabold leading-[1.08] tracking-tight text-[#182633] sm:text-[52px]">
-            More than<br />a trading platform.
+            The market is<br />just the beginning.
           </h2>
           <p className="mt-6 max-w-[480px] text-[16px] leading-relaxed text-[#5D7183]">
-            The market may be where you start. The mission is bigger.
+            Trading may be where you start. The mission is bigger.
           </p>
         </Reveal>
         <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
