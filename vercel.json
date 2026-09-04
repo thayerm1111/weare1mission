@@ -10,6 +10,7 @@
     { "path": "/api/cron/flow-watchdog", "schedule": "* * * * *" },
     { "path": "/api/cron/flow-monitor", "schedule": "*/5 * * * *" },
     { "path": "/api/matty-pips/cron/scan", "schedule": "* * * * *" },
-    { "path": "/api/matty-pips/cron/manage", "schedule": "* * * * *" }
+    { "path": "/api/matty-pips/cron/manage", "schedule": "* * * * *" },
+    { "path": "/api/matty-pips/cron/outcomes", "schedule": "*/15 * * * *" }
   ]
 }
