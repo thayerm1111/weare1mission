@@ -20,14 +20,10 @@ type MpAccount = {
   enabled: boolean; mode: string; risk_pct: number; be_enabled: boolean; partials_enabled: boolean;
 };
 
+// GOLD ONLY (owner 09-04): Matty Pips is the gold desk — no other pairs, and
+// aggressive is the only mode. The saved-reads list still opens older reads.
 const MARKETS: { canonical: string; label: string }[] = [
   { canonical: "XAUUSD", label: "Gold" },
-  { canonical: "EURUSD", label: "EUR/USD" },
-  { canonical: "GBPUSD", label: "GBP/USD" },
-  { canonical: "USDJPY", label: "USD/JPY" },
-  { canonical: "NAS100", label: "NAS100" },
-  { canonical: "US30", label: "US30" },
-  { canonical: "USOIL", label: "Oil" },
 ];
 
 const C = {
@@ -123,10 +119,141 @@ function statusMeta(d: DecisionObject): { label: string; color: string } {
   return { label: "WAIT", color: C.sub };
 }
 
+/* ══ MATTY'S CALL — the always-on decision + one-tap execute (owner 09-04) ══ */
+function ExecutePanel({ call }: { call: NonNullable<DecisionObject["call"]> }) {
+  const [accts, setAccts] = useState<MpAccount[]>([]);
+  const [acct, setAcct] = useState<string>("");
+  const [risk, setRisk] = useState<number>(1);
+  const [step, setStep] = useState<"idle" | "confirm" | "placing" | "done" | "error">("idle");
+  const [note, setNote] = useState<string>("");
+
+  useEffect(() => {
+    fetch("/api/matty-pips/accounts").then((r) => r.json()).then((j) => {
+      if (j?.ok && Array.isArray(j.accounts)) {
+        setAccts(j.accounts as MpAccount[]);
+        if (j.accounts[0]) { setAcct(String((j.accounts[0] as MpAccount).account_id)); const rp = (j.accounts[0] as MpAccount).risk_pct; if (rp) setRisk(rp); }
+      }
+    }).catch(() => {});
+  }, []);
+
+  async function place() {
+    setStep("placing"); setNote("");
+    try {
+      const r = await fetch("/api/flow/execute", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          source: "play", symbol: "XAUUSD", side: call.direction,
+          entry: call.entry, stop: call.stopLoss, tp: call.tp1,
+          riskPct: risk, accountId: acct || "all",
+        }),
+      });
+      const j = await r.json();
+      if (j?.ok) { setStep("done"); setNote("Order placed at market with your stop and TP1 attached. Manage it from your broker or let the desk manage it."); }
+      else { setStep("error"); setNote(j?.detail || j?.error || "Couldn't place the trade — check your connection in FLOW."); }
+    } catch { setStep("error"); setNote("Network hiccup — nothing was placed. Try again."); }
+  }
+
+  if (!accts.length) {
+    return (
+      <div style={{ marginTop: 14, borderTop: `1px solid ${C.line}`, paddingTop: 12, fontSize: 12.5, color: C.sub }}>
+        Connect your TradeLocker account in <b>FLOW</b> to execute this call with one tap — or flip <b>Auto trade</b> on and the AI takes its confirmed setups for you.
+      </div>
+    );
+  }
+  return (
+    <div style={{ marginTop: 14, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <select value={acct} onChange={(e) => setAcct(e.target.value)}
+          style={{ padding: "8px 10px", borderRadius: 9, border: `1px solid ${C.line}`, fontSize: 12.5, fontWeight: 700, color: C.ink, background: "#fff" }}>
+          {accts.map((a) => <option key={`${a.connection_id}:${a.account_id}`} value={String(a.account_id)}>{a.name || `Account ${a.acc_num}`}</option>)}
+        </select>
+        <select value={risk} onChange={(e) => setRisk(+e.target.value)}
+          style={{ padding: "8px 10px", borderRadius: 9, border: `1px solid ${C.line}`, fontSize: 12.5, fontWeight: 700, color: C.ink, background: "#fff" }}>
+          {[0.25, 0.5, 1, 1.5, 2, 3].map((v) => <option key={v} value={v}>{v}% risk</option>)}
+        </select>
+        {step === "confirm" ? (
+          <>
+            <button onClick={place} style={{ padding: "9px 16px", borderRadius: 9, border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 800, background: call.direction === "buy" ? C.green : C.red, color: "#fff" }}>
+              Confirm — place {call.direction.toUpperCase()} now
+            </button>
+            <button onClick={() => setStep("idle")} style={{ padding: "9px 12px", borderRadius: 9, border: `1px solid ${C.line}`, cursor: "pointer", fontSize: 12.5, fontWeight: 700, background: "#fff", color: C.sub }}>Cancel</button>
+          </>
+        ) : (
+          <button onClick={() => (step === "placing" ? null : setStep("confirm"))} disabled={step === "placing"}
+            style={{ padding: "9px 16px", borderRadius: 9, border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 800, background: C.ink, color: "#fff", opacity: step === "placing" ? 0.6 : 1 }}>
+            {step === "placing" ? "Placing…" : step === "done" ? "✓ Placed — again?" : `⚡ Execute ${call.direction.toUpperCase()} on my account`}
+          </button>
+        )}
+      </div>
+      {note && <div style={{ marginTop: 8, fontSize: 12, color: step === "error" ? C.red : C.green, lineHeight: 1.5 }}>{note}</div>}
+      <div style={{ marginTop: 8, fontSize: 11, color: C.sub }}>
+        Places at market on YOUR account, sized to {risk}% of live equity, stop and TP1 attached. Or turn on <b>Auto trade</b> and the AI takes its confirmed setups hands-free.
+      </div>
+    </div>
+  );
+}
+
+function MattysCall({ call }: { call: NonNullable<DecisionObject["call"]> }) {
+  const buy = call.direction === "buy";
+  const col = buy ? C.green : C.red;
+  const conf = call.confidence;
+  const confCol = conf >= 70 ? C.green : conf >= 55 ? C.amber : C.sub;
+  const rows = [
+    call.tp3 != null ? { l: "TP3 · structure", v: call.tp3, c: "#1B8B8B" } : null,
+    call.tp2 != null ? { l: "TP2 · structure", v: call.tp2, c: C.green } : null,
+    { l: `TP1 · $${call.tp1Dollars.toFixed(2)} move`, v: call.tp1, c: C.green },
+    { l: "Entry · at market", v: call.entry, c: C.blueDeep },
+    { l: `Stop · $${call.stopDollars.toFixed(2)} max`, v: call.stopLoss, c: C.red },
+  ].filter(Boolean) as { l: string; v: number; c: string }[];
+  rows.sort((a, b) => (buy ? b.v - a.v : a.v - b.v));
+  return (
+    <div style={{ background: C.card, borderRadius: 20, boxShadow: C.shadow, border: `1.5px solid ${col}33`, padding: "22px 24px", marginBottom: 14 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px 16px", marginBottom: 12 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: C.sub }}>Matty&rsquo;s call · right now</div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, color: confCol }}>{conf}% confident</span>
+          <span style={{ width: 90, height: 7, borderRadius: 999, background: "#EDF2F7", overflow: "hidden", display: "inline-block" }}>
+            <span style={{ display: "block", height: "100%", width: `${conf}%`, borderRadius: 999, background: confCol, transition: "width .5s" }} />
+          </span>
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 30, fontWeight: 850, letterSpacing: "-0.01em", color: col }}>{buy ? "BUY GOLD" : "SELL GOLD"}</span>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: C.sub }}>R:R 1 : {call.rr1}</span>
+      </div>
+      <div style={{ margin: "10px 0 14px", fontSize: 13.5, lineHeight: 1.6, color: C.ink, borderLeft: `3px solid ${col}44`, paddingLeft: 12 }}>
+        If the market puts a gun to my head right now, this is the side I take. {call.summary.split("— ")[1] ?? ""}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 12 }}>
+        {rows.map((row) => (
+          <div key={row.l} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ width: 150, fontSize: 12, fontWeight: 700, color: row.c }}>{row.l}</span>
+            <span style={{ flex: 1, height: 6, borderRadius: 999, background: `${row.c}15` }} />
+            <span style={{ width: 84, textAlign: "right", fontSize: 15, fontWeight: 800, color: C.ink }}>{fmt(row.v)}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))" }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.green, marginBottom: 5 }}>Behind the call</div>
+          {call.reasons.slice(0, 4).map((r) => <div key={r} style={{ fontSize: 12, color: C.ink, lineHeight: 1.6 }}>✓ {r}</div>)}
+        </div>
+        {call.against.length > 0 && (
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.red, marginBottom: 5 }}>Against it</div>
+            {call.against.slice(0, 3).map((r) => <div key={r} style={{ fontSize: 12, color: C.sub, lineHeight: 1.6 }}>✗ {r}</div>)}
+          </div>
+        )}
+      </div>
+      <ExecutePanel call={call} />
+    </div>
+  );
+}
+
 /* ══ PAGE ═════════════════════════════════════════════════════════════════ */
 export default function MattyPips() {
   const [symbol, setSymbol] = useState("XAUUSD");
-  const [mode, setMode] = useState<Mode>("conservative");
+  const [mode, setMode] = useState<Mode>("aggressive");
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<AnalyzeResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -134,7 +261,6 @@ export default function MattyPips() {
   const [viewingSaved, setViewingSaved] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [showAuto, setShowAuto] = useState(false);
-  const [showPicker, setShowPicker] = useState(true);
 
   async function loadSaved() {
     try {
@@ -154,7 +280,7 @@ export default function MattyPips() {
         body: JSON.stringify({ symbol: symOverride ?? symbol, mode: modeOverride ?? mode }),
       });
       const j = (await r.json()) as AnalyzeResponse | EngineError;
-      if (j.ok) { setRes(j); setShowPicker(false); }
+      if (j.ok) setRes(j);
       else setErr(j.detail || j.error || "Read failed — try again.");
     } catch { setErr("Network hiccup — try again."); }
     finally { setBusy(false); }
@@ -183,7 +309,7 @@ export default function MattyPips() {
         const d = j.item.decision as AnalyzeResponse;
         d.analysisId = j.item.id;
         setRes(d); setSymbol(d.symbol); setMode(d.mode);
-        setViewingSaved(j.item.created_at as string); setSaveState("saved"); setShowPicker(false);
+        setViewingSaved(j.item.created_at as string); setSaveState("saved");
       } else setErr("Couldn't open that saved read.");
     } catch { setErr("Couldn't open that saved read."); }
     finally { setBusy(false); }
@@ -241,31 +367,11 @@ export default function MattyPips() {
               </button>
             )}
             <button onClick={() => setShowAuto((x) => !x)} style={{ ...barBtn, background: showAuto ? C.ink : "#fff", color: showAuto ? "#fff" : C.ink }}>Auto trade</button>
-            <button onClick={() => setShowPicker((x) => !x)} aria-label="Market & mode" style={{ ...barBtn, padding: "7px 10px" }}>⚙</button>
           </div>
         </div>
       </div>
 
       <div className="mpx-wrap" style={{ paddingTop: 16 }}>
-        {/* market & mode picker (settings) */}
-        {showPicker && (
-          <div style={{ background: C.card, borderRadius: 16, boxShadow: C.shadow, padding: "14px 16px", marginBottom: 14, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-            {MARKETS.map((m) => (
-              <button key={m.canonical} onClick={() => setSymbol(m.canonical)}
-                style={{ padding: "6px 13px", borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: "pointer", border: "none", background: symbol === m.canonical ? C.blueDeep : C.ice, color: symbol === m.canonical ? "#fff" : C.sub }}>
-                {m.label}
-              </button>
-            ))}
-            <span style={{ width: 1, height: 20, background: C.line, margin: "0 4px" }} />
-            {(["conservative", "aggressive"] as Mode[]).map((m) => (
-              <button key={m} onClick={() => setMode(m)}
-                style={{ padding: "6px 13px", borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: "pointer", border: "none", background: mode === m ? C.ink : C.ice, color: mode === m ? "#fff" : C.sub }}>
-                {m === "conservative" ? "Safe" : "Aggressive"}
-              </button>
-            ))}
-          </div>
-        )}
-
         {showAuto && <MattyAuto />}
         {err && <div style={{ background: C.card, borderRadius: 16, boxShadow: C.shadow, border: "1px solid #F1CACA", color: C.red, fontSize: 14, padding: "14px 18px", marginBottom: 14 }}>{err}</div>}
 
@@ -299,6 +405,9 @@ export default function MattyPips() {
               </div>
               {role && <div style={{ marginTop: 10, fontSize: 12, fontWeight: 700, color: C.blueDeep }}>Level history: {role}</div>}
             </div>
+
+            {/* 2.5 · MATTY'S CALL — the always-on decision with confidence + execute */}
+            {res.call && <MattysCall call={res.call} />}
 
             {/* 3+4+5 · WORKSTATION: chart ⅔ · decision + cases ⅓ */}
             <div className="mpx-grid" style={{ marginBottom: 14 }}>
@@ -744,9 +853,9 @@ function MattyAuto() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: a.enabled ? 11 : 0 }}>
             <div>
               <div style={{ fontSize: 13.5, fontWeight: 700 }}>{a.name || "Account"} · #{a.acc_num}</div>
-              <div style={{ fontSize: 11.5, color: C.sub }}>{a.enabled ? `Auto ON · ${a.risk_pct}% risk · ${a.mode === "aggressive" ? "aggressive" : "safe"}` : "Auto off"}</div>
+              <div style={{ fontSize: 11.5, color: C.sub }}>{a.enabled ? `Auto ON · ${a.risk_pct}% risk · aggressive` : "Auto off"}</div>
             </div>
-            <Toggle on={a.enabled} disabled={pending === a.account_id} onClick={() => update(a, { enabled: !a.enabled })} />
+            <Toggle on={a.enabled} disabled={pending === a.account_id} onClick={() => update(a, { enabled: !a.enabled, mode: "aggressive" })} />
           </div>
           {a.enabled && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 13, alignItems: "center", fontSize: 12.5 }}>
@@ -758,15 +867,11 @@ function MattyAuto() {
                   {["0.25", "0.5", "1", "1.5", "2"].map((v) => <option key={v} value={v}>{v}%</option>)}
                 </select>
               </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: C.sub }}>
-                Mode
-                <select value={a.mode} disabled={pending === a.account_id}
-                  onChange={(e) => update(a, { mode: e.target.value })}
-                  style={{ padding: "5px 8px", borderRadius: 8, border: `1px solid ${C.line}`, fontWeight: 700, color: C.ink }}>
-                  <option value="conservative">Safe</option>
-                  <option value="aggressive">Aggressive</option>
-                </select>
-              </label>
+              {/* Aggressive is the only mode (owner 09-04) — older accounts are
+                  migrated the next time any setting is saved. */}
+              <span style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: C.sub }}>
+                Mode <b style={{ color: C.ink, fontWeight: 700 }}>Aggressive</b>
+              </span>
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, color: C.sub }}>
                 Breakeven
                 <Toggle on={a.be_enabled} disabled={pending === a.account_id} onClick={() => update(a, { beEnabled: !a.be_enabled })} />
