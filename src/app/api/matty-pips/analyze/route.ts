@@ -38,7 +38,19 @@ async function handle(symbol: string, modeRaw: string | null): Promise<Response>
     // Best-effort archive + audit (works even before the tables exist). The
     // archive id comes back so the UI can SAVE this exact read and reopen it.
     const analysisId = await saveAnalysis(profile.id, res);
-    void logDecision({ userId: profile.id, symbol: sym, kind: "analyze", detail: { mode, status: res.status, score: res.score.total, trade: !!res.trade } });
+    // Entry-window telemetry: when the setup was identified but the window had
+    // already passed (confirmed reaction + LATE/CHASE extension), record it —
+    // backtests can then answer "how often did we call it too late?".
+    const windowMissed = res.reaction.confirmedByClose && !res.trade && (res.entryQuality === "LATE" || res.entryQuality === "CHASE");
+    void logDecision({
+      userId: profile.id, symbol: sym, kind: windowMissed ? "entry_window_missed" : "analyze",
+      detail: {
+        mode, status: res.status, score: res.score.total, trade: !!res.trade,
+        reaction: res.reaction.state, confirmed: res.reaction.confirmedByClose,
+        entryQuality: res.entryQuality, tradeQuality: res.tradeQuality,
+        zone: res.monitoring.zone, price: res.price,
+      },
+    });
     return json({ ...res, analysisId }, 200);
   }
   return json(res, 200);
