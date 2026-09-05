@@ -1,4 +1,4 @@
-const CACHE = "om-app-v15";
+const CACHE = "om-app-v16";
 const SHELL = ["/app/index.html", "/app/manifest.webmanifest", "/app/icon-192.png", "/app/icon-512.png"];
 // Precache the shell FRESH (bypass the HTTP cache) so a new deploy is captured on install.
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => Promise.all(SHELL.map((u) => fetch(u, { cache: "no-store" }).then((r) => { if (r && r.ok) return c.put(u, r); }).catch(() => {})))).then(() => self.skipWaiting())); });

@@ -918,6 +918,70 @@ input{font:inherit}
 .sgm-actions{display:flex;gap:9px;margin-top:16px}
 .sgm-btn{flex:1;padding:13px;border-radius:999px;font-size:13.5px;font-weight:800;border:1px solid rgba(65,216,230,.45);background:rgba(65,216,230,.08);color:var(--sky)}
 .sgm-btn.danger{flex:0 0 auto;padding:13px 18px;border-color:rgba(255,93,108,.35);background:rgba(255,93,108,.06);color:#ff8d99}
+/* ── Matty Pips (mobile) ─────────────────────────────────────────────── */
+.mp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.mp-k{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:9.5px;font-weight:800;letter-spacing:.18em;color:var(--sub,#8fa0bc)}
+.mp-t{font-size:15px;font-weight:800;color:var(--ink,#edf2fa);margin-top:3px}
+.mp-run{padding:10px 14px;border-radius:11px;border:none;background:#41d8e6;color:#04121c;font-size:12.5px;font-weight:800;white-space:nowrap}
+.mp-run:disabled{opacity:.6}
+.mp-intro{font-size:13px;line-height:1.6;color:var(--sub,#8fa0bc);padding:14px;border:1px solid var(--line,rgba(150,190,240,.12));border-radius:14px;background:rgba(255,255,255,.02)}
+.mp-err{font-size:12.5px;color:#ff5d6c;padding:10px 12px;border:1px solid rgba(255,93,108,.3);border-radius:12px;margin-bottom:10px}
+.mp-card{background:#0b0e14;border:1px solid rgba(150,190,240,.12);border-radius:18px;padding:16px 14px;box-shadow:0 14px 34px rgba(0,0,0,.35)}
+.mp-row1{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.mp-cap{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:9px;font-weight:800;letter-spacing:.18em;color:#5e708e}
+.mp-conv{font-size:11px;font-weight:800;color:#fbbf24}
+.mp-convbar{height:5px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;margin:7px 0 12px}
+.mp-convbar>span{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#fbbf24,#2ee8a0)}
+.mp-dir{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:9px}
+.mp-side{font-size:23px;font-weight:900;letter-spacing:-.01em}
+.mp-side.b{color:#2ee8a0}.mp-side.s{color:#ff5d6c}
+.mp-pill{padding:5px 11px;border-radius:999px;font-size:10.5px;font-weight:900;letter-spacing:.06em}
+.mp-pill.now{background:#2ee8a0;color:#04121c}
+.mp-pill.wait{background:#fbbf24;color:#1a1204}
+.mp-pill.brk{background:#8fc6ff;color:#04121c}
+.mp-chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+.mp-chip{padding:3px 9px;border-radius:999px;border:1px solid rgba(150,190,240,.12);background:rgba(255,255,255,.03);font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:8.5px;font-weight:700;letter-spacing:.08em;color:#8fa0bc;white-space:nowrap}
+.mp-chip.hot{color:#edf2fa;border-color:rgba(150,190,240,.25)}
+.mp-say{font-size:12.5px;line-height:1.55;color:#8fa0bc;border-left:3px solid rgba(65,216,230,.4);padding-left:10px;margin-bottom:12px}
+.mp-bars{display:grid;gap:7px;padding:10px 11px;border:1px solid rgba(150,190,240,.12);border-radius:12px;background:rgba(255,255,255,.03);margin-bottom:11px}
+.mp-bar{display:flex;align-items:center;gap:8px}
+.mp-bl{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:8.5px;font-weight:800;letter-spacing:.12em;color:#5e708e;width:86px;flex:none}
+.mp-bt{flex:1;height:5px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
+.mp-bt>span{display:block;height:100%;border-radius:999px}
+.mp-bt>span.g{background:#2ee8a0}.mp-bt>span.r{background:#ff5d6c}.mp-bt>span.a{background:#fbbf24}
+.mp-bv{font-size:11px;font-weight:800;color:#edf2fa;width:22px;text-align:right;font-variant-numeric:tabular-nums}
+.mp-chart{background:#05080d;border:1px solid rgba(150,190,240,.12);border-radius:12px;padding:8px 4px 4px;margin-bottom:11px}
+.mp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.mp-cell{display:flex;flex-direction:column;align-items:center;gap:2px;background:rgba(255,255,255,.03);border:1px solid rgba(150,190,240,.12);border-radius:11px;padding:10px 4px;color:inherit}
+.mp-cl{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:7.5px;font-weight:800;letter-spacing:.14em;color:#5e708e}
+.mp-cv{font-size:14.5px;font-weight:800;color:#edf2fa;font-variant-numeric:tabular-nums}
+.mp-cell.sl .mp-cv{color:#ff5d6c}.mp-cell.tp .mp-cv{color:#2ee8a0}.mp-cell.big .mp-cv{font-size:15.5px}
+.mp-cs{font-size:9.5px;color:#5e708e}
+.mp-hint{font-size:9.5px;color:#5e708e;text-align:center;margin:7px 0 11px}
+.mp-2col{display:grid;gap:10px;margin-bottom:11px}
+.mp-sk{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:8.5px;font-weight:800;letter-spacing:.14em;margin-bottom:4px}
+.mp-sk.g{color:#2ee8a0}.mp-sk.r{color:#ff5d6c}
+.mp-li{font-size:11.5px;color:#8fa0bc;line-height:1.55}
+.mp-li.dim{color:#5e708e}
+.mp-tfs{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:10px}
+.mp-tf{background:rgba(255,255,255,.03);border:1px solid rgba(150,190,240,.12);border-radius:9px;padding:7px 2px;text-align:center}
+.mp-tfk{display:block;font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:7.5px;font-weight:800;letter-spacing:.14em;color:#5e708e}
+.mp-tfv{display:block;margin-top:2px;font-size:8.5px;font-weight:800;color:#8fa0bc}
+.mp-tfv.g{color:#2ee8a0}.mp-tfv.r{color:#ff5d6c}
+.mp-risks{font-size:11px;color:#5e708e;line-height:1.6;margin-bottom:10px}
+.mp-exec{border-top:1px solid rgba(150,190,240,.12);padding-top:11px}
+.mp-warn{font-size:11px;color:#fbbf24;line-height:1.5;margin-bottom:9px}
+.mp-exrow{display:flex;gap:7px;margin-bottom:8px}
+.mp-sel{flex:1;min-width:0;padding:9px 8px;border-radius:10px;border:1px solid rgba(150,190,240,.12);font-size:11.5px;font-weight:700;color:#edf2fa;background:#10151e}
+.mp-arm{width:100%;padding:11px 12px;border-radius:11px;border:none;font-size:12.5px;font-weight:800;background:#edf2fa;color:#0b0e14}
+.mp-arm:disabled{opacity:.6}
+.mp-go{flex:1;padding:11px 12px;border-radius:11px;border:none;font-size:12.5px;font-weight:800;color:#04121c}
+.mp-go.b{background:#2ee8a0}.mp-go.s{background:#ff5d6c}
+.mp-cancel{padding:11px 12px;border-radius:11px;border:1px solid rgba(150,190,240,.12);background:transparent;color:#8fa0bc;font-size:12px;font-weight:700}
+.mp-note{font-size:11.5px;line-height:1.5;margin-bottom:6px}
+.mp-note.ok{color:#2ee8a0}.mp-note.err{color:#ff5d6c}
+.mp-execnote{font-size:10.5px;color:#5e708e;line-height:1.5;margin-top:4px}
+@media(min-width:520px){.mp-2col{grid-template-columns:1fr 1fr}.mp-grid{grid-template-columns:repeat(6,1fr)}}
 </style>
 </head>
 <body>
@@ -3063,12 +3127,164 @@ input{font:inherit}
     </div>`;
   }
 
+  /* ═══════════ MATTY PIPS — the gold decision engine (mobile) ═══════════ */
+  function MattyChart(props) {
+    var cs = (props.candles || []).slice(-36);
+    var call = props.call;
+    if (cs.length < 8 || !call) return null;
+    var W = 360, H = 210, padT = 10, padB = 10, padL = 4, padR = 82;
+    var hi = -Infinity, lo = Infinity;
+    cs.forEach(function (k) { if (k.h > hi) hi = k.h; if (k.l < lo) lo = k.l; });
+    var range0 = hi - lo;
+    [call.entry, call.stopLoss, call.tp1].forEach(function (v) { if (v > hi) hi = v; if (v < lo) lo = v; });
+    [call.tp2, call.tp3].forEach(function (v) { if (v != null && Math.abs(v - call.entry) <= range0 * 1.9) { if (v > hi) hi = v; if (v < lo) lo = v; } });
+    hi += (hi - lo) * 0.05; lo -= (hi - lo) * 0.05;
+    var span = Math.max(hi - lo, 1e-6);
+    function y(v) { return Math.min(H - padB, Math.max(padT, padT + (hi - v) / span * (H - padT - padB))); }
+    var iw = (W - padL - padR) / cs.length, bw = Math.max(2.2, iw * 0.55);
+    var dirCol = call.direction === "buy" ? "#2ee8a0" : "#ff5d6c";
+    function clamped(v) { return v > hi || v < lo; }
+    var lvls = [];
+    if (call.tp3 != null) lvls.push({ l: "TP3 " + call.tp3.toFixed(2), v: call.tp3, c: "#2ee8a0" });
+    if (call.tp2 != null) lvls.push({ l: "TP2 " + call.tp2.toFixed(2), v: call.tp2, c: "#2ee8a0" });
+    lvls.push({ l: "TP1 " + call.tp1.toFixed(2), v: call.tp1, c: "#2ee8a0" });
+    lvls.push({ l: "Entry " + call.entry.toFixed(2), v: call.entry, c: "#ffffff", b: 1 });
+    lvls.push({ l: "SL " + call.stopLoss.toFixed(2), v: call.stopLoss, c: "#ff5d6c" });
+    var rows = lvls.map(function (L) { return { l: L.l, v: L.v, c: L.c, b: L.b, ly: y(L.v) }; }).sort(function (a, b) { return a.ly - b.ly; });
+    for (var i = 1; i < rows.length; i++) if (rows[i].ly - rows[i - 1].ly < 12) rows[i].ly = rows[i - 1].ly + 12;
+    for (var j = rows.length - 1; j >= 0; j--) if (rows[j].ly > H - 5) rows[j].ly = H - 5;
+    var ep = (call.expectedPath || []).filter(function (p) { return p.price <= hi && p.price >= lo; });
+    var px0 = padL + (cs.length - 0.5) * iw, px1 = W - padR - 3;
+    var pps = ep.length >= 2 ? ep.map(function (p, i2) { return { x: px0 + (px1 - px0) * i2 / (ep.length - 1), y: y(p.price) }; }) : [];
+    var zone = call.entryPlan || null;
+    return html`<div class="mp-chart"><svg viewBox=${"0 0 " + W + " " + H} style="width:100%;display:block" aria-label="Matty's call on the 15M chart">
+      ${zone && Math.abs(y(zone.zoneLow) - y(zone.zoneHigh)) > 1 ? html`<rect x=${padL} y=${y(zone.zoneHigh)} width=${W - padL - padR + 5} height=${Math.max(2, y(zone.zoneLow) - y(zone.zoneHigh))} fill=${dirCol} opacity="0.1" rx="2" />` : null}
+      ${cs.map(function (k, i3) {
+        var x = padL + i3 * iw + iw / 2, up = k.c >= k.o, col = up ? "#2ee8a0" : "#ff5d6c";
+        var bt = y(Math.max(k.o, k.c)), bb = y(Math.min(k.o, k.c));
+        return html`<g><line x1=${x} x2=${x} y1=${y(k.h)} y2=${y(k.l)} stroke=${col} stroke-width="1" opacity=".8" /><rect x=${x - bw / 2} y=${bt} width=${bw} height=${Math.max(1.4, bb - bt)} rx="1" fill=${col} /></g>`;
+      })}
+      ${rows.map(function (L) { return html`<g><line x1=${padL} x2=${W - padR + 4} y1=${y(L.v)} y2=${y(L.v)} stroke=${L.c} stroke-width=${L.b ? 1.2 : 1} stroke-dasharray="5 4" opacity=${L.b ? ".95" : ".8"} /><text x=${W - padR + 8} y=${L.ly + 3} font-size="10" font-weight="700" fill=${L.c}>${clamped(L.v) ? L.l + " ↑" : L.l}</text></g>`; })}
+      ${pps.length >= 2 ? html`<g><polyline points=${pps.map(function (p) { return p.x + "," + p.y; }).join(" ")} fill="none" stroke=${dirCol} stroke-width="1.6" stroke-dasharray="2 5" stroke-linecap="round" opacity=".85" />${pps.map(function (p, i4) { return html`<circle cx=${p.x} cy=${p.y} r=${i4 === pps.length - 1 ? 3.2 : 2} fill=${dirCol} opacity=".9" />`; })}</g>` : null}
+    </svg></div>`;
+  }
+  function MattyExec(props) {
+    var call = props.call, live = props.livePrice;
+    var accts = useState(null), acct = useState(""), risk = useState(1), step = useState("idle"), note = useState("");
+    useEffect(function () {
+      apiGet("/api/matty-pips/accounts").then(function (j) {
+        var a = (j && j.ok && Array.isArray(j.accounts)) ? j.accounts : [];
+        accts[1](a);
+        if (a[0]) { acct[1](String(a[0].account_id)); if (a[0].risk_pct) risk[1](a[0].risk_pct); }
+      }).catch(function () { accts[1]([]); });
+    }, []);
+    function place() {
+      step[1]("placing"); note[1]("");
+      // Market fills at the CURRENT price - when the plan is a limit/stop entry
+      // elsewhere, re-anchor stop and TP1 at the live print so the dollar risk
+      // stays exactly what the card promised.
+      var notNow = call.executionState && call.executionState !== "TAKE_NOW" && live != null && isFinite(live);
+      var up = call.direction === "buy";
+      var entry = notNow ? live : call.entry;
+      var stop = notNow ? +(up ? live - call.stopDollars : live + call.stopDollars).toFixed(2) : call.stopLoss;
+      var tp = notNow ? +(up ? live + call.tp1Dollars : live - call.tp1Dollars).toFixed(2) : call.tp1;
+      apiPost("/api/flow/execute", { source: "play", symbol: "XAUUSD", side: call.direction, entry: entry, stop: stop, tp: tp, riskPct: risk[0], accountId: acct[0] || "all" }).then(function (j) {
+        if (j && j.ok) { step[1]("done"); note[1]("Order placed with your stop and TP1 attached."); }
+        else { step[1]("error"); note[1]((j && (j.detail || j.error)) || "Couldn't place the trade — check your connection in FLOW."); }
+      }).catch(function () { step[1]("error"); note[1]("Network hiccup — nothing was placed. Try again."); });
+    }
+    if (accts[0] === null) return null;
+    if (!accts[0].length) return html`<div class="mp-execnote">Connect your account in <b>FLOW</b> to execute this call with one tap.</div>`;
+    var notNow = call.executionState && call.executionState !== "TAKE_NOW";
+    return html`<div class="mp-exec">
+      ${notNow && call.entryPlan ? html`<div class="mp-warn">⚠ The plan is ${call.executionState === "WAIT_FOR_PRICE" ? "a LIMIT at " + call.entryPlan.price.toFixed(2) : "a stop entry on the break of " + call.entryPlan.price.toFixed(2)} — executing here fills at market instead, with the same $${call.stopDollars.toFixed(2)} stop and $${call.tp1Dollars.toFixed(2)} TP1 re-anchored to your fill.</div>` : null}
+      <div class="mp-exrow">
+        <select class="mp-sel" value=${acct[0]} onChange=${function (e) { acct[1](e.target.value); }}>${accts[0].map(function (a) { return html`<option value=${String(a.account_id)}>${a.name || ("Account " + a.acc_num)}</option>`; })}</select>
+        <select class="mp-sel" value=${risk[0]} onChange=${function (e) { risk[1](+e.target.value); }}>${[0.25, 0.5, 1, 1.5, 2, 3].map(function (v) { return html`<option value=${v}>${v}% risk</option>`; })}</select>
+      </div>
+      ${step[0] === "confirm"
+        ? html`<div class="mp-exrow"><button class=${"mp-go " + (call.direction === "buy" ? "b" : "s")} onClick=${place}>Confirm — place ${call.direction.toUpperCase()} now</button><button class="mp-cancel" onClick=${function () { step[1]("idle"); }}>Cancel</button></div>`
+        : html`<button class="mp-arm" disabled=${step[0] === "placing"} onClick=${function () { if (step[0] !== "placing") step[1]("confirm"); }}>${step[0] === "placing" ? "Placing…" : step[0] === "done" ? "✓ Placed — again?" : "⚡ Execute " + call.direction.toUpperCase() + " on my account"}</button>`}
+      ${note[0] ? html`<div class=${"mp-note " + (step[0] === "error" ? "err" : "ok")}>${note[0]}</div>` : null}
+      <div class="mp-execnote">Places on YOUR account, sized to ${risk[0]}% of live equity, stop and TP1 attached.</div>
+    </div>`;
+  }
+  function MattySection(props) {
+    var res = useState(null), busy = useState(false), err = useState("");
+    function run() {
+      if (busy[0]) return; busy[1](true); err[1]("");
+      apiPost("/api/matty-pips/analyze", { symbol: "XAUUSD", mode: "aggressive" }).then(function (j) {
+        busy[1](false);
+        if (j && j.ok) res[1](j); else err[1]((j && (j.detail || j.error)) || "Couldn't read the market — try again.");
+      }).catch(function (e) { busy[1](false); err[1](e && e.code === 402 ? "You're out of credits — top up to keep using the AI tools." : "Couldn't read the market — try again."); });
+    }
+    var d = res[0], call = d && d.call;
+    var buy = call && call.direction === "buy";
+    var conv = call ? (call.conviction != null ? call.conviction : call.confidence) : 0;
+    var exec = call && call.executionState;
+    var execMeta = exec === "TAKE_NOW" ? { t: "TAKE IT NOW", cls: "now" } : exec === "BREAKOUT_ENTRY" ? { t: "BREAKOUT ENTRY", cls: "brk" } : exec === "WAIT_FOR_PRICE" ? { t: "WAIT FOR PRICE", cls: "wait" } : null;
+    function pips(v) { return v == null || !call ? "" : Math.round(Math.abs(v - call.entry) / 0.1).toLocaleString(); }
+    function cell(lab, val, sub, cls) {
+      return html`<button class=${"mp-cell " + (cls || "")} onClick=${function () { copy(val); }}><span class="mp-cl">${lab}</span><span class="mp-cv">${val}</span>${sub ? html`<span class="mp-cs">(${sub})</span>` : null}</button>`;
+    }
+    return html`<div class="scr">
+      <div class="mp-head">
+        <div>
+          <div class="mp-k">MATTY PIPS · GOLD INTELLIGENCE</div>
+          <div class="mp-t">Gun to the head — which way is gold going?</div>
+        </div>
+        <button class="mp-run" disabled=${busy[0]} onClick=${run}>${busy[0] ? "Reading…" : d ? "↻ Update" : "Find me a trade"}</button>
+      </div>
+      ${err[0] ? html`<div class="mp-err">${err[0]}</div>` : null}
+      ${!d && !err[0] && !busy[0] ? html`<div class="mp-intro">One tap and the desk reads gold top-down — Daily to 5-minute — scores the BUY case against the SELL case, and commits to a side with the exact entry, stop, and structure targets. It always makes the call.</div>` : null}
+      ${busy[0] && !d ? html`<div class="mp-intro">Reading the market — levels, structure, liquidity, momentum…</div>` : null}
+      ${call ? html`<div class="mp-card">
+        <div class="mp-row1"><span class="mp-cap">MATTY'S CALL · RIGHT NOW</span><span class="mp-conv">${conv}% conviction</span></div>
+        <div class="mp-convbar"><span style=${"width:" + conv + "%"}></span></div>
+        <div class="mp-dir">
+          <span class=${"mp-side " + (buy ? "b" : "s")}>${buy ? "BUY GOLD" : "SELL GOLD"}</span>
+          ${execMeta ? html`<span class=${"mp-pill " + execMeta.cls}>${execMeta.t}${exec !== "TAKE_NOW" && call.entryPlan ? " · " + call.entryPlan.price.toFixed(2) : ""}</span>` : null}
+        </div>
+        <div class="mp-chips">
+          ${call.setupFamily ? html`<span class="mp-chip hot">${call.setupFamily.replace(/_/g, " ")}</span>` : null}
+          ${call.expectedMove ? html`<span class="mp-chip">NEXT MOVE $${call.expectedMove.min}–$${call.expectedMove.max}</span>` : null}
+          ${call.regime ? html`<span class="mp-chip">4H ${call.regime}</span>` : null}
+          ${call.session ? html`<span class="mp-chip">${call.session}</span>` : null}
+          ${call.volatility ? html`<span class="mp-chip">VOL ${call.volatility}</span>` : null}
+        </div>
+        <div class="mp-say">${call.entryPlan && call.entryPlan.note ? call.entryPlan.note : call.summary}</div>
+        ${call.buyScore != null ? html`<div class="mp-bars">
+          <div class="mp-bar"><span class="mp-bl">BUY CASE</span><div class="mp-bt"><span class="g" style=${"width:" + call.buyScore + "%"}></span></div><span class="mp-bv">${call.buyScore}</span></div>
+          <div class="mp-bar"><span class="mp-bl">SELL CASE</span><div class="mp-bt"><span class="r" style=${"width:" + call.sellScore + "%"}></span></div><span class="mp-bv">${call.sellScore}</span></div>
+          ${call.entryQualityScore != null ? html`<div class="mp-bar"><span class="mp-bl">ENTRY QUALITY</span><div class="mp-bt"><span class=${call.entryQualityScore >= 60 ? "g" : call.entryQualityScore >= 40 ? "a" : "r"} style=${"width:" + call.entryQualityScore + "%"}></span></div><span class="mp-bv">${call.entryQualityScore}</span></div>` : null}
+        </div>` : null}
+        <${MattyChart} candles=${d.chart && d.chart.m15} call=${call} />
+        <div class="mp-grid">
+          ${cell("ENTRY", call.entry.toFixed(2), null, "big")}
+          ${cell("⛨ STOP", call.stopLoss.toFixed(2), pips(call.stopLoss), "sl")}
+          ${cell("R : R", "1 : " + call.rr1, null, "")}
+          ${cell("◎ TP1", call.tp1.toFixed(2), pips(call.tp1), "tp")}
+          ${call.tp2 != null ? cell("◎ TP2", call.tp2.toFixed(2), pips(call.tp2), "tp") : null}
+          ${call.tp3 != null ? cell("◎ TP3", call.tp3.toFixed(2), pips(call.tp3), "tp") : null}
+        </div>
+        <div class="mp-hint">figures in parentheses are pips from entry · tap a level to copy</div>
+        <div class="mp-2col">
+          <div><div class="mp-sk g">BEHIND THE CALL</div>${(call.reasons || []).slice(0, 4).map(function (r) { return html`<div class="mp-li">✓ ${r}</div>`; })}</div>
+          ${(call.against || []).length ? html`<div><div class="mp-sk r">AGAINST IT</div>${call.against.slice(0, 3).map(function (r) { return html`<div class="mp-li dim">✗ ${r}</div>`; })}</div>` : null}
+        </div>
+        ${(call.timeframes || []).length ? html`<div class="mp-tfs">${call.timeframes.map(function (tf) { return html`<div class="mp-tf" title=${tf.note}><span class="mp-tfk">${tf.tf}</span><span class=${"mp-tfv " + (/UP|BUY/.test(tf.state) ? "g" : /DOWN|SELL/.test(tf.state) ? "r" : "")}>${tf.state}</span></div>`; })}</div>` : null}
+        ${(call.riskFactors || []).length ? html`<div class="mp-risks">${call.riskFactors.slice(0, 3).map(function (r) { return html`<div>⚠ ${r}</div>`; })}</div>` : null}
+        <${MattyExec} call=${call} livePrice=${d.price} />
+      </div>` : null}
+    </div>`;
+  }
   function FloorSection(props) {
     var view = useState(props.init || "");
     var pulseTool = TOOLS.filter(function (t) { return t.id === "pulse"; })[0];
     var playsTool = TOOLS.filter(function (t) { return t.id === "liveplays"; })[0];
     var mfxGhostTool = TOOLS.filter(function (t) { return t.id === "ghost"; })[0];
     function back() { return html`<button class="floor-back" onClick=${function () { view[1](""); }}>‹ The Floor</button>`; }
+    if (view[0] === "matty") return html`<div>${back()}<${MattySection} onLogout=${props.onLogout} /></div>`;
     if (view[0] === "omai") return html`<div>${back()}<${ChatScreen} onLogout=${props.onLogout} /></div>`;
     if (view[0] === "mfxghost") return html`<div>${back()}<${ToolRunner} key="ghost" tool=${mfxGhostTool} onLogout=${props.onLogout} /></div>`;
     if (view[0] === "pulse") return html`<div>${back()}<${ToolRunner} key="pulse" tool=${pulseTool} onLogout=${props.onLogout} /></div>`;
@@ -3090,6 +3306,12 @@ input{font:inherit}
           <div class="fl-nm">GENX</div>
           <div class="fl-bl">Gold intelligence engine — one tap tells you exactly what to do on Gold right now.</div>
           <div class="fl-cta">Analyze Gold ›</div>
+        </button>
+        <button class="flcard span" onClick=${open("matty")}>
+          <div class="fl-ic">◎</div>
+          <div class="fl-nm">Matty Pips</div>
+          <div class="fl-bl">The gold decision engine — gun to the head it always picks a side, with the entry, stop, and structure targets.</div>
+          <div class="fl-cta">Get the call ›</div>
         </button>
         <button class="flcard span" onClick=${open("omai")}>
           <div class="fl-ic">✦</div>
