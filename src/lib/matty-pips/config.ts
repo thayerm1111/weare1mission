@@ -45,6 +45,7 @@ export type MpConfig = {
     atZoneAtr: number;                   // within this ×ATR15 of a zone = "at" it
     extendedAtr: number;                 // beyond this ×ATR15 from the zone = extended
     breakoutPadAtr: number;              // stop-entry pad beyond the level edge
+    breakoutMaxDistAtr: number;          // a break trigger farther than this ×ATR15 isn't actionable
     limitFallbackPullbackAtr: number;    // no mapped zone → wait for this pullback
     limitFallbackWidthAtr: number;       // width of the fallback wait-zone
     minZoneRank: number;                 // zones below this rank can't host an entry
@@ -81,7 +82,7 @@ export const DEFAULT_CONFIG: MpConfig = {
     extremeVolPenalty: 6, deadSessionPenalty: 4, dxyConflictPenalty: 3,
   },
   execution: {
-    atZoneAtr: 0.7, extendedAtr: 1.5, breakoutPadAtr: 0.3,
+    atZoneAtr: 0.7, extendedAtr: 1.5, breakoutPadAtr: 0.3, breakoutMaxDistAtr: 3,
     limitFallbackPullbackAtr: 0.8, limitFallbackWidthAtr: 0.4, minZoneRank: 30,
   },
   volatility: { lowRatio: 0.7, elevatedRatio: 1.35, extremeRatio: 2.0, baselineBars: 96 },

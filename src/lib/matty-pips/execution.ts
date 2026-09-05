@@ -78,7 +78,12 @@ export function readExecution(o: {
     (up ? price >= o.node.low - pad : price <= o.node.high + pad) &&
     (o.sctx.compression === (up ? "bullish" : "bearish") ||
       ["TESTING", "RESPECTING", "APPROACHING"].includes(o.reaction.state));
-  if (pressingThrough && o.node && !confirmed) {
+  // A break trigger only counts when the level's FAR edge is actually within
+  // reach — a wide complex can put its far side many dollars away, and a stop
+  // entry there is a wish, not a plan. Too far → fall through to WAIT.
+  const breakEdge = o.node ? (up ? o.node.high : o.node.low) : null;
+  const breakReachable = breakEdge != null && Math.abs(breakEdge - price) <= cfg.execution.breakoutMaxDistAtr * atr15;
+  if (pressingThrough && o.node && !confirmed && breakReachable) {
     const edge = up ? o.node.high : o.node.low;
     const trigger = r2(up ? edge + cfg.execution.breakoutPadAtr * atr15 : edge - cfg.execution.breakoutPadAtr * atr15);
     return {
