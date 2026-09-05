@@ -1,9 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logTrade } from "@/lib/flow/tradeLog";
-import { normalizeQuantity } from "@/lib/flow/instruments";
+import { normalizeQuantity, getInstrument } from "@/lib/flow/instruments";
 import { freshAccessToken, activeAccounts, type ActiveAccount } from "@/lib/flow/connection";
 import { sizeFromRisk, contractKey, floorStop } from "@/lib/flow/sizing";
-import { listInstruments, createOrder, getQuote, listOrders, listPositions, listAccounts, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
+import { listInstruments, createOrder, getQuote, listOrders, listPositions, listAccounts, modifyPosition, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 
 /**
  * FLOW order placement (server-only). Places a single market order on the
@@ -136,11 +136,19 @@ async function instrumentsFor(a: { env: TLEnv; token: string; accNum: string; ac
   return { ok: false, error: lastErr };
 }
 
-async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean }> {
+async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null, ensureBrackets?: boolean): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean }> {
   const instRes = await instrumentsFor(a);
   if (!instRes.ok) return { ok: false, error: `instrument_list_failed: ${instRes.error}`.slice(0, 160) };
   const tl = matchInstrument(canonical, instRes.data);
   if (!tl) return { ok: false, error: `instrument_not_found: ${canonical}` };
+
+  // Round SL/TP to the instrument's price precision BEFORE they reach the
+  // broker. Play levels can carry excess decimals (a BTC play at 79541.456789)
+  // and some brokers reject — or silently DROP — a bracket at an off-grid
+  // price while still filling the market order, leaving the position naked.
+  const prec = getInstrument(canonical).pricePrecision;
+  if (stop != null) stop = +stop.toFixed(prec);
+  if (tp != null) tp = +tp.toFixed(prec);
 
   const norm = normalizeQuantity(canonical, qty, { quantityStep: tl.quantityStep, minQuantity: tl.minQuantity });
   const base = {
@@ -182,6 +190,24 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
   // back (the usual case for market orders).
   let positionId = ord.data.positionId ?? null;
   if (!positionId && hasStop) positionId = await resolveNewPositionId(a, beforeIds);
+
+  // BELT AND BRACES (member play executes): some TradeLocker routes accept a
+  // market order but silently drop its SL/TP brackets — the fill lands NAKED
+  // with no error anywhere. A member's play trade must never sit unprotected,
+  // so once the position resolves, explicitly (re)apply the exact same levels
+  // via modifyPosition. Idempotent when the brackets did attach; the repair
+  // when they didn't. Any failure is surfaced in the note, never swallowed.
+  if (ensureBrackets && hasBracket && positionId) {
+    try {
+      const fix = await modifyPosition(a.env, a.token, a.accNum, positionId, {
+        ...(stop != null ? { stopLoss: stop } : {}),
+        ...(tp != null ? { takeProfit: tp } : {}),
+      });
+      if (!fix.ok) note += ` (bracket verify failed: ${String(fix.error).slice(0, 80)} — CHECK SL/TP ON THE POSITION)`;
+    } catch {
+      note += " (bracket verify threw — CHECK SL/TP ON THE POSITION)";
+    }
+  }
   return { ok: true, qty: norm.qty, orderId: ord.data.orderId ?? null, positionId, note };
 }
 
@@ -284,7 +310,10 @@ export async function placeOnActiveAccounts(opts: {
     if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_submitted", reason: opts.source, price: opts.entry, qty: lots, detail: { side: opts.side, stop, tp: opts.tp ?? null } });
     let r: Awaited<ReturnType<typeof placeOnAccount>>;
     try {
-      r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, opts.tp ?? null);
+      // Member play executes get the bracket verify+repair pass (ensureBrackets):
+      // low volume, member-initiated, and the trade is unmanaged afterward — so
+      // the SL/TP the card promised MUST actually be on the broker position.
+      r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, opts.tp ?? null, opts.source === "play");
     } catch (e) {
       // The order request THREW (e.g. a network timeout AFTER the broker may already have
       // filled). Never assume it failed and never abort the rest of the fan-out — log an
