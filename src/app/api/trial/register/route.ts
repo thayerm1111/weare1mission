@@ -73,6 +73,25 @@ export async function POST(req: NextRequest) {
   if (createErr || !created?.user) {
     const msg = String(createErr?.message ?? "").toLowerCase();
     if (msg.includes("already") || msg.includes("registered") || msg.includes("exists")) {
+      // SELF-REPAIR for a raced trial signup: if this email came through THE
+      // TRIAL PATH before (proven by its 'trial_welcome' ledger row) but the
+      // profile trigger overwrote the activation back to 'pending', finish the
+      // activation now. Strictly limited to trial-ledger accounts — a normal
+      // pending member (admin-approval queue) has no trial row and is never
+      // touched. The caller still has to know the password to sign in.
+      try {
+        const { data: prof } = await admin.from("profiles").select("id, status, access_expires_at").eq("email", email).maybeSingle();
+        const p = prof as { id: string; status: string; access_expires_at: string | null } | null;
+        if (p && p.status === "pending") {
+          const { data: trialRow } = await admin.from("credit_transactions")
+            .select("id").eq("user_id", p.id).eq("feature", TRIAL_FEATURE).limit(1).maybeSingle();
+          if (trialRow) {
+            const expires = p.access_expires_at ?? new Date(Date.now() + TRIAL_DAYS * 86400_000).toISOString();
+            await admin.from("profiles").update({ status: "active", access_expires_at: expires }).eq("id", p.id);
+            return json({ ok: true, repaired: true, trialDays: TRIAL_DAYS, credits: TRIAL_CREDITS, accessExpiresAt: expires }, 200);
+          }
+        }
+      } catch { /* fall through to the normal message */ }
       return json({ ok: false, error: "already_registered", detail: "That email already has an account — log in instead." }, 200);
     }
     return json({ ok: false, error: "Couldn't create your account — please try again." }, 200);
@@ -109,6 +128,19 @@ export async function POST(req: NextRequest) {
     } else approved = true;
   }
   if (!approved) return json({ ok: false, error: "Your account was created but couldn't be activated — contact support and we'll fix it right away." }, 200);
+
+  // VERIFY THE ACTIVATION STUCK. The signup trigger can land AFTER our update
+  // (createUser returns before every auth hook settles) and reset the row to
+  // 'pending' — first live test hit exactly this race. Re-read, and re-apply
+  // until the broker of record says 'active'. A few short beats is all the
+  // trigger ever needs; never approve-and-hope.
+  for (let i = 0; i < 6; i++) {
+    const { data: check } = await admin.from("profiles").select("status, access_expires_at").eq("id", userId).maybeSingle();
+    const c = check as { status?: string; access_expires_at?: string | null } | null;
+    if (c?.status === "active" && c?.access_expires_at) break;
+    await sleep(700);
+    await admin.from("profiles").update({ status: "active", access_expires_at: accessExpiresAt, full_name: name }).eq("id", userId);
+  }
 
   // 3) The 200 trial credits — ledger-guarded so it can never double-grant.
   try {
