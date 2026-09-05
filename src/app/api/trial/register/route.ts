@@ -51,6 +51,10 @@ export async function POST(req: NextRequest) {
   const email = String(body.email ?? "").trim().toLowerCase().slice(0, 200);
   const password = String(body.password ?? "");
   const ref = String(body.ref ?? "").trim().toLowerCase().slice(0, 80);
+  // Promo code — optional, never blocks registration. Stored where the
+  // existing promo system reads it (profiles.conectiv_id, e.g. 'rich' →
+  // the 100-credit grant applies on the member's first balance load).
+  const promo = String((body as { promo?: string }).promo ?? "").trim().toLowerCase().slice(0, 40);
 
   if (!name) return json({ ok: false, error: "Please enter your name." }, 200);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ ok: false, error: "Please enter a valid email address." }, 200);
@@ -68,7 +72,7 @@ export async function POST(req: NextRequest) {
     email,
     password,
     email_confirm: true,
-    user_metadata: { full_name: name, ...(ref ? { referred_by_username: ref } : {}) },
+    user_metadata: { full_name: name, ...(ref ? { referred_by_username: ref } : {}), ...(promo ? { conectiv_id: promo } : {}) },
   });
   if (createErr || !created?.user) {
     const msg = String(createErr?.message ?? "").toLowerCase();
@@ -107,7 +111,7 @@ export async function POST(req: NextRequest) {
     const { data: row } = await admin.from("profiles").select("id").eq("id", userId).maybeSingle();
     if (row) {
       const { error: upErr } = await admin.from("profiles")
-        .update({ status: "active", access_expires_at: accessExpiresAt, full_name: name })
+        .update({ status: "active", access_expires_at: accessExpiresAt, full_name: name, ...(promo ? { conectiv_id: promo } : {}) })
         .eq("id", userId);
       approved = !upErr;
       break;
@@ -116,13 +120,13 @@ export async function POST(req: NextRequest) {
   }
   if (!approved) {
     const { error: insErr } = await admin.from("profiles").insert({
-      id: userId, email, full_name: name, role: "member", tier: "starter",
+      id: userId, email, full_name: name, role: "member", tier: "starter", ...(promo ? { conectiv_id: promo } : {}),
       status: "active", access_expires_at: accessExpiresAt,
     });
     if (insErr) {
       // Retry the update once more — the trigger may have landed between checks.
       const { error: upErr2 } = await admin.from("profiles")
-        .update({ status: "active", access_expires_at: accessExpiresAt, full_name: name })
+        .update({ status: "active", access_expires_at: accessExpiresAt, full_name: name, ...(promo ? { conectiv_id: promo } : {}) })
         .eq("id", userId);
       approved = !upErr2;
     } else approved = true;
@@ -139,7 +143,7 @@ export async function POST(req: NextRequest) {
     const c = check as { status?: string; access_expires_at?: string | null } | null;
     if (c?.status === "active" && c?.access_expires_at) break;
     await sleep(700);
-    await admin.from("profiles").update({ status: "active", access_expires_at: accessExpiresAt, full_name: name }).eq("id", userId);
+    await admin.from("profiles").update({ status: "active", access_expires_at: accessExpiresAt, full_name: name, ...(promo ? { conectiv_id: promo } : {}) }).eq("id", userId);
   }
 
   // 3) The 200 trial credits — ledger-guarded so it can never double-grant.
