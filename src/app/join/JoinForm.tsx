@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { Mail, Lock, User, ArrowRight, CheckCircle2 } from "lucide-react";
+import { Mail, Lock, User, ArrowRight, CheckCircle2, Ticket } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -17,8 +17,8 @@ function readRefCookie(): string {
  * account, auto-approves it, grants the 200 trial credits), then signs the new
  * member straight in and lands them in the portal — one form, zero waiting.
  */
-export function JoinForm({ refUsername }: { refUsername?: string }) {
-  const [form, setForm] = useState({ name: "", email: "", password: "", website: "" });
+export function JoinForm({ refUsername, promoCode }: { refUsername?: string; promoCode?: string }) {
+  const [form, setForm] = useState({ name: "", email: "", password: "", promo: promoCode || "", website: "" });
   const [status, setStatus] = useState<"idle" | "sending" | "entering" | "error">("idle");
   const [message, setMessage] = useState("");
 
@@ -40,6 +40,7 @@ export function JoinForm({ refUsername }: { refUsername?: string }) {
           name: form.name.trim(),
           email: form.email.trim(),
           password: form.password,
+          promo: form.promo.trim(),
           ref: (refUsername || readRefCookie() || "").toLowerCase(),
           website: form.website, // honeypot — stays empty for humans
         }),
@@ -85,6 +86,7 @@ export function JoinForm({ refUsername }: { refUsername?: string }) {
       <Input id="jn-name" label="Full name" icon={User} value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="Your name" autoComplete="name" />
       <Input id="jn-email" label="Email address" type="email" icon={Mail} value={form.email} onChange={(v) => setForm({ ...form, email: v })} placeholder="you@example.com" autoComplete="email" />
       <Input id="jn-pass" label="Create a password" type="password" icon={Lock} value={form.password} onChange={(v) => setForm({ ...form, password: v })} placeholder="At least 8 characters" autoComplete="new-password" />
+      <Input id="jn-promo" label="Promo code (optional)" icon={Ticket} value={form.promo} onChange={(v) => setForm({ ...form, promo: v })} placeholder="Have a code? Enter it here" autoComplete="off" />
       {/* Honeypot — invisible to people, irresistible to bots. */}
       <div aria-hidden="true" className="absolute -left-[9999px] top-auto h-px w-px overflow-hidden">
         <label htmlFor="jn-web">Website</label>

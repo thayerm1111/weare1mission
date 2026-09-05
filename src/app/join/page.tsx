@@ -23,7 +23,7 @@ const PERKS = [
  * get auto-approved, and land in the portal with a live 14-day trial and
  * 200 credits. Referral links work too: /join?ref=<username>.
  */
-export default function JoinPage({ searchParams }: { searchParams: { ref?: string } }) {
+export default function JoinPage({ searchParams }: { searchParams: { ref?: string; promo?: string } }) {
   return (
     <section className="section bg-gradient-hero">
       <div className="container-1m flex justify-center">
@@ -49,7 +49,7 @@ export default function JoinPage({ searchParams }: { searchParams: { ref?: strin
           </ul>
 
           <div className="mt-6 rounded-2xl border border-[#E4DCCB] bg-offwhite/70 p-6 shadow-card sm:p-8">
-            <JoinForm refUsername={searchParams.ref} />
+            <JoinForm refUsername={searchParams.ref} promoCode={searchParams.promo} />
           </div>
 
           <p className="mt-6 text-center text-xs leading-relaxed text-charcoal/55">
