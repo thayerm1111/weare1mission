@@ -447,6 +447,11 @@ export async function repairPhantomTargets(admin: Admin): Promise<number> {
       .eq("outcome", "target")
       .in("symbol", GOLD_CHOP_SYMS)
       .gt("entry", 0)
+      // SQL-side candidate prefilter so the 50-row window is spent on corrupted rows, not
+      // on legitimate historical wins (the first deploy repaired only 3/pass because the
+      // unordered scan window filled with sane rows). Gold has lived nowhere near these
+      // bounds; the exact >20%-from-entry check below remains the decider.
+      .or("best_price.lt.3000,best_price.gt.7000")
       .limit(50);
     const rows = (data ?? []) as Array<{ id: string; position_id: string; account_id: string | null; user_id: string | null; symbol: string; side: string; entry: number; cur_stop: number | null; best_price: number | null }>;
     let repaired = 0;
