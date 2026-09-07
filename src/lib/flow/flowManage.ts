@@ -964,7 +964,17 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // at 4424.82 (-30 pips) because the feed's spread was ~$2.9. Push the lock deeper
       // into profit by the live spread (clamped to 40 pips so a bad quote can't distort it),
       // so a fill one spread through the stop still lands at or better than the +5-pip lock.
-      const spreadPad = Math.min(Math.max(0, spreadCache.get(`${tok.env}|${row.symbol}`) ?? 0), 40 * pip);
+      // THIN-HOURS SLIPPAGE FLOOR (owner 09-07: "stop closing in negative"). The live spread
+      // at SET time is not enough — the lock has to survive the FILL, and 09-07 03:18 proved
+      // a vertical Asia-session spike fills ~10 pips through a stop that was quoted at a
+      // 2-pip spread minutes earlier. During the thin window (21:00–07:00 UTC: rollover +
+      // Asia) the cushion floors at 20 pips; in liquid hours at 5 pips; the live spread
+      // still wins when it is wider. Capped at 40 pips so a junk quote can't distort it.
+      // BE trigger is 35 pips, so even the deep thin-hours lock stays inside the trigger.
+      const utcH = new Date().getUTCHours();
+      const thinHours = utcH >= 21 || utcH < 7;
+      const padFloor = (thinHours ? 20 : 5) * pip;
+      const spreadPad = Math.min(Math.max(spreadCache.get(`${tok.env}|${row.symbol}`) ?? 0, padFloor), 40 * pip);
       const bePx = roundPx(row.symbol, long ? entry + BE_PROFIT_PIPS * pip + spreadPad : entry - BE_PROFIT_PIPS * pip - spreadPad);
       const beSafe = long ? price > bePx + 2 * pip : price < bePx - 2 * pip;
 
