@@ -5,6 +5,7 @@ import { confirmEntry, CONFIRM_IV } from "@/lib/genxConfirm";
 import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
 import { placeGenxGold, placeGenxFollower, rewardRisk, inWeekendCloseWindow } from "@/lib/flow/autoExec";
+import { checkOwnerLevels } from "@/lib/flow/ownerLevels";
 
 // GOLD ENTRY PREFERENCE (owner directive): get IN when the trade is working; only wait for a
 // pull-back when the fill is genuinely too rich.
@@ -362,7 +363,13 @@ async function run(): Promise<Response> {
     }
   }
 
-  return json({ ok: true, asOf: nowIso, ...out }, 200);
+  // MY LEVELS (owner 09-07): after the trend scan, check the owner's drawn
+  // support/resistance lines — a confirmed 5-minute rejection at one fires a
+  // level-bounce placement through the exact same execution path.
+  let ownerLevels: { checked: number; fired: number } = { checked: 0, fired: 0 };
+  try { ownerLevels = await checkOwnerLevels(admin, mdKey); } catch { /* best-effort */ }
+
+  return json({ ok: true, asOf: nowIso, ownerLevels, ...out }, 200);
 }
 
 /** Liveness beat that PRESERVES the stored last_decision. beat() replaces the whole
