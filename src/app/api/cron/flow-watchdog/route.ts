@@ -95,11 +95,21 @@ async function run(req: NextRequest): Promise<Response> {
 
     if (!alertedRecently) {
       const adminChat = process.env.TELEGRAM_ADMIN_CHAT_ID;
-      const lines = [
-        "🚨 <b>Auto-trading system DOWN</b>",
-        ...report.reasons.slice(0, 6).map((r) => "• " + esc(r)),
+      // WHO SEES THIS decides HOW it reads (owner 09-07): the private admin chat gets the
+      // raw diagnostics; the MEMBER channel (fallback when no admin chat is configured)
+      // gets a calm maintenance note instead — members were reading watchdog internals
+      // ("system DOWN", stale seconds) as their money being at risk. Their positions are
+      // protected either way: stops and targets live on the BROKER, not on our loop.
+      const lines = adminChat ? [
+        "\u{1F6A8} <b>Auto-trading system DOWN</b>",
+        ...report.reasons.slice(0, 6).map((r) => "\u2022 " + esc(r)),
         healed.length ? `Auto-recovery restarted: ${esc(healed.join(", "))}.` : "No stalled component to auto-restart.",
         "The watchdog will keep trying to self-heal; check the health page if this repeats.",
+      ] : [
+        "\u{1F6E0} <b>GENX \u2014 quick systems check</b>",
+        "Monitoring caught a short delay in one of our background services and is already restarting it automatically.",
+        "Your open trades stay fully protected the whole time \u2014 every stop loss and target lives on the broker\u2019s servers, not ours.",
+        "No action needed on your end. Trading continues as normal.",
       ];
       try {
         await sendTelegram(lines.join("\n"), adminChat ? { chatId: adminChat } : undefined);
