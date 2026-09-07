@@ -425,6 +425,52 @@ export function reconcileClosedTrade(
   return { exitPrice: close.price != null && close.price > 0 ? close.price : null, reason };
 }
 
+/**
+ * LEDGER SELF-REPAIR (owner 09-07: "just fix the problem"). Re-grades closed rows whose
+ * 'target' outcome was manufactured by a data-insane best_price — the 1038.67 junk tick
+ * made the old grader book full-TP wins on positions the broker actually closed at their
+ * protective locks (broker screens verified −5/+6/−21 pips on the owner's own accounts,
+ * not +160). A best_price more than 20% away from entry is nothing gold ever printed
+ * inside one trade — a REAL target only needs price to travel a percent or two — so any
+ * 'target' row wearing one is a phantom. It is re-booked at its lock (cur_stop), the
+ * repair is logged (phase 'regrade'), and repaired rows stop matching, so this sweep is
+ * idempotent and free once clean. 'trail'/'breakeven'/'stop' rows are untouched — their
+ * exits came from the broker. New corruption can't recur: live ticks are sanity-bounded
+ * at read (extSane) and the grader now requires the exit itself to confirm a target.
+ */
+export async function repairPhantomTargets(admin: Admin): Promise<number> {
+  try {
+    const { data } = await admin
+      .from("flow_managed_positions")
+      .select("id, position_id, account_id, user_id, symbol, side, entry, cur_stop, best_price")
+      .eq("status", "closed")
+      .eq("outcome", "target")
+      .in("symbol", GOLD_CHOP_SYMS)
+      .gt("entry", 0)
+      .limit(50);
+    const rows = (data ?? []) as Array<{ id: string; position_id: string; account_id: string | null; user_id: string | null; symbol: string; side: string; entry: number; cur_stop: number | null; best_price: number | null }>;
+    let repaired = 0;
+    for (const r of rows) {
+      const insane = r.best_price != null && r.best_price > 0 && Math.abs(r.best_price - r.entry) / r.entry > 0.2;
+      if (!insane) continue; // sane excursion → a real target win; leave it alone
+      const pip = getInstrument(contractKey(r.symbol)).pipSize || 0.1;
+      const exit = r.cur_stop != null && r.cur_stop > 0 ? r.cur_stop : r.entry;
+      const pips = Math.round((r.side === "buy" ? exit - r.entry : r.entry - exit) / pip);
+      const { error } = await admin
+        .from("flow_managed_positions")
+        .update({ outcome: "breakeven", exit_price: exit, result_pips: pips, best_price: exit })
+        .eq("id", r.id)
+        .eq("outcome", "target"); // guard: never double-repair a row another pass just fixed
+      if (error) continue;
+      repaired += 1;
+      await logTrade(admin, { position_id: r.position_id, account_id: r.account_id ?? "", user_id: r.user_id, symbol: r.symbol, phase: "regrade", reason: "phantom_target_bad_tick", price: exit, detail: { was: "target", now: "breakeven", result_pips: pips } });
+    }
+    return repaired;
+  } catch {
+    return 0; // repair is best-effort — never let it disturb live management
+  }
+}
+
 // ── GOLD "CHOP / LEFT-MONEY-ON-THE-TABLE" REGIME ──────────────────────────────
 // The reality the owner flagged: in chop, a gold trade often runs 15-30 pips into
 // profit and then reverses. With the 35-pip break-even trigger, that green move never

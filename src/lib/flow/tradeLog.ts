@@ -24,7 +24,8 @@ export type TradePhase =
   | "partial_reconciled"   // a partial detected from broker qty (idempotency)
   | "trail"                // trailing stop advanced, broker-confirmed
   | "trail_unconfirmed"    // trail modify acked but broker read-back didn't confirm
-  | "closed";              // position closed + outcome booked from broker history
+  | "closed"               // position closed + outcome booked from broker history
+  | "regrade";             // a booked outcome corrected by the ledger self-repair sweep
 
 export type TradeLogEntry = {
   position_id?: string | null;
