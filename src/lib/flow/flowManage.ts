@@ -34,9 +34,11 @@ async function feedPrice(symbol: string): Promise<number | null> {
 
 // Recent intra-minute EXTREMES from the market-data feed. The manager runs once a minute
 // off the instantaneous bid/ask, so a spike that reverses inside the minute (common on
-// gold around news) is invisible to the sample — break-even/partials never fire even though
-// the trade clearly reached the level on the chart. We pull the last few 1-min candle
-// highs/lows so the trigger sees the TRUE favorable excursion the trade reached. Cached per
+// gold around news) is invisible to the sample. We pull the last few 1-min candle
+// highs/lows so best_price records the TRUE favorable excursion for PARTIALS, grading, and
+// stats. NOTE (owner 09-07): BREAK-EVEN deliberately does NOT use this history — it fires
+// only when the LIVE price is at the trigger, so a wick that already reversed can never
+// move the stop after the fact. Cached per
 // symbol for the tick. Feed down / no key → null (caller falls back to the sampled price).
 // 15-minute lookback (was 3): a row that goes several minutes without a manage tick — a slow
 // pass over many positions, an invocation gap, a deploy swap — used to permanently LOSE any
@@ -173,7 +175,7 @@ const BE_PROFIT_PIPS = 5;
 // GOLD default break-even trigger (pips) when an account has no per-account gold_be_pips
 // override set. Gold moves the stop to entry once it's this many pips in profit — so every
 // account protects a gold winner early, not only ones with the override configured.
-const DEFAULT_GOLD_BE_PIPS = 35;
+const DEFAULT_GOLD_BE_PIPS = 30; // owner 09-07: "move when the market goes 30-35 pips into profit" — low end so a spike to 32 still gets locked
 
 // PROTECTIVE TRAIL (after break-even). The runner's stop rides GIVEBACK_R behind the best
 // price (loose enough to breathe toward target); once the move gets CLOSE — within NEAR_TP_R
@@ -418,9 +420,10 @@ export function reconcileClosedTrade(
 // profit to take. When we SEE that pattern repeating on a side (recent trades that went
 // green but ended flat/lost, and NO clean target win among them), we shift that side into
 // "bank-early" mode: take the normal partial EARLY — at roughly the distance those trades
-// were actually reaching — and pull break-even up to the same point, so the runner is
-// protected at entry instead of giving the whole move back. Self-resets the moment a full
-// target hits (that clears the regime — the full TP is reachable again).
+// were actually reaching — so some profit is banked instead of round-tripping. PARTIAL ONLY
+// (owner 09-07): chop mode never touches the break-even trigger — the stop moves at the full
+// gold-pips distance and nowhere earlier. Self-resets the moment a full target hits (that
+// clears the regime — the full TP is reachable again).
 const GOLD_CHOP_LOOKBACK_MS = 8 * 60 * 60 * 1000; // recent trades window
 const GOLD_CHOP_WINDOW = 4;          // among the last N distinct trades on the side
 const GOLD_CHOP_MIN_HITS = 2;        // ≥ this many "went green then didn't hold it"
@@ -474,6 +477,7 @@ async function goldChopRegime(admin: Admin): Promise<Map<"buy" | "sell", ChopSid
         const fav = (r.entry != null && r.best_price != null)
           ? Math.max(0, Math.round((long ? r.best_price - r.entry : r.entry - r.best_price) / pip))
           : 0;
+        if (fav > 500) continue; // bad-tick-polluted best_price (e.g. the 1038.67 rows) — not market data
         reps.push({ fav, outcome: r.outcome });
         if (reps.length >= GOLD_CHOP_WINDOW) break;
       }
@@ -885,10 +889,16 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // FAVORABLE EXCURSION: the best price the trade actually reached (current sample + recent
       // 1-min candle extremes), so a spike that reversed inside the once-a-minute window still
       // counts toward the triggers.
+      // BAD-TICK GUARD (owner 09-07): the 03:14 batch recorded best_price 1038.67 on live gold
+      // trading at ~4407 — one junk candle in the feed instantly "reached" every trigger and
+      // graded two positions as fake targets. An extreme more than 2% away from the live price
+      // is data, not market — ignore it. (A real $17 Asia spike is ~0.4%; 2% of gold ≈ $88.)
+      const extSane = (x: number | null | undefined): number | null =>
+        x != null && x > 0 && Math.abs(x - price) / price <= 0.02 ? x : null;
       const ext = await feedExtremes(row.symbol, row.created_at ? Date.parse(row.created_at) : null);
       const favRaw = long
-        ? Math.max(price, ext?.high && ext.high > 0 ? ext.high : price)
-        : Math.min(price, ext?.low && ext.low > 0 ? ext.low : price);
+        ? Math.max(price, extSane(ext?.high) ?? price)
+        : Math.min(price, extSane(ext?.low) ?? price);
       const bestPrev = row.best_price ?? entry;
       const best = long ? Math.max(bestPrev, favRaw) : Math.min(bestPrev, favRaw);
       update.best_price = best;
@@ -904,30 +914,28 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       const isDouble = rr >= DOUBLE_RR;                       // 1:2 or wider → take a partial
       const halfway = towardTp ? (entry + tp!) / 2 : null;    // the "break-even point"
 
-      // GOLD pips override (if set) moves break-even EARLIER than halfway. The floor keeps a
-      // no-TP trade sane. Partial always uses the halfway-to-target point (1:2+ only).
-      // Gold uses a break-even-pips trigger: the account's own override if set, else the gold
-      // default — so every gold trade protects early, not only accounts with a custom value.
-      // GOLD CHOP "bank-early" mode for THIS side (computed once above). When active, gold
-      // trades on this side pull BOTH the partial and break-even in to ~earlyPips, so the
-      // 15-30 pip move that keeps reversing is banked + protected instead of round-tripping.
+      // GOLD BREAK-EVEN RULE (owner 09-07, after the 03:07-03:18 batch): the trigger is the
+      // gold-pips distance FROM THE REAL FILL — the account's override if set, else the 35-pip
+      // default — and NOTHING ELSE. No halfway-to-TP shortcut, no +1R shortcut, and chop mode
+      // does NOT pull it in ("it NEVER went 30+ pips in profit so why are you closing it").
+      // That batch fired BE at 14-22 pips because chop had shrunk the trigger; every one of
+      // those locks then filled slightly negative in the thin market. Chop mode still banks
+      // its early PARTIAL (that takes profit — it never moves the stop).
       const chop = contractKey(row.symbol) === "XAUUSD" ? goldChop.get(row.side as "buy" | "sell") : undefined;
       const chopOn = !!(chop && chop.active && chop.earlyPips > 0);
 
-      const goldPipsBase = contractKey(row.symbol) === "XAUUSD"
+      const goldPips = contractKey(row.symbol) === "XAUUSD"
         ? (goldBePips.get(String(row.account_id)) ?? DEFAULT_GOLD_BE_PIPS)
         : undefined;
-      // In chop mode, move break-even in to the early point (never later than the base trigger).
-      const goldPips = chopOn
-        ? Math.min(goldPipsBase ?? DEFAULT_GOLD_BE_PIPS, chop!.earlyPips)
-        : goldPipsBase;
       const beByPips = typeof goldPips === "number" && goldPips > 0
         ? (long ? entry + goldPips * pip : entry - goldPips * pip)
         : null;
       const beFloor = long ? entry + BE_MIN_PIPS * pip : entry - BE_MIN_PIPS * pip;
-      // Break-even trigger price = earliest of {gold-pips, halfway, +1R-fallback}, but never
-      // closer to entry than the small floor.
-      const beCandidates = [beByPips, halfway, long ? entry + R : entry - R].filter((x): x is number => x != null);
+      // GOLD: the gold-pips trigger stands alone. NON-GOLD (no pips trigger): earliest of
+      // {halfway, +1R}, floored so it can never sit closer than BE_MIN_PIPS to entry.
+      const beCandidates = beByPips != null
+        ? [beByPips]
+        : [halfway, long ? entry + R : entry - R].filter((x): x is number => x != null);
       let beTriggerPx = long ? Math.min(...beCandidates) : Math.max(...beCandidates);
       beTriggerPx = long ? Math.max(beTriggerPx, beFloor) : Math.min(beTriggerPx, beFloor);
       // Early bank point in chop mode (pips from entry). Normal partial is the halfway point.
@@ -939,10 +947,15 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // Chop mode qualifies a partial even on a ~1:1 setup (which normally banks nothing).
       const partialAllowed = isDouble || chopOn;
 
-      // Compare against BEST (the furthest the trade has EVER reached), not this tick's momentary
-      // favRaw — otherwise a move that hit the trigger and ticked back before the once-a-minute
-      // sample is missed and break-even never fires even though best_price recorded it.
-      const favReachedBE = long ? best >= beTriggerPx : best <= beTriggerPx;
+      // BREAK-EVEN TRIGGERS ON THE LIVE MARKET, NOT ON HISTORY (owner 09-07): "I want it to
+      // move when the market goes 30-35 pips into profit and move immediately." The manage
+      // loop samples the live price every ~2.5s — when a sample sees the market AT the
+      // trigger, the stop moves right then. What it must NOT do is fire off a candle wick
+      // that already reversed ("it just saw that a candle went that far") — moving the stop
+      // a minute after a spike that's gone locks a pullback into a scratch-out on a trade
+      // that's still working. So BE compares the CURRENT price only; best_price still tracks
+      // the full excursion for grading and stats.
+      const favReachedBE = long ? price >= beTriggerPx : price <= beTriggerPx;
       const favReachedPartial = partialTriggerPx != null && (long ? best >= partialTriggerPx : best <= partialTriggerPx);
 
       // HARD PROFIT GUARD — broker's own truth. Prefer the position's unrealized P&L; else fall
@@ -970,7 +983,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // 2-pip spread minutes earlier. During the thin window (21:00–07:00 UTC: rollover +
       // Asia) the cushion floors at 20 pips; in liquid hours at 5 pips; the live spread
       // still wins when it is wider. Capped at 40 pips so a junk quote can't distort it.
-      // BE trigger is 35 pips, so even the deep thin-hours lock stays inside the trigger.
+      // BE trigger is 30 pips, so even the deep thin-hours lock stays inside the trigger.
       const utcH = new Date().getUTCHours();
       const thinHours = utcH >= 21 || utcH < 7;
       const padFloor = (thinHours ? 20 : 5) * pip;
