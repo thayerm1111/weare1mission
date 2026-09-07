@@ -289,19 +289,11 @@ export async function placeOnActiveAccounts(opts: {
   // Widen a too-tight signal stop to the instrument's minimum distance BEFORE sizing and
   // placing — so the position is sized off a sane stop (no ballooned lots) and the broker
   // holds a stop with room to breathe (no noise whipsaw). Same risk %, professional size.
-  // Gold (owner rule 09-07): floor = cap = $10, so every gold entry carries the FULL
-  // 100-pip stop instead of a tighter structural stop that wicks out before the move.
   const stop = floorStop(canonical, opts.side, opts.entry, opts.stop);
-  // 1:1 GUARD (gold, owner rule 09-07): widening the stop must never leave the TP closer
-  // than the risk — the trade stays at least 1:1, so the TP is pushed out to match the
-  // (possibly widened) stop distance when the signal's target sat nearer.
-  let tp = opts.tp ?? null;
-  if (tp != null && contractKey(canonical) === "XAUUSD") {
-    const riskDist = Math.abs(opts.entry - stop);
-    if (Math.abs(tp - opts.entry) < riskDist) {
-      tp = +(opts.side === "buy" ? opts.entry + riskDist : opts.entry - riskDist).toFixed(2);
-    }
-  }
+  // TP comes from the SIGNAL'S STRUCTURE, untouched (owner 09-07: no synthetic 1:1
+  // mirroring — targets are strategy, not defaults). The R:R placement floor in
+  // autoExec still rejects setups whose structural target is nearer than the risk.
+  const tp = opts.tp ?? null;
   const accts = opts.accounts ?? (await activeAccounts(opts.userId));
   const tlog = createAdminClient(); // flight-recorder handle (best-effort; null-safe below)
   const fills: AccountFill[] = [];
