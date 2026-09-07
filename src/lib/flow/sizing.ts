@@ -67,7 +67,8 @@ export function valuePerPricePerLot(canonical: string, price: number): number {
 // whipsawed by normal noise. Placement widens the stop to this floor before sizing — the risk
 // % is unchanged, but the position is professionally sized with room to breathe.
 const MIN_STOP: Record<string, number> = {
-  XAUUSD: 8.0,      // $8 on gold (~80 pips)
+  XAUUSD: 10.0,     // owner rule 09-07: place the FULL allowed 100-pip stop ($10) — a 70-80 pip
+                    // stop kept getting wicked out right before the move paid (09-06 sell cluster)
   XAGUSD: 0.15,
   EURUSD: 0.0012,   // ~12 pips
   GBPUSD: 0.0012,

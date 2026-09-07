@@ -289,7 +289,19 @@ export async function placeOnActiveAccounts(opts: {
   // Widen a too-tight signal stop to the instrument's minimum distance BEFORE sizing and
   // placing — so the position is sized off a sane stop (no ballooned lots) and the broker
   // holds a stop with room to breathe (no noise whipsaw). Same risk %, professional size.
+  // Gold (owner rule 09-07): floor = cap = $10, so every gold entry carries the FULL
+  // 100-pip stop instead of a tighter structural stop that wicks out before the move.
   const stop = floorStop(canonical, opts.side, opts.entry, opts.stop);
+  // 1:1 GUARD (gold, owner rule 09-07): widening the stop must never leave the TP closer
+  // than the risk — the trade stays at least 1:1, so the TP is pushed out to match the
+  // (possibly widened) stop distance when the signal's target sat nearer.
+  let tp = opts.tp ?? null;
+  if (tp != null && contractKey(canonical) === "XAUUSD") {
+    const riskDist = Math.abs(opts.entry - stop);
+    if (Math.abs(tp - opts.entry) < riskDist) {
+      tp = +(opts.side === "buy" ? opts.entry + riskDist : opts.entry - riskDist).toFixed(2);
+    }
+  }
   const accts = opts.accounts ?? (await activeAccounts(opts.userId));
   const tlog = createAdminClient(); // flight-recorder handle (best-effort; null-safe below)
   const fills: AccountFill[] = [];
@@ -307,19 +319,19 @@ export async function placeOnActiveAccounts(opts: {
     if (!s.ok || !(s.lots > 0)) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: s.reason || "size_too_small" }); continue; }
     const lots = Math.min(s.lots, 100); // fat-finger backstop
     const t0 = Date.now();
-    if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_submitted", reason: opts.source, price: opts.entry, qty: lots, detail: { side: opts.side, stop, tp: opts.tp ?? null } });
+    if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_submitted", reason: opts.source, price: opts.entry, qty: lots, detail: { side: opts.side, stop, tp: tp } });
     let r: Awaited<ReturnType<typeof placeOnAccount>>;
     try {
       // Member play executes get the bracket verify+repair pass (ensureBrackets):
       // low volume, member-initiated, and the trade is unmanaged afterward — so
       // the SL/TP the card promised MUST actually be on the broker position.
-      r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, opts.tp ?? null, opts.source === "play");
+      r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, tp, opts.source === "play");
     } catch (e) {
       // The order request THREW (e.g. a network timeout AFTER the broker may already have
       // filled). Never assume it failed and never abort the rest of the fan-out — log an
       // 'uncertain' intent (with the levels) so the manager's orphan-recovery can find and
       // adopt the live position if it did fill, then move on to the next account.
-      await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: lots, status: "uncertain", reason: `${opts.source}: ${(e instanceof Error ? e.message : "order_threw")}`.slice(0, 200), account_id: a.accountId, entry: opts.entry, stop, tp: opts.tp ?? null });
+      await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: lots, status: "uncertain", reason: `${opts.source}: ${(e instanceof Error ? e.message : "order_threw")}`.slice(0, 200), account_id: a.accountId, entry: opts.entry, stop, tp: tp });
       if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_uncertain", reason: (e instanceof Error ? e.message : "order_threw").slice(0, 80), price: opts.entry, qty: lots, detail: { latencyMs: Date.now() - t0 } });
       fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "error", lots: s.lots, reason: "order_uncertain (timeout — recovery will adopt if it filled)" });
       continue;
@@ -332,7 +344,7 @@ export async function placeOnActiveAccounts(opts: {
       fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: r.deferred ? "skipped" : "error", lots: s.lots, reason: r.deferred ? "session_closed" : r.error });
       continue;
     }
-    await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: r.qty, status: "placed", reason: `${opts.source}${r.note}`.slice(0, 60), order_id: r.orderId, account_id: a.accountId, entry: opts.entry, stop, tp: opts.tp ?? null });
+    await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: r.qty, status: "placed", reason: `${opts.source}${r.note}`.slice(0, 60), order_id: r.orderId, account_id: a.accountId, entry: opts.entry, stop, tp: tp });
     fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "placed", qty: r.qty, lots: r.qty, estLossAtStop: s.estLossAtStop, orderId: r.orderId });
     if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_confirmed", reason: opts.source, position_id: r.positionId, price: opts.entry, qty: r.qty, detail: { latencyMs: Date.now() - t0, orderId: r.orderId, estLossAtStop: s.estLossAtStop } });
     placed += 1;
@@ -347,7 +359,7 @@ export async function placeOnActiveAccounts(opts: {
         if (admin) await admin.from("flow_managed_positions").insert({
           user_id: opts.userId, connection_id: a.connId, account_id: a.accountId, acc_num: a.accNum, environment: a.env,
           position_id: r.positionId, symbol: canonical, side: opts.side,
-          entry: opts.entry, init_stop: stop, tp1: opts.tp ?? null,
+          entry: opts.entry, init_stop: stop, tp1: tp,
           r: Math.abs(opts.entry - stop), qty: r.qty, cur_stop: stop, best_price: opts.entry,
         });
       } catch { /* management is best-effort */ }
