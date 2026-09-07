@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { manageOpenPositions, acquireManageLock, extendManageLock, releaseManageLock } from "@/lib/flow/flowManage";
+import { manageOpenPositions, acquireManageLock, extendManageLock, releaseManageLock, repairPhantomTargets } from "@/lib/flow/flowManage";
 import { beat } from "@/lib/flow/health";
 
 export const runtime = "nodejs";
@@ -53,6 +53,10 @@ async function run(req: NextRequest): Promise<Response> {
   // stalled" watchdog alarms even when nothing was actually wrong.
   await beat(admin, "manager", { ticks: 0, starting: true });
 
+  // Once per invocation (~1/min): re-grade any 'target' outcome manufactured by a
+  // data-insane best_price (owner 09-07). Idempotent and free once the ledger is clean.
+  const repaired = await repairPhantomTargets(admin);
+
   const start = Date.now();
   let ticks = 0;
   let lastManaged = 0;
@@ -71,7 +75,7 @@ async function run(req: NextRequest): Promise<Response> {
   } finally {
     await releaseManageLock(admin, holder);
   }
-  return json({ ok: true, scope: "fast-manage", ticks, intervalMs: INTERVAL_MS, lastManaged, asOf: new Date().toISOString() }, 200);
+  return json({ ok: true, scope: "fast-manage", ticks, intervalMs: INTERVAL_MS, lastManaged, repaired, asOf: new Date().toISOString() }, 200);
 }
 
 export async function GET(req: NextRequest) { return run(req); }
