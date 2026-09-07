@@ -284,12 +284,15 @@ export async function placeOnActiveAccounts(opts: {
   userId: string; symbol: string; side: "buy" | "sell";
   entry: number; stop: number; tp?: number | null; riskPct: number; source: string;
   accounts?: ActiveAccount[]; // pass a pre-fetched list to avoid re-minting tokens
+  /** The stop is an ABSOLUTE structural level already validated by the caller
+   *  (structure-first gold path) - skip the floor/cap re-derivation entirely. */
+  structuralStop?: boolean;
 }): Promise<{ accounts: AccountFill[]; placed: number }> {
   const canonical = normSym(opts.symbol) || "XAUUSD";
   // Widen a too-tight signal stop to the instrument's minimum distance BEFORE sizing and
   // placing — so the position is sized off a sane stop (no ballooned lots) and the broker
   // holds a stop with room to breathe (no noise whipsaw). Same risk %, professional size.
-  const stop = floorStop(canonical, opts.side, opts.entry, opts.stop);
+  const stop = opts.structuralStop ? opts.stop : floorStop(canonical, opts.side, opts.entry, opts.stop);
   // TP comes from the SIGNAL'S STRUCTURE, untouched (owner 09-07: no synthetic 1:1
   // mirroring — targets are strategy, not defaults). The R:R placement floor in
   // autoExec still rejects setups whose structural target is nearer than the risk.

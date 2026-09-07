@@ -86,6 +86,27 @@ export function minStopDistance(canonical: string): number {
   return MIN_STOP[contractKey(canonical)] ?? 0;
 }
 
+/** Maximum allowed stop distance (the owner's risk allowance); 0 if none configured. */
+export function maxStopDistance(canonical: string): number {
+  return MAX_STOP[contractKey(canonical)] ?? 0;
+}
+
+/**
+ * STRUCTURE-FIRST STOP (owner 09-07). The signal's stop is an ABSOLUTE structural level
+ * (the zone/swing invalidation the engine derived) - placement KEEPS it. The only
+ * adjustment ever made is a noise pad that extends BEYOND the structural level when the
+ * fill sits nearly on the invalidation (< minRoom of room). Never tightened, never
+ * re-derived from the live print. Whether the result fits the owner's allowance is the
+ * CALLER's decision (skip / Send It-only) - this function never mangles the level to fit.
+ */
+export function structuralStop(o: { side: "buy" | "sell"; ref: number; anchor: number; minRoom: number }): number {
+  if (!(o.ref > 0) || !(o.anchor > 0)) return o.anchor;
+  const dist = Math.abs(o.ref - o.anchor);
+  if (dist >= o.minRoom) return o.anchor;
+  const pad = o.minRoom - dist;
+  return o.side === "sell" ? +(o.anchor + pad).toFixed(2) : +(o.anchor - pad).toFixed(2);
+}
+
 // MAXIMUM STOP DISTANCE per instrument (price units). Owner rule 09-03 (gold): winners reach
 // the +35-pip break-even trigger without needing deep stops, while stop-outs with wider stops
 // just lost more — over the last 14 days losing gold trades averaged −104 pips and the ones

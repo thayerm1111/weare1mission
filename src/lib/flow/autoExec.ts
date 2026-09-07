@@ -3,7 +3,7 @@ import { flowDecision } from "@/lib/flow/decision";
 import { placeOnActiveAccounts, placeFixedLotFollower } from "@/lib/flow/executor";
 import { activeAccounts, connectionToken, type ActiveAccount } from "@/lib/flow/connection";
 import { listAccounts, listPositions, type TLEnv } from "@/lib/flow/tradelocker";
-import { sizeFromRisk, floorStop } from "@/lib/flow/sizing";
+import { sizeFromRisk, floorStop, structuralStop, maxStopDistance } from "@/lib/flow/sizing";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
@@ -780,6 +780,10 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T, index: num
 // the floor after the window is skipped. Combined with sizing off the live entry, the dollar
 // risk is still capped at the member's risk %.
 const GOLD_MIN_PLACEMENT_RR = 0.75;
+// STRUCTURE-FIRST STOP (owner 09-07): pad-only noise floor. When a fill sits nearly ON the
+// structural invalidation, the stop extends BEYOND the level to give at least this much
+// room - it is never tightened and never re-derived from the live print.
+const GOLD_STRUCT_MIN_ROOM = 4; // $4 (~40 pips)
 
 /** Does a recorded GENX/FLOW gold position still count as OPEN for the "max one" cap? TRUE
  *  only when the broker's live open set actually contains one of this account's ledger gold
@@ -1363,11 +1367,22 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   let goldLp: number | null = null;
   try { goldLp = await goldLivePrice(); } catch { goldLp = null; }
 
-  // Measure R:R against the stop that will actually be PLACED — widened to gold's minimum
-  // stop distance — not the raw signal stop. A tight raw stop otherwise inflates the R:R and
-  // lets a sub-floor fill through (the 09-03 buy: raw-stop R:R passed, the placed ~$8 stop
-  // made it ~0.64 and it stopped straight out).
-  const gstop = sig.stop != null ? floorStop("XAUUSD", sig.side, goldLp != null ? goldLp : entry, sig.stop) : sig.stop;
+  // STRUCTURE-FIRST STOP (owner 09-07): the signal's stop IS the strategy — the absolute
+  // zone/swing invalidation the engine derived (what the Telegram alert shows members).
+  // Placement now KEEPS that level instead of re-deriving a fixed-dollar stop from the live
+  // print (the 09-06 cluster: alert said 4423.16, broker held a manufactured 4429.84).
+  // Only two structural adjustments exist:
+  //   • fill nearly ON the invalidation → pad BEYOND the level to $4 of room (never inside);
+  //   • structure needs more than the $10 allowance from the live fill → the desk does NOT
+  //     take it with a mangled stop — Send It accounts only, with a logged + posted reason.
+  const gRef = goldLp != null ? goldLp : entry;
+  const gstop = sig.stop != null ? structuralStop({ side: sig.side, ref: gRef, anchor: sig.stop, minRoom: GOLD_STRUCT_MIN_ROOM }) : sig.stop;
+  if (gstop != null && Math.abs(gRef - gstop) > maxStopDistance("XAUUSD")) {
+    const need = Math.abs(gRef - gstop).toFixed(2);
+    try { await sendTelegram(`⏸️ <b>GENX gold — structure wider than the risk allowance</b>\nThe structural stop needs $${need} of room from the live fill (allowance $${maxStopDistance("XAUUSD").toFixed(0)}). The desk is not taking it with a shrunken stop. (🚀 Send It accounts still take it.)`); } catch { /* note best-effort */ }
+    await deskDrop(`structure_exceeds_allowance $${need} ${sig.side} (send-it only)`);
+    sendItOnly = true;
+  }
 
   // CHASE GUARD (desk-wide): if price has already run toward TP so the live-price R:R is below
   // the floor, this ENTER NOW is chased — skip it for everyone rather than fill a tiny-TP /
@@ -1424,7 +1439,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // real entry→stop distance (and the loss) beyond what was intended. Falls back to the
   // signal entry only if the feed is down.
   const sizeEntry = goldLp != null ? goldLp : entry;
-  const goldStop: number = sig.stop; // narrowed non-null above; captured so the closure keeps the type
+  const goldStop: number = gstop ?? sig.stop; // the STRUCTURAL stop (pad-only adjusted) — placed as-is
 
   // UNIFIED FAN-OUT: drive off the ACCOUNT table, not the auto-run settings table. EVERY
   // member who owns at least one autotrade-enabled account is included — even if they have
@@ -1506,7 +1521,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       const p = (pref as { risk_pct?: number | null } | null) ?? null;
       const riskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : 1;
 
-      const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry: sizeEntry, stop: goldStop, tp: sig.tp, riskPct, source: "genx", accounts });
+      const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry: sizeEntry, stop: goldStop, tp: sig.tp, riskPct, source: "genx", accounts, structuralStop: true });
       if (res.placed === 0) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); return 0; } // nothing filled → let the next ENTER NOW retry
       return res.placed;
     } catch { return 0; } // per-member best-effort
@@ -1560,9 +1575,9 @@ export async function placeGenxFollower(sig: {
   const entry = (sig.entryLow != null && sig.entryHigh != null)
     ? (sig.entryLow + sig.entryHigh) / 2
     : (sig.entryLow ?? sig.entryHigh ?? null);
-  // Widen a too-tight signal stop to gold's minimum distance before sizing + placing, so the
-  // follower isn't over-sized off a noise-width stop (same risk %, professional position size).
-  const fstop = (entry != null && sig.stop != null) ? floorStop("XAUUSD", sig.side, entry, sig.stop) : sig.stop;
+  // STRUCTURE-FIRST (owner 09-07): followers ride the signal's ABSOLUTE structural stop,
+  // pad-only adjusted when the fill sits on the invalidation — never re-derived.
+  const fstop = (entry != null && sig.stop != null) ? structuralStop({ side: sig.side, ref: entry, anchor: sig.stop, minRoom: GOLD_STRUCT_MIN_ROOM }) : sig.stop;
 
   // Live gold price, fetched ONCE — used for the chase guard AND for risk-sizing below.
   let goldLp: number | null = null;
