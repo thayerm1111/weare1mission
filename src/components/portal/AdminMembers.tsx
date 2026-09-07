@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, PauseCircle, RotateCcw, Star, Trash2 } from "lucide-react";
+import { CalendarPlus, Check, Infinity as InfinityIcon, PauseCircle, RotateCcw, Search, Star, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { TIERS, TIER_LABELS } from "@/lib/access";
 
@@ -40,17 +40,36 @@ function approvePatch(m: MemberRow): Record<string, unknown> {
     ? { status: "active", access_expires_at: new Date(Date.now() + PROMO_DAYS * 86400000).toISOString() }
     : { status: "active", access_expires_at: null };
 }
-/** Whole days left on a promo grant (negative once expired); null when there's no expiry. */
+/** Whole days left on a time-limited grant (negative once expired); null when there's no expiry. */
 function daysLeft(iso: string | null): number | null {
   if (!iso) return null;
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return null;
   return Math.ceil((t - Date.now()) / 86400000);
 }
+/** Extend access by N days, measured from whatever is later: now, or the member's current
+ *  expiry — so extending someone mid-trial ADDS days instead of restarting the clock, and
+ *  extending someone already expired starts from today. Always reactivates. */
+function extendPatch(m: MemberRow, days: number): Record<string, unknown> {
+  const cur = m.access_expires_at ? Date.parse(m.access_expires_at) : NaN;
+  const base = Number.isFinite(cur) && cur > Date.now() ? cur : Date.now();
+  return { status: "active", access_expires_at: new Date(base + days * 86400000).toISOString() };
+}
+
+type SortKey = "newest" | "name" | "email" | "expiring" | "status";
+const SORTS: { key: SortKey; label: string }[] = [
+  { key: "newest", label: "Newest first" },
+  { key: "name", label: "Name A–Z" },
+  { key: "email", label: "Email A–Z" },
+  { key: "expiring", label: "Expiring soonest" },
+  { key: "status", label: "Status" },
+];
 
 export function AdminMembers({ members }: { members: MemberRow[] }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState<SortKey>("newest");
 
   async function update(id: string, patch: Record<string, unknown>) {
     const supabase = createClient();
@@ -82,13 +101,70 @@ export function AdminMembers({ members }: { members: MemberRow[] }) {
     }
   }
 
-  const pending = members.filter((m) => m.status === "pending");
-  const others = members.filter((m) => m.status !== "pending");
+  // SEARCH: one box matches name, email, and Conectiv username/ID, case-insensitive.
+  const needle = q.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!needle) return members;
+    return members.filter((m) =>
+      [m.full_name, m.email, m.conectiv_username, m.conectiv_id]
+        .some((v) => (v ?? "").toLowerCase().includes(needle)),
+    );
+  }, [members, needle]);
+
+  // SORT: applied inside each section so "Pending approval" always stays on top.
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    const name = (m: MemberRow) => (m.full_name || m.email || "").toLowerCase();
+    switch (sort) {
+      case "name": arr.sort((a, b) => name(a).localeCompare(name(b))); break;
+      case "email": arr.sort((a, b) => (a.email ?? "").localeCompare(b.email ?? "")); break;
+      case "expiring": arr.sort((a, b) => {
+        const ta = a.access_expires_at ? Date.parse(a.access_expires_at) : Infinity;
+        const tb = b.access_expires_at ? Date.parse(b.access_expires_at) : Infinity;
+        return ta - tb; // soonest (and already-expired) first; permanent (no expiry) last
+      }); break;
+      case "status": arr.sort((a, b) => a.status.localeCompare(b.status) || name(a).localeCompare(name(b))); break;
+      default: arr.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    }
+    return arr;
+  }, [filtered, sort]);
+
+  const pending = sorted.filter((m) => m.status === "pending");
+  const others = sorted.filter((m) => m.status !== "pending");
 
   return (
-    <div className="space-y-8">
-      <Section title={`Pending approval (${pending.length})`} rows={pending} onUpdate={update} onRemove={remove} busy={busy} highlight />
-      <Section title={`All members (${others.length})`} rows={others} onUpdate={update} onRemove={remove} busy={busy} />
+    <div className="space-y-6">
+      {/* SEARCH + SORT BAR */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal/40" aria-hidden="true" />
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search by email, name, or Conectiv…"
+            aria-label="Search members"
+            className="w-full rounded-xl border border-[#E4DCCB] bg-cream py-2.5 pl-9 pr-3 text-sm outline-none focus:border-primary"
+          />
+        </div>
+        <label className="sr-only" htmlFor="member-sort">Sort members</label>
+        <select
+          id="member-sort"
+          value={sort}
+          onChange={(e) => setSort(e.target.value as SortKey)}
+          className="rounded-xl border border-[#E4DCCB] bg-cream px-3 py-2.5 text-sm outline-none focus:border-primary"
+        >
+          {SORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+        </select>
+        {needle && (
+          <p className="text-xs text-charcoal/60 sm:whitespace-nowrap">{sorted.length} match{sorted.length === 1 ? "" : "es"}</p>
+        )}
+      </div>
+
+      <div className="space-y-8">
+        <Section title={`Pending approval (${pending.length})`} rows={pending} onUpdate={update} onRemove={remove} busy={busy} highlight />
+        <Section title={`All members (${others.length})`} rows={others} onUpdate={update} onRemove={remove} busy={busy} />
+      </div>
     </div>
   );
 }
@@ -123,14 +199,17 @@ function Section({
                     {isPromoMember(m) ? ` · promo (${PROMO_DAYS}-day)` : ""}
                   </p>
                 )}
-                {m.access_expires_at && (() => {
+                {/* ACCESS CLOCK — expired reads red; a live clock shows days left; no line = permanent. */}
+                {m.access_expires_at ? (() => {
                   const d = daysLeft(m.access_expires_at);
                   return (
                     <p className={`mt-0.5 text-xs font-medium ${d != null && d <= 0 ? "text-red-600" : "text-amber-700"}`}>
-                      {d != null && d <= 0 ? "Promo access expired" : `Promo access — ${d} day${d === 1 ? "" : "s"} left`}
+                      {d != null && d <= 0 ? "Access expired" : `Access — ${d} day${d === 1 ? "" : "s"} left`}
                     </p>
                   );
-                })()}
+                })() : m.status === "active" ? (
+                  <p className="mt-0.5 text-xs font-medium text-emerald-700">Permanent access</p>
+                ) : null}
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -162,6 +241,31 @@ function Section({
                     <RotateCcw className="h-4 w-4" aria-hidden="true" /> Reactivate
                   </button>
                 )}
+
+                {/* ACCESS GRANTS (owner 09-07): extend a member's clock, or make them permanent.
+                    +14d/+30d add to whatever time is left (or start from today if lapsed) and
+                    reactivate an expired member in the same click. Permanent clears the clock. */}
+                <div className="flex items-center gap-1 rounded-full border border-[#E4DCCB] p-1" role="group" aria-label={`Access grants for ${m.full_name || m.email || "member"}`}>
+                  <button disabled={busy === m.id} onClick={() => onUpdate(m.id, extendPatch(m, 14))}
+                    title="Extend access 14 days"
+                    className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold text-charcoal/75 hover:bg-primary/10 hover:text-primary disabled:opacity-60">
+                    <CalendarPlus className="h-3.5 w-3.5" aria-hidden="true" /> +14d
+                  </button>
+                  <button disabled={busy === m.id} onClick={() => onUpdate(m.id, extendPatch(m, 30))}
+                    title="Extend access 30 days"
+                    className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold text-charcoal/75 hover:bg-primary/10 hover:text-primary disabled:opacity-60">
+                    <CalendarPlus className="h-3.5 w-3.5" aria-hidden="true" /> +30d
+                  </button>
+                  <button disabled={busy === m.id} onClick={() => onUpdate(m.id, { status: "active", access_expires_at: null })}
+                    title="Give permanent access"
+                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold disabled:opacity-60 ${
+                      m.status === "active" && !m.access_expires_at
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "text-charcoal/75 hover:bg-emerald-50 hover:text-emerald-700"
+                    }`}>
+                    <InfinityIcon className="h-3.5 w-3.5" aria-hidden="true" /> Permanent
+                  </button>
+                </div>
 
                 {/* Grant / revoke Inner Circle creator access */}
                 <button
