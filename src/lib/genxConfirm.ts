@@ -70,6 +70,9 @@ export async function confirmEntry(opts: {
   side: "buy" | "sell";
   entryLow: number; entryHigh: number; watch: number; invalidation: number;
   mode: string; mdKey: string; fresh: boolean; interval?: string;
+  /** Owner-level plays: only a real rejection/reclaim AT the zone counts — the
+   *  momentum-breakout shortcut is disabled so a level that breaks is never chased. */
+  noMomentum?: boolean;
 }): Promise<ConfirmResult> {
   const side = opts.side;
   const inv = Number(opts.invalidation);
@@ -120,7 +123,7 @@ export async function confirmEntry(opts: {
     const sweptRecent = recentClosed.slice(-3).some((k) => k.l <= zoneHi + buf) || lastClosed.l <= zoneHi + buf;
     const reclaimed = !confirmed && sweptRecent && lastClosed.c > lastClosed.o && bodyOk && lastClosed.c > zoneLo - buf && lastClosed.c > inv;
     // MOMENTUM/BREAKOUT fallback — the trend ran without ever pulling back to the zone.
-    const momentum = !confirmed && !reclaimed && momentumBreakout({ side: "buy", lastClosed, priorClosed: recentClosed.slice(0, -1), zoneLo, zoneHi, inv, price, maxExtMult: MOMENTUM_MAX_EXT });
+    const momentum = !opts.noMomentum && !confirmed && !reclaimed && momentumBreakout({ side: "buy", lastClosed, priorClosed: recentClosed.slice(0, -1), zoneLo, zoneHi, inv, price, maxExtMult: MOMENTUM_MAX_EXT });
     if (invalidated) { state = "INVALIDATED"; detail = `A candle closed below the invalidation (${inv}). This buy setup is done — don't take it.`; }
     else if (confirmed) { state = "CONFIRMED"; enter = +price.toFixed(2); detail = `A green candle closed reacting off ${zoneLo}–${zoneHi} while holding ${inv}. Buyers confirmed — BUY is live.`; }
     else if (reclaimed) { state = "CONFIRMED"; enter = +price.toFixed(2); detail = `Price swept ${zoneLo}–${zoneHi} and a green candle reclaimed it while holding ${inv}. Bullish reclaim — BUY is live.`; }
@@ -139,7 +142,7 @@ export async function confirmEntry(opts: {
     const sweptRecent = recentClosed.slice(-3).some((k) => k.h >= zoneLo - buf) || lastClosed.h >= zoneLo - buf;
     const reclaimed = !confirmed && sweptRecent && lastClosed.c < lastClosed.o && bodyOk && lastClosed.c < zoneHi + buf && lastClosed.c < inv;
     // MOMENTUM/BREAKOUT fallback — the trend ran without ever rallying back to the zone.
-    const momentum = !confirmed && !reclaimed && momentumBreakout({ side: "sell", lastClosed, priorClosed: recentClosed.slice(0, -1), zoneLo, zoneHi, inv, price, maxExtMult: MOMENTUM_MAX_EXT });
+    const momentum = !opts.noMomentum && !confirmed && !reclaimed && momentumBreakout({ side: "sell", lastClosed, priorClosed: recentClosed.slice(0, -1), zoneLo, zoneHi, inv, price, maxExtMult: MOMENTUM_MAX_EXT });
     if (invalidated) { state = "INVALIDATED"; detail = `A candle closed above the invalidation (${inv}). This sell setup is done — don't take it.`; }
     else if (confirmed) { state = "CONFIRMED"; enter = +price.toFixed(2); detail = `A red candle closed reacting off ${zoneLo}–${zoneHi} while holding ${inv}. Sellers confirmed — SELL is live.`; }
     else if (reclaimed) { state = "CONFIRMED"; enter = +price.toFixed(2); detail = `Price swept ${zoneLo}–${zoneHi} and a red candle reclaimed it while holding ${inv}. Bearish reclaim — SELL is live.`; }
