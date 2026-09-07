@@ -1377,11 +1377,17 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   //     take it with a mangled stop — Send It accounts only, with a logged + posted reason.
   const gRef = goldLp != null ? goldLp : entry;
   const gstop = sig.stop != null ? structuralStop({ side: sig.side, ref: gRef, anchor: sig.stop, minRoom: GOLD_STRUCT_MIN_ROOM }) : sig.stop;
-  if (gstop != null && Math.abs(gRef - gstop) > maxStopDistance("XAUUSD")) {
-    const need = Math.abs(gRef - gstop).toFixed(2);
-    try { await sendTelegram(`⏸️ <b>GENX gold — structure wider than the risk allowance</b>\nThe structural stop needs $${need} of room from the live fill (allowance $${maxStopDistance("XAUUSD").toFixed(0)}). The desk is not taking it with a shrunken stop. (🚀 Send It accounts still take it.)`); } catch { /* note best-effort */ }
-    await deskDrop(`structure_exceeds_allowance $${need} ${sig.side} (send-it only)`);
-    sendItOnly = true;
+  // KEEP THE TRADE — ADJUST THE SIZE (owner 09-07): a wider structural stop is NEVER a
+  // reason to skip. A 72-pip invalidation takes normal calculated risk; a 97-pip one takes
+  // the SAME setup at a smaller size — sizing divides the member's risk % by the stop
+  // distance, so account risk is identical either way and the geometry follows the market
+  // instead of the market being forced into one geometry. The only rejection left here is
+  // a pure DATA-SANITY bound (a corrupt level, not a strategy filter): a "structural" stop
+  // more than 2.5x the normal allowance from the live fill is a bad number, and bad data
+  // trades for nobody — Send It included.
+  if (gstop != null && Math.abs(gRef - gstop) > 2.5 * maxStopDistance("XAUUSD")) {
+    await deskDrop(`stop_data_insane $${Math.abs(gRef - gstop).toFixed(2)} ${sig.side} (dropped for everyone)`);
+    return { members: 0, placed: 0 };
   }
 
   // CHASE GUARD (desk-wide): if price has already run toward TP so the live-price R:R is below
