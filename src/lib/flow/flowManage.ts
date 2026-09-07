@@ -560,6 +560,9 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   const histColCache = new Map<string, Record<string, number> | undefined>();
   const acctCache = new Map<string, { openIds: Set<string>; avgPx: Map<string, number>; upl: Map<string, number>; qty: Map<string, number>; sl: Map<string, number>; instruments: TLInstrument[] } | null>();
   const quoteCache = new Map<string, number | null>();
+  // Live bid/ask spread per env+symbol this tick — the BE lock must clear it (owner 09-07:
+  // a Sunday-night $2.9 gold spread filled a +5-pip lock $2.9 through the stop → -30 pips).
+  const spreadCache = new Map<string, number>();
 
   const actions: ManageAction[] = [];
 
@@ -687,6 +690,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     let px: number | null = null;
     if (q.ok) {
       const bid = q.data.bid, ask = q.data.ask;
+      if (bid != null && ask != null && ask > bid) spreadCache.set(`${tok.env}|${symbol}`, ask - bid);
       px = side === "buy" ? (bid ?? ask) : (ask ?? bid);
     }
     if (px == null || !(px > 0)) px = await feedPrice(symbol);
@@ -955,7 +959,13 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // BE stop = entry pushed BE_PROFIT_PIPS into profit (owner 09-03) so fees never turn a
       // protected trade into a loss. Only moved when the market is safely beyond it (beSafe),
       // so the modify can't be rejected or instantly close the position.
-      const bePx = roundPx(row.symbol, long ? entry + BE_PROFIT_PIPS * pip : entry - BE_PROFIT_PIPS * pip);
+      // SPREAD-AWARE LOCK (owner 09-07): the +5-pip lock is meaningless if the broker's
+      // spread is wider — the 09-06 Sunday-night close triggered a 4421.91 lock and FILLED
+      // at 4424.82 (-30 pips) because the feed's spread was ~$2.9. Push the lock deeper
+      // into profit by the live spread (clamped to 40 pips so a bad quote can't distort it),
+      // so a fill one spread through the stop still lands at or better than the +5-pip lock.
+      const spreadPad = Math.min(Math.max(0, spreadCache.get(`${tok.env}|${row.symbol}`) ?? 0), 40 * pip);
+      const bePx = roundPx(row.symbol, long ? entry + BE_PROFIT_PIPS * pip + spreadPad : entry - BE_PROFIT_PIPS * pip - spreadPad);
       const beSafe = long ? price > bePx + 2 * pip : price < bePx - 2 * pip;
 
       // ── STEP 0: ADOPT a break-even that already exists on the BROKER. The broker is the
