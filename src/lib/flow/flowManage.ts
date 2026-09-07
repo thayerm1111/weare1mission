@@ -328,7 +328,20 @@ export function classifyOutcome(
     return { outcome: "manual", result_pips: signed(px), exit_price: px, partial_taken: banked };
   }
 
-  if (row.be_done && hitTarget && tp1 != null) {
+  // A TARGET is only booked when the EXIT itself says so (owner 09-07): the broker closed it
+  // as a take-profit, or the realized exit landed at/through TP1. best_price merely touching
+  // TP1 is NOT proof — the 03:14 rows closed at their break-even locks (+~19 pips) but were
+  // graded full targets off a polluted best_price, and that fake "banked win" put the desk
+  // into post-win pause + protect-profits mode and held every account out of the real move.
+  // The best-touched-TP inference survives ONLY when we have no broker exit at all.
+  const exitKnown = exitPrice != null && exitPrice > 0;
+  const tpTol = 5 * pip;
+  const exitConfirmsTarget = tp1 != null && (
+    reason === "target" ||
+    (exitKnown && (long ? exitPrice! >= tp1 - tpTol : exitPrice! <= tp1 + tpTol))
+  );
+  const targetHit = exitKnown || reason === "target" ? exitConfirmsTarget : hitTarget;
+  if (row.be_done && targetHit && tp1 != null) {
     const pips = banked ? Math.round(PARTIAL_FRACTION * bankPips + (1 - PARTIAL_FRACTION) * signed(tp1)) : signed(tp1);
     return { outcome: "target", result_pips: pips, exit_price: tp1, partial_taken: banked };
   }
