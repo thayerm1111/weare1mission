@@ -101,7 +101,9 @@ export type ActiveAccount = {
   equity: number | null; balance: number | null; currency: string | null; name: string | null;
   riskPct?: number | null; // per-account risk override (null → caller's default)
   riskMode?: string | null; // per-account safety mode: 'conservative' (default) | 'aggressive'
-  sendIt?: boolean; // 🚀 SEND IT: takes every setup, bypasses every gate, hands-off management
+  sendIt?: boolean; // 🚀 SEND IT: takes every setup — HOW it behaves is configured per account:
+  sendItStack?: boolean;  //   true (default) = every entry, even with one already open; false = one at a time
+  sendItGuards?: boolean; //   true = respect the desk safeguards (halts, post-win bar, exhausted-setup); false (default) = bypass them
 };
 
 /**
@@ -119,10 +121,10 @@ export async function activeAccounts(userId: string): Promise<ActiveAccount[]> {
   for (const conn of conns) {
     // Include the per-account risk override when the column exists; if it hasn't
     // been added yet, fall back to a select without it so trading never breaks.
-    type AcctRow = { account_id: string; acc_num: string | null; name: string | null; currency: string | null; risk_pct?: number | null; risk_mode?: string | null; send_it?: boolean | null };
+    type AcctRow = { account_id: string; acc_num: string | null; name: string | null; currency: string | null; risk_pct?: number | null; risk_mode?: string | null; send_it?: boolean | null; send_it_stack?: boolean | null; send_it_guards?: boolean | null };
     let enabled: AcctRow[] = [];
     const withRisk = await admin.from("flow_broker_accounts")
-      .select("account_id, acc_num, name, currency, autotrade_enabled, risk_pct, risk_mode, send_it")
+      .select("account_id, acc_num, name, currency, autotrade_enabled, risk_pct, risk_mode, send_it, send_it_stack, send_it_guards")
       .eq("connection_id", conn.id).eq("autotrade_enabled", true);
     if (!withRisk.error) enabled = (withRisk.data ?? []) as AcctRow[];
     else {
@@ -162,6 +164,8 @@ export async function activeAccounts(userId: string): Promise<ActiveAccount[]> {
         riskPct: typeof a.risk_pct === "number" && a.risk_pct > 0 ? a.risk_pct : null,
         riskMode: a.risk_mode || "conservative",
         sendIt: a.send_it === true,
+        sendItStack: a.send_it_stack !== false, // default: every entry (classic Send It)
+        sendItGuards: a.send_it_guards === true, // default: bypass safeguards (classic Send It)
       });
     }
   }

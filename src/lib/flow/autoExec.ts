@@ -1502,12 +1502,18 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       // mode, conservative gate) — re-add any that were dropped. When a desk gate fired
       // (sendItOnly) they are the ONLY takers of this entry.
       for (const sa of allAccounts) if (sa.sendIt === true && !accounts.some((x) => x.accountId === sa.accountId)) accounts.push(sa);
-      if (sendItOnly) accounts = accounts.filter((a) => a.sendIt === true);
+      // SEND IT v2 (owner 09-08): the member configures HOW Send It behaves. When a desk
+      // safeguard fired (sendItOnly), only Send It accounts that chose to BYPASS the
+      // safeguards (sendItGuards off) take the entry — guards-on Send It accounts stand
+      // down with everyone else.
+      if (sendItOnly) accounts = accounts.filter((a) => a.sendIt === true && a.sendItGuards !== true);
       // MAX ONE OPEN GENX/FLOW GOLD PER ACCOUNT — broker-verified. An account is dropped ONLY
       // when it has a GENX/FLOW gold position the BROKER confirms is still open.
       const verified: ActiveAccount[] = [];
       for (const a of accounts) {
-        if (a.sendIt === true) { verified.push(a); continue; } // 🚀 Send It: no one-open cap — takes every setup
+        // 🚀 Send It "every entry" mode skips the one-open cap and stacks entries; the
+        // "one at a time" mode (sendItStack off) respects it like a normal account.
+        if (a.sendIt === true && a.sendItStack !== false) { verified.push(a); continue; }
         const ledgerPids = ledgerGoldByAcct.get(String(a.accountId));
         if (!ledgerPids || !ledgerPids.size) { verified.push(a); continue; }
         const brokerOpen = await brokerOpenPosIds({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId });
@@ -1620,10 +1626,10 @@ export async function placeGenxFollower(sig: {
   // Every follower account, across every user/connection (independent of FLOW).
   // Pull the per-account risk override + management toggle when those columns exist;
   // fall back to a bare select so the follower never breaks before the migration is run.
-  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; risk_pct?: number | null; manage_trades?: boolean | null; risk_mode?: string | null; autotrade_enabled?: boolean | null; send_it?: boolean | null };
+  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; risk_pct?: number | null; manage_trades?: boolean | null; risk_mode?: string | null; autotrade_enabled?: boolean | null; send_it?: boolean | null; send_it_stack?: boolean | null; send_it_guards?: boolean | null };
   let accts: FollowRow[] = [];
   const withCols = await admin.from("flow_broker_accounts")
-    .select("user_id, account_id, acc_num, connection_id, risk_pct, manage_trades, risk_mode, autotrade_enabled, send_it").eq("genx_follower", true);
+    .select("user_id, account_id, acc_num, connection_id, risk_pct, manage_trades, risk_mode, autotrade_enabled, send_it, send_it_stack, send_it_guards").eq("genx_follower", true);
   if (!withCols.error) accts = (withCols.data ?? []) as FollowRow[];
   else {
     const fb = await admin.from("flow_broker_accounts")
@@ -1635,8 +1641,9 @@ export async function placeGenxFollower(sig: {
   // this follower fill for the same setup. Pure-follower accounts (autotrade off) route here.
   // Uses the shared goldRoute() rule so the two paths can never disagree on ownership.
   accts = accts.filter((a) => goldRoute(a) === "follower");
-  // 🚀 SEND IT: when a desk gate fired, only Send It followers take this entry.
-  if (sendItOnly) accts = accts.filter((a) => a.send_it === true);
+  // 🚀 SEND IT v2: when a desk safeguard fired, only Send It followers that chose to
+  // BYPASS the safeguards (send_it_guards off) take this entry.
+  if (sendItOnly) accts = accts.filter((a) => a.send_it === true && a.send_it_guards !== true);
   if (!accts.length) return { accounts: 0, placed: 0 };
 
   // Mint one token per connection (a connection can hold several follower accounts),
@@ -1710,7 +1717,9 @@ export async function placeGenxFollower(sig: {
       const ledgerPids = ((openGold ?? []) as { position_id: string | null; created_at: string }[])
         .filter((r) => !isManualGoldRow(manualGoldF, String(a.account_id), r.created_at)) // manual play/test → never blocks
         .map((r) => String(r.position_id ?? "")).filter(Boolean);
-      if (a.send_it !== true && ledgerPids.length) { // 🚀 Send It: no one-open cap — takes every setup
+      // 🚀 Send It v2: only "every entry" mode (send_it_stack on) skips the one-open cap;
+      // "one at a time" Send It respects it like a normal account.
+      if (!(a.send_it === true && a.send_it_stack !== false) && ledgerPids.length) {
         const tokChk = await tokenFor(a.connection_id);
         if (!tokChk) return { touched: 1, placed: 0 }; // can't verify → fail closed, never stack
         const brokerOpen = await brokerOpenPosIds({ env: tokChk.env, token: tokChk.token, accNum: String(a.acc_num), accountId: a.account_id });

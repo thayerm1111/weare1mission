@@ -602,13 +602,14 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         cfg = (fb.data ?? []) as unknown as AcctCfg[];
       }
       for (const a of cfg) {
-        // 🚀 SEND IT (owner feature 09-03): a Send It account's trades are HANDS-OFF — no
-        // break-even move, no trail, no partials. The trade runs to its stop or target
-        // exactly as placed; closes are still reconciled and outcomes recorded.
-        if (a.manage_trades === false || a.send_it === true) manageOff.add(String(a.account_id));
+        // 🚀 SEND IT v2 (owner 09-08): Send It no longer forces hands-off management.
+        // The member chooses in the Send It setup prompt — break-even and partials each
+        // follow the account's own toggles (be_enabled / partials_enabled), exactly like
+        // a normal account. Only the legacy manage_trades master switch disables the
+        // manager outright.
+        if (a.manage_trades === false) manageOff.add(String(a.account_id));
         // SPLIT TOGGLES (owner 09-03): break-even and partials each have their own switch.
-        // null/undefined = ON (back-compat); the legacy manage_trades master still turns
-        // everything off at once, and 🚀 Send It always means fully hands-off.
+        // null/undefined = ON (back-compat).
         if (a.be_enabled === false) beOffAccts.add(String(a.account_id));
         if (a.partials_enabled === false) partialOffAccts.add(String(a.account_id));
         if (typeof a.gold_be_pips === "number" && a.gold_be_pips > 0) goldBePips.set(String(a.account_id), a.gold_be_pips);
