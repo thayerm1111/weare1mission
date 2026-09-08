@@ -600,6 +600,25 @@ export function FlowConnect() {
                           </button>
                         );
                       })}
+                      {/* SIZE-TO-ACCOUNT REMINDERS (owner 09-08): above 2% needs a $2,000+
+                          account; ~$500 accounts belong at 0.5% or lower. The desk enforces
+                          the same caps at trade time and falls back to 0.01 lots on margin
+                          rejections, so nobody misses a trade over sizing. */}
+                      {(() => {
+                        const eff = a.riskPct ?? risk;
+                        return (
+                          <>
+                            {eff > 2 && (
+                              <p className="mt-1 w-full text-[10px] font-semibold leading-tight text-amber-700">
+                                ⚠️ {eff}% risk needs at least $2,000 in this account — below that, trades are automatically sized at 2% or less.
+                              </p>
+                            )}
+                            <p className="mt-0.5 w-full text-[10px] leading-tight text-charcoal/40">
+                              Account around $500? Pick 0.5% or lower (it&rsquo;s capped there automatically). If a full-size position ever doesn&rsquo;t fit your margin, the desk takes the trade at 0.01 lots instead of skipping it.
+                            </p>
+                          </>
+                        );
+                      })()}
                     </div>
                     {/* Per-account trade management, SPLIT (owner 09-03): break-even and partials each
                         have their own switch, plus 🚀 Send It below the safety mode. */}
