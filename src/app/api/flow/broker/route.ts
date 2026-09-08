@@ -34,7 +34,7 @@ export async function GET() {
     if (admin) {
       // Include per-account risk_pct + manage_trades + gold_be_pips when those columns
       // exist; fall back if they haven't been added yet so the accounts list never breaks.
-      const withCols = await admin.from("flow_broker_accounts").select(baseCols + ", risk_pct, manage_trades, gold_be_pips, risk_mode, send_it, be_enabled, partials_enabled").eq("connection_id", c.id).order("created_at", { ascending: true });
+      const withCols = await admin.from("flow_broker_accounts").select(baseCols + ", risk_pct, manage_trades, gold_be_pips, risk_mode, send_it, send_it_stack, send_it_guards, be_enabled, partials_enabled").eq("connection_id", c.id).order("created_at", { ascending: true });
       if (!withCols.error) accts = (withCols.data ?? []) as unknown as Record<string, unknown>[];
       else { const fb = await admin.from("flow_broker_accounts").select(baseCols).eq("connection_id", c.id).order("created_at", { ascending: true }); accts = (fb.data ?? []) as unknown as Record<string, unknown>[]; }
     }
@@ -47,7 +47,9 @@ export async function GET() {
         riskPct: typeof a.risk_pct === "number" && (a.risk_pct as number) > 0 ? a.risk_pct : null,
         manageTrades: a.manage_trades !== false, // default ON (breakeven + partials)
         riskMode: a.risk_mode === "aggressive" ? "aggressive" : "conservative", // per-account safety mode; default conservative
-        sendIt: a.send_it === true, // 🚀 Send It: every setup, every gate bypassed, hands-off management
+        sendIt: a.send_it === true, // 🚀 Send It v2: every setup — behavior configured per account below
+        sendItStack: a.send_it_stack !== false,  // true = every entry (classic); false = one at a time
+        sendItGuards: a.send_it_guards === true, // true = safeguards respected; false = bypassed (classic)
         beEnabled: a.manage_trades !== false && a.be_enabled !== false,          // split toggle (default ON; legacy master off = off)
         partialsEnabled: a.manage_trades !== false && a.partials_enabled !== false, // split toggle (default ON; legacy master off = off)
         goldBePips: typeof a.gold_be_pips === "number" && (a.gold_be_pips as number) > 0 ? a.gold_be_pips : null, // gold-only BE/partial pips; null = AI
@@ -179,19 +181,30 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "sendit") {
-    // 🚀 SEND IT (owner feature 09-03): this account takes EVERY setup the AI calls — all
-    // calm-downs, blackouts, chase/R:R gates, safety modes and the one-open cap are bypassed,
-    // and the trade-manager leaves its trades alone (no break-even move, no trail, no
-    // partials — the trade runs to its stop or target exactly as placed). Sizing still uses
-    // the account's risk %. Default OFF; explicit per-account opt-in.
+    // 🚀 SEND IT v2 (owner 09-08): this account takes every setup the AI calls, and the
+    // member configures HOW in the setup prompt:
+    //   stack:  true = every entry (skips the one-open cap; classic) · false = one at a time
+    //   guards: true = respect the desk safeguards (halts, post-win bar, exhausted-setup)
+    //           · false = bypass them (classic)
+    //   be / partials: whether the trade-manager still moves break-even / banks partials —
+    //           these write the account's normal be_enabled / partials_enabled toggles.
+    // Sizing still uses the account's risk %. Default OFF; explicit per-account opt-in.
     const accountId = String(body.accountId || "");
     if (!accountId) return json({ error: "missing_account" }, 200);
     const enabled = body.enabled === true; // default OFF (opt-in)
-    let q = admin.from("flow_broker_accounts").update({ send_it: enabled, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
+    const patch: Record<string, unknown> = { send_it: enabled, updated_at: new Date().toISOString() };
+    if (enabled) {
+      if (typeof body.stack === "boolean") patch.send_it_stack = body.stack;
+      if (typeof body.guards === "boolean") patch.send_it_guards = body.guards;
+      if (typeof body.be === "boolean") patch.be_enabled = body.be;
+      if (typeof body.partials === "boolean") patch.partials_enabled = body.partials;
+      if (typeof body.be === "boolean" || typeof body.partials === "boolean") patch.manage_trades = true; // the split toggles only act when the master is on
+    }
+    let q = admin.from("flow_broker_accounts").update(patch).eq("user_id", user.id).eq("account_id", accountId);
     if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
     const { error } = await q;
-    if (error) return json({ error: "needs_setup", detail: "Send It isn't set up yet — the send_it column is missing." }, 200);
-    return json({ ok: true, accountId, sendIt: enabled });
+    if (error) return json({ error: "needs_setup", detail: "Send It isn't set up yet — run the send_it column migration." }, 200);
+    return json({ ok: true, accountId, sendIt: enabled, sendItStack: body.stack, sendItGuards: body.guards });
   }
 
   if (action === "goldbe") {
