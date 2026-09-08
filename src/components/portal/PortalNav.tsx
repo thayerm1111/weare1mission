@@ -291,6 +291,15 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
         />
       )}
 
+      {/* Community P&L — every connected account's live equity, who's up the most (admin) */}
+      {isAdmin && (
+        <NavLink
+          item={{ href: "/portal/admin/community", label: "Community P&L", icon: Trophy }}
+          active={pathname.startsWith("/portal/admin/community")}
+          onNav={() => setOpen(false)}
+        />
+      )}
+
       {/* Learning Desk — AI self-audit / continuous learning (admin) */}
       {isAdmin && (
         <NavLink
