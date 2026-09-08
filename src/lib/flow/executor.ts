@@ -309,7 +309,13 @@ export async function placeOnActiveAccounts(opts: {
     // minimum is the smallest tradeable size, so it's take-the-minimum or sit out.
     // Each account risk-sizes to ITS OWN risk % when one is set, else the caller's
     // default — so one account can run aggressive and another conservative.
-    const acctRisk = a.riskPct != null && a.riskPct > 0 ? a.riskPct : opts.riskPct;
+    let acctRisk = a.riskPct != null && a.riskPct > 0 ? a.riskPct : opts.riskPct;
+    // SMALL-ACCOUNT GUARDRAILS (owner 09-08): the selected % only applies when the
+    // account can actually carry it — under $2,000 equity the effective risk is capped
+    // at 2%, and at $600 or less it's capped at 0.5%. The trade is NEVER skipped over
+    // this; the size just respects the cap. (The connect UI shows the same reminders.)
+    if (a.equity < 2000) acctRisk = Math.min(acctRisk, 2);
+    if (a.equity <= 600) acctRisk = Math.min(acctRisk, 0.5);
     const s = sizeFromRisk({ canonical, entry: opts.entry, stop, equity: a.equity, riskPct: acctRisk, floorToMinLot: true });
     if (!s.ok || !(s.lots > 0)) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: s.reason || "size_too_small" }); continue; }
     const lots = Math.min(s.lots, 100); // fat-finger backstop
@@ -331,6 +337,19 @@ export async function placeOnActiveAccounts(opts: {
       fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "error", lots: s.lots, reason: "order_uncertain (timeout — recovery will adopt if it filled)" });
       continue;
     }
+    // MARGIN FALLBACK (owner 09-08: "smaller accounts aren't taking the trades because
+    // of margin"). If the broker rejected the risk-sized order for insufficient margin,
+    // retry ONCE at 0.01 lots — the account still takes the trade at the minimum size
+    // instead of sitting out. Only fires when the original size was above the minimum;
+    // an account that can't carry even 0.01 genuinely can't take the trade.
+    let fallbackNote = "";
+    if (!r.ok && !r.deferred && /margin/i.test(String(r.error)) && lots > 0.011) {
+      if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_submitted", reason: `${opts.source}:margin_fallback`, price: opts.entry, qty: 0.01, detail: { originalLots: lots, originalError: String(r.error).slice(0, 120) } });
+      try {
+        const r2 = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, 0.01, stop, tp, opts.source === "play");
+        if (r2.ok) { r = r2; fallbackNote = " · margin_fallback_0.01"; }
+      } catch { /* keep the original margin error */ }
+    }
     if (!r.ok) {
       // Session-closed rejection isn't a failure — the next tick retries once the
       // market reopens. Record it as "deferred"/skipped so it doesn't spam errors.
@@ -339,7 +358,7 @@ export async function placeOnActiveAccounts(opts: {
       fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: r.deferred ? "skipped" : "error", lots: s.lots, reason: r.deferred ? "session_closed" : r.error });
       continue;
     }
-    await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: r.qty, status: "placed", reason: `${opts.source}${r.note}`.slice(0, 60), order_id: r.orderId, account_id: a.accountId, entry: opts.entry, stop, tp: tp });
+    await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: r.qty, status: "placed", reason: `${opts.source}${r.note}${fallbackNote}`.slice(0, 60), order_id: r.orderId, account_id: a.accountId, entry: opts.entry, stop, tp: tp });
     fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "placed", qty: r.qty, lots: r.qty, estLossAtStop: s.estLossAtStop, orderId: r.orderId });
     if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_confirmed", reason: opts.source, position_id: r.positionId, price: opts.entry, qty: r.qty, detail: { latencyMs: Date.now() - t0, orderId: r.orderId, estLossAtStop: s.estLossAtStop } });
     placed += 1;
