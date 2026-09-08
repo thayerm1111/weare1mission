@@ -43,31 +43,11 @@ export async function POST(req: NextRequest) {
   const action = String(body.action || "");
 
   if (action === "subscribe") {
-    const origin = req.headers.get("origin") || `https://${req.headers.get("host")}`;
-    try {
-      const session = await stripe.checkout.sessions.create({
-        mode: "subscription",
-        line_items: [{
-          quantity: 1,
-          price_data: {
-            currency: "usd",
-            unit_amount: Math.round(SUITE.priceUsd * 100),
-            recurring: { interval: SUITE.interval },
-            product_data: { name: "1 Mission — Trading Suite", description: `Full AI trading desk + ${SUITE.monthlyCredits} credits/mo + free auto-run` },
-          },
-        }],
-        client_reference_id: user.id,
-        customer_email: user.email || undefined,
-        metadata: { user_id: user.id, plan: SUITE.key },
-        subscription_data: { metadata: { user_id: user.id, plan: SUITE.key } },
-        success_url: `${origin}/portal/account?suite=on`,
-        cancel_url: `${origin}/portal/account?suite=cancelled`,
-        managed_payments: { enabled: false },
-      } as Stripe.Checkout.SessionCreateParams);
-      return json({ ok: true, url: session.url });
-    } catch (e) {
-      return json({ error: "checkout_failed", detail: (e instanceof Error ? e.message : "").slice(0, 200) }, 502);
-    }
+    // RETIRED (owner 09-08): the $39/mo Trading Suite is closed to new sign-ups — members
+    // buy credit packs or use auto-refill instead. Blocked server-side so a cached page or
+    // old link can never start a new subscription. Existing subscribers are untouched:
+    // cancel/resume below still work and the webhook keeps granting their monthly credits.
+    return json({ error: "retired", detail: "The monthly plan is no longer offered — grab a credit pack or turn on auto-refill on the Credits page." }, 200);
   }
 
   if (action === "cancel" || action === "resume") {
