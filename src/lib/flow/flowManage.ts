@@ -1050,7 +1050,13 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // BE trigger is 30 pips, so even the deep thin-hours lock stays inside the trigger.
       const utcH = new Date().getUTCHours();
       const thinHours = utcH >= 21 || utcH < 7;
-      const padFloor = (thinHours ? 20 : 5) * pip;
+      // LIQUID-HOURS FLOOR RAISED 5→12 (owner 09-08: "positions ending not in profit after
+      // doing break even"): the 09-08 17:54 UTC spike filled a lock that sat 14 pips in
+      // profit 25 pips through it (−$138 on 1.08 lots). A stop becomes a market order when
+      // touched — no cushion can beat every vertical candle — but at 12 pips + live spread
+      // the lock sits ~15+ pips into profit (still inside the 30-pip trigger), so ordinary
+      // 5-10 pip spike slippage keeps printing green instead of small red scratches.
+      const padFloor = (thinHours ? 20 : 12) * pip;
       const spreadPad = Math.min(Math.max(spreadCache.get(`${tok.env}|${row.symbol}`) ?? 0, padFloor), 40 * pip);
       const bePx = roundPx(row.symbol, long ? entry + BE_PROFIT_PIPS * pip + spreadPad : entry - BE_PROFIT_PIPS * pip - spreadPad);
       const beSafe = long ? price > bePx + 2 * pip : price < bePx - 2 * pip;
