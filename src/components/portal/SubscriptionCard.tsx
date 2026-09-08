@@ -54,6 +54,11 @@ export function SubscriptionCard() {
   const credits = sub?.credits ?? 250;
   const active = !!sub?.active;
 
+  // RETIRED FOR NEW SIGN-UPS (owner 09-08): the $39/mo Trading Suite is no longer offered
+  // anywhere — members buy credits (or auto-refill) instead. Existing subscribers keep the
+  // full card to see status, cancel, or resume; everyone else sees nothing at all.
+  if (!active) return null;
+
   return (
     <section className="rounded-2xl border border-[#E4DCCB] bg-gradient-to-br from-navy to-[#12294b] p-6 text-white shadow-card">
       <div className="flex items-center justify-between gap-3">
