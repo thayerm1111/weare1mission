@@ -37,6 +37,8 @@ type Account = {
   beEnabled?: boolean;
   partialsEnabled?: boolean;
   sendIt?: boolean;
+  sendItStack?: boolean;  // true = every entry (classic) · false = one at a time
+  sendItGuards?: boolean; // true = safeguards respected · false = bypassed (classic)
   riskMode?: string | null;
   goldBePips?: number | null;
   connectionId?: string;
@@ -120,6 +122,8 @@ export function FlowConnect() {
   const [auto, setAuto] = useState<AutoRun | null>(null);
   const [risk, setRisk] = useState<number>(1);
   const [riskLocked, setRiskLocked] = useState(false);
+  // Send It setup prompt state — key is `${connectionId}:${accountId}` of the account being configured.
+  const [sendItCfg, setSendItCfg] = useState<{ key: string; stack: boolean; be: boolean; partials: boolean; guards: boolean } | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
   const [autoMsg, setAutoMsg] = useState("");
   // Owner-only global kill switch. GET returns 404 for non-owners → stays null → hidden.
@@ -355,13 +359,20 @@ export function FlowConnect() {
     } catch { /* optimistic; the Matty Pips page shows authoritative state */ }
   }
 
-  async function setAccountSendIt(a: Account, enabled: boolean) {
-    // 🚀 SEND IT (owner 09-03): this account takes EVERY setup the AI calls — every calm-down,
-    // blackout and quality gate bypassed — and its trades are hands-off (no BE, no trail, no
-    // partials): they run to their stop or target at the account's risk %.
-    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, sendIt: enabled } : x) } : prev);
+  // 🚀 SEND IT v2 (owner 09-08): turning Send It ON opens a setup prompt where the member
+  // chooses how it operates — every entry vs one at a time, break-even on/off, partials
+  // on/off, and whether the desk safeguards still apply. Turning it OFF is immediate.
+  async function turnOffSendIt(a: Account) {
+    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, sendIt: false } : x) } : prev);
     try {
-      await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "sendit", accountId: a.accountId, connectionId: a.connectionId, enabled }) });
+      await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "sendit", accountId: a.accountId, connectionId: a.connectionId, enabled: false }) });
+    } catch { void load(); }
+  }
+  async function confirmSendIt(a: Account, cfg: { stack: boolean; be: boolean; partials: boolean; guards: boolean }) {
+    setSendItCfg(null);
+    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, sendIt: true, sendItStack: cfg.stack, sendItGuards: cfg.guards, beEnabled: cfg.be, partialsEnabled: cfg.partials, manageTrades: true } : x) } : prev);
+    try {
+      await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "sendit", accountId: a.accountId, connectionId: a.connectionId, enabled: true, stack: cfg.stack, guards: cfg.guards, be: cfg.be, partials: cfg.partials }) });
     } catch { void load(); }
   }
 
@@ -705,21 +716,58 @@ export function FlowConnect() {
                               </div>
                             </div>
                           )}
-                          <div {...tour("ft-sendit")} className={`mt-2 flex items-center justify-between gap-3 rounded-lg border px-2.5 py-2 ${sendIt ? "border-amber-500/50 bg-amber-500/[0.07]" : "border-ice bg-offwhite/40"}`}>
-                            <div className="min-w-0">
-                              <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${sendIt ? "text-amber-600" : "text-charcoal/55"}`}>🚀 Send It</span>
-                              <p className="mt-0.5 text-[10px] leading-tight text-charcoal/45">{sendIt ? "ON — every setup, every time. No pauses, no blackout windows, no breakeven move: trades run to SL or TP at your risk %." : "Take EVERY setup the AI calls — skips all calm-downs and filters, and never moves the stop to breakeven. Max action, max risk."}</p>
+                          <div {...tour("ft-sendit")} className={`mt-2 rounded-lg border px-2.5 py-2 ${sendIt ? "border-amber-500/50 bg-amber-500/[0.07]" : "border-ice bg-offwhite/40"}`}>
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${sendIt ? "text-amber-600" : "text-charcoal/55"}`}>🚀 Send It</span>
+                                <p className="mt-0.5 text-[10px] leading-tight text-charcoal/45">
+                                  {sendIt
+                                    ? `ON — ${a.sendItStack !== false ? "every entry" : "one entry at a time"} · break-even ${a.beEnabled !== false ? "on" : "off"} · partials ${a.partialsEnabled !== false ? "on" : "off"} · safeguards ${a.sendItGuards === true ? "on" : "bypassed"}. Sized at your risk %.`
+                                    : "Take EVERY setup the AI calls, your way — you'll choose entries, break-even, partials and safeguards when you turn it on."}
+                                </p>
+                              </div>
+                              <div className="flex flex-shrink-0 items-center gap-2">
+                                <span className={`text-[11px] font-semibold ${sendIt ? "text-amber-600" : "text-charcoal/40"}`}>{sendIt ? "On" : "Off"}</span>
+                                <button
+                                  onClick={() => {
+                                    if (sendIt) { void turnOffSendIt(a); return; }
+                                    // SETUP PROMPT: seed from the account's current toggles, classic Send It defaults.
+                                    setSendItCfg({ key: `${a.connectionId}:${a.accountId}`, stack: a.sendItStack !== false, be: a.beEnabled !== false, partials: a.partialsEnabled !== false, guards: a.sendItGuards === true });
+                                  }}
+                                  aria-pressed={sendIt}
+                                  className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${sendIt ? "bg-amber-500" : "bg-charcoal/20"}`}
+                                >
+                                  <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${sendIt ? "left-[22px]" : "left-0.5"}`} />
+                                </button>
+                              </div>
                             </div>
-                            <div className="flex flex-shrink-0 items-center gap-2">
-                              <span className={`text-[11px] font-semibold ${sendIt ? "text-amber-600" : "text-charcoal/40"}`}>{sendIt ? "On" : "Off"}</span>
-                              <button
-                                onClick={() => void setAccountSendIt(a, !sendIt)}
-                                aria-pressed={sendIt}
-                                className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${sendIt ? "bg-amber-500" : "bg-charcoal/20"}`}
-                              >
-                                <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${sendIt ? "left-[22px]" : "left-0.5"}`} />
-                              </button>
-                            </div>
+                            {/* SEND IT SETUP PROMPT (owner 09-08): how should Send It operate on this account? */}
+                            {sendItCfg && sendItCfg.key === `${a.connectionId}:${a.accountId}` && (
+                              <div className="mt-2 space-y-2 border-t border-amber-500/30 pt-2">
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-amber-700">Set up Send It for this account</p>
+                                {([
+                                  { label: "Entries", get: sendItCfg.stack, set: (v: boolean) => setSendItCfg({ ...sendItCfg, stack: v }), onText: "Every entry", offText: "One at a time", hint: sendItCfg.stack ? "Takes every call — even with a trade already open (positions can stack)." : "Waits for the open trade to close before taking the next call." },
+                                  { label: "Break-even", get: sendItCfg.be, set: (v: boolean) => setSendItCfg({ ...sendItCfg, be: v }), onText: "On", offText: "Off", hint: sendItCfg.be ? "Stop moves into profit once the trigger hits — scratches close green." : "Stop never moves — every trade runs to its SL or TP as placed." },
+                                  { label: "Partials", get: sendItCfg.partials, set: (v: boolean) => setSendItCfg({ ...sendItCfg, partials: v }), onText: "On", offText: "Off", hint: sendItCfg.partials ? "Banks 25% at the halfway point on qualifying setups." : "Full position rides to the end — nothing banked early." },
+                                  { label: "Safeguards", get: sendItCfg.guards, set: (v: boolean) => setSendItCfg({ ...sendItCfg, guards: v }), onText: "On", offText: "Bypassed", hint: sendItCfg.guards ? "Respects the desk's protections — halts after stop-outs, post-win quality bar, news blackouts." : "Classic Send It: trades through halts, blackouts and quality gates. Max action, max risk." },
+                                ] as const).map((row) => (
+                                  <div key={row.label} className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <span className="text-[11px] font-semibold text-charcoal/70">{row.label}</span>
+                                      <p className="mt-0.5 text-[10px] leading-tight text-charcoal/45">{row.hint}</p>
+                                    </div>
+                                    <div className="flex flex-shrink-0 gap-1">
+                                      <button onClick={() => row.set(true)} className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${row.get ? "border-amber-500/60 bg-amber-500/[0.12] text-amber-700" : "border-ice bg-white text-charcoal/50"}`}>{row.onText}</button>
+                                      <button onClick={() => row.set(false)} className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${!row.get ? "border-amber-500/60 bg-amber-500/[0.12] text-amber-700" : "border-ice bg-white text-charcoal/50"}`}>{row.offText}</button>
+                                    </div>
+                                  </div>
+                                ))}
+                                <div className="flex gap-2 pt-1">
+                                  <button onClick={() => void confirmSendIt(a, sendItCfg)} className="flex-1 rounded-lg bg-amber-500 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-amber-600">🚀 Turn on Send It</button>
+                                  <button onClick={() => setSendItCfg(null)} className="rounded-lg border border-ice bg-white px-3 py-1.5 text-[11px] font-semibold text-charcoal/60">Cancel</button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                           {(() => {
                             const mpOn = mpMap[`${a.connectionId}:${a.accountId}`] === true;
