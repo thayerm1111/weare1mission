@@ -25,7 +25,8 @@ export type TradePhase =
   | "trail"                // trailing stop advanced, broker-confirmed
   | "trail_unconfirmed"    // trail modify acked but broker read-back didn't confirm
   | "closed"               // position closed + outcome booked from broker history
-  | "regrade";             // a booked outcome corrected by the ledger self-repair sweep
+  | "regrade"              // a booked outcome corrected by the ledger self-repair sweep
+  | "tp_reattached";       // a broker-dropped take-profit re-attached by the manager
 
 export type TradeLogEntry = {
   position_id?: string | null;

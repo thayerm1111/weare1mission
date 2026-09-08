@@ -153,7 +153,7 @@ export function _invalidateConnToken(connId: string) { _connTokCache.delete(conn
 
 // CROSS-PASS COLUMN-CONFIG CACHE — the broker's positionsConfig column layout is static
 // per connection; refetching it every pass for 54 connections was pure waste.
-const _colsCacheMod = new Map<string, { at: number; v: { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number } }>();
+const _colsCacheMod = new Map<string, { at: number; v: { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number; tpIdx: number } }>();
 const COLS_TTL_MS = 6 * 60 * 60 * 1000;
 
 // A target counts as "1:2 or wider" (→ take the partial) at this reward:risk or above.
@@ -212,6 +212,7 @@ function numAt(p: unknown, idx: number, keys: string[]): number | null {
 const AVG_KEYS = ["avgPrice", "openPrice", "avg_price", "price"];
 const UPL_KEYS = ["unrealizedPl", "unrealizedPnl", "unrealizedPnL", "upl", "rpl"];
 const SL_KEYS = ["stopLoss", "stopLossPrice", "sl", "stop_loss"];
+const TP_KEYS = ["takeProfit", "takeProfitPrice", "tp", "take_profit"];
 const QTY_KEYS = ["qty", "quantity", "volume", "size", "lots", "positionQty"];
 
 /** True when the broker's actual stop-loss price matches what we asked for, within a
@@ -625,9 +626,9 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   try { goldChop = await goldChopRegime(admin); } catch { /* regime off on read error */ }
 
   const tokenCache = new Map<string, { token: string; env: TLEnv } | null>();
-  const colCache = new Map<string, { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number }>();
+  const colCache = new Map<string, { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number; tpIdx: number }>();
   const histColCache = new Map<string, Record<string, number> | undefined>();
-  const acctCache = new Map<string, { openIds: Set<string>; avgPx: Map<string, number>; upl: Map<string, number>; qty: Map<string, number>; sl: Map<string, number>; instruments: TLInstrument[] } | null>();
+  const acctCache = new Map<string, { openIds: Set<string>; avgPx: Map<string, number>; upl: Map<string, number>; qty: Map<string, number>; sl: Map<string, number>; tp: Map<string, number>; instruments: TLInstrument[] } | null>();
   const quoteCache = new Map<string, number | null>();
   // Live bid/ask spread per env+symbol this tick — the BE lock must clear it (owner 09-07:
   // a Sunday-night $2.9 gold spread filled a +5-pip lock $2.9 through the stop → -30 pips).
@@ -650,11 +651,11 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   // config's positionsConfig. Read it once per connection to find the avgPrice (real fill)
   // and unrealizedPl columns — so we never hardcode a fragile index. Falls back to the
   // documented TradeLocker layout (avgPrice at index 5) if the config can't be parsed.
-  async function colsFor(connId: string, tok: { token: string; env: TLEnv }, accNum: string): Promise<{ avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number }> {
+  async function colsFor(connId: string, tok: { token: string; env: TLEnv }, accNum: string): Promise<{ avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number; tpIdx: number }> {
     if (colCache.has(connId)) return colCache.get(connId)!;
     const modHit = _colsCacheMod.get(connId);
     if (modHit && Date.now() - modHit.at < COLS_TTL_MS) { colCache.set(connId, modHit.v); return modHit.v; }
-    let v = { avgIdx: 5, uplIdx: -1, slIdx: -1, qtyIdx: -1 };
+    let v = { avgIdx: 5, uplIdx: -1, slIdx: -1, qtyIdx: -1, tpIdx: -1 };
     try {
       const cfg = await getConfig(tok.env, tok.token, accNum);
       if (cfg.ok) {
@@ -670,13 +671,16 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
           const si = cols.findIndex((c) => { const id = idOf(c).toLowerCase(); return id === "stoploss" || id === "stoplossprice" || id === "sl"; });
           // qty column (for partial-close idempotency / broker-truth reconciliation).
           const qi = cols.findIndex((c) => { const id = idOf(c).toLowerCase(); return id === "qty" || id === "quantity" || id === "volume" || id === "positionqty"; });
-          if (ai >= 0) v = { avgIdx: ai, uplIdx: ui, slIdx: si, qtyIdx: qi };
-          else v = { ...v, slIdx: si, qtyIdx: qi };
+          // takeProfit price column (for the missing-TP self-heal). -1 → self-heal is skipped
+          // for this connection (we never re-attach blind, only against a broker read-back).
+          const ti = cols.findIndex((c) => { const id = idOf(c).toLowerCase(); return id === "takeprofit" || id === "takeprofitprice" || id === "tp"; });
+          if (ai >= 0) v = { avgIdx: ai, uplIdx: ui, slIdx: si, qtyIdx: qi, tpIdx: ti };
+          else v = { ...v, slIdx: si, qtyIdx: qi, tpIdx: ti };
         }
       }
     } catch { /* keep defaults */ }
     colCache.set(connId, v);
-    if (v.avgIdx !== 5 || v.uplIdx >= 0 || v.slIdx >= 0 || v.qtyIdx >= 0) _colsCacheMod.set(connId, { at: Date.now(), v }); // only cache a PARSED layout across passes, never the blind fallback
+    if (v.avgIdx !== 5 || v.uplIdx >= 0 || v.slIdx >= 0 || v.qtyIdx >= 0 || v.tpIdx >= 0) _colsCacheMod.set(connId, { at: Date.now(), v }); // only cache a PARSED layout across passes, never the blind fallback
     return v;
   }
 
@@ -705,7 +709,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     return map;
   }
 
-  async function acctState(tok: { token: string; env: TLEnv }, accNum: string, accountId: string, cols: { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number }) {
+  async function acctState(tok: { token: string; env: TLEnv }, accNum: string, accountId: string, cols: { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number; tpIdx: number }) {
     const key = `${accountId}`;
     if (acctCache.has(key)) return acctCache.get(key)!;
     let pos = await listPositions(tok.env, tok.token, accNum, accountId);
@@ -726,6 +730,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     const upl = new Map<string, number>();
     const qty = new Map<string, number>();
     const sl = new Map<string, number>();
+    const tpm = new Map<string, number>();
     if (pos.ok) for (const p of pos.data) {
       const id = posIdOf(p);
       if (!id) continue;
@@ -733,9 +738,10 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       const u = numAt(p, cols.uplIdx, UPL_KEYS); if (u != null) upl.set(id, u);
       const qn = numAt(p, cols.qtyIdx, QTY_KEYS); if (qn != null && qn > 0) qty.set(id, qn);
       const s = numAt(p, cols.slIdx, SL_KEYS); if (s != null && s > 0) sl.set(id, s);
+      const t = numAt(p, cols.tpIdx, TP_KEYS); if (t != null && t > 0) tpm.set(id, t);
     }
     const v = pos.ok && inst.ok
-      ? { openIds: new Set(pos.data.map(posIdOf).filter(Boolean)), avgPx, upl, qty, sl, instruments: inst.data }
+      ? { openIds: new Set(pos.data.map(posIdOf).filter(Boolean)), avgPx, upl, qty, sl, tp: tpm, instruments: inst.data }
       : null;
     // NEVER cache a failed read: a null in the cache would black out EVERY position on this
     // account for the rest of the tick. Failures fall through so the next row retries fresh.
@@ -1076,6 +1082,37 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
           update.be_done = true; update.cur_stop = brokerSl; row.be_done = true; row.cur_stop = brokerSl; didAction = true;
           actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_adopted", detail: `broker SL already ${brokerSl}` });
           await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "break_even", reason: "adopted_from_broker", price: brokerSl });
+        }
+      }
+
+      // ── STEP 0.5: TAKE-PROFIT SELF-HEAL (owner 09-08: "WHY IS THERE NO TAKE PROFIT???").
+      //    Every platform entry is SUBMITTED with its TP, but some TradeLocker routes silently
+      //    drop the TP leg while still filling the order (live case 09-08 23:02 UTC: genx sell
+      //    13.05 @ 4353.69 submitted with tp 4347.51 — filled with the SL only). The broker's
+      //    own position row is the truth: if the ledger carries a target but the broker shows
+      //    NO take-profit at all, re-attach it. Guards: only when the TP column is actually
+      //    readable (never re-attach blind), only a fully-MISSING TP is repaired (a TP the
+      //    member set or changed by hand is any non-null value → untouched), and never a TP
+      //    the market has already passed (the broker would close the position instantly). ──
+      if (manageOn && tp != null && towardTp && cols.tpIdx >= 0) {
+        const brokerTp = st.tp.get(String(row.position_id)) ?? null;
+        const tpPx = roundPx(row.symbol, tp);
+        const notPassed = long ? price < tpPx - 2 * pip : price > tpPx + 2 * pip;
+        if ((brokerTp == null || brokerTp <= 0) && notPassed) {
+          // Send the CURRENT stop alongside the TP — broker truth first, ledger fallback — so
+          // a modify that replaces the whole bracket set can never clear the stop-loss.
+          const slKeep = st.sl.get(String(row.position_id)) ?? row.cur_stop ?? row.init_stop;
+          const fix = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, {
+            ...(slKeep != null && slKeep > 0 ? { stopLoss: slKeep } : {}),
+            takeProfit: tpPx,
+          });
+          if (fix.ok) {
+            didAction = true;
+            actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "tp_reattached", detail: `TP→${tpPx}` });
+            await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "tp_reattached", reason: "broker_dropped_tp", price: tpPx, detail: { slKept: slKeep ?? null } });
+          } else {
+            actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "tp_reattach_err", detail: fix.error.slice(0, 60) });
+          }
         }
       }
 

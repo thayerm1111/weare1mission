@@ -232,7 +232,7 @@ export async function placeMarketOrder(opts: {
   const accNum = acctRow?.acc_num ? String(acctRow.acc_num) : null;
   if (!accNum) return { status: "error", reason: "no_acc_num", environment: fresh.env };
 
-  const r = await placeOnAccount({ env: fresh.env, token: fresh.token, accNum, accountId, connId: conn.id }, canonical, opts.side, opts.qty, opts.stop, opts.tp);
+  const r = await placeOnAccount({ env: fresh.env, token: fresh.token, accNum, accountId, connId: conn.id }, canonical, opts.side, opts.qty, opts.stop, opts.tp, true);
   if (!r.ok) {
     await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: opts.qty, status: r.deferred ? "deferred" : "error", reason: `${opts.source}: ${r.error}`.slice(0, 200), account_id: accountId });
     return { status: "error", reason: r.deferred ? "Market session closed — will retry when it reopens." : r.error, environment: fresh.env };
@@ -257,7 +257,7 @@ export async function placeFixedLotFollower(opts: {
   const canonical = normSym(opts.symbol) || "XAUUSD";
   const r = await placeOnAccount(
     { env: opts.env, token: opts.token, accNum: opts.accNum, accountId: opts.accountId, connId: opts.connId },
-    canonical, opts.side, opts.qty, opts.stop ?? null, opts.tp ?? null,
+    canonical, opts.side, opts.qty, opts.stop ?? null, opts.tp ?? null, true, // verify brackets on followers too — brokers can silently drop a leg
   );
   if (!r.ok) {
     const st = r.deferred ? "deferred" : "error";
@@ -323,10 +323,12 @@ export async function placeOnActiveAccounts(opts: {
     if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_submitted", reason: opts.source, price: opts.entry, qty: lots, detail: { side: opts.side, stop, tp: tp } });
     let r: Awaited<ReturnType<typeof placeOnAccount>>;
     try {
-      // Member play executes get the bracket verify+repair pass (ensureBrackets):
-      // low volume, member-initiated, and the trade is unmanaged afterward — so
-      // the SL/TP the card promised MUST actually be on the broker position.
-      r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, tp, opts.source === "play");
+      // EVERY bracketed fill gets the verify+repair pass (ensureBrackets), not just
+      // member plays (owner 09-08: a genx fill at 23:02 UTC landed with its submitted
+      // TP silently dropped by the broker — "WHY IS THERE NO TAKE PROFIT???"). Some
+      // TradeLocker routes accept the order but drop a bracket leg with no error, so
+      // the SL/TP the signal promised MUST be confirmed on the broker position.
+      r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, tp, true);
     } catch (e) {
       // The order request THREW (e.g. a network timeout AFTER the broker may already have
       // filled). Never assume it failed and never abort the rest of the fan-out — log an
@@ -346,7 +348,7 @@ export async function placeOnActiveAccounts(opts: {
     if (!r.ok && !r.deferred && /margin/i.test(String(r.error)) && lots > 0.011) {
       if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_submitted", reason: `${opts.source}:margin_fallback`, price: opts.entry, qty: 0.01, detail: { originalLots: lots, originalError: String(r.error).slice(0, 120) } });
       try {
-        const r2 = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, 0.01, stop, tp, opts.source === "play");
+        const r2 = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, 0.01, stop, tp, true);
         if (r2.ok) { r = r2; fallbackNote = " · margin_fallback_0.01"; }
       } catch { /* keep the original margin error */ }
     }
