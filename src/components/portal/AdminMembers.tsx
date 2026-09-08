@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarPlus, Check, Infinity as InfinityIcon, PauseCircle, RotateCcw, Search, Star, Trash2 } from "lucide-react";
+import { CalendarPlus, Check, Coins, Infinity as InfinityIcon, Loader2, PauseCircle, RotateCcw, Search, Star, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { TIERS, TIER_LABELS } from "@/lib/access";
 
@@ -281,6 +281,9 @@ function Section({
                   <Star className="h-4 w-4" aria-hidden="true" /> {m.is_creator ? "Creator" : "Make creator"}
                 </button>
 
+                {/* Owner credit grants (owner 09-08): add credits right from this page. */}
+                <CreditsControl id={m.id} label={m.full_name || m.email || "member"} />
+
                 {/* Permanently delete a member */}
                 {m.role !== "admin" && (
                   <button
@@ -298,5 +301,88 @@ function Section({
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * CREDIT GRANTS (owner 09-08: "make it so on the admin side I can add credits to
+ * peoples accounts"). One compact button per member; opening it shows the member's
+ * live balance plus quick +100 / +250 / +500 grants and a custom amount. Grants go
+ * through /api/admin/credits (admin-authed, add_purchased_credits under the hood —
+ * same ledger every other grant uses). Grants only; nothing here can deduct.
+ */
+function CreditsControl({ id, label }: { id: string; label: string }) {
+  const [open, setOpen] = useState(false);
+  const [bal, setBal] = useState<number | null>(null);
+  const [amt, setAmt] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  async function loadBalance() {
+    try {
+      const r = await fetch(`/api/admin/credits?id=${encodeURIComponent(id)}`, { cache: "no-store" });
+      const d = (await r.json()) as { ok?: boolean; balance?: number };
+      if (d?.ok) setBal(d.balance ?? 0);
+    } catch { /* balance is display-only */ }
+  }
+
+  async function grant(amount: number) {
+    if (!Number.isFinite(amount) || amount < 1) { setMsg("Enter a whole number of credits."); return; }
+    setBusy(true); setMsg("");
+    try {
+      const r = await fetch("/api/admin/credits", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, amount }),
+      });
+      const d = (await r.json()) as { ok?: boolean; balance?: number; detail?: string; error?: string };
+      if (d?.ok) { setBal(d.balance ?? null); setAmt(""); setMsg(`+${amount} added ✓`); }
+      else setMsg(d?.detail || d?.error || "Couldn't add credits — try again.");
+    } catch { setMsg("Network error — try again."); }
+    setBusy(false);
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => { const next = !open; setOpen(next); if (next && bal == null) loadBalance(); }}
+        title={`Add credits for ${label}`}
+        className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold ${
+          open ? "bg-gold/15 text-gold border border-gold/40" : "border border-[#E4DCCB] text-charcoal/75 hover:border-gold hover:text-gold"
+        }`}
+      >
+        <Coins className="h-4 w-4" aria-hidden="true" /> Credits
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-2 w-64 rounded-2xl border border-[#E4DCCB] bg-cream p-4 shadow-card">
+          <p className="text-xs text-charcoal/60">
+            Balance: <span className="font-bold text-navy">{bal == null ? "…" : bal.toLocaleString()}</span> credits
+          </p>
+          <div className="mt-2 flex items-center gap-1.5">
+            {[100, 250, 500].map((n) => (
+              <button key={n} disabled={busy} onClick={() => grant(n)}
+                className="rounded-full border border-[#E4DCCB] px-2.5 py-1 text-xs font-semibold text-charcoal/75 hover:border-gold hover:text-gold disabled:opacity-60">
+                +{n}
+              </button>
+            ))}
+          </div>
+          <div className="mt-2 flex items-center gap-1.5">
+            <input
+              type="number" min={1} max={100000} step={1} value={amt} disabled={busy}
+              onChange={(e) => setAmt(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") grant(Math.floor(Number(amt))); }}
+              placeholder="Custom amount"
+              aria-label={`Custom credit amount for ${label}`}
+              className="w-full rounded-lg border border-[#E4DCCB] bg-offwhite/60 px-2.5 py-1.5 text-sm outline-none focus:border-gold"
+            />
+            <button disabled={busy || !amt} onClick={() => grant(Math.floor(Number(amt)))}
+              className="inline-flex items-center gap-1 rounded-lg bg-gradient-primary px-3 py-1.5 text-sm font-bold text-cream disabled:opacity-60">
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null} Add
+            </button>
+          </div>
+          {msg && <p className={`mt-2 text-xs font-medium ${msg.endsWith("✓") ? "text-emerald-700" : "text-red-600"}`}>{msg}</p>}
+        </div>
+      )}
+    </div>
   );
 }
