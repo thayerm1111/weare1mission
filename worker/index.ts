@@ -32,8 +32,11 @@ import { inWeekendCloseWindow } from "@/lib/flow/autoExec";
 import { beat } from "@/lib/flow/health";
 import { hostname } from "node:os";
 
-const MANAGE_MS = Math.max(300, Number(process.env.WORKER_MANAGE_MS || 800));
-const WATCH_MS = Math.max(750, Number(process.env.WORKER_WATCH_MS || 1500));
+// OWNER 09-09 ("insane fast... trade manager instant"): defaults at the polling
+// ceiling — manage passes run essentially back-to-back (a pass with open positions
+// takes ~300ms+ anyway), the watch re-reads every armed setup each second.
+const MANAGE_MS = Math.max(250, Number(process.env.WORKER_MANAGE_MS || 350));
+const WATCH_MS = Math.max(750, Number(process.env.WORKER_WATCH_MS || 1000));
 const LOCK_TTL_MS = 15_000;          // short TTL → fast cron takeover if this process dies
 const LOCK_RETRY_MS = 3_000;         // while a cron pass holds the lock, retry every 3s
 const REPAIR_EVERY_MS = 60_000;      // phantom-target ledger sweep, once a minute (as before)
