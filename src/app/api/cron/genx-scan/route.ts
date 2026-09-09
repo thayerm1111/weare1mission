@@ -403,16 +403,39 @@ async function sendProbe(): Promise<Response> {
  * them on 1-MINUTE closes, so an ENTER NOW fires the moment buyers/sellers
  * activate at the zone instead of waiting for the 5-minute close.
  */
+// FAST WATCH LOOP (owner 09-09: "We need execution to speed up... all things firing
+// faster"): the watch used to be ONE pass per minute — an armed pullback could trigger
+// and be gone 50 seconds before the next look. Like flow-manage, the minutely cron
+// invocation now LOOPS inside its function budget, re-checking every ~6s, so a
+// confirmed entry fires within seconds instead of within a minute. Passes with no
+// forming setups cost one DB read and zero market-data credits.
+const WATCH_BUDGET_MS = 52_000;   // stay inside the minutely cadence (next invocation takes over)
+const WATCH_INTERVAL_MS = 6_000;  // ~9 looks/min at the market instead of 1
+
 async function runWatch(): Promise<Response> {
   const mdKey = process.env.TWELVEDATA_API_KEY;
   if (!mdKey) return json({ error: "no_market_data_key" }, 500);
   const admin = createAdminClient();
   if (!admin) return json({ error: "no_admin_client" }, 500);
   const tgReady = !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHANNEL_ID);
-  if (tgReady) await beatKeepDecision(admin, { tier: "watch" }); // liveness signal for the watchdog
   // WEEKEND-CLOSE BLACKOUT — the fast watch confirms entries, so it stops confirming in the
   // final 30 min before Friday's close (same rule as the full scan and every placement path).
   if (inWeekendCloseWindow()) return json({ ok: true, skipped: "weekend_close_window" });
+  const start = Date.now();
+  let ticks = 0; let lastChecked = 0; const sentAll: string[] = [];
+  while (Date.now() - start < WATCH_BUDGET_MS) {
+    ticks += 1;
+    if (tgReady) { try { await beatKeepDecision(admin, { tier: "watch" }); } catch { /* liveness best-effort */ } }
+    const pass = await watchPass(admin, mdKey, tgReady);
+    lastChecked = pass.checked; sentAll.push(...pass.sent);
+    const remaining = WATCH_BUDGET_MS - (Date.now() - start);
+    if (remaining <= 0) break;
+    await new Promise((r) => setTimeout(r, Math.min(WATCH_INTERVAL_MS, remaining)));
+  }
+  return json({ ok: true, watch: true, ticks, intervalMs: WATCH_INTERVAL_MS, checked: lastChecked, sent: sentAll, asOf: new Date().toISOString() }, 200);
+}
+
+async function watchPass(admin: NonNullable<ReturnType<typeof createAdminClient>>, mdKey: string, tgReady: boolean): Promise<{ checked: number; sent: string[] }> {
   const nowIso = new Date().toISOString();
   const { data } = await admin.from("genx_alerts").select("*").eq("state", "forming");
   const rows = (data ?? []) as AlertRow[];
@@ -459,7 +482,7 @@ async function runWatch(): Promise<Response> {
       }
     } catch { /* per-row best effort */ }
   }
-  return json({ ok: true, watch: true, asOf: nowIso, checked: rows.length, sent }, 200);
+  return { checked: rows.length, sent };
 }
 
 export async function GET(req: NextRequest) {
