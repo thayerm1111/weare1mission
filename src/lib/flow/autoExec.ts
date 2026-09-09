@@ -1385,8 +1385,17 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // a pure DATA-SANITY bound (a corrupt level, not a strategy filter): a "structural" stop
   // more than 2.5x the normal allowance from the live fill is a bad number, and bad data
   // trades for nobody — Send It included.
-  if (gstop != null && Math.abs(gRef - gstop) > 2.5 * maxStopDistance("XAUUSD")) {
-    await deskDrop(`stop_data_insane $${Math.abs(gRef - gstop).toFixed(2)} ${sig.side} (dropped for everyone)`);
+  // DATA SANITY IS A PROPERTY OF THE SIGNAL, NOT THE FILL (owner case 09-09 17:25 UTC:
+  // zone 4407.97-4409.85 / stop 4392.32 — a perfectly sane $17 structural stop — got
+  // "stop_data_insane $25.23 (dropped for everyone)" because price had run $8 PAST the
+  // zone before confirming, inflating the LIVE-fill→stop distance over the bound. A
+  // run-away price is a CHASE, and the chase guard below owns it: sit out the bad fill,
+  // arm for the 5-min pullback, re-enter at the zone. So the corrupt-data bound now
+  // measures the signal's own ZONE→stop distance — the number the engine actually
+  // derived — and only a genuinely broken level (>2.5x the allowance from its own zone)
+  // trades for nobody.)
+  if (gstop != null && Math.abs(entry - gstop) > 2.5 * maxStopDistance("XAUUSD")) {
+    await deskDrop(`stop_data_insane $${Math.abs(entry - gstop).toFixed(2)} zone-to-stop ${sig.side} (dropped for everyone)`);
     return { members: 0, placed: 0 };
   }
 
@@ -1398,6 +1407,10 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     const rr = rewardRisk(goldLp, gstop, sig.tp);
     await deskDrop(`chased_below_${GOLD_MIN_PLACEMENT_RR}RR${rr != null ? ` (rr ${rr.toFixed(2)})` : ""} ${sig.side} (send-it only)`);
     sendItOnly = true;
+    // TELL THE ROOM (owner 09-09: an ENTER NOW went out on Telegram while the desk quietly
+    // took nobody — "why didn't my account take this last trade?"). A silent skip reads as
+    // a broken system; a one-line note reads as discipline.
+    try { await sendTelegram(`⏸️ <b>GENX gold — not chasing this fill</b>\nPrice ran past the ${sig.side.toUpperCase()} zone${goldLp != null ? ` (now ~${goldLp.toFixed(2)})` : ""}${rr != null ? ` — live R:R ${rr.toFixed(2)}` : ""}. Watching for a pullback into the zone to enter properly. 🚀 Send It accounts still take it at market.`); } catch { /* note best-effort */ }
   }
 
   // SELECTIVITY GATES (owner directives 08-31):
