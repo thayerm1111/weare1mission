@@ -2,12 +2,13 @@
   "name": "weare1mission",
   "version": "1.0.0",
   "private": true,
-  "description": "1 Mission — One Mission. One Community. One Movement. Team onboarding, training, events & community hub.",
+  "description": "1 Mission \u2014 One Mission. One Community. One Movement. Team onboarding, training, events & community hub.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "worker": "tsx worker/index.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
@@ -16,7 +17,8 @@
     "next": "14.2.35",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "stripe": "^17.7.0"
+    "stripe": "^17.7.0",
+    "tsx": "^4.19.2"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
