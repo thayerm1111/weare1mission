@@ -6,49 +6,10 @@ import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
 import { placeGenxGold, placeGenxFollower, rewardRisk, inWeekendCloseWindow } from "@/lib/flow/autoExec";
 import { checkOwnerLevels } from "@/lib/flow/ownerLevels";
+import { watchPass, decideGoldEntry, beatKeepDecision, headsUpMsg, enterMsg, invalidMsg, MODE_LABEL, r1, fmt, acquireWatchLock, extendWatchLock, releaseWatchLock, type AlertRow } from "@/lib/genx/watchTick";
 
-// GOLD ENTRY PREFERENCE (owner directive): get IN when the trade is working; only wait for a
-// pull-back when the fill is genuinely too rich.
-// OWNER RULES 2 + 5 — take the trade whenever the fill still clears the 0.5 floor, so the desk
-// stops missing working momentum entries:
-//   • Confirmed and IN the zone, at a full 1:1, OR anywhere from 0.5→1.0 R:R (a MOMENTUM fill /
-//     the normal analysis) → ENTER NOW. This is the fix for missed shorts: a 0.5–1.0 fill used to
-//     be held ("armed") and usually never taken; now it is taken immediately.
-//   • Confirmed but price ran SO far that the live R:R is BELOW 0.5 → ARM and wait UP TO 5 MINUTES
-//     for price to trade back to the called entry (a takeable ≥0.5 fill); if it returns we enter,
-//     otherwise we abandon — we never chase a sub-0.5 fill.
-const GOLD_ENTRY_FLOOR_RR = 0.75;      // owner floor (09-03, raised from 0.65): never enter below 1:0.75; below it, wait for a pullback
-const GOLD_ARM_MAX_MS = 5 * 60_000;    // owner rule 2: wait only 5 min for price to return to the called entry, then abandon
-
-/** Pure decision for a gold entry: enter now, arm-and-wait, abandon, or keep waiting.
- *  `armed` = we already fired ENTER NOW once and are holding for a pull-back fill. */
-function decideGoldEntry(o: {
-  armed: boolean; confState: string; lp: number | null;
-  entryLow: number | null; entryHigh: number | null; stop: number | null; tp1: number | null;
-  armedAtMs: number; nowMs: number;
-}): { do: "enter" | "arm" | "invalidate" | "wait"; reason: string } {
-  if (o.confState === "INVALIDATED") return { do: "invalidate", reason: "invalidated" };
-  const rr = rewardRisk(o.lp, o.stop, o.tp1);
-  const zLo = Math.min(Number(o.entryLow), Number(o.entryHigh));
-  const zHi = Math.max(Number(o.entryLow), Number(o.entryHigh));
-  const buf = Number.isFinite(zHi - zLo) ? Math.max(0.2, (zHi - zLo) * 0.15) : 0.2;
-  const inZone = o.lp != null && Number.isFinite(zLo) && o.lp >= zLo - buf && o.lp <= zHi + buf;
-  // OWNER RULES 2 + 5 — TAKEABLE = in the called zone, OR the live R:R still clears the 0.5 floor.
-  // That covers the ideal in-zone fill, a full 1:1, AND a 0.5→1.0 MOMENTUM fill (the working trades
-  // that used to be armed-and-missed). We still never MARKET-CHASE a fill whose R:R has collapsed
-  // below 0.5 — that case arms and waits for a pullback (below).
-  const takeable = inZone || (rr != null && rr >= GOLD_ENTRY_FLOOR_RR);
-  const elapsed = o.nowMs - o.armedAtMs;
-  if (!o.armed) {
-    if (o.confState !== "CONFIRMED") return { do: "wait", reason: "pending:" + o.confState };
-    if (takeable) return { do: "enter", reason: "confirmed_rr_ok" };         // in-zone / 1:1 / 0.5–1.0 momentum → take it now
-    return { do: "arm", reason: "chased_below_floor" };                      // ran past → wait up to 5 min for a pullback to the called entry
-  }
-  // armed: watch price directly (not a fresh confirmation) for the pull-back to a takeable (≥0.5) fill
-  if (takeable) return { do: "enter", reason: "pullback_to_entry" };
-  if (elapsed > GOLD_ARM_MAX_MS) return { do: "invalidate", reason: "arm_expired_5min" };
-  return { do: "wait", reason: "armed_waiting" };
-}
+// decideGoldEntry + the gold entry preference rules now live in @/lib/genx/watchTick
+// (shared with the always-on worker).
 import { beat } from "@/lib/flow/health";
 
 export const runtime = "nodejs";
@@ -90,59 +51,7 @@ function authorized(req: NextRequest): boolean {
   return false;
 }
 
-const MODE_LABEL: Record<Mode, string> = { quick: "Quick", intraday: "Intraday", swing: "Swing" };
-const r1 = (n: number) => Math.round(n);
-const fmt = (n: number | null | undefined) => (typeof n === "number" && Number.isFinite(n) ? n.toFixed(2) : "—");
-
-type AlertRow = {
-  id: string; dedupe_key: string; mode: Mode; side: "buy" | "sell"; action: string;
-  entry: number | null; entry_low: number | null; entry_high: number | null;
-  stop: number | null; tp1: number | null; tp2: number | null; tp3: number | null;
-  invalidation: number | null; watch: number | null; confidence: number | null;
-  trigger_tf: string | null; state: string; created_at: string;
-  quality_ok: boolean | null; enter_sent_at: string | null;
-};
-
-function headsUpMsg(side: "buy" | "sell", mode: Mode, a: { entry_low: number | null; entry_high: number | null; stop: number | null; tp1: number | null; tp2: number | null; confidence: number | null }): string {
-  const dir = side === "sell" ? "SELL" : "BUY";
-  const zone = a.entry_low != null && a.entry_high != null ? `${fmt(a.entry_low)}–${fmt(a.entry_high)}` : "—";
-  const tps = [a.tp1 != null ? `TP1 ${fmt(a.tp1)}` : null, a.tp2 != null ? `TP2 ${fmt(a.tp2)}` : null].filter(Boolean).join(" · ");
-  return [
-    `⏳ <b>GENX — ${dir} setup forming · ${MODE_LABEL[mode]}</b>`,
-    `Gold (XAU/USD)`,
-    `Zone: <b>${esc(zone)}</b>`,
-    `Stop: ${fmt(a.stop)}${tps ? " · " + esc(tps) : ""}`,
-    a.confidence != null ? `Confidence ${a.confidence}/100` : "",
-    `Waiting for price to reach the zone and confirm. You'll get an <b>ENTER NOW</b> the moment it triggers.`,
-    `<i>Educational, not financial advice.</i>`,
-  ].filter(Boolean).join("\n");
-}
-
-function enterMsg(side: "buy" | "sell", mode: Mode, a: { entry_low: number | null; entry_high: number | null; stop: number | null; tp1: number | null; tp2: number | null; tp3: number | null }, atPrice: number | null, immediate: boolean): string {
-  const dir = side === "sell" ? "SELL" : "BUY";
-  const zone = a.entry_low != null && a.entry_high != null ? `${fmt(a.entry_low)}–${fmt(a.entry_high)}` : "—";
-  const tps = [a.tp1 != null ? `TP1 ${fmt(a.tp1)}` : null, a.tp2 != null ? `TP2 ${fmt(a.tp2)}` : null, a.tp3 != null ? `TP3 ${fmt(a.tp3)}` : null].filter(Boolean).join(" · ");
-  const confirmLine = immediate
-    ? `Live setup — Gold is at the zone now.`
-    : `${side === "sell" ? "Sellers" : "Buyers"} confirmed on the ${MODE_LABEL[mode] === "Quick" ? "5-minute" : MODE_LABEL[mode] === "Intraday" ? "15-minute" : "1-hour"} close.`;
-  return [
-    `✅ <b>GENX — ENTER NOW · ${dir} · ${MODE_LABEL[mode]}</b>`,
-    `Gold @ ~${fmt(atPrice)}`,
-    `Entry ${esc(zone)} · Stop ${fmt(a.stop)}`,
-    tps ? esc(tps) : "",
-    confirmLine,
-    `<i>Educational, not financial advice.</i>`,
-  ].filter(Boolean).join("\n");
-}
-
-function invalidMsg(side: "buy" | "sell", mode: Mode, a: { entry_low: number | null; entry_high: number | null; invalidation: number | null }): string {
-  const dir = side === "sell" ? "SELL" : "BUY";
-  const zone = a.entry_low != null && a.entry_high != null ? `${fmt(a.entry_low)}–${fmt(a.entry_high)}` : "the zone";
-  return [
-    `❌ <b>GENX — Setup invalidated · ${dir} · ${MODE_LABEL[mode]}</b>`,
-    `The ${esc(zone)} ${dir.toLowerCase()} is off — price closed beyond ${fmt(a.invalidation)}. Don't take it.`,
-  ].join("\n");
-}
+// MODE_LABEL, message builders, and AlertRow now live in @/lib/genx/watchTick (shared with the worker).
 
 async function run(): Promise<Response> {
   const mdKey = process.env.TWELVEDATA_API_KEY;
@@ -376,13 +285,7 @@ async function run(): Promise<Response> {
  *  detail JSON, so the 30s watch tier and the start-of-run beat were erasing the
  *  full scan's decision record within seconds of it being written — making the
  *  observability useless. This merges the existing last_decision back in. */
-async function beatKeepDecision(admin: NonNullable<ReturnType<typeof createAdminClient>>, extra: Record<string, unknown>): Promise<void> {
-  try {
-    const { data } = await admin.from("flow_heartbeat").select("detail").eq("component", "genx").maybeSingle();
-    const last = (data as { detail?: { last_decision?: unknown } } | null)?.detail?.last_decision;
-    await beat(admin, "genx", { ...extra, ...(last !== undefined ? { last_decision: last } : {}) });
-  } catch { try { await beat(admin, "genx", extra); } catch { /* liveness best-effort */ } }
-}
+// beatKeepDecision now lives in @/lib/genx/watchTick (shared with the worker).
 
 // Connectivity probe: posts a one-line "connected" message to the channel so we
 // can confirm Telegram delivery works even when the market has no live setup.
@@ -421,69 +324,32 @@ async function runWatch(): Promise<Response> {
   // WEEKEND-CLOSE BLACKOUT — the fast watch confirms entries, so it stops confirming in the
   // final 30 min before Friday's close (same rule as the full scan and every placement path).
   if (inWeekendCloseWindow()) return json({ ok: true, skipped: "weekend_close_window" });
+  // THE WATCH LOCK: the always-on worker holds it while alive (sub-2s watching); this
+  // cron loop is the automatic FALLBACK — it only watches when it can take the lock
+  // (worker down → lock expires in seconds → the next minutely run takes over).
+  const holder = (globalThis.crypto?.randomUUID?.() ?? `w-${Date.now()}`);
+  const got = await acquireWatchLock(admin, holder);
+  if (!got) return json({ ok: true, watch: true, skipped: "locked (worker active)" }, 200);
   const start = Date.now();
   let ticks = 0; let lastChecked = 0; const sentAll: string[] = [];
-  while (Date.now() - start < WATCH_BUDGET_MS) {
-    ticks += 1;
-    if (tgReady) { try { await beatKeepDecision(admin, { tier: "watch" }); } catch { /* liveness best-effort */ } }
-    const pass = await watchPass(admin, mdKey, tgReady);
-    lastChecked = pass.checked; sentAll.push(...pass.sent);
-    const remaining = WATCH_BUDGET_MS - (Date.now() - start);
-    if (remaining <= 0) break;
-    await new Promise((r) => setTimeout(r, Math.min(WATCH_INTERVAL_MS, remaining)));
+  try {
+    while (Date.now() - start < WATCH_BUDGET_MS) {
+      ticks += 1;
+      if (tgReady) { try { await beatKeepDecision(admin, { tier: "watch" }); } catch { /* liveness best-effort */ } }
+      const pass = await watchPass(admin, mdKey, tgReady);
+      lastChecked = pass.checked; sentAll.push(...pass.sent);
+      await extendWatchLock(admin, holder);
+      const remaining = WATCH_BUDGET_MS - (Date.now() - start);
+      if (remaining <= 0) break;
+      await new Promise((r) => setTimeout(r, Math.min(WATCH_INTERVAL_MS, remaining)));
+    }
+  } finally {
+    await releaseWatchLock(admin, holder);
   }
   return json({ ok: true, watch: true, ticks, intervalMs: WATCH_INTERVAL_MS, checked: lastChecked, sent: sentAll, asOf: new Date().toISOString() }, 200);
 }
 
-async function watchPass(admin: NonNullable<ReturnType<typeof createAdminClient>>, mdKey: string, tgReady: boolean): Promise<{ checked: number; sent: string[] }> {
-  const nowIso = new Date().toISOString();
-  const { data } = await admin.from("genx_alerts").select("*").eq("state", "forming");
-  const rows = (data ?? []) as AlertRow[];
-  const sent: string[] = [];
-  for (const row of rows) {
-    try {
-      const side = row.side;
-      const conf = await confirmEntry({
-        side, entryLow: (row.entry_low ?? 0) as number, entryHigh: (row.entry_high ?? 0) as number,
-        watch: (row.watch ?? row.entry_low ?? 0) as number, invalidation: (row.invalidation ?? row.stop ?? 0) as number,
-        mode: row.mode, mdKey, fresh: true, interval: "1min",
-      });
-      const cOk = row.quality_ok !== false; // stored at arm time; null (old rows) → allowed
-      const armedNow = !!row.enter_sent_at;
-      const lp = conf.price ?? conf.enter;
-      const armedAtMs = row.enter_sent_at ? new Date(row.enter_sent_at).getTime() : Date.now();
-      const tgMsg = { entry_low: row.entry_low, entry_high: row.entry_high, stop: row.stop, tp1: row.tp1, tp2: row.tp2, tp3: row.tp3 };
-      const act = decideGoldEntry({ armed: armedNow, confState: conf.state, lp, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp1: row.tp1, armedAtMs, nowMs: Date.now() });
-      if (act.do === "arm") {
-        if (tgReady) await sendTelegram(enterMsg(side, row.mode, tgMsg, lp, false));
-        await admin.from("genx_alerts").update({ enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
-        // 🚀 SEND IT (owner 09-04): chased signal arms for everyone else — Send It accounts fill at market now.
-        try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, sendItOnly: true }); } catch { /* best-effort */ }
-        try {
-          const fKey = (row.entry_low != null && row.entry_high != null) ? `${row.mode}:${side}:${r1(row.entry_low)}:${r1(row.entry_high)}` : `id:${row.id}`;
-          await placeGenxFollower({ signalKey: fKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, sendItOnly: true });
-        } catch { /* best-effort */ }
-        sent.push(`${row.mode}:ARM`);
-      } else if (act.do === "enter") {
-        if (!armedNow && tgReady) await sendTelegram(enterMsg(side, row.mode, tgMsg, lp, false));
-        await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
-        try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence }); } catch { /* placement is best-effort */ }
-        try {
-          const fKey = (row.entry_low != null && row.entry_high != null) ? `${row.mode}:${side}:${r1(row.entry_low)}:${r1(row.entry_high)}` : `id:${row.id}`;
-          await placeGenxFollower({ signalKey: fKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence });
-        } catch { /* follower is best-effort */ }
-        sent.push(`${row.mode}:ENTER`);
-      } else if (act.do === "invalidate") {
-        if (tgReady) await sendTelegram(invalidMsg(side, row.mode, { entry_low: row.entry_low, entry_high: row.entry_high, invalidation: row.invalidation }));
-        await admin.from("genx_alerts").update({ state: "invalidated", last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
-        sent.push(`${row.mode}:INVALID`);
-      } else {
-        await admin.from("genx_alerts").update({ last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
-      }
-    } catch { /* per-row best effort */ }
-  }
-  return { checked: rows.length, sent };
-}
+// watchPass now lives in @/lib/genx/watchTick (shared with the worker).
 
 export async function GET(req: NextRequest) {
   if (!authorized(req)) return json({ error: "unauthorized" }, 401);
