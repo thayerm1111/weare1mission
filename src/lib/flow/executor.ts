@@ -95,8 +95,12 @@ function posIdOf(p: unknown): string {
  * trade-manager track the fill for break-even + partials.
  */
 async function resolveNewPositionId(a: { env: TLEnv; token: string; accNum: string; accountId: string }, beforeIds: Set<string>): Promise<string | null> {
-  for (let i = 0; i < 4; i++) {
-    await sleep(600);
+  // Fast first look (owner 09-09 "all things firing faster"): most fills are visible on
+  // the very next positions read, so poll quickly at first and back off, instead of a
+  // flat 600ms × 4. Worst case is unchanged (~2.4s); the common case confirms in ~250ms.
+  const delays = [250, 400, 600, 600, 600];
+  for (let i = 0; i < delays.length; i++) {
+    await sleep(delays[i]);
     try {
       const pp = await listPositions(a.env, a.token, a.accNum, a.accountId);
       if (pp.ok) {
@@ -304,8 +308,12 @@ export async function placeOnActiveAccounts(opts: {
   const tlog = createAdminClient(); // flight-recorder handle (best-effort; null-safe below)
   const fills: AccountFill[] = [];
   let placed = 0;
-  for (const a of accts) {
-    if (a.equity == null) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: "no_equity" }); continue; }
+  // ONE ACCOUNT = ONE PLACEMENT PIPELINE (owner 09-09: "when a trade is there all
+  // accounts need to be ready and fired upon"). The fan-out below runs these in
+  // PARALLEL across the member's broker connections — account #3 no longer waits
+  // for account #1's fill+verify round-trip before its own order even leaves.
+  const placeOne = async (a: ActiveAccount): Promise<void> => {
+    if (a.equity == null) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: "no_equity" }); return; }
     // Whenever risk-sizing rounds BELOW the broker minimum lot, take the minimum
     // (e.g. 0.01) rather than skip — so a small account still gets the trade. On a
     // tiny account that minimum may risk a bit more than the target %, but the broker
@@ -320,7 +328,7 @@ export async function placeOnActiveAccounts(opts: {
     if (a.equity < 2000) acctRisk = Math.min(acctRisk, 2);
     if (a.equity <= 600) acctRisk = Math.min(acctRisk, 0.5);
     const s = sizeFromRisk({ canonical, entry: opts.entry, stop, equity: a.equity, riskPct: acctRisk, floorToMinLot: true });
-    if (!s.ok || !(s.lots > 0)) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: s.reason || "size_too_small" }); continue; }
+    if (!s.ok || !(s.lots > 0)) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: s.reason || "size_too_small" }); return; }
     const lots = Math.min(s.lots, 100); // fat-finger backstop
     const t0 = Date.now();
     if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_submitted", reason: opts.source, price: opts.entry, qty: lots, detail: { side: opts.side, stop, tp: tp } });
@@ -340,7 +348,7 @@ export async function placeOnActiveAccounts(opts: {
       await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: lots, status: "uncertain", reason: `${opts.source}: ${(e instanceof Error ? e.message : "order_threw")}`.slice(0, 200), account_id: a.accountId, entry: opts.entry, stop, tp: tp });
       if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_uncertain", reason: (e instanceof Error ? e.message : "order_threw").slice(0, 80), price: opts.entry, qty: lots, detail: { latencyMs: Date.now() - t0 } });
       fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "error", lots: s.lots, reason: "order_uncertain (timeout — recovery will adopt if it filled)" });
-      continue;
+      return;
     }
     // MARGIN FALLBACK (owner 09-08: "smaller accounts aren't taking the trades because
     // of margin"). If the broker rejected the risk-sized order for insufficient margin,
@@ -361,7 +369,7 @@ export async function placeOnActiveAccounts(opts: {
       const st = r.deferred ? "deferred" : "error";
       await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: s.lots, status: st, reason: `${opts.source}: ${r.error}`.slice(0, 200), account_id: a.accountId });
       fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: r.deferred ? "skipped" : "error", lots: s.lots, reason: r.deferred ? "session_closed" : r.error });
-      continue;
+      return;
     }
     await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: r.qty, status: "placed", reason: `${opts.source}${r.note}${fallbackNote}`.slice(0, 60), order_id: r.orderId, account_id: a.accountId, entry: opts.entry, stop, tp: tp });
     fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "placed", qty: r.qty, lots: r.qty, estLossAtStop: s.estLossAtStop, orderId: r.orderId });
@@ -383,7 +391,19 @@ export async function placeOnActiveAccounts(opts: {
         });
       } catch { /* management is best-effort */ }
     }
+  };
+  // PARALLEL ACROSS CONNECTIONS, SERIAL WITHIN ONE (owner 09-09 "all things firing
+  // faster"): TradeLocker's rate limits are per credential, so accounts sharing one
+  // login stay sequential (the multi-account rate-limit incident), while separate
+  // connections fire simultaneously. For the common 1-account-per-connection member
+  // this makes every account's order leave at the same moment.
+  const groups = new Map<string, ActiveAccount[]>();
+  for (const a of accts) {
+    const k = a.connId || a.accountId;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(a);
   }
+  await Promise.all([...groups.values()].map(async (g) => { for (const a of g) await placeOne(a); }));
   return { accounts: fills, placed };
 }
 

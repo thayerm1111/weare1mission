@@ -748,7 +748,7 @@ const GOLD_CLAIM_SEC = 90;
 // scanner's time budget, so most members silently missed every signal. A modest cap places every
 // member within a few seconds while staying well under TradeLocker's per-connection rate limits
 // (the executor already caches instruments per connection and retries on 429).
-const FANOUT_CONCURRENCY = 8;
+const FANOUT_CONCURRENCY = 12; // raised 8→12 (owner 09-09 "all accounts fired upon"): members are independent credentials, so wider is safe — the last member now fills ~1/3 sooner on a big fan-out
 
 /** Run `fn` over `items` with a bounded number in flight at once, preserving result order.
  *  Single-threaded JS: the shared cursor is incremented synchronously, so no two workers ever
