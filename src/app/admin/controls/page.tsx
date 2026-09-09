@@ -103,7 +103,71 @@ export default function AdminControlsPage() {
       )}
 
       {!denied && <MyLevels />}
+      {!denied && <WorkerEnvSync />}
     </main>
+  );
+}
+
+/**
+ * WORKER ENV SYNC (owner 09-09) — pushes this deployment's own six env values into
+ * the Railway worker service, server-to-server, so the always-on worker can boot.
+ * Exists because Vercel stores secrets write-only (they can never be revealed in a
+ * UI to copy by hand). The owner pastes a Railway API token; secret VALUES never
+ * appear on screen — the result shows only each name, a checkmark, and a length.
+ */
+function WorkerEnvSync() {
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [out, setOut] = useState<{ ok?: boolean; results?: Array<{ name: string; set: boolean; len: number; error?: string }>; redeployed?: boolean; redeployError?: string; error?: string } | null>(null);
+
+  async function sync() {
+    setBusy(true); setOut(null);
+    try {
+      const r = await fetch("/api/admin/sync-worker-env", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ railwayToken: token }),
+      });
+      setOut(await r.json());
+    } catch { setOut({ error: "network_error" }); }
+    setBusy(false); setToken(""); // never keep the token around
+  }
+
+  return (
+    <section style={{ marginTop: 40, borderTop: "1px solid #e2e8f0", paddingTop: 24 }}>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>⚙️ Worker env sync</h2>
+      <p style={{ fontSize: 13, color: "#475569", marginTop: 6, maxWidth: 640 }}>
+        Sends this site&apos;s six configuration values straight into the Railway worker (server-to-server — the
+        secrets never show on screen). Create a token at <b>railway.com → Account Settings → Tokens</b>, paste it
+        here, and hit Sync. The worker redeploys itself with the values applied.
+      </p>
+      <div style={{ display: "flex", gap: 8, marginTop: 12, maxWidth: 640 }}>
+        <input
+          type="password" value={token} onChange={(e) => setToken(e.target.value)}
+          placeholder="Railway API token"
+          style={{ flex: 1, border: "1px solid #cbd5e1", borderRadius: 10, padding: "10px 12px", fontSize: 14 }}
+        />
+        <button onClick={sync} disabled={busy || token.trim().length < 10}
+          style={{ background: "#0f172a", color: "#fff", border: 0, borderRadius: 10, padding: "10px 18px", fontSize: 14, fontWeight: 700, opacity: busy || token.trim().length < 10 ? 0.5 : 1 }}>
+          {busy ? "Syncing…" : "Sync to worker"}
+        </button>
+      </div>
+      {out && (
+        <div style={{ marginTop: 12, fontSize: 13, color: "#334155" }}>
+          {out.error && <p style={{ color: "#dc2626" }}>Failed: {out.error}</p>}
+          {out.results?.map((r) => (
+            <p key={r.name} style={{ margin: "2px 0" }}>
+              {r.set ? "✅" : "❌"} {r.name} {r.set ? `(${r.len} chars)` : `— ${r.error}`}
+            </p>
+          ))}
+          {out.results && (
+            <p style={{ marginTop: 6, fontWeight: 600, color: out.ok ? "#047857" : "#b45309" }}>
+              {out.ok ? (out.redeployed ? "All six synced — worker is redeploying now. Give it ~2 minutes." : "All six synced. Redeploy didn't trigger automatically — press Deploy/Restart in the Railway dashboard.") : "Some values didn't sync — see above."}
+            </p>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
