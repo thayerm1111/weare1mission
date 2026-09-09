@@ -847,20 +847,20 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   // flagged "DOWN" and restarted. Beat mid-pass every ~15s so the watchdog sees it's alive —
   // this changes no trading logic, it only reports liveness while it works through the list.
   let lastBeatMs = Date.now();
-  for (const row of rows) {
+  const processRow = async (row: ManagedRow): Promise<void> => {
     if (Date.now() - lastBeatMs > 15_000) {
       try { await beat(admin, "manager", { inPass: true, managed }); } catch { /* liveness best-effort */ }
       lastBeatMs = Date.now();
     }
     try {
       const tok = await tokenFor(row.connection_id);
-      if (!tok) { await admin.from("flow_managed_positions").update({ last_error: "token", updated_at: new Date().toISOString() }).eq("id", row.id); continue; }
+      if (!tok) { await admin.from("flow_managed_positions").update({ last_error: "token", updated_at: new Date().toISOString() }).eq("id", row.id); return; }
 
       const cols = await colsFor(row.connection_id, tok, row.acc_num);
       const st = await acctState(tok, row.acc_num, row.account_id, cols);
       if (!st) {
         _invalidateConnToken(row.connection_id); // maybe an expired cached token — force a fresh mint next tick
-        await admin.from("flow_managed_positions").update({ last_error: "account_read", updated_at: new Date().toISOString() }).eq("id", row.id); continue;
+        await admin.from("flow_managed_positions").update({ last_error: "account_read", updated_at: new Date().toISOString() }).eq("id", row.id); return;
       }
       // Read succeeded → clear a stale read/token error so diagnostics reflect reality.
       if (row.last_error === "account_read" || row.last_error === "token") {
@@ -882,7 +882,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         if (goneN < 2 || elapsed < 45_000) {
           await admin.from("flow_managed_positions").update({ last_error: `gone_${goneN + 1}_${firstMs}`, updated_at: new Date().toISOString() }).eq("id", row.id);
           actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "gone_wait", detail: `${goneN + 1} · ${Math.round(elapsed / 1000)}s` });
-          continue;
+          return;
         }
         // SOURCE OF TRUTH = the broker's OWN order history, not a live quote fetched after
         // the position is already gone. A stop-out that rebounds within the reconciliation
@@ -906,14 +906,14 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         }).eq("id", row.id);
         actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "closed", detail: `${oc.outcome}[${rec.reason}] ${oc.result_pips>0?"+":""}${oc.result_pips}p` });
         await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "closed", reason: `${oc.outcome}/${rec.reason}`, price: oc.exit_price, detail: { result_pips: oc.result_pips, partial_taken: oc.partial_taken } });
-        continue;
+        return;
       }
 
       const inst = matchInstrument(contractKey(row.symbol), st.instruments) ?? matchInstrument(row.symbol, st.instruments);
-      if (!inst) { await admin.from("flow_managed_positions").update({ last_error: "no_instrument", updated_at: new Date().toISOString() }).eq("id", row.id); continue; }
+      if (!inst) { await admin.from("flow_managed_positions").update({ last_error: "no_instrument", updated_at: new Date().toISOString() }).eq("id", row.id); return; }
 
       const price = await exitPrice(tok, row.acc_num, inst, row.symbol, row.side, row.account_id);
-      if (price == null || !(price > 0)) { await admin.from("flow_managed_positions").update({ last_error: "no_quote", updated_at: new Date().toISOString() }).eq("id", row.id); continue; }
+      if (price == null || !(price > 0)) { await admin.from("flow_managed_positions").update({ last_error: "no_quote", updated_at: new Date().toISOString() }).eq("id", row.id); return; }
 
       const long = row.side === "buy";
       const pip = getInstrument(contractKey(row.symbol)).pipSize || 0.0001;
@@ -955,7 +955,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       }
 
       const R = row.r && row.r > 0 ? row.r : Math.abs(entry - row.init_stop);
-      if (!(R > 0)) { await admin.from("flow_managed_positions").update({ last_error: "no_R", updated_at: new Date().toISOString() }).eq("id", row.id); continue; }
+      if (!(R > 0)) { await admin.from("flow_managed_positions").update({ last_error: "no_R", updated_at: new Date().toISOString() }).eq("id", row.id); return; }
 
       // FAVORABLE EXCURSION: the best price the trade actually reached (current sample + recent
       // 1-min candle extremes), so a spike that reversed inside the once-a-minute window still
@@ -1027,6 +1027,15 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // that's still working. So BE compares the CURRENT price only; best_price still tracks
       // the full excursion for grading and stats.
       const favReachedBE = long ? price >= beTriggerPx : price <= beTriggerPx;
+      // WICK-ASSISTED BE (owner 09-09: entry 4400.81, wick to 4396.43 = 44 pips in favor,
+      // yet 4 of 5 legs never locked BE because no live SAMPLE caught the spike). If the
+      // tracked extreme (bad-tick-guarded, monotonic best) shows the trigger was REACHED,
+      // BE may fire even though this tick's sample missed it — but ONLY through the same
+      // beSafe gate below, which requires the LIVE price to still sit safely beyond the
+      // profit lock. That guard is what makes this different from the 09-07 candle-trigger
+      // bug: a spike that fully reversed fails beSafe and locks nothing, so a working trade
+      // can never be scratched out by a dead wick.
+      const wickReachedBE = long ? best >= beTriggerPx : best <= beTriggerPx;
       const favReachedPartial = partialTriggerPx != null && (long ? best >= partialTriggerPx : best <= partialTriggerPx);
 
       // HARD PROFIT GUARD — broker's own truth. Prefer the position's unrealized P&L; else fall
@@ -1118,7 +1127,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
 
       // ── STEP 1: BREAK-EVEN — move the stop to the entry. Only while genuinely in profit and
       //    with the market still beyond entry (so the stop isn't rejected / isn't a loss). ──
-      if (beOn && !row.be_done && favReachedBE && inProfit && priceInProfit && beSafe) {
+      if (beOn && !row.be_done && (favReachedBE || wickReachedBE) && inProfit && priceInProfit && beSafe) {
         const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: bePx });
         if (mv.ok) {
           // BROKER READ-BACK: only record break-even once the broker's live SL actually
@@ -1207,7 +1216,31 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     } catch (e) {
       try { await admin.from("flow_managed_positions").update({ last_error: (e instanceof Error ? e.message : "error").slice(0, 120), updated_at: new Date().toISOString() }).eq("id", row.id); } catch { /* ignore */ }
     }
+  };
+
+  // ── PARALLEL BOOK SWEEP (owner 09-09, live case: 119 open sells made a full serial
+  // sweep take ~19s, so a seconds-long 44-pip wick was seen by only the rows being
+  // visited at that instant — their sibling legs missed break-even). Rows are grouped
+  // by CONNECTION (per-credential rate limits stay respected: serial within a login)
+  // and the groups run concurrently, so the WHOLE book samples the market within a
+  // couple of seconds. Caches (token/cols/acct/quote/spread) are shared per tick and
+  // JS is single-threaded, so the maps stay coherent. ──
+  const connGroups = new Map<string, ManagedRow[]>();
+  for (const row of rows) {
+    const k = String(row.connection_id ?? row.account_id ?? row.id);
+    if (!connGroups.has(k)) connGroups.set(k, []);
+    connGroups.get(k)!.push(row);
   }
+  const groupList = [...connGroups.values()];
+  const SWEEP_CONCURRENCY = 8;
+  let nextGroup = 0; // single-threaded JS: the increment below is atomic between awaits
+  await Promise.all(Array.from({ length: Math.min(SWEEP_CONCURRENCY, Math.max(groupList.length, 1)) }, async () => {
+    for (;;) {
+      const i = nextGroup++;
+      if (i >= groupList.length) return;
+      for (const row of groupList[i]) await processRow(row);
+    }
+  }));
 
   return { managed, actions };
 }
