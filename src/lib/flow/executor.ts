@@ -203,7 +203,10 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
         ...(stop != null ? { stopLoss: stop } : {}),
         ...(tp != null ? { takeProfit: tp } : {}),
       });
-      if (!fix.ok) note += ` (bracket verify failed: ${String(fix.error).slice(0, 80)} — CHECK SL/TP ON THE POSITION)`;
+      // "Nothing to change" is the broker CONFIRMING the brackets are already exactly
+      // where we sent them — that's a verify SUCCESS, not a failure (live 09-09: every
+      // healthy fill was logging a scary "verify failed: Nothing to change" note).
+      if (!fix.ok && !/nothing to change/i.test(String(fix.error))) note += ` (bracket verify failed: ${String(fix.error).slice(0, 80)} — CHECK SL/TP ON THE POSITION)`;
     } catch {
       note += " (bracket verify threw — CHECK SL/TP ON THE POSITION)";
     }
