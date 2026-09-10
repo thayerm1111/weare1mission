@@ -19,7 +19,11 @@ import { liveTick } from "@/lib/flow/liveTicks";
  * Everything fails OPEN if the DB governor is unavailable (not migrated / transient
  * blip) so a hiccup never takes the whole product down.
  */
-const MD_MINUTE_LIMIT = Number(process.env.MD_MINUTE_LIMIT || 350);
+// Default sized to the TwelveData PRO plan (owner upgraded 09-10: 1,597 credits/min) —
+// 1,400 leaves real headroom for retries and the odd multi-credit endpoint. (The old
+// default 350 matched Grow's 377/min and is what showed members "Market-data limit hit".)
+// Override with MD_MINUTE_LIMIT if the plan ever changes.
+const MD_MINUTE_LIMIT = Number(process.env.MD_MINUTE_LIMIT || 1400);
 const MD_CACHE_TTL = Number(process.env.MD_CACHE_TTL || 30); // seconds a shared pull stays reusable
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "thayerm1111@gmail.com")
   .split(",")
