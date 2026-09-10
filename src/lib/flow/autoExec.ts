@@ -1002,6 +1002,24 @@ const GOLD_POST_WIN_REANALYZE_MS = 15 * 60 * 1000; // ~15 min re-analysis pause 
 const GOLD_WIN_PICKY_MS = 90 * 60 * 1000;  // how long the higher bar applies after a win
 const GOLD_WIN_PICKY_RR = 1.0;             // live R:R must clear a full 1:1 (normal floor 0.65)
 const GOLD_WIN_PICKY_CONF = 68;            // engine confidence must clear this when provided
+
+// SKIP-NOTE THROTTLE (owner 09-10: "It keeps saying this" — the always-on worker re-tries
+// an actionable ENTER every ~1s, so a gate that posts its Telegram explainer on every
+// attempt spammed the channel with near-identical "protecting profits" notes minutes
+// apart). Each gate's note now posts at most once per window per (kind, side). Module
+// memory works because the worker is one long-lived process; a Vercel cron fallback
+// starts fresh and can post at most once a minute anyway. The GATES themselves are
+// untouched — only the announcement is deduped.
+const SKIP_NOTE_EVERY_MS = 15 * 60 * 1000;
+const _skipNoteLast = new Map<string, number>();
+function shouldNote(kind: string, side: string): boolean {
+  const k = `${kind}:${side}`;
+  const now = Date.now();
+  const last = _skipNoteLast.get(k) ?? 0;
+  if (now - last < SKIP_NOTE_EVERY_MS) return false;
+  _skipNoteLast.set(k, now);
+  return true;
+}
 // SAME-SETUP BREAK-EVEN ESCALATION (owner directive 08-31 v2): break-evens are judged per
 // SETUP (zone), not as a blanket count. A zone that scratched once may be re-entered — but
 // only at a genuinely BETTER price or on a premium read. A zone that scratched TWICE is done:
@@ -1410,7 +1428,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     // TELL THE ROOM (owner 09-09: an ENTER NOW went out on Telegram while the desk quietly
     // took nobody — "why didn't my account take this last trade?"). A silent skip reads as
     // a broken system; a one-line note reads as discipline.
-    try { await sendTelegram(`⏸️ <b>GENX gold — not chasing this fill</b>\nPrice ran past the ${sig.side.toUpperCase()} zone${goldLp != null ? ` (now ~${goldLp.toFixed(2)})` : ""}${rr != null ? ` — live R:R ${rr.toFixed(2)}` : ""}. Watching for a pullback into the zone to enter properly. 🚀 Send It accounts still take it at market.`); } catch { /* note best-effort */ }
+    if (shouldNote("chase", sig.side)) { try { await sendTelegram(`⏸️ <b>GENX gold — not chasing this fill</b>\nPrice ran past the ${sig.side.toUpperCase()} zone${goldLp != null ? ` (now ~${goldLp.toFixed(2)})` : ""}${rr != null ? ` — live R:R ${rr.toFixed(2)}` : ""}. Watching for a pullback into the zone to enter properly. 🚀 Send It accounts still take it at market.`); } catch { /* note best-effort */ } }
   }
 
   // SELECTIVITY GATES (owner directives 08-31):
@@ -1428,7 +1446,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       const msg = beGate.kind === "exhausted"
         ? `⛔️ <b>GENX gold — sitting this one out</b>\nThis ${dir} zone already hit break-even twice — the setup is done. Waiting for a NEW setup to form.`
         : `🎯 <b>GENX gold — retry needs to earn it</b>\nThis ${dir} zone already went to break-even once. Re-entering only at a better price (≥${GOLD_RETRY_BETTER_PIPS}p improvement) or on a premium read${beGate.detail ? `.\nThis one: ${beGate.detail}` : ""}.`;
-      try { await sendTelegram(msg); } catch { /* note best-effort */ }
+      if (shouldNote(`begate_${beGate.kind}`, sig.side)) { try { await sendTelegram(msg); } catch { /* note best-effort */ } }
       await deskDrop(`${beGate.kind === "exhausted" ? "setup_exhausted" : "be_retry_not_earned"} ${sig.side}${beGate.detail ? ` (${beGate.detail})` : ""} (send-it only)`);
       sendItOnly = true;
     }
@@ -1445,7 +1463,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
           rrLive != null ? `R:R ${rrLive.toFixed(2)} (needs ≥ ${GOLD_WIN_PICKY_RR.toFixed(1)})` : null,
           sig.confidence != null ? `confidence ${sig.confidence} (needs ≥ ${GOLD_WIN_PICKY_CONF})` : null,
         ].filter(Boolean).join(" · ");
-        try { await sendTelegram(`🎯 <b>GENX gold — protecting profits</b>\n${w.won ? `Just banked a ${sig.side.toUpperCase()} win` : `Just scratched a ${sig.side.toUpperCase()} at break-even`}, so the next ${sig.side.toUpperCase()} needs a premium entry (min 1:1)${detail ? `.\nThis one: ${detail}` : ""}. A top-quality setup still fires immediately.`); } catch { /* note best-effort */ }
+        if (shouldNote("picky", sig.side)) { try { await sendTelegram(`🎯 <b>GENX gold — protecting profits</b>\n${w.won ? `Just banked a ${sig.side.toUpperCase()} win` : `Just scratched a ${sig.side.toUpperCase()} at break-even`}, so the next ${sig.side.toUpperCase()} needs a premium entry (min 1:1)${detail ? `.\nThis one: ${detail}` : ""}. A top-quality setup still fires immediately.`); } catch { /* note best-effort */ } }
         await deskDrop(`post_win_picky ${sig.side}${rrLive != null ? ` rr=${rrLive.toFixed(2)}` : ""}${sig.confidence != null ? ` conf=${sig.confidence}` : ""} (send-it only)`);
         sendItOnly = true;
       }
