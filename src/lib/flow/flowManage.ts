@@ -564,15 +564,27 @@ async function goldChopRegime(admin: Admin): Promise<Map<"buy" | "sell", ChopSid
  * Manage every OPEN position FLOW is tracking, per THE RULES in the file header.
  * Safe to call blind — if the tracking table doesn't exist yet, it no-ops.
  */
+// Orphan-scan throttle (see below): module-level so the worker's long-lived process
+// carries the cadence across passes; on Vercel each invocation starts at 0 and scans
+// once — exactly the old cron behavior.
+const ORPHAN_SCAN_EVERY_MS = 20_000;
+let lastOrphanScanMs = 0;
+
 export async function manageOpenPositions(): Promise<{ managed: number; actions: ManageAction[]; note?: string }> {
   const admin = createAdminClient();
   if (!admin) return { managed: 0, actions: [], note: "no_admin_client" };
 
   // ORPHAN RECOVERY: adopt any live broker position FLOW opened but failed to record
-  // (entry timeout / crash / missed position-id poll) so it gets managed. Best-effort;
-  // cheap when there's nothing to recover. Runs before the manage loop so an adopted
-  // position is managed in this same tick.
-  try { await recoverOrphans(admin); } catch { /* recovery is best-effort */ }
+  // (entry timeout / crash / missed position-id poll) so it gets managed. Best-effort.
+  // THROTTLED to every 20s (worker live 09-10): under the cron this ran once a minute,
+  // but the worker calls this function ~3×/sec — and when recent placement events give
+  // the scan real broker work, running it EVERY pass stretched each pass to ~8s and
+  // starved the actual manage sweep. 20s keeps adoption faster than the old cron ever
+  // was while the sweep itself runs at full tick speed.
+  if (Date.now() - lastOrphanScanMs > ORPHAN_SCAN_EVERY_MS) {
+    lastOrphanScanMs = Date.now();
+    try { await recoverOrphans(admin); } catch { /* recovery is best-effort */ }
+  }
 
   const { data, error } = await admin
     .from("flow_managed_positions")
