@@ -1114,6 +1114,36 @@ async function goldRecentWinOnSide(admin: Admin, side: "buy" | "sell", windowMs:
   }
 }
 
+/** Accounts that PARTICIPATED in this side's recent outcome (a banked win or a break-even
+ *  scratch on a live automated gold trade) — the ONLY accounts the "protect the profits" /
+ *  BE-retry bars should hold. (Owner 09-10: "My accounts haven't hit BE… they haven't taken
+ *  any of these trades. What's holding the accounts back hasn't happened" — the desk-wide
+ *  hold was punishing accounts that never took the earlier trade: one Send It account's
+ *  scratch locked 130 uninvolved accounts out of every following wave.) */
+async function goldParticipantAccounts(admin: Admin, side: "buy" | "sell", windowMs: number): Promise<Set<string>> {
+  try {
+    const sinceIso = new Date(Date.now() - windowMs).toISOString();
+    const { data } = await admin
+      .from("flow_managed_positions")
+      .select("account_id, created_at")
+      .in("symbol", GOLD_SYMS)
+      .eq("side", side)
+      .eq("status", "closed")
+      .in("outcome", ["breakeven", "target", "trail"])
+      .neq("environment", "demo")
+      .gte("resolved_at", sinceIso)
+      .limit(300);
+    const manuals = await manualGoldPlacements(admin);
+    const out = new Set<string>();
+    for (const r of ((data ?? []) as { account_id: string | null; created_at: string }[])) {
+      const acct = String(r.account_id ?? "");
+      if (!acct || isManualGoldRow(manuals, acct, r.created_at)) continue;
+      out.add(acct);
+    }
+    return out;
+  } catch { return new Set(); } // read error → hold nobody extra (gates fail open per-account)
+}
+
 /** MARKET AWARENESS — the short-term direction gold is ACTUALLY moving right now, on closed
  *  15-min candles (latest close vs ~1.5h ago). "down"/"up" only when the move clears a small
  *  noise band; else "flat". null = couldn't read. Lets the gate SEE that the market is still
@@ -1438,34 +1468,47 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   //   2. PROTECT THE PROFITS — after a banked win on this side, only a premium same-side
   //      setup (live R:R ≥ 1:1, confidence ≥ 68 when carried) re-enters for a while.
   // The opposite side is untouched, and a genuinely premium setup still fires immediately.
+  //
+  // PER-ACCOUNT HOLDS (owner 09-10: "My accounts haven't hit BE… they haven't taken any of
+  // these trades. What's holding the accounts back hasn't happened"): the BE-retry and
+  // protect-the-profits bars now hold ONLY the accounts that actually took the earlier
+  // win/scratch on this side. Accounts that sat it out trade the new signal on normal
+  // rules (the chase guard and R:R floor above still apply to everyone — those are about
+  // the PRICE, not history). Only a zone that scratched TWICE stays a desk-wide sit-out:
+  // a twice-failed level is a dead setup for every account.
+  let holdAccounts: Set<string> | null = null; // accounts held to the premium bar this entry
   try {
     const rrLive = rewardRisk(goldLp != null ? goldLp : entry, gstop, sig.tp);
     const beGate = await goldBeSetupGate(admin, sig.side, entry, rrLive, sig.confidence);
     if (beGate.block) {
       const dir = sig.side.toUpperCase();
-      const msg = beGate.kind === "exhausted"
-        ? `⛔️ <b>GENX gold — sitting this one out</b>\nThis ${dir} zone already hit break-even twice — the setup is done. Waiting for a NEW setup to form.`
-        : `🎯 <b>GENX gold — retry needs to earn it</b>\nThis ${dir} zone already went to break-even once. Re-entering only at a better price (≥${GOLD_RETRY_BETTER_PIPS}p improvement) or on a premium read${beGate.detail ? `.\nThis one: ${beGate.detail}` : ""}.`;
-      if (shouldNote(`begate_${beGate.kind}`, sig.side)) { try { await sendTelegram(msg); } catch { /* note best-effort */ } }
-      await deskDrop(`${beGate.kind === "exhausted" ? "setup_exhausted" : "be_retry_not_earned"} ${sig.side}${beGate.detail ? ` (${beGate.detail})` : ""} (send-it only)`);
-      sendItOnly = true;
+      if (beGate.kind === "exhausted") {
+        if (shouldNote("begate_exhausted", sig.side)) { try { await sendTelegram(`⛔️ <b>GENX gold — sitting this one out</b>\nThis ${dir} zone already hit break-even twice — the setup is done. Waiting for a NEW setup to form.`); } catch { /* note best-effort */ } }
+        await deskDrop(`setup_exhausted ${sig.side}${beGate.detail ? ` (${beGate.detail})` : ""} (send-it only)`);
+        sendItOnly = true;
+      } else {
+        holdAccounts = await goldParticipantAccounts(admin, sig.side, GOLD_WIN_PICKY_MS);
+        if (shouldNote("begate_retry", sig.side)) { try { await sendTelegram(`🎯 <b>GENX gold — retry needs to earn it</b>\nThis ${dir} zone went to break-even once. Accounts that took that scratch re-enter only at a better price (≥${GOLD_RETRY_BETTER_PIPS}p) or on a premium read — accounts that sat it out take this on normal rules${beGate.detail ? `.\nThis one: ${beGate.detail}` : ""}.`); } catch { /* note best-effort */ } }
+        await deskDrop(`be_retry_not_earned ${sig.side}${beGate.detail ? ` (${beGate.detail})` : ""} (holding ${holdAccounts.size} participant accts)`);
+      }
     }
     const w = await goldRecentWinOnSide(admin, sig.side, GOLD_WIN_PICKY_MS);
     // OWNER RULE 09-02: the premium bar applies after a recent WIN — or a recent BREAK-EVEN
-    // scratch — on this side. Either way the next same-side entry must be no worse than 1:1.
+    // scratch — on this side. Either way the next same-side entry must be no worse than 1:1
+    // FOR THE ACCOUNTS THAT TOOK IT (owner 09-10).
     let raisedBar = w.won;
     if (!raisedBar) { try { raisedBar = (await goldRecentBeEntries(admin, sig.side, GOLD_WIN_PICKY_MS)).length > 0; } catch { /* read error → no raise */ } }
     if (raisedBar) {
       const rrOk = rrLive == null ? true : rrLive >= GOLD_WIN_PICKY_RR;       // feed down → judge on confidence alone
       const confOk = sig.confidence == null ? true : sig.confidence >= GOLD_WIN_PICKY_CONF;
       if (!rrOk || !confOk) {
+        if (!holdAccounts) holdAccounts = await goldParticipantAccounts(admin, sig.side, GOLD_WIN_PICKY_MS);
         const detail = [
           rrLive != null ? `R:R ${rrLive.toFixed(2)} (needs ≥ ${GOLD_WIN_PICKY_RR.toFixed(1)})` : null,
           sig.confidence != null ? `confidence ${sig.confidence} (needs ≥ ${GOLD_WIN_PICKY_CONF})` : null,
         ].filter(Boolean).join(" · ");
-        if (shouldNote("picky", sig.side)) { try { await sendTelegram(`🎯 <b>GENX gold — protecting profits</b>\n${w.won ? `Just banked a ${sig.side.toUpperCase()} win` : `Just scratched a ${sig.side.toUpperCase()} at break-even`}, so the next ${sig.side.toUpperCase()} needs a premium entry (min 1:1)${detail ? `.\nThis one: ${detail}` : ""}. A top-quality setup still fires immediately.`); } catch { /* note best-effort */ } }
-        await deskDrop(`post_win_picky ${sig.side}${rrLive != null ? ` rr=${rrLive.toFixed(2)}` : ""}${sig.confidence != null ? ` conf=${sig.confidence}` : ""} (send-it only)`);
-        sendItOnly = true;
+        if (shouldNote("picky", sig.side)) { try { await sendTelegram(`🎯 <b>GENX gold — protecting profits</b>\n${w.won ? `Accounts that just banked a ${sig.side.toUpperCase()} win` : `Accounts that just scratched a ${sig.side.toUpperCase()} at break-even`} need a premium re-entry (min 1:1)${detail ? ` — this one: ${detail}` : ""}. Accounts that sat that trade out take this on normal rules.`); } catch { /* note best-effort */ } }
+        await deskDrop(`post_win_picky ${sig.side}${rrLive != null ? ` rr=${rrLive.toFixed(2)}` : ""}${sig.confidence != null ? ` conf=${sig.confidence}` : ""} (holding ${holdAccounts.size} participant accts)`);
       }
     }
   } catch { /* read error → don't block */ }
@@ -1538,6 +1581,13 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       // safeguards (sendItGuards off) take the entry — guards-on Send It accounts stand
       // down with everyone else.
       if (sendItOnly) accounts = accounts.filter((a) => a.sendIt === true && a.sendItGuards !== true);
+      // PER-ACCOUNT PREMIUM HOLD (owner 09-10): accounts that took the earlier win/BE
+      // scratch on this side sit this sub-premium entry out; accounts with no part in
+      // that trade proceed on normal rules. Send It (guards off) still bypasses.
+      if (holdAccounts && holdAccounts.size) {
+        const hold = holdAccounts;
+        accounts = accounts.filter((a) => !hold.has(String(a.accountId)) || (a.sendIt === true && a.sendItGuards !== true));
+      }
       // MAX ONE OPEN GENX/FLOW GOLD PER ACCOUNT — broker-verified. An account is dropped ONLY
       // when it has a GENX/FLOW gold position the BROKER confirms is still open.
       const verified: ActiveAccount[] = [];
