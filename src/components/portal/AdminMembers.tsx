@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarPlus, Check, Coins, Infinity as InfinityIcon, Loader2, PauseCircle, RotateCcw, Search, Star, Trash2 } from "lucide-react";
+import { CalendarPlus, Check, Coins, Infinity as InfinityIcon, KeyRound, Loader2, PauseCircle, RotateCcw, Search, Star, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { TIERS, TIER_LABELS } from "@/lib/access";
 
@@ -284,6 +284,11 @@ function Section({
                 {/* Owner credit grants (owner 09-08): add credits right from this page. */}
                 <CreditsControl id={m.id} label={m.full_name || m.email || "member"} />
 
+                {/* Owner password set (owner 09-10): change a member's password right here. */}
+                {m.role !== "admin" && (
+                  <PasswordControl id={m.id} label={m.full_name || m.email || "member"} />
+                )}
+
                 {/* Permanently delete a member */}
                 {m.role !== "admin" && (
                   <button
@@ -311,6 +316,72 @@ function Section({
  * through /api/admin/credits (admin-authed, add_purchased_credits under the hood —
  * same ledger every other grant uses). Grants only; nothing here can deduct.
  */
+/**
+ * MEMBER PASSWORD SET (owner 09-10: "a admin spot on the approvals where i can change
+ * their password to what i want"). One compact button per non-admin member; opening it
+ * shows a password field — type the new password (6+ chars) and Set. Goes through
+ * /api/admin/password (admin-authed, Supabase Auth admin API — same mechanism the
+ * Supabase dashboard uses). Admin accounts never show this control, and the server
+ * refuses them independently. The password is sent once over HTTPS and never stored,
+ * logged, or echoed anywhere.
+ */
+function PasswordControl({ id, label }: { id: string; label: string }) {
+  const [open, setOpen] = useState(false);
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  async function setPassword() {
+    if (pw.length < 6) { setMsg("At least 6 characters."); return; }
+    setBusy(true); setMsg("");
+    try {
+      const r = await fetch("/api/admin/password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, password: pw }),
+      });
+      const d = (await r.json()) as { ok?: boolean; detail?: string; error?: string };
+      if (d?.ok) { setPw(""); setMsg("Password updated ✓"); }
+      else setMsg(d?.detail || d?.error || "Couldn't update — try again.");
+    } catch { setMsg("Network error — try again."); }
+    setBusy(false);
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => { setOpen(!open); setMsg(""); }}
+        title={`Set a new password for ${label}`}
+        className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold ${
+          open ? "bg-gold/15 text-gold border border-gold/40" : "border border-[#E4DCCB] text-charcoal/75 hover:border-gold hover:text-gold"
+        }`}
+      >
+        <KeyRound className="h-4 w-4" aria-hidden="true" /> Password
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-2 w-64 rounded-2xl border border-[#E4DCCB] bg-cream p-4 shadow-card">
+          <p className="text-xs text-charcoal/60">New password for <span className="font-bold text-navy">{label}</span></p>
+          <div className="mt-2 flex items-center gap-1.5">
+            <input
+              type="text" value={pw} disabled={busy} autoComplete="off" spellCheck={false}
+              onChange={(e) => setPw(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") setPassword(); }}
+              placeholder="New password (6+ chars)"
+              aria-label={`New password for ${label}`}
+              className="w-full rounded-lg border border-[#E4DCCB] bg-offwhite/60 px-2.5 py-1.5 text-sm outline-none focus:border-gold"
+            />
+            <button disabled={busy || pw.length < 6} onClick={setPassword}
+              className="inline-flex items-center gap-1 rounded-lg bg-gradient-primary px-3 py-1.5 text-sm font-bold text-cream disabled:opacity-60">
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null} Set
+            </button>
+          </div>
+          {msg && <p className={`mt-2 text-xs font-medium ${msg.endsWith("✓") ? "text-emerald-700" : "text-red-600"}`}>{msg}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CreditsControl({ id, label }: { id: string; label: string }) {
   const [open, setOpen] = useState(false);
   const [bal, setBal] = useState<number | null>(null);
