@@ -26,10 +26,14 @@ export async function updateSession(
   // and `protect` guards that rewritten page exactly like /portal is guarded.
   opts?: { rewriteTo?: string; protect?: boolean },
 ) {
-  const buildResponse = () =>
-    opts?.rewriteTo
-      ? NextResponse.rewrite(new URL(opts.rewriteTo, request.url), { request })
-      : NextResponse.next({ request });
+  const buildResponse = () => {
+    if (!opts?.rewriteTo) return NextResponse.next({ request });
+    // Clone keeps the QUERY STRING — the Floor's tool switch lives in ?view=, so a
+    // rewrite that dropped it would snap every tool click back to the Floor home.
+    const u = request.nextUrl.clone();
+    u.pathname = opts.rewriteTo;
+    return NextResponse.rewrite(u, { request });
+  };
   let response = buildResponse();
 
   if (!isSupabaseConfigured) return response;
