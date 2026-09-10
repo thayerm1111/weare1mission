@@ -1211,7 +1211,22 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: manageOn ? "watching" : "unmanaged", detail: `${(profit / R).toFixed(2)}R` });
       }
 
-      await admin.from("flow_managed_positions").update(update).eq("id", row.id);
+      // ── WRITE THINNING (owner 09-10 "how do i cut usage on supabase" → approved): at
+      //    worker speed (~3 passes/sec) re-saving every quiet row every pass is thousands of
+      //    no-op UPDATEs a minute. Persist only when something MATERIAL happened: a broker
+      //    action this pass, a state key beyond the routine trio (entry/r reanchor, qty,
+      //    be_done, partial_done, cur_stop...), a best_price extreme that actually moved
+      //    (>2 pips — sub-pip jitter isn't a new excursion; the in-memory `best` still uses
+      //    the fresh value within the pass), or an error to record/clear. The rotation
+      //    bulk-stamp at selection already refreshes updated_at, so skipped rows keep
+      //    rotating fairly and no row ever starves. Zero behavior change on real events. ──
+      const materialWrite =
+        didAction ||
+        Object.keys(update).some((k) => !["last_error", "updated_at", "best_price"].includes(k)) ||
+        Math.abs(best - bestPrev) > 2 * pip ||
+        update.last_error != null ||
+        row.last_error != null; // a previously recorded error must be cleared on disk
+      if (materialWrite) await admin.from("flow_managed_positions").update(update).eq("id", row.id);
       if (didAction) managed += 1;
     } catch (e) {
       try { await admin.from("flow_managed_positions").update({ last_error: (e instanceof Error ? e.message : "error").slice(0, 120), updated_at: new Date().toISOString() }).eq("id", row.id); } catch { /* ignore */ }
