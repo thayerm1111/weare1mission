@@ -7,6 +7,7 @@ import { listInstruments, listPositions, getQuote, getConfig, modifyPosition, cl
 import { recoverOrphans } from "@/lib/flow/recover";
 import { logTrade } from "@/lib/flow/tradeLog";
 import { beat } from "@/lib/flow/health";
+import { liveTickExtremes } from "@/lib/flow/liveTicks";
 
 // Fallback price source. The broker's own quote endpoint is intermittently down for
 // a symbol/account (we've observed a persistent "no_quote" on an open gold position
@@ -77,6 +78,13 @@ async function feedExtremes(symbol: string, sinceMs?: number | null): Promise<{ 
     const cut = typeof sinceMs === "number" && Number.isFinite(sinceMs) ? sinceMs : 0;
     let hi = 0, lo = Infinity;
     for (const b of entry.bars) { if (b.t >= cut) { hi = Math.max(hi, b.high); lo = Math.min(lo, b.low); } }
+    // STREAMED TICK EXTREMES (owner 09-10): when the worker's WebSocket feed is live,
+    // fold in the tick-level highs/lows since the same cutoff — a wick that prints and
+    // reverses between 1-min bar updates is visible to break-even/trail logic the
+    // moment it happens. Empty store on Vercel → no-op there. The caller's extSane
+    // guard still applies downstream, so a junk tick can never fake an excursion.
+    const lt = liveTickExtremes(td, cut);
+    if (lt) { hi = Math.max(hi, lt.high); lo = Math.min(lo === Infinity ? lt.low : lo, lt.low); }
     if (hi > 0 && Number.isFinite(lo)) return { high: hi, low: lo };
   } catch { /* feed down → null */ }
   return null;
