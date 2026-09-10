@@ -62,6 +62,19 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
+  // 1c) THE FLOOR STANDALONE SITE (owner 09-10: "make the floor a separate site...
+  //     another website they login to and it feels like a separate tool/app").
+  //     floor.weare1mission.com serves the Floor terminal with its own front door:
+  //       floor./       → /floor-app        (the terminal — login required)
+  //       floor./login  → /floor-app/login  (Floor-branded sign-in, same accounts)
+  //     Every other path on the subdomain (forgot-password, auth callback, assets)
+  //     behaves exactly like the main site, so nothing else needs duplicating.
+  const host = (request.headers.get("host") ?? "").toLowerCase();
+  if (host === "floor.weare1mission.com" || host.startsWith("floor.localhost")) {
+    if (path === "/") return await updateSession(request, { rewriteTo: "/floor-app", protect: true });
+    if (path === "/login") return await updateSession(request, { rewriteTo: "/floor-app/login" });
+  }
+
   // 2) Redirect moved public pages into the portal.
   const dest = MOVED_TO_PORTAL[path];
   if (dest) {
