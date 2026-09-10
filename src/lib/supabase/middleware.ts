@@ -18,8 +18,19 @@ type CookieToSet = { name: string; value: string; options?: CookieOptions };
  *     timeout, public pages render normally and portal pages bounce to /login
  *     (never fail-open into the member area).
  */
-export async function updateSession(request: NextRequest) {
-  let response = NextResponse.next({ request });
+export async function updateSession(
+  request: NextRequest,
+  // THE FLOOR (owner 09-10): the floor.weare1mission.com host serves the standalone
+  // Floor app via a rewrite. `rewriteTo` makes this same session-refresh produce a
+  // REWRITTEN response (the subdomain renders /floor-app while the URL stays clean),
+  // and `protect` guards that rewritten page exactly like /portal is guarded.
+  opts?: { rewriteTo?: string; protect?: boolean },
+) {
+  const buildResponse = () =>
+    opts?.rewriteTo
+      ? NextResponse.rewrite(new URL(opts.rewriteTo, request.url), { request })
+      : NextResponse.next({ request });
+  let response = buildResponse();
 
   if (!isSupabaseConfigured) return response;
 
@@ -30,11 +41,12 @@ export async function updateSession(request: NextRequest) {
     url.searchParams.set("redirect", path);
     return NextResponse.redirect(url);
   };
+  const guarded = path.startsWith("/portal") || opts?.protect === true;
 
   // NO-COOKIE SHORT-CIRCUIT: nothing to refresh, nothing to verify.
   const hasAuthCookie = request.cookies.getAll().some((c) => c.name.startsWith("sb-") && c.name.includes("-auth-token"));
   if (!hasAuthCookie) {
-    if (path.startsWith("/portal")) return toLogin();
+    if (guarded) return toLogin();
     return response;
   }
 
@@ -45,7 +57,7 @@ export async function updateSession(request: NextRequest) {
       },
       setAll(cookiesToSet: CookieToSet[]) {
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-        response = NextResponse.next({ request });
+        response = buildResponse();
         cookiesToSet.forEach(({ name, value, options }) =>
           response.cookies.set(name, value, options)
         );
@@ -63,7 +75,7 @@ export async function updateSession(request: NextRequest) {
     if (result !== "timeout") user = (result as { data: { user: unknown } }).data.user;
   } catch { /* auth error → treated as signed-out below */ }
 
-  if (path.startsWith("/portal") && !user) return toLogin();
+  if (guarded && !user) return toLogin();
 
   return response;
 }
