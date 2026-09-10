@@ -35,8 +35,10 @@ function cronKey(): string | null {
   return process.env.FLOW_CRON_KEY || process.env.GENX_CRON_KEY || process.env.CRON_SECRET || null;
 }
 
-// Each component maps to the endpoint that restarts it.
-const HEAL_PATH: Record<ComponentName, string> = {
+// Each HEALABLE component maps to the endpoint that restarts it. price_stream is
+// deliberately absent: it lives inside the always-on worker (which restarts itself)
+// and its heartbeat is informational — there is no cron that could revive it.
+const HEAL_PATH: Partial<Record<ComponentName, string>> & Record<"manager" | "exec" | "genx", string> = {
   manager: "/api/cron/flow-manage",
   exec: "/api/cron/flow-exec",
   genx: "/api/cron/genx-scan",
@@ -70,7 +72,9 @@ async function run(req: NextRequest): Promise<Response> {
   const healed: string[] = [];
   if (stalled.length && key) {
     for (const c of stalled) {
-      await kick(origin, HEAL_PATH[c], key);
+      const path = HEAL_PATH[c];
+      if (!path) continue; // no cron can revive this component (worker-internal)
+      await kick(origin, path, key);
       healed.push(c);
       await logIncident(admin, c, "self_heal_kick", { ageSec: report.components.find((x) => x.component === c)?.ageSec ?? null });
     }
