@@ -178,6 +178,54 @@ async function bigAccountDigest(admin: Admin): Promise<{ sent: boolean; note: st
   } catch { return { sent: false, note: "send_failed" }; }
 }
 
+// ── LOG RETENTION (owner 09-10 "how do i cut usage on supabase" → approved): the two
+//    diagnostic tables grow forever — flow_auto_events (every skip/fanout breadcrumb) and
+//    flow_trade_log (the per-trade flight recorder). Purge rows older than 30 days, once
+//    nightly (throttled through flow_incidents like everything else here). Deletes run in
+//    id-chunks under a time budget so a huge first backlog can never wedge the cron — the
+//    remainder simply goes the next night. flow_equity_snapshots is NEVER touched (it is
+//    the Community P&L baseline history, not a log).
+const RETENTION_DAYS = 30;
+const RETENTION_EVERY_MIN = 22 * 60;   // ~daily (22h so a slow cron tick can't skip a day)
+const PURGE_BUDGET_MS = 15_000;        // leave room for the monitor jobs in maxDuration 30
+const PURGE_SELECT = 5000;             // ids fetched per round
+const PURGE_CHUNK = 1000;              // ids per DELETE
+
+async function purgeOldLogs(admin: Admin): Promise<{ ran: boolean; deleted?: Record<string, number>; note?: string }> {
+  try {
+    const since = new Date(Date.now() - RETENTION_EVERY_MIN * 60_000).toISOString();
+    const { data: recent } = await admin.from("flow_incidents").select("id").eq("kind", "log_retention").gte("created_at", since).limit(1);
+    if (recent && recent.length) return { ran: false, note: "cooldown" };
+  } catch { return { ran: false, note: "throttle_read_failed" }; }
+
+  const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 3600e3).toISOString();
+  const t0 = Date.now();
+  const deleted: Record<string, number> = { flow_auto_events: 0, flow_trade_log: 0 };
+  // Each table names its own timestamp column (auto events: created_at; trade log: at).
+  const tables: Array<{ table: keyof typeof deleted & string; timeCol: string }> = [
+    { table: "flow_auto_events", timeCol: "created_at" },
+    { table: "flow_trade_log", timeCol: "at" },
+  ];
+  for (const { table, timeCol } of tables) {
+    for (;;) {
+      if (Date.now() - t0 > PURGE_BUDGET_MS) break;
+      const { data, error } = await admin.from(table).select("id").lt(timeCol, cutoff).limit(PURGE_SELECT);
+      if (error || !data || data.length === 0) break;
+      const ids = (data as { id: unknown }[]).map((r) => r.id);
+      for (let i = 0; i < ids.length; i += PURGE_CHUNK) {
+        if (Date.now() - t0 > PURGE_BUDGET_MS) break;
+        const chunk = ids.slice(i, i + PURGE_CHUNK);
+        const { error: delErr } = await admin.from(table).delete().in("id", chunk);
+        if (delErr) break;
+        deleted[table] += chunk.length;
+      }
+      if (data.length < PURGE_SELECT) break; // backlog for this table is done
+    }
+  }
+  try { await admin.from("flow_incidents").insert({ component: "monitor", kind: "log_retention", detail: { ...deleted, ms: Date.now() - t0 } }); } catch { /* stamp best-effort */ }
+  return { ran: true, deleted };
+}
+
 async function run(req: NextRequest): Promise<Response> {
   if (!keyAuthorized(req)) return json({ error: "unauthorized" }, 401);
   const admin = createAdminClient();
@@ -185,8 +233,9 @@ async function run(req: NextRequest): Promise<Response> {
 
   const stall = await scannerStallCheck(admin);
   const digest = await bigAccountDigest(admin);
+  const retention = await purgeOldLogs(admin);
 
-  return json({ ok: true, stall, digest, asOf: new Date().toISOString() }, 200);
+  return json({ ok: true, stall, digest, retention, asOf: new Date().toISOString() }, 200);
 }
 
 export async function GET(req: NextRequest) { return run(req); }
