@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { liveTick } from "@/lib/flow/liveTicks";
 
 /**
  * Global market-data governor + community cache.
@@ -149,6 +150,13 @@ export async function series(
  * always bypass the cache and never be throttled.
  */
 export async function livePrice(td: string, key: string, fresh = false): Promise<number | null> {
+  // STREAMED TICK FAST-PATH (owner 09-10): when the always-on worker holds a live
+  // WebSocket feed, the freshest possible price is already in memory — return it
+  // instantly (no HTTP round-trip, no credit spent). On Vercel the tick store is
+  // always empty, so this is a no-op there and behavior is unchanged. Past 2.5s of
+  // staleness we fall through to the normal cached/REST path.
+  const streamed = liveTick(td, 2500);
+  if (streamed != null) return streamed;
   const ck = `p:${td}`;
   const g = await getOrReserve(ck, 1, fresh);
   if (g.hit && g.payload != null) {
