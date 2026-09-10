@@ -15,10 +15,29 @@ import type { Metadata, Viewport } from "next";
  * site's pages keep their static rendering untouched.
  */
 
+const FLOOR_OG = "https://floor.weare1mission.com/images/floor-og.png";
 export const metadata: Metadata = {
   title: "The Floor — Live Trading Intelligence",
   description: "The 1 Mission trading floor: FLOW, GENX, Matty Pips, OM AI, Market Pulse and Live Plays — one desk, live.",
   robots: { index: false, follow: false }, // members-only app — keep it out of search
+  // LINK-PREVIEW BANNER (owner 09-10: "change the banner to something more the floor
+  // feeling") — a shared floor.weare1mission.com link unfurls as the dark terminal
+  // card, not the main site's cream marketing banner. Applies to the terminal AND the
+  // login page (crawlers land on /login via the auth redirect).
+  openGraph: {
+    title: "The Floor — Live Trading Intelligence",
+    description: "Live trading intelligence. Real results. Powered by OM AI. Sign in with your 1 Mission account.",
+    url: "https://floor.weare1mission.com",
+    siteName: "The Floor",
+    images: [{ url: FLOOR_OG, width: 1200, height: 630, alt: "The Floor — live trading desk" }],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "The Floor — Live Trading Intelligence",
+    description: "Live trading intelligence. Real results. Powered by OM AI.",
+    images: [FLOOR_OG],
+  },
 };
 
 export const viewport: Viewport = { themeColor: "#050505", width: "device-width", initialScale: 1 };
