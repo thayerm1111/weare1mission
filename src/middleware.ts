@@ -54,6 +54,14 @@ export async function middleware(request: NextRequest) {
     return res;
   }
 
+  // 1b) EVERY OTHER API ROUTE (owner 09-10 speed pass): API handlers authenticate
+  // themselves server-side (createClient reads the cookies directly), so running the
+  // session refresh here only added a blocking auth round-trip to every API call.
+  // Skip straight through — the app-origin CORS branch above is untouched.
+  if (path.startsWith("/api/")) {
+    return NextResponse.next({ request });
+  }
+
   // 2) Redirect moved public pages into the portal.
   const dest = MOVED_TO_PORTAL[path];
   if (dest) {
