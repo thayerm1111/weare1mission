@@ -30,6 +30,7 @@ import { manageOpenPositions, acquireManageLock, extendManageLock, releaseManage
 import { watchPass, beatKeepDecision, acquireWatchLock, extendWatchLock, releaseWatchLock } from "@/lib/genx/watchTick";
 import { inWeekendCloseWindow } from "@/lib/flow/autoExec";
 import { beat } from "@/lib/flow/health";
+import { streamLoop } from "./priceStream";
 import { hostname } from "node:os";
 
 // OWNER 09-09 ("insane fast... trade manager instant"): defaults at the polling
@@ -123,6 +124,11 @@ process.on("unhandledRejection", (e) => log("unhandledRejection", e));
 process.on("uncaughtException", (e) => { log("uncaughtException — exiting for a clean restart", e); process.exit(1); });
 
 log(`🚀 We Are 1 Mission worker starting as ${HOLDER} (manage ${MANAGE_MS}ms · watch ${WATCH_MS}ms)`);
+// The price stream is best-effort by design: it feeds the in-memory tick store that the
+// manage/watch loops read opportunistically. If it can't run (plan gate, feed outage,
+// bad socket) the loops keep polling exactly as before — its failure must never kill
+// the worker, so it lives OUTSIDE the fatal Promise.all.
+void streamLoop(() => shuttingDown).catch((e) => log("stream: loop error (worker continues on polling)", e instanceof Error ? e.message : e));
 void Promise.all([manageLoop(), watchLoop()]).catch((e) => {
   log("fatal — exiting so the platform restarts the worker", e);
   process.exit(1);
