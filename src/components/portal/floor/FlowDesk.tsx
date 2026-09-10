@@ -274,7 +274,8 @@ function ExecuteFlow({ symbol, side, entry, stop, tp, actionable, state }: { sym
         )}
       </div>
 
-      {!connected && <a href="/portal/trading?view=flow" className="mt-2 inline-block text-xs font-semibold text-primary hover:underline">◆ Connect TradeLocker to execute →</a>}
+      {/* Relative link — stays on the Floor wherever it's mounted (portal OR floor.weare1mission.com). */}
+      {!connected && <a href="?view=flow" className="mt-2 inline-block text-xs font-semibold text-primary hover:underline">◆ Connect TradeLocker to execute →</a>}
 
       {!actionable && state !== "ENTER_NOW" && (
         <p className="mt-2 text-[11px] text-charcoal/45">FLOW isn&apos;t calling an entry right now ({String(state).replace(/_/g, " ").toLowerCase()}). You can still execute manually below at your own discretion.</p>

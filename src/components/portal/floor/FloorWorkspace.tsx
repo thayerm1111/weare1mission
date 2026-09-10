@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { LayoutGrid, Sparkles, Zap, Activity, TrendingUp, Gem, Link2, Volume2, VolumeX, Maximize2, Minimize2, Brain } from "lucide-react";
 import MattyPips from "@/components/matty-pips/MattyPips";
 import { FloorHome } from "./FloorHome";
@@ -76,7 +76,12 @@ export function FloorWorkspace({ isCaller = false, followerCount = 0 }: { isCall
   const raw = params.get("view");
   const tab: TabId = (VIEW_TABS.some((t) => t.id === raw) ? raw : "home") as TabId;
 
-  const go = (id: string) => router.replace(id === "home" ? "/portal/trading" : `/portal/trading?view=${id}`, { scroll: false });
+  // PATH-AWARE TOOL SWITCH (owner 09-10: "everyone stays on the site when they click
+  // the different tools" — the standalone Floor at floor.weare1mission.com mounts this
+  // same workspace at "/", so navigation must target WHEREVER the workspace lives,
+  // never the hard-coded backoffice path that was bouncing Floor users to the main site).
+  const basePath = usePathname() || "/portal/trading";
+  const go = (id: string) => router.replace(id === "home" ? basePath : `${basePath}?view=${id}`, { scroll: false });
 
   const shellRef = useRef<HTMLDivElement>(null);
   const [soundOn, setSoundOn] = useState(true);
