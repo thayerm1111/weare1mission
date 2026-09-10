@@ -146,7 +146,13 @@ export function SignalGenerator() {
     const st = q.get("style");
     if (st === "scalp" || st === "intraday" || st === "swing") setStyle(st);
     setMarket(found.market); setAsset(found.asset); setOpen(true);
-    try { window.history.replaceState({}, "", "/portal/signals"); } catch { /* ignore */ }
+    // Strip the consumed td/style from the CURRENT path (works on /portal/signals, the
+    // portal Floor, and the standalone floor.weare1mission.com — never hard-code a path).
+    // Keep the Floor's ?view= param so the workspace stays on the OM AI Plays tab.
+    try {
+      const keepView = q.get("view");
+      window.history.replaceState({}, "", window.location.pathname + (keepView ? `?view=${encodeURIComponent(keepView)}` : ""));
+    } catch { /* ignore */ }
     void generate(found.asset);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
