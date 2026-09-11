@@ -110,20 +110,13 @@ export async function placeForAccount(admin: Admin, acct: MpAccountRow, d: Decis
   });
   if (!size.ok || !(size.lots > 0)) return fail(`sizing: ${size.reason || "zero lots"}`);
 
-  // MIN-LOT SAFETY (owner 09-11: "taking way too big of positions"): flooring tiny
-  // accounts UP to the broker's 0.01 minimum turned 0.5% risk requests into 92–132% of
-  // the whole account on one gold trade ($17–$25 balances with $22+ stops). If the
-  // FINAL size would risk more than double the requested % (with a small tolerance for
-  // rounding), the account is simply too small for this setup's stop — skip it and say
-  // so, instead of betting the account. Gold: $100 per 1.0 lot per $1 of price.
-  {
-    const riskUsd = size.lots * Math.abs(t.entry - t.stopLoss) * 100;
-    const reqPct = acct.risk_pct || 0.5;
-    const actualPct = equity > 0 ? (riskUsd / equity) * 100 : Infinity;
-    if (actualPct > Math.max(2 * reqPct, reqPct + 0.75)) {
-      return fail(`min_lot_risk: ${size.lots} lots risks ${actualPct.toFixed(1)}% of $${Math.round(equity)} (requested ${reqPct}%) — account too small for this stop`);
-    }
-  }
+  // OWNER RULE 09-11 (audit decision, reversing the short-lived min_lot_risk guard):
+  // "I want a default to be .01 no matter what the % is selected on flow and Matty pips
+  // ... I do not want it to not take the trades. Most people will have less than 500."
+  // Small accounts ALWAYS take the trade at the broker-minimum 0.01 (floorToMinLot above);
+  // the size only grows past 0.01 when the account's equity × risk % can carry more. On a
+  // tiny account the minimum lot can risk well past the selected % — that is the owner's
+  // explicit, accepted trade-off, matching FLOW's behavior exactly.
 
   // Snapshot open positions to resolve the new id after the market fill.
   const before = await listPositions(env, tok.token, acct.acc_num, acct.account_id);
