@@ -1,3 +1,6 @@
+import { executablePrice } from "./executionQuote";
+import { readProtectiveStop } from "./brokerEvidence";
+import { partialOnce } from "./partialOperation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { connectionToken } from "@/lib/flow/connection";
 import { matchInstrument } from "@/lib/flow/executor";
@@ -8,30 +11,6 @@ import { recoverOrphans } from "@/lib/flow/recover";
 import { logTrade } from "@/lib/flow/tradeLog";
 import { beat } from "@/lib/flow/health";
 import { liveTickExtremes } from "@/lib/flow/liveTicks";
-
-// Fallback price source. The broker's own quote endpoint is intermittently down for
-// a symbol/account (we've observed a persistent "no_quote" on an open gold position
-// while the broker still held it), which stalls break-even/partials indefinitely.
-// When the broker quote is unavailable we fall back to the market-data feed so the
-// manager keeps protecting the trade. Cached briefly so many positions on one symbol
-// share a single upstream call.
-const feedCache = new Map<string, { at: number; px: number }>();
-const FEED_TTL_MS = 20_000;
-async function feedPrice(symbol: string): Promise<number | null> {
-  try {
-    const td = getInstrument(contractKey(symbol))?.twelveDataSymbol;
-    if (!td) return null;
-    const hit = feedCache.get(td);
-    if (hit && Date.now() - hit.at < FEED_TTL_MS) return hit.px;
-    const key = process.env.TWELVEDATA_API_KEY;
-    if (!key) return null;
-    const r = await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(td)}&apikey=${key}`, { cache: "no-store" });
-    const j = (await r.json()) as { price?: unknown };
-    const p = Number(j?.price);
-    if (Number.isFinite(p) && p > 0) { feedCache.set(td, { at: Date.now(), px: p }); return p; }
-  } catch { /* feed down → null */ }
-  return null;
-}
 
 // Recent intra-minute EXTREMES from the market-data feed. The manager runs once a minute
 // off the instantaneous bid/ask, so a spike that reverses inside the minute (common on
@@ -55,7 +34,7 @@ async function feedExtremes(symbol: string, sinceMs?: number | null): Promise<{ 
     const td = getInstrument(contractKey(symbol))?.twelveDataSymbol;
     if (!td) return null;
     let entry = extCache.get(td);
-    if (!entry || Date.now() - entry.at >= FEED_TTL_MS) {
+    if (!entry || Date.now() - entry.at >= 20_000) {
       const key = process.env.TWELVEDATA_API_KEY;
       if (!key) return null;
       const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=1min&outputsize=${EXT_LOOKBACK_BARS}&apikey=${key}`, { cache: "no-store" });
@@ -240,12 +219,11 @@ export function slWithinTolerance(symbol: string, requested: number, actual: num
  *  check its live stop-loss equals `requested` within tolerance. Returns false when the
  *  position isn't found or its SL can't be read (→ caller does NOT record the move and
  *  re-sends next tick). If `slIdx < 0` the broker doesn't expose the SL on the position
- *  row, so read-back is impossible — returns true to preserve the pre-existing behavior
- *  (trust the acknowledgement) rather than break break-even entirely. */
+ *  row, this helper returns false; the caller can read linked stop orders instead. */
 export function stopConfirmedFromPositions(
   positions: unknown[], positionId: string, slIdx: number, symbol: string, requested: number,
 ): boolean {
-  if (slIdx < 0) return true;                       // SL not exposed on the position → can't verify; trust ack
+  if (slIdx < 0) return false;                       // absent SL is not confirmation
   for (const p of positions) {
     if (posIdOf(p) === String(positionId)) {
       const sl = numAt(p, slIdx, SL_KEYS);
@@ -649,7 +627,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   const colCache = new Map<string, { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number; tpIdx: number }>();
   const histColCache = new Map<string, Record<string, number> | undefined>();
   const acctCache = new Map<string, { openIds: Set<string>; avgPx: Map<string, number>; upl: Map<string, number>; qty: Map<string, number>; sl: Map<string, number>; tp: Map<string, number>; instruments: TLInstrument[] } | null>();
-  const quoteCache = new Map<string, number | null>();
+  const quoteCache = new Map<string, { at: number; price: number }>();
   // Live bid/ask spread per env+symbol this tick — the BE lock must clear it (owner 09-07:
   // a Sunday-night $2.9 gold spread filled a +5-pip lock $2.9 through the stop → -30 pips).
   const spreadCache = new Map<string, number>();
@@ -774,36 +752,28 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   // — conservative, so break-even/partials can't fire off a stale/one-sided quote. Cached
   // per account+symbol for the tick.
   async function exitPrice(tok: { token: string; env: TLEnv }, accNum: string, inst: TLInstrument, symbol: string, side: "buy" | "sell", accountId: string): Promise<number | null> {
-    // Keyed per ENV+symbol+side (not per account): 60+ gold positions used to each fetch
-    // their own quote every pass even though it's the same instrument on the same broker
-    // environment. One quote per env+symbol+side per tick now serves them all (cross-broker
-    // spread differences are cents on gold vs. the $5+ BE trigger distances — immaterial,
-    // and the conservative bid/ask side is preserved by keying on side).
-    const key = `${tok.env}|${symbol}|${side}`;
-    if (quoteCache.has(key)) return quoteCache.get(key)!;
+    const key = `${tok.env}|${accountId}|${inst.tradableInstrumentId}|${inst.infoRouteId || inst.routeId}|${side}`;
+    const cached = quoteCache.get(key);
+    if (cached && Date.now() - cached.at < 1000) return cached.price;
     const q = await getQuote(tok.env, tok.token, accNum, inst.tradableInstrumentId, inst.infoRouteId || inst.routeId);
-    let px: number | null = null;
-    if (q.ok) {
-      const bid = q.data.bid, ask = q.data.ask;
-      if (bid != null && ask != null && ask > bid) spreadCache.set(`${tok.env}|${symbol}`, ask - bid);
-      px = side === "buy" ? (bid ?? ask) : (ask ?? bid);
-    }
-    if (px == null || !(px > 0)) px = await feedPrice(symbol);
-    quoteCache.set(key, px);
-    return px;
+    if (!q.ok) return null;
+    const { bid, ask } = q.data;
+    if (bid != null && ask != null && ask < bid) return null;
+    if (bid != null && ask != null) spreadCache.set(`${tok.env}|${accountId}|${symbol}`, ask - bid);
+    const price = executablePrice(q.data, side, "exit");
+    if (price == null || !Number.isFinite(price) || price <= 0) return null;
+    quoteCache.set(key, { at: Date.now(), price });
+    return price;
   }
 
-  // Read the broker back after a stop modify and confirm it actually applied before we
-  // record the move. ONE short settle wait + ONE fresh positions read — NOT a retry loop:
-  // an unconfirmed modify is simply re-sent on the next ~4s tick (idempotent). When the
-  // broker doesn't expose the SL on the position row (slIdx<0) this returns true, trusting
-  // the acknowledgement, so break-even/trailing never breaks where read-back isn't possible.
+  // An acknowledgement alone is never proof of protection. Some brokers expose
+  // stops only as linked orders, so read both supported representations.
   async function verifyStop(t: { token: string; env: TLEnv }, accNum: string, accountId: string, positionId: string, slIdx: number, symbol: string, requested: number): Promise<boolean> {
-    if (slIdx < 0) return true;
     await new Promise((r) => setTimeout(r, 500));
-    const pos = await listPositions(t.env, t.token, accNum, accountId);
-    if (!pos.ok) return false;
-    return stopConfirmedFromPositions(pos.data, positionId, slIdx, symbol, requested);
+    try {
+      const actual = await readProtectiveStop(t.env, t.token, accNum, accountId, positionId);
+      return actual != null && slWithinTolerance(symbol, requested, actual);
+    } catch { return false; }
   }
 
   // After a partial close, read the broker back to learn the ACTUAL remaining quantity
@@ -818,54 +788,9 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     return null;
   }
 
-  // PARALLEL PREFETCH (owner 08-31: "taking way too long to move stops to break even").
-  // The row loop below is fully serialized — correct, but it spent most of its time WAITING
-  // on one-account-at-a-time broker reads, so with many accounts a single pass could take
-  // 30s+ and a break-even landed that late. Warm the token + account-state caches for every
-  // account this pass covers UP FRONT, in parallel — one lane per CONNECTION so a single
-  // TradeLocker connection is never hit concurrently (token/rate-limit safety; matches the
-  // executor's 8-wide account fan-out), up to 6 connections at once. The serial loop below
-  // is UNCHANGED and now mostly hits warm caches, so a pass finishes in a few seconds and a
-  // stop moves to break-even within one short tick of the trigger. Prefetch is best-effort:
-  // any failure here just falls through to the loop's own fresh read + retry.
-  try {
-    const seenAcct = new Set<string>();
-    const byConn = new Map<string, { accNum: string; accountId: string }[]>();
-    for (const r of rows) {
-      const aid = String(r.account_id);
-      if (seenAcct.has(aid)) continue;
-      seenAcct.add(aid);
-      const k = String(r.connection_id);
-      if (!byConn.has(k)) byConn.set(k, []);
-      byConn.get(k)!.push({ accNum: r.acc_num, accountId: aid });
-    }
-    const lanes = [...byConn.entries()];
-    let li = 0;
-    const PREFETCH_LANES = 6;
-    await Promise.all(Array.from({ length: Math.min(PREFETCH_LANES, lanes.length) }, async () => {
-      for (;;) {
-        const lane = lanes[li];
-        li += 1;
-        if (!lane) break;
-        const [connId, accts] = lane;
-        const tok = await tokenFor(connId);
-        if (!tok) continue;
-        for (const a of accts) {
-          try {
-            const cols = await colsFor(connId, tok, a.accNum);
-            await acctState(tok, a.accNum, a.accountId, cols);
-          } catch { /* per-account prefetch is best-effort — the row loop reads fresh */ }
-        }
-      }
-    }));
-  } catch { /* prefetch is an optimization only — the serial pass still does everything */ }
-
+  // The connection lanes below fetch their own state. Avoid a book-wide
+  // prefetch barrier that makes ready accounts wait for the slowest broker.
   let managed = 0;
-  // LIVENESS DURING A LONG PASS: with many open positions, one full pass over the broker (each
-  // position = several serial broker calls) can run past the watchdog's 120s "stale" threshold.
-  // The route only beats AFTER a whole pass, so a slow-but-WORKING manager was being falsely
-  // flagged "DOWN" and restarted. Beat mid-pass every ~15s so the watchdog sees it's alive —
-  // this changes no trading logic, it only reports liveness while it works through the list.
   let lastBeatMs = Date.now();
   const processRow = async (row: ManagedRow): Promise<void> => {
     if (Date.now() - lastBeatMs > 15_000) {
@@ -1099,7 +1024,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // 8-12 (09-11 audit finding). Non-gold floors at 3 pips; the LIVE spread still wins
       // whenever it's wider, and the 40-pip cap guards junk quotes on every symbol.
       const padFloor = (contractKey(row.symbol) === "XAUUSD" ? (thinHours ? 20 : 12) : 3) * pip;
-      const spreadPad = Math.min(Math.max(spreadCache.get(`${tok.env}|${row.symbol}`) ?? 0, padFloor), 40 * pip);
+      const spreadPad = Math.min(Math.max(spreadCache.get(`${tok.env}|${row.account_id}|${row.symbol}`) ?? 0, padFloor), 40 * pip);
       const bePx = roundPx(row.symbol, long ? entry + BE_PROFIT_PIPS * pip + spreadPad : entry - BE_PROFIT_PIPS * pip - spreadPad);
       const beSafe = long ? price > bePx + 2 * pip : price < bePx - 2 * pip;
 
@@ -1160,7 +1085,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
           // shows the move. If it doesn't confirm, leave be_done=false so the next tick
           // re-sends (never a phantom break-even while the real stop sits at a loss).
           const confirmed = await verifyStop(tok, row.acc_num, row.account_id, row.position_id, cols.slIdx, row.symbol, bePx);
-          if (confirmed) { update.be_done = true; update.cur_stop = bePx; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "breakeven", detail: `SL→entry ${bePx}${cols.slIdx >= 0 ? " ✓" : ""}` }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "break_even", reason: cols.slIdx >= 0 ? "broker_confirmed" : "acked_no_readback", price: bePx }); }
+          if (confirmed) { update.be_done = true; row.be_done = true; update.cur_stop = bePx; row.cur_stop = bePx; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "breakeven", detail: `SL→entry ${bePx}${cols.slIdx >= 0 ? " ✓" : ""}` }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "break_even", reason: "broker_confirmed", price: bePx }); }
           else { update.last_error = `be_unconfirmed: broker SL != ${bePx}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_unconfirmed", detail: "retry next tick" }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "be_unconfirmed", reason: "readback_mismatch", price: bePx }); }
         }
         else { update.last_error = `be_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_err", detail: mv.error.slice(0, 60) }); }
@@ -1170,33 +1095,37 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       //    only, at the halfway-to-target point. In GOLD chop mode it ALSO fires on ~1:1 setups,
       //    early (~earlyPips), so a repeatedly-reversing green run banks some profit instead of
       //    round-tripping to the stop. Gated on the same in-profit guard → only ever banks a WIN.
-      const chopPartial = chopOn && !isDouble; // a partial we take ONLY because of chop mode
-      if (partialOn && partialAllowed && !row.partial_done && favReachedPartial && inProfit && priceInProfit) {
-        const part = normalizeQuantity(contractKey(row.symbol), row.qty * PARTIAL_FRACTION, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity });
-        if (part.ok && part.qty > 0 && part.qty < row.qty) {
-          const cl = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, part.qty);
-          if (cl.ok) {
-            if (cols.qtyIdx >= 0) {
-              // Read the broker back for the ACTUAL remaining qty (source of truth). Only mark
-              // the partial done once the broker confirms the reduction; if it hasn't reflected
-              // yet, leave it unmarked — next tick's reconcile detects the reduced position and
-              // marks it, so the close can never fire twice.
-              const remaining = await readBrokerQty(tok, row.acc_num, row.account_id, row.position_id, cols.qtyIdx);
-              if (remaining != null && remaining > 0 && remaining <= row.qty - part.qty * 0.5) {
-                const closedAmt = +(row.qty - remaining).toFixed(2);
-                update.partial_done = true; update.qty = +remaining.toFixed(6); row.qty = remaining; didAction = true;
-                actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `−${closedAmt}→${remaining} ${chopPartial ? `@${chop!.earlyPips}p chop-early` : `@${(rr).toFixed(1)}R`} ✓` });
-                await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "partial", reason: chopPartial ? "chop_early_bank" : "broker_confirmed", qty: closedAmt, detail: { remaining, rr: +rr.toFixed(2), chop: chopPartial ? chop!.earlyPips : undefined } });
-              } else {
-                update.last_error = `partial_unconfirmed`; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_unconfirmed", detail: "retry next tick" });
-              }
-            } else {
-              // Broker doesn't expose qty → pre-existing computed-remainder behavior.
-              update.partial_done = true; update.qty = +(row.qty - part.qty).toFixed(6); didAction = true;
-              actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `−${part.qty} ${chopPartial ? `@${chop!.earlyPips}p chop-early` : `@${(rr).toFixed(1)}R`}` });
-            }
+      const chopPartial = chopOn && !isDouble;
+      const part = normalizeQuantity(contractKey(row.symbol), row.qty * PARTIAL_FRACTION, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity });
+      const canSplit = part.ok && part.qty > 0 && part.qty < row.qty;
+      if (partialOn && partialAllowed && !row.partial_done && favReachedPartial && inProfit && priceInProfit && canSplit && part.ok) {
+        if (brokerQty == null) {
+          update.last_error = "partial_waiting_for_broker_quantity";
+        } else {
+          const identity = { environment: tok.env, account_id: String(row.account_id), position_id: String(row.position_id) };
+          const result = await partialOnce({
+            async reserve(intent) {
+              const inserted = await admin.from("flow_partial_operations").insert({ ...identity, ...intent });
+              if (!inserted.error) return { created: true, intent };
+              if (inserted.error.code !== "23505") throw new Error("partial_reservation_unavailable");
+              const existing = await admin.from("flow_partial_operations").select("before_qty,requested_qty")
+                .match(identity).single();
+              if (existing.error || !existing.data) throw new Error("partial_reservation_unavailable");
+              return { created: false, intent: { before_qty: Number(existing.data.before_qty), requested_qty: Number(existing.data.requested_qty) } };
+            },
+          }, { before_qty: brokerQty, requested_qty: part.qty },
+          () => closePosition(tok.env, tok.token, row.acc_num, row.position_id, part.qty),
+          () => readBrokerQty(tok, row.acc_num, row.account_id, row.position_id, cols.qtyIdx));
+          if (result.state === "confirmed") {
+            const closedAmt = +(row.qty - result.remaining).toFixed(6);
+            update.partial_done = true; row.partial_done = true;
+            update.qty = result.remaining; row.qty = result.remaining; didAction = true;
+            actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `broker remaining ${result.remaining} ✓` });
+            await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "partial", reason: "broker_confirmed", qty: closedAmt, detail: { remaining: result.remaining, chop: chopPartial } });
+          } else {
+            update.last_error = result.error ?? "partial_pending_reconciliation";
+            actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_pending", detail: "reserved; waiting for broker reconciliation" });
           }
-          else { update.last_error = `partial_err: ${cl.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_err", detail: cl.error.slice(0, 60) }); }
         }
       }
 
@@ -1204,7 +1133,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       //    ratchet the stop up behind the best price the trade has reached. Anchored to the
       //    real fill + the favorable excursion; tightens near the target; never below break-
       //    even and never through the current market. ──
-      if (beOn && row.be_done && (!isDouble || row.partial_done || !partialOn)) {
+      if (beOn && row.be_done && (!isDouble || row.partial_done || !partialOn || !canSplit)) {
         const peakR = (long ? best - entry : entry - best) / R;
         const toTargetR = tp != null ? (long ? tp - best : best - tp) / R : 99;
         const partialR = halfway != null ? (long ? halfway - entry : entry - halfway) / R : 1;
@@ -1225,7 +1154,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
             // BROKER READ-BACK: only advance the recorded trail once the broker confirms the
             // new stop. Unconfirmed → leave cur_stop where it was so the next tick re-sends.
             const confirmed = await verifyStop(tok, row.acc_num, row.account_id, row.position_id, cols.slIdx, row.symbol, candidate);
-            if (confirmed) { update.cur_stop = candidate; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail", detail: `SL→${candidate} gb${givebackR}R${cols.slIdx >= 0 ? " ✓" : ""}` }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "trail", reason: cols.slIdx >= 0 ? "broker_confirmed" : "acked_no_readback", price: candidate }); }
+            if (confirmed) { update.cur_stop = candidate; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail", detail: `SL→${candidate} gb${givebackR}R${cols.slIdx >= 0 ? " ✓" : ""}` }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "trail", reason: "broker_confirmed", price: candidate }); }
             else { update.last_error = `trail_unconfirmed: broker SL != ${candidate}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail_unconfirmed", detail: "retry next tick" }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "trail_unconfirmed", reason: "readback_mismatch", price: candidate }); }
           }
           else { update.last_error = `trail_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail_err", detail: mv.error.slice(0, 60) }); }
@@ -1252,7 +1181,10 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         Math.abs(best - bestPrev) > 2 * pip ||
         update.last_error != null ||
         row.last_error != null; // a previously recorded error must be cleared on disk
-      if (materialWrite) await admin.from("flow_managed_positions").update(update).eq("id", row.id);
+      if (materialWrite) {
+        const saved = await admin.from("flow_managed_positions").update(update).eq("id", row.id);
+        if (saved.error) throw new Error("management_state_write_failed");
+      }
       if (didAction) managed += 1;
     } catch (e) {
       try { await admin.from("flow_managed_positions").update({ last_error: (e instanceof Error ? e.message : "error").slice(0, 120), updated_at: new Date().toISOString() }).eq("id", row.id); } catch { /* ignore */ }

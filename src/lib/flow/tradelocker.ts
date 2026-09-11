@@ -33,7 +33,7 @@ export type TLInstrument = { canonical?: string; brokerSymbol: string; tradableI
   contractSize?: number; tickSize?: number; tickValue?: number; lotSize?: number;
   raw?: unknown };
 export type TLQuote = { bid: number | null; ask: number | null; raw?: unknown };
-export type TLResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string; raw?: unknown };
+export type TLResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string; raw?: unknown; uncertain?: boolean };
 
 const TIMEOUT_MS = 15000;
 
@@ -175,7 +175,9 @@ export async function refresh(env: TLEnv, refreshToken: string): Promise<TLResul
 export async function listAccounts(env: TLEnv, accessToken: string): Promise<TLResult<TLAccount[]>> {
   const { status, json, text } = await tlFetch(env, "/auth/jwt/all-accounts", { method: "GET", accessToken });
   if (status < 200 || status >= 300) return { ok: false, status, error: "Couldn't load your TradeLocker accounts.", raw: json ?? text };
-  const arr = (pick<unknown[]>(json, "accounts") ?? (Array.isArray(json) ? json : [])) as unknown[];
+  const parsed = readCollection(json, "accounts");
+  if (!parsed.ok) return { ok: false, status, error: parsed.error, raw: json };
+  const arr = parsed.data;
   const accounts: TLAccount[] = arr.map((a) => ({
     accountId: String(pick(a, "id", "accountId") ?? ""),
     accNum: String(pick(a, "accNum", "accountNum") ?? ""),
@@ -202,7 +204,9 @@ export async function listInstruments(env: TLEnv, accessToken: string, accNum: s
     const detail = (pick<string>(json, "message", "error", "errmsg") || String(text).slice(0, 100)).trim();
     return { ok: false, status, error: `Couldn't load broker instruments (${status})${detail ? ": " + detail : ""}`, raw: json ?? text };
   }
-  const arr = (pick<unknown[]>(json, "instruments") ?? pick<unknown[]>(pick(json, "d"), "instruments") ?? (Array.isArray(json) ? json : [])) as unknown[];
+  const parsed = readCollection(json, "instruments");
+  if (!parsed.ok) return { ok: false, status, error: parsed.error, raw: json };
+  const arr = parsed.data;
   const out: TLInstrument[] = arr.map((i) => {
     // TradeLocker carries routing in a `routes` array on each instrument:
     // a TRADE route (used to place orders) and an INFO route (used for quotes).
@@ -238,6 +242,7 @@ export async function getQuote(env: TLEnv, accessToken: string, accNum: string, 
   const qs = `?routeId=${encodeURIComponent(routeId)}&tradableInstrumentId=${encodeURIComponent(tradableInstrumentId)}`;
   const { status, json, text } = await tlFetch(env, `/trade/quotes${qs}`, { method: "GET", accessToken, accNum });
   if (status < 200 || status >= 300) return { ok: false, status, error: "Couldn't load a broker quote.", raw: json ?? text };
+  if (brokerResponseError(json)) return { ok: false, status, error: brokerResponseError(json)!, raw: json };
   const d = pick(json, "d") ?? json;
   return { ok: true, data: { bid: numOr(pick(d, "bp", "bid")) ?? null, ask: numOr(pick(d, "ap", "ask")) ?? null, raw: json } };
 }
@@ -270,11 +275,11 @@ export async function createOrder(env: TLEnv, accessToken: string, inp: CreateOr
   if (inp.stopLoss != null) { body.stopLoss = inp.stopLoss; body.stopLossType = "absolute"; }
   if (inp.takeProfit != null) { body.takeProfit = inp.takeProfit; body.takeProfitType = "absolute"; }
   const { status, json, text } = await tlFetch(env, `/trade/accounts/${encodeURIComponent(inp.accountId)}/orders`, { method: "POST", accessToken, accNum: inp.accNum, body: JSON.stringify(body) });
-  if (status < 200 || status >= 300) return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+  if (status < 200 || status >= 300) return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text, uncertain: status >= 500 || status === 408 };
   // TradeLocker wraps every response in { s: "ok"|"error", d, errmsg } and can
   // return HTTP 200 with s:"error" (market closed, bad field, throttled, etc.).
-  // Treat that — and a 200 that carries no order/position id — as a REJECTION,
-  // never a silent "placed".
+  // Explicit broker errors are rejections. A success without an ID has an
+  // unknown outcome and must be reconciled before any retry.
   const sVal = String(pick(json, "s") ?? "").toLowerCase();
   if (sVal === "error" || sVal === "fail" || sVal === "rejected") {
     return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
@@ -283,7 +288,7 @@ export async function createOrder(env: TLEnv, accessToken: string, inp: CreateOr
   const orderId = strOr(pick(d, "orderId", "id"));
   const positionId = strOr(pick(d, "positionId"));
   if (!orderId && !positionId) {
-    return { ok: false, status, error: `Broker accepted the request but returned no order id — the order did not reach the market. ${String(text).slice(0, 200)}`.trim(), raw: json ?? text };
+    return { ok: false, status, error: "Order outcome unknown: broker returned no order or position id; reconcile before retrying.", raw: json ?? text, uncertain: true };
   }
   return { ok: true, data: { orderId, positionId, raw: json } };
 }
@@ -292,7 +297,9 @@ export async function createOrder(env: TLEnv, accessToken: string, inp: CreateOr
 export async function listOrders(env: TLEnv, accessToken: string, accNum: string, accountId: string): Promise<TLResult<unknown[]>> {
   const { status, json, text } = await tlFetch(env, `/trade/accounts/${encodeURIComponent(accountId)}/orders`, { method: "GET", accessToken, accNum });
   if (status < 200 || status >= 300) return { ok: false, status, error: "Couldn't load broker orders.", raw: json ?? text };
-  const arr = (pick<unknown[]>(pick(json, "d"), "orders") ?? pick<unknown[]>(json, "orders") ?? (Array.isArray(json) ? json : [])) as unknown[];
+  const parsed = readCollection(json, "orders");
+  if (!parsed.ok) return { ok: false, status, error: parsed.error, raw: json };
+  const arr = parsed.data;
   return { ok: true, data: arr };
 }
 
@@ -307,13 +314,9 @@ export async function listOrders(env: TLEnv, accessToken: string, accNum: string
 export async function listOrdersHistory(env: TLEnv, accessToken: string, accNum: string, accountId: string): Promise<TLResult<unknown[]>> {
   const { status, json, text } = await tlFetch(env, `/trade/accounts/${encodeURIComponent(accountId)}/ordersHistory`, { method: "GET", accessToken, accNum });
   if (status < 200 || status >= 300) return { ok: false, status, error: "Couldn't load broker order history.", raw: json ?? text };
-  const arr = (
-    pick<unknown[]>(pick(json, "d"), "ordersHistory") ??
-    pick<unknown[]>(json, "ordersHistory") ??
-    pick<unknown[]>(pick(json, "d"), "orders") ??
-    pick<unknown[]>(json, "orders") ??
-    (Array.isArray(json) ? json : [])
-  ) as unknown[];
+  const parsed = readCollection(json, "ordersHistory", "orders");
+  if (!parsed.ok) return { ok: false, status, error: parsed.error, raw: json };
+  const arr = parsed.data;
   return { ok: true, data: arr };
 }
 
@@ -325,7 +328,9 @@ export async function listOrdersHistory(env: TLEnv, accessToken: string, accNum:
 export async function listPositions(env: TLEnv, accessToken: string, accNum: string, accountId: string): Promise<TLResult<unknown[]>> {
   const { status, json, text } = await tlFetch(env, `/trade/accounts/${encodeURIComponent(accountId)}/positions`, { method: "GET", accessToken, accNum });
   if (status < 200 || status >= 300) return { ok: false, status, error: "Couldn't load broker positions.", raw: json ?? text };
-  const arr = (pick<unknown[]>(pick(json, "d"), "positions") ?? pick<unknown[]>(json, "positions") ?? (Array.isArray(json) ? json : [])) as unknown[];
+  const parsed = readCollection(json, "positions");
+  if (!parsed.ok) return { ok: false, status, error: parsed.error, raw: json };
+  const arr = parsed.data;
   return { ok: true, data: arr };
 }
 
@@ -339,7 +344,7 @@ export async function modifyPosition(env: TLEnv, accessToken: string, accNum: st
   if (mod.stopLoss !== undefined) body.stopLoss = mod.stopLoss;
   if (mod.takeProfit !== undefined) body.takeProfit = mod.takeProfit;
   const { status, json, text } = await tlFetch(env, `/trade/positions/${encodeURIComponent(positionId)}`, { method: "PATCH", accessToken, accNum, body: JSON.stringify(body) });
-  if (status < 200 || status >= 300) return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+  if (status < 200 || status >= 300) return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text, uncertain: status >= 500 || status === 408 };
   // TradeLocker can return HTTP 200 with s:"error" (stop too close to market, market
   // closed, bad price, throttled) — that is a REJECTION, not a success. Mirror createOrder:
   // NEVER report a stop move the broker didn't apply, or the manager writes a phantom
@@ -360,7 +365,7 @@ export async function modifyPosition(env: TLEnv, accessToken: string, accNum: st
 export async function closePosition(env: TLEnv, accessToken: string, accNum: string, positionId: string, qty?: number): Promise<TLResult<true>> {
   const body = qty && qty > 0 ? JSON.stringify({ qty }) : JSON.stringify({ qty: 0 });
   const { status, json, text } = await tlFetch(env, `/trade/positions/${encodeURIComponent(positionId)}`, { method: "DELETE", accessToken, accNum, body });
-  if (status < 200 || status >= 300) return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+  if (status < 200 || status >= 300) return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text, uncertain: status >= 500 || status === 408 };
   // Same HTTP-200-with-s:"error" rejection as modify/create — never record a partial the
   // broker rejected (partial_done=true while the position is still fully open).
   const sVal = String(pick(json, "s") ?? "").toLowerCase();
@@ -383,7 +388,7 @@ export async function cancelOrder(env: TLEnv, accessToken: string, accNum: strin
   const { status, json, text } = await tlFetch(env, `/trade/orders/${encodeURIComponent(orderId)}`, { method: "DELETE", accessToken, accNum });
   // 404/410 → the order is already gone (filled or cancelled). Nothing to do → success.
   if (status === 404 || status === 410) return { ok: true, data: true };
-  if (status < 200 || status >= 300) return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text };
+  if (status < 200 || status >= 300) return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text, uncertain: status >= 500 || status === 408 };
   const sVal = String(pick(json, "s") ?? "").toLowerCase();
   if (sVal === "error" || sVal === "fail" || sVal === "rejected") {
     // "order not found / not working" from the broker also means it's already gone → ok.
@@ -403,4 +408,21 @@ function humanAuthError(status: number, json: unknown, text: string): string {
 }
 function humanOrderError(status: number, json: unknown, text: string): string {
   const m = pick<string>(json, "message", "error", "errmsg"); return m || `Order rejected by broker (${status}). ${text.slice(0, 160)}`;
+}
+
+/** Missing collections and broker error envelopes are not empty accounts. */
+export function brokerResponseError(body: unknown): string | null {
+  const state = String(pick(body, "s") ?? "").toLowerCase();
+  return ["error", "fail", "rejected"].includes(state)
+    ? String(pick(body, "errmsg", "message", "error") ?? "Broker rejected request") : null;
+}
+export function readCollection(body: unknown, ...fields: string[]): {ok:true;data:unknown[]} | {ok:false;error:string} {
+  const error = brokerResponseError(body);
+  if (error) return {ok:false,error};
+  if (Array.isArray(body)) return {ok:true,data:body};
+  for (const field of fields) {
+    const value = pick(pick(body,"d"),field) ?? pick(body,field);
+    if (Array.isArray(value)) return {ok:true,data:value};
+  }
+  return {ok:false,error:`Unreadable broker ${fields[0]} response`};
 }

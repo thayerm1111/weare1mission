@@ -1,3 +1,4 @@
+import { autoSourceEnabled, SEND_IT_ENABLED } from "./automationPolicy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { flowDecision } from "@/lib/flow/decision";
 import { placeOnActiveAccounts, placeFixedLotFollower } from "@/lib/flow/executor";
@@ -623,6 +624,7 @@ async function scanUser(admin: Admin, settings: AutoSettings, mdKey: string): Pr
 
 /** Back-compat single-user entry point (member on-demand run = full scan). */
 export async function runAutoExecForUser(settings: AutoSettings, mdKey: string): Promise<{ userId: string; results: SymbolResult[] }> {
+  if (!autoSourceEnabled("flow")) return { userId: settings.user_id, results: [{ symbol: "-", action: "disabled", detail: "GENX-only automation" }] };
   const admin = createAdminClient();
   if (!admin) return { userId: settings.user_id, results: [{ symbol: "-", action: "error", detail: "no_admin_client" }] };
   const r = await scanUser(admin, settings, mdKey);
@@ -631,6 +633,7 @@ export async function runAutoExecForUser(settings: AutoSettings, mdKey: string):
 
 /** FULL SCAN for every armed member; refreshes the at-zone watch list for the fast-watch. */
 export async function runAutoExecAll(mdKey: string): Promise<{ users: number; runs: Array<{ userId: string; results: SymbolResult[] }>; watching: string[] }> {
+  if (!autoSourceEnabled("flow")) return { users: 0, runs: [], watching: [] };
   const admin = createAdminClient();
   if (!admin) return { users: 0, runs: [], watching: [] };
   if (!(await systemSwitches(admin)).flow) return { users: 0, runs: [], watching: [] }; // admin FLOW kill switch
@@ -658,6 +661,7 @@ export async function runAutoExecAll(mdKey: string): Promise<{ users: number; ru
 
 /** FAST-WATCH: re-confirm the at-zone setups on 1-min candles and fire on CONFIRMED. */
 export async function runFlowWatch(mdKey: string): Promise<{ watched: number; confirmed: string[]; runs: Array<{ userId: string; results: SymbolResult[] }>; states: Array<{ symbol: string; state: string }> }> {
+  if (!autoSourceEnabled("flow")) return { watched: 0, confirmed: [], runs: [], states: [] };
   const admin = createAdminClient();
   if (!admin) return { watched: 0, confirmed: [], runs: [], states: [] };
   if (!(await systemSwitches(admin)).flow) return { watched: 0, confirmed: [], runs: [], states: [] }; // admin FLOW kill switch
@@ -1561,7 +1565,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       // Claim gold for this member. FALSE → a gold entry is already live within the
       // cooldown → skip (this blocks GENX's back-to-back ENTER NOW repeats).
       const { data: won } = await admin.rpc("flow_try_claim", { p_user: userId, p_symbol: "XAUUSD", p_cooldown_secs: GOLD_CLAIM_SEC });
-      if (won === false) return 0;
+      if (won !== true) return 0;
 
       const allAccounts = await activeAccounts(userId);
       // PER-ACCOUNT SAFETY MODE: drop this member's accounts that are conservative AND in
@@ -1615,7 +1619,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       const riskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : 1;
 
       const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry: sizeEntry, stop: goldStop, tp: sig.tp, riskPct, source: "genx", accounts, structuralStop: true });
-      if (res.placed === 0) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); return 0; } // nothing filled → let the next ENTER NOW retry
+      if (res.placed === 0 && !res.accounts.some(a => a.reason?.includes("uncertain"))) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); return 0; } // nothing filled → let the next ENTER NOW retry
       return res.placed;
     } catch { return 0; } // per-member best-effort
   };
@@ -1731,7 +1735,7 @@ export async function placeGenxFollower(sig: {
   // GENX copy (placeGenxGold) instead — drop it here so it never gets both the copy fill AND
   // this follower fill for the same setup. Pure-follower accounts (autotrade off) route here.
   // Uses the shared goldRoute() rule so the two paths can never disagree on ownership.
-  accts = accts.filter((a) => goldRoute(a) === "follower");
+  accts = accts.filter((a) => goldRoute(a) === "follower").map(a => ({ ...a, send_it: SEND_IT_ENABLED && a.send_it === true }));
   // 🚀 SEND IT v2: when a desk safeguard fired, only Send It followers that chose to
   // BYPASS the safeguards (send_it_guards off) take this entry.
   if (sendItOnly) accts = accts.filter((a) => a.send_it === true && a.send_it_guards !== true);

@@ -1,3 +1,4 @@
+import { autoSourceEnabled } from "@/lib/flow/automationPolicy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runEngine } from "@/lib/matty-pips/engine";
 import { enabledAccounts, placeForAccount } from "@/lib/matty-pips/broker";
@@ -33,6 +34,7 @@ const MATTY_MIN_LIVE_RR = 0.75; // owner floor — same as GENX gold
 export type MattyScanResult = Record<string, unknown>;
 
 export async function runMattyScan(): Promise<{ ok: boolean; result?: MattyScanResult; error?: string; skipped?: string }> {
+  if (!autoSourceEnabled("matty")) return { ok: true, skipped: "GENX-only automation" };
   const admin = createAdminClient();
   const mdKey = process.env.TWELVEDATA_API_KEY;
   if (!admin || !mdKey) return { ok: false, error: "not_configured" };

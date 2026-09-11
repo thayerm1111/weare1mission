@@ -1,9 +1,11 @@
+import { executablePrice, bracketStillValid } from "./executionQuote";
+import { brokerConfig, columnMap, positionForOrder } from './brokerEvidence';
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logTrade } from "@/lib/flow/tradeLog";
 import { normalizeQuantity, getInstrument } from "@/lib/flow/instruments";
 import { freshAccessToken, activeAccounts, type ActiveAccount } from "@/lib/flow/connection";
 import { sizeFromRisk, contractKey, floorStop } from "@/lib/flow/sizing";
-import { listInstruments, createOrder, getQuote, listOrders, listPositions, listAccounts, modifyPosition, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
+import { listInstruments, createOrder, getQuote, listOrders, listPositions, listAccounts, listOrdersHistory, modifyPosition, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 
 /**
  * FLOW order placement (server-only). Places a single market order on the
@@ -94,20 +96,14 @@ function posIdOf(p: unknown): string {
  * pre-order snapshot and poll briefly for the new one. This is what lets the
  * trade-manager track the fill for break-even + partials.
  */
-async function resolveNewPositionId(a: { env: TLEnv; token: string; accNum: string; accountId: string }, beforeIds: Set<string>): Promise<string | null> {
-  // Fast first look (owner 09-09 "all things firing faster"): most fills are visible on
-  // the very next positions read, so poll quickly at first and back off, instead of a
-  // flat 600ms × 4. Worst case is unchanged (~2.4s); the common case confirms in ~250ms.
-  const delays = [250, 400, 600, 600, 600];
-  for (let i = 0; i < delays.length; i++) {
-    await sleep(delays[i]);
-    try {
-      const pp = await listPositions(a.env, a.token, a.accNum, a.accountId);
-      if (pp.ok) {
-        const fresh = pp.data.map(posIdOf).filter(Boolean).find((id) => !beforeIds.has(id));
-        if (fresh) return fresh;
-      }
-    } catch { /* keep polling */ }
+async function resolveNewPositionId(a: { env: TLEnv; token: string; accNum: string; accountId: string }, orderId: string): Promise<string | null> {
+  const cfg = await brokerConfig(a.env, a.token, a.accNum, a.accountId);
+  for (const delay of [0, 250, 500]) {
+    if (delay) await sleep(delay);
+    const history = await listOrdersHistory(a.env, a.token, a.accNum, a.accountId);
+    if (!history.ok) continue;
+    const id = positionForOrder(history.data, columnMap(cfg, 'ordersHistoryConfig'), orderId);
+    if (id) return id;
   }
   return null;
 }
@@ -140,7 +136,7 @@ async function instrumentsFor(a: { env: TLEnv; token: string; accNum: string; ac
   return { ok: false, error: lastErr };
 }
 
-async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null, ensureBrackets?: boolean): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean }> {
+async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null, ensureBrackets?: boolean, risk?: { equity: number; riskPct: number }): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean }> {
   const instRes = await instrumentsFor(a);
   if (!instRes.ok) return { ok: false, error: `instrument_list_failed: ${instRes.error}`.slice(0, 160) };
   const tl = matchInstrument(canonical, instRes.data);
@@ -154,7 +150,21 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
   if (stop != null) stop = +stop.toFixed(prec);
   if (tp != null) tp = +tp.toFixed(prec);
 
+  // Refresh this account's executable quote after instrument resolution, preserving
+  // the signal's absolute stop/target. Re-size downward when the entry has moved.
+  if (stop != null) {
+    const quote = await getQuote(a.env, a.token, a.accNum, tl.tradableInstrumentId, tl.infoRouteId || tl.routeId);
+    const price = quote.ok ? executablePrice(quote.data, side, "entry") : null;
+    if (price == null) return { ok: false, error: "entry_quote_unavailable" };
+    if (!bracketStillValid(side, price, stop, tp)) return { ok: false, error: "entry_bracket_already_crossed" };
+    if (risk) {
+      const sized = sizeFromRisk({ canonical, entry: price, stop, equity: risk.equity, riskPct: risk.riskPct, floorToMinLot: true });
+      if (!sized.ok || !(sized.lots > 0)) return { ok: false, error: "entry_size_unavailable" };
+      qty = Math.min(qty, sized.lots);
+    }
+  }
   const norm = normalizeQuantity(canonical, qty, { quantityStep: tl.quantityStep, minQuantity: tl.minQuantity });
+  if (!norm.ok || !(norm.qty > 0)) return { ok: false, error: "invalid_broker_quantity" };
   const base = {
     accountId: a.accountId, accNum: a.accNum,
     tradableInstrumentId: tl.tradableInstrumentId, routeId: tl.routeId,
@@ -162,16 +172,10 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
   };
   const hasBracket = stop != null || tp != null;
   const hasStop = stop != null;
-  // Snapshot open positions BEFORE a stop-protected order so we can identify the
-  // NEW position after the fill (needed for the trade-manager, since market
-  // orders return an orderId, not a positionId).
-  let beforeIds = new Set<string>();
-  if (hasStop) {
-    try { const bp = await listPositions(a.env, a.token, a.accNum, a.accountId); if (bp.ok) beforeIds = new Set(bp.data.map(posIdOf).filter(Boolean)); } catch { /* best-effort */ }
-  }
   let ord = await createOrder(a.env, a.token, { ...base, stopLoss: stop ?? null, takeProfit: tp ?? null });
   let note = "";
-  if (!ord.ok && hasBracket) {
+  if (!ord.ok && ord.uncertain) throw new Error("order_uncertain: " + ord.error);
+  if (!ord.ok && hasBracket && /take.?profit|bracket/i.test(ord.error)) {
     // Session-closed / rollover / pre-open: the broker won't accept a protected
     // order right now. Do NOT open anything — defer and let the next tick retry
     // once the session reopens. (This is the gold 21:00–22:00 UTC window.)
@@ -183,9 +187,11 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
     // stop-only retry still fails, we skip rather than open bare.
     if (hasStop) {
       const stopOnly = await createOrder(a.env, a.token, { ...base, stopLoss: stop, takeProfit: null });
+      if (!stopOnly.ok && stopOnly.uncertain) throw new Error("order_uncertain: " + stopOnly.error);
       if (stopOnly.ok) { ord = stopOnly; note = " (TP dropped — SL kept)"; }
     } else {
       const bare = await createOrder(a.env, a.token, { ...base, stopLoss: null, takeProfit: null });
+      if (!bare.ok && bare.uncertain) throw new Error("order_uncertain: " + bare.error);
       if (bare.ok) { ord = bare; note = " (TP rejected — opened)"; }
     }
   }
@@ -193,7 +199,9 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
   // Resolve the position id for the trade-manager when the broker didn't hand one
   // back (the usual case for market orders).
   let positionId = ord.data.positionId ?? null;
-  if (!positionId && hasStop) positionId = await resolveNewPositionId(a, beforeIds);
+  if (!positionId && hasStop && ord.data.orderId) {
+    try { positionId = await resolveNewPositionId(a, ord.data.orderId); } catch { note += " (position correlation pending)"; }
+  }
 
   // BELT AND BRACES (member play executes): some TradeLocker routes accept a
   // market order but silently drop its SL/TP brackets — the fill lands NAKED
@@ -339,7 +347,7 @@ export async function placeOnActiveAccounts(opts: {
       // TP silently dropped by the broker — "WHY IS THERE NO TAKE PROFIT???"). Some
       // TradeLocker routes accept the order but drop a bracket leg with no error, so
       // the SL/TP the signal promised MUST be confirmed on the broker position.
-      r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, tp, true);
+      r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, tp, true, { equity: a.equity, riskPct: acctRisk });
     } catch (e) {
       // The order request THREW (e.g. a network timeout AFTER the broker may already have
       // filled). Never assume it failed and never abort the rest of the fan-out — log an
@@ -359,9 +367,13 @@ export async function placeOnActiveAccounts(opts: {
     if (!r.ok && !r.deferred && /margin/i.test(String(r.error)) && lots > 0.011) {
       if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_submitted", reason: `${opts.source}:margin_fallback`, price: opts.entry, qty: 0.01, detail: { originalLots: lots, originalError: String(r.error).slice(0, 120) } });
       try {
-        const r2 = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, 0.01, stop, tp, true);
+        const r2 = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, 0.01, stop, tp, true, { equity: a.equity, riskPct: acctRisk });
         if (r2.ok) { r = r2; fallbackNote = " · margin_fallback_0.01"; }
-      } catch { /* keep the original margin error */ }
+      } catch {
+        await logEvent(opts.userId, {symbol:canonical, side:opts.side, qty:0.01, status:"uncertain", reason:`${opts.source}:margin_fallback_uncertain`, account_id:a.accountId, entry:opts.entry, stop, tp});
+        fills.push({accountId:a.accountId,accNum:a.accNum,name:a.name,environment:a.env,status:"error",reason:"order_uncertain:margin_fallback"});
+        return;
+      }
     }
     if (!r.ok) {
       // Session-closed rejection isn't a failure — the next tick retries once the
