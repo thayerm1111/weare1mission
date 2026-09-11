@@ -123,9 +123,15 @@ export async function placeForAccount(admin: Admin, acct: MpAccountRow, d: Decis
   if (!order.ok) return fail(`order: ${order.error}`);
 
   // Resolve position id (market orders return an orderId; the position lands a beat later).
+  // OWNER 09-11 ("trades are still not going to break even"): the old 4×600ms ≈ 2.4s gave
+  // up on slow fills, and the positions-row insert below then never ran — a live position
+  // with NO manager row, silently unmanaged forever. Longer FLOW-style backoff (~7s)
+  // resolves the vast majority; anything that still slips through is adopted by the
+  // orphan-recovery sweep in manage.ts within ~20 seconds.
   let positionId = order.data.positionId ?? null;
-  for (let i = 0; i < 4 && !positionId; i++) {
-    await new Promise((r) => setTimeout(r, 600));
+  const RESOLVE_DELAYS_MS = [250, 400, 600, 600, 800, 1000, 1200, 1500];
+  for (let i = 0; i < RESOLVE_DELAYS_MS.length && !positionId; i++) {
+    await new Promise((r) => setTimeout(r, RESOLVE_DELAYS_MS[i]));
     const pp = await listPositions(env, tok.token, acct.acc_num, acct.account_id);
     if (pp.ok) positionId = pp.data.map(posId).filter(Boolean).find((id) => !beforeIds.has(id)) ?? null;
   }

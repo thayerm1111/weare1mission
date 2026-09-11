@@ -1,9 +1,11 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { connectionToken } from "@/lib/flow/connection";
-import { getQuote, listPositions, modifyPosition, closePosition, type TLEnv } from "@/lib/flow/tradelocker";
+import { getQuote, listPositions, listInstruments, modifyPosition, closePosition, type TLEnv } from "@/lib/flow/tradelocker";
 import { getInstrument, pipsToPrice, priceToPips } from "@/lib/matty-pips/pips";
 import { normalizeQuantity } from "@/lib/flow/instruments";
 import { liveTickExtremes } from "@/lib/flow/liveTicks";
+import { matchInstrument } from "@/lib/flow/executor";
+import { pickOrphanMatch, positionCols, normalizePos, type OrphanWant } from "@/lib/flow/recover";
 
 /**
  * MATTY PIPS AUTO — position manager (shared by the minutely cron AND the always-on
@@ -51,10 +53,79 @@ function posId(p: unknown): string {
 // quote + the stream's recent tick window — never worse than the old behavior.
 const bestSeen = new Map<string, number>();
 
+// ── MATTY ORPHAN RECOVERY (owner 09-11: "trades are still not going to break even") ──
+// ROOT CAUSE FOUND: placeForAccount waited only ~2.4s to learn the new position's id
+// from the broker; on a slow fill it gave up ("placed_no_position_id") and NEVER
+// created the matty_pips_positions row — a live broker position with NO manager row,
+// invisible forever. This sweep adopts them: for recent 'placed' trades with no
+// position id, it asks the broker what's open on that account and matches on
+// instrument + side + quantity (stop disambiguates; ambiguity → skip, never guess) —
+// the same battle-tested matcher FLOW's orphan recovery uses.
+const ORPHAN_EVERY_MS = 20_000;
+let lastOrphanScanMs = 0;
+async function recoverMattyOrphans(admin: Admin): Promise<number> {
+  const sinceIso = new Date(Date.now() - 12 * 3600e3).toISOString();
+  const { data } = await admin.from("matty_pips_trades")
+    .select("id, user_id, account_id, acc_num, connection_id, symbol, direction, entry, stop, tp1, qty, created_at")
+    .eq("status", "placed").is("position_id", null).gte("created_at", sinceIso).limit(20);
+  const trades = (data ?? []) as Array<{ id: string; user_id: string | null; account_id: string; acc_num: string; connection_id: string; symbol: string; direction: "buy" | "sell"; entry: number | null; stop: number | null; tp1: number | null; qty: number | null; created_at: string }>;
+  if (!trades.length) return 0;
+  let adopted = 0;
+  for (const tr of trades) {
+    try {
+      const tok = await connectionToken(tr.connection_id);
+      if (!tok.ok) continue;
+      const pp = await listPositions(tok.env, tok.token, tr.acc_num, tr.account_id);
+      if (!pp.ok) continue;
+      const li = await listInstruments(tok.env, tok.token, tr.acc_num, tr.account_id);
+      if (!li.ok) continue;
+      const inst = matchInstrument(tr.symbol, li.data);
+      if (!inst) continue;
+      const cols = await positionCols(tok.env, tok.token, tr.acc_num);
+      const bposs = pp.data.map((p) => normalizePos(p, cols)).filter((p) => p.positionId);
+      const { data: trackedRows } = await admin.from("matty_pips_positions").select("position_id").eq("account_id", tr.account_id);
+      const tracked = new Set(((trackedRows ?? []) as { position_id: string | null }[]).map((r) => String(r.position_id ?? "")));
+      const want: OrphanWant = { instrId: String(inst.tradableInstrumentId), side: tr.direction, qty: Number(tr.qty) || 0, stop: tr.stop != null ? Number(tr.stop) : null };
+      const match = pickOrphanMatch(bposs, want, tracked);
+      if (!match) continue;
+      const entry = match.avg != null && match.avg > 0 ? match.avg : (tr.entry != null ? Number(tr.entry) : null);
+      const sl = match.sl != null ? match.sl : (tr.stop != null ? Number(tr.stop) : null);
+      if (entry == null || sl == null) continue; // cannot manage without a real entry + stop
+      const tp = match.tp != null ? match.tp : (tr.tp1 != null ? Number(tr.tp1) : null);
+      // Account prefs (best-effort — defaults keep management ON).
+      let beOn: boolean | null = null, partOn: boolean | null = null;
+      try {
+        const { data: acct } = await admin.from("matty_pips_accounts").select("be_enabled, partials_enabled").eq("account_id", tr.account_id).maybeSingle();
+        const a = (acct ?? null) as { be_enabled?: boolean | null; partials_enabled?: boolean | null } | null;
+        beOn = a?.be_enabled ?? null; partOn = a?.partials_enabled ?? null;
+      } catch { /* prefs optional */ }
+      const ins = await admin.from("matty_pips_positions").insert({
+        user_id: tr.user_id, connection_id: tr.connection_id, account_id: tr.account_id, acc_num: tr.acc_num,
+        environment: tok.env, position_id: match.positionId, symbol: tr.symbol, side: tr.direction,
+        entry, init_stop: sl, cur_stop: sl, tp1: tp,
+        tp1_pips: tp != null ? Math.round(priceToPips(tr.symbol, Math.abs(tp - entry))) : null,
+        qty: match.qty, tid: String(inst.tradableInstrumentId), route_id: String(inst.routeId),
+        be_enabled: beOn, partials_enabled: partOn,
+        status: "open",
+      });
+      if (!ins.error) {
+        adopted += 1;
+        await admin.from("matty_pips_trades").update({ position_id: match.positionId, updated_at: new Date().toISOString() }).eq("id", tr.id);
+        await admin.from("matty_pips_management_events").insert({ position_id: match.positionId, account_id: tr.account_id, kind: "orphan_adopted", detail: { entry, stop: sl, tp, qty: match.qty } }).then(() => null, () => null);
+      }
+    } catch { /* per-trade best-effort */ }
+  }
+  return adopted;
+}
+
 export async function manageMattyPips(): Promise<{ ok: boolean; open?: number; acted?: string[]; error?: string }> {
   const admin = createAdminClient();
   if (!admin) return { ok: false, error: "not_configured" };
   const nowIso = () => new Date().toISOString();
+  if (Date.now() - lastOrphanScanMs > ORPHAN_EVERY_MS) {
+    lastOrphanScanMs = Date.now();
+    try { await recoverMattyOrphans(admin); } catch { /* recovery is best-effort */ }
+  }
   const { data } = await admin.from("matty_pips_positions").select("*").eq("status", "open").limit(60);
   const rows = (data ?? []) as Row[];
   if (!rows.length) { bestSeen.clear(); return { ok: true, open: 0 }; }
@@ -91,7 +162,11 @@ export async function manageMattyPips(): Promise<{ ok: boolean; open?: number; a
         continue;
       }
 
-      if (!r.tid || !r.route_id) continue;
+      if (!r.tid || !r.route_id) {
+        // Never skip silently — a row with no quote route can't be managed and must say so.
+        await admin.from("matty_pips_positions").update({ last_error: "no_route_meta (tid/route_id missing)", updated_at: nowIso() }).eq("id", r.id);
+        continue;
+      }
       const q = await getQuote(tok.env, tok.token, r.acc_num, r.tid, r.route_id);
       if (!q.ok) continue;
       const price = r.side === "buy" ? q.data.bid : q.data.ask; // exit-side price
