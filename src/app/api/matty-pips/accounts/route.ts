@@ -46,7 +46,9 @@ export async function POST(req: NextRequest) {
     user_id: profile.id, connection_id: target.connection_id, account_id: target.account_id, acc_num: target.acc_num,
     name: target.name, currency: target.currency, updated_at: new Date().toISOString(),
   };
-  if (body.enabled != null) patch.enabled = body.enabled === true;
+  // MATTY PIPS RETIRED (owner 09-13: "Turn off Matty pips... Nobody can have that turned
+  // on"). This endpoint can no longer enable it — every save forces enabled OFF.
+  patch.enabled = false;
   if (riskPct != null && Number.isFinite(riskPct)) patch.risk_pct = riskPct;
   if (body.beEnabled != null) patch.be_enabled = body.beEnabled !== false;
   if (body.partialsEnabled != null) patch.partials_enabled = body.partialsEnabled !== false;
