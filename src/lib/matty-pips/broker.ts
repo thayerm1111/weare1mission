@@ -110,6 +110,21 @@ export async function placeForAccount(admin: Admin, acct: MpAccountRow, d: Decis
   });
   if (!size.ok || !(size.lots > 0)) return fail(`sizing: ${size.reason || "zero lots"}`);
 
+  // MIN-LOT SAFETY (owner 09-11: "taking way too big of positions"): flooring tiny
+  // accounts UP to the broker's 0.01 minimum turned 0.5% risk requests into 92–132% of
+  // the whole account on one gold trade ($17–$25 balances with $22+ stops). If the
+  // FINAL size would risk more than double the requested % (with a small tolerance for
+  // rounding), the account is simply too small for this setup's stop — skip it and say
+  // so, instead of betting the account. Gold: $100 per 1.0 lot per $1 of price.
+  {
+    const riskUsd = size.lots * Math.abs(t.entry - t.stopLoss) * 100;
+    const reqPct = acct.risk_pct || 0.5;
+    const actualPct = equity > 0 ? (riskUsd / equity) * 100 : Infinity;
+    if (actualPct > Math.max(2 * reqPct, reqPct + 0.75)) {
+      return fail(`min_lot_risk: ${size.lots} lots risks ${actualPct.toFixed(1)}% of $${Math.round(equity)} (requested ${reqPct}%) — account too small for this stop`);
+    }
+  }
+
   // Snapshot open positions to resolve the new id after the market fill.
   const before = await listPositions(env, tok.token, acct.acc_num, acct.account_id);
   const beforeIds = new Set((before.ok ? before.data : []).map(posId).filter(Boolean));
