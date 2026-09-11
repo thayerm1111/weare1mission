@@ -65,3 +65,13 @@ The designated account's existing session successfully returned config, position
 Observed request durations from the development workspace were: config 5575 ms, positions 481 ms, orders 4689 ms, history 5253 ms, instruments 5406 ms, quote 172 ms. These measurements include this workspace's network path and are not production worker benchmarks. An earlier snapshot attempt failed; the bounded follow-up succeeded. The read session did not refresh credentials, change broker positions, or modify production configuration.
 
 Validation now includes 18 passing tests plus TypeScript checking. No token, account balance, or raw history is included in this repository.
+
+### Workflow validation follow-up
+
+22 automated tests now pass, with TypeScript checking also passing. Added transport-level workflow fixtures using the observed broker column schema and synthetic positions/orders:
+
+- A 204 acknowledgement for BE or trailing does not prove the requested stop exists. The read path returns the old stop until the linked stop order changes.
+- Missing positions and error responses from the orders endpoint do not confirm protection.
+- A partial close stays pending while the broker quantity is unchanged or only partly reduced. Repeated checks issue exactly one simulated DELETE, and confirm only after the requested reduction appears.
+
+These fixtures invoke the real TradeLocker client and evidence/partial helpers against a mock HTTP transport. They do not run the complete manager, prove database concurrency under PostgreSQL, or demonstrate actual broker write settlement. The platform ledger still showed no open position on the designated account at this follow-up. Production promotion remains blocked on the previously documented settlement and worker-coordination gates.
