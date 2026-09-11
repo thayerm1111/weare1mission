@@ -68,8 +68,8 @@ function valAt(p: unknown, idx: number, keys: string[]): unknown {
 }
 function numAt(p: unknown, idx: number, keys: string[]): number | null { const v = valAt(p, idx, keys); const n = typeof v === "string" ? parseFloat(v) : Number(v); return Number.isFinite(n) ? n : null; }
 
-type PosCols = { instrIdx: number; sideIdx: number; qtyIdx: number; slIdx: number; tpIdx: number; avgIdx: number };
-async function positionCols(env: TLEnv, token: string, accNum: string): Promise<PosCols> {
+export type PosCols = { instrIdx: number; sideIdx: number; qtyIdx: number; slIdx: number; tpIdx: number; avgIdx: number };
+export async function positionCols(env: TLEnv, token: string, accNum: string): Promise<PosCols> {
   const def: PosCols = { instrIdx: 1, sideIdx: 3, qtyIdx: 4, slIdx: -1, tpIdx: -1, avgIdx: 5 };
   try {
     const cfg = await getConfig(env, token, accNum);
@@ -94,7 +94,7 @@ async function positionCols(env: TLEnv, token: string, accNum: string): Promise<
     };
   } catch { return def; }
 }
-function normalizePos(p: unknown, cols: PosCols): BrokerPos {
+export function normalizePos(p: unknown, cols: PosCols): BrokerPos {
   return {
     positionId: posIdOf(p),
     instrId: String(valAt(p, cols.instrIdx, ["tradableInstrumentId", "instrumentId"]) ?? ""),
