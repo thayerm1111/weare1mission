@@ -158,12 +158,16 @@ export async function manageMattyPips(): Promise<{ ok: boolean; open?: number; a
     lastOrphanScanMs = Date.now();
     try { await recoverMattyOrphans(admin); } catch { /* recovery is best-effort */ }
   }
-  const { data } = await admin.from("matty_pips_positions").select("*").eq("status", "open").limit(60);
+  const { data } = await admin.from("matty_pips_positions").select("*").eq("status", "open").order("updated_at", { ascending: true }).limit(60);
   const rows = (data ?? []) as Row[];
   if (!rows.length) { bestSeen.clear(); return { ok: true, open: 0 }; }
 
   const tokens = new Map<string, { token: string; env: TLEnv } | null>();
   const openSets = new Map<string, Set<string>>();
+  // ONE quote per (env, instrument) per pass — 25+ gold rows used to each fetch their own
+  // quote every 15s, which is pure duplicate load on the broker edge (the 09-11 1015-storm
+  // lesson: every saved call is headroom). Bid/ask both kept so each side reads its own.
+  const quoteCache = new Map<string, { bid: number | null; ask: number | null } | null>();
   const acted: string[] = [];
   const liveIds = new Set(rows.map((r) => String(r.position_id)));
   for (const k of bestSeen.keys()) if (!liveIds.has(k)) bestSeen.delete(k); // closed → forget
@@ -199,10 +203,18 @@ export async function manageMattyPips(): Promise<{ ok: boolean; open?: number; a
         await admin.from("matty_pips_positions").update({ last_error: "no_route_meta (tid/route_id missing)", updated_at: nowIso() }).eq("id", r.id);
         continue;
       }
-      const q = await getQuote(tok.env, tok.token, r.acc_num, r.tid, r.route_id);
-      if (!q.ok) continue;
-      const price = r.side === "buy" ? q.data.bid : q.data.ask; // exit-side price
+      const qKey = `${tok.env}|${r.tid}`;
+      let quote = quoteCache.get(qKey);
+      if (quote === undefined) {
+        const q = await getQuote(tok.env, tok.token, r.acc_num, r.tid, r.route_id);
+        quote = q.ok ? { bid: q.data.bid ?? null, ask: q.data.ask ?? null } : null;
+        quoteCache.set(qKey, quote);
+      }
+      if (!quote) continue;
+      const price = r.side === "buy" ? quote.bid : quote.ask; // exit-side price
       if (price == null || !Number.isFinite(price)) continue;
+      // Live spread for the profit-lock cushion below (junk/one-sided quote → 0 → floors win).
+      const liveSpread = quote.bid != null && quote.ask != null && quote.ask > quote.bid ? quote.ask - quote.bid : 0;
 
       const meta = getInstrument(r.symbol);
       const pip = pipsToPrice(r.symbol, 1);
@@ -242,12 +254,21 @@ export async function manageMattyPips(): Promise<{ ok: boolean; open?: number; a
       const bestAdvanced = persisted == null || (r.side === "buy" ? best > persisted + 0.01 : best < persisted - 0.01);
       const favPips = r.side === "buy" ? priceToPips(r.symbol, Math.max(0, best - r.entry)) : priceToPips(r.symbol, Math.max(0, r.entry - best));
 
-      // STEP 1 — breakeven (+5 pips in profit so fees never turn it into a loss).
+      // STEP 1 — breakeven, pushed INTO PROFIT (owner: "It has to move it into profit not
+      // a loss"). +5 pips alone is NOT enough — a stop becomes a market order when touched,
+      // and FLOW's live history (09-06/09-07/09-08) proved fills land a full spread + spike
+      // slippage through the lock. Same cushion FLOW's manager earned the hard way: the live
+      // spread, floored at 12 pips in liquid hours / 20 in the thin window (21:00–07:00 UTC
+      // rollover + Asia), capped at 40 so a junk quote can't distort it. BE trigger is 30
+      // pips, so even the deep thin-hours lock (25p) stays inside the trigger.
       // Trigger judges the EXCURSION (a wick that touched the level counts); the live
       // price must still sit safely beyond the new stop so a faded move isn't scratched.
+      const utcH = new Date().getUTCHours();
+      const thinHours = utcH >= 21 || utcH < 7;
+      const lockPad = Math.min(Math.max(liveSpread, (thinHours ? 20 : 12) * pip), 40 * pip);
       const beTrig = r.be_trigger ?? 30;
       if (r.be_enabled !== false && !r.be_done && inProfit && favPips >= beTrig) {
-        const bePx = roundPx(r.side === "buy" ? r.entry + 5 * pip : r.entry - 5 * pip);
+        const bePx = roundPx(r.side === "buy" ? r.entry + 5 * pip + lockPad : r.entry - 5 * pip - lockPad);
         const beSafe = r.side === "buy" ? price >= bePx + 2 * pip : price <= bePx - 2 * pip;
         if (beSafe && stopAheadOf(bePx, cur)) {
           const m = await modifyPosition(tok.env, tok.token, r.acc_num, r.position_id, { stopLoss: bePx });
@@ -268,12 +289,23 @@ export async function manageMattyPips(): Promise<{ ok: boolean; open?: number; a
         if (half.ok && half.qty > 0 && half.qty < r.qty) {
           const c = await closePosition(tok.env, tok.token, r.acc_num, r.position_id, half.qty);
           if (c.ok) {
+            // The partial IS banked (the close filled) — record that unconditionally. The
+            // profit LOCK is separate: only move the stop when the live price still sits
+            // safely beyond it (a faded move can't have its stop parked through the market,
+            // which the broker would reject or instantly fill), and only RECORD cur_stop
+            // when the broker actually ACCEPTED the modify — the old path wrote the lock to
+            // the ledger even when the modify was rejected, so the DB claimed a stop the
+            // broker never held.
             const lock = r.lock_pips ?? 30;
             const lockPx = roundPx(r.side === "buy" ? r.entry + lock * pip : r.entry - lock * pip);
-            const newStop = stopAheadOf(lockPx, cur) ? lockPx : cur;
-            if (stopAheadOf(newStop, cur) || newStop !== cur) await modifyPosition(tok.env, tok.token, r.acc_num, r.position_id, { stopLoss: newStop });
+            const lockSafe = r.side === "buy" ? price >= lockPx + 2 * pip : price <= lockPx - 2 * pip;
+            let newStop = cur;
+            if (lockSafe && stopAheadOf(lockPx, cur)) {
+              const m = await modifyPosition(tok.env, tok.token, r.acc_num, r.position_id, { stopLoss: lockPx });
+              if (m.ok) newStop = lockPx;
+            }
             await admin.from("matty_pips_positions").update({ partial_done: true, qty: +(r.qty - half.qty).toFixed(2), cur_stop: newStop, updated_at: nowIso() }).eq("id", r.id);
-            await admin.from("matty_pips_management_events").insert({ position_id: r.position_id, account_id: r.account_id, kind: "partial_lock", detail: { at: price, closed: half.qty, stop: newStop, favPips } }).then(() => null, () => null);
+            await admin.from("matty_pips_management_events").insert({ position_id: r.position_id, account_id: r.account_id, kind: "partial_lock", detail: { at: price, closed: half.qty, stop: newStop, lockApplied: newStop !== cur, favPips } }).then(() => null, () => null);
             acted.push(`${r.acc_num}:PARTIAL`);
             continue;
           }
@@ -293,8 +325,15 @@ export async function manageMattyPips(): Promise<{ ok: boolean; open?: number; a
         }
       }
 
+      // WRITE THINNING: persist the excursion only when it actually advanced; the bare
+      // liveness stamp only when the row hasn't been touched for 60s (was: every pass —
+      // hundreds of no-op UPDATEs a minute at worker cadence, for nothing).
       if (bestAdvanced) await admin.from("matty_pips_positions").update({ best_price: best, updated_at: nowIso() }).eq("id", r.id);
-      else await admin.from("matty_pips_positions").update({ updated_at: nowIso() }).eq("id", r.id);
+      else {
+        const touched = (r as { updated_at?: string | null }).updated_at;
+        const ageMs = touched ? Date.now() - Date.parse(touched) : Infinity;
+        if (!Number.isFinite(ageMs) || ageMs > 60_000) await admin.from("matty_pips_positions").update({ updated_at: nowIso() }).eq("id", r.id);
+      }
     } catch { /* per-position best-effort */ }
   }
   return { ok: true, open: rows.length, acted };
