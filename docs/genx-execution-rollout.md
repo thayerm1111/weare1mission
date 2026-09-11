@@ -43,3 +43,25 @@ These are simulated broker responses, not evidence of live profitability, lower 
 ## Rollback
 
 Keep the additive reservation table and its records. Rolling back to old manager code while an operation is pending can re-enable duplicate partial dispatch. Pause new automated entries, reconcile all pending closes, and drain newer workers before considering an application rollback. Do not drop the table or delete reservations as a routine rollback step.
+
+## Isolated broker diagnostic
+
+`scripts/genxValidate.ts` is a one-shot backend runner. Set `GENX_VALIDATION_ACCOUNT_ID` and `GENX_VALIDATION_CONNECTION_ID` to the operator-approved pair, then run:
+
+```sh
+node --import tsx scripts/genxValidate.ts
+```
+
+The default mode uses the backend Supabase environment to verify the account/connection owner and reuse its stored access token. An expired session fails closed; it does not refresh or reauthenticate. `--stdin` supports a trusted operator supplying a scoped existing session as a single JSON line. Never put that session in a command line, report, source file, or GitHub comment.
+
+The transport permits GET only, the configured TradeLocker environment only, and the chosen account's instruments/positions/orders/history plus config/quotes. It rejects redirects and repeated requests. No manager, scheduled loop, execution endpoint, authentication mutation, or database write is invoked. Output includes read durations, schema column names, evidence availability, and counts; it omits credentials, balances, individual trade IDs, and raw broker responses.
+
+This diagnostic checks read compatibility. It cannot prove successful BE modifications or partial settlement with no open positions and no broker writes. It is not a replacement for replay and settlement validation.
+
+### Read-only broker validation result (2026-09-11 23:31 UTC)
+
+The designated account's existing session successfully returned config, positions, orders, history, instruments, and both quote sides. No open positions or working orders were present. Consequently, BE mutation and partial settlement remain untested. The broker's position schema uses `stopLossId` rather than a stop-price column. Stop evidence now supports this exact linked-order ID, including when the order omits its position link; conflicting links are rejected.
+
+Observed request durations from the development workspace were: config 5575 ms, positions 481 ms, orders 4689 ms, history 5253 ms, instruments 5406 ms, quote 172 ms. These measurements include this workspace's network path and are not production worker benchmarks. An earlier snapshot attempt failed; the bounded follow-up succeeded. The read session did not refresh credentials, change broker positions, or modify production configuration.
+
+Validation now includes 18 passing tests plus TypeScript checking. No token, account balance, or raw history is included in this repository.

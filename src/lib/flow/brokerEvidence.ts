@@ -14,10 +14,14 @@ export function columnMap(config: unknown, section: string): Record<string, numb
   if (!Array.isArray(cols)) return undefined;
   return Object.fromEntries(cols.map((c, i) => [String(c.id ?? c.key ?? c.name ?? ''), i]));
 }
-export function protectiveStop(orders: unknown[], cols: Record<string,number> | undefined, positionId: string): number | null {
+export function protectiveStop(orders: unknown[], cols: Record<string,number> | undefined, positionId: string, stopOrderId?: string): number | null {
   const matches: number[] = [];
   for (const o of orders) {
-    if (String(field(o, cols, ['positionId','positionID','posId'])) !== positionId) continue;
+    const linkedPosition = field(o, cols, ['positionId','positionID','posId']);
+    if (stopOrderId) {
+      if (String(field(o, cols, ['id','orderId'])) !== stopOrderId) continue;
+      if (linkedPosition != null && String(linkedPosition) !== '0' && String(linkedPosition) !== positionId) continue;
+    } else if (String(linkedPosition) !== positionId) continue;
     const type = String(field(o, cols, ['type','orderType']) ?? '').toLowerCase();
     const status = String(field(o, cols, ['status','orderStatus']) ?? '').toLowerCase().replace(/[ _-]/g,'');
     if (!type.includes('stop') || !['new','working','open','pending','accepted','partiallyfilled'].includes(status)) continue;
@@ -56,5 +60,6 @@ export async function readProtectiveStop(env:TLEnv, token:string, accNum:string,
   const stop = Number(field(pos,pc,['stopLoss','stopLossPrice','sl']));
   if (Number.isFinite(stop) && stop > 0) return stop;
   const orders = await listOrders(env,token,accNum,accountId);
-  return orders.ok ? protectiveStop(orders.data,columnMap(config,'ordersConfig'),positionId) : null;
+  const stopId = field(pos, pc, ['stopLossId']);
+  return orders.ok ? protectiveStop(orders.data,columnMap(config,'ordersConfig'),positionId, stopId != null && String(stopId) !== '0' ? String(stopId) : undefined) : null;
 }
