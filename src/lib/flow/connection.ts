@@ -1,3 +1,4 @@
+import { SEND_IT_ENABLED } from "./automationPolicy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret } from "@/lib/flow/crypto";
 import { authenticate, refresh as tlRefresh, listAccounts, type TLEnv } from "@/lib/flow/tradelocker";
@@ -163,7 +164,7 @@ export async function activeAccounts(userId: string): Promise<ActiveAccount[]> {
         currency: l?.currency ?? a.currency ?? null, name: a.name ?? null,
         riskPct: typeof a.risk_pct === "number" && a.risk_pct > 0 ? a.risk_pct : null,
         riskMode: a.risk_mode || "conservative",
-        sendIt: a.send_it === true,
+        sendIt: SEND_IT_ENABLED && a.send_it === true,
         sendItStack: a.send_it_stack !== false, // default: every entry (classic Send It)
         sendItGuards: a.send_it_guards === true, // default: bypass safeguards (classic Send It)
       });
