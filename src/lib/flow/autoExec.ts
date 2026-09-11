@@ -1684,10 +1684,20 @@ export async function placeGenxFollower(sig: {
   // SELECTIVITY GATES — same desk rules as the copy path (owner directives 08-31): the
   // same-setup break-even escalation (retry must earn it; twice-scratched zone sits out)
   // plus the post-win premium bar. Followers skip silently; the copy path posts the note.
+  //
+  // PER-ACCOUNT HOLDS (owner 09-10, audit 09-11 parity fix): the copy path already holds
+  // ONLY the accounts that took the earlier win/scratch — the follower path was still
+  // holding the whole follower fleet desk-wide off one account's history. Same rule now:
+  // only a twice-scratched zone is a desk-wide sit-out; the retry bar and the
+  // protect-the-profits bar hold ONLY the participant accounts.
+  let holdAccounts: Set<string> | null = null;
   try {
     const rrLive = rewardRisk(goldLp != null ? goldLp : entry, fstop, sig.tp);
     const beGate = await goldBeSetupGate(admin, sig.side, entry, rrLive, sig.confidence);
-    if (beGate.block) sendItOnly = true;
+    if (beGate.block) {
+      if (beGate.kind === "exhausted") sendItOnly = true; // dead setup — desk-wide
+      else holdAccounts = await goldParticipantAccounts(admin, sig.side, GOLD_WIN_PICKY_MS);
+    }
     const w = await goldRecentWinOnSide(admin, sig.side, GOLD_WIN_PICKY_MS);
     // OWNER RULE 09-02: premium bar after a recent win OR break-even scratch (min 1:1).
     let raisedBar = w.won;
@@ -1695,7 +1705,7 @@ export async function placeGenxFollower(sig: {
     if (raisedBar) {
       const rrOk = rrLive == null ? true : rrLive >= GOLD_WIN_PICKY_RR;
       const confOk = sig.confidence == null ? true : sig.confidence >= GOLD_WIN_PICKY_CONF;
-      if (!rrOk || !confOk) sendItOnly = true; // copy path posts the Telegram note
+      if ((!rrOk || !confOk) && !holdAccounts) holdAccounts = await goldParticipantAccounts(admin, sig.side, GOLD_WIN_PICKY_MS); // copy path posts the Telegram note
     }
   } catch { /* read error → don't block */ }
 
@@ -1785,6 +1795,12 @@ export async function placeGenxFollower(sig: {
         if (sig.conservativeOk === false) return { touched: 1, placed: 0 };
         const cut = await accountAssetCutoff(admin, a.account_id, "gold");
         if (cut.halt) return { touched: 1, placed: 0 };
+      }
+      // PER-ACCOUNT PREMIUM HOLD (owner 09-10): only follower accounts that took the
+      // earlier win/BE scratch on this side sit a sub-premium re-entry out; uninvolved
+      // accounts trade on normal rules. Send It (guards off) still bypasses.
+      if (holdAccounts && holdAccounts.has(String(a.account_id)) && !(a.send_it === true && a.send_it_guards !== true)) {
+        return { touched: 1, placed: 0 };
       }
       // MAX ONE OPEN GENX/FLOW GOLD PER ACCOUNT — broker-verified (same rule as the copy
       // path). The ledger holds only engine-placed trades, so a MANUAL gold trade never

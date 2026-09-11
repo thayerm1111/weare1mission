@@ -1092,7 +1092,13 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // touched — no cushion can beat every vertical candle — but at 12 pips + live spread
       // the lock sits ~15+ pips into profit (still inside the 30-pip trigger), so ordinary
       // 5-10 pip spike slippage keeps printing green instead of small red scratches.
-      const padFloor = (thinHours ? 20 : 12) * pip;
+      // The 12/20-pip cushion floors were derived from GOLD's live slippage history
+      // (pip = $0.10 → 12 pips = $1.20 of spike room). Applied to FOREX they were ~10×
+      // too big relative to real spreads (~0.5-2 pips on EURUSD): the lock sat so deep
+      // that break-even couldn't fire until ~19 pips of profit even when the trigger said
+      // 8-12 (09-11 audit finding). Non-gold floors at 3 pips; the LIVE spread still wins
+      // whenever it's wider, and the 40-pip cap guards junk quotes on every symbol.
+      const padFloor = (contractKey(row.symbol) === "XAUUSD" ? (thinHours ? 20 : 12) : 3) * pip;
       const spreadPad = Math.min(Math.max(spreadCache.get(`${tok.env}|${row.symbol}`) ?? 0, padFloor), 40 * pip);
       const bePx = roundPx(row.symbol, long ? entry + BE_PROFIT_PIPS * pip + spreadPad : entry - BE_PROFIT_PIPS * pip - spreadPad);
       const beSafe = long ? price > bePx + 2 * pip : price < bePx - 2 * pip;
