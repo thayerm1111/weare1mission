@@ -25,6 +25,9 @@ const C = { base: "#0B0F14", panel: "#111820", line: "rgba(255,255,255,0.07)", t
 // Every desk tool renders INLINE on the Floor (as a `view`) so the whole workspace
 // flows together — clicking GENX / OM AI / OM AI Plays / Market Pulse / Live Plays
 // stays on the Floor exactly like FLOW, instead of navigating to a separate page.
+// Matty Pips retired as a member option (owner 09-13). The tab is filtered out of the
+// nav and a deep link to it falls back to the Floor home. Flip to true to restore it.
+const SHOW_MATTY_TAB = false;
 const VIEW_TABS = [
   { id: "home", label: "Floor" },
   { id: "flow", label: "FLOW" },
@@ -74,7 +77,8 @@ export function FloorWorkspace({ isCaller = false, followerCount = 0 }: { isCall
   const router = useRouter();
   const params = useSearchParams();
   const raw = params.get("view");
-  const tab: TabId = (VIEW_TABS.some((t) => t.id === raw) ? raw : "home") as TabId;
+  const rawTab: TabId = (VIEW_TABS.some((t) => t.id === raw) ? raw : "home") as TabId;
+  const tab: TabId = (!SHOW_MATTY_TAB && rawTab === "matty") ? "home" : rawTab; // retired tab → Floor home
 
   // PATH-AWARE TOOL SWITCH (owner 09-10: "everyone stays on the site when they click
   // the different tools" — the standalone Floor at floor.weare1mission.com mounts this
@@ -137,7 +141,7 @@ export function FloorWorkspace({ isCaller = false, followerCount = 0 }: { isCall
       <div className="flex items-center gap-2 border-b px-2.5 py-2" style={{ borderColor: C.line }}>
         <span className="hidden flex-shrink-0 items-center gap-1.5 pl-1 pr-2 text-[11px] font-black uppercase tracking-[0.15em] sm:inline-flex" style={{ color: C.cyan }}>◢ Floor</span>
         <div className="flex flex-1 gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {SWITCHER.map((s) => {
+          {SWITCHER.filter((s) => SHOW_MATTY_TAB || s.key !== "matty").map((s) => {
             const Icon = s.icon;
             if ("href" in s) return <Link key={s.key} href={s.href} className={pillCls} style={pillStyle(false)}><Icon className="h-3.5 w-3.5" aria-hidden="true" />{s.label}</Link>;
             const active = s.view === tab;

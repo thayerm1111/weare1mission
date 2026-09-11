@@ -16,6 +16,11 @@ import {
 } from "lucide-react";
 import { FlowTour } from "./FlowTour";
 
+// RETIRED ENGINES (owner 09-13: "Turn off Matty pips and send it... Hide Matty pips and
+// send it as options to turn on. Nobody can have that turned on"). Only FLOW/GENX auto
+// remains. Set back to true only to bring these options back.
+const SHOW_LEGACY_ENGINES = false;
+
 /* FLOW ↔ TradeLocker connect (desktop portal parity with the app's GxBrokerConnect).
  * Credentials are POSTed straight to /api/flow/broker; the browser never stores a
  * token. FLOW shows balances and prepares trades — it never places a live-money
@@ -716,6 +721,7 @@ export function FlowConnect() {
                               </div>
                             </div>
                           )}
+                          {SHOW_LEGACY_ENGINES && (
                           <div {...tour("ft-sendit")} className={`mt-2 rounded-lg border px-2.5 py-2 ${sendIt ? "border-amber-500/50 bg-amber-500/[0.07]" : "border-ice bg-offwhite/40"}`}>
                             <div className="flex items-center justify-between gap-3">
                               <div className="min-w-0">
@@ -769,7 +775,8 @@ export function FlowConnect() {
                               </div>
                             )}
                           </div>
-                          {(() => {
+                          )}
+                          {SHOW_LEGACY_ENGINES && (() => {
                             const mpOn = mpMap[`${a.connectionId}:${a.accountId}`] === true;
                             return (
                               <div className={`mt-2 flex items-center justify-between gap-3 rounded-lg border px-2.5 py-2 ${mpOn ? "border-sky-500/50 bg-sky-500/[0.07]" : "border-ice bg-offwhite/40"}`}>
