@@ -168,6 +168,32 @@ export async function manageMattyPips(): Promise<{ ok: boolean; open?: number; a
   // quote every 15s, which is pure duplicate load on the broker edge (the 09-11 1015-storm
   // lesson: every saved call is headroom). Bid/ask both kept so each side reads its own.
   const quoteCache = new Map<string, { bid: number | null; ask: number | null } | null>();
+
+  // ── INFO-ROUTE LOOKUP (owner 09-11 audit — THE reason Matty never managed a trade) ──
+  // TradeLocker's /trade/quotes endpoint requires the INFO route, not the TRADE route
+  // (documented in tradelocker.ts: "GET /trade/quotes (routeId=INFO)"). FLOW's manager
+  // calls getQuote with `inst.infoRouteId || inst.routeId`; Matty stored and passed the
+  // TRADE route_id, so EVERY Matty quote request failed → `if (!q.ok) continue` skipped the
+  // position silently, and break-even/partials/trail never even got a price. Across 300
+  // positions, all-time, Matty moved zero stops. This resolves the correct info route the
+  // same way FLOW does — by listing the account's instruments (cached once per account per
+  // pass) and reading infoRouteId off the matching instrument — so it self-heals every
+  // existing row with no migration. Falls back to the stored route only if the lookup fails,
+  // so it's never worse than before.
+  const instRouteByAcct = new Map<string, Map<string, string>>(); // account_id -> (tid -> infoRoute)
+  async function infoRouteFor(tok: { token: string; env: TLEnv }, accNum: string, accountId: string, tid: string, fallback: string): Promise<string> {
+    let m = instRouteByAcct.get(accountId);
+    if (!m) {
+      m = new Map();
+      try {
+        const li = await listInstruments(tok.env, tok.token, accNum, accountId);
+        if (li.ok) for (const i of li.data) m.set(String(i.tradableInstrumentId), String(i.infoRouteId || i.routeId || ""));
+      } catch { /* list failed → fall back to the stored route below */ }
+      instRouteByAcct.set(accountId, m);
+    }
+    const r = m.get(String(tid));
+    return r && r.length ? r : fallback;
+  }
   const acted: string[] = [];
   const liveIds = new Set(rows.map((r) => String(r.position_id)));
   for (const k of bestSeen.keys()) if (!liveIds.has(k)) bestSeen.delete(k); // closed → forget
@@ -225,11 +251,15 @@ export async function manageMattyPips(): Promise<{ ok: boolean; open?: number; a
       const qKey = `${tok.env}|${r.tid}`;
       let quote = quoteCache.get(qKey);
       if (quote === undefined) {
-        const q = await getQuote(tok.env, tok.token, r.acc_num, r.tid, r.route_id);
+        // Use the INFO route for the quote (not the stored trade route_id) — see infoRouteFor.
+        const infoRoute = await infoRouteFor(tok, r.acc_num, r.account_id, r.tid, r.route_id);
+        const q = await getQuote(tok.env, tok.token, r.acc_num, r.tid, infoRoute);
         quote = q.ok ? { bid: q.data.bid ?? null, ask: q.data.ask ?? null } : null;
         quoteCache.set(qKey, quote);
       }
-      if (!quote) continue;
+      // Record the skip instead of hiding it (the old silent `continue` is exactly what let
+      // the broken-quote bug stay invisible for 300 positions). A readable diagnostic now.
+      if (!quote) { await admin.from("matty_pips_positions").update({ last_error: "no_quote", updated_at: nowIso() }).eq("id", r.id); continue; }
       const price = r.side === "buy" ? quote.bid : quote.ask; // exit-side price
       if (price == null || !Number.isFinite(price)) continue;
       // Live spread for the profit-lock cushion below (junk/one-sided quote → 0 → floors win).
