@@ -189,22 +189,15 @@ export async function POST(req: NextRequest) {
     //   be / partials: whether the trade-manager still moves break-even / banks partials —
     //           these write the account's normal be_enabled / partials_enabled toggles.
     // Sizing still uses the account's risk %. Default OFF; explicit per-account opt-in.
+    // SEND IT RETIRED (owner 09-13: "Take EVERYONE off send it... Nobody can have that
+    // turned on"). This endpoint can no longer enable it — it only ever forces the flags
+    // OFF, so any stray client or old cached UI can't switch it back on.
     const accountId = String(body.accountId || "");
     if (!accountId) return json({ error: "missing_account" }, 200);
-    const enabled = body.enabled === true; // default OFF (opt-in)
-    const patch: Record<string, unknown> = { send_it: enabled, updated_at: new Date().toISOString() };
-    if (enabled) {
-      if (typeof body.stack === "boolean") patch.send_it_stack = body.stack;
-      if (typeof body.guards === "boolean") patch.send_it_guards = body.guards;
-      if (typeof body.be === "boolean") patch.be_enabled = body.be;
-      if (typeof body.partials === "boolean") patch.partials_enabled = body.partials;
-      if (typeof body.be === "boolean" || typeof body.partials === "boolean") patch.manage_trades = true; // the split toggles only act when the master is on
-    }
-    let q = admin.from("flow_broker_accounts").update(patch).eq("user_id", user.id).eq("account_id", accountId);
+    let q = admin.from("flow_broker_accounts").update({ send_it: false, send_it_stack: false, send_it_guards: false, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
     if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
-    const { error } = await q;
-    if (error) return json({ error: "needs_setup", detail: "Send It isn't set up yet — run the send_it column migration." }, 200);
-    return json({ ok: true, accountId, sendIt: enabled, sendItStack: body.stack, sendItGuards: body.guards });
+    await q;
+    return json({ ok: true, accountId, sendIt: false, retired: true });
   }
 
   if (action === "goldbe") {
