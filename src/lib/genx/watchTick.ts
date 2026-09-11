@@ -40,6 +40,21 @@ export function decideGoldEntry(o: {
   const takeable = inZone || (rr != null && rr >= GOLD_ENTRY_FLOOR_RR);
   const elapsed = o.nowMs - o.armedAtMs;
   if (!o.armed) {
+    // ── FAST ZONE FILL (owner 09-13: "fill me at the zone, this needs to be faster") ──
+    // Price being IN the entry zone with a takeable reward:risk IS the entry — take it at
+    // market RIGHT NOW, instead of waiting for the interval CLOSE to "confirm". That close
+    // is exactly what lagged fast moves: gold ran ~40 pips through a 1.8:1 sell zone before
+    // the 5-min close confirmed, so the desk only ever saw the chased 0.63 price and skipped
+    // it. This is the resting-limit behavior the owner asked for — fill ~at the called zone;
+    // the break-even + stop handle the minority of fills that keep going. Guards intact:
+    //   • R:R floor still applies (a zone whose target is too close is NOT taken here),
+    //   • if price has already run PAST the zone (not inZone) it falls through to the old
+    //     confirm/arm path and placeGenxGold's chase guard still owns the chased price,
+    //   • two-strike / news / post-win / send-it gates all live downstream in placeGenxGold.
+    // The fast-watch runs ~1s on the worker, so a descent through the ~10-pip zone lands a
+    // pass while price is in it; only a >10-pip/sec spike outruns it (a true broker limit
+    // order would be the next step for that, but this fixes the lag for the common case).
+    if (inZone && rr != null && rr >= GOLD_ENTRY_FLOOR_RR) return { do: "enter", reason: "in_zone_fill" };
     if (o.confState !== "CONFIRMED") return { do: "wait", reason: "pending:" + o.confState };
     if (takeable) return { do: "enter", reason: "confirmed_rr_ok" };
     return { do: "arm", reason: "chased_below_floor" };
