@@ -76,6 +76,27 @@ function pacedByLane<T>(laneKey: string, fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
+// HOST-WIDE RATE-LIMIT CIRCUIT BREAKER (owner 09-11 live incident: a Cloudflare-1015
+// storm put all read lanes into 15s-timeout retry loops at once — throughput collapsed
+// and manage passes went silent for 16 minutes while +78-pip trades reversed to stops).
+// On any 1015/429 the WHOLE host backs off together (3s, growing to 15s on repeats)
+// instead of every lane independently hammering the same closed door. One brief
+// coordinated pause instead of minutes of lane paralysis.
+const _hostCool = new Map<string, { until: number; streak: number }>();
+function _noteRateLimited(host: string): void {
+  const now = Date.now();
+  const cur = _hostCool.get(host);
+  const streak = cur && now < cur.until + 30_000 ? cur.streak + 1 : 1;
+  _hostCool.set(host, { until: now + Math.min(15_000, 3_000 * streak), streak });
+}
+async function _cooloffWait(host: string): Promise<void> {
+  for (;;) {
+    const wait = (_hostCool.get(host)?.until ?? 0) - Date.now();
+    if (wait <= 0) return;
+    await _sleep(Math.min(wait, 1000));
+  }
+}
+
 function pacedByHost<T>(host: string, isGet: boolean, fn: () => Promise<T>): Promise<T> {
   if (!isGet) return pacedByLane(`${host}|w`, fn); // writes: single-file, unchanged
   const n = (_readRR.get(host) ?? 0) + 1;
@@ -107,15 +128,19 @@ async function tlFetch(env: TLEnv, path: string, init: RequestInit & { accessTok
   };
 
   return pacedByHost(host, isGet, async () => {
+    await _cooloffWait(host); // a live host-wide cooloff holds new dispatches too
     let res = await once();
     for (let attempt = 0; attempt < RL_MAX_RETRIES; attempt++) {
       // Retry a rate-limit: always for the edge-level 1015 (request never reached
       // the broker, so it's safe even for POSTs), and for any 429/503 on a GET.
       const rateLimited = isCloudflare1015(res.status, res.text) || ((res.status === 429 || res.status === 503) && isGet);
       if (!rateLimited) break;
-      await _sleep(400 * Math.pow(2, attempt) + Math.floor(Math.random() * 250)); // 0.4s,0.8s,1.6s,3.2s + jitter
+      _noteRateLimited(host);                       // everyone backs off together
+      await _cooloffWait(host);
+      await _sleep(150 + Math.floor(Math.random() * 350)); // jitter so lanes don't re-fire in sync
       res = await once();
     }
+    if (isCloudflare1015(res.status, res.text) || res.status === 429) _noteRateLimited(host);
     return res;
   });
 }
