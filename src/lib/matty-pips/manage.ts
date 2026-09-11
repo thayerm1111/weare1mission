@@ -40,7 +40,39 @@ type Row = {
   be_trigger: number | null; partial_trigger: number | null; lock_pips: number | null;
   be_done: boolean; partial_done: boolean;
   created_at?: string | null;
+  best_price?: number | null;
 };
+
+// DEEP CANDLE BACKFILL (owner 09-11, the 02:25 wave: 26 positions spiked +120 pips
+// BEFORE the excursion manager deployed, so its from-scratch memory never saw the move
+// and BE stayed unfired). For a position with no persisted best_price yet, fetch up to
+// ~5h of 1-min candles ONCE and fold the true high/low since entry. After that the
+// persisted best_price + live ticks carry the history across any restart — full parity
+// with FLOW's manager. Cached per symbol (60s) so 26 gold rows cost ~1 call a minute.
+const candleCache = new Map<string, { at: number; bars: Array<{ t: number; high: number; low: number }> }>();
+async function candleExtremesSince(td: string, sinceMs: number): Promise<{ high: number; low: number } | null> {
+  try {
+    const key = process.env.TWELVEDATA_API_KEY;
+    if (!key) return null;
+    let entry = candleCache.get(td);
+    if (!entry || Date.now() - entry.at > 60_000) {
+      const bars: Array<{ t: number; high: number; low: number }> = [];
+      const need = Math.min(330, Math.max(20, Math.ceil((Date.now() - sinceMs) / 60_000) + 3));
+      const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(td)}&interval=1min&outputsize=${need}&apikey=${key}`, { cache: "no-store" });
+      const j = (await r.json()) as { values?: Array<{ datetime?: unknown; high?: unknown; low?: unknown }> };
+      for (const v of (Array.isArray(j?.values) ? j.values : [])) {
+        const h = Number(v.high), l = Number(v.low);
+        const t = Date.parse(String(v.datetime ?? "").replace(" ", "T") + "Z");
+        if (Number.isFinite(h) && h > 0 && Number.isFinite(l) && l > 0 && Number.isFinite(t)) bars.push({ t, high: h, low: l });
+      }
+      entry = { at: Date.now(), bars };
+      candleCache.set(td, entry);
+    }
+    let hi = 0, lo = Infinity;
+    for (const b of entry.bars) { if (b.t >= sinceMs) { hi = Math.max(hi, b.high); lo = Math.min(lo, b.low); } }
+    return hi > 0 && Number.isFinite(lo) ? { high: hi, low: lo } : null;
+  } catch { return null; }
+}
 
 function posId(p: unknown): string {
   if (Array.isArray(p)) return p.length ? String(p[0]) : "";
@@ -179,21 +211,35 @@ export async function manageMattyPips(): Promise<{ ok: boolean; open?: number; a
       const cur = r.cur_stop ?? r.init_stop;
       const inProfit = r.side === "buy" ? price > r.entry : price < r.entry;
 
-      // FAVORABLE EXCURSION — the best the trade actually reached: remembered best,
-      // the current sample, and tick-level stream extremes since entry. A junk tick
-      // more than 2% from the live price is data, not market (same guard FLOW uses).
+      // FAVORABLE EXCURSION — the best the trade actually reached: the PERSISTED best
+      // (survives restarts), the current sample, tick-level stream extremes, and — for
+      // rows that predate the excursion manager — a one-time deep candle backfill since
+      // entry. A junk value more than 2% from the live price is data, not market.
       const pid = String(r.position_id);
-      let best = bestSeen.get(pid) ?? price;
+      const sane = (x: number) => Number.isFinite(x) && x > 0 && Math.abs(x - price) / price <= 0.02;
+      const persisted = r.best_price != null && sane(r.best_price) ? r.best_price : null;
+      let best = persisted ?? bestSeen.get(pid) ?? price;
       best = r.side === "buy" ? Math.max(best, price) : Math.min(best, price);
       const td = meta.twelveDataSymbol;
-      const sinceMs = r.created_at ? Date.parse(r.created_at) : Date.now() - 8 * 60_000;
-      const ext = td ? liveTickExtremes(td, Number.isFinite(sinceMs) ? sinceMs : Date.now() - 8 * 60_000) : null;
+      const sinceMs = r.created_at && Number.isFinite(Date.parse(r.created_at)) ? Date.parse(r.created_at) : Date.now() - 8 * 60_000;
+      if (persisted == null && td) {
+        // No recorded excursion yet (row predates the upgrade, or fresh adoption) —
+        // recover the true high/low since entry from 1-min candles, once.
+        const ce = await candleExtremesSince(td, sinceMs);
+        if (ce) {
+          if (r.side === "buy" && sane(ce.high)) best = Math.max(best, ce.high);
+          if (r.side === "sell" && sane(ce.low)) best = Math.min(best, ce.low);
+        }
+      }
+      const ext = td ? liveTickExtremes(td, sinceMs) : null;
       if (ext) {
-        const sane = (x: number) => Number.isFinite(x) && x > 0 && Math.abs(x - price) / price <= 0.02;
         if (r.side === "buy" && sane(ext.high)) best = Math.max(best, ext.high);
         if (r.side === "sell" && sane(ext.low)) best = Math.min(best, ext.low);
       }
       bestSeen.set(pid, best);
+      // Persist the excursion so a restart can never forget it (column added 09-11;
+      // written only when it actually advanced, so quiet passes stay write-free).
+      const bestAdvanced = persisted == null || (r.side === "buy" ? best > persisted + 0.01 : best < persisted - 0.01);
       const favPips = r.side === "buy" ? priceToPips(r.symbol, Math.max(0, best - r.entry)) : priceToPips(r.symbol, Math.max(0, r.entry - best));
 
       // STEP 1 — breakeven (+5 pips in profit so fees never turn it into a loss).
@@ -247,7 +293,8 @@ export async function manageMattyPips(): Promise<{ ok: boolean; open?: number; a
         }
       }
 
-      await admin.from("matty_pips_positions").update({ updated_at: nowIso() }).eq("id", r.id);
+      if (bestAdvanced) await admin.from("matty_pips_positions").update({ best_price: best, updated_at: nowIso() }).eq("id", r.id);
+      else await admin.from("matty_pips_positions").update({ updated_at: nowIso() }).eq("id", r.id);
     } catch { /* per-position best-effort */ }
   }
   return { ok: true, open: rows.length, acted };
