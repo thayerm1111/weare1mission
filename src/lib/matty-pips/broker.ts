@@ -85,6 +85,21 @@ export async function placeForAccount(admin: Admin, acct: MpAccountRow, d: Decis
     .eq("account_id", acct.account_id).eq("status", "open");
   if ((count ?? 0) >= (acct.max_open || 1)) return fail(`max_open reached (${count})`);
 
+  // FAVOR GENX ALWAYS (owner 09-11: "It put me in a buy and sell"). GENX/FLOW is the
+  // PRIORITY gold engine — the two brains are isolated and neither could see the other,
+  // so they took opposite gold sides on one account at the same time (a buy+sell hedge
+  // that just bleeds spread/swap). Matty now STANDS DOWN whenever this account already
+  // holds an open GENX/FLOW gold position — either direction: no stacking, and above all
+  // no opposite-side hedge. GENX is never blocked by Matty; all deference lives here so
+  // GENX/FLOW code is untouched. (The reverse race — GENX enters opposite AFTER Matty is
+  // already in — is closed by the manager, which flattens Matty's leg to yield to GENX.)
+  {
+    const { count: flowGold } = await admin.from("flow_managed_positions")
+      .select("id", { count: "exact", head: true })
+      .eq("account_id", acct.account_id).eq("status", "open").in("symbol", ["XAUUSD", "GOLD"]);
+    if ((flowGold ?? 0) > 0) return fail("defer_to_genx: account holds an open GENX/FLOW gold position");
+  }
+
   // Token + instrument + equity.
   const tok = await connectionToken(acct.connection_id);
   if (!tok.ok) return fail(`auth: ${tok.error}`);

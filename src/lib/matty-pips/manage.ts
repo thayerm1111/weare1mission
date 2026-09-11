@@ -172,6 +172,25 @@ export async function manageMattyPips(): Promise<{ ok: boolean; open?: number; a
   const liveIds = new Set(rows.map((r) => String(r.position_id)));
   for (const k of bestSeen.keys()) if (!liveIds.has(k)) bestSeen.delete(k); // closed → forget
 
+  // FAVOR GENX ALWAYS (owner 09-11): if GENX/FLOW opened an OPPOSITE-side gold position on
+  // an account where Matty already holds gold, that is the buy+sell hedge the owner hit —
+  // Matty flattens its own leg so GENX's trade runs alone. Same-direction coexistence is
+  // left alone (both engines agree — not a hedge). One read for the whole book this pass.
+  const flowGoldByAcct = new Map<string, Set<string>>(); // account_id -> open FLOW/GENX gold sides
+  try {
+    const acctIds = [...new Set(rows.map((r) => String(r.account_id)))];
+    if (acctIds.length) {
+      const { data: fg } = await admin.from("flow_managed_positions")
+        .select("account_id, side").eq("status", "open").in("symbol", ["XAUUSD", "GOLD"]).in("account_id", acctIds);
+      for (const fr of (fg ?? []) as { account_id: string | null; side: string | null }[]) {
+        const aid = String(fr.account_id ?? ""); const sd = String(fr.side ?? "");
+        if (!aid || !sd) continue;
+        if (!flowGoldByAcct.has(aid)) flowGoldByAcct.set(aid, new Set());
+        flowGoldByAcct.get(aid)!.add(sd);
+      }
+    }
+  } catch { /* read blip → no forced yields this pass (safe: just skips the flatten) */ }
+
   for (const r of rows) {
     try {
       let tok = tokens.get(r.connection_id);
@@ -215,6 +234,25 @@ export async function manageMattyPips(): Promise<{ ok: boolean; open?: number; a
       if (price == null || !Number.isFinite(price)) continue;
       // Live spread for the profit-lock cushion below (junk/one-sided quote → 0 → floors win).
       const liveSpread = quote.bid != null && quote.ask != null && quote.ask > quote.bid ? quote.ask - quote.bid : 0;
+
+      // FAVOR GENX ALWAYS: an OPPOSITE-side GENX/FLOW gold position now exists on this
+      // account → close Matty's leg so it isn't hedging against GENX's trade. Realizes
+      // Matty's P&L at market; that is the owner's explicit call (GENX wins conflicts).
+      {
+        const flowSides = flowGoldByAcct.get(String(r.account_id));
+        const opposite = r.side === "buy" ? "sell" : "buy";
+        if (flowSides && flowSides.has(opposite) && r.qty && r.qty > 0) {
+          const c = await closePosition(tok.env, tok.token, r.acc_num, r.position_id, r.qty);
+          if (c.ok) {
+            await admin.from("matty_pips_positions").update({ status: "closed", outcome: "yield_to_genx", resolved_at: nowIso(), updated_at: nowIso() }).eq("id", r.id);
+            await admin.from("matty_pips_management_events").insert({ position_id: r.position_id, account_id: r.account_id, kind: "yield_to_genx", detail: { at: price, matty_side: r.side, flow_side: opposite } }).then(() => null, () => null);
+            bestSeen.delete(String(r.position_id));
+            acted.push(`${r.acc_num}:YIELD`);
+            continue;
+          }
+          // couldn't close (broker blip) → leave it; the next pass retries the yield.
+        }
+      }
 
       const meta = getInstrument(r.symbol);
       const pip = pipsToPrice(r.symbol, 1);
