@@ -235,17 +235,26 @@ export async function manageMattyPips(): Promise<{ ok: boolean; open?: number; a
       // Live spread for the profit-lock cushion below (junk/one-sided quote → 0 → floors win).
       const liveSpread = quote.bid != null && quote.ask != null && quote.ask > quote.bid ? quote.ask - quote.bid : 0;
 
-      // FAVOR GENX ALWAYS: an OPPOSITE-side GENX/FLOW gold position now exists on this
-      // account → close Matty's leg so it isn't hedging against GENX's trade. Realizes
-      // Matty's P&L at market; that is the owner's explicit call (GENX wins conflicts).
+      // FAVOR GENX ALWAYS — but NEVER close a red trade (owner 09-11: "I do not want Matty
+      // to close out a trade if it's red ever"). When an OPPOSITE-side GENX/FLOW gold
+      // position exists on this account, Matty yields ONLY IF its own leg is in profit at
+      // the exit-side price (banking a green winner and letting GENX's trade run alone). A
+      // red or break-even Matty leg is LEFT ALONE — it rides its normal break-even/stop
+      // management to its own exit; Matty never realizes a loss at market. Placement-time
+      // deference (broker.ts) is what stops most hedges from forming; this only banks the
+      // green side of a race that slipped through.
       {
         const flowSides = flowGoldByAcct.get(String(r.account_id));
         const opposite = r.side === "buy" ? "sell" : "buy";
-        if (flowSides && flowSides.has(opposite) && r.qty && r.qty > 0) {
+        // Exit-side price beyond entry = a real, bookable profit (price is bid for a long /
+        // ask for a short — the price we'd actually receive closing now), so this can only
+        // ever fire on a green leg. Never on red, never at break-even.
+        const greenNow = r.side === "buy" ? price > r.entry : price < r.entry;
+        if (flowSides && flowSides.has(opposite) && greenNow && r.qty && r.qty > 0) {
           const c = await closePosition(tok.env, tok.token, r.acc_num, r.position_id, r.qty);
           if (c.ok) {
             await admin.from("matty_pips_positions").update({ status: "closed", outcome: "yield_to_genx", resolved_at: nowIso(), updated_at: nowIso() }).eq("id", r.id);
-            await admin.from("matty_pips_management_events").insert({ position_id: r.position_id, account_id: r.account_id, kind: "yield_to_genx", detail: { at: price, matty_side: r.side, flow_side: opposite } }).then(() => null, () => null);
+            await admin.from("matty_pips_management_events").insert({ position_id: r.position_id, account_id: r.account_id, kind: "yield_to_genx", detail: { at: price, matty_side: r.side, flow_side: opposite, green: true } }).then(() => null, () => null);
             bestSeen.delete(String(r.position_id));
             acted.push(`${r.acc_num}:YIELD`);
             continue;
