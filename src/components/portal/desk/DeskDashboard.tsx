@@ -222,7 +222,7 @@ function FloorCard() {
             Charts. Trading tools. Live market analysis. Live sessions. Community. Market opportunities. All in one environment.
           </p>
           <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2">
-            {["GENX", "FLOW", "Matty Pips", "OM AI", "Market Pulse", "Live Plays"].map((t) => (
+            {["GENX", "FLOW", "OM AI", "Market Pulse", "Live Plays"].map((t) => (
               <span key={t} className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[#5E708E]">{t}</span>
             ))}
           </div>
