@@ -42,7 +42,11 @@ const WATCH_MS = Math.max(750, Number(process.env.WORKER_WATCH_MS || 1000));
 const LOCK_TTL_MS = 15_000;          // short TTL → fast cron takeover if this process dies
 const LOCK_RETRY_MS = 3_000;         // while a cron pass holds the lock, retry every 3s
 const REPAIR_EVERY_MS = 60_000;      // phantom-target ledger sweep, once a minute (as before)
-const MATTY_EVERY_MS = 5_000;        // Matty Pips manager cadence inside the worker
+// 15s, not 5s (owner 09-11 live incident): at 5s the Matty book's broker calls, stacked
+// on FLOW manage + the 1s watch, blew past the broker edge's per-IP rate ceiling and a
+// Cloudflare-1015 storm froze ALL management for minutes. 15s is still 4× the old cron
+// and, with the host-wide cooloff in tradelocker.ts, keeps total load under the ceiling.
+const MATTY_EVERY_MS = 15_000;       // Matty Pips manager cadence inside the worker
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const HOLDER = `worker-${hostname()}-${process.pid}`;
