@@ -29,6 +29,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { manageOpenPositions, acquireManageLock, extendManageLock, releaseManageLock, repairPhantomTargets } from "@/lib/flow/flowManage";
 import { watchPass, beatKeepDecision, acquireWatchLock, extendWatchLock, releaseWatchLock } from "@/lib/genx/watchTick";
 import { inWeekendCloseWindow } from "@/lib/flow/autoExec";
+import { manageMattyPips } from "@/lib/matty-pips/manage";
 import { beat } from "@/lib/flow/health";
 import { streamLoop } from "./priceStream";
 import { hostname } from "node:os";
@@ -41,6 +42,7 @@ const WATCH_MS = Math.max(750, Number(process.env.WORKER_WATCH_MS || 1000));
 const LOCK_TTL_MS = 15_000;          // short TTL → fast cron takeover if this process dies
 const LOCK_RETRY_MS = 3_000;         // while a cron pass holds the lock, retry every 3s
 const REPAIR_EVERY_MS = 60_000;      // phantom-target ledger sweep, once a minute (as before)
+const MATTY_EVERY_MS = 5_000;        // Matty Pips manager cadence inside the worker
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const HOLDER = `worker-${hostname()}-${process.pid}`;
@@ -56,6 +58,7 @@ async function manageLoop(): Promise<never> {
   const admin = createAdminClient();
   if (!admin) throw new Error("no_admin_client — check NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY");
   let lastRepair = 0;
+  let lastMatty = 0;
   for (;;) {
     if (shuttingDown) { await releaseManageLock(admin, HOLDER); process.exit(0); }
     // Take (or keep) the lock. A cron invocation may hold it for up to ~112s right
@@ -75,6 +78,13 @@ async function manageLoop(): Promise<never> {
         log("manage: tick error (loop continues)", e instanceof Error ? e.message.slice(0, 200) : e);
       }
       try { await extendManageLock(admin, HOLDER, LOCK_TTL_MS); } catch { /* next acquire re-takes */ }
+      // MATTY PIPS management at worker speed (owner 09-11: "Matty pips AI is not
+      // getting managed"): the same excursion-aware manager the cron runs, every ~5s
+      // instead of once a minute. The cron stands down while our heartbeat is fresh.
+      if (Date.now() - lastMatty > MATTY_EVERY_MS) {
+        lastMatty = Date.now();
+        try { await manageMattyPips(); } catch { /* best-effort — next tick retries */ }
+      }
       if (Date.now() - lastRepair > REPAIR_EVERY_MS) {
         lastRepair = Date.now();
         try { await repairPhantomTargets(admin); } catch { /* sweep is best-effort */ }
