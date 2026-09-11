@@ -30,6 +30,7 @@ import { manageOpenPositions, acquireManageLock, extendManageLock, releaseManage
 import { watchPass, beatKeepDecision, acquireWatchLock, extendWatchLock, releaseWatchLock } from "@/lib/genx/watchTick";
 import { inWeekendCloseWindow } from "@/lib/flow/autoExec";
 import { manageMattyPips } from "@/lib/matty-pips/manage";
+import { runMattyScan } from "@/lib/matty-pips/scan";
 import { beat } from "@/lib/flow/health";
 import { streamLoop } from "./priceStream";
 import { hostname } from "node:os";
@@ -47,6 +48,12 @@ const REPAIR_EVERY_MS = 60_000;      // phantom-target ledger sweep, once a minu
 // Cloudflare-1015 storm froze ALL management for minutes. 15s is still 4× the old cron
 // and, with the host-wide cooloff in tradelocker.ts, keeps total load under the ceiling.
 const MATTY_EVERY_MS = 15_000;       // Matty Pips manager cadence inside the worker
+// Matty ENTRY scan cadence (owner 09-11 audit: "the trades needs to be executed
+// immediately" — the minutely cron alone meant a TAKE_NOW could wait up to 60s).
+// 20s = 3× the cron. The scan is market-data work (engine reads); it only touches
+// the broker when a TAKE_NOW actually fires, and per-signal claims dedupe against
+// the cron — so this adds no standing broker load and can never double-fill.
+const MATTY_SCAN_EVERY_MS = 20_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const HOLDER = `worker-${hostname()}-${process.pid}`;
@@ -132,6 +139,22 @@ async function watchLoop(): Promise<never> {
   }
 }
 
+/** MATTY ENTRY-SCAN LOOP — the same runMattyScan the minutely cron calls, every ~20s,
+ *  so a TAKE_NOW executes within seconds of forming instead of waiting for the next
+ *  minute boundary. Claims (unique signal+account index) make the overlap with the
+ *  cron harmless. Best-effort by design: any error just waits out the interval. */
+async function mattyScanLoop(): Promise<never> {
+  for (;;) {
+    if (shuttingDown) process.exit(0);
+    const t0 = Date.now();
+    try { await runMattyScan(); } catch (e) {
+      log("matty-scan: error (loop continues)", e instanceof Error ? e.message.slice(0, 200) : e);
+    }
+    const elapsed = Date.now() - t0;
+    await sleep(Math.max(2_000, MATTY_SCAN_EVERY_MS - elapsed));
+  }
+}
+
 process.on("SIGTERM", () => { log("SIGTERM — releasing locks and exiting"); shuttingDown = true; });
 process.on("SIGINT", () => { log("SIGINT — releasing locks and exiting"); shuttingDown = true; });
 process.on("unhandledRejection", (e) => log("unhandledRejection", e));
@@ -143,6 +166,10 @@ log(`🚀 We Are 1 Mission worker starting as ${HOLDER} (manage ${MANAGE_MS}ms �
 // bad socket) the loops keep polling exactly as before — its failure must never kill
 // the worker, so it lives OUTSIDE the fatal Promise.all.
 void streamLoop(() => shuttingDown).catch((e) => log("stream: loop error (worker continues on polling)", e instanceof Error ? e.message : e));
+// Matty entry scan is best-effort like the stream: its failure must never kill the
+// worker (the minutely Vercel cron still covers entries), so it lives OUTSIDE the
+// fatal Promise.all too.
+void mattyScanLoop().catch((e) => log("matty-scan: loop died (cron still covers entries)", e instanceof Error ? e.message : e));
 void Promise.all([manageLoop(), watchLoop()]).catch((e) => {
   log("fatal — exiting so the platform restarts the worker", e);
   process.exit(1);
