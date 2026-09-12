@@ -126,8 +126,32 @@ export async function POST(req: NextRequest) {
     if (userId && Number.isFinite(credits) && credits > 0) {
       const admin = createAdminClient();
       if (!admin) return json({ error: "no_admin_client" }, 200); // don't retry-storm; alert via logs
+
+      // IDEMPOTENCY (audit 2026-09-11, P1): Stripe delivers events AT LEAST ONCE, so the
+      // same completed checkout can arrive more than once (retries / replays). Claim the
+      // checkout SESSION id first — the primary key on stripe_fulfillments makes the claim
+      // atomic, so only the FIRST delivery grants credits and any redelivery hits the
+      // conflict and is a no-op. Without this a retried webhook double-credited the member.
+      const claim = await admin.from("stripe_fulfillments")
+        .insert({ session_id: session.id, event_id: event.id, user_id: userId, credits, kind: `pack_${pack}` })
+        .select("session_id").maybeSingle();
+      if (claim.error) {
+        // 23505 = unique_violation → this session was already fulfilled → ACK without
+        // re-granting (idempotent). Any other write error → let Stripe retry.
+        if ((claim.error as { code?: string }).code === "23505") return json({ received: true, deduped: true }, 200);
+        return json({ error: "claim_failed", detail: claim.error.message.slice(0, 120) }, 500);
+      }
+
       const { error } = await admin.rpc("add_purchased_credits", { p_user: userId, p_amount: credits, p_feature: `pack_${pack}` });
-      if (error) return json({ error: "credit_failed", detail: error.message.slice(0, 120) }, 500); // let Stripe retry
+      if (error) {
+        // Grant failed AFTER we claimed: release the claim so Stripe's retry can complete
+        // the grant — a failed grant must never leave a paying member uncredited.
+        await admin.from("stripe_fulfillments").delete().eq("session_id", session.id);
+        return json({ error: "credit_failed", detail: error.message.slice(0, 120) }, 500); // let Stripe retry
+      }
+      // Stamp the claim credited: a claimed-but-uncredited row (a crash between claim and
+      // grant) is then visible for reconciliation instead of silently double-granting.
+      await admin.from("stripe_fulfillments").update({ credited_at: new Date().toISOString() }).eq("session_id", session.id);
       // If this purchase saved a card (setup_future_usage), keep it on file AND turn
       // auto-refill on (owner directive 09-01: a saved card means auto-refill is live —
       // every member with a card on file had bought a top-up yet still had the toggle
