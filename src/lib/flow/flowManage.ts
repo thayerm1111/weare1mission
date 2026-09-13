@@ -1,6 +1,7 @@
 import { executablePrice } from "./executionQuote";
 import { readProtectiveStop } from "./brokerEvidence";
 import { partialOnce } from "./partialOperation";
+import { feedPrice } from "./feedPrice";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { connectionToken } from "@/lib/flow/connection";
 import { matchInstrument } from "@/lib/flow/executor";
@@ -756,12 +757,25 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     const cached = quoteCache.get(key);
     if (cached && Date.now() - cached.at < 1000) return cached.price;
     const q = await getQuote(tok.env, tok.token, accNum, inst.tradableInstrumentId, inst.infoRouteId || inst.routeId);
-    if (!q.ok) return null;
+    if (!q.ok) {
+      const fb = await feedPrice(symbol);
+      if (fb == null || !(fb > 0)) return null;
+      quoteCache.set(key, { at: Date.now(), price: fb });
+      return fb;
+    }
     const { bid, ask } = q.data;
     if (bid != null && ask != null && ask < bid) return null;
     if (bid != null && ask != null) spreadCache.set(`${tok.env}|${accountId}|${symbol}`, ask - bid);
     const price = executablePrice(q.data, side, "exit");
-    if (price == null || !Number.isFinite(price) || price <= 0) return null;
+    if (price == null || !Number.isFinite(price) || price <= 0) {
+      // Broker quote unusable → fall back to the market-data feed rather than
+      // abandoning the position for this tick. A missing quote must never stall
+      // break-even/trailing on a live trade (owner: trade safety first).
+      const fb = await feedPrice(symbol);
+      if (fb == null || !(fb > 0)) return null;
+      quoteCache.set(key, { at: Date.now(), price: fb });
+      return fb;
+    }
     quoteCache.set(key, { at: Date.now(), price });
     return price;
   }

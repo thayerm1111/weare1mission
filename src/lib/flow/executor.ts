@@ -1,4 +1,5 @@
 import { executablePrice, bracketStillValid } from "./executionQuote";
+import { feedPrice } from "./feedPrice";
 import { brokerConfig, columnMap, positionForOrder } from './brokerEvidence';
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logTrade } from "@/lib/flow/tradeLog";
@@ -154,8 +155,13 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
   // the signal's absolute stop/target. Re-size downward when the entry has moved.
   if (stop != null) {
     const quote = await getQuote(a.env, a.token, a.accNum, tl.tradableInstrumentId, tl.infoRouteId || tl.routeId);
-    const price = quote.ok ? executablePrice(quote.data, side, "entry") : null;
-    if (price == null) return { ok: false, error: "entry_quote_unavailable" };
+    // A broker quote hiccup must not skip a GENX entry. Fall back to the market-data
+    // feed so the entry still goes through. The bracket + sizing checks below run
+    // against whichever price we got — we degrade the price SOURCE, never the safety
+    // checks: without any price we cannot tell whether the stop is already crossed,
+    // nor size the position, so placing blind would open unvalidated/oversized risk.
+    const price = (quote.ok ? executablePrice(quote.data, side, "entry") : null) ?? await feedPrice(canonical);
+    if (price == null || !(price > 0)) return { ok: false, error: "entry_quote_unavailable" };
     if (!bracketStillValid(side, price, stop, tp)) return { ok: false, error: "entry_bracket_already_crossed" };
     if (risk) {
       const sized = sizeFromRisk({ canonical, entry: price, stop, equity: risk.equity, riskPct: risk.riskPct, floorToMinLot: true });
