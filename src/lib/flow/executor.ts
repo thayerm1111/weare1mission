@@ -137,6 +137,31 @@ async function instrumentsFor(a: { env: TLEnv; token: string; accNum: string; ac
   return { ok: false, error: lastErr };
 }
 
+/** Owner floor (09-03): never enter below 1:0.75 reward:risk. Mirrors GOLD_ENTRY_FLOOR_RR
+ *  in the GENX watcher; kept local so execution never reaches into signal selection. */
+export const ENTRY_FLOOR_RR = 0.75;
+
+/** The entry limit price: this account's executable price, capped at the worst price that
+ *  still yields ENTRY_FLOOR_RR against the signal's absolute stop/target.
+ *  Solving (tp-px)/(px-stop) = F for a buy (and the mirror for a sell) gives the same
+ *  cap = (tp + F*stop)/(1+F); a buy may not pay ABOVE it, a sell may not sell BELOW it.
+ *  With no target there is no ratio to enforce, so the cap is simply the executable price —
+ *  still a limit, so the fill can never be worse than the quote we validated. */
+export function entryLimitPrice(
+  side: "buy" | "sell", price: number, stop?: number | null, tp?: number | null, prec = 2,
+): number {
+  // Round toward the SAFE side, never with toFixed: a buy rounds DOWN and a sell rounds UP,
+  // so snapping to the instrument's grid can only tighten the limit. Rounding to nearest
+  // would let a capped price land a hair past the floor (a 4339.714 sell cap becomes
+  // 4339.71 → 0.7496:1), which is exactly the sub-floor fill this exists to make impossible.
+  const g = Math.pow(10, prec);
+  const snap = (n: number) => (side === "buy" ? Math.floor(n * g) : Math.ceil(n * g)) / g;
+  if (stop == null || tp == null || !Number.isFinite(stop) || !Number.isFinite(tp)) return snap(price);
+  const cap = (tp + ENTRY_FLOOR_RR * stop) / (1 + ENTRY_FLOOR_RR);
+  if (!Number.isFinite(cap)) return snap(price);
+  return snap(side === "buy" ? Math.min(price, cap) : Math.max(price, cap));
+}
+
 async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null, ensureBrackets?: boolean, risk?: { equity: number; riskPct: number }): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean }> {
   const instRes = await instrumentsFor(a);
   if (!instRes.ok) return { ok: false, error: `instrument_list_failed: ${instRes.error}`.slice(0, 160) };
@@ -153,15 +178,15 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
 
   // Refresh this account's executable quote after instrument resolution, preserving
   // the signal's absolute stop/target. Re-size downward when the entry has moved.
+  // A broker quote hiccup must not skip a GENX entry. Fall back to the market-data
+  // feed so the entry still goes through. The bracket + sizing checks below run
+  // against whichever price we got — we degrade the price SOURCE, never the safety
+  // checks: without any price we cannot tell whether the stop is already crossed,
+  // nor size the position, so placing blind would open unvalidated/oversized risk.
+  const quote = await getQuote(a.env, a.token, a.accNum, tl.tradableInstrumentId, tl.infoRouteId || tl.routeId);
+  const price = (quote.ok ? executablePrice(quote.data, side, "entry") : null) ?? await feedPrice(canonical);
+  if (price == null || !(price > 0)) return { ok: false, error: "entry_quote_unavailable" };
   if (stop != null) {
-    const quote = await getQuote(a.env, a.token, a.accNum, tl.tradableInstrumentId, tl.infoRouteId || tl.routeId);
-    // A broker quote hiccup must not skip a GENX entry. Fall back to the market-data
-    // feed so the entry still goes through. The bracket + sizing checks below run
-    // against whichever price we got — we degrade the price SOURCE, never the safety
-    // checks: without any price we cannot tell whether the stop is already crossed,
-    // nor size the position, so placing blind would open unvalidated/oversized risk.
-    const price = (quote.ok ? executablePrice(quote.data, side, "entry") : null) ?? await feedPrice(canonical);
-    if (price == null || !(price > 0)) return { ok: false, error: "entry_quote_unavailable" };
     if (!bracketStillValid(side, price, stop, tp)) return { ok: false, error: "entry_bracket_already_crossed" };
     if (risk) {
       const sized = sizeFromRisk({ canonical, entry: price, stop, equity: risk.equity, riskPct: risk.riskPct, floorToMinLot: true });
@@ -169,12 +194,22 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
       qty = Math.min(qty, sized.lots);
     }
   }
+  // ENTRY IS A RESTING LIMIT, NEVER A MARKET ORDER (owner 09-14 P0: a fan-out across ~197
+  // accounts filled the tail at chased prices — 44 accounts under the 0.75 floor on the
+  // 02:56 sell, worst 0.18:1 — because each account sent its own market order at whatever
+  // the price had become). A limit can never fill worse than its price, so a slow-tail
+  // account MISSES the entry instead of being chased. Missing an entry is acceptable; a
+  // bad fill is not. The limit is capped at the worst price that still yields the 0.75
+  // reward:risk floor, so a fill below the floor is unrepresentable rather than merely
+  // unlikely. IOC keeps the old semantics: fill now at this price or better, else cancel —
+  // nothing rests on the book.
+  const limitPx = entryLimitPrice(side, price, stop, tp, prec);
   const norm = normalizeQuantity(canonical, qty, { quantityStep: tl.quantityStep, minQuantity: tl.minQuantity });
   if (!norm.ok || !(norm.qty > 0)) return { ok: false, error: "invalid_broker_quantity" };
   const base = {
     accountId: a.accountId, accNum: a.accNum,
     tradableInstrumentId: tl.tradableInstrumentId, routeId: tl.routeId,
-    side, type: "market" as const, qty: norm.qty, validity: "IOC" as const,
+    side, type: "limit" as const, price: limitPx, qty: norm.qty, validity: "IOC" as const,
   };
   const hasBracket = stop != null || tp != null;
   const hasStop = stop != null;
