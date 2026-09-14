@@ -221,6 +221,20 @@ export function slWithinTolerance(symbol: string, requested: number, actual: num
  *  position isn't found or its SL can't be read (→ caller does NOT record the move and
  *  re-sends next tick). If `slIdx < 0` the broker doesn't expose the SL on the position
  *  row, this helper returns false; the caller can read linked stop orders instead. */
+/** Classify a break-even modify for the be_done gate.
+ *  'acked'    — broker accepted the modify; the stop is at break-even.
+ *  'already'  — broker REJECTED it as a no-op ("nothing to change"), which is the broker
+ *               telling us the stop is ALREADY exactly the price we asked for. Before this
+ *               was handled, such a position could never record break-even: the first
+ *               attempt moved the stop, the read-back failed to confirm it, be_done stayed
+ *               false, and every later attempt was rejected as redundant forever — which
+ *               also kept trailing (gated on be_done) permanently off.
+ *  'failed'   — a real rejection. Never record break-even; leave the stop and retry. */
+export function breakEvenOutcome(ok: boolean, error?: string): 'acked' | 'already' | 'failed' {
+  if (ok) return 'acked';
+  return /nothing\s+to\s+change/i.test(error ?? '') ? 'already' : 'failed';
+}
+
 export function stopConfirmedFromPositions(
   positions: unknown[], positionId: string, slIdx: number, symbol: string, requested: number,
 ): boolean {
@@ -1094,15 +1108,27 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       //    with the market still beyond entry (so the stop isn't rejected / isn't a loss). ──
       if (beOn && !row.be_done && (favReachedBE || wickReachedBE) && inProfit && priceInProfit && beSafe) {
         const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: bePx });
-        if (mv.ok) {
-          // BROKER READ-BACK: only record break-even once the broker's live SL actually
-          // shows the move. If it doesn't confirm, leave be_done=false so the next tick
-          // re-sends (never a phantom break-even while the real stop sits at a loss).
+        const mvErr = mv.ok ? "" : mv.error;
+        const outcome = breakEvenOutcome(mv.ok, mvErr);
+        if (outcome !== "failed") {
+          // THE BROKER'S ANSWER IS THE GATE, NOT THE READ-BACK (owner 09-14). An accepted
+          // modify means the stop IS at break-even, so record it. The read-back still runs
+          // and is still logged, but purely as observability: when it cannot confirm a stop
+          // the broker already accepted, that is a parser gap to fix later, not a reason to
+          // withhold break-even. Gating on it left be_done false, which also held trailing
+          // off, and the redundant re-sends were then rejected forever as no-ops.
+          // Safety is unchanged: this only ever runs after the broker accepted (or reported
+          // it had already applied) a move of the stop TOWARD break-even. A real rejection
+          // still falls through to the else and records nothing.
+          update.be_done = true; row.be_done = true; update.cur_stop = bePx; row.cur_stop = bePx; didAction = true;
           const confirmed = await verifyStop(tok, row.acc_num, row.account_id, row.position_id, cols.slIdx, row.symbol, bePx);
-          if (confirmed) { update.be_done = true; row.be_done = true; update.cur_stop = bePx; row.cur_stop = bePx; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "breakeven", detail: `SL→entry ${bePx}${cols.slIdx >= 0 ? " ✓" : ""}` }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "break_even", reason: "broker_confirmed", price: bePx }); }
-          else { update.last_error = `be_unconfirmed: broker SL != ${bePx}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_unconfirmed", detail: "retry next tick" }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "be_unconfirmed", reason: "readback_mismatch", price: bePx }); }
+          const reason = confirmed ? "broker_confirmed" : outcome === "already" ? "already_at_be" : "acked_no_readback";
+          actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "breakeven", detail: `SL→entry ${bePx}${confirmed ? " ✓" : " (unverified)"}` });
+          await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "break_even", reason, price: bePx });
+          // Keep the mismatch visible so the read-back parser can be fixed.
+          if (!confirmed) await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "be_unconfirmed", reason: "readback_mismatch", price: bePx });
         }
-        else { update.last_error = `be_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_err", detail: mv.error.slice(0, 60) }); }
+        else { update.last_error = `be_err: ${mvErr}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_err", detail: mvErr.slice(0, 60) }); }
       }
 
       // ── STEP 2: PARTIAL — bank PARTIAL_FRACTION (25%) and let the runner run. Normally 1:2+
