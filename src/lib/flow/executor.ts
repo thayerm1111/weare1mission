@@ -218,7 +218,13 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
   const base = {
     accountId: a.accountId, accNum: a.accNum,
     tradableInstrumentId: tl.tradableInstrumentId, routeId: tl.routeId,
-    side, type: "limit" as const, price: limitPx, qty: norm.qty, validity: "IOC" as const,
+    // TIF: this route REJECTS limit+IOC outright ("TIF/Order type combination is forbidden
+    // for the route"), which is what took entries to 0% fill. GTC is the natural validity for
+    // a limit order and the one createOrder already defaults to for non-market types. Because
+    // the limit sits AT the 0.75 cap, an order is marketable whenever the price is at or
+    // better than the cap — it fills immediately, exactly as the IOC version intended. It only
+    // rests when the market has already run past the cap, i.e. the case we mean to refuse.
+    side, type: "limit" as const, price: limitPx, qty: norm.qty, validity: "GTC" as const,
   };
   const hasBracket = stop != null || tp != null;
   const hasStop = stop != null;
