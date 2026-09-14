@@ -4,7 +4,7 @@ import { flowDecision } from "@/lib/flow/decision";
 import { placeOnActiveAccounts, placeFixedLotFollower } from "@/lib/flow/executor";
 import { activeAccounts, connectionToken, type ActiveAccount } from "@/lib/flow/connection";
 import { listAccounts, listPositions, type TLEnv } from "@/lib/flow/tradelocker";
-import { sizeFromRisk, floorStop, structuralStop, maxStopDistance } from "@/lib/flow/sizing";
+import { sizeFromRisk, resolveAccountRisk, floorStop, structuralStop, maxStopDistance } from "@/lib/flow/sizing";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
@@ -206,7 +206,7 @@ type GuardCtx = {
   // Risk-based sizing: each trade risks riskPct of EACH active account's own live
   // equity. `accounts` is every account the member toggled ON, across all their
   // connections — a placement fans out over all of them. Fetched once per cycle.
-  riskPct: number; accounts: ActiveAccount[];
+  riskPct: number; memberRiskPct: number | null; accounts: ActiveAccount[];
   // NOTE: safety mode (conservative/aggressive) is authoritative PER-ACCOUNT
   // (flow_broker_accounts.risk_mode → ActiveAccount.riskMode, consumed in
   // filterAccountsForAsset). There is intentionally NO member-level mode in the
@@ -241,10 +241,11 @@ async function buildGuardCtx(admin: Admin, settings: AutoSettings): Promise<Guar
   // (each carrying its own live equity, fetched once for the whole cycle).
   const { data: pref } = await admin.from("flow_trade_prefs").select("risk_pct").eq("user_id", settings.user_id).maybeSingle();
   const p = (pref as { risk_pct?: number | null } | null) ?? null;
-  const riskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : 1;
+  const memberRiskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : null;
+  const riskPct = memberRiskPct ?? 1;
   const accounts = await activeAccounts(settings.user_id);
 
-  return { mode, symbols, maxLot, cooldownMs, now, events, placed, hourBudget, openSymbols, maxOpen, riskPct, accounts };
+  return { mode, symbols, maxLot, cooldownMs, now, events, placed, hourBudget, openSymbols, maxOpen, riskPct, memberRiskPct, accounts };
 }
 
 // ── MIRROR: one active AUTOMATED trade per symbol, PER MEMBER ────────────────
@@ -552,7 +553,7 @@ async function guardAndPlace(admin: Admin, settings: AutoSettings, ctx: GuardCtx
   // own live equity (gold<$500 floors to 0.01 inside placeOnActiveAccounts).
   const res = await placeOnActiveAccounts({
     userId: settings.user_id, symbol, side, entry: entryPx, stop: stopPx, tp: levels.tp1,
-    riskPct: ctx.riskPct, source: "auto", accounts: acctsForSymbol,
+    riskPct: ctx.riskPct, memberRiskPct: ctx.memberRiskPct, source: "auto", accounts: acctsForSymbol,
   });
   if (res.placed === 0) {
     // Nothing filled — release the claim so the next tick can retry this symbol
@@ -1616,9 +1617,10 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
 
       const { data: pref } = await admin.from("flow_trade_prefs").select("risk_pct").eq("user_id", userId).maybeSingle();
       const p = (pref as { risk_pct?: number | null } | null) ?? null;
-      const riskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : 1;
+      const memberRiskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : null;
+      const riskPct = memberRiskPct ?? 1;
 
-      const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry: sizeEntry, stop: goldStop, tp: sig.tp, riskPct, source: "genx", accounts, structuralStop: true });
+      const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry: sizeEntry, stop: goldStop, tp: sig.tp, riskPct, source: "genx", memberRiskPct, accounts, structuralStop: true });
       if (res.placed === 0 && !res.accounts.some(a => a.reason?.includes("uncertain"))) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); return 0; } // nothing filled → let the next ENTER NOW retry
       return res.placed;
     } catch { return 0; } // per-member best-effort
@@ -1648,7 +1650,6 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
 // equity to size a trade, the follower still takes the signal at the broker minimum
 // rather than silently sitting out.
 const FOLLOWER_LOT = 0.01;
-const FOLLOWER_DEFAULT_RISK = 1; // % of equity when no per-account and no owner default is set
 
 export async function placeGenxFollower(sig: {
   signalKey: string; side: "buy" | "sell";
@@ -1769,15 +1770,18 @@ export async function placeGenxFollower(sig: {
     return typeof v === "number" ? v : null;
   }
   // Owner default risk (flow_trade_prefs.risk_pct), cached per user_id.
-  const defaultRiskCache = new Map<string, number>();
-  async function defaultRiskFor(userId: string): Promise<number> {
+  const defaultRiskCache = new Map<string, number | null>();
+  /** The member's saved account-wide risk %, or null when they never chose one. Null is
+   *  meaningful: the caller then takes the default from the account's safety mode, which
+   *  a pre-collapsed 1 would have made impossible. */
+  async function defaultRiskFor(userId: string): Promise<number | null> {
     if (defaultRiskCache.has(userId)) return defaultRiskCache.get(userId)!;
-    let risk = FOLLOWER_DEFAULT_RISK;
+    let risk: number | null = null;
     try {
       const { data: pref } = await admin!.from("flow_trade_prefs").select("risk_pct").eq("user_id", userId).maybeSingle();
       const p = (pref as { risk_pct?: number | null } | null) ?? null;
       if (p && typeof p.risk_pct === "number" && p.risk_pct > 0) risk = p.risk_pct;
-    } catch { /* keep fallback */ }
+    } catch { /* no pref → the safety mode supplies the default */ }
     defaultRiskCache.set(userId, risk);
     return risk;
   }
@@ -1842,7 +1846,7 @@ export async function placeGenxFollower(sig: {
       if (sizeEntry != null && fstop != null) {
         const equity = await equityFor(a.connection_id, a.account_id, tok);
         if (equity != null && equity > 0) {
-          const acctRisk = (typeof a.risk_pct === "number" && a.risk_pct > 0) ? a.risk_pct : await defaultRiskFor(a.user_id);
+          const acctRisk = resolveAccountRisk(a.risk_pct as number | null, await defaultRiskFor(a.user_id), (a as { risk_mode?: string | null }).risk_mode);
           const s = sizeFromRisk({ canonical: "XAUUSD", entry: sizeEntry, stop: fstop, equity, riskPct: acctRisk, floorToMinLot: true });
           if (s.ok && s.lots > 0) qty = Math.min(s.lots, 100); // fat-finger backstop
         }

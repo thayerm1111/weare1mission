@@ -191,3 +191,26 @@ export function sizeFromRisk(opts: {
   const estLossAtStop = +(norm.qty * stopDistance * valuePerLot).toFixed(2);
   return { ok, lots: norm.qty, riskAmount: +riskAmount.toFixed(2), stopDistance, valuePerLot, estLossAtStop, reason: ok ? undefined : norm.reason };
 }
+
+/** Default risk % when an account carries no explicit override of its own.
+ *  Owner 09-14: the per-account SAFETY MODE now also picks the default size, so a member
+ *  who chose "aggressive" and never typed a number sizes at 2% instead of the flat 1%.
+ *  A member's saved account-wide % always wins over the mode-derived default — it is an
+ *  explicit choice, and letting the mode override it would silently resize the accounts
+ *  that are already sizing exactly as their member asked. */
+export const RISK_DEFAULT_CONSERVATIVE = 1;
+export const RISK_DEFAULT_AGGRESSIVE = 2;
+
+export function resolveDefaultRisk(memberRiskPct?: number | null, riskMode?: string | null): number {
+  if (memberRiskPct != null && Number.isFinite(memberRiskPct) && memberRiskPct > 0) return memberRiskPct;
+  return String(riskMode ?? "").toLowerCase() === "aggressive" ? RISK_DEFAULT_AGGRESSIVE : RISK_DEFAULT_CONSERVATIVE;
+}
+
+/** Full resolution for ONE account, before the small-account caps are applied:
+ *  the account's own % → the member's saved account-wide % → the mode-derived default. */
+export function resolveAccountRisk(
+  accountRiskPct?: number | null, memberRiskPct?: number | null, riskMode?: string | null,
+): number {
+  if (accountRiskPct != null && Number.isFinite(accountRiskPct) && accountRiskPct > 0) return accountRiskPct;
+  return resolveDefaultRisk(memberRiskPct, riskMode);
+}

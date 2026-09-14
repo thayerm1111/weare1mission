@@ -5,7 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { logTrade } from "@/lib/flow/tradeLog";
 import { normalizeQuantity, getInstrument } from "@/lib/flow/instruments";
 import { freshAccessToken, activeAccounts, type ActiveAccount } from "@/lib/flow/connection";
-import { sizeFromRisk, contractKey, floorStop } from "@/lib/flow/sizing";
+import { sizeFromRisk, contractKey, floorStop, resolveAccountRisk } from "@/lib/flow/sizing";
 import { listInstruments, createOrder, getQuote, listOrders, listPositions, listAccounts, listOrdersHistory, modifyPosition, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 
 /**
@@ -339,6 +339,10 @@ export type AccountFill = {
 export async function placeOnActiveAccounts(opts: {
   userId: string; symbol: string; side: "buy" | "sell";
   entry: number; stop: number; tp?: number | null; riskPct: number; source: string;
+  /** The member's saved account-wide risk %, RAW — null when they never chose one.
+   *  Callers must not pre-collapse it to 1, or "chose 1%" and "never chose" become
+   *  indistinguishable and the safety mode can no longer supply the default. */
+  memberRiskPct?: number | null;
   accounts?: ActiveAccount[]; // pass a pre-fetched list to avoid re-minting tokens
   /** The stop is an ABSOLUTE structural level already validated by the caller
    *  (structure-first gold path) - skip the floor/cap re-derivation entirely. */
@@ -369,7 +373,9 @@ export async function placeOnActiveAccounts(opts: {
     // minimum is the smallest tradeable size, so it's take-the-minimum or sit out.
     // Each account risk-sizes to ITS OWN risk % when one is set, else the caller's
     // default — so one account can run aggressive and another conservative.
-    let acctRisk = a.riskPct != null && a.riskPct > 0 ? a.riskPct : opts.riskPct;
+    let acctRisk = opts.memberRiskPct !== undefined
+      ? resolveAccountRisk(a.riskPct, opts.memberRiskPct, a.riskMode)
+      : (a.riskPct != null && a.riskPct > 0 ? a.riskPct : opts.riskPct);
     // SMALL-ACCOUNT GUARDRAILS (owner 09-08): the selected % only applies when the
     // account can actually carry it — under $2,000 equity the effective risk is capped
     // at 2%, and at $600 or less it's capped at 0.5%. The trade is NEVER skipped over
