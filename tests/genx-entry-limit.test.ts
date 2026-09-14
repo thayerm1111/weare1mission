@@ -26,10 +26,22 @@ test('a chased BUY is capped at the 0.75 floor', () => {
   assert.ok(rr('buy', px, stop, tp) >= ENTRY_FLOOR_RR - 1e-9);
 });
 
-test('a good in-zone price is NOT worsened to the cap', () => {
-  const stop = 4358, tp = 4326, good = 4350;   // ~3:1, well above the floor
-  assert.equal(entryLimitPrice('sell', good, stop, tp, 2), 4350);
-  assert.equal(entryLimitPrice('buy', 4310, 4300, 4360, 2), 4310);
+test('a good price still gets cap-width tolerance, not a zero-tolerance limit', () => {
+  // The 05:14 production incident: quote 4329 at 1.41:1, cap 4326. Pricing the limit at
+  // the quote left no room for a single adverse tick and nothing filled (72% -> 0%).
+  const px = 4329, stop = 4337, tp = 4317.75;
+  const lim = entryLimitPrice('sell', px, stop, tp, 2);
+  assert.equal(lim, 4326);
+  assert.ok(lim < px, 'a sell limit must sit BELOW the quote so the round-trip can tick');
+  const rrAtLimit = (lim - tp) / (stop - lim);
+  assert.ok(rrAtLimit >= ENTRY_FLOOR_RR - 1e-9, 'the worst fill it permits is still >= 0.75');
+});
+
+test('buy gets cap-width tolerance above the quote', () => {
+  const px = 4310, stop = 4300, tp = 4360;
+  const lim = entryLimitPrice('buy', px, stop, tp, 2);
+  assert.ok(lim > px, 'a buy limit must sit ABOVE the quote');
+  assert.ok((tp - lim) / (lim - stop) >= ENTRY_FLOOR_RR - 1e-9);
 });
 
 test('no target → limit at the executable price, never a market order', () => {

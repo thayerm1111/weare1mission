@@ -141,12 +141,21 @@ async function instrumentsFor(a: { env: TLEnv; token: string; accNum: string; ac
  *  in the GENX watcher; kept local so execution never reaches into signal selection. */
 export const ENTRY_FLOOR_RR = 0.75;
 
-/** The entry limit price: this account's executable price, capped at the worst price that
- *  still yields ENTRY_FLOOR_RR against the signal's absolute stop/target.
- *  Solving (tp-px)/(px-stop) = F for a buy (and the mirror for a sell) gives the same
- *  cap = (tp + F*stop)/(1+F); a buy may not pay ABOVE it, a sell may not sell BELOW it.
- *  With no target there is no ratio to enforce, so the cap is simply the executable price —
- *  still a limit, so the fill can never be worse than the quote we validated. */
+/** The entry limit price: the WORST price that still yields ENTRY_FLOOR_RR against the
+ *  signal's absolute stop/target. Solving (tp-px)/(px-stop) = F for a buy (and the mirror
+ *  for a sell) gives the same cap = (tp + F*stop)/(1+F); a buy may not pay ABOVE it, a sell
+ *  may not sell BELOW it.
+ *
+ *  The limit is the CAP itself, never the current quote. An IOC order still fills at the
+ *  best price available, so the cap only ever sets how far the market may move against us
+ *  between reading the quote and the broker receiving the order. Pricing the limit at the
+ *  quote instead looks stricter but is the same thing as no tolerance at all: gold ticks
+ *  during the round-trip, the limit is instantly unfillable, and the order cancels. That
+ *  took GENX from a 72% fill rate to 0% — 4 entries submitted, none filled — until this
+ *  was corrected. Fills between the quote and the cap are exactly the >= 0.75 range the
+ *  owner asked to allow; only a price past the cap is refused.
+ *
+ *  With no target there is no ratio to enforce, so the limit is the executable price. */
 export function entryLimitPrice(
   side: "buy" | "sell", price: number, stop?: number | null, tp?: number | null, prec = 2,
 ): number {
@@ -159,7 +168,7 @@ export function entryLimitPrice(
   if (stop == null || tp == null || !Number.isFinite(stop) || !Number.isFinite(tp)) return snap(price);
   const cap = (tp + ENTRY_FLOOR_RR * stop) / (1 + ENTRY_FLOOR_RR);
   if (!Number.isFinite(cap)) return snap(price);
-  return snap(side === "buy" ? Math.min(price, cap) : Math.max(price, cap));
+  return snap(cap);
 }
 
 async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null, ensureBrackets?: boolean, risk?: { equity: number; riskPct: number }): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean }> {
