@@ -29,7 +29,12 @@ type FlowStats = {
   gold?: { wins: number; losses: number; pips: number; winRate: number | null; trades: number };
   forex?: { wins: number; stops: number; pips: number; winRate: number | null; trades: number; open: number };
   recent?: FlowRec[]; goldRecent?: GoldRec[]; forexRecent?: FlowRec[]; error?: string;
+  genxReal?: GenxReal;
 };
+type RealBucket = "be_on" | "be_off" | "self_manage" | "play_out";
+type BucketStats = { trades: number; fires: number; wins: number; losses: number; breakeven: number; winRate: number | null; avgPips: number | null; netPips: number };
+type RealFire = { at: string; side: string; accounts: number; open: number; avgPips: number | null; results: Partial<Record<RealBucket, { trades: number; avgPips: number }>> };
+type GenxReal = { fires: number; openTrades: number; buckets: Record<RealBucket, BucketStats>; recentFires: RealFire[] };
 type Candle = { t: string; o: number; h: number; l: number; c: number };
 /** The GENX read (buildGenx output) — same object the app's Market Flow renders. */
 type GenxRead = {
@@ -242,7 +247,7 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
         {/* ── BOTTOM: GENX RESULTS · FLOW PERFORMANCE · RECENT TRADES ── */}
         <div className="grid gap-3 xl:grid-cols-3">
           <section className="overflow-hidden rounded-xl border" style={{ borderColor: C.line, background: C.panel }}>
-            <GenxResults rows={flow?.goldRecent ?? []} />
+            <GenxResults real={flow?.genxReal ?? null} loading={!flow} />
           </section>
           <section className="overflow-hidden rounded-xl border" style={{ borderColor: C.line, background: C.panel }}>
             <FlowPerformance flow={flow} series={netSeries} onConnect={() => onGo("flow")} />
@@ -806,45 +811,59 @@ function NewsDetail({ ev, onClose }: { ev: IntelEvent; onClose: () => void }) {
   );
 }
 
-/* ── GENX GOLD RESULTS ── */
-function GenxResults({ rows }: { rows: GoldRec[] }) {
-  const [filter, setFilter] = useState<"all" | "wins" | "losses">("all");
-  const list = useMemo(() => {
-    const f = filter === "wins" ? rows.filter((r) => r.win) : filter === "losses" ? rows.filter((r) => !r.win) : rows;
-    return f.slice(0, 8);
-  }, [rows, filter]);
+/* ── GENX GOLD RESULTS — real trades fired to real accounts, by how each account handled it ── */
+const REAL_BUCKETS: { key: RealBucket; label: string; short: string; hint: string }[] = [
+  { key: "be_on", label: "BE On", short: "BE on", hint: "Break-even on" },
+  { key: "be_off", label: "BE Off", short: "BE off", hint: "Break-even off" },
+  { key: "self_manage", label: "Self Manage", short: "Self", hint: "Closed by hand" },
+  { key: "play_out", label: "Let It Play Out", short: "Play out", hint: "Original stop & target" },
+];
+const signedPips = (n: number | null | undefined) => (n == null ? "—" : `${n > 0 ? "+" : ""}${Math.round(n).toLocaleString()}p`);
+const pipCol = (n: number | null | undefined) => (n == null || n === 0 ? C.mut : n > 0 ? C.green : C.red);
+
+function GenxResults({ real, loading }: { real: GenxReal | null; loading: boolean }) {
+  const fires = (real?.recentFires ?? []).slice(0, 6);
   return (
-    <div>
+    <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
-        <p className="inline-flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider"><span className="h-2 w-2 rounded-sm" style={{ background: C.gold }} /> GENX · Gold Results</p>
-        <div className="flex gap-1">
-          {(["all", "wins", "losses"] as const).map((f) => (
-            <button key={f} onClick={() => setFilter(f)} className="rounded px-1.5 py-0.5 text-[10px] font-semibold capitalize" style={filter === f ? { background: "rgba(255,194,75,0.16)", color: C.gold } : { color: C.mut2 }}>{f}</button>
-          ))}
-        </div>
+        <p className="inline-flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider"><span className="h-2 w-2 rounded-sm" style={{ background: C.gold }} /> GENX · Real Account Results</p>
+        <span className="font-mono text-[10px]" style={{ color: C.mut2 }}>{real ? `${real.fires} fired${real.openTrades ? ` · ${real.openTrades} open` : ""}` : ""}</span>
       </div>
-      {list.length === 0 ? (
-        <p className="px-4 py-10 text-center text-[12px]" style={{ color: C.mut2 }}>No graded GENX gold results in this view yet.</p>
+      <div className="grid grid-cols-2 gap-2 p-3">
+        {REAL_BUCKETS.map((b) => {
+          const s = real?.buckets?.[b.key];
+          const has = !!s && s.trades > 0;
+          return (
+            <div key={b.key} className="rounded-lg border px-2.5 py-2" style={{ borderColor: C.lineSoft, background: C.raised }}>
+              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: C.gold }}>{b.label}</p>
+              <p className="mt-0.5 font-mono text-base font-black tabular-nums" style={{ color: has ? pipCol(s!.avgPips) : C.mut2 }}>{has ? signedPips(s!.avgPips) : "—"}<span className="ml-1 text-[9px] font-semibold" style={{ color: C.mut2 }}>{has ? "avg/trade" : ""}</span></p>
+              <p className="font-mono text-[10px]" style={{ color: C.mut2 }}>{has ? `${s!.wins}W · ${s!.losses}L · ${s!.breakeven}BE · ${s!.winRate != null ? `${s!.winRate}%` : "—"}` : b.hint}</p>
+              {has && <p className="font-mono text-[10px]" style={{ color: C.mut2 }}>{s!.trades} acct trades · net <span style={{ color: pipCol(s!.netPips) }}>{signedPips(s!.netPips)}</span></p>}
+            </div>
+          );
+        })}
+      </div>
+      {fires.length === 0 ? (
+        <p className="px-4 pb-6 pt-2 text-center text-[12px]" style={{ color: C.mut2 }}>{loading ? "Syncing GENX results…" : "No GENX trades fired to accounts yet. Results appear here as soon as a trade closes."}</p>
       ) : (
         <table className="w-full text-[11px]">
           <thead>
             <tr style={{ color: C.mut2 }} className="text-left text-[9px] uppercase tracking-wider">
-              <th className="px-3.5 py-2 font-semibold">Time</th><th className="py-2 font-semibold">Pair</th><th className="py-2 font-semibold">Direction</th><th className="py-2 font-semibold">Status</th><th className="px-3.5 py-2 text-right font-semibold">Result</th>
+              <th className="px-3.5 py-1.5 font-semibold">Fired</th><th className="py-1.5 font-semibold">Dir</th>
+              {REAL_BUCKETS.map((b) => (<th key={b.key} className="py-1.5 text-right font-semibold last:pr-3.5">{b.short}</th>))}
             </tr>
           </thead>
           <tbody>
-            {list.map((r, i) => {
-              const long = genxLong(r.side); const pips = r.pips ?? 0;
-              const be = r.outcome === "breakeven"; // saved at break-even — shown as a scratch, never a loss
-              const tp = be ? "Break Even" : r.hitTp >= 3 ? "Target 3" : r.hitTp === 2 ? "Target 2" : r.hitTp === 1 ? "Target 1" : r.win ? "Target" : "Stopped";
-              const col = be ? C.mut : r.win ? C.green : C.red; // neutral for break-even
+            {fires.map((f, i) => {
+              const long = genxLong(f.side);
               return (
                 <tr key={i} className="border-t" style={{ borderColor: C.lineSoft }}>
-                  <td className="whitespace-nowrap px-3.5 py-2 font-mono" style={{ color: C.mut }}>{clockTime(r.at)}</td>
-                  <td className="py-2 font-mono font-bold">XAUUSD</td>
-                  <td className="py-2"><span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={long ? { background: "rgba(52,211,153,0.12)", color: C.green } : { background: "rgba(248,113,113,0.12)", color: C.red }}>{long ? "LONG" : "SHORT"}</span></td>
-                  <td className="py-2 text-[10px] font-semibold" style={{ color: col }}>{tp}</td>
-                  <td className="px-3.5 py-2 text-right font-mono font-bold" style={{ color: col }}>{be ? "0p" : `${pips > 0 ? "+" : ""}${pips.toLocaleString()}p`}</td>
+                  <td className="whitespace-nowrap px-3.5 py-1.5 font-mono" style={{ color: C.mut }}>{clockTime(f.at)}</td>
+                  <td className="py-1.5"><span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={long ? { background: "rgba(52,211,153,0.12)", color: C.green } : { background: "rgba(248,113,113,0.12)", color: C.red }}>{long ? "LONG" : "SHORT"}</span></td>
+                  {REAL_BUCKETS.map((b) => {
+                    const r = f.results?.[b.key];
+                    return <td key={b.key} className="py-1.5 text-right font-mono font-bold last:pr-3.5" style={{ color: r ? pipCol(r.avgPips) : C.mut2 }}>{r ? signedPips(r.avgPips) : f.open ? "open" : "—"}</td>;
+                  })}
                 </tr>
               );
             })}

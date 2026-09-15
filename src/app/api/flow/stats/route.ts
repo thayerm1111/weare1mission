@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { goldTally, dedupeGold, goldIsWin, goldOutcomePips, type GoldSig } from "@/lib/genx/goldRecord";
+import { buildRealResults, type RealRow } from "@/lib/genx/realResults";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,11 +61,9 @@ function summarize(t: Tally) {
   };
 }
 
-// GOLD comes from the GENX engine's own outcome ledger (genx_signals) — GENX is
-// gold-only, so every decided signal is a gold trade. The record is built by the
-// shared goldRecord helper, which DEDUPES fan-out (the same call is recorded once
-// per member/view, so raw sums multiply it) and derives pips from the filled PRICE
-// at the standard gold pip (0.1) — so this reads as one honest per-signal record.
+// GOLD comes from REAL trades GENX fired to broker accounts (flow_managed_positions,
+// XAUUSD), not from the signal ledger — see src/lib/genx/realResults.ts. It counts only
+// trades that recorded their management style when they fired (starts 09-15).
 
 export async function GET() {
   // Signed-in members only (protects the aggregate from anonymous scraping).
@@ -83,7 +81,7 @@ export async function GET() {
   // GOLD comes from the GENX ledger below and is merged in.
   const LEAD_USER_ID = "3b5e06e5-258c-4880-b1f2-d1623cbca100";
   const since7d = new Date(Date.now() - 7 * 24 * 3600e3).toISOString();
-  const [{ count: openCount }, { data, error }, gold, { count: liveOpenCount }, fx7d, gd7d] = await Promise.all([
+  const [{ count: openCount }, { data, error }, gold, { count: liveOpenCount }, fx7d] = await Promise.all([
     admin.from("flow_managed_positions").select("id", { count: "exact", head: true }).eq("status", "open").eq("user_id", LEAD_USER_ID).neq("symbol", "XAUUSD"),
     admin
       .from("flow_managed_positions")
@@ -94,23 +92,26 @@ export async function GET() {
       .neq("outcome", "excluded")
       .order("resolved_at", { ascending: false, nullsFirst: false })
       .limit(2000),
+    // GOLD = trades GENX actually fired to real accounts, from the moment each trade started
+    // recording its management style (owner 09-15: "stats reflected on an actual account").
     admin
-      .from("genx_signals")
-      .select("created_at,resolved_at,direction,outcome,entry,stop_loss,tp1,tp2,tp3,stop_pips,tp1_pips,tp2_pips,tp3_pips,tp1_hit,tp2_hit,tp3_hit,mfe_pips")
-      .not("outcome", "is", null)
-      .order("resolved_at", { ascending: false, nullsFirst: false })
-      .limit(4000),
+      .from("flow_managed_positions")
+      .select("side,outcome,result_pips,created_at,resolved_at,manage_style,status")
+      .eq("symbol", "XAUUSD")
+      .not("manage_style", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(20000),
     // LIVE NOW — every open desk position (forex + gold), lead-scoped.
     admin.from("flow_managed_positions").select("id", { count: "exact", head: true }).eq("status", "open").eq("user_id", LEAD_USER_ID),
     // PLAYS · 7D — desk signals CALLED in the last 7 days (deduped below).
     admin.from("flow_managed_positions").select("symbol,side,entry").eq("user_id", LEAD_USER_ID).neq("symbol", "XAUUSD").gte("created_at", since7d).limit(3000),
-    admin.from("genx_signals").select("direction,entry,stop_loss,tp1").gte("created_at", since7d).limit(3000),
   ]);
   if (error) return json({ error: "load_failed", detail: error.message }, 200);
 
   // Deduped desk activity for the last 7 days (fan-out collapsed on both ledgers).
   const forex7d = new Set(((fx7d.data || []) as { symbol: string; side: string; entry: number }[]).map((r) => `${String(r.symbol).toUpperCase()}|${r.side}|${r.entry}`)).size;
-  const gold7d = new Set(((gd7d.data || []) as { direction: string | null; entry: number | null; stop_loss: number | null; tp1: number | null }[]).map((r) => `${String(r.direction || "").toLowerCase()}|${r.entry ?? "?"}|${r.stop_loss ?? "?"}|${r.tp1 ?? "?"}`)).size;
+  const real = buildRealResults((gold?.data || []) as RealRow[]);
+  const gold7d = real.recentFiresAll.filter((f) => new Date(f.at).toISOString() >= since7d).length;
   const plays7d = forex7d + gold7d;
   const liveOpen = liveOpenCount ?? 0;
 
@@ -141,24 +142,20 @@ export async function GET() {
   }
   const forexSummary = summarize(overall); // capture BEFORE folding gold in
 
-  // ── GOLD tally — deduped (one row per signal) + price-derived, via goldRecord. ──
-  const gRows = (gold?.data || []) as GoldSig[];
-  const gT = goldTally(gRows);      // per-signal record (fan-out collapsed, pips from price)
-  const gDed = dedupeGold(gRows);   // deduped rows, for the recent feed
-  const goldGross = gT.grossWon;    // pips banked by GOLD winners (deduped)
-  const goldRecent = gDed.map((s) => {
-    const win = goldIsWin(s); // a stop first saved at breakeven counts as a win
-    const beWin = win && s.outcome !== "WIN"; // breakeven-saved (scratch) rather than a target
-    const pips = goldOutcomePips(s);
-    const hitTp = s.tp3_hit ? 3 : s.tp2_hit ? 2 : s.tp1_hit ? 1 : 0;
-    return { symbol: "XAUUSD", side: (s.direction || "").toLowerCase(), outcome: win ? (beWin ? "breakeven" : "target") : "stop", win, hitTp, pips: Math.round(pips), at: s.resolved_at || s.created_at || "" };
+  // ── GOLD — real trades. Each fully-closed GENX fire counts once at the average realized
+  //    result across the accounts that took it; the four management results are per account. ──
+  const gT = real.summary;
+  const goldGross = gT.grossWon;
+  const goldRecent = real.recentFires.filter((f) => f.open === 0 && f.avgPips != null).map((f) => {
+    const pips = f.avgPips ?? 0;
+    return { symbol: "XAUUSD", side: f.side, outcome: pips > 0 ? "target" : pips < 0 ? "stop" : "breakeven", win: pips > 0, hitTp: 0, pips, at: f.at, accounts: f.accounts, results: f.results };
   });
   const goldSummary = { wins: gT.wins, stops: gT.losses, winRate: gT.winRate, trades: gT.trades };
 
   // ── Fold gold into the desk-wide totals + add its own per-pair row. `pips` is NET. ──
   overall.trades += gT.trades; overall.wins += gT.wins; overall.stop += gT.losses;
-  overall.target += gT.wins; overall.pips += gT.net;
-  if (gT.trades > 0) perPairMap.set("XAUUSD", { trades: gT.trades, wins: gT.wins, stop: gT.losses, breakeven: 0, trail: 0, target: gT.wins, partials: 0, pips: gT.net });
+  overall.target += gT.wins; overall.pips += gT.netPips;
+  if (gT.trades > 0) perPairMap.set("XAUUSD", { trades: gT.trades, wins: gT.wins, stop: gT.losses, breakeven: 0, trail: 0, target: gT.wins, partials: 0, pips: gT.netPips });
 
   const perPair = [...perPairMap.entries()]
     .map(([symbol, t]) => ({ symbol, ...summarize(t) }))
@@ -188,7 +185,10 @@ export async function GET() {
     pipsWon: Math.round(goldGross + forexGross), // GROSS pips banked by winners (kept for the legacy "Pips won" card)
     perPair,
     recent,
-    goldRecent: goldFeed,   // GENX gold results (deduped) — for the GENX blotter
+    goldRecent: goldFeed,
+    // GENX real-trade results by how each account handled the trade (be_on · be_off ·
+    // self_manage · play_out). Counting starts when trades began recording their style.
+    genxReal: { fires: real.fires, openTrades: real.openTrades, buckets: real.buckets, recentFires: real.recentFires },   // GENX gold results (deduped) — for the GENX blotter
     forexRecent: forexFeed, // FLOW forex trades — for the FLOW results ledger
     // Split for the scoreboard cards — grouped by engine, pips = GROSS pips won.
     gold: { wins: goldSummary.wins, losses: goldSummary.stops, pips: Math.round(goldGross), winRate: goldSummary.winRate, trades: goldSummary.trades },
