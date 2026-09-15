@@ -4,7 +4,7 @@ import { flowDecision } from "@/lib/flow/decision";
 import { placeOnActiveAccounts, placeFixedLotFollower } from "@/lib/flow/executor";
 import { activeAccounts, connectionToken, type ActiveAccount } from "@/lib/flow/connection";
 import { listAccounts, listPositions, type TLEnv } from "@/lib/flow/tradelocker";
-import { sizeFromRisk, floorStop, structuralStop, maxStopDistance } from "@/lib/flow/sizing";
+import { sizeFromRisk, floorStop, structuralStop, maxStopDistance, capGoldStop } from "@/lib/flow/sizing";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
@@ -1430,7 +1430,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   //   • structure needs more than the $10 allowance from the live fill → the desk does NOT
   //     take it with a mangled stop — Send It accounts only, with a logged + posted reason.
   const gRef = goldLp != null ? goldLp : entry;
-  const gstop = sig.stop != null ? structuralStop({ side: sig.side, ref: gRef, anchor: sig.stop, minRoom: GOLD_STRUCT_MIN_ROOM }) : sig.stop;
+  let gstop = sig.stop != null ? structuralStop({ side: sig.side, ref: gRef, anchor: sig.stop, minRoom: GOLD_STRUCT_MIN_ROOM }) : sig.stop;
   // KEEP THE TRADE — ADJUST THE SIZE (owner 09-07): a wider structural stop is NEVER a
   // reason to skip. A 72-pip invalidation takes normal calculated risk; a 97-pip one takes
   // the SAME setup at a smaller size — sizing divides the member's risk % by the stop
@@ -1452,6 +1452,11 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     await deskDrop(`stop_data_insane $${Math.abs(entry - gstop).toFixed(2)} zone-to-stop ${sig.side} (dropped for everyone)`);
     return { members: 0, placed: 0 };
   }
+  // GOLD STOP CAP (owner 09-15): pull a stop deeper than the cap (default 100 pips) in to the
+  // cap from the live reference. Runs after the data-sanity check (which judges the engine's
+  // own level) and BEFORE the chase guard / R:R gates / sizing, so all of them see the stop
+  // that is actually placed. Never widens.
+  gstop = capGoldStop(sig.side, gRef, gstop) ?? gstop;
 
   // CHASE GUARD (desk-wide): if price has already run toward TP so the live-price R:R is below
   // the floor, this ENTER NOW is chased — skip it for everyone rather than fill a tiny-TP /
@@ -1676,11 +1681,14 @@ export async function placeGenxFollower(sig: {
     : (sig.entryLow ?? sig.entryHigh ?? null);
   // STRUCTURE-FIRST (owner 09-07): followers ride the signal's ABSOLUTE structural stop,
   // pad-only adjusted when the fill sits on the invalidation — never re-derived.
-  const fstop = (entry != null && sig.stop != null) ? structuralStop({ side: sig.side, ref: entry, anchor: sig.stop, minRoom: GOLD_STRUCT_MIN_ROOM }) : sig.stop;
+  let fstop = (entry != null && sig.stop != null) ? structuralStop({ side: sig.side, ref: entry, anchor: sig.stop, minRoom: GOLD_STRUCT_MIN_ROOM }) : sig.stop;
 
   // Live gold price, fetched ONCE — used for the chase guard AND for risk-sizing below.
   let goldLp: number | null = null;
   try { goldLp = await goldLivePrice(); } catch { goldLp = null; }
+  // GOLD STOP CAP (owner 09-15) — same cap as the copy path, from the live price (zone mid
+  // if the feed is down), before the chase guard, R:R gates and sizing. Never widens.
+  fstop = capGoldStop(sig.side, goldLp ?? entry, fstop);
 
   // CHASE GUARD (desk-wide): same reward:risk floor as the copy path — if price has run
   // toward TP so the live-price R:R is below the floor, this ENTER NOW is chased; no

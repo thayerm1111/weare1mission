@@ -86,6 +86,31 @@ export function minStopDistance(canonical: string): number {
   return MIN_STOP[contractKey(canonical)] ?? 0;
 }
 
+/**
+ * GOLD STOP CAP (owner 09-15, after the 30-day replay of real GENX fires: capping the stop at
+ * 100 pips cut the average loss from -106 to -88 pips and added ~400 net pips vs the as-placed
+ * structural stops). A structural stop further than the cap from the reference price is PULLED
+ * IN to exactly the cap; a stop already inside the cap is untouched. It only ever moves the
+ * stop TOWARD the reference — never widens. Sizing still divides the member's risk % by the
+ * (now shorter) distance, so account risk % is unchanged; the lot size is what grows.
+ * Env GENX_GOLD_STOP_CAP_PIPS (default 100; 0 = off) flips it without a code deploy.
+ */
+export function goldStopCapPips(): number {
+  const raw = process.env.GENX_GOLD_STOP_CAP_PIPS;
+  if (raw == null || raw.trim() === "") return 100;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+}
+export function capGoldStop(side: "buy" | "sell", ref: number | null | undefined, stop: number | null, capPips = goldStopCapPips()): number | null {
+  if (stop == null || !(stop > 0) || ref == null || !(ref > 0) || !(capPips > 0)) return stop;
+  const cap = capPips * 0.1; // gold pip = 0.1
+  // Only a stop on the protective side of the reference is capped (a stop already through
+  // the price is left for the chase/sanity guards to handle).
+  if (side === "buy" ? stop >= ref : stop <= ref) return stop;
+  if (Math.abs(ref - stop) <= cap) return stop;
+  return side === "buy" ? +(ref - cap).toFixed(2) : +(ref + cap).toFixed(2);
+}
+
 /** Maximum allowed stop distance (the owner's risk allowance); 0 if none configured. */
 export function maxStopDistance(canonical: string): number {
   return MAX_STOP[contractKey(canonical)] ?? 0;
