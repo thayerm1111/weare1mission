@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { type Mode } from "@/lib/genxCompute";
 import { confirmEntry } from "@/lib/genxConfirm";
 import { sendTelegram, esc } from "@/lib/telegram";
+import { genxLabel } from "@/lib/genx/brand";
 import { placeGenxGold, placeGenxFollower, rewardRisk } from "@/lib/flow/autoExec";
 import { beat } from "@/lib/flow/health";
 import { genx2FlagsSnapshot, genx2FlagsDiagnostic } from "@/lib/genx2/flags";
@@ -83,7 +84,7 @@ export function headsUpMsg(side: "buy" | "sell", mode: Mode, a: { entry_low: num
   const zone = a.entry_low != null && a.entry_high != null ? `${fmt(a.entry_low)}–${fmt(a.entry_high)}` : "—";
   const tps = [a.tp1 != null ? `TP1 ${fmt(a.tp1)}` : null, a.tp2 != null ? `TP2 ${fmt(a.tp2)}` : null].filter(Boolean).join(" · ");
   return [
-    `⏳ <b>GENX — ${dir} setup forming · ${MODE_LABEL[mode]}</b>`,
+    `⏳ <b>${genxLabel()} — ${dir} setup forming · ${MODE_LABEL[mode]}</b>`,
     `Gold (XAU/USD)`,
     `Zone: <b>${esc(zone)}</b>`,
     `Stop: ${fmt(a.stop)}${tps ? " · " + esc(tps) : ""}`,
@@ -101,7 +102,7 @@ export function enterMsg(side: "buy" | "sell", mode: Mode, a: { entry_low: numbe
     ? `Live setup — Gold is at the zone now.`
     : `${side === "sell" ? "Sellers" : "Buyers"} confirmed on the ${MODE_LABEL[mode] === "Quick" ? "5-minute" : MODE_LABEL[mode] === "Intraday" ? "15-minute" : "1-hour"} close.`;
   return [
-    `✅ <b>GENX — ENTER NOW · ${dir} · ${MODE_LABEL[mode]}</b>`,
+    `✅ <b>${genxLabel()} — ENTER NOW · ${dir} · ${MODE_LABEL[mode]}</b>`,
     `Gold @ ~${fmt(atPrice)}`,
     `Entry ${esc(zone)} · Stop ${fmt(a.stop)}`,
     tps ? esc(tps) : "",
@@ -114,7 +115,7 @@ export function invalidMsg(side: "buy" | "sell", mode: Mode, a: { entry_low: num
   const dir = side === "sell" ? "SELL" : "BUY";
   const zone = a.entry_low != null && a.entry_high != null ? `${fmt(a.entry_low)}–${fmt(a.entry_high)}` : "the zone";
   return [
-    `❌ <b>GENX — Setup invalidated · ${dir} · ${MODE_LABEL[mode]}</b>`,
+    `❌ <b>${genxLabel()} — Setup invalidated · ${dir} · ${MODE_LABEL[mode]}</b>`,
     `The ${esc(zone)} ${dir.toLowerCase()} is off — price closed beyond ${fmt(a.invalidation)}. Don't take it.`,
   ].join("\n");
 }

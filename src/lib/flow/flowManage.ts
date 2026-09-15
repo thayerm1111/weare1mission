@@ -9,6 +9,8 @@ import { normalizeQuantity, getInstrument } from "@/lib/flow/instruments";
 import { contractKey } from "@/lib/flow/sizing";
 import { listInstruments, listPositions, getQuote, getConfig, modifyPosition, closePosition, listOrdersHistory, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 import { releaseGold } from "@/lib/genx2/reservation";
+import { genx2TrailAckGate } from "@/lib/genx2/flags";
+import { reconcileStaleGoldEntries } from "@/lib/genx2/cancelReconcile";
 import { recoverOrphans } from "@/lib/flow/recover";
 import { logTrade } from "@/lib/flow/tradeLog";
 import { beat } from "@/lib/flow/health";
@@ -583,6 +585,11 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     // a silently-filled order). 'filled'/'unknown' are only cleared once no open position
     // remains for that account+symbol. Best-effort, throttled with orphan recovery.
     try { await admin.rpc("genx_reconcile_stale_reservations", { p_max_age_secs: 900 }); } catch { /* best-effort */ }
+    // GENX 2.0 cancel-on-invalidation: withdraw resting GTC gold entries that have out-stayed
+    // their bounded validity (price moved away from the cap, so the entry would now chase),
+    // with fill-vs-cancel race handling — a filled order can't be cancelled, so the account is
+    // freed only on a broker-confirmed cancel. Best-effort, throttled with orphan recovery.
+    try { await reconcileStaleGoldEntries(); } catch { /* best-effort */ }
   }
 
   const { data, error } = await admin
@@ -1231,10 +1238,21 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         if (improved) {
           const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: candidate });
           if (mv.ok) {
-            // BROKER READ-BACK: only advance the recorded trail once the broker confirms the
-            // new stop. Unconfirmed → leave cur_stop where it was so the next tick re-sends.
+            // THE BROKER'S ACK IS THE GATE, NOT THE READ-BACK — consistent with break-even
+            // (8620e8d). The old code advanced the recorded trail ONLY when verifyStop could
+            // re-read the stop; on accounts/routes where the broker doesn't expose the SL on the
+            // position row (slIdx < 0), that read-back never confirmed, so the trail stalled at
+            // cur_stop forever and re-sent the same modify every tick. Now an accepted modify
+            // records the trail; the read-back still runs, but only to annotate confirmed vs
+            // acked-no-readback. (Flag GENX2_TRAIL_ACK_GATE, default on, restores the old
+            // read-back-gated behavior when off.)
             const confirmed = await verifyStop(tok, row.acc_num, row.account_id, row.position_id, cols.slIdx, row.symbol, candidate);
-            if (confirmed) { update.cur_stop = candidate; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail", detail: `SL→${candidate} gb${givebackR}R${cols.slIdx >= 0 ? " ✓" : ""}` }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "trail", reason: "broker_confirmed", price: candidate }); }
+            if (genx2TrailAckGate()) {
+              update.cur_stop = candidate; didAction = true;
+              actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail", detail: `SL→${candidate} gb${givebackR}R${confirmed ? " ✓" : " (acked)"}` });
+              await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "trail", reason: confirmed ? "broker_confirmed" : "acked_no_readback", price: candidate });
+              if (!confirmed) { await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "trail_unconfirmed", reason: "readback_mismatch", price: candidate }); }
+            } else if (confirmed) { update.cur_stop = candidate; didAction = true; actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail", detail: `SL→${candidate} gb${givebackR}R${cols.slIdx >= 0 ? " ✓" : ""}` }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "trail", reason: "broker_confirmed", price: candidate }); }
             else { update.last_error = `trail_unconfirmed: broker SL != ${candidate}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail_unconfirmed", detail: "retry next tick" }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "trail_unconfirmed", reason: "readback_mismatch", price: candidate }); }
           }
           else { update.last_error = `trail_err: ${mv.error}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "trail_err", detail: mv.error.slice(0, 60) }); }

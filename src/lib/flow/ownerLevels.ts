@@ -3,6 +3,7 @@ import { livePrice } from "@/lib/marketData";
 import { confirmEntry } from "@/lib/genxConfirm";
 import { placeGenxGold } from "@/lib/flow/autoExec";
 import { sendTelegram, esc } from "@/lib/telegram";
+import { genxLabel } from "@/lib/genx/brand";
 
 /**
  * MY LEVELS — the owner's own support/resistance lines, traded by GENX (owner 09-07:
@@ -103,7 +104,7 @@ export async function checkOwnerLevels(admin: Admin, mdKey: string): Promise<{ c
         fired += 1;
         const name = lv.label ? `${lv.label} (${lv.price})` : String(lv.price);
         await sendTelegram(
-          `🎯 <b>GENX — OWNER LEVEL · ${side === "buy" ? "BUY" : "SELL"}</b>\n` +
+          `🎯 <b>${genxLabel()} — OWNER LEVEL · ${side === "buy" ? "BUY" : "SELL"}</b>\n` +
           `${esc(side === "buy" ? "Support" : "Resistance")} at <b>${esc(name)}</b> held — ${esc(res.detail)}\n` +
           `Entry ~${entry.toFixed(2)} · Stop ${inv.toFixed(2)} · TP ${tp.toFixed(2)}\n` +
           `<i>Educational, not financial advice.</i>`,

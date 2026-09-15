@@ -35,8 +35,10 @@ export const genx2FamiliesEnabled = (): boolean => genx2Enabled() && envBool("GE
  *  Independent of genx2Enabled so the safeguard can be active before the families. */
 export const genx2ReservationEnabled = (): boolean => envBool("GENX2_RESERVATION", true);
 
-/** Cancel a resting GTC entry on signal invalidation/expiry (fast-exec hardening).
- *  Default ON — it only removes an order that is no longer wanted. */
+/** Cancel a resting GTC entry on signal invalidation / bounded-validity expiry (fast-exec
+ *  hardening). Default ON — it only removes an order that is no longer wanted, and it releases
+ *  the account only on a broker-CONFIRMED cancel (a filled order can't be canceled, so the
+ *  fill-vs-cancel race can never free an account that actually has a position). */
 export const genx2CancelOnInvalidation = (): boolean => envBool("GENX2_CANCEL_ON_INVALIDATION", true);
 
 /** TEMPORARY DIAGNOSTIC (owner 09-15): the worker reports GENX2_ENABLED=false while the
@@ -60,6 +62,19 @@ export function genx2FlagsDiagnostic(): Record<string, unknown> {
     node_env: process.env.NODE_ENV ?? "<undefined>",
   };
 }
+
+/** How long a GENX gold entry order may rest unfilled before it is treated as stale and
+ *  cancelled (bounded validity). Clamped to a sane [60, 1800] s. Default 180s. */
+export function genx2OrderValiditySec(): number {
+  const raw = Number(process.env.GENX2_ORDER_VALIDITY_SEC);
+  if (!Number.isFinite(raw) || raw <= 0) return 180;
+  return Math.max(60, Math.min(1800, Math.round(raw)));
+}
+
+/** Trailing stop records its advance on the broker's ACK, with the read-back as observability
+ *  only — consistent with the break-even fix (8620e8d). Default ON. OFF restores the old
+ *  read-back-gated trail (which stalls on accounts whose broker doesn't expose the SL). */
+export const genx2TrailAckGate = (): boolean => envBool("GENX2_TRAIL_ACK_GATE", true);
 
 /** Snapshot for logging/handoff — never used to gate logic. */
 export function genx2FlagsSnapshot(): Record<string, boolean> {

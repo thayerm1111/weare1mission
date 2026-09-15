@@ -9,6 +9,7 @@ import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
 import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
+import { genxLabel } from "@/lib/genx/brand";
 import { series, livePrice } from "@/lib/marketData";
 import { trendOfCloses, closedBars } from "@/lib/mtf";
 import { sendTelegram } from "@/lib/telegram";
@@ -1407,10 +1408,10 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     const gate = await goldEntryHold(admin, sig.side, entry);
     if (gate.hold && gate.scope === "conservative") {
       conservativeHold = true;
-      try { await sendTelegram(`⏸️ <b>GENX gold — conservative accounts held</b>\n${gate.reason}`); } catch { /* note best-effort */ }
+      try { await sendTelegram(`⏸️ <b>${genxLabel()} gold — conservative accounts held</b>\n${gate.reason}`); } catch { /* note best-effort */ }
       try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: choch_conservative_hold ${sig.side} (aggressive proceeding)` }); } catch { /* breadcrumb best-effort */ }
     } else if (gate.hold) {
-      try { await sendTelegram(`⏸️ <b>GENX gold — entry paused</b> (🚀 Send It accounts still take it)\n${gate.reason}`); } catch { /* note best-effort */ }
+      try { await sendTelegram(`⏸️ <b>${genxLabel()} gold — entry paused</b> (🚀 Send It accounts still take it)\n${gate.reason}`); } catch { /* note best-effort */ }
       await deskDrop(`gold_halt ${sig.side} (send-it only)`);
       sendItOnly = true;
     }
@@ -1463,7 +1464,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     // TELL THE ROOM (owner 09-09: an ENTER NOW went out on Telegram while the desk quietly
     // took nobody — "why didn't my account take this last trade?"). A silent skip reads as
     // a broken system; a one-line note reads as discipline.
-    if (shouldNote("chase", sig.side)) { try { await sendTelegram(`⏸️ <b>GENX gold — not chasing this fill</b>\nPrice ran past the ${sig.side.toUpperCase()} zone${goldLp != null ? ` (now ~${goldLp.toFixed(2)})` : ""}${rr != null ? ` — live R:R ${rr.toFixed(2)}` : ""}. Watching for a pullback into the zone to enter properly. 🚀 Send It accounts still take it at market.`); } catch { /* note best-effort */ } }
+    if (shouldNote("chase", sig.side)) { try { await sendTelegram(`⏸️ <b>${genxLabel()} gold — not chasing this fill</b>\nPrice ran past the ${sig.side.toUpperCase()} zone${goldLp != null ? ` (now ~${goldLp.toFixed(2)})` : ""}${rr != null ? ` — live R:R ${rr.toFixed(2)}` : ""}. Watching for a pullback into the zone to enter properly. 🚀 Send It accounts still take it at market.`); } catch { /* note best-effort */ } }
   }
 
   // SELECTIVITY GATES (owner directives 08-31):
@@ -1488,12 +1489,12 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     if (beGate.block) {
       const dir = sig.side.toUpperCase();
       if (beGate.kind === "exhausted") {
-        if (shouldNote("begate_exhausted", sig.side)) { try { await sendTelegram(`⛔️ <b>GENX gold — sitting this one out</b>\nThis ${dir} zone already hit break-even twice — the setup is done. Waiting for a NEW setup to form.`); } catch { /* note best-effort */ } }
+        if (shouldNote("begate_exhausted", sig.side)) { try { await sendTelegram(`⛔️ <b>${genxLabel()} gold — sitting this one out</b>\nThis ${dir} zone already hit break-even twice — the setup is done. Waiting for a NEW setup to form.`); } catch { /* note best-effort */ } }
         await deskDrop(`setup_exhausted ${sig.side}${beGate.detail ? ` (${beGate.detail})` : ""} (send-it only)`);
         sendItOnly = true;
       } else {
         holdAccounts = await goldParticipantAccounts(admin, sig.side, GOLD_WIN_PICKY_MS);
-        if (shouldNote("begate_retry", sig.side)) { try { await sendTelegram(`🎯 <b>GENX gold — retry needs to earn it</b>\nThis ${dir} zone went to break-even once. Accounts that took that scratch re-enter only at a better price (≥${GOLD_RETRY_BETTER_PIPS}p) or on a premium read — accounts that sat it out take this on normal rules${beGate.detail ? `.\nThis one: ${beGate.detail}` : ""}.`); } catch { /* note best-effort */ } }
+        if (shouldNote("begate_retry", sig.side)) { try { await sendTelegram(`🎯 <b>${genxLabel()} gold — retry needs to earn it</b>\nThis ${dir} zone went to break-even once. Accounts that took that scratch re-enter only at a better price (≥${GOLD_RETRY_BETTER_PIPS}p) or on a premium read — accounts that sat it out take this on normal rules${beGate.detail ? `.\nThis one: ${beGate.detail}` : ""}.`); } catch { /* note best-effort */ } }
         await deskDrop(`be_retry_not_earned ${sig.side}${beGate.detail ? ` (${beGate.detail})` : ""} (holding ${holdAccounts.size} participant accts)`);
       }
     }
@@ -1512,7 +1513,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
           rrLive != null ? `R:R ${rrLive.toFixed(2)} (needs ≥ ${GOLD_WIN_PICKY_RR.toFixed(1)})` : null,
           sig.confidence != null ? `confidence ${sig.confidence} (needs ≥ ${GOLD_WIN_PICKY_CONF})` : null,
         ].filter(Boolean).join(" · ");
-        if (shouldNote("picky", sig.side)) { try { await sendTelegram(`🎯 <b>GENX gold — protecting profits</b>\n${w.won ? `Accounts that just banked a ${sig.side.toUpperCase()} win` : `Accounts that just scratched a ${sig.side.toUpperCase()} at break-even`} need a premium re-entry (min 1:1)${detail ? ` — this one: ${detail}` : ""}. Accounts that sat that trade out take this on normal rules.`); } catch { /* note best-effort */ } }
+        if (shouldNote("picky", sig.side)) { try { await sendTelegram(`🎯 <b>${genxLabel()} gold — protecting profits</b>\n${w.won ? `Accounts that just banked a ${sig.side.toUpperCase()} win` : `Accounts that just scratched a ${sig.side.toUpperCase()} at break-even`} need a premium re-entry (min 1:1)${detail ? ` — this one: ${detail}` : ""}. Accounts that sat that trade out take this on normal rules.`); } catch { /* note best-effort */ } }
         await deskDrop(`post_win_picky ${sig.side}${rrLive != null ? ` rr=${rrLive.toFixed(2)}` : ""}${sig.confidence != null ? ` conf=${sig.confidence}` : ""} (holding ${holdAccounts.size} participant accts)`);
       }
     }
