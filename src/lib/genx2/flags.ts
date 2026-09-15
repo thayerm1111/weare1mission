@@ -39,6 +39,28 @@ export const genx2ReservationEnabled = (): boolean => envBool("GENX2_RESERVATION
  *  Default ON — it only removes an order that is no longer wanted. */
 export const genx2CancelOnInvalidation = (): boolean => envBool("GENX2_CANCEL_ON_INVALIDATION", true);
 
+/** TEMPORARY DIAGNOSTIC (owner 09-15): the worker reports GENX2_ENABLED=false while the
+ *  Railway service shows it set to "on", so the parsed boolean is not enough to tell
+ *  whether the value is absent, mis-quoted, or present-but-unparsed. This reports the RAW
+ *  value JSON-encoded (so surrounding quotes and stray whitespace are visible rather than
+ *  swallowed), which GENX2_* keys exist in the process at all, and the total env size —
+ *  an empty-ish env means the process is not getting the service's variables. Only
+ *  GENX2_* names are read; no secret is touched. Remove once the cause is found. */
+export function genx2FlagsDiagnostic(): Record<string, unknown> {
+  const names = ["GENX2_ENABLED", "GENX2_FAMILIES", "GENX2_RESERVATION", "GENX2_CANCEL_ON_INVALIDATION"];
+  const raw: Record<string, string> = {};
+  for (const n of names) {
+    const v = process.env[n];
+    raw[n] = v === undefined ? "<undefined>" : JSON.stringify(v);
+  }
+  return {
+    raw,
+    genx2_keys_present: Object.keys(process.env).filter((k) => k.startsWith("GENX2")),
+    env_key_count: Object.keys(process.env).length,
+    node_env: process.env.NODE_ENV ?? "<undefined>",
+  };
+}
+
 /** Snapshot for logging/handoff — never used to gate logic. */
 export function genx2FlagsSnapshot(): Record<string, boolean> {
   return {
