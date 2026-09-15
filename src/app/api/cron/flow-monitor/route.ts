@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendTelegram, esc } from "@/lib/telegram";
+import { archiveGoldCandles } from "@/lib/genx/candleArchive";
 
 /**
  * SERVER-SIDE MONITOR (key-gated cron).
@@ -29,7 +30,7 @@ import { sendTelegram, esc } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 const json = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
@@ -234,8 +235,9 @@ async function run(req: NextRequest): Promise<Response> {
   const stall = await scannerStallCheck(admin);
   const digest = await bigAccountDigest(admin);
   const retention = await purgeOldLogs(admin);
+  const candles = await archiveGoldCandles(admin); // backtest price archive — read-only market data
 
-  return json({ ok: true, stall, digest, retention, asOf: new Date().toISOString() }, 200);
+  return json({ ok: true, stall, digest, retention, candles, asOf: new Date().toISOString() }, 200);
 }
 
 export async function GET(req: NextRequest) { return run(req); }
