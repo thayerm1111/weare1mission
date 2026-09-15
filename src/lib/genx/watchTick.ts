@@ -5,7 +5,7 @@ import { sendTelegram, esc } from "@/lib/telegram";
 import { genxLabel } from "@/lib/genx/brand";
 import { placeGenxGold, placeGenxFollower, rewardRisk } from "@/lib/flow/autoExec";
 import { beat } from "@/lib/flow/health";
-import { genx2FlagsSnapshot, genx2FlagsDiagnostic } from "@/lib/genx2/flags";
+import { genx2FlagsSnapshot } from "@/lib/genx2/flags";
 
 /**
  * GENX FAST-WATCH TICK — shared by the Vercel cron loop AND the always-on worker
@@ -129,12 +129,11 @@ export function invalidMsg(side: "buy" | "sell", mode: Mode, a: { entry_low: num
  *  `worker` in the same detail says which one you are looking at. */
 export async function beatKeepDecision(admin: Admin, extra: Record<string, unknown>): Promise<void> {
   const flags = genx2FlagsSnapshot();
-  const flags_diag = genx2FlagsDiagnostic(); // TEMPORARY — remove once the env mismatch is explained
   try {
     const { data } = await admin.from("flow_heartbeat").select("detail").eq("component", "genx").maybeSingle();
     const last = (data as { detail?: { last_decision?: unknown } } | null)?.detail?.last_decision;
-    await beat(admin, "genx", { ...extra, flags, flags_diag, ...(last !== undefined ? { last_decision: last } : {}) });
-  } catch { try { await beat(admin, "genx", { ...extra, flags, flags_diag }); } catch { /* liveness best-effort */ } }
+    await beat(admin, "genx", { ...extra, flags, ...(last !== undefined ? { last_decision: last } : {}) });
+  } catch { try { await beat(admin, "genx", { ...extra, flags }); } catch { /* liveness best-effort */ } }
 }
 
 // ── THE WATCH LOCK — row id=2 of flow_manage_lock (id=1 is the trade-manager's).
