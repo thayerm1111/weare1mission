@@ -4,6 +4,7 @@ import { confirmEntry } from "@/lib/genxConfirm";
 import { sendTelegram, esc } from "@/lib/telegram";
 import { placeGenxGold, placeGenxFollower, rewardRisk } from "@/lib/flow/autoExec";
 import { beat } from "@/lib/flow/health";
+import { genx2FlagsSnapshot } from "@/lib/genx2/flags";
 
 /**
  * GENX FAST-WATCH TICK — shared by the Vercel cron loop AND the always-on worker
@@ -118,13 +119,20 @@ export function invalidMsg(side: "buy" | "sell", mode: Mode, a: { entry_low: num
   ].join("\n");
 }
 
-/** Heartbeat that PRESERVES the last recorded decision detail (watchdog reads it). */
+/** Heartbeat that PRESERVES the last recorded decision detail (watchdog reads it).
+ *  Also stamps the LIVE GENX 2.0 flag state. The flags are read from env at call time
+ *  and were previously recorded nowhere, so "are the new families actually on?" could
+ *  only be inferred from the shape of a decision — and only when the market happened to
+ *  produce a setup in the band where v1 and v2 disagree. Stamping them here answers it
+ *  directly, per process: the worker and the Vercel cron each write their own view, and
+ *  `worker` in the same detail says which one you are looking at. */
 export async function beatKeepDecision(admin: Admin, extra: Record<string, unknown>): Promise<void> {
+  const flags = genx2FlagsSnapshot();
   try {
     const { data } = await admin.from("flow_heartbeat").select("detail").eq("component", "genx").maybeSingle();
     const last = (data as { detail?: { last_decision?: unknown } } | null)?.detail?.last_decision;
-    await beat(admin, "genx", { ...extra, ...(last !== undefined ? { last_decision: last } : {}) });
-  } catch { try { await beat(admin, "genx", extra); } catch { /* liveness best-effort */ } }
+    await beat(admin, "genx", { ...extra, flags, ...(last !== undefined ? { last_decision: last } : {}) });
+  } catch { try { await beat(admin, "genx", { ...extra, flags }); } catch { /* liveness best-effort */ } }
 }
 
 // ── THE WATCH LOCK — row id=2 of flow_manage_lock (id=1 is the trade-manager's).

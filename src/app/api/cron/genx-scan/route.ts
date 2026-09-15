@@ -11,6 +11,7 @@ import { watchPass, decideGoldEntry, beatKeepDecision, headsUpMsg, enterMsg, inv
 // decideGoldEntry + the gold entry preference rules now live in @/lib/genx/watchTick
 // (shared with the always-on worker).
 import { beat } from "@/lib/flow/health";
+import { genx2FlagsSnapshot } from "@/lib/genx2/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -267,7 +268,7 @@ async function run(): Promise<Response> {
       // `continue`s on its most common paths (not_actionable, new-setup handled) —
       // a beat placed after the try/catch never ran for those decisions.
       try {
-        await beat(admin, "genx", { tier: "full", last_decision: { at: nowIso, mode, ...modeOut } });
+        await beat(admin, "genx", { tier: "full", flags: genx2FlagsSnapshot(), last_decision: { at: nowIso, mode, ...modeOut } });
       } catch { /* liveness/observability best-effort */ }
     }
   }
