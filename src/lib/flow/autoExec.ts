@@ -8,6 +8,7 @@ import { sizeFromRisk, floorStop, structuralStop, maxStopDistance } from "@/lib/
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
+import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
 import { series, livePrice } from "@/lib/marketData";
 import { trendOfCloses, closedBars } from "@/lib/mtf";
 import { sendTelegram } from "@/lib/telegram";
@@ -1827,13 +1828,20 @@ export async function placeGenxFollower(sig: {
         if (brokerOpen === null) return { touched: 1, placed: 0 }; // broker unreadable → fail closed, never stack
         if (genxGoldStillOpen(ledgerPids, brokerOpen)) return { touched: 1, placed: 0 }; // genuinely open → skip
       }
+      // RULE #1 (GENX 2.0): atomic one-gold-at-a-time reservation for THIS account. This is
+      // the follower path's gap the copy path's read-check couldn't close under a race — two
+      // DIFFERENT signals ~97s apart both filled one follower account (owner 09-15). The
+      // reservation is serialized in Postgres and held through the fill/unknown window, so a
+      // second signal cannot stack. reserved=false → this account already holds gold → skip.
+      const fresv = await reserveGold(admin, a.account_id, "XAUUSD", signalKey);
+      if (!fresv.reserved) return { touched: 1, placed: 0 };
       // Idempotent claim: one fill per (signal, account). A duplicate row → already
       // handled this ENTER NOW on this account → skip.
       const { error: dupErr } = await admin.from("genx_follower_fills").insert({ signal_key: signalKey, account_id: a.account_id });
-      if (dupErr) return { touched: 1, placed: 0 };
+      if (dupErr) { await releaseGold(admin, a.account_id, "XAUUSD"); return { touched: 1, placed: 0 }; }
 
       const tok = await tokenFor(a.connection_id);
-      if (!tok) { await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id); return { touched: 1, placed: 0 }; }
+      if (!tok) { await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id); await releaseGold(admin, a.account_id, "XAUUSD"); return { touched: 1, placed: 0 }; }
 
       // Risk-size this account to its own % (override → owner default → 1% fallback).
       // If we can't size (missing entry/stop/equity), take the 0.01 floor so the
@@ -1854,6 +1862,10 @@ export async function placeGenxFollower(sig: {
         symbol: "XAUUSD", side: sig.side, qty, stop: fstop, tp: sig.tp, source: "genx_follow",
       });
       if (r.ok) {
+        // RULE #1: hold the reservation until this position closes (filled w/ positionId) or,
+        // for an accepted-but-unresolved order, keep it 'active'. Never a confirmed fill unless
+        // the broker gave us a position. The manager releases it on broker-confirmed close.
+        await markReservation(admin, a.account_id, "XAUUSD", r.positionId ? "filled" : "active", r.orderId, r.positionId);
         // Record the fill in the manager's ledger REGARDLESS of the management toggle. The
         // trade-manager books a CONFIRMED closed-trade outcome for every tracked row (its
         // gone/close detection runs before the management steps), and that outcome is what the
@@ -1875,10 +1887,19 @@ export async function placeGenxFollower(sig: {
         return { touched: 1, placed: 1 };
       }
       // Nothing filled (session closed / token blip) → release the claim so a later
-      // ENTER NOW re-fire for this same signal can retry on this account.
+      // ENTER NOW re-fire for this same signal can retry on this account. r.ok===false is a
+      // TERMINAL no-fill (placeOnAccount never returns ok on an uncertain result — it throws),
+      // so releasing the account here cannot free it while an order might still fill.
       await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id);
+      await releaseGold(admin, a.account_id, "XAUUSD");
       return { touched: 1, placed: 0 };
-    } catch { return { touched: 1, placed: 0 }; } // per-account best-effort
+    } catch {
+      // UNKNOWN (an uncertain order that may have filled): hold the reservation as 'unknown'
+      // — never release blind. Leave the follower_fill in place so the same signal doesn't
+      // re-fire onto a possibly-live position.
+      try { await markReservation(admin, a.account_id, "XAUUSD", "unknown"); } catch { /* best-effort */ }
+      return { touched: 1, placed: 0 };
+    } // per-account best-effort
   };
   const results = await mapPool(accts, FANOUT_CONCURRENCY, perAccount);
   let placed = 0, touched = 0;

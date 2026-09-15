@@ -8,6 +8,7 @@ import { matchInstrument } from "@/lib/flow/executor";
 import { normalizeQuantity, getInstrument } from "@/lib/flow/instruments";
 import { contractKey } from "@/lib/flow/sizing";
 import { listInstruments, listPositions, getQuote, getConfig, modifyPosition, closePosition, listOrdersHistory, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
+import { releaseGold } from "@/lib/genx2/reservation";
 import { recoverOrphans } from "@/lib/flow/recover";
 import { logTrade } from "@/lib/flow/tradeLog";
 import { beat } from "@/lib/flow/health";
@@ -577,6 +578,11 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   if (Date.now() - lastOrphanScanMs > ORPHAN_SCAN_EVERY_MS) {
     lastOrphanScanMs = Date.now();
     try { await recoverOrphans(admin); } catch { /* recovery is best-effort */ }
+    // GENX 2.0 bounded validity: sweep stale account reservations — released rows and
+    // expired 'active' rows (a dead submit attempt; the open-position backstop still guards
+    // a silently-filled order). 'filled'/'unknown' are only cleared once no open position
+    // remains for that account+symbol. Best-effort, throttled with orphan recovery.
+    try { await admin.rpc("genx_reconcile_stale_reservations", { p_max_age_secs: 900 }); } catch { /* best-effort */ }
   }
 
   const { data, error } = await admin
@@ -877,6 +883,9 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
           outcome: oc.outcome, result_pips: oc.result_pips, exit_price: oc.exit_price, partial_taken: oc.partial_taken,
           resolved_at: new Date().toISOString(), updated_at: new Date().toISOString(),
         }).eq("id", row.id);
+        // RULE #1: the position is broker-confirmed CLOSED, so the account is free for the
+        // next automated gold entry — release the reservation (reconciled-before-release).
+        if (contractKey(row.symbol) === "XAUUSD") { try { await releaseGold(admin, row.account_id, "XAUUSD"); } catch { /* best-effort */ } }
         actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "closed", detail: `${oc.outcome}[${rec.reason}] ${oc.result_pips>0?"+":""}${oc.result_pips}p` });
         await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "closed", reason: `${oc.outcome}/${rec.reason}`, price: oc.exit_price, detail: { result_pips: oc.result_pips, partial_taken: oc.partial_taken } });
         return;
@@ -1070,6 +1079,37 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
           update.be_done = true; update.cur_stop = brokerSl; row.be_done = true; row.cur_stop = brokerSl; didAction = true;
           actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_adopted", detail: `broker SL already ${brokerSl}` });
           await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "break_even", reason: "adopted_from_broker", price: brokerSl });
+        }
+      }
+
+      // ── STEP 0.4: STOP-LOSS SELF-HEAL (owner 09-15: fan-out speed — the per-account bracket
+      //    verify was moved OFF the entry hot path to make GENX entries fire faster, so the
+      //    manager is now the guarantor that every managed fill carries its stop. Mirrors the
+      //    TP self-heal below: the broker position row is the truth — if the ledger has a stop
+      //    but the broker shows NONE (a route silently dropped the SL leg on the fill), re-attach
+      //    it immediately, on EVERY pass and regardless of profit (an unprotected position is the
+      //    catastrophic case, unlike a missing TP). Guards: only when the broker actually exposes
+      //    the SL column (slIdx >= 0 — never re-attach blind) and only when the stop is genuinely
+      //    absent (a stop the member moved by hand is a non-null value → untouched). Keep the TP
+      //    alongside so a bracket-replace modify can never clear it. ──
+      if (manageOn && cols.slIdx >= 0) {
+        const brokerSl = st.sl.get(String(row.position_id)) ?? null;
+        const slKeep = row.cur_stop ?? row.init_stop;
+        if ((brokerSl == null || brokerSl <= 0) && slKeep != null && slKeep > 0) {
+          const slPx = roundPx(row.symbol, slKeep);
+          const tpKeep = st.tp.get(String(row.position_id)) ?? (tp != null ? roundPx(row.symbol, tp) : null);
+          const fix = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, {
+            stopLoss: slPx,
+            ...(tpKeep != null && tpKeep > 0 ? { takeProfit: tpKeep } : {}),
+          });
+          if (fix.ok) {
+            didAction = true;
+            actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "sl_reattached", detail: `SL→${slPx}` });
+            await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "sl_reattached", reason: "broker_dropped_sl", price: slPx, detail: { tpKept: tpKeep ?? null } });
+          } else {
+            actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "sl_reattach_err", detail: fix.error.slice(0, 60) });
+            await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "sl_reattach_err", reason: "broker_dropped_sl", price: slPx, detail: { error: fix.error.slice(0, 120) } });
+          }
         }
       }
 

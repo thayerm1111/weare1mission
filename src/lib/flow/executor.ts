@@ -7,6 +7,7 @@ import { normalizeQuantity, getInstrument } from "@/lib/flow/instruments";
 import { freshAccessToken, activeAccounts, type ActiveAccount } from "@/lib/flow/connection";
 import { sizeFromRisk, contractKey, floorStop } from "@/lib/flow/sizing";
 import { listInstruments, createOrder, getQuote, listOrders, listPositions, listAccounts, listOrdersHistory, modifyPosition, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
+import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
 
 /**
  * FLOW order placement (server-only). Places a single market order on the
@@ -368,6 +369,23 @@ export async function placeOnActiveAccounts(opts: {
   // mirroring — targets are strategy, not defaults). The R:R placement floor in
   // autoExec still rejects setups whose structural target is nearer than the risk.
   const tp = opts.tp ?? null;
+  // FAN-OUT SPEED (owner 09-15: "the AI needs to enter right when it's time"): the
+  // per-account bracket VERIFY+REPAIR (a synchronous modifyPosition round-trip AFTER the
+  // fill) was the slowest leg of the entry hot path — it ran for every account inside the
+  // single-IP rate-limited fan-out window, so each verify pushed the whole tail later. For a
+  // MANAGED source (GENX / FLOW auto) the order is still SUBMITTED with its SL+TP, and the
+  // trade-manager now GUARANTEES both legs on its first pass (SL self-heal + TP self-heal in
+  // flowManage), so the entry no longer pays for the inline verify — one fewer broker
+  // round-trip per account, and the fleet fills sooner. Unmanaged member PLAYS keep the
+  // inline verify, since nothing manages them after the fill.
+  const verifyBracketsInline = opts.source === "play";
+  // RULE #1 (GENX 2.0): one automated GOLD entry at a time per broker account. The
+  // reservation is atomic (Postgres advisory lock + open-position backstop) and is taken
+  // per account BEFORE the order, so it closes the read-check-then-act race that let two
+  // signals ~97s apart both fill one account. Gold + automated only; unmanaged member
+  // plays are exempt. Fail-open (a reservation error allows the entry on the v1 guards).
+  const reserveOne = canonical === "XAUUSD" && opts.source !== "play";
+  const resvKey = `${opts.source}:${opts.side}:${Math.round(opts.entry)}`;
   const accts = opts.accounts ?? (await activeAccounts(opts.userId));
   const tlog = createAdminClient(); // flight-recorder handle (best-effort; null-safe below)
   const fills: AccountFill[] = [];
@@ -395,6 +413,16 @@ export async function placeOnActiveAccounts(opts: {
     if (!s.ok || !(s.lots > 0)) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: s.reason || "size_too_small" }); return; }
     const lots = Math.min(s.lots, 100); // fat-finger backstop
     const t0 = Date.now();
+    // RULE #1 gate: reserve THIS account for gold before the order leaves. reserved=false
+    // means it already holds (or has in-flight) an automated gold entry → skip, never stack.
+    if (reserveOne) {
+      const resv = await reserveGold(tlog, a.accountId, canonical, resvKey);
+      if (!resv.reserved) {
+        await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: lots, status: "skipped", reason: `${opts.source}: one_open_gold (${resv.reason})`.slice(0, 60), account_id: a.accountId });
+        fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", lots: s.lots, reason: `one_open_gold (${resv.reason})` });
+        return;
+      }
+    }
     if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_submitted", reason: opts.source, price: opts.entry, qty: lots, detail: { side: opts.side, stop, tp: tp } });
     let r: Awaited<ReturnType<typeof placeOnAccount>>;
     try {
@@ -403,12 +431,15 @@ export async function placeOnActiveAccounts(opts: {
       // TP silently dropped by the broker — "WHY IS THERE NO TAKE PROFIT???"). Some
       // TradeLocker routes accept the order but drop a bracket leg with no error, so
       // the SL/TP the signal promised MUST be confirmed on the broker position.
-      r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, tp, true, { equity: a.equity, riskPct: acctRisk });
+      r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, tp, verifyBracketsInline, { equity: a.equity, riskPct: acctRisk });
     } catch (e) {
       // The order request THREW (e.g. a network timeout AFTER the broker may already have
       // filled). Never assume it failed and never abort the rest of the fan-out — log an
       // 'uncertain' intent (with the levels) so the manager's orphan-recovery can find and
       // adopt the live position if it did fill, then move on to the next account.
+      // UNKNOWN result: the order may have filled. Hold the reservation as 'unknown' — never
+      // release blind, or a second signal could stack while this one is actually live.
+      if (reserveOne) await markReservation(tlog, a.accountId, canonical, "unknown");
       await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: lots, status: "uncertain", reason: `${opts.source}: ${(e instanceof Error ? e.message : "order_threw")}`.slice(0, 200), account_id: a.accountId, entry: opts.entry, stop, tp: tp });
       if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_uncertain", reason: (e instanceof Error ? e.message : "order_threw").slice(0, 80), price: opts.entry, qty: lots, detail: { latencyMs: Date.now() - t0 } });
       fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "error", lots: s.lots, reason: "order_uncertain (timeout — recovery will adopt if it filled)" });
@@ -423,15 +454,19 @@ export async function placeOnActiveAccounts(opts: {
     if (!r.ok && !r.deferred && /margin/i.test(String(r.error)) && lots > 0.011) {
       if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_submitted", reason: `${opts.source}:margin_fallback`, price: opts.entry, qty: 0.01, detail: { originalLots: lots, originalError: String(r.error).slice(0, 120) } });
       try {
-        const r2 = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, 0.01, stop, tp, true, { equity: a.equity, riskPct: acctRisk });
+        const r2 = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, 0.01, stop, tp, verifyBracketsInline, { equity: a.equity, riskPct: acctRisk });
         if (r2.ok) { r = r2; fallbackNote = " · margin_fallback_0.01"; }
       } catch {
+        if (reserveOne) await markReservation(tlog, a.accountId, canonical, "unknown");
         await logEvent(opts.userId, {symbol:canonical, side:opts.side, qty:0.01, status:"uncertain", reason:`${opts.source}:margin_fallback_uncertain`, account_id:a.accountId, entry:opts.entry, stop, tp});
         fills.push({accountId:a.accountId,accNum:a.accNum,name:a.name,environment:a.env,status:"error",reason:"order_uncertain:margin_fallback"});
         return;
       }
     }
     if (!r.ok) {
+      // Terminal, NO fill (session-closed defer or a hard reject) → release the account so a
+      // later ENTER NOW can retry. Safe: the order is confirmed not to have opened anything.
+      if (reserveOne) await releaseGold(tlog, a.accountId, canonical);
       // Session-closed rejection isn't a failure — the next tick retries once the
       // market reopens. Record it as "deferred"/skipped so it doesn't spam errors.
       const st = r.deferred ? "deferred" : "error";
@@ -439,6 +474,10 @@ export async function placeOnActiveAccounts(opts: {
       fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: r.deferred ? "skipped" : "error", lots: s.lots, reason: r.deferred ? "session_closed" : r.error });
       return;
     }
+    // Placed. filled (positionId resolved) → hold the reservation until the position closes;
+    // accepted/resting (no positionId yet) → keep it 'active'. An accepted order is NEVER
+    // treated as a confirmed fill.
+    if (reserveOne) await markReservation(tlog, a.accountId, canonical, r.positionId ? "filled" : "active", r.orderId, r.positionId);
     await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: r.qty, status: "placed", reason: `${opts.source}${r.note}${fallbackNote}`.slice(0, 60), order_id: r.orderId, account_id: a.accountId, entry: opts.entry, stop, tp: tp });
     fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "placed", qty: r.qty, lots: r.qty, estLossAtStop: s.estLossAtStop, orderId: r.orderId });
     if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_confirmed", reason: opts.source, position_id: r.positionId, price: opts.entry, qty: r.qty, detail: { latencyMs: Date.now() - t0, orderId: r.orderId, estLossAtStop: s.estLossAtStop } });

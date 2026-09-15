@@ -16,6 +16,8 @@
  * This module is PURE (no fetch/auth/db) so it can be unit-tested with fixtures.
  */
 import { closedBars, mtfAlign } from "./mtf";
+import { genx2Enabled, genx2FamiliesEnabled } from "./genx2/flags";
+import { detectLocalRange, detectCompressionBreakout, detectBreakoutRetest, arbitrateFamilies, familyScore, type FamilyCandidate } from "./genx2/families";
 
 export type Row = { datetime: string; open: string; high: string; low: string; close: string; volume?: string };
 export type Dir = "buy" | "sell";
@@ -229,6 +231,32 @@ export function runEngine(cfg: EngineCfg, input: EngineInput): EngineResult {
     else if (!nearHi && px <= rangeLo + a1 * 0.6) { strategy = compression ? "Compression edge fade (low)" : "Range rejection (fade low)"; dir = "buy"; entry = f(px); orderType = "market"; stop = f(rangeLo - a1 * 0.8); invalidation = `close below the range low (${f(rangeLo)})`; structureQ = 62 + q; entryQ = 66 + q; if (compression) entryProfile = "aggressive_only"; }
   }
 
+  // ── GENX 2.0 NEW FAMILIES (flag-gated: GENX2_ENABLED + GENX2_FAMILIES) ──────────────
+  //    Local-range rejection / compression breakout / breakout retest. ADDITIVE: a family is
+  //    adopted only when the base trend logic produced NO strong-trend setup this read, so the
+  //    trend baseline is never overridden by a family. The adopted entry/stop then flow through
+  //    the SAME downstream safety: the stop-ATR vetoes, the reward:risk floor, the blockers,
+  //    the decision-state machine, and the conservative gate at placement — nothing bypassed.
+  let adoptedFamily: FamilyCandidate | null = null;
+  if (genx2FamiliesEnabled()) {
+    const c15 = R15.map((r) => ({ o: +r.open, h: +r.high, l: +r.low, c: +r.close }));
+    const atr15 = atr(R15, 14) || a1 * 0.4;
+    const spreadProxy = Math.max(atr15 * 0.08, 0.2);   // structural proxy; the true executable price + 0.75 floor gate downstream
+    const fam = arbitrateFamilies([
+      detectLocalRange(c15, atr15, spreadProxy, cfg.rrFloor),
+      detectCompressionBreakout(c15, atr15, spreadProxy, cfg.rrFloor, levels.resistance, levels.support),
+      detectBreakoutRetest(c15, atr15, spreadProxy, cfg.rrFloor, levels.resistance, levels.support),
+    ]);
+    const baseStrongTrend = dir != null && strategy.startsWith("Trend") && structureQ >= 78;
+    if (fam && !baseStrongTrend && (dir == null || familyScore(fam) > (structureQ + entryQ) / 2 + 4)) {
+      adoptedFamily = fam;
+      dir = fam.dir; strategy = fam.strategy; entry = f(fam.entry); stop = f(fam.stop);
+      orderType = fam.orderType; structureQ = fam.structureQ; entryQ = fam.executionQ;
+      invalidation = fam.invalidation;
+      entryProfile = "core"; // families are core-eligible; the per-account conservative gate still applies at placement
+    }
+  }
+
   const trig = (over: Partial<Trigger>): Trigger => ({
     state: "NO_TRADE", asset: cfg.symbol, direction: dir === "buy" ? "BUY" : dir === "sell" ? "SELL" : null, strategy: strategy || "None",
     monitorTimeframe: "15min", triggerType: "AWAIT", triggerLevel: null, retestZoneLow: null, retestZoneHigh: null,
@@ -280,7 +308,9 @@ export function runEngine(cfg: EngineCfg, input: EngineInput): EngineResult {
 
   // ── Confirmation, entry status, obstacle, alignment (context only) ──
   const cs = confirmRead(R15, dir);
-  const confirmed = cs.closedWithTrend && cs.momentumTurned;
+  // A new-family setup carries its OWN confirmation (the rejection / displacement / retest
+  // hold on the last closed bar), so it is not gated on the trend-confirmation read.
+  const confirmed = adoptedFamily ? true : (cs.closedWithTrend && cs.momentumTurned);
   const wantDir = dir === "buy" ? "LONG" : "SHORT";
   const mtfAligned = regimeDir ? mtf.dir === wantDir : true;
   const chaseTol = a1 * 0.9;
@@ -306,6 +336,24 @@ export function runEngine(cfg: EngineCfg, input: EngineInput): EngineResult {
     confirmation: confirmScore, alignment: alignScore, momentum: Math.round(momoScore),
     volatility: volScore, session: sessionScore, news: 65, data_quality: 100,
   };
+  // GENX 2.0 fix F: a REAL directional score from trend evidence (stack alignment + ATR-
+  // normalized slope + ADX band + swing structure), so downstream "momentum" is measured
+  // independently instead of falling back to overall confidence and being counted twice.
+  // Flag-gated: v1 leaves scores.directional ABSENT so buildGenx's momentum is unchanged.
+  if (genx2Enabled()) {
+    scores.directional = dir === "buy" ? evidenceBuy : dir === "sell" ? evidenceSell : Math.max(evidenceBuy, evidenceSell);
+  }
+  // A new-family setup is scored on ITS OWN evidence, not the trend read: its structure and
+  // execution replace the trend structure/entry, its rejection/displacement IS the
+  // confirmation, and it is not penalised for a non-trend regime. Directional evidence stays
+  // its own (deliberately light) axis — never re-derived from overall confidence.
+  if (adoptedFamily) {
+    scores.structure = adoptedFamily.structureQ;
+    scores.entry = adoptedFamily.executionQ;
+    scores.confirmation = adoptedFamily.structureQ;
+    scores.directional = adoptedFamily.directionalQ;
+    scores.regime = Math.max(regimeScore, 62);
+  }
   let overall = Math.round(
     scores.structure * 0.16 + scores.entry * 0.12 + scores.confirmation * 0.15 + scores.risk_reward * 0.15 +
     scores.regime * 0.12 + scores.momentum * 0.07 + scores.volatility * 0.05 + scores.session * 0.04 +
@@ -325,10 +373,24 @@ export function runEngine(cfg: EngineCfg, input: EngineInput): EngineResult {
   if (rr1 < cfg.rrFloor) blockers.push({ key: "rr", short: `a deeper ${dir === "buy" ? "pullback" : "rally"} improves reward:risk (now ${rr1.toFixed(1)}R, need ${cfg.rrFloor}R).`, trigger: trig({ state: "DEVELOPING_SETUP", triggerType: "BETTER_LOCATION", triggerLevel: f(entry), confirmationRequired: `a deeper ${dir === "buy" ? "pullback" : "rally"} that puts entry ≥${cfg.rrFloor}R from ${targets[0]}`, recheckInstruction: `Come back on a deeper ${dir === "buy" ? "dip" : "bounce"} — nearest objective is only ${rr1.toFixed(1)}R (need ${cfg.rrFloor}R).` }) });
 
   let state: State;
-  if (overall >= cfg.bands.ready && blockers.length === 0) state = "TRADE_READY";
-  else if (overall >= cfg.bands.develop && blockers.length >= 1) state = "DEVELOPING_SETUP";
-  else if (overall >= cfg.bands.watch) state = "WATCHLIST";
-  else state = "NO_TRADE";
+  if (genx2Enabled()) {
+    // GENX 2.0 fix B: setup QUALITY (score) and remaining CONFIRMATION (blockers) are
+    // separate axes. A confirmed setup (0 blockers) in the develop band is DEVELOPING, never
+    // demoted to WATCHLIST, and clearing the last blocker can only PROMOTE (develop→ready when
+    // the score already qualifies), never drop a setup below actionable just because the
+    // blocker count reached zero. The minimum actionable score (develop band) is preserved.
+    if (overall >= cfg.bands.ready && blockers.length === 0) state = "TRADE_READY";
+    else if (overall >= cfg.bands.develop) state = "DEVELOPING_SETUP";
+    else if (overall >= cfg.bands.watch) state = "WATCHLIST";
+    else state = "NO_TRADE";
+  } else {
+    // v1 (unchanged): a confirmed setup between develop and ready falls to WATCHLIST, and
+    // clearing the last blocker can demote DEVELOPING→WATCHLIST. Preserved when the flag is off.
+    if (overall >= cfg.bands.ready && blockers.length === 0) state = "TRADE_READY";
+    else if (overall >= cfg.bands.develop && blockers.length >= 1) state = "DEVELOPING_SETUP";
+    else if (overall >= cfg.bands.watch) state = "WATCHLIST";
+    else state = "NO_TRADE";
+  }
 
   const confBreak = {
     data: 100, directional: Math.round((scores.regime + scores.alignment) / 2),
