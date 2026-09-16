@@ -43,6 +43,7 @@ export function runPortfolio(all: B[], cfg: Stage2Config, from: number, to: numb
     const simIn = { side: c.side, startIdx, entry: c.entry, zoneLow: limitEdge, zoneHigh: limitEdge, stop: c.stop, target, ttlMs: resting * 60000, maxHoldMs: (opts.maxHoldH ?? 24) * 3600000, chaseUsd: chase, costUsd: cost };
     let sim = simulate(all, simIn);
     if (!sim.filled) { inc(`missed:${sim.missReason}`); continue; }
+  if (sim.open) continue;
     let risk = Math.abs(sim.fill! - c.stop);
     if (risk > 10) { inc("flow:stop_capped_to_100_pips"); sim = simulate(all, { ...simIn, stop: +(sim.fill! - dir * 10).toFixed(2) }); if (!sim.filled) continue; risk = 10; }
     // Position size is fixed when the order is placed, from the signal entry to the stop (Flow sizing), so

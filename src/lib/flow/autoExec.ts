@@ -11,7 +11,7 @@ import { newsHold } from "@/lib/news/calendar";
 import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
 import { genxLabel } from "@/lib/genx/brand";
 import { genxGoldQualityGate } from "@/lib/genx/qualityGate";
-import { originAllowed } from "@/lib/genx3/engineSelect";
+import { originAllowed, genx3AccountFilter } from "@/lib/genx3/engineSelect";
 import { series, livePrice } from "@/lib/marketData";
 import { trendOfCloses, closedBars } from "@/lib/mtf";
 import { sendTelegram } from "@/lib/telegram";
@@ -1358,17 +1358,21 @@ export function goldRoute(acc: { autotrade_enabled?: boolean | null; genx_follow
 /** Users whose accounts are running GENX 3.x LIVE on a designated scope — the legacy engine
  *  (GENX 1.0/2.0) must not also trade them. Cached 20s; on a read error nobody is reserved
  *  (the per-account one-entry reservation still prevents stacking). */
-let reservedCache: { at: number; ids: Set<string> } = { at: 0, ids: new Set() };
-async function genx3ReservedUsers(admin: NonNullable<ReturnType<typeof createAdminClient>>): Promise<Set<string>> {
-  if (Date.now() - reservedCache.at < 20_000) return reservedCache.ids;
+let reservedCache: { at: number; ids: Set<string>; accounts: Set<string> } = { at: 0, ids: new Set(), accounts: new Set() };
+async function genx3Reserved(admin: NonNullable<ReturnType<typeof createAdminClient>>): Promise<{ ids: Set<string>; accounts: Set<string> }> {
+  if (Date.now() - reservedCache.at < 20_000) return reservedCache;
   try {
-    const { data } = await admin.from("genx3_control").select("mode, live_scope, designated_user_ids").eq("id", 1).maybeSingle();
-    const r = data as { mode: string; live_scope: string; designated_user_ids: string[] | null } | null;
-    reservedCache = { at: Date.now(), ids: new Set(r && r.mode === "LIVE" && r.live_scope === "designated" ? (r.designated_user_ids ?? []) : []) };
-  } catch { reservedCache = { at: Date.now(), ids: new Set() }; }
-  return reservedCache.ids;
+    const { data } = await admin.from("genx3_control").select("mode, live_scope, designated_user_ids, designated_account_ids").eq("id", 1).maybeSingle();
+    const r = data as { mode: string; live_scope: string; designated_user_ids: string[] | null; designated_account_ids: string[] | null } | null;
+    const live = !!r && r.mode === "LIVE" && r.live_scope === "designated";
+    const accounts = new Set(live ? (r!.designated_account_ids ?? []).map(String) : []);
+    // With an account whitelist, only those ACCOUNTS are reserved; without one, the whole user is (3.1 behaviour).
+    reservedCache = { at: Date.now(), ids: new Set(live && !accounts.size ? (r!.designated_user_ids ?? []) : []), accounts };
+  } catch { reservedCache = { at: Date.now(), ids: new Set(), accounts: new Set() }; }
+  return reservedCache;
 }
-export type GenxDelivery = { origin?: "genx2" | "genx3"; onlyUserIds?: string[] | null; tag?: string };
+async function genx3ReservedUsers(admin: NonNullable<ReturnType<typeof createAdminClient>>): Promise<Set<string>> { return (await genx3Reserved(admin)).ids; }
+export type GenxDelivery = { origin?: "genx2" | "genx3"; onlyUserIds?: string[] | null; onlyAccountIds?: string[] | null; tag?: string };
 export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null; sendItOnly?: boolean } & GenxDelivery): Promise<{ members: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { members: 0, placed: 0 };
@@ -1634,6 +1638,10 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
         const hold = holdAccounts;
         accounts = accounts.filter((a) => !hold.has(String(a.accountId)) || (a.sendIt === true && a.sendItGuards !== true));
       }
+      // GENX 3.x ACCOUNT WHITELIST (owner 09-16): a 3.x signal reaches ONLY the whitelisted accounts;
+      // a legacy (GENX 1.0/2.0) signal never reaches an account that is running GENX 3.x.
+      accounts = genx3AccountFilter(accounts, (a) => String(a.accountId), sig, sig.onlyAccountIds || sig.origin === "genx3" ? new Set() : (await genx3Reserved(admin)).accounts);
+      if (!accounts.length) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); return 0; }
       // MAX ONE OPEN GENX/FLOW GOLD PER ACCOUNT — broker-verified. An account is dropped ONLY
       // when it has a GENX/FLOW gold position the BROKER confirms is still open.
       const verified: ActiveAccount[] = [];
@@ -1789,6 +1797,7 @@ export async function placeGenxFollower(sig: {
   accts = accts.filter((a) => goldRoute(a) === "follower").map(a => ({ ...a, send_it: SEND_IT_ENABLED && a.send_it === true }));
   if (sig.onlyUserIds) { const allow = new Set(sig.onlyUserIds); accts = accts.filter((a) => allow.has(String(a.user_id))); } // GENX 3.0 live scope
   else if (sig.origin !== "genx3") { const reserved = await genx3ReservedUsers(admin); if (reserved.size) accts = accts.filter((a) => !reserved.has(String(a.user_id))); }
+  accts = genx3AccountFilter(accts, (a) => String(a.account_id), sig, sig.onlyAccountIds || sig.origin === "genx3" ? new Set() : (await genx3Reserved(admin)).accounts);
   // 🚀 SEND IT v2: when a desk safeguard fired, only Send It followers that chose to
   // BYPASS the safeguards (send_it_guards off) take this entry.
   if (sendItOnly) accts = accts.filter((a) => a.send_it === true && a.send_it_guards !== true);

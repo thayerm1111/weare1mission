@@ -8,6 +8,7 @@ import { freshAccessToken, activeAccounts, type ActiveAccount } from "@/lib/flow
 import { sizeFromRisk, contractKey, floorStop } from "@/lib/flow/sizing";
 import { listInstruments, createOrder, getQuote, listOrders, listPositions, listAccounts, listOrdersHistory, modifyPosition, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
+import { recordExec, execContext } from "@/lib/flow/execTelemetry";
 
 /**
  * FLOW order placement (server-only). Places a single market order on the
@@ -223,6 +224,7 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
   // checks: without any price we cannot tell whether the stop is already crossed,
   // nor size the position, so placing blind would open unvalidated/oversized risk.
   const quote = await getQuote(a.env, a.token, a.accNum, tl.tradableInstrumentId, tl.infoRouteId || tl.routeId);
+  const quoteAt = Date.now();
   const price = (quote.ok ? executablePrice(quote.data, side, "entry") : null) ?? await feedPrice(canonical);
   if (price == null || !(price > 0)) return { ok: false, error: "entry_quote_unavailable" };
   if (stop != null) {
@@ -258,7 +260,10 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
   };
   const hasBracket = stop != null || tp != null;
   const hasStop = stop != null;
+  const submitAt = Date.now();
   let ord = await createOrder(a.env, a.token, { ...base, stopLoss: stop ?? null, takeProfit: tp ?? null });
+  const ackAt = Date.now();
+  const telem = (ok: boolean, orderId: string | null, positionId: string | null, error: string | null) => { if (execContext()) recordExec({ accountId: a.accountId, bid: quote.ok ? quote.data.bid : null, ask: quote.ok ? quote.data.ask : null, quoteAt, limitPrice: limitPx ?? null, qty: norm.qty, riskPct: risk?.riskPct ?? null, equity: risk?.equity ?? null, stop: stop ?? null, target: tp ?? null, submitAt, ackAt, ok, orderId, positionId, error }); };
   let note = "";
   if (!ord.ok && ord.uncertain) throw new Error("order_uncertain: " + ord.error);
   if (!ord.ok && hasBracket && /take.?profit|bracket/i.test(ord.error)) {
@@ -281,7 +286,7 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
       if (bare.ok) { ord = bare; note = " (TP rejected — opened)"; }
     }
   }
-  if (!ord.ok) return { ok: false, error: ord.error, deferred: isSessionClosedReject(ord.error) };
+  if (!ord.ok) { telem(false, null, null, String(ord.error).slice(0, 200)); return { ok: false, error: ord.error, deferred: isSessionClosedReject(ord.error) }; }
   // Resolve the position id for the trade-manager when the broker didn't hand one
   // back (the usual case for market orders).
   let positionId = ord.data.positionId ?? null;
@@ -309,6 +314,7 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
       note += " (bracket verify threw — CHECK SL/TP ON THE POSITION)";
     }
   }
+  telem(true, ord.data.orderId ?? null, positionId, null);
   return { ok: true, qty: norm.qty, orderId: ord.data.orderId ?? null, positionId, note };
 }
 

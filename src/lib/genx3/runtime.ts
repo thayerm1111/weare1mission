@@ -9,6 +9,7 @@ import { newsState } from "./news";
 import { stableUuid, validateSignal, type Genx3Signal } from "./signal";
 import { TERMINAL, type SetupState } from "./stateMachine";
 import { genx3Active } from "./engineSelect";
+import { withExecContext, type ExecContext } from "@/lib/flow/execTelemetry";
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
 /** Who a LIVE signal may reach. "designated" = only the listed users (none listed = blocked);
@@ -18,7 +19,7 @@ export function deliveryScope(ctl: Pick<Control, "live_scope" | "designated_user
   const ids = (ctl.designated_user_ids ?? []).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
   return { onlyUserIds: ids, blocked: ids.length === 0 };
 }
-export type Control = { mode: "OFF" | "MONITOR" | "LIVE" | "EMERGENCY_DISABLED"; live_scope: "designated" | "authorized"; designated_user_ids: string[]; strategy_version: string };
+export type Control = { mode: "OFF" | "MONITOR" | "LIVE" | "EMERGENCY_DISABLED"; live_scope: "designated" | "authorized"; designated_user_ids: string[]; designated_account_ids?: string[] | null; strategy_version: string };
 
 const bars = new Map<number, Bar>();
 let archiveLoadedAt = 0;
@@ -54,7 +55,7 @@ async function fetchRecent(): Promise<number> {
 }
 
 export async function readControl(admin: Admin): Promise<Control | null> {
-  const { data } = await admin.from("genx3_control").select("mode, live_scope, designated_user_ids, strategy_version").eq("id", 1).maybeSingle();
+  const { data } = await admin.from("genx3_control").select("mode, live_scope, designated_user_ids, designated_account_ids, strategy_version").eq("id", 1).maybeSingle();
   return (data as Control | null) ?? null;
 }
 
@@ -114,7 +115,7 @@ function signalMessage(s: Genx3Signal): string {
   ].join("\n");
 }
 
-export async function deliver(admin: Admin, s: Genx3Signal, ctl: Control): Promise<void> {
+export async function deliver(admin: Admin, s: Genx3Signal, ctl: Control, exec?: ExecContext): Promise<void> {
   const { data: claimed } = await admin.rpc("genx3_claim_delivery", { p_signal_id: s.signal_id });
   if (claimed !== true) return; // someone else delivered it, or it expired
   const tag = `genx3:${s.signal_id.slice(0, 8)}`;
@@ -126,11 +127,15 @@ export async function deliver(admin: Admin, s: Genx3Signal, ctl: Control): Promi
     return;
   }
   const side = s.side === "BUY" ? "buy" : "sell";
-  const common = { side, entryLow: s.entry_zone_low, entryHigh: s.entry_zone_high, stop: s.stop_price, tp: s.target_price, conservativeOk: true, confidence: s.confidence, origin: "genx3" as const, onlyUserIds, tag };
+  const onlyAccountIds = ctl.live_scope === "designated" && ctl.designated_account_ids && ctl.designated_account_ids.length ? ctl.designated_account_ids.map(String) : null;
+  const common = { side, entryLow: s.entry_zone_low, entryHigh: s.entry_zone_high, stop: s.stop_price, tp: s.target_price, conservativeOk: true, confidence: s.confidence, origin: "genx3" as const, onlyUserIds, onlyAccountIds, tag };
   let copy = { members: 0, placed: 0 }, follow = { accounts: 0, placed: 0 };
   let err: string | null = null;
-  try { copy = await placeGenxGold(common as Parameters<typeof placeGenxGold>[0]); } catch (e) { err = `copy: ${String(e).slice(0, 120)}`; }
-  try { follow = await placeGenxFollower({ ...(common as object), signalKey: `genx3:${s.signal_id}` } as Parameters<typeof placeGenxFollower>[0]); } catch (e) { err = `${err ?? ""} follower: ${String(e).slice(0, 120)}`; }
+  const run = async () => {
+    try { copy = await placeGenxGold(common as Parameters<typeof placeGenxGold>[0]); } catch (e) { err = `copy: ${String(e).slice(0, 120)}`; }
+    try { follow = await placeGenxFollower({ ...(common as object), signalKey: `genx3:${s.signal_id}` } as Parameters<typeof placeGenxFollower>[0]); } catch (e) { err = `${err ?? ""} follower: ${String(e).slice(0, 120)}`; }
+  };
+  if (exec) await withExecContext(exec, run); else await run();
   // Per-account outcomes from Flow's own event log (reason starts with the tag).
   const { data: ev } = await admin.from("flow_auto_events").select("user_id, account_id, status, reason, order_id, qty").gte("created_at", startedAt).like("reason", `${tag}%`).limit(2000);
   const rows = (ev ?? []) as { user_id: string; account_id: string | null; status: string; reason: string | null; order_id: string | null; qty: number | null }[];
@@ -148,6 +153,11 @@ export async function deliver(admin: Admin, s: Genx3Signal, ctl: Control): Promi
   await admin.from("genx3_signals").update({ status, delivery_finished_at: new Date().toISOString(), delivery_summary: { copy, follow, placedAccounts: placed, errorEvents: errors, error: err } }).eq("signal_id", s.signal_id);
   if (status === "BLOCKED") await admin.from("genx3_setups").update({ state: "REJECTED_BY_FLOW", detail: { transition_reason: "Flow gates held every account" } }).eq("setup_id", s.setup_id).eq("state", "PUBLISHED");
   if (dupAccounts.length) await emergencyDisable(admin, "duplicate live orders for one signal", { signal_id: s.signal_id, accounts: dupAccounts });
+  if (onlyAccountIds) {
+    const strayAcct = rows.filter((r) => r.status === "placed" && (!r.account_id || !onlyAccountIds.includes(String(r.account_id))));
+    if (strayAcct.length) await emergencyDisable(admin, "signal placed on an account outside the whitelist (or with no account id)", { signal_id: s.signal_id, accounts: strayAcct.map((r) => r.account_id) });
+  }
+  if (errors >= 3) await emergencyDisable(admin, "repeated execution errors on one signal", { signal_id: s.signal_id, errors });
   if (onlyUserIds) {
     const stray = rows.filter((r) => r.status === "placed" && !onlyUserIds.includes(r.user_id));
     if (stray.length) await emergencyDisable(admin, "signal reached an account outside the live scope", { signal_id: s.signal_id, users: stray.map((r) => r.user_id) });

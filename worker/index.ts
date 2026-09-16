@@ -35,6 +35,9 @@ import { beat } from "@/lib/flow/health";
 import { archiveGoldCandles } from "@/lib/genx/candleArchive";
 import { streamLoop } from "./priceStream";
 import { genx31Tick } from "@/lib/genx3/v31/runtime";
+import { genx32Tick } from "@/lib/genx3/v32/runtime";
+import { readControl, emergencyDisable } from "@/lib/genx3/runtime";
+import { selectBrain } from "@/lib/genx3/engineSelect";
 import { hostname } from "node:os";
 
 // OWNER 09-09 ("insane fast... trade manager instant"): defaults at the polling
@@ -161,7 +164,7 @@ async function mattyScanLoop(): Promise<never> {
 /** GENX 3.0 LOOP — hold lock id=3 so exactly one process runs the engine. The engine
  *  itself decides at most once per closed 5m candle (unique DB row), so a tick every ~5s
  *  is cheap. Best-effort: its failure never kills the manager/watch loops. */
-const GENX3_MS = 2_000;
+const GENX3_MS = 1_000;
 async function genx3Loop(): Promise<never> {
   const admin = createAdminClient();
   if (!admin) throw new Error("no_admin_client");
@@ -181,11 +184,15 @@ async function genx3Loop(): Promise<never> {
     while (!shuttingDown) {
       const t0 = Date.now();
       try {
-        const r = await genx31Tick(admin, HOLDER);
+        // VERSION DISPATCH: genx3_control.strategy_version selects the brain. 3.1.0 stays callable for
+        // instant rollback (update genx3_control set strategy_version='3.1.0'). Unknown version → shut off.
+        const ctlv = (await readControl(admin))?.strategy_version;
+        if (ctlv && !selectBrain(ctlv)) await emergencyDisable(admin, `unknown strategy version ${ctlv} (worker knows 3.1.0, 3.2.0)`);
+        const r: { ran: boolean; reason?: string; signal?: string | null; reasons?: string[] } = selectBrain(ctlv) === "3.2.0" ? await genx32Tick(admin, HOLDER) : await genx31Tick(admin, HOLDER);
         const reason = r.ran ? (r.signal ? `SIGNAL ${r.signal}` : "decided") : r.reason ?? "";
-        if (r.signal || reason !== lastReason) log(`genx3.1: ${reason}`, r.reasons?.slice(0, 5));
+        if (r.signal || reason !== lastReason) log(`genx${ctlv ?? "3"}: ${reason}`, r.reasons?.slice(0, 5));
         lastReason = reason;
-        await beat(admin, "genx3", { worker: true, ran: r.ran, reason: r.reason ?? null }).catch(() => {});
+        await beat(admin, "genx3", { worker: true, version: ctlv ?? null, ran: r.ran, reason: r.reason ?? null }).catch(() => {});
       } catch (e) {
         log("genx3: tick error (loop continues)", e instanceof Error ? e.message.slice(0, 200) : e);
       }

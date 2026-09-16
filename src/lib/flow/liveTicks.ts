@@ -73,3 +73,17 @@ export function liveTickExtremes(td: string, sinceMs: number): { high: number; l
 export function liveTickStats(): { symbols: string[]; ticks: number } {
   return { symbols: [...store.keys()], ticks: totalTicks };
 }
+
+/** OHLC of streamed ticks in [fromMs, toMs), or null when coverage is too thin to trust
+ *  (fewer than `minTicks`, or the first/last tick more than `edgeMs` inside the window). */
+export function tickBar(td: string, fromMs: number, toMs: number, minTicks = 4, edgeMs = 15_000): { o: number; h: number; l: number; c: number; n: number } | null {
+  const buf = store.get(td); if (!buf) return null;
+  let o = NaN, h = -Infinity, l = Infinity, c = NaN, n = 0, first = 0, last = 0;
+  for (const tk of buf.ring) {
+    if (tk.t < fromMs || tk.t >= toMs) continue;
+    if (!n) { o = tk.p; first = tk.t; }
+    h = Math.max(h, tk.p); l = Math.min(l, tk.p); c = tk.p; last = tk.t; n++;
+  }
+  if (n < minTicks || first - fromMs > edgeMs || toMs - last > edgeMs) return null;
+  return { o, h, l, c, n };
+}

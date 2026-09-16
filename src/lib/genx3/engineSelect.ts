@@ -22,3 +22,15 @@ export function originAllowed(origin: "genx2" | "genx3" | undefined): boolean {
   // engine selection; the legacy pipeline only runs when it is the selected engine.
   return (origin ?? "genx2") === "genx3" ? true : genx2Active();
 }
+
+/** Which GENX 3.x brain a genx3_control.strategy_version selects; null = unknown (fail closed). */
+export function selectBrain(version: string | null | undefined): "3.1.0" | "3.2.0" | null {
+  return version === "3.1.0" || version === "3.2.0" ? version : null;
+}
+/** GENX 3.x account isolation. A 3.x signal reaches ONLY whitelisted accounts; a legacy signal never
+ *  reaches an account running 3.x. Pure, so it is unit-tested. */
+export function genx3AccountFilter<T>(list: T[], idOf: (x: T) => string, sig: { origin?: "genx2" | "genx3"; onlyAccountIds?: string[] | null }, reservedAccounts: Set<string>): T[] {
+  if (sig.onlyAccountIds) { const allow = new Set(sig.onlyAccountIds.map(String)); return list.filter((x) => allow.has(String(idOf(x)))); }
+  if ((sig.origin ?? "genx2") !== "genx3" && reservedAccounts.size) return list.filter((x) => !reservedAccounts.has(String(idOf(x))));
+  return list;
+}
