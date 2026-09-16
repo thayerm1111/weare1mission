@@ -132,12 +132,13 @@ test('engine: deterministic — same input gives the same decision', () => {
   assert.deepEqual(a, b);
 });
 
-test('config is internally consistent; engine selection defaults to genx3 and rollback is explicit', () => {
+test('config is internally consistent; engine selection defaults to genx1 (owner 09-16) and rollback is explicit', () => {
   assert.doesNotThrow(() => validateConfig());
   const prev = process.env.GENX_ENGINE;
-  delete process.env.GENX_ENGINE; assert.equal(activeEngine(), 'genx3');
+  delete process.env.GENX_ENGINE; assert.equal(activeEngine(), 'genx1');
   process.env.GENX_ENGINE = 'genx2'; assert.equal(activeEngine(), 'genx2');
-  process.env.GENX_ENGINE = 'garbage'; assert.equal(activeEngine(), 'genx3');
+  process.env.GENX_ENGINE = 'genx3'; assert.equal(activeEngine(), 'genx3');
+  process.env.GENX_ENGINE = 'garbage'; assert.equal(activeEngine(), 'genx1');
   if (prev === undefined) delete process.env.GENX_ENGINE; else process.env.GENX_ENGINE = prev;
 });
 

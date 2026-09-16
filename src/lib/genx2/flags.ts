@@ -15,6 +15,8 @@
  * "1"/"true"/"on"/"yes" → true; anything else (incl. unset) → the documented default.
  */
 
+import { genx1Active } from "@/lib/genx3/engineSelect";
+
 function envBool(name: string, dflt: boolean): boolean {
   const raw = process.env[name];
   if (raw == null || raw === "") return dflt;
@@ -25,7 +27,7 @@ function envBool(name: string, dflt: boolean): boolean {
 }
 
 /** Master kill-switch for every GENX 2.0 addition. OFF → engine behaves exactly as v1. */
-export const genx2Enabled = (): boolean => envBool("GENX2_ENABLED", false);
+export const genx2Enabled = (): boolean => !genx1Active() && envBool("GENX2_ENABLED", false);
 
 /** New deterministic setup families (local-range / compression-breakout / breakout-retest).
  *  Requires genx2Enabled() too. Default OFF. */

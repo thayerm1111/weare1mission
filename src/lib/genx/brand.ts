@@ -9,10 +9,13 @@
  * typo can never blank the brand.
  */
 
+import { genx1Active } from "@/lib/genx3/engineSelect";
+
 const DEFAULT_VERSION = "2.0";
 
 /** Current version string, e.g. "2.0". Env-driven so it can change without a code deploy. */
 export function genxVersion(): string {
+  if (genx1Active()) return "1.0";              // owner 09-16: legacy engine runs as GENX 1.0
   const raw = (process.env.GENX_VERSION || "").trim();
   if (/^\d+\.\d+$/.test(raw)) return raw;      // major.minor, e.g. 2.1 / 3.0
   if (/^\d+$/.test(raw)) return `${raw}.0`;     // "3" → "3.0"

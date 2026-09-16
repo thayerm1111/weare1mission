@@ -11,7 +11,7 @@ import { newsHold } from "@/lib/news/calendar";
 import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
 import { genxLabel } from "@/lib/genx/brand";
 import { genxGoldQualityGate } from "@/lib/genx/qualityGate";
-import { activeEngine } from "@/lib/genx3/engineSelect";
+import { originAllowed } from "@/lib/genx3/engineSelect";
 import { series, livePrice } from "@/lib/marketData";
 import { trendOfCloses, closedBars } from "@/lib/mtf";
 import { sendTelegram } from "@/lib/telegram";
@@ -1362,7 +1362,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   if (!(await systemSwitches(admin)).genx) return { members: 0, placed: 0 }; // admin GENX kill switch
   // ENGINE SELECTION (owner 09-16): only the active brain may place. GENX 2.0 callers pass no
   // origin, so with GENX_ENGINE=genx3 every GENX 2.0 entry is refused here.
-  if ((sig.origin ?? "genx2") !== activeEngine()) return { members: 0, placed: 0 };
+  if (!originAllowed(sig.origin)) return { members: 0, placed: 0 };
   // QUALITY GATE (GENX 2.0 only, owner 09-16): 20h trend slope must agree and reward at the worst
   // allowed fill must be >= 1.5R. GENX 3.0 applies its own versioned setup rules instead.
   if (sig.origin !== "genx3") {
@@ -1692,7 +1692,7 @@ export async function placeGenxFollower(sig: {
   if (inWeekendCloseWindow()) sendItOnly = true; // no new entries near Friday close (send-it excepted)
   if (inDailyReopenWindow()) sendItOnly = true; // no new entries around the daily close/reopen (send-it excepted)
   if (!(await systemSwitches(admin)).genx) return { accounts: 0, placed: 0 }; // admin GENX kill switch — hard, even for send-it
-  if ((sig.origin ?? "genx2") !== activeEngine()) return { accounts: 0, placed: 0 }; // engine selection (owner 09-16)
+  if (!originAllowed(sig.origin)) return { accounts: 0, placed: 0 }; // engine selection (owner 09-16)
   // QUALITY GATE (GENX 2.0 only) — same hard gate as the copy path (the copy path posts the note).
   if (sig.origin !== "genx3") {
     const q = await genxGoldQualityGate(admin, { side: sig.side, entryLow: sig.entryLow ?? null, entryHigh: sig.entryHigh ?? null, stop: sig.stop, tp: sig.tp });
