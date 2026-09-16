@@ -11,6 +11,7 @@ import { newsHold } from "@/lib/news/calendar";
 import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
 import { genxLabel } from "@/lib/genx/brand";
 import { genxGoldQualityGate } from "@/lib/genx/qualityGate";
+import { activeEngine } from "@/lib/genx3/engineSelect";
 import { series, livePrice } from "@/lib/marketData";
 import { trendOfCloses, closedBars } from "@/lib/mtf";
 import { sendTelegram } from "@/lib/telegram";
@@ -1351,13 +1352,20 @@ export function goldRoute(acc: { autotrade_enabled?: boolean | null; genx_follow
   return "none";
 }
 
-export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null; sendItOnly?: boolean }): Promise<{ members: number; placed: number }> {
+/** GENX 3.0 delivery options (owner 09-16). origin must match the active engine; onlyUserIds
+ *  restricts delivery to those members (the designated live scope); tag is written into the
+ *  executor source so per-account outcomes can be attributed to the signal. */
+export type GenxDelivery = { origin?: "genx2" | "genx3"; onlyUserIds?: string[] | null; tag?: string };
+export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null; sendItOnly?: boolean } & GenxDelivery): Promise<{ members: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { members: 0, placed: 0 };
   if (!(await systemSwitches(admin)).genx) return { members: 0, placed: 0 }; // admin GENX kill switch
-  // QUALITY GATE (owner 09-16): 20h trend slope must agree and reward at the worst allowed fill
-  // must be >= 1.5R. Hard gate for every account (Send It included). Fails open on stale data.
-  {
+  // ENGINE SELECTION (owner 09-16): only the active brain may place. GENX 2.0 callers pass no
+  // origin, so with GENX_ENGINE=genx3 every GENX 2.0 entry is refused here.
+  if ((sig.origin ?? "genx2") !== activeEngine()) return { members: 0, placed: 0 };
+  // QUALITY GATE (GENX 2.0 only, owner 09-16): 20h trend slope must agree and reward at the worst
+  // allowed fill must be >= 1.5R. GENX 3.0 applies its own versioned setup rules instead.
+  if (sig.origin !== "genx3") {
     const q = await genxGoldQualityGate(admin, { side: sig.side, entryLow: sig.entryLow, entryHigh: sig.entryHigh, stop: sig.stop, tp: sig.tp });
     if (!q.ok) {
       try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: quality_gate ${q.reason}`.slice(0, 200) }); } catch { /* breadcrumb best-effort */ }
@@ -1550,7 +1558,9 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // genx_follower accounts (autotrade OFF) are handled by placeGenxFollower; together the
   // two partitions cover every opted-in account exactly once — no gap, no double-fill.
   const { data: onRows } = await admin.from("flow_broker_accounts").select("user_id").eq("autotrade_enabled", true);
-  const userIds = [...new Set(((onRows ?? []) as { user_id: string | null }[]).map((r) => r.user_id).filter((x): x is string => !!x))];
+  let userIds = [...new Set(((onRows ?? []) as { user_id: string | null }[]).map((r) => r.user_id).filter((x): x is string => !!x))];
+  // GENX 3.0 live scope: only the designated members (still subject to every per-account rule below).
+  if (sig.onlyUserIds) { const allow = new Set(sig.onlyUserIds); userIds = userIds.filter((u) => allow.has(u)); }
   // Credit state per user (absent row → NOT paused, so a no-settings member still trades).
   // We KEEP the credits gate per the owner's decision, but a credit-paused skip is now
   // LOGGED to flow_auto_events instead of being silently dropped, so it is never invisible.
@@ -1636,7 +1646,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       const p = (pref as { risk_pct?: number | null } | null) ?? null;
       const riskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : 1;
 
-      const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry: sizeEntry, stop: goldStop, tp: sig.tp, riskPct, source: "genx", accounts, structuralStop: true, maxEntry: goldMaxEntry(sig.side, sig.entryLow, sig.entryHigh) });
+      const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry: sizeEntry, stop: goldStop, tp: sig.tp, riskPct, source: sig.tag ?? "genx", accounts, structuralStop: true, maxEntry: goldMaxEntry(sig.side, sig.entryLow, sig.entryHigh) });
       if (res.placed === 0 && !res.accounts.some(a => a.reason?.includes("uncertain"))) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); return 0; } // nothing filled → let the next ENTER NOW retry
       return res.placed;
     } catch { return 0; } // per-member best-effort
@@ -1672,7 +1682,7 @@ export async function placeGenxFollower(sig: {
   signalKey: string; side: "buy" | "sell";
   entryLow?: number | null; entryHigh?: number | null;
   stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null; sendItOnly?: boolean;
-}): Promise<{ accounts: number; placed: number }> {
+} & GenxDelivery): Promise<{ accounts: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { accounts: 0, placed: 0 };
   // 🚀 SEND IT (owner feature 09-03): when a desk gate fires, the entry becomes send-it-only —
@@ -1682,8 +1692,9 @@ export async function placeGenxFollower(sig: {
   if (inWeekendCloseWindow()) sendItOnly = true; // no new entries near Friday close (send-it excepted)
   if (inDailyReopenWindow()) sendItOnly = true; // no new entries around the daily close/reopen (send-it excepted)
   if (!(await systemSwitches(admin)).genx) return { accounts: 0, placed: 0 }; // admin GENX kill switch — hard, even for send-it
-  // QUALITY GATE (owner 09-16) — same hard gate as the copy path (the copy path posts the note).
-  {
+  if ((sig.origin ?? "genx2") !== activeEngine()) return { accounts: 0, placed: 0 }; // engine selection (owner 09-16)
+  // QUALITY GATE (GENX 2.0 only) — same hard gate as the copy path (the copy path posts the note).
+  if (sig.origin !== "genx3") {
     const q = await genxGoldQualityGate(admin, { side: sig.side, entryLow: sig.entryLow ?? null, entryHigh: sig.entryHigh ?? null, stop: sig.stop, tp: sig.tp });
     if (!q.ok) return { accounts: 0, placed: 0 };
   }
@@ -1762,6 +1773,7 @@ export async function placeGenxFollower(sig: {
   // this follower fill for the same setup. Pure-follower accounts (autotrade off) route here.
   // Uses the shared goldRoute() rule so the two paths can never disagree on ownership.
   accts = accts.filter((a) => goldRoute(a) === "follower").map(a => ({ ...a, send_it: SEND_IT_ENABLED && a.send_it === true }));
+  if (sig.onlyUserIds) { const allow = new Set(sig.onlyUserIds); accts = accts.filter((a) => allow.has(String(a.user_id))); } // GENX 3.0 live scope
   // 🚀 SEND IT v2: when a desk safeguard fired, only Send It followers that chose to
   // BYPASS the safeguards (send_it_guards off) take this entry.
   if (sendItOnly) accts = accts.filter((a) => a.send_it === true && a.send_it_guards !== true);
@@ -1884,7 +1896,7 @@ export async function placeGenxFollower(sig: {
       const r = await placeFixedLotFollower({
         userId: a.user_id, env: tok.env, token: tok.token, connId: a.connection_id,
         accountId: a.account_id, accNum: String(a.acc_num),
-        symbol: "XAUUSD", side: sig.side, qty, stop: fstop, tp: sig.tp, source: "genx_follow", maxEntry: goldMaxEntry(sig.side, sig.entryLow, sig.entryHigh),
+        symbol: "XAUUSD", side: sig.side, qty, stop: fstop, tp: sig.tp, source: sig.tag ? `${sig.tag}f` : "genx_follow", maxEntry: goldMaxEntry(sig.side, sig.entryLow, sig.entryHigh),
       });
       if (r.ok) {
         // RULE #1: hold the reservation until this position closes (filled w/ positionId) or,

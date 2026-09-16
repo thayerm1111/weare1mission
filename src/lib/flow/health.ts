@@ -25,12 +25,12 @@ export type Health = "OK" | "DEGRADED" | "DOWN";
 // price_stream is the worker's WebSocket feed heartbeat — informational only: the
 // health report and watchdog iterate their own explicit component list, so a quiet
 // stream (plan-gated, market closed) never trips a DOWN alert.
-export type ComponentName = "manager" | "exec" | "genx" | "price_stream";
+export type ComponentName = "manager" | "exec" | "genx" | "price_stream" | "genx3";
 
 // How long a component may go silent before it's considered stalled (seconds).
 // The manager beats every ~4s while looping and restarts each minute, so 120s is
 // a wide, false-alarm-proof bar. exec runs a full scan every 5m + watch every 1m.
-export const STALE_SEC: Record<ComponentName, number> = { manager: 120, exec: 210, genx: 420, price_stream: 3600 };
+export const STALE_SEC: Record<ComponentName, number> = { manager: 120, exec: 210, genx: 420, price_stream: 3600, genx3: 120 };
 
 // A position the manager hasn't touched in this long is a red flag (the loop runs
 // every ~4s, so anything past ~150s means it isn't being managed).

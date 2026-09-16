@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { genx2Active } from "@/lib/genx3/engineSelect";
 import { computeGenxRead, buildGenx, genxConservativeGate, GOLD, MODES, type Mode } from "@/lib/genxCompute";
 import { confirmEntry, CONFIRM_IV } from "@/lib/genxConfirm";
 import { series } from "@/lib/marketData";
@@ -55,6 +56,8 @@ function authorized(req: NextRequest): boolean {
 // MODE_LABEL, message builders, and AlertRow now live in @/lib/genx/watchTick (shared with the worker).
 
 async function run(): Promise<Response> {
+  // GENX 2.0 is retired while GENX 3.0 is the active engine (owner 09-16): no scan, no alerts.
+  if (!genx2Active()) return json({ ok: true, skipped: "genx2_retired_genx3_active" }, 200);
   const mdKey = process.env.TWELVEDATA_API_KEY;
   if (!mdKey) return json({ error: "no_market_data_key" }, 500);
   const admin = createAdminClient();

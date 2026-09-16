@@ -3,6 +3,7 @@ import { livePrice } from "@/lib/marketData";
 import { confirmEntry } from "@/lib/genxConfirm";
 import { placeGenxGold } from "@/lib/flow/autoExec";
 import { sendTelegram, esc } from "@/lib/telegram";
+import { genx2Active } from "@/lib/genx3/engineSelect";
 import { genxLabel } from "@/lib/genx/brand";
 
 /**
@@ -55,6 +56,7 @@ export function levelTarget(side: "buy" | "sell", entry: number, stop: number, o
  * Best-effort by design — any failure just means "not this tick".
  */
 export async function checkOwnerLevels(admin: Admin, mdKey: string): Promise<{ checked: number; fired: number }> {
+  if (!genx2Active()) return { checked: 0, fired: 0 }; // GENX 2.0 feature — retired while GENX 3.0 is active
   try {
     const { data } = await admin
       .from("genx_owner_levels")

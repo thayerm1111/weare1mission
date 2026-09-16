@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { genx2Active } from "@/lib/genx3/engineSelect";
 import { type Mode } from "@/lib/genxCompute";
 import { confirmEntry } from "@/lib/genxConfirm";
 import { sendTelegram, esc } from "@/lib/telegram";
@@ -161,6 +162,7 @@ export async function releaseWatchLock(admin: Admin, holder: string): Promise<vo
  * state transition (DB state moves forward before the next pass sees the row).
  */
 export async function watchPass(admin: Admin, mdKey: string, tgReady: boolean): Promise<{ checked: number; sent: string[] }> {
+  if (!genx2Active()) return { checked: 0, sent: [] }; // GENX 2.0 retired while GENX 3.0 is active (owner 09-16)
   const nowIso = new Date().toISOString();
   const { data } = await admin.from("genx_alerts").select("*").eq("state", "forming");
   const rows = (data ?? []) as AlertRow[];
