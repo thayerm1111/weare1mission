@@ -5,7 +5,7 @@ import { computeGenxRead, buildGenx, genxConservativeGate, GOLD, MODES, type Mod
 import { confirmEntry, CONFIRM_IV } from "@/lib/genxConfirm";
 import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
-import { placeGenxGold, placeGenxFollower, rewardRisk, inWeekendCloseWindow } from "@/lib/flow/autoExec";
+import { placeGenxGold, placeGenxFollower, rewardRisk, inWeekendCloseWindow, inScanQuietWindow } from "@/lib/flow/autoExec";
 import { checkOwnerLevels } from "@/lib/flow/ownerLevels";
 import { watchPass, decideGoldEntry, beatKeepDecision, headsUpMsg, enterMsg, invalidMsg, MODE_LABEL, r1, fmt, acquireWatchLock, extendWatchLock, releaseWatchLock, type AlertRow } from "@/lib/genx/watchTick";
 
@@ -166,7 +166,7 @@ async function run(): Promise<Response> {
       // WEEKEND-CLOSE BLACKOUT (owner rule): in the final 30 min before Friday's close no new
       // alert is sent, nothing confirms, and nothing is placed — a late-Friday fill just carries
       // weekend-gap risk. Forming setups simply pause; expiry cleans them up over the weekend.
-      if (inWeekendCloseWindow()) { modeOut.skip = "weekend_close_window"; continue; }
+      if (inWeekendCloseWindow() || inScanQuietWindow()) { modeOut.skip = "scan_quiet_window"; continue; }
 
       // CONSERVATIVE QUALITY GATE — verdict computed ONCE from the fresh read and stored on
       // the alert row, so the confirm/fast-watch paths (which only see the stored row) grade
@@ -280,7 +280,7 @@ async function run(): Promise<Response> {
   // support/resistance lines — a confirmed 5-minute rejection at one fires a
   // level-bounce placement through the exact same execution path.
   let ownerLevels: { checked: number; fired: number } = { checked: 0, fired: 0 };
-  try { ownerLevels = await checkOwnerLevels(admin, mdKey); } catch { /* best-effort */ }
+  if (!inScanQuietWindow()) { try { ownerLevels = await checkOwnerLevels(admin, mdKey); } catch { /* best-effort */ } }
 
   return json({ ok: true, asOf: nowIso, ownerLevels, ...out }, 200);
 }
@@ -327,7 +327,7 @@ async function runWatch(): Promise<Response> {
   const tgReady = !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHANNEL_ID);
   // WEEKEND-CLOSE BLACKOUT — the fast watch confirms entries, so it stops confirming in the
   // final 30 min before Friday's close (same rule as the full scan and every placement path).
-  if (inWeekendCloseWindow()) return json({ ok: true, skipped: "weekend_close_window" });
+  if (inWeekendCloseWindow() || inScanQuietWindow()) return json({ ok: true, skipped: "scan_quiet_window" });
   // THE WATCH LOCK: the always-on worker holds it while alive (sub-2s watching); this
   // cron loop is the automatic FALLBACK — it only watches when it can take the lock
   // (worker down → lock expires in seconds → the next minutely run takes over).

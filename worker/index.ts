@@ -28,7 +28,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { manageOpenPositions, acquireManageLock, extendManageLock, releaseManageLock, repairPhantomTargets } from "@/lib/flow/flowManage";
 import { watchPass, beatKeepDecision, acquireWatchLock, extendWatchLock, releaseWatchLock } from "@/lib/genx/watchTick";
-import { inWeekendCloseWindow } from "@/lib/flow/autoExec";
+import { inWeekendCloseWindow, inScanQuietWindow } from "@/lib/flow/autoExec";
 import { manageMattyPips } from "@/lib/matty-pips/manage";
 import { runMattyScan } from "@/lib/matty-pips/scan";
 import { beat } from "@/lib/flow/health";
@@ -124,14 +124,14 @@ async function watchLoop(): Promise<never> {
   const tgReady = !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHANNEL_ID);
   for (;;) {
     if (shuttingDown) { await releaseWatchLock(admin, HOLDER); process.exit(0); }
-    if (inWeekendCloseWindow()) { await sleep(30_000); continue; } // same blackout as the cron
+    if (inWeekendCloseWindow() || inScanQuietWindow()) { await sleep(30_000); continue; } // quiet 4:15pm–7pm NY + weekend (same as the cron)
     const got = await acquireWatchLock(admin, HOLDER, LOCK_TTL_MS).catch(() => false);
     if (!got) { await sleep(LOCK_RETRY_MS); continue; }
     log(`watch: lock acquired as ${HOLDER} — ticking every ${WATCH_MS}ms`);
     while (!shuttingDown) {
       const t0 = Date.now();
       try {
-        if (inWeekendCloseWindow()) break; // release and idle through the blackout
+        if (inWeekendCloseWindow() || inScanQuietWindow()) break; // release and idle through the quiet window
         if (tgReady) { try { await beatKeepDecision(admin, { tier: "watch", worker: true }); } catch { /* liveness best-effort */ } }
         await watchPass(admin, mdKey, tgReady);
       } catch (e) {

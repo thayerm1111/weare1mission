@@ -108,6 +108,29 @@ export function inWeekendCloseWindow(d: Date = new Date()): boolean {
   }
 }
 
+// GENX SCAN QUIET WINDOW (owner 09-16: "turn off scanning 45 min before market close so messages like
+// this don't just keep coming"): from 4:15pm New York (45 min before the 5pm close) until entries reopen
+// at 7:00pm New York, GENX does not scan, confirm or post — no new setups, no ENTER NOW, no "entry
+// paused" notes. Also quiet all weekend (Friday 4:15pm → Sunday 7:00pm NY). Open positions are still
+// managed; wins/losses are still graded.
+export function inScanQuietWindow(d: Date = new Date()): boolean {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", hour12: false, weekday: "short", hour: "2-digit", minute: "2-digit",
+    }).formatToParts(d);
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+    const wd = get("weekday");
+    const mins = (Number(get("hour")) % 24) * 60 + Number(get("minute"));
+    if (wd === "Sat") return true;
+    if (wd === "Fri" && mins >= 16 * 60 + 15) return true;
+    if (wd === "Sun" && mins < 19 * 60) return true;
+    return mins >= 16 * 60 + 15 && mins < 19 * 60; // 4:15pm–7:00pm New York
+  } catch {
+    const m = d.getUTCHours() * 60 + d.getUTCMinutes(); // Intl unavailable → UTC approximation (EDT)
+    return m >= 20 * 60 + 15 && m < 23 * 60;
+  }
+}
+
 // DAILY REOPEN ENTRY BLACKOUT (owner rule, 09-03): never open a NEW trade around the daily
 // futures close/reopen — from 4:45pm New York (15 min before the 5pm close) through 7:00pm
 // New York (a full hour after the 6pm reopen), DST-aware. Spreads are widest and liquidity

@@ -17,7 +17,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { liveTick, tickBar } from "@/lib/flow/liveTicks";
 import { sendTelegram, esc } from "@/lib/telegram";
 import { genxLabel } from "@/lib/genx/brand";
-import { placeGenxGold, placeGenxFollower } from "@/lib/flow/autoExec";
+import { placeGenxGold, placeGenxFollower, inScanQuietWindow } from "@/lib/flow/autoExec";
 import { genx2Active } from "@/lib/genx3/engineSelect";
 import { checkHealth, normalize1m, type Bar } from "@/lib/genx3/candles";
 import { buildSeries, tradableOnly, goldMarketOpen } from "@/lib/genx3/v31/series";
@@ -90,6 +90,9 @@ export async function genx1PdTick(admin: Admin): Promise<PdTickResult> {
   if (!genx2Active()) return { ran: false, reason: "legacy_engine_off" };
   const now = Date.now(), minute = Math.floor(now / 60_000), sec = (now % 60_000) / 1000, asOf = minute * 60_000, lastBarT = asOf - 60_000;
   if (!goldMarketOpen(lastBarT)) return { ran: false, reason: "market_closed" };
+  // Quiet window (owner 09-16): no scanning/posting 4:15pm–7pm NY and over the weekend. The state machine
+  // rebuilds from the bars when scanning resumes, so no context is lost.
+  if (inScanQuietWindow(new Date(now))) return { ran: false, reason: "scan_quiet_window" };
   if (now - archiveAt > 30 * 60_000) { await loadArchive(admin, now - 25 * 86_400_000); archiveAt = now; }
   if (minute !== lastFetchMinute && sec >= 2) { try { await fetchRecent(); lastFetchMinute = minute; } catch { /* the streamed-tick bar below covers a late/failed REST pull */ } }
   if (minute === lastStepMinute) return { ran: false, reason: "done_this_minute" };
