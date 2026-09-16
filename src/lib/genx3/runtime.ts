@@ -114,7 +114,7 @@ function signalMessage(s: Genx3Signal): string {
   ].join("\n");
 }
 
-async function deliver(admin: Admin, s: Genx3Signal, ctl: Control): Promise<void> {
+export async function deliver(admin: Admin, s: Genx3Signal, ctl: Control): Promise<void> {
   const { data: claimed } = await admin.rpc("genx3_claim_delivery", { p_signal_id: s.signal_id });
   if (claimed !== true) return; // someone else delivered it, or it expired
   const tag = `genx3:${s.signal_id.slice(0, 8)}`;

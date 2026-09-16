@@ -18,5 +18,7 @@ export const genx1Active = () => activeEngine() === "genx1";
 export const genx3Active = () => activeEngine() === "genx3";
 /** Does a placement from this origin match the selected engine? */
 export function originAllowed(origin: "genx2" | "genx3" | undefined): boolean {
-  return (origin ?? "genx2") === "genx3" ? genx3Active() : genx2Active();
+  // GENX 3.x placements are governed by genx3_control (mode + scope), so they are allowed under any
+  // engine selection; the legacy pipeline only runs when it is the selected engine.
+  return (origin ?? "genx2") === "genx3" ? true : genx2Active();
 }

@@ -34,8 +34,7 @@ import { runMattyScan } from "@/lib/matty-pips/scan";
 import { beat } from "@/lib/flow/health";
 import { archiveGoldCandles } from "@/lib/genx/candleArchive";
 import { streamLoop } from "./priceStream";
-import { genx3Tick } from "@/lib/genx3/runtime";
-import { genx3Active } from "@/lib/genx3/engineSelect";
+import { genx31Tick } from "@/lib/genx3/v31/runtime";
 import { hostname } from "node:os";
 
 // OWNER 09-09 ("insane fast... trade manager instant"): defaults at the polling
@@ -162,7 +161,7 @@ async function mattyScanLoop(): Promise<never> {
 /** GENX 3.0 LOOP — hold lock id=3 so exactly one process runs the engine. The engine
  *  itself decides at most once per closed 5m candle (unique DB row), so a tick every ~5s
  *  is cheap. Best-effort: its failure never kills the manager/watch loops. */
-const GENX3_MS = 5_000;
+const GENX3_MS = 2_000;
 async function genx3Loop(): Promise<never> {
   const admin = createAdminClient();
   if (!admin) throw new Error("no_admin_client");
@@ -175,7 +174,6 @@ async function genx3Loop(): Promise<never> {
   };
   for (;;) {
     if (shuttingDown) { await lock("release").catch(() => {}); process.exit(0); }
-    if (!genx3Active()) { await sleep(60_000); continue; }
     const got = await lock("take").catch(() => false);
     if (!got) { await sleep(LOCK_RETRY_MS); continue; }
     log(`genx3: lock acquired as ${HOLDER}`);
@@ -183,9 +181,9 @@ async function genx3Loop(): Promise<never> {
     while (!shuttingDown) {
       const t0 = Date.now();
       try {
-        const r = await genx3Tick(admin, HOLDER);
-        const reason = r.ran ? `decided ${r.decisionClose} signal=${r.signal ?? "none"}` : r.reason ?? "";
-        if (r.ran || reason !== lastReason) log(`genx3: ${reason}`, r.noTrade?.slice(0, 5));
+        const r = await genx31Tick(admin, HOLDER);
+        const reason = r.ran ? (r.signal ? `SIGNAL ${r.signal}` : "decided") : r.reason ?? "";
+        if (r.signal || reason !== lastReason) log(`genx3.1: ${reason}`, r.reasons?.slice(0, 5));
         lastReason = reason;
         await beat(admin, "genx3", { worker: true, ran: r.ran, reason: r.reason ?? null }).catch(() => {});
       } catch (e) {
