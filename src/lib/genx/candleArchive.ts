@@ -43,9 +43,12 @@ export async function archiveGoldCandles(admin: Admin): Promise<Record<string, u
     const rows = j.values.map((v) => ({
       symbol: SYMBOL, interval: INTERVAL, t: `${v.datetime.replace(" ", "T")}Z`,
       o: Number(v.open), h: Number(v.high), l: Number(v.low), c: Number(v.close),
-    })).filter((x) => [x.o, x.h, x.l, x.c].every(Number.isFinite));
+    })).filter((x) => [x.o, x.h, x.l, x.c].every(Number.isFinite))
+      // Only CLOSED bars: a 1-min bar whose minute has not fully elapsed is still forming, and
+      // storing it would freeze partial OHLC in the archive (audit 09-16).
+      .filter((x) => Date.parse(x.t) + 60_000 <= Date.now());
     for (let i = 0; i < rows.length; i += 1000) {
-      const { error } = await admin.from("genx_candle_archive").upsert(rows.slice(i, i + 1000), { onConflict: "symbol,interval,t", ignoreDuplicates: true });
+      const { error } = await admin.from("genx_candle_archive").upsert(rows.slice(i, i + 1000), { onConflict: "symbol,interval,t", ignoreDuplicates: false });
       if (error) return { ran: false, reason: "db_error", detail: error.message.slice(0, 80) };
     }
     return { ran: true, mode, rows: rows.length, from: rows[0]?.t, to: rows[rows.length - 1]?.t };
