@@ -7,7 +7,7 @@ import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
 import { placeGenxGold, placeGenxFollower, rewardRisk, inWeekendCloseWindow, inScanQuietWindow } from "@/lib/flow/autoExec";
 import { checkOwnerLevels } from "@/lib/flow/ownerLevels";
-import { watchPass, decideGoldEntry, beatKeepDecision, headsUpMsg, enterMsg, invalidMsg, MODE_LABEL, r1, fmt, acquireWatchLock, extendWatchLock, releaseWatchLock, type AlertRow } from "@/lib/genx/watchTick";
+import { watchPass, findSameSetup, decideGoldEntry, beatKeepDecision, headsUpMsg, enterMsg, invalidMsg, MODE_LABEL, r1, fmt, acquireWatchLock, extendWatchLock, releaseWatchLock, type AlertRow } from "@/lib/genx/watchTick";
 
 // decideGoldEntry + the gold entry preference rules now live in @/lib/genx/watchTick
 // (shared with the always-on worker).
@@ -185,12 +185,17 @@ async function run(): Promise<Response> {
 
       const immediate = engineState === "TRADE_READY"; // BUY_NOW / SELL_NOW
 
+      // SAME SETUP, DRIFTED ZONE (owner 09-16): not a new setup — the open alert keeps being watched; nothing is posted.
+      if (!row) {
+        const twin = await findSameSetup(admin, { side, entry_low: genx.entry_low, entry_high: genx.entry_high });
+        if (twin) { modeOut.result = `same_setup:${twin.dedupe_key}:${twin.state}`; continue; }
+      }
+
       if (!row) {
         // Brand-new setup.
         if (immediate) {
-          // Live now → send ENTER NOW straight away.
-          if (tgReady) await sendTelegram(enterMsg(side, mode, { entry_low: genx.entry_low, entry_high: genx.entry_high, stop: genx.stop_loss, tp1: genx.tp1, tp2: genx.tp2, tp3: genx.tp3 }, rr.price, true));
-          await admin.from("genx_alerts").insert({
+          // Record first (unique dedupe key), then post — two overlapping scans can never both announce it.
+          const { error: insErr } = await admin.from("genx_alerts").insert({
             dedupe_key: dedupeKey, mode, side, action: genx.action,
             entry: genx.entry, entry_low: genx.entry_low, entry_high: genx.entry_high,
             stop: genx.stop_loss, tp1: genx.tp1, tp2: genx.tp2, tp3: genx.tp3,
@@ -198,6 +203,8 @@ async function run(): Promise<Response> {
             state: "entered", enter_price: rr.price, heads_up_sent_at: nowIso, enter_sent_at: nowIso, last_checked_at: nowIso,
             quality_ok: qOk,
           });
+          if (insErr) { modeOut.result = "already_recorded"; continue; }
+          if (tgReady) await sendTelegram(enterMsg(side, mode, { entry_low: genx.entry_low, entry_high: genx.entry_high, stop: genx.stop_loss, tp1: genx.tp1, tp2: genx.tp2, tp3: genx.tp3 }, rr.price, true));
           // FLOW copies this gold ENTER NOW to every credited member (once per move).
           // conservativeOk gates ONLY conservative accounts; aggressive take it regardless.
           try { await placeGenxGold({ side, entryLow: genx.entry_low, entryHigh: genx.entry_high, stop: genx.stop_loss, tp: genx.tp1, conservativeOk: qOk, confidence: genx.confidence_score }); } catch { /* placement is best-effort */ }
@@ -206,8 +213,7 @@ async function run(): Promise<Response> {
           sent.push(`${mode}:ENTER(immediate)`); modeOut.result = "enter_immediate";
         } else {
           // Developing → heads-up now, watch for the entry on future ticks.
-          if (tgReady) await sendTelegram(headsUpMsg(side, mode, { entry_low: genx.entry_low, entry_high: genx.entry_high, stop: genx.stop_loss, tp1: genx.tp1, tp2: genx.tp2, confidence: genx.confidence_score }));
-          await admin.from("genx_alerts").insert({
+          const { error: insErr } = await admin.from("genx_alerts").insert({
             dedupe_key: dedupeKey, mode, side, action: genx.action,
             entry: genx.entry, entry_low: genx.entry_low, entry_high: genx.entry_high,
             stop: genx.stop_loss, tp1: genx.tp1, tp2: genx.tp2, tp3: genx.tp3,
@@ -215,12 +221,23 @@ async function run(): Promise<Response> {
             state: "forming", heads_up_sent_at: nowIso, last_checked_at: nowIso,
             quality_ok: qOk,
           });
+          if (insErr) { modeOut.result = "already_recorded"; continue; }
+          if (tgReady) await sendTelegram(headsUpMsg(side, mode, { entry_low: genx.entry_low, entry_high: genx.entry_high, stop: genx.stop_loss, tp1: genx.tp1, tp2: genx.tp2, confidence: genx.confidence_score }));
           sent.push(`${mode}:HEADSUP`); modeOut.result = "headsup";
         }
         continue;
       }
 
-      // Known setup, still pending → check whether it has confirmed or died.
+      // Known setup, still pending → check whether it has confirmed or died. A later twin of an earlier
+      // open alert (zone drift) is retired silently instead (same-setup dedupe).
+      if (row.state === "forming") {
+        const twin = await findSameSetup(admin, row, row.id);
+        if (twin && Date.parse(twin.created_at) <= Date.parse(row.created_at)) {
+          await admin.from("genx_alerts").update({ state: "invalidated", last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id).eq("state", "forming");
+          modeOut.result = `merged_into:${twin.dedupe_key}`;
+          continue;
+        }
+      }
       if (row.state === "forming") {
         const conf = await confirmEntry({
           side, entryLow: row.entry_low ?? genx.entry_low, entryHigh: row.entry_high ?? genx.entry_high,

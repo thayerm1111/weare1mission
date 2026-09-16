@@ -137,6 +137,29 @@ export async function beatKeepDecision(admin: Admin, extra: Record<string, unkno
   } catch { try { await beat(admin, "genx", { ...extra, flags }); } catch { /* liveness best-effort */ } }
 }
 
+// ── SAME-SETUP DEDUPE (owner 09-16: the same SELL posted 5+ times with slightly different zones) ──
+// The engine re-derives the entry zone on every scan, so it drifts a dollar or two and the exact-zone
+// dedupe key changes — each drift used to become a "new" setup with its own heads-up, ENTER NOW and
+// later "invalidated" note. A setup on the same side whose zone is within SAME_SETUP_USD (or 1.5× the
+// zone width) of a still-open alert (forming/entered, not yet graded, last 4h) IS that setup.
+export const SAME_SETUP_USD = 6;
+export const SAME_SETUP_WINDOW_MS = 4 * 3600_000;
+type ZoneLike = { side: "buy" | "sell"; entry_low: number | null; entry_high: number | null };
+export function sameSetupZone(a: ZoneLike, b: ZoneLike): boolean {
+  if (a.side !== b.side || a.entry_low == null || a.entry_high == null || b.entry_low == null || b.entry_high == null) return false;
+  const mid = (z: ZoneLike) => (Number(z.entry_low) + Number(z.entry_high)) / 2;
+  const width = Math.max(Math.abs(Number(a.entry_high) - Number(a.entry_low)), Math.abs(Number(b.entry_high) - Number(b.entry_low)));
+  return Math.abs(mid(a) - mid(b)) <= Math.max(SAME_SETUP_USD, 1.5 * width);
+}
+/** Open GENX 1.0 scanner alerts (not the PDH/PDL module's) that are the same setup as this zone. */
+export async function findSameSetup(admin: Admin, z: ZoneLike, excludeId?: string): Promise<AlertRow | null> {
+  const since = new Date(Date.now() - SAME_SETUP_WINDOW_MS).toISOString();
+  const { data } = await admin.from("genx_alerts").select("*").eq("side", z.side).in("state", ["forming", "entered"]).is("outcome", null)
+    .like("dedupe_key", "quick:%").gte("created_at", since).order("created_at", { ascending: true }).limit(50);
+  for (const r of (data ?? []) as AlertRow[]) if (r.id !== excludeId && sameSetupZone(r, z)) return r;
+  return null;
+}
+
 // ── THE WATCH LOCK — row id=2 of flow_manage_lock (id=1 is the trade-manager's).
 // Same acquire-if-expired UPDATE pattern: exactly one watcher at a time, a crashed
 // holder's lock simply expires.
@@ -165,11 +188,21 @@ export async function watchPass(admin: Admin, mdKey: string, tgReady: boolean): 
   if (!genx2Active()) return { checked: 0, sent: [] }; // GENX 2.0 retired while GENX 3.0 is active (owner 09-16)
   const nowIso = new Date().toISOString();
   const { data } = await admin.from("genx_alerts").select("*").eq("state", "forming");
-  const rows = (data ?? []) as AlertRow[];
+  const rows = ((data ?? []) as AlertRow[]).sort((x, y) => Date.parse(x.created_at) - Date.parse(y.created_at));
   const sent: string[] = [];
   for (const row of rows) {
     try {
       const side = row.side;
+      // SAME-SETUP DEDUPE: a later forming alert that duplicates an earlier open alert (zone drift) is
+      // retired SILENTLY — no second ENTER NOW, no extra "invalidated" note.
+      if (row.dedupe_key.startsWith("quick:")) {
+        const twin = await findSameSetup(admin, row, row.id);
+        if (twin && Date.parse(twin.created_at) <= Date.parse(row.created_at)) {
+          await admin.from("genx_alerts").update({ state: "invalidated", last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id).eq("state", "forming");
+          sent.push(`${row.mode}:MERGED`);
+          continue;
+        }
+      }
       const conf = await confirmEntry({
         side, entryLow: (row.entry_low ?? 0) as number, entryHigh: (row.entry_high ?? 0) as number,
         watch: (row.watch ?? row.entry_low ?? 0) as number, invalidation: (row.invalidation ?? row.stop ?? 0) as number,
