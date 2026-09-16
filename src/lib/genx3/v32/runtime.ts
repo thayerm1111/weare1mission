@@ -6,7 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { liveTick, tickBar } from "@/lib/flow/liveTicks";
+import { liveTick, tickBar, tickCoverage } from "@/lib/flow/liveTicks";
 import { sendTelegram, esc } from "@/lib/telegram";
 import { checkHealth, normalize1m, type Bar } from "../candles";
 import { newsState } from "../news";
@@ -23,6 +23,7 @@ const bars = new Map<number, Bar>();
 const barSource = new Map<number, "rest" | "ticks">();
 const st = newState32();
 const loggedWaits = new Map<string, string>();
+let lastTickCoverage: unknown = null;
 let archiveLoadedAt = 0, lastFetchMinute = 0, lastFetchAt = 0, lastStepMinute = 0, seenLoaded = false, impossiblePrice = 0;
 
 async function loadArchive(admin: Admin, sinceMs: number) {
@@ -135,7 +136,7 @@ export async function genx32Tick(admin: Admin, holder: string): Promise<Tick32> 
     // holds every tick of that minute — use it when coverage is complete (documented semantics).
     const tb = sec >= 1 ? tickBar("XAU/USD", lastBarT, asOf) : null;
     if (tb) { bars.set(lastBarT, { t: lastBarT, o: tb.o, h: tb.h, l: tb.l, c: tb.c }); barSource.set(lastBarT, "ticks"); source = "ticks"; }
-    else if (sec < 40) return { ran: false, reason: "awaiting_final_1m_bar" };
+    else { lastTickCoverage = tickCoverage("XAU/USD", lastBarT, asOf); if (sec < 40) return { ran: false, reason: "awaiting_final_1m_bar" }; }
   }
   lastStepMinute = minute;
   const t0 = Date.now();
@@ -159,7 +160,7 @@ export async function genx32Tick(admin: Admin, holder: string): Promise<Tick32> 
     const { error } = await admin.from("genx3_decisions").insert({
       strategy_version: STRATEGY_VERSION_32, snapshot_id: stableUuid(`snap32:${asOf}`), as_of: new Date(now).toISOString(), decision_candle_close: new Date(asOf).toISOString(), mode: ctl.mode,
       data_state: health.state, data_issues: health.issues, feed_age_ms: health.feedAgeMs, news_state: news.state, regime: res.state.state, regime_confidence: res.state.confidence,
-      regime_detail: { dir: res.state.dir, atrPct: +res.state.atrPct.toFixed(2), rvRatio: +res.state.rvRatio.toFixed(2), er15: +res.state.er15.toFixed(2), er1h: +res.state.er1h.toFixed(2), trend15: res.state.trend15, trend1h: res.state.trend1h, bias1h: res.ctx.bias1h, bias4h: res.ctx.bias4h, mom20d: res.ctx.mom20d, vol: res.ctx.volState, session: res.ctx.session, atr5: +res.ctx.atr5.toFixed(2), atr15: +res.ctx.atr15.toFixed(2), evidence: res.state.evidence, bar_source: source, decision_latency_ms: latencyMs, compute_ms: Date.now() - t0, waiting: res.records.filter((r) => r.status === "WAITED").map((r) => `${r.setup} ${r.side}: ${r.reasons[0]}`).slice(0, 12) },
+      regime_detail: { dir: res.state.dir, atrPct: +res.state.atrPct.toFixed(2), rvRatio: +res.state.rvRatio.toFixed(2), er15: +res.state.er15.toFixed(2), er1h: +res.state.er1h.toFixed(2), trend15: res.state.trend15, trend1h: res.state.trend1h, bias1h: res.ctx.bias1h, bias4h: res.ctx.bias4h, mom20d: res.ctx.mom20d, vol: res.ctx.volState, session: res.ctx.session, atr5: +res.ctx.atr5.toFixed(2), atr15: +res.ctx.atr15.toFixed(2), evidence: res.state.evidence, bar_source: source, tick_coverage: source === "ticks" ? null : lastTickCoverage, decision_latency_ms: latencyMs, compute_ms: Date.now() - t0, waiting: res.records.filter((r) => r.status === "WAITED").map((r) => `${r.setup} ${r.side}: ${r.reasons[0]}`).slice(0, 12) },
       candidates: live.map((r) => ({ setup: r.setup, side: r.side, status: r.status, score: r.score, threshold: r.threshold, reasons: r.reasons })),
       no_trade_reasons: sel ? [] : reasons, signal_id: null, worker: holder,
     });
@@ -184,6 +185,9 @@ export async function genx32Tick(admin: Admin, holder: string): Promise<Tick32> 
   const errs = validateSignal32(sig);
   if (errs.length) { await emergencyDisable(admin, `malformed GENX 3.2 signal: ${errs.join("; ")}`, { anchor: sel.anchor }); return { ran: true, signal: null, reasons: errs }; }
   const live = ctl.mode === "LIVE";
+  // setup row first (genx3_signals.setup_id references genx3_setups; DB guards the state machine)
+  const { error: se } = await admin.from("genx3_setups").insert({ setup_id: sig.setup_id, strategy_version: STRATEGY_VERSION_32, setup_key: sel.anchor, setup_type: sel.setup, side: sig.side, state: "TRIGGERED", snapshot_id: sig.market_snapshot_id, expires_at: sig.expires_at_utc, detail: { score: sel.score, threshold: sel.threshold, market_state: res.state.state, evidence: sig.evidence, transition_reason: "selected by arbitration" } });
+  if (se) return { ran: true, signal: null, reasons: [/duplicate|unique/i.test(se.message) ? "setup_already_recorded" : `setup_write_failed: ${se.message}`] };
   const { error } = await admin.from("genx3_signals").insert({ signal_id: sig.signal_id, idempotency_key: sig.idempotency_key, setup_id: sig.setup_id, strategy_version: STRATEGY_VERSION_32, decision_candle_close: sig.decision_candle_close_time, side: sig.side, entry_zone_low: sig.entry_zone_low, entry_zone_high: sig.entry_zone_high, stop_price: sig.stop_price, target_price: sig.target_price, payload: { ...sig, market_state: res.state.state, bar_source: source, decision_latency_ms: latencyMs }, mode: live ? "LIVE" : "MONITOR", status: live ? "PUBLISHED" : "NOT_DELIVERED_MONITOR", expires_at: sig.expires_at_utc });
   if (error) return { ran: true, signal: null, reasons: [/duplicate|unique/i.test(error.message) ? "signal_already_published" : `signal_write_failed: ${error.message}`] };
   await admin.from("genx3_decisions").update({ signal_id: sig.signal_id }).eq("strategy_version", STRATEGY_VERSION_32).eq("decision_candle_close", new Date(asOf).toISOString());

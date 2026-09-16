@@ -87,3 +87,11 @@ export function tickBar(td: string, fromMs: number, toMs: number, minTicks = 4, 
   if (n < minTicks || first - fromMs > edgeMs || toMs - last > edgeMs) return null;
   return { o, h, l, c, n };
 }
+
+/** Diagnostics: how many streamed ticks fell in [fromMs, toMs) and how far the first/last sit from the edges. */
+export function tickCoverage(td: string, fromMs: number, toMs: number): { n: number; firstOffMs: number | null; lastOffMs: number | null; ringSize: number; newestAgeMs: number | null } {
+  const buf = store.get(td); if (!buf) return { n: 0, firstOffMs: null, lastOffMs: null, ringSize: 0, newestAgeMs: null };
+  let n = 0, first = 0, last = 0;
+  for (const tk of buf.ring) { if (tk.t < fromMs || tk.t >= toMs) continue; if (!n) first = tk.t; last = tk.t; n++; }
+  return { n, firstOffMs: n ? first - fromMs : null, lastOffMs: n ? toMs - last : null, ringSize: buf.ring.length, newestAgeMs: Date.now() - buf.last.t };
+}
