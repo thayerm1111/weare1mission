@@ -17,7 +17,7 @@
  * call from any code path.
  */
 
-type Tick = { t: number; p: number };
+type Tick = { t: number; p: number; rt: number };   // t = provider timestamp, rt = local receipt time
 type Buf = { last: Tick; ring: Tick[] };
 
 const RING_KEEP_MS = 8 * 60_000; // extremes lookback window kept per symbol
@@ -30,7 +30,7 @@ let totalTicks = 0;
 export function pushLiveTick(td: string, price: number, atMs?: number): void {
   if (!Number.isFinite(price) || price <= 0) return;
   const t = Number.isFinite(atMs) && (atMs as number) > 0 ? (atMs as number) : Date.now();
-  const tick: Tick = { t, p: price };
+  const tick: Tick = { t, p: price, rt: Date.now() };
   let buf = store.get(td);
   if (!buf) { buf = { last: tick, ring: [] }; store.set(td, buf); }
   buf.last = tick;
@@ -74,15 +74,15 @@ export function liveTickStats(): { symbols: string[]; ticks: number } {
   return { symbols: [...store.keys()], ticks: totalTicks };
 }
 
-/** OHLC of streamed ticks in [fromMs, toMs), or null when coverage is too thin to trust
+/** OHLC of streamed ticks RECEIVED in [fromMs, toMs) (receipt time: the provider timestamp is minute-bucketed), or null when coverage is too thin to trust
  *  (fewer than `minTicks`, or the first/last tick more than `edgeMs` inside the window). */
 export function tickBar(td: string, fromMs: number, toMs: number, minTicks = 4, edgeMs = 15_000): { o: number; h: number; l: number; c: number; n: number } | null {
   const buf = store.get(td); if (!buf) return null;
   let o = NaN, h = -Infinity, l = Infinity, c = NaN, n = 0, first = 0, last = 0;
   for (const tk of buf.ring) {
-    if (tk.t < fromMs || tk.t >= toMs) continue;
-    if (!n) { o = tk.p; first = tk.t; }
-    h = Math.max(h, tk.p); l = Math.min(l, tk.p); c = tk.p; last = tk.t; n++;
+    if (tk.rt < fromMs || tk.rt >= toMs) continue;
+    if (!n) { o = tk.p; first = tk.rt; }
+    h = Math.max(h, tk.p); l = Math.min(l, tk.p); c = tk.p; last = tk.rt; n++;
   }
   if (n < minTicks || first - fromMs > edgeMs || toMs - last > edgeMs) return null;
   return { o, h, l, c, n };
@@ -92,6 +92,6 @@ export function tickBar(td: string, fromMs: number, toMs: number, minTicks = 4, 
 export function tickCoverage(td: string, fromMs: number, toMs: number): { n: number; firstOffMs: number | null; lastOffMs: number | null; ringSize: number; newestAgeMs: number | null } {
   const buf = store.get(td); if (!buf) return { n: 0, firstOffMs: null, lastOffMs: null, ringSize: 0, newestAgeMs: null };
   let n = 0, first = 0, last = 0;
-  for (const tk of buf.ring) { if (tk.t < fromMs || tk.t >= toMs) continue; if (!n) first = tk.t; last = tk.t; n++; }
-  return { n, firstOffMs: n ? first - fromMs : null, lastOffMs: n ? toMs - last : null, ringSize: buf.ring.length, newestAgeMs: Date.now() - buf.last.t };
+  for (const tk of buf.ring) { if (tk.rt < fromMs || tk.rt >= toMs) continue; if (!n) first = tk.t; last = tk.rt; n++; }
+  return { n, firstOffMs: n ? first - fromMs : null, lastOffMs: n ? toMs - last : null, ringSize: buf.ring.length, newestAgeMs: Date.now() - buf.last.rt };
 }
