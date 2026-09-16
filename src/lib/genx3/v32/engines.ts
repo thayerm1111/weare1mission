@@ -9,7 +9,7 @@ import { type Series, hiLo, confirmedPivots, lastClosed } from "../v31/series";
 import type { Ctx } from "../v31/context";
 import { findBreak, type StateResult } from "./state";
 
-export type Setup32 = "SESSION_BREAK" | "BOS_PULLBACK" | "MICRO_CONTINUATION" | "BREAKOUT_RETEST_V2" | "COMPRESSION_EXPANSION" | "SWEEP_RECLAIM_DISPLACEMENT" | "TREND_REENTRY" | "MOMENTUM_EXPANSION";
+export type Setup32 = "SESSION_BREAK" | "BOS_PULLBACK" | "MICRO_CONTINUATION" | "BREAKOUT_RETEST_V2" | "COMPRESSION_EXPANSION" | "SWEEP_RECLAIM_DISPLACEMENT" | "TREND_REENTRY" | "MOMENTUM_EXPANSION" | "PDH_PDL_BREAK_RETEST_CONTINUATION";
 export type Side = "BUY" | "SELL";
 export type Cand32 = {
   setup: Setup32; side: Side; anchor: string;

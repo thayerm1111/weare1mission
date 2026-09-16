@@ -13,12 +13,13 @@ import { entryBlackout } from "../v31/engine";
 import { classifyState, type StateResult } from "./state";
 import { microContinuation, breakoutRetest, compressionExpansion, sweepReclaimDisplacement, trendReentry, momentumExpansion, type Cand32, type Wait32, type Setup32 } from "./engines";
 import { CONFIG32 } from "./config";
+import { pdhPdlBreakRetest, newPdState, type PdState, type PdMachine } from "./pdhpdl";
 
 export type Status32 = "PASSED" | "FAILED" | "WAITED" | "EXPIRED" | "INVALIDATED" | "LOST_ARBITRATION" | "NOT_ROUTED" | "SHADOW_ONLY" | "SELECTED";
 export type Record32 = { setup: Setup32; side: "BUY" | "SELL"; anchor: string; status: Status32; reasons: string[]; score: number | null; threshold: number | null; components: Record<string, number>; cand: Cand32 | null };
-export type State32 = { seen: Set<string>; prevCompression: StateResult["compression"]; prevCompressionAt: number };
-export const newState32 = (): State32 => ({ seen: new Set(), prevCompression: null, prevCompressionAt: 0 });
-export type Step32 = { asOf: number; ctx: Ctx | null; state: StateResult | null; records: Record32[]; selected: Record32 | null; reasons: string[] };
+export type State32 = { seen: Set<string>; prevCompression: StateResult["compression"]; prevCompressionAt: number; pd: PdState };
+export const newState32 = (): State32 => ({ seen: new Set(), prevCompression: null, prevCompressionAt: 0, pd: newPdState() });
+export type Step32 = { asOf: number; ctx: Ctx | null; state: StateResult | null; records: Record32[]; selected: Record32 | null; reasons: string[]; pd: PdMachine[] };
 
 function score(c: Cand32): { score: number; components: Record<string, number> } {
   const w = CONFIG32.rules[c.setup].weights; const tot = Object.values(w).reduce((a, b) => a + b, 0) || 1;
@@ -42,9 +43,9 @@ function hardChecks(c: Cand32, ctx: Ctx): string[] {
 
 export function step32(s: Series, asOf: number, st: State32): Step32 {
   const i1 = lastClosed(s.m1, asOf);
-  if (i1 < 0 || asOf - (s.m1.bars[i1].t + 60000) > 5 * 60000 || !goldMarketOpen(asOf - 60000)) return { asOf, ctx: null, state: null, records: [], selected: null, reasons: ["market_closed_or_stale"] };
+  if (i1 < 0 || asOf - (s.m1.bars[i1].t + 60000) > 5 * 60000 || !goldMarketOpen(asOf - 60000)) return { asOf, ctx: null, state: null, records: [], selected: null, reasons: ["market_closed_or_stale"], pd: [] };
   const ctx = buildContext(s, asOf);
-  if (!ctx) return { asOf, ctx: null, state: null, records: [], selected: null, reasons: ["insufficient_history"] };
+  if (!ctx) return { asOf, ctx: null, state: null, records: [], selected: null, reasons: ["insufficient_history"], pd: [] };
   const state = classifyState(s, ctx);
   if (state.compression) { st.prevCompression = state.compression; st.prevCompressionAt = asOf; }
   else if (asOf - st.prevCompressionAt > 45 * 60000) st.prevCompression = null;
@@ -64,7 +65,8 @@ export function step32(s: Series, asOf: number, st: State32): Step32 {
   }
 
   // new engines — every closed minute, routed by market state
-  const outs = [microContinuation(s, ctx, state), breakoutRetest(s, ctx), compressionExpansion(s, ctx, state, st.prevCompression), sweepReclaimDisplacement(s, ctx), trendReentry(s, ctx, state), momentumExpansion(s, ctx)];
+  const pdOut = pdhPdlBreakRetest(s, ctx, st.pd);                // stateful PDH/PDL module (advances bar-by-bar, rebuilds after restart)
+  const outs = [microContinuation(s, ctx, state), breakoutRetest(s, ctx), compressionExpansion(s, ctx, state, st.prevCompression), sweepReclaimDisplacement(s, ctx), trendReentry(s, ctx, state), momentumExpansion(s, ctx), pdOut];
   const waits: Wait32[] = outs.flatMap((o) => o.waits);
   for (const w of waits) if (!st.seen.has(w.anchor)) records.push({ setup: w.setup, side: w.side, anchor: w.anchor, status: "WAITED", reasons: [w.reason], score: null, threshold: null, components: {}, cand: null });
   for (const c of outs.flatMap((o) => o.cands)) {
@@ -102,5 +104,5 @@ export function step32(s: Series, asOf: number, st: State32): Step32 {
   if (selected && entryBlackout(asOf)) { selected.status = "FAILED"; selected.reasons.push("entry blackout window (Flow reopen / Friday close / Sunday open)"); reasons.push("entry_blackout_window"); selected = null; }
   if (selected) selected.status = "SELECTED";
   if (!records.length) reasons.push("no_candidate");
-  return { asOf, ctx, state, records, selected, reasons };
+  return { asOf, ctx, state, records, selected, reasons, pd: pdOut.machines };
 }

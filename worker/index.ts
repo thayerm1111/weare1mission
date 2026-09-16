@@ -187,8 +187,8 @@ async function genx3Loop(): Promise<never> {
         // VERSION DISPATCH: genx3_control.strategy_version selects the brain. 3.1.0 stays callable for
         // instant rollback (update genx3_control set strategy_version='3.1.0'). Unknown version → shut off.
         const ctlv = (await readControl(admin))?.strategy_version;
-        if (ctlv && !selectBrain(ctlv)) await emergencyDisable(admin, `unknown strategy version ${ctlv} (worker knows 3.1.0, 3.2.1)`);
-        const r: { ran: boolean; reason?: string; signal?: string | null; reasons?: string[] } = selectBrain(ctlv) === "3.2.1" ? await genx32Tick(admin, HOLDER) : await genx31Tick(admin, HOLDER);
+        if (ctlv && !selectBrain(ctlv)) await emergencyDisable(admin, `unknown strategy version ${ctlv} (worker knows 3.1.0, 3.2.2)`);
+        const r: { ran: boolean; reason?: string; signal?: string | null; reasons?: string[] } = selectBrain(ctlv) === "3.2.2" ? await genx32Tick(admin, HOLDER) : await genx31Tick(admin, HOLDER);
         const reason = r.ran ? (r.signal ? `SIGNAL ${r.signal}` : "decided") : r.reason ?? "";
         if (r.signal || reason !== lastReason) log(`genx${ctlv ?? "3"}: ${reason}`, r.reasons?.slice(0, 5));
         lastReason = reason;

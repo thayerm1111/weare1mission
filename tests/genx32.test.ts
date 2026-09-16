@@ -86,10 +86,10 @@ test('signal: valid payload, deterministic id, malformed variants rejected', () 
   assert.deepEqual(validateSignal32({ ...a, risk_price_distance: 25, stop_price: +(a.entry_price - 25 * (a.side === 'BUY' ? 1 : -1)).toFixed(2) }).filter((x) => /risk .* outside/.test(x)), [], 'a $25 structural stop is allowed (no 100-pip cap)');
 });
 
-test('version isolation: only 3.1.0 and 3.2.0 select a brain', () => {
-  assert.equal(selectBrain('3.2.1'), '3.2.1'); assert.equal(selectBrain('3.2.0'), '3.2.1', 'rollout alias'); assert.equal(selectBrain('3.1.0'), '3.1.0');
+test('version isolation: only 3.1.0 and 3.2.x select a brain', () => {
+  assert.equal(selectBrain('3.2.2'), '3.2.2'); assert.equal(selectBrain('3.2.1'), '3.2.2', 'rollout alias'); assert.equal(selectBrain('3.2.0'), '3.2.2', 'rollout alias'); assert.equal(selectBrain('3.1.0'), '3.1.0');
   assert.equal(selectBrain('3.3.0'), null); assert.equal(selectBrain(undefined), null);
-  assert.equal(STRATEGY_VERSION_32, '3.2.1');
+  assert.equal(STRATEGY_VERSION_32, '3.2.2');
 });
 
 test('account whitelist: a 3.2 signal reaches only 803349 and 772642; legacy never reaches them', () => {

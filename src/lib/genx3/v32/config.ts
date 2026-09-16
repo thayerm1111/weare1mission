@@ -13,7 +13,7 @@ export type SetupRule = {
   weights: Record<string, number>;       // setup-specific score model over the engine's features
   minRiskAtr15: number; minRoomR: number;
 };
-export const STRATEGY_VERSION_32 = "3.2.1";
+export const STRATEGY_VERSION_32 = "3.2.2";
 export const CONFIG32 = {
   version: STRATEGY_VERSION_32, costUsd: 0.5, minRiskUsd: 1.5, minNetRR: 1.2,
   // 3.2.1 (owner 09-16: "remove the stop cap of 100, make the stop based on strategy"): no fixed $10 cap.
@@ -21,7 +21,7 @@ export const CONFIG32 = {
   // structure for current volatility (> maxRiskAtr15 × ATR15) or is corrupt data (> maxRiskUsd).
   maxRiskAtr15: 3.5, maxRiskUsd: 60,
   conflictMargin: 5,                      // opposite-side qualified setups within this score margin → no trade
-  priority: ["SESSION_BREAK", "BOS_PULLBACK", "BREAKOUT_RETEST_V2", "COMPRESSION_EXPANSION", "TREND_REENTRY", "MICRO_CONTINUATION", "SWEEP_RECLAIM_DISPLACEMENT", "MOMENTUM_EXPANSION"] as Setup32[],
+  priority: ["SESSION_BREAK", "BOS_PULLBACK", "BREAKOUT_RETEST_V2", "PDH_PDL_BREAK_RETEST_CONTINUATION", "COMPRESSION_EXPANSION", "TREND_REENTRY", "MICRO_CONTINUATION", "SWEEP_RECLAIM_DISPLACEMENT", "MOMENTUM_EXPANSION"] as Setup32[],
   rules: {
     // 3.1 baseline — unchanged thresholds (evaluated by the 3.1 Stage 2 exactly as in 3.1.0)
     SESSION_BREAK: { mode: "LIVE", states: "ANY", threshold: 0, weights: {}, minRiskAtr15: 0.5, minRoomR: 0 },
@@ -38,5 +38,10 @@ export const CONFIG32 = {
       weights: { er1h: 20, value: 15, turn: 15, h4agree: 10, htf1: 10, room: 20, session: 10 } },
     MOMENTUM_EXPANSION: { mode: "SHADOW", states: ["EXPANSION"], threshold: 65, minRiskAtr15: 0.35, minRoomR: 1.5,
       weights: { expansion: 20, body: 10, velocity: 20, young: 20, htf1: 10, room: 15, session: 5 } },
+    // 3.2.2 — PDH/PDL BREAK → ACCEPT → RETEST → DEFEND → CONTINUE (stateful module, src/lib/genx3/v32/pdhpdl.ts).
+    // Its own state machine is the router, so it is not gated by the 6-state market classifier. Mode per the
+    // pre-registered rule in docs/genx3/GENX-3.2.2.md.
+    PDH_PDL_BREAK_RETEST_CONTINUATION: { mode: "SHADOW", states: "ANY", threshold: 60, minRiskAtr15: 0.35, minRoomR: 1.5,
+      weights: { compression: 5, displacement: 10, acceptance: 15, retest: 10, defense: 15, structure: 10, whipsaw: 10, continuation: 5, htf1: 10, htf4: 5, room: 10, session: 5 } },
   } as Record<Setup32, SetupRule>,
 };

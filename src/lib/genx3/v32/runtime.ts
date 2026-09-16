@@ -18,12 +18,14 @@ import { buildSeries, tradableOnly, lastClosed } from "../v31/series";
 import { step32, newState32, type Record32, type Step32 } from "./engine";
 import { CONFIG32, STRATEGY_VERSION_32 } from "./config";
 import { simulate } from "./sim";
+import { anchorOf, PD_SETUP, type PdMachine } from "./pdhpdl";
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
 const bars = new Map<number, Bar>();
 const barSource = new Map<number, "rest" | "ticks">();
 const st = newState32();
 const loggedWaits = new Map<string, string>();
+const pdPersisted = new Map<string, string>();       // anchor → last persisted version|status (restart re-upserts idempotently)
 let lastTickCoverage: unknown = null;
 let archiveLoadedAt = 0, lastFetchMinute = 0, lastFetchAt = 0, lastStepMinute = 0, seenLoaded = false, impossiblePrice = 0;
 
@@ -43,6 +45,39 @@ async function fetchRecent() {
   if (j.status === "error" || !Array.isArray(j.values)) throw new Error(`td: ${String(j.message ?? "").slice(0, 80)}`);
   for (const v of j.values) { const t = Date.parse(`${v.datetime.replace(" ", "T")}Z`); if (Number.isFinite(t)) { bars.set(t, { t, o: +v.open, h: +v.high, l: +v.low, c: +v.close }); barSource.set(t, "rest"); } }
   const cutoff = Date.now() - 40 * 86_400_000; for (const t of bars.keys()) if (t < cutoff) { bars.delete(t); barSource.delete(t); }
+}
+const iso = (t: number | null | undefined) => (t != null && Number.isFinite(t) ? new Date(t).toISOString() : null);
+const num = (x: number | null | undefined) => (x != null && Number.isFinite(x) ? +(+x).toFixed(3) : null);
+/** Persist every PDH/PDL state machine whose state changed (transitions, evidence, entry, rejection reason). */
+export function pdRow(m: PdMachine, rec: Record32 | undefined, signalId: string | null) {
+  const c = rec?.cand ?? null;
+  return { anchor: anchorOf(m), strategy_version: STRATEGY_VERSION_32, level: m.level, side: m.side, trading_day: m.dayKey, cycle: m.cycle, level_price: m.px,
+    phase: m.phase, fail_reason: m.failReason, break_at: iso(m.breakAt), break_displacement_atr5: num(m.breakAt ? m.breakDisp : null), breakout_extreme: num(m.breakAt ? m.extreme : null),
+    acceptance_score: num(m.acc), acceptance_evidence: m.accEvidence, accepted_at: iso(m.acceptedAt), retest_at: iso(m.retestAt), retest_extreme: num(m.retestAt ? m.retestExt : null),
+    retest_depth: num(m.retestAt ? m.d * (m.retestExt - m.px) : null), retest_zone: m.zone, defense_score: num(m.defense), defense_evidence: m.defEvidence, trigger_price: num(m.trigger),
+    entry_at: iso(m.entry?.t), entry_price: num(m.entry?.px), entry_trigger: m.entry?.trig ?? null, stop: num(c?.stop), target: num(c?.target), confidence: rec?.score ?? null,
+    candidate_status: rec?.status ?? null, candidate_reasons: rec?.reasons ?? [], engine_mode: CONFIG32.rules[PD_SETUP].mode, signal_id: signalId,
+    transitions: m.transitions.map((x) => ({ at: new Date(x.t).toISOString(), from: x.from, to: x.to, why: x.why })), updated_at: new Date().toISOString() };
+}
+async function persistPd(admin: Admin, res: Step32, signalId: string | null) {
+  const rows = [];
+  for (const m of res.pd) {
+    if (m.phase === "IDLE" && !m.transitions.length) continue;
+    const rec = res.records.find((r) => r.anchor === anchorOf(m) && r.cand);
+    const k = `${m.version}|${rec?.status ?? ""}|${signalId ?? ""}`;
+    const prev = pdPersisted.get(anchorOf(m));
+    if (prev === k || (!rec && !signalId && prev?.startsWith(`${m.version}|`))) continue;
+    const row: Record<string, unknown> = pdRow(m, rec, signalId);
+    if (!rec) for (const f of ["stop", "target", "confidence", "candidate_status", "candidate_reasons"]) delete row[f];   // never overwrite the logged candidate
+    if (!signalId) delete row.signal_id;
+    rows.push(row); pdPersisted.set(anchorOf(m), k);
+  }
+  if (pdPersisted.size > 2000) pdPersisted.clear();
+  if (!rows.length) return;
+  for (const row of rows) {   // one row per call: rows carry different column sets and must not null each other's fields
+    const { error } = await admin.from("genx3_pd_setups").upsert(row, { onConflict: "anchor" });
+    if (error) { pdPersisted.delete(String(row.anchor)); await incident(admin, "pd_setup_log_failed", "warn", { error: error.message.slice(0, 200) }); }
+  }
 }
 async function incident(admin: Admin, kind: string, severity: "info" | "warn" | "critical", detail: Record<string, unknown>) { try { await admin.from("genx3_incidents").insert({ kind, severity, detail }); } catch { /* best-effort */ } }
 
@@ -178,6 +213,7 @@ export async function genx32Tick(admin: Admin, holder: string): Promise<Tick32> 
     }
     if (rows.length) { const { error: ce } = await admin.from("genx3_candidates").insert(rows); if (ce) await incident(admin, "candidate_log_failed", "warn", { error: ce.message.slice(0, 200) }); }
   }
+  try { await persistPd(admin, res, null); } catch { /* observability is best-effort; never blocks or opens trading */ }
   try { await resolveShadow(admin); await resolveFills(admin); } catch { /* best-effort */ }
 
   if (!sel || !sel.cand || !res.state) return { ran: true, signal: null, state: res.state?.state, reasons, latencyMs };
@@ -193,6 +229,7 @@ export async function genx32Tick(admin: Admin, holder: string): Promise<Tick32> 
   if (error) return { ran: true, signal: null, reasons: [/duplicate|unique/i.test(error.message) ? "signal_already_published" : `signal_write_failed: ${error.message}`] };
   await admin.from("genx3_decisions").update({ signal_id: sig.signal_id }).eq("strategy_version", STRATEGY_VERSION_32).eq("decision_candle_close", new Date(asOf).toISOString());
   await admin.from("genx3_candidates").update({ signal_id: sig.signal_id }).eq("strategy_version", STRATEGY_VERSION_32).eq("anchor", sel.anchor).eq("status", "SELECTED");
+  if (sel.setup === PD_SETUP) { try { await persistPd(admin, res, sig.signal_id); } catch { /* best-effort */ } }
   if (live) {
     if (process.env.TELEGRAM_ADMIN_CHAT_ID) { try { await sendTelegram(`🧠 <b>GENX 3.2 — ${sig.side} XAUUSD · ${esc(String(sig.setup_type))}</b>\nState ${esc(res.state.state)} · score ${sig.confidence}\nEntry ${sig.entry_price.toFixed(2)} · SL ${sig.stop_price.toFixed(2)} · TP ${sig.target_price.toFixed(2)}`, { chatId: process.env.TELEGRAM_ADMIN_CHAT_ID }); } catch { /* best-effort */ } }
     await deliver(admin, sig, ctl, { signalId: sig.signal_id, strategyVersion: STRATEGY_VERSION_32, setup: sel.setup, marketState: res.state.state, signalAt: new Date(asOf).toISOString(), signalPrice: series.m1.bars[lastClosed(series.m1, asOf)].c, requestedEntry: sig.entry_price, stop: sig.stop_price, target: sig.target_price });
