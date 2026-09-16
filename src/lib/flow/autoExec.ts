@@ -1,7 +1,7 @@
 import { autoSourceEnabled, SEND_IT_ENABLED } from "./automationPolicy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { flowDecision } from "@/lib/flow/decision";
-import { placeOnActiveAccounts, placeFixedLotFollower } from "@/lib/flow/executor";
+import { placeOnActiveAccounts, placeFixedLotFollower, goldMaxEntry } from "@/lib/flow/executor";
 import { activeAccounts, connectionToken, type ActiveAccount } from "@/lib/flow/connection";
 import { listAccounts, listPositions, type TLEnv } from "@/lib/flow/tradelocker";
 import { sizeFromRisk, floorStop, structuralStop, maxStopDistance, capGoldStop } from "@/lib/flow/sizing";
@@ -1625,7 +1625,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       const p = (pref as { risk_pct?: number | null } | null) ?? null;
       const riskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : 1;
 
-      const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry: sizeEntry, stop: goldStop, tp: sig.tp, riskPct, source: "genx", accounts, structuralStop: true });
+      const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry: sizeEntry, stop: goldStop, tp: sig.tp, riskPct, source: "genx", accounts, structuralStop: true, maxEntry: goldMaxEntry(sig.side, sig.entryLow, sig.entryHigh) });
       if (res.placed === 0 && !res.accounts.some(a => a.reason?.includes("uncertain"))) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); return 0; } // nothing filled → let the next ENTER NOW retry
       return res.placed;
     } catch { return 0; } // per-member best-effort
@@ -1868,7 +1868,7 @@ export async function placeGenxFollower(sig: {
       const r = await placeFixedLotFollower({
         userId: a.user_id, env: tok.env, token: tok.token, connId: a.connection_id,
         accountId: a.account_id, accNum: String(a.acc_num),
-        symbol: "XAUUSD", side: sig.side, qty, stop: fstop, tp: sig.tp, source: "genx_follow",
+        symbol: "XAUUSD", side: sig.side, qty, stop: fstop, tp: sig.tp, source: "genx_follow", maxEntry: goldMaxEntry(sig.side, sig.entryLow, sig.entryHigh),
       });
       if (r.ok) {
         // RULE #1: hold the reservation until this position closes (filled w/ positionId) or,

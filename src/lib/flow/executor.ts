@@ -158,7 +158,7 @@ export const ENTRY_FLOOR_RR = 0.75;
  *
  *  With no target there is no ratio to enforce, so the limit is the executable price. */
 export function entryLimitPrice(
-  side: "buy" | "sell", price: number, stop?: number | null, tp?: number | null, prec = 2,
+  side: "buy" | "sell", price: number, stop?: number | null, tp?: number | null, prec = 2, maxEntry?: number | null,
 ): number {
   // Round toward the SAFE side, never with toFixed: a buy rounds DOWN and a sell rounds UP,
   // so snapping to the instrument's grid can only tighten the limit. Rounding to nearest
@@ -166,13 +166,42 @@ export function entryLimitPrice(
   // 4339.71 → 0.7496:1), which is exactly the sub-floor fill this exists to make impossible.
   const g = Math.pow(10, prec);
   const snap = (n: number) => (side === "buy" ? Math.floor(n * g) : Math.ceil(n * g)) / g;
-  if (stop == null || tp == null || !Number.isFinite(stop) || !Number.isFinite(tp)) return snap(price);
+  // CHASE CAP (owner 09-16): never pay more than maxEntry (the signal zone edge + the allowed
+  // chase). Whichever of the R:R cap and the chase cap is stricter wins.
+  const hasMax = maxEntry != null && Number.isFinite(maxEntry) && maxEntry > 0;
+  const tighter = (px: number) => !hasMax ? px : side === "buy" ? Math.min(px, maxEntry as number) : Math.max(px, maxEntry as number);
+  if (stop == null || tp == null || !Number.isFinite(stop) || !Number.isFinite(tp)) return snap(tighter(price));
   const cap = (tp + ENTRY_FLOOR_RR * stop) / (1 + ENTRY_FLOOR_RR);
-  if (!Number.isFinite(cap)) return snap(price);
-  return snap(cap);
+  if (!Number.isFinite(cap)) return snap(tighter(price));
+  return snap(tighter(cap));
 }
 
-async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null, ensureBrackets?: boolean, risk?: { equity: number; riskPct: number }): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean }> {
+/**
+ * GOLD CHASE LIMIT (owner 09-16, after three straight losses that all filled 22-40 pips past
+ * the GENX zone). Over the prior 3 weeks, managed gold fills inside the zone were stopped out
+ * 28% of the time (avg +29 pips); fills 10-40 pips past the zone were stopped 37-39% of the
+ * time (avg -12 to -19). The worst acceptable entry is the zone edge plus this many pips.
+ * Env GENX_GOLD_MAX_CHASE_PIPS (default 10; 0 = off).
+ */
+export function goldMaxChasePips(): number {
+  const raw = process.env.GENX_GOLD_MAX_CHASE_PIPS;
+  if (raw == null || raw.trim() === "") return 10;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+export function goldMaxEntry(side: "buy" | "sell", entryLow: number | null | undefined, entryHigh: number | null | undefined, chasePips = goldMaxChasePips()): number | null {
+  if (!(chasePips > 0)) return null;
+  const edge = side === "buy" ? (entryHigh ?? entryLow) : (entryLow ?? entryHigh);
+  if (edge == null || !(edge > 0)) return null;
+  return side === "buy" ? +(edge + chasePips * 0.1).toFixed(2) : +(edge - chasePips * 0.1).toFixed(2);
+}
+/** True when the price has already run past the chase limit. */
+export function goldPastChaseLimit(side: "buy" | "sell", price: number | null | undefined, maxEntry: number | null): boolean {
+  if (maxEntry == null || price == null || !(price > 0)) return false;
+  return side === "buy" ? price > maxEntry : price < maxEntry;
+}
+
+async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null, ensureBrackets?: boolean, risk?: { equity: number; riskPct: number }, maxEntry?: number | null): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean }> {
   const instRes = await instrumentsFor(a);
   if (!instRes.ok) return { ok: false, error: `instrument_list_failed: ${instRes.error}`.slice(0, 160) };
   const tl = matchInstrument(canonical, instRes.data);
@@ -213,7 +242,7 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
   // reward:risk floor, so a fill below the floor is unrepresentable rather than merely
   // unlikely. IOC keeps the old semantics: fill now at this price or better, else cancel —
   // nothing rests on the book.
-  const limitPx = entryLimitPrice(side, price, stop, tp, prec);
+  const limitPx = entryLimitPrice(side, price, stop, tp, prec, maxEntry);
   const norm = normalizeQuantity(canonical, qty, { quantityStep: tl.quantityStep, minQuantity: tl.minQuantity });
   if (!norm.ok || !(norm.qty > 0)) return { ok: false, error: "invalid_broker_quantity" };
   const base = {
@@ -325,11 +354,13 @@ export async function placeMarketOrder(opts: {
 export async function placeFixedLotFollower(opts: {
   userId: string; env: TLEnv; token: string; connId: string; accountId: string; accNum: string;
   symbol: string; side: "buy" | "sell"; qty: number; stop?: number | null; tp?: number | null; source: string;
+  maxEntry?: number | null;
 }): Promise<{ ok: true; orderId: string | null; positionId: string | null; qty: number } | { ok: false; reason: string; deferred: boolean }> {
   const canonical = normSym(opts.symbol) || "XAUUSD";
   const r = await placeOnAccount(
     { env: opts.env, token: opts.token, accNum: opts.accNum, accountId: opts.accountId, connId: opts.connId },
     canonical, opts.side, opts.qty, opts.stop ?? null, opts.tp ?? null, true, // verify brackets on followers too — brokers can silently drop a leg
+    undefined, opts.maxEntry ?? null,
   );
   if (!r.ok) {
     const st = r.deferred ? "deferred" : "error";
@@ -359,6 +390,8 @@ export async function placeOnActiveAccounts(opts: {
   /** The stop is an ABSOLUTE structural level already validated by the caller
    *  (structure-first gold path) - skip the floor/cap re-derivation entirely. */
   structuralStop?: boolean;
+  /** Worst acceptable entry price (zone edge + allowed chase); null = no chase cap. */
+  maxEntry?: number | null;
 }): Promise<{ accounts: AccountFill[]; placed: number }> {
   const canonical = normSym(opts.symbol) || "XAUUSD";
   // Widen a too-tight signal stop to the instrument's minimum distance BEFORE sizing and
@@ -431,7 +464,7 @@ export async function placeOnActiveAccounts(opts: {
       // TP silently dropped by the broker — "WHY IS THERE NO TAKE PROFIT???"). Some
       // TradeLocker routes accept the order but drop a bracket leg with no error, so
       // the SL/TP the signal promised MUST be confirmed on the broker position.
-      r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, tp, verifyBracketsInline, { equity: a.equity, riskPct: acctRisk });
+      r = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, lots, stop, tp, verifyBracketsInline, { equity: a.equity, riskPct: acctRisk }, opts.maxEntry ?? null);
     } catch (e) {
       // The order request THREW (e.g. a network timeout AFTER the broker may already have
       // filled). Never assume it failed and never abort the rest of the fan-out — log an
@@ -454,7 +487,7 @@ export async function placeOnActiveAccounts(opts: {
     if (!r.ok && !r.deferred && /margin/i.test(String(r.error)) && lots > 0.011) {
       if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_submitted", reason: `${opts.source}:margin_fallback`, price: opts.entry, qty: 0.01, detail: { originalLots: lots, originalError: String(r.error).slice(0, 120) } });
       try {
-        const r2 = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, 0.01, stop, tp, verifyBracketsInline, { equity: a.equity, riskPct: acctRisk });
+        const r2 = await placeOnAccount({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId }, canonical, opts.side, 0.01, stop, tp, verifyBracketsInline, { equity: a.equity, riskPct: acctRisk }, opts.maxEntry ?? null);
         if (r2.ok) { r = r2; fallbackNote = " · margin_fallback_0.01"; }
       } catch {
         if (reserveOne) await markReservation(tlog, a.accountId, canonical, "unknown");
