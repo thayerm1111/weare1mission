@@ -64,7 +64,7 @@ export function DeskResults() {
       {/* header */}
       <div className="relative flex flex-wrap items-center justify-between gap-3 px-7 pt-6">
         <div className="leading-tight">
-          <p className={MICRO}>Live desk record · Auto-traded · Forex + GENX gold</p>
+          <p className={MICRO}>Live desk record · Auto-traded · GENX gold</p>
           <h2 className="mt-1.5 text-[19px] font-bold tracking-tight text-[#EDF2FA]">Trading Desk Results</h2>
         </div>
         <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/[0.07] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">

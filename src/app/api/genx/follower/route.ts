@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { statsSince } from "@/lib/genx/statsSince";
 import { goldTally, dedupeGold, goldIsWin, goldOutcomePips, type GoldSig } from "@/lib/genx/goldRecord";
 
 export const runtime = "nodejs";
@@ -28,6 +29,7 @@ export async function GET() {
     admin.from("genx_signals")
       .select("created_at,resolved_at,direction,outcome,entry,stop_loss,tp1,tp2,tp3,stop_pips,tp1_pips,tp2_pips,tp3_pips,tp1_hit,tp2_hit,tp3_hit,mfe_pips")
       .not("outcome", "is", null)
+      .gte("created_at", statsSince()) // record reset (owner 09-16)
       .order("resolved_at", { ascending: false, nullsFirst: false })
       .limit(4000),
     admin.from("genx_follower_fills").select("signal_key").limit(5000),

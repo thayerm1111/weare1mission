@@ -888,12 +888,12 @@ function FlowPerformance({ flow, series, onConnect }: { flow: FlowStats | null; 
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
-        <p className="inline-flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider"><span className="h-2 w-2 rounded-sm" style={{ background: C.cyan }} /> FLOW · Performance</p>
+        <p className="inline-flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider"><span className="h-2 w-2 rounded-sm" style={{ background: C.cyan }} /> GENX · Performance</p>
         <div className="flex gap-1">{["1D", "7D", "30D", "ALL"].map((t) => (<span key={t} className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={t === "ALL" ? { background: "rgba(34,211,238,0.14)", color: C.cyan } : { color: C.mut2 }}>{t}</span>))}</div>
       </div>
       {!hasData ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-8 text-center">
-          <p className="text-sm font-semibold" style={{ color: C.mut }}>{flow ? "No FLOW results yet" : "Syncing FLOW…"}</p>
+          <p className="text-sm font-semibold" style={{ color: C.mut }}>{flow ? "Record reset — no closed GENX trades yet" : "Syncing results…"}</p>
           <p className="text-[12px]" style={{ color: C.mut2 }}>Connect your broker — FLOW prepares every trade, you approve it.</p>
           <button onClick={onConnect} className="mt-1 inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[12px] font-bold" style={{ background: C.cyan, color: "#04252b" }}>Connect broker <ChevronRight className="h-3.5 w-3.5" /></button>
         </div>
@@ -912,20 +912,29 @@ function FlowPerformance({ flow, series, onConnect }: { flow: FlowStats | null; 
             </svg>
           )}
           <div className="mt-auto grid grid-cols-2 gap-2 pt-3">
-            <Split label="Gold" pips={flow?.gold?.pips ?? 0} trades={flow?.gold?.trades ?? 0} wr={flow?.gold?.winRate ?? null} accent={C.gold} />
-            <Split label="Forex" pips={flow?.forex?.pips ?? 0} trades={flow?.forex?.trades ?? 0} wr={flow?.forex?.winRate ?? null} accent={C.blue} />
+            <Split label="Gold · won" pips={flow?.gold?.pips ?? 0} trades={flow?.gold?.trades ?? 0} wr={flow?.gold?.winRate ?? null} accent={C.gold} />
+            <Split label="Live now" pips={0} trades={flow?.liveOpen ?? 0} wr={null} accent={C.cyan} live />
           </div>
         </div>
       )}
     </div>
   );
 }
-function Split({ label, pips, trades, wr, accent }: { label: string; pips: number; trades: number; wr: number | null; accent: string }) {
+function Split({ label, pips, trades, wr, accent, live = false }: { label: string; pips: number; trades: number; wr: number | null; accent: string; live?: boolean }) {
   return (
     <div className="rounded-lg border px-2.5 py-2" style={{ borderColor: C.lineSoft, background: C.raised }}>
       <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: accent }}>{label}</p>
-      <p className="mt-0.5 font-mono text-sm font-bold tabular-nums" style={{ color: C.green }}>+{pips.toLocaleString()}p</p>
-      <p className="font-mono text-[10px]" style={{ color: C.mut2 }}>{trades} trades · {wr != null ? `${wr}% wr` : "—"}</p>
+      {live ? (
+        <>
+          <p className="mt-0.5 font-mono text-sm font-bold tabular-nums" style={{ color: C.text }}>{trades}</p>
+          <p className="font-mono text-[10px]" style={{ color: C.mut2 }}>open account trades</p>
+        </>
+      ) : (
+        <>
+          <p className="mt-0.5 font-mono text-sm font-bold tabular-nums" style={{ color: C.green }}>+{pips.toLocaleString()}p</p>
+          <p className="font-mono text-[10px]" style={{ color: C.mut2 }}>{trades} trades · {wr != null ? `${wr}% wr` : "—"}</p>
+        </>
+      )}
     </div>
   );
 }
