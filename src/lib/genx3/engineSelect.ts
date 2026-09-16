@@ -24,8 +24,12 @@ export function originAllowed(origin: "genx2" | "genx3" | undefined): boolean {
 }
 
 /** Which GENX 3.x brain a genx3_control.strategy_version selects; null = unknown (fail closed). */
-export function selectBrain(version: string | null | undefined): "3.1.0" | "3.2.0" | null {
-  return version === "3.1.0" || version === "3.2.0" ? version : null;
+export function selectBrain(version: string | null | undefined): "3.1.0" | "3.2.1" | null {
+  if (version === "3.1.0" || version === "3.2.1") return version;
+  // Rollout alias for the 3.2.0 → 3.2.1 upgrade only: lets the new worker start while the control row
+  // still says 3.2.0, so the switchover needs no OFF window. Control is moved to 3.2.1 right after deploy.
+  if (version === "3.2.0") return "3.2.1";
+  return null;
 }
 /** GENX 3.x account isolation. A 3.x signal reaches ONLY whitelisted accounts; a legacy signal never
  *  reaches an account running 3.x. Pure, so it is unit-tested. */

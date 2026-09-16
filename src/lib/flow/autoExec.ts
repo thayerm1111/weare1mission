@@ -1484,7 +1484,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // measures the signal's own ZONE→stop distance — the number the engine actually
   // derived — and only a genuinely broken level (>2.5x the allowance from its own zone)
   // trades for nobody.)
-  if (gstop != null && Math.abs(entry - gstop) > 2.5 * maxStopDistance("XAUUSD")) {
+  if (sig.origin !== "genx3" && gstop != null && Math.abs(entry - gstop) > 2.5 * maxStopDistance("XAUUSD")) {
     await deskDrop(`stop_data_insane $${Math.abs(entry - gstop).toFixed(2)} zone-to-stop ${sig.side} (dropped for everyone)`);
     return { members: 0, placed: 0 };
   }
@@ -1492,7 +1492,9 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // cap from the live reference. Runs after the data-sanity check (which judges the engine's
   // own level) and BEFORE the chase guard / R:R gates / sizing, so all of them see the stop
   // that is actually placed. Never widens.
-  gstop = capGoldStop(sig.side, gRef, gstop) ?? gstop;
+  // GENX 3.x (owner 09-16): the stop is the strategy's structural stop — no 100-pip cap. Its own
+  // engine bounds it by volatility and validates it; sizing keeps the account's risk %.
+  if (sig.origin !== "genx3") gstop = capGoldStop(sig.side, gRef, gstop) ?? gstop;
 
   // CHASE GUARD (desk-wide): if price has already run toward TP so the live-price R:R is below
   // the floor, this ENTER NOW is chased — skip it for everyone rather than fill a tiny-TP /
@@ -1737,7 +1739,7 @@ export async function placeGenxFollower(sig: {
   try { goldLp = await goldLivePrice(); } catch { goldLp = null; }
   // GOLD STOP CAP (owner 09-15) — same cap as the copy path, from the live price (zone mid
   // if the feed is down), before the chase guard, R:R gates and sizing. Never widens.
-  fstop = capGoldStop(sig.side, goldLp ?? entry, fstop);
+  if (sig.origin !== "genx3") fstop = capGoldStop(sig.side, goldLp ?? entry, fstop); // GENX 3.x: strategy stop, no cap
 
   // CHASE GUARD (desk-wide): same reward:risk floor as the copy path — if price has run
   // toward TP so the live-price R:R is below the floor, this ENTER NOW is chased; no

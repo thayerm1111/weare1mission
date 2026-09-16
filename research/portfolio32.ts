@@ -44,7 +44,7 @@ for (let asOf = Math.ceil(from / 60000) * 60000; asOf <= to; asOf += 60000) {
   inc("fills");
   busyUntil = sim.exitAt!;
   if (sim.result === "stop") lastStops[c.side].push(sim.exitAt!); else if (sim.pnl! > 0) { lastWin[c.side] = sim.exitAt!; lastStops[c.side] = []; }
-  trades.push({ t: asOf, setup: sel.setup, side: c.side, state: r.state!.state, score: sel.score, risk: c.risk, targetR: c.targetR, r: +(sim.pnl! / Math.min(10, c.risk)).toFixed(3), result: sim.result });
+  trades.push({ t: asOf, setup: sel.setup, side: c.side, state: r.state!.state, score: sel.score, risk: c.risk, targetR: c.targetR, r: +(sim.pnl! / c.risk).toFixed(3), result: sim.result });
 }
 writeFileSync(out, JSON.stringify({ funnel, trades, shadow }));
 console.log(JSON.stringify({ ms: Date.now() - t0, funnel }));

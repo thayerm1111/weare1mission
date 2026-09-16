@@ -450,6 +450,14 @@ export async function placeOnActiveAccounts(opts: {
     if (a.equity <= 600) acctRisk = Math.min(acctRisk, 0.5);
     const s = sizeFromRisk({ canonical, entry: opts.entry, stop, equity: a.equity, riskPct: acctRisk, floorToMinLot: true });
     if (!s.ok || !(s.lots > 0)) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: s.reason || "size_too_small" }); return; }
+    // GENX 3.x WIDE-STOP GUARD (owner 09-16, stop cap removed for 3.x): the minimum-lot floor must not turn a wide
+    // structural stop into an oversized loss on a small account. If the floored lot would lose more than 1.5x the
+    // account's own risk amount at the stop, this account sits the trade out (logged). Risk % itself is unchanged.
+    if (opts.source.startsWith("genx3:") && s.estLossAtStop > 1.5 * s.riskAmount) {
+      await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: s.lots, status: "skipped", reason: `${opts.source}: min_lot_over_risk`.slice(0, 60), account_id: a.accountId });
+      fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", lots: s.lots, reason: `min_lot_over_risk: $${s.estLossAtStop} at stop vs $${s.riskAmount} risk` });
+      return;
+    }
     const lots = Math.min(s.lots, 100); // fat-finger backstop
     const t0 = Date.now();
     // RULE #1 gate: reserve THIS account for gold before the order leaves. reserved=false

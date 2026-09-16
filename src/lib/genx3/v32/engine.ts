@@ -30,7 +30,8 @@ function score(c: Cand32): { score: number; components: Record<string, number> }
 function hardChecks(c: Cand32, ctx: Ctx): string[] {
   const r = CONFIG32.rules[c.setup], f: string[] = [...c.hard];
   if (ctx.volState === "EXTREME") f.push("volatility EXTREME — execution unreliable");
-  if (c.risk > CONFIG32.maxRiskUsd) f.push(`stop $${c.risk.toFixed(2)} beyond the $10 Flow cap`);
+  if (c.risk > CONFIG32.maxRiskUsd) f.push(`stop $${c.risk.toFixed(2)} beyond the $${CONFIG32.maxRiskUsd} corrupt-data bound`);
+  else if (c.risk > CONFIG32.maxRiskAtr15 * ctx.atr15) f.push(`stop $${c.risk.toFixed(2)} wider than ${CONFIG32.maxRiskAtr15}×ATR15 ($${(CONFIG32.maxRiskAtr15 * ctx.atr15).toFixed(2)}) — not a sane structure for current volatility`);
   if (c.risk < Math.max(CONFIG32.minRiskUsd, r.minRiskAtr15 * ctx.atr15)) f.push(`stop $${c.risk.toFixed(2)} inside noise (min ${Math.max(CONFIG32.minRiskUsd, r.minRiskAtr15 * ctx.atr15).toFixed(2)})`);
   const net = (c.targetR * c.risk - CONFIG32.costUsd) / (c.risk + CONFIG32.costUsd);
   if (net < CONFIG32.minNetRR) f.push(`net reward:risk ${net.toFixed(2)} after costs < ${CONFIG32.minNetRR}`);
@@ -55,7 +56,8 @@ export function step32(s: Series, asOf: number, st: State32): Step32 {
     if (c.playbook !== "SESSION_BREAK" && c.playbook !== "BOS_PULLBACK") continue;
     if (st.seen.has(c.anchor)) continue;
     st.seen.add(c.anchor);
-    const v = evaluate31(c, ctx, CONFIG31);
+    // 3.1 baseline rules unchanged except the stop ceiling, which follows the 3.2.1 strategy-stop policy
+    const v = evaluate31(c, ctx, { ...CONFIG31, maxRiskUsd: Math.min(CONFIG32.maxRiskUsd, CONFIG32.maxRiskAtr15 * ctx.atr15) });
     const d = c.side === "BUY" ? 1 : -1, rule = CONFIG31.rules[c.playbook];
     const cand: Cand32 = { setup: c.playbook, side: c.side, anchor: c.anchor, entry: c.entry, invalidation: c.invalidation, stop: c.stop, risk: c.risk, targetR: rule.exitR, target: +(c.entry + d * rule.exitR * c.risk).toFixed(2), roomR: c.f.roomR ?? 5, feats: c.f, evidence: c.evidence, hard: [] };
     records.push({ setup: c.playbook, side: c.side, anchor: c.anchor, status: v.ok ? "PASSED" : "FAILED", reasons: v.ok ? [] : [v.hardFail ?? `score ${v.score} < ${v.threshold}`], score: v.score, threshold: v.threshold, components: v.components, cand });

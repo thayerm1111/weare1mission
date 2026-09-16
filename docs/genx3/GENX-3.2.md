@@ -95,3 +95,30 @@ For comparison, the 3.1.0 replay showed 2.6/week at +0.18R.
 | `genx3_executions` | Per live order attempt: bid, ask, spread, quote/submit/ack timestamps, limit, qty, risk %, equity, SL/TP, order and position ids, fill price and time, slippage. |
 | `genx3_control` | New column `designated_account_ids`. |
 | `genx3_decisions` | One row per closed minute for 3.2; `regime_detail` carries state evidence, latency, bar source and what was waiting. |
+
+## 3.2.1 — strategy-based stops, no 100-pip cap (owner 09-16)
+- **Engine.** The stop is the setup's structural invalidation (plus buffer). The fixed $10 ceiling is gone for all 3.2 setups, including the 3.1 baseline setups inside 3.2.
+- **Remaining stop bounds.**
+  - Volatility sanity: rejected if the stop is wider than 3.5 × ATR15.
+  - Corrupt-data bound: rejected above $60.
+  - The minimum (0.35–0.5 × ATR15, at least $1.50) and room/net R:R checks are unchanged.
+- **Flow, GENX 3.x signals only.** The 100-pip cap (`capGoldStop`) and the $25 zone-to-stop sanity drop are skipped; sizing still uses each account's own risk %.
+  - New guard: if the broker minimum lot would lose more than 1.5 × the account's risk amount at the stop, that account skips the trade (`min_lot_over_risk`, logged).
+  - GENX 1.0 and every other account keep the 100-pip cap unchanged.
+  - The 3.1.0 rollback brain keeps its original $10 rule.
+
+**Diagnostic replay** (same contaminated history; not used to choose anything), 3.2.0 → 3.2.1:
+
+| | 3.2.0 | 3.2.1 |
+|---|---|---|
+| Trades | 302 | 368 |
+| Trades per week | 3.8 | 4.6 |
+| Expectancy (R) | +0.08 | +0.12 (t 1.2) |
+| Profit factor | 1.10 | 1.16 |
+| Max drawdown | 28R | 23R |
+| Median stop | — | $6.28 |
+| 90th-percentile stop | — | $16.95 |
+| Largest stop | — | $43 |
+| Trades with stops over $10 | — | 89 |
+
+Expectancy by period: development +0.22R, validation +0.04R, holdout −0.01R.

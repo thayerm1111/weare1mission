@@ -13,6 +13,7 @@ import { newsState } from "../news";
 import { stableUuid, type Genx3Signal } from "../signal";
 import { XAUUSD, distance } from "../instrument";
 import { readControl, emergencyDisable, deliver } from "../runtime";
+import { selectBrain } from "../engineSelect";
 import { buildSeries, tradableOnly, lastClosed } from "../v31/series";
 import { step32, newState32, type Record32, type Step32 } from "./engine";
 import { CONFIG32, STRATEGY_VERSION_32 } from "./config";
@@ -71,7 +72,7 @@ export function validateSignal32(s: Genx3Signal): string[] {
   if (!/^[0-9a-f]{64}$/.test(s.idempotency_key)) e.push("idempotency_key invalid");
   const up = s.side === "BUY";
   if (up ? !(s.stop_price < s.entry_zone_low && s.target_price > s.entry_zone_high) : !(s.stop_price > s.entry_zone_high && s.target_price < s.entry_zone_low)) e.push("stop/target on the wrong side of the zone");
-  if (!(s.risk_price_distance >= CONFIG32.minRiskUsd && s.risk_price_distance <= CONFIG32.maxRiskUsd)) e.push(`risk ${s.risk_price_distance} outside ${CONFIG32.minRiskUsd}..${CONFIG32.maxRiskUsd}`);
+  if (!(s.risk_price_distance >= CONFIG32.minRiskUsd && s.risk_price_distance <= CONFIG32.maxRiskUsd)) e.push(`risk ${s.risk_price_distance} outside ${CONFIG32.minRiskUsd}..${CONFIG32.maxRiskUsd} (corrupt-data bound)`);
   if (Math.abs(s.risk_price_distance - Math.abs(s.entry_price - s.stop_price)) > 0.02) e.push("risk calculation inconsistent with entry/stop");
   if (!(s.entry_price > 500 && s.entry_price < 20000)) e.push("entry price outside plausible XAUUSD range");
   if (!s.evidence.length) e.push("no evidence");
@@ -115,7 +116,7 @@ export async function genx32Tick(admin: Admin, holder: string): Promise<Tick32> 
   const ctl = await readControl(admin);
   if (!ctl) return { ran: false, reason: "no_control_row" };
   if (ctl.mode === "OFF" || ctl.mode === "EMERGENCY_DISABLED") return { ran: false, reason: `mode_${ctl.mode}` };
-  if (ctl.strategy_version !== STRATEGY_VERSION_32) return { ran: false, reason: "not_selected_version" };
+  if (selectBrain(ctl.strategy_version) !== STRATEGY_VERSION_32) return { ran: false, reason: "not_selected_version" };
   if (ctl.mode === "LIVE" && ctl.live_scope === "designated" && !(ctl.designated_account_ids ?? []).length) { await emergencyDisable(admin, "GENX 3.2 LIVE without an account whitelist"); return { ran: false, reason: "no_account_whitelist" }; }
   const now = Date.now();
   if (now - archiveLoadedAt > 30 * 60_000) { await loadArchive(admin, now - 35 * 86_400_000); archiveLoadedAt = now; }

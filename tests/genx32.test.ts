@@ -82,13 +82,14 @@ test('signal: valid payload, deterministic id, malformed variants rejected', () 
   assert.ok(validateSignal32({ ...a, risk_price_distance: a.risk_price_distance * 3 }).length, 'corrupted risk');
   assert.ok(validateSignal32({ ...a, entry_price: 43 }).length, 'impossible price');
   assert.ok(validateSignal32({ ...a, strategy_version: '3.1.0' }).length, 'version');
-  assert.ok(validateSignal32({ ...a, risk_price_distance: 12, stop_price: a.entry_price - 12 * (a.side === 'BUY' ? 1 : -1) }).length, 'stop cap');
+  assert.ok(validateSignal32({ ...a, risk_price_distance: 75, stop_price: a.entry_price - 75 * (a.side === 'BUY' ? 1 : -1) }).length, 'corrupt-data stop bound');
+  assert.deepEqual(validateSignal32({ ...a, risk_price_distance: 25, stop_price: +(a.entry_price - 25 * (a.side === 'BUY' ? 1 : -1)).toFixed(2) }).filter((x) => /risk .* outside/.test(x)), [], 'a $25 structural stop is allowed (no 100-pip cap)');
 });
 
 test('version isolation: only 3.1.0 and 3.2.0 select a brain', () => {
-  assert.equal(selectBrain('3.2.0'), '3.2.0'); assert.equal(selectBrain('3.1.0'), '3.1.0');
+  assert.equal(selectBrain('3.2.1'), '3.2.1'); assert.equal(selectBrain('3.2.0'), '3.2.1', 'rollout alias'); assert.equal(selectBrain('3.1.0'), '3.1.0');
   assert.equal(selectBrain('3.3.0'), null); assert.equal(selectBrain(undefined), null);
-  assert.equal(STRATEGY_VERSION_32, '3.2.0');
+  assert.equal(STRATEGY_VERSION_32, '3.2.1');
 });
 
 test('account whitelist: a 3.2 signal reaches only 803349 and 772642; legacy never reaches them', () => {
@@ -109,5 +110,5 @@ test('shadow simulator: an open position at the end of data is reported open, no
 test('3.1 baseline preserved: SESSION_BREAK and BOS_PULLBACK stay LIVE and ungated by the router', () => {
   assert.equal(CONFIG32.rules.SESSION_BREAK.mode, 'LIVE'); assert.equal(CONFIG32.rules.BOS_PULLBACK.mode, 'LIVE');
   assert.equal(CONFIG32.rules.SESSION_BREAK.states, 'ANY'); assert.equal(CONFIG32.rules.BOS_PULLBACK.states, 'ANY');
-  assert.equal(CONFIG32.maxRiskUsd, 10);
+  assert.equal(CONFIG32.maxRiskUsd, 60); assert.equal(CONFIG32.maxRiskAtr15, 3.5);
 });

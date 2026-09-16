@@ -13,9 +13,13 @@ export type SetupRule = {
   weights: Record<string, number>;       // setup-specific score model over the engine's features
   minRiskAtr15: number; minRoomR: number;
 };
-export const STRATEGY_VERSION_32 = "3.2.0";
+export const STRATEGY_VERSION_32 = "3.2.1";
 export const CONFIG32 = {
-  version: STRATEGY_VERSION_32, costUsd: 0.5, minRiskUsd: 1.5, maxRiskUsd: 10, minNetRR: 1.2,
+  version: STRATEGY_VERSION_32, costUsd: 0.5, minRiskUsd: 1.5, minNetRR: 1.2,
+  // 3.2.1 (owner 09-16: "remove the stop cap of 100, make the stop based on strategy"): no fixed $10 cap.
+  // The stop is the setup's structural invalidation. It is rejected only when it is not a sane
+  // structure for current volatility (> maxRiskAtr15 × ATR15) or is corrupt data (> maxRiskUsd).
+  maxRiskAtr15: 3.5, maxRiskUsd: 60,
   conflictMargin: 5,                      // opposite-side qualified setups within this score margin → no trade
   priority: ["SESSION_BREAK", "BOS_PULLBACK", "BREAKOUT_RETEST_V2", "COMPRESSION_EXPANSION", "TREND_REENTRY", "MICRO_CONTINUATION", "SWEEP_RECLAIM_DISPLACEMENT", "MOMENTUM_EXPANSION"] as Setup32[],
   rules: {
