@@ -32,3 +32,11 @@ test('GENX 1.0 placement: two-loss, break-even-in-a-row and post-win pauses are 
   const filt = src.slice(src.indexOf('async function filterAccountsForAsset'), src.indexOf('async function systemSwitches'));
   assert.ok(/asset === "gold"/.test(filt), 'gold no longer uses the 2-losses-in-a-row account cutoff');
 });
+test('falling-knife guards hold aggressive accounts too: change of character is desk-wide and applies to followers', () => {
+  const src = readFileSync('src/lib/flow/autoExec.ts', 'utf8');
+  const hold = src.slice(src.indexOf('async function goldEntryHold'), src.indexOf('export function genxLimitPrice'));
+  const choch = hold.slice(hold.indexOf('const choch'));
+  assert.ok(/scope: "desk"/.test(choch) && !/scope: "conservative"/.test(choch), 'change of character holds every account');
+  const follower = src.slice(src.indexOf('export async function placeGenxFollower'));
+  assert.ok(/newsHold\("XAUUSD"\)/.test(follower) && /goldEntryHold\(admin, sig\.side, entry\)/.test(follower), 'follower path has news + change-of-character guards');
+});

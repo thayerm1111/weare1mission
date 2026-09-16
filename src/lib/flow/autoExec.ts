@@ -1267,14 +1267,11 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: numb
   // confirmed reversal (the exact case: caught the down-move, then kept selling as price turned up).
   const choch = await goldChangeOfCharacter();
   if ((side === "sell" && choch === "bullish") || (side === "buy" && choch === "bearish")) {
-    // MODE SPLIT: an unconfirmed flip against the entry is a CONSERVATIVE hold, not
-    // a desk hold. Conservative waits for the reclaim to confirm; AGGRESSIVE is
-    // allowed the earlier sweep-reversal entry (its defined role) — with the same
-    // stop, sizing, and all desk-wide guards (Rule-1 cooldown, post-win, news,
-    // chase floor) still applying to it.
+    // OWNER 09-16 ("make this for the aggressive also"): a fresh flip against the entry holds
+    // conservative AND aggressive accounts (falling-knife protection for everyone).
     return {
-      hold: true, scope: "conservative",
-      reason: `Change of character: gold structure just flipped ${choch} (a ${choch === "bullish" ? "higher high — price reclaimed the level it fell from" : "lower low — price broke the level it rose from"}). Conservative accounts wait for confirmation; aggressive accounts may take the early reversal entry.`,
+      hold: true, scope: "desk",
+      reason: `Change of character: gold structure just flipped ${choch} (a ${choch === "bullish" ? "higher high — price reclaimed the level it fell from" : "lower low — price broke the level it rose from"}). Not taking a ${side === "sell" ? "SELL" : "BUY"} against it — conservative and aggressive accounts wait for the structure to settle.`,
     };
   }
 
@@ -1657,6 +1654,11 @@ export async function placeGenxFollower(sig: {
   // toward TP so the live-price R:R is below the floor, this ENTER NOW is chased; no
   // follower takes a tiny-TP / huge-SL fill. Fails open if the feed is down.
   if (goldChasedAt(sig.side, fstop, sig.tp, goldLp)) sendItOnly = true;
+  // FALLING-KNIFE GUARDS (owner 09-16: "make this for the aggressive also") — the same change-of-
+  // character hold and high-impact news hold as the copy path now apply to follower accounts, whether
+  // conservative or aggressive (the copy path posts the Telegram note).
+  try { if ((await newsHold("XAUUSD")).hold) sendItOnly = true; } catch { /* feed down → don't block */ }
+  try { const gate = await goldEntryHold(admin, sig.side, entry); if (gate.hold) sendItOnly = true; } catch { /* read error → don't block */ }
 
   // SELECTIVITY GATES REMOVED (owner 09-16) — same as the copy path: no break-even escalation,
   // no post-win premium bar.
