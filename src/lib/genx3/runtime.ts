@@ -22,6 +22,7 @@ export type Control = { mode: "OFF" | "MONITOR" | "LIVE" | "EMERGENCY_DISABLED";
 
 const bars = new Map<number, Bar>();
 let archiveLoadedAt = 0;
+let lastFetchAt = 0;
 let lastFetchMinute = 0;
 
 async function loadArchive(admin: Admin, sinceMs: number): Promise<void> {
@@ -167,10 +168,22 @@ export async function genx3Tick(admin: Admin, holder: string): Promise<TickResul
   if (now - archiveLoadedAt > 30 * 60_000) { await loadArchive(admin, now - 7 * 86_400_000); archiveLoadedAt = now; }
   const minute = Math.floor(now / 60_000);
   const secIntoMinute = (now % 60_000) / 1000;
-  if (minute !== lastFetchMinute && secIntoMinute >= 3) { try { await fetchRecent(); lastFetchMinute = minute; } catch (e) { await incident(admin, "provider_fetch_failed", "warn", { error: String(e).slice(0, 200) }); } }
   const decisionClose = Math.floor(now / 300_000) * 300_000;
-  if (now - decisionClose > 90_000) return { ran: false, reason: "between_decision_candles" };   // only decide in the first 90s after a 5m close
+  const lastMinuteOfCandle = decisionClose - 60_000;
+  // The provider publishes a 1m bar a few seconds after it closes. Inside the decision window,
+  // re-fetch every ~10s until the candle's final minute is present, so the 5m bar is complete.
+  const inWindow = now - decisionClose <= 90_000;
+  const needFinalBar = inWindow && !bars.has(lastMinuteOfCandle);
+  if ((minute !== lastFetchMinute && secIntoMinute >= 3) || (needFinalBar && now - lastFetchAt >= 10_000 && secIntoMinute >= 3)) {
+    lastFetchAt = now;
+    try { await fetchRecent(); lastFetchMinute = minute; } catch (e) { await incident(admin, "provider_fetch_failed", "warn", { error: String(e).slice(0, 200) }); }
+  }
+  if (!inWindow) return { ran: false, reason: "between_decision_candles" };   // only decide in the first 90s after a 5m close
   if (lastFetchMinute * 60_000 < decisionClose) return { ran: false, reason: "awaiting_fresh_bars" };
+  if (!bars.has(lastMinuteOfCandle)) {
+    if (now - decisionClose < 80_000) return { ran: false, reason: "awaiting_final_1m_bar" };
+    // still missing near the end of the window: decide anyway; the health check records the gap/staleness and fails closed
+  }
   const { data: already } = await admin.from("genx3_decisions").select("id").eq("strategy_version", STRATEGY_VERSION).eq("decision_candle_close", new Date(decisionClose).toISOString()).maybeSingle();
   if (already) return { ran: false, reason: "decided" };
 

@@ -92,7 +92,7 @@ export function checkHealth(o: {
   if (spikes) issues.push(`spike_bars_${spikes}`);
   if (o.outOfOrder) issues.push(`out_of_order_${o.outOfOrder}`);
   if (o.invalid) issues.push(`invalid_bars_${o.invalid}`);
-  if (o.liveTick != null && newest != null && Math.abs(o.liveTick - o.closed1m[n - 1].c) > o.feedDisagreeUsd) issues.push("feed_disagreement");
+  if (o.liveTick != null && newest != null && Math.abs(o.liveTick - o.closed1m[n - 1].c) > o.feedDisagreeUsd) issues.push(`feed_disagreement_tick_${o.liveTick}_bar_${o.closed1m[n - 1].c}`);
   const hard = issues.some((x) => /^(no_closed_bars|stale_feed|spike_bars|feed_disagreement|gaps_)/.test(x));
   const state = hard ? "INVALID" : issues.length || o.duplicates ? "DEGRADED" : "HEALTHY";
   return { state, issues, newestClosed1m: newest, feedAgeMs, gaps, duplicates: o.duplicates, outOfOrder: o.outOfOrder, spikes };
