@@ -9,6 +9,7 @@ import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
 import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
+import { billedAccountIds } from "@/lib/flow/flowBilling";
 import { genxLabel } from "@/lib/genx/brand";
 import { genxGoldQualityGate } from "@/lib/genx/qualityGate";
 import { originAllowed, genx3AccountFilter } from "@/lib/genx3/engineSelect";
@@ -135,29 +136,13 @@ export function inDailyReopenWindow(d: Date = new Date()): boolean {
  * member is out of credits.
  */
 async function meterAutoRun(admin: Admin, settings: AutoSettings): Promise<boolean> {
-  if (!isMarketOpenNow()) return false; // never bill or place while closed
-  if (inWeekendCloseWindow()) return false; // no new entries (or billing) in the last 30 min before Friday close
-  // Trading Suite members get auto-run FREE — no per-window credit charge.
-  // Non-members fall through to the pay-per-use meter below.
-  if (await hasActiveSuite(settings.user_id, admin)) return true;
-  const last = settings.last_credit_at ? Date.parse(settings.last_credit_at) : 0;
-  const due = !!settings.credit_paused || !last || Date.now() - last >= AUTORUN_WINDOW_MS;
-  if (!due) return true; // still inside an already-paid 30-min window
-  let ok = true;
-  try {
-    const { data, error } = await admin.rpc("spend_credits_for", {
-      p_user_id: settings.user_id, p_cost: AUTORUN_COST, p_daily_allowance: DAILY_FREE, p_feature: "flow_autorun",
-    });
-    if (error) ok = true; // system fault → fail open (don't punish a paid member)
-    else ok = !!(data && (data as { ok?: boolean }).ok);
-  } catch { ok = true; }
-  const nowIso = new Date().toISOString();
-  if (ok) {
-    await admin.from("flow_auto_settings").update({ last_credit_at: nowIso, credit_paused: false }).eq("user_id", settings.user_id);
-    return true;
-  }
-  if (!settings.credit_paused) await admin.from("flow_auto_settings").update({ credit_paused: true }).eq("user_id", settings.user_id);
-  return false;
+  // OWNER 09-16: FLOW is billed PER CONNECTED ACCOUNT (src/lib/flow/flowBilling.ts) — by the worker while
+  // it watches and at placement for a due account — and Trading Suite subscribers pay too. This member-level
+  // gate therefore no longer charges or pauses; it only stops runs while the market is closed.
+  void admin; void settings;
+  if (!isMarketOpenNow()) return false; // never place while closed
+  if (inWeekendCloseWindow()) return false; // no new entries in the last 30 min before Friday close
+  return true;
 }
 const COOLDOWN_MIN: Record<string, number> = { quick: 90, intraday: 180, swing: 480 };
 const ERROR_BACKOFF_MS = 8 * 60000;
@@ -1513,19 +1498,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // signal out to EVERY eligible member in seconds. Same per-member logic, just not serial.
   const perMember = async (userId: string): Promise<number> => {
     try {
-      if (pausedBy.get(userId)) {
-        // RE-CHECK through the meter instead of trusting the stale flag (live case 09-02:
-        // the flag only cleared on the FLOW auto-run billing path, so a member who ran dry
-        // then TOPPED BACK UP kept being skipped signal after signal). meterAutoRun bills
-        // the 30-min window when due and clears the pause the moment they can pay; only a
-        // member who STILL can't pay is skipped — and that skip stays logged, never silent.
-        const row = setRowBy.get(userId);
-        const revived = row ? await meterAutoRun(admin, row) : false;
-        if (!revived) {
-          try { await admin.from("flow_auto_events").insert({ user_id: userId, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: "genx: credit_paused" }); } catch { /* log best-effort */ }
-          return 0;
-        }
-      }
+      // FLOW credits are enforced PER ACCOUNT inside placeOnActiveAccounts (owner 09-16).
       // Claim gold for this member. FALSE → a gold entry is already live within the
       // cooldown → skip (this blocks GENX's back-to-back ENTER NOW repeats).
       const { data: won } = await admin.rpc("flow_try_claim", { p_user: userId, p_symbol: "XAUUSD", p_cooldown_secs: GOLD_CLAIM_SEC });
@@ -1743,6 +1716,11 @@ export async function placeGenxFollower(sig: {
   const perAccount = async (a: FollowRow): Promise<{ touched: number; placed: number }> => {
     if (!a.acc_num) return { touched: 0, placed: 0 };
     try {
+      // FLOW CREDITS PER ACCOUNT (owner 09-16): a follower account trades only inside a paid 30-min window.
+      if (!(await billedAccountIds(admin, [String(a.account_id)])).has(String(a.account_id))) {
+        try { await admin.from("flow_auto_events").insert({ user_id: a.user_id, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: "genx: flow_credits (account paused)", account_id: a.account_id }); } catch { /* log best-effort */ }
+        return { touched: 1, placed: 0 };
+      }
       // PER-ACCOUNT SAFETY MODE: a CONSERVATIVE follower account sits gold out for 4h
       // after 2 losing gold trades in a row. Aggressive follower accounts take it raw.
       // 🚀 Send It accounts bypass the safety mode entirely.

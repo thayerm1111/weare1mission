@@ -874,8 +874,8 @@ export function FlowConnect() {
 
             <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-3">
               <p className="text-xs leading-relaxed text-amber-700">
-                <b>Costs {auto?.costPer30m ?? 1} credit every 30 min</b> that auto-run is on and the
-                market is open. FLOW isn&apos;t free to run — you&apos;re only charged while it&apos;s
+                <b>Costs {auto?.costPer30m ?? 1} credit every 30 min per connected account</b> that FLOW is
+                running on while the market is open. FLOW isn&apos;t free to run — you&apos;re only charged while it&apos;s
                 actively watching for you.
               </p>
               <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-charcoal/60">

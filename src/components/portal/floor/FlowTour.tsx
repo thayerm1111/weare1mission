@@ -320,7 +320,7 @@ export function FlowTour({ connected }: { connected: boolean }) {
           <h2 className="mt-3 text-xl font-extrabold tracking-tight">You&apos;re all set — one last thing</h2>
           <p className="mt-2 text-sm leading-relaxed text-white/70">
             While auto-run is watching the market for an entry, FLOW uses{" "}
-            <b className="text-amber-400">1 credit every 30 minutes</b> — you&apos;re only charged while
+            <b className="text-amber-400">1 credit every 30 minutes for each connected account</b> — you&apos;re only charged while
             it&apos;s actively working for you, never while the market is closed.
           </p>
           <p className="mt-2 text-sm leading-relaxed text-white/70">

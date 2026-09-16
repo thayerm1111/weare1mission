@@ -39,6 +39,7 @@ import { genx32Tick } from "@/lib/genx3/v32/runtime";
 import { readControl, emergencyDisable } from "@/lib/genx3/runtime";
 import { selectBrain } from "@/lib/genx3/engineSelect";
 import { genx1PdTick } from "@/lib/genx/pdTick";
+import { billFlowAccounts } from "@/lib/flow/flowBilling";
 import { hostname } from "node:os";
 
 // OWNER 09-09 ("insane fast... trade manager instant"): defaults at the polling
@@ -238,6 +239,34 @@ async function pdLoop(): Promise<never> {
   }
 }
 
+/** FLOW CREDITS LOOP (owner 09-16: "when it's watching it pulls credits") — lock id 5. Once a minute,
+ *  every account FLOW is running on is billed 1 credit per 30-min watching window while gold is open; an
+ *  account that can't pay is paused until its owner tops up. The window claim is atomic, so a deploy
+ *  overlap or a placement billing the same account can never double-charge. */
+async function billingLoop(): Promise<never> {
+  const admin = createAdminClient();
+  if (!admin) throw new Error("no_admin_client");
+  const lock = async (fn: "take" | "extend") => {
+    const exp = new Date(Date.now() + 120_000).toISOString();
+    let q = admin.from("flow_manage_lock").update(fn === "take" ? { holder: HOLDER, expires_at: exp } : { expires_at: exp }).eq("id", 5);
+    q = fn === "take" ? q.lt("expires_at", new Date().toISOString()) : q.eq("holder", HOLDER);
+    const { data } = await q.select("id");
+    return Array.isArray(data) && data.length > 0;
+  };
+  for (;;) {
+    if (shuttingDown || !(await lock("take").catch(() => false))) { await sleep(15_000); continue; }
+    log(`flow-billing: lock acquired as ${HOLDER}`);
+    while (!shuttingDown) {
+      try {
+        const r = await billFlowAccounts(admin);
+        if (r.charged || r.paused || r.errors) log("flow-billing: pass", r);
+      } catch (e) { log("flow-billing: pass error (loop continues)", e instanceof Error ? e.message.slice(0, 200) : e); }
+      if (!(await lock("extend").catch(() => false))) break;
+      await sleep(60_000);
+    }
+  }
+}
+
 /** HISTORY BACKFILL — walks the XAU/USD 1m archive back to GENX_ARCHIVE_DAYS, one page
  *  (≤5000 bars, one data credit) every 20s, then stops. Read-only market data. */
 async function backfillLoop(): Promise<void> {
@@ -272,6 +301,7 @@ void mattyScanLoop().catch((e) => log("matty-scan: loop died (cron still covers 
 void backfillLoop().catch(() => {});
 void genx3Loop().catch((e) => log("genx3: loop died", e instanceof Error ? e.message : e));
 void pdLoop().catch((e) => log("genx1-pd: loop died", e instanceof Error ? e.message : e));
+void billingLoop().catch((e) => log("flow-billing: loop died", e instanceof Error ? e.message : e));
 void Promise.all([manageLoop(), watchLoop()]).catch((e) => {
   log("fatal — exiting so the platform restarts the worker", e);
   process.exit(1);

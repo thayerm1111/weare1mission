@@ -9,6 +9,7 @@ import { sizeFromRisk, contractKey, floorStop } from "@/lib/flow/sizing";
 import { listInstruments, createOrder, getQuote, listOrders, listPositions, listAccounts, listOrdersHistory, modifyPosition, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
 import { recordExec, execContext } from "@/lib/flow/execTelemetry";
+import { billedAccountIds, isManualSource } from "@/lib/flow/flowBilling";
 
 /**
  * FLOW order placement (server-only). Places a single market order on the
@@ -425,9 +426,16 @@ export async function placeOnActiveAccounts(opts: {
   // plays are exempt. Fail-open (a reservation error allows the entry on the v1 guards).
   const reserveOne = canonical === "XAUUSD" && opts.source !== "play";
   const resvKey = `${opts.source}:${opts.side}:${Math.round(opts.entry)}`;
-  const accts = opts.accounts ?? (await activeAccounts(opts.userId));
+  let accts = opts.accounts ?? (await activeAccounts(opts.userId));
   const tlog = createAdminClient(); // flight-recorder handle (best-effort; null-safe below)
   const fills: AccountFill[] = [];
+  // FLOW CREDITS PER ACCOUNT (owner 09-16): an automated entry only reaches an account whose 30-min FLOW
+  // window is paid — a due account is billed right here; an account that can't pay sits out (logged).
+  if (!isManualSource(opts.source) && tlog && accts.length) {
+    const paid = await billedAccountIds(tlog, accts.map((a) => String(a.accountId)));
+    for (const a of accts) if (!paid.has(String(a.accountId))) fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: "flow_credits: out of credits (account paused)" });
+    accts = accts.filter((a) => paid.has(String(a.accountId)));
+  }
   let placed = 0;
   // ONE ACCOUNT = ONE PLACEMENT PIPELINE (owner 09-09: "when a trade is there all
   // accounts need to be ready and fired upon"). The fan-out below runs these in
