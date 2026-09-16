@@ -32,6 +32,7 @@ import { inWeekendCloseWindow } from "@/lib/flow/autoExec";
 import { manageMattyPips } from "@/lib/matty-pips/manage";
 import { runMattyScan } from "@/lib/matty-pips/scan";
 import { beat } from "@/lib/flow/health";
+import { archiveGoldCandles } from "@/lib/genx/candleArchive";
 import { streamLoop } from "./priceStream";
 import { genx3Tick } from "@/lib/genx3/runtime";
 import { genx3Active } from "@/lib/genx3/engineSelect";
@@ -196,6 +197,22 @@ async function genx3Loop(): Promise<never> {
   }
 }
 
+/** HISTORY BACKFILL — walks the XAU/USD 1m archive back to GENX_ARCHIVE_DAYS, one page
+ *  (≤5000 bars, one data credit) every 20s, then stops. Read-only market data. */
+async function backfillLoop(): Promise<void> {
+  const admin = createAdminClient();
+  if (!admin) return;
+  let errors = 0;
+  while (!shuttingDown) {
+    const r = (await archiveGoldCandles(admin).catch((e) => ({ ran: false, reason: "exception", detail: String(e) }))) as Record<string, unknown>;
+    if (r.reason === "covered" || r.reason === "exhausted") { log("backfill: done", r); return; }
+    if (!r.ran) { errors += 1; log("backfill: skipped", r); if (errors > 30) return; await sleep(60_000); continue; }
+    errors = 0;
+    log("backfill: page", { from: r.from, to: r.to, rows: r.rows, mode: r.mode });
+    await sleep(20_000);
+  }
+}
+
 process.on("SIGTERM", () => { log("SIGTERM — releasing locks and exiting"); shuttingDown = true; });
 process.on("SIGINT", () => { log("SIGINT — releasing locks and exiting"); shuttingDown = true; });
 process.on("unhandledRejection", (e) => log("unhandledRejection", e));
@@ -211,6 +228,7 @@ void streamLoop(() => shuttingDown).catch((e) => log("stream: loop error (worker
 // worker (the minutely Vercel cron still covers entries), so it lives OUTSIDE the
 // fatal Promise.all too.
 void mattyScanLoop().catch((e) => log("matty-scan: loop died (cron still covers entries)", e instanceof Error ? e.message : e));
+void backfillLoop().catch(() => {});
 void genx3Loop().catch((e) => log("genx3: loop died", e instanceof Error ? e.message : e));
 void Promise.all([manageLoop(), watchLoop()]).catch((e) => {
   log("fatal — exiting so the platform restarts the worker", e);

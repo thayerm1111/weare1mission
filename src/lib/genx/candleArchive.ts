@@ -9,7 +9,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
  */
 const SYMBOL = "XAU/USD";
 const INTERVAL = "1min";
-const BACKFILL_DAYS = 35;
+// 09-16: GENX 3.0 research needs 12–24 months (owner: "at least 12 months, 18–24 when available").
+const BACKFILL_DAYS = Math.max(35, Number(process.env.GENX_ARCHIVE_DAYS || 730));
 const PAGE = 5000;
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
@@ -51,6 +52,7 @@ export async function archiveGoldCandles(admin: Admin): Promise<Record<string, u
       const { error } = await admin.from("genx_candle_archive").upsert(rows.slice(i, i + 1000), { onConflict: "symbol,interval,t", ignoreDuplicates: false });
       if (error) return { ran: false, reason: "db_error", detail: error.message.slice(0, 80) };
     }
+    if (mode === "backfill" && oldestT != null && (!rows.length || Date.parse(rows[0].t) >= oldestT)) return { ran: false, reason: "exhausted", detail: "provider has no older bars" };
     return { ran: true, mode, rows: rows.length, from: rows[0]?.t, to: rows[rows.length - 1]?.t };
   } catch (e) {
     return { ran: false, reason: "exception", detail: String(e).slice(0, 80) };
