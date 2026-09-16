@@ -10,6 +10,7 @@ import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
 import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
 import { genxLabel } from "@/lib/genx/brand";
+import { genxGoldQualityGate } from "@/lib/genx/qualityGate";
 import { series, livePrice } from "@/lib/marketData";
 import { trendOfCloses, closedBars } from "@/lib/mtf";
 import { sendTelegram } from "@/lib/telegram";
@@ -1354,6 +1355,16 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   const admin = createAdminClient();
   if (!admin) return { members: 0, placed: 0 };
   if (!(await systemSwitches(admin)).genx) return { members: 0, placed: 0 }; // admin GENX kill switch
+  // QUALITY GATE (owner 09-16): 20h trend slope must agree and reward at the worst allowed fill
+  // must be >= 1.5R. Hard gate for every account (Send It included). Fails open on stale data.
+  {
+    const q = await genxGoldQualityGate(admin, { side: sig.side, entryLow: sig.entryLow, entryHigh: sig.entryHigh, stop: sig.stop, tp: sig.tp });
+    if (!q.ok) {
+      try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: quality_gate ${q.reason}`.slice(0, 200) }); } catch { /* breadcrumb best-effort */ }
+      if (shouldNote("quality", sig.side)) { try { await sendTelegram(`🧭 <b>${genxLabel()} gold — skipping this ${sig.side.toUpperCase()}</b>\nIt doesn't pass the quality check: ${q.reason}. Waiting for a setup with the trend and at least 1.5:1 reward.`); } catch { /* note best-effort */ } }
+      return { members: 0, placed: 0 };
+    }
+  }
   const entry = (sig.entryLow != null && sig.entryHigh != null) ? (sig.entryLow + sig.entryHigh) / 2 : (sig.entryLow ?? sig.entryHigh);
   if (entry == null || sig.stop == null) return { members: 0, placed: 0 };
 
@@ -1671,6 +1682,11 @@ export async function placeGenxFollower(sig: {
   if (inWeekendCloseWindow()) sendItOnly = true; // no new entries near Friday close (send-it excepted)
   if (inDailyReopenWindow()) sendItOnly = true; // no new entries around the daily close/reopen (send-it excepted)
   if (!(await systemSwitches(admin)).genx) return { accounts: 0, placed: 0 }; // admin GENX kill switch — hard, even for send-it
+  // QUALITY GATE (owner 09-16) — same hard gate as the copy path (the copy path posts the note).
+  {
+    const q = await genxGoldQualityGate(admin, { side: sig.side, entryLow: sig.entryLow ?? null, entryHigh: sig.entryHigh ?? null, stop: sig.stop, tp: sig.tp });
+    if (!q.ok) return { accounts: 0, placed: 0 };
+  }
   const signalKey = String(sig.signalKey || "").slice(0, 200);
   if (!signalKey) return { accounts: 0, placed: 0 };
 
