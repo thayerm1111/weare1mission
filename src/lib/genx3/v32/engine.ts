@@ -21,7 +21,7 @@ export type State32 = { seen: Set<string>; prevCompression: StateResult["compres
 export const newState32 = (): State32 => ({ seen: new Set(), prevCompression: null, prevCompressionAt: 0, pd: newPdState() });
 export type Step32 = { asOf: number; ctx: Ctx | null; state: StateResult | null; records: Record32[]; selected: Record32 | null; reasons: string[]; pd: PdMachine[] };
 
-function score(c: Cand32): { score: number; components: Record<string, number> } {
+export function score(c: Cand32): { score: number; components: Record<string, number> } {
   const w = CONFIG32.rules[c.setup].weights; const tot = Object.values(w).reduce((a, b) => a + b, 0) || 1;
   const components: Record<string, number> = {}; let s = 0;
   for (const [k, wt] of Object.entries(w)) { const pts = (100 * wt / tot) * Math.max(0, Math.min(1, c.feats[k] ?? 0)); components[k] = +pts.toFixed(1); s += pts; }

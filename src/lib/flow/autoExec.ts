@@ -454,7 +454,8 @@ async function accountAssetCutoff(admin: Admin, accountId: string, asset: Member
  *  Aggressive accounts, and symbols that aren't gold/forex, pass through untouched. */
 async function filterAccountsForAsset(admin: Admin, accounts: ActiveAccount[], symbol: string): Promise<ActiveAccount[]> {
   const asset = memberAssetOf(symbol);
-  if (!asset || !accounts.length) return accounts;
+  // OWNER 09-16: gold no longer pauses an account after 2 losses in a row (forex keeps its breaker).
+  if (!asset || asset === "gold" || !accounts.length) return accounts;
   const keep: ActiveAccount[] = [];
   for (const a of accounts) {
     if (!isConservative(a.riskMode)) { keep.push(a); continue; } // aggressive → no cap
@@ -1254,44 +1255,11 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: numb
     };
   }
 
-  // RULE 1 — TWO STRIKES (owner rule 09-03, was one). A single real stop-out no longer pauses
-  // the side: the 7-day review of re-offers blocked after one stop-out showed 15 would-be wins
-  // (sells averaging +276 pips) against 13 losses — a clearly net-positive pool, so the first
-  // re-offered setup is TAKEABLE. A SECOND real stop-out on the same side inside the ~2h window
-  // is the falling-knife signal — that still cools the side for the cooldown.
-  const real = await goldRealLossOnSide(admin, side);
-  if (real.lost && real.strikes >= 2 && Date.now() < real.whenMs + GOLD_LOSS_COOLDOWN_MS) {
-    // BETTER-LEVEL EXCEPTION (owner): the cooldown blocks re-selling the SAME level that just
-    // failed — but if price has since run PAST where the last trade stopped out and the engine now
-    // calls a fresh entry at a genuinely BETTER level (a NEW higher resistance for a sell / lower
-    // support for a buy, clear of the old stop by GOLD_BETTER_LEVEL_PIPS), that is new liquidity,
-    // not a revenge trade, so we allow it. The change-of-character guard below still blocks it if
-    // structure has actually flipped, so this can't turn into selling a confirmed reversal.
-    const betterLevel = newEntry != null && real.stopPx != null && (
-      side === "sell" ? newEntry >= real.stopPx + GOLD_BETTER_LEVEL_PIPS * 0.1
-                      : newEntry <= real.stopPx - GOLD_BETTER_LEVEL_PIPS * 0.1
-    );
-    if (!betterLevel) {
-      const mins = Math.max(1, Math.round((real.whenMs + GOLD_LOSS_COOLDOWN_MS - Date.now()) / 60000));
-      return {
-        hold: true, scope: "desk",
-        reason: `Pausing ${dir} gold ~${mins} min: TWO real ${side} stop-outs inside the window (genuine stop-outs — not break-evens or ≤${GOLD_REAL_LOSS_MIN_PIPS}-pip scratches). One loss no longer pauses, but two in a row is the falling-knife signal. Resumes after the cooldown, on a better-located level, a win, or a ${side === "sell" ? "BUY" : "SELL"} setup.`,
-      };
-    }
-    // else: a fresh, better-located ${dir} at new liquidity — fall through and let it trade.
-  }
-
-  // RE-ANALYZE AFTER A WIN — after a full win on this side, pause new same-side entries briefly
-  // so the engine re-reads fresh price before re-entering, instead of instantly re-firing the same
-  // read at an extended price and giving the win back (owner's directive).
-  const win = await goldRecentWinOnSide(admin, side);
-  if (win.won && Date.now() < win.whenMs + GOLD_POST_WIN_REANALYZE_MS) {
-    const mins = Math.max(1, Math.round((win.whenMs + GOLD_POST_WIN_REANALYZE_MS - Date.now()) / 60000));
-    return {
-      hold: true, scope: "desk",
-      reason: `Re-analyzing after a ${dir} win — holding new ${dir} gold entries ~${mins} min so the engine reads fresh price before re-entering (instead of re-selling straight into a bounce right after banking the win). Resumes once the market re-develops or on the opposite side.`,
-    };
-  }
+  // OWNER 09-16 ("scratch all of the rules about if it loses twice in a row, and also if it hits
+  // break even in a row … if the setup is there, I want the entries to happen"): the two-strike
+  // stop-out pause and the post-win re-analysis pause are REMOVED. History never pauses a side.
+  // What stays: one trade at a time (reservation), duplicate protection, the falling-knife
+  // guards (change of character below, the news guard), the chase guard and the blackouts.
 
   // CHANGE OF CHARACTER — don't take a NEW entry that fights a fresh structure flip. Once gold has
   // reclaimed the swing it fell from (bullish flip), stop taking sells; once it breaks the swing it
@@ -1510,57 +1478,8 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     if (shouldNote("chase", sig.side)) { try { await sendTelegram(`⏸️ <b>${genxLabel()} gold — not chasing this fill</b>\nPrice ran past the ${sig.side.toUpperCase()} zone${goldLp != null ? ` (now ~${goldLp.toFixed(2)})` : ""}${rr != null ? ` — live R:R ${rr.toFixed(2)}` : ""}. Watching for a pullback into the zone to enter properly. 🚀 Send It accounts still take it at market.`); } catch { /* note best-effort */ } }
   }
 
-  // SELECTIVITY GATES (owner directives 08-31):
-  //   1. SAME-SETUP BE ESCALATION — a zone that scratched to break-even once may be retried
-  //      only at a better price or on a premium read; a zone that scratched twice is DONE
-  //      (sit out, wait for a new setup to form). Unrelated zones trade on normal rules.
-  //   2. PROTECT THE PROFITS — after a banked win on this side, only a premium same-side
-  //      setup (live R:R ≥ 1:1, confidence ≥ 68 when carried) re-enters for a while.
-  // The opposite side is untouched, and a genuinely premium setup still fires immediately.
-  //
-  // PER-ACCOUNT HOLDS (owner 09-10: "My accounts haven't hit BE… they haven't taken any of
-  // these trades. What's holding the accounts back hasn't happened"): the BE-retry and
-  // protect-the-profits bars now hold ONLY the accounts that actually took the earlier
-  // win/scratch on this side. Accounts that sat it out trade the new signal on normal
-  // rules (the chase guard and R:R floor above still apply to everyone — those are about
-  // the PRICE, not history). Only a zone that scratched TWICE stays a desk-wide sit-out:
-  // a twice-failed level is a dead setup for every account.
-  let holdAccounts: Set<string> | null = null; // accounts held to the premium bar this entry
-  try {
-    const rrLive = rewardRisk(goldLp != null ? goldLp : entry, gstop, sig.tp);
-    const beGate = await goldBeSetupGate(admin, sig.side, entry, rrLive, sig.confidence);
-    if (beGate.block) {
-      const dir = sig.side.toUpperCase();
-      if (beGate.kind === "exhausted") {
-        if (shouldNote("begate_exhausted", sig.side)) { try { await sendTelegram(`⛔️ <b>${genxLabel()} gold — sitting this one out</b>\nThis ${dir} zone already hit break-even twice — the setup is done. Waiting for a NEW setup to form.`); } catch { /* note best-effort */ } }
-        await deskDrop(`setup_exhausted ${sig.side}${beGate.detail ? ` (${beGate.detail})` : ""} (send-it only)`);
-        sendItOnly = true;
-      } else {
-        holdAccounts = await goldParticipantAccounts(admin, sig.side, GOLD_WIN_PICKY_MS);
-        if (shouldNote("begate_retry", sig.side)) { try { await sendTelegram(`🎯 <b>${genxLabel()} gold — retry needs to earn it</b>\nThis ${dir} zone went to break-even once. Accounts that took that scratch re-enter only at a better price (≥${GOLD_RETRY_BETTER_PIPS}p) or on a premium read — accounts that sat it out take this on normal rules${beGate.detail ? `.\nThis one: ${beGate.detail}` : ""}.`); } catch { /* note best-effort */ } }
-        await deskDrop(`be_retry_not_earned ${sig.side}${beGate.detail ? ` (${beGate.detail})` : ""} (holding ${holdAccounts.size} participant accts)`);
-      }
-    }
-    const w = await goldRecentWinOnSide(admin, sig.side, GOLD_WIN_PICKY_MS);
-    // OWNER RULE 09-02: the premium bar applies after a recent WIN — or a recent BREAK-EVEN
-    // scratch — on this side. Either way the next same-side entry must be no worse than 1:1
-    // FOR THE ACCOUNTS THAT TOOK IT (owner 09-10).
-    let raisedBar = w.won;
-    if (!raisedBar) { try { raisedBar = (await goldRecentBeEntries(admin, sig.side, GOLD_WIN_PICKY_MS)).length > 0; } catch { /* read error → no raise */ } }
-    if (raisedBar) {
-      const rrOk = rrLive == null ? true : rrLive >= GOLD_WIN_PICKY_RR;       // feed down → judge on confidence alone
-      const confOk = sig.confidence == null ? true : sig.confidence >= GOLD_WIN_PICKY_CONF;
-      if (!rrOk || !confOk) {
-        if (!holdAccounts) holdAccounts = await goldParticipantAccounts(admin, sig.side, GOLD_WIN_PICKY_MS);
-        const detail = [
-          rrLive != null ? `R:R ${rrLive.toFixed(2)} (needs ≥ ${GOLD_WIN_PICKY_RR.toFixed(1)})` : null,
-          sig.confidence != null ? `confidence ${sig.confidence} (needs ≥ ${GOLD_WIN_PICKY_CONF})` : null,
-        ].filter(Boolean).join(" · ");
-        if (shouldNote("picky", sig.side)) { try { await sendTelegram(`🎯 <b>${genxLabel()} gold — protecting profits</b>\n${w.won ? `Accounts that just banked a ${sig.side.toUpperCase()} win` : `Accounts that just scratched a ${sig.side.toUpperCase()} at break-even`} need a premium re-entry (min 1:1)${detail ? ` — this one: ${detail}` : ""}. Accounts that sat that trade out take this on normal rules.`); } catch { /* note best-effort */ } }
-        await deskDrop(`post_win_picky ${sig.side}${rrLive != null ? ` rr=${rrLive.toFixed(2)}` : ""}${sig.confidence != null ? ` conf=${sig.confidence}` : ""} (holding ${holdAccounts.size} participant accts)`);
-      }
-    }
-  } catch { /* read error → don't block */ }
+  // SELECTIVITY GATES REMOVED (owner 09-16): the same-zone break-even escalation and the
+  // post-win / post-break-even premium bar no longer hold any account.
 
   // SIZING ENTRY = the LIVE price, not the (possibly stale) signal zone. This is the fix for
   // the $8k-risk trade: the position is risk-sized off where it will ACTUALLY fill, so the
@@ -1633,13 +1552,6 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       // safeguards (sendItGuards off) take the entry — guards-on Send It accounts stand
       // down with everyone else.
       if (sendItOnly) accounts = accounts.filter((a) => a.sendIt === true && a.sendItGuards !== true);
-      // PER-ACCOUNT PREMIUM HOLD (owner 09-10): accounts that took the earlier win/BE
-      // scratch on this side sit this sub-premium entry out; accounts with no part in
-      // that trade proceed on normal rules. Send It (guards off) still bypasses.
-      if (holdAccounts && holdAccounts.size) {
-        const hold = holdAccounts;
-        accounts = accounts.filter((a) => !hold.has(String(a.accountId)) || (a.sendIt === true && a.sendItGuards !== true));
-      }
       // GENX 3.x ACCOUNT WHITELIST (owner 09-16): a 3.x signal reaches ONLY the whitelisted accounts;
       // a legacy (GENX 1.0/2.0) signal never reaches an account that is running GENX 3.x.
       accounts = genx3AccountFilter(accounts, (a) => String(a.accountId), sig, sig.onlyAccountIds || sig.origin === "genx3" ? new Set() : (await genx3Reserved(admin)).accounts);
@@ -1746,33 +1658,8 @@ export async function placeGenxFollower(sig: {
   // follower takes a tiny-TP / huge-SL fill. Fails open if the feed is down.
   if (goldChasedAt(sig.side, fstop, sig.tp, goldLp)) sendItOnly = true;
 
-  // SELECTIVITY GATES — same desk rules as the copy path (owner directives 08-31): the
-  // same-setup break-even escalation (retry must earn it; twice-scratched zone sits out)
-  // plus the post-win premium bar. Followers skip silently; the copy path posts the note.
-  //
-  // PER-ACCOUNT HOLDS (owner 09-10, audit 09-11 parity fix): the copy path already holds
-  // ONLY the accounts that took the earlier win/scratch — the follower path was still
-  // holding the whole follower fleet desk-wide off one account's history. Same rule now:
-  // only a twice-scratched zone is a desk-wide sit-out; the retry bar and the
-  // protect-the-profits bar hold ONLY the participant accounts.
-  let holdAccounts: Set<string> | null = null;
-  try {
-    const rrLive = rewardRisk(goldLp != null ? goldLp : entry, fstop, sig.tp);
-    const beGate = await goldBeSetupGate(admin, sig.side, entry, rrLive, sig.confidence);
-    if (beGate.block) {
-      if (beGate.kind === "exhausted") sendItOnly = true; // dead setup — desk-wide
-      else holdAccounts = await goldParticipantAccounts(admin, sig.side, GOLD_WIN_PICKY_MS);
-    }
-    const w = await goldRecentWinOnSide(admin, sig.side, GOLD_WIN_PICKY_MS);
-    // OWNER RULE 09-02: premium bar after a recent win OR break-even scratch (min 1:1).
-    let raisedBar = w.won;
-    if (!raisedBar) { try { raisedBar = (await goldRecentBeEntries(admin, sig.side, GOLD_WIN_PICKY_MS)).length > 0; } catch { /* read error → no raise */ } }
-    if (raisedBar) {
-      const rrOk = rrLive == null ? true : rrLive >= GOLD_WIN_PICKY_RR;
-      const confOk = sig.confidence == null ? true : sig.confidence >= GOLD_WIN_PICKY_CONF;
-      if ((!rrOk || !confOk) && !holdAccounts) holdAccounts = await goldParticipantAccounts(admin, sig.side, GOLD_WIN_PICKY_MS); // copy path posts the Telegram note
-    }
-  } catch { /* read error → don't block */ }
+  // SELECTIVITY GATES REMOVED (owner 09-16) — same as the copy path: no break-even escalation,
+  // no post-win premium bar.
 
   // SIZING ENTRY = the LIVE price (falls back to the signal zone only if the feed is down),
   // so each follower's risk is off where it ACTUALLY fills — a chased fill can't balloon the
@@ -1861,14 +1748,7 @@ export async function placeGenxFollower(sig: {
         // CONSERVATIVE QUALITY GATE: skip this setup on conservative followers when it
         // failed the confluence checks (aggressive followers below still take it).
         if (sig.conservativeOk === false) return { touched: 1, placed: 0 };
-        const cut = await accountAssetCutoff(admin, a.account_id, "gold");
-        if (cut.halt) return { touched: 1, placed: 0 };
-      }
-      // PER-ACCOUNT PREMIUM HOLD (owner 09-10): only follower accounts that took the
-      // earlier win/BE scratch on this side sit a sub-premium re-entry out; uninvolved
-      // accounts trade on normal rules. Send It (guards off) still bypasses.
-      if (holdAccounts && holdAccounts.has(String(a.account_id)) && !(a.send_it === true && a.send_it_guards !== true)) {
-        return { touched: 1, placed: 0 };
+        // OWNER 09-16: the 2-losses-in-a-row gold cutoff is removed.
       }
       // MAX ONE OPEN GENX/FLOW GOLD PER ACCOUNT — broker-verified (same rule as the copy
       // path). The ledger holds only engine-placed trades, so a MANUAL gold trade never

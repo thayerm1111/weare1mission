@@ -38,6 +38,7 @@ import { genx31Tick } from "@/lib/genx3/v31/runtime";
 import { genx32Tick } from "@/lib/genx3/v32/runtime";
 import { readControl, emergencyDisable } from "@/lib/genx3/runtime";
 import { selectBrain } from "@/lib/genx3/engineSelect";
+import { genx1PdTick } from "@/lib/genx/pdTick";
 import { hostname } from "node:os";
 
 // OWNER 09-09 ("insane fast... trade manager instant"): defaults at the polling
@@ -202,6 +203,41 @@ async function genx3Loop(): Promise<never> {
   }
 }
 
+/** GENX 1.0 PDH/PDL BREAK → RETEST → CONTINUATION LOOP (owner 09-16) — lock id 4 so exactly one process
+ *  runs it; the genx_alerts unique dedupe key makes a publish idempotent even across a deploy overlap.
+ *  Best-effort: its failure never kills the manager/watch loops. */
+async function pdLoop(): Promise<never> {
+  const admin = createAdminClient();
+  if (!admin) throw new Error("no_admin_client");
+  const lock = async (fn: "take" | "extend" | "release") => {
+    const exp = new Date(Date.now() + (fn === "release" ? 0 : 30_000)).toISOString();
+    let q = admin.from("flow_manage_lock").update(fn === "take" ? { holder: HOLDER, expires_at: exp } : { expires_at: exp }).eq("id", 4);
+    q = fn === "take" ? q.lt("expires_at", new Date().toISOString()) : q.eq("holder", HOLDER);
+    const { data } = await q.select("id");
+    return Array.isArray(data) && data.length > 0;
+  };
+  for (;;) {
+    if (shuttingDown) { await lock("release").catch(() => {}); await sleep(60_000); continue; }
+    const got = await lock("take").catch(() => false);
+    if (!got) { await sleep(LOCK_RETRY_MS); continue; }
+    log(`genx1-pd: lock acquired as ${HOLDER}`);
+    let lastReason = "";
+    while (!shuttingDown) {
+      const t0 = Date.now();
+      try {
+        const r = await genx1PdTick(admin);
+        const reason = r.fired ? `ENTER ${r.fired}` : r.reasons?.length ? `rejected: ${r.reasons.join("; ")}` : r.ran ? "decided" : r.reason ?? "";
+        if (r.fired || r.reasons?.length || reason !== lastReason) log(`genx1-pd: ${reason}`);
+        lastReason = reason;
+      } catch (e) {
+        log("genx1-pd: tick error (loop continues)", e instanceof Error ? e.message.slice(0, 200) : e);
+      }
+      if (!(await lock("extend").catch(() => false))) break;
+      await sleep(Math.max(500, 1_000 - (Date.now() - t0)));
+    }
+  }
+}
+
 /** HISTORY BACKFILL — walks the XAU/USD 1m archive back to GENX_ARCHIVE_DAYS, one page
  *  (≤5000 bars, one data credit) every 20s, then stops. Read-only market data. */
 async function backfillLoop(): Promise<void> {
@@ -235,6 +271,7 @@ void streamLoop(() => shuttingDown).catch((e) => log("stream: loop error (worker
 void mattyScanLoop().catch((e) => log("matty-scan: loop died (cron still covers entries)", e instanceof Error ? e.message : e));
 void backfillLoop().catch(() => {});
 void genx3Loop().catch((e) => log("genx3: loop died", e instanceof Error ? e.message : e));
+void pdLoop().catch((e) => log("genx1-pd: loop died", e instanceof Error ? e.message : e));
 void Promise.all([manageLoop(), watchLoop()]).catch((e) => {
   log("fatal — exiting so the platform restarts the worker", e);
   process.exit(1);
