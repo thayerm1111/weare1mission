@@ -65,10 +65,15 @@ const priorityStore = new AsyncLocalStorage<BrokerPriority>();
 export function withBrokerPriority<T>(p: BrokerPriority, fn: () => Promise<T>): Promise<T> { return priorityStore.run(p, fn); }
 
 const envNum = (k: string, d: number) => { const n = Number(process.env[k]); return Number.isFinite(n) && n > 0 ? n : d; };
-const RATE_START = envNum("TL_RATE_START", 6);
-const RATE_MIN = envNum("TL_RATE_MIN", 2);
-const RATE_MAX = envNum("TL_RATE_MAX", 12);
-const MAX_INFLIGHT = envNum("TL_MAX_INFLIGHT", 10);
+// SAFETY FLOOR (09-17 15:15 UTC): at 2 req/s the trade manager's pass stretched to 81s (break-even/trail late).
+// The floor keeps at least the old pre-scheduler throughput (≈3 read lanes + 1 write lane at 150ms gaps); a
+// rate-limit now costs a short pause, not a collapse. Real headroom needs TradeLocker's developer API key.
+const RATE_START = envNum("TL_RATE_START", 16);
+const RATE_MIN = envNum("TL_RATE_MIN", 8);
+const RATE_MAX = envNum("TL_RATE_MAX", 24);
+const MAX_INFLIGHT = envNum("TL_MAX_INFLIGHT", 12);
+// TradeLocker Developer Program key ("less restrictive rate limits" for multi-account platforms on one IP).
+const DEV_KEY = (process.env.TL_DEVELOPER_API_KEY ?? "").trim();
 const RL_MAX_RETRIES = 6;
 
 type Job = { run: () => void };
@@ -123,9 +128,9 @@ function noteRateLimited(host: string): void {
   h.streak = now - h.lastLimitAt < 10_000 ? h.streak + 1 : 1;
   h.rate = nextRate(h.rate, "limited");
   h.lastLimitAt = now; h.limited += 1;
-  h.pausedUntil = Math.max(h.pausedUntil, now + Math.min(5_000, 1_000 * h.streak));
+  h.pausedUntil = Math.max(h.pausedUntil, now + Math.min(2_000, 400 * h.streak));
   // eslint-disable-next-line no-console
-  if (h.streak <= 3 || h.streak % 10 === 0) console.warn(`[${new Date(now).toISOString()}] tradelocker: RATE LIMITED by ${host} (streak ${h.streak}) — rate now ${h.rate}/s, pause ${Math.min(5_000, 1_000 * h.streak)}ms`);
+  if (h.streak <= 3 || h.streak % 10 === 0) console.warn(`[${new Date(now).toISOString()}] tradelocker: RATE LIMITED by ${host} (streak ${h.streak}) — rate now ${h.rate}/s, pause ${Math.min(2_000, 400 * h.streak)}ms`);
 }
 /** Live scheduler numbers (for logs/health). */
 export function brokerRateStats(): Record<string, { rate: number; inflight: number; queued: number[]; limited: number }> {
@@ -145,6 +150,7 @@ async function tlFetch(env: TLEnv, path: string, init: RequestInit & { accessTok
   const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json" };
   if (init.accessToken) headers["Authorization"] = `Bearer ${init.accessToken}`;
   if (init.accNum) headers["accNum"] = String(init.accNum);
+  if (DEV_KEY) headers["tl-developer-api-key"] = DEV_KEY;
   const pri = priorityFor(method, path, priorityStore.getStore());
 
   const once = async (): Promise<{ status: number; json: unknown; text: string }> => {

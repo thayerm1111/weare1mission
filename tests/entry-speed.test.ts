@@ -14,10 +14,10 @@ test('broker priority: orders and position protection first, then logins, reads,
   assert.equal(priorityFor('POST', '/trade/accounts/1/orders', 'background'), 3);
 });
 test('adaptive request budget: a rate-limit cuts 30%, a clean stretch creeps back, within bounds', () => {
-  assert.equal(nextRate(10, 'limited'), 7);
-  assert.equal(nextRate(2, 'limited'), 2, 'never below the floor');
-  assert.equal(nextRate(7, 'clean'), 7.5);
-  assert.equal(nextRate(12, 'clean'), 12, 'never above the ceiling');
+  assert.equal(nextRate(20, 'limited'), 14);
+  assert.equal(nextRate(8, 'limited'), 8, 'never below the safety floor (manager keeps its throughput)');
+  assert.equal(nextRate(14, 'clean'), 14.5);
+  assert.equal(nextRate(24, 'clean'), 24, 'never above the ceiling');
 });
 test('fan-out is wider and reuses a warm broker login; account settings are always re-read', () => {
   const ae = readFileSync('src/lib/flow/autoExec.ts', 'utf8');
