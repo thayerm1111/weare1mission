@@ -9,6 +9,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activeAccounts } from "@/lib/flow/connection";
 import { warmInstruments } from "@/lib/flow/executor";
+import { withBrokerPriority } from "@/lib/flow/tradelocker";
 
 export const WARM_EVERY_MS = 75_000;
 let lastWarmAt = 0, running = false;
@@ -17,7 +18,8 @@ export function warmDue(nowMs: number): boolean { return !running && nowMs - las
 export function warmGoldFleet(why: string): void {
   if (!warmDue(Date.now())) return;
   lastWarmAt = Date.now(); running = true;
-  void run(why).finally(() => { running = false; });
+  // background priority: the warm-up never takes budget from an order or from position protection
+  void withBrokerPriority("background", () => run(why)).finally(() => { running = false; });
 }
 
 async function run(why: string): Promise<void> {

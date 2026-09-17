@@ -8,6 +8,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activeAccounts } from "@/lib/flow/connection";
 import { sizeFromRisk } from "@/lib/flow/sizing";
+import { withBrokerPriority } from "@/lib/flow/tradelocker";
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
 export async function goldReadinessCheck(admin: Admin, opts: { maxMembers?: number; gapMs?: number } = {}): Promise<{ checked: number; ok: number; problems: number }> {
@@ -22,7 +23,7 @@ export async function goldReadinessCheck(admin: Admin, opts: { maxMembers?: numb
   const log = async (userId: string, reason: string, accountId?: string) => { try { await admin.from("flow_auto_events").insert({ user_id: userId, symbol: "XAUUSD", status: "readiness", reason: reason.slice(0, 160), ...(accountId ? { account_id: accountId } : {}) }); } catch { /* best-effort */ } };
   for (const uid of targets) {
     try {
-      const list = await activeAccounts(uid);
+      const list = await withBrokerPriority("background", () => activeAccounts(uid));
       const enabled = rows.filter((r) => r.user_id === uid).map((r) => String(r.account_id));
       if (!list.length) { problems++; await log(uid, `readiness: PROBLEM no usable autotrade account (broker login failed or no enabled accounts on a live connection) — enabled ids ${enabled.join(",")}`); }
       for (const id of enabled) {

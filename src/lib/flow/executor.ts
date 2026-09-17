@@ -6,7 +6,7 @@ import { logTrade } from "@/lib/flow/tradeLog";
 import { normalizeQuantity, getInstrument } from "@/lib/flow/instruments";
 import { freshAccessToken, activeAccounts, type ActiveAccount } from "@/lib/flow/connection";
 import { sizeFromRisk, contractKey, floorStop } from "@/lib/flow/sizing";
-import { listInstruments, createOrder, getQuote, listOrders, listPositions, listAccounts, listOrdersHistory, modifyPosition, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
+import { listInstruments, createOrder, getQuote, listOrders, listPositions, listAccounts, listOrdersHistory, modifyPosition, withBrokerPriority, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
 import { recordExec, execContext } from "@/lib/flow/execTelemetry";
 import { billedAccountIds, isManualSource } from "@/lib/flow/flowBilling";
@@ -294,7 +294,8 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
   // back (the usual case for market orders).
   let positionId = ord.data.positionId ?? null;
   if (!positionId && hasStop && ord.data.orderId) {
-    try { positionId = await resolveNewPositionId(a, ord.data.orderId); } catch { note += " (position correlation pending)"; }
+    // after the order is in: position lookup yields to other members' orders (the manager also adopts it)
+    try { const oid = ord.data.orderId; positionId = await withBrokerPriority("normal", () => resolveNewPositionId(a, oid)); } catch { note += " (position correlation pending)"; }
   }
 
   // BELT AND BRACES (member play executes): some TradeLocker routes accept a
@@ -366,11 +367,11 @@ export async function placeFixedLotFollower(opts: {
   maxEntry?: number | null;
 }): Promise<{ ok: true; orderId: string | null; positionId: string | null; qty: number } | { ok: false; reason: string; deferred: boolean }> {
   const canonical = normSym(opts.symbol) || "XAUUSD";
-  const r = await placeOnAccount(
+  const r = await withBrokerPriority("critical", () => placeOnAccount(
     { env: opts.env, token: opts.token, accNum: opts.accNum, accountId: opts.accountId, connId: opts.connId },
     canonical, opts.side, opts.qty, opts.stop ?? null, opts.tp ?? null, true, // verify brackets on followers too — brokers can silently drop a leg
     undefined, opts.maxEntry ?? null,
-  );
+  ));
   if (!r.ok) {
     const st = r.deferred ? "deferred" : "error";
     await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: opts.qty, status: st, reason: `${opts.source}: ${r.error}`.slice(0, 200), account_id: opts.accountId });
@@ -572,7 +573,10 @@ export async function placeOnActiveAccounts(opts: {
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k)!.push(a);
   }
-  await Promise.all([...groups.values()].map(async (g) => { for (const a of g) await placeOne(a); }));
+  // ENTRY SPEED v2 (owner 09-17): every broker call on an automated entry runs at CRITICAL priority, so the
+  // fan-out jumps ahead of the trade manager's routine reads and the warm-up in the broker request budget.
+  const pri = isManualSource(opts.source) ? "normal" : "critical";
+  await Promise.all([...groups.values()].map((g) => withBrokerPriority(pri, async () => { for (const a of g) await placeOne(a); })));
   return { accounts: fills, placed };
 }
 

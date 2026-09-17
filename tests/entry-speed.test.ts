@@ -1,20 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { laneFor } from '../src/lib/flow/tradelocker';
+import { priorityFor, nextRate } from '../src/lib/flow/tradelocker';
 
-const H = 'https://live.tradelocker.com/backend-api';
-test('orders for different broker accounts run in parallel lanes; one account stays single-file', () => {
-  const lanes = new Set<string>();
-  for (let i = 0; i < 200; i++) lanes.add(laneFor(H, 'POST', `/trade/accounts/${800000 + i}/orders`, `${800000 + i}|1|tok${i}`, i));
-  assert.ok(lanes.size >= 6, `order writes spread over ${lanes.size} lanes`);
-  const same = new Set([1, 2, 3, 4].map((rr) => laneFor(H, 'POST', '/trade/accounts/803349/orders', '803349|1|abc', rr)));
-  assert.equal(same.size, 1, 'the same account always uses the same write lane');
+test('broker priority: orders and position protection first, then logins, reads, background warm-up', () => {
+  assert.equal(priorityFor('POST', '/trade/accounts/803349/orders'), 0, 'order placement is critical');
+  assert.equal(priorityFor('PATCH', '/trade/positions/123'), 0, 'break-even / SL modify is critical');
+  assert.equal(priorityFor('DELETE', '/trade/positions/123'), 0, 'close is critical');
+  assert.equal(priorityFor('POST', '/auth/jwt/refresh'), 1);
+  assert.equal(priorityFor('GET', '/trade/accounts/1/positions'), 2, 'routine reads are normal');
+  assert.equal(priorityFor('GET', '/trade/quotes?x', 'critical'), 0, 'reads inside an entry fan-out are critical');
+  assert.equal(priorityFor('GET', '/auth/jwt/all-accounts', 'background'), 3, 'warm-up is background');
+  assert.equal(priorityFor('POST', '/trade/accounts/1/orders', 'background'), 3);
 });
-test('token refreshes never queue behind orders; reads use their own lanes', () => {
-  assert.match(laneFor(H, 'POST', '/auth/jwt/refresh', '', 3), /\|a\d$/);
-  assert.match(laneFor(H, 'GET', '/trade/quotes?x', 'k', 3), /\|r\d$/);
-  assert.match(laneFor(H, 'POST', '/trade/accounts/1/orders', 'k', 3), /\|w\d$/);
+test('adaptive request budget: a rate-limit cuts 30%, a clean stretch creeps back, within bounds', () => {
+  assert.equal(nextRate(10, 'limited'), 7);
+  assert.equal(nextRate(2, 'limited'), 2, 'never below the floor');
+  assert.equal(nextRate(7, 'clean'), 7.5);
+  assert.equal(nextRate(12, 'clean'), 12, 'never above the ceiling');
 });
 test('fan-out is wider and reuses a warm broker login; account settings are always re-read', () => {
   const ae = readFileSync('src/lib/flow/autoExec.ts', 'utf8');

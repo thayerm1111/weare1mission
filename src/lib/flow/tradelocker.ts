@@ -18,6 +18,8 @@
  * Header on every /trade/* call: Authorization: Bearer <token>, accNum: <accNum>.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
 export type TLEnv = "demo" | "live";
 export const TL_HOSTS: Record<TLEnv, string> = {
   demo: "https://demo.tradelocker.com/backend-api",
@@ -37,89 +39,99 @@ export type TLResult<T> = { ok: true; data: T } | { ok: false; status: number; e
 
 const TIMEOUT_MS = 15000;
 
-// ── Outbound request pacing + rate-limit retry ─────────────────────────────
-// TradeLocker's edge (Cloudflare) rate-limits by IP and returns HTTP 429 with
-// "Error 1015: You are being rate limited". When a member has several accounts
-// on one broker login, the auto-exec fan-out fires many calls to the SAME host
-// in the same tick and trips that limit — so a signal fills on some accounts
-// (e.g. Genesis) and fails on others (e.g. Crucial, which has 3 accounts).
-// Defense is two-layered: (1) serialize calls PER HOST with a minimum gap so a
-// burst is spread out instead of arriving all at once, and (2) retry a 429 /
-// 1015 with exponential backoff. A 1015 is blocked at the edge BEFORE it reaches
-// the broker, so retrying it is safe even for order placement (nothing was
-// submitted). Generic 429s without the 1015 marker are only retried for GETs.
-const HOST_MIN_GAP_MS = 150;
-const RL_MAX_RETRIES = 4;
-// READS may run up to 3 lanes wide per host (owner 08-31: the manager reads 65+ accounts
-// per pass and single-file pacing made a pass take minutes — break-even landed that late).
-// Each lane still enforces the minimum inter-request gap, and the 1015/429 retry below
-// remains the backstop. WRITES (order placement/modify/close) stay strictly single-file,
-// exactly as before — bursting those risks dropped placements, since non-1015 429s on a
-// POST are deliberately never retried.
-const READ_LANES = 5;
-// ENTRY SPEED (owner 09-17: "we really need to speed up entry... execution needs to happen the fastest possible
-// way"). The 09-17 12:51 fan-out took 11 minutes (median 65s per account from reservation to confirmed order)
-// because EVERY write on a host — every member's token refresh AND every member's order — queued single-file
-// behind one lane. Writes are now split: token refreshes/logins get their own lanes (they never touch an
-// order), and order/position writes run in WRITE_LANES parallel lanes keyed by broker account, so one
-// account's writes stay in order while different accounts fire at the same time. The per-lane gap, the
-// 1015 retry and the host-wide cooloff are unchanged, so a rate-limit still backs everyone off together.
-const WRITE_LANES = 8;
-const AUTH_LANES = 4;
-const _hostTail = new Map<string, Promise<unknown>>();
-const _hostLastAt = new Map<string, number>();
-const _readRR = new Map<string, number>();
+// ── Outbound request scheduling + rate-limit handling ─────────────────────────────────────────────────────
+// TradeLocker's edge (Cloudflare) rate-limits by IP and answers HTTP 429 "Error 1015: You are being rate
+// limited". A 1015 is blocked at the edge BEFORE it reaches the broker, so retrying it is safe even for an order.
+//
+// ENTRY SPEED v2 (owner 09-17: "let's work on speed"). Measured on the 10:49am NY BUY: orders left 9s after the
+// signal, but submit→confirmed took a median 111s, because the IP was rate-limited for 10 straight minutes
+// (dozens of 1015s, each freezing the whole host for up to 15s) while the fan-out, the trade manager and the
+// warm-up all competed for the same budget. Parallel lanes without a budget made it worse.
+//
+// So every broker call now goes through ONE scheduler per host:
+//   • a REQUEST BUDGET (token bucket, requests/second) that ADAPTS: a 1015 cuts the rate 30% and pauses the host
+//     briefly; every clean 20s it creeps back up. The fleet runs right at the edge's limit instead of
+//     overshooting into long freezes.
+//   • PRIORITY: order placement and position protection (break-even / SL / close) go first, then logins, then
+//     normal reads, then background work (the pre-trade warm-up, readiness checks). During a fan-out the orders
+//     jump every queue.
+//   • a cap on concurrent in-flight requests per host.
+// Env overrides: TL_RATE_START / TL_RATE_MIN / TL_RATE_MAX (req/s), TL_MAX_INFLIGHT.
+
+export type BrokerPriority = "critical" | "auth" | "normal" | "background";
+const PRI_ORDER: Record<BrokerPriority, number> = { critical: 0, auth: 1, normal: 2, background: 3 };
+const priorityStore = new AsyncLocalStorage<BrokerPriority>();
+/** Run broker calls made inside `fn` at a given priority (e.g. the warm-up runs as "background"). */
+export function withBrokerPriority<T>(p: BrokerPriority, fn: () => Promise<T>): Promise<T> { return priorityStore.run(p, fn); }
+
+const envNum = (k: string, d: number) => { const n = Number(process.env[k]); return Number.isFinite(n) && n > 0 ? n : d; };
+const RATE_START = envNum("TL_RATE_START", 6);
+const RATE_MIN = envNum("TL_RATE_MIN", 2);
+const RATE_MAX = envNum("TL_RATE_MAX", 12);
+const MAX_INFLIGHT = envNum("TL_MAX_INFLIGHT", 10);
+const RL_MAX_RETRIES = 6;
+
+type Job = { run: () => void };
+type HostState = { rate: number; tokens: number; refillAt: number; inflight: number; queues: Job[][]; pausedUntil: number; lastLimitAt: number; streak: number; timer: ReturnType<typeof setTimeout> | null; limited: number };
+const _hosts = new Map<string, HostState>();
 const _sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/** Run `fn` after waiting out this lane's minimum inter-request gap, serialized
- *  per lane so concurrent callers queue instead of bursting. */
-function pacedByLane<T>(laneKey: string, fn: () => Promise<T>): Promise<T> {
-  const prev = _hostTail.get(laneKey) ?? Promise.resolve();
-  const run = prev.then(async () => {
-    const gap = HOST_MIN_GAP_MS - (Date.now() - (_hostLastAt.get(laneKey) ?? 0));
-    if (gap > 0) await _sleep(gap);
-    try { return await fn(); } finally { _hostLastAt.set(laneKey, Date.now()); }
-  });
-  // keep the chain alive even if this call throws, so the queue never wedges
-  _hostTail.set(laneKey, run.then(() => {}, () => {}));
-  return run;
+function hostState(host: string): HostState {
+  let h = _hosts.get(host);
+  if (!h) { h = { rate: RATE_START, tokens: RATE_START, refillAt: Date.now(), inflight: 0, queues: [[], [], [], []], pausedUntil: 0, lastLimitAt: 0, streak: 0, timer: null, limited: 0 }; _hosts.set(host, h); }
+  return h;
 }
 
-// HOST-WIDE RATE-LIMIT CIRCUIT BREAKER (owner 09-11 live incident: a Cloudflare-1015
-// storm put all read lanes into 15s-timeout retry loops at once — throughput collapsed
-// and manage passes went silent for 16 minutes while +78-pip trades reversed to stops).
-// On any 1015/429 the WHOLE host backs off together (3s, growing to 15s on repeats)
-// instead of every lane independently hammering the same closed door. One brief
-// coordinated pause instead of minutes of lane paralysis.
-const _hostCool = new Map<string, { until: number; streak: number }>();
-function _noteRateLimited(host: string): void {
-  const now = Date.now();
-  const cur = _hostCool.get(host);
-  const streak = cur && now < cur.until + 30_000 ? cur.streak + 1 : 1;
-  _hostCool.set(host, { until: now + Math.min(15_000, 3_000 * streak), streak });
-  // eslint-disable-next-line no-console
-  console.warn(`[${new Date(now).toISOString()}] tradelocker: RATE LIMITED by ${host} (streak ${streak}) — host cooloff ${Math.min(15_000, 3_000 * streak)}ms`);
+/** Pure priority rule (unit-tested): what priority a request gets. */
+export function priorityFor(method: string, path: string, ctx?: BrokerPriority): number {
+  if (ctx === "background") return PRI_ORDER.background;
+  if (method !== "GET" && path.startsWith("/trade/")) return PRI_ORDER.critical;   // orders, SL/TP/BE modify, close
+  if (path.startsWith("/auth/jwt/token") || path.startsWith("/auth/jwt/refresh")) return PRI_ORDER.auth;
+  return ctx ? PRI_ORDER[ctx] : PRI_ORDER.normal;
 }
-async function _cooloffWait(host: string): Promise<void> {
+
+/** Pure adaptive-rate rule (unit-tested). */
+export function nextRate(rate: number, event: "limited" | "clean"): number {
+  return event === "limited" ? Math.max(RATE_MIN, +(rate * 0.7).toFixed(2)) : Math.min(RATE_MAX, +(rate + 0.5).toFixed(2));
+}
+
+function pump(host: string): void {
+  const h = hostState(host);
+  if (h.timer) { clearTimeout(h.timer); h.timer = null; }
   for (;;) {
-    const wait = (_hostCool.get(host)?.until ?? 0) - Date.now();
-    if (wait <= 0) return;
-    await _sleep(Math.min(wait, 1000));
+    const now = Date.now();
+    // recover the rate after a clean stretch
+    if (h.lastLimitAt && now - h.lastLimitAt > 20_000 && h.rate < RATE_MAX) { h.rate = nextRate(h.rate, "clean"); h.lastLimitAt = now; h.streak = 0; }
+    h.tokens = Math.min(Math.max(2, h.rate), h.tokens + ((now - h.refillAt) / 1000) * h.rate); h.refillAt = now;
+    const q = h.queues.find((x) => x.length);
+    if (!q) return;
+    if (now < h.pausedUntil) { h.timer = setTimeout(() => pump(host), h.pausedUntil - now); return; }
+    if (h.inflight >= MAX_INFLIGHT) return;                                   // resumes when a request finishes
+    if (h.tokens < 1) { h.timer = setTimeout(() => pump(host), Math.ceil(((1 - h.tokens) / h.rate) * 1000)); return; }
+    h.tokens -= 1; h.inflight += 1;
+    q.shift()!.run();
   }
 }
-
-function laneHash(k: string): number { let h = 0x811c9dc5; for (let i = 0; i < k.length; i++) { h ^= k.charCodeAt(i); h = Math.imul(h, 0x01000193); } h ^= h >>> 15; return h >>> 0; } // FNV-1a + avalanche
-/** Which pacing lane a request uses (pure, unit-tested). Reads round-robin; auth POSTs round-robin on their
- *  own lanes; order/position writes hash by broker account so one account's writes never interleave. */
-export function laneFor(host: string, method: string, path: string, accountKey: string, rr: number): string {
-  if (method === "GET") return `${host}|r${rr % READ_LANES}`;
-  if (path.startsWith("/auth/")) return `${host}|a${rr % AUTH_LANES}`;
-  return `${host}|w${laneHash(accountKey || path) % WRITE_LANES}`;
+function schedule<T>(host: string, pri: number, fn: () => Promise<T>): Promise<T> {
+  const h = hostState(host);
+  return new Promise<T>((resolve, reject) => {
+    h.queues[pri].push({ run: () => { fn().then(resolve, reject).finally(() => { h.inflight -= 1; pump(host); }); } });
+    pump(host);
+  });
 }
-function pacedByHost<T>(host: string, method: string, path: string, accountKey: string, fn: () => Promise<T>): Promise<T> {
-  const n = (_readRR.get(host) ?? 0) + 1;
-  _readRR.set(host, n);
-  return pacedByLane(laneFor(host, method, path, accountKey, n), fn);
+function noteRateLimited(host: string): void {
+  const h = hostState(host), now = Date.now();
+  h.streak = now - h.lastLimitAt < 10_000 ? h.streak + 1 : 1;
+  h.rate = nextRate(h.rate, "limited");
+  h.lastLimitAt = now; h.limited += 1;
+  h.pausedUntil = Math.max(h.pausedUntil, now + Math.min(5_000, 1_000 * h.streak));
+  // eslint-disable-next-line no-console
+  if (h.streak <= 3 || h.streak % 10 === 0) console.warn(`[${new Date(now).toISOString()}] tradelocker: RATE LIMITED by ${host} (streak ${h.streak}) — rate now ${h.rate}/s, pause ${Math.min(5_000, 1_000 * h.streak)}ms`);
+}
+/** Live scheduler numbers (for logs/health). */
+export function brokerRateStats(): Record<string, { rate: number; inflight: number; queued: number[]; limited: number }> {
+  const out: Record<string, { rate: number; inflight: number; queued: number[]; limited: number }> = {};
+  for (const [k, h] of _hosts) out[k] = { rate: h.rate, inflight: h.inflight, queued: h.queues.map((q) => q.length), limited: h.limited };
+  return out;
 }
 
 function isCloudflare1015(status: number, text: string): boolean {
@@ -133,6 +145,7 @@ async function tlFetch(env: TLEnv, path: string, init: RequestInit & { accessTok
   const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json" };
   if (init.accessToken) headers["Authorization"] = `Bearer ${init.accessToken}`;
   if (init.accNum) headers["accNum"] = String(init.accNum);
+  const pri = priorityFor(method, path, priorityStore.getStore());
 
   const once = async (): Promise<{ status: number; json: unknown; text: string }> => {
     const ctrl = new AbortController();
@@ -145,24 +158,18 @@ async function tlFetch(env: TLEnv, path: string, init: RequestInit & { accessTok
     } finally { clearTimeout(to); }
   };
 
-  const acctFromPath = /\/accounts\/([^/]+)/.exec(path)?.[1] ?? "";
-  const accountKey = `${acctFromPath}|${init.accNum ?? ""}|${(init.accessToken ?? "").slice(-16)}`;
-  return pacedByHost(host, method, path, accountKey, async () => {
-    await _cooloffWait(host); // a live host-wide cooloff holds new dispatches too
-    let res = await once();
-    for (let attempt = 0; attempt < RL_MAX_RETRIES; attempt++) {
-      // Retry a rate-limit: always for the edge-level 1015 (request never reached
-      // the broker, so it's safe even for POSTs), and for any 429/503 on a GET.
-      const rateLimited = isCloudflare1015(res.status, res.text) || ((res.status === 429 || res.status === 503) && isGet);
-      if (!rateLimited) break;
-      _noteRateLimited(host);                       // everyone backs off together
-      await _cooloffWait(host);
-      await _sleep(150 + Math.floor(Math.random() * 350)); // jitter so lanes don't re-fire in sync
-      res = await once();
-    }
-    if (isCloudflare1015(res.status, res.text) || res.status === 429) _noteRateLimited(host);
-    return res;
-  });
+  let res = await schedule(host, pri, once);
+  for (let attempt = 0; attempt < RL_MAX_RETRIES; attempt++) {
+    // Retry a rate-limit: always for the edge-level 1015 (request never reached the broker, so it's safe even for
+    // POSTs), and for any 429/503 on a GET. The retry re-queues at the same priority (it does not hold a slot).
+    const rateLimited = isCloudflare1015(res.status, res.text) || ((res.status === 429 || res.status === 503) && isGet);
+    if (!rateLimited) break;
+    noteRateLimited(host);
+    await _sleep(100 + Math.floor(Math.random() * 300));
+    res = await schedule(host, pri, once);
+  }
+  if (isCloudflare1015(res.status, res.text) || res.status === 429) noteRateLimited(host);
+  return res;
 }
 
 function pick<T = unknown>(o: unknown, ...keys: string[]): T | undefined {
