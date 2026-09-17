@@ -15,6 +15,8 @@ import { recoverOrphans } from "@/lib/flow/recover";
 import { logTrade } from "@/lib/flow/tradeLog";
 import { beat } from "@/lib/flow/health";
 import { liveTickExtremes, liveTick } from "@/lib/flow/liveTicks";
+import { profitGuardPlan } from "@/lib/flow/profitGuard";
+import { goldChangeOfCharacter } from "@/lib/genx/choch";
 
 // Recent intra-minute EXTREMES from the market-data feed. The manager runs once a minute
 // off the instantaneous bid/ask, so a spike that reverses inside the minute (common on
@@ -630,13 +632,14 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   const manageOff = new Set<string>();
   const beOffAccts = new Set<string>();      // accounts with the Break-even toggle OFF
   const partialOffAccts = new Set<string>(); // accounts with the Partials toggle OFF
+  const guardAccts = new Set<string>();      // accounts that OPTED IN to Profit Guard (default off)
   const goldBePips = new Map<string, number>();
   try {
     const acctIds = [...new Set(rows.map((r) => String(r.account_id)))];
     if (acctIds.length) {
-      type AcctCfg = { account_id: string; manage_trades?: boolean | null; gold_be_pips?: number | null; send_it?: boolean | null; be_enabled?: boolean | null; partials_enabled?: boolean | null };
+      type AcctCfg = { account_id: string; manage_trades?: boolean | null; gold_be_pips?: number | null; send_it?: boolean | null; be_enabled?: boolean | null; partials_enabled?: boolean | null; profit_guard?: boolean | null };
       let cfg: AcctCfg[] = [];
-      const withGold = await admin.from("flow_broker_accounts").select("account_id, manage_trades, gold_be_pips, send_it, be_enabled, partials_enabled").in("account_id", acctIds);
+      const withGold = await admin.from("flow_broker_accounts").select("account_id, manage_trades, gold_be_pips, send_it, be_enabled, partials_enabled, profit_guard").in("account_id", acctIds);
       if (!withGold.error) cfg = (withGold.data ?? []) as unknown as AcctCfg[];
       else {
         const fb = await admin.from("flow_broker_accounts").select("account_id, manage_trades").in("account_id", acctIds);
@@ -653,6 +656,8 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         // null/undefined = ON (back-compat).
         if (a.be_enabled === false) beOffAccts.add(String(a.account_id));
         if (a.partials_enabled === false) partialOffAccts.add(String(a.account_id));
+        // PROFIT GUARD (owner 09-17): opt-in per account — nobody's exits change until they turn it on.
+        if (a.profit_guard === true) guardAccts.add(String(a.account_id));
         if (typeof a.gold_be_pips === "number" && a.gold_be_pips > 0) goldBePips.set(String(a.account_id), a.gold_be_pips);
       }
     }
@@ -664,6 +669,11 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   // of giving the whole move back to the stop. Empty map when nothing qualifies.
   let goldChop = new Map<"buy" | "sell", ChopSide>();
   try { goldChop = await goldChopRegime(admin); } catch { /* regime off on read error */ }
+
+  // PROFIT GUARD: gold's structure flip, read ONCE per pass (and only when an account opted in, so the
+  // feed call costs nothing for a book that isn't using it).
+  let guardChoch: "bullish" | "bearish" | null = null;
+  if (guardAccts.size) { try { guardChoch = await goldChangeOfCharacter(); } catch { /* no flip on read error */ } }
 
   const tokenCache = new Map<string, { token: string; env: TLEnv } | null>();
   const colCache = new Map<string, { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number; tpIdx: number }>();
@@ -1238,6 +1248,29 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
           } else {
             update.last_error = result.error ?? "partial_pending_reconciliation";
             actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_pending", detail: "reserved; waiting for broker reconciliation" });
+          }
+        }
+      }
+
+      // ── STEP 2.5: PROFIT GUARD (opt-in) — the market just flipped against a trade that is already
+      //    a real winner: snap the stop to just behind the market so most of the move is banked if the
+      //    reversal is real, and the runner still runs if it isn't. Only ever tightens. ──
+      if (manageOn && guardAccts.has(String(row.account_id)) && contractKey(row.symbol) === "XAUUSD" && guardChoch) {
+        const plan = profitGuardPlan({
+          side: row.side, entry, price, R, pip, curStop: row.cur_stop ?? null, bePx,
+          choch: guardChoch, spread: spreadCache.get(`${tok.env}|${row.account_id}|${row.symbol}`) ?? null,
+        });
+        if (plan) {
+          const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: plan.stop });
+          if (mv.ok || /nothing\s+to\s+change/i.test(mv.ok ? "" : mv.error)) {
+            update.cur_stop = plan.stop; row.cur_stop = plan.stop;
+            if (!row.be_done) { update.be_done = true; row.be_done = true; }
+            didAction = true;
+            actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "profit_guard", detail: `SL→${plan.stop} (+${plan.profitPips}p, ${guardChoch} flip)` });
+            await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "profit_guard", reason: `choch_${guardChoch}`, price: plan.stop, detail: { profitPips: plan.profitPips } });
+          } else {
+            update.last_error = `guard_err: ${mv.ok ? "" : mv.error}`.slice(0, 120);
+            actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "guard_err", detail: (mv.ok ? "" : mv.error).slice(0, 60) });
           }
         }
       }

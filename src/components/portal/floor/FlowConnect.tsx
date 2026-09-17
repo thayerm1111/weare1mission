@@ -41,6 +41,7 @@ type Account = {
   manageTrades?: boolean;
   beEnabled?: boolean;
   partialsEnabled?: boolean;
+  profitGuard?: boolean;
   sendIt?: boolean;
   sendItStack?: boolean;  // true = every entry (classic) · false = one at a time
   sendItGuards?: boolean; // true = safeguards respected · false = bypassed (classic)
@@ -348,6 +349,15 @@ export function FlowConnect() {
     try {
       await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "partialtoggle", accountId: a.accountId, connectionId: a.connectionId, enabled }) });
       if (a.manageTrades === false) await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: true }) });
+    } catch { void load(); }
+  }
+
+  async function setAccountGuard(a: Account, enabled: boolean) {
+    // 🛡 PROFIT GUARD (owner 09-17): opt-in. When gold's structure flips against a trade that is already
+    // 1R / 50+ pips in profit, the stop snaps in behind the market so most of the move is kept.
+    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, profitGuard: enabled } : x) } : prev);
+    try {
+      await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "guardtoggle", accountId: a.accountId, connectionId: a.connectionId, enabled }) });
     } catch { void load(); }
   }
 
@@ -677,6 +687,27 @@ export function FlowConnect() {
                               </button>
                             </div>
                           </div>
+                          {(() => {
+                            const grdOn = managed && a.profitGuard === true;
+                            return (
+                              <div className="mt-2 flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55">🛡 Profit guard</span>
+                                  <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">Gold only. If the market flips against a trade that is already 1R and 50+ pips up, the stop snaps in behind price — most of the move is kept instead of riding back to break-even. Off by default.</p>
+                                </div>
+                                <div className="flex flex-shrink-0 items-center gap-2">
+                                  <span className={`text-[11px] font-semibold ${grdOn ? "text-emerald-600" : "text-charcoal/40"}`}>{grdOn ? "On" : "Off"}</span>
+                                  <button
+                                    onClick={() => void setAccountGuard(a, !grdOn)}
+                                    aria-pressed={grdOn}
+                                    className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${grdOn ? "bg-emerald-500" : "bg-charcoal/20"}`}
+                                  >
+                                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${grdOn ? "left-[22px]" : "left-0.5"}`} />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })()}
                           {/* Per-account SAFETY MODE: conservative (2-loss cutoff) vs aggressive */}
                           {(() => {
                             const mode = a.riskMode === "aggressive" ? "aggressive" : "conservative";

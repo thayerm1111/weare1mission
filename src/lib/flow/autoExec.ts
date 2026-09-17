@@ -14,6 +14,7 @@ import { genxLabel } from "@/lib/genx/brand";
 import { genxGoldQualityGate } from "@/lib/genx/qualityGate";
 import { originAllowed, genx3AccountFilter } from "@/lib/genx3/engineSelect";
 import { series, livePrice } from "@/lib/marketData";
+import { goldChangeOfCharacter } from "@/lib/genx/choch";
 import { trendOfCloses, closedBars } from "@/lib/mtf";
 import { sendTelegram } from "@/lib/telegram";
 import { BE_DISPLAY_PIPS } from "@/lib/genx/goldRecord";
@@ -1213,42 +1214,6 @@ async function goldShortMomentum(): Promise<"up" | "down" | "flat" | null> {
 // NORMAL pullback inside a trend does NOT reclaim the prior swing, so it is not treated as a flip;
 // and the leg must clear CHOCH_MIN_USD so noise never trips it. Reads closed 5-min candles; null (no
 // block) on any failure so a feed blip never halts trading.
-const CHOCH_MIN_USD = 4.0; // FLOOR only — the live threshold is volatility-normalized below
-async function goldChangeOfCharacter(): Promise<"bullish" | "bearish" | null> {
-  const key = process.env.TWELVEDATA_API_KEY;
-  if (!key) return null;
-  try {
-    const raw = await series("XAU/USD", "5min", 60, key);
-    if (!raw || raw === "ratelimit" || !Array.isArray(raw)) return null;
-    const bars = (closedBars(raw, 30) ?? raw)
-      .map((r) => ({ h: +r.high, l: +r.low, c: +r.close }))
-      .filter((b) => Number.isFinite(b.h) && Number.isFinite(b.l) && Number.isFinite(b.c));
-    if (bars.length < 8) return null;
-    const lastClose = bars[bars.length - 1].c;
-    let loIdx = 0, hiIdx = 0;
-    for (let i = 1; i < bars.length; i++) { if (bars[i].l < bars[loIdx].l) loIdx = i; if (bars[i].h > bars[hiIdx].h) hiIdx = i; }
-    // VOLATILITY-NORMALIZED structural threshold: a fixed $4 leg is chop in a wild
-    // session and a huge move in tight overnight compression. The leg must clear
-    // ~5× the recent 5-min bar range (clamped 2.5–8 USD) to count as a real flip.
-    const tr14 = bars.slice(-15).map((b) => b.h - b.l).filter((v) => Number.isFinite(v) && v >= 0);
-    const atr5 = tr14.length ? tr14.reduce((a, b) => a + b, 0) / tr14.length : 0;
-    const legMin = Math.max(2.5, Math.min(8, atr5 > 0 ? atr5 * 5 : CHOCH_MIN_USD));
-    if (bars[hiIdx].h - bars[loIdx].l < legMin) return null; // leg too small → no real reversal
-    // Bullish: price bottomed FIRST (loIdx earlier), then rallied and the latest close reclaimed the
-    // swing high that PRECEDED the low — a higher high vs the down-leg's structure.
-    if (loIdx < hiIdx) {
-      const priorHigh = Math.max(...bars.slice(0, loIdx + 1).map((b) => b.h));
-      if (lastClose > priorHigh) return "bullish";
-    }
-    // Bearish: price topped FIRST, then sold off and the latest close broke the swing low that
-    // preceded the high — a lower low vs the up-leg's structure.
-    if (hiIdx < loIdx) {
-      const priorLow = Math.min(...bars.slice(0, hiIdx + 1).map((b) => b.l));
-      if (lastClose < priorLow) return "bearish";
-    }
-    return null;
-  } catch { return null; }
-}
 
 /**
  * THE gold entry gate — OWNER RULE 1 (simple + predictable).

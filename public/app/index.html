@@ -4674,6 +4674,7 @@ input{font:inherit}
             var mng = a.manageTrades !== false;
             var beOn = a.beEnabled !== false && mng;
             var parOn = a.partialsEnabled !== false && mng;
+            var grdOn = a.profitGuard === true;
             var needMng = a.manageTrades === false;
             return html`<div class=${"hx-acct" + (on ? " on" : "")}>
               <div class="hx-acct-top">
@@ -4686,6 +4687,7 @@ input{font:inherit}
               <div class="hx-minis">
                 <button class=${"hx-mini" + (beOn ? " on" : "")} onClick=${function () { setAcct(a, { beEnabled: !beOn, manageTrades: true }, "betoggle", { enabled: !beOn }); if (needMng) apiPost("/api/flow/broker", { action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: true }).catch(function () {}); }}><span class="dot"></span>Break even</button>
                 <button class=${"hx-mini" + (parOn ? " on" : "")} onClick=${function () { setAcct(a, { partialsEnabled: !parOn, manageTrades: true }, "partialtoggle", { enabled: !parOn }); if (needMng) apiPost("/api/flow/broker", { action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: true }).catch(function () {}); }}><span class="dot"></span>Partials</button>
+                <button class=${"hx-mini" + (grdOn ? " on" : "")} onClick=${function () { setAcct(a, { profitGuard: !grdOn }, "guardtoggle", { enabled: !grdOn }); }}><span class="dot"></span>Profit guard</button>
               </div>
             </div>`;
           })}
