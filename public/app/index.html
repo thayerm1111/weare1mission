@@ -2657,6 +2657,13 @@ input{font:inherit}
       apiPost("/api/flow/broker", { action: "partialtoggle", accountId: a.accountId, connectionId: a.connectionId, enabled: onv }).catch(function () { load(); });
       if (a.manageTrades === false) apiPost("/api/flow/broker", { action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: true }).catch(function () {});
     }
+    function setGuard(a, onv) {
+      // 🛡 PROFIT GUARD (owner 09-17): opt-in. Gold only — when the market flips against a trade that is
+      // already 1R / 50+ pips up, the stop snaps in behind price so most of the move is kept.
+      var cur = st[0] || {}; var accts = (cur.accounts || []).map(function (x) { return (x.accountId === a.accountId && x.connectionId === a.connectionId) ? Object.assign({}, x, { profitGuard: onv }) : x; });
+      st[1](Object.assign({}, cur, { accounts: accts }));
+      apiPost("/api/flow/broker", { action: "guardtoggle", accountId: a.accountId, connectionId: a.connectionId, enabled: onv }).catch(function () { load(); });
+    }
     function setMode(a, mode) {
       // per-account safety mode: conservative auto-pauses THIS account 4h after 2 losses in a
       // row (gold + forex tracked separately); aggressive has no cap.
@@ -2698,7 +2705,7 @@ input{font:inherit}
       ${loading[0] ? html`<div class="gx-analyzing">◆ Checking your broker connection…</div>` : ((connected && !adding[0]) ? html`<div>
         <div class="bk-h">TradeLocker connected</div>
         <div class="bk-sub">${accounts.length} account${accounts.length === 1 ? "" : "s"} · <b style="color:#2ee88f">${activeN} trading</b>. FLOW takes every trade on all accounts switched on.</div>
-        ${accounts.map(function (a) { var on = a.autotradeEnabled !== false; var fol = a.genxFollower === true; var mng = a.manageTrades !== false; var beOn = a.beEnabled !== false && mng; var parOn = a.partialsEnabled !== false && mng; var rp = (a.riskPct != null ? a.riskPct : null); var gp = (a.goldBePips != null ? a.goldBePips : ""); var chipOn = "font-size:11px;font-weight:800;padding:5px 9px;border-radius:9px;cursor:pointer;border:1px solid rgba(46,232,143,.55);background:rgba(46,232,143,.13);color:#2ee88f"; var chipOff = "font-size:11px;font-weight:800;padding:5px 9px;border-radius:9px;cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#fff"; var subRow = "display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-top:0;padding:8px 12px;background:rgba(0,0,0,.18)"; return html`<div>
+        ${accounts.map(function (a) { var on = a.autotradeEnabled !== false; var fol = a.genxFollower === true; var mng = a.manageTrades !== false; var beOn = a.beEnabled !== false && mng; var parOn = a.partialsEnabled !== false && mng; var grdOn = a.profitGuard === true; var rp = (a.riskPct != null ? a.riskPct : null); var gp = (a.goldBePips != null ? a.goldBePips : ""); var chipOn = "font-size:11px;font-weight:800;padding:5px 9px;border-radius:9px;cursor:pointer;border:1px solid rgba(46,232,143,.55);background:rgba(46,232,143,.13);color:#2ee88f"; var chipOff = "font-size:11px;font-weight:800;padding:5px 9px;border-radius:9px;cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#fff"; var subRow = "display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-top:0;padding:8px 12px;background:rgba(0,0,0,.18)"; return html`<div>
           <div class=${"bk-acct " + (on ? "on" : "")}>
           <div><div class="bk-cv">${a.name || ("Account " + a.accountId)} ${a.environment ? html`<span class=${"bk-badge " + (a.environment === "live" ? "live" : "demo")} style="font-size:9px;padding:1px 5px">${(a.environment || "").toUpperCase()}</span>` : null}</div><div class="bk-ck" style="margin-top:3px">#${a.accNum || a.accountId}${a.currency ? " · " + a.currency : ""} · ${fmtMoney(a.equity != null ? a.equity : a.balance)}</div></div>
           <div style="display:flex;align-items:center;gap:8px">
@@ -2737,6 +2744,13 @@ input{font:inherit}
             <div style="display:flex;align-items:center;gap:8px">
               <span style=${"font-size:11px;font-weight:700;color:" + (parOn ? "#2ee88f" : "rgba(255,255,255,.4)")}>${parOn ? "On" : "Off"}</span>
               <button onClick=${function () { setPartials(a, !parOn); }} style=${"position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (parOn ? "#2ee88f" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (parOn ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
+            </div>
+          </div>
+          <div style=${subRow}>
+            <div><div style="font-size:12px;font-weight:700;color:#fff">🛡 Profit guard</div><div class="bk-ck" style="margin-top:2px">Gold only. If the market flips against a trade that is already 1R and 50+ pips up, the stop snaps in behind price — most of the move is kept instead of riding back to break-even.</div></div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style=${"font-size:11px;font-weight:700;color:" + (grdOn ? "#2ee88f" : "rgba(255,255,255,.4)")}>${grdOn ? "On" : "Off"}</span>
+              <button onClick=${function () { setGuard(a, !grdOn); }} style=${"position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (grdOn ? "#2ee88f" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (grdOn ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
             </div>
           </div>
           ${(function () { var md = a.riskMode === "aggressive" ? "aggressive" : "conservative"; var mOn = "font-size:11px;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1px solid rgba(46,232,143,.55);background:rgba(46,232,143,.13);color:#2ee88f"; var mAg = "font-size:11px;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1px solid rgba(245,180,60,.55);background:rgba(245,180,60,.13);color:#f5c451"; var mOff = "font-size:11px;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,.04);color:rgba(255,255,255,.5)"; return html`<div style=${subRow}>
