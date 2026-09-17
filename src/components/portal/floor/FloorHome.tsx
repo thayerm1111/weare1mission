@@ -50,7 +50,9 @@ type GenxRead = {
   expected_hold_minutes?: [number, number]; projected_path?: { label: string; price: number | null; kind: string }[];
   trade_reasoning?: string[];
 };
-type SetupPayload = { g: GenxRead | null; candles: Candle[]; price: number | null; session: string; mode: string; asOf?: string; error?: string };
+type SetupPayload = { g: GenxRead | null; candles: Candle[]; price: number | null; session: string; mode: string; asOf?: string; error?: string; frozen?: boolean; at?: string };
+// One earlier snapshot of the gold map (owner 09-17: "add a previous analysis to the Floor").
+type PastSetup = { id: string; at: string; mode: string; price: number | null; action: string | null; confidence: number | null };
 type IntelEvent = { time: string; ts: number; headline: string; impact: "HIGH" | "MED" | "LOW"; assets: string[]; when: string; ccy: string; forecast: string; previous: string };
 type IntelPayload = { featured: IntelEvent | null; events: IntelEvent[] };
 
@@ -109,6 +111,10 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
   const [setup, setSetup] = useState<SetupPayload | null>(null);
   const [intel, setIntel] = useState<IntelPayload | null>(null);
   const [setupMode, setSetupMode] = useState<"quick" | "intraday" | "swing">("intraday");
+  // PREVIOUS ANALYSIS: the map as it looked earlier. `frozen` holds a replayed snapshot; while it is
+  // set the live poll stops writing over the panel.
+  const [past, setPast] = useState<PastSetup[]>([]);
+  const [frozen, setFrozen] = useState<SetupPayload | null>(null);
   const now = useClock();
   const nowIso = now ? now.toISOString() : "";
 
@@ -127,6 +133,7 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
     let alive = true;
     const load = async () => {
       try { const r = await fetch(`/api/floor/setup?mode=${setupMode}`, { cache: "no-store" }); if (r.ok && alive) setSetup((await r.json()) as SetupPayload); } catch { /* degrades */ }
+      try { const h = await fetch(`/api/floor/setup?history=1&mode=${setupMode}`, { cache: "no-store" }); if (h.ok && alive) { const d = await h.json(); if (Array.isArray(d.past)) setPast(d.past as PastSetup[]); } } catch { /* degrades */ }
     };
     void load();
     // Live-ish: poll every 15s. The shared market-data cache (MD_CACHE_TTL 30s)
@@ -240,7 +247,19 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
         {/* ── MAIN: SETUP FORMING + MARKET INTELLIGENCE ── */}
         <div className="grid gap-3 xl:grid-cols-3">
           <section className="xl:col-span-2 overflow-hidden rounded-xl border" style={{ borderColor: C.line, background: C.panel }}>
-            <SetupForming data={setup} mode={setupMode} onMode={setSetupMode} onExpand={() => onGo("plays")} />
+            <SetupForming
+              data={frozen ?? setup} mode={setupMode}
+              onMode={(m) => { setFrozen(null); setSetupMode(m); }}
+              onExpand={() => onGo("plays")}
+              past={past} frozen={frozen}
+              onPick={async (id) => {
+                try {
+                  const r = await fetch(`/api/floor/setup?id=${encodeURIComponent(id)}`, { cache: "no-store" });
+                  if (r.ok) setFrozen((await r.json()) as SetupPayload);
+                } catch { /* ignore */ }
+              }}
+              onLive={() => setFrozen(null)}
+            />
           </section>
           <section className="overflow-hidden rounded-xl border" style={{ borderColor: C.line, background: C.panel }}>
             <MarketIntel intel={intel} flow={flow} />
@@ -372,7 +391,11 @@ function gxSteps(g: GenxRead, price: number | null): Step[] {
   return [now, { t: g.market_regime ? String(g.market_regime).toUpperCase() : "RANGE", tone: "muted" }, { t: "WAIT FOR BREAK", tone: "wait" }];
 }
 
-function SetupForming({ data, mode, onMode, onExpand }: { data: SetupPayload | null; mode: "quick" | "intraday" | "swing"; onMode: (m: "quick" | "intraday" | "swing") => void; onExpand: () => void }) {
+function SetupForming({ data, mode, onMode, onExpand, past = [], frozen = null, onPick, onLive }: {
+  data: SetupPayload | null; mode: "quick" | "intraday" | "swing"; onMode: (m: "quick" | "intraday" | "swing") => void; onExpand: () => void;
+  past?: PastSetup[]; frozen?: SetupPayload | null; onPick?: (id: string) => void; onLive?: () => void;
+}) {
+  const [showPast, setShowPast] = useState(false);
   const g = data?.g ?? null;
   const candles = data?.candles ?? [];
   const price = data?.price ?? (candles.length ? candles[candles.length - 1].c : null);
@@ -397,9 +420,37 @@ function SetupForming({ data, mode, onMode, onExpand }: { data: SetupPayload | n
                 style={t.label === activeLabel ? { background: "rgba(34,211,238,0.14)", color: C.cyan } : { color: t.m ? C.mut : C.mut2, cursor: t.m ? "pointer" : "default" }}>{t.label}</button>
             ))}
           </div>
+          <button onClick={() => setShowPast((v) => !v)} className="rounded px-1.5 py-0.5 text-[10px] font-bold transition"
+            style={showPast || frozen ? { background: "rgba(255,194,75,0.16)", color: "#ffd47a" } : { color: C.mut }} aria-label="Previous analysis">🕘 Past</button>
           <button onClick={onExpand} className="rounded p-1" style={{ color: C.mut2 }} aria-label="Expand"><Maximize2 className="h-3.5 w-3.5" /></button>
         </div>
       </div>
+
+      {showPast && (
+        <div className="border-b px-3.5 py-2.5" style={{ borderColor: C.line, background: "rgba(255,255,255,0.02)" }}>
+          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: C.mut2 }}>Previous analysis · {activeLabel}</p>
+          {past.length === 0 ? (
+            <p className="text-[11px]" style={{ color: C.mut2 }}>No earlier reads stored for this timeframe yet — the map is saved every 10 minutes from now on.</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {past.map((p) => (
+                <button key={p.id} onClick={() => onPick?.(p.id)}
+                  className="rounded-lg border px-2 py-1 text-left text-[10px] font-semibold transition"
+                  style={{ borderColor: frozen?.at === p.at ? "rgba(255,194,75,0.5)" : C.line, color: C.mut }}>
+                  <span style={{ color: /SELL/.test(p.action || "") ? C.red : /BUY/.test(p.action || "") ? C.green : C.amber }}>{clockTime(p.at)}</span>
+                  {" · "}{p.action || "READ"}{p.confidence != null ? ` · ${p.confidence}` : ""}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {frozen && (
+        <div className="flex items-center justify-between gap-2 border-b px-3.5 py-2" style={{ borderColor: "rgba(255,194,75,0.3)", background: "rgba(255,194,75,0.08)" }}>
+          <p className="text-[11px] font-semibold" style={{ color: "#ffd47a" }}>Showing the map from {frozen.at ? new Date(frozen.at).toLocaleString() : "earlier"} — frozen, not the live market.</p>
+          <button onClick={() => onLive?.()} className="flex-shrink-0 rounded-lg border px-2 py-1 text-[11px] font-bold" style={{ borderColor: "rgba(255,194,75,0.4)", color: "#ffd47a" }}>Back to live</button>
+        </div>
+      )}
 
       {!g ? (
         <div className="flex h-[360px] items-center justify-center px-6 text-center text-[12px]" style={{ color: C.mut2 }}>{data?.error ? "Live gold read unavailable for a moment — retrying." : "Loading the live gold read…"}</div>
