@@ -222,7 +222,7 @@ function Stat({ icon, label, value, color }: { icon: React.ReactNode; label: str
    Two taps: the first arms the button, the second sends it to TradeLocker. */
 type ActRes = { account: string; ok: boolean; message: string };
 const ACTS: { id: "breakeven" | "partial" | "close"; label: string; confirm: string; color: string }[] = [
-  { id: "breakeven", label: "Stop to BE", confirm: "Tap to move stop", color: K.cyan },
+  { id: "breakeven", label: "Stop to BE +5", confirm: "Tap to move stop", color: K.cyan },
   { id: "partial", label: "Take partial", confirm: "Tap to close half", color: K.amber },
   { id: "close", label: "Close trade", confirm: "Tap to close all", color: K.rose },
 ];

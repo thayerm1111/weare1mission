@@ -5,8 +5,8 @@
  *
  * Safety rules:
  * - Only the signed-in member's own ledger rows; the connection must belong to that member.
- * - Nothing ever adds risk: break-even only TIGHTENS a stop (never widens it) and only while price is past
- *   the entry; partial and close only reduce size. TP is never touched.
+ * - Nothing ever adds risk: break-even only TIGHTENS a stop (never widens it), lands +5 pips in profit so fees
+ *   are covered, and only fires once price is past it; partial and close only reduce size. TP is never touched.
  * - Partial uses the same lifetime reservation as the trade manager (flow_partial_operations), so a double tap
  *   or a manager partial can never close a second slice.
  * - A position the broker no longer lists is skipped (already closed). The trade manager books the final
@@ -30,13 +30,22 @@ type Row = {
 };
 export type ActionResult = { account: string; ok: boolean; message: string };
 
-/** Break-even stop for a position, or why not. Pure (unit-tested). */
+/** Break-even stop for a position, or why not. Pure (unit-tested).
+ *  BE IS SET +5 PIPS IN PROFIT, NEVER AT THE RAW ENTRY (owner 09-17): at the exact entry a stop-out still
+ *  costs the spread and commission, so the member ends red on a "break-even". Gold pip = $0.10, so the stop
+ *  goes entry ± $0.50, and price must be at least 10 pips past entry first, so the stop is never asked for
+ *  on the wrong side of the market (the broker would reject it). */
+export const BE_PROFIT_PIPS = 5;
+export const GOLD_PIP = 0.1;
 export function breakEvenPlan(side: string, entry: number, curStop: number | null, price: number | null): { ok: true; stop: number } | { ok: false; why: string } {
   const long = side.toLowerCase() === "buy";
   if (!(entry > 0)) return { ok: false, why: "No entry price on record" };
-  if (curStop != null && (long ? curStop >= entry - 1e-6 : curStop <= entry + 1e-6)) return { ok: false, why: "Stop is already at break-even or better" };
-  if (price != null && (long ? price <= entry + 0.3 : price >= entry - 0.3)) return { ok: false, why: "Price needs to be in profit first" };
-  return { ok: true, stop: +entry.toFixed(2) };
+  const lock = BE_PROFIT_PIPS * GOLD_PIP;                    // $0.50 = 5 pips of gold
+  const stop = +(long ? entry + lock : entry - lock).toFixed(2);
+  if (curStop != null && (long ? curStop >= stop - 1e-6 : curStop <= stop + 1e-6)) return { ok: false, why: "Stop is already at break-even or better" };
+  if (price == null) return { ok: false, why: "No live price — try again in a moment" };
+  if (long ? price < stop + lock : price > stop - lock) return { ok: false, why: `Needs ${BE_PROFIT_PIPS * 2} pips of profit first` };
+  return { ok: true, stop };
 }
 
 /** Lots to close for a partial, or why not. Pure (unit-tested). */
@@ -105,7 +114,7 @@ export async function runMemberAction(userId: string, action: MemberAction): Pro
         const m = await modifyPosition(tok.env, tok.token, r.acc_num, r.position_id, { stopLoss: plan.stop });
         const already = !m.ok && /nothing\s+to\s+change/i.test(m.error);
         if (m.ok || already) await admin.from("flow_managed_positions").update({ be_done: true, cur_stop: plan.stop, updated_at: new Date().toISOString() }).eq("id", r.id);
-        results.push({ account: label(r), ok: m.ok || already, message: m.ok || already ? `Stop moved to ${plan.stop}` : m.error });
+        results.push({ account: label(r), ok: m.ok || already, message: m.ok || already ? `Stop moved to ${plan.stop} (+${BE_PROFIT_PIPS} pips)` : m.error });
         await logTrade(admin, { ...base, phase: m.ok || already ? "member_break_even" : "member_break_even_err", reason: m.ok ? "card" : m.error.slice(0, 80), price: plan.stop });
         continue;
       }

@@ -4559,7 +4559,7 @@ input{font:inherit}
     var armed = useState(null), busy = useState(null), out = useState(null);
     useEffect(function () { if (!armed[0]) return; var t = setTimeout(function () { armed[1](null); }, 4000); return function () { clearTimeout(t); }; }, [armed[0]]);
     var ACTS = [
-      { id: "breakeven", label: "Stop to BE", confirm: "Tap to move stop", c: "be" },
+      { id: "breakeven", label: "Stop to BE +5", confirm: "Tap to move stop", c: "be" },
       { id: "partial", label: "Take partial", confirm: "Tap to close half", c: "pt" },
       { id: "close", label: "Close trade", confirm: "Tap to close all", c: "cl" }
     ];
