@@ -854,6 +854,28 @@ async function brokerOpenPosIds(a: { env: TLEnv; token: string; accNum: string; 
   } catch { return null; }
 }
 
+// STALE-LEDGER SELF-HEAL (owner 09-17: "Lasnubes.tony… his account isn't taking the trades"). The one-trade
+// reservation (genx_reserve_gold) counts EVERY open XAUUSD ledger row for the account. A row left "open" after the
+// broker closed the position (account 834969 carried one from 09-11) blocked every later GENX entry with
+// "one_open_gold (open_position)". When a READABLE broker no longer lists that position and the row is older than
+// STALE_ROW_MIN_AGE_MS, the row is retired (status closed, outcome 'excluded' — kept out of results). Unreadable
+// broker → nothing is touched.
+export const STALE_ROW_MIN_AGE_MS = 10 * 60_000;
+/** Pure: which open ledger rows the broker no longer holds (and are old enough to be sure). */
+export function staleGoldRows(rows: { position_id: string | null; created_at: string }[], brokerOpen: Set<string>, nowMs: number): string[] {
+  return rows.filter((r) => r.position_id && !brokerOpen.has(String(r.position_id)) && nowMs - Date.parse(r.created_at) >= STALE_ROW_MIN_AGE_MS).map((r) => String(r.position_id));
+}
+async function retireStaleGoldRows(admin: Admin, accountId: string, rows: { position_id: string | null; created_at: string }[], brokerOpen: Set<string>): Promise<number> {
+  const stale = staleGoldRows(rows, brokerOpen, Date.now());
+  if (!stale.length) return 0;
+  try {
+    await admin.from("flow_managed_positions").update({ status: "closed", outcome: "excluded", resolved_at: new Date().toISOString() })
+      .eq("account_id", accountId).eq("symbol", "XAUUSD").eq("status", "open").in("position_id", stale);
+    await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", status: "reconciled", reason: `stale_ledger_row retired: account ${accountId} positions ${stale.join(",")} not open at broker`.slice(0, 200), account_id: accountId });
+  } catch { /* best-effort */ }
+  return stale.length;
+}
+
 /** Current gold price for the chase check (own key, like goldTrend). null on any failure. */
 async function goldLivePrice(): Promise<number | null> {
   try {
@@ -1383,9 +1405,12 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   const { data: openGoldRows } = await admin.from("flow_managed_positions").select("account_id, position_id, created_at").eq("status", "open").eq("symbol", "XAUUSD");
   const manualGold = await manualGoldPlacements(admin);
   const ledgerGoldByAcct = new Map<string, Set<string>>();
+  const allOpenGoldByAcct = new Map<string, { position_id: string | null; created_at: string }[]>(); // incl. manual rows — the reservation counts them all
   for (const r of ((openGoldRows ?? []) as { account_id: string | null; position_id: string | null; created_at: string }[])) {
     const aid = String(r.account_id ?? ""); const pid = String(r.position_id ?? "");
     if (!aid || !pid) continue;
+    if (!allOpenGoldByAcct.has(aid)) allOpenGoldByAcct.set(aid, []);
+    allOpenGoldByAcct.get(aid)!.push(r);
     if (isManualGoldRow(manualGold, aid, r.created_at)) continue; // manual play/test → never blocks
     if (!ledgerGoldByAcct.has(aid)) ledgerGoldByAcct.set(aid, new Set());
     ledgerGoldByAcct.get(aid)!.add(pid);
@@ -1559,8 +1584,11 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
         // "one at a time" mode (sendItStack off) respects it like a normal account.
         if (a.sendIt === true && a.sendItStack !== false) { verified.push(a); continue; }
         const ledgerPids = ledgerGoldByAcct.get(String(a.accountId));
-        if (!ledgerPids || !ledgerPids.size) { verified.push(a); continue; }
+        const allRows = allOpenGoldByAcct.get(String(a.accountId)) ?? [];
+        if (!allRows.length) { verified.push(a); continue; }
         const brokerOpen = await brokerOpenPosIds({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId });
+        if (brokerOpen) await retireStaleGoldRows(admin, String(a.accountId), allRows, brokerOpen);
+        if (!ledgerPids || !ledgerPids.size) { verified.push(a); continue; }
         // FAIL CLOSED (owner incident 08-31, double gold entry on one account): the ledger says
         // this account already holds an automated gold trade. If the broker can't be read to
         // confirm it closed, we DO NOT place — a missed entry is recoverable, a stacked double
@@ -1764,17 +1792,21 @@ export async function placeGenxFollower(sig: {
       const { data: openGold } = await admin.from("flow_managed_positions")
         .select("position_id, created_at").eq("account_id", a.account_id).eq("symbol", "XAUUSD").eq("status", "open");
       const manualGoldF = await manualGoldPlacements(admin);
+      const allOpenRows = (openGold ?? []) as { position_id: string | null; created_at: string }[];
       const ledgerPids = ((openGold ?? []) as { position_id: string | null; created_at: string }[])
         .filter((r) => !isManualGoldRow(manualGoldF, String(a.account_id), r.created_at)) // manual play/test → never blocks
         .map((r) => String(r.position_id ?? "")).filter(Boolean);
       // 🚀 Send It v2: only "every entry" mode (send_it_stack on) skips the one-open cap;
       // "one at a time" Send It respects it like a normal account.
-      if (!(a.send_it === true && a.send_it_stack !== false) && ledgerPids.length) {
+      if (allOpenRows.length) {
         const tokChk = await tokenFor(a.connection_id);
-        if (!tokChk) return { touched: 1, placed: 0 }; // can't verify → fail closed, never stack
-        const brokerOpen = await brokerOpenPosIds({ env: tokChk.env, token: tokChk.token, accNum: String(a.acc_num), accountId: a.account_id });
-        if (brokerOpen === null) return { touched: 1, placed: 0 }; // broker unreadable → fail closed, never stack
-        if (genxGoldStillOpen(ledgerPids, brokerOpen)) return { touched: 1, placed: 0 }; // genuinely open → skip
+        const brokerOpen = tokChk ? await brokerOpenPosIds({ env: tokChk.env, token: tokChk.token, accNum: String(a.acc_num), accountId: a.account_id }) : null;
+        if (brokerOpen) await retireStaleGoldRows(admin, String(a.account_id), allOpenRows, brokerOpen);
+        if (!(a.send_it === true && a.send_it_stack !== false) && ledgerPids.length) {
+          if (!tokChk) return { touched: 1, placed: 0 }; // can't verify → fail closed, never stack
+          if (brokerOpen === null) return { touched: 1, placed: 0 }; // broker unreadable → fail closed, never stack
+          if (genxGoldStillOpen(ledgerPids, brokerOpen)) return { touched: 1, placed: 0 }; // genuinely open → skip
+        }
       }
       // RULE #1 (GENX 2.0): atomic one-gold-at-a-time reservation for THIS account. This is
       // the follower path's gap the copy path's read-check couldn't close under a race — two
