@@ -25,14 +25,14 @@ import { capGoldStop } from "@/lib/flow/sizing";
  * data hiccup can never freeze the desk.
  *
  * Env: GENX_QUALITY_GATE (default on; "off" disables), GENX_MIN_SLOPE_USD (default 1),
- *      GENX_MIN_RR (default 1.5).
+ *      GENX_MIN_RR (default 1.0 — owner 09-17: "at least a 1 to 1, doesn't need to be 1 to 1.5").
  */
 export type GateResult = { ok: boolean; reason: string; slope: number | null; rr: number | null };
 
 const num = (v: string | undefined, d: number) => { const n = Number(v); return v != null && v.trim() !== "" && Number.isFinite(n) ? n : d; };
 export const gateEnabled = () => !/^(0|off|false|no)$/i.test(String(process.env.GENX_QUALITY_GATE ?? "").trim());
 export const minSlopeUsd = () => num(process.env.GENX_MIN_SLOPE_USD, 1);
-export const minRR = () => num(process.env.GENX_MIN_RR, 1.5);
+export const minRR = () => num(process.env.GENX_MIN_RR, 1.0);
 
 /** Pure decision (unit tested). slope = sma20h(now) - sma20h(3h ago), in dollars. */
 export function decideGate(o: {

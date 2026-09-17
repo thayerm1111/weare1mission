@@ -1359,7 +1359,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     const q = await genxGoldQualityGate(admin, { side: sig.side, entryLow: sig.entryLow, entryHigh: sig.entryHigh, stop: sig.stop, tp: sig.tp });
     if (!q.ok) {
       try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: quality_gate ${q.reason}`.slice(0, 200) }); } catch { /* breadcrumb best-effort */ }
-      if (shouldNote("quality", sig.side)) { try { await sendTelegram(`🧭 <b>${genxLabel()} gold — skipping this ${sig.side.toUpperCase()}</b>\nIt doesn't pass the quality check: ${q.reason}. Waiting for a setup with the trend and at least 1.5:1 reward.`); } catch { /* note best-effort */ } }
+      if (shouldNote("quality", sig.side)) { try { await sendTelegram(`🧭 <b>${genxLabel()} gold — skipping this ${sig.side.toUpperCase()}</b>\nIt doesn't pass the quality check: ${q.reason}. Waiting for a setup with the trend and at least 1:1 reward.`); } catch { /* note best-effort */ } }
       return { members: 0, placed: 0 };
     }
   }

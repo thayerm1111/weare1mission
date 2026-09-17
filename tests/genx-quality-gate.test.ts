@@ -27,3 +27,14 @@ test('missing trend data fails open on the slope check', () => {
   const r = decideGate({ ...base, side: 'buy', entryLow: 4299, entryHigh: 4300, stop: 4295, tp: 4320, slope: null });
   assert.equal(r.ok, true);
 });
+
+test('owner 09-17: default minimum reward is 1:1 (the 09-16 1.22R SELL now passes)', async () => {
+  const { minRR } = await import('../src/lib/genx/qualityGate');
+  const prev = process.env.GENX_MIN_RR; delete process.env.GENX_MIN_RR;
+  try {
+    assert.equal(minRR(), 1);
+    const r = decideGate({ side: 'sell', entryLow: 4268.33, entryHigh: 4269.40, stop: 4276.06, tp: 4256.66, slope: -2, minSlope: 1 });
+    assert.ok(r.rr! >= 1 && r.rr! < 1.5, `rr ${r.rr}`);
+    assert.equal(r.ok, true, r.reason);
+  } finally { if (prev != null) process.env.GENX_MIN_RR = prev; }
+});
