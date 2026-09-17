@@ -25,6 +25,9 @@ export type TradePhase =
   | "trail"                // trailing stop advanced, broker-confirmed
   | "trail_unconfirmed"    // trail modify acked but broker read-back didn't confirm
   | "closed"               // position closed + outcome booked from broker history
+  | "member_close" | "member_close_err"             // member tapped Close on the live trade card
+  | "member_break_even" | "member_break_even_err"   // member tapped Break-even on the live trade card
+  | "member_partial" | "member_partial_err"         // member tapped Partial on the live trade card
   | "regrade"              // a booked outcome corrected by the ledger self-repair sweep
   | "tp_reattached"        // a broker-dropped take-profit re-attached by the manager
   | "sl_reattached"        // a broker-dropped stop-loss re-attached by the manager (fan-out speed defer)

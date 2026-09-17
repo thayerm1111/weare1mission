@@ -152,6 +152,7 @@ function LiveState({ live, recent, now }: { live: Live; recent: Recent[]; now: n
               <p className="mt-1 text-[11px] font-semibold" style={{ color: K.mut }}>{live.accountsIn === 1 ? "of your accounts in this trade" : "of your accounts in this trade"}</p>
             </div>
           </div>
+          <TradeControls />
           <LastThree recent={recent} now={now} />
         </div>
       </div>
@@ -213,6 +214,51 @@ function Stat({ icon, label, value, color }: { icon: React.ReactNode; label: str
     <div className="rounded-lg px-2.5 py-2" style={{ background: "rgba(255,255,255,0.04)" }}>
       <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: K.mut2 }}>{icon}{label}</p>
       <p className="mt-0.5 font-mono text-[14px] font-bold tabular-nums" style={{ color: color ?? K.text }}>{value}</p>
+    </div>
+  );
+}
+
+/* Member controls (owner 09-17): close / take a partial / stop to break-even on the member's own accounts.
+   Two taps: the first arms the button, the second sends it to TradeLocker. */
+type ActRes = { account: string; ok: boolean; message: string };
+const ACTS: { id: "breakeven" | "partial" | "close"; label: string; confirm: string; color: string }[] = [
+  { id: "breakeven", label: "Stop to BE", confirm: "Tap to move stop", color: K.cyan },
+  { id: "partial", label: "Take partial", confirm: "Tap to close half", color: K.amber },
+  { id: "close", label: "Close trade", confirm: "Tap to close all", color: K.rose },
+];
+function TradeControls() {
+  const [armed, setArmed] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [out, setOut] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => { if (!armed) return; const t = setTimeout(() => setArmed(null), 4000); return () => clearTimeout(t); }, [armed]);
+  const send = async (id: string) => {
+    if (busy) return;
+    if (armed !== id) { setArmed(id); setOut(null); return; }
+    setArmed(null); setBusy(id);
+    try {
+      const r = await fetch("/api/floor/live-trade/action", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: id }) });
+      const j = (await r.json()) as { ok?: boolean; results?: ActRes[]; error?: string };
+      const res = j.results ?? [];
+      const text = res.length ? res.map((x) => `${x.account}: ${x.message}`).join(" · ") : j.error === "no_open_trade" ? "No open trade on your accounts" : "Couldn't send — try again";
+      setOut({ ok: !!j.ok, text });
+    } catch { setOut({ ok: false, text: "Couldn't send — try again" }); }
+    setBusy(null);
+  };
+  return (
+    <div>
+      <div className="grid grid-cols-3 gap-2">
+        {ACTS.map((a) => {
+          const on = armed === a.id;
+          return (
+            <button key={a.id} type="button" onClick={() => void send(a.id)} disabled={!!busy}
+              className="rounded-xl px-2 py-2.5 text-[12px] font-extrabold transition active:scale-95 disabled:opacity-60"
+              style={{ background: on ? a.color : `${a.color}1f`, color: on ? "#061018" : a.color, border: `1px solid ${a.color}66` }}>
+              {busy === a.id ? "Sending…" : on ? a.confirm : a.label}
+            </button>
+          );
+        })}
+      </div>
+      {out && <p className="mt-2 text-[11px] font-semibold leading-snug" style={{ color: out.ok ? K.green : K.amber }}>{out.text}</p>}
     </div>
   );
 }

@@ -1012,6 +1012,13 @@ input{font:inherit}
 .ltc-chip.l{background:rgba(255,180,84,.1);border-color:rgba(255,180,84,.35)}.ltc-chip.l b{color:#ffb454}
 .ltc-chip.e{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12)}.ltc-chip.e b{color:#cfe}
 .ltc-radar{position:absolute;right:-30px;top:-30px;width:140px;height:140px;border-radius:50%;border:1px solid rgba(65,216,230,.25);animation:ltcping 2.8s ease-out infinite}
+.ltc-btns{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:12px}
+.ltc-btn{border-radius:14px;padding:11px 4px;font-size:12px;font-weight:900;border:1px solid;background:transparent;transition:transform .1s}
+.ltc-btn:active{transform:scale(.96)}.ltc-btn:disabled{opacity:.6}
+.ltc-btn.be{color:#41d8e6;border-color:rgba(65,216,230,.45);background:rgba(65,216,230,.1)}.ltc-btn.be.armed{background:#41d8e6;color:#061018}
+.ltc-btn.pt{color:#ffb454;border-color:rgba(255,180,84,.45);background:rgba(255,180,84,.1)}.ltc-btn.pt.armed{background:#ffb454;color:#061018}
+.ltc-btn.cl{color:#ff6b6b;border-color:rgba(255,107,107,.45);background:rgba(255,107,107,.1)}.ltc-btn.cl.armed{background:#ff6b6b;color:#061018}
+.ltc-out{margin-top:8px;font-size:11.5px;font-weight:700;line-height:1.35}.ltc-out.ok{color:#2ee88f}.ltc-out.bad{color:#ffb454}
 @keyframes ltcping{0%{transform:scale(.4);opacity:1}100%{transform:scale(1.2);opacity:0}}
 </style>
 </head>
@@ -4547,6 +4554,32 @@ input{font:inherit}
     </div>`;
   }
 
+
+  function TradeControls() {
+    var armed = useState(null), busy = useState(null), out = useState(null);
+    useEffect(function () { if (!armed[0]) return; var t = setTimeout(function () { armed[1](null); }, 4000); return function () { clearTimeout(t); }; }, [armed[0]]);
+    var ACTS = [
+      { id: "breakeven", label: "Stop to BE", confirm: "Tap to move stop", c: "be" },
+      { id: "partial", label: "Take partial", confirm: "Tap to close half", c: "pt" },
+      { id: "close", label: "Close trade", confirm: "Tap to close all", c: "cl" }
+    ];
+    function send(id) {
+      if (busy[0]) return;
+      if (armed[0] !== id) { armed[1](id); out[1](null); return; }
+      armed[1](null); busy[1](id);
+      apiPost("/api/floor/live-trade/action", { action: id }).then(function (j) {
+        var res = arr(j && j.results);
+        out[1]({ ok: !!(j && j.ok), text: res.length ? res.map(function (x) { return x.account + ": " + x.message; }).join(" · ") : (j && j.error === "no_open_trade" ? "No open trade on your accounts" : "Couldn't send — try again") });
+      }).catch(function () { out[1]({ ok: false, text: "Couldn't send — try again" }); }).then(function () { busy[1](null); });
+    }
+    return html`<div class="ltc-ctl">
+      <div class="ltc-btns">${ACTS.map(function (a) {
+        var on = armed[0] === a.id;
+        return html`<button class=${"ltc-btn " + a.c + (on ? " armed" : "")} disabled=${!!busy[0]} onClick=${function () { send(a.id); }}>${busy[0] === a.id ? "Sending…" : on ? a.confirm : a.label}</button>`;
+      })}</div>
+      ${out[0] ? html`<div class=${"ltc-out " + (out[0].ok ? "ok" : "bad")}>${out[0].text}</div>` : null}
+    </div>`;
+  }
   function LiveTradeCard() {
     var st = useState(null), now = useState(Date.now());
     useEffect(function () {
@@ -4558,7 +4591,7 @@ input{font:inherit}
     var d = st[0]; if (!d) return null;
     var recent = arr(d.recent), L = d.live;
     function ago(at) { var m = Math.max(0, Math.round((Date.now() - Date.parse(at)) / 60000)); return m < 60 ? m + "m ago" : m < 1440 ? Math.round(m / 60) + "h ago" : Math.round(m / 1440) + "d ago"; }
-    var last = recent.length ? html`<div class="ltc-last"><div class="ltc-lk">Your last ${recent.length} trades</div><div class="ltc-chips">${recent.map(function (r) {
+    var last = recent.length ? html`<div class="ltc-last"><div class="ltc-lk">Your last ${recent.length === 1 ? "trade" : recent.length + " trades"}</div><div class="ltc-chips">${recent.map(function (r) {
       var c = r.grade === "WIN" ? "w" : r.grade === "LESSON" ? "l" : "e";
       return html`<div class=${"ltc-chip " + c}><b>${r.grade === "WIN" ? "🏆 Win" : r.grade === "LESSON" ? "💡 Lesson" : "Even"}</b><span>${r.side} · ${r.pips > 0 ? "+" : ""}${r.pips}p · ${ago(r.at)}</span></div>`;
     })}</div></div>` : null;
@@ -4585,6 +4618,7 @@ input{font:inherit}
       ${pct != null ? html`<div class="ltc-rail"><div class="ltc-dot" style=${"left:" + pct + "%"}></div></div><div class="ltc-rl"><span>STOP</span><span>TARGET</span></div>` : null}
       <div class="ltc-grid"><div><b>${f(L.entry)}</b><span>Entry</span></div><div><b>${f(L.price)}</b><span>Now</span></div><div><b>${f(L.target)}</b><span>Target</span></div><div><b>${f(L.stop)}</b><span>Stop</span></div></div>
       <div class="ltc-riders">🔥 ${L.accountsIn === 1 ? "Your account is" : "Your " + L.accountsIn + " accounts are"} in this trade</div>
+      <${TradeControls} />
       ${last}</div>`;
   }
   function HomeScreen(props) {
