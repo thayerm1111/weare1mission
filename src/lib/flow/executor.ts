@@ -118,8 +118,10 @@ async function resolveNewPositionId(a: { env: TLEnv; token: string; accNum: stri
 // instruments"), so a trade would fill on some accounts and fail on others.
 // Cache the list per account for a few minutes and retry once on a transient
 // failure — dramatically fewer broker calls, so fills land on all accounts.
-const INSTRUMENT_TTL_MS = 10 * 60_000;
+const INSTRUMENT_TTL_MS = 60 * 60_000; // owner 09-17 entry speed: 10→60 min so a signal never waits on the instrument list (stale copy is still the fallback)
 const instrumentCache = new Map<string, { at: number; data: TLInstrument[] }>();
+/** Pre-load a connection's instrument list before a setup triggers (entry speed, owner 09-17). */
+export async function warmInstruments(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }): Promise<boolean> { return (await instrumentsFor(a)).ok; }
 async function instrumentsFor(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }): Promise<{ ok: true; data: TLInstrument[] } | { ok: false; error: string }> {
   // Key by CONNECTION when we know it: every account under one broker login shares
   // the same instrument universe, so the accounts on a multi-account login (e.g. the

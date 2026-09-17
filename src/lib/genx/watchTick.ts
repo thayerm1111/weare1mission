@@ -4,6 +4,7 @@ import { type Mode } from "@/lib/genxCompute";
 import { confirmEntry } from "@/lib/genxConfirm";
 import { sendTelegram, esc } from "@/lib/telegram";
 import { genxLabel } from "@/lib/genx/brand";
+import { warmGoldFleet } from "@/lib/flow/warmFleet";
 import { placeGenxGold, placeGenxFollower, rewardRisk } from "@/lib/flow/autoExec";
 import { beat } from "@/lib/flow/health";
 import { genx2FlagsSnapshot } from "@/lib/genx2/flags";
@@ -189,6 +190,8 @@ export async function watchPass(admin: Admin, mdKey: string, tgReady: boolean): 
   const nowIso = new Date().toISOString();
   const { data } = await admin.from("genx_alerts").select("*").eq("state", "forming");
   const rows = ((data ?? []) as AlertRow[]).sort((x, y) => Date.parse(x.created_at) - Date.parse(y.created_at));
+  // Entry speed: a setup is forming and could confirm any second — keep every member's broker login warm (worker only).
+  if (rows.length && process.env.WORKER_WARM_FLEET !== "off" && typeof process !== "undefined" && !process.env.VERCEL) warmGoldFleet(`${rows.length} forming GENX setup(s)`);
   const sent: string[] = [];
   for (const row of rows) {
     try {

@@ -56,7 +56,16 @@ const RL_MAX_RETRIES = 4;
 // remains the backstop. WRITES (order placement/modify/close) stay strictly single-file,
 // exactly as before — bursting those risks dropped placements, since non-1015 429s on a
 // POST are deliberately never retried.
-const READ_LANES = 3;
+const READ_LANES = 5;
+// ENTRY SPEED (owner 09-17: "we really need to speed up entry... execution needs to happen the fastest possible
+// way"). The 09-17 12:51 fan-out took 11 minutes (median 65s per account from reservation to confirmed order)
+// because EVERY write on a host — every member's token refresh AND every member's order — queued single-file
+// behind one lane. Writes are now split: token refreshes/logins get their own lanes (they never touch an
+// order), and order/position writes run in WRITE_LANES parallel lanes keyed by broker account, so one
+// account's writes stay in order while different accounts fire at the same time. The per-lane gap, the
+// 1015 retry and the host-wide cooloff are unchanged, so a rate-limit still backs everyone off together.
+const WRITE_LANES = 8;
+const AUTH_LANES = 4;
 const _hostTail = new Map<string, Promise<unknown>>();
 const _hostLastAt = new Map<string, number>();
 const _readRR = new Map<string, number>();
@@ -88,6 +97,8 @@ function _noteRateLimited(host: string): void {
   const cur = _hostCool.get(host);
   const streak = cur && now < cur.until + 30_000 ? cur.streak + 1 : 1;
   _hostCool.set(host, { until: now + Math.min(15_000, 3_000 * streak), streak });
+  // eslint-disable-next-line no-console
+  console.warn(`[${new Date(now).toISOString()}] tradelocker: RATE LIMITED by ${host} (streak ${streak}) — host cooloff ${Math.min(15_000, 3_000 * streak)}ms`);
 }
 async function _cooloffWait(host: string): Promise<void> {
   for (;;) {
@@ -97,11 +108,18 @@ async function _cooloffWait(host: string): Promise<void> {
   }
 }
 
-function pacedByHost<T>(host: string, isGet: boolean, fn: () => Promise<T>): Promise<T> {
-  if (!isGet) return pacedByLane(`${host}|w`, fn); // writes: single-file, unchanged
+function laneHash(k: string): number { let h = 0x811c9dc5; for (let i = 0; i < k.length; i++) { h ^= k.charCodeAt(i); h = Math.imul(h, 0x01000193); } h ^= h >>> 15; return h >>> 0; } // FNV-1a + avalanche
+/** Which pacing lane a request uses (pure, unit-tested). Reads round-robin; auth POSTs round-robin on their
+ *  own lanes; order/position writes hash by broker account so one account's writes never interleave. */
+export function laneFor(host: string, method: string, path: string, accountKey: string, rr: number): string {
+  if (method === "GET") return `${host}|r${rr % READ_LANES}`;
+  if (path.startsWith("/auth/")) return `${host}|a${rr % AUTH_LANES}`;
+  return `${host}|w${laneHash(accountKey || path) % WRITE_LANES}`;
+}
+function pacedByHost<T>(host: string, method: string, path: string, accountKey: string, fn: () => Promise<T>): Promise<T> {
   const n = (_readRR.get(host) ?? 0) + 1;
   _readRR.set(host, n);
-  return pacedByLane(`${host}|r${n % READ_LANES}`, fn);
+  return pacedByLane(laneFor(host, method, path, accountKey, n), fn);
 }
 
 function isCloudflare1015(status: number, text: string): boolean {
@@ -127,7 +145,9 @@ async function tlFetch(env: TLEnv, path: string, init: RequestInit & { accessTok
     } finally { clearTimeout(to); }
   };
 
-  return pacedByHost(host, isGet, async () => {
+  const acctFromPath = /\/accounts\/([^/]+)/.exec(path)?.[1] ?? "";
+  const accountKey = `${acctFromPath}|${init.accNum ?? ""}|${(init.accessToken ?? "").slice(-16)}`;
+  return pacedByHost(host, method, path, accountKey, async () => {
     await _cooloffWait(host); // a live host-wide cooloff holds new dispatches too
     let res = await once();
     for (let attempt = 0; attempt < RL_MAX_RETRIES; attempt++) {

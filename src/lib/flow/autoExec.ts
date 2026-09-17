@@ -765,7 +765,7 @@ const GOLD_CLAIM_SEC = 90;
 // scanner's time budget, so most members silently missed every signal. A modest cap places every
 // member within a few seconds while staying well under TradeLocker's per-connection rate limits
 // (the executor already caches instruments per connection and retries on 429).
-const FANOUT_CONCURRENCY = 12; // raised 8→12 (owner 09-09 "all accounts fired upon"): members are independent credentials, so wider is safe — the last member now fills ~1/3 sooner on a big fan-out
+const FANOUT_CONCURRENCY = 40; // owner 09-17 "execution needs to happen the fastest possible way": 12→40 now that broker writes run in parallel lanes (tradelocker.ts) // raised 8→12 (owner 09-09 "all accounts fired upon"): members are independent credentials, so wider is safe — the last member now fills ~1/3 sooner on a big fan-out
 
 /** Run `fn` over `items` with a bounded number in flight at once, preserving result order.
  *  Single-threaded JS: the shared cursor is incremented synchronously, so no two workers ever
@@ -1529,7 +1529,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       const { data: won } = await admin.rpc("flow_try_claim", { p_user: userId, p_symbol: "XAUUSD", p_cooldown_secs: GOLD_CLAIM_SEC });
       if (won !== true) { await memberSkip("claim_busy (this member was already placing gold within 90s)"); return 0; }
 
-      const allAccounts = await activeAccounts(userId);
+      const allAccounts = await activeAccounts(userId, { maxBrokerAgeMs: 90_000 }); // warm broker login/equity (DB settings always fresh)
       // PER-ACCOUNT SAFETY MODE: drop this member's accounts that are conservative AND in
       // a gold loss-cutoff. Aggressive accounts still take it. None left → release claim.
       let accounts = await filterAccountsForAsset(admin, allAccounts, "XAUUSD");

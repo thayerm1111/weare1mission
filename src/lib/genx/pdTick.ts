@@ -25,6 +25,7 @@ import { buildContext } from "@/lib/genx3/v31/context";
 import { entryBlackout } from "@/lib/genx3/v31/engine";
 import { pdhPdlBreakRetest, newPdState, anchorOf, type PdMachine } from "@/lib/genx3/v32/pdhpdl";
 import { score } from "@/lib/genx3/v32/engine";
+import { warmGoldFleet } from "@/lib/flow/warmFleet";
 import { pdRow } from "@/lib/genx3/v32/runtime";
 import type { Cand32 } from "@/lib/genx3/v32/engines";
 
@@ -109,6 +110,8 @@ export async function genx1PdTick(admin: Admin): Promise<PdTickResult> {
   const ctx = buildContext(series, asOf);
   if (!ctx) return { ran: false, reason: "insufficient_history" };
   const out = pdhPdlBreakRetest(series, ctx, st);
+  // Entry speed: a retest in progress/defended/armed means an ENTER NOW may be minutes away — warm the fleet.
+  if (out.machines.some((m) => m.phase === "RETEST_IN_PROGRESS" || m.phase === "RETEST_DEFENDED" || m.phase === "ENTRY_ARMED")) warmGoldFleet("pdh/pdl retest in progress");
   const c = out.cands[0];
   if (!c) { await persist(admin, out.machines).catch(() => {}); return { ran: true, fired: null }; }
 

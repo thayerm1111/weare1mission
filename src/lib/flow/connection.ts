@@ -1,7 +1,7 @@
 import { SEND_IT_ENABLED } from "./automationPolicy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret } from "@/lib/flow/crypto";
-import { authenticate, refresh as tlRefresh, listAccounts, type TLEnv } from "@/lib/flow/tradelocker";
+import { authenticate, refresh as tlRefresh, listAccounts, type TLEnv, type TLAccount } from "@/lib/flow/tradelocker";
 
 /**
  * FLOW broker connection helpers (server-only).
@@ -114,12 +114,18 @@ export type ActiveAccount = {
  * out over. A connection that can't mint a token is skipped (its accounts are
  * simply not traded this cycle).
  */
-export async function activeAccounts(userId: string): Promise<ActiveAccount[]> {
+// ENTRY SPEED (owner 09-17): broker login + account list per connection, kept warm for a short time. The DB
+// side (which accounts are enabled, risk settings, Send It) is ALWAYS re-read, so a member who switches an
+// account off is never traded from cache — only the broker token and equity snapshot are reused.
+const brokerCache = new Map<string, { at: number; env: TLEnv; token: string; live: TLAccount[] }>();
+export async function activeAccounts(userId: string, opts: { maxBrokerAgeMs?: number } = {}): Promise<ActiveAccount[]> {
   const admin = createAdminClient();
   if (!admin) return [];
   const conns = await getAllConnections(userId);
-  const out: ActiveAccount[] = [];
-  for (const conn of conns) {
+  const maxAge = opts.maxBrokerAgeMs ?? 0;
+  // Connections are independent broker logins — resolve them in parallel.
+  const perConn = await Promise.all(conns.map(async (conn): Promise<ActiveAccount[]> => {
+    const out: ActiveAccount[] = [];
     // Include the per-account risk override when the column exists; if it hasn't
     // been added yet, fall back to a select without it so trading never breaks.
     type AcctRow = { account_id: string; acc_num: string | null; name: string | null; currency: string | null; risk_pct?: number | null; risk_mode?: string | null; send_it?: boolean | null; send_it_stack?: boolean | null; send_it_guards?: boolean | null };
@@ -134,31 +140,40 @@ export async function activeAccounts(userId: string): Promise<ActiveAccount[]> {
         .eq("connection_id", conn.id).eq("autotrade_enabled", true);
       enabled = (fb.data ?? []) as AcctRow[];
     }
-    if (!enabled.length) continue;
-    // Token for this connection, with ONE retry. A transient broker-auth blip (GenesisFX in
-    // particular) must NOT silently drop the whole connection's autotrade-enabled accounts
-    // from the fan-out — that is what skipped a live account on a signal every other account
-    // took. Retry once; if it STILL fails, log a VISIBLE skip (never a silent miss) so the
-    // reason is on record instead of the account just vanishing from the fan-out.
-    let t = await mintTokenForConn(conn);
-    if (!t.ok) { await new Promise((r) => setTimeout(r, 500)); t = await mintTokenForConn(conn); }
-    if (!t.ok) {
-      try {
-        await admin.from("flow_auto_events").insert({
-          user_id: userId, symbol: "XAUUSD", status: "skipped",
-          reason: `connection_unreachable: ${conn.broker || "broker"} auth failed — ${t.error}`.slice(0, 200),
-        });
-      } catch { /* logging is best-effort */ }
-      continue;
+    if (!enabled.length) return out;
+    let env: TLEnv, token: string, live: TLAccount[];
+    const hit = brokerCache.get(conn.id);
+    if (maxAge > 0 && hit && Date.now() - hit.at < maxAge) {
+      ({ env, token } = hit); live = hit.live;
+    } else {
+      // Token for this connection, with ONE retry. A transient broker-auth blip (GenesisFX in
+      // particular) must NOT silently drop the whole connection's autotrade-enabled accounts
+      // from the fan-out — that is what skipped a live account on a signal every other account
+      // took. Retry once; if it STILL fails, log a VISIBLE skip (never a silent miss) so the
+      // reason is on record instead of the account just vanishing from the fan-out.
+      let t = await mintTokenForConn(conn);
+      if (!t.ok) { await new Promise((r) => setTimeout(r, 500)); t = await mintTokenForConn(conn); }
+      if (!t.ok) {
+        try {
+          await admin.from("flow_auto_events").insert({
+            user_id: userId, symbol: "XAUUSD", status: "skipped",
+            reason: `connection_unreachable: ${conn.broker || "broker"} auth failed — ${t.error}`.slice(0, 200),
+          });
+        } catch { /* logging is best-effort */ }
+        return out;
+      }
+      env = t.env; token = t.token;
+      // Live equity per account (best-effort; falls back to null → caller may skip sizing).
+      const accRes = await listAccounts(t.env, t.token);
+      live = accRes.ok ? accRes.data : [];
+      if (accRes.ok) brokerCache.set(conn.id, { at: Date.now(), env, token, live: accRes.data });
+      if (brokerCache.size > 2000) brokerCache.clear();
     }
-    // Live equity per account (best-effort; falls back to null → caller may skip sizing).
-    const accRes = await listAccounts(t.env, t.token);
-    const live = accRes.ok ? accRes.data : [];
     for (const a of enabled) {
       if (!a.acc_num) continue;
       const l = live.find((x) => String(x.accountId) === String(a.account_id));
       out.push({
-        connId: conn.id, env: t.env, token: t.token,
+        connId: conn.id, env, token,
         accountId: String(a.account_id), accNum: String(a.acc_num),
         equity: l?.equity ?? l?.balance ?? null, balance: l?.balance ?? null,
         currency: l?.currency ?? a.currency ?? null, name: a.name ?? null,
@@ -169,8 +184,9 @@ export async function activeAccounts(userId: string): Promise<ActiveAccount[]> {
         sendItGuards: a.send_it_guards === true, // default: bypass safeguards (classic Send It)
       });
     }
-  }
-  return out;
+    return out;
+  }));
+  return perConn.flat();
 }
 
 async function persistTokens(admin: NonNullable<ReturnType<typeof createAdminClient>>, connId: string, refreshToken: string, accessToken: string) {
