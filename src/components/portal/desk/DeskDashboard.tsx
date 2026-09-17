@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { LiveTradeCard } from "@/components/portal/LiveTradeCard";
 import Link from "next/link";
 import { PathHub } from "../PathHub";
 import { DailyEngagement } from "../DailyEngagement";
@@ -527,6 +528,8 @@ export function DeskDashboard({ firstName, sessions, updates }: { firstName: str
 
   return (
     <div className="space-y-12">
+      {/* LIVE TRADE (owner 09-17): the first thing members see on the dashboard */}
+      <LiveTradeCard />
       <DeskHero firstName={firstName} />
       <DeskResults />
       <TradingDesk />

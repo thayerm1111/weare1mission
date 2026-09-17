@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Radio, Filter, Zap, Clock, ChevronRight, Maximize2, X, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { LIVE_URL, CALLS } from "@/lib/liveCalls";
+import { LiveTradeCard } from "@/components/portal/LiveTradeCard";
 
 /* ============================================================================
    THE FLOOR — live trading command center (desktop portal).
@@ -202,6 +203,8 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-72 opacity-60" style={{ background: `radial-gradient(1000px 280px at 85% -30%, ${C.violet}2e, transparent 70%), radial-gradient(760px 240px at 12% -20%, ${C.blue}22, transparent 70%)` }} />
 
       <div className="relative space-y-3 p-3 sm:p-4">
+        {/* ── LIVE TRADE (owner 09-17): the first thing on The Floor ── */}
+        <LiveTradeCard />
         {/* ── HEADER ── */}
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div>
