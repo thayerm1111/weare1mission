@@ -4558,7 +4558,7 @@ input{font:inherit}
     var d = st[0]; if (!d) return null;
     var recent = arr(d.recent), L = d.live;
     function ago(at) { var m = Math.max(0, Math.round((Date.now() - Date.parse(at)) / 60000)); return m < 60 ? m + "m ago" : m < 1440 ? Math.round(m / 60) + "h ago" : Math.round(m / 1440) + "d ago"; }
-    var last = recent.length ? html`<div class="ltc-last"><div class="ltc-lk">Last ${recent.length} trades</div><div class="ltc-chips">${recent.map(function (r) {
+    var last = recent.length ? html`<div class="ltc-last"><div class="ltc-lk">Your last ${recent.length} trades</div><div class="ltc-chips">${recent.map(function (r) {
       var c = r.grade === "WIN" ? "w" : r.grade === "LESSON" ? "l" : "e";
       return html`<div class=${"ltc-chip " + c}><b>${r.grade === "WIN" ? "🏆 Win" : r.grade === "LESSON" ? "💡 Lesson" : "Even"}</b><span>${r.side} · ${r.pips > 0 ? "+" : ""}${r.pips}p · ${ago(r.at)}</span></div>`;
     })}</div></div>` : null;
@@ -4567,7 +4567,7 @@ input{font:inherit}
       return html`<div class="ltc idle"><div class="ltc-radar"></div>
         <div class="ltc-top"><span class="ltc-badge"><i></i>GENX SCANNING</span></div>
         <div class="ltc-side">Hunting the next entry</div>
-        <div class="ltc-setup">${recent.length ? wins + " of the last " + recent.length + " were wins" : "No trade live right now — the card lights up the moment one fires."}</div>
+        <div class="ltc-setup">${recent.length ? wins + " of the last " + recent.length + " were wins for you" : "No trade live on your account right now — this lights up the moment one fills."}</div>
         ${last}</div>`;
     }
     var buy = L.side === "BUY", secs = Math.max(0, Math.round((now[0] - Date.parse(L.openedAt)) / 1000));
@@ -4584,7 +4584,7 @@ input{font:inherit}
       ${L.pips != null ? html`<div class=${"ltc-pips " + (L.pips >= 0 ? "up" : "dn")}>${L.pips > 0 ? "+" : ""}${L.pips}<small>pips${toT != null ? " · " + toT + "% to target" : ""}</small></div>` : null}
       ${pct != null ? html`<div class="ltc-rail"><div class="ltc-dot" style=${"left:" + pct + "%"}></div></div><div class="ltc-rl"><span>STOP</span><span>TARGET</span></div>` : null}
       <div class="ltc-grid"><div><b>${f(L.entry)}</b><span>Entry</span></div><div><b>${f(L.price)}</b><span>Now</span></div><div><b>${f(L.target)}</b><span>Target</span></div><div><b>${f(L.stop)}</b><span>Stop</span></div></div>
-      <div class="ltc-riders">🔥 ${L.accountsIn} account${L.accountsIn === 1 ? "" : "s"} riding this trade</div>
+      <div class="ltc-riders">🔥 ${L.accountsIn === 1 ? "Your account is" : "Your " + L.accountsIn + " accounts are"} in this trade</div>
       ${last}</div>`;
   }
   function HomeScreen(props) {

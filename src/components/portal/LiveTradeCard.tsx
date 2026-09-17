@@ -149,7 +149,7 @@ function LiveState({ live, recent, now }: { live: Live; recent: Recent[]; now: n
             <span className="grid h-10 w-10 place-items-center rounded-full" style={{ background: `${K.cyan}1a`, color: K.cyan }}><Users className="h-5 w-5" /></span>
             <div>
               <p className="text-2xl font-black leading-none tabular-nums">{live.accountsIn}</p>
-              <p className="mt-1 text-[11px] font-semibold" style={{ color: K.mut }}>{live.accountsIn === 1 ? "account riding this trade" : "accounts riding this trade"}</p>
+              <p className="mt-1 text-[11px] font-semibold" style={{ color: K.mut }}>{live.accountsIn === 1 ? "of your accounts in this trade" : "of your accounts in this trade"}</p>
             </div>
           </div>
           <LastThree recent={recent} now={now} />
@@ -173,7 +173,7 @@ function IdleState({ recent, now }: { recent: Recent[]; now: number }) {
             <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: K.cyan }}>GENX · Gold</p>
             <p className="mt-1 text-xl font-black leading-tight tracking-tight sm:text-2xl">Hunting the next entry</p>
             <p className="mt-1 text-[12px]" style={{ color: K.mut }}>No trade open right now. The moment GENX enters, it shows up live right here.</p>
-            {recent.length > 0 && <p className="mt-2 text-[12px] font-semibold" style={{ color: K.green }}>{wins} of the last {recent.length} {recent.length === 1 ? "trade" : "trades"} closed as wins</p>}
+            {recent.length > 0 && <p className="mt-2 text-[12px] font-semibold" style={{ color: K.green }}>{wins} of the last {recent.length} {recent.length === 1 ? "trade" : "trades"} closed as wins for you</p>}
           </div>
         </div>
         <div className="lg:border-l lg:pl-5" style={{ borderColor: K.line }}><LastThree recent={recent} now={now} /></div>
@@ -185,7 +185,7 @@ function IdleState({ recent, now }: { recent: Recent[]; now: number }) {
 function LastThree({ recent, now }: { recent: Recent[]; now: number }) {
   return (
     <div>
-      <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: K.mut2 }}>Last 3 trades</p>
+      <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: K.mut2 }}>Your last 3 trades</p>
       {recent.length === 0 ? (
         <p className="text-[12px]" style={{ color: K.mut }}>Results appear here as trades close.</p>
       ) : (
