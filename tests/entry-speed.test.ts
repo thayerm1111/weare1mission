@@ -28,3 +28,13 @@ test('fan-out is wider and reuses a warm broker login; account settings are alwa
   assert.ok(fn.indexOf('.eq("autotrade_enabled", true)') < fn.indexOf('brokerCache.get(conn.id)'), 'enabled accounts are read from the DB before any cached broker data is used');
   assert.ok(/warmGoldFleet\(/.test(readFileSync('src/lib/genx/pdTick.ts', 'utf8')) && /warmGoldFleet\(/.test(readFileSync('src/lib/genx/watchTick.ts', 'utf8')));
 });
+
+test('manager exit price from the live stream is calibrated to the broker and stays on the conservative side', async () => {
+  const { streamExitPrice } = await import('../src/lib/flow/flowManage');
+  // broker bid 4350.10 / ask 4350.40 when stream printed 4350.00 → basis +0.25, spread 0.30
+  assert.equal(+streamExitPrice('buy', 4350.00, 0.25, 0.30).toFixed(2), 4350.10, 'long exits at the bid');
+  assert.equal(+streamExitPrice('sell', 4350.00, 0.25, 0.30).toFixed(2), 4350.40, 'short exits at the ask');
+  assert.equal(+streamExitPrice('buy', 4352.00, 0.25, 0.30).toFixed(2), 4352.10, 'moves with the stream');
+  const src = readFileSync('src/lib/flow/flowManage.ts', 'utf8');
+  assert.ok(/QUOTE_CALIBRATE_MS = 20_000/.test(src) && /STREAM_MAX_AGE_MS = 1_500/.test(src), 'stale stream or calibration falls back to the broker quote');
+});

@@ -14,7 +14,7 @@ import { reconcileStaleGoldEntries } from "@/lib/genx2/cancelReconcile";
 import { recoverOrphans } from "@/lib/flow/recover";
 import { logTrade } from "@/lib/flow/tradeLog";
 import { beat } from "@/lib/flow/health";
-import { liveTickExtremes } from "@/lib/flow/liveTicks";
+import { liveTickExtremes, liveTick } from "@/lib/flow/liveTicks";
 
 // Recent intra-minute EXTREMES from the market-data feed. The manager runs once a minute
 // off the instantaneous bid/ask, so a spike that reverses inside the minute (common on
@@ -130,6 +130,20 @@ const MAX_PER_TICK = 24;
 // simply refetches). Positions are ALWAYS read fresh — only the static metadata is cached.
 const _instCache = new Map<string, { at: number; data: TLInstrument[] }>();
 const INSTRUMENT_TTL_MS = 45 * 60 * 1000;
+// BROKER-CALL DIET (owner 09-17 "speed up entry"): TradeLocker rate-limits our single IP, and the manager's
+// per-account broker quote on every pass was its biggest consumer. For gold, the exit price now comes from the
+// worker's live price stream, calibrated to THIS account's broker: every QUOTE_CALIBRATE_MS the broker quote is
+// read once and we store its basis (broker mid − stream price) and spread. Between calibrations:
+//   exit = stream + basis ∓ spread/2  (bid for a long, ask for a short — the same conservative side as before).
+// No fresh stream tick, or no fresh calibration → the broker quote is read exactly as before.
+const QUOTE_CALIBRATE_MS = 20_000;
+const STREAM_MAX_AGE_MS = 1_500;
+const brokerBasis = new Map<string, { at: number; basis: number; spread: number }>();
+/** Pure: stream-derived executable exit price (unit-tested). */
+export function streamExitPrice(side: "buy" | "sell", streamPx: number, basis: number, spread: number): number {
+  const mid = streamPx + basis;
+  return side === "buy" ? mid - spread / 2 : mid + spread / 2;
+}
 
 // CROSS-PASS TOKEN CACHE — the ROOT of the manager's slowness at 54 connections:
 // connectionToken() does a FULL auth refresh round-trip (a POST, on the single-file
@@ -783,6 +797,14 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     const key = `${tok.env}|${accountId}|${inst.tradableInstrumentId}|${inst.infoRouteId || inst.routeId}|${side}`;
     const cached = quoteCache.get(key);
     if (cached && Date.now() - cached.at < 1000) return cached.price;
+    const bKey = `${tok.env}|${accountId}|${symbol}`;
+    if (contractKey(symbol) === "XAUUSD") {
+      const cal = brokerBasis.get(bKey), tick = liveTick("XAU/USD", STREAM_MAX_AGE_MS);
+      if (cal && tick != null && Date.now() - cal.at < QUOTE_CALIBRATE_MS) {
+        const px = +streamExitPrice(side, tick, cal.basis, cal.spread).toFixed(3);
+        if (px > 0) { spreadCache.set(bKey, cal.spread); quoteCache.set(key, { at: Date.now(), price: px }); return px; }
+      }
+    }
     const q = await getQuote(tok.env, tok.token, accNum, inst.tradableInstrumentId, inst.infoRouteId || inst.routeId);
     if (!q.ok) {
       const fb = await feedPrice(symbol);
@@ -792,7 +814,11 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     }
     const { bid, ask } = q.data;
     if (bid != null && ask != null && ask < bid) return null;
-    if (bid != null && ask != null) spreadCache.set(`${tok.env}|${accountId}|${symbol}`, ask - bid);
+    if (bid != null && ask != null) {
+      spreadCache.set(`${tok.env}|${accountId}|${symbol}`, ask - bid);
+      const tick = liveTick("XAU/USD", STREAM_MAX_AGE_MS);
+      if (contractKey(symbol) === "XAUUSD" && tick != null) { brokerBasis.set(bKey, { at: Date.now(), basis: (bid + ask) / 2 - tick, spread: ask - bid }); if (brokerBasis.size > 5000) brokerBasis.clear(); }
+    }
     const price = executablePrice(q.data, side, "exit");
     if (price == null || !Number.isFinite(price) || price <= 0) {
       // Broker quote unusable → fall back to the market-data feed rather than
