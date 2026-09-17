@@ -433,7 +433,10 @@ export async function placeOnActiveAccounts(opts: {
   // window is paid — a due account is billed right here; an account that can't pay sits out (logged).
   if (!isManualSource(opts.source) && tlog && accts.length) {
     const paid = await billedAccountIds(tlog, accts.map((a) => String(a.accountId)));
-    for (const a of accts) if (!paid.has(String(a.accountId))) fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: "flow_credits: out of credits (account paused)" });
+    for (const a of accts) if (!paid.has(String(a.accountId))) {
+      fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: "flow_credits: out of credits (account paused)" });
+      await logEvent(opts.userId, { symbol: canonical, side: opts.side, status: "skipped", reason: `${opts.source}: flow_credits (out of credits)`.slice(0, 60), account_id: a.accountId });
+    }
     accts = accts.filter((a) => paid.has(String(a.accountId)));
   }
   let placed = 0;
@@ -442,7 +445,9 @@ export async function placeOnActiveAccounts(opts: {
   // PARALLEL across the member's broker connections — account #3 no longer waits
   // for account #1's fill+verify round-trip before its own order even leaves.
   const placeOne = async (a: ActiveAccount): Promise<void> => {
-    if (a.equity == null) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: "no_equity" }); return; }
+    // VISIBLE SKIPS (owner 09-17: "some users say their accounts aren't taking the trades") — every account that
+    // sits a trade out now leaves a flow_auto_events row with the reason.
+    if (a.equity == null) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: "no_equity" }); await logEvent(opts.userId, { symbol: canonical, side: opts.side, status: "skipped", reason: `${opts.source}: no_equity (broker did not return this account)`.slice(0, 60), account_id: a.accountId }); return; }
     // Whenever risk-sizing rounds BELOW the broker minimum lot, take the minimum
     // (e.g. 0.01) rather than skip — so a small account still gets the trade. On a
     // tiny account that minimum may risk a bit more than the target %, but the broker
@@ -457,7 +462,7 @@ export async function placeOnActiveAccounts(opts: {
     if (a.equity < 2000) acctRisk = Math.min(acctRisk, 2);
     if (a.equity <= 600) acctRisk = Math.min(acctRisk, 0.5);
     const s = sizeFromRisk({ canonical, entry: opts.entry, stop, equity: a.equity, riskPct: acctRisk, floorToMinLot: true });
-    if (!s.ok || !(s.lots > 0)) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: s.reason || "size_too_small" }); return; }
+    if (!s.ok || !(s.lots > 0)) { fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: s.reason || "size_too_small" }); await logEvent(opts.userId, { symbol: canonical, side: opts.side, status: "skipped", reason: `${opts.source}: size_skip ${s.reason || "size_too_small"}`.slice(0, 60), account_id: a.accountId }); return; }
     // GENX 3.x WIDE-STOP GUARD (owner 09-16, stop cap removed for 3.x): the minimum-lot floor must not turn a wide
     // structural stop into an oversized loss on a small account. If the floored lot would lose more than 1.5x the
     // account's own risk amount at the stop, this account sits the trade out (logged). Risk % itself is unchanged.

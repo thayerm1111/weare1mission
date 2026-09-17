@@ -1,18 +1,19 @@
 /**
- * FLOW CREDITS — PER CONNECTED ACCOUNT (owner 09-16: "make sure everyone has to use a credit to use flow
- * and when it's watching it pulls credits"; answers: charge per account, Trading Suite subscribers pay too).
+ * FLOW CREDITS — PER MEMBER (owner 09-16: "make sure everyone has to use a credit to use flow and when it's
+ * watching it pulls credits", Trading Suite subscribers pay too; owner 09-17: "only charging one credit, no
+ * matter how many accounts").
  *
- * Every account FLOW is running on (autotrade_enabled OR genx_follower) costs its owner CREDIT_COST.flow_autorun
- * (1) credit per 30-minute watching window while gold is open. The always-on worker bills every armed account
+ * A member with FLOW running on any account (autotrade_enabled OR genx_follower) pays CREDIT_COST.flow_autorun
+ * (1) credit per 30-minute watching window while gold is open — once, however many accounts they connect. The always-on worker bills every armed account
  * each minute whether or not a trade fires; the placement paths also bill a due account before its order leaves,
  * so no account ever trades without a paid window.
  *
- *  • Out of credits → the ACCOUNT is paused (flow_credit_paused) and takes no FLOW/GENX entries. It resumes
+ *  • Out of credits → the member's accounts are paused (flow_credit_paused) and takes no FLOW/GENX entries. It resumes
  *    automatically on the first charge that succeeds after the member tops up.
  *  • Market closed / weekend-close window → nothing is billed.
  *  • A billing SYSTEM error fails open (never pauses a member over a DB blip).
- *  • The window is CLAIMED atomically before the charge, so the worker and a placement can never both bill
- *    the same window.
+ *  • Billing runs in one Postgres function under a per-member lock (flow_bill_member), so the worker and a
+ *    placement can never both bill the same window.
  *  • Manual member plays/tests are never billed or blocked here.
  */
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -40,57 +41,50 @@ export function billingOpen(nowMs: number): boolean {
 export const isManualSource = (source: string) => /^(play|test)/i.test(source);
 
 export type ChargeResult = "charged" | "inside_window" | "paused" | "closed" | "error";
-/** Bill one account if its window is due. Returns whether the account may trade now. */
-export async function chargeAccount(admin: Admin, r: BillRow, nowMs = Date.now()): Promise<{ result: ChargeResult; ok: boolean }> {
+/** Bill one MEMBER for the current 30-min window (one credit however many accounts). Atomic in Postgres. */
+export async function chargeMember(admin: Admin, userId: string, wasPaused: boolean, nowMs = Date.now()): Promise<{ result: ChargeResult; ok: boolean }> {
   if (!billingOpen(nowMs)) return { result: "closed", ok: false };
-  if (!billingDue(r, nowMs)) return { result: "inside_window", ok: true };
-  const nowIso = new Date(nowMs).toISOString();
-  const cutoff = new Date(nowMs - FLOW_ACCOUNT_WINDOW_MS).toISOString();
-  // CLAIM the window first (atomic): only one caller can move flow_last_credit_at for this window.
-  const { data: claimed, error: ce } = await admin.from("flow_broker_accounts")
-    .update({ flow_last_credit_at: nowIso })
-    .eq("account_id", r.account_id)
-    .or(`flow_credit_paused.eq.true,flow_last_credit_at.is.null,flow_last_credit_at.lt.${cutoff}`)
-    .select("account_id");
-  if (ce) return { result: "error", ok: !r.flow_credit_paused };            // system fault → fail open for a paid account
-  if (!claimed || !claimed.length) return { result: "inside_window", ok: true }; // someone else just billed this window
-  let ok = true, systemFault = false;
   try {
-    const { data, error } = await admin.rpc("spend_credits_for", { p_user_id: r.user_id, p_cost: FLOW_ACCOUNT_COST, p_daily_allowance: DAILY_FREE, p_feature: "flow_autorun" });
-    if (error) systemFault = true; else ok = !!(data && (data as { ok?: boolean }).ok);
-  } catch { systemFault = true; }
-  if (systemFault) return { result: "error", ok: !r.flow_credit_paused };
-  await admin.from("flow_broker_accounts").update({ flow_credit_paused: !ok }).eq("account_id", r.account_id);
-  return ok ? { result: "charged", ok: true } : { result: "paused", ok: false };
+    const { data, error } = await admin.rpc("flow_bill_member", { p_user: userId, p_cost: FLOW_ACCOUNT_COST, p_allowance: DAILY_FREE, p_window_secs: FLOW_ACCOUNT_WINDOW_MS / 1000 });
+    if (error || !data) return { result: "error", ok: !wasPaused };          // system fault → fail open for a paid member
+    const d = data as { result: ChargeResult; ok: boolean };
+    return { result: d.result, ok: !!d.ok };
+  } catch { return { result: "error", ok: !wasPaused }; }
 }
 
-/** Placement gate: of these account ids, which may trade right now (billing each due one first)? */
+/** Placement gate: of these account ids, which may trade right now? Each owning member is billed at most once. */
 export async function billedAccountIds(admin: Admin, accountIds: string[]): Promise<Set<string>> {
   const out = new Set<string>();
   if (!accountIds.length) return out;
   const { data, error } = await admin.from("flow_broker_accounts").select("account_id, user_id, flow_last_credit_at, flow_credit_paused").in("account_id", accountIds);
   if (error) { for (const id of accountIds) out.add(id); return out; }     // unreadable → fail open (never block over a DB blip)
-  for (const r of (data ?? []) as BillRow[]) {
-    const c = await chargeAccount(admin, r).catch(() => ({ result: "error" as const, ok: !r.flow_credit_paused }));
-    if (c.ok) out.add(String(r.account_id));
+  const rows = (data ?? []) as BillRow[];
+  const byUser = new Map<string, BillRow[]>();
+  for (const r of rows) { const l = byUser.get(r.user_id) ?? []; l.push(r); byUser.set(r.user_id, l); }
+  for (const [uid, list] of byUser) {
+    const wasPaused = list.every((r) => !!r.flow_credit_paused);
+    const c = await chargeMember(admin, uid, wasPaused);
+    if (c.ok) for (const r of list) out.add(String(r.account_id));
   }
   return out;
 }
 
-/** Worker pass: bill every account FLOW is watching; mirror a per-member paused flag for the UI. */
-export async function billFlowAccounts(admin: Admin, nowMs = Date.now()): Promise<{ open: boolean; accounts: number; charged: number; paused: number; errors: number }> {
-  if (!billingOpen(nowMs)) return { open: false, accounts: 0, charged: 0, paused: 0, errors: 0 };
+/** Worker pass: bill every member FLOW is watching for (one credit per member per window); mirror the paused flag for the UI. */
+export async function billFlowAccounts(admin: Admin, nowMs = Date.now()): Promise<{ open: boolean; members: number; charged: number; paused: number; errors: number }> {
+  if (!billingOpen(nowMs)) return { open: false, members: 0, charged: 0, paused: 0, errors: 0 };
   const { data, error } = await admin.from("flow_broker_accounts").select("account_id, user_id, flow_last_credit_at, flow_credit_paused").or("autotrade_enabled.eq.true,genx_follower.eq.true");
-  if (error) return { open: true, accounts: 0, charged: 0, paused: 0, errors: 1 };
-  const rows = (data ?? []) as BillRow[];
+  if (error) return { open: true, members: 0, charged: 0, paused: 0, errors: 1 };
+  const byUser = new Map<string, BillRow[]>();
+  for (const r of (data ?? []) as BillRow[]) { const l = byUser.get(r.user_id) ?? []; l.push(r); byUser.set(r.user_id, l); }
   let charged = 0, paused = 0, errors = 0;
-  const pausedUsers = new Map<string, boolean>();
-  for (const r of rows) {
-    const c = await chargeAccount(admin, r, nowMs).catch(() => ({ result: "error" as const, ok: true }));
+  for (const [uid, list] of byUser) {
+    const wasPaused = list.every((r) => !!r.flow_credit_paused);
+    // skip the RPC when every account is clearly inside a paid window
+    if (!list.some((r) => billingDue(r, nowMs))) continue;
+    const c = await chargeMember(admin, uid, wasPaused, nowMs);
     if (c.result === "charged") charged++; else if (c.result === "paused") paused++; else if (c.result === "error") errors++;
-    const isPaused = c.result === "paused" || (c.result === "error" && !!r.flow_credit_paused);
-    pausedUsers.set(r.user_id, (pausedUsers.get(r.user_id) ?? false) || isPaused);
+    const isPaused = c.result === "paused" || (c.result === "error" && wasPaused);
+    if (c.result !== "inside_window") { try { await admin.from("flow_auto_settings").update({ credit_paused: isPaused }).eq("user_id", uid).neq("credit_paused", isPaused); } catch { /* UI mirror best-effort */ } }
   }
-  for (const [uid, p] of pausedUsers) { try { await admin.from("flow_auto_settings").update({ credit_paused: p }).eq("user_id", uid).neq("credit_paused", p); } catch { /* UI mirror best-effort */ } }
-  return { open: true, accounts: rows.length, charged, paused, errors };
+  return { open: true, members: byUser.size, charged, paused, errors };
 }

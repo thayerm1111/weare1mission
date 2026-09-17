@@ -1524,8 +1524,10 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       // FLOW credits are enforced PER ACCOUNT inside placeOnActiveAccounts (owner 09-16).
       // Claim gold for this member. FALSE → a gold entry is already live within the
       // cooldown → skip (this blocks GENX's back-to-back ENTER NOW repeats).
+      // VISIBLE SKIPS (owner 09-17): every member that sits a GENX trade out leaves a reason in flow_auto_events.
+      const memberSkip = async (reason: string, accountId?: string) => { try { await admin.from("flow_auto_events").insert({ user_id: userId, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `${sig.tag ?? "genx"}: ${reason}`.slice(0, 120), ...(accountId ? { account_id: accountId } : {}) }); } catch { /* log best-effort */ } };
       const { data: won } = await admin.rpc("flow_try_claim", { p_user: userId, p_symbol: "XAUUSD", p_cooldown_secs: GOLD_CLAIM_SEC });
-      if (won !== true) return 0;
+      if (won !== true) { await memberSkip("claim_busy (this member was already placing gold within 90s)"); return 0; }
 
       const allAccounts = await activeAccounts(userId);
       // PER-ACCOUNT SAFETY MODE: drop this member's accounts that are conservative AND in
@@ -1548,7 +1550,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       // GENX 3.x ACCOUNT WHITELIST (owner 09-16): a 3.x signal reaches ONLY the whitelisted accounts;
       // a legacy (GENX 1.0/2.0) signal never reaches an account that is running GENX 3.x.
       accounts = genx3AccountFilter(accounts, (a) => String(a.accountId), sig, sig.onlyAccountIds || sig.origin === "genx3" ? new Set() : (await genx3Reserved(admin)).accounts);
-      if (!accounts.length) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); return 0; }
+      if (!accounts.length) { await memberSkip(allAccounts.length ? `no_eligible_accounts (${allAccounts.length} connected, all filtered: send-it-only/conservative/whitelist)` : "no_active_accounts (no autotrade account with a working broker login)"); await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); return 0; }
       // MAX ONE OPEN GENX/FLOW GOLD PER ACCOUNT — broker-verified. An account is dropped ONLY
       // when it has a GENX/FLOW gold position the BROKER confirms is still open.
       const verified: ActiveAccount[] = [];
@@ -1564,8 +1566,8 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
         // confirm it closed, we DO NOT place — a missed entry is recoverable, a stacked double
         // position is not. Stale rows still never block: a READABLE broker that shows the
         // position closed frees the account instantly.
-        if (brokerOpen === null) continue;
-        if (genxGoldStillOpen(ledgerPids, brokerOpen)) continue; // genuinely open → max 1, skip
+        if (brokerOpen === null) { await memberSkip("broker_unreadable (can't confirm the open gold trade closed)", String(a.accountId)); continue; }
+        if (genxGoldStillOpen(ledgerPids, brokerOpen)) { await memberSkip("one_open_gold (already in a GENX gold trade)", String(a.accountId)); continue; } // genuinely open → max 1, skip
         verified.push(a); // broker confirms it closed → free for the next signal
       }
       accounts = verified;

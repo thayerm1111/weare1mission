@@ -40,6 +40,7 @@ import { readControl, emergencyDisable } from "@/lib/genx3/runtime";
 import { selectBrain } from "@/lib/genx3/engineSelect";
 import { genx1PdTick } from "@/lib/genx/pdTick";
 import { billFlowAccounts } from "@/lib/flow/flowBilling";
+import { goldReadinessCheck } from "@/lib/flow/readiness";
 import { hostname } from "node:os";
 
 // OWNER 09-09 ("insane fast... trade manager instant"): defaults at the polling
@@ -256,6 +257,8 @@ async function billingLoop(): Promise<never> {
   for (;;) {
     if (shuttingDown || !(await lock("take").catch(() => false))) { await sleep(15_000); continue; }
     log(`flow-billing: lock acquired as ${HOLDER}`);
+    // One read-only gold readiness check per worker start (owner 09-17), after the loops settle.
+    void sleep(90_000).then(() => goldReadinessCheck(admin)).then((r) => log("readiness: done", r)).catch((e) => log("readiness: failed", e instanceof Error ? e.message : e));
     while (!shuttingDown) {
       try {
         const r = await billFlowAccounts(admin);
