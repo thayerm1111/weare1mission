@@ -983,6 +983,12 @@ input{font:inherit}
 .mp-execnote{font-size:10.5px;color:#5e708e;line-height:1.5;margin-top:4px}
 @media(min-width:520px){.mp-2col{grid-template-columns:1fr 1fr}.mp-grid{grid-template-columns:repeat(6,1fr)}}
 
+.gx-hist-btn{width:100%;margin-top:12px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);color:rgba(255,255,255,.62);font-size:12.5px;font-weight:800;padding:10px 12px;cursor:pointer}
+.gx-hist{margin-top:8px;border-radius:16px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.02);padding:10px;display:flex;flex-direction:column;gap:7px}
+.gx-hist-row{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;border-radius:13px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.02);padding:9px 11px;cursor:pointer}
+.gx-hist-row:active{border-color:rgba(245,196,81,.5)}
+.gx-replay{margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;border-radius:13px;border:1px solid rgba(245,196,81,.35);background:rgba(245,196,81,.08);padding:9px 11px;font-size:11px;font-weight:700;color:#f5d68a}
+.gx-replay button{flex-shrink:0;border-radius:9px;border:1px solid rgba(245,196,81,.45);background:transparent;color:#f5d68a;font-size:11px;font-weight:800;padding:5px 9px;cursor:pointer}
 /* -- Live trade card (owner 09-17) -- */
 .ltc{position:relative;overflow:hidden;border-radius:24px;padding:18px;margin-bottom:14px;border:1px solid rgba(46,232,143,.35);background:radial-gradient(120% 90% at 100% 0%,rgba(46,232,143,.18),transparent 60%),linear-gradient(160deg,#0c2230,#07131d);box-shadow:0 0 30px rgba(46,232,143,.14)}
 .ltc.sell{border-color:rgba(255,107,107,.35);background:radial-gradient(120% 90% at 100% 0%,rgba(255,107,107,.16),transparent 60%),linear-gradient(160deg,#241420,#0b0f18);box-shadow:0 0 30px rgba(255,107,107,.12)}
@@ -2947,7 +2953,7 @@ input{font:inherit}
           if (d && d.error === "insufficient_data") return err[1](d.detail || "Not enough recent candles for this pair yet — try again shortly.");
           return err[1]((d && d.detail) || "FLOW couldn't read this pair right now — try again.");
         }
-        res[1](d);
+        res[1](d); replay[1](null); loadPlays();
       }).catch(function (e) { if (e && e.code === 401) props.onLogout(); else err[1]("Something went wrong — try again."); })
         .then(function () { loading[1](false); });
     }
@@ -3078,9 +3084,24 @@ input{font:inherit}
   function GenxScreen(props) {
     var mode = useState("quick"), loading = useState(false), err = useState(""), res = useState(null), needCr = useState(false), open = useState(false);
     var tracked = useState([]), opened = useState(null);
+    // PLAY HISTORY (owner 09-17): every GENX read is kept on the account — reopen the exact readout
+    // you traded from, even after re-analyzing.
+    var plays = useState([]), showPlays = useState(false), replay = useState(null);
+    function loadPlays() { apiGet("/api/genx/history").then(function (d) { if (d && Array.isArray(d.plays)) plays[1](d.plays); }).catch(function () {}); }
+    function openPlay(id) {
+      apiGet("/api/genx/history?id=" + encodeURIComponent(id)).then(function (d) {
+        if (d && d.play && d.play.genx) {
+          res[1]({ ok: true, genx: d.play.genx, price: d.play.price, data_status: d.play.data_status, asOf: d.play.asOf, candles: [] });
+          replay[1]({ at: d.play.at, mode: d.play.mode });
+          showPlays[1](false); err[1](""); opened[1](null);
+          try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch (e) {}
+        }
+      }).catch(function () {});
+    }
     useEffect(function () {
       try { var raw = localStorage.getItem(GX_TRACK_KEY); if (raw) tracked[1](JSON.parse(raw)); } catch (e) {}
       apiGet("/api/genx/tracked").then(function (d) { if (d && Array.isArray(d.tracked)) { tracked[1](d.tracked); try { localStorage.setItem(GX_TRACK_KEY, JSON.stringify(d.tracked)); } catch (e) {} } });
+      loadPlays();
     }, []);
     function persistTracked(next) { tracked[1](next); try { localStorage.setItem(GX_TRACK_KEY, JSON.stringify(next)); } catch (e) {} }
     function trackCurrent(g) {
@@ -3113,7 +3134,7 @@ input{font:inherit}
           if (d && d.error === "insufficient_data") return err[1](d.detail || "Not enough recent Gold candles yet — try again shortly.");
           return err[1]((d && d.detail) || "GENX couldn't read Gold right now — try again.");
         }
-        res[1](d);
+        res[1](d); replay[1](null); loadPlays();
       }).catch(function (e) {
         if (e && e.code === 402) { needCr[1](true); err[1]("You're out of credits — a GENX read costs 5. They reset weekly, or top up from Account."); }
         else if (e && e.code === 401) props.onLogout();
@@ -3162,6 +3183,26 @@ input{font:inherit}
       <div style="text-align:center;margin-top:6px;font-size:11px;opacity:.5">5 credits per read</div>
       ${err[0] ? html`<div class="err" style="margin-top:10px">${err[0]}${needCr[0] ? html` <a href="#" onClick=${function (e) { e.preventDefault(); try { window.open("/portal/credits", "_blank"); } catch (x) {} }} style="color:var(--sky);font-weight:700"> Get credits</a>` : null}</div>` : null}
       ${loading[0] ? html`<div class="gx-analyzing">◆ Reading live Gold — structure, momentum, levels, liquidity…</div>` : null}
+
+      <button class="gx-hist-btn" onClick=${function () { showPlays[1](!showPlays[0]); if (!plays[0].length) loadPlays(); }}>🕘 Your past plays${plays[0].length ? " (" + plays[0].length + ")" : ""} ${showPlays[0] ? "▴" : "▾"}</button>
+      ${showPlays[0] ? html`<div class="gx-hist">
+        ${plays[0].length ? plays[0].map(function (p) {
+          var col = p.direction === "bearish" ? "#ff5d6c" : p.direction === "bullish" ? "#2ee88f" : "#f5c451";
+          return html`<button class="gx-hist-row" onClick=${function () { openPlay(p.id); }}>
+            <span style="min-width:0">
+              <span style=${"display:block;font-size:12.5px;font-weight:800;color:" + col}>${p.action || "READ"}</span>
+              <span style="display:block;font-size:10px;color:rgba(255,255,255,.4)">${String(p.mode || "").toUpperCase()} · ${(p.entryLow != null && p.entryHigh != null) ? (p.entryLow + "–" + p.entryHigh) : (p.entry != null ? p.entry : "—")} · stop ${p.stop != null ? p.stop : "—"} · TP1 ${p.tp1 != null ? p.tp1 : "—"}</span>
+            </span>
+            <span style="flex-shrink:0;text-align:right;font-size:10px;color:rgba(255,255,255,.35)">${p.confidence != null ? p.confidence + "/100" : ""}<br />${gxAgo(Date.parse(p.at))}</span>
+          </button>`;
+        }) : html`<div style="padding:8px 4px;font-size:11px;color:rgba(255,255,255,.35)">No reads yet — every GENX analysis you run is kept here.</div>`}
+        <div style="padding:6px 4px 0;font-size:10px;line-height:1.5;color:rgba(255,255,255,.3)">Opening one shows that analysis exactly as it was written — the levels are frozen at the time of the read, not updated to the current market.</div>
+      </div>` : null}
+
+      ${replay[0] ? html`<div class="gx-replay">
+        <span>Saved play from ${new Date(replay[0].at).toLocaleString()} — frozen as it was written.</span>
+        <button onClick=${function () { res[1](null); replay[1](null); }}>Back to live</button>
+      </div>` : null}
 
       ${tracked[0].length ? html`<div style="margin-top:16px;border-radius:16px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.02);padding:13px">
         <p style="margin:0 0 9px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:rgba(255,255,255,.45)">📌 Tracked setups <span style="color:rgba(255,255,255,.25)">(${tracked[0].length})</span></p>

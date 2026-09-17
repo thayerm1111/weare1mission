@@ -187,6 +187,9 @@ function setupFromGenx(g: Genx): SetupLevels {
   };
 }
 
+// One line in the member's play history (/api/genx/history).
+type PlayRow = { id: string; at: string; mode: string | null; action: string | null; direction: string | null; confidence: number | null; entry: number | null; entryLow: number | null; entryHigh: number | null; stop: number | null; tp1: number | null; setup: string | null };
+
 // A saved setup the member wants to return to later.
 type Tracked = SetupLevels & { id: string; savedAt: number; tp2: number | null; label: string };
 const TRACK_KEY = "genx-tracked-v1";
@@ -307,6 +310,27 @@ export function GenxDesk() {
   const [err, setErr] = useState("");
   const [open, setOpen] = useState(false);
   const [tracked, setTracked] = useState<Tracked[]>([]);
+  // PLAY HISTORY (owner 09-17): every read a member runs is kept — they can reopen the exact readout
+  // they traded from, even after re-analyzing.
+  const [plays, setPlays] = useState<PlayRow[]>([]);
+  const [showPlays, setShowPlays] = useState(false);
+  const [replay, setReplay] = useState<{ at: string; mode: string | null } | null>(null);
+  const loadPlays = useCallback(async () => {
+    try { const r = await fetch("/api/genx/history", { cache: "no-store" }); const d = await r.json(); if (Array.isArray(d.plays)) setPlays(d.plays as PlayRow[]); } catch { /* ignore */ }
+  }, []);
+  useEffect(() => { void loadPlays(); }, [loadPlays]);
+  async function openPlay(id: string) {
+    try {
+      const r = await fetch(`/api/genx/history?id=${encodeURIComponent(id)}`, { cache: "no-store" });
+      const d = await r.json();
+      if (d?.play?.genx) {
+        setRes({ ok: true, genx: d.play.genx as Genx, price: d.play.price ?? undefined, data_status: d.play.data_status ?? undefined, asOf: d.play.asOf, candles: [] });
+        setReplay({ at: d.play.at, mode: d.play.mode ?? null });
+        setErr(""); setShowPlays(false);
+        try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
+  }
 
   // Tracked setups: localStorage for instant render, then the account (synced
   // across the member's phone + computer) as the source of truth.
@@ -336,7 +360,7 @@ export function GenxDesk() {
       if (d.notConfigured) { setErr("Gold market data isn’t configured on the server yet."); setRes(null); }
       else if (d.error === "insufficient_credits") { setErr(`Not enough credits to run GENX${typeof d.balance === "number" ? ` (balance ${d.balance})` : ""}.`); setRes(null); try { window.dispatchEvent(new Event("open-credits-flyer")); } catch { /* ignore */ } }
       else if (!r.ok || !d.ok) { setErr(d.detail || d.error || "GENX couldn’t read Gold right now — try again shortly."); setRes(null); }
-      else setRes(d);
+      else { setRes(d); setReplay(null); void loadPlays(); }
     } catch { setErr("Couldn’t reach the server."); }
     finally { setLoading(false); }
   }
@@ -396,6 +420,36 @@ export function GenxDesk() {
       <p className="mt-1.5 text-center text-[11px] text-white/40">{CREDIT_COST.genx} credits per read</p>
       {loading && <p className="mt-2 text-center text-xs text-white/40">◆ Reading live Gold — structure, momentum, levels, liquidity…</p>}
       {err && <div className="mt-4 rounded-xl border border-red-500/25 bg-red-500/[0.07] px-4 py-3 text-sm text-red-300">{err}</div>}
+
+      <div className="mt-3">
+        <button onClick={() => { setShowPlays((v) => !v); if (!plays.length) void loadPlays(); }}
+          className="w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-[12px] font-bold text-white/60 transition hover:border-white/25">
+          🕘 Your past plays{plays.length ? ` (${plays.length})` : ""} {showPlays ? "▴" : "▾"}
+        </button>
+        {showPlays && (
+          <div className="mt-2 space-y-1.5 rounded-2xl border border-white/10 bg-white/[0.02] p-2.5">
+            {plays.length === 0 && <p className="px-1 py-2 text-[11px] text-white/35">No reads yet — every GENX analysis you run is kept here.</p>}
+            {plays.map((p) => (
+              <button key={p.id} onClick={() => void openPlay(p.id)}
+                className="flex w-full items-center justify-between gap-2 rounded-xl border border-white/8 bg-white/[0.02] px-3 py-2 text-left transition hover:border-amber-400/40">
+                <span className="min-w-0">
+                  <span className="block text-[12px] font-bold" style={{ color: p.direction === "bearish" ? "#ff5d6c" : p.direction === "bullish" ? "#2ee88f" : "#f5c451" }}>{p.action || "READ"}</span>
+                  <span className="block text-[10px] text-white/40">{(p.mode || "").toUpperCase()} · {p.entryLow != null && p.entryHigh != null ? `${p.entryLow}–${p.entryHigh}` : p.entry ?? "—"} · stop {p.stop ?? "—"} · TP1 {p.tp1 ?? "—"}</span>
+                </span>
+                <span className="flex-shrink-0 text-right text-[10px] text-white/35">{p.confidence != null ? `${p.confidence}/100` : ""}<br />{agoShort(Date.parse(p.at))}</span>
+              </button>
+            ))}
+            <p className="px-1 pt-1 text-[10px] leading-relaxed text-white/30">Opening one shows that analysis exactly as it was written — the levels are frozen at the time of the read, not updated to the current market.</p>
+          </div>
+        )}
+      </div>
+
+      {replay && (
+        <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border border-amber-400/30 bg-amber-400/[0.07] px-3 py-2">
+          <p className="text-[11px] font-semibold text-amber-200">Saved play from {new Date(replay.at).toLocaleString()} — frozen as it was written.</p>
+          <button onClick={() => { setRes(null); setReplay(null); }} className="flex-shrink-0 rounded-lg border border-amber-400/40 px-2 py-1 text-[11px] font-bold text-amber-200">Back to live</button>
+        </div>
+      )}
 
       {tracked.length > 0 && (
         <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-3.5">
