@@ -15,6 +15,7 @@ import { genxGoldQualityGate } from "@/lib/genx/qualityGate";
 import { originAllowed, genx3AccountFilter } from "@/lib/genx3/engineSelect";
 import { series, livePrice } from "@/lib/marketData";
 import { goldChangeOfCharacter } from "@/lib/genx/choch";
+import { rangePosition, blockedByRange, deskBreaker } from "@/lib/genx/rangeGuard";
 import { trendOfCloses, closedBars } from "@/lib/mtf";
 import { sendTelegram } from "@/lib/telegram";
 import { BE_DISPLAY_PIPS } from "@/lib/genx/goldRecord";
@@ -1229,6 +1230,47 @@ async function goldShortMomentum(): Promise<"up" | "down" | "flat" | null> {
  * partial banked, result_pips <= -GOLD_REAL_LOSS_MIN_PIPS), and it only looks back
  * GOLD_LOSS_COOLDOWN_MS — so the lookback window and the cooldown are the same ~2h.
  */
+
+// ── RANGE GUARD (owner 09-18) ────────────────────────────────────────────────────────────────────────
+// Where in the recent range is this entry? A short at the floor and a long at the ceiling are the two
+// trades a range punishes, and they are exactly what the desk kept taking (23:40 sell @4344 and 03:30
+// sell @4345, both into a 4341–4380 floor). 12 hours of 15-minute candles is the box.
+async function goldRangeHold(side: "buy" | "sell", entry?: number | null): Promise<{ hold: boolean; reason: string }> {
+  const key = process.env.TWELVEDATA_API_KEY;
+  if (!key) return { hold: false, reason: "" };
+  try {
+    const rows = await series("XAU/USD", "15min", 48, key);
+    if (!rows || rows === "ratelimit" || !Array.isArray(rows)) return { hold: false, reason: "" };
+    const bars = (closedBars(rows, 20) ?? rows)
+      .map((r) => ({ h: +r.high, l: +r.low, c: +r.close }))
+      .filter((b) => Number.isFinite(b.h) && Number.isFinite(b.l) && Number.isFinite(b.c));
+    const px = entry != null && entry > 0 ? entry : (bars.length ? bars[bars.length - 1].c : 0);
+    return (({ blocked, reason }) => ({ hold: blocked, reason }))(blockedByRange(side, rangePosition(bars, px)));
+  } catch { return { hold: false, reason: "" }; }
+}
+
+// ── DESK BREAKER (owner 09-18) ───────────────────────────────────────────────────────────────────────
+// Three real stop-outs inside six hours means the desk's read of this market is wrong, and every further
+// entry is paying again to find that out. New entries pause for four hours from the last loss, then
+// resume on their own. Open trades are never touched. Set GENX_DESK_BREAKER=off to disable.
+async function goldDeskBreaker(admin: Admin): Promise<{ hold: boolean; reason: string }> {
+  if ((process.env.GENX_DESK_BREAKER ?? "").toLowerCase() === "off") return { hold: false, reason: "" };
+  try {
+    const sinceIso = new Date(Date.now() - 6 * 3600_000).toISOString();
+    const { data } = await admin.from("genx_alerts").select("resolved_at,outcome")
+      .eq("outcome", "loss").gte("resolved_at", sinceIso).order("resolved_at", { ascending: false }).limit(20);
+    const times = ((data ?? []) as { resolved_at: string | null }[])
+      .map((r) => (r.resolved_at ? Date.parse(r.resolved_at) : NaN)).filter((t) => Number.isFinite(t));
+    const b = deskBreaker(times);
+    if (!b.paused) return { hold: false, reason: "" };
+    const mins = Math.max(1, Math.round((b.until - Date.now()) / 60_000));
+    return {
+      hold: true,
+      reason: `Desk breaker: ${b.count} stop-outs in the last six hours. New entries are paused for another ${mins < 60 ? `${mins} min` : `${Math.round(mins / 60)}h`} so the desk stops paying to re-test a read the market keeps rejecting. Open trades are still managed; entries resume on their own.`,
+    };
+  } catch { return { hold: false, reason: "" }; }
+}
+
 async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: number | null): Promise<{ hold: boolean; reason: string; scope?: "desk" | "conservative" }> {
   const dir = side === "sell" ? "SELL" : "BUY";
 
@@ -1260,6 +1302,14 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: numb
   // reclaimed the swing it fell from (bullish flip), stop taking sells; once it breaks the swing it
   // rose from (bearish flip), stop taking buys. This is what keeps it from continuing to sell a
   // confirmed reversal (the exact case: caught the down-move, then kept selling as price turned up).
+  // DESK BREAKER first (cheapest, and the loudest signal that the desk should sit down).
+  const brk = await goldDeskBreaker(admin);
+  if (brk.hold) return { hold: true, scope: "desk", reason: brk.reason };
+
+  // RANGE GUARD — never sell the floor of a range, never buy its ceiling.
+  const rng = await goldRangeHold(side, newEntry);
+  if (rng.hold) return { hold: true, scope: "desk", reason: rng.reason };
+
   const choch = await goldChangeOfCharacter();
   if ((side === "sell" && choch === "bullish") || (side === "buy" && choch === "bearish")) {
     // OWNER 09-16 ("make this for the aggressive also"): a fresh flip against the entry holds
