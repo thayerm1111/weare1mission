@@ -74,8 +74,14 @@ export type MarketSnapshot = {
   pressure: Pressure;
   levels: Level[];
   news: { nextEvent: { name: string; at: number; importance: "high" | "medium" | "low" } | null; minutesToNext: number | null; inLockout: boolean };
-  warnings: string[];      // every reason a decision should be treated with suspicion
+  warnings: string[];      // things worth knowing; they do not stop a trade on their own
+  /** Hard reasons this snapshot must not be traded on. Explicit, never inferred from wording. */
+  blockers: { code: BlockerCode; detail: string }[];
 };
+
+export type BlockerCode =
+  | "market_closed" | "no_exec_read" | "feed_stale" | "feed_divergence" | "exec_data_behind"
+  | "exec_data_gaps" | "chaotic";
 
 export type Features = {
   atr: number;

@@ -277,3 +277,95 @@ test('every health change is explainable in words', () => {
   assert.ok(h.drivers.length >= 2);
   for (const d of h.drivers) { assert.ok(d.label.length > 5); assert.ok(Number.isFinite(d.delta)); }
 });
+
+/* ─────────────────────────── adapters + snapshot ─────────────────────────── */
+import { parseSeries, TD_INTERVAL } from '../command-center/adapters/twelvedata';
+import { isRejection, numField, TL_HOSTS } from '../command-center/adapters/tradelocker';
+import { buildSnapshot, tradeable, SNAPSHOT_VERSION, MAX_FEED_DIVERGENCE } from '../command-center/engines/snapshot';
+
+test('Twelve Data rows are parsed newest-last, numeric, and UTC', () => {
+  const bars = parseSeries({ values: [
+    { datetime: '2026-09-18 14:40:00', open: '4350.1', high: '4352.0', low: '4349.0', close: '4351.5' },
+    { datetime: '2026-09-18 14:35:00', open: '4348.0', high: '4351.0', low: '4347.5', close: '4350.1' },
+  ] });
+  assert.equal(bars.length, 2);
+  assert.ok(bars[0].t < bars[1].t, 'oldest first after parsing');
+  assert.equal(bars[0].o, 4348, 'strings become numbers');
+  assert.equal(bars[0].t, Date.UTC(2026, 8, 18, 14, 35), 'exchange time read as UTC');
+  assert.equal(parseSeries({ values: [{ datetime: 'nonsense', open: 'x', high: 'x', low: 'x', close: 'x' }] }).length, 0, 'junk rows are dropped, not guessed');
+  assert.equal(TD_INTERVAL['15m'], '15min');
+});
+
+test('a TradeLocker 200 carrying s:error is a rejection, not a success', () => {
+  assert.equal(isRejection(200, { s: 'ok' }), false);
+  assert.equal(isRejection(200, { s: 'error', errmsg: 'stop too close' }), true);
+  assert.equal(isRejection(200, { s: 'rejected' }), true);
+  assert.equal(isRejection(500, {}), true);
+  assert.equal(TL_HOSTS.live.includes('live.tradelocker.com'), true);
+});
+
+test('broker rows are read whether they arrive as objects or columnar arrays', () => {
+  assert.equal(numField({ avgPrice: '4350.5' }, ['avgPrice']), 4350.5);
+  assert.equal(numField([1, 2, 4350.5], ['avgPrice'], 2), 4350.5);
+  assert.equal(numField({ nothing: true }, ['avgPrice']), null);
+});
+
+const feed = (over = {}) => ({ feed: 'twelvedata' as const, state: 'live' as const, lastTickMs: 0, ageMs: 1000, ...over });
+const NOW_WED = Date.UTC(2026, 8, 16, 18, 0);       // Wednesday 14:00 New York
+/** bars of any timeframe that finish right at `end` — so nothing is stale by accident */
+const seriesTo = (n: number, stepMs: number, end: number, from: number, per: number): Bar[] =>
+  Array.from({ length: n }, (_, i) => {
+    const t = end - (n - i) * stepMs, px = from + i * per;
+    return bar(t, px, px + 1, px - 1, px + per * 0.8);
+  });
+const snapInput = (over = {}) => ({
+  now: NOW_WED,
+  bars: {
+    '5m': seriesTo(120, 5 * M, NOW_WED, 4300, 0.4),
+    '1h': seriesTo(120, 60 * M, NOW_WED, 4290, 1.2),
+  },
+  price: 4348, bid: 4347.8, ask: 4348.2, feeds: [feed()], ...over,
+});
+
+test('the snapshot carries its own warnings, and they gate trading', () => {
+  const s = buildSnapshot(snapInput() as never);
+  assert.equal(s.snapshotVersion, SNAPSHOT_VERSION);
+  assert.ok(s.timeframes['5m'], 'the execution timeframe is present');
+  assert.equal(s.session, 'new_york');
+  assert.ok(Math.abs((s.spread ?? 0) - 0.4) < 1e-9);
+  assert.ok(s.levels.length > 0, 'levels are derived from the bars');
+});
+
+test('feed divergence blocks trading instead of quietly picking a price', () => {
+  const s = buildSnapshot(snapInput({ comparePrice: { source: 'tradelocker', price: 4348 + MAX_FEED_DIVERGENCE + 0.5 } }) as never);
+  assert.ok(s.warnings.some((w) => /disagree/i.test(w)));
+  assert.equal(tradeable(s).ok, false);
+  assert.equal(tradeable(s).code, 'feed_divergence', 'blocked by an explicit code, not by matching prose');
+});
+
+test('a stale feed blocks trading; a healthy one does not', () => {
+  const stale = buildSnapshot(snapInput({ feeds: [feed({ state: 'stale', ageMs: 400_000 })] }) as never);
+  assert.equal(tradeable(stale).code, 'feed_stale');
+  const healthy = buildSnapshot(snapInput() as never);
+  assert.deepEqual(healthy.blockers, [], `nothing should block a healthy read: ${JSON.stringify(healthy.blockers)}`);
+  assert.equal(tradeable(healthy).ok, true);
+});
+
+test('a stale CONTEXT timeframe is a note, not a block — a 4h candle is meant to be hours old', () => {
+  const s = buildSnapshot(snapInput({ bars: { '5m': seriesTo(120, 5 * M, NOW_WED, 4300, 0.4), '4h': seriesTo(80, 4 * 60 * M, NOW_WED - 20 * 3600_000, 4200, 3) } }) as never);
+  assert.ok(s.warnings.some((w) => w.startsWith('4h')), 'it is still reported');
+  assert.equal(s.blockers.some((b) => b.code === 'exec_data_behind'), false, 'but it does not stop trading');
+});
+
+test('a closed market is never tradeable', () => {
+  const sat = buildSnapshot(snapInput({ now: Date.UTC(2026, 8, 19, 16) }) as never);
+  assert.equal(sat.session, 'closed');
+  assert.equal(tradeable(sat).ok, false);
+  assert.ok(sat.blockers.some((b) => b.code === 'market_closed'));
+});
+
+test('no usable 5-minute read means no trade', () => {
+  const thin = buildSnapshot(snapInput({ bars: { '5m': rising(10, 4300) } }) as never);
+  assert.equal(tradeable(thin).ok, false);
+  assert.equal(tradeable(thin).code, 'no_exec_read');
+});
