@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sanitisePermissions, resolveAll, PERMISSION_KEYS } from "@/lib/flow/permissions";
 import { authenticate, listAccounts, type TLEnv } from "@/lib/flow/tradelocker";
 import { encryptSecret, encryptionReady } from "@/lib/flow/crypto";
 import { getConnection, getAllConnections, safeConnView } from "@/lib/flow/connection";
@@ -34,7 +35,7 @@ export async function GET() {
     if (admin) {
       // Include per-account risk_pct + manage_trades + gold_be_pips when those columns
       // exist; fall back if they haven't been added yet so the accounts list never breaks.
-      const withCols = await admin.from("flow_broker_accounts").select(baseCols + ", risk_pct, manage_trades, gold_be_pips, risk_mode, send_it, send_it_stack, send_it_guards, be_enabled, partials_enabled, profit_guard").eq("connection_id", c.id).order("created_at", { ascending: true });
+      const withCols = await admin.from("flow_broker_accounts").select(baseCols + ", risk_pct, manage_trades, gold_be_pips, risk_mode, send_it, send_it_stack, send_it_guards, be_enabled, partials_enabled, profit_guard, permissions, kill_switch_at").eq("connection_id", c.id).order("created_at", { ascending: true });
       if (!withCols.error) accts = (withCols.data ?? []) as unknown as Record<string, unknown>[];
       else { const fb = await admin.from("flow_broker_accounts").select(baseCols).eq("connection_id", c.id).order("created_at", { ascending: true }); accts = (fb.data ?? []) as unknown as Record<string, unknown>[]; }
     }
@@ -53,6 +54,8 @@ export async function GET() {
         beEnabled: a.manage_trades !== false && a.be_enabled !== false,          // split toggle (default ON; legacy master off = off)
         partialsEnabled: a.manage_trades !== false && a.partials_enabled !== false, // split toggle (default ON; legacy master off = off)
         profitGuard: a.profit_guard === true, // Profit Guard: opt-in reversal protection (default OFF)
+        permissions: resolveAll(a as never), // resolved granular permissions (defaults applied)
+        killSwitchAt: a.kill_switch_at ?? null,
         goldBePips: typeof a.gold_be_pips === "number" && (a.gold_be_pips as number) > 0 ? a.gold_be_pips : null, // gold-only BE/partial pips; null = AI
         connectionId: c.id, environment: c.environment, server: c.server,
       });
@@ -179,6 +182,39 @@ export async function POST(req: NextRequest) {
     const { error } = await q;
     if (error) return json({ error: "needs_setup", detail: "Partials toggle isn't set up yet — the partials_enabled column is missing." }, 200);
     return json({ ok: true, accountId, partialsEnabled: enabled });
+  }
+
+  if (action === "permissions") {
+    // COMMAND CENTER XAUUSD: set one or more granular permissions on an account. Unknown keys and
+    // non-boolean values are dropped; the stored object only ever holds keys this build understands.
+    const accountId = String(body.accountId || "");
+    if (!accountId) return json({ error: "missing_account" }, 200);
+    const patch = sanitisePermissions((body as { permissions?: unknown }).permissions);
+    if (!Object.keys(patch).length) return json({ error: "no_valid_permissions", keys: PERMISSION_KEYS }, 200);
+    const { data: cur } = await admin.from("flow_broker_accounts").select("permissions").eq("user_id", user.id).eq("account_id", accountId).maybeSingle();
+    const merged = { ...(((cur as { permissions?: Record<string, unknown> } | null)?.permissions) ?? {}), ...patch };
+    let q = admin.from("flow_broker_accounts").update({ permissions: merged, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
+    if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
+    const { error } = await q;
+    if (error) return json({ error: "needs_setup", detail: "Permissions aren't set up yet — the permissions column is missing." }, 200);
+    return json({ ok: true, accountId, permissions: merged });
+  }
+
+  if (action === "killswitch") {
+    // ONE CLICK: stop new trades on this account. Protection of open positions is untouched, by design —
+    // "stop trading" must never mean "stop defending what is already open". `enabled:false` clears it.
+    const accountId = String(body.accountId || "");
+    if (!accountId) return json({ error: "missing_account" }, 200);
+    const on = body.enabled !== false;
+    let q = admin.from("flow_broker_accounts").update({
+      kill_switch_at: on ? new Date().toISOString() : null,
+      kill_switch_by: on ? (user.email ?? "member") : null,
+      updated_at: new Date().toISOString(),
+    }).eq("user_id", user.id).eq("account_id", accountId);
+    if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
+    const { error } = await q;
+    if (error) return json({ error: "needs_setup", detail: "Kill switch isn't set up yet — the column is missing." }, 200);
+    return json({ ok: true, accountId, killSwitch: on });
   }
 
   if (action === "guardtoggle") {

@@ -1,5 +1,6 @@
 import { SEND_IT_ENABLED } from "./automationPolicy";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { can, type AccountRow as PermRow } from "@/lib/flow/permissions";
 import { decryptSecret } from "@/lib/flow/crypto";
 import { authenticate, refresh as tlRefresh, listAccounts, type TLEnv, type TLAccount } from "@/lib/flow/tradelocker";
 
@@ -128,10 +129,10 @@ export async function activeAccounts(userId: string, opts: { maxBrokerAgeMs?: nu
     const out: ActiveAccount[] = [];
     // Include the per-account risk override when the column exists; if it hasn't
     // been added yet, fall back to a select without it so trading never breaks.
-    type AcctRow = { account_id: string; acc_num: string | null; name: string | null; currency: string | null; risk_pct?: number | null; risk_mode?: string | null; send_it?: boolean | null; send_it_stack?: boolean | null; send_it_guards?: boolean | null };
+    type AcctRow = { account_id: string; acc_num: string | null; name: string | null; currency: string | null; risk_pct?: number | null; risk_mode?: string | null; send_it?: boolean | null; send_it_stack?: boolean | null; send_it_guards?: boolean | null; permissions?: Record<string, unknown> | null; kill_switch_at?: string | null };
     let enabled: AcctRow[] = [];
     const withRisk = await admin.from("flow_broker_accounts")
-      .select("account_id, acc_num, name, currency, autotrade_enabled, risk_pct, risk_mode, send_it, send_it_stack, send_it_guards")
+      .select("account_id, acc_num, name, currency, autotrade_enabled, risk_pct, risk_mode, send_it, send_it_stack, send_it_guards, permissions, kill_switch_at")
       .eq("connection_id", conn.id).eq("autotrade_enabled", true);
     if (!withRisk.error) enabled = (withRisk.data ?? []) as AcctRow[];
     else {
@@ -171,6 +172,19 @@ export async function activeAccounts(userId: string, opts: { maxBrokerAgeMs?: nu
     }
     for (const a of enabled) {
       if (!a.acc_num) continue;
+      // COMMAND CENTER PERMISSIONS (09-18): an account only receives a NEW entry when it permits entries and
+      // its kill switch is off. Protection of anything already open is decided separately, by the manager —
+      // switching entries off never leaves an open position undefended.
+      const perm = can({ ...(a as PermRow), autotrade_enabled: true }, "allow_entries");
+      if (!perm.allowed) {
+        try {
+          await admin.from("flow_auto_events").insert({
+            user_id: userId, symbol: "XAUUSD", status: "skipped", account_id: String(a.account_id),
+            reason: `permission: ${perm.reason}`.slice(0, 200),
+          });
+        } catch { /* logging is best-effort */ }
+        continue;
+      }
       const l = live.find((x) => String(x.accountId) === String(a.account_id));
       out.push({
         connId: conn.id, env, token,

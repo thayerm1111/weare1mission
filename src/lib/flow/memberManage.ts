@@ -18,6 +18,7 @@ import { normalizeQuantity } from "@/lib/flow/instruments";
 import { listPositions, modifyPosition, closePosition, withBrokerPriority } from "@/lib/flow/tradelocker";
 import { logTrade } from "@/lib/flow/tradeLog";
 import { feedPrice } from "@/lib/flow/feedPrice";
+import { can, type PermissionKey } from "@/lib/flow/permissions";
 
 export type MemberAction = "close" | "partial" | "breakeven";
 export const MEMBER_ACTIONS: MemberAction[] = ["close", "partial", "breakeven"];
@@ -70,6 +71,16 @@ export async function runMemberAction(userId: string, action: MemberAction): Pro
     .select("id,user_id,connection_id,account_id,acc_num,environment,position_id,side,entry,cur_stop,qty,be_done,partial_done")
     .eq("user_id", userId).eq("symbol", "XAUUSD").eq("status", "open").order("created_at", { ascending: false }).limit(50);
   if (error) return { ok: false, results: [], error: "load_failed" };
+  // The member is acting by hand, but the account's own switches still decide what the desk may send on
+  // their behalf: an account with "close positions" switched off is not closed from the card either.
+  const permKey: PermissionKey = action === "close" ? "allow_close" : action === "partial" ? "allow_partial" : "allow_break_even";
+  const { data: acctRows } = await admin.from("flow_broker_accounts")
+    .select("account_id, autotrade_enabled, manage_trades, permissions, kill_switch_at").eq("user_id", userId);
+  const permByAcct = new Map<string, { allowed: boolean; reason: string }>();
+  for (const a of (acctRows ?? []) as Record<string, unknown>[]) {
+    permByAcct.set(String(a.account_id), can({ ...a, autotrade_enabled: true } as never, permKey));
+  }
+
   const seen = new Set<string>();
   const rows = ((data ?? []) as Row[]).filter((r) => { const k = `${r.account_id}|${r.position_id}`; if (!r.position_id || seen.has(k)) return false; seen.add(k); return true; });
   if (!rows.length) return { ok: false, results: [], error: "no_open_trade" };
@@ -98,6 +109,8 @@ export async function runMemberAction(userId: string, action: MemberAction): Pro
       const open = openByAcct.get(r.account_id);
       if (open == null) { results.push({ account: label(r), ok: false, message: "Couldn't read the account — try again" }); continue; }
       if (!open.has(String(r.position_id))) { results.push({ account: label(r), ok: true, message: "Already closed" }); continue; }
+      const perm = permByAcct.get(String(r.account_id));
+      if (perm && !perm.allowed) { results.push({ account: label(r), ok: false, message: perm.reason }); continue; }
       const base = { position_id: r.position_id, account_id: r.account_id, user_id: userId, symbol: "XAUUSD" };
 
       if (action === "close") {
