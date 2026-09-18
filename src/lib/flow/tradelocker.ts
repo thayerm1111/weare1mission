@@ -139,6 +139,55 @@ export function brokerRateStats(): Record<string, { rate: number; inflight: numb
   return out;
 }
 
+// ── MULTI-IP FAN-OUT (owner 09-18: "spread the fan-out across multiple servers") ─────────────────────────
+// TradeLocker's edge limits by IP, so one server is one budget no matter how the queue is tuned. Each entry in
+// BROKER_RELAYS is a relay/server.ts instance in its own region with its own outbound IP; a call routed through
+// one spends THAT IP's budget. Routes are chosen by broker account, so one account's calls keep the same exit IP
+// (token/session consistency) while the fleet spreads across every IP we have. Unset = single-IP behavior,
+// exactly as before.
+const RELAYS: string[] = (process.env.BROKER_RELAYS ?? "").split(",").map((x) => x.trim().replace(/\/$/, "")).filter(Boolean);
+const RELAY_SECRET = (process.env.BROKER_RELAY_SECRET ?? "").trim();
+const RELAYS_ON = RELAYS.length > 0 && RELAY_SECRET.length > 0;
+
+/** Stable route pick for a key (FNV-1a). Route 0 is this server itself; 1..n are the relays. Pure (unit-tested). */
+export function pickRoute(key: string, routes: number): number {
+  if (routes <= 1) return 0;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h % routes;
+}
+
+let _rr = 0;
+/** Which exit to use for this call: "" = direct from this server, otherwise the relay base URL. */
+function routeFor(key: string | undefined): string {
+  if (!RELAYS_ON) return "";
+  const routes = RELAYS.length + 1;                       // this server + every relay
+  const idx = key ? pickRoute(key, routes) : (_rr = (_rr + 1) % routes);
+  return idx === 0 ? "" : RELAYS[idx - 1];
+}
+
+/** One request through a relay. Returns null when the relay itself is unreachable (caller falls back to direct). */
+async function viaRelay(relay: string, host: string, path: string, method: string, headers: Record<string, string>, body?: string, signal?: AbortSignal): Promise<{ status: number; text: string } | null> {
+  try {
+    const r = await fetch(`${relay}/tl`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-relay-secret": RELAY_SECRET },
+      body: JSON.stringify({ host, path, method, headers, body }),
+      cache: "no-store",
+      signal,
+    });
+    if (r.status === 401 || r.status === 404 || r.status === 503) return null;   // misconfigured relay → direct
+    const j = (await r.json()) as { status?: number; text?: string; error?: string };
+    if (typeof j.status !== "number") return null;                                // relay couldn't reach the broker
+    return { status: j.status, text: String(j.text ?? "") };
+  } catch { return null; }
+}
+
+/** Relay pool state (for logs/health). */
+export function brokerRelays(): { count: number; on: boolean; urls: string[] } {
+  return { count: RELAYS.length, on: RELAYS_ON, urls: RELAYS.map((u) => u.replace(/^https?:\/\//, "")) };
+}
+
 function isCloudflare1015(status: number, text: string): boolean {
   return status === 429 && /1015|error-1015|being rate limited/i.test(text);
 }
@@ -152,29 +201,42 @@ async function tlFetch(env: TLEnv, path: string, init: RequestInit & { accessTok
   if (init.accNum) headers["accNum"] = String(init.accNum);
   if (DEV_KEY) headers["tl-developer-api-key"] = DEV_KEY;
   const pri = priorityFor(method, path, priorityStore.getStore());
+  // Exit IP for this call: this server, or one of the relays. Keyed by broker account so an account's calls
+  // always leave from the same IP; each exit keeps its OWN rate budget in the scheduler.
+  const relay = routeFor(init.accNum ? `${env}:${init.accNum}` : undefined);
+  const budgetKey = relay ? `${relay} → ${host}` : host;
 
   const once = async (): Promise<{ status: number; json: unknown; text: string }> => {
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    const allHeaders = { ...headers, ...(init.headers as Record<string, string> || {}) };
     try {
-      const r = await fetch(`${host}${path}`, { ...init, headers: { ...headers, ...(init.headers as Record<string, string> || {}) }, signal: ctrl.signal, cache: "no-store" });
+      if (relay) {
+        const viaR = await viaRelay(relay, host, path, method, allHeaders, typeof init.body === "string" ? init.body : undefined, ctrl.signal);
+        if (viaR) {
+          let json: unknown = null; try { json = viaR.text ? JSON.parse(viaR.text) : null; } catch { /* non-json */ }
+          return { status: viaR.status, json, text: viaR.text };
+        }
+        // relay unreachable → fall through and send it directly rather than dropping a member's order
+      }
+      const r = await fetch(`${host}${path}`, { ...init, headers: allHeaders, signal: ctrl.signal, cache: "no-store" });
       const text = await r.text();
       let json: unknown = null; try { json = text ? JSON.parse(text) : null; } catch { /* non-json */ }
       return { status: r.status, json, text };
     } finally { clearTimeout(to); }
   };
 
-  let res = await schedule(host, pri, once);
+  let res = await schedule(budgetKey, pri, once);
   for (let attempt = 0; attempt < RL_MAX_RETRIES; attempt++) {
     // Retry a rate-limit: always for the edge-level 1015 (request never reached the broker, so it's safe even for
     // POSTs), and for any 429/503 on a GET. The retry re-queues at the same priority (it does not hold a slot).
     const rateLimited = isCloudflare1015(res.status, res.text) || ((res.status === 429 || res.status === 503) && isGet);
     if (!rateLimited) break;
-    noteRateLimited(host);
+    noteRateLimited(budgetKey);
     await _sleep(100 + Math.floor(Math.random() * 300));
-    res = await schedule(host, pri, once);
+    res = await schedule(budgetKey, pri, once);
   }
-  if (isCloudflare1015(res.status, res.text) || res.status === 429) noteRateLimited(host);
+  if (isCloudflare1015(res.status, res.text) || res.status === 429) noteRateLimited(budgetKey);
   return res;
 }
 
