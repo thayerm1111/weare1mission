@@ -34,6 +34,7 @@ import { runMattyScan } from "@/lib/matty-pips/scan";
 import { beat } from "@/lib/flow/health";
 import { brokerRelays } from "@/lib/flow/tradelocker";
 import { archiveGoldCandles } from "@/lib/genx/candleArchive";
+import { recordStyleSetups, resolveStyleSetups, styleScoreboard } from "@/lib/genx/styles/shadow";
 import { streamLoop } from "./priceStream";
 import { genx31Tick } from "@/lib/genx3/v31/runtime";
 import { genx32Tick } from "@/lib/genx3/v32/runtime";
@@ -268,6 +269,30 @@ async function billingLoop(): Promise<never> {
   }
 }
 
+/** STYLE SHADOW (owner 09-18: three styles — Rapid, Structure, Swing). Every minute all three are asked what
+ *  they would take right now; the calls are recorded and graded against the candles that follow. Nothing is
+ *  placed while a style is in shadow — this is how each style earns the right to be switched on for members. */
+async function styleShadowLoop(): Promise<void> {
+  const admin = createAdminClient();
+  const mdKey = process.env.TWELVEDATA_API_KEY;
+  if (!admin || !mdKey) { log("styles: shadow off (no market-data key)"); return; }
+  let lastReport = 0;
+  while (!shuttingDown) {
+    try {
+      const found = await recordStyleSetups(admin, mdKey);
+      const n = found.rapid + found.structure + found.swing;
+      if (n) log("styles: new setups", found);
+      const graded = await resolveStyleSetups(admin, mdKey);
+      if (graded) log(`styles: graded ${graded}`);
+      if (Date.now() - lastReport > 3600_000) {
+        lastReport = Date.now();
+        log("styles: 24h scoreboard", await styleScoreboard(admin, Date.now() - 24 * 3600_000));
+      }
+    } catch (e) { log("styles: pass error (loop continues)", e instanceof Error ? e.message.slice(0, 200) : e); }
+    await sleep(60_000);
+  }
+}
+
 /** HISTORY BACKFILL — walks the XAU/USD 1m archive back to GENX_ARCHIVE_DAYS, one page
  *  (≤5000 bars, one data credit) every 20s, then stops. Read-only market data. */
 async function backfillLoop(): Promise<void> {
@@ -320,6 +345,7 @@ void streamLoop(() => shuttingDown).catch((e) => log("stream: loop error (worker
 // fatal Promise.all too.
 void mattyScanLoop().catch((e) => log("matty-scan: loop died (cron still covers entries)", e instanceof Error ? e.message : e));
 void backfillLoop().catch(() => {});
+void styleShadowLoop().catch((e) => log("styles: loop died", e instanceof Error ? e.message : e));
 void genx3Loop().catch((e) => log("genx3: loop died", e instanceof Error ? e.message : e));
 void pdLoop().catch((e) => log("genx1-pd: loop died", e instanceof Error ? e.message : e));
 void billingLoop().catch((e) => log("flow-billing: loop died", e instanceof Error ? e.message : e));
