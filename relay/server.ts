@@ -44,6 +44,15 @@ const server = createServer((req, res) => {
     try {
       const url = new URL(req.url || "/", "http://relay");
       if (url.pathname === "/health") return send(res, 200, { ok: true, at: new Date().toISOString() });
+      // /ip (shared secret) — the relay's OUTBOUND address. The whole point of a relay is a different exit IP,
+      // so this is how we confirm a new one actually has one before putting members' orders through it.
+      if (url.pathname === "/ip") {
+        if (!SECRET || String(req.headers["x-relay-secret"] || "") !== SECRET) return send(res, 401, { error: "unauthorized" });
+        try {
+          const r = await fetch("https://api.ipify.org?format=json", { cache: "no-store" });
+          return send(res, 200, { ip: ((await r.json()) as { ip?: string }).ip ?? null });
+        } catch { return send(res, 200, { ip: null, error: "lookup_failed" }); }
+      }
       if (url.pathname !== "/tl" || req.method !== "POST") return send(res, 404, { error: "not_found" });
       if (!SECRET) return send(res, 503, { error: "relay_not_configured" });
       if (String(req.headers["x-relay-secret"] || "") !== SECRET) return send(res, 401, { error: "unauthorized" });
