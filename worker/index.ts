@@ -32,6 +32,7 @@ import { inWeekendCloseWindow, inScanQuietWindow } from "@/lib/flow/autoExec";
 import { manageMattyPips } from "@/lib/matty-pips/manage";
 import { runMattyScan } from "@/lib/matty-pips/scan";
 import { beat } from "@/lib/flow/health";
+import { brokerRelays } from "@/lib/flow/tradelocker";
 import { archiveGoldCandles } from "@/lib/genx/candleArchive";
 import { streamLoop } from "./priceStream";
 import { genx31Tick } from "@/lib/genx3/v31/runtime";
@@ -292,6 +293,26 @@ process.on("unhandledRejection", (e) => log("unhandledRejection", e));
 process.on("uncaughtException", (e) => { log("uncaughtException — exiting for a clean restart", e); process.exit(1); });
 
 log(`🚀 We Are 1 Mission worker starting as ${HOLDER} (manage ${MANAGE_MS}ms · watch ${WATCH_MS}ms)`);
+
+/** BROKER RELAYS (owner 09-18): report the pool at boot, with each relay's OUTBOUND IP, so it is on the
+ *  record that the fan-out really is spread over several IP budgets (and which relay is which). */
+async function relayReport(): Promise<void> {
+  const pool = brokerRelays();
+  if (!pool.on) { log(`relays: none configured — all broker calls leave from this server's IP`); return; }
+  const secret = (process.env.BROKER_RELAY_SECRET ?? "").trim();
+  const base = (process.env.BROKER_RELAYS ?? "").split(",").map((x) => x.trim().replace(/\/$/, "")).filter(Boolean);
+  const seen: Record<string, string> = {};
+  for (const url of base) {
+    try {
+      const r = await fetch(`${url}/ip`, { headers: { "x-relay-secret": secret }, cache: "no-store" });
+      const j = (await r.json()) as { ip?: string | null };
+      seen[url.replace(/^https?:\/\//, "")] = j.ip ?? "unknown";
+    } catch { seen[url.replace(/^https?:\/\//, "")] = "unreachable"; }
+  }
+  const ips = Object.values(seen).filter((x) => x !== "unreachable" && x !== "unknown");
+  log(`relays: ${base.length} configured, ${new Set(ips).size} distinct exit IP(s)`, seen);
+}
+void relayReport().catch(() => {});
 // The price stream is best-effort by design: it feeds the in-memory tick store that the
 // manage/watch loops read opportunistically. If it can't run (plan gate, feed outage,
 // bad socket) the loops keep polling exactly as before — its failure must never kill
