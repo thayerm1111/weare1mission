@@ -40,7 +40,8 @@ import { genx32Tick } from "@/lib/genx3/v32/runtime";
 import { readControl, emergencyDisable } from "@/lib/genx3/runtime";
 import { selectBrain } from "@/lib/genx3/engineSelect";
 import { genx1PdTick } from "@/lib/genx/pdTick";
-import { billFlowAccounts } from "@/lib/flow/flowBilling";
+// EVENT BILLING (owner 09-18): watching is free — credits are charged when a setup forms (1) and when a
+// trade is placed (5), from the scanner and the placement paths. The worker no longer bills by the clock.
 import { goldReadinessCheck } from "@/lib/flow/readiness";
 import { hostname } from "node:os";
 
@@ -261,10 +262,6 @@ async function billingLoop(): Promise<never> {
     // One read-only gold readiness check per worker start (owner 09-17), after the loops settle.
     void sleep(90_000).then(() => goldReadinessCheck(admin)).then((r) => log("readiness: done", r)).catch((e) => log("readiness: failed", e instanceof Error ? e.message : e));
     while (!shuttingDown) {
-      try {
-        const r = await billFlowAccounts(admin);
-        if (r.charged || r.paused || r.errors) log("flow-billing: pass", r);
-      } catch (e) { log("flow-billing: pass error (loop continues)", e instanceof Error ? e.message.slice(0, 200) : e); }
       if (!(await lock("extend").catch(() => false))) break;
       await sleep(60_000);
     }

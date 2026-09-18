@@ -9,7 +9,7 @@ import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
 import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
-import { billedAccountIds } from "@/lib/flow/flowBilling";
+import { billedAccountIdsForFire, billSetupForming } from "@/lib/flow/flowBilling";
 import { genxLabel } from "@/lib/genx/brand";
 import { genxGoldQualityGate } from "@/lib/genx/qualityGate";
 import { originAllowed, genx3AccountFilter } from "@/lib/genx3/engineSelect";
@@ -1784,8 +1784,9 @@ export async function placeGenxFollower(sig: {
   const perAccount = async (a: FollowRow): Promise<{ touched: number; placed: number }> => {
     if (!a.acc_num) return { touched: 0, placed: 0 };
     try {
-      // FLOW CREDITS PER ACCOUNT (owner 09-16): a follower account trades only inside a paid 30-min window.
-      if (!(await billedAccountIds(admin, [String(a.account_id)])).has(String(a.account_id))) {
+      // FLOW CREDITS PER TRADE (owner 09-18): the member pays 5 credits for this fire, once.
+      const fireKey = `genx:${sig.signalKey}`;
+      if (!(await billedAccountIdsForFire(admin, [String(a.account_id)], fireKey)).has(String(a.account_id))) {
         try { await admin.from("flow_auto_events").insert({ user_id: a.user_id, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: "genx: flow_credits (account paused)", account_id: a.account_id }); } catch { /* log best-effort */ }
         return { touched: 1, placed: 0 };
       }

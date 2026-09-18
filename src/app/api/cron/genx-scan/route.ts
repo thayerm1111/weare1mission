@@ -7,6 +7,7 @@ import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
 import { placeGenxGold, placeGenxFollower, rewardRisk, inWeekendCloseWindow, inScanQuietWindow } from "@/lib/flow/autoExec";
 import { checkOwnerLevels } from "@/lib/flow/ownerLevels";
+import { billSetupForming } from "@/lib/flow/flowBilling";
 import { watchPass, findSameSetup, decideGoldEntry, beatKeepDecision, headsUpMsg, enterMsg, invalidMsg, MODE_LABEL, r1, fmt, acquireWatchLock, extendWatchLock, releaseWatchLock, type AlertRow } from "@/lib/genx/watchTick";
 
 // decideGoldEntry + the gold entry preference rules now live in @/lib/genx/watchTick
@@ -222,6 +223,9 @@ async function run(): Promise<Response> {
             quality_ok: qOk,
           });
           if (insErr) { modeOut.result = "already_recorded"; continue; }
+          // CREDITS (owner 09-18: "1 when the trade is forming"): every member armed for this setup pays
+          // one credit, once — charged on the insert, so a re-scan of the same setup never charges twice.
+          try { const b = await billSetupForming(admin, dedupeKey); modeOut.billed = b; } catch { /* billing is best-effort; it never blocks an alert */ }
           if (tgReady) await sendTelegram(headsUpMsg(side, mode, { entry_low: genx.entry_low, entry_high: genx.entry_high, stop: genx.stop_loss, tp1: genx.tp1, tp2: genx.tp2, confidence: genx.confidence_score }));
           sent.push(`${mode}:HEADSUP`); modeOut.result = "headsup";
         }

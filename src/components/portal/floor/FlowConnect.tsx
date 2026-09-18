@@ -905,9 +905,9 @@ export function FlowConnect() {
 
             <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-3">
               <p className="text-xs leading-relaxed text-amber-700">
-                <b>Costs {auto?.costPer30m ?? 1} credit every 30 min</b> while FLOW is running and the
-                market is open — one credit no matter how many accounts you connect. FLOW isn&apos;t free to run — you&apos;re only charged while it&apos;s
-                actively watching for you.
+                <b>1 credit when a setup starts forming, 5 when a trade is actually placed</b> on your
+                account — once each, no matter how many accounts you connect. Watching is free: on a quiet
+                day with no setups, FLOW costs you nothing.
               </p>
               <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-charcoal/60">
                 <Coins className="h-3.5 w-3.5" /> Credits:{" "}

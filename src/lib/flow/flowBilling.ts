@@ -69,7 +69,60 @@ export async function billedAccountIds(admin: Admin, accountIds: string[]): Prom
   return out;
 }
 
-/** Worker pass: bill every member FLOW is watching for (one credit per member per window); mirror the paused flag for the UI. */
+/** EVENT BILLING (owner 09-18: "5 credits per trade and 1 when the trade is forming"). Watching is free —
+ *  a member pays 1 credit when a setup they are armed for starts forming, and 5 when GENX actually puts an
+ *  order on one of their accounts. Charges are idempotent per member per event key, so retries, a second
+ *  account and two workers can never double-charge the same setup or the same fire. */
+export const SETUP_COST = 1;
+export const TRADE_COST = 5;
+
+export async function billEvent(admin: Admin, userId: string, key: string, kind: "setup" | "trade", wasPaused = false): Promise<{ result: "charged" | "already" | "paused" | "error"; ok: boolean }> {
+  const cost = kind === "trade" ? TRADE_COST : SETUP_COST;
+  try {
+    const { data, error } = await admin.rpc("flow_bill_event", { p_user: userId, p_key: `${kind}:${key}`, p_kind: kind, p_cost: cost, p_allowance: DAILY_FREE });
+    if (error || !data) return { result: "error", ok: !wasPaused };          // system fault → fail open for a paid member
+    const d = data as { result: "charged" | "already" | "paused" | "error"; ok: boolean };
+    return { result: d.result, ok: !!d.ok };
+  } catch { return { result: "error", ok: !wasPaused }; }
+}
+
+/** Placement gate under event billing: which of these accounts may trade this fire? Bills 5 credits per
+ *  member, once for the whole fire, however many accounts they run. */
+export async function billedAccountIdsForFire(admin: Admin, accountIds: string[], fireKey: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (!accountIds.length) return out;
+  const { data, error } = await admin.from("flow_broker_accounts").select("account_id, user_id, flow_last_credit_at, flow_credit_paused").in("account_id", accountIds);
+  if (error) { for (const id of accountIds) out.add(id); return out; }      // unreadable → fail open
+  const rows = (data ?? []) as BillRow[];
+  const byUser = new Map<string, BillRow[]>();
+  for (const r of rows) { const l = byUser.get(r.user_id) ?? []; l.push(r); byUser.set(r.user_id, l); }
+  for (const [uid, list] of byUser) {
+    const wasPaused = list.every((r) => !!r.flow_credit_paused);
+    const c = await billEvent(admin, uid, fireKey, "trade", wasPaused);
+    if (c.ok) for (const r of list) out.add(String(r.account_id));
+  }
+  return out;
+}
+
+/** A setup is forming: bill 1 credit to every member armed for it (once per member per setup). */
+export async function billSetupForming(admin: Admin, setupKey: string): Promise<{ members: number; charged: number; paused: number }> {
+  const { data, error } = await admin.from("flow_broker_accounts").select("account_id, user_id, flow_last_credit_at, flow_credit_paused").or("autotrade_enabled.eq.true,genx_follower.eq.true");
+  if (error) return { members: 0, charged: 0, paused: 0 };
+  const byUser = new Map<string, BillRow[]>();
+  for (const r of (data ?? []) as BillRow[]) { const l = byUser.get(r.user_id) ?? []; l.push(r); byUser.set(r.user_id, l); }
+  let charged = 0, paused = 0;
+  for (const [uid, list] of byUser) {
+    const wasPaused = list.every((r) => !!r.flow_credit_paused);
+    const c = await billEvent(admin, uid, setupKey, "setup", wasPaused);
+    if (c.result === "charged") charged++; else if (c.result === "paused") paused++;
+    const isPaused = c.result === "paused" || (c.result === "error" && wasPaused);
+    if (c.result === "charged" || c.result === "paused") { try { await admin.from("flow_auto_settings").update({ credit_paused: isPaused }).eq("user_id", uid).neq("credit_paused", isPaused); } catch { /* UI mirror best-effort */ } }
+  }
+  return { members: byUser.size, charged, paused };
+}
+
+/** LEGACY time-window pass — no longer called by the worker (kept for the Vercel cron fallback until it is
+ *  migrated). Bills one credit per member per 30-minute watching window. */
 export async function billFlowAccounts(admin: Admin, nowMs = Date.now()): Promise<{ open: boolean; members: number; charged: number; paused: number; errors: number }> {
   if (!billingOpen(nowMs)) return { open: false, members: 0, charged: 0, paused: 0, errors: 0 };
   const { data, error } = await admin.from("flow_broker_accounts").select("account_id, user_id, flow_last_credit_at, flow_credit_paused").or("autotrade_enabled.eq.true,genx_follower.eq.true");

@@ -1786,7 +1786,7 @@ input{font:inherit}
         <button onClick=${function () { toggle(!on); }} aria-pressed=${on} style=${"position:relative;flex:0 0 auto;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (on ? "#2ee88f" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (on ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
       </div>
       ${paused ? html`<div style="margin-top:10px;font-size:11px;font-weight:700;color:#ffb4b4;background:rgba(255,93,108,.1);border:1px solid rgba(255,93,108,.25);border-radius:10px;padding:8px 10px">Auto-refill paused — we couldn't charge your card. Re-add it below to turn it back on.</div>` : null}
-      <div style="margin-top:10px;font-size:11px;line-height:1.55;color:rgba(255,255,255,.62);background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:9px 11px"><b style="color:#2ee88f">Why keep a card on file?</b> FLOW spends 1 credit each auto-run. Hit 0 and auto-trading <b style="color:rgba(255,255,255,.85)">pauses</b> — the desk keeps taking plays without you until you top up. With auto-refill on, credits top up by themselves the moment you run low, so FLOW never stops and you never miss a trade.</div>
+      <div style="margin-top:10px;font-size:11px;line-height:1.55;color:rgba(255,255,255,.62);background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:9px 11px"><b style="color:#2ee88f">Why keep a card on file?</b> FLOW spends 1 credit when a setup forms and 5 when a trade is placed — watching is free. Hit 0 and auto-trading <b style="color:rgba(255,255,255,.85)">pauses</b> — the desk keeps taking plays without you until you top up. With auto-refill on, credits top up by themselves the moment you run low, so FLOW never stops and you never miss a trade.</div>
       <div style="margin-top:8px;font-size:11px;line-height:1.5;color:rgba(255,255,255,.5)">When your balance drops below <b style="color:rgba(255,255,255,.75)">${d.threshold}</b> credits, we charge your card <b style="color:rgba(255,255,255,.75)">${priceRefill}</b> for <b style="color:rgba(255,255,255,.75)">${d.refillCredits}</b> credits — automatically, until you turn this off.</div>
       <div style="margin-top:11px;display:flex;gap:8px">
         ${d.hasCard
@@ -2802,7 +2802,7 @@ input{font:inherit}
   }
   // ── FLOW auto-run panel — the prominent "connect + set risk + turn on auto"
   // control. Shows a big Connect CTA until a broker is linked; once linked, a
-  // risk% you lock in and an auto-run switch. Auto-run costs 1 credit / 30 min
+  // risk% you lock in and an auto-run switch. Credits: 1 when a setup forms, 5 per trade placed
   // while markets are open (billed server-side by the executor cron).
   var RISK_CHIPS = [0.5, 1, 2, 3];
   function FlowAutoRun(props) {
@@ -4529,7 +4529,7 @@ input{font:inherit}
         <div style="margin-top:6px;font-size:12px;line-height:1.55;color:rgba(255,255,255,.75)">Pick the account you want and flip <b style="color:#2ee88f">Auto-trading ON</b>. That's the whole switch — from this moment FLOW takes the gold plays for you, hands-free, with your stop moved to breakeven automatically.</div>
         <div style="margin-top:10px;display:flex;gap:8px"><button style=${next} onClick=${function () { step[1](4); }}>It's on — next</button></div>` : null}
       ${s === 4 ? html`${head("Step 4 of 4 — never run out")}
-        <div style="margin-top:6px;font-size:12px;line-height:1.55;color:rgba(255,255,255,.75)">Each auto-run uses <b>1 credit</b>. If you hit 0, FLOW pauses and plays get missed. Put a card on file in <b style="color:#2ee88f">Account → ⚡ Auto-refill</b> and credits top up by themselves — FLOW never stops.</div>
+        <div style="margin-top:6px;font-size:12px;line-height:1.55;color:rgba(255,255,255,.75)">FLOW uses <b>1 credit</b> when a setup forms and <b>5</b> when a trade is placed on your account — nothing on a quiet day. If you hit 0, FLOW pauses and plays get missed. Put a card on file in <b style="color:#2ee88f">Account → ⚡ Auto-refill</b> and credits top up by themselves — FLOW never stops.</div>
         <div style="margin-top:10px;display:flex;gap:8px">
           <button style=${next} onClick=${function () { seen(); open[1](false); props.go("account"); }}>Set up Auto-refill</button>
           <button style="flex:0 0 auto;padding:11px 14px;border:1px solid rgba(255,255,255,.16);border-radius:11px;background:rgba(255,255,255,.05);color:#fff;font-size:13px;font-weight:700;cursor:pointer" onClick=${close}>Done</button>

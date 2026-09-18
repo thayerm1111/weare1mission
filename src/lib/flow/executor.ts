@@ -9,7 +9,7 @@ import { sizeFromRisk, contractKey, floorStop } from "@/lib/flow/sizing";
 import { listInstruments, createOrder, getQuote, listOrders, listPositions, listAccounts, listOrdersHistory, modifyPosition, withBrokerPriority, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
 import { recordExec, execContext } from "@/lib/flow/execTelemetry";
-import { billedAccountIds, isManualSource } from "@/lib/flow/flowBilling";
+import { billedAccountIdsForFire, isManualSource } from "@/lib/flow/flowBilling";
 
 /**
  * FLOW order placement (server-only). Places a single market order on the
@@ -432,10 +432,10 @@ export async function placeOnActiveAccounts(opts: {
   let accts = opts.accounts ?? (await activeAccounts(opts.userId));
   const tlog = createAdminClient(); // flight-recorder handle (best-effort; null-safe below)
   const fills: AccountFill[] = [];
-  // FLOW CREDITS PER ACCOUNT (owner 09-16): an automated entry only reaches an account whose 30-min FLOW
-  // window is paid — a due account is billed right here; an account that can't pay sits out (logged).
+  // FLOW CREDITS PER TRADE (owner 09-18: "5 credits per trade"): a member pays 5 credits when GENX puts an
+  // order on their account — once for the whole fire, however many accounts they run. Watching is free.
   if (!isManualSource(opts.source) && tlog && accts.length) {
-    const paid = await billedAccountIds(tlog, accts.map((a) => String(a.accountId)));
+    const paid = await billedAccountIdsForFire(tlog, accts.map((a) => String(a.accountId)), resvKey);
     for (const a of accts) if (!paid.has(String(a.accountId))) {
       fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: "flow_credits: out of credits (account paused)" });
       await logEvent(opts.userId, { symbol: canonical, side: opts.side, status: "skipped", reason: `${opts.source}: flow_credits (out of credits)`.slice(0, 60), account_id: a.accountId });

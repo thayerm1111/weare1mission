@@ -21,15 +21,27 @@ test('billing only while gold is open (not weekends, the daily break, or the las
 test('manual plays/tests are not FLOW automation', () => {
   assert.ok(isManualSource('play')); assert.ok(isManualSource('test_order')); assert.ok(!isManualSource('genx')); assert.ok(!isManualSource('genx-pd'));
 });
-test('every automated placement path enforces per-account billing; Suite subscribers are no longer free', () => {
+test('owner 09-18: every placement path charges the TRADE event; watching is free', () => {
   const ex = readFileSync('src/lib/flow/executor.ts', 'utf8');
-  assert.ok(/billedAccountIds\(tlog, accts\.map/.test(ex), 'copy / FLOW placement bills each account');
+  assert.ok(/billedAccountIdsForFire\(tlog, accts\.map/.test(ex), 'copy / FLOW placement bills the fire');
   const ae = readFileSync('src/lib/flow/autoExec.ts', 'utf8');
   const follower = ae.slice(ae.indexOf('export async function placeGenxFollower'));
-  assert.ok(/billedAccountIds\(admin, \[String\(a\.account_id\)\]\)/.test(follower), 'follower accounts billed');
+  assert.ok(/billedAccountIdsForFire\(admin, \[String\(a\.account_id\)\], fireKey\)/.test(follower), 'follower accounts billed per fire');
   const meter = ae.slice(ae.indexOf('async function meterAutoRun'), ae.indexOf('const COOLDOWN_MIN'));
   assert.ok(!/hasActiveSuite\(/.test(meter), 'no free pass for Trading Suite');
-  assert.ok(/billingLoop\(\)/.test(readFileSync('worker/index.ts', 'utf8')), 'worker bills while watching');
+  const worker = readFileSync('worker/index.ts', 'utf8');
+  assert.ok(!/billFlowAccounts\(/.test(worker), 'the worker no longer bills by the clock');
+  const scan = readFileSync('src/app/api/cron/genx-scan/route.ts', 'utf8');
+  assert.ok(/billSetupForming\(admin, dedupeKey\)/.test(scan), 'a forming setup charges its one credit');
+});
+
+test('owner 09-18: the event charge is idempotent per member per event', () => {
+  const sql = readFileSync('supabase/migrations/20260918180000_flow_event_billing.sql', 'utf8');
+  assert.ok(/primary key \(user_id, event_key\)/.test(sql), 'one row per member per event');
+  assert.ok(/pg_advisory_xact_lock/.test(sql), 'member+event lock');
+  assert.ok(/'already'/.test(sql), 'a repeat charge returns already, never a second spend');
+  const fb = readFileSync('src/lib/flow/flowBilling.ts', 'utf8');
+  assert.ok(/SETUP_COST = 1/.test(fb) && /TRADE_COST = 5/.test(fb), '1 forming / 5 per trade');
 });
 
 test('owner 09-17: one credit per MEMBER per window, no matter how many accounts', () => {
