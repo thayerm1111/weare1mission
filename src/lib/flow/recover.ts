@@ -131,7 +131,7 @@ export async function recoverOrphans(admin: Admin): Promise<{ adopted: number; c
   const { data: mr } = await admin.from("flow_managed_positions")
     .select("account_id,symbol,side,position_id,created_at")
     .in("account_id", acctIds)
-    .gte("created_at", new Date(Date.now() - 30 * 60_000).toISOString());
+    .gte("created_at", new Date(Date.now() - 6 * 3600_000).toISOString());
   const managed = (mr ?? []) as MrRow[];
   const trackedByAcct = new Map<string, Set<string>>();
   for (const m of managed) {
@@ -144,7 +144,11 @@ export async function recoverOrphans(admin: Admin): Promise<{ adopted: number; c
     String(m.account_id) === String(e.account_id) &&
     canon(m.symbol) === canon(e.symbol) &&
     m.side === e.side &&
-    Math.abs(Date.parse(m.created_at) - Date.parse(e.created_at)) < 6 * 60_000);
+    // ADOPTION LAG (owner incident 09-18): under a broker rate-limit storm an orphan can take many
+    // minutes to adopt, and the row is written at ADOPTION time. A 6-minute window stopped matching the
+    // placement it came from, so the next pass adopted the SAME position again — three rows for one
+    // trade. The window now spans the whole lookback.
+    Math.abs(Date.parse(m.created_at) - Date.parse(e.created_at)) < 45 * 60_000);
 
   const orphans = events.filter((e) => e.account_id && e.symbol && e.side && !hasManagedNear(e));
   if (!orphans.length) return { adopted: 0, checked: 0 };
@@ -181,6 +185,11 @@ export async function recoverOrphans(admin: Admin): Promise<{ adopted: number; c
       const sl = match.sl != null ? match.sl : (e.stop != null ? Number(e.stop) : null);
       const tp = match.tp != null ? match.tp : (e.tp != null ? Number(e.tp) : null);
       if (entry == null || sl == null) continue; // cannot manage without a real entry + stop
+      // BROKER TRUTH DEDUPE: never write a second row for a position already being managed, whatever
+      // its age or which pass adopted it.
+      const dupe = await admin.from("flow_managed_positions")
+        .select("id").eq("account_id", accountId).eq("position_id", String(match.positionId)).limit(1);
+      if (!dupe.error && (dupe.data ?? []).length) { tracked.add(String(match.positionId)); continue; }
       const ins = await admin.from("flow_managed_positions").insert({
         user_id: e.user_id, connection_id: info.connection_id, account_id: accountId, acc_num: info.acc_num,
         environment: info.environment ?? tok.env,
