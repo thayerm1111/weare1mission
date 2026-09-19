@@ -1,7 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { selectedAccount } from "../../../../../../command-center/engines/broker";
+import { callbackUrl } from "../../../../../../command-center/engines/voice";
 import {
-  availability, budgetFor, closeSession, openSession, signedUrl, touch,
+  availability, budgetFor, closeSession, ensureAgent, openSession, signedUrl, touch,
   MONTHLY_MINUTE_BUDGET,
 } from "../../../../../../command-center/engines/voice";
 
@@ -53,6 +54,9 @@ export async function GET() {
     missing: avail.ok ? [] : avail.missing,
     budget,
     monthlyMinutes: MONTHLY_MINUTE_BUDGET,
+    // Reading the state must never have the side effect of creating an agent — that happens when
+    // somebody actually asks for a line, not when a panel renders.
+    callback: avail.ok ? callbackUrl() : null,
   });
 }
 
@@ -94,11 +98,19 @@ export async function POST(req: Request) {
     }, 200);
   }
 
+  /*
+   * The agent is created on first use rather than configured by hand. Everything the provider needs to
+   * know — where to call us, what secret to present, what it is and is not — is derivable from what the
+   * server already has, so making a person assemble it in a dashboard would be busywork.
+   */
+  const agent = await ensureAgent();
+  if (!agent.ok) return json({ ok: false, configured: true, reason: agent.reason }, 200);
+
   const account = await selectedAccount(gate.userId);
-  const session = await openSession(gate.userId, account?.id ?? null, avail.agentId);
+  const session = await openSession(gate.userId, account?.id ?? null, agent.agentId);
   if (!session) return json({ ok: false, reason: "Could not open a voice session." }, 200);
 
-  const signed = await signedUrl(avail.agentId);
+  const signed = await signedUrl(agent.agentId);
   if (!signed.ok) {
     await closeSession(gate.userId, "provider refused");
     return json({ ok: false, configured: true, reason: signed.reason }, 200);

@@ -6,32 +6,37 @@ import { availability, MONTHLY_MINUTE_BUDGET, MAX_SESSION_MS, STALE_SESSION_MS }
 
 test('voice reports exactly what is missing rather than a vague no', () => {
   const saveKey = process.env.ELEVENLABS_API_KEY;
-  const saveAgent = process.env.ELEVENLABS_AGENT_ID;
+  const saveSecret = process.env.CC_VOICE_LLM_SECRET;
   delete process.env.ELEVENLABS_API_KEY;
-  delete process.env.ELEVENLABS_AGENT_ID;
+  delete process.env.CC_VOICE_LLM_SECRET;
 
   const none = availability();
   assert.equal(none.ok, false);
   if (!none.ok) {
-    assert.deepEqual(none.missing.sort(), ['ELEVENLABS_AGENT_ID', 'ELEVENLABS_API_KEY']);
+    assert.deepEqual(none.missing.sort(), ['CC_VOICE_LLM_SECRET', 'ELEVENLABS_API_KEY']);
     assert.match(none.reason, /text console still works/i, 'a missing provider must not read as a broken product');
   }
 
   process.env.ELEVENLABS_API_KEY = 'k';
   const half = availability();
   assert.equal(half.ok, false);
-  if (!half.ok) assert.deepEqual(half.missing, ['ELEVENLABS_AGENT_ID']);
+  if (!half.ok) assert.deepEqual(half.missing, ['CC_VOICE_LLM_SECRET']);
 
-  process.env.ELEVENLABS_AGENT_ID = 'agent_1';
+  // The AGENT is deliberately NOT required: demanding one would mean a person has to create it in a
+  // dashboard, copy an identifier and redeploy, to produce a value the server can produce itself.
+  process.env.CC_VOICE_LLM_SECRET = 's';
   const full = availability();
-  assert.equal(full.ok, true);
-  if (full.ok) {
-    assert.equal(full.provider, 'elevenlabs');
-    assert.equal(full.agentId, 'agent_1');
-  }
+  assert.equal(full.ok, true, 'a key and a callback secret are enough — the agent is provisioned on first use');
 
   if (saveKey === undefined) delete process.env.ELEVENLABS_API_KEY; else process.env.ELEVENLABS_API_KEY = saveKey;
-  if (saveAgent === undefined) delete process.env.ELEVENLABS_AGENT_ID; else process.env.ELEVENLABS_AGENT_ID = saveAgent;
+  if (saveSecret === undefined) delete process.env.CC_VOICE_LLM_SECRET; else process.env.CC_VOICE_LLM_SECRET = saveSecret;
+});
+
+test('the callback URL the provider is pointed at is our own reasoning endpoint', async () => {
+  const { callbackUrl } = await import('../command-center/engines/voice');
+  const u = callbackUrl();
+  assert.match(u, /\/api\/command-center\/voice\/llm$/);
+  assert.ok(u.startsWith('https://'), 'a callback carrying a session token is never sent over plain http');
 });
 
 /* ─────────────────── the meter has real limits ─────────────────── */

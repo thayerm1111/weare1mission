@@ -31,10 +31,10 @@ export type VoiceAvailability =
  */
 export function availability(): VoiceAvailability {
   const key = process.env.ELEVENLABS_API_KEY;
-  const agentId = process.env.ELEVENLABS_AGENT_ID;
+  const secret = process.env.CC_VOICE_LLM_SECRET;
   const missing: string[] = [];
   if (!key) missing.push("ELEVENLABS_API_KEY");
-  if (!agentId) missing.push("ELEVENLABS_AGENT_ID");
+  if (!secret) missing.push("CC_VOICE_LLM_SECRET");
   if (missing.length) {
     return {
       ok: false,
@@ -42,8 +42,19 @@ export function availability(): VoiceAvailability {
       reason: `Voice is not configured on the server (${missing.join(" and ")} not set). The text console still works.`,
     };
   }
-  return { ok: true, provider: "elevenlabs", agentId: agentId! };
+  /*
+   * The AGENT is deliberately not an environment variable.
+   *
+   * Requiring one would mean a person has to go and create an agent in a dashboard, copy an identifier,
+   * paste it into a settings page and redeploy — four manual steps to produce a value the server is
+   * perfectly capable of producing itself. It is provisioned on first use instead, and the id is stored.
+   */
+  return { ok: true, provider: "elevenlabs", agentId: process.env.ELEVENLABS_AGENT_ID ?? "" };
 }
+
+/** Where the provider will call us back. Overridable, because a preview deploy is not production. */
+export const callbackUrl = () =>
+  `${(process.env.CC_PUBLIC_ORIGIN ?? "https://weare1mission.com").replace(/\/$/, "")}/api/command-center/voice/llm`;
 
 /* ── budget ─────────────────────────────────────────────────────────────── */
 
@@ -214,5 +225,141 @@ export async function signedUrl(agentId: string): Promise<{ ok: true; url: strin
     return { ok: true, url: j.signed_url };
   } catch (e) {
     return { ok: false, reason: `Could not reach the speech provider: ${e instanceof Error ? e.message.slice(0, 120) : "unknown"}` };
+  }
+}
+
+
+/* ── provisioning the agent ─────────────────────────────────────────────── */
+
+const API = "https://api.elevenlabs.io/v1";
+
+/**
+ * The agent's OWN prompt is deliberately almost empty.
+ *
+ * Every real instruction — who it is, what it can see, what it must never invent — arrives from our
+ * reasoning endpoint on every single turn, together with the market snapshot and the position. Putting
+ * a persona here as well would create a second, stale set of instructions that nobody maintains and
+ * that quietly contradicts the first one the moment the real prompt changes.
+ */
+const AGENT_PROMPT = [
+  "You are a relay. Do not answer from your own knowledge.",
+  "Every turn, the server you are configured to call returns the complete, authoritative answer,",
+  "built from live market data and the trader's actual account. Speak what it returns.",
+  "Never invent a price, a level, a position or a number.",
+].join(" ");
+
+export type Provisioned = { ok: true; agentId: string; created: boolean } | { ok: false; reason: string };
+
+/**
+ * Find the agent, or make one.
+ *
+ * Idempotent and cheap: the stored id is reused for the life of the workspace, and re-provisioning only
+ * happens when the callback URL changes — which is the one change that would otherwise leave an agent
+ * quietly pointed at an endpoint that has moved.
+ */
+export async function ensureAgent(): Promise<Provisioned> {
+  const fromEnv = process.env.ELEVENLABS_AGENT_ID;
+  if (fromEnv) return { ok: true, agentId: fromEnv, created: false };
+
+  const c = db();
+  const url = callbackUrl();
+
+  if (c) {
+    const { data } = await c.from("cc_voice_provider").select("*").eq("provider", "elevenlabs").maybeSingle();
+    const row = data as { agent_id: string; callback_url: string | null } | null;
+    if (row?.agent_id && row.callback_url === url) return { ok: true, agentId: row.agent_id, created: false };
+  }
+
+  return provisionAgent();
+}
+
+/**
+ * Create the workspace secret and the agent, in that order.
+ *
+ * On failure this returns the provider's OWN error text rather than a friendly summary of it. The
+ * custom-LLM request shape is not fully published, so if it is wrong the exact complaint is the single
+ * most useful thing that can appear on the screen — a generic "could not configure voice" would leave
+ * nobody any way to tell what to change.
+ */
+export async function provisionAgent(): Promise<Provisioned> {
+  const key = process.env.ELEVENLABS_API_KEY;
+  const callbackSecret = process.env.CC_VOICE_LLM_SECRET;
+  if (!key || !callbackSecret) return { ok: false, reason: "Speech credentials are not configured on the server." };
+
+  const url = callbackUrl();
+  const headers = { "xi-api-key": key, "content-type": "application/json" };
+
+  try {
+    // 1 — a secret the agent presents to us, so our reasoning endpoint is not an open door.
+    let secretId: string | null = null;
+    const secretRes = await fetch(`${API}/convai/secrets`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type: "new", name: `CC_BRAIN_CALLBACK_${Date.now().toString(36)}`, value: callbackSecret }),
+    });
+    if (secretRes.ok) {
+      const j = (await secretRes.json()) as { secret_id?: string };
+      secretId = j.secret_id ?? null;
+    } else {
+      const body = await secretRes.text().catch(() => "");
+      return { ok: false, reason: `Could not store the callback secret with the speech provider (${secretRes.status}). ${body.slice(0, 300)}` };
+    }
+
+    // 2 — the agent itself, pointed at THE BRAIN.
+    const body = {
+      name: "COMMAND CENTER XAUUSD — THE BRAIN",
+      conversation_config: {
+        agent: {
+          first_message: "",
+          language: "en",
+          prompt: {
+            prompt: AGENT_PROMPT,
+            llm: "custom-llm",
+            temperature: 0.3,
+            max_tokens: -1,
+            tools: [],
+            custom_llm: {
+              url,
+              model_id: "command-center-xauusd",
+              api_key: { secret_id: secretId },
+            },
+          },
+        },
+        asr: { quality: "high", user_input_audio_format: "pcm_16000" },
+        tts: { model_id: "eleven_turbo_v2_5", agent_output_audio_format: "pcm_16000" },
+        turn: { turn_timeout: 10 },
+        conversation: {
+          max_duration_seconds: 1800,
+          client_events: ["audio", "interruption", "user_transcript", "agent_response", "agent_response_correction"],
+        },
+      },
+    };
+
+    const res = await fetch(`${API}/convai/agents/create`, { method: "POST", headers, body: JSON.stringify(body) });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      const reason = `The speech provider refused the agent (${res.status}). ${text.slice(0, 500)}`;
+      const c = db();
+      if (c) await c.from("cc_voice_provider").upsert({ provider: "elevenlabs", agent_id: "", callback_url: url, last_error: reason.slice(0, 900), updated_at: new Date().toISOString() });
+      return { ok: false, reason };
+    }
+
+    const j = (await res.json()) as { agent_id?: string };
+    if (!j.agent_id) return { ok: false, reason: "The speech provider created an agent but returned no identifier." };
+
+    const c = db();
+    if (c) {
+      await c.from("cc_voice_provider").upsert({
+        provider: "elevenlabs",
+        agent_id: j.agent_id,
+        secret_id: secretId,
+        callback_url: url,
+        last_error: null,
+        updated_at: new Date().toISOString(),
+      });
+    }
+    return { ok: true, agentId: j.agent_id, created: true };
+  } catch (e) {
+    return { ok: false, reason: `Could not reach the speech provider: ${e instanceof Error ? e.message.slice(0, 200) : "unknown"}` };
   }
 }
