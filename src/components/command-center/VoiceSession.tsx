@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Mic, MicOff, PhoneOff, Radio } from "lucide-react";
+import { VoicePresence, type PresenceMode } from "./VoicePresence";
 
 /**
  * TALK WITH THE BRAIN — one continuous session, not a button you hold.
@@ -143,12 +144,33 @@ export function VoiceSession({ onUiAction, onStatus }: {
   const frames = useRef(0);
   /** The loudest sample this device has ever produced. A flat bar is ambiguous; this is not. */
   const loudest = useRef(0);
+  /*
+   * THE AMPLITUDE OF WHAT IS BEING SPOKEN, measured rather than simulated.
+   *
+   * The presence moves on the actual words because the alternative — a timer that animates whenever
+   * the status says "speaking" — is a cartoon of a conversation. Every buffer scheduled for playback
+   * is measured, and the reading decays on its own so the mouth closes when the sentence ends.
+   */
+  const outLevel = useRef(0);
+  const [presenceOut, setPresenceOut] = useState(0);
   const micTrack = useRef<MediaStreamTrack | null>(null);
   const chosenMic = useRef<string | null>(null);
   const autoPicked = useRef(false);
   const rawRetry = useRef(false);
 
   useEffect(() => { mutedRef.current = muted; }, [muted]);
+
+  /*
+   * The presence reads at about thirty frames a second and decays between chunks, which is what makes
+   * it look like a mouth closing rather than a meter dropping to zero.
+   */
+  useEffect(() => {
+    const id = setInterval(() => {
+      outLevel.current *= 0.72;
+      setPresenceOut(outLevel.current);
+    }, 33);
+    return () => clearInterval(id);
+  }, []);
   useEffect(() => { onStatus?.(status); }, [status, onStatus]);
 
   /* ── availability ─────────────────────────────────────────────────────── */
@@ -166,6 +188,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
   const stopPlayback = useCallback(() => {
     for (const s of scheduled.current) { try { s.stop(); } catch { /* already finished */ } }
     scheduled.current = [];
+    outLevel.current = 0;      // interrupted mid-word: the mouth closes immediately
     playHead.current = audioCtx.current?.currentTime ?? 0;
     // Anything queued and never started was never heard. Saying otherwise would let THE BRAIN refer back
     // to a sentence the member has no memory of, which is worse than silence.
@@ -186,6 +209,10 @@ export function VoiceSession({ onUiAction, onStatus }: {
     if (!pcm.length) return;
     const buf = ctx.createBuffer(1, pcm.length, outputRate.current);
     buf.getChannelData(0).set(pcm);
+
+    // The loudest sample in this chunk, held until the chunk has actually played.
+    let peak = 0;
+    for (let i = 0; i < pcm.length; i += 8) { const v = Math.abs(pcm[i]); if (v > peak) peak = v; }
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.connect(ctx.destination);
@@ -194,6 +221,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
     playHead.current = startAt + buf.duration;
     scheduled.current.push(src);
     // The moment the first chunk of a sentence actually begins, that sentence counts as heard.
+    window.setTimeout(() => { outLevel.current = peak; }, Math.max(0, (startAt - ctx.currentTime) * 1000));
     src.onended = () => { scheduled.current = scheduled.current.filter((s) => s !== src); };
     if (pendingBrainId.current) {
       const id = pendingBrainId.current;
@@ -568,6 +596,21 @@ export function VoiceSession({ onUiAction, onStatus }: {
   if (info && info.enabled === false) return null;          // not this member's feature; say nothing
 
   const live = status === "listening" || status === "speaking" || status === "muted" || status === "awaiting_mic";
+
+  /*
+   * WHAT THE PRESENCE IS DOING, derived from what is really happening rather than from a label.
+   *
+   * "Thinking" is the honest name for the gap between the member finishing a sentence and the first
+   * audio arriving — it is real work, it takes real time, and showing it is what stops that pause
+   * feeling like a fault.
+   */
+  const presenceMode: PresenceMode =
+    status === "error" || status === "disconnected" ? "dead"
+    : status === "connecting" || status === "awaiting_mic" ? "connecting"
+    : status === "muted" ? "muted"
+    : status === "speaking" ? (presenceOut > 0.004 ? "speaking" : "thinking")
+    : status === "listening" ? (turns.length && turns[turns.length - 1].who === "you" ? "thinking" : "listening")
+    : "idle";
   const label = status === "awaiting_mic" ? "waiting for the microphone" : status;
   const tone =
     status === "awaiting_mic" ? C.amber
@@ -610,7 +653,21 @@ export function VoiceSession({ onUiAction, onStatus }: {
           </>
         ) : (
           <>
-            <div className="max-h-[220px] space-y-2 overflow-y-auto">
+            {/*
+              * THE PRESENCE SITS ABOVE THE WORDS, because the words are the record and this is the
+              * conversation. A member glancing over should be able to tell whether it is listening,
+              * thinking or talking without reading anything.
+              */}
+            <div className="mb-1 flex justify-center">
+              <VoicePresence
+                mode={presenceMode}
+                micLevel={diag.level}
+                outLevel={presenceOut}
+                size={118}
+              />
+            </div>
+
+            <div className="max-h-[200px] space-y-2 overflow-y-auto">
               {turns.slice(-12).map((t) => (
                 <div key={t.id}>
                   <p className="text-[9.5px] font-bold uppercase tracking-[0.16em]" style={{ color: t.who === "you" ? C.cold : C.gold }}>

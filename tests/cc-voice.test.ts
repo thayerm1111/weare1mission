@@ -268,3 +268,33 @@ test("a track that has never produced a sample is retried without processing", a
       `${f}: and the number is shown, because a flat bar is not evidence`);
   }
 });
+
+/*
+ * SOMETHING TO TALK TO, RATHER THAN A TRANSCRIPT TO READ.
+ *
+ * A voice session that renders as a chat box is a chat box. What makes a conversation feel like one
+ * is that the other party is visibly there while it happens — and every movement has to be a
+ * measurement, or it is a cartoon of a conversation rather than a picture of one.
+ */
+test("the presence moves on real audio, not on a timer", async () => {
+  const fs = await import('node:fs/promises');
+  const p = await fs.readFile("src/components/command-center/VoicePresence.tsx", "utf8");
+  assert.ok(/micLevel/.test(p) && /outLevel/.test(p), "it is driven by both directions of the audio");
+  assert.ok(/There is no idle animation/.test(p), "and does not pretend to be alive when it is not");
+
+  const v = await fs.readFile("src/components/command-center/VoiceSession.tsx", "utf8");
+  // The amplitude is measured from the buffer actually scheduled for playback.
+  assert.ok(/for \(let i = 0; i < pcm\.length; i \+= 8\)/.test(v), "each played chunk is measured");
+  assert.ok(/outLevel\.current = peak/.test(v), "and the reading is what drives the mouth");
+  // Interrupted mid-word, it has to stop moving on the same tick the audio stops.
+  const stop = v.slice(v.indexOf("const stopPlayback"), v.indexOf("const enqueueAudio"));
+  assert.ok(/outLevel\.current = 0/.test(stop), "an interruption closes the mouth immediately");
+});
+
+test("the pause before an answer is shown as thinking, not as nothing", async () => {
+  const fs = await import('node:fs/promises');
+  const v = await fs.readFile("src/components/command-center/VoiceSession.tsx", "utf8");
+  assert.ok(/presenceOut > 0\.004 \? "speaking" : "thinking"/.test(v),
+    "audio flowing is speaking; the gap before it is thinking");
+  assert.ok(/"dead"/.test(v), "and a dropped line looks dropped");
+});
