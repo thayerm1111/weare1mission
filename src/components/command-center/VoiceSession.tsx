@@ -86,6 +86,14 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
   const [error, setError] = useState<string | null>(null);
   const [turns, setTurns] = useState<VoiceTurn[]>([]);
   const [muted, setMuted] = useState(false);
+  /*
+   * VISIBLE DIAGNOSTICS.
+   *
+   * "I pressed talk, said something, and nothing registered" is impossible to act on. These three
+   * numbers turn that into a reading: is the microphone producing sound, are we sending it, and is the
+   * provider answering. Whichever one is zero is the broken link.
+   */
+  const [diag, setDiag] = useState({ sent: 0, received: 0, level: 0 });
 
   const ws = useRef<WebSocket | null>(null);
   const audioCtx = useRef<AudioContext | null>(null);
@@ -98,6 +106,7 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
   const mutedRef = useRef(false);
   const pendingBrainId = useRef<string | null>(null);
   const heartbeat = useRef<ReturnType<typeof setInterval> | null>(null);
+  const frames = useRef(0);
 
   useEffect(() => { mutedRef.current = muted; }, [muted]);
 
@@ -179,21 +188,43 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
   const start = useCallback(async () => {
     setError(null);
     setStatus("connecting");
+    setDiag({ sent: 0, received: 0, level: 0 });
+
+    /*
+     * THE AUDIO CONTEXT IS CREATED HERE, SYNCHRONOUSLY, BEFORE ANY AWAIT.
+     *
+     * This line is the whole fix for "I pressed talk and nothing happened" on a phone. Safari only
+     * allows an AudioContext to start running if it is created inside the user gesture that opened it.
+     * The first version created it AFTER awaiting a fetch — by which time the gesture had expired, so
+     * the context came up suspended, `onaudioprocess` never fired, not one byte of audio was ever sent,
+     * and the provider sat there hearing silence. Everything looked connected and nothing was.
+     */
+    let ctx: AudioContext;
+    try {
+      ctx = new AudioContext();
+      audioCtx.current = ctx;
+      void ctx.resume();
+    } catch {
+      setStatus("error");
+      setError("This browser would not open an audio session.");
+      return;
+    }
+
     try {
       const r = await fetch("/api/command-center/voice/session", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "start" }),
       });
       const j = await r.json();
-      if (!j.ok || !j.url) { setStatus("error"); setError(j.reason ?? "Could not open a voice session."); return; }
+      if (!j.ok || !j.url) { teardown("error", j.reason ?? "Could not open a voice session."); return; }
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       micStream.current = stream;
 
-      const ctx = new AudioContext();
-      audioCtx.current = ctx;
+      // Safari suspends again behind the permission prompt, so it is resumed once more afterwards.
+      await ctx.resume().catch(() => {});
       inputRate.current = ctx.sampleRate;
       playHead.current = ctx.currentTime;
 
@@ -206,13 +237,20 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
          * servers — which have no cookie from this browser — call our reasoning endpoint and be told
          * which account they are talking about.
          */
+        /*
+         * NO CONFIG OVERRIDE IS SENT.
+         *
+         * The provider rejects overrides for any field an agent has not explicitly been set up to allow,
+         * and a rejected initiation fails quietly — the socket stays open and the conversation simply
+         * never starts. There is nothing to override anyway: the agent was provisioned with the first
+         * message already empty, by us, a moment earlier.
+         */
         socket.send(JSON.stringify({
           type: "conversation_initiation_client_data",
           dynamic_variables: { voice_token: j.voiceToken },
-          conversation_config_override: {
-            agent: { first_message: "" },
-          },
         }));
+
+        void ctx.resume().catch(() => {});
 
         const source = ctx.createMediaStreamSource(stream);
         const node = ctx.createScriptProcessor(4096, 1, 1);
@@ -220,8 +258,17 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
         node.onaudioprocess = (e) => {
           if (socket.readyState !== WebSocket.OPEN || mutedRef.current) return;
           const input = e.inputBuffer.getChannelData(0);
+          // Peak of this frame, so the member can SEE that the microphone is hearing them. A silent bar
+          // while they are talking means the browser gave us a dead track, which is a different problem
+          // from the provider not answering.
+          let peak = 0;
+          for (let i = 0; i < input.length; i += 16) { const v = Math.abs(input[i]); if (v > peak) peak = v; }
           const pcm = downsample(input, inputRate.current, 16000);
           socket.send(JSON.stringify({ user_audio_chunk: pcm16ToBase64(pcm) }));
+          frames.current += 1;
+          if (frames.current % 6 === 0) {
+            setDiag((d) => ({ ...d, sent: frames.current, level: Math.max(peak, d.level * 0.6) }));
+          }
         };
         source.connect(node);
         // Connected to a muted gain node: a ScriptProcessor needs a destination to run at all, and
@@ -244,6 +291,7 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
         let m: Record<string, unknown>;
         try { m = JSON.parse(String(ev.data)) as Record<string, unknown>; } catch { return; }
         const type = String(m.type ?? "");
+        setDiag((d) => ({ ...d, received: d.received + 1 }));
 
         if (type === "conversation_initiation_metadata") {
           const meta = (m.conversation_initiation_metadata_event ?? {}) as Record<string, string>;
@@ -370,6 +418,30 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
                 </div>
               ))}
               {!turns.length && <p className="text-[12px]" style={{ color: C.mut2 }}>Listening. Say &ldquo;brief me&rdquo;.</p>}
+            </div>
+
+            {/* The three numbers that make a silent failure diagnosable. */}
+            <div className="mt-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[9.5px] font-bold uppercase tracking-[0.14em]" style={{ color: C.mut2 }}>Mic</span>
+                <span className="h-[4px] flex-1 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
+                  <span className="block h-full rounded-full"
+                    style={{ width: `${Math.min(100, Math.round(diag.level * 180))}%`, background: diag.level > 0.02 ? C.up : C.mut2, transition: "width .12s linear" }} />
+                </span>
+                <span className="text-[10px] tabular-nums" style={{ color: C.mut2 }}>
+                  {diag.sent} sent · {diag.received} back
+                </span>
+              </div>
+              {diag.sent > 40 && diag.received < 2 && (
+                <p className="mt-1 text-[11px]" style={{ color: C.amber }}>
+                  Your microphone is reaching me but the speech provider hasn&#39;t answered. That&#39;s their side, not yours.
+                </p>
+              )}
+              {diag.sent > 0 && diag.level < 0.01 && (
+                <p className="mt-1 text-[11px]" style={{ color: C.amber }}>
+                  I&#39;m sending audio but it&#39;s silent — check the microphone this browser is using.
+                </p>
+              )}
             </div>
 
             <div className="mt-3 flex gap-2">
