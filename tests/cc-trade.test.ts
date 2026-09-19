@@ -434,3 +434,37 @@ test('"how is my trade" answers with THIS position, never generic advice', () =>
   assert.match(text, /\bR\b|best has been/);
   assert.ok(!/you should always|as a general rule|in general/i.test(text), 'no generic trading advice');
 });
+
+/* ─────────────────── the stop ceiling follows the style ─────────────────── */
+
+test('a real SWING stop is accepted — a single global ceiling would reject every one of them', () => {
+  const s = snap(series(140, 4300, 0.3));
+  // 240 pips: an ordinary swing stop on gold, and impossible under the old 100-pip global cap.
+  const v = validate(base({ snapshot: s, style: 'swing', stop: +(s.price - 24).toFixed(2), equity: 50000 }));
+  assert.equal(v.ok, true, v.ok ? '' : v.reason);
+  if (v.ok) assert.equal(v.sizing.stopPips, 240);
+});
+
+test('a QUICK trade is refused a stop that makes it not quick', () => {
+  const s = snap(series(140, 4300, 0.3));
+  const v = validate(base({ snapshot: s, style: 'quick', stop: +(s.price - 9).toFixed(2) }));  // 90 pips
+  assert.equal(v.ok, false);
+  if (!v.ok) assert.match(v.reason, /wider than the 60-pip limit/);
+});
+
+test('each style carries its own ceiling, and they widen in the right order', () => {
+  assert.ok(STYLE.quick.maxStopPips < STYLE.intraday.maxStopPips);
+  assert.ok(STYLE.intraday.maxStopPips < STYLE.swing.maxStopPips);
+  // Every style must leave a usable window between its own noise floor and its ceiling.
+  (['quick', 'intraday', 'swing'] as const).forEach((k) => {
+    assert.ok(STYLE[k].maxStopPips > STYLE[k].noiseFloorPips * 2,
+      `${k} has no room between its noise floor and its stop ceiling`);
+  });
+});
+
+test('an explicit account limit still overrides the style default', () => {
+  const s = snap(series(140, 4300, 0.3));
+  const tight = ACCOUNT({ risk_limits: { maxStopPips: 40 } });
+  const v = validate(base({ snapshot: s, account: tight, style: 'swing', stop: +(s.price - 24).toFixed(2) }));
+  assert.equal(v.ok, false, 'the account owner gets the last word on their own ceiling');
+});

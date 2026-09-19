@@ -27,6 +27,16 @@ export type StylePolicy = {
   context: Timeframe[];
   /** Movement below this is noise for this style, in pips. Nothing reacts beneath it. */
   noiseFloorPips: number;
+  /**
+   * The widest stop this style may use, in pips.
+   *
+   * This HAS to be per style. A single global cap is the kind of number that looks reasonable in a
+   * config file and then quietly rejects every real trade of one kind: a 100-pip ceiling leaves a SWING
+   * trade a usable window of 45 to 100 pips, when a genuine swing stop on gold is routinely two or three
+   * hundred. The same ceiling is far too generous for a QUICK trade, where a 95-pip stop means the setup
+   * was never quick in the first place.
+   */
+  maxStopPips: number;
   /** How long the setup has to do something before its silence becomes evidence against it. */
   followThroughMs: number;
   /** A trade that has gone nowhere for this long, having never moved, is stale for this style. */
@@ -59,6 +69,7 @@ export const STYLE: Record<Style, StylePolicy> = {
     decisive: ["1m", "5m"],
     context: ["15m", "1h"],
     noiseFloorPips: 12,
+    maxStopPips: 60,
     followThroughMs: 20 * 60_000,
     stallMs: 35 * 60_000,
     breakEvenR: 0.6,
@@ -80,6 +91,7 @@ export const STYLE: Record<Style, StylePolicy> = {
     decisive: ["5m", "15m"],
     context: ["1h", "4h"],
     noiseFloorPips: 30,
+    maxStopPips: 150,
     followThroughMs: 2 * 3600_000,
     stallMs: 4 * 3600_000,
     breakEvenR: 0.9,
@@ -101,6 +113,7 @@ export const STYLE: Record<Style, StylePolicy> = {
     decisive: ["1h", "4h", "1d"],
     context: ["15m"],
     noiseFloorPips: 90,
+    maxStopPips: 450,
     followThroughMs: 24 * 3600_000,
     stallMs: 3 * 24 * 3600_000,
     breakEvenR: 1.2,

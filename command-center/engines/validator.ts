@@ -91,8 +91,16 @@ export function validate(i: ValidateInput): Validation {
     return no(`A ${Math.round(stopPips)}-pip stop is inside the noise of a ${STYLE[i.style].label} trade — it would be taken out by ordinary movement.`, false);
   }
 
-  /* 5 — account-level limits. */
-  const limits: RiskLimits = { ...DEFAULT_LIMITS, ...(i.account.risk_limits as Partial<RiskLimits> | undefined ?? {}), ...(i.limits ?? {}) };
+  /* 5 — account-level limits. The stop ceiling comes from the STYLE, because one global number either
+         rejects every real swing or waves through a "quick" trade with a hundred-pip stop. An explicit
+         account or caller limit still wins — this only replaces the default. */
+  const accountLimits = (i.account.risk_limits as Partial<RiskLimits> | undefined) ?? {};
+  const limits: RiskLimits = {
+    ...DEFAULT_LIMITS,
+    maxStopPips: STYLE[i.style].maxStopPips,
+    ...accountLimits,
+    ...(i.limits ?? {}),
+  };
   const state: AccountState = {
     equity: i.equity,
     openRiskPct: i.openRiskPct,
