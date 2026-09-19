@@ -34,6 +34,10 @@ export function MobileNavigation({ open, onClose, signedIn = false, onLogout }: 
     <div
       className={`fixed inset-0 z-50 lg:hidden ${open ? "" : "pointer-events-none"}`}
       aria-hidden={!open}
+      // Tagged so full-bleed screens (the Command Center) can remove the site's mobile chrome the same
+      // way they remove the header and footer. Without this the drawer sits over the whole phone
+      // viewport at z-50 — invisible, but it is the first thing a screen reader and a test both find.
+      data-om-chrome="mobile-nav"
     >
       {/* Backdrop */}
       <div

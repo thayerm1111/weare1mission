@@ -12,7 +12,10 @@ import { brainState, intensity, velocityBand, weather } from "../brain/presence"
 import { memoryOf } from "../brain/memory";
 import { marketRead, scenarioOf } from "../brain/language";
 import { latestWithBars, loadRolling, recentStatements, thesisJournal } from "../adapters/db";
-import { tradeState, emptyTrade, type TradeState } from "./tradeLive";
+import { tradeState, emptyTrade, lastCompleted, pendingExecution, type TradeState } from "./tradeLive";
+import { findSetup, noSetup, type BrainSetup } from "./setup";
+import { getProfile, asSetupProfile, DEFAULT_PROFILE, type TradingProfile } from "./profile";
+import { experienceOf, type Experience } from "./experience";
 
 /** Beyond this, the read is history rather than the market, and the UI must say so. */
 export const STALE_MS = 5 * 60_000;
@@ -57,6 +60,12 @@ export type LiveState = {
   blockers: { code: string; detail: string }[];
   /** Present and active only when this member has an open position. */
   trade: TradeState;
+  /** What THE BRAIN currently wants to do about gold. Null until a member context exists. */
+  setup: BrainSetup;
+  /** Where the Command Center is in its own lifecycle. The screen changes emphasis from this. */
+  experience: Experience;
+  /** The boundaries THE BRAIN is working inside. */
+  profile: TradingProfile;
 };
 
 const empty = (reason: string, marketIsOpen: boolean): LiveState => ({
@@ -66,6 +75,17 @@ const empty = (reason: string, marketIsOpen: boolean): LiveState => ({
   timeframes: {}, levels: [], bars: [],
   brain: null, thesis: null, previousThesis: null, journal: [], events: [], statements: [], changes: [],
   scenario: null, summary: reason, warnings: [], blockers: [], trade: emptyTrade(),
+  setup: noSetup(
+    marketIsOpen
+      ? "I can't see gold well enough to look for a trade."
+      : "Gold is closed. I'll start looking again when it reopens.",
+    [], "blocked",
+  ),
+  experience: experienceOf({
+    setup: null, tradeActive: false, characterState: null, protectionAction: null,
+    beyondBreakEven: false, exiting: false, pending: null, completed: null,
+  }),
+  profile: { ...DEFAULT_PROFILE },
 });
 
 export async function liveState(marketIsOpen: boolean, journalSince: Date, userId?: string | null): Promise<LiveState> {
@@ -90,6 +110,7 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
   // deploy) it is recomputed here with the same pure function rather than left blank.
   // Presence and the state computation need the trade, so the trade is read first and the BRAIN state
   // is built with it. Once a position exists, THE BRAIN's attention is supposed to visibly narrow.
+  const profile = userId ? await getProfile(userId) : { ...DEFAULT_PROFILE };
   const preTrade = userId ? await tradeState(userId, s, diffs) : emptyTrade();
   const protecting = preTrade.active && (preTrade.protection?.action === "protect_stop" || preTrade.protection?.action === "close" || preTrade.character?.state === "character_change");
   const state: BrainState = brainState({
@@ -106,6 +127,40 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
   const memory: BrainMemory = memoryOf(rolling, s, diffs, state);
   const ageMs = Date.now() - latest.at;
   const stale = ageMs > STALE_MS;
+
+  /*
+   * THE BRAIN's own trade decision.
+   *
+   * Computed from the SAME snapshot the screen is about to render and the member's own profile, so what
+   * the member is shown and what the server would execute can never be two different reads of gold. A
+   * stale snapshot is not allowed to produce a setup at all: `findSetup` is handed marketOpen=false, and
+   * it stands down rather than offering a trade built on a picture five minutes out of date.
+   */
+  const setup = findSetup({
+    snapshot: s,
+    diffs,
+    profile: asSetupProfile(profile),
+    marketOpen: marketIsOpen && !stale,
+    // The standing market thesis is fed back in so the trade card and BRAIN THESIS cannot contradict
+    // each other on the same screen.
+    thesisBias: openThesis?.bias ?? null,
+    thesisConfidence: openThesis?.confidence ?? null,
+  });
+
+  const [pending, completed] = userId
+    ? await Promise.all([pendingExecution(userId), lastCompleted(userId)])
+    : [null, null];
+
+  const experience = experienceOf({
+    setup,
+    tradeActive: preTrade.active,
+    characterState: preTrade.character?.state ?? null,
+    protectionAction: preTrade.protection?.action ?? null,
+    beyondBreakEven: preTrade.metrics?.beyondBreakEven ?? false,
+    exiting: preTrade.exiting,
+    pending,
+    completed,
+  });
 
   const [journalRows, statementRows, trade] = await Promise.all([
     thesisJournal(journalSince.toISOString()),
@@ -164,6 +219,9 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
     warnings: s.warnings.slice(0, 5),
     blockers: s.blockers,
     trade,
+    setup,
+    experience,
+    profile,
   };
 }
 

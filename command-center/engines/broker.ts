@@ -254,6 +254,9 @@ export async function goldInstrument(s: Session, force = false): Promise<Instrum
 export type AccountSummary = {
   id: string; accountId: string; accNum: string; label: string; isLive: boolean;
   currency: string | null; balance: number | null; equity: number | null; openPl: number | null;
+  marginAvailable: number | null;
+  /** When the broker last told us these numbers. Null means it never has, and the UI must say so. */
+  stateAt: string | null;
   selected: boolean; autoTrading: boolean; liveAuthorized: boolean;
   permissions: Record<string, boolean>; connectionStatus: string; env: string; server: string;
 };
@@ -277,6 +280,8 @@ export async function listForUser(userId: string): Promise<AccountSummary[]> {
       balance: a.balance,
       equity: a.equity,
       openPl: a.open_pl,
+      marginAvailable: a.margin_available,
+      stateAt: a.state_at,
       selected: a.is_selected,
       autoTrading: a.auto_trading,
       liveAuthorized: !!a.live_authorized_at,

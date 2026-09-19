@@ -6,6 +6,9 @@ import { selectedAccount } from "../../../../../command-center/engines/broker";
 import { styleOf } from "../../../../../command-center/core/style";
 import { RISK_CHOICES, MAX_RISK_PCT } from "../../../../../command-center/engines/validator";
 import { marketOpen } from "../../../../../command-center/core/sessions";
+import { takeSetup, passSetup } from "../../../../../command-center/engines/callTrade";
+import { getProfile, saveProfile } from "../../../../../command-center/engines/profile";
+import { loadRolling } from "../../../../../command-center/adapters/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,10 +37,13 @@ export async function GET() {
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const snap = await snapshotNow();
-  const [trade, account] = await Promise.all([tradeState(user.id, snap), selectedAccount(user.id)]);
+  const [trade, account, profile] = await Promise.all([
+    tradeState(user.id, snap), selectedAccount(user.id), getProfile(user.id),
+  ]);
   return json({
     ok: true,
     trade,
+    profile,
     marketOpen: marketOpen(Date.now()),
     riskChoices: RISK_CHOICES,
     maxRiskPct: MAX_RISK_PCT,
@@ -128,6 +134,64 @@ export async function POST(req: Request) {
       if (p.action === "partial") return json(await manage(user.id, t.positionId, { kind: "partial", fraction: p.fraction ?? 0.5 }, "member"));
       if (p.price == null) return json({ ok: false, message: p.say });
       return json(await manage(user.id, t.positionId, { kind: "move_stop", price: p.price }, "member"));
+    }
+
+    /**
+     * TAKE THIS TRADE — the primary action of the whole product.
+     *
+     * The body carries what the member was LOOKING at, not what to execute. The server recomputes THE
+     * BRAIN's setup from the current market and refuses if the two have drifted apart, because a card
+     * that has been on screen for four minutes is a screenshot, not an instruction.
+     */
+    case "take_setup": {
+      const key = String(body.idempotencyKey ?? "");
+      if (!key) return json({ ok: false, message: "Missing the idempotency key that was issued with this trade." }, 400);
+      if (body.confirm !== true) return json({ ok: false, message: "This has to be confirmed." }, 400);
+      const approved = (body.approved ?? {}) as Record<string, unknown>;
+      const stop = num(approved.stop);
+      if (stop == null || (approved.side !== "buy" && approved.side !== "sell")) {
+        return json({ ok: false, message: "That approval is incomplete — reload the trade and try again." }, 400);
+      }
+      const rolling = await loadRolling();
+      const openThesis = [...rolling.theses].reverse().find((t) => !t.endedAt) ?? null;
+      const r = await takeSetup(
+        user.id,
+        { side: approved.side, style: String(approved.style ?? ""), stop, invalidationPrice: num(approved.invalidationPrice) },
+        key,
+        await snapshotNow(),
+        marketOpen(Date.now()),
+        { bias: openThesis?.bias ?? null, confidence: openThesis?.confidence ?? null },
+      );
+      return json(r);
+    }
+
+    /** Passing on a trade is recorded too — it is worth as much to the learning system as a fill. */
+    case "pass_setup":
+      return json(await passSetup(user.id, await snapshotNow(), marketOpen(Date.now()), String(body.reason ?? "")));
+
+    /** The boundaries THE BRAIN works inside. Every value is clamped server-side. */
+    case "profile": {
+      const p = (body.profile ?? {}) as Record<string, unknown>;
+      const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
+      const current = await getProfile(user.id);
+      const saved = await saveProfile(user.id, {
+        riskPct: num(p.riskPct) ?? current.riskPct,
+        allowQuick: bool(p.allowQuick, current.allowQuick),
+        allowIntraday: bool(p.allowIntraday, current.allowIntraday),
+        allowSwing: bool(p.allowSwing, current.allowSwing),
+        minConfidence: num(p.minConfidence) ?? current.minConfidence,
+        allowBreakEven: bool(p.allowBreakEven, current.allowBreakEven),
+        allowPartials: bool(p.allowPartials, current.allowPartials),
+        allowProfitProtection: bool(p.allowProfitProtection, current.allowProfitProtection),
+        allowFullClose: bool(p.allowFullClose, current.allowFullClose),
+        autoManagement: bool(p.autoManagement, current.autoManagement),
+        autoEntry: bool(p.autoEntry, current.autoEntry),
+        maxDailyLossPct: num(p.maxDailyLossPct) ?? current.maxDailyLossPct,
+        maxConsecutiveLosses: num(p.maxConsecutiveLosses) ?? current.maxConsecutiveLosses,
+        maxOpenRiskPct: num(p.maxOpenRiskPct) ?? current.maxOpenRiskPct,
+        newsLockoutMinutes: num(p.newsLockoutMinutes) ?? current.newsLockoutMinutes,
+      });
+      return json({ ok: true, profile: saved });
     }
 
     case "adopt":

@@ -1041,6 +1041,8 @@ input{font:inherit}
 .br-hbar i{display:block;height:100%;border-radius:999px;transition:width .6s cubic-bezier(.22,.9,.24,1)}
 .br-in{width:100%;border-radius:11px;padding:10px 12px;font-size:13px;background:#0e131c;border:1px solid rgba(255,255,255,.08);color:#eef3ff;outline:none;font-variant-numeric:tabular-nums}
 .br-lab{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#65748f;display:block;margin-bottom:4px}
+.br-toggle{width:100%;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;border-radius:12px;padding:10px 12px;margin-bottom:7px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.07);color:#eef3ff;text-align:left}
+.br-toggle:disabled{opacity:.55}
 .br-sheet{position:fixed;inset:0;z-index:70;background:rgba(3,5,9,.78);backdrop-filter:blur(6px);overflow-y:auto;padding:16px;-webkit-overflow-scrolling:touch}
 .br-sheet-in{background:#0a0e15;border:1px solid rgba(255,255,255,.08);border-radius:18px;max-width:520px;margin:0 auto}
 .br-msg{max-width:88%;border-radius:15px;padding:9px 11px;font-size:12.5px;line-height:1.5;margin:5px 0}
@@ -4904,9 +4906,13 @@ input{font:inherit}
           ctx.fillStyle = col; ctx.font = "700 9px ui-sans-serif,system-ui"; ctx.textAlign = "right";
           ctx.fillText(label, padL + pw - 4, my - 6); ctx.textAlign = "left";
         }
-        mark(tr.entry, "#f0c475", "ENTRY", []);
-        mark(tr.stop, "#f4737b", "STOP", [3, 3]);
-        mark(tr.takeProfit, "#3fd9a0", "TARGET", [3, 3]);
+        // A PROPOSAL is drawn dimmer, always dashed, and labelled WOULD ENTER. A member glancing at the
+        // chart must never mistake a level THE BRAIN is thinking about for money that is actually at risk.
+        if (tr.proposed) ctx.globalAlpha = 0.62;
+        mark(tr.entry, "#f0c475", tr.proposed ? "WOULD ENTER" : "ENTRY", tr.proposed ? [5, 4] : []);
+        mark(tr.stop, "#f4737b", tr.proposed ? "WOULD RISK TO" : "STOP", [3, 3]);
+        mark(tr.takeProfit, "#3fd9a0", tr.proposed ? "OBJECTIVE" : "TARGET", [3, 3]);
+        ctx.globalAlpha = 1;
       }
       if (typeof price === "number") {
         var py = Math.round(y(price)) + 0.5, col2 = (props.lean || 0) >= 0 ? "#3fd9a0" : "#f4737b";
@@ -5218,18 +5224,269 @@ input{font:inherit}
   }
 
   /* Connect a TradeLocker account, with the servers this member already uses offered up. */
+  /*
+   * THE BRAIN'S TRADE — the app's primary trading surface.
+   *
+   * Same inversion as the desktop: THE BRAIN says what it sees and the member approves it, rather than
+   * the member building a ticket for the machine to grade. Every number rendered here came from the
+   * server; this component computes nothing, because a card that did its own arithmetic could disagree
+   * with the order that actually goes out.
+   */
+  function BrainSetupCard(props) {
+    var setup = props.setup || null, prof = props.profile || null, acct = props.account || null;
+    var busy = useState(false), res = useState(null), why = useState(false);
+    var keyRef = useRef("");
+    var ready = setup && setup.state === "trade_ready";
+
+    // The key is captured when a READY card first appears, NOT when the button is pressed. That is what
+    // makes a double-tap, a retry and a refresh all mean the same single order.
+    useEffect(function () {
+      if (ready && !keyRef.current && props.idempotencyKey) keyRef.current = props.idempotencyKey;
+      if (!ready) { keyRef.current = ""; res[1](null); }
+    }, [ready, props.idempotencyKey]);
+
+    function take() {
+      if (!setup || !setup.side || setup.stop == null || !keyRef.current) return;
+      busy[1](true); res[1](null);
+      apiPost("/api/command-center/trade", {
+        action: "take_setup", confirm: true, idempotencyKey: keyRef.current,
+        approved: { side: setup.side, style: setup.style, stop: setup.stop, invalidationPrice: setup.invalidationPrice }
+      }).then(function (j) {
+        busy[1](false);
+        var msg = (j && j.execution && j.execution.message) || (j && j.message) || (j && j.ok ? "Order sent." : "That didn't go through.");
+        res[1]({ ok: !!(j && j.ok), m: msg });
+        props.onChanged && props.onChanged();
+      }).catch(function () { busy[1](false); res[1]({ ok: false, m: "Could not reach the Command Center." }); });
+    }
+
+    function pass() {
+      busy[1](true);
+      apiPost("/api/command-center/trade", { action: "pass_setup", reason: "Passed on the card." }).then(function () {
+        busy[1](false); res[1]({ ok: true, m: "Noted — I'll keep watching." });
+        props.onChanged && props.onChanged();
+      }).catch(function () { busy[1](false); });
+    }
+
+    var long = setup && setup.side === "buy";
+    var tone = !setup ? "#65748f"
+      : setup.state === "trade_ready" ? "#f0c475"
+      : (setup.state === "waiting_for_trigger" || setup.state === "setup_developing") ? "#6fa8dc"
+      : setup.state === "setup_invalidated" ? "#f4737b" : "#65748f";
+    var riskAmt = (prof && acct && acct.equity != null) ? (Number(acct.equity) * Number(prof.riskPct)) / 100 : null;
+    var rFirst = (setup && setup.expectedMovePips && setup.stopPips)
+      ? Math.round((setup.expectedMovePips[0] / setup.stopPips) * 10) / 10 : null;
+
+    return html`<div class="br-card" style=${"border-color:" + (ready ? "rgba(240,196,117,.30)" : "rgba(255,255,255,.07)")}>
+      <div class="br-hd">
+        <div class="br-k" style=${"color:" + tone}>${(setup && setup.headline) || "THE BRAIN"}</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          ${setup && setup.confidence > 0 ? html`<div class="br-k">conviction ${setup.confidence}</div>` : null}
+          <button class="br-btn" style="padding:5px 9px;letter-spacing:0;text-transform:none;font-size:11px"
+            onClick=${props.onProfile}>${prof ? prof.riskPct + "%" : "risk"}</button>
+        </div>
+      </div>
+
+      <div class="br-b">
+        <div class="br-scv" style="font-size:13px;line-height:1.55;color:#eef3ff">
+          ${props.marketOpen === false ? "Gold is closed. I'll start looking again when it reopens." : ((setup && setup.say) || "Reading the market.")}
+        </div>
+
+        ${(setup && setup.waitingFor && setup.waitingFor.length && !ready) ? html`<div style="margin-top:9px">
+          <span class="br-lab">What I’m waiting for</span>
+          ${setup.waitingFor.map(function (w, i) { return html`<div class="br-li" key=${i}><i>·</i>${w}</div>`; })}
+        </div>` : null}
+
+        ${(setup && setup.blockedBy) ? html`<div class="br-note" style="color:#e9b949">${setup.blockedBy}</div>` : null}
+      </div>
+
+      ${(setup && setup.conditions && setup.conditions.length) ? html`<div class="br-sc">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+          <span class="br-lab" style="margin:0">What has to be true</span>
+          <span class="br-k" style=${"color:" + (setup.metCount === setup.totalCount ? "#f0c475" : "#65748f")}>${setup.metCount} / ${setup.totalCount} confirmed</span>
+        </div>
+        ${setup.conditions.map(function (c) {
+          return html`<div key=${c.id} style="display:flex;gap:8px;margin-bottom:6px;align-items:flex-start">
+            <span style=${"margin-top:3px;flex:0 0 13px;height:13px;border-radius:999px;display:inline-block;background:" + (c.met ? "rgba(63,217,160,.18)" : "rgba(255,255,255,.05)") + ";border:1px solid " + (c.met ? "rgba(63,217,160,.45)" : "rgba(255,255,255,.08)")}></span>
+            <span style="min-width:0">
+              <span style=${"display:block;font-size:12.5px;color:" + (c.met ? "#eef3ff" : "rgba(232,239,247,.56)")}>${c.text}</span>
+              <span style="display:block;font-size:11px;color:#65748f">${c.detail}</span>
+            </span>
+          </div>`;
+        })}
+      </div>` : null}
+
+      ${(setup && setup.side && setup.stop != null) ? html`<div class="br-sc" style=${ready ? "background:rgba(240,196,117,.035)" : ""}>
+        <div style="display:flex;gap:9px;align-items:baseline;flex-wrap:wrap">
+          <span style=${"font-size:16px;font-weight:900;color:" + (long ? "#3fd9a0" : "#f4737b")}>${long ? "BUY" : "SELL"} XAUUSD</span>
+          <span class="br-badge" style="background:rgba(240,196,117,.10);color:#f0c475">${String(setup.style).toUpperCase()}</span>
+          ${rFirst != null ? html`<span class="br-k">${rFirst}R to the first objective</span>` : null}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px 14px;margin-top:9px">
+          <div><div class="br-sck" style="color:#65748f">Entry</div><div style="font-size:13px;font-weight:800">${setup.entryLow === setup.entryHigh ? Number(setup.entryLow).toFixed(2) : Number(setup.entryLow).toFixed(2) + "–" + Number(setup.entryHigh).toFixed(2)}</div></div>
+          <div><div class="br-sck" style="color:#65748f">Stop</div><div style="font-size:13px;font-weight:800;color:#f4737b">${Number(setup.stop).toFixed(2)}<span class="br-k"> ${setup.stopPips}p</span></div></div>
+          <div><div class="br-sck" style="color:#65748f">First objective</div><div style="font-size:13px;font-weight:800;color:#3fd9a0">${Number(setup.initialObjective).toFixed(2)}<span class="br-k"> ${setup.expectedMovePips ? setup.expectedMovePips[0] + "p" : ""}</span></div></div>
+          <div><div class="br-sck" style="color:#65748f">Extended</div><div style="font-size:13px;font-weight:800;color:#3fd9a0">${Number(setup.extendedObjective).toFixed(2)}<span class="br-k"> ${setup.expectedMovePips ? setup.expectedMovePips[1] + "p" : ""}</span></div></div>
+        </div>
+        ${prof ? html`<div class="br-note">Risk ${prof.riskPct}%${riskAmt != null ? " · about $" + Math.round(riskAmt).toLocaleString() + " if it stops" : ""}${acct && acct.equity != null ? " on $" + Number(acct.equity).toLocaleString() : ""}. Lot size is calculated from the broker’s own contract spec.</div>` : null}
+        <button class="br-btn" style="margin-top:8px;padding:6px 10px;letter-spacing:0;text-transform:none;font-size:11px"
+          onClick=${function () { why[1](!why[0]); }}>${why[0] ? "Hide why" : "Why"}</button>
+        ${why[0] ? html`<div style="margin-top:6px">
+          ${setup.thesis ? html`<div class="br-scv">${setup.thesis}</div>` : null}
+          ${setup.styleWhy ? html`<div class="br-note">${setup.styleWhy}</div>` : null}
+          ${setup.invalidation ? html`<div class="br-note" style="color:#f4737b">What would cancel it: ${setup.invalidation}</div>` : null}
+        </div>` : null}
+      </div>` : null}
+
+      ${res[0] ? html`<div class="br-sc"><div class="br-note" style=${"color:" + (res[0].ok ? "#3fd9a0" : "#e9b949")}>${res[0].m}</div></div>` : null}
+
+      <div class="br-b" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        ${ready ? html`
+          <button class=${"br-btn " + (long ? "buy" : "sell")} style="flex:1;padding:13px"
+            disabled=${busy[0] || !acct || (acct.isLive && !acct.liveAuthorized)}
+            onClick=${take}>${busy[0] ? "Sending…" : "Take this trade"}</button>
+          <button class="br-btn" style="padding:13px 14px" disabled=${busy[0]} onClick=${pass}>Pass</button>
+        ` : html`<div class="br-k">${
+          setup && setup.state === "waiting_for_trigger" ? "Waiting for the trigger — nothing for you to do"
+          : setup && setup.state === "setup_developing" ? "Setup developing"
+          : setup && setup.state === "watching" ? "Watching"
+          : "THE BRAIN is watching"
+        }</div>`}
+        <button class="br-btn" style="padding:6px 10px;letter-spacing:0;text-transform:none;font-size:11px" onClick=${props.onManual}>Build my own</button>
+      </div>
+
+      ${(acct && acct.isLive && !acct.liveAuthorized) ? html`<div class="br-sc"><div class="br-note" style="color:#e9b949">This is a LIVE account. Authorise live trading on it before THE BRAIN can send anything.</div></div>` : null}
+    </div>`;
+  }
+
+  /* What happened, shown for a few minutes and then let go. Not a modal: the market is still there. */
+  function BrainComplete(props) {
+    var c = props.c;
+    var won = c.pips > 0;
+    var mins = Math.max(1, Math.round(c.heldMs / 60000));
+    return html`<div class="br-card" style=${"border-color:" + (won ? "rgba(63,217,160,.28)" : "rgba(244,115,123,.26)")}>
+      <div class="br-hd"><div class="br-k" style=${"color:" + (won ? "#3fd9a0" : "#f4737b")}>Trade complete</div></div>
+      <div class="br-b">
+        <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap">
+          <span style=${"font-size:14px;font-weight:900;color:" + (c.side === "buy" ? "#3fd9a0" : "#f4737b")}>${c.side === "buy" ? "BUY" : "SELL"} XAUUSD</span>
+          <span style=${"font-size:24px;font-weight:900;color:" + (won ? "#3fd9a0" : "#f4737b")}>${c.pips >= 0 ? "+" : ""}${Math.round(c.pips)}<span class="br-k"> PIPS</span></span>
+          ${c.r != null ? html`<span style=${"font-size:14px;font-weight:800;color:" + (won ? "#3fd9a0" : "#f4737b")}>${c.r >= 0 ? "+" : ""}${c.r}R</span>` : null}
+          <span class="br-k">${String(c.style).toUpperCase()} · ${mins} min</span>
+        </div>
+        <div class="br-scv" style="margin-top:7px">${c.say}</div>
+        <div class="br-note">In ${Number(c.entry).toFixed(2)} · out ${Number(c.exit).toFixed(2)} · best +${Math.round(c.mfePips)} · worst ${Math.round(c.maePips)}</div>
+      </div>
+    </div>`;
+  }
+
+  /*
+   * THE TRADING PROFILE — the boundaries, set once.
+   *
+   * This is the screen that replaces a decision per trade with a policy. The dangerous consents are
+   * grouped, described in plain words, and off by default.
+   */
+  function BrainProfileSheet(props) {
+    var draft = useState(props.profile), busy = useState(false);
+    useEffect(function () { draft[1](props.profile); }, [props.profile]);
+    function save(patch) {
+      if (!draft[0]) return;
+      var next = Object.assign({}, draft[0], patch);
+      draft[1](next); busy[1](true);
+      apiPost("/api/command-center/trade", { action: "profile", profile: next }).then(function (j) {
+        busy[1](false);
+        if (j && j.ok && j.profile) { draft[1](j.profile); props.onSaved && props.onSaved(j.profile); }
+      }).catch(function () { busy[1](false); });
+    }
+    var d = draft[0];
+    if (!d) return null;
+
+    function toggle(label, hint, key, danger) {
+      var on = !!d[key];
+      return html`<button key=${key} class="br-toggle" disabled=${busy[0]}
+        style=${"border-color:" + (on ? (danger ? "rgba(244,115,123,.30)" : "rgba(240,196,117,.28)") : "rgba(255,255,255,.07)")}
+        onClick=${function () { var o = {}; o[key] = !on; save(o); }}>
+        <span style="min-width:0;text-align:left">
+          <span style=${"display:block;font-size:12.5px;font-weight:800;color:" + (on ? (danger ? "#f4737b" : "#f0c475") : "#eef3ff")}>${label}</span>
+          <span style="display:block;font-size:11px;line-height:1.45;color:#65748f">${hint}</span>
+        </span>
+        <span style=${"flex:0 0 28px;height:16px;border-radius:999px;padding:2px;background:" + (on ? (danger ? "rgba(244,115,123,.34)" : "rgba(240,196,117,.34)") : "rgba(255,255,255,.08)")}>
+          <span style=${"display:block;width:12px;height:12px;border-radius:999px;transition:transform .18s;background:" + (on ? (danger ? "#f4737b" : "#f0c475") : "#65748f") + ";transform:translateX(" + (on ? "12px" : "0") + ")"}></span>
+        </span>
+      </button>`;
+    }
+
+    return html`<div class="br-sheet" onClick=${function (e) { if (e.target && e.target.className === "br-sheet") props.onClose(); }}>
+      <div class="br-sheet-in">
+        <div class="br-hd"><div class="br-k">THE BRAIN · trading profile</div><button class="br-btn" style="padding:5px 9px" onClick=${props.onClose}>Close</button></div>
+
+        <div class="br-b">
+          <span class="br-lab">Risk per trade</span>
+          <div class="br-acts">${[0.25, 0.5, 0.75, 1].map(function (r) {
+            return html`<button key=${r} class=${"br-btn " + (d.riskPct === r ? "cold" : "")} style="padding:8px 14px" disabled=${busy[0]}
+              onClick=${function () { save({ riskPct: r }); }}>${r.toFixed(2)}%</button>`;
+          })}</div>
+          <div class="br-note">This is the only number you normally need to set. THE BRAIN sizes every trade from it and the broker’s own contract spec.</div>
+        </div>
+
+        <div class="br-b" style="border-top:1px solid rgba(255,255,255,.06)">
+          <span class="br-lab">Trades I may look for</span>
+          ${toggle("QUICK", "Fast momentum. Minutes. 1m and 5m decide, and it fails fast.", "allowQuick", false)}
+          ${toggle("INTRADAY", "Session momentum. Minutes to hours, inside today’s structure.", "allowIntraday", false)}
+          ${toggle("SWING", "Sessions to days, held overnight and through news. Off unless you want that.", "allowSwing", false)}
+        </div>
+
+        <div class="br-b" style="border-top:1px solid rgba(255,255,255,.06)">
+          <span class="br-lab">What I may do to an open trade</span>
+          ${toggle("Move to break even", "Take the loss off the table once the trade has earned it.", "allowBreakEven", false)}
+          ${toggle("Take partials", "Bank part of the move and let the rest run.", "allowPartials", false)}
+          ${toggle("Protect profit", "Trail the stop when the trade starts handing back its best.", "allowProfitProtection", false)}
+          ${toggle("Close the whole position", "End the trade without asking, when the reason for it is gone.", "allowFullClose", true)}
+          ${toggle("Manage without asking", "Act on the permissions above by itself. Off means I ask first, every time.", "autoManagement", true)}
+        </div>
+
+        <div class="br-b" style="border-top:1px solid rgba(255,255,255,.06)">
+          <span class="br-lab">Limits for the day</span>
+          <label style="display:block;margin-bottom:8px"><span class="br-lab">Max daily loss %</span>
+            <input class="br-in" inputmode="decimal" value=${String(d.maxDailyLossPct)}
+              onChange=${function (e) { save({ maxDailyLossPct: Number(e.target.value) || d.maxDailyLossPct }); }} /></label>
+          <label style="display:block"><span class="br-lab">Max losses in a row</span>
+            <input class="br-in" inputmode="numeric" value=${String(d.maxConsecutiveLosses)}
+              onChange=${function (e) { save({ maxConsecutiveLosses: Number(e.target.value) || d.maxConsecutiveLosses }); }} /></label>
+        </div>
+
+        <div class="br-b" style="border-top:1px solid rgba(255,255,255,.06)">
+          ${toggle("Enter trades without asking", "FULL BRAIN MODE. I find the setup, size it, send it and manage it. You watch, and you can step in at any moment. This still needs live trading authorised on the account itself.", "autoEntry", true)}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /*
+   * CONNECT TRADELOCKER — one decision per step.
+   *
+   * The first version put environment, server, email and password on one form and listed accounts by a
+   * raw identifier. That failed people twice: a member could sign into the wrong environment without
+   * noticing, and once connected could not tell one account from another without reading a UUID.
+   *
+   * FOUR CONCEPTS, KEPT SEPARATE, because collapsing any two of them is how people lose money:
+   *   BROKER -> SERVER -> AUTH SESSION -> ACCOUNT.   A server is not an account.
+   *   CONNECTED is not AUTHORISED TO TRADE.          Reading a balance is not permission to send an order.
+   */
   function BrainConnect(props) {
     var accts = useState([]), known = useState([]), ready = useState(true), notice = useState("");
-    var env = useState("demo"), server = useState(""), email = useState(""), pw = useState("");
+    var step = useState("environment"), details = useState("");
+    var env = useState(""), server = useState(""), email = useState(""), pw = useState("");
     var busy = useState(false), err = useState("");
+
     function load() {
       apiGet("/api/command-center/broker").then(function (j) {
         if (!j) return;
         accts[1](j.accounts || []); known[1](j.known || []);
         ready[1](j.ready !== false); notice[1](j.notice || "");
+        if ((j.accounts || []).length && step[0] === "environment") step[1]("accounts");
       }).catch(function () {});
     }
     useEffect(function () { load(); }, []);
+
     function post(body) {
       busy[1](true); err[1]("");
       return apiPost("/api/command-center/broker", body).then(function (j) {
@@ -5239,51 +5496,119 @@ input{font:inherit}
         return j;
       }).catch(function () { busy[1](false); err[1]("Could not reach the Command Center."); return null; });
     }
+
+    function money(n, ccy) {
+      if (n == null) return null;
+      return (ccy === "USD" || !ccy ? "$" : ccy + " ") + Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    }
+
+    var active = accts[0].filter(function (a) { return a.selected; })[0] || accts[0][0] || null;
+    var others = accts[0].filter(function (a) { return !active || a.id !== active.id; });
+
+    function cell(label, value) {
+      return html`<div><div class="br-sck" style="color:#65748f">${label}</div>
+        <div style=${"font-size:12.5px;font-weight:800;color:" + (value ? "#eef3ff" : "#65748f")}>${value || "Unavailable"}</div></div>`;
+    }
+
+    function card(a, isActive) {
+      var open = details[0] === a.id;
+      return html`<div key=${a.id} style=${"border-radius:12px;padding:11px 12px;margin-bottom:8px;border:1px solid " + (isActive ? "rgba(240,196,117,.30)" : "rgba(255,255,255,.07)") + ";background:" + (isActive ? "rgba(240,196,117,.04)" : "#0e131c")}>
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+          <div style="min-width:0">
+            <div style="font-size:14px;font-weight:900;color:#eef3ff">${a.server || a.label}
+              <span style=${"margin-left:6px;border-radius:999px;padding:2px 6px;font-size:9px;font-weight:900;letter-spacing:.1em;background:" + (a.isLive ? "rgba(244,115,123,.14)" : "rgba(111,168,220,.14)") + ";color:" + (a.isLive ? "#f4737b" : "#6fa8dc")}>${a.isLive ? "LIVE" : "DEMO"}</span>
+            </div>
+            <div class="br-note" style="margin-top:2px">Account #${a.accNum}</div>
+          </div>
+          ${!a.selected ? html`<button class="br-btn" style="padding:6px 10px;letter-spacing:0;text-transform:none;font-size:11px"
+            disabled=${busy[0]} onClick=${function () { post({ action: "select", accountRowId: a.id }); }}>Use this account</button>` : null}
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px 14px;margin-top:10px">
+          ${cell("Balance", money(a.balance, a.currency))}
+          ${cell("Equity", money(a.equity, a.currency))}
+          ${cell("Available margin", money(a.marginAvailable, a.currency))}
+          ${cell("Open P&L", a.openPl == null ? null : (a.openPl >= 0 ? "+" : "−") + money(Math.abs(a.openPl), a.currency))}
+        </div>
+
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:10px;letter-spacing:.1em;text-transform:uppercase">
+          <span style=${"color:" + (a.connectionStatus === "active" ? "#3fd9a0" : "#e9b949")}>TradeLocker ${a.connectionStatus === "active" ? "connected" : a.connectionStatus}</span>
+          <span style=${"color:" + (a.isLive && !a.liveAuthorized ? "#e9b949" : (a.autoTrading ? "#f0c475" : "#65748f"))}>BRAIN execution ${a.isLive && !a.liveAuthorized ? "not authorised" : (a.autoTrading ? "on" : "off")}</span>
+        </div>
+
+        ${a.isLive && !a.liveAuthorized ? html`<div style="margin-top:9px;border-radius:10px;padding:9px;background:rgba(244,115,123,.07);border:1px solid rgba(244,115,123,.22)">
+          <div class="br-note" style="color:rgba(232,239,247,.6);margin-top:0">This is a real-money account. THE BRAIN can read it, and can send nothing on it, until you authorise live trading.</div>
+          <button class="br-btn sell" style="margin-top:7px;padding:7px 11px" disabled=${busy[0]}
+            onClick=${function () { post({ action: "authorize_live", accountRowId: a.id, confirm: true }); }}>Authorise live trading</button>
+        </div>` : null}
+
+        ${a.selected ? html`<div style="margin-top:10px;padding-top:9px;border-top:1px solid rgba(255,255,255,.06)">
+          <span class="br-lab">What THE BRAIN may do here</span>
+          <div class="br-acts">${[["ai_break_even", "Break even"], ["ai_protect_stop", "Protect stop"], ["ai_partial", "Partials"], ["ai_close", "Close"]].map(function (kv) {
+            var on = !!(a.permissions && a.permissions[kv[0]]);
+            var body = { action: "permissions", accountRowId: a.id }; body[kv[0]] = !on;
+            return html`<button key=${kv[0]} class=${"br-btn " + (on ? "buy" : "")} style="padding:6px 10px;letter-spacing:0;text-transform:none;font-size:11px"
+              disabled=${busy[0]} onClick=${function () { post(body); }}>${kv[1]}</button>`;
+          })}</div>
+          <button class=${"br-btn " + (a.autoTrading ? "gold" : "")} style="margin-top:8px;padding:6px 10px;letter-spacing:0;text-transform:none;font-size:11px"
+            disabled=${busy[0]} onClick=${function () { post({ action: "auto_trading", accountRowId: a.id, on: !a.autoTrading }); }}>
+            ${a.autoTrading ? "Turn auto entry off" : "Allow THE BRAIN to enter by itself"}
+          </button>
+        </div>` : null}
+
+        <button class="br-btn" style="margin-top:9px;padding:5px 9px;letter-spacing:0;text-transform:none;font-size:10.5px"
+          onClick=${function () { details[1](open ? "" : a.id); }}>Account details</button>
+        ${open ? html`<div class="br-note" style="margin-top:5px">
+          <div>Server ${a.server || "unknown"} · ${String(a.env).toUpperCase()}</div>
+          <div style="word-break:break-all">Account id ${a.accountId}</div>
+          <div>accNum ${a.accNum} · currency ${a.currency || "unknown"}</div>
+          <div>${a.stateAt ? "Broker last reported " + brClock(Date.parse(a.stateAt)) : "The broker has not reported balances yet."}</div>
+        </div>` : null}
+      </div>`;
+    }
+
     return html`<div class="br-sheet" onClick=${function (e) { if (e.target && e.target.className === "br-sheet") props.onClose(); }}>
       <div class="br-sheet-in">
-        <div class="br-hd"><div class="br-k">TradeLocker</div><button class="br-btn" style="padding:5px 9px" onClick=${props.onClose}>Close</button></div>
+        <div class="br-hd">
+          <div class="br-k">TradeLocker${step[0] === "environment" ? " · step 1 of 3" : step[0] === "credentials" ? " · step 2 of 3" : ""}</div>
+          <button class="br-btn" style="padding:5px 9px" onClick=${props.onClose}>Close</button>
+        </div>
         ${!ready[0] ? html`<div class="br-b" style="padding-bottom:0"><div class="br-note" style="color:#e9b949">${notice[0]}</div></div>` : null}
-        ${accts[0].length ? html`<div class="br-b" style="border-bottom:1px solid rgba(255,255,255,.06)">
-          <span class="br-lab">Accounts</span>
-          ${accts[0].map(function (a) {
-            return html`<div key=${a.id} style=${"border-radius:12px;padding:10px 11px;margin-bottom:7px;border:1px solid " + (a.selected ? "rgba(240,196,117,.30)" : "rgba(255,255,255,.07)") + ";background:" + (a.selected ? "rgba(240,196,117,.05)" : "#0e131c")}>
-              <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
-                <div style="min-width:0">
-                  <div style="font-size:12.5px;font-weight:800;color:#eef3ff">${a.label}
-                    <span style=${"margin-left:6px;border-radius:999px;padding:2px 6px;font-size:9px;font-weight:900;letter-spacing:.1em;background:" + (a.isLive ? "rgba(244,115,123,.14)" : "rgba(111,168,220,.14)") + ";color:" + (a.isLive ? "#f4737b" : "#6fa8dc")}>${a.isLive ? "LIVE" : "DEMO"}</span>
-                  </div>
-                  <div class="br-note" style="margin-top:2px">#${a.accNum} · eq ${a.equity == null ? "—" : "$" + Number(a.equity).toLocaleString()}</div>
-                </div>
-                ${!a.selected ? html`<button class="br-btn" style="padding:6px 10px" disabled=${busy[0]} onClick=${function () { post({ action: "select", accountRowId: a.id }); }}>Use</button>` : null}
-              </div>
-              ${a.isLive && !a.liveAuthorized ? html`<div style="margin-top:8px;border-radius:10px;padding:9px;background:rgba(244,115,123,.07);border:1px solid rgba(244,115,123,.22)">
-                <div class="br-note" style="color:rgba(232,239,247,.6)">Real money. No order can go out on this account until you authorise live trading.</div>
-                <button class="br-btn sell" style="margin-top:7px;padding:7px 11px" disabled=${busy[0]} onClick=${function () { post({ action: "authorize_live", accountRowId: a.id, confirm: true }); }}>Authorise live trading</button>
-              </div>` : null}
-              ${a.selected ? html`<div style="margin-top:9px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06)">
-                <span class="br-lab">What THE BRAIN may do here</span>
-                <div class="br-acts">${[["ai_break_even", "Break even"], ["ai_protect_stop", "Protect stop"], ["ai_partial", "Partials"], ["ai_close", "Close"]].map(function (kv) {
-                  var on = !!(a.permissions && a.permissions[kv[0]]);
-                  var body = { action: "permissions", accountRowId: a.id }; body[kv[0]] = !on;
-                  return html`<button key=${kv[0]} class=${"br-btn " + (on ? "buy" : "")} style="padding:6px 10px;letter-spacing:0;text-transform:none;font-size:11px"
-                    disabled=${busy[0]} onClick=${function () { post(body); }}>${kv[1]}</button>`;
-                })}</div>
-              </div>` : null}
-            </div>`;
-          })}
+
+        ${step[0] === "accounts" && active ? html`<div class="br-b" style="border-bottom:1px solid rgba(255,255,255,.06)">
+          <span class="br-lab" style="color:#f0c475">Active trading account</span>
+          ${card(active, true)}
         </div>` : null}
-        <div class="br-b">
-          <span class="br-lab">${accts[0].length ? "Connect another account" : "Connect your account"}</span>
-          ${known[0].length ? html`<div style="margin-bottom:10px">
-            <div class="br-note" style="margin-top:0">Servers you’ve already used on this desk — tap one to fill it in. You still enter the password.</div>
-            <div class="br-acts" style="margin-top:6px">${known[0].map(function (k, i) {
+
+        ${step[0] === "accounts" && others.length ? html`<div class="br-b" style="border-bottom:1px solid rgba(255,255,255,.06)">
+          <span class="br-lab">Other accounts</span>
+          ${others.map(function (a) { return card(a, false); })}
+        </div>` : null}
+
+        ${step[0] === "environment" ? html`<div class="br-b">
+          <span class="br-lab">Account environment</span>
+          <div class="br-note" style="margin-top:0">TradeLocker runs live and demo as completely separate systems, with separate sign-ins. Picking the wrong one is the most common reason a connection fails.</div>
+          <div style="margin-top:10px">
+            <button class="br-btn sell" style="width:100%;padding:13px;text-align:left"
+              onClick=${function () { env[1]("live"); step[1]("credentials"); err[1](""); }}>LIVE · real money, real orders</button>
+            <button class="br-btn cold" style="width:100%;padding:13px;margin-top:7px;text-align:left"
+              onClick=${function () { env[1]("demo"); step[1]("credentials"); err[1](""); }}>DEMO · practice, nothing at risk</button>
+          </div>
+          ${accts[0].length ? html`<button class="br-btn" style="margin-top:10px;padding:6px 10px;letter-spacing:0;text-transform:none;font-size:11px"
+            onClick=${function () { step[1]("accounts"); }}>Back to my accounts</button>` : null}
+        </div>` : null}
+
+        ${step[0] === "credentials" ? html`<div class="br-b">
+          <span class="br-badge" style=${env[0] === "live" ? "background:rgba(244,115,123,.12);color:#f4737b" : "background:rgba(111,168,220,.12);color:#6fa8dc"}>
+            ${env[0] === "live" ? "LIVE ACCOUNT" : "DEMO ACCOUNT"}
+          </span>
+          ${known[0].filter(function (k) { return k.env === env[0]; }).length ? html`<div style="margin-top:10px">
+            <div class="br-note" style="margin-top:0">Servers you have already used. Tap one to fill in the exact spelling — you still enter the password.</div>
+            <div class="br-acts" style="margin-top:6px">${known[0].filter(function (k) { return k.env === env[0]; }).map(function (k, i) {
               return html`<button key=${i} class="br-btn cold" style="padding:6px 10px;letter-spacing:0;text-transform:none;font-size:11px"
-                onClick=${function () { server[1](k.server); email[1](k.email); env[1](k.env === "live" ? "live" : "demo"); err[1](""); }}>${k.server} · ${String(k.env).toUpperCase()}</button>`;
+                onClick=${function () { server[1](k.server); email[1](k.email); err[1](""); }}>${k.server}</button>`;
             })}</div>
           </div>` : null}
-          <div class="br-acts">${["demo", "live"].map(function (e2) {
-            return html`<button key=${e2} class=${"br-btn " + (env[0] === e2 ? (e2 === "live" ? "sell" : "cold") : "")} style="padding:7px 13px" onClick=${function () { env[1](e2); }}>${e2}</button>`;
-          })}</div>
           <div style="margin-top:10px">
             <label style="display:block;margin-bottom:8px"><span class="br-lab">Server</span>
               <input class="br-in" value=${server[0]} autocapitalize="off" autocorrect="off" onInput=${function (e) { server[1](e.target.value); }} /></label>
@@ -5292,13 +5617,30 @@ input{font:inherit}
             <label style="display:block"><span class="br-lab">Password</span>
               <input class="br-in" type="password" value=${pw[0]} onInput=${function (e) { pw[1](e.target.value); }} /></label>
           </div>
-          <div class="br-note">The server is the broker’s own name for it and the spelling has to match exactly — it is the field most connections fail on. Your password is used once to sign in and is never stored.</div>
+          <div class="br-note">The server is your broker or prop firm’s own name for it and the spelling has to match theirs exactly. Your password signs you in once and is never stored — only the broker’s refresh token is kept, encrypted.</div>
           ${err[0] ? html`<div class="br-note" style="color:#f4737b">${err[0]}</div>` : null}
-          <button class="br-btn gold" style="width:100%;margin-top:10px;padding:13px" disabled=${busy[0] || !ready[0] || !server[0] || !email[0] || !pw[0]}
-            onClick=${function () { post({ action: "connect", env: env[0], server: server[0], email: email[0], password: pw[0] }).then(function (j) { if (j && j.ok) { pw[1](""); } }); }}>
-            ${busy[0] ? "Connecting…" : "Connect"}
-          </button>
-        </div>
+          <div class="br-acts" style="margin-top:10px">
+            <button class="br-btn" style="padding:13px 14px" onClick=${function () { step[1]("environment"); }}>Back</button>
+            <button class="br-btn gold" style="flex:1;padding:13px" disabled=${busy[0] || !ready[0] || !server[0] || !email[0] || !pw[0]}
+              onClick=${function () {
+                step[1]("connecting");
+                post({ action: "connect", env: env[0], server: server[0], email: email[0], password: pw[0] }).then(function (j) {
+                  pw[1]("");
+                  if (j && j.ok) { step[1]("accounts"); email[1](""); } else step[1]("credentials");
+                });
+              }}>Connect</button>
+          </div>
+        </div>` : null}
+
+        ${step[0] === "connecting" ? html`<div class="br-b" style="text-align:center;padding:34px 16px">
+          <div class="br-k" style="color:#f0c475">Connecting…</div>
+          <div class="br-note">Signing in to ${server[0] || "the server"} and reading the accounts it lists.</div>
+        </div>` : null}
+
+        ${step[0] === "accounts" ? html`<div class="br-b">
+          <button class="br-btn" style="padding:6px 10px;letter-spacing:0;text-transform:none;font-size:11px"
+            onClick=${function () { step[1]("environment"); env[1](""); server[1](""); err[1](""); }}>Connect another account</button>
+        </div>` : null}
       </div>
     </div>`;
   }
@@ -5306,7 +5648,22 @@ input{font:inherit}
   /* The screen itself. */
   function BrainScreen(props) {
     var d = useState(null), err = useState(""), tick = useState(0);
-    var call = useState(false), conn = useState(false), math = useState(false);
+    var call = useState(false), conn = useState(false), math = useState(false), prof = useState(false);
+    // The desk read is separate and slower than the market read: it talks to the broker layer, and
+    // polling that every five seconds would burn rate limits that matter far more when an order has to
+    // actually go out.
+    var desk = useState({ account: null, idempotencyKey: null, profile: null });
+    useEffect(function () {
+      var dead = false;
+      function loadDesk() {
+        apiGet("/api/command-center/trade").then(function (j) {
+          if (dead || !j || j.error) return;
+          desk[1]({ account: j.account || null, idempotencyKey: j.idempotencyKey || null, profile: j.profile || null });
+        }).catch(function () {});
+      }
+      loadDesk(); var td = setInterval(loadDesk, 30000);
+      return function () { dead = true; clearInterval(td); };
+    }, [tick[0]]);
     useEffect(function () {
       var dead = false;
       function load() {
@@ -5361,8 +5718,8 @@ input{font:inherit}
       </div>
 
       <div class="br-actions">
-        <button class="br-btn" onClick=${function () { conn[1](true); }}>Connect broker</button>
-        <button class="br-btn gold" onClick=${function () { call[1](true); }}>Call trade</button>
+        <button class="br-btn" onClick=${function () { conn[1](true); }}>${desk[0].account ? "Broker" : "Connect broker"}</button>
+        <button class="br-btn" onClick=${function () { prof[1](true); }}>Trading profile</button>
       </div>
 
       ${(s.blockers && s.blockers.length) || s.reason ? html`<div class="br-card" style="border-color:rgba(233,185,73,.24);background:rgba(233,185,73,.05)">
@@ -5388,6 +5745,15 @@ input{font:inherit}
 
       ${trade.active ? html`<${BrainTrade} trade=${trade} onChanged=${reload} />` : null}
 
+      ${!trade.active ? html`<${BrainSetupCard}
+        setup=${s.setup} profile=${desk[0].profile || s.profile} account=${desk[0].account}
+        idempotencyKey=${desk[0].idempotencyKey} marketOpen=${s.marketOpen}
+        onChanged=${reload}
+        onManual=${function () { call[1](true); }}
+        onProfile=${function () { prof[1](true); }} />` : null}
+
+      ${(!trade.active && s.experience && s.experience.completed) ? html`<${BrainComplete} c=${s.experience.completed} />` : null}
+
       ${(trade.unmanaged || []).length ? html`<div class="br-card" style="border-color:rgba(240,196,117,.26);background:rgba(240,196,117,.04)">
         <div class="br-b">
           <div class="br-sck" style="color:#f0c475">New XAUUSD position detected</div>
@@ -5403,7 +5769,11 @@ input{font:inherit}
       <div class="br-card">
         <div class="br-hd"><div class="br-k">XAUUSD price map</div><div class="br-k">${(s.bars || []).length ? (s.bars.length + " candles") : ""}</div></div>
         <${BrainMap} bars=${s.bars} levels=${s.levels} price=${s.price} lean=${lean}
-          trade=${trade.active && typeof trade.entry === "number" ? { side: trade.side, entry: trade.entry, stop: trade.stop, takeProfit: trade.takeProfit } : null} />
+          trade=${trade.active && typeof trade.entry === "number"
+            ? { side: trade.side, entry: trade.entry, stop: trade.stop, takeProfit: trade.takeProfit }
+            : (s.setup && s.setup.side && s.setup.stop != null
+              ? { side: s.setup.side, entry: s.setup.entryHigh, stop: s.setup.stop, takeProfit: s.setup.initialObjective, proposed: true }
+              : null)} />
       </div>
 
       <div class="br-card">
@@ -5514,6 +5884,9 @@ input{font:inherit}
 
       ${call[0] ? html`<${BrainCall} price=${s.price} levels=${s.levels} onClose=${function () { call[1](false); }} onDone=${reload} />` : null}
       ${conn[0] ? html`<${BrainConnect} onClose=${function () { conn[1](false); }} onChanged=${reload} />` : null}
+      ${prof[0] ? html`<${BrainProfileSheet} profile=${desk[0].profile}
+        onClose=${function () { prof[1](false); }}
+        onSaved=${function (pp) { desk[1](Object.assign({}, desk[0], { profile: pp })); reload(); }} />` : null}
     </div>`;
   }
 

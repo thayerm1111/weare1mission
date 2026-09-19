@@ -19,6 +19,7 @@ const FULLSCREEN_CSS = `
 html.om-fullscreen, html.om-fullscreen body { background:#06090E !important; }
 html.om-fullscreen body > header, html.om-fullscreen body > footer { display:none !important; }
 html.om-fullscreen [data-om-splash], html.om-fullscreen [data-no-i18n] { display:none !important; }
+html.om-fullscreen [data-om-chrome] { display:none !important; }
 html.om-fullscreen #main { flex:1 1 auto; }
 html.om-fullscreen { color-scheme: dark; }
 `;

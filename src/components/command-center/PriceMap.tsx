@@ -24,8 +24,15 @@ export type PriceMapProps = {
   invalidation?: number | null;
   lean: number;
   live: boolean;
-  /** The open position, when there is one. Drawn subtly — the chart is not handed over to the trade. */
-  trade?: { side: "buy" | "sell"; entry: number; stop: number | null; takeProfit: number | null } | null;
+  /**
+   * The open position, when there is one — or the trade THE BRAIN is PROPOSING, when there is not.
+   *
+   * `proposed` is what keeps those two honest. A member glancing at the chart must never mistake a level
+   * THE BRAIN is thinking about for money that is actually at risk, so a proposal is drawn dimmer, always
+   * dashed, and labelled WOULD ENTER rather than ENTRY. Drawn subtly either way: the chart is not handed
+   * over to the trade.
+   */
+  trade?: { side: "buy" | "sell"; entry: number; stop: number | null; takeProfit: number | null; proposed?: boolean } | null;
   className?: string;
 };
 
@@ -187,9 +194,14 @@ export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, 
         ctx.fillStyle = colour;
         ctx.fillRect(padL, y1, plotW, Math.max(1, y2 - y1));
       };
-      if (price != null) {
+      // Only a REAL position shades the ground between entry and price. A proposal has no P&L to show.
+      if (price != null && !trade.proposed) {
         const winning = trade.side === "buy" ? price >= trade.entry : price <= trade.entry;
         band(trade.entry, price, winning ? "rgba(63,217,160,0.07)" : "rgba(244,115,123,0.07)");
+      }
+      if (trade.proposed && trade.stop != null) {
+        // Shade the risk instead: the distance the member would actually be putting up.
+        band(trade.entry, trade.stop, "rgba(244,115,123,0.05)");
       }
       const mark = (v: number | null, colour: string, label: string, dash: number[]) => {
         if (v == null || v < lo || v > hi) return;
@@ -209,9 +221,11 @@ export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, 
         ctx.fillText(text, padL + plotW - 6, yy - 8.5);
         ctx.textAlign = "left";
       };
-      mark(trade.entry, C.gold, "ENTRY", []);
-      mark(trade.stop, C.red, "STOP", [3, 3]);
-      mark(trade.takeProfit, C.up, "TARGET", [3, 3]);
+      if (trade.proposed) ctx.globalAlpha = 0.62;
+      mark(trade.entry, C.gold, trade.proposed ? "WOULD ENTER" : "ENTRY", trade.proposed ? [5, 4] : []);
+      mark(trade.stop, C.red, trade.proposed ? "WOULD RISK TO" : "STOP", [3, 3]);
+      mark(trade.takeProfit, C.up, trade.proposed ? "OBJECTIVE" : "TARGET", [3, 3]);
+      ctx.globalAlpha = 1;
     }
 
     // invalidation

@@ -18,19 +18,31 @@ import { intensity, velocityBand, weather } from "../brain/presence";
 import type { Bar, MarketSnapshot } from "../core/types";
 import type { LiveState } from "./live";
 import { emptyTrade } from "./tradeLive";
+import { findSetup } from "./setup";
+import { DEFAULT_PROFILE, asSetupProfile } from "./profile";
+import { experienceOf } from "./experience";
 import { metrics, character, protection, health, tradeFocus, tradeQuestion, tradeRead, tradeThesisState, type LivePosition } from "../brain/trade";
 
 type Row = [number, number, number, number, number];
 const toBars = (rows: Row[]): Bar[] => rows.map(([t, o, h, l, c]) => ({ t: t * 1000, o, h, l, c }));
 
-export type ReplayResult = { state: LiveState; steps: number; endedAt: number };
+export type ReplayResult = {
+  state: LiveState;
+  steps: number;
+  endedAt: number;
+  /** The raw snapshot the replay arrived at. Exposed so tests can drive the engines on real bars. */
+  snapshot: MarketSnapshot;
+  diffs: ReturnType<typeof perceive>["diffs"];
+};
 
 /**
  * Step the pipeline forward one 5-minute bar at a time over the recorded window, exactly as the worker
  * would have, and return the state it arrived at.
  */
-export function replay(steps = 40, withTrade = false): ReplayResult {
-  const m5All = toBars(fixture.m5 as Row[]);
+export function replay(steps = 40, withTrade = false, endOffset = 0): ReplayResult {
+  // `endOffset` trims bars off the END of the recording, so the harness can stand at any moment of the
+  // session rather than only at its last bar. Without it every replay answers the same question.
+  const m5All = endOffset > 0 ? toBars(fixture.m5 as Row[]).slice(0, -endOffset) : toBars(fixture.m5 as Row[]);
   const h1All = toBars(fixture.h1 as Row[]);
 
   let rolling: Rolling = emptyRolling();
@@ -62,6 +74,11 @@ export function replay(steps = 40, withTrade = false): ReplayResult {
   const memory = memoryOf(rolling, s, last.diffs, last.state);
   const openThesis = [...rolling.theses].reverse().find((t) => !t.endedAt) ?? null;
   const closed = rolling.theses.filter((t) => t.endedAt).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
+
+  const replaySetup = findSetup({
+    snapshot: s, diffs: last.diffs, profile: asSetupProfile(DEFAULT_PROFILE), marketOpen: true, now: s.at,
+    thesisBias: openThesis?.bias ?? null, thesisConfidence: openThesis?.confidence ?? null,
+  });
 
   const state: LiveState = {
     ok: true,
@@ -99,9 +116,17 @@ export function replay(steps = 40, withTrade = false): ReplayResult {
     warnings: s.warnings.slice(0, 5),
     blockers: s.blockers,
     trade: withTrade ? replayTrade(s, m5All, last.diffs) : emptyTrade(),
+    // The setup engine runs over the REPLAYED snapshot too, so the harness shows what THE BRAIN would
+    // actually have called on recorded gold rather than on a fixture invented to make it look clever.
+    setup: replaySetup,
+    experience: experienceOf({
+      setup: replaySetup, tradeActive: withTrade, characterState: null, protectionAction: null,
+      beyondBreakEven: false, exiting: false, pending: null, completed: null, now: s.at,
+    }),
+    profile: { ...DEFAULT_PROFILE },
   };
 
-  return { state, steps: m5All.length - first, endedAt: s.at };
+  return { state, steps: m5All.length - first, endedAt: s.at, snapshot: s, diffs: last.diffs };
 }
 
 
@@ -145,7 +170,7 @@ function replayTrade(s: MarketSnapshot, m5: Bar[], diffs: ReturnType<typeof perc
     metrics: m, character: ch, health: h, protection: prot,
     thesisState: tradeThesisState(ch), thesis: pos.thesis,
     focus: tradeFocus(pos, m, s), question: tradeQuestion(pos, m, ch, s), read: tradeRead(pos, m, ch, prot),
-    partials: [], aiManagement: false, permissions: {},
+    partials: [], aiManagement: false, permissions: {}, exiting: false,
     events: [
       { at: pos.openedAt, code: "POSITION_OPEN", detail: `BUY XAUUSD opened at ${pos.entry.toFixed(2)}.`, channel: "voice" },
       { at: pos.openedAt + 9 * 60_000, code: "TRADE_PROGRESS", detail: `Trade +${Math.round(m.mfePips * 0.4)} pips.`, channel: "stream" },

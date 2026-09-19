@@ -7,6 +7,7 @@ import PriceMap, { type MapBar, type MapLevel } from "./PriceMap";
 import BrainConsole, { type VoiceMode } from "./BrainConsole";
 import BrokerBar from "./BrokerBar";
 import TradePanel, { CallTradeSheet, UnmanagedNotice, type TradeStateView } from "./TradePanel";
+import { BrainTradeCard, ProfileSheet, TradeCompleteCard, type CompletedView, type ProfileView, type SetupView } from "./BrainTrade";
 
 /**
  * COMMAND CENTER XAUUSD.
@@ -54,6 +55,15 @@ type Live = {
   summary: string; warnings: string[]; blockers: { code: string; detail: string }[];
   /** Present once this member has an open position. Everything trade-related hangs off it. */
   trade?: TradeStateView;
+  /** What THE BRAIN currently wants to do about gold. This is the primary trading surface. */
+  setup?: SetupView;
+  /** Where the Command Center is in its own lifecycle — the screen changes emphasis from this. */
+  experience?: {
+    state: string; label: string; focus: string; tradeLens: boolean;
+    completed: CompletedView | null; note: string | null;
+  };
+  /** The boundaries THE BRAIN is working inside. */
+  profile?: ProfileView;
   /** True only for the replay harness, which renders a loud banner. Never set by the live endpoint. */
   replay?: boolean;
 };
@@ -137,7 +147,15 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
   const [showMath, setShowMath] = useState(false);
   const [flash, setFlash] = useState(0);
   const [callOpen, setCallOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [reloadAt, setReloadAt] = useState(0);
+  // The account and the idempotency key come from the trading route, which is the only place that knows
+  // about the broker. The live read deliberately never touches it.
+  const [desk, setDesk] = useState<{
+    account: { equity: number | null; currency: string | null; isLive: boolean; liveAuthorized: boolean } | null;
+    idempotencyKey: string | null;
+    profile: ProfileView | null;
+  }>({ account: null, idempotencyKey: null, profile: null });
   const lastEventKey = useRef<string | null>(null);
 
   useEffect(() => {
@@ -154,6 +172,24 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
     };
     void load();
     const id = setInterval(load, 5000);
+    return () => { alive = false; clearInterval(id); };
+  }, [endpoint, reloadAt]);
+
+  // The desk read is separate and slower: it talks to the broker layer, and polling that every five
+  // seconds would burn rate limits that matter far more when an order actually needs to go out.
+  useEffect(() => {
+    if (endpoint.includes("replay")) return;
+    let alive = true;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/command-center/trade", { cache: "no-store" });
+        if (!alive || !r.ok) return;
+        const j = await r.json();
+        setDesk({ account: j.account ?? null, idempotencyKey: j.idempotencyKey ?? null, profile: j.profile ?? null });
+      } catch { /* the card falls back to showing risk without an amount */ }
+    };
+    void load();
+    const id = setInterval(load, 30_000);
     return () => { alive = false; clearInterval(id); };
   }, [endpoint, reloadAt]);
 
@@ -253,7 +289,7 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
                 className="rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] transition"
                 style={{ background: "rgba(240,196,117,0.12)", color: C.gold, border: "1px solid rgba(240,196,117,0.32)" }}
               >
-                Call trade
+                Manual
               </button>
             </>
           )}
@@ -346,8 +382,34 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
           </Panel>
         </div>
 
-        {/* centre: the price map, then the stream */}
-        <div className="order-3 space-y-3 lg:order-2">
+        {/* centre: THE BRAIN's trade, then the price map, then the stream */}
+        <div className="order-2 space-y-3 lg:order-2">
+          {/*
+            The trade THE BRAIN wants sits ABOVE the chart, because it is the answer and the chart is the
+            working. While there is an open position this collapses out of the way — TradePanel below is
+            the trade then, and two cards competing to be the trade would be worse than either.
+          */}
+          {/*
+            Shown in the replay too, because what THE BRAIN would have called at a given moment of a real
+            recorded session is the single most useful thing the harness can show. It cannot be acted on
+            there: the replay never loads the desk, so there is no account and no idempotency key, and the
+            button is disabled by its own preconditions rather than by a flag somebody could forget.
+          */}
+          {!trade?.active && (
+            <BrainTradeCard
+              setup={d?.setup ?? null}
+              profile={desk.profile ?? d?.profile ?? null}
+              account={desk.account}
+              idempotencyKey={desk.idempotencyKey}
+              marketOpen={d?.marketOpen ?? true}
+              onChanged={() => setReloadAt(Date.now())}
+              onOpenManual={() => setCallOpen(true)}
+              onOpenProfile={() => setProfileOpen(true)}
+            />
+          )}
+
+          {d?.experience?.completed && !trade?.active && <TradeCompleteCard c={d.experience.completed} />}
+
           <Panel title="XAUUSD price map" icon={<Target className="h-3.5 w-3.5" />}
             right={<span className="text-[10px]" style={{ color: C.mut2 }}>{d?.bars?.length ? `${d.bars.length} five-minute candles` : ""}</span>}>
             <div className="h-[340px] sm:h-[420px]">
@@ -361,7 +423,11 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
                 live={!!d?.live}
                 trade={trade?.active && trade.entry != null && trade.side
                   ? { side: trade.side, entry: trade.entry, stop: trade.stop, takeProfit: trade.takeProfit }
-                  : null}
+                  // No position: the chart shows the trade THE BRAIN is PROPOSING, so the member can see
+                  // where the risk would sit before deciding, not after.
+                  : d?.setup?.side && d.setup.stop != null && d.setup.entryHigh != null
+                    ? { side: d.setup.side, entry: d.setup.entryHigh, stop: d.setup.stop, takeProfit: d.setup.initialObjective, proposed: true }
+                    : null}
               />
             </div>
           </Panel>
@@ -499,7 +565,7 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
 
         {/* right: conversation and the stream. On a phone this sits second — talking to THE BRAIN
             is the point of the product, and it should not be six screens down. */}
-        <div className="order-2 space-y-3 lg:order-3">
+        <div className="order-3 space-y-3 lg:order-3">
           <Panel title="Talk to THE BRAIN" icon={<Radio className="h-3.5 w-3.5" />} className="flex h-[520px] flex-col">
             <BrainConsole announce={announce} onUiAction={onUiAction} mode={mode} onModeChange={setMode} live={!!d?.live} className="min-h-0 flex-1" />
           </Panel>
@@ -524,6 +590,14 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
       </div>
 
       {!d?.replay && (
+        <>
+        <ProfileSheet
+          open={profileOpen}
+          profile={desk.profile ?? d?.profile ?? null}
+          onClose={() => setProfileOpen(false)}
+          onSaved={(p) => { setDesk((x) => ({ ...x, profile: p })); setReloadAt(Date.now()); }}
+        />
+
         <CallTradeSheet
           price={d?.price ?? null}
           levels={(d?.levels ?? []).map((l) => ({ price: l.price, label: l.label }))}
@@ -531,6 +605,7 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
           onClose={() => setCallOpen(false)}
           onDone={() => setReloadAt(Date.now())}
         />
+        </>
       )}
 
       <p className="mt-3 px-1 text-[10.5px] leading-relaxed" style={{ color: C.mut2 }}>

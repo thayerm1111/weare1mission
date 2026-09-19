@@ -20,6 +20,7 @@ import {
 } from "../brain/trade";
 import type { MarketSnapshot, Side } from "../core/types";
 import type { SnapshotDiff } from "../brain/types";
+import { completionRead, COMPLETE_WINDOW_MS, type CompletedTrade, type PendingExecution } from "./experience";
 
 const c = () => {
   const x = db();
@@ -56,6 +57,8 @@ export type TradeState = {
   partials: { at: number; fraction: number; qty: number; price?: number }[];
   aiManagement: boolean;
   permissions: Record<string, boolean>;
+  /** A close or exit request is out and the broker has not confirmed it yet. */
+  exiting: boolean;
   events: { at: number; code: string; detail: string; channel: string }[];
   /** A position found on the broker that the Command Center did not open. */
   unmanaged: { brokerPositionId: string; side: Side; qty: number; entry: number | null }[];
@@ -66,7 +69,7 @@ export const emptyTrade = (): TradeState => ({
   qty: null, initQty: null, stop: null, initStop: null, takeProfit: null, openedAt: null,
   metrics: null, character: null, health: null, protection: null, thesisState: null, thesis: null,
   focus: [], question: null, read: null, partials: [], aiManagement: false, permissions: {},
-  events: [], unmanaged: [],
+  exiting: false, events: [], unmanaged: [],
 });
 
 type PositionRow = {
@@ -77,7 +80,7 @@ type PositionRow = {
   mfe_pips: number | null; mae_pips: number | null; break_even_at: string | null;
   partials: { at: number; fraction: number; qty: number; price?: number }[] | null;
   thesis: Record<string, unknown> | null; ai_management: boolean; permissions: Record<string, boolean> | null;
-  health: number | null; last_seen_at: string | null; closed_at: string | null;
+  health: number | null; last_seen_at: string | null; closed_at: string | null; state: string | null;
 };
 
 const toLive = (r: PositionRow): LivePosition => ({
@@ -268,6 +271,7 @@ export async function tradeState(userId: string, snapshot: MarketSnapshot | null
     read: ch && prot ? tradeRead(live, m2, ch, prot) : null,
     partials: live.partials,
     aiManagement: live.aiManagement,
+    exiting: r.state === "exit_requested",
     permissions: { ...(account.permissions ?? {}), ...(r.permissions ?? {}) },
     events: ((evs ?? []) as { at: string; code: string; detail: string; channel: string }[])
       .map((e) => ({ at: Date.parse(e.at), code: e.code, detail: e.detail, channel: e.channel })),
@@ -327,3 +331,64 @@ export async function setAiManagement(userId: string, positionId: string, on: bo
 }
 
 export { toLive, type Character };
+
+
+/* ── what the experience state machine needs to know ────────────────────── */
+
+/**
+ * An order that is out and unsettled.
+ *
+ * Only ever the member's own, only ever recent. An execution that has been sitting unsettled for longer
+ * than this is not "pending" in any sense a member would recognise — it is a problem, and it belongs in
+ * the reconciliation path rather than on the screen as a spinner that never stops.
+ */
+const PENDING_WINDOW_MS = 4 * 60_000;
+
+export async function pendingExecution(userId: string): Promise<PendingExecution | null> {
+  const since = new Date(Date.now() - PENDING_WINDOW_MS).toISOString();
+  const { data } = await c().from("cc_trade_executions")
+    .select("id, state, uncertain, created_at")
+    .eq("user_id", userId)
+    .in("state", ["submitting", "order_accepted", "reconciliation_required"])
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const row = (data ?? [])[0] as { id: string; state: string; uncertain: boolean | null; created_at: string } | undefined;
+  if (!row) return null;
+  return { executionId: row.id, state: row.state, at: Date.parse(row.created_at), uncertain: !!row.uncertain };
+}
+
+/**
+ * The trade that just finished, if one did.
+ *
+ * Read from the report rather than the position, because the report is the settled record: it is written
+ * once, at close, from the broker's own account of what happened.
+ */
+export async function lastCompleted(userId: string): Promise<CompletedTrade | null> {
+  const since = new Date(Date.now() - COMPLETE_WINDOW_MS).toISOString();
+  const { data } = await c().from("cc_trade_reports")
+    .select("*").eq("user_id", userId).gte("created_at", since)
+    .order("created_at", { ascending: false }).limit(1);
+  const r = (data ?? [])[0] as {
+    created_at: string; side: Side; style: string; entry: number; exit_price: number;
+    pips: number | null; pnl: number | null; r: number | null; mfe_pips: number | null;
+    mae_pips: number | null; held_ms: number | null; exit_reason: string | null;
+  } | undefined;
+  if (!r) return null;
+
+  const base = {
+    at: Date.parse(r.created_at),
+    side: r.side,
+    style: r.style,
+    pips: Number(r.pips ?? 0),
+    r: r.r != null ? Number(r.r) : null,
+    money: r.pnl != null ? Number(r.pnl) : null,
+    mfePips: Number(r.mfe_pips ?? 0),
+    maePips: Number(r.mae_pips ?? 0),
+    heldMs: Number(r.held_ms ?? 0),
+    entry: Number(r.entry),
+    exit: Number(r.exit_price),
+    exitReason: r.exit_reason ?? null,
+  };
+  return { ...base, say: completionRead(base) };
+}
