@@ -101,7 +101,15 @@ export const LOCKOUT_AFTER_MIN = 10;
  */
 let cache: { at: number; view: CalendarView } | null = null;
 
-export async function upcoming(nowMs = Date.now(), days = 8): Promise<CalendarView> {
+/*
+ * THREE WEEKS, NOT ONE.
+ *
+ * The first window was eight days, and on a quiet stretch it returned nothing at all — technically
+ * correct and useless, because "there is nothing scheduled" reads as "there is nothing coming" when
+ * the real answer is that CPI is three weeks out and worth planning around. A trader holding a SWING
+ * position needs to know what is between here and the exit, not only what is between here and Friday.
+ */
+export async function upcoming(nowMs = Date.now(), days = 21): Promise<CalendarView> {
   if (cache && nowMs - cache.at < 5 * 60_000) return cache.view;
 
   const toMs = nowMs + days * 86_400_000;
@@ -162,7 +170,12 @@ export function calendarLines(v: CalendarView): string[] {
     L.push("Dates and times below are from the Federal Reserve and the Bureau of Labor Statistics themselves.");
     L.push("NOTE: you do NOT have the market's consensus forecast for any of these. A release moves gold through the SURPRISE against consensus, so you can say when a number lands and what it usually does, but never what it is expected to be.");
   }
-  if (!v.events.length) { L.push("nothing known in the next week."); return L; }
+  if (!v.events.length) {
+    L.push(v.source === "published"
+      ? "The calendar loaded and there is genuinely nothing scheduled in the next three weeks. That is a quiet run, not a missing feed — say it that way."
+      : "nothing known.");
+    return L;
+  }
   for (const e of v.events) {
     L.push(`${when(e.at)} — ${e.name} (${e.importance}${e.country ? `, ${e.country}` : ""})${e.timeKnown ? "" : " — time not published, assumed"}`);
   }

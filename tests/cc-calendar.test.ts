@@ -87,3 +87,24 @@ test("a stale feed must not look like a quiet week", async () => {
   // Per-source failure: losing one must not lose the other.
   assert.ok(/fedEvents\(\)\.catch/.test(src) && /blsEvents\(\)\.catch/.test(src));
 });
+
+/*
+ * "THERE IS NOTHING SCHEDULED" READS AS "THERE IS NOTHING COMING".
+ *
+ * The first window was eight days and returned empty on a quiet stretch — technically correct and
+ * useless, because the real answer was that CPI was three weeks out and worth planning around.
+ */
+test("the horizon is long enough to be worth asking about", async () => {
+  const src = await fs.readFile("command-center/adapters/calendar.ts", "utf8");
+  assert.ok(/days = 21/.test(src), "three weeks, so a swing trade can see past its own exit");
+});
+
+test("a genuinely quiet run is not described like a broken feed", async () => {
+  const { calendarLines } = await import("../command-center/adapters/calendar");
+  const loadedButEmpty = calendarLines({ events: [], source: "published", next: null, minutesToNext: null, inLockout: false }).join("\n");
+  assert.ok(/genuinely nothing scheduled/.test(loadedButEmpty));
+  assert.ok(/not a missing feed/.test(loadedButEmpty));
+
+  const down = calendarLines({ events: [], source: "derived_only", next: null, minutesToNext: null, inLockout: false }).join("\n");
+  assert.ok(/UNREACHABLE/.test(down), "and a feed that is down still says so");
+});
