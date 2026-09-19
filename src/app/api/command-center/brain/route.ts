@@ -9,6 +9,7 @@ import { lookBack, retrospectiveLines, isRetrospective } from "../../../../../co
 import { GOLD_KNOWLEDGE, wantsDomainKnowledge } from "../../../../../command-center/brain/gold";
 import { upcoming, calendarLines } from "../../../../../command-center/adapters/calendar";
 import { recordCall, extractClaim, trackRecord, trackRecordLines } from "../../../../../command-center/engines/record";
+import { accountLines, type AccountFacts } from "../../../../../command-center/brain/account";
 import { parseWatch, arm, armedFor, cancelAll } from "../../../../../command-center/engines/watch";
 import { selectedAccount } from "../../../../../command-center/engines/broker";
 import { tradeState } from "../../../../../command-center/engines/tradeLive";
@@ -187,13 +188,25 @@ export async function POST(req: Request) {
    * question earned them: a retrospective costs a market-data call, and the background packet costs
    * tokens on every turn that does not need it.
    */
-  const [past, background, calendar, record] = await Promise.all([
+  const [past, background, calendar, record, acct] = await Promise.all([
     isRetrospective(message) ? lookBack(message) : Promise.resolve(null),
     Promise.resolve(wantsDomainKnowledge(message)),
     upcoming().catch(() => null),
     trackRecord().catch(() => null),
+    selectedAccount(user.id).catch(() => null),
   ]);
+
+  // The account rides along on every turn, for the same reason it does on the spoken path: "is this
+  // worth taking" is a question about their balance and their risk rule, not only about the chart.
+  const accountFacts: AccountFacts | null = acct ? {
+    connected: true, name: acct.name, isLive: acct.is_live, currency: acct.currency,
+    balance: acct.balance, equity: acct.equity, openPl: acct.open_pl,
+    marginAvailable: acct.margin_available, stateAt: acct.state_at,
+    autoTrading: acct.auto_trading, liveAuthorized: !!acct.live_authorized_at,
+    permissions: acct.permissions ?? {}, instrumentReady: !!acct.instrument_id,
+  } : null;
   const extra = [
+    `\n\n${accountLines(accountFacts, profile).join("\n")}`,
     calendar ? `\n\n${calendarLines(calendar).join("\n")}` : "",
     past ? `\n\n${retrospectiveLines(past).join("\n")}` : "",
     record ? `\n\n${trackRecordLines(record).join("\n")}` : "",

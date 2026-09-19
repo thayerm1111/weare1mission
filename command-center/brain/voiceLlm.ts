@@ -12,6 +12,8 @@ import { lookBack, retrospectiveLines, isRetrospective } from "../engines/histor
 import { GOLD_KNOWLEDGE, wantsDomainKnowledge } from "./gold";
 import { upcoming, calendarLines } from "../adapters/calendar";
 import { recordCall, extractClaim, trackRecord, trackRecordLines, asksAboutRecord } from "../engines/record";
+import { accountLines, asksAboutAccount, type AccountFacts } from "./account";
+import { selectedAccount } from "../engines/broker";
 
 
 /**
@@ -261,7 +263,7 @@ export async function handleVoiceLlm(req: Request) {
    * knowledge for a question about mechanism, and the live snapshot for a question about now. A missing
    * live read removes only the third.
    */
-  const [history, needsBackground, calendar, record] = await Promise.all([
+  const [history, needsBackground, calendar, record, acct] = await Promise.all([
     isRetrospective(question) ? lookBack(question) : Promise.resolve(null),
     Promise.resolve(wantsDomainKnowledge(question)),
     /*
@@ -272,7 +274,24 @@ export async function handleVoiceLlm(req: Request) {
      */
     upcoming().catch(() => null),
     trackRecord().catch(() => null),
+    selectedAccount(session.userId).catch(() => null),
   ]);
+
+  /*
+   * THE ACCOUNT IS ALWAYS IN THE PACKET.
+   *
+   * Not only when asked about — "is this setup worth taking" is a question about their balance and
+   * their risk rule as much as about the chart, and an answer that ignores both is generic advice
+   * wearing a trading system's clothes.
+   */
+  const accountFacts: AccountFacts | null = acct ? {
+    connected: true, name: acct.name, isLive: acct.is_live, currency: acct.currency,
+    balance: acct.balance, equity: acct.equity, openPl: acct.open_pl,
+    marginAvailable: acct.margin_available, stateAt: acct.state_at,
+    autoTrading: acct.auto_trading, liveAuthorized: !!acct.live_authorized_at,
+    permissions: acct.permissions ?? {}, instrumentReady: !!acct.instrument_id,
+  } : null;
+  const accountBlock = `\n\n${accountLines(accountFacts, profile).join("\n")}`;
 
   /*
    * A QUESTION ABOUT ITSELF IS NOT A QUESTION ABOUT THE MARKET.
@@ -288,6 +307,21 @@ export async function handleVoiceLlm(req: Request) {
       });
     }
     return streamAnswer(trackRecordLines(record).join("\n"), question, "I have a record but I can't read it back right now.");
+  }
+
+  /*
+   * AN ACCOUNT QUESTION IS NOT A MARKET QUESTION.
+   *
+   * "Look at my account and tell me whether I should lower my risk" came back as "gold is closed" —
+   * the third time this exact router failure has produced a wrong refusal. Balance, risk, permissions
+   * and authorisation are facts about their configuration and owe nothing to the market being open.
+   */
+  if (asksAboutAccount(question) && !memory.now) {
+    return streamAnswer(
+      `Gold is closed, so there is no live price or position movement to read. Everything below is still current.\n${accountBlock}`,
+      question,
+      "I can see your account settings but I can't read them back right now.",
+    );
   }
 
   if (!memory.now && !history && !needsBackground) {
@@ -387,7 +421,7 @@ export async function handleVoiceLlm(req: Request) {
         system: `${BRAIN_SYSTEM}\n${VOICE_RULES}`,
         messages: [
           ...messages.slice(-6).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: speakable(textOf(m.content)).slice(0, 1200) || "..." })),
-          { role: "user", content: `CONTEXT — everything you can see right now:\n\n${packet}${watchLines}${calendarBlock}${pastLines}${recordBlock}${backgroundLines}\n\n----\nThe trader says: ${question}` },
+          { role: "user", content: `CONTEXT — everything you can see right now:\n\n${packet}${accountBlock}${watchLines}${calendarBlock}${pastLines}${recordBlock}${backgroundLines}\n\n----\nThe trader says: ${question}` },
         ],
       }),
     });
