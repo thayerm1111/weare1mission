@@ -147,7 +147,7 @@ export function CommandCenter({ className = "" }: { className?: string }) {
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-2.5" style={{ borderColor: C.line }}>
         <span className="text-[10px]" style={{ color: C.mut2 }}>
-          Observation only — the Command Center is not authorised to place or manage trades yet.
+          THE BRAIN reads the market here. Trading lives in the full Command Center, on accounts you connect and authorise.
         </span>
         <a href="/command-center"
           className="shrink-0 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em]"

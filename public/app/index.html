@@ -4664,6 +4664,10 @@ input{font:inherit}
       ${out[0] ? html`<div class=${"ltc-out " + (out[0].ok ? "ok" : "bad")}>${out[0].text}</div>` : null}
     </div>`;
   }
+  // Absolute on purpose: a relative href points at the app bundle when this runs packaged, not at the site.
+  function CommandCenterLink() {
+    return html`<a class="cc-open" href="https://weare1mission.com/command-center" target="_blank" rel="noopener">Open THE BRAIN →</a>`;
+  }
   function CommandCenterCard() {
     var st = useState(null);
     useEffect(function () {
@@ -4675,13 +4679,13 @@ input{font:inherit}
     var s = st[0];
     if (!s) return null;
     if (!s.price) {
-      if (!s.reason) return null;
       return html`<div class="cc">
         <div class="cc-h">
           <div class="cc-t">Command Center</div>
           <div class="cc-live">${s.open === false ? "Closed" : "No read"}</div>
         </div>
-        <div class="cc-note" style="margin-top:0">${s.reason}</div>
+        <div class="cc-note" style="margin-top:0">${s.reason || "Waiting for the first market read."}</div>
+        <${CommandCenterLink} />
       </div>`;
     }
     function num(v) { return typeof v === "number" ? v.toFixed(2) : "--"; }
@@ -4736,7 +4740,7 @@ input{font:inherit}
       ${!s.live && s.reason ? html`<div class="cc-warn">${s.reason}</div>` : null}
       ${warns.map(function (w, i) { return html`<div class="cc-warn" key=${i}>${w}</div>`; })}
 
-      <a class="cc-open" href="/command-center" target="_blank" rel="noopener">Open THE BRAIN →</a>
+      <${CommandCenterLink} />
       <div class="cc-foot">Observation only — the Command Center is not authorised to place or manage trades yet.</div>
     </div>`;
   }
