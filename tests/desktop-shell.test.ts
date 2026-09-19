@@ -98,3 +98,18 @@ test("the companion shows no live state while it is still connecting", async () 
   assert.ok(/booting\)\s*return\s*\{\s*word:\s*"CONNECTING"/.test(src), "connecting is its own state");
   assert.ok(/setD\(null\)/.test(src), "and a failed poll clears the reading rather than leaving the last good one on screen");
 });
+
+/*
+ * A WEEKEND IS NOT AN OUTAGE.
+ *
+ * Gold is shut most of the weekend and the feed reports itself disconnected throughout, so a
+ * connection test that runs first paints a healthy system red every Saturday — beside a line correctly
+ * explaining that the market is closed. Only a feed missing while the market is OPEN is an alarm.
+ */
+test("a closed market is never reported as a disconnection", async () => {
+  const src = await fs.readFile("src/components/command-center/BrainCompanion.tsx", "utf8");
+  const closed = src.indexOf('word: "MARKET CLOSED"');
+  const gone = src.indexOf('word: "DISCONNECTED"');
+  assert.ok(closed > 0 && gone > 0, "both states exist");
+  assert.ok(closed < gone, "and the market is checked for being shut before the feed is called missing");
+});

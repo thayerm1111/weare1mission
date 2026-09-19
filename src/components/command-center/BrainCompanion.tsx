@@ -62,8 +62,16 @@ type Live = {
 function stateOf(d: Live | null, booting: boolean): { word: string; tone: string; alive: boolean } {
   if (booting) return { word: "CONNECTING", tone: C.mut2, alive: false };
   if (!d || !d.ok) return { word: "BACKEND DISCONNECTED", tone: C.down, alive: false };
-  if (!d.connected) return { word: "DISCONNECTED", tone: C.down, alive: false };
+  /*
+   * CLOSED IS CHECKED BEFORE DISCONNECTED, AND THE ORDER IS THE WHOLE POINT.
+   *
+   * There is no live feed at the weekend, so `connected` is false every Saturday — and testing that
+   * first reports a perfectly healthy system as broken, in red, next to a line correctly explaining
+   * that gold is shut. A market that is closed is not a fault, and the companion must never raise an
+   * alarm about one; only a feed that has gone missing while the market is OPEN is worth a red word.
+   */
   if (!d.marketOpen) return { word: "MARKET CLOSED", tone: C.mut2, alive: false };
+  if (!d.connected) return { word: "DISCONNECTED", tone: C.down, alive: false };
 
   const t = d.trade;
   if (t?.active) {
