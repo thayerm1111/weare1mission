@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Radio, Filter, Zap, Clock, ChevronRight, Maximize2, X, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { LIVE_URL, CALLS } from "@/lib/liveCalls";
 import { LiveTradeCard } from "@/components/portal/LiveTradeCard";
+import { CommandCenter } from "@/components/portal/CommandCenter";
 
 /* ============================================================================
    THE FLOOR — live trading command center (desktop portal).
@@ -212,6 +213,7 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
       <div className="relative space-y-3 p-3 sm:p-4">
         {/* ── LIVE TRADE (owner 09-17): the first thing on The Floor ── */}
         <LiveTradeCard />
+        <CommandCenter className="mt-3" />
         {/* ── HEADER ── */}
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div>

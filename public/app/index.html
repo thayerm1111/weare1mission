@@ -989,6 +989,31 @@ input{font:inherit}
 .gx-hist-row:active{border-color:rgba(245,196,81,.5)}
 .gx-replay{margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;border-radius:13px;border:1px solid rgba(245,196,81,.35);background:rgba(245,196,81,.08);padding:9px 11px;font-size:11px;font-weight:700;color:#f5d68a}
 .gx-replay button{flex-shrink:0;border-radius:9px;border:1px solid rgba(245,196,81,.45);background:transparent;color:#f5d68a;font-size:11px;font-weight:800;padding:5px 9px;cursor:pointer}
+/* -- Command Center (observation) -- */
+.cc{background:linear-gradient(180deg,rgba(14,18,28,.96),rgba(10,13,20,.96));border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px;margin:12px 0}
+.cc-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.cc-t{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#8ea0bd;font-weight:700}
+.cc-live{font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:3px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.14);color:#93a4c0}
+.cc-live.on{color:#5fe0a0;border-color:rgba(95,224,160,.35);background:rgba(95,224,160,.08)}
+.cc-px{font-size:26px;font-weight:800;color:#eef3ff;letter-spacing:-.02em}
+.cc-sub{font-size:11px;color:#7f8ea9;margin-top:2px}
+.cc-sec{margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)}
+.cc-k{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#6f7f9b;margin-bottom:6px;font-weight:700}
+.cc-regime{font-size:14px;font-weight:700;color:#dbe5f7}
+.cc-bar{height:6px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:8px;display:flex}
+.cc-bar span{display:block;height:100%}
+.cc-bar .bl{background:linear-gradient(90deg,#2f8f6a,#5fe0a0)}
+.cc-bar .br{background:linear-gradient(90deg,#e06060,#8f3030)}
+.cc-note{font-size:10px;color:#6f7f9b;margin-top:6px;line-height:1.4}
+.cc-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;padding:4px 0;color:#c3cfe2}
+.cc-row b{color:#eef3ff;font-weight:700}
+.cc-tf{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.cc-tfc{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:7px 8px}
+.cc-tfk{font-size:10px;color:#7f8ea9;letter-spacing:.08em;text-transform:uppercase}
+.cc-tfv{font-size:12px;font-weight:700;margin-top:2px}
+.cc-up{color:#5fe0a0}.cc-dn{color:#ff7a7a}.cc-fl{color:#9fb0cc}
+.cc-warn{font-size:11px;color:#f2c14e;background:rgba(242,193,78,.07);border:1px solid rgba(242,193,78,.2);border-radius:9px;padding:7px 9px;margin-top:8px;line-height:1.45}
+.cc-foot{font-size:10px;color:#65748f;margin-top:10px;line-height:1.45}
 /* -- Live trade card (owner 09-17) -- */
 .ltc{position:relative;overflow:hidden;border-radius:24px;padding:18px;margin-bottom:14px;border:1px solid rgba(46,232,143,.35);background:radial-gradient(120% 90% at 100% 0%,rgba(46,232,143,.18),transparent 60%),linear-gradient(160deg,#0c2230,#07131d);box-shadow:0 0 30px rgba(46,232,143,.14)}
 .ltc.sell{border-color:rgba(255,107,107,.35);background:radial-gradient(120% 90% at 100% 0%,rgba(255,107,107,.16),transparent 60%),linear-gradient(160deg,#241420,#0b0f18);box-shadow:0 0 30px rgba(255,107,107,.12)}
@@ -3388,6 +3413,7 @@ input{font:inherit}
     function open(v) { return function () { view[1](v); }; }
     return html`<div class="scr">
       <${LiveTradeCard} />
+      <${CommandCenterCard} />
       <div class="floor-h">
         <div class="floor-k">The Floor</div>
         <div class="floor-t">Your edge starts here.</div>
@@ -4635,6 +4661,70 @@ input{font:inherit}
       ${out[0] ? html`<div class=${"ltc-out " + (out[0].ok ? "ok" : "bad")}>${out[0].text}</div>` : null}
     </div>`;
   }
+  function CommandCenterCard() {
+    var st = useState(null);
+    useEffect(function () {
+      var dead = false;
+      function load() { apiGet("/api/command-center/snapshot").then(function (d) { if (!dead && d && !d.error) st[1](d); }).catch(function () {}); }
+      load(); var t = setInterval(load, 15000);
+      return function () { dead = true; clearInterval(t); };
+    }, []);
+    var s = st[0];
+    if (!s || !s.price) return null;
+    function num(v) { return typeof v === "number" ? v.toFixed(2) : "--"; }
+    function words(v) { return v ? String(v).replace(/_/g, " ") : "\u2014"; }
+    function tone(d) {
+      var k = String(d || "");
+      if (/strong_up|uptrend|bullish/.test(k)) return "cc-up";
+      if (/strong_down|downtrend|bearish/.test(k)) return "cc-dn";
+      return "cc-fl";
+    }
+    var pressure = typeof s.pressure === "number" ? s.pressure : 0;
+    var bull = Math.max(4, Math.min(96, Math.round(50 + pressure / 2)));
+    var TFS = ["1d", "4h", "1h", "15m", "5m", "1m"];
+    var tfs = s.timeframes || {};
+    var levels = (s.levels || []).slice(0, 5);
+    var warns = (s.warnings || []).slice(0, 3);
+    return html`<div class="cc">
+      <div class="cc-h">
+        <div class="cc-t">Command Center</div>
+        <div class=${"cc-live" + (s.live ? " on" : "")}>${s.live ? "Live" : "Stale"}</div>
+      </div>
+      <div class="cc-px">$${num(s.price)}</div>
+      <div class="cc-sub">${s.bid ? "Bid " + num(s.bid) : ""}${s.ask ? " · Ask " + num(s.ask) : ""}${typeof s.spread === "number" ? " · Spread " + s.spread.toFixed(2) : ""}</div>
+
+      <div class="cc-sec">
+        <div class="cc-k">Market</div>
+        <div class="cc-regime">${words(s.regime)}${s.session ? " · " + words(s.session) : ""}</div>
+        <div class="cc-bar"><span class="bl" style=${"width:" + bull + "%"}></span><span class="br" style=${"width:" + (100 - bull) + "%"}></span></div>
+        <div class="cc-note">Pressure is estimated from closes, wicks and momentum — not order flow.</div>
+      </div>
+
+      <div class="cc-sec">
+        <div class="cc-k">Timeframes</div>
+        <div class="cc-tf">${TFS.map(function (k) {
+          var t = tfs[k];
+          if (!t) return null;
+          return html`<div class="cc-tfc" key=${k}>
+            <div class="cc-tfk">${k}</div>
+            <div class=${"cc-tfv " + tone(t.state)}>${words(t.state)}</div>
+            <div class="cc-tfk">${typeof t.efficiency === "number" ? "eff " + Math.round(t.efficiency * 100) + "%" : ""}</div>
+          </div>`;
+        })}</div>
+      </div>
+
+      ${levels.length ? html`<div class="cc-sec">
+        <div class="cc-k">Nearest levels</div>
+        ${levels.map(function (l, i) {
+          return html`<div class="cc-row" key=${i}><span>${l.label || words(l.kind)}</span><b>${num(l.price)}</b></div>`;
+        })}
+      </div>` : null}
+
+      ${warns.map(function (w, i) { return html`<div class="cc-warn" key=${i}>${w}</div>`; })}
+
+      <div class="cc-foot">Observation only — the Command Center is not authorised to place or manage trades yet.</div>
+    </div>`;
+  }
   function LiveTradeCard() {
     var st = useState(null), now = useState(Date.now());
     useEffect(function () {
@@ -4703,6 +4793,7 @@ input{font:inherit}
       </div>
 
       <${LiveTradeCard} />
+      <${CommandCenterCard} />
 
       <div class="hxt" style="min-height:172px">
         <${HeroBars} />

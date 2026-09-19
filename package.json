@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "worker": "tsx worker/index.ts",
-    "relay": "tsx relay/server.ts"
+    "relay": "tsx relay/server.ts",
+    "cc-worker": "tsx command-center/worker/index.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
