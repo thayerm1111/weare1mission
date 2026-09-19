@@ -140,6 +140,18 @@ export async function resolveToken(token: string): Promise<{ userId: string; ses
   if (!data) return null;
   const r = data as { id: string; user_id: string; account_row_id: string | null; token_expires_at: string; ended_at: string | null };
   if (Date.parse(r.token_expires_at) < Date.now()) return null;
+  /*
+   * A SESSION THAT IS OVER IS OVER.
+   *
+   * `ended_at` was read and never tested, which meant "End" did not end anything the provider could
+   * still reach: the row was closed, the meter stopped, and the token kept resolving to this member's
+   * account for the remaining two hours of its life. The same held for a session superseded by a
+   * second window — the older one carried on reasoning about a live account nobody was watching.
+   *
+   * The token is the only thing about this member that leaves our infrastructure. Its lifetime must be
+   * the session's lifetime, not a timer that happens to be running alongside it.
+   */
+  if (r.ended_at) return null;
   return { userId: r.user_id, sessionId: r.id, accountRowId: r.account_row_id };
 }
 

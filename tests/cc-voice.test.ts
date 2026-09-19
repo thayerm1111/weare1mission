@@ -219,3 +219,22 @@ test('a dead microphone is diagnosable on the phone too', async () => {
   assert.ok(/MIC_TIMEOUT/.test(app), 'and an unanswered permission prompt becomes a sentence rather than a hang');
   assert.ok(/saidSomething/.test(app), 'silence transcribed as "..." is not answered');
 });
+
+/*
+ * ENDING A SESSION MUST END WHAT THE PROVIDER CAN REACH.
+ *
+ * `ended_at` was selected and never tested. Pressing End closed the row and stopped the meter, and the
+ * token went on resolving to this member's account for the rest of its two-hour life — as did the
+ * token of a session superseded by a second window, which meant an unwatched window could still be
+ * reasoning about a live account. The token is the only thing about the member that leaves our
+ * infrastructure; its lifetime has to be the session's, not a timer running alongside it.
+ */
+test('a token stops working the moment its session ends', async () => {
+  const fs = await import('node:fs/promises');
+  const src = await fs.readFile('command-center/engines/voice.ts', 'utf8');
+  const fn = src.slice(src.indexOf('export async function resolveToken'), src.indexOf('export async function touch'));
+  assert.ok(/if \(r\.ended_at\) return null;/.test(fn), 'an ended session resolves to nobody');
+  assert.ok(fn.indexOf('token_expires_at') < fn.indexOf('r.ended_at'), 'expiry and ending are both checked');
+  // Superseding is what makes this matter for two windows.
+  assert.ok(/end_reason: "superseded"/.test(src), 'a second session closes the first');
+});
