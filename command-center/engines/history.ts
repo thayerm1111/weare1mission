@@ -54,6 +54,37 @@ export function parseWindow(q: string, nowMs = Date.now()): Window | null {
   if (/\b(last|past)\s+(three|3)\s+months\b/.test(t)) return { label: "the last three months", fromMs: nowMs - 93 * DAY, toMs: nowMs, tf: "1d", bars: 110 };
   if (/\b(this\s+)?year\b/.test(t)) return { label: "this year", fromMs: nowMs - 365 * DAY, toMs: nowMs, tf: "1d", bars: 400 };
 
+  /*
+   * NAMED DAYS.
+   *
+   * "What about Friday and Thursday, where the high and the low were" is as clear a question about
+   * the past as any, and it was being answered with "gold is closed" because the parser only knew
+   * the word "last". A weekday names a finished session; the window is widened to the week around it
+   * so the answer can actually compare the two days a member mentions together.
+   */
+  const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  /*
+   * A weekday can point forwards as easily as backwards.
+   *
+   * "When the market opens on Sunday" is not a question about last Sunday, and folding it into the
+   * lookback produced "Sunday and Thursday and Friday" for a question about two of them. A day
+   * introduced by opens/next/coming/will is the future, and is left out.
+   */
+  const FORWARD = /\b(opens?|open|next|coming|upcoming|will|when it|tomorrow|ahead)\b[^.?!]{0,24}$/;
+  const named = DAYS
+    .map((d) => ({ d, i: t.search(new RegExp(`\\b${d}\\b`)) }))
+    .filter((x) => x.i >= 0 && !FORWARD.test(t.slice(0, x.i)))
+    .sort((a, b) => a.i - b.i)
+    .map((x) => x.d);
+  if (named.length) {
+    const label = named.length === 1
+      ? named[0][0].toUpperCase() + named[0].slice(1)
+      : named.map((d) => d[0].toUpperCase() + d.slice(1)).join(" and ");
+    // Far enough back to contain any weekday the member could mean, read on a chart that still shows
+    // each session's shape.
+    return { label, fromMs: nowMs - 9 * DAY, toMs: nowMs, tf: "1h", bars: 240 };
+  }
+
   const n = t.match(/\b(?:last|past)\s+(\d{1,3})\s+(hour|day|week|month)s?\b/);
   if (n) {
     const count = Number(n[1]);
@@ -65,9 +96,36 @@ export function parseWindow(q: string, nowMs = Date.now()): Window | null {
   return null;
 }
 
-/** Does this question reach into the past at all? Cheap, and the gate on doing any of the above. */
+/*
+ * A QUESTION ABOUT PRICE THAT IS NOT ABOUT THIS SECOND.
+ *
+ * "Where was the high", "how did it close", "did it hold that level" — none of these name a window,
+ * and all of them need bars rather than a tick.
+ */
+const PAST_SHAPED = /\b(high|low|close[ds]?|opened?|range|did it|where was|where were|how did|held|broke|rallied|sold off|move[d]?|gapped)\b/i;
+const PAST_TENSE_HINT = /\b(was|were|had|did|has been|have been|so far|before|earlier|overnight|session)\b/i;
+
+/**
+ * Does this question reach into the past at all?
+ *
+ * DELIBERATELY GENEROUS, and the asymmetry is the whole design. A false positive costs one cached
+ * market-data call. A false negative costs a member being told "gold is closed" in answer to a
+ * perfectly reasonable question about Thursday — which has now happened four times, and is the single
+ * most damaging thing this system does, because it makes an intelligent product look stupid.
+ */
 export function isRetrospective(q: string, nowMs = Date.now()): boolean {
-  return parseWindow(q, nowMs) !== null;
+  if (parseWindow(q, nowMs) !== null) return true;
+  return PAST_SHAPED.test(q) && PAST_TENSE_HINT.test(q);
+}
+
+/**
+ * The window for a question that reaches backwards without naming a period.
+ *
+ * Defaults to the last few sessions, which is what "where was the high" almost always means, and is
+ * short enough that the answer stays specific.
+ */
+export function defaultWindow(nowMs = Date.now()): Window {
+  return { label: "the last few sessions", fromMs: nowMs - 5 * DAY, toMs: nowMs, tf: "1h", bars: 140 };
 }
 
 export type Retrospective = {
@@ -85,6 +143,14 @@ export type Retrospective = {
   direction: "up" | "down" | "sideways";
   bars: number;
   firstAt: number; lastAt: number;
+  /*
+   * EACH DAY ON ITS OWN.
+   *
+   * "Where was the high and the low on Friday and Thursday" is a question about two sessions, and one
+   * aggregate high for the whole window cannot answer it. The days are kept separately so a comparison
+   * between two of them is arithmetic rather than a guess at which day the extreme belonged to.
+   */
+  days: { at: number; o: number; h: number; l: number; c: number; movePips: number }[];
 };
 
 /**
@@ -111,6 +177,25 @@ export function measure(w: Window, all: Bar[]): Retrospective | null {
     if (!worst || d < worst.pips) worst = { at: b.t, pips: d };
   }
 
+  // Group by UTC calendar day. Gold's day does not start at midnight, but a member asking about
+  // "Thursday" means the calendar day, and inventing a session boundary they did not ask for would
+  // produce numbers that disagree with the chart in front of them.
+  const byDay = new Map<string, Bar[]>();
+  for (const b of bars) {
+    const k = new Date(b.t).toISOString().slice(0, 10);
+    const list = byDay.get(k);
+    if (list) list.push(b); else byDay.set(k, [b]);
+  }
+  const days = [...byDay.entries()].map(([, list]) => {
+    const o = list[0].o, c = list[list.length - 1].c;
+    return {
+      at: list[0].t, o, c,
+      h: Math.max(...list.map((x) => x.h)),
+      l: Math.min(...list.map((x) => x.l)),
+      movePips: (c - o) / PIP,
+    };
+  }).sort((a, b) => a.at - b.at);
+
   const movePips = (close - open) / PIP;
   const rangePips = (high - low) / PIP;
   return {
@@ -121,12 +206,13 @@ export function measure(w: Window, all: Bar[]): Retrospective | null {
     bestBar: best, worstBar: worst,
     direction: Math.abs(movePips) < rangePips * 0.2 ? "sideways" : movePips > 0 ? "up" : "down",
     bars: bars.length, firstAt: bars[0].t, lastAt: bars[bars.length - 1].t,
+    days,
   };
 }
 
 /** Fetch and measure. Returns null rather than a guess when the feed cannot supply the window. */
 export async function lookBack(q: string, nowMs = Date.now()): Promise<Retrospective | null> {
-  const w = parseWindow(q, nowMs);
+  const w = parseWindow(q, nowMs) ?? (isRetrospective(q, nowMs) ? defaultWindow(nowMs) : null);
   if (!w) return null;
   const key = process.env.TWELVEDATA_API_KEY;
   if (!key) return null;
@@ -155,6 +241,10 @@ export function retrospectiveLines(r: Retrospective): string[] {
     `total range ${Math.round(r.rangePips)} pips; it finished ${(r.closeInRange * 100).toFixed(0)}% of the way up that range`,
     r.bestBar ? `strongest single ${r.tf} period ${pips(r.bestBar.pips)} pips at ${when(r.bestBar.at)}` : "",
     r.worstBar ? `weakest single ${r.tf} period ${pips(r.worstBar.pips)} pips at ${when(r.worstBar.at)}` : "",
+    ...(r.days.length > 1 && r.days.length <= 12
+      ? ["each session separately:", ...r.days.map((d) =>
+          `  ${new Date(d.at).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short", timeZone: "UTC" })}: open ${px(d.o)}, high ${px(d.h)}, low ${px(d.l)}, close ${px(d.c)} (${pips(d.movePips)} pips)`)]
+      : []),
     `NOTE: this is measured price history. It is NOT a record of what THE BRAIN thought at the time — that was not being stored, so do not claim to have called any of it.`,
   ].filter(Boolean);
 }

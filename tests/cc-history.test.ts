@@ -138,3 +138,76 @@ test("a closed market no longer silences questions that need no tick", async () 
   assert.ok(/isRetrospective/.test(brain) && /wantsDomainKnowledge/.test(brain),
     "the typed console gets the same two sources");
 });
+
+/*
+ * "BUT WHAT ABOUT FRIDAY AND THURSDAY, WHERE THE HIGH AND THE LOW WAS?"
+ *
+ * Answered with "gold is closed." The fourth time that refusal has landed on a perfectly reasonable
+ * question, and the single most damaging thing this system does — it makes an intelligent product
+ * look stupid. The parser only knew the word "last".
+ */
+test("a named weekday is a question about the past", () => {
+  for (const q of [
+    "But what about, you know, based on Friday and Thursday of where the high and the low was?",
+    "where was the high on Thursday",
+    "what did Monday look like",
+  ]) assert.ok(isRetrospective(q, NOW), q);
+
+  assert.equal(parseWindow("where was the high on Thursday", NOW)?.label, "Thursday");
+});
+
+test("weekdays are read in the order they were said", () => {
+  // Not in calendar order: a member who says "Friday and Thursday" gets those words back.
+  assert.equal(
+    parseWindow("based on Friday and Thursday of where the high and the low was", NOW)?.label,
+    "Friday and Thursday");
+});
+
+/*
+ * A WEEKDAY CAN POINT FORWARDS AS EASILY AS BACKWARDS.
+ *
+ * "When the market opens on Sunday" is not a question about last Sunday, and folding it in produced
+ * "Sunday and Thursday and Friday" for a question about two of them.
+ */
+test("a weekday in the future is not treated as history", () => {
+  assert.equal(parseWindow("what happens when it opens on Sunday", NOW), null);
+  assert.equal(
+    parseWindow("based on Friday and Thursday where the high was? When the market opens on Sunday, should it follow the trend?", NOW)?.label,
+    "Friday and Thursday",
+    "the forward-looking day is excluded and the two real ones survive");
+});
+
+/*
+ * THE ASYMMETRY THAT SHOULD DRIVE THIS DESIGN.
+ *
+ * A false positive costs one cached market-data call. A false negative costs a member being told the
+ * market is closed in answer to a sensible question. So the past test is deliberately generous.
+ */
+test("a question shaped like the past is treated as the past even with no period named", () => {
+  for (const q of ["how did it close", "did it hold that level", "where was the low"]) {
+    assert.ok(isRetrospective(q, NOW), q);
+  }
+  for (const q of ["where is gold trading", "how is my trade", "is there a setup"]) {
+    assert.ok(!isRetrospective(q, NOW), q);
+  }
+});
+
+test("each session is measured on its own, so two days can be compared", () => {
+  const H = 3_600_000;
+  const bars = [];
+  for (let d = 3; d >= 0; d--) {
+    for (let h = 0; h < 6; h++) {
+      const base = 4000 + (3 - d) * 10 + h;
+      bars.push({ t: NOW - d * DAY - (6 - h) * H, o: base, h: base + 5, l: base - 3, c: base + 1 });
+    }
+  }
+  const m = measure(parseWindow("Thursday and Friday", NOW)!, bars)!;
+  assert.ok(m.days.length >= 3, "the window is broken into days");
+  for (const d of m.days) {
+    assert.ok(d.h >= d.l, "each day has its own high and low");
+    assert.ok(d.h >= d.o && d.h >= d.c, "and the high really is the high");
+  }
+  const lines = retrospectiveLines(m).join("\n");
+  assert.ok(/each session separately:/.test(lines));
+  assert.ok(/Thursday|Friday|Wednesday/.test(lines), "named by weekday, as the question was");
+});

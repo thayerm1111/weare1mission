@@ -9,6 +9,7 @@ import BrokerBar from "./BrokerBar";
 import TradePanel, { CallTradeSheet, UnmanagedNotice, type TradeStateView } from "./TradePanel";
 import { BrainTradeCard, ProfileSheet, TradeCompleteCard, type CompletedView, type ProfileView, type SetupView } from "./BrainTrade";
 import VoiceSession from "./VoiceSession";
+import TradeAlert from "./TradeAlert";
 
 /**
  * COMMAND CENTER XAUUSD.
@@ -455,6 +456,7 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
             button is disabled by its own preconditions rather than by a flag somebody could forget.
           */}
           {!trade?.active && (
+            <div id="cc-trade-card">
             <BrainTradeCard
               setup={d?.setup ?? null}
               profile={desk.profile ?? d?.profile ?? null}
@@ -465,6 +467,7 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
               onOpenManual={() => setCallOpen(true)}
               onOpenProfile={() => setProfileOpen(true)}
             />
+            </div>
           )}
 
           {d?.experience?.completed && !trade?.active && <TradeCompleteCard c={d.experience.completed} />}
@@ -499,6 +502,23 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
               />
             </div>
           </Panel>
+
+          {/*
+            * THE INTERRUPTION.
+            *
+            * Mounted here rather than inside a panel because the whole point is that it reaches a
+            * member who is not looking at this screen. It decides for itself whether there is
+            * anything worth interrupting for, and stays invisible the rest of the time.
+            */}
+          <TradeAlert
+            setup={d?.setup ?? null}
+            riskPct={d?.profile?.riskPct ?? 0.5}
+            balance={desk.account?.equity ?? null}
+            currency={desk.account?.currency ?? null}
+            hasPosition={!!trade?.active}
+            onChanged={() => setReloadAt(Date.now())}
+            onDetails={() => document.getElementById("cc-trade-card")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+          />
 
           {trade?.unmanaged?.length ? <UnmanagedNotice trade={trade} onChanged={() => setReloadAt(Date.now())} /> : null}
           {trade?.active ? <TradePanel trade={trade} onChanged={() => setReloadAt(Date.now())} /> : null}
