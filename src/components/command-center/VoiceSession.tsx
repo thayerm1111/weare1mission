@@ -37,6 +37,20 @@ export type VoiceStatus =
 /** How long to wait for a microphone before saying so. It can hang forever — see `start`. */
 const MIC_TIMEOUT_MS = 20_000;
 
+/**
+ * DEVICES THAT CANNOT HEAR ANYTHING.
+ *
+ * Loopback and virtual drivers — BlackHole, Soundflower, VB-Audio, the input a conferencing app
+ * installs — exist to carry audio BETWEEN applications. Nothing is connected to the other end of one
+ * unless somebody deliberately routed it there, so as a microphone they produce a perfect, unbroken
+ * stream of digital silence: a live track, unmuted, sending real frames, every sample zero.
+ *
+ * A browser will hand one over as the default without comment if it sorts first, and then every
+ * symptom points at the voice system. This is how 444 frames of nothing got sent and diagnosed as a
+ * provider fault. Matched by name because it is the only signal available before opening the device.
+ */
+const VIRTUAL_INPUT = /blackhole|soundflower|loopback|vb-?audio|voicemeeter|virtual|aggregate|zoomaudio|krisp|obs|ndi|teams audio/i;
+
 export type VoiceTurn = { id: string; who: "you" | "brain"; text: string; heard: boolean; at: number };
 
 type SessionInfo = {
@@ -125,6 +139,7 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
   const frames = useRef(0);
   const micTrack = useRef<MediaStreamTrack | null>(null);
   const chosenMic = useRef<string | null>(null);
+  const autoPicked = useRef(false);
 
   useEffect(() => { mutedRef.current = muted; }, [muted]);
 
@@ -217,7 +232,14 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
    * or suppressed — no resolve, no reject, no error event — so without a race there is no moment at
    * which anything can be said to the member. With one, an unanswered prompt becomes a sentence.
    */
-  const attachMicrophone = useCallback(async (ctx: AudioContext, socket: WebSocket, wanted?: string) => {
+  const attachMicrophone = useCallback(async (ctx: AudioContext, socket: WebSocket, requested?: string) => {
+    /*
+     * Two passes at most: the browser's choice, and — if that turns out to be a device that cannot
+     * hear — one real microphone instead. A loop rather than a recursive call, so "at most once" is a
+     * property of the code rather than a promise about it.
+     */
+    let wanted = requested;
+    for (let attempt = 0; attempt < 2; attempt++) {
     try {
       let already: string | null = null;
       try { already = (await navigator.permissions.query({ name: "microphone" as PermissionName })).state; }
@@ -261,11 +283,31 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
       }
       // Labels are only populated once permission has been granted, which is why this happens here and
       // not when the panel first renders.
+      let inputs: { id: string; label: string }[] = [];
       try {
         const all = await navigator.mediaDevices.enumerateDevices();
-        setDevices(all.filter((d) => d.kind === "audioinput" && d.deviceId)
-          .map((d) => ({ id: d.deviceId, label: d.label || "Microphone" })));
+        inputs = all.filter((d) => d.kind === "audioinput" && d.deviceId)
+          .map((d) => ({ id: d.deviceId, label: d.label || "Microphone" }));
+        setDevices(inputs);
       } catch { /* the list is a convenience; its absence is not a failure */ }
+
+      /*
+       * IF THE BROWSER CHOSE A DEVICE THAT CANNOT HEAR, CHOOSE A BETTER ONE.
+       *
+       * Once, silently, and only when the member has not picked for themselves — their choice is
+       * theirs even if it is a strange one. The real microphone is preferred over the "default" entry
+       * when both exist, because "default" is an alias that can point back at the virtual device.
+       */
+      if (!wanted && !autoPicked.current && VIRTUAL_INPUT.test(track?.label ?? "")) {
+        const real = inputs.find((d) => !VIRTUAL_INPUT.test(d.label) && d.id !== "default")
+          ?? inputs.find((d) => !VIRTUAL_INPUT.test(d.label));
+        if (real) {
+          autoPicked.current = true;
+          setError(`${track?.label ?? "Your default input"} is a virtual device — it carries audio between apps and hears nothing. Switched to ${real.label}.`);
+          wanted = real.id;
+          continue;
+        }
+      }
 
       frames.current = 0;
       setDiag((d) => ({ ...d, sent: 0, level: 0 }));
@@ -298,8 +340,10 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
       node.connect(silent);
       silent.connect(ctx.destination);
 
-      setError(null);
+      // A device chosen because the last one was deaf keeps its explanation on screen.
+      if (!autoPicked.current || attempt === 0) setError(null);
       setStatus((st) => (st === "muted" ? st : "listening"));
+      return;
     } catch (e) {
       const name = e instanceof Error ? e.message || e.name : "";
       setError(
@@ -307,6 +351,8 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
           ? "I'm still waiting for microphone permission. Look for the prompt — on a phone it can appear at the top of the screen — and tap Allow. The line is open; I just can't hear you yet."
           : "The microphone was refused. The line is open, but I can't hear you until this site is allowed to use it.",
       );
+      return;
+    }
     }
   }, []);
 

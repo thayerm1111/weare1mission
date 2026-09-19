@@ -159,6 +159,23 @@ test('the microphone is named, checked, and changeable', async () => {
   assert.ok(/setMicLabel/.test(client), 'and the device in use is named rather than described');
 });
 
+/*
+ * A LOOPBACK DRIVER IS NOT A MICROPHONE.
+ *
+ * Measured on the real machine: the browser's default input was "BlackHole 2ch (Virtual)", live,
+ * unmuted, sending frames, peak amplitude 0.00000. The built-in microphone on the same machine read
+ * 0.086. Every symptom pointed at the voice system; the fault was a dropdown nobody knew existed.
+ */
+test('a virtual input is recognised and replaced, once', async () => {
+  const fs = await import('node:fs/promises');
+  const client = await fs.readFile('src/components/command-center/VoiceSession.tsx', 'utf8');
+  assert.ok(/blackhole/i.test(client), 'loopback drivers are known by name');
+  assert.ok(/autoPicked/.test(client), 'and replaced at most once, never in a loop');
+  assert.ok(/attempt < 2/.test(client), 'which the control flow guarantees rather than promises');
+  // A member's own choice is theirs, however strange.
+  assert.ok(/!wanted && !autoPicked\.current/.test(client), 'an explicit pick is never overridden');
+});
+
 test('voice is admin-gated on the server, not in a component', async () => {
   const fs = await import('node:fs/promises');
   const route = await fs.readFile('src/app/api/command-center/voice/session/route.ts', 'utf8');
