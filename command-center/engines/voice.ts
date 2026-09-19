@@ -241,6 +241,16 @@ const API = "https://api.elevenlabs.io/v1";
  * a persona here as well would create a second, stale set of instructions that nobody maintains and
  * that quietly contradicts the first one the moment the real prompt changes.
  */
+/**
+ * The speech model.
+ *
+ * The provider rejects anything but turbo or flash v2 for an English agent — `eleven_turbo_v2_5` comes
+ * back as a 400. Flash is the right one of the two here: it is the lower-latency model, and in a
+ * conversation you can interrupt, latency is not a nicety. Overridable, because this is exactly the kind
+ * of provider-side constraint that changes without warning.
+ */
+const TTS_MODEL = process.env.CC_VOICE_TTS_MODEL ?? "eleven_flash_v2";
+
 const AGENT_PROMPT = [
   "You are a relay. Do not answer from your own knowledge.",
   "Every turn, the server you are configured to call returns the complete, authoritative answer,",
@@ -290,19 +300,39 @@ export async function provisionAgent(): Promise<Provisioned> {
   const headers = { "xi-api-key": key, "content-type": "application/json" };
 
   try {
-    // 1 — a secret the agent presents to us, so our reasoning endpoint is not an open door.
+    /*
+     * 1 — a secret the agent presents to us, so our reasoning endpoint is not an open door.
+     *
+     * REUSED, not re-minted. The first version created a fresh secret on every attempt, so each failed
+     * provisioning left an orphan behind in the workspace — three tries, three dead secrets nobody would
+     * ever clean up. The id is stored the moment it exists, BEFORE the agent call that might fail.
+     */
+    const c0 = db();
     let secretId: string | null = null;
-    const secretRes = await fetch(`${API}/convai/secrets`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ type: "new", name: `CC_BRAIN_CALLBACK_${Date.now().toString(36)}`, value: callbackSecret }),
-    });
-    if (secretRes.ok) {
-      const j = (await secretRes.json()) as { secret_id?: string };
-      secretId = j.secret_id ?? null;
-    } else {
-      const body = await secretRes.text().catch(() => "");
-      return { ok: false, reason: `Could not store the callback secret with the speech provider (${secretRes.status}). ${body.slice(0, 300)}` };
+    if (c0) {
+      const { data } = await c0.from("cc_voice_provider").select("secret_id").eq("provider", "elevenlabs").maybeSingle();
+      secretId = (data as { secret_id?: string } | null)?.secret_id ?? null;
+    }
+
+    if (!secretId) {
+      const secretRes = await fetch(`${API}/convai/secrets`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ type: "new", name: "CC_BRAIN_CALLBACK", value: callbackSecret }),
+      });
+      if (secretRes.ok) {
+        const j = (await secretRes.json()) as { secret_id?: string };
+        secretId = j.secret_id ?? null;
+        if (c0 && secretId) {
+          await c0.from("cc_voice_provider").upsert({
+            provider: "elevenlabs", agent_id: "", secret_id: secretId,
+            callback_url: url, updated_at: new Date().toISOString(),
+          });
+        }
+      } else {
+        const body = await secretRes.text().catch(() => "");
+        return { ok: false, reason: `Could not store the callback secret with the speech provider (${secretRes.status}). ${body.slice(0, 300)}` };
+      }
     }
 
     // 2 — the agent itself, pointed at THE BRAIN.
@@ -326,7 +356,7 @@ export async function provisionAgent(): Promise<Provisioned> {
           },
         },
         asr: { quality: "high", user_input_audio_format: "pcm_16000" },
-        tts: { model_id: "eleven_turbo_v2_5", agent_output_audio_format: "pcm_16000" },
+        tts: { model_id: TTS_MODEL, agent_output_audio_format: "pcm_16000" },
         turn: { turn_timeout: 10 },
         conversation: {
           max_duration_seconds: 1800,
@@ -340,7 +370,12 @@ export async function provisionAgent(): Promise<Provisioned> {
       const text = await res.text().catch(() => "");
       const reason = `The speech provider refused the agent (${res.status}). ${text.slice(0, 500)}`;
       const c = db();
-      if (c) await c.from("cc_voice_provider").upsert({ provider: "elevenlabs", agent_id: "", callback_url: url, last_error: reason.slice(0, 900), updated_at: new Date().toISOString() });
+      if (c) {
+        await c.from("cc_voice_provider").upsert({
+          provider: "elevenlabs", agent_id: "", secret_id: secretId,
+          callback_url: url, last_error: reason.slice(0, 900), updated_at: new Date().toISOString(),
+        });
+      }
       return { ok: false, reason };
     }
 
