@@ -105,9 +105,9 @@ test("payrolls is derived correctly on both sides of a daylight-saving change", 
   assert.match(ny(winter.at), /^Friday, February 6(,| at) 08:30$/);
 });
 
-test("with no feed it says so instead of guessing a date", () => {
+test("with the sources unreachable it says so instead of guessing a date", () => {
   const lines = calendarLines({ events: [], source: "derived_only", next: null, minutesToNext: null, inLockout: false }).join("\n");
-  assert.ok(/NO CALENDAR FEED IS CONFIGURED/.test(lines));
+  assert.ok(/UNREACHABLE/.test(lines), "a feed that is down says it is down");
   assert.ok(/never guess a date/.test(lines));
   assert.ok(/You do NOT know this week's FOMC, CPI or PPI dates/.test(lines));
 });

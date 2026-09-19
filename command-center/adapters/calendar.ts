@@ -7,28 +7,21 @@
  * field that nothing ever populated, so the news lockout that is supposed to keep the system out of
  * the market around a release has never once fired.
  *
- * PROVIDER-AGNOSTIC ON PURPOSE. Calendar vendors change terms, rate limits and field names more often
- * than market-data vendors do, and the system must not acquire a second hard dependency on one. The
- * shape below is ours; each provider is a small function that maps into it.
+ * IT READS THE PRIMARY SOURCES. The Federal Reserve publishes its own meeting calendar; the Bureau of
+ * Labor Statistics publishes the date and time of every CPI, PPI and payrolls print. These are the
+ * organisations that create the events — nothing is closer to the truth, it is public domain, it needs
+ * no key, and no vendor can withdraw it. The first version of this called a commercial API and came
+ * back 403 on a free key, which was the right failure to have early: a control that stops real money
+ * should never have sat behind somebody's free tier.
  *
- * WHAT HAPPENS WITH NO KEY, which is the state today: `upcoming()` returns what can be DERIVED and
- * nothing else, and the absence is reported rather than hidden. Non-farm payrolls is the first Friday
- * of the month at a fixed time — a published, stable rule, safe to compute. FOMC and CPI dates are
- * not derivable from a rule; they are published annually and change. Guessing them would put a wrong
- * date in front of a trader, which is worse than an empty calendar.
+ * WHAT IS STILL MISSING, and the packet says so rather than implying otherwise: the street's CONSENSUS
+ * forecast. The move on a release is driven by the surprise against consensus, and no official source
+ * publishes what economists expected. That is the one thing here worth paying a vendor for.
  */
 
-export type EconEvent = {
-  at: number;
-  name: string;
-  importance: "high" | "medium" | "low";
-  country: string;
-  /** Where this came from, because a derived event and a published one deserve different trust. */
-  source: "derived" | "finnhub" | "tradingeconomics" | "fmp";
-  actual?: number | null;
-  forecast?: number | null;
-  previous?: number | null;
-};
+import { fedEvents, blsEvents, type EconEvent } from "./econCalendar";
+
+export type { EconEvent };
 
 /** Releases that actually move gold. Everything else is noise on this instrument. */
 const MATTERS = /\b(fomc|federal funds|interest rate decision|fed chair|powell|cpi|consumer price|core pce|pce price|ppi|producer price|non[- ]?farm|nfp|unemployment rate|average hourly|jolts|gdp|retail sales|ism|michigan|jackson hole|beige book|treasury (auction|yield))\b/i;
@@ -68,50 +61,24 @@ export function nextNfp(fromMs = Date.now()): EconEvent {
     if (m > 11) { m = 0; y += 1; }
     at = at0830Eastern(firstFridayOf(y, m));
   }
-  return { at, name: "US Non-Farm Payrolls", importance: "high", country: "US", source: "derived" };
+  return { at, name: "US Non-Farm Payrolls", importance: "high", country: "US", source: "derived", timeKnown: true };
 }
 
 /* ── the published ones ───────────────────────────────────────────────── */
 
-type Provider = { name: EconEvent["source"]; key: string | undefined; fetch: (key: string, fromMs: number, toMs: number) => Promise<EconEvent[]> };
-
-const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-
-async function finnhub(key: string, fromMs: number, toMs: number): Promise<EconEvent[]> {
-  const r = await fetch(`https://finnhub.io/api/v1/calendar/economic?from=${iso(fromMs)}&to=${iso(toMs)}&token=${encodeURIComponent(key)}`, { cache: "no-store" });
-  if (!r.ok) return [];
-  const j = (await r.json()) as { economicCalendar?: { time?: string; event?: string; country?: string; impact?: string; actual?: number; estimate?: number; prev?: number }[] };
-  return (j.economicCalendar ?? []).flatMap((e) => {
-    const at = Date.parse(String(e.time ?? "").replace(" ", "T") + "Z");
-    if (!Number.isFinite(at) || !e.event) return [];
-    return [{
-      at, name: e.event, country: e.country ?? "",
-      importance: (String(e.impact).toLowerCase() === "high" ? "high" : String(e.impact).toLowerCase() === "medium" ? "medium" : "low") as EconEvent["importance"],
-      source: "finnhub" as const, actual: e.actual ?? null, forecast: e.estimate ?? null, previous: e.prev ?? null,
-    }];
-  });
-}
-
-async function tradingEconomics(key: string, fromMs: number, toMs: number): Promise<EconEvent[]> {
-  const r = await fetch(`https://api.tradingeconomics.com/calendar/country/united%20states/${iso(fromMs)}/${iso(toMs)}?c=${encodeURIComponent(key)}&f=json`, { cache: "no-store" });
-  if (!r.ok) return [];
-  const j = (await r.json()) as { Date?: string; Event?: string; Country?: string; Importance?: number; Actual?: number; Forecast?: number; Previous?: number }[];
-  return (Array.isArray(j) ? j : []).flatMap((e) => {
-    const at = Date.parse(String(e.Date ?? ""));
-    if (!Number.isFinite(at) || !e.Event) return [];
-    return [{
-      at, name: e.Event, country: e.Country ?? "US",
-      importance: (e.Importance === 3 ? "high" : e.Importance === 2 ? "medium" : "low") as EconEvent["importance"],
-      source: "tradingeconomics" as const, actual: e.Actual ?? null, forecast: e.Forecast ?? null, previous: e.Previous ?? null,
-    }];
-  });
-}
-
-const PROVIDERS = (): Provider[] => [
-  { name: "finnhub", key: process.env.FINNHUB_API_KEY, fetch: finnhub },
-  { name: "tradingeconomics", key: process.env.TRADINGECONOMICS_API_KEY, fetch: tradingEconomics },
-];
-
+/*
+ * OFFICIAL SOURCES, NOT A VENDOR.
+ *
+ * The first version of this called a commercial calendar API and came back 403 — the endpoint was
+ * premium on a free key. That was the wrong shape of dependency regardless of price: this calendar
+ * drives a LOCKOUT, and a control that stops real money should not sit behind a free tier, a rate
+ * limit or a pricing change.
+ *
+ * The Federal Reserve and the Bureau of Labor Statistics publish the events they themselves create.
+ * Public domain, no key, nothing a vendor can withdraw. A commercial feed can still be layered on
+ * top for the one thing they do not publish — the street's consensus forecast — but nothing depends
+ * on one being there.
+ */
 export type CalendarView = {
   events: EconEvent[];
   /** What the calendar actually knows, so an answer can be honest about its own blind spot. */
@@ -141,12 +108,22 @@ export async function upcoming(nowMs = Date.now(), days = 8): Promise<CalendarVi
   let events: EconEvent[] = [];
   let source: CalendarView["source"] = "derived_only";
 
-  for (const p of PROVIDERS()) {
-    if (!p.key) continue;
-    try {
-      const got = await p.fetch(p.key, nowMs - 86_400_000, toMs);
-      if (got.length) { events = got.filter((e) => MATTERS.test(e.name)); source = "published"; break; }
-    } catch { /* try the next provider rather than failing the whole read */ }
+  /*
+   * Both sources are asked in parallel and failure is per-source.
+   *
+   * If the Fed's file moves, payrolls and CPI still gate the lockout; if the BLS pages change shape,
+   * the FOMC dates survive. Partial is much better than nothing for a control that blocks entries —
+   * but a total failure must NOT silently look like a quiet week, which is why the derived payroll
+   * date remains as the floor.
+   */
+  const [fed, bls] = await Promise.all([
+    fedEvents().catch(() => [] as EconEvent[]),
+    blsEvents().catch(() => [] as EconEvent[]),
+  ]);
+
+  if (fed.length || bls.length) {
+    events = [...fed, ...bls].filter((e) => e.at >= nowMs - 86_400_000 && e.at <= toMs);
+    source = "published";
   }
 
   if (source === "derived_only") {
@@ -179,13 +156,15 @@ const when = (ms: number) =>
 export function calendarLines(v: CalendarView): string[] {
   const L = ["=== ECONOMIC CALENDAR ==="];
   if (v.source === "derived_only") {
-    L.push("NO CALENDAR FEED IS CONFIGURED. The only event below is computed from a fixed published rule (payrolls is the first Friday of the month).");
-    L.push("You do NOT know this week's FOMC, CPI or PPI dates. If asked what is scheduled, say plainly that the calendar feed is not connected — never guess a date.");
+    L.push("THE CALENDAR SOURCES ARE UNREACHABLE right now. The only event below is computed from a fixed published rule (payrolls is the first Friday of the month).");
+    L.push("You do NOT know this week's FOMC, CPI or PPI dates. Say plainly that the calendar is not loading — never guess a date.");
+  } else {
+    L.push("Dates and times below are from the Federal Reserve and the Bureau of Labor Statistics themselves.");
+    L.push("NOTE: you do NOT have the market's consensus forecast for any of these. A release moves gold through the SURPRISE against consensus, so you can say when a number lands and what it usually does, but never what it is expected to be.");
   }
   if (!v.events.length) { L.push("nothing known in the next week."); return L; }
   for (const e of v.events) {
-    const bits = [e.forecast != null ? `forecast ${e.forecast}` : "", e.previous != null ? `previous ${e.previous}` : ""].filter(Boolean).join(", ");
-    L.push(`${when(e.at)} — ${e.name} (${e.importance}${e.country ? `, ${e.country}` : ""})${bits ? ` — ${bits}` : ""}`);
+    L.push(`${when(e.at)} — ${e.name} (${e.importance}${e.country ? `, ${e.country}` : ""})${e.timeKnown ? "" : " — time not published, assumed"}`);
   }
   if (v.inLockout) L.push("RIGHT NOW you are inside a high-impact release window: liquidity is thin, spreads are wide, and new entries are refused.");
   else if (v.minutesToNext != null && v.minutesToNext <= 60) L.push(`next release in about ${v.minutesToNext} minutes.`);
