@@ -8,9 +8,13 @@
  * Runs on Railway as its own service (`npm run cc-worker`), independent of every other process.
  */
 import { series, price as tdPrice, GOLD } from "../adapters/twelvedata";
-import { saveSnapshot, pruneSnapshots, audit } from "../adapters/db";
+import {
+  pruneSnapshots, audit, saveSnapshotWithBars, saveEvents, saveBrainState, saveThesis, saveStatement, loadRolling,
+} from "../adapters/db";
 import { buildSnapshot, tradeable } from "../engines/snapshot";
 import { marketOpen } from "../core/sessions";
+import { perceive } from "../brain";
+import { emptyRolling, type Rolling } from "../brain/memory";
 import type { Bar, FeedHealth, Timeframe } from "../core/types";
 
 const KEY = process.env.TWELVEDATA_API_KEY ?? "";
@@ -19,6 +23,12 @@ const PERSIST_MS = Number(process.env.CC_PERSIST_MS || 60_000);
 const NEEDED: { tf: Timeframe; size: number }[] = [
   { tf: "5m", size: 200 }, { tf: "15m", size: 150 }, { tf: "1h", size: 150 }, { tf: "4h", size: 120 }, { tf: "1d", size: 60 },
 ];
+
+/**
+ * THE BRAIN's rolling memory. Held in the process so perception runs on every tick, and rebuilt from the
+ * database at boot so a restart does not give it amnesia about the last hour of the market.
+ */
+let brain: Rolling = emptyRolling();
 
 const log = (msg: string, extra?: unknown) => console.log(`[${new Date().toISOString()}] cc: ${msg}`, extra ?? "");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -66,13 +76,35 @@ async function pass(lastPersistAt: number): Promise<number> {
     ageMs: lastBarAt != null ? now - lastBarAt : null,
   }];
 
-  const snap = buildSnapshot({ now, bars, price: live, feeds });
+  const prevNet = brain.snapshots.length ? brain.snapshots[brain.snapshots.length - 1].pressure.net : null;
+  const snap = buildSnapshot({ now, bars, price: live, feeds, prevPressureNet: prevNet });
   const gate = tradeable(snap);
 
+  // THE BRAIN runs on EVERY tick, not only when a snapshot is persisted. Perception is cheap and
+  // deterministic; what it costs is nothing, and what it buys is noticing a change within one tick
+  // instead of within a minute.
+  const pc = perceive({ rolling: brain, snapshot: snap });
+  brain = pc.rolling;
+
+  if (pc.events.length) {
+    await saveEvents(pc.events);
+    for (const e of pc.events.filter((x) => x.channel === "urgent" || x.channel === "voice")) {
+      log(`! ${e.code} (${e.significance.score}) ${e.detail}`);
+    }
+  }
+  if (pc.thesisChange !== "none") {
+    if (pc.closedThesis) await saveThesis(pc.closedThesis);
+    await saveThesis(pc.thesis);
+    log(`thesis ${pc.thesisChange}: ${pc.thesis.label} (${pc.thesis.confidence}) — ${pc.statement?.text ?? ""}`);
+  }
+  if (pc.statement) await saveStatement(pc.statement);
+
   if (now - lastPersistAt >= PERSIST_MS) {
-    const id = await saveSnapshot(snap);
+    const id = await saveSnapshotWithBars(snap, m5 ?? []);
+    await saveBrainState(pc.state);
+    if (pc.thesisChange === "none") await saveThesis(pc.thesis);   // keep the open thesis' confidence current
     const tfs = Object.entries(snap.timeframes).map(([tf, v]) => `${tf}:${v!.state}`).join(" ");
-    log(`snapshot#${id ?? "?"} ${snap.price.toFixed(2)} ${snap.session} ${snap.regime} pressure ${snap.pressure.net > 0 ? "+" : ""}${snap.pressure.net} | ${tfs} | ${gate.ok ? "tradeable" : `blocked: ${gate.code}`}`);
+    log(`snapshot#${id ?? "?"} ${snap.price.toFixed(2)} ${snap.session} ${snap.regime} pressure ${snap.pressure.net > 0 ? "+" : ""}${snap.pressure.net} | ${tfs} | ${gate.ok ? "tradeable" : `blocked: ${gate.code}`} | brain:${pc.state.presence} i${pc.state.intensity} | ${pc.thesis.label}`);
     if (errors.length) log("feed notes", errors);
     return now;
   }
@@ -83,6 +115,10 @@ async function main(): Promise<void> {
   if (!KEY) { log("no TWELVEDATA_API_KEY — the Command Center cannot see the market; exiting"); process.exit(1); }
   log(`starting · tick ${TICK_MS}ms · persist ${PERSIST_MS}ms · symbol ${GOLD}`);
   await audit({ actor: "cc-worker", action: "worker_start", reason: "Command Center observation loop started" });
+
+  // Wake up remembering. The market kept moving while this process was not running.
+  brain = await loadRolling();
+  log(`memory restored · ${brain.snapshots.length} snapshots · ${brain.events.length} events · ${brain.theses.length} theses`);
 
   let lastPersist = 0;
   let lastPrune = 0;

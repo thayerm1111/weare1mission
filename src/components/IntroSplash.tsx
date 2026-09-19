@@ -30,6 +30,7 @@ export function IntroSplash() {
   if (!show) return null;
   return (
     <div
+      data-om-splash=""
       className={`fixed inset-0 z-[200] flex items-center justify-center bg-cream transition-opacity duration-500 ${
         leaving ? "pointer-events-none opacity-0" : "opacity-100"
       }`}

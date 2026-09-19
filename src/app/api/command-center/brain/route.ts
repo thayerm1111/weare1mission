@@ -1,0 +1,143 @@
+import { createClient } from "@/lib/supabase/server";
+import { liveMemory } from "../../../../../command-center/engines/live";
+import { BRAIN_SYSTEM, contextPacket } from "../../../../../command-center/brain/context";
+import { answer as narrate, scenarioOf, marketRead } from "../../../../../command-center/brain/language";
+import { saveStatement } from "../../../../../command-center/adapters/db";
+import type { BrainResponse, UiAction, UiActionName } from "../../../../../command-center/brain/types";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 45;
+
+/**
+ * TALK TO THE BRAIN.
+ *
+ * The conversation is always grounded: the latest MarketSnapshot, what changed, what THE BRAIN has
+ * already said and what it currently believes are attached to every single turn. The user never has to
+ * tell it the price of gold.
+ *
+ * Two engines, and which one answered is always disclosed in `source`:
+ *   • the language model, when one is configured — it INTERPRETS the measured state;
+ *   • the deterministic narrator otherwise — plainer, but built from exactly the same state.
+ * Neither is allowed to invent a number. The model is told, in its system prompt, that it cannot see a
+ * chart and must not fabricate a level, and the narrator structurally cannot.
+ */
+const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+const MODEL = process.env.OM_AI_MODEL || "claude-sonnet-4-6";
+
+function json(o: unknown, s = 200) {
+  return new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+}
+
+/** The ONLY UI actions THE BRAIN may take. Anything it emits outside this list is discarded silently. */
+const ALLOWED: UiActionName[] = [
+  "FOCUS_TIMEFRAME", "FOCUS_PRICE_RANGE", "SHOW_LEVEL", "SHOW_SESSION",
+  "SHOW_SCENARIO", "SHOW_EVENT", "SHOW_TRADE", "SHOW_METRICS", "MARK_CHART",
+];
+
+/**
+ * Parse the model's UI requests from a strict trailing syntax and validate every one against the
+ * whitelist. The model never gets arbitrary control of the page — it gets a vocabulary.
+ */
+function extractActions(text: string): { clean: string; actions: UiAction[] } {
+  const actions: UiAction[] = [];
+  const clean = text.replace(/\[\[UI:\s*([A-Z_]+)(?:\s+([^\]]+))?\]\]/g, (_m, name: string, arg?: string) => {
+    const n = name.trim() as UiActionName;
+    if (ALLOWED.includes(n)) {
+      const raw = (arg ?? "").trim();
+      const num = Number(raw);
+      actions.push({ name: n, arg: raw === "" ? null : Number.isFinite(num) ? num : raw });
+    }
+    return "";
+  }).replace(/\s{2,}/g, " ").trim();
+  return { clean, actions: actions.slice(0, 3) };
+}
+
+const UI_INSTRUCTIONS = `
+If the user asks you to show or focus something on the screen, end your reply with at most one marker on its own, using exactly this syntax and nothing else:
+[[UI: SHOW_LEVEL 4387.20]] or [[UI: FOCUS_TIMEFRAME 15m]] or [[UI: SHOW_SCENARIO bull]] or [[UI: SHOW_METRICS]] or [[UI: SHOW_TRADE]]
+Only use a marker when the user actually asked to see something. Never explain the marker.`;
+
+type Turn = { role: "user" | "assistant"; content: string };
+
+export async function POST(req: Request) {
+  const supabase = createClient();
+  if (!supabase) return json({ error: "not_configured" }, 503);
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  let body: { message?: string; history?: Turn[]; spoken?: boolean };
+  try { body = await req.json(); } catch { return json({ error: "bad_request" }, 400); }
+  const message = (body.message ?? "").toString().trim().slice(0, 2000);
+  if (!message) return json({ error: "empty" }, 400);
+
+  const memory = await liveMemory();
+
+  // No market read at all is not a conversation topic to improvise around — say so and stop.
+  if (!memory.now) {
+    const r: BrainResponse = {
+      spokenText: "I can't see the market right now — there's no live read coming through. I'd rather tell you that than make something up.",
+      shortSummary: "No market data", marketRead: "No market data", changes: [], focus: [], watchedLevels: [],
+      scenario: null, tradeRead: null, uiActions: [], urgency: "normal", voiceEligible: true, source: "narrator",
+    };
+    return json(r);
+  }
+
+  const key = process.env.ANTHROPIC_API_KEY;
+  const fallback = narrate(message, memory);
+
+  if (!key) {
+    // Honest degradation: the narrator is real, grounded output — not a stub pretending to be a model.
+    await saveStatement({ at: Date.now(), kind: "answer", text: fallback.spokenText, channel: "text", priceAt: memory.now.price, thesisId: memory.thesis?.id ?? null });
+    return json({ ...fallback, notice: "Conversational model not configured — this is THE BRAIN's deterministic voice." });
+  }
+
+  const packet = contextPacket(memory);
+  const history = (body.history ?? []).slice(-8).filter((t) => t && (t.role === "user" || t.role === "assistant") && typeof t.content === "string");
+  const messages = [
+    ...history.map((t) => ({ role: t.role, content: t.content.slice(0, 1500) })),
+    { role: "user" as const, content: `CONTEXT — everything you can see right now:\n\n${packet}\n\n----\nThe trader says: ${message}` },
+  ];
+
+  try {
+    const r = await fetch(ANTHROPIC_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 700,
+        system: `${BRAIN_SYSTEM}\n${UI_INSTRUCTIONS}`,
+        messages,
+      }),
+    });
+    const j = await r.json();
+    if (!r.ok) {
+      return json({ ...fallback, notice: "THE BRAIN's language model is unavailable — this is its deterministic voice." });
+    }
+    const text: string = Array.isArray(j?.content)
+      ? j.content.filter((b: { type?: string }) => b?.type === "text").map((b: { text?: string }) => b.text ?? "").join("").trim()
+      : "";
+    if (!text) return json({ ...fallback, notice: "Empty reply from the model — falling back to the deterministic voice." });
+
+    const { clean, actions } = extractActions(text);
+    const response: BrainResponse = {
+      spokenText: clean,
+      shortSummary: memory.state?.headline ?? marketRead(memory),
+      marketRead: marketRead(memory),
+      changes: fallback.changes,
+      focus: memory.state?.focus ?? [],
+      watchedLevels: memory.watchedLevels.map((l) => l.price),
+      scenario: scenarioOf(memory),
+      tradeRead: null,
+      uiActions: actions.length ? actions : fallback.uiActions,
+      urgency: fallback.urgency,
+      voiceEligible: true,
+      source: "llm",
+    };
+    // Its own words go into memory, so five minutes from now it knows what it already told you.
+    await saveStatement({ at: Date.now(), kind: "answer", text: clean, channel: "text", priceAt: memory.now.price, thesisId: memory.thesis?.id ?? null });
+    return json(response);
+  } catch {
+    return json({ ...fallback, notice: "THE BRAIN's language model could not be reached — this is its deterministic voice." });
+  }
+}

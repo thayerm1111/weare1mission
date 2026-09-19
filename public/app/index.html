@@ -1013,6 +1013,9 @@ input{font:inherit}
 .cc-tfv{font-size:12px;font-weight:700;margin-top:2px}
 .cc-up{color:#5fe0a0}.cc-dn{color:#ff7a7a}.cc-fl{color:#9fb0cc}
 .cc-warn{font-size:11px;color:#f2c14e;background:rgba(242,193,78,.07);border:1px solid rgba(242,193,78,.2);border-radius:9px;padding:7px 9px;margin-top:8px;line-height:1.45}
+.cc-open{display:block;margin-top:12px;text-align:center;padding:9px 12px;border-radius:11px;
+  background:rgba(240,196,117,.10);border:1px solid rgba(240,196,117,.34);color:#f0c475;
+  font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;text-decoration:none}
 .cc-foot{font-size:10px;color:#65748f;margin-top:10px;line-height:1.45}
 /* -- Live trade card (owner 09-17) -- */
 .ltc{position:relative;overflow:hidden;border-radius:24px;padding:18px;margin-bottom:14px;border:1px solid rgba(46,232,143,.35);background:radial-gradient(120% 90% at 100% 0%,rgba(46,232,143,.18),transparent 60%),linear-gradient(160deg,#0c2230,#07131d);box-shadow:0 0 30px rgba(46,232,143,.14)}
@@ -4733,6 +4736,7 @@ input{font:inherit}
       ${!s.live && s.reason ? html`<div class="cc-warn">${s.reason}</div>` : null}
       ${warns.map(function (w, i) { return html`<div class="cc-warn" key=${i}>${w}</div>`; })}
 
+      <a class="cc-open" href="/command-center" target="_blank" rel="noopener">Open THE BRAIN →</a>
       <div class="cc-foot">Observation only — the Command Center is not authorised to place or manage trades yet.</div>
     </div>`;
   }
