@@ -251,6 +251,18 @@ const API = "https://api.elevenlabs.io/v1";
  */
 const TTS_MODEL = process.env.CC_VOICE_TTS_MODEL ?? "eleven_flash_v2";
 
+/**
+ * THE CONFIGURATION VERSION.
+ *
+ * Every provider-side setting this file sends is something that, when wrong, produces silence rather
+ * than an error — a 404 nobody sees, a rejected override, a model name that is not allowed. An agent
+ * created under an older understanding of that surface is not repaired by a deploy, because the agent
+ * lives in their workspace, not in ours. So the shape has a version, it is stored beside the agent id,
+ * and a change here re-applies the whole configuration on the next session instead of waiting for
+ * somebody to remember.
+ */
+const AGENT_CONFIG_VERSION = 2;
+
 const AGENT_PROMPT = [
   "You are a relay. Do not answer from your own knowledge.",
   "Every turn, the server you are configured to call returns the complete, authoritative answer,",
@@ -276,8 +288,10 @@ export async function ensureAgent(): Promise<Provisioned> {
 
   if (c) {
     const { data } = await c.from("cc_voice_provider").select("*").eq("provider", "elevenlabs").maybeSingle();
-    const row = data as { agent_id: string; callback_url: string | null } | null;
-    if (row?.agent_id && row.callback_url === url) return { ok: true, agentId: row.agent_id, created: false };
+    const row = data as { agent_id: string; callback_url: string | null; config_version?: number } | null;
+    if (row?.agent_id && row.callback_url === url && (row.config_version ?? 0) === AGENT_CONFIG_VERSION) {
+      return { ok: true, agentId: row.agent_id, created: false };
+    }
   }
 
   return provisionAgent();
@@ -363,16 +377,43 @@ export async function provisionAgent(): Promise<Provisioned> {
           client_events: ["audio", "interruption", "user_transcript", "agent_response", "agent_response_correction"],
         },
       },
+      /*
+       * PERMISSION TO BE TOLD WHO IS TALKING.
+       *
+       * The session token is the only thing about the member that leaves our infrastructure, and it
+       * travels as `custom_llm_extra_body` — the single field the provider forwards to our reasoning
+       * endpoint. An agent refuses that field unless it has been configured to accept it, and the
+       * refusal is not a message on the socket: it is a close frame mid-sentence. Everything else here
+       * stays off. This is permission to carry one opaque token, not permission to rewrite the agent
+       * from a browser.
+       */
+      platform_settings: {
+        overrides: { custom_llm_extra_body: true },
+      },
     };
 
-    const res = await fetch(`${API}/convai/agents/create`, { method: "POST", headers, body: JSON.stringify(body) });
+    /*
+     * UPDATE IN PLACE WHEN WE ALREADY HAVE ONE.
+     *
+     * Re-provisioning used to mean a brand new agent, which left the old one behind in the workspace
+     * still answering to any signed URL minted before the switch. An agent is a long-lived object with
+     * an id other things remember; only its configuration is ours to change.
+     */
+    const existing = c0
+      ? ((await c0.from("cc_voice_provider").select("agent_id").eq("provider", "elevenlabs").maybeSingle())
+          .data as { agent_id?: string } | null)?.agent_id || null
+      : null;
+
+    const res = existing
+      ? await fetch(`${API}/convai/agents/${existing}`, { method: "PATCH", headers, body: JSON.stringify(body) })
+      : await fetch(`${API}/convai/agents/create`, { method: "POST", headers, body: JSON.stringify(body) });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       const reason = `The speech provider refused the agent (${res.status}). ${text.slice(0, 500)}`;
       const c = db();
       if (c) {
         await c.from("cc_voice_provider").upsert({
-          provider: "elevenlabs", agent_id: "", secret_id: secretId,
+          provider: "elevenlabs", agent_id: existing ?? "", secret_id: secretId,
           callback_url: url, last_error: reason.slice(0, 900), updated_at: new Date().toISOString(),
         });
       }
@@ -380,20 +421,22 @@ export async function provisionAgent(): Promise<Provisioned> {
     }
 
     const j = (await res.json()) as { agent_id?: string };
-    if (!j.agent_id) return { ok: false, reason: "The speech provider created an agent but returned no identifier." };
+    const agentId = j.agent_id || existing;
+    if (!agentId) return { ok: false, reason: "The speech provider created an agent but returned no identifier." };
 
     const c = db();
     if (c) {
       await c.from("cc_voice_provider").upsert({
         provider: "elevenlabs",
-        agent_id: j.agent_id,
+        agent_id: agentId,
         secret_id: secretId,
         callback_url: url,
+        config_version: AGENT_CONFIG_VERSION,
         last_error: null,
         updated_at: new Date().toISOString(),
       });
     }
-    return { ok: true, agentId: j.agent_id, created: true };
+    return { ok: true, agentId, created: !existing };
   } catch (e) {
     return { ok: false, reason: `Could not reach the speech provider: ${e instanceof Error ? e.message.slice(0, 200) : "unknown"}` };
   }
