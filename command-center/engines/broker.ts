@@ -15,7 +15,7 @@ import { db } from "../adapters/db";
 import { open, seal, encryptionAvailable, maskEmail } from "../core/crypto";
 import { resolve as resolveInstrument, type Resolved } from "../core/instrument";
 import {
-  authenticate, refresh as refreshToken, listAccounts, listInstruments, instrumentDetails,
+  authenticate, refresh as refreshToken, listAccounts, listInstruments, instrumentDetails, instrumentRow,
   accountState as fetchAccountState, parseAccounts, parseAccountState, parseInstrumentSpec, findGold,
   type TLAuth, type TLEnv, type TLInstrumentSpec,
 } from "../adapters/tradelocker";
@@ -181,8 +181,19 @@ export async function session(userId: string, accountRowId: string): Promise<{ o
 /** Refresh balance, equity and open P&L from the broker, and record when it was read. */
 export async function syncAccountState(s: Session): Promise<{ balance: number | null; equity: number | null; openPl: number | null; marginAvailable: number | null } | null> {
   const r = await fetchAccountState(s.auth);
-  if (!r.ok) return null;
-  const st = parseAccountState(r.data);
+  let st = r.ok ? parseAccountState(r.data) : null;
+
+  // Not every TradeLocker build exposes a per-account /state route, and an account with no readable
+  // balance cannot be sized — which would block every trade with a confusing message. The account
+  // listing carries balance and equity too, so fall back to it rather than giving up.
+  if (!st || (st.balance == null && st.equity == null)) {
+    const list = await listAccounts(s.connection.env, s.auth.accessToken);
+    if (list.ok) {
+      const mine = parseAccounts(list.data).find((a) => a.id === s.account.account_id || a.accNum === s.account.acc_num);
+      if (mine) st = { balance: mine.balance ?? null, equity: mine.equity ?? mine.balance ?? null, openPl: st?.openPl ?? null, marginAvailable: st?.marginAvailable ?? null };
+    }
+  }
+  if (!st) return null;
   const c = need();
   await c.from("cc_broker_accounts").update({
     balance: st.balance, equity: st.equity, open_pl: st.openPl, margin_available: st.marginAvailable,
@@ -217,9 +228,17 @@ export async function goldInstrument(s: Session, force = false): Promise<Instrum
       id = gold.tradableInstrumentId;
       route = gold.routeId;
     }
+    // Prefer the per-instrument detail route; fall back to the row inside the instrument LIST, which is
+    // the call the desk has always used. Either way the specification is the BROKER'S, never a guess.
     const det = await instrumentDetails(s.auth, id, route);
-    if (!det.ok) return { ok: false, reason: `Could not read the XAUUSD specification: ${det.error}` };
-    spec = parseInstrumentSpec(det.data, { tradableInstrumentId: id, routeId: route });
+    if (det.ok) {
+      spec = parseInstrumentSpec(det.data, { tradableInstrumentId: id, routeId: route });
+    } else {
+      const list = await listInstruments(s.auth);
+      const row = list.ok ? instrumentRow(list.data, id) : null;
+      if (!row) return { ok: false, reason: `Could not read the XAUUSD specification: ${det.error}` };
+      spec = parseInstrumentSpec(row, { tradableInstrumentId: id, routeId: route });
+    }
     await c.from("cc_broker_accounts").update({
       instrument_id: id, route_id: route, instrument_spec: spec, updated_at: new Date().toISOString(),
     }).eq("id", s.account.id);

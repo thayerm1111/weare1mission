@@ -468,3 +468,59 @@ test('an explicit account limit still overrides the style default', () => {
   const v = validate(base({ snapshot: s, account: tight, style: 'swing', stop: +(s.price - 24).toFixed(2) }));
   assert.equal(v.ok, false, 'the account owner gets the last word on their own ceiling');
 });
+
+/* ─────────────────── the endpoints the broker actually answers ─────────────────── */
+
+test('accounts are listed from an /auth route — /trade/* cannot be called before accNum is known', async () => {
+  const tl = await import('../command-center/adapters/tradelocker');
+  const calls: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string) => {
+    calls.push(String(url));
+    return new Response(JSON.stringify({ d: { accounts: [{ id: '55', accNum: '2', accountBalance: 1000 }] } }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as unknown as typeof fetch;
+  try {
+    await tl.listAccounts('demo', 'tok');
+    assert.equal(calls.length, 1);
+    assert.match(calls[0], /\/auth\/jwt\/all-accounts$/,
+      'listing accounts from /trade/accounts is a chicken-and-egg: it needs the accNum it would have told us');
+    assert.ok(!/\/trade\/accounts$/.test(calls[0]));
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('a ROUTING failure may be retried elsewhere; an uncertain one may NEVER be', async () => {
+  const tl = await import('../command-center/adapters/tradelocker');
+  assert.equal(tl.isRouting({ ok: false, status: 404, error: 'Not Found' }), true);
+  assert.equal(tl.isRouting({ ok: false, status: 405, error: 'Method Not Allowed' }), true);
+  // The dangerous cases: the action may already have happened.
+  assert.equal(tl.isRouting({ ok: false, status: 0, error: 'timeout', uncertain: true }), false);
+  assert.equal(tl.isRouting({ ok: false, status: 502, error: 'bad gateway', uncertain: true }), false);
+  assert.equal(tl.isRouting({ ok: false, status: 400, error: 'invalid qty' }), false);
+});
+
+test('a close that times out is NOT retried down the other path', async () => {
+  const tl = await import('../command-center/adapters/tradelocker');
+  const calls: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string) => { calls.push(String(url)); throw Object.assign(new Error('aborted'), { name: 'AbortError' }); }) as unknown as typeof fetch;
+  try {
+    const r = await tl.closePosition({ env: 'demo', accessToken: 't', accountId: '55', accNum: '2' }, 'p1', 0.05);
+    assert.equal(r.ok, false);
+    assert.equal(calls.length, 1, 'closing twice on a partial would take size the member never asked to lose');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('an instrument spec can be read out of the LIST when there is no detail route', async () => {
+  const tl = await import('../command-center/adapters/tradelocker');
+  const list = { d: { instruments: [
+    { name: 'EURUSD', tradableInstrumentId: '1' },
+    { name: 'XAUUSD', tradableInstrumentId: '278', contractSize: 100, lotStep: 0.01, minLot: 0.01, tickSize: 0.01 },
+  ] } };
+  const row = tl.instrumentRow(list, '278');
+  assert.ok(row, 'the gold row is found in the listing');
+  const spec = tl.parseInstrumentSpec(row, { tradableInstrumentId: '278', routeId: '900' });
+  assert.equal(spec.contractSize, 100);
+  assert.equal(spec.lotStep, 0.01);
+  const r = resolveInstrument(spec, 'USD');
+  assert.equal(r.ok, true, 'and it is complete enough to size a position');
+});

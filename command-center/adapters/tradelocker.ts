@@ -17,7 +17,7 @@
  * Documented surface used here:
  *   POST   /auth/jwt/token                                          { email, password, server }
  *   POST   /auth/jwt/refresh                                        { refreshToken }
- *   GET    /trade/accounts                                          Authorization
+ *   GET    /auth/jwt/all-accounts                                    Authorization only (no accNum yet)
  *   GET    /trade/config                                            Authorization, accNum header
  *   GET    /trade/accounts/{accountId}/instruments
  *   GET    /trade/accounts/{accountId}/instruments/{tradableInstrumentId}?routeId=
@@ -117,8 +117,19 @@ export async function refresh(env: TLEnv, refreshToken: string): Promise<TLResul
   return r.data.accessToken ? { ok: true, data: { accessToken: r.data.accessToken, refreshToken: r.data.refreshToken } } : { ok: false, status: 200, error: "No access token in refresh" };
 }
 
+/**
+ * List the accounts behind these credentials.
+ *
+ * This is an /auth/ route, NOT /trade/accounts — and that is the whole point. Every /trade/* route
+ * requires an `accNum` header, and accNum is something you only learn BY listing the accounts. Calling
+ * /trade/accounts first is a chicken-and-egg: the broker answers "Header missing: 'accNum'" and there is
+ * no value you could have sent.
+ *
+ * The desk has run on this endpoint across hundreds of live accounts, which is the evidence that
+ * settled it.
+ */
 export const listAccounts = (env: TLEnv, token: string) =>
-  call<unknown>(env, "/trade/accounts", { token });
+  call<unknown>(env, "/auth/jwt/all-accounts", { token });
 
 export const getConfig = (a: TLAuth) =>
   call<unknown>(a.env, "/trade/config", { token: a.accessToken, accNum: a.accNum });
@@ -126,6 +137,14 @@ export const getConfig = (a: TLAuth) =>
 /** Everything below addresses the account by accountId in the PATH and accNum in the HEADER. */
 const acct = (a: TLAuth, suffix = "") => `/trade/accounts/${encodeURIComponent(a.accountId)}${suffix}`;
 const auth = (a: TLAuth) => ({ token: a.accessToken, accNum: a.accNum });
+
+/**
+ * Is this failure a ROUTING failure — the endpoint is not there — as opposed to an action that may have
+ * happened? Only a routing failure is safe to retry down a different path. A timeout or a 5xx means the
+ * outcome is unknown, and retrying those is how a position gets closed twice.
+ */
+export const isRouting = (r: TLResult<unknown>): boolean =>
+  !r.ok && !r.uncertain && (r.status === 404 || r.status === 405 || /not found|no route|method not allowed/i.test(r.error));
 
 /** Live balance, equity and open P&L for one account. */
 export const accountState = (a: TLAuth) => call<unknown>(a.env, acct(a, "/state"), auth(a));
@@ -135,6 +154,16 @@ export const listInstruments = (a: TLAuth) => call<unknown>(a.env, acct(a, "/ins
 /** Lot steps, sizes, precision and contract size for ONE instrument. Required before any order is sized. */
 export const instrumentDetails = (a: TLAuth, tradableInstrumentId: string, routeId: string) =>
   call<unknown>(a.env, acct(a, `/instruments/${encodeURIComponent(tradableInstrumentId)}?routeId=${encodeURIComponent(routeId)}`), auth(a));
+
+/** The row for one instrument out of the LIST, for brokers whose build has no per-instrument detail route. */
+export function instrumentRow(body: unknown, tradableInstrumentId: string): unknown | null {
+  for (const r of rowsOf(body, ["instruments", "d", "data"])) {
+    if (Array.isArray(r)) continue;
+    const id = (r as Record<string, unknown>).tradableInstrumentId ?? (r as Record<string, unknown>).id;
+    if (id != null && String(id) === String(tradableInstrumentId)) return r;
+  }
+  return null;
+}
 
 export const listPositions = (a: TLAuth) => call<unknown>(a.env, acct(a, "/positions"), auth(a));
 export const listOrders = (a: TLAuth) => call<unknown>(a.env, acct(a, "/orders"), auth(a));
@@ -194,20 +223,38 @@ export const cancelOrder = (a: TLAuth, orderId: string) =>
  * Modify protection on an open position. Passing null for a field REMOVES it, which is documented and is
  * why undefined and null must not be conflated here.
  */
-export const modifyPosition = (a: TLAuth, positionId: string, mod: { stopLoss?: number | null; takeProfit?: number | null }) => {
+export async function modifyPosition(a: TLAuth, positionId: string, mod: { stopLoss?: number | null; takeProfit?: number | null }): Promise<TLResult<true>> {
   const body: Record<string, unknown> = {};
   if (mod.stopLoss !== undefined) body.stopLoss = mod.stopLoss;
   if (mod.takeProfit !== undefined) body.takeProfit = mod.takeProfit;
-  return call<true>(a.env, acct(a, `/positions/${encodeURIComponent(positionId)}`), {
+  const first = await call<true>(a.env, acct(a, `/positions/${encodeURIComponent(positionId)}`), {
     method: "PATCH", ...auth(a), body: JSON.stringify(body),
   });
-};
-
-/** Close a position. qty 0 closes ALL of it; a positive qty closes that many lots. */
-export const closePosition = (a: TLAuth, positionId: string, qty = 0) =>
-  call<true>(a.env, acct(a, `/positions/${encodeURIComponent(positionId)}/close`), {
-    method: "POST", ...auth(a), body: JSON.stringify({ qty: qty > 0 ? qty : 0 }),
+  if (first.ok || !isRouting(first)) return first;
+  // Older builds expose the position directly rather than under the account. Re-setting a stop to the
+  // same price is harmless, so this retry cannot do damage — and only a ROUTING failure gets here.
+  return call<true>(a.env, `/trade/positions/${encodeURIComponent(positionId)}`, {
+    method: "PATCH", ...auth(a), body: JSON.stringify(body),
   });
+}
+
+/**
+ * Close a position. qty 0 closes ALL of it; a positive qty closes that many lots.
+ *
+ * The fallback path here is gated hard on `isRouting`. A close that TIMED OUT must never be retried down
+ * another route: the first one may have worked, and closing twice on a partial would take size off the
+ * position that the member never asked to lose.
+ */
+export async function closePosition(a: TLAuth, positionId: string, qty = 0): Promise<TLResult<true>> {
+  const q = qty > 0 ? qty : 0;
+  const first = await call<true>(a.env, acct(a, `/positions/${encodeURIComponent(positionId)}/close`), {
+    method: "POST", ...auth(a), body: JSON.stringify({ qty: q }),
+  });
+  if (first.ok || !isRouting(first)) return first;
+  return call<true>(a.env, `/trade/positions/${encodeURIComponent(positionId)}`, {
+    method: "DELETE", ...auth(a), body: JSON.stringify(q > 0 ? { qty: q } : {}),
+  });
+}
 
 /* ── reading broker rows ────────────────────────────────────────────────────
    TradeLocker answers some routes with objects and some with columnar arrays plus a separate config
@@ -249,14 +296,14 @@ export function rowsOf(body: unknown, keys: string[] = ["accounts", "positions",
 export function parseAccounts(body: unknown): TLAccount[] {
   return rowsOf(body, ["accounts", "d", "data"]).flatMap((r) => {
     const id = asStr(pick(r, ["id", "accountId"]));
-    const accNum = asStr(pick(r, ["accNum", "accountNumber", "accNo"]));
+    const accNum = asStr(pick(r, ["accNum", "accountNum", "accountNumber", "accNo"]));
     if (!id || !accNum) return [];
     return [{
       id, accNum,
       currency: asStr(pick(r, ["currency"])) ?? undefined,
       balance: asNum(pick(r, ["accountBalance", "balance"])) ?? undefined,
       equity: asNum(pick(r, ["projectedBalance", "equity"])) ?? undefined,
-      name: asStr(pick(r, ["name", "title"])) ?? undefined,
+      name: asStr(pick(r, ["name", "accountName", "title"])) ?? undefined,
     }];
   });
 }
