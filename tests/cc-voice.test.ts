@@ -184,3 +184,38 @@ test('voice is admin-gated on the server, not in a component', async () => {
   const client = await fs.readFile('src/components/command-center/VoiceSession.tsx', 'utf8');
   assert.ok(/enabled === false/.test(client), 'the component merely renders nothing when told no');
 });
+
+/*
+ * THE APP IS NOT A LESSER SURFACE.
+ *
+ * The phone is where this actually gets used — walking, driving, away from a desk — and it was still
+ * on press-to-talk through the browser's own recogniser, answering through its synthesiser. That is a
+ * demo: it cannot be interrupted, it needs a button before every sentence, and on iOS it frequently
+ * cannot hear at all. These hold the real line in place there, and hold the old one down while it runs.
+ */
+test('the installed app opens the same real voice line the web does', async () => {
+  const fs = await import('node:fs/promises');
+  const app = await fs.readFile('public/app/index.html', 'utf8');
+  assert.ok(/function BrainLine\(/.test(app), 'the app has the persistent line');
+  assert.ok(/custom_llm_extra_body: \{ voice_token/.test(app), 'and sends the token in the forwarded field');
+  assert.ok(/conversation_initiation_client_data/.test(app), 'over the provider socket');
+  assert.ok(/api\/command-center\/voice\/session/.test(app), 'through the same session endpoint as the web');
+  // No second brain: the app must never talk to a speech vendor directly.
+  assert.ok(!/xi-api-key|ELEVENLABS_API_KEY/i.test(app), 'the speech key never reaches the client');
+});
+
+test('two voices never answer at once', async () => {
+  const fs = await import('node:fs/promises');
+  const app = await fs.readFile('public/app/index.html', 'utf8');
+  const speak = app.slice(app.indexOf('function speak(text)'), app.indexOf('function ask(q)'));
+  assert.ok(/props\.lineLive/.test(speak), 'the synthesiser stands down while the line is open');
+  assert.ok(/if \(props\.lineLive\) return;/.test(speak), 'and does so before anything else');
+});
+
+test('a dead microphone is diagnosable on the phone too', async () => {
+  const fs = await import('node:fs/promises');
+  const app = await fs.readFile('public/app/index.html', 'utf8');
+  assert.ok(/blackhole/i.test(app), 'virtual inputs are known by name there as well');
+  assert.ok(/MIC_TIMEOUT/.test(app), 'and an unanswered permission prompt becomes a sentence rather than a hang');
+  assert.ok(/saidSomething/.test(app), 'silence transcribed as "..." is not answered');
+});

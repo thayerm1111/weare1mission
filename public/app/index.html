@@ -1139,7 +1139,8 @@ input{font:inherit}
 (function () {
   "use strict";
   var h = preact.h, render = preact.render, Fragment = preact.Fragment;
-  var useState = preactHooks.useState, useEffect = preactHooks.useEffect, useRef = preactHooks.useRef;
+  var useState = preactHooks.useState, useEffect = preactHooks.useEffect, useRef = preactHooks.useRef,
+      useCallback = preactHooks.useCallback;
   var html = htm.bind(h);
 
   var SUPABASE_URL = "https://pguzevnkmpwfuzcjbcbx.supabase.co";
@@ -4943,6 +4944,308 @@ input{font:inherit}
     return html`<div ref=${wrap} style="width:100%"><canvas ref=${ref} class="br-map"></canvas></div>`;
   }
 
+  /* ══════════════════════════ THE LINE ══════════════════════════
+   *
+   * The persistent voice session, the same one the Command Center opens on the web: a line you open
+   * once and then simply talk on.
+   *
+   * WHAT THIS REPLACES, AND WHY. The app used to press-to-talk into the browser's own recogniser and
+   * answer through its speech synthesiser. That is a demo. It could not be interrupted, it could not
+   * hear a second sentence without another button press, and on iOS it frequently could not hear at
+   * all. This opens a socket to the speech provider and streams audio both ways, and every word that
+   * comes back was reasoned by THE BRAIN from live market data — the provider is transport, never the
+   * mind.
+   *
+   * IT IS THE SAME ENDPOINTS THE WEB USES. Nothing here is app-specific except the bearer token, which
+   * is how this surface has always authenticated. There is no second voice implementation to drift.
+   */
+  var VIRTUAL_INPUT = /blackhole|soundflower|loopback|vb-?audio|voicemeeter|virtual|aggregate|zoomaudio|krisp|obs|ndi|teams audio/i;
+  var MIC_TIMEOUT_MS = 20000;
+
+  function pcm16ToBase64(input) {
+    var out = new Int16Array(input.length), i;
+    for (i = 0; i < input.length; i++) {
+      var s = Math.max(-1, Math.min(1, input[i]));
+      out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    var bytes = new Uint8Array(out.buffer), bin = "";
+    for (i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+  function base64ToPcm16(b64) {
+    var bin = atob(b64), bytes = new Uint8Array(bin.length), i;
+    for (i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    var view = new DataView(bytes.buffer), out = new Float32Array(bytes.length / 2);
+    for (i = 0; i < out.length; i++) out[i] = view.getInt16(i * 2, true) / 0x8000;
+    return out;
+  }
+  function downsample(input, from, to) {
+    if (to >= from) return input;
+    var ratio = from / to, out = new Float32Array(Math.floor(input.length / ratio)), i, j;
+    for (i = 0; i < out.length; i++) {
+      var start = Math.floor(i * ratio), end = Math.min(input.length, Math.floor((i + 1) * ratio)), sum = 0;
+      for (j = start; j < end; j++) sum += input[j];
+      out[i] = sum / Math.max(1, end - start);
+    }
+    return out;
+  }
+  /* Silence is transcribed as "..." rather than as nothing, and answering that wastes a paid minute. */
+  function saidSomething(t) { return /[a-z0-9]/i.test(String(t || "")); }
+
+  function BrainLine(props) {
+    var avail = useState(null), status = useState("idle"), err = useState("");
+    var turns = useState([]), muted = useState(false), diag = useState({ sent: 0, back: 0, level: 0 });
+    var micName = useState(""), devices = useState([]), micId = useState("");
+    var ws = useRef(null), actx = useRef(null), stream = useRef(null), node = useRef(null);
+    var head = useRef(0), queued = useRef([]), outRate = useRef(16000), inRate = useRef(16000);
+    var mutedRef = useRef(false), beat = useRef(null), frames = useRef(0), autoPicked = useRef(false);
+
+    useEffect(function () { mutedRef.current = muted[0]; }, [muted[0]]);
+    useEffect(function () {
+      apiGet("/api/command-center/voice/session").then(function (j) { avail[1](j || { enabled: false }); });
+    }, []);
+    useEffect(function () { return function () { teardown("idle"); }; }, []);
+    useEffect(function () { props.onLive && props.onLive(status[0] !== "idle" && status[0] !== "error"); }, [status[0]]);
+
+    function stopPlayback() {
+      for (var i = 0; i < queued.current.length; i++) { try { queued.current[i].stop(); } catch (e) {} }
+      queued.current = [];
+      head.current = (actx.current && actx.current.currentTime) || 0;
+    }
+    function teardown(next, why) {
+      stopPlayback();
+      if (beat.current) { clearInterval(beat.current); beat.current = null; }
+      try { node.current && node.current.disconnect(); } catch (e) {} node.current = null;
+      try { stream.current && stream.current.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {} stream.current = null;
+      try { ws.current && ws.current.close(); } catch (e) {} ws.current = null;
+      try { actx.current && actx.current.close(); } catch (e) {} actx.current = null;
+      status[1](next); if (why) err[1](why);
+    }
+    function play(b64) {
+      // Muting the microphone must never mean going deaf. It stops audio leaving, nothing else.
+      var ctx = actx.current; if (!ctx) return;
+      var pcm = base64ToPcm16(b64); if (!pcm.length) return;
+      var buf = ctx.createBuffer(1, pcm.length, outRate.current);
+      buf.getChannelData(0).set(pcm);
+      var src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+      var at = Math.max(ctx.currentTime + 0.02, head.current);
+      src.start(at); head.current = at + buf.duration; queued.current.push(src);
+      src.onended = function () { queued.current = queued.current.filter(function (s) { return s !== src; }); };
+      status[1](function (s) { return s === "muted" ? s : "speaking"; });
+    }
+
+    function attachMic(ctx, socket, requested) {
+      var wanted = requested;
+      function attempt() {
+        try { node.current && node.current.disconnect(); } catch (e) {} node.current = null;
+        try { stream.current && stream.current.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {} stream.current = null;
+        var base = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+        if (wanted) base.deviceId = { exact: wanted };
+        return Promise.race([
+          navigator.mediaDevices.getUserMedia({ audio: base }),
+          // getUserMedia never settles when a permission prompt goes unanswered — no resolve, no
+          // reject, no event. Without this race there is no moment at which anything can be said.
+          new Promise(function (_, rej) { setTimeout(function () { rej(new Error("MIC_TIMEOUT")); }, MIC_TIMEOUT_MS); })
+        ]).then(function (st) {
+          stream.current = st;
+          var track = st.getAudioTracks()[0] || null;
+          micName[1]((track && track.label) || "the default microphone");
+          micId[1]((track && track.getSettings && track.getSettings().deviceId) || wanted || "");
+          return navigator.mediaDevices.enumerateDevices().then(function (all) {
+            var ins = all.filter(function (d) { return d.kind === "audioinput" && d.deviceId; })
+              .map(function (d) { return { id: d.deviceId, label: d.label || "Microphone" }; });
+            devices[1](ins);
+            /*
+             * A loopback driver is not a microphone. It carries audio between applications, so as an
+             * input it is a live, unmuted track whose every sample is zero — and a browser will hand
+             * one over as the default without comment. Replaced once, never over an explicit choice.
+             */
+            if (!wanted && !autoPicked.current && track && VIRTUAL_INPUT.test(track.label)) {
+              var real = ins.filter(function (d) { return !VIRTUAL_INPUT.test(d.label) && d.id !== "default"; })[0]
+                || ins.filter(function (d) { return !VIRTUAL_INPUT.test(d.label); })[0];
+              if (real) {
+                autoPicked.current = true;
+                err[1](track.label + " is a virtual device and hears nothing. Switched to " + real.label + ".");
+                wanted = real.id; return attempt();
+              }
+            }
+            return wire(ctx, socket);
+          }).catch(function () { return wire(ctx, socket); });
+        });
+      }
+      function wire(ctx, socket) {
+        return Promise.resolve(ctx.resume()).catch(function () {}).then(function () {
+          var source = ctx.createMediaStreamSource(stream.current);
+          var proc = ctx.createScriptProcessor(4096, 1, 1);
+          node.current = proc; frames.current = 0;
+          proc.onaudioprocess = function (e) {
+            if (socket.readyState !== 1 || mutedRef.current) return;
+            var input = e.inputBuffer.getChannelData(0), peak = 0, i;
+            for (i = 0; i < input.length; i += 16) { var v = Math.abs(input[i]); if (v > peak) peak = v; }
+            socket.send(JSON.stringify({ user_audio_chunk: pcm16ToBase64(downsample(input, inRate.current, 16000)) }));
+            frames.current += 1;
+            if (frames.current % 6 === 0) {
+              var p = peak;
+              diag[1](function (d) { return { sent: frames.current, back: d.back, level: Math.max(p, d.level * 0.6) }; });
+            }
+          };
+          source.connect(proc);
+          // A ScriptProcessor will not run without a destination; routing the microphone to the
+          // speakers would make THE BRAIN talk over itself, so it goes through a silenced gain.
+          var silent = ctx.createGain(); silent.gain.value = 0;
+          proc.connect(silent); silent.connect(ctx.destination);
+          if (!autoPicked.current) err[1]("");
+          status[1](function (s) { return s === "muted" ? s : "listening"; });
+        });
+      }
+      return attempt().catch(function (e) {
+        var name = (e && (e.message || e.name)) || "";
+        err[1](name === "MIC_TIMEOUT"
+          ? "Still waiting for microphone permission — look for the prompt and tap Allow. The line is open; I just can't hear you yet."
+          : "The microphone was refused. The line is open, but I can't hear you until this app is allowed to use it.");
+      });
+    }
+
+    function start() {
+      err[1](""); status[1]("connecting"); diag[1]({ sent: 0, back: 0, level: 0 });
+      var ctx;
+      /*
+       * THE AUDIO CONTEXT IS CREATED SYNCHRONOUSLY, INSIDE THE TAP.
+       *
+       * iOS only lets one start running if it was created inside the gesture that asked for it. Create
+       * it after an await and it comes up suspended, the callback never fires, and not one byte is
+       * ever sent while everything looks connected.
+       */
+      try { ctx = new (window.AudioContext || window.webkitAudioContext)(); actx.current = ctx; ctx.resume(); }
+      catch (e) { status[1]("error"); err[1]("This device would not open an audio session."); return; }
+
+      apiPost("/api/command-center/voice/session", { action: "start" }).then(function (j) {
+        if (!j || !j.ok || !j.url) { teardown("error", (j && j.reason) || "Could not open a voice session."); return; }
+        inRate.current = ctx.sampleRate; head.current = ctx.currentTime;
+
+        /*
+         * THE SOCKET OPENS FIRST, THE MICROPHONE SECOND.
+         *
+         * An unanswered permission prompt used to park the whole session on "connecting" with no
+         * error and no timeout. The line now reports itself honestly and the microphone is a separate
+         * step that is allowed to fail out loud.
+         */
+        var socket = new WebSocket(j.url); ws.current = socket;
+        socket.onopen = function () {
+          socket.send(JSON.stringify({
+            type: "conversation_initiation_client_data",
+            // The only field the provider forwards to our reasoning endpoint. Sent anywhere else, the
+            // line works perfectly and THE BRAIN knows nothing about this account.
+            custom_llm_extra_body: { voice_token: j.voiceToken },
+            dynamic_variables: { voice_token: j.voiceToken }
+          }));
+          try { ctx.resume(); } catch (e) {}
+          status[1]("awaiting_mic");
+          beat.current = setInterval(function () {
+            apiPost("/api/command-center/voice/session", { action: "heartbeat" }).catch(function () {});
+          }, 45000);
+          attachMic(ctx, socket);
+        };
+        socket.onmessage = function (ev) {
+          var m; try { m = JSON.parse(String(ev.data)); } catch (e) { return; }
+          diag[1](function (d) { return { sent: d.sent, back: d.back + 1, level: d.level }; });
+          var t = String(m.type || "");
+          if (t === "conversation_initiation_metadata") {
+            var meta = m.conversation_initiation_metadata_event || {};
+            var rate = Number(String(meta.agent_output_audio_format || "pcm_16000").split("_")[1]);
+            if (isFinite(rate) && rate > 0) outRate.current = rate;
+            return;
+          }
+          if (t === "ping") { socket.send(JSON.stringify({ type: "pong", event_id: (m.ping_event || {}).event_id })); return; }
+          if (t === "user_transcript") {
+            var ut = String(((m.user_transcription_event || {}).user_transcript) || "").trim();
+            if (!saidSomething(ut)) return;
+            stopPlayback(); status[1]("listening");
+            turns[1](function (x) { return x.slice(-10).concat([{ who: "you", text: ut }]); });
+            return;
+          }
+          if (t === "agent_response") {
+            var ar = String(((m.agent_response_event || {}).agent_response) || "").trim();
+            if (!ar) return;
+            turns[1](function (x) { return x.slice(-10).concat([{ who: "brain", text: ar }]); });
+            return;
+          }
+          if (t === "audio") { var a = (m.audio_event || {}).audio_base_64; if (a) play(a); return; }
+          if (t === "interruption" || t === "agent_response_correction") { stopPlayback(); if (t === "interruption") status[1]("listening"); return; }
+        };
+        socket.onerror = function () { teardown("error", "The voice connection dropped."); };
+        socket.onclose = function (e) {
+          if (beat.current) { clearInterval(beat.current); beat.current = null; }
+          status[1](function (s) { return s === "idle" ? s : "disconnected"; });
+          if (e && e.reason) err[1](String(e.reason).slice(0, 140));
+        };
+      }).catch(function () { teardown("error", "Could not start the voice session."); });
+    }
+    function end() {
+      apiPost("/api/command-center/voice/session", { action: "end" }).catch(function () {});
+      turns[1]([]); teardown("idle");
+    }
+
+    var a = avail[0];
+    if (!a || a.enabled === false) return null;        // not this member's feature; say nothing
+    var live = status[0] !== "idle" && status[0] !== "error";
+    var WORD = { connecting: "connecting", awaiting_mic: "waiting for the microphone", listening: "listening",
+      speaking: "speaking", muted: "muted", disconnected: "disconnected", error: "error" };
+
+    return html`<div class="br-card" style=${live ? "border-color:rgba(240,196,117,.26)" : ""}>
+      <div class="br-hd">
+        <div class="br-k">The line${live ? " · " + (WORD[status[0]] || status[0]) : ""}</div>
+        ${a.budget ? html`<div class="br-note" style="margin:0">${Math.round(a.budget.remainingMinutes)} min left</div>` : null}
+      </div>
+      <div class="br-b">
+        ${a.configured === false ? html`<div class="br-note" style="color:#f0c475">${a.reason}</div>` : null}
+        ${err[0] ? html`<div class="br-note" style="color:#f4737b">${err[0]}</div>` : null}
+        ${!live ? html`
+          <div class="br-note" style="margin-top:0">
+            Open one line and talk normally — no button before each sentence. You can cut THE BRAIN off
+            mid-word and it will stop.
+          </div>
+          <button class="br-btn gold" style="width:100%;margin-top:9px"
+            disabled=${status[0] === "connecting" || a.configured === false} onClick=${start}>
+            ${status[0] === "connecting" ? "Connecting…" : "Talk with THE BRAIN"}
+          </button>` : html`
+          <div style="max-height:200px;overflow-y:auto;-webkit-overflow-scrolling:touch">
+            ${turns[0].length ? turns[0].map(function (t, i) {
+              return html`<div class=${"br-msg " + (t.who === "you" ? "me" : "it")} key=${i}>${t.text}</div>`;
+            }) : html`<div class="br-note" style="text-align:center;padding:8px 0">
+              ${status[0] === "awaiting_mic" ? "The line is open. Allow the microphone and I'll hear you." : "Listening. Say “brief me”."}
+            </div>`}
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:9px">
+            <span class="br-k" style="font-size:9.5px">Mic</span>
+            <span style="flex:1;height:4px;border-radius:9px;background:rgba(255,255,255,.07);overflow:hidden">
+              <span style=${"display:block;height:100%;border-radius:9px;transition:width .12s linear;width:"
+                + Math.min(100, Math.round(diag[0].level * 180)) + "%;background:" + (diag[0].level > 0.02 ? "#3fd9a0" : "#3d4a5f")}></span>
+            </span>
+            <span class="br-note" style="margin:0;font-size:10px">${diag[0].sent} sent · ${diag[0].back} back</span>
+          </div>
+          ${diag[0].sent > 60 && diag[0].level < 0.01 ? html`<div class="br-note" style="color:#f0c475">
+            I'm reaching the provider, but ${micName[0] || "the microphone"} is sending pure silence.
+          </div>` : null}
+          ${devices[0].length > 1 ? html`<select class="br-in" style="width:100%;margin-top:7px" value=${micId[0]}
+            onChange=${function (e) { if (actx.current && ws.current) { err[1](""); attachMic(actx.current, ws.current, e.target.value); } }}>
+            ${devices[0].map(function (d) { return html`<option value=${d.id} key=${d.id}>${d.label}</option>`; })}
+          </select>` : null}
+          <div style="display:flex;gap:8px;margin-top:9px">
+            <button class=${"br-btn" + (muted[0] ? " gold" : "")} style="flex:1"
+              onClick=${function () { var m = !muted[0]; muted[1](m); status[1](m ? "muted" : "listening"); }}>
+              ${muted[0] ? "Unmute" : "Mute"}
+            </button>
+            <button class="br-btn" style="padding:10px 14px;color:#f4737b" onClick=${end}>End</button>
+          </div>
+          <div class="br-note" style="font-size:10.5px">
+            Muting stops me hearing you; THE BRAIN still speaks. None of this stops the market engine,
+            the position manager, or an order already on its way to the broker.
+          </div>`}
+      </div>
+    </div>`;
+  }
+
   /* Talk to THE BRAIN. Speech in where the webview supports it, speech out where it does. */
   function BrainChat(props) {
     var turns = useState([]), input = useState(""), busy = useState(false);
@@ -4954,6 +5257,9 @@ input{font:inherit}
 
     function stopSpeak() { try { window.speechSynthesis.cancel(); } catch (e) {} speaking[1](false); }
     function speak(text) {
+      // The line has a real voice with real turn-taking. A synthesiser talking over it is not a
+      // fallback, it is two systems answering the same question at the same time.
+      if (props.lineLive) return;
       if (!voice[0] || !canSpeak[0] || !text) return;
       try {
         window.speechSynthesis.cancel();
@@ -5019,10 +5325,11 @@ input{font:inherit}
       <div class="br-hd">
         <div class="br-k">Talk to THE BRAIN</div>
         <div style="display:flex;gap:6px">
-          ${speaking[0] ? html`<button class="br-btn gold" style="padding:5px 9px" onClick=${stopSpeak}>Stop</button>` : null}
-          <button class="br-btn" style="padding:5px 9px" onClick=${function () { if (voice[0]) stopSpeak(); voice[1](!voice[0]); }}>
-            ${voice[0] ? "Voice on" : "Voice off"}
-          </button>
+          ${props.lineLive ? html`<div class="br-note" style="margin:0">on the line</div>` : html`
+            ${speaking[0] ? html`<button class="br-btn gold" style="padding:5px 9px" onClick=${stopSpeak}>Stop</button>` : null}
+            <button class="br-btn" style="padding:5px 9px" onClick=${function () { if (voice[0]) stopSpeak(); voice[1](!voice[0]); }}>
+              ${voice[0] ? "Voice on" : "Voice off"}
+            </button>`}
         </div>
       </div>
       <div class="br-b">
@@ -5033,7 +5340,9 @@ input{font:inherit}
               ${t.role === "assistant" && t.source === "narrator" ? html`<div style="font-size:9.5px;color:#65748f;margin-top:4px">deterministic voice</div>` : null}
             </div>`;
           }) : html`<div class="br-note" style="text-align:center;padding:10px 0">
-            Ask THE BRAIN anything about gold right now, or press the microphone and say “talk to me”.
+            ${props.lineLive
+              ? "The line is open above — just talk. You can still type here if you'd rather not speak out loud."
+              : "Ask THE BRAIN anything about gold right now, or press the microphone and say “talk to me”."}
           </div>`}
           ${busy[0] ? html`<div class="br-note">THE BRAIN is thinking…</div>` : null}
           ${note[0] ? html`<div class="br-note" style="color:#f0c475">${note[0]}</div>` : null}
@@ -5043,7 +5352,7 @@ input{font:inherit}
           return html`<button class="br-chip" key=${i} disabled=${busy[0]} onClick=${function () { ask(q[1]); }}>${q[0]}</button>`;
         })}</div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:9px">
-          <button class=${"br-mic" + (listening[0] ? " on" : "")} onClick=${mic} aria-label="Talk to THE BRAIN">●</button>
+          ${props.lineLive ? null : html`<button class=${"br-mic" + (listening[0] ? " on" : "")} onClick=${mic} aria-label="Talk to THE BRAIN">●</button>`}
           <input class="br-in" style="flex:1" value=${input[0]} placeholder=${listening[0] ? "Listening…" : "Ask THE BRAIN…"}
             onInput=${function (e) { input[1](e.target.value); }}
             onKeyDown=${function (e) { if (e.key === "Enter") { e.preventDefault(); ask(input[0]); } }} />
@@ -5724,6 +6033,9 @@ input{font:inherit}
       .sort(function (a, b) { return b.at - a.at; }).slice(0, 30);
     var loud = (s.statements || [])[0];
     var loudEv = (s.events || []).filter(function (e) { return e.channel === "urgent" || e.channel === "voice"; })[0];
+    // Whether the persistent line is open, so the typed console can stand down its own voice.
+    var lineLive = useState(false);
+    var setLineLive = useCallback(function (v) { lineLive[1](v); }, []);
     var announce = loud && (!loudEv || loud.at >= loudEv.at)
       ? { key: "s" + loud.at, text: loud.text, urgent: loud.channel === "urgent" }
       : (loudEv ? { key: loudEv.key, text: loudEv.detail, urgent: loudEv.channel === "urgent" } : null);
@@ -5896,7 +6208,16 @@ input{font:inherit}
         </div>
       </div>` : null}
 
-      <${BrainChat} announce=${announce} hasTrade=${!!trade.active} />
+      ${/*
+        * THE LINE SITS ABOVE THE TYPED CONSOLE, NOT INSTEAD OF IT.
+        *
+        * Speaking is the better way to ask and a worse way to read, and there are rooms where nobody
+        * can say a word out loud. Both stay. What does NOT stay is two voices: while the line is open
+        * the console stops synthesising its replies and hides its own microphone, because the one
+        * thing worse than no voice is two of them answering at once.
+        */ null}
+      <${BrainLine} onLive=${setLineLive} />
+      <${BrainChat} announce=${announce} hasTrade=${!!trade.active} lineLive=${lineLive[0]} />
 
       <div class="br-card">
         <div class="br-hd"><div class="br-k">Intelligence stream</div><div class="br-k">${stream.length} events</div></div>
