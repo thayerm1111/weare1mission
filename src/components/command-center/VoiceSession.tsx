@@ -31,7 +31,11 @@ const C = {
   gold: "#F0C475", up: "#3FD9A0", down: "#F4737B", cold: "#6FA8DC", amber: "#E9B949",
 };
 
-export type VoiceStatus = "idle" | "connecting" | "listening" | "speaking" | "muted" | "disconnected" | "error";
+export type VoiceStatus =
+  | "idle" | "connecting" | "awaiting_mic" | "listening" | "speaking" | "muted" | "disconnected" | "error";
+
+/** How long to wait for a microphone before saying so. It can hang forever — see `start`. */
+const MIC_TIMEOUT_MS = 20_000;
 
 export type VoiceTurn = { id: string; who: "you" | "brain"; text: string; heard: boolean; at: number };
 
@@ -183,6 +187,71 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
 
   useEffect(() => () => teardown("idle"), [teardown]);
 
+  /* ── the microphone, as a separate step ───────────────────────────────── */
+
+  /**
+   * Ask for the microphone and wire it into the socket.
+   *
+   * Raced against a timeout ON PURPOSE. `getUserMedia` never settles when a permission prompt is ignored
+   * or suppressed — no resolve, no reject, no error event — so without a race there is no moment at
+   * which anything can be said to the member. With one, an unanswered prompt becomes a sentence.
+   */
+  const attachMicrophone = useCallback(async (ctx: AudioContext, socket: WebSocket) => {
+    try {
+      let already: string | null = null;
+      try { already = (await navigator.permissions.query({ name: "microphone" as PermissionName })).state; }
+      catch { already = null; }
+      if (already === "denied") {
+        setError("This browser has the microphone blocked for this site. Allow it in the address bar (or in Settings on a phone), then start the session again.");
+        return;
+      }
+
+      const stream = await Promise.race([
+        navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error("MIC_TIMEOUT")), MIC_TIMEOUT_MS)),
+      ]);
+      micStream.current = stream;
+
+      // Safari suspends the context again behind the permission prompt.
+      await ctx.resume().catch(() => {});
+
+      const source = ctx.createMediaStreamSource(stream);
+      const node = ctx.createScriptProcessor(4096, 1, 1);
+      micNode.current = node;
+      node.onaudioprocess = (e) => {
+        if (socket.readyState !== WebSocket.OPEN || mutedRef.current) return;
+        const input = e.inputBuffer.getChannelData(0);
+        // Peak of this frame, so the member can SEE the microphone is hearing them. A flat bar while
+        // they talk is a dead track, which is a different problem from the provider not answering.
+        let peak = 0;
+        for (let i = 0; i < input.length; i += 16) { const v = Math.abs(input[i]); if (v > peak) peak = v; }
+        const pcm = downsample(input, inputRate.current, 16000);
+        socket.send(JSON.stringify({ user_audio_chunk: pcm16ToBase64(pcm) }));
+        frames.current += 1;
+        if (frames.current % 6 === 0) {
+          setDiag((d) => ({ ...d, sent: frames.current, level: Math.max(peak, d.level * 0.6) }));
+        }
+      };
+      source.connect(node);
+      // A ScriptProcessor needs a destination to run at all; routing the microphone to the speakers
+      // would make THE BRAIN talk over itself, so it goes through a silenced gain node.
+      const silent = ctx.createGain();
+      silent.gain.value = 0;
+      node.connect(silent);
+      silent.connect(ctx.destination);
+
+      setError(null);
+      setStatus("listening");
+    } catch (e) {
+      const name = e instanceof Error ? e.message || e.name : "";
+      setError(
+        name === "MIC_TIMEOUT"
+          ? "I'm still waiting for microphone permission. Look for the prompt — on a phone it can appear at the top of the screen — and tap Allow. The line is open; I just can't hear you yet."
+          : "The microphone was refused. The line is open, but I can't hear you until this site is allowed to use it.",
+      );
+    }
+  }, []);
+
   /* ── starting the line ────────────────────────────────────────────────── */
 
   const start = useCallback(async () => {
@@ -193,11 +262,9 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
     /*
      * THE AUDIO CONTEXT IS CREATED HERE, SYNCHRONOUSLY, BEFORE ANY AWAIT.
      *
-     * This line is the whole fix for "I pressed talk and nothing happened" on a phone. Safari only
-     * allows an AudioContext to start running if it is created inside the user gesture that opened it.
-     * The first version created it AFTER awaiting a fetch — by which time the gesture had expired, so
-     * the context came up suspended, `onaudioprocess` never fired, not one byte of audio was ever sent,
-     * and the provider sat there hearing silence. Everything looked connected and nothing was.
+     * Safari only lets an AudioContext start running if it is created inside the user gesture that asked
+     * for it. Create it after an await and it comes up suspended, the audio callback never fires, and not
+     * one byte is ever sent while everything LOOKS connected.
      */
     let ctx: AudioContext;
     try {
@@ -218,73 +285,47 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
       const j = await r.json();
       if (!j.ok || !j.url) { teardown("error", j.reason ?? "Could not open a voice session."); return; }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
-      micStream.current = stream;
-
-      // Safari suspends again behind the permission prompt, so it is resumed once more afterwards.
-      await ctx.resume().catch(() => {});
       inputRate.current = ctx.sampleRate;
       playHead.current = ctx.currentTime;
 
+      /*
+       * THE SOCKET OPENS FIRST, AND THE MICROPHONE IS ATTACHED AFTERWARDS.
+       *
+       * This ordering is the entire fix for "I pressed talk and nothing happened, forever".
+       *
+       * `getUserMedia` does NOT reject when the permission prompt goes unanswered — it simply never
+       * settles. The first version awaited it before creating the socket, so an unanswered prompt left
+       * the whole session parked on "connecting" with no error, no timeout and nothing to act on. That
+       * is the worst failure a product can have: silent, permanent, and indistinguishable from broken.
+       *
+       * So the line is established first and reports itself honestly, and the microphone becomes a
+       * separate step that is allowed to fail loudly on its own.
+       */
       const socket = new WebSocket(j.url);
       ws.current = socket;
 
       socket.onopen = () => {
         /*
-         * The session token rides along as a conversation variable. It is what lets the provider's
-         * servers — which have no cookie from this browser — call our reasoning endpoint and be told
-         * which account they are talking about.
-         */
-        /*
-         * NO CONFIG OVERRIDE IS SENT.
-         *
-         * The provider rejects overrides for any field an agent has not explicitly been set up to allow,
-         * and a rejected initiation fails quietly — the socket stays open and the conversation simply
-         * never starts. There is nothing to override anyway: the agent was provisioned with the first
-         * message already empty, by us, a moment earlier.
+         * No config override is sent. The provider rejects overrides for any field an agent has not been
+         * set up to allow, and a rejected initiation fails quietly — the socket stays open and the
+         * conversation never begins. There is nothing to override: the agent was provisioned with an
+         * empty first message by us, moments earlier.
          */
         socket.send(JSON.stringify({
           type: "conversation_initiation_client_data",
           dynamic_variables: { voice_token: j.voiceToken },
         }));
-
         void ctx.resume().catch(() => {});
+        setStatus("awaiting_mic");
 
-        const source = ctx.createMediaStreamSource(stream);
-        const node = ctx.createScriptProcessor(4096, 1, 1);
-        micNode.current = node;
-        node.onaudioprocess = (e) => {
-          if (socket.readyState !== WebSocket.OPEN || mutedRef.current) return;
-          const input = e.inputBuffer.getChannelData(0);
-          // Peak of this frame, so the member can SEE that the microphone is hearing them. A silent bar
-          // while they are talking means the browser gave us a dead track, which is a different problem
-          // from the provider not answering.
-          let peak = 0;
-          for (let i = 0; i < input.length; i += 16) { const v = Math.abs(input[i]); if (v > peak) peak = v; }
-          const pcm = downsample(input, inputRate.current, 16000);
-          socket.send(JSON.stringify({ user_audio_chunk: pcm16ToBase64(pcm) }));
-          frames.current += 1;
-          if (frames.current % 6 === 0) {
-            setDiag((d) => ({ ...d, sent: frames.current, level: Math.max(peak, d.level * 0.6) }));
-          }
-        };
-        source.connect(node);
-        // Connected to a muted gain node: a ScriptProcessor needs a destination to run at all, and
-        // routing the microphone to the speakers would make THE BRAIN talk over itself.
-        const silent = ctx.createGain();
-        silent.gain.value = 0;
-        node.connect(silent);
-        silent.connect(ctx.destination);
-
-        setStatus("listening");
         heartbeat.current = setInterval(() => {
           void fetch("/api/command-center/voice/session", {
             method: "POST", headers: { "content-type": "application/json" },
             body: JSON.stringify({ action: "heartbeat" }),
           }).catch(() => {});
         }, 45_000);
+
+        void attachMicrophone(ctx, socket);
       };
 
       socket.onmessage = (ev) => {
@@ -334,31 +375,22 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
           return;
         }
 
-        if (type === "interruption") {
-          // The provider noticed before we did. Same response: stop, and keep the unheard part unheard.
+        if (type === "interruption" || type === "agent_response_correction") {
           stopPlayback();
-          setStatus("listening");
-          return;
-        }
-
-        if (type === "agent_response_correction") {
-          // The market moved mid-sentence and the answer was superseded. Drop the rest of it.
-          stopPlayback();
+          if (type === "interruption") setStatus("listening");
           return;
         }
       };
 
       socket.onerror = () => { teardown("error", "The voice connection dropped."); };
       socket.onclose = () => {
-        setStatus((s) => (s === "idle" ? s : "disconnected"));
+        setStatus((st) => (st === "idle" ? st : "disconnected"));
         if (heartbeat.current) { clearInterval(heartbeat.current); heartbeat.current = null; }
       };
-    } catch (e) {
-      teardown("error", e instanceof Error && e.name === "NotAllowedError"
-        ? "Microphone permission was refused. The text console still works."
-        : "Could not start the voice session.");
+    } catch {
+      teardown("error", "Could not start the voice session.");
     }
-  }, [enqueueAudio, stopPlayback, teardown]);
+  }, [enqueueAudio, stopPlayback, teardown, attachMicrophone]);
 
   void onUiAction;
 
@@ -366,9 +398,11 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
 
   if (info && info.enabled === false) return null;          // not this member's feature; say nothing
 
-  const live = status === "listening" || status === "speaking" || status === "muted";
+  const live = status === "listening" || status === "speaking" || status === "muted" || status === "awaiting_mic";
+  const label = status === "awaiting_mic" ? "waiting for the microphone" : status;
   const tone =
-    status === "speaking" ? C.gold
+    status === "awaiting_mic" ? C.amber
+    : status === "speaking" ? C.gold
     : status === "listening" ? C.up
     : status === "muted" ? C.amber
     : status === "error" || status === "disconnected" ? C.down
@@ -378,7 +412,7 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
     <section className="overflow-hidden rounded-2xl border" style={{ borderColor: live ? "rgba(240,196,117,0.26)" : C.line, background: C.panel }}>
       <div className="flex items-center justify-between gap-2 border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
         <p className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: tone }}>
-          <Radio className="h-3.5 w-3.5" /> Voice session · {status}
+          <Radio className="h-3.5 w-3.5" /> Voice session · {label}
         </p>
         {info?.budget && (
           <span className="text-[10px] tabular-nums" style={{ color: C.mut2 }}>
@@ -417,7 +451,13 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
                   <p className="text-[12.5px] leading-relaxed" style={{ color: t.heard ? C.text : C.mut2 }}>{t.text}</p>
                 </div>
               ))}
-              {!turns.length && <p className="text-[12px]" style={{ color: C.mut2 }}>Listening. Say &ldquo;brief me&rdquo;.</p>}
+              {!turns.length && (
+                <p className="text-[12px]" style={{ color: C.mut2 }}>
+                  {status === "awaiting_mic"
+                    ? "The line is open. Allow the microphone and I'll hear you."
+                    : "Listening. Say \u201cbrief me\u201d."}
+                </p>
+              )}
             </div>
 
             {/* The three numbers that make a silent failure diagnosable. */}
