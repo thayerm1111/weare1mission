@@ -7,6 +7,8 @@ import { marketOpen } from "../../../../../command-center/core/sessions";
 import { classify } from "../../../../../command-center/brain/language";
 import { lookBack, retrospectiveLines, isRetrospective } from "../../../../../command-center/engines/history";
 import { GOLD_KNOWLEDGE, wantsDomainKnowledge } from "../../../../../command-center/brain/gold";
+import { upcoming, calendarLines } from "../../../../../command-center/adapters/calendar";
+import { recordCall, extractClaim, trackRecord, trackRecordLines } from "../../../../../command-center/engines/record";
 import { parseWatch, arm, armedFor, cancelAll } from "../../../../../command-center/engines/watch";
 import { selectedAccount } from "../../../../../command-center/engines/broker";
 import { tradeState } from "../../../../../command-center/engines/tradeLive";
@@ -185,11 +187,18 @@ export async function POST(req: Request) {
    * question earned them: a retrospective costs a market-data call, and the background packet costs
    * tokens on every turn that does not need it.
    */
-  const [past, background] = await Promise.all([
+  const [past, background, calendar, record] = await Promise.all([
     isRetrospective(message) ? lookBack(message) : Promise.resolve(null),
     Promise.resolve(wantsDomainKnowledge(message)),
+    upcoming().catch(() => null),
+    trackRecord().catch(() => null),
   ]);
-  const extra = `${past ? `\n\n${retrospectiveLines(past).join("\n")}` : ""}${background ? `\n\n${GOLD_KNOWLEDGE}` : ""}`;
+  const extra = [
+    calendar ? `\n\n${calendarLines(calendar).join("\n")}` : "",
+    past ? `\n\n${retrospectiveLines(past).join("\n")}` : "",
+    record ? `\n\n${trackRecordLines(record).join("\n")}` : "",
+    background ? `\n\n${GOLD_KNOWLEDGE}` : "",
+  ].join("");
 
   const history = (body.history ?? []).slice(-8).filter((t) => t && (t.role === "user" || t.role === "assistant") && typeof t.content === "string");
   const messages = [
@@ -234,6 +243,21 @@ export async function POST(req: Request) {
     };
     // Its own words go into memory, so five minutes from now it knows what it already told you.
     await saveStatement({ at: Date.now(), kind: "answer", text: clean, channel: "text", priceAt: memory.now.price, thesisId: memory.thesis?.id ?? null });
+    /*
+     * And into the journal, where it will be scored.
+     *
+     * Not awaited: an answer must not wait on bookkeeping. `extractClaim` records `none` for most
+     * answers, which is correct — a system that invents a position it never took so it can score a
+     * win is worse than one with no record at all.
+     */
+    const claim = extractClaim(clean);
+    void recordCall({
+      userId: user.id, channel: "text", question: message, answer: clean,
+      priceAt: memory.now.price, snapshotId: null,
+      direction: claim.direction, horizonMin: claim.horizonMin,
+      regime: memory.now.regime ?? null, sessionName: memory.now.session ?? null,
+      thesisId: memory.thesis?.id ?? null, setupState: setup?.state ?? null,
+    });
     return json(response);
   } catch {
     return json({ ...fallback, notice: "THE BRAIN's language model could not be reached — this is its deterministic voice." });

@@ -10,6 +10,8 @@ import { resolveToken, touch } from "../engines/voice";
 import { classify } from "./language";
 import { lookBack, retrospectiveLines, isRetrospective } from "../engines/history";
 import { GOLD_KNOWLEDGE, wantsDomainKnowledge } from "./gold";
+import { upcoming, calendarLines } from "../adapters/calendar";
+import { recordCall, extractClaim, trackRecord, trackRecordLines } from "../engines/record";
 
 
 /**
@@ -259,9 +261,17 @@ export async function handleVoiceLlm(req: Request) {
    * knowledge for a question about mechanism, and the live snapshot for a question about now. A missing
    * live read removes only the third.
    */
-  const [history, needsBackground] = await Promise.all([
+  const [history, needsBackground, calendar, record] = await Promise.all([
     isRetrospective(question) ? lookBack(question) : Promise.resolve(null),
     Promise.resolve(wantsDomainKnowledge(question)),
+    /*
+     * The calendar is fetched whatever the question is, and it is cheap because it is cached for five
+     * minutes. A release fifteen minutes away changes the answer to "should I take this" even when
+     * nobody asked about news, and a system that only mentions the calendar when prompted will stay
+     * silent through exactly the moment it mattered.
+     */
+    upcoming().catch(() => null),
+    trackRecord().catch(() => null),
   ]);
 
   if (!memory.now && !history && !needsBackground) {
@@ -295,6 +305,7 @@ export async function handleVoiceLlm(req: Request) {
     return streamAnswer([
       preamble,
       ...(history ? retrospectiveLines(history) : []),
+      ...(calendar ? ["", ...calendarLines(calendar)] : []),
       ...(needsBackground ? ["", GOLD_KNOWLEDGE] : []),
     ].join("\n"), question, preamble);
   }
@@ -329,6 +340,15 @@ export async function handleVoiceLlm(req: Request) {
    */
   const pastLines = history ? `\n\n${retrospectiveLines(history).join("\n")}` : "";
   const backgroundLines = needsBackground ? `\n\n${GOLD_KNOWLEDGE}` : "";
+  const calendarBlock = calendar ? `\n\n${calendarLines(calendar).join("\n")}` : "";
+  /*
+   * ITS OWN RECORD, handed back as measured fact.
+   *
+   * This is the whole of what "learning" honestly means here: no weights change, but the evidence
+   * about itself does. A read it has got wrong three times this month is a read it should hesitate
+   * over, and it can only hesitate if somebody wrote the three times down.
+   */
+  const recordBlock = record ? `\n\n${trackRecordLines(record).join("\n")}` : "";
 
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) {
@@ -351,7 +371,7 @@ export async function handleVoiceLlm(req: Request) {
         system: `${BRAIN_SYSTEM}\n${VOICE_RULES}`,
         messages: [
           ...messages.slice(-6).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: speakable(textOf(m.content)).slice(0, 1200) || "..." })),
-          { role: "user", content: `CONTEXT — everything you can see right now:\n\n${packet}${watchLines}${pastLines}${backgroundLines}\n\n----\nThe trader says: ${question}` },
+          { role: "user", content: `CONTEXT — everything you can see right now:\n\n${packet}${watchLines}${calendarBlock}${pastLines}${recordBlock}${backgroundLines}\n\n----\nThe trader says: ${question}` },
         ],
       }),
     });
@@ -367,6 +387,13 @@ export async function handleVoiceLlm(req: Request) {
     const reader = r.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
+    /*
+     * THE ANSWER IS KEPT AS IT STREAMS, so it can be written to the journal once it is complete.
+     *
+     * Accumulated here rather than reconstructed afterwards because this is the only place the whole
+     * answer exists — the provider gets it in pieces and never gives it back.
+     */
+    let spokenSoFar = "";
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -378,11 +405,28 @@ export async function handleVoiceLlm(req: Request) {
         try {
           const evt = JSON.parse(line.slice(5).trim()) as { type?: string; delta?: { type?: string; text?: string } };
           if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta" && evt.delta.text) {
-            const t = speakable(evt.delta.text);
-            if (t) yield `data: ${JSON.stringify(delta(evt.delta.text.replace(/\[\[UI:[^\]]*\]\]/g, "")))}\n\n`;
+            const clean = evt.delta.text.replace(/\[\[UI:[^\]]*\]\]/g, "");
+            spokenSoFar += clean;
+            if (speakable(evt.delta.text)) yield `data: ${JSON.stringify(delta(clean))}\n\n`;
           }
         } catch { /* a partial frame; the next read completes it */ }
       }
     }
+
+    /*
+     * WRITTEN DOWN AFTER IT WAS SAID, never before.
+     *
+     * A claim recorded before the answer finished streaming could be a claim the answer went on to
+     * withdraw, and the journal has to record what was actually said out loud. Not awaited: the
+     * conversation is over by this point and a slow insert must not hold the socket open.
+     */
+    const claim = extractClaim(spokenSoFar);
+    void recordCall({
+      userId: session.userId, channel: "voice", question, answer: spokenSoFar,
+      priceAt: memory.now?.price ?? null, snapshotId: null,
+      direction: claim.direction, horizonMin: claim.horizonMin,
+      regime: memory.now?.regime ?? null, sessionName: memory.now?.session ?? null,
+      thesisId: memory.thesis?.id ?? null, setupState: setup?.state ?? null,
+    });
   });
 }

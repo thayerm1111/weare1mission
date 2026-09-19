@@ -19,6 +19,8 @@ import type { Bar, FeedHealth, MarketSnapshot, Timeframe } from "../core/types";
 import { applyFollowUps } from "../engines/grade";
 import { sweep as sweepWatches } from "../engines/watch";
 import { reapAbandoned } from "../engines/voice";
+import { scoreMatured } from "../engines/record";
+import { upcoming, LOCKOUT_BEFORE_MIN, LOCKOUT_AFTER_MIN } from "../adapters/calendar";
 
 const KEY = process.env.TWELVEDATA_API_KEY ?? "";
 const TICK_MS = Number(process.env.CC_TICK_MS || 20_000);
@@ -81,7 +83,24 @@ async function pass(lastPersistAt: number): Promise<number> {
   }];
 
   const prevNet = brain.snapshots.length ? brain.snapshots[brain.snapshots.length - 1].pressure.net : null;
-  const snap = buildSnapshot({ now, bars, price: live, feeds, prevPressureNet: prevNet });
+
+  /*
+   * THE NEWS WINDOW, FINALLY POPULATED.
+   *
+   * The snapshot has always carried a `news` field and nothing ever filled it, so the lockout that is
+   * supposed to keep the system out of the market around a high-impact release has never once fired.
+   * The calendar is cached for five minutes, so asking on every tick costs nothing.
+   */
+  const cal = await upcoming(now).catch(() => null);
+  const news = cal && cal.next
+    ? {
+        nextEvent: { name: cal.next.name, at: cal.next.at, importance: cal.next.importance },
+        minutesToNext: cal.minutesToNext,
+        inLockout: cal.inLockout,
+      }
+    : undefined;
+
+  const snap = buildSnapshot({ now, bars, price: live, feeds, prevPressureNet: prevNet, news });
   lastPrice = snap.price;          // what the second look measures a finished trade's aftermath against
   const gate = tradeable(snap);
 
@@ -135,6 +154,21 @@ async function secondLook(price: number): Promise<void> {
     if (n) log(`graded the aftermath of ${n} finished trade${n === 1 ? "" : "s"}`);
   } catch (e) {
     log("follow-up error (loop continues)", e instanceof Error ? e.message.slice(0, 160) : e);
+  }
+
+  /*
+   * THE SAME QUESTION, ASKED OF WHAT IT SAID RATHER THAN WHAT IT DID.
+   *
+   * A trade can be graded because it has an exit. A spoken read has no exit, so it is judged against
+   * the clock: a call given a one-hour horizon is scored one hour later, using the price this tick
+   * already holds. Scoring here rather than on demand is what makes the record honest — nothing is
+   * ever graded at the moment it happened to look good, and nothing is scored against a stale quote.
+   */
+  try {
+    const n = await scoreMatured(price);
+    if (n) log(`scored ${n} matured call${n === 1 ? "" : "s"} against what gold actually did`);
+  } catch (e) {
+    log("call-scoring error (loop continues)", e instanceof Error ? e.message.slice(0, 160) : e);
   }
 }
 
