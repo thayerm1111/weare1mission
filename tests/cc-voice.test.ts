@@ -59,7 +59,7 @@ test('the API key is only ever read server-side', async () => {
 
 test('the reasoning endpoint refuses an unauthenticated caller', async () => {
   const fs = await import('node:fs/promises');
-  const route = await fs.readFile('src/app/api/command-center/voice/llm/route.ts', 'utf8');
+  const route = await fs.readFile('command-center/brain/voiceLlm.ts', 'utf8');
   assert.ok(/CC_VOICE_LLM_SECRET/.test(route), 'it is protected by a shared secret');
   assert.ok(/status: 401/.test(route), 'and refuses without it');
   // The whole point of this endpoint: the market read and the position come from OUR engines.
@@ -70,13 +70,29 @@ test('the reasoning endpoint refuses an unauthenticated caller', async () => {
 
 test('a spoken instruction is registered before it is confirmed, on the voice path too', async () => {
   const fs = await import('node:fs/promises');
-  const route = await fs.readFile('src/app/api/command-center/voice/llm/route.ts', 'utf8');
+  const route = await fs.readFile('command-center/brain/voiceLlm.ts', 'utf8');
   // Watches must be armed by the route, NOT by the language model, or the model could promise to watch
   // something nobody wrote down — and a spoken promise is the easiest of all to believe.
   const armIdx = route.indexOf('await arm(');
   const modelIdx = route.indexOf('ANTHROPIC_URL, {');
   assert.ok(armIdx > 0 && armIdx < modelIdx, 'instructions are handled before the model is ever called');
   assert.ok(/authority: "informational"/.test(route), 'and a spoken watch can never be action-authorised');
+});
+
+/*
+ * THE 404 THAT SOUNDED LIKE SILENCE.
+ *
+ * A custom-LLM url is an OpenAI BASE url — the provider appends `/chat/completions` before calling it.
+ * With only the base path mounted, every turn was a 404 and the agent said nothing at all: no error,
+ * no close frame, nothing a browser could show. This is the guard that keeps that route mounted.
+ */
+test('the provider\'s own path is mounted, not just the base one', async () => {
+  const fs = await import('node:fs/promises');
+  const mounted = await fs.readFile('src/app/api/command-center/voice/llm/chat/completions/route.ts', 'utf8');
+  assert.ok(/handleVoiceLlm/.test(mounted), 'the OpenAI path runs the same handler');
+  assert.ok(/export async function POST/.test(mounted), 'and it accepts the POST the provider makes');
+  const base = await fs.readFile('src/app/api/command-center/voice/llm/route.ts', 'utf8');
+  assert.ok(/handleVoiceLlm/.test(base), 'the base path runs it too, for testing by hand');
 });
 
 test('voice is admin-gated on the server, not in a component', async () => {
