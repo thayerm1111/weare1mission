@@ -989,6 +989,68 @@ input{font:inherit}
 .gx-hist-row:active{border-color:rgba(245,196,81,.5)}
 .gx-replay{margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;border-radius:13px;border:1px solid rgba(245,196,81,.35);background:rgba(245,196,81,.08);padding:9px 11px;font-size:11px;font-weight:700;color:#f5d68a}
 .gx-replay button{flex-shrink:0;border-radius:9px;border:1px solid rgba(245,196,81,.45);background:transparent;color:#f5d68a;font-size:11px;font-weight:800;padding:5px 9px;cursor:pointer}
+/* -- THE BRAIN (in-app Command Center) -- */
+.br{padding:0 0 26px}
+.br-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:2px 2px 10px}
+.br-name{font-size:13px;font-weight:900;letter-spacing:-.01em;color:#eef3ff}
+.br-name em{font-style:normal;color:#f0c475}
+.br-kick{font-size:9.5px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#65748f;margin-top:2px}
+.br-px{font-size:24px;font-weight:900;color:#eef3ff;letter-spacing:-.02em;text-align:right;line-height:1;font-variant-numeric:tabular-nums}
+.br-sub{font-size:10px;color:#7f8ea9;text-align:right;margin-top:3px}
+.br-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:3px 9px;font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.br-card{background:#0a0e15;border:1px solid rgba(255,255,255,.07);border-radius:16px;margin-top:10px;overflow:hidden}
+.br-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 13px;border-bottom:1px solid rgba(255,255,255,.06)}
+.br-k{font-size:9.5px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:#65748f}
+.br-b{padding:12px 13px}
+.br-orb{display:flex;flex-direction:column;align-items:center;padding:16px 13px 14px}
+.br-pres{margin-top:10px;font-size:10.5px;font-weight:900;letter-spacing:.22em;text-transform:uppercase;color:#f0c475}
+.br-head{margin-top:7px;font-size:12.5px;line-height:1.5;color:rgba(232,239,247,.62);text-align:center}
+.br-q{font-size:13px;line-height:1.4;color:#eef3ff;margin-top:5px}
+.br-li{display:flex;gap:8px;font-size:12px;color:rgba(232,239,247,.6);padding:2px 0}
+.br-li i{font-style:normal;color:#65748f;font-variant-numeric:tabular-nums}
+.br-map{width:100%;height:220px;display:block}
+.br-row{display:flex;align-items:center;gap:10px;padding:3px 0}
+.br-tf{width:32px;font-size:10.5px;font-weight:800;color:#65748f;font-variant-numeric:tabular-nums}
+.br-ar{width:14px;font-size:12px}
+.br-st{flex:1;font-size:12px;font-weight:700;text-transform:capitalize;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.br-eff{font-size:10.5px;color:#65748f;font-variant-numeric:tabular-nums}
+.br-up{color:#3fd9a0}.br-dn{color:#f4737b}.br-fl{color:#6fa8dc}.br-gd{color:#f0c475}
+.br-bar{display:flex;height:7px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,.06);margin-top:8px}
+.br-bar span{display:block;transition:width .6s cubic-bezier(.22,.9,.24,1)}
+.br-note{font-size:10px;color:#65748f;line-height:1.45;margin-top:6px}
+.br-ev{display:flex;gap:9px;padding:6px 0 6px 9px;border-left:2px solid rgba(255,255,255,.1)}
+.br-evt{flex:0 0 auto;font-size:10px;color:#65748f;font-variant-numeric:tabular-nums}
+.br-evd{font-size:11.5px;line-height:1.45;color:rgba(232,239,247,.6)}
+.br-scroll{max-height:290px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.br-sc{padding:10px 13px;border-top:1px solid rgba(255,255,255,.06)}
+.br-sck{font-size:9.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+.br-scv{font-size:12px;line-height:1.5;color:rgba(232,239,247,.6);margin-top:4px}
+.br-btn{appearance:none;border-radius:11px;padding:10px 12px;font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:rgba(232,239,247,.62)}
+.br-btn.gold{background:rgba(240,196,117,.12);border-color:rgba(240,196,117,.32);color:#f0c475}
+.br-btn.buy{background:rgba(63,217,160,.14);border-color:rgba(63,217,160,.34);color:#3fd9a0}
+.br-btn.sell{background:rgba(244,115,123,.14);border-color:rgba(244,115,123,.34);color:#f4737b}
+.br-btn.cold{background:rgba(111,168,220,.12);border-color:rgba(111,168,220,.28);color:#6fa8dc}
+.br-btn[disabled]{opacity:.4}
+.br-acts{display:flex;flex-wrap:wrap;gap:6px}
+.br-actions{display:flex;gap:8px;margin-top:10px}
+.br-actions .br-btn{flex:1}
+.br-pnl{font-size:26px;font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.br-mini{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;font-size:11px;color:#65748f;font-variant-numeric:tabular-nums;margin-top:8px}
+.br-h{font-size:20px;font-weight:900;font-variant-numeric:tabular-nums}
+.br-hbar{height:6px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden;margin-top:6px}
+.br-hbar i{display:block;height:100%;border-radius:999px;transition:width .6s cubic-bezier(.22,.9,.24,1)}
+.br-in{width:100%;border-radius:11px;padding:10px 12px;font-size:13px;background:#0e131c;border:1px solid rgba(255,255,255,.08);color:#eef3ff;outline:none;font-variant-numeric:tabular-nums}
+.br-lab{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#65748f;display:block;margin-bottom:4px}
+.br-sheet{position:fixed;inset:0;z-index:70;background:rgba(3,5,9,.78);backdrop-filter:blur(6px);overflow-y:auto;padding:16px;-webkit-overflow-scrolling:touch}
+.br-sheet-in{background:#0a0e15;border:1px solid rgba(255,255,255,.08);border-radius:18px;max-width:520px;margin:0 auto}
+.br-msg{max-width:88%;border-radius:15px;padding:9px 11px;font-size:12.5px;line-height:1.5;margin:5px 0}
+.br-msg.me{margin-left:auto;background:rgba(111,168,220,.13);border:1px solid rgba(111,168,220,.22);color:#eef3ff}
+.br-msg.it{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);color:#eef3ff}
+.br-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.br-chip{border-radius:999px;padding:6px 10px;font-size:11px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);color:rgba(232,239,247,.68)}
+.br-mic{width:42px;height:42px;border-radius:999px;display:grid;place-items:center;flex:0 0 auto;font-size:17px;background:rgba(240,196,117,.14);border:1px solid rgba(240,196,117,.34);color:#f0c475}
+.br-mic.on{background:rgba(244,115,123,.18);border-color:rgba(244,115,123,.42);color:#f4737b}
+.br-foot{font-size:10px;color:#65748f;line-height:1.5;padding:12px 4px 0}
 /* -- Command Center (observation) -- */
 .cc{background:linear-gradient(180deg,rgba(14,18,28,.96),rgba(10,13,20,.96));border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px;margin:12px 0}
 .cc-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
@@ -1013,7 +1075,7 @@ input{font:inherit}
 .cc-tfv{font-size:12px;font-weight:700;margin-top:2px}
 .cc-up{color:#5fe0a0}.cc-dn{color:#ff7a7a}.cc-fl{color:#9fb0cc}
 .cc-warn{font-size:11px;color:#f2c14e;background:rgba(242,193,78,.07);border:1px solid rgba(242,193,78,.2);border-radius:9px;padding:7px 9px;margin-top:8px;line-height:1.45}
-.cc-open{display:block;margin-top:12px;text-align:center;padding:9px 12px;border-radius:11px;
+.cc-open{display:block;width:100%;appearance:none;cursor:pointer;margin-top:12px;text-align:center;padding:9px 12px;border-radius:11px;
   background:rgba(240,196,117,.10);border:1px solid rgba(240,196,117,.34);color:#f0c475;
   font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;text-decoration:none}
 .cc-foot{font-size:10px;color:#65748f;margin-top:10px;line-height:1.45}
@@ -3413,6 +3475,7 @@ input{font:inherit}
     if (view[0] === "live") return html`<div>${back()}<${WeeklyScreen} onLogout=${props.onLogout} /></div>`;
     if (view[0] === "ghost") return html`<div>${back()}<${XGhostSection} key="xghost" onLogout=${props.onLogout} /></div>`;
     if (view[0] === "genx") return html`<div>${back()}<${GenxScreen} onLogout=${props.onLogout} /></div>`;
+    if (view[0] === "brain") return html`<div>${back()}<${BrainScreen} onLogout=${props.onLogout} /></div>`;
     function open(v) { return function () { view[1](v); }; }
     return html`<div class="scr">
       <${LiveTradeCard} />
@@ -3429,6 +3492,12 @@ input{font:inherit}
           <div class="fl-nm">GENX</div>
           <div class="fl-bl">Gold intelligence engine — one tap tells you exactly what to do on Gold right now.</div>
           <div class="fl-cta">Analyze Gold ›</div>
+        </button>
+        <button class="flcard span" onClick=${open("brain")}>
+          <div class="fl-ic">\u25C9</div>
+          <div class="fl-nm">THE BRAIN</div>
+          <div class="fl-bl">Command Center XAUUSD \u2014 live market read, your open trade, and an intelligence you can talk to.</div>
+          <div class="fl-cta">Open the Command Center \u203A</div>
         </button>
         <button class="flcard span" onClick=${open("matty")}>
           <div class="fl-ic">◎</div>
@@ -4664,9 +4733,794 @@ input{font:inherit}
       ${out[0] ? html`<div class=${"ltc-out " + (out[0].ok ? "ok" : "bad")}>${out[0].text}</div>` : null}
     </div>`;
   }
-  // Absolute on purpose: a relative href points at the app bundle when this runs packaged, not at the site.
+  /* ══════════════ THE BRAIN — the Command Center, native in the app ══════════════
+     Same engine, same data, same language as the desktop screen. It renders inside the
+     app rather than pushing the member out to a browser, because being thrown to Safari
+     mid-trade is the moment you lose them. */
+
+  var BR_PRESENCE = {
+    offline: "OFFLINE", market_closed: "MARKET CLOSED", observing: "OBSERVING", calm: "CALM",
+    watching_level: "WATCHING A LEVEL", attention: "ATTENTION", market_shift: "MARKET SHIFT",
+    setup_developing: "SETUP DEVELOPING", setup_armed: "SETUP ARMED", trade_active: "TRADE ACTIVE",
+    protecting_trade: "PROTECTING TRADE", high_news_risk: "HIGH NEWS RISK", market_unclear: "MARKET UNCLEAR"
+  };
+  function brWords(v) { return v ? String(v).replace(/_/g, " ") : "—"; }
+  function brNum(v, d) { return typeof v === "number" ? v.toFixed(d === undefined ? 2 : d) : "--"; }
+  function brClock(t) { try { return new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (e) { return ""; } }
+  function brTone(st) {
+    var k = String(st || "");
+    if (/strong_up|uptrend|bullish/.test(k)) return "br-up";
+    if (/strong_down|downtrend|bearish/.test(k)) return "br-dn";
+    if (/breakout|expansion/.test(k)) return "br-gd";
+    return "br-fl";
+  }
+  function brHeld(ms) {
+    var m = Math.floor(ms / 60000), s2 = Math.floor((ms % 60000) / 1000);
+    return m >= 60 ? (Math.floor(m / 60) + "h " + (m % 60) + "m") : (m + "m " + s2 + "s");
+  }
+
+  /* The BRAIN core. Breathing rate, swell and tilt are market measurements, never a timer —
+     if gold is still, this is still, and that stillness is information. */
+  function BrainOrb(props) {
+    var ref = useRef(null);
+    var live = useRef({ i: props.intensity || 0, lean: props.lean || 0, alive: !!props.alive, load: props.load || 0 });
+    live.current = { i: props.intensity || 0, lean: props.lean || 0, alive: !!props.alive, load: props.load || 0 };
+    var size = props.size || 168;
+    useEffect(function () {
+      var c = ref.current; if (!c) return; var ctx = c.getContext("2d"); if (!ctx) return;
+      var dpr = Math.min(2, window.devicePixelRatio || 1);
+      c.width = size * dpr; c.height = size * dpr; ctx.scale(dpr, dpr);
+      var cx = size / 2, cy = size / 2, base = size * 0.26;
+      var iN = 0, lN = 0, aN = 0, phase = 0, ring = 0, raf = 0, last = performance.now();
+      var reduced = false; try { reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) {}
+      function draw(now) {
+        var dt = Math.min(64, now - last) / 1000; last = now;
+        var t = live.current, ease = 1 - Math.exp(-dt * 1.6);
+        iN += ((t.alive ? t.i : 2) - iN) * ease;
+        lN += (t.lean - lN) * ease;
+        aN += ((t.alive ? 1 : 0) - aN) * ease;
+        var period = 7 - (iN / 100) * 5.9;
+        phase += (dt / Math.max(0.6, period)) * Math.PI * 2 * (reduced ? 0.35 : 1);
+        ring += dt * (0.08 + (iN / 100) * 0.85) * (reduced ? 0.3 : 1);
+        var swell = 1 + (0.04 + (iN / 100) * 0.12) * Math.sin(phase);
+        var r = base * swell;
+        var l = Math.max(-100, Math.min(100, lN)) / 100;
+        var H = l >= 0 ? 44 - l * 12 : 208 + l * 4;
+        var sat = (28 + Math.abs(l) * 34) * (0.25 + aN * 0.75);
+        var lum = 52 + (iN / 100) * 14;
+        var tilt = l * size * 0.035;
+        ctx.clearRect(0, 0, size, size);
+        var g = ctx.createRadialGradient(cx + tilt, cy, r * 0.25, cx, cy, size * 0.5);
+        g.addColorStop(0, "hsla(" + H + "," + sat + "%," + lum + "%," + (0.30 * (0.25 + aN * 0.75)) + ")");
+        g.addColorStop(0.45, "hsla(" + H + "," + sat + "%," + (lum - 14) + "%," + (0.12 * (0.25 + aN * 0.75)) + ")");
+        g.addColorStop(1, "hsla(210,20%,8%,0)");
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, size * 0.5, 0, Math.PI * 2); ctx.fill();
+        var strands = Math.round(6 + Math.min(16, t.load) * 1.1);
+        ctx.lineWidth = 1;
+        for (var k = 0; k < strands; k++) {
+          var a = (k / strands) * Math.PI * 2 + ring * 0.6;
+          var wob = Math.sin(phase * 1.7 + k) * (0.04 + (iN / 100) * 0.22);
+          var r1 = r * (1.08 + wob), r2 = r * (1.55 + wob * 1.6);
+          ctx.strokeStyle = "hsla(" + H + "," + sat + "%," + (lum + 12) + "%," + ((0.07 + (iN / 100) * 0.22) * aN) + ")";
+          ctx.beginPath();
+          ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+          ctx.quadraticCurveTo(cx + Math.cos(a + 0.3) * r2 * 1.05, cy + Math.sin(a + 0.3) * r2 * 1.05, cx + Math.cos(a + 0.62) * r2, cy + Math.sin(a + 0.62) * r2);
+          ctx.stroke();
+        }
+        ctx.lineWidth = 1.4;
+        ctx.strokeStyle = "hsla(" + H + "," + (sat + 10) + "%," + (lum + 16) + "%," + ((0.22 + (iN / 100) * 0.3) * aN) + ")";
+        ctx.beginPath(); ctx.arc(cx, cy, r * 1.62, ring, ring + Math.PI * 1.55); ctx.stroke();
+        var core = ctx.createRadialGradient(cx + tilt * 0.35, cy, r * 0.02, cx + tilt * 0.35, cy, r);
+        core.addColorStop(0, "hsla(" + H + "," + (sat + 10) + "%," + Math.max(8, lum - 38) + "%," + (0.55 + aN * 0.4) + ")");
+        core.addColorStop(0.62, "hsla(" + H + "," + (sat + 6) + "%," + Math.max(12, lum - 26) + "%," + (0.42 + aN * 0.32) + ")");
+        core.addColorStop(0.9, "hsla(" + H + "," + Math.min(92, sat + 30) + "%," + Math.min(88, lum + 22) + "%," + (0.30 + aN * 0.4) + ")");
+        core.addColorStop(1, "hsla(" + H + "," + Math.min(92, sat + 34) + "%," + Math.min(94, lum + 30) + "%," + (0.10 + aN * 0.22) + ")");
+        ctx.fillStyle = core; ctx.beginPath(); ctx.arc(cx + tilt * 0.35, cy, r, 0, Math.PI * 2); ctx.fill();
+        for (var q = 1; q <= 3; q++) {
+          var rr = r * (0.3 + q * 0.2) * (1 + (iN / 100) * 0.10 * Math.sin(phase + q));
+          ctx.lineWidth = 0.7;
+          ctx.strokeStyle = "hsla(" + H + "," + (sat + 16) + "%," + (lum + 20) + "%," + ((0.10 + (iN / 100) * 0.16) * aN) + ")";
+          ctx.beginPath(); ctx.arc(cx + tilt * 0.35, cy, rr, 0, Math.PI * 2); ctx.stroke();
+        }
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = "hsla(" + H + "," + (sat + 20) + "%," + (lum + 28) + "%," + ((0.42 + (iN / 100) * 0.34) * aN) + ")";
+        ctx.beginPath(); ctx.arc(cx + tilt * 0.35, cy, r, 0, Math.PI * 2); ctx.stroke();
+        if (Math.abs(l) > 0.06) {
+          var start = l >= 0 ? -Math.PI / 2 - 0.5 : Math.PI / 2 - 0.5;
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = "hsla(" + (l >= 0 ? 152 : 356) + ",62%,62%," + (Math.min(0.62, Math.abs(l) * 0.8) * aN) + ")";
+          ctx.beginPath(); ctx.arc(cx + tilt * 0.35, cy, r * 1.06, start, start + Math.min(2.4, Math.abs(l) * 3)); ctx.stroke();
+        }
+        raf = requestAnimationFrame(draw);
+      }
+      raf = requestAnimationFrame(draw);
+      return function () { cancelAnimationFrame(raf); };
+    }, [size]);
+    return html`<canvas ref=${ref} width=${size} height=${size} style=${"width:" + size + "px;height:" + size + "px"} aria-hidden="true"></canvas>`;
+  }
+
+  /* The price map: the candles THE BRAIN actually read, with its levels and your trade on top. */
+  function BrainMap(props) {
+    var ref = useRef(null), wrap = useRef(null);
+    useEffect(function () {
+      var c = ref.current, w = wrap.current; if (!c || !w) return;
+      var ctx = c.getContext("2d"); if (!ctx) return;
+      var W = w.clientWidth || 340, H = 220;
+      var dpr = Math.min(2, window.devicePixelRatio || 1);
+      c.width = W * dpr; c.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      var bars = (props.bars || []).slice(-90), levels = props.levels || [], price = props.price, tr = props.trade;
+      ctx.fillStyle = "#080b11"; ctx.fillRect(0, 0, W, H);
+      if (!bars.length) {
+        ctx.fillStyle = "rgba(232,239,247,.32)"; ctx.font = "11px ui-sans-serif,system-ui"; ctx.textAlign = "center";
+        ctx.fillText("No candles yet — THE BRAIN has not read the market.", W / 2, H / 2);
+        return;
+      }
+      var lo = Infinity, hi = -Infinity, i;
+      for (i = 0; i < bars.length; i++) { lo = Math.min(lo, bars[i].l); hi = Math.max(hi, bars[i].h); }
+      for (i = 0; i < levels.length; i++) { var lp = levels[i].price; if (lp > lo - (hi - lo) * 0.6 && lp < hi + (hi - lo) * 0.6) { lo = Math.min(lo, lp); hi = Math.max(hi, lp); } }
+      if (typeof price === "number") { lo = Math.min(lo, price); hi = Math.max(hi, price); }
+      if (tr) { [tr.entry, tr.stop, tr.takeProfit].forEach(function (v) { if (typeof v === "number") { lo = Math.min(lo, v); hi = Math.max(hi, v); } }); }
+      var pad = Math.max(0.4, (hi - lo) * 0.10); lo -= pad; hi += pad;
+      var padR = 54, padL = 6, padT = 8, padB = 8;
+      var pw = Math.max(40, W - padR - padL), ph = Math.max(40, H - padT - padB);
+      function y(v) { return padT + (1 - (v - lo) / (hi - lo)) * ph; }
+      var bw = pw / bars.length;
+      ctx.font = "9.5px ui-monospace,Menlo,monospace"; ctx.textBaseline = "middle";
+      for (i = 0; i <= 4; i++) {
+        var pv = lo + ((hi - lo) * i) / 4, yy = Math.round(y(pv)) + 0.5;
+        ctx.strokeStyle = "rgba(255,255,255,.045)"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(padL + pw, yy); ctx.stroke();
+        ctx.fillStyle = "rgba(232,239,247,.30)"; ctx.textAlign = "left";
+        ctx.fillText(pv.toFixed(2), padL + pw + 6, yy);
+      }
+      for (i = 0; i < bars.length; i++) {
+        var b = bars[i], cxx = padL + i * bw + bw / 2, up = b.c >= b.o;
+        ctx.strokeStyle = up ? "#3fd9a0" : "#f4737b"; ctx.fillStyle = up ? "#3fd9a0" : "#f4737b";
+        ctx.globalAlpha = 0.85; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(cxx, y(b.h)); ctx.lineTo(cxx, y(b.l)); ctx.stroke();
+        var bt = y(Math.max(b.o, b.c)), bh = Math.max(1, Math.abs(y(b.o) - y(b.c)));
+        ctx.fillRect(cxx - Math.max(1, bw * 0.3), bt, Math.max(1.5, bw * 0.6), bh);
+        ctx.globalAlpha = 1;
+      }
+      var placed = [];
+      var near = levels.slice().sort(function (a, b2) { return Math.abs(a.price - (price || a.price)) - Math.abs(b2.price - (price || b2.price)); });
+      for (i = 0; i < Math.min(6, near.length); i++) {
+        var L = near[i]; if (L.price < lo || L.price > hi) continue;
+        var ly = Math.round(y(L.price)) + 0.5;
+        ctx.strokeStyle = "rgba(232,239,247,.16)"; ctx.lineWidth = 1; ctx.setLineDash([4, 5]);
+        ctx.beginPath(); ctx.moveTo(padL, ly); ctx.lineTo(padL + pw, ly); ctx.stroke(); ctx.setLineDash([]);
+        var room = placed.every(function (v) { return Math.abs(v - ly) >= 12; });
+        if (!room) continue;
+        placed.push(ly);
+        ctx.fillStyle = "rgba(232,239,247,.5)"; ctx.font = "9.5px ui-sans-serif,system-ui"; ctx.textAlign = "left";
+        ctx.fillText(L.label, padL + 4, ly - 7);
+      }
+      if (tr) {
+        function mark(v, col, label, dash) {
+          if (typeof v !== "number" || v < lo || v > hi) return;
+          var my = Math.round(y(v)) + 0.5;
+          ctx.strokeStyle = col; ctx.lineWidth = 1.2; ctx.setLineDash(dash);
+          ctx.beginPath(); ctx.moveTo(padL, my); ctx.lineTo(padL + pw, my); ctx.stroke(); ctx.setLineDash([]);
+          ctx.fillStyle = col; ctx.font = "700 9px ui-sans-serif,system-ui"; ctx.textAlign = "right";
+          ctx.fillText(label, padL + pw - 4, my - 6); ctx.textAlign = "left";
+        }
+        mark(tr.entry, "#f0c475", "ENTRY", []);
+        mark(tr.stop, "#f4737b", "STOP", [3, 3]);
+        mark(tr.takeProfit, "#3fd9a0", "TARGET", [3, 3]);
+      }
+      if (typeof price === "number") {
+        var py = Math.round(y(price)) + 0.5, col2 = (props.lean || 0) >= 0 ? "#3fd9a0" : "#f4737b";
+        ctx.strokeStyle = col2; ctx.lineWidth = 1; ctx.setLineDash([1, 3]);
+        ctx.beginPath(); ctx.moveTo(padL, py); ctx.lineTo(padL + pw, py); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = col2; ctx.fillRect(padL + pw + 1, py - 8, padR - 4, 16);
+        ctx.fillStyle = "#06090e"; ctx.font = "700 9.5px ui-monospace,Menlo,monospace"; ctx.textAlign = "left";
+        ctx.fillText(price.toFixed(2), padL + pw + 5, py);
+      }
+    }, [props.bars, props.levels, props.price, props.trade, props.lean]);
+    return html`<div ref=${wrap} style="width:100%"><canvas ref=${ref} class="br-map"></canvas></div>`;
+  }
+
+  /* Talk to THE BRAIN. Speech in where the webview supports it, speech out where it does. */
+  function BrainChat(props) {
+    var turns = useState([]), input = useState(""), busy = useState(false);
+    var listening = useState(false), speaking = useState(false), voice = useState(true), note = useState("");
+    var rec = useRef(null), endRef = useRef(null), said = useRef({});
+    var canSpeak = useState(false);
+    useEffect(function () { canSpeak[1](typeof window !== "undefined" && "speechSynthesis" in window); }, []);
+    useEffect(function () { try { if (endRef.current) endRef.current.scrollIntoView({ block: "end" }); } catch (e) {} }, [turns[0], busy[0]]);
+
+    function stopSpeak() { try { window.speechSynthesis.cancel(); } catch (e) {} speaking[1](false); }
+    function speak(text) {
+      if (!voice[0] || !canSpeak[0] || !text) return;
+      try {
+        window.speechSynthesis.cancel();
+        var u = new SpeechSynthesisUtterance(text);
+        u.rate = 1.03; u.pitch = 0.95;
+        u.onstart = function () { speaking[1](true); };
+        u.onend = function () { speaking[1](false); };
+        u.onerror = function () { speaking[1](false); };
+        window.speechSynthesis.speak(u);
+      } catch (e) {}
+    }
+    function ask(q) {
+      var text = String(q || "").trim(); if (!text || busy[0]) return;
+      stopSpeak(); input[1](""); note[1]("");
+      var hist = turns[0].slice(-8).map(function (t) { return { role: t.role, content: t.content }; });
+      turns[1](turns[0].concat([{ role: "user", content: text }]));
+      busy[1](true);
+      apiPost("/api/command-center/brain", { message: text, history: hist }).then(function (j) {
+        busy[1](false);
+        var reply = (j && j.spokenText) || "I couldn't reach the Command Center just then.";
+        turns[1](function (t) { return t.concat([{ role: "assistant", content: reply, source: j && j.source }]); });
+        if (j && j.notice) note[1](j.notice);
+        speak(reply);
+      }).catch(function () {
+        busy[1](false);
+        turns[1](function (t) { return t.concat([{ role: "assistant", content: "I couldn't reach the Command Center just then." }]); });
+      });
+    }
+    function mic() {
+      if (listening[0]) { try { rec.current && rec.current.stop(); } catch (e) {} listening[1](false); return; }
+      var Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!Ctor) { note[1]("This device can't listen in the app — you can still type."); return; }
+      stopSpeak();
+      try {
+        var r = new Ctor(); r.lang = "en-US"; r.continuous = false; r.interimResults = true;
+        var finalText = "";
+        r.onresult = function (e) {
+          var interim = "";
+          for (var i = e.resultIndex; i < e.results.length; i++) {
+            if (e.results[i].isFinal) finalText += e.results[i][0].transcript; else interim += e.results[i][0].transcript;
+          }
+          input[1]((finalText + interim).trim());
+        };
+        r.onerror = function (e) { note[1](e && e.error === "not-allowed" ? "Microphone permission was declined." : "The microphone stopped."); listening[1](false); };
+        r.onend = function () { listening[1](false); var v = finalText.trim(); if (v) ask(v); };
+        rec.current = r; listening[1](true); r.start();
+      } catch (e) { note[1]("Couldn't start the microphone."); listening[1](false); }
+    }
+    // A proactive line from THE BRAIN drops straight into the conversation.
+    useEffect(function () {
+      var a = props.announce; if (!a || said.current[a.key]) return;
+      said.current[a.key] = 1;
+      turns[1](function (t) { return t.concat([{ role: "assistant", content: a.text, source: "brain" }]); });
+      if (a.urgent || voice[0]) speak(a.text);
+    }, [props.announce && props.announce.key]);
+    useEffect(function () { return function () { try { rec.current && rec.current.abort(); } catch (e) {} stopSpeak(); }; }, []);
+
+    var QUICK = [["Talk to me", "THE BRAIN, talk to me."], ["What changed?", "What changed over the last five minutes?"],
+      ["Why?", "Why are you reading it that way?"], ["Change your mind?", "What would change your mind?"]];
+    if (props.hasTrade) QUICK.unshift(["How's my trade?", "How is my trade doing?"]);
+
+    return html`<div class="br-card">
+      <div class="br-hd">
+        <div class="br-k">Talk to THE BRAIN</div>
+        <div style="display:flex;gap:6px">
+          ${speaking[0] ? html`<button class="br-btn gold" style="padding:5px 9px" onClick=${stopSpeak}>Stop</button>` : null}
+          <button class="br-btn" style="padding:5px 9px" onClick=${function () { if (voice[0]) stopSpeak(); voice[1](!voice[0]); }}>
+            ${voice[0] ? "Voice on" : "Voice off"}
+          </button>
+        </div>
+      </div>
+      <div class="br-b">
+        <div style="max-height:260px;overflow-y:auto;-webkit-overflow-scrolling:touch">
+          ${turns[0].length ? turns[0].map(function (t, i) {
+            return html`<div class=${"br-msg " + (t.role === "user" ? "me" : "it")} key=${i}>
+              ${t.content}
+              ${t.role === "assistant" && t.source === "narrator" ? html`<div style="font-size:9.5px;color:#65748f;margin-top:4px">deterministic voice</div>` : null}
+            </div>`;
+          }) : html`<div class="br-note" style="text-align:center;padding:10px 0">
+            Ask THE BRAIN anything about gold right now, or press the microphone and say “talk to me”.
+          </div>`}
+          ${busy[0] ? html`<div class="br-note">THE BRAIN is thinking…</div>` : null}
+          ${note[0] ? html`<div class="br-note" style="color:#f0c475">${note[0]}</div>` : null}
+          <div ref=${endRef}></div>
+        </div>
+        <div class="br-chips">${QUICK.map(function (q, i) {
+          return html`<button class="br-chip" key=${i} disabled=${busy[0]} onClick=${function () { ask(q[1]); }}>${q[0]}</button>`;
+        })}</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:9px">
+          <button class=${"br-mic" + (listening[0] ? " on" : "")} onClick=${mic} aria-label="Talk to THE BRAIN">●</button>
+          <input class="br-in" style="flex:1" value=${input[0]} placeholder=${listening[0] ? "Listening…" : "Ask THE BRAIN…"}
+            onInput=${function (e) { input[1](e.target.value); }}
+            onKeyDown=${function (e) { if (e.key === "Enter") { e.preventDefault(); ask(input[0]); } }} />
+          <button class="br-btn cold" style="padding:10px 12px" disabled=${busy[0] || !input[0]} onClick=${function () { ask(input[0]); }}>Send</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /* The open position, and the controls for it. Only exists while a trade does. */
+  function BrainTrade(props) {
+    var t = props.trade, busy = useState(""), msg = useState(""), stopIn = useState("");
+    function act(body, tag) {
+      busy[1](tag); msg[1]("");
+      apiPost("/api/command-center/trade", body).then(function (j) {
+        busy[1](""); msg[1]((j && j.message) || ((j && j.ok) ? "Done." : "That didn't work."));
+        props.onChanged && props.onChanged();
+      }).catch(function () { busy[1](""); msg[1]("Could not reach the Command Center."); });
+    }
+    var m = t.metrics; if (!m) return null;
+    var long = t.side === "buy";
+    var hs = (t.health && t.health.score) || 0;
+    var hc = hs >= 64 ? "#3fd9a0" : hs >= 48 ? "#f0c475" : hs >= 30 ? "#e9b949" : "#f4737b";
+    function B(id, label, cls, body) {
+      return html`<button class=${"br-btn " + (cls || "")} disabled=${!!busy[0]} onClick=${function () { act(body, id); }}>
+        ${busy[0] === id ? "…" : label}
+      </button>`;
+    }
+    return html`<div class="br-card" style="border-color:rgba(240,196,117,.24)">
+      <div class="br-hd">
+        <div class="br-k" style="color:#f0c475">Trade active</div>
+        <div class="br-k">${String(t.style || "").toUpperCase()} · ${brHeld(m.heldMs)}</div>
+      </div>
+      <div class="br-b">
+        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+          <span style=${"font-size:14px;font-weight:900;color:" + (long ? "#3fd9a0" : "#f4737b")}>${long ? "BUY" : "SELL"} XAUUSD</span>
+          <span style="font-size:11.5px;color:#65748f">${t.qty} lots from ${brNum(t.entry)}</span>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-top:6px">
+          <span class="br-pnl" style=${"color:" + (m.pips >= 0 ? "#3fd9a0" : "#f4737b")}>
+            ${m.pips >= 0 ? "+" : ""}${Math.round(m.pips)}<span style="font-size:11px;color:#65748f;font-weight:800"> PIPS</span>
+          </span>
+          ${typeof m.money === "number" ? html`<span style=${"font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;color:" + (m.money >= 0 ? "#3fd9a0" : "#f4737b")}>${m.money >= 0 ? "+" : "−"}$${Math.abs(m.money).toFixed(2)}</span>` : null}
+          ${typeof m.r === "number" ? html`<span style=${"font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;color:" + (m.r >= 0 ? "#3fd9a0" : "#f4737b")}>${m.r >= 0 ? "+" : ""}${m.r}R</span>` : null}
+        </div>
+        <div class="br-mini">
+          <span>Max +${Math.round(m.mfePips)}</span><span>Worst ${Math.round(m.maePips)}</span>
+          <span>Stop ${brNum(t.stop)} (${Math.round(m.distanceToStopPips)}p)</span>
+          <span>${typeof t.takeProfit === "number" ? "Target " + brNum(t.takeProfit) : "No target"}</span>
+        </div>
+        ${m.mfePips > 0 && m.pips < m.mfePips ? html`<div class="br-note">Given back ${Math.round(m.mfePips - m.pips)} pips from the peak.</div>` : null}
+        ${t.partials && t.partials.length ? html`<div class="br-note">Partials: ${t.partials.map(function (p) { return Math.round(p.fraction * 100) + "%"; }).join(", ")} — ${Math.round(m.remainingFraction * 100)}% still running.</div>` : null}
+      </div>
+
+      <div class="br-sc">
+        <div class="br-sck" style="color:#65748f">Position health</div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px">
+          <span class="br-h" style=${"color:" + hc}>${hs}</span>
+          <span style=${"font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:" + hc}>${(t.health && t.health.verdict) || ""}</span>
+        </div>
+        <div class="br-hbar"><i style=${"width:" + hs + "%;background:" + hc}></i></div>
+        ${(t.health && t.health.drivers ? t.health.drivers.slice(0, 3) : []).map(function (d, i) {
+          return html`<div class="br-note" key=${i} style=${"color:" + (d.delta >= 0 ? "rgba(232,239,247,.55)" : "#e9b949")}>${d.delta >= 0 ? "+" : ""}${d.delta} · ${d.label}</div>`;
+        })}
+      </div>
+
+      <div class="br-sc">
+        <div class="br-sck" style="color:#65748f">Trade thesis</div>
+        <div style=${"font-size:13px;font-weight:800;margin-top:2px;color:" + (t.thesisState === "Invalidated" || t.thesisState === "Character changed" ? "#f4737b" : t.thesisState === "Weakening" ? "#e9b949" : "#3fd9a0")}>${t.thesisState || "—"}</div>
+        ${t.character ? html`<div class="br-scv">${t.character.explanation}</div>` : null}
+        ${t.thesis && t.thesis.invalidationPrice ? html`<div class="br-note" style="color:#f4737b">Fails at ${t.thesis.invalidationPrice.toFixed(2)}</div>` : null}
+      </div>
+
+      ${t.protection ? html`<div class="br-sc" style=${t.protection.action === "hold" ? "" : "background:rgba(240,196,117,.04)"}>
+        <div class="br-sck" style="color:#65748f">THE BRAIN would ${brWords(t.protection.action)}</div>
+        <div class="br-scv">${t.protection.say}</div>
+      </div>` : null}
+
+      <div class="br-sc">
+        <div class="br-sck" style="color:#65748f;margin-bottom:7px">Trade control</div>
+        <div class="br-acts">
+          ${B("be", "Move to BE", "cold", { action: "break_even", positionId: t.positionId, offsetPips: 0 })}
+          ${B("p25", "25%", "", { action: "partial", positionId: t.positionId, fraction: 0.25 })}
+          ${B("p50", "50%", "", { action: "partial", positionId: t.positionId, fraction: 0.5 })}
+          ${B("p75", "75%", "", { action: "partial", positionId: t.positionId, fraction: 0.75 })}
+          ${t.protection && t.protection.action !== "hold" ? B("prot", "Protect", "gold", { action: "protect" }) : null}
+          ${B("close", "Close trade", "sell", { action: "close", positionId: t.positionId })}
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <input class="br-in" style="flex:1" placeholder="Move stop to…" value=${stopIn[0]}
+            onInput=${function (e) { stopIn[1](e.target.value); }} />
+          <button class="br-btn" disabled=${!!busy[0] || !stopIn[0]} onClick=${function () { act({ action: "move_stop", positionId: t.positionId, price: Number(stopIn[0]) }, "ms"); }}>Move stop</button>
+        </div>
+        ${msg[0] ? html`<div class="br-note" style="color:rgba(232,239,247,.6)">${msg[0]}</div>` : null}
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;padding-top:9px;border-top:1px solid rgba(255,255,255,.06)">
+          <div>
+            <div style=${"font-size:10.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:" + (t.aiManagement ? "#f0c475" : "#65748f")}>AI management ${t.aiManagement ? "on" : "off"}</div>
+            <div class="br-note" style="margin-top:2px">${t.aiManagement ? "THE BRAIN may act, within the permissions on the account." : "THE BRAIN is watching but will not touch it."}</div>
+          </div>
+          ${B("ai", t.aiManagement ? "Turn off" : "Turn on", "gold", { action: "ai_management", positionId: t.positionId, on: !t.aiManagement })}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /* CALL TRADE, as a sheet. Same three styles and the same risk-first sizing as the desk. */
+  function BrainCall(props) {
+    var side = useState("buy"), style = useState("intraday"), risk = useState(0.5);
+    var stop = useState(""), target = useState(""), prep = useState(null);
+    var err = useState(""), busy = useState(false), res = useState(null);
+    var key = useRef("");
+    useEffect(function () {
+      // Made once, when the sheet opens — so a double tap is one order, not two.
+      try { key.current = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random(); } catch (e) { key.current = String(Date.now()); }
+      var p = props.price, lv = props.levels || [];
+      if (typeof p === "number" && !stop[0]) {
+        var below = lv.filter(function (l) { return l.price < p; }).sort(function (a, b) { return b.price - a.price; })[0];
+        var above = lv.filter(function (l) { return l.price > p; }).sort(function (a, b) { return a.price - b.price; })[0];
+        var pick = side[0] === "buy" ? (below && below.price) : (above && above.price);
+        stop[1]((typeof pick === "number" ? pick : (side[0] === "buy" ? p - 4 : p + 4)).toFixed(2));
+      }
+    }, []);
+    function reset() { prep[1](null); err[1](""); res[1](null); }
+    function check() {
+      busy[1](true); err[1](""); prep[1](null);
+      apiPost("/api/command-center/trade", { action: "prepare", side: side[0], style: style[0], stop: Number(stop[0]), takeProfit: target[0] ? Number(target[0]) : null, riskPct: risk[0] })
+        .then(function (j) { busy[1](false); if (j && j.ok) prep[1](j); else err[1]((j && j.reason) || "That trade could not be prepared."); })
+        .catch(function () { busy[1](false); err[1]("Could not reach the Command Center."); });
+    }
+    function fire() {
+      if (!prep[0]) return;
+      busy[1](true); err[1]("");
+      apiPost("/api/command-center/trade", { action: "execute", intentId: prep[0].intentId, idempotencyKey: key.current, confirm: true })
+        .then(function (j) {
+          busy[1](false); res[1]({ state: (j && j.state) || "error", message: (j && j.message) || "" });
+          if (j && j.state === "position_open") { props.onDone && props.onDone(); setTimeout(props.onClose, 1300); }
+        }).catch(function () { busy[1](false); err[1]("Could not reach the Command Center."); });
+    }
+    var sz = prep[0] && prep[0].sizing, acct = prep[0] && prep[0].account;
+    var STY = [["quick", "QUICK", "Fast XAUUSD move.", "1m and 5m decide. Fast to protect, fast to admit failure."],
+               ["intraday", "INTRADAY", "Session momentum.", "5m and 15m decide, inside this session's structure."],
+               ["swing", "SWING", "Larger market move.", "1h, 4h and daily decide. Five-minute noise is ignored."]];
+    return html`<div class="br-sheet" onClick=${function (e) { if (e.target && e.target.className === "br-sheet") props.onClose(); }}>
+      <div class="br-sheet-in">
+        <div class="br-hd"><div class="br-k">Call trade · XAUUSD</div><button class="br-btn" style="padding:5px 9px" onClick=${props.onClose}>Close</button></div>
+        <div class="br-b">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            ${["buy", "sell"].map(function (sd) {
+              return html`<button key=${sd} class=${"br-btn " + (side[0] === sd ? sd : "")} style="padding:12px"
+                onClick=${function () { side[1](sd); stop[1](""); reset(); }}>${sd.toUpperCase()}</button>`;
+            })}
+          </div>
+          <div style="margin-top:12px"><span class="br-lab">Style</span>
+            ${STY.map(function (v) {
+              var on = style[0] === v[0];
+              return html`<button key=${v[0]} onClick=${function () { style[1](v[0]); reset(); }}
+                style=${"display:block;width:100%;text-align:left;border-radius:12px;padding:9px 11px;margin-bottom:6px;border:1px solid " + (on ? "rgba(240,196,117,.30)" : "rgba(255,255,255,.07)") + ";background:" + (on ? "rgba(240,196,117,.07)" : "rgba(255,255,255,.025)")}>
+                <div style=${"font-size:12px;font-weight:900;color:" + (on ? "#f0c475" : "#eef3ff")}>${v[1]} <span style="font-weight:400;color:#65748f">· ${v[2]}</span></div>
+                ${on ? html`<div class="br-note" style="margin-top:2px">${v[3]}</div>` : null}
+              </button>`;
+            })}
+          </div>
+          <div style="margin-top:6px"><span class="br-lab">Risk (of account)</span>
+            <div class="br-acts">${[0.25, 0.5, 0.75, 1].map(function (r) {
+              return html`<button key=${r} class=${"br-btn " + (risk[0] === r ? "cold" : "")} style="padding:7px 12px;letter-spacing:0;text-transform:none"
+                onClick=${function () { risk[1](r); reset(); }}>${r.toFixed(2)}%</button>`;
+            })}</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
+            <label><span class="br-lab">Stop</span><input class="br-in" value=${stop[0]} inputmode="decimal" onInput=${function (e) { stop[1](e.target.value); reset(); }} /></label>
+            <label><span class="br-lab">Target (optional)</span><input class="br-in" value=${target[0]} inputmode="decimal" onInput=${function (e) { target[1](e.target.value); reset(); }} /></label>
+          </div>
+          <div class="br-note">Entry is at market${typeof props.price === "number" ? " — gold is " + props.price.toFixed(2) + " right now" : ""}. THE BRAIN suggested the stop from the nearest level it is watching.</div>
+          ${err[0] ? html`<div class="br-note" style="color:#f4737b">${err[0]}</div>` : null}
+          ${sz ? html`<div style="border-radius:12px;padding:11px;margin-top:10px;background:#0e131c;border:1px solid rgba(255,255,255,.07)">
+            <div class="br-mini" style="margin-top:0">
+              <span>Risk</span><span style="text-align:right;color:#eef3ff;font-weight:800">$${sz.riskAmount.toFixed(2)}</span>
+              <span>Lot size</span><span style="text-align:right;color:#eef3ff;font-weight:800">${sz.qty}</span>
+              <span>Stop distance</span><span style="text-align:right;color:#eef3ff;font-weight:800">${sz.stopPips} pips</span>
+              <span>Account risk</span><span style="text-align:right;color:#eef3ff;font-weight:800">${sz.riskPctUsed}%</span>
+              ${typeof sz.rMultipleToTp === "number" ? html`<span>Reward</span><span style="text-align:right;color:#eef3ff;font-weight:800">${sz.rMultipleToTp}R</span>` : null}
+            </div>
+            ${(prep[0].warnings || []).map(function (w, i) { return html`<div class="br-note" key=${i} style="color:#e9b949">${w}</div>`; })}
+            ${acct && acct.isLive ? html`<div class="br-note" style="color:#f4737b;font-weight:800;letter-spacing:.1em;text-transform:uppercase">This is a LIVE account — real money.</div>` : null}
+          </div>` : null}
+          ${res[0] ? html`<div class="br-note" style=${"margin-top:10px;color:" + (res[0].state === "position_open" ? "#3fd9a0" : "#e9b949")}>
+            <b>${brWords(res[0].state).toUpperCase()}</b><br/>${res[0].message}
+          </div>` : null}
+          ${!prep[0]
+            ? html`<button class="br-btn gold" style="width:100%;margin-top:12px;padding:13px" disabled=${busy[0] || !stop[0]} onClick=${check}>${busy[0] ? "Checking…" : "Check this trade"}</button>`
+            : html`<button class=${"br-btn " + side[0]} style="width:100%;margin-top:12px;padding:14px;font-size:12px" disabled=${busy[0] || (res[0] && res[0].state === "position_open")} onClick=${fire}>${busy[0] ? "Executing…" : "Execute " + side[0]}</button>`}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /* Connect a TradeLocker account, with the servers this member already uses offered up. */
+  function BrainConnect(props) {
+    var accts = useState([]), known = useState([]), ready = useState(true), notice = useState("");
+    var env = useState("demo"), server = useState(""), email = useState(""), pw = useState("");
+    var busy = useState(false), err = useState("");
+    function load() {
+      apiGet("/api/command-center/broker").then(function (j) {
+        if (!j) return;
+        accts[1](j.accounts || []); known[1](j.known || []);
+        ready[1](j.ready !== false); notice[1](j.notice || "");
+      }).catch(function () {});
+    }
+    useEffect(function () { load(); }, []);
+    function post(body) {
+      busy[1](true); err[1]("");
+      return apiPost("/api/command-center/broker", body).then(function (j) {
+        busy[1](false);
+        if (!j || j.ok === false) err[1]((j && j.reason) || "That didn't work.");
+        load(); props.onChanged && props.onChanged();
+        return j;
+      }).catch(function () { busy[1](false); err[1]("Could not reach the Command Center."); return null; });
+    }
+    return html`<div class="br-sheet" onClick=${function (e) { if (e.target && e.target.className === "br-sheet") props.onClose(); }}>
+      <div class="br-sheet-in">
+        <div class="br-hd"><div class="br-k">TradeLocker</div><button class="br-btn" style="padding:5px 9px" onClick=${props.onClose}>Close</button></div>
+        ${!ready[0] ? html`<div class="br-b" style="padding-bottom:0"><div class="br-note" style="color:#e9b949">${notice[0]}</div></div>` : null}
+        ${accts[0].length ? html`<div class="br-b" style="border-bottom:1px solid rgba(255,255,255,.06)">
+          <span class="br-lab">Accounts</span>
+          ${accts[0].map(function (a) {
+            return html`<div key=${a.id} style=${"border-radius:12px;padding:10px 11px;margin-bottom:7px;border:1px solid " + (a.selected ? "rgba(240,196,117,.30)" : "rgba(255,255,255,.07)") + ";background:" + (a.selected ? "rgba(240,196,117,.05)" : "#0e131c")}>
+              <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+                <div style="min-width:0">
+                  <div style="font-size:12.5px;font-weight:800;color:#eef3ff">${a.label}
+                    <span style=${"margin-left:6px;border-radius:999px;padding:2px 6px;font-size:9px;font-weight:900;letter-spacing:.1em;background:" + (a.isLive ? "rgba(244,115,123,.14)" : "rgba(111,168,220,.14)") + ";color:" + (a.isLive ? "#f4737b" : "#6fa8dc")}>${a.isLive ? "LIVE" : "DEMO"}</span>
+                  </div>
+                  <div class="br-note" style="margin-top:2px">#${a.accNum} · eq ${a.equity == null ? "—" : "$" + Number(a.equity).toLocaleString()}</div>
+                </div>
+                ${!a.selected ? html`<button class="br-btn" style="padding:6px 10px" disabled=${busy[0]} onClick=${function () { post({ action: "select", accountRowId: a.id }); }}>Use</button>` : null}
+              </div>
+              ${a.isLive && !a.liveAuthorized ? html`<div style="margin-top:8px;border-radius:10px;padding:9px;background:rgba(244,115,123,.07);border:1px solid rgba(244,115,123,.22)">
+                <div class="br-note" style="color:rgba(232,239,247,.6)">Real money. No order can go out on this account until you authorise live trading.</div>
+                <button class="br-btn sell" style="margin-top:7px;padding:7px 11px" disabled=${busy[0]} onClick=${function () { post({ action: "authorize_live", accountRowId: a.id, confirm: true }); }}>Authorise live trading</button>
+              </div>` : null}
+              ${a.selected ? html`<div style="margin-top:9px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06)">
+                <span class="br-lab">What THE BRAIN may do here</span>
+                <div class="br-acts">${[["ai_break_even", "Break even"], ["ai_protect_stop", "Protect stop"], ["ai_partial", "Partials"], ["ai_close", "Close"]].map(function (kv) {
+                  var on = !!(a.permissions && a.permissions[kv[0]]);
+                  var body = { action: "permissions", accountRowId: a.id }; body[kv[0]] = !on;
+                  return html`<button key=${kv[0]} class=${"br-btn " + (on ? "buy" : "")} style="padding:6px 10px;letter-spacing:0;text-transform:none;font-size:11px"
+                    disabled=${busy[0]} onClick=${function () { post(body); }}>${kv[1]}</button>`;
+                })}</div>
+              </div>` : null}
+            </div>`;
+          })}
+        </div>` : null}
+        <div class="br-b">
+          <span class="br-lab">${accts[0].length ? "Connect another account" : "Connect your account"}</span>
+          ${known[0].length ? html`<div style="margin-bottom:10px">
+            <div class="br-note" style="margin-top:0">Servers you’ve already used on this desk — tap one to fill it in. You still enter the password.</div>
+            <div class="br-acts" style="margin-top:6px">${known[0].map(function (k, i) {
+              return html`<button key=${i} class="br-btn cold" style="padding:6px 10px;letter-spacing:0;text-transform:none;font-size:11px"
+                onClick=${function () { server[1](k.server); email[1](k.email); env[1](k.env === "live" ? "live" : "demo"); err[1](""); }}>${k.server} · ${String(k.env).toUpperCase()}</button>`;
+            })}</div>
+          </div>` : null}
+          <div class="br-acts">${["demo", "live"].map(function (e2) {
+            return html`<button key=${e2} class=${"br-btn " + (env[0] === e2 ? (e2 === "live" ? "sell" : "cold") : "")} style="padding:7px 13px" onClick=${function () { env[1](e2); }}>${e2}</button>`;
+          })}</div>
+          <div style="margin-top:10px">
+            <label style="display:block;margin-bottom:8px"><span class="br-lab">Server</span>
+              <input class="br-in" value=${server[0]} autocapitalize="off" autocorrect="off" onInput=${function (e) { server[1](e.target.value); }} /></label>
+            <label style="display:block;margin-bottom:8px"><span class="br-lab">Email</span>
+              <input class="br-in" type="email" value=${email[0]} autocapitalize="off" onInput=${function (e) { email[1](e.target.value); }} /></label>
+            <label style="display:block"><span class="br-lab">Password</span>
+              <input class="br-in" type="password" value=${pw[0]} onInput=${function (e) { pw[1](e.target.value); }} /></label>
+          </div>
+          <div class="br-note">The server is the broker’s own name for it and the spelling has to match exactly — it is the field most connections fail on. Your password is used once to sign in and is never stored.</div>
+          ${err[0] ? html`<div class="br-note" style="color:#f4737b">${err[0]}</div>` : null}
+          <button class="br-btn gold" style="width:100%;margin-top:10px;padding:13px" disabled=${busy[0] || !ready[0] || !server[0] || !email[0] || !pw[0]}
+            onClick=${function () { post({ action: "connect", env: env[0], server: server[0], email: email[0], password: pw[0] }).then(function (j) { if (j && j.ok) { pw[1](""); } }); }}>
+            ${busy[0] ? "Connecting…" : "Connect"}
+          </button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /* The screen itself. */
+  function BrainScreen(props) {
+    var d = useState(null), err = useState(""), tick = useState(0);
+    var call = useState(false), conn = useState(false), math = useState(false);
+    useEffect(function () {
+      var dead = false;
+      function load() {
+        apiGet("/api/command-center/live").then(function (j) {
+          if (dead || !j) return;
+          if (j.error) { err[1](j.error === "unauthorized" ? "Sign in to open the Command Center." : "The Command Center is not answering."); return; }
+          err[1](""); d[1](j);
+        }).catch(function () {});
+      }
+      load(); var t = setInterval(load, 5000);
+      return function () { dead = true; clearInterval(t); };
+    }, [tick[0]]);
+    function reload() { tick[1](tick[0] + 1); }
+
+    var s = d[0];
+    if (err[0]) return html`<div class="br"><div class="br-card"><div class="br-b"><div class="br-note">${err[0]}</div></div></div></div>`;
+    if (!s) return html`<div class="br"><div class="br-card"><div class="br-b"><div class="br-note">Waking THE BRAIN…</div></div></div></div>`;
+
+    var brain = s.brain || {}, trade = s.trade || {}, lean = brain.lean || 0;
+    var bull = Math.max(3, Math.min(97, Math.round(50 + lean / 2)));
+    var alive = !!s.connected && !!s.marketOpen;
+    var p5 = (s.changes || []).filter(function (c) { return c.horizon === "5m"; })[0];
+    var TFS = ["1d", "4h", "1h", "15m", "5m", "1m"];
+    // The market's events and the position's own events are one timeline, newest first.
+    var stream = (s.events || []).map(function (e) { return { k: e.key, at: e.at, d: e.detail, lean: e.lean, ch: e.channel, tr: false }; })
+      .concat((trade.events || []).map(function (e, i) { return { k: "t" + e.at + i, at: e.at, d: e.detail, lean: "trade", ch: e.channel, tr: true }; }))
+      .sort(function (a, b) { return b.at - a.at; }).slice(0, 30);
+    var loud = (s.statements || [])[0];
+    var loudEv = (s.events || []).filter(function (e) { return e.channel === "urgent" || e.channel === "voice"; })[0];
+    var announce = loud && (!loudEv || loud.at >= loudEv.at)
+      ? { key: "s" + loud.at, text: loud.text, urgent: loud.channel === "urgent" }
+      : (loudEv ? { key: loudEv.key, text: loudEv.detail, urgent: loudEv.channel === "urgent" } : null);
+
+    return html`<div class="br">
+      <div class="br-top">
+        <div>
+          <div class="br-name">COMMAND CENTER <em>XAUUSD</em></div>
+          <div class="br-kick">The BRAIN</div>
+        </div>
+        <div>
+          <div class="br-px">${typeof s.price === "number" ? s.price.toFixed(2) : "—"}</div>
+          <div class="br-sub">
+            ${typeof s.spread === "number" ? "spread " + s.spread.toFixed(2) : "single feed"}
+            ${p5 ? " · " + (p5.priceMove >= 0 ? "+" : "") + p5.priceMove.toFixed(2) + " in 5m" : ""}
+          </div>
+          <div style="text-align:right;margin-top:5px">
+            <span class="br-badge" style=${s.live ? "background:rgba(63,217,160,.12);color:#3fd9a0" : "background:rgba(233,185,73,.12);color:#e9b949"}>
+              ${s.live ? "Live · " + s.ageSeconds + "s" : (s.marketOpen === false ? "Market closed" : "No live read")}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="br-actions">
+        <button class="br-btn" onClick=${function () { conn[1](true); }}>Connect broker</button>
+        <button class="br-btn gold" onClick=${function () { call[1](true); }}>Call trade</button>
+      </div>
+
+      ${(s.blockers && s.blockers.length) || s.reason ? html`<div class="br-card" style="border-color:rgba(233,185,73,.24);background:rgba(233,185,73,.05)">
+        <div class="br-b"><div class="br-note" style="color:rgba(232,239,247,.62)">${(s.blockers && s.blockers[0] && s.blockers[0].detail) || s.reason}</div></div>
+      </div>` : null}
+
+      <div class="br-card">
+        <div class="br-orb">
+          <${BrainOrb} intensity=${brain.intensity || 0} lean=${lean} load=${(s.events || []).length} alive=${alive} size=${168} />
+          <div class="br-pres" style=${alive ? "" : "color:#65748f"}>${BR_PRESENCE[brain.presence] || "OBSERVING"}</div>
+          <div class="br-head">${brain.headline || s.summary || ""}</div>
+        </div>
+        <div class="br-sc"><div class="br-sck" style="color:#65748f">The question</div><div class="br-q">${brain.question || "—"}</div></div>
+        ${(brain.focus || []).length ? html`<div class="br-sc">
+          <div class="br-sck" style="color:#65748f;margin-bottom:5px">What I’m watching</div>
+          ${brain.focus.map(function (f, i) { return html`<div class="br-li" key=${i}><i>${i + 1}.</i>${f}</div>`; })}
+        </div>` : null}
+        <div class="br-sc" style="display:flex;gap:18px">
+          <div><div class="br-sck" style="color:#65748f">Weather</div><div style="font-size:13px;font-weight:800;text-transform:capitalize;margin-top:2px">${brWords(s.weather)}</div></div>
+          <div><div class="br-sck" style="color:#65748f">Velocity</div><div style=${"font-size:13px;font-weight:800;text-transform:capitalize;margin-top:2px;" + (s.velocity === "extreme" || s.velocity === "accelerating" ? "color:#f0c475" : "")}>${brWords(s.velocity)}</div></div>
+        </div>
+      </div>
+
+      ${trade.active ? html`<${BrainTrade} trade=${trade} onChanged=${reload} />` : null}
+
+      ${(trade.unmanaged || []).length ? html`<div class="br-card" style="border-color:rgba(240,196,117,.26);background:rgba(240,196,117,.04)">
+        <div class="br-b">
+          <div class="br-sck" style="color:#f0c475">New XAUUSD position detected</div>
+          <div class="br-scv">A ${trade.unmanaged[0].side === "buy" ? "BUY" : "SELL"} of ${trade.unmanaged[0].qty} lots was opened in TradeLocker. Manage it with THE BRAIN?</div>
+          <div class="br-acts" style="margin-top:8px">${["quick", "intraday", "swing"].map(function (st) {
+            return html`<button key=${st} class="br-btn gold" style="padding:7px 11px" onClick=${function () {
+              apiPost("/api/command-center/trade", { action: "adopt", brokerPositionId: trade.unmanaged[0].brokerPositionId, style: st }).then(reload);
+            }}>${st.toUpperCase()}</button>`;
+          })}</div>
+        </div>
+      </div>` : null}
+
+      <div class="br-card">
+        <div class="br-hd"><div class="br-k">XAUUSD price map</div><div class="br-k">${(s.bars || []).length ? (s.bars.length + " candles") : ""}</div></div>
+        <${BrainMap} bars=${s.bars} levels=${s.levels} price=${s.price} lean=${lean}
+          trade=${trade.active && typeof trade.entry === "number" ? { side: trade.side, entry: trade.entry, stop: trade.stop, takeProfit: trade.takeProfit } : null} />
+      </div>
+
+      <div class="br-card">
+        <div class="br-hd"><div class="br-k">BRAIN thesis</div>${s.thesis ? html`<div class="br-k">since ${brClock(s.thesis.startedAt)}</div>` : null}</div>
+        <div class="br-b">
+          ${s.thesis ? html`
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+              <span style="font-size:16px;font-weight:900;color:#eef3ff">${s.thesis.label}</span>
+              <span class="br-k">${s.thesis.strength} · ${s.thesis.confidence}</span>
+            </div>
+            ${(s.thesis.reasonStarted || []).concat(s.thesis.reasonStrengthened || []).slice(0, 4).map(function (r, i) {
+              return html`<div class="br-scv" key=${i} style="margin-top:3px">— ${r}</div>`;
+            })}
+            ${(s.thesis.reasonWeakened || []).length ? html`<div class="br-note" style="color:#e9b949">Weakening: ${s.thesis.reasonWeakened[s.thesis.reasonWeakened.length - 1]}</div>` : null}
+            ${typeof s.thesis.invalidationPrice === "number" ? html`<div class="br-note" style="color:#f4737b">Wrong at ${s.thesis.invalidationPrice.toFixed(2)}</div>` : null}
+            ${trade.active && trade.thesisState ? html`<div class="br-scv" style="margin-top:9px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06)">
+              <b style="color:#f0c475">TRADE:</b> ${trade.thesisState}${trade.character ? " — " + trade.character.headline : ""}
+            </div>` : null}
+            ${s.previousThesis && s.previousThesis.reasonEnded ? html`<div class="br-note">I changed my read — before this I was on ${String(s.previousThesis.label).toLowerCase()}, until ${s.previousThesis.reasonEnded}.</div>` : null}
+          ` : html`<div class="br-note">No firm read yet.</div>`}
+        </div>
+      </div>
+
+      <div class="br-card">
+        <div class="br-hd"><div class="br-k">Timeframe story</div></div>
+        <div class="br-b">
+          ${TFS.filter(function (tf) { return s.timeframes && s.timeframes[tf]; }).map(function (tf) {
+            var v = s.timeframes[tf];
+            return html`<div class="br-row" key=${tf}>
+              <span class="br-tf">${tf}</span>
+              <span class=${"br-ar " + brTone(v.state)}>${/up/.test(v.state) ? "↑" : /down/.test(v.state) ? "↓" : "→"}</span>
+              <span class=${"br-st " + brTone(v.state)}>${brWords(v.state)}</span>
+              <span class="br-eff">${typeof v.efficiency === "number" ? "eff " + Math.round(v.efficiency * 100) + "%" : ""}</span>
+            </div>`;
+          })}
+          ${s.summary ? html`<div class="br-scv" style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06)">${s.summary}</div>` : null}
+        </div>
+      </div>
+
+      <div class="br-card">
+        <div class="br-hd"><div class="br-k">Who is winning</div></div>
+        <div class="br-b">
+          <div style="display:flex;justify-content:space-between;align-items:flex-end">
+            <div><div class="br-k">Buyers</div><div style="font-size:22px;font-weight:900;color:#3fd9a0;font-variant-numeric:tabular-nums">${bull}</div></div>
+            <div style="text-align:right"><div class="br-k">Sellers</div><div style="font-size:22px;font-weight:900;color:#f4737b;font-variant-numeric:tabular-nums">${100 - bull}</div></div>
+          </div>
+          <div class="br-bar"><span style=${"width:" + bull + "%;background:#3fd9a0"}></span><span style=${"width:" + (100 - bull) + "%;background:#f4737b"}></span></div>
+          ${p5 && Math.abs(p5.pressureTo - p5.pressureFrom) >= 3 ? html`<div class="br-note" style="color:rgba(232,239,247,.55)">
+            ${(p5.pressureTo > p5.pressureFrom ? (p5.pressureTo > 0 ? "Buyers strengthening" : "Sellers easing off") : (p5.pressureFrom > 0 ? "Buyers fading" : "Sellers strengthening"))
+              + " — " + (p5.pressureTo > p5.pressureFrom ? "+" : "") + Math.round(p5.pressureTo - p5.pressureFrom) + " over five minutes."}
+          </div>` : null}
+          <div class="br-note">Estimated from closes, wicks and momentum — not order flow.</div>
+          <button class="br-btn" style="margin-top:8px;padding:7px 11px;letter-spacing:0;text-transform:none;font-size:11px" onClick=${function () { math[1](!math[0]); }}>
+            ${math[0] ? "Hide the math" : "Show me the math"}
+          </button>
+          ${math[0] ? html`<div style="margin-top:8px;border-radius:10px;padding:9px 11px;background:#0e131c">
+            <div class="br-note" style="margin-top:0">pressure ${s.pressure ? s.pressure.bullish + " / " + s.pressure.bearish + " (net " + s.pressure.net + ")" : "—"}</div>
+            <div class="br-note">regime ${brWords(s.regime)} · session ${brWords(s.session)}</div>
+            <div class="br-note">intensity ${s.intensity} · weather ${brWords(s.weather)} · velocity ${brWords(s.velocity)}</div>
+            ${TFS.filter(function (tf) { return s.timeframes && s.timeframes[tf]; }).map(function (tf) {
+              var v = s.timeframes[tf];
+              return html`<div class="br-note" key=${tf}>${tf} rsi ${v.rsi == null ? "—" : Math.round(v.rsi)} · eff ${v.efficiency == null ? "—" : Math.round(v.efficiency * 100) + "%"} · ${brWords(v.sequence)}</div>`;
+            })}
+          </div>` : null}
+        </div>
+      </div>
+
+      ${s.scenario ? html`<div class="br-card">
+        <div class="br-hd"><div class="br-k">Scenario map</div></div>
+        <div class="br-b">
+          <div class="br-sck" style="color:#3fd9a0">Bull path</div><div class="br-scv">${s.scenario.bull}</div>
+          <div class="br-sck" style="color:rgba(232,239,247,.5);margin-top:9px">Neutral</div><div class="br-scv">${s.scenario.neutral}</div>
+          <div class="br-sck" style="color:#f4737b;margin-top:9px">Bear path</div><div class="br-scv">${s.scenario.bear}</div>
+        </div>
+      </div>` : null}
+
+      <${BrainChat} announce=${announce} hasTrade=${!!trade.active} />
+
+      <div class="br-card">
+        <div class="br-hd"><div class="br-k">Intelligence stream</div><div class="br-k">${stream.length} events</div></div>
+        <div class="br-b br-scroll">
+          ${stream.length ? stream.map(function (e) {
+            return html`<div class="br-ev" key=${e.k} style=${"border-color:" + (e.tr ? "#f0c475" : e.lean === "bullish" ? "#3fd9a0" : e.lean === "bearish" ? "#f4737b" : "rgba(255,255,255,.12)")}>
+              <span class="br-evt">${brClock(e.at)}</span>
+              <span class="br-evd" style=${e.ch === "urgent" ? "color:#e9b949" : e.tr ? "color:#eef3ff" : ""}>${e.d}</span>
+            </div>`;
+          }) : html`<div class="br-note">Nothing worth reporting yet. THE BRAIN stays quiet when nothing has changed — that is deliberate.</div>`}
+        </div>
+      </div>
+
+      ${(s.journal || []).length ? html`<div class="br-card">
+        <div class="br-hd"><div class="br-k">Today’s BRAIN</div></div>
+        <div class="br-b br-scroll">
+          ${s.journal.slice().reverse().map(function (j) {
+            return html`<div class="br-ev" key=${j.id} style="border-color:rgba(255,255,255,.1)">
+              <span class="br-evt">${brClock(j.at)}</span>
+              <span class="br-evd"><b style="color:#eef3ff">${j.label}</b> · ${j.confidence}${j.reasonEnded ? html`<br/><span style="color:#65748f">ended — ${j.reasonEnded}</span>` : ""}</span>
+            </div>`;
+          })}
+        </div>
+      </div>` : null}
+
+      <div class="br-foot">
+        THE BRAIN interprets the market. It can place and manage trades only on an account you have connected,
+        only within the permissions you set on it, and never on a live account until you have authorised live
+        trading there. Automatic trading is off unless you switch it on.
+      </div>
+
+      ${call[0] ? html`<${BrainCall} price=${s.price} levels=${s.levels} onClose=${function () { call[1](false); }} onDone=${reload} />` : null}
+      ${conn[0] ? html`<${BrainConnect} onClose=${function () { conn[1](false); }} onChanged=${reload} />` : null}
+    </div>`;
+  }
+
+  /* Opens THE BRAIN inside the app. It used to be a link to the website, which threw the member out to a
+     browser and lost the app around them — exactly the wrong thing to do to somebody mid-trade. */
   function CommandCenterLink() {
-    return html`<a class="cc-open" href="https://weare1mission.com/command-center" target="_blank" rel="noopener">Open THE BRAIN →</a>`;
+    return html`<button class="cc-open" onClick=${function () { if (window.__omGoBrain) window.__omGoBrain(); }}>Open THE BRAIN \u2192</button>`;
   }
   function CommandCenterCard() {
     var st = useState(null);
@@ -5014,7 +5868,9 @@ input{font:inherit}
     // window.__omGoConnect() to jump to FLOW with the TradeLocker connect open.
     useEffect(function () {
       window.__omGoConnect = function () { flowConnect[1](true); window.scrollTo(0, 0); sec[1]("flow"); };
-      return function () { window.__omGoConnect = null; };
+      // THE BRAIN opens INSIDE the app. Nothing here leaves for a browser.
+      window.__omGoBrain = function () { window.scrollTo(0, 0); goFloor("brain"); };
+      return function () { window.__omGoConnect = null; window.__omGoBrain = null; };
     }, []);
     return html`<div class="shell">
       <main class="main">
