@@ -91,7 +91,7 @@ test('the middle of a range produces NO TRADE, with what would change it', () =>
 });
 
 test('every trade style switched off means THE BRAIN has nothing it is allowed to take', () => {
-  const off: SetupProfile = { allowQuick: false, allowIntraday: false, allowSwing: false, minConfidence: 55 };
+  const off: SetupProfile = { allowQuick: false, allowHold: false, allowSwing: false, minConfidence: 55 };
   const out = findSetup({ snapshot: snap(trend(140, 4300, 1.1)), profile: off });
   assert.equal(out.state, 'blocked');
   assert.match(out.say, /switched off/i);
@@ -320,7 +320,7 @@ test('a close request shows as exiting, and outranks everything else about the p
 
 test('a finished trade is shown, then let go', () => {
   const done = {
-    at: Date.now(), side: 'buy' as const, style: 'intraday', pips: 94, r: 1.28, money: 470,
+    at: Date.now(), side: 'buy' as const, style: 'hold', pips: 94, r: 1.28, money: 470,
     mfePips: 121, maePips: -11, heldMs: 38 * M, entry: 4382.4, exit: 4391.8, exitReason: null, say: 'x',
   };
   const fresh = experienceOf({ ...base, completed: done });
@@ -357,13 +357,13 @@ test('a losing trade is described as a losing trade', () => {
 
 test('a winner that kept most of the move says so, and one that gave it back says that instead', () => {
   const kept = completionRead({
-    at: Date.now(), side: 'buy', style: 'intraday', pips: 94, r: 1.3, money: 470,
+    at: Date.now(), side: 'buy', style: 'hold', pips: 94, r: 1.3, money: 470,
     mfePips: 105, maePips: -8, heldMs: 38 * M, entry: 4380, exit: 4389.4, exitReason: null,
   });
   assert.match(kept, /kept most of the move/i);
 
   const gaveBack = completionRead({
-    at: Date.now(), side: 'buy', style: 'intraday', pips: 20, r: 0.3, money: 100,
+    at: Date.now(), side: 'buy', style: 'hold', pips: 20, r: 0.3, money: 100,
     mfePips: 120, maePips: -8, heldMs: 38 * M, entry: 4380, exit: 4382, exitReason: null,
   });
   assert.match(gaveBack, /gave back 100/);
@@ -421,5 +421,54 @@ test('candidates are only produced where the evidence for them exists', () => {
     assert.ok(c.atr > 0, 'a candidate without a real ATR has nothing to size a stop from');
     assert.ok(Number.isFinite(c.shelter), 'a candidate must have a real structural shelter');
     assert.ok(c.reason.length > 10, 'a candidate has to be able to explain itself');
+  }
+});
+
+/* ═══════════════ the three horizons ═══════════════ */
+
+test('a horizon is an opportunity band, and a move is labelled by the band it belongs to', async () => {
+  const { horizonForMove, shortfall, STYLE } = await import('../command-center/core/style');
+  assert.equal(horizonForMove(60), 'quick', '60 pips is a QUICK move');
+  assert.equal(horizonForMove(400), 'hold', '400 pips is a HOLD');
+  assert.equal(horizonForMove(700), 'swing', '700 pips is a SWING');
+  assert.equal(horizonForMove(12), null, 'a twelve-pip move is not any of them');
+
+  // HOLD is open-ended upward, so a large move still qualifies for it when SWING is not allowed.
+  assert.equal(horizonForMove(700, ['quick', 'hold']), 'hold');
+
+  assert.equal(shortfall('quick', 60), 0, 'a move inside the band has no shortfall');
+  assert.ok(shortfall('hold', 100) > 0.6, '100 pips is a long way short of what HOLD is for');
+  assert.equal(STYLE.hold.opportunityPips[1], null, 'HOLD is deliberately open-ended above 300');
+});
+
+test('HOLD decides on the 15-minute and hourly, not the five-minute it used to', async () => {
+  const { STYLE } = await import('../command-center/core/style');
+  assert.deepEqual(STYLE.hold.decisive, ['15m', '1h']);
+  assert.ok(STYLE.hold.context.includes('4h'), 'the four-hour is the frame');
+  assert.ok(STYLE.hold.maxStopPips > STYLE.quick.maxStopPips, 'a 300-pip idea cannot use a 100-pip idea stop');
+  assert.ok(STYLE.hold.noiseFloorPips > STYLE.quick.noiseFloorPips);
+});
+
+test('a style stored under the old name is still read, never silently reinterpreted', async () => {
+  const { styleOf } = await import('../command-center/core/style');
+  assert.equal(styleOf('intraday'), 'hold', 'old rows must keep resolving');
+  assert.equal(styleOf('scalp'), 'quick');
+  assert.equal(styleOf('hold'), 'hold');
+  assert.equal(styleOf(null), 'hold');
+});
+
+test('THE BRAIN refuses to widen a stop to make a small move fit a bigger label', () => {
+  // Walk the recording and assert the invariant everywhere it produced a trade: whatever horizon it
+  // chose, the room it actually found is not wildly short of what that horizon exists for.
+  for (let off = 0; off <= 130; off += 3) {
+    let r;
+    try { r = replay(40, false, off); } catch { continue; }
+    const out = findSetup({ snapshot: r.snapshot, diffs: r.diffs, marketOpen: true, now: r.snapshot.at });
+    if (!out.style || !out.expectedMovePips) continue;
+    const band = STYLE[out.style].opportunityPips[0];
+    assert.ok(
+      out.expectedMovePips[1] >= band * 0.55,
+      `labelled ${out.style} (for ${band}+ pips) with only ${out.expectedMovePips[1]} pips of room — that is stretching a label`,
+    );
   }
 });

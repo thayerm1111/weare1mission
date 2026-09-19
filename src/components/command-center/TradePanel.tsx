@@ -18,9 +18,9 @@ const C = {
 };
 
 const STYLES = [
-  { id: "quick", label: "QUICK", sub: "Fast XAUUSD move.", hint: "1m and 5m decide. Fast to protect, fast to admit failure." },
-  { id: "intraday", label: "INTRADAY", sub: "Session momentum.", hint: "5m and 15m decide, inside this session's structure." },
-  { id: "swing", label: "SWING", sub: "Larger market move.", hint: "1h, 4h and daily decide. Five-minute noise is ignored." },
+  { id: "quick", label: "QUICK", sub: "30–100 pips.", hint: "1m and 5m decide. Fast to protect, fast to admit failure." },
+  { id: "hold", label: "HOLD", sub: "300 pips and up.", hint: "15m and 1h structure decide, with the 4h as the frame." },
+  { id: "swing", label: "SWING", sub: "500–1000 pips.", hint: "1h, 4h and daily decide. Five-minute noise is ignored." },
 ] as const;
 type StyleId = (typeof STYLES)[number]["id"];
 
@@ -66,7 +66,7 @@ export function CallTradeSheet({ price, levels, open, onClose, onDone }: {
   onDone: () => void;
 }) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
-  const [style, setStyle] = useState<StyleId>("intraday");
+  const [style, setStyle] = useState<StyleId>("hold");
   const [risk, setRisk] = useState(0.5);
   const [stop, setStop] = useState("");
   const [target, setTarget] = useState("");

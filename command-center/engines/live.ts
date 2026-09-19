@@ -16,6 +16,7 @@ import { tradeState, emptyTrade, lastCompleted, pendingExecution, type TradeStat
 import { findSetup, noSetup, type BrainSetup } from "./setup";
 import { getProfile, asSetupProfile, DEFAULT_PROFILE, type TradingProfile } from "./profile";
 import { experienceOf, type Experience } from "./experience";
+import { armedFor, type Watch } from "./watch";
 
 /** Beyond this, the read is history rather than the market, and the UI must say so. */
 export const STALE_MS = 5 * 60_000;
@@ -66,6 +67,13 @@ export type LiveState = {
   experience: Experience;
   /** The boundaries THE BRAIN is working inside. */
   profile: TradingProfile;
+  /**
+   * What the member has asked THE BRAIN to watch, still armed.
+   *
+   * Shown so a promise is visible rather than remembered. A member who said "watch the London high" an
+   * hour ago should be able to SEE that it is still armed, and how close it is, without asking.
+   */
+  watches: { id: string; said: string; kind: string; label: string | null; price: number | null; progress: number | null; expiresAt: number | null }[];
 };
 
 const empty = (reason: string, marketIsOpen: boolean): LiveState => ({
@@ -86,6 +94,7 @@ const empty = (reason: string, marketIsOpen: boolean): LiveState => ({
     beyondBreakEven: false, exiting: false, pending: null, completed: null,
   }),
   profile: { ...DEFAULT_PROFILE },
+  watches: [],
 });
 
 export async function liveState(marketIsOpen: boolean, journalSince: Date, userId?: string | null): Promise<LiveState> {
@@ -147,9 +156,9 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
     thesisConfidence: openThesis?.confidence ?? null,
   });
 
-  const [pending, completed] = userId
-    ? await Promise.all([pendingExecution(userId), lastCompleted(userId)])
-    : [null, null];
+  const [pending, completed, watches] = userId
+    ? await Promise.all([pendingExecution(userId), lastCompleted(userId), armedFor(userId)])
+    : [null, null, [] as Watch[]];
 
   const experience = experienceOf({
     setup,
@@ -222,6 +231,10 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
     setup,
     experience,
     profile,
+    watches: watches.map((w) => ({
+      id: w.id, said: w.said, kind: w.kind, label: w.levelLabel,
+      price: w.levelPrice, progress: w.progress, expiresAt: w.expiresAt,
+    })),
   };
 }
 

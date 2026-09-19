@@ -124,6 +124,7 @@ export function replay(steps = 40, withTrade = false, endOffset = 0): ReplayResu
       beyondBreakEven: false, exiting: false, pending: null, completed: null, now: s.at,
     }),
     profile: { ...DEFAULT_PROFILE },
+    watches: [],
   };
 
   return { state, steps: m5All.length - first, endedAt: s.at, snapshot: s, diffs: last.diffs };
@@ -148,7 +149,7 @@ function replayTrade(s: MarketSnapshot, m5: Bar[], diffs: ReturnType<typeof perc
   const swingLow = Math.min(...m5.slice(entryIdx - 20, entryIdx).map((b) => b.l));
   const pipSize = 0.1;
   const pos: LivePosition = {
-    id: "replay", side: "buy", style: "intraday",
+    id: "replay", side: "buy", style: "hold",
     entry: +entryBar.c.toFixed(2), qty: 0.2, initQty: 0.2,
     initStop: +(swingLow - 0.4).toFixed(2), curStop: +(swingLow - 0.4).toFixed(2),
     takeProfit: +(entryBar.c + 14).toFixed(2),

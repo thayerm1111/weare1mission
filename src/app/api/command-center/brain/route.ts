@@ -4,6 +4,9 @@ import { BRAIN_SYSTEM, contextPacket, setupSummaryLines, tradeSummaryLines } fro
 import { findSetup } from "../../../../../command-center/engines/setup";
 import { getProfile, asSetupProfile } from "../../../../../command-center/engines/profile";
 import { marketOpen } from "../../../../../command-center/core/sessions";
+import { classify } from "../../../../../command-center/brain/language";
+import { parseWatch, arm, armedFor, cancelAll } from "../../../../../command-center/engines/watch";
+import { selectedAccount } from "../../../../../command-center/engines/broker";
 import { tradeState } from "../../../../../command-center/engines/tradeLive";
 import { answer as narrate, scenarioOf, marketRead } from "../../../../../command-center/brain/language";
 import { saveStatement } from "../../../../../command-center/adapters/db";
@@ -64,6 +67,13 @@ Only use a marker when the user actually asked to see something. Never explain t
 
 type Turn = { role: "user" | "assistant"; content: string };
 
+/** One sentence, wrapped in the response shape the client expects. */
+const fallbackShape = (text: string): BrainResponse => ({
+  spokenText: text, shortSummary: text.slice(0, 80), marketRead: text,
+  changes: [], focus: [], watchedLevels: [], scenario: null, tradeRead: null,
+  uiActions: [], urgency: "normal", voiceEligible: true, source: "narrator",
+});
+
 export async function POST(req: Request) {
   const supabase = createClient();
   if (!supabase) return json({ error: "not_configured" }, 503);
@@ -103,6 +113,50 @@ export async function POST(req: Request) {
       scenario: null, tradeRead: null, uiActions: [], urgency: "normal", voiceEligible: true, source: "narrator",
     };
     return json(r);
+  }
+
+  /*
+   * MONITORING INSTRUCTIONS ARE HANDLED BEFORE THE MODEL SEES THE TURN.
+   *
+   * "Watch the London high and tell me if the retest fails" is an instruction, not a conversation. It is
+   * parsed, written to the database, and only then confirmed — and if the write fails the member is told
+   * it failed. Routing it through the model first would mean the model could agree to watch something
+   * that was never registered, which is the exact failure this design exists to prevent.
+   */
+  const intent = classify(message).intent;
+
+  if (intent === "unwatch") {
+    const n = await cancelAll(user.id);
+    const text = n
+      ? `Cleared ${n} thing${n === 1 ? "" : "s"} I was watching for you.`
+      : "I wasn't watching anything for you.";
+    return json({ ...fallbackShape(text), uiActions: [] });
+  }
+
+  if (intent === "watch") {
+    const parsed = parseWatch(message, memory.now);
+    if (!parsed) {
+      return json(fallbackShape("I couldn't tell which level you meant. Give me a price, or name it — the London high, yesterday's low, today's high."));
+    }
+    const account = await selectedAccount(user.id);
+    const watch = await arm({
+      userId: user.id,
+      said: message,
+      parsed,
+      accountRowId: account?.id ?? null,
+      positionId: trade.active ? trade.positionId : null,
+      // A spoken request only ever creates an INFORMATIONAL watch. Turning a watch into something that
+      // can act is a separate, authenticated decision — conversation must never widen authority.
+      authority: "informational",
+    });
+    if (!watch) {
+      return json(fallbackShape("I could not register that, so I'm not going to tell you I'm watching it. Try again in a moment."));
+    }
+    const armed = await armedFor(user.id);
+    return json({
+      ...fallbackShape(`${parsed.confirm} It's registered, so it survives you closing this${armed.length > 1 ? `. That's ${armed.length} things I'm watching now` : ""}.`),
+      uiActions: parsed.levelPrice != null ? [{ name: "SHOW_LEVEL", arg: parsed.levelPrice }] : [],
+    });
   }
 
   const key = process.env.ANTHROPIC_API_KEY;

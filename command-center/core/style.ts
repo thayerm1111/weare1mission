@@ -12,11 +12,18 @@
  */
 import type { Mode, Timeframe } from "./types";
 
-export type Style = "quick" | "intraday" | "swing";
-export const STYLES: Style[] = ["quick", "intraday", "swing"];
+export type Style = "quick" | "hold" | "swing";
+export const STYLES: Style[] = ["quick", "hold", "swing"];
+
+/**
+ * INTRADAY was the old name for HOLD, and rows written under it still exist. The alias is permanent, not
+ * transitional: a stored style is a historical fact about a trade that was already managed one way, and
+ * silently reinterpreting old rows would corrupt every performance comparison that reads them.
+ */
+const STYLE_ALIAS: Record<string, Style> = { intraday: "hold", scalp: "quick" };
 
 /** The engine's internal mode vocabulary, so the existing thesis and health code needs no translation. */
-export const STYLE_MODE: Record<Style, Mode> = { quick: "scalp", intraday: "intraday", swing: "swing" };
+export const STYLE_MODE: Record<Style, Mode> = { quick: "scalp", hold: "intraday", swing: "swing" };
 
 export type StylePolicy = {
   label: string;
@@ -55,6 +62,15 @@ export type StylePolicy = {
   characterVotesNeeded: number;
   /** Expected holding time, in words, for the UI. */
   expect: string;
+  /**
+   * The size of move this horizon EXISTS FOR, in pips: [minimum, maximum or null for open-ended].
+   *
+   * This is an opportunity category, never a promise and never a target. Its only job is eligibility: a
+   * setup whose realistic room is nowhere near this band is not this horizon, and the honest response is
+   * to label it correctly or decline it — NOT to stretch a target until the label fits. Doing that is how
+   * a losing QUICK trade gets quietly relabelled a SWING so nobody has to admit the thesis failed.
+   */
+  opportunityPips: [number, number | null];
 };
 
 export const STYLE: Record<Style, StylePolicy> = {
@@ -68,6 +84,7 @@ export const STYLE: Record<Style, StylePolicy> = {
     subtitle: "Fast XAUUSD move.",
     decisive: ["1m", "5m"],
     context: ["15m", "1h"],
+    opportunityPips: [30, 100],
     noiseFloorPips: 12,
     maxStopPips: 60,
     followThroughMs: 20 * 60_000,
@@ -82,25 +99,30 @@ export const STYLE: Record<Style, StylePolicy> = {
   },
 
   /**
-   * INTRADAY — session momentum. The session's own structure is the frame: London and New York highs and
-   * lows, the breakout and its retest. It has to breathe more than QUICK does.
+   * HOLD — session momentum, held for the move rather than the push. Three hundred pips of gold is not
+   * something a five-minute chart can carry you through, so the FIFTEEN-MINUTE and HOURLY structure
+   * decide and the four-hour provides the frame. That is the substantive difference from the old
+   * INTRADAY, which decided on the 5m and was therefore being shaken out of exactly the moves it was
+   * supposed to hold. Its stop is wider to match, because a stop sized for a hundred-pip idea cannot
+   * survive a three-hundred-pip one.
    */
-  intraday: {
-    label: "INTRADAY",
-    subtitle: "Session momentum.",
-    decisive: ["5m", "15m"],
-    context: ["1h", "4h"],
-    noiseFloorPips: 30,
-    maxStopPips: 150,
-    followThroughMs: 2 * 3600_000,
-    stallMs: 4 * 3600_000,
+  hold: {
+    label: "HOLD",
+    subtitle: "Session momentum, held for the move.",
+    decisive: ["15m", "1h"],
+    context: ["4h", "5m"],
+    opportunityPips: [300, null],
+    noiseFloorPips: 40,
+    maxStopPips: 200,
+    followThroughMs: 3 * 3600_000,
+    stallMs: 6 * 3600_000,
     breakEvenR: 0.9,
     partialR: 1.3,
     partialFraction: 0.5,
-    trailAtr: 1.6,
+    trailAtr: 1.8,
     giveBackFraction: 0.45,
     characterVotesNeeded: 3,
-    expect: "Minutes to hours, inside this session.",
+    expect: "Hours. Held through ordinary pullbacks, not through a broken thesis.",
   },
 
   /**
@@ -112,6 +134,7 @@ export const STYLE: Record<Style, StylePolicy> = {
     subtitle: "Larger market move.",
     decisive: ["1h", "4h", "1d"],
     context: ["15m"],
+    opportunityPips: [500, 1000],
     noiseFloorPips: 90,
     maxStopPips: 450,
     followThroughMs: 24 * 3600_000,
@@ -126,8 +149,11 @@ export const STYLE: Record<Style, StylePolicy> = {
   },
 };
 
-export const styleOf = (s: string | null | undefined): Style =>
-  s === "quick" || s === "intraday" || s === "swing" ? s : "intraday";
+export const styleOf = (s: string | null | undefined): Style => {
+  if (s === "quick" || s === "hold" || s === "swing") return s;
+  const alias = s ? STYLE_ALIAS[s] : undefined;
+  return alias ?? "hold";
+};
 
 /**
  * Is this timeframe allowed to end a trade in this style?
@@ -136,3 +162,27 @@ export const styleOf = (s: string | null | undefined): Style =>
  * on a QUICK trade and is not evidence of anything on a SWING one.
  */
 export const decisiveFor = (style: Style, tf: Timeframe): boolean => STYLE[style].decisive.includes(tf);
+
+
+/**
+ * Does the room this setup actually has match what the horizon is FOR?
+ *
+ * Returns the horizon whose opportunity band the move genuinely belongs to, or null when nothing fits.
+ * Used to LABEL a setup honestly rather than to stretch one: if the realistic move is eighty pips, it is
+ * a QUICK trade whatever the higher timeframes are doing, and calling it a HOLD to justify a wider stop
+ * is the exact dishonesty this function exists to prevent.
+ */
+export function horizonForMove(movePips: number, allowed: Style[] = STYLES): Style | null {
+  const fits = allowed.filter((s) => {
+    const [lo, hi] = STYLE[s].opportunityPips;
+    return movePips >= lo && (hi == null || movePips <= hi);
+  });
+  if (fits.length) return fits.sort((a, b) => STYLE[b].opportunityPips[0] - STYLE[a].opportunityPips[0])[0];
+  return null;
+}
+
+/** How far short of its own horizon's band a move is, as a fraction. 0 means it fits. */
+export function shortfall(style: Style, movePips: number): number {
+  const [lo] = STYLE[style].opportunityPips;
+  return movePips >= lo ? 0 : +(1 - movePips / lo).toFixed(2);
+}

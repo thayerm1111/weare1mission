@@ -5460,9 +5460,9 @@ input{font:inherit}
 
         <div class="br-b" style="border-top:1px solid rgba(255,255,255,.06)">
           <span class="br-lab">Trades I may look for</span>
-          ${toggle("QUICK", "Fast momentum. Minutes. 1m and 5m decide, and it fails fast.", "allowQuick", false)}
-          ${toggle("INTRADAY", "Session momentum. Minutes to hours, inside today’s structure.", "allowIntraday", false)}
-          ${toggle("SWING", "Sessions to days, held overnight and through news. Off unless you want that.", "allowSwing", false)}
+          ${toggle("QUICK", "Fast momentum, 30 to 100 pips. 1m and 5m decide, and it fails fast.", "allowQuick", false)}
+          ${toggle("HOLD", "Session momentum, held for the move. 15-minute and hourly structure decide.", "allowHold", false)}
+          ${toggle("SWING", "500 pips and up, held overnight and through news. Off unless you want that.", "allowSwing", false)}
         </div>
 
         <div class="br-b" style="border-top:1px solid rgba(255,255,255,.06)">
@@ -5768,6 +5768,17 @@ input{font:inherit}
           <div class="br-sck" style="color:#65748f;margin-bottom:5px">What I’m watching</div>
           ${brain.focus.map(function (f, i) { return html`<div class="br-li" key=${i}><i>${i + 1}.</i>${f}</div>`; })}
         </div>` : null}
+        ${(s.watches || []).length ? html`<div class="br-sc">
+          <div class="br-sck" style="color:#f0c475;margin-bottom:5px">You asked me to watch</div>
+          ${s.watches.map(function (w) {
+            return html`<div key=${w.id} style="margin-bottom:7px">
+              <div style="font-size:12px;color:rgba(232,239,247,.56)">${w.label || (w.price != null ? Number(w.price).toFixed(2) : String(w.kind).replace(/_/g, " "))}<span style="color:#65748f"> · ${String(w.kind).replace(/_/g, " ")}</span></div>
+              <div style="margin-top:3px;height:3px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,.06)">
+                <div style=${"height:100%;border-radius:999px;background:#f0c475;transition:width .8s cubic-bezier(.22,.9,.24,1);width:" + Math.round((w.progress || 0) * 100) + "%"}></div>
+              </div>
+            </div>`;
+          })}
+        </div>` : null}
         <div class="br-sc" style="display:flex;gap:18px">
           <div><div class="br-sck" style="color:#65748f">Weather</div><div style="font-size:13px;font-weight:800;text-transform:capitalize;margin-top:2px">${brWords(s.weather)}</div></div>
           <div><div class="br-sck" style="color:#65748f">Velocity</div><div style=${"font-size:13px;font-weight:800;text-transform:capitalize;margin-top:2px;" + (s.velocity === "extreme" || s.velocity === "accelerating" ? "color:#f0c475" : "")}>${brWords(s.velocity)}</div></div>
@@ -5789,7 +5800,7 @@ input{font:inherit}
         <div class="br-b">
           <div class="br-sck" style="color:#f0c475">New XAUUSD position detected</div>
           <div class="br-scv">A ${trade.unmanaged[0].side === "buy" ? "BUY" : "SELL"} of ${trade.unmanaged[0].qty} lots was opened in TradeLocker. Manage it with THE BRAIN?</div>
-          <div class="br-acts" style="margin-top:8px">${["quick", "intraday", "swing"].map(function (st) {
+          <div class="br-acts" style="margin-top:8px">${["quick", "hold", "swing"].map(function (st) {
             return html`<button key=${st} class="br-btn gold" style="padding:7px 11px" onClick=${function () {
               apiPost("/api/command-center/trade", { action: "adopt", brokerPositionId: trade.unmanaged[0].brokerPositionId, style: st }).then(reload);
             }}>${st.toUpperCase()}</button>`;

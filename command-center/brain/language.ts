@@ -173,7 +173,7 @@ export function briefing(m: BrainMemory): string {
 
 type Intent =
   | "briefing" | "what_changed" | "why" | "change_mind" | "level" | "thesis_history"
-  | "timeframe" | "trade" | "math" | "scalp" | "swing" | "setup" | "unknown";
+  | "timeframe" | "trade" | "math" | "scalp" | "swing" | "setup" | "watch" | "unwatch" | "unknown";
 
 export function classify(q: string): { intent: Intent; arg: string | null } {
   // People address it by name — "THE BRAIN, talk to me" — so the vocative is stripped before matching.
@@ -185,7 +185,25 @@ export function classify(q: string): { intent: Intent; arg: string | null } {
   if (/what changed|what('s| has) changed|anything change/.test(t)) return { intent: "what_changed", arg: /hour/.test(t) ? "1h" : /fifteen|15/.test(t) ? "15m" : /minute\b/.test(t) && !/five|5/.test(t) ? "1m" : "5m" };
   if (/change your mind|would make you (bearish|bullish)|what would change/.test(t)) return { intent: "change_mind", arg: null };
   if (/why (are|do) you|why bullish|why bearish|why that read|justify/.test(t)) return { intent: "why", arg: null };
-  if (/(what|which) level|show me (that|the) level|watching/.test(t)) return { intent: "level", arg: null };
+  /*
+   * INSTRUCTIONS BEFORE QUESTIONS.
+   *
+   * "Watch the London high" and "what level are you watching" both contain the word watching, and they
+   * are completely different things: one is a promise to make, the other is a question to answer. The
+   * ordering here is the whole distinction, so it is explicit rather than incidental — and the `level`
+   * matcher below no longer claims the bare word "watching", which is what let it swallow instructions.
+   */
+  if (/^(stop|cancel|forget|never mind|drop)\s+(watching|the watch|that watch)|stop watching|cancel the watch/.test(t)) {
+    return { intent: "unwatch", arg: null };
+  }
+  if (/\b(watch|keep an eye on|alert me|notify me|ping me)\b/.test(t) && !/^(what|which|how)\b/.test(t)) {
+    return { intent: "watch", arg: null };
+  }
+  if (/\b(let me know|tell me) (if|when|the moment)\b/.test(t)) return { intent: "watch", arg: null };
+
+  if (/(what|which) level|show me (that|the) level|what are you watching|what'?s on your radar/.test(t)) {
+    return { intent: "level", arg: null };
+  }
   if (/thinking .*(ago|earlier)|what have you thought|today|journal|change(d)? your read/.test(t)) return { intent: "thesis_history", arg: null };
   // Math first: "show me the math" must not be swallowed by the timeframe matcher below.
   if (/show me the math|the numbers|the metrics|the stats/.test(t)) return { intent: "math", arg: null };
@@ -200,7 +218,7 @@ export function classify(q: string): { intent: Intent; arg: string | null } {
   if (/find me a|got a trade|see a (trade|setup|long|short)|any (trade|setup)s?\b|what would you (trade|take|do)|is there a (trade|setup)|should i (buy|sell)|trade idea|give me a (trade|setup)|do you (see|have) (a|any)/.test(t)) {
     const style = /quick|scalp|fast|50.?100|short term/.test(t) ? "quick"
       : /swing|daily|overnight|multi.?day/.test(t) ? "swing"
-      : /intraday|session|today/.test(t) ? "intraday"
+      : /hold|intraday|session|today/.test(t) ? "hold"
       : null;
     return { intent: "setup", arg: style };
   }
@@ -304,7 +322,8 @@ export function answer(question: string, m: BrainMemory, opts?: { setup?: SetupV
         break;
       }
       if (arg && su.style && su.style !== arg) {
-        spoken = `The trade I have is ${su.style === "quick" ? "a QUICK" : su.style === "swing" ? "a SWING" : "an INTRADAY"} one, not ${arg === "quick" ? "a quick" : arg === "swing" ? "a swing" : "an intraday"}. ${su.say}`;
+        const word = (x: string) => (x === "quick" ? "a QUICK" : x === "swing" ? "a SWING" : "a HOLD");
+        spoken = `The trade I have is ${word(su.style ?? "")} one, not ${word(arg).toLowerCase()}. ${su.say}`;
         ui.push({ name: "SHOW_TRADE", arg: null });
         break;
       }
@@ -325,6 +344,23 @@ export function answer(question: string, m: BrainMemory, opts?: { setup?: SetupV
       ui.push({ name: "SHOW_TRADE", arg: null });
       break;
     }
+
+    /*
+     * "Watch the London high and tell me if the retest fails."
+     *
+     * The deterministic narrator NEVER confirms a watch, because it cannot write one — it has no database
+     * handle and it must not imply otherwise. The route arms the watch and replaces this text with the
+     * real confirmation. If the route could not store it, the member is told exactly that, which is the
+     * entire point: "I'll watch it" is a promise, and an unkept promise about monitoring is worse than
+     * no monitoring at all.
+     */
+    case "watch":
+      spoken = "Let me register that properly before I promise it.";
+      break;
+
+    case "unwatch":
+      spoken = "Let me check what I have armed.";
+      break;
 
     case "scalp":
       spoken = s ? `For a scalp I'd be working around ${m.watchedLevels[0] ? px(m.watchedLevels[0].price) : px(s.price)} and I'd want the five minute moving with me, not against me. ${m.thesis?.bias === "range_fade" ? "Inside this range I'd rather fade the edges than chase the middle." : ""}`.trim() : "No live read.";

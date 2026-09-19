@@ -17,7 +17,7 @@ function livePosition(over: Partial<LivePosition> = {}) {
   const { snapshot, diffs } = replay(40, false, 20);
   const entry = snapshot.price - 6;                        // a long that is comfortably onside
   const p: LivePosition = {
-    id: 'p1', side: 'buy', style: 'intraday', entry, qty: 1, initQty: 1,
+    id: 'p1', side: 'buy', style: 'hold', entry, qty: 1, initQty: 1,
     initStop: entry - 4, curStop: entry - 4, takeProfit: null,
     openedAt: snapshot.at - 30 * M, pipSize: 0.1, pipValuePerLot: 10,
     mfePips: 0, maePips: 0, breakEvenAt: null, partials: [],
@@ -84,7 +84,7 @@ test('an invalidation interrupts even inside the quiet window', () => {
 /* ─────────────────────── grading ─────────────────────── */
 
 const baseGrade = (over: Partial<GradeInput> = {}): GradeInput => ({
-  side: 'buy', style: 'intraday', entry: 4380, exit: 4389, pips: 90, r: 1.5,
+  side: 'buy', style: 'hold', entry: 4380, exit: 4389, pips: 90, r: 1.5,
   mfePips: 100, maePips: -10, riskPips: 60, heldMs: 40 * M,
   partials: [], events: [], openedAt: Date.now() - 40 * M, exitReason: null, continuationPips: null,
   ...over,
@@ -104,7 +104,7 @@ test('a loss taken at a sensible stop for the right reason is a CORRECT loss', (
 });
 
 test('a stop inside the style noise floor is called what it is', () => {
-  const pol = STYLE.intraday;
+  const pol = STYLE.hold;
   const tight = Math.round(pol.noiseFloorPips * 0.7);
   const g = gradeTrade(baseGrade({ pips: -tight, r: -1, mfePips: 4, maePips: -tight, riskPips: tight }));
   assert.equal(g.lines.find((l) => l.what === 'Stop')!.mark, 'poor');
@@ -128,15 +128,31 @@ test('reaching 1R and never protecting, then losing, is marked as exactly that',
   assert.match(be.note, /given back for nothing/i);
 });
 
-test('sitting through a character change for an hour is held against the trade', () => {
-  const openedAt = Date.now() - 90 * M;
+test('sitting through a character change for many bars of the deciding chart is held against the trade', () => {
+  // HOLD decides on the 15-minute, so "too long" is measured in 15-minute bars — not in a fraction of a
+  // follow-through window, which was the flaw the QUICK/HOLD/SWING rename exposed.
+  const openedAt = Date.now() - 300 * M;
   const g = gradeTrade(baseGrade({
-    openedAt, heldMs: 90 * M,
-    events: [{ at: openedAt + 20 * M, code: 'TRADE_THESIS_WEAKENING' }],
+    openedAt, heldMs: 300 * M,
+    events: [{ at: openedAt + 60 * M, code: 'TRADE_THESIS_WEAKENING' }],
   }));
   const reacting = g.lines.find((l) => l.what === 'Reacting')!;
   assert.equal(reacting.mark, 'poor');
   assert.match(reacting.note, /warning was there/i);
+
+  // The same lag on a QUICK trade, whose deciding chart is the 1-minute, is far worse still.
+  const quick = gradeTrade(baseGrade({
+    style: 'quick', riskPips: 40, openedAt, heldMs: 300 * M,
+    events: [{ at: openedAt + 60 * M, code: 'TRADE_THESIS_WEAKENING' }],
+  }));
+  assert.equal(quick.lines.find((l) => l.what === 'Reacting')!.mark, 'poor');
+
+  // And a prompt reaction is graded as one, in the horizon's own units.
+  const prompt = gradeTrade(baseGrade({
+    openedAt, heldMs: 300 * M,
+    events: [{ at: openedAt + 270 * M, code: 'TRADE_THESIS_WEAKENING' }],
+  }));
+  assert.equal(prompt.lines.find((l) => l.what === 'Reacting')!.mark, 'excellent');
 });
 
 test('what happened after the exit stays null until it has actually been measured', () => {
@@ -188,7 +204,7 @@ test('the market questions still route where they always did', () => {
 
 test('the answer reports the setup it was given and invents nothing', () => {
   const su: SetupView = {
-    state: 'trade_ready', side: 'buy', style: 'intraday', stop: 4374.94,
+    state: 'trade_ready', side: 'buy', style: 'hold', stop: 4374.94,
     entryLow: 4385.2, entryHigh: 4385.69,
     initialObjective: 4396.79, extendedObjective: 4399.22,
     stopPips: 107, expectedMovePips: [111, 135], confidence: 80,

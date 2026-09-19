@@ -24,7 +24,7 @@
  */
 import type { Level, MarketSnapshot, Side, Timeframe } from "../core/types";
 import { PIP } from "../core/types";
-import { STYLE, STYLES, type Style } from "../core/style";
+import { STYLE, STYLES, horizonForMove, shortfall, type Style } from "../core/style";
 import { toPips } from "../core/instrument";
 import type { Bias, SnapshotDiff } from "../brain/types";
 
@@ -115,18 +115,18 @@ export const noSetup = (say: string, waitingFor: string[] = [], state: SetupStat
 
 export type SetupProfile = {
   allowQuick: boolean;
-  allowIntraday: boolean;
+  allowHold: boolean;
   allowSwing: boolean;
   /** The minimum confidence THE BRAIN must have before it is willing to present a trade at all. */
   minConfidence: number;
 };
 
 export const DEFAULT_SETUP_PROFILE: SetupProfile = {
-  allowQuick: true, allowIntraday: true, allowSwing: true, minConfidence: 55,
+  allowQuick: true, allowHold: true, allowSwing: true, minConfidence: 55,
 };
 
 export const allowsStyle = (p: SetupProfile, s: Style): boolean =>
-  s === "quick" ? p.allowQuick : s === "intraday" ? p.allowIntraday : p.allowSwing;
+  s === "quick" ? p.allowQuick : s === "hold" ? p.allowHold : p.allowSwing;
 
 /* ── reading the snapshot ───────────────────────────────────────────────── */
 
@@ -227,7 +227,7 @@ export function styleFits(s: MarketSnapshot, side: Side, profile: SetupProfile, 
       if (Math.abs(lead.features.velocity) >= 0.5) score += 8;
       if (lead.features.volRatio < 0.8) score -= 22;
     }
-    if (style === "intraday") {
+    if (style === "hold") {
       if (s.minutesIntoSession >= 45) score += 10;
       if (lead.features.efficiency >= 0.3) score += 10;
       if (s.session === "closed") score -= 30;
@@ -245,7 +245,7 @@ export function styleFits(s: MarketSnapshot, side: Side, profile: SetupProfile, 
     const why =
       style === "quick"
         ? `This is momentum on the ${names.join(" and ") || "short"} timeframes, and it is expanding. It should either go quickly or prove itself wrong quickly.`
-        : style === "intraday"
+        : style === "hold"
         ? `The ${names.join(" and ") || "session"} structure is carrying this inside today's session, so it needs room for ordinary pullbacks.`
         : `The ${names.join(", ") || "higher"} timeframes are carrying this, so five-minute noise is not allowed to end it.`;
 
@@ -548,7 +548,7 @@ export function findSetup(i: FindSetupInput): BrainSetup {
   if (!s) return noSetup("I can't see gold right now, so I'm not looking for a trade.", [], "blocked", now);
   if (i.marketOpen === false) return noSetup("Gold is closed. I'll start looking again when it reopens.", [], "blocked", now);
   if (s.blockers.length) return noSetup(`I'm standing down: ${s.blockers[0].detail}`, [], "blocked", now);
-  if (!profile.allowQuick && !profile.allowIntraday && !profile.allowSwing) {
+  if (!profile.allowQuick && !profile.allowHold && !profile.allowSwing) {
     return noSetup("Every trade style is switched off in your profile, so I have nothing I'm allowed to take.", [], "blocked", now);
   }
 
@@ -755,7 +755,7 @@ function priceTheTrade(s: MarketSnapshot, c: Candidate, fit: StyleFit, pipSize: 
 
   // The stop is a real structural shelter plus a fraction of that timeframe's ATR, so ordinary movement
   // does not reach it. Never a round number, never a fixed distance.
-  const pad = c.atr * (fit.style === "quick" ? 0.35 : fit.style === "intraday" ? 0.5 : 0.75);
+  const pad = c.atr * (fit.style === "quick" ? 0.35 : fit.style === "hold" ? 0.5 : 0.75);
   const stop = up ? c.shelter - pad : c.shelter + pad;
   const stopPips = toPips(Math.abs(s.price - stop), pipSize);
 
@@ -797,9 +797,32 @@ function priceTheTrade(s: MarketSnapshot, c: Candidate, fit: StyleFit, pipSize: 
   const toExtended = toPips(Math.abs(extendedObjective - s.price), pipSize);
   const rToInitial = stopPips > 0 ? toInitial / stopPips : 0;
 
+  /*
+   * IS THIS ACTUALLY THAT HORIZON?
+   *
+   * A horizon is an opportunity category. QUICK exists for thirty-to-a-hundred-pip moves, HOLD for three
+   * hundred and up. If the room this setup genuinely has is nowhere near the band, then calling it that
+   * horizon is a lie that then justifies a wider stop — and a wider stop on a smaller idea is how a
+   * losing QUICK trade gets quietly relabelled to avoid admitting the thesis failed.
+   *
+   * So the move is measured against the band and the pairing is REJECTED rather than stretched. When the
+   * move honestly belongs to a different horizon, the refusal says which one.
+   */
+  const short = shortfall(fit.style, toExtended);
+  if (short > 0.45) {
+    const honest = horizonForMove(toExtended);
+    return {
+      ok: false, rank: base - 20,
+      why: honest && honest !== fit.style
+        ? `There is about ${Math.round(toExtended)} pips of room here, which is ${STYLE[honest].label}, not ${article(lab)} ${lab}. I am not going to widen a stop to make it fit the bigger label.`
+        : `${article(lab).replace(/^a/, "A")} ${lab} trade is for ${STYLE[fit.style].opportunityPips[0]} pips and up, and there is only about ${Math.round(toExtended)} pips of room before the next thing in the way. That is not this trade.`,
+      waiting: [`room for a real ${lab.toLowerCase()} move`],
+    };
+  }
+
   // Reward quality ranks a pairing; it does not by itself disqualify one, because the floor above has
   // already removed the trades that were not worth taking.
-  const rank = base + Math.min(14, (rToInitial - 1) * 10);
+  const rank = base + Math.min(14, (rToInitial - 1) * 10) - short * 12;
 
   return { ok: true, c, fit, stop, stopPips, initialObjective, extendedObjective, toInitial, toExtended, rToInitial, rank };
 }

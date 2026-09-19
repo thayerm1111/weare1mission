@@ -64,6 +64,8 @@ type Live = {
   };
   /** The boundaries THE BRAIN is working inside. */
   profile?: ProfileView;
+  /** What the member asked THE BRAIN to watch, still armed. */
+  watches?: { id: string; said: string; kind: string; label: string | null; price: number | null; progress: number | null; expiresAt: number | null }[];
   /** True only for the replay harness, which renders a loud banner. Never set by the live endpoint. */
   replay?: boolean;
 };
@@ -347,6 +349,33 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
                     </li>
                   ))}
                 </ol>
+              </div>
+            )}
+            {/*
+              WHAT YOU ASKED ME TO WATCH.
+              Deliberately separate from WHAT I'M WATCHING above it: that is THE BRAIN's own attention,
+              this is a promise the member made it make. A promise you cannot see is one you have to
+              remember, and the whole point of persisting these is that you should not have to.
+            */}
+            {!!d?.watches?.length && (
+              <div className="border-t px-4 py-3" style={{ borderColor: C.line }}>
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: C.gold }}>
+                  You asked me to watch
+                </p>
+                <ul className="space-y-2">
+                  {d.watches.map((w) => (
+                    <li key={w.id}>
+                      <p className="text-[12px]" style={{ color: C.mut }}>
+                        {w.label ?? (w.price != null ? w.price.toFixed(2) : w.kind.replace(/_/g, " "))}
+                        <span style={{ color: C.mut2 }}> · {w.kind.replace(/_/g, " ")}</span>
+                      </p>
+                      <div className="mt-1 h-[3px] w-full overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
+                        <div className="h-full rounded-full"
+                          style={{ width: `${Math.round((w.progress ?? 0) * 100)}%`, background: C.gold, transition: "width .8s cubic-bezier(.22,.9,.24,1)" }} />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </Panel>

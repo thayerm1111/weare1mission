@@ -55,7 +55,7 @@ export type SetupView = {
 export type ProfileView = {
   riskPct: number;
   allowQuick: boolean;
-  allowIntraday: boolean;
+  allowHold: boolean;
   allowSwing: boolean;
   minConfidence: number;
   allowBreakEven: boolean;
@@ -525,11 +525,11 @@ export function ProfileSheet({ open, profile, onClose, onSaved }: {
           <div>
             <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: C.mut2 }}>Trades I may look for</p>
             <div className="space-y-1.5">
-              <Toggle label="QUICK" hint="Fast momentum. Minutes. 1m and 5m decide, and it fails fast."
+              <Toggle label="QUICK" hint="Fast momentum, 30 to 100 pips. 1m and 5m decide, and it fails fast."
                 value={draft.allowQuick} onChange={(v) => void save({ allowQuick: v })} />
-              <Toggle label="INTRADAY" hint="Session momentum. Minutes to hours, inside today's structure."
-                value={draft.allowIntraday} onChange={(v) => void save({ allowIntraday: v })} />
-              <Toggle label="SWING" hint="Sessions to days, held overnight and through news. Off unless you want that."
+              <Toggle label="HOLD" hint="Session momentum, held for the move. 15-minute and hourly structure decide."
+                value={draft.allowHold} onChange={(v) => void save({ allowHold: v })} />
+              <Toggle label="SWING" hint="500 pips and up, held overnight and through news. Off unless you want that."
                 value={draft.allowSwing} onChange={(v) => void save({ allowSwing: v })} />
             </div>
           </div>

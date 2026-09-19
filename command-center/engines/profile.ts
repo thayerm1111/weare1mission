@@ -22,7 +22,7 @@ import { MAX_RISK_PCT } from "./validator";
 export type TradingProfile = {
   riskPct: number;
   allowQuick: boolean;
-  allowIntraday: boolean;
+  allowHold: boolean;
   allowSwing: boolean;
   minConfidence: number;
   allowBreakEven: boolean;
@@ -42,7 +42,7 @@ export type TradingProfile = {
 export const DEFAULT_PROFILE: TradingProfile = {
   riskPct: 0.5,
   allowQuick: true,
-  allowIntraday: true,
+  allowHold: true,
   allowSwing: false,
   minConfidence: 55,
   allowBreakEven: true,
@@ -59,7 +59,7 @@ export const DEFAULT_PROFILE: TradingProfile = {
 };
 
 type Row = {
-  risk_pct: number; allow_quick: boolean; allow_intraday: boolean; allow_swing: boolean;
+  risk_pct: number; allow_quick: boolean; allow_hold: boolean; allow_swing: boolean;
   min_confidence: number; allow_break_even: boolean; allow_partials: boolean;
   allow_profit_protection: boolean; allow_full_close: boolean; auto_management: boolean;
   auto_entry: boolean; max_daily_loss_pct: number; max_consecutive_losses: number;
@@ -69,7 +69,7 @@ type Row = {
 const fromRow = (r: Row): TradingProfile => ({
   riskPct: Number(r.risk_pct),
   allowQuick: r.allow_quick,
-  allowIntraday: r.allow_intraday,
+  allowHold: r.allow_hold,
   allowSwing: r.allow_swing,
   minConfidence: Number(r.min_confidence),
   allowBreakEven: r.allow_break_even,
@@ -95,7 +95,7 @@ export async function getProfile(userId: string): Promise<TradingProfile> {
 /** The slice of the profile the setup engine needs. Kept narrow so the engine stays pure and testable. */
 export const asSetupProfile = (p: TradingProfile): SetupProfile => ({
   allowQuick: p.allowQuick,
-  allowIntraday: p.allowIntraday,
+  allowHold: p.allowHold,
   allowSwing: p.allowSwing,
   minConfidence: p.minConfidence,
 });
@@ -117,7 +117,7 @@ export async function saveProfile(userId: string, patch: ProfilePatch): Promise<
     user_id: userId,
     risk_pct: clamp(Number(next.riskPct) || 0.5, 0.05, MAX_RISK_PCT),
     allow_quick: !!next.allowQuick,
-    allow_intraday: !!next.allowIntraday,
+    allow_hold: !!next.allowHold,
     allow_swing: !!next.allowSwing,
     min_confidence: Math.round(clamp(Number(next.minConfidence) || 55, 0, 95)),
     allow_break_even: !!next.allowBreakEven,

@@ -24,6 +24,7 @@
  */
 import { db } from "../adapters/db";
 import { STYLE, styleOf, type Style } from "../core/style";
+import { TF_MINUTES } from "../core/types";
 import type { Side } from "../core/types";
 
 export type Mark = "excellent" | "good" | "acceptable" | "poor";
@@ -186,17 +187,26 @@ export function gradeTrade(i: GradeInput): TradeGrade {
   const closedAt = i.openedAt + i.heldMs;
   if (chAt) {
     const lagMin = (closedAt - chAt) / 60_000;
-    // Tightened after grading a real shape: an INTRADAY trade sat through for seventy minutes AFTER the
-    // character changed was coming back "good", because the window was a full follow-through period.
-    // The warning is the point — the window to act on it is a fraction of the trade's patience, not all
-    // of it.
-    const patience = pol.followThroughMs / 60_000;
-    if (lagMin <= patience * 0.15) {
-      push("Reacting", mark("excellent"), `Out ${Math.round(lagMin)} minutes after the character changed. That is what protects profit.`, 12);
-    } else if (lagMin <= patience * 0.5) {
-      push("Reacting", mark("good"), `Closed ${Math.round(lagMin)} minutes after the character changed.`, 5);
+    /*
+     * REACTION TIME IS MEASURED IN BARS OF THE DECIDING CHART, not as a fraction of the trade's patience.
+     *
+     * The first version used the follow-through window, and renaming INTRADAY to HOLD exposed why that
+     * was wrong: HOLD's follow-through is longer, so the same seventy minutes of sitting flipped from
+     * "poor" to "good" purely because a policy number moved. Nothing about the trader's behaviour had
+     * changed, which means the measure was not measuring behaviour.
+     *
+     * Bars of the deciding timeframe is the honest unit. Three bars is reacting; eight is sitting. On a
+     * QUICK trade deciding on the 1-minute that is three minutes; on a SWING deciding on the hourly it is
+     * three hours. Both are the same judgement, correctly scaled.
+     */
+    const barMin = TF_MINUTES[pol.decisive[0]] ?? 5;
+    const bars = lagMin / barMin;
+    if (bars <= 3) {
+      push("Reacting", mark("excellent"), `Out ${Math.round(lagMin)} minutes — about ${bars.toFixed(1)} ${pol.decisive[0]} bars — after the character changed. That is what protects profit.`, 12);
+    } else if (bars <= 8) {
+      push("Reacting", mark("good"), `Closed ${Math.round(lagMin)} minutes after the character changed, inside what a ${pol.label} trade is allowed to take.`, 5);
     } else {
-      push("Reacting", mark("poor"), `The character changed ${Math.round(lagMin)} minutes before this was closed. The warning was there and it was sat through.`, -14);
+      push("Reacting", mark("poor"), `The character changed ${Math.round(lagMin)} minutes — ${Math.round(bars)} ${pol.decisive[0]} bars — before this was closed. The warning was there and it was sat through.`, -14);
     }
   } else {
     push("Reacting", null, "The character never changed while this was open, so there was nothing to react to.", 0);

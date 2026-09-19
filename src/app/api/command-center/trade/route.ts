@@ -177,7 +177,7 @@ export async function POST(req: Request) {
       const saved = await saveProfile(user.id, {
         riskPct: num(p.riskPct) ?? current.riskPct,
         allowQuick: bool(p.allowQuick, current.allowQuick),
-        allowIntraday: bool(p.allowIntraday, current.allowIntraday),
+        allowHold: bool(p.allowHold, current.allowHold),
         allowSwing: bool(p.allowSwing, current.allowSwing),
         minConfidence: num(p.minConfidence) ?? current.minConfidence,
         allowBreakEven: bool(p.allowBreakEven, current.allowBreakEven),

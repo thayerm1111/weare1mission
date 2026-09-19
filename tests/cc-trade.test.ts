@@ -191,7 +191,7 @@ const INST = { contractSize: 100, minLot: 0.01, maxLot: 50, lotStep: 0.01, pipVa
 // is how a test ends up asserting the wrong rejection reason.
 const FIX = snap(series(140, 4300, 0.3));
 const base = (over: Record<string, unknown> = {}) => ({
-  account: ACCOUNT(), snapshot: FIX, side: 'buy' as const, style: 'intraday' as const,
+  account: ACCOUNT(), snapshot: FIX, side: 'buy' as const, style: 'hold' as const,
   entry: null, stop: +(FIX.price - 8).toFixed(2), takeProfit: null, riskPct: 0.5, equity: 10000,
   instrument: INST, pipSize: 0.1, spread: 0.3, openPositions: 0, openRiskPct: 0, origin: 'member' as const,
   ...over,
@@ -278,17 +278,17 @@ test('a style changes WHICH timeframes are allowed to end a trade', () => {
   assert.ok(decisiveFor('quick', '1m'));
   assert.ok(!decisiveFor('swing', '1m'), 'one-minute noise can never end a swing trade');
   assert.ok(decisiveFor('swing', '4h'));
-  assert.ok(STYLE.swing.noiseFloorPips > STYLE.intraday.noiseFloorPips);
-  assert.ok(STYLE.intraday.noiseFloorPips > STYLE.quick.noiseFloorPips);
+  assert.ok(STYLE.swing.noiseFloorPips > STYLE.hold.noiseFloorPips);
+  assert.ok(STYLE.hold.noiseFloorPips > STYLE.quick.noiseFloorPips);
   assert.ok(STYLE.swing.characterVotesNeeded > STYLE.quick.characterVotesNeeded);
   assert.equal(STYLE_MODE.quick, 'scalp');
-  assert.equal(styleOf('nonsense'), 'intraday');
+  assert.equal(styleOf('nonsense'), 'hold');
 });
 
 /* ─────────────────── the live trade ─────────────────── */
 
 const POS = (over: Partial<LivePosition> = {}): LivePosition => ({
-  id: 'p1', side: 'buy', style: 'intraday', entry: 4380, qty: 0.1, initQty: 0.1,
+  id: 'p1', side: 'buy', style: 'hold', entry: 4380, qty: 0.1, initQty: 0.1,
   initStop: 4370, curStop: 4370, takeProfit: 4400, openedAt: NOW - 20 * M,
   pipSize: 0.1, pipValuePerLot: 10, mfePips: 0, maePips: 0, breakEvenAt: null,
   // No invalidation by default: each test states its own, so none of them accidentally start out
@@ -453,10 +453,10 @@ test('a QUICK trade is refused a stop that makes it not quick', () => {
 });
 
 test('each style carries its own ceiling, and they widen in the right order', () => {
-  assert.ok(STYLE.quick.maxStopPips < STYLE.intraday.maxStopPips);
-  assert.ok(STYLE.intraday.maxStopPips < STYLE.swing.maxStopPips);
+  assert.ok(STYLE.quick.maxStopPips < STYLE.hold.maxStopPips);
+  assert.ok(STYLE.hold.maxStopPips < STYLE.swing.maxStopPips);
   // Every style must leave a usable window between its own noise floor and its ceiling.
-  (['quick', 'intraday', 'swing'] as const).forEach((k) => {
+  (['quick', 'hold', 'swing'] as const).forEach((k) => {
     assert.ok(STYLE[k].maxStopPips > STYLE[k].noiseFloorPips * 2,
       `${k} has no room between its noise floor and its stop ceiling`);
   });

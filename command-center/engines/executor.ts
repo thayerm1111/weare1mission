@@ -361,7 +361,7 @@ async function recordPosition(
   pipSize: number | null,
   pipValuePerLot: number | null,
 ): Promise<string | null> {
-  const style = intent?.style ?? "intraday";
+  const style = intent?.style ?? "hold";
   const entry = p.avgPrice ?? 0;
   const stop = p.sl ?? intent?.stop ?? 0;
   const { data, error } = await c().from("cc_positions").upsert({

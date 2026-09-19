@@ -15,8 +15,9 @@ import { buildSnapshot, tradeable } from "../engines/snapshot";
 import { marketOpen } from "../core/sessions";
 import { perceive } from "../brain";
 import { emptyRolling, type Rolling } from "../brain/memory";
-import type { Bar, FeedHealth, Timeframe } from "../core/types";
+import type { Bar, FeedHealth, MarketSnapshot, Timeframe } from "../core/types";
 import { applyFollowUps } from "../engines/grade";
+import { sweep as sweepWatches } from "../engines/watch";
 
 const KEY = process.env.TWELVEDATA_API_KEY ?? "";
 const TICK_MS = Number(process.env.CC_TICK_MS || 20_000);
@@ -86,8 +87,13 @@ async function pass(lastPersistAt: number): Promise<number> {
   // THE BRAIN runs on EVERY tick, not only when a snapshot is persisted. Perception is cheap and
   // deterministic; what it costs is nothing, and what it buys is noticing a change within one tick
   // instead of within a minute.
+  const previousSnapshot = brain.snapshots.length ? brain.snapshots[brain.snapshots.length - 1] : null;
   const pc = perceive({ rolling: brain, snapshot: snap });
   brain = pc.rolling;
+
+  // Promises kept before anything else is persisted: a member who asked to be told about a level cares
+  // about that far more than about this tick's snapshot row.
+  await keepPromises(snap, previousSnapshot);
 
   if (pc.events.length) {
     await saveEvents(pc.events);
@@ -128,6 +134,37 @@ async function secondLook(price: number): Promise<void> {
     if (n) log(`graded the aftermath of ${n} finished trade${n === 1 ? "" : "s"}`);
   } catch (e) {
     log("follow-up error (loop continues)", e instanceof Error ? e.message.slice(0, 160) : e);
+  }
+}
+
+/**
+ * PERSISTENT MONITORING INSTRUCTIONS.
+ *
+ * Everything a member asked THE BRAIN to watch is checked here, against the same snapshot every other
+ * decision uses, on every pass. This is what makes "watch the London high and tell me if the retest
+ * fails" survive a closed browser — the promise lives in the database and is kept by a process the
+ * member never sees.
+ *
+ * A fired watch becomes a BRAIN statement, so it reaches the stream and the voice through exactly the
+ * same path as everything else THE BRAIN says. There is no second notification channel to get out of
+ * sync with the first.
+ */
+async function keepPromises(snap: MarketSnapshot, previous: MarketSnapshot | null): Promise<void> {
+  try {
+    const fired = await sweepWatches(snap, previous);
+    for (const f of fired) {
+      await saveStatement({
+        at: Date.now(),
+        kind: "observation",
+        text: f.detail,
+        channel: f.watch.notify === "urgent" ? "urgent" : f.watch.notify === "stream" ? "text" : "voice",
+        priceAt: snap.price,
+        thesisId: null,
+      });
+      log(`watch fired · ${f.watch.kind} · ${f.detail}`);
+    }
+  } catch (e) {
+    log("watch sweep error (loop continues)", e instanceof Error ? e.message.slice(0, 160) : e);
   }
 }
 
