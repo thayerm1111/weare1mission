@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { marketOpen } from "../../../../../command-center/core/sessions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,8 +27,18 @@ export async function GET() {
   const admin = createAdminClient();
   if (!admin) return json({ error: "not_configured" }, 503);
 
+  const open = marketOpen(Date.now());
+
   const { data } = await admin.from("cc_snapshots").select("*").order("at", { ascending: false }).limit(1).maybeSingle();
-  if (!data) return json({ live: false, reason: "The Command Center has not written a market read yet." });
+  if (!data) {
+    return json({
+      live: false,
+      open,
+      reason: open
+        ? "The Command Center has not written a market read yet."
+        : "Gold is closed for the weekend. The Command Center resumes when the market reopens.",
+    });
+  }
 
   const r = data as Record<string, unknown>;
   const at = Date.parse(String(r.at));
@@ -36,10 +47,17 @@ export async function GET() {
   const warnings = (r.warnings as string[] | null) ?? [];
 
   // A read older than five minutes is history, not the market. Say so rather than showing it as live.
+  // Over the weekend that is expected, not a fault, and the member is told which it is.
   const stale = ageMs > 5 * 60_000;
 
   return json({
     live: !stale,
+    open,
+    reason: stale
+      ? (open
+          ? `The last market read was ${Math.round(ageMs / 60_000)} minutes ago.`
+          : "Gold is closed. This is the last read before the close.")
+      : undefined,
     ageSeconds: Math.round(ageMs / 1000),
     at: r.at,
     version: r.snapshot_version,
@@ -58,6 +76,6 @@ export async function GET() {
     }])),
     levels: r.levels ?? [],
     feeds: r.feeds ?? [],
-    warnings: stale ? [`Last market read was ${Math.round(ageMs / 60_000)} minutes ago`, ...warnings] : warnings,
+    warnings: stale && open ? [`Last market read was ${Math.round(ageMs / 60_000)} minutes ago`, ...warnings] : warnings,
   });
 }

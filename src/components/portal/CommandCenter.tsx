@@ -14,7 +14,7 @@ import { Activity, AlertTriangle, Gauge, Layers, Radio, Target } from "lucide-re
 type Tf = { state: string; slope: number | null; efficiency: number | null; atr: number | null; rsi: number | null; sequence: string | null; positionInRange: number | null };
 type Level = { price: number; kind: string; label: string; distanceAtr?: number };
 type Snap = {
-  live: boolean; reason?: string; ageSeconds?: number; at?: string; price?: number; bid?: number | null; ask?: number | null;
+  live: boolean; open?: boolean; reason?: string; ageSeconds?: number; at?: string; price?: number; bid?: number | null; ask?: number | null;
   spread?: number | null; session?: string; regime?: string; pressure?: number;
   timeframes?: Record<string, Tf>; levels?: Level[]; warnings?: string[];
 };
@@ -72,7 +72,7 @@ export function CommandCenter({ className = "" }: { className?: string }) {
           )}
           <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold"
             style={{ background: s.live ? `${C.green}1a` : `${C.amber}1a`, color: s.live ? C.green : C.amber }}>
-            <Radio className="h-3 w-3" /> {s.live ? `LIVE · ${s.ageSeconds}s` : "NO LIVE READ"}
+            <Radio className="h-3 w-3" /> {s.live ? `LIVE · ${s.ageSeconds}s` : s.open === false ? "MARKET CLOSED" : "NO LIVE READ"}
           </span>
         </div>
       </div>

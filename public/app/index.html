@@ -4670,7 +4670,17 @@ input{font:inherit}
       return function () { dead = true; clearInterval(t); };
     }, []);
     var s = st[0];
-    if (!s || !s.price) return null;
+    if (!s) return null;
+    if (!s.price) {
+      if (!s.reason) return null;
+      return html`<div class="cc">
+        <div class="cc-h">
+          <div class="cc-t">Command Center</div>
+          <div class="cc-live">${s.open === false ? "Closed" : "No read"}</div>
+        </div>
+        <div class="cc-note" style="margin-top:0">${s.reason}</div>
+      </div>`;
+    }
     function num(v) { return typeof v === "number" ? v.toFixed(2) : "--"; }
     function words(v) { return v ? String(v).replace(/_/g, " ") : "\u2014"; }
     function tone(d) {
@@ -4688,7 +4698,7 @@ input{font:inherit}
     return html`<div class="cc">
       <div class="cc-h">
         <div class="cc-t">Command Center</div>
-        <div class=${"cc-live" + (s.live ? " on" : "")}>${s.live ? "Live" : "Stale"}</div>
+        <div class=${"cc-live" + (s.live ? " on" : "")}>${s.live ? "Live" : s.open === false ? "Closed" : "Stale"}</div>
       </div>
       <div class="cc-px">$${num(s.price)}</div>
       <div class="cc-sub">${s.bid ? "Bid " + num(s.bid) : ""}${s.ask ? " · Ask " + num(s.ask) : ""}${typeof s.spread === "number" ? " · Spread " + s.spread.toFixed(2) : ""}</div>
@@ -4720,6 +4730,7 @@ input{font:inherit}
         })}
       </div>` : null}
 
+      ${!s.live && s.reason ? html`<div class="cc-warn">${s.reason}</div>` : null}
       ${warns.map(function (w, i) { return html`<div class="cc-warn" key=${i}>${w}</div>`; })}
 
       <div class="cc-foot">Observation only — the Command Center is not authorised to place or manage trades yet.</div>
