@@ -5,6 +5,8 @@ import { findSetup } from "../../../../../command-center/engines/setup";
 import { getProfile, asSetupProfile } from "../../../../../command-center/engines/profile";
 import { marketOpen } from "../../../../../command-center/core/sessions";
 import { classify } from "../../../../../command-center/brain/language";
+import { lookBack, retrospectiveLines, isRetrospective } from "../../../../../command-center/engines/history";
+import { GOLD_KNOWLEDGE, wantsDomainKnowledge } from "../../../../../command-center/brain/gold";
 import { parseWatch, arm, armedFor, cancelAll } from "../../../../../command-center/engines/watch";
 import { selectedAccount } from "../../../../../command-center/engines/broker";
 import { tradeState } from "../../../../../command-center/engines/tradeLive";
@@ -174,10 +176,25 @@ export async function POST(req: Request) {
   }
 
   const packet = contextPacket(memory, { tradeSummary, setupSummary });
+
+  /*
+   * THE SAME TWO EXTRA SOURCES THE SPOKEN PATH GETS.
+   *
+   * The typed console and the voice line are two surfaces onto one intelligence, so a question about
+   * last week must not be answerable in one and refused in the other. Both are attached only when the
+   * question earned them: a retrospective costs a market-data call, and the background packet costs
+   * tokens on every turn that does not need it.
+   */
+  const [past, background] = await Promise.all([
+    isRetrospective(message) ? lookBack(message) : Promise.resolve(null),
+    Promise.resolve(wantsDomainKnowledge(message)),
+  ]);
+  const extra = `${past ? `\n\n${retrospectiveLines(past).join("\n")}` : ""}${background ? `\n\n${GOLD_KNOWLEDGE}` : ""}`;
+
   const history = (body.history ?? []).slice(-8).filter((t) => t && (t.role === "user" || t.role === "assistant") && typeof t.content === "string");
   const messages = [
     ...history.map((t) => ({ role: t.role, content: t.content.slice(0, 1500) })),
-    { role: "user" as const, content: `CONTEXT — everything you can see right now:\n\n${packet}\n\n----\nThe trader says: ${message}` },
+    { role: "user" as const, content: `CONTEXT — everything you can see right now:\n\n${packet}${extra}\n\n----\nThe trader says: ${message}` },
   ];
 
   try {

@@ -73,9 +73,15 @@ test('a spoken instruction is registered before it is confirmed, on the voice pa
   const route = await fs.readFile('command-center/brain/voiceLlm.ts', 'utf8');
   // Watches must be armed by the route, NOT by the language model, or the model could promise to watch
   // something nobody wrote down — and a spoken promise is the easiest of all to believe.
-  const armIdx = route.indexOf('await arm(');
-  const modelIdx = route.indexOf('ANTHROPIC_URL, {');
+  // Scoped to the request handler: a shared streaming helper above it also calls the model, and the
+  // invariant being protected is about the order of work inside a turn, not the order of definitions.
+  const handler = route.slice(route.indexOf('export async function handleVoiceLlm'));
+  const armIdx = handler.indexOf('await arm(');
+  const modelIdx = handler.indexOf('ANTHROPIC_URL, {');
   assert.ok(armIdx > 0 && armIdx < modelIdx, 'instructions are handled before the model is ever called');
+  // And before the market-state routing, or "watch the London high" gets answered as a question
+  // about the London session instead of being written down.
+  assert.ok(armIdx < handler.indexOf('!memory.now && !history'), 'an instruction outranks every other route');
   assert.ok(/authority: "informational"/.test(route), 'and a spoken watch can never be action-authorised');
 });
 

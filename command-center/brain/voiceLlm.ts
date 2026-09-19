@@ -8,6 +8,8 @@ import { answer as narrate } from "./language";
 import { armedFor, parseWatch, arm } from "../engines/watch";
 import { resolveToken, touch } from "../engines/voice";
 import { classify } from "./language";
+import { lookBack, retrospectiveLines, isRetrospective } from "../engines/history";
+import { GOLD_KNOWLEDGE, wantsDomainKnowledge } from "./gold";
 
 
 /**
@@ -90,6 +92,66 @@ const textOf = (c: unknown): string =>
   : Array.isArray(c) ? c.map((p) => (p && typeof p === "object" && "text" in p ? String((p as { text: unknown }).text) : "")).join(" ")
   : "";
 
+/*
+ * SPOKEN ANSWERS ARE SHORT. A written answer can afford a list; a spoken one that reads a dashboard
+ * aloud is unbearable, and a member will stop the session rather than sit through it.
+ */
+const VOICE_RULES = `
+You are speaking OUT LOUD to a trader who can see the screen. Rules for this channel:
+- Two or three sentences by default. Expand only when asked to.
+- Never read a dashboard aloud. Never list more than three things.
+- Say numbers the way a person says them: "forty-two eighty-three", not "4283.00".
+- No markdown, no bullet points, no UI markers — every character is spoken.
+- If they interrupt, answer the new question and drop the old one.`;
+
+/**
+ * Answer from a context packet, streaming.
+ *
+ * Extracted so the no-live-market path is a REAL answer rather than a second-class apology. History
+ * and background do not need a tick, and routing them through the same model call with the same rules
+ * is what stops "gold is closed" from being the answer to every question asked at the weekend.
+ *
+ * `fallback` is what gets said if the model is unreachable — deliberately passed in, because the
+ * deterministic narrator needs a live snapshot and there isn't one on that path.
+ */
+function streamAnswer(packet: string, question: string, fallback: string): Response {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return sse(async function* () { yield `data: ${JSON.stringify(delta(fallback))}\n\n`; });
+
+  return sse(async function* () {
+    const r = await fetch(ANTHROPIC_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: MODEL, max_tokens: 400, stream: true,
+        system: `${BRAIN_SYSTEM}\n${VOICE_RULES}`,
+        messages: [{ role: "user", content: `CONTEXT — everything you can see right now:\n\n${packet}\n\n----\nThe trader says: ${question}` }],
+      }),
+    });
+    if (!r.ok || !r.body) { yield `data: ${JSON.stringify(delta(fallback))}\n\n`; return; }
+
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        try {
+          const evt = JSON.parse(line.slice(5).trim()) as { type?: string; delta?: { type?: string; text?: string } };
+          if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta" && evt.delta.text) {
+            yield `data: ${JSON.stringify(delta(evt.delta.text.replace(/\[\[UI:[^\]]*\]\]/g, "")))}\n\n`;
+          }
+        } catch { /* a partial frame; the next read completes it */ }
+      }
+    }
+  });
+}
+
 export async function handleVoiceLlm(req: Request) {
   // The provider authenticates with a shared secret it holds as its "API key". Without it, this endpoint
   // is a public door into a member's account context.
@@ -153,22 +215,88 @@ export async function handleVoiceLlm(req: Request) {
     armedFor(session.userId),
   ]);
 
-  if (!memory.now) {
+  /*
+   * INSTRUCTIONS ARE HANDLED BEFORE THE MODEL, exactly as they are in the text console.
+   *
+   * "Watch the London high and tell me if the retest fails" must register a real backend task. If it
+   * went through the model, the model could agree out loud to watch something nobody wrote down — and a
+   * spoken promise is the easiest of all to believe and the hardest to check.
+   */
+  const intent = classify(question).intent;
+  if (intent === "watch") {
     /*
-     * NO SNAPSHOT HAS TWO CAUSES AND THEY ARE NOT THE SAME SENTENCE.
+     * HANDLED BEFORE ANY OTHER ROUTING, including the no-live-market answer below.
      *
-     * Gold is shut most of the weekend; saying "there's no live read coming through" then describes a
-     * closed market as a broken one, and the person hearing it goes looking for a fault that does not
-     * exist. A closed market is normal and is said as such. A missing feed during trading hours is not,
-     * and is said plainly too — in both cases without inventing a price to fill the gap.
+     * "Watch the London high" is an instruction, and an instruction must reach the backend whatever
+     * else the question might also look like. Left further down, a request to watch a level got
+     * classified as a question about the London session and answered with background reading —
+     * a promise the member would reasonably believe, and nothing written down anywhere.
+     */
+    const parsed = parseWatch(question, memory.now);
+    const spoken = !parsed
+      ? (memory.now
+          ? "I couldn't tell which level you meant. Give me a price, or name it — the London high, yesterday's low."
+          : "I can't arm that without a live read on the market — name an exact price and ask me again when gold reopens.")
+      : (await arm({
+          userId: session.userId, said: question, parsed,
+          accountRowId: session.accountRowId, positionId: trade.active ? trade.positionId : null,
+          authority: "informational",
+        }))
+        ? `${parsed.confirm} It's registered, so it survives you closing this.`
+        : "I could not register that, so I'm not going to tell you I'm watching it.";
+    return sse(async function* () { yield `data: ${JSON.stringify(delta(spoken))}\n\n`; });
+  }
+
+  /*
+   * WHAT DOES THIS QUESTION ACTUALLY NEED?
+   *
+   * Everything used to be answered out of one live snapshot, so a closed market silenced the whole
+   * system. Asked what gold did last week — a question about finished history that needs no tick at
+   * all — it replied that the market was shut. Twice. That is not a limitation of the market; it is a
+   * router that never asked what was being requested.
+   *
+   * Three sources, gathered independently: measured history for a question about the past, domain
+   * knowledge for a question about mechanism, and the live snapshot for a question about now. A missing
+   * live read removes only the third.
+   */
+  const [history, needsBackground] = await Promise.all([
+    isRetrospective(question) ? lookBack(question) : Promise.resolve(null),
+    Promise.resolve(wantsDomainKnowledge(question)),
+  ]);
+
+  if (!memory.now && !history && !needsBackground) {
+    /*
+     * Nothing live, nothing historical, nothing conceptual — and only NOW is a refusal honest.
+     *
+     * A closed market is normal and is said as such; a feed missing during trading hours is not, and
+     * is said plainly too. Neither invents a price to fill the gap.
      */
     const open = marketOpen(Date.now());
     const line = open
       ? "I can't see the market right now — the live read isn't coming through, and I won't guess at a price. Everything already running on the server is unaffected."
-      : "Gold is closed right now, so there's nothing live to read. I'll pick it up when the market reopens.";
+      : "Gold is closed right now, so there's nothing live to read. Ask me about last week, or about what moves gold, and I can still help.";
     return sse(async function* () {
       yield `data: ${JSON.stringify(delta(line))}\n\n`;
     });
+  }
+
+  if (!memory.now) {
+    /*
+     * THE INTERESTING CASE: no live market, but a real answer available anyway.
+     *
+     * History and mechanism do not need a tick. What they do need is for the absence of a live read to
+     * be stated rather than papered over, so that nothing measured last Tuesday is mistaken for a
+     * quote from this second.
+     */
+    const open = marketOpen(Date.now());
+    const preamble = open
+      ? "The live feed isn't reaching me at the moment, so nothing below is a current price."
+      : "Gold is closed right now, so nothing below is a current price.";
+    return streamAnswer([
+      preamble,
+      ...(history ? retrospectiveLines(history) : []),
+      ...(needsBackground ? ["", GOLD_KNOWLEDGE] : []),
+    ].join("\n"), question, preamble);
   }
 
   const setup = findSetup({
@@ -180,27 +308,6 @@ export async function handleVoiceLlm(req: Request) {
     thesisConfidence: memory.thesis?.confidence ?? null,
   });
 
-  /*
-   * INSTRUCTIONS ARE HANDLED BEFORE THE MODEL, exactly as they are in the text console.
-   *
-   * "Watch the London high and tell me if the retest fails" must register a real backend task. If it
-   * went through the model, the model could agree out loud to watch something nobody wrote down — and a
-   * spoken promise is the easiest of all to believe and the hardest to check.
-   */
-  const intent = classify(question).intent;
-  if (intent === "watch") {
-    const parsed = parseWatch(question, memory.now);
-    const spoken = !parsed
-      ? "I couldn't tell which level you meant. Give me a price, or name it — the London high, yesterday's low."
-      : (await arm({
-          userId: session.userId, said: question, parsed,
-          accountRowId: session.accountRowId, positionId: trade.active ? trade.positionId : null,
-          authority: "informational",
-        }))
-        ? `${parsed.confirm} It's registered, so it survives you closing this.`
-        : "I could not register that, so I'm not going to tell you I'm watching it.";
-    return sse(async function* () { yield `data: ${JSON.stringify(delta(spoken))}\n\n`; });
-  }
 
   const packet = contextPacket(memory, {
     tradeSummary: trade.active ? tradeSummaryLines(trade) : null,
@@ -211,6 +318,18 @@ export async function handleVoiceLlm(req: Request) {
     ? `\n\n=== WHAT THEY ASKED YOU TO WATCH (still armed) ===\n${watches.map((w) => `- ${w.said} (${w.kind}${w.levelPrice != null ? ` at ${w.levelPrice.toFixed(2)}` : ""})`).join("\n")}`
     : "";
 
+  /*
+   * HISTORY AND BACKGROUND RIDE ALONG WHEN THE QUESTION EARNED THEM.
+   *
+   * Both are attached here rather than folded into the snapshot, because they are a different KIND of
+   * fact and the difference has to survive into the prompt. The measured window is arithmetic over real
+   * bars and may be quoted precisely. The background is mechanism, and may never be used to explain
+   * what is happening right now. A packet that mixed them would invite exactly the confident narration
+   * this system exists to prevent.
+   */
+  const pastLines = history ? `\n\n${retrospectiveLines(history).join("\n")}` : "";
+  const backgroundLines = needsBackground ? `\n\n${GOLD_KNOWLEDGE}` : "";
+
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) {
     // The deterministic narrator is real, grounded output — not a stub pretending to be a model.
@@ -220,18 +339,6 @@ export async function handleVoiceLlm(req: Request) {
       : fallback.spokenText;
     return sse(async function* () { yield `data: ${JSON.stringify(delta(speakable(spoken)))}\n\n`; });
   }
-
-  /*
-   * SPOKEN ANSWERS ARE SHORT. A written answer can afford a list; a spoken one that reads a dashboard
-   * aloud is unbearable, and a member will stop the session rather than sit through it.
-   */
-  const VOICE_RULES = `
-You are speaking OUT LOUD to a trader who can see the screen. Rules for this channel:
-- Two or three sentences by default. Expand only when asked to.
-- Never read a dashboard aloud. Never list more than three things.
-- Say numbers the way a person says them: "forty-two eighty-three", not "4283.00".
-- No markdown, no bullet points, no UI markers — every character is spoken.
-- If they interrupt, answer the new question and drop the old one.`;
 
   return sse(async function* () {
     const r = await fetch(ANTHROPIC_URL, {
@@ -244,7 +351,7 @@ You are speaking OUT LOUD to a trader who can see the screen. Rules for this cha
         system: `${BRAIN_SYSTEM}\n${VOICE_RULES}`,
         messages: [
           ...messages.slice(-6).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: speakable(textOf(m.content)).slice(0, 1200) || "..." })),
-          { role: "user", content: `CONTEXT — everything you can see right now:\n\n${packet}${watchLines}\n\n----\nThe trader says: ${question}` },
+          { role: "user", content: `CONTEXT — everything you can see right now:\n\n${packet}${watchLines}${pastLines}${backgroundLines}\n\n----\nThe trader says: ${question}` },
         ],
       }),
     });
