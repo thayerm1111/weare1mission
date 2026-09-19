@@ -4994,11 +4994,14 @@ input{font:inherit}
 
   function BrainLine(props) {
     var avail = useState(null), status = useState("idle"), err = useState("");
-    var turns = useState([]), muted = useState(false), diag = useState({ sent: 0, back: 0, level: 0 });
+    var turns = useState([]), muted = useState(false), diag = useState({ sent: 0, back: 0, level: 0, peak: 0 });
     var micName = useState(""), devices = useState([]), micId = useState("");
     var ws = useRef(null), actx = useRef(null), stream = useRef(null), node = useRef(null);
     var head = useRef(0), queued = useRef([]), outRate = useRef(16000), inRate = useRef(16000);
     var mutedRef = useRef(false), beat = useRef(null), frames = useRef(0), autoPicked = useRef(false);
+    // The loudest sample this device has ever produced, and whether we have already retried without
+    // the browser's audio processing. A flat meter is ambiguous; an all-time peak of zero is not.
+    var loudest = useRef(0), rawRetry = useRef(false);
 
     useEffect(function () { mutedRef.current = muted[0]; }, [muted[0]]);
     useEffect(function () {
@@ -5039,7 +5042,17 @@ input{font:inherit}
       function attempt() {
         try { node.current && node.current.disconnect(); } catch (e) {} node.current = null;
         try { stream.current && stream.current.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {} stream.current = null;
-        var base = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+        /*
+         * THE BROWSER'S OWN PROCESSING CAN SILENCE A WORKING MICROPHONE.
+         *
+         * Echo cancellation subtracts what it believes is leaving the speakers. When the system's
+         * default output is a virtual device the reference signal is wrong, and it can cancel the room
+         * down to a flat zero. Processing stays on by default because it helps most people; the retry
+         * below turns it off once the evidence says it is the problem.
+         */
+        var base = rawRetry.current
+          ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+          : { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
         if (wanted) base.deviceId = { exact: wanted };
         return Promise.race([
           navigator.mediaDevices.getUserMedia({ audio: base }),
@@ -5084,9 +5097,17 @@ input{font:inherit}
             for (i = 0; i < input.length; i += 16) { var v = Math.abs(input[i]); if (v > peak) peak = v; }
             socket.send(JSON.stringify({ user_audio_chunk: pcm16ToBase64(downsample(input, inRate.current, 16000)) }));
             frames.current += 1;
+            if (peak > loudest.current) loudest.current = peak;
             if (frames.current % 6 === 0) {
-              var p = peak;
-              diag[1](function (d) { return { sent: frames.current, back: d.back, level: Math.max(p, d.level * 0.6) }; });
+              var p = peak, top = loudest.current;
+              diag[1](function (d) { return { sent: frames.current, back: d.back, level: Math.max(p, d.level * 0.6), peak: top }; });
+            }
+            // Eight seconds with an all-time peak of zero is not a quiet room — a quiet room has a
+            // noise floor. Retry once with the processing off, and say why.
+            if (frames.current === 90 && loudest.current < 0.002 && !rawRetry.current) {
+              rawRetry.current = true;
+              err[1]("That microphone produced no sound at all — the browser's echo cancellation can do that when the system output is a virtual device. Turning the processing off and trying again.");
+              if (actx.current && ws.current) attachMic(actx.current, ws.current, micId[0] || undefined);
             }
           };
           source.connect(proc);
@@ -5107,7 +5128,7 @@ input{font:inherit}
     }
 
     function start() {
-      err[1](""); status[1]("connecting"); diag[1]({ sent: 0, back: 0, level: 0 });
+      err[1](""); status[1]("connecting"); diag[1]({ sent: 0, back: 0, level: 0, peak: 0 }); loudest.current = 0;
       var ctx;
       /*
        * THE AUDIO CONTEXT IS CREATED SYNCHRONOUSLY, INSIDE THE TAP.
@@ -5148,7 +5169,7 @@ input{font:inherit}
         };
         socket.onmessage = function (ev) {
           var m; try { m = JSON.parse(String(ev.data)); } catch (e) { return; }
-          diag[1](function (d) { return { sent: d.sent, back: d.back + 1, level: d.level }; });
+          diag[1](function (d) { return { sent: d.sent, back: d.back + 1, level: d.level, peak: d.peak }; });
           var t = String(m.type || "");
           if (t === "conversation_initiation_metadata") {
             var meta = m.conversation_initiation_metadata_event || {};
@@ -5222,9 +5243,9 @@ input{font:inherit}
               <span style=${"display:block;height:100%;border-radius:9px;transition:width .12s linear;width:"
                 + Math.min(100, Math.round(diag[0].level * 180)) + "%;background:" + (diag[0].level > 0.02 ? "#3fd9a0" : "#3d4a5f")}></span>
             </span>
-            <span class="br-note" style="margin:0;font-size:10px">${diag[0].sent} sent · ${diag[0].back} back</span>
+            <span class="br-note" style="margin:0;font-size:10px">${diag[0].sent} sent · ${diag[0].back} back · peak ${(diag[0].peak||0).toFixed(3)}</span>
           </div>
-          ${diag[0].sent > 60 && diag[0].level < 0.01 ? html`<div class="br-note" style="color:#f0c475">
+          ${diag[0].sent > 120 && (diag[0].peak||0) < 0.002 ? html`<div class="br-note" style="color:#f0c475">
             I'm reaching the provider, but ${micName[0] || "the microphone"} is sending pure silence.
           </div>` : null}
           ${devices[0].length > 1 ? html`<select class="br-in" style="width:100%;margin-top:7px" value=${micId[0]}

@@ -244,3 +244,27 @@ test('a token stops working the moment its session ends', async () => {
   // Superseding is what makes this matter for two windows.
   assert.ok(/end_reason: "superseded"/.test(src), 'a second session closes the first');
 });
+
+/*
+ * A WORKING MICROPHONE THAT PRODUCES SILENCE.
+ *
+ * Measured on the machine: the built-in microphone reads 0.086 peak when opened raw, and flat zero
+ * inside the session. The difference is the browser's own audio processing — echo cancellation
+ * subtracts what it believes is leaving the speakers, and when the system's default OUTPUT is a
+ * virtual device that reference is wrong and it can cancel everything down to nothing.
+ */
+test("a track that has never produced a sample is retried without processing", async () => {
+  const fs = await import('node:fs/promises');
+  for (const f of ["src/components/command-center/VoiceSession.tsx", "public/app/index.html"]) {
+    const src = await fs.readFile(f, "utf8");
+    assert.ok(/rawRetry/.test(src), `${f}: the retry exists`);
+    assert.ok(/echoCancellation: false, noiseSuppression: false, autoGainControl: false/.test(src),
+      `${f}: and it turns all three off, not just the obvious one`);
+    assert.ok(/!rawRetry\.current/.test(src), `${f}: once only — a loop would be worse than silence`);
+    // An all-time peak, not an instantaneous level: a quiet room still has a noise floor, so zero
+    // forever is evidence of a dead pipeline rather than of a quiet room.
+    assert.ok(/loudest/.test(src), `${f}: judged on the all-time peak`);
+    assert.ok(/peak \$\{?\(?diag/.test(src) || /peak \{diag\.peak/.test(src),
+      `${f}: and the number is shown, because a flat bar is not evidence`);
+  }
+});

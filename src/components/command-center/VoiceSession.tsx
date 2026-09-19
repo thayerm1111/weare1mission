@@ -115,7 +115,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
    * numbers turn that into a reading: is the microphone producing sound, are we sending it, and is the
    * provider answering. Whichever one is zero is the broken link.
    */
-  const [diag, setDiag] = useState({ sent: 0, received: 0, level: 0 });
+  const [diag, setDiag] = useState({ sent: 0, received: 0, level: 0, peak: 0 });
   /*
    * WHICH MICROPHONE, BY NAME.
    *
@@ -141,9 +141,12 @@ export function VoiceSession({ onUiAction, onStatus }: {
   const pendingBrainId = useRef<string | null>(null);
   const heartbeat = useRef<ReturnType<typeof setInterval> | null>(null);
   const frames = useRef(0);
+  /** The loudest sample this device has ever produced. A flat bar is ambiguous; this is not. */
+  const loudest = useRef(0);
   const micTrack = useRef<MediaStreamTrack | null>(null);
   const chosenMic = useRef<string | null>(null);
   const autoPicked = useRef(false);
+  const rawRetry = useRef(false);
 
   useEffect(() => { mutedRef.current = muted; }, [muted]);
   useEffect(() => { onStatus?.(status); }, [status, onStatus]);
@@ -261,7 +264,20 @@ export function VoiceSession({ onUiAction, onStatus }: {
       try { micStream.current?.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
       micStream.current = null;
 
-      const base: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      /*
+       * THE BROWSER'S OWN AUDIO PROCESSING CAN SILENCE A WORKING MICROPHONE.
+       *
+       * Echo cancellation subtracts what it believes is coming out of the speakers. When the system's
+       * default OUTPUT is a virtual device — which is exactly the machine this happened on — the
+       * reference signal it subtracts is wrong, and it can cancel the room, the speaker and everything
+       * else down to a flat zero. Noise suppression and auto gain can finish the job in a quiet room.
+       *
+       * So processing is the default, because it genuinely helps most people, and `rawRetry` below
+       * turns all of it off once the evidence says it is the problem.
+       */
+      const base: MediaTrackConstraints = rawRetry.current
+        ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+        : { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
       const stream = await Promise.race([
         navigator.mediaDevices.getUserMedia({ audio: wanted ? { ...base, deviceId: { exact: wanted } } : base }),
         new Promise<never>((_, rej) => setTimeout(() => rej(new Error("MIC_TIMEOUT")), MIC_TIMEOUT_MS)),
@@ -315,7 +331,8 @@ export function VoiceSession({ onUiAction, onStatus }: {
       }
 
       frames.current = 0;
-      setDiag((d) => ({ ...d, sent: 0, level: 0 }));
+      loudest.current = 0;
+      setDiag((d) => ({ ...d, sent: 0, level: 0, peak: 0 }));
 
       // Safari suspends the context again behind the permission prompt.
       await ctx.resume().catch(() => {});
@@ -333,8 +350,24 @@ export function VoiceSession({ onUiAction, onStatus }: {
         const pcm = downsample(input, inputRate.current, 16000);
         socket.send(JSON.stringify({ user_audio_chunk: pcm16ToBase64(pcm) }));
         frames.current += 1;
+        if (peak > loudest.current) loudest.current = peak;
         if (frames.current % 6 === 0) {
-          setDiag((d) => ({ ...d, sent: frames.current, level: Math.max(peak, d.level * 0.6) }));
+          setDiag((d) => ({ ...d, sent: frames.current, level: Math.max(peak, d.level * 0.6), peak: loudest.current }));
+        }
+
+        /*
+         * A TRACK THAT HAS NEVER PRODUCED A SAMPLE IS NOT A TRACK THAT IS LISTENING.
+         *
+         * About eight seconds of audio with an all-time peak of zero is not a quiet room — a quiet room
+         * still has a noise floor. It is a dead pipeline, and the most common cause is the processing
+         * above. Retried once, with everything off, and the member is told why rather than being left
+         * to read a flat bar.
+         */
+        if (frames.current === 90 && loudest.current < 0.002 && !rawRetry.current) {
+          rawRetry.current = true;
+          const ctxNow = audioCtx.current, sockNow = ws.current;
+          setError("That microphone produced no sound at all — the browser's echo cancellation can do that when the system output is a virtual device. Turning the processing off and trying again.");
+          if (ctxNow && sockNow) void attachMicrophone(ctxNow, sockNow, chosenMic.current ?? undefined);
         }
       };
       source.connect(node);
@@ -366,7 +399,8 @@ export function VoiceSession({ onUiAction, onStatus }: {
   const start = useCallback(async () => {
     setError(null);
     setStatus("connecting");
-    setDiag({ sent: 0, received: 0, level: 0 });
+    setDiag({ sent: 0, received: 0, level: 0, peak: 0 });
+    loudest.current = 0;
 
     /*
      * THE AUDIO CONTEXT IS CREATED HERE, SYNCHRONOUSLY, BEFORE ANY AWAIT.
@@ -604,7 +638,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
                     style={{ width: `${Math.min(100, Math.round(diag.level * 180))}%`, background: diag.level > 0.02 ? C.up : C.mut2, transition: "width .12s linear" }} />
                 </span>
                 <span className="text-[10px] tabular-nums" style={{ color: C.mut2 }}>
-                  {diag.sent} sent · {diag.received} back
+                  {diag.sent} sent · {diag.received} back · peak {diag.peak.toFixed(3)}
                 </span>
               </div>
               {diag.sent > 40 && diag.received < 2 && (
@@ -618,7 +652,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
                   hardware switch or your sound settings.
                 </p>
               )}
-              {!micMuted && diag.sent > 60 && diag.level < 0.01 && (
+              {!micMuted && diag.sent > 120 && diag.peak < 0.002 && (
                 <p className="mt-1 text-[11px]" style={{ color: C.amber }}>
                   I&#39;m reaching the provider, but {micLabel ?? "the microphone"} is sending pure silence.
                   {devices.length > 1 ? " It's probably the wrong input — pick another below." : " Nothing is arriving from that device."}
