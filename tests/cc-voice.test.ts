@@ -1,0 +1,84 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { availability, MONTHLY_MINUTE_BUDGET, MAX_SESSION_MS, STALE_SESSION_MS } from '../command-center/engines/voice';
+
+/* ─────────────────── configuration is reported, never guessed ─────────────────── */
+
+test('voice reports exactly what is missing rather than a vague no', () => {
+  const saveKey = process.env.ELEVENLABS_API_KEY;
+  const saveAgent = process.env.ELEVENLABS_AGENT_ID;
+  delete process.env.ELEVENLABS_API_KEY;
+  delete process.env.ELEVENLABS_AGENT_ID;
+
+  const none = availability();
+  assert.equal(none.ok, false);
+  if (!none.ok) {
+    assert.deepEqual(none.missing.sort(), ['ELEVENLABS_AGENT_ID', 'ELEVENLABS_API_KEY']);
+    assert.match(none.reason, /text console still works/i, 'a missing provider must not read as a broken product');
+  }
+
+  process.env.ELEVENLABS_API_KEY = 'k';
+  const half = availability();
+  assert.equal(half.ok, false);
+  if (!half.ok) assert.deepEqual(half.missing, ['ELEVENLABS_AGENT_ID']);
+
+  process.env.ELEVENLABS_AGENT_ID = 'agent_1';
+  const full = availability();
+  assert.equal(full.ok, true);
+  if (full.ok) {
+    assert.equal(full.provider, 'elevenlabs');
+    assert.equal(full.agentId, 'agent_1');
+  }
+
+  if (saveKey === undefined) delete process.env.ELEVENLABS_API_KEY; else process.env.ELEVENLABS_API_KEY = saveKey;
+  if (saveAgent === undefined) delete process.env.ELEVENLABS_AGENT_ID; else process.env.ELEVENLABS_AGENT_ID = saveAgent;
+});
+
+/* ─────────────────── the meter has real limits ─────────────────── */
+
+test('a metered feature has a budget, a session cap and a staleness cap', () => {
+  assert.ok(MONTHLY_MINUTE_BUDGET > 0, 'a meter with no limit is not a meter');
+  assert.ok(MAX_SESSION_MS <= 2 * 3600_000, 'an unattended session must not be able to run all day');
+  assert.ok(STALE_SESSION_MS < MAX_SESSION_MS, 'a silent session is reaped long before the hard cap');
+});
+
+/* ─────────────────── the provider never sees a key, and never becomes the brain ─────────────────── */
+
+test('the API key is only ever read server-side', async () => {
+  const fs = await import('node:fs/promises');
+  const client = await fs.readFile('src/components/command-center/VoiceSession.tsx', 'utf8');
+  assert.ok(!/ELEVENLABS_API_KEY/.test(client), 'the speech key must never appear in a client component');
+  assert.ok(!/xi-api-key/i.test(client), 'and neither must the header that carries it');
+  assert.ok(/voiceToken/.test(client), 'the client carries only the short-lived session token');
+});
+
+test('the reasoning endpoint refuses an unauthenticated caller', async () => {
+  const fs = await import('node:fs/promises');
+  const route = await fs.readFile('src/app/api/command-center/voice/llm/route.ts', 'utf8');
+  assert.ok(/CC_VOICE_LLM_SECRET/.test(route), 'it is protected by a shared secret');
+  assert.ok(/status: 401/.test(route), 'and refuses without it');
+  // The whole point of this endpoint: the market read and the position come from OUR engines.
+  assert.ok(/contextPacket/.test(route), 'it answers from the same context the screen uses');
+  assert.ok(/findSetup/.test(route), 'including THE BRAIN\'s own current trade');
+  assert.ok(/resolveToken/.test(route), 'and it identifies the member by token, never by voice');
+});
+
+test('a spoken instruction is registered before it is confirmed, on the voice path too', async () => {
+  const fs = await import('node:fs/promises');
+  const route = await fs.readFile('src/app/api/command-center/voice/llm/route.ts', 'utf8');
+  // Watches must be armed by the route, NOT by the language model, or the model could promise to watch
+  // something nobody wrote down — and a spoken promise is the easiest of all to believe.
+  const armIdx = route.indexOf('await arm(');
+  const modelIdx = route.indexOf('ANTHROPIC_URL, {');
+  assert.ok(armIdx > 0 && armIdx < modelIdx, 'instructions are handled before the model is ever called');
+  assert.ok(/authority: "informational"/.test(route), 'and a spoken watch can never be action-authorised');
+});
+
+test('voice is admin-gated on the server, not in a component', async () => {
+  const fs = await import('node:fs/promises');
+  const route = await fs.readFile('src/app/api/command-center/voice/session/route.ts', 'utf8');
+  assert.ok(/role.*admin|admin.*role/s.test(route), 'the gate reads the profile role');
+  assert.ok(/budget.exhausted/.test(route), 'and the meter is checked before the line opens');
+  const client = await fs.readFile('src/components/command-center/VoiceSession.tsx', 'utf8');
+  assert.ok(/enabled === false/.test(client), 'the component merely renders nothing when told no');
+});

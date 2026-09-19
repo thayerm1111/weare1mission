@@ -18,6 +18,7 @@ import { emptyRolling, type Rolling } from "../brain/memory";
 import type { Bar, FeedHealth, MarketSnapshot, Timeframe } from "../core/types";
 import { applyFollowUps } from "../engines/grade";
 import { sweep as sweepWatches } from "../engines/watch";
+import { reapAbandoned } from "../engines/voice";
 
 const KEY = process.env.TWELVEDATA_API_KEY ?? "";
 const TICK_MS = Number(process.env.CC_TICK_MS || 20_000);
@@ -186,6 +187,11 @@ async function main(): Promise<void> {
       if (Date.now() - lastFollowUp > 5 * 60_000) {
         lastFollowUp = Date.now();
         if (lastPrice != null) await secondLook(lastPrice);
+        // A voice session is a meter. A closed laptop does not close it, so the server does.
+        try {
+          const reaped = await reapAbandoned();
+          if (reaped) log(`closed ${reaped} abandoned voice session${reaped === 1 ? "" : "s"}`);
+        } catch { /* billing hygiene must never stop the market loop */ }
       }
       if (Date.now() - lastPrune > 6 * 3600_000) { await pruneSnapshots(); lastPrune = Date.now(); }
     } catch (e) {
