@@ -313,6 +313,16 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
          */
         socket.send(JSON.stringify({
           type: "conversation_initiation_client_data",
+          /*
+           * The session token travels in BOTH places on purpose.
+           *
+           * `custom_llm_extra_body` is the one that matters: it is the only field the provider forwards
+           * to our reasoning endpoint, where it arrives as `elevenlabs_extra_body` and becomes the
+           * answer to "whose account is this?". `dynamic_variables` never leaves the provider — it
+           * substitutes into their prompt — so a token sent only there is a token the brain never sees,
+           * and the brain then correctly refuses to discuss a position it cannot attribute.
+           */
+          custom_llm_extra_body: { voice_token: j.voiceToken },
           dynamic_variables: { voice_token: j.voiceToken },
         }));
         void ctx.resume().catch(() => {});

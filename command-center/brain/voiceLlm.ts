@@ -49,7 +49,10 @@ type ChatRequest = {
   messages?: ChatMessage[];
   model?: string;
   user_id?: string;
+  user?: string;
   elevenlabs_extra_body?: Record<string, unknown>;
+  extra_body?: Record<string, unknown>;
+  voice_token?: string;
   stream?: boolean;
 };
 
@@ -103,8 +106,19 @@ export async function handleVoiceLlm(req: Request) {
   const last = [...messages].reverse().find((m) => m.role === "user");
   const question = speakable(textOf(last?.content)).slice(0, 2000);
 
-  const extra = body.elevenlabs_extra_body ?? {};
-  const token = String(extra.voice_token ?? extra.voiceToken ?? body.user_id ?? "");
+  /*
+   * WHERE THE TOKEN COMES FROM.
+   *
+   * `elevenlabs_extra_body` is the documented one — what the client sends as `custom_llm_extra_body`
+   * arrives here under that name. The rest are cheap insurance: this is a provider-shaped payload whose
+   * shape is not fully published, and the failure mode of losing the token is not an error message but
+   * THE BRAIN politely declining to discuss the member's own position, which reads like a bug in the
+   * reasoning rather than a missing field.
+   */
+  const extra = { ...(body.extra_body ?? {}), ...(body.elevenlabs_extra_body ?? {}) };
+  const token = String(
+    extra.voice_token ?? extra.voiceToken ?? body.voice_token ?? body.user_id ?? body.user ?? "",
+  );
   const session = await resolveToken(token);
 
   if (!session) {

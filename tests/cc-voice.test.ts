@@ -95,6 +95,22 @@ test('the provider\'s own path is mounted, not just the base one', async () => {
   assert.ok(/handleVoiceLlm/.test(base), 'the base path runs it too, for testing by hand');
 });
 
+/*
+ * THE TOKEN HAS TO TRAVEL IN THE ONE FIELD THAT IS FORWARDED.
+ *
+ * `dynamic_variables` never leaves the provider; only `custom_llm_extra_body` reaches our endpoint,
+ * where it arrives as `elevenlabs_extra_body`. Sent in the wrong field, the line works perfectly and
+ * THE BRAIN refuses every question about the member's own position — a failure that looks like bad
+ * reasoning and is actually a missing key.
+ */
+test('the session token reaches the brain, not just the provider', async () => {
+  const fs = await import('node:fs/promises');
+  const client = await fs.readFile('src/components/command-center/VoiceSession.tsx', 'utf8');
+  assert.ok(/custom_llm_extra_body:\s*\{\s*voice_token/.test(client), 'the token is sent in the forwarded field');
+  const route = await fs.readFile('command-center/brain/voiceLlm.ts', 'utf8');
+  assert.ok(/elevenlabs_extra_body/.test(route), 'and read back out of the name it arrives under');
+});
+
 test('voice is admin-gated on the server, not in a component', async () => {
   const fs = await import('node:fs/promises');
   const route = await fs.readFile('src/app/api/command-center/voice/session/route.ts', 'utf8');
