@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronUp, Maximize2, Pin, PinOff } from "lucide-react";
 import { BrainCore } from "./BrainCore";
-import { VoiceSession } from "./VoiceSession";
+import { VoiceSession, type VoiceStatus } from "./VoiceSession";
 import { isDesktop, onSummoned, openCommandCenter, setAlwaysOnTop, setCompanionSize, followEverywhere } from "@/lib/desktop";
 
 /**
@@ -107,11 +107,31 @@ function oneLine(d: Live | null, booting: boolean): string {
 
 const pip = (n: number) => `${n >= 0 ? "+" : ""}${Math.round(n)}`;
 
+/** §12 — the line's own state, in the companion's vocabulary. */
+const VOICE_WORD: Record<string, string> = {
+  connecting: "CONNECTING", awaiting_mic: "WAITING FOR MIC", listening: "LISTENING",
+  speaking: "SPEAKING", muted: "MUTED", disconnected: "DISCONNECTED", error: "VOICE ERROR",
+};
+const VOICE_TONE: Record<string, string> = {
+  connecting: C.mut2, awaiting_mic: C.amber, listening: C.up,
+  speaking: C.gold, muted: C.amber, disconnected: C.down, error: C.down,
+};
+
 export default function BrainCompanion() {
   const [d, setD] = useState<Live | null>(null);
   const [booting, setBooting] = useState(true);
-  const [pinned, setPinned] = useState(true);
+  /*
+   * ALWAYS ON TOP IS A SETTING, NOT A BEHAVIOUR.
+   *
+   * §4 is explicit that it must not be forced, and a window that quietly reasserts itself over
+   * everything else every time it is reopened is forcing it. The choice is read before the first paint
+   * and written the moment it changes, so it survives a restart the way a setting should.
+   */
+  const [pinned, setPinned] = useState(() => {
+    try { return localStorage.getItem("cc.companion.pinned") !== "0"; } catch { return true; }
+  });
   const [open, setOpen] = useState(false);
+  const [voice, setVoice] = useState<VoiceStatus>("idle");
   const desktop = useMemo(() => isDesktop(), []);
   const lastHeight = useRef(0);
 
@@ -135,6 +155,7 @@ export default function BrainCompanion() {
 
   /* ── always on top, which is the member's choice and not ours ──────────── */
   useEffect(() => {
+    try { localStorage.setItem("cc.companion.pinned", pinned ? "1" : "0"); } catch { /* private window */ }
     if (!desktop) return;
     void setAlwaysOnTop(pinned);
     void followEverywhere(pinned);
@@ -176,8 +197,12 @@ export default function BrainCompanion() {
     >
       {/* Drag handle. On the web it is simply a header; the attribute means nothing outside the shell. */}
       <div data-tauri-drag-region className="flex items-center justify-between gap-2 px-3 pt-2.5 pb-1.5 select-none">
-        <p data-tauri-drag-region className="text-[9.5px] font-bold uppercase tracking-[0.2em]" style={{ color: C.gold }}>
+        <p data-tauri-drag-region className="flex items-baseline gap-2 text-[9.5px] font-bold uppercase tracking-[0.2em]" style={{ color: C.gold }}>
           The Brain
+          {/* The line's own state, reported by the session rather than guessed at from out here. */}
+          {open && voice !== "idle" && (
+            <span style={{ color: VOICE_TONE[voice] ?? C.mut2 }}>{VOICE_WORD[voice] ?? ""}</span>
+          )}
         </p>
         <div className="flex items-center gap-1">
           {desktop && (
@@ -218,6 +243,18 @@ export default function BrainCompanion() {
 
         {/* ── the one line ── */}
         <p className="text-[12px] leading-snug" style={{ color: C.mut }}>{oneLine(d, booting)}</p>
+
+        {/*
+          * THE QUESTION.
+          *
+          * The thing THE BRAIN is actually trying to answer about gold right now, and the most
+          * revealing sentence on the full screen — it says what the system is uncertain about, which
+          * is more useful than any number it is certain of. Shown only while there is a market to be
+          * uncertain about.
+          */}
+        {st.alive && d?.brain?.question && !trade && (
+          <p className="text-[11px] italic leading-snug" style={{ color: C.mut2 }}>{d.brain.question}</p>
+        )}
 
         {/* ── a trade that is running ── */}
         {trade && (
@@ -268,7 +305,7 @@ export default function BrainCompanion() {
 
         {/* ── the voice, which is the point of the companion ── */}
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {open ? <VoiceSession /> : null}
+          {open ? <VoiceSession onStatus={setVoice} /> : null}
         </div>
 
         <button onClick={() => setOpen((o) => !o)}

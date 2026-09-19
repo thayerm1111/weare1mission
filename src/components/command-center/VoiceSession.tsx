@@ -98,7 +98,11 @@ function downsample(input: Float32Array, from: number, to: number): Float32Array
   return out;
 }
 
-export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: string | number | null) => void }) {
+export function VoiceSession({ onUiAction, onStatus }: {
+  onUiAction?: (name: string, arg: string | number | null) => void;
+  /** Reported outward so a host surface can show the line's state without owning it. */
+  onStatus?: (s: VoiceStatus) => void;
+}) {
   const [info, setInfo] = useState<SessionInfo | null>(null);
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -142,6 +146,7 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
   const autoPicked = useRef(false);
 
   useEffect(() => { mutedRef.current = muted; }, [muted]);
+  useEffect(() => { onStatus?.(status); }, [status, onStatus]);
 
   /* ── availability ─────────────────────────────────────────────────────── */
   useEffect(() => {
