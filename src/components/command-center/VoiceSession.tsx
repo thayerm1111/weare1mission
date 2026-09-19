@@ -98,6 +98,18 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
    * provider answering. Whichever one is zero is the broken link.
    */
   const [diag, setDiag] = useState({ sent: 0, received: 0, level: 0 });
+  /*
+   * WHICH MICROPHONE, BY NAME.
+   *
+   * "Check the microphone this browser is using" is advice nobody can act on, because a browser will
+   * not tell you which one it picked and its choice is frequently not the one you are talking into —
+   * a disconnected headset, a webcam across the room, a virtual device from some other app. Naming it
+   * and offering the alternatives turns a dead end into a two-second fix.
+   */
+  const [devices, setDevices] = useState<{ id: string; label: string }[]>([]);
+  const [micLabel, setMicLabel] = useState<string | null>(null);
+  const [micMuted, setMicMuted] = useState(false);
+  const [micId, setMicId] = useState("");
 
   const ws = useRef<WebSocket | null>(null);
   const audioCtx = useRef<AudioContext | null>(null);
@@ -111,6 +123,8 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
   const pendingBrainId = useRef<string | null>(null);
   const heartbeat = useRef<ReturnType<typeof setInterval> | null>(null);
   const frames = useRef(0);
+  const micTrack = useRef<MediaStreamTrack | null>(null);
+  const chosenMic = useRef<string | null>(null);
 
   useEffect(() => { mutedRef.current = muted; }, [muted]);
 
@@ -137,7 +151,14 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
 
   const enqueueAudio = useCallback((b64: string) => {
     const ctx = audioCtx.current;
-    if (!ctx || mutedRef.current) return;
+    /*
+     * MUTED MEANS THE MICROPHONE IS OFF, NOT THAT THE MEMBER HAS GONE DEAF.
+     *
+     * This used to drop every incoming frame while muted, so muting yourself to stop talking also
+     * destroyed everything THE BRAIN said back — each answer arriving, being discarded, and appearing
+     * on screen marked "cut off". Muting your own microphone is not a request to be ignored.
+     */
+    if (!ctx) return;
     const pcm = base64ToPcm16(b64);
     if (!pcm.length) return;
     const buf = ctx.createBuffer(1, pcm.length, outputRate.current);
@@ -196,7 +217,7 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
    * or suppressed — no resolve, no reject, no error event — so without a race there is no moment at
    * which anything can be said to the member. With one, an unanswered prompt becomes a sentence.
    */
-  const attachMicrophone = useCallback(async (ctx: AudioContext, socket: WebSocket) => {
+  const attachMicrophone = useCallback(async (ctx: AudioContext, socket: WebSocket, wanted?: string) => {
     try {
       let already: string | null = null;
       try { already = (await navigator.permissions.query({ name: "microphone" as PermissionName })).state; }
@@ -206,11 +227,48 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
         return;
       }
 
+      // Switching devices mid-session: let go of the old one first, or two tracks stay open and the
+      // browser keeps showing a recording indicator for a microphone nobody is using.
+      try { micNode.current?.disconnect(); } catch { /* noop */ }
+      micNode.current = null;
+      try { micStream.current?.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
+      micStream.current = null;
+
+      const base: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
       const stream = await Promise.race([
-        navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }),
+        navigator.mediaDevices.getUserMedia({ audio: wanted ? { ...base, deviceId: { exact: wanted } } : base }),
         new Promise<never>((_, rej) => setTimeout(() => rej(new Error("MIC_TIMEOUT")), MIC_TIMEOUT_MS)),
       ]);
       micStream.current = stream;
+
+      /*
+       * WHAT DID WE ACTUALLY GET?
+       *
+       * A granted permission is not a working microphone. The browser hands back whichever device it
+       * considers default, and `track.muted` — which has nothing to do with our own mute button — is
+       * the operating system saying that device is producing no samples at all. Both of those are
+       * silent failures that look exactly like the provider ignoring us, so both get named out loud.
+       */
+      const track = stream.getAudioTracks()[0] ?? null;
+      micTrack.current = track;
+      chosenMic.current = track?.getSettings().deviceId ?? wanted ?? null;
+      setMicId(chosenMic.current ?? "");
+      setMicLabel(track?.label || "the default microphone");
+      setMicMuted(Boolean(track?.muted));
+      if (track) {
+        track.onmute = () => setMicMuted(true);
+        track.onunmute = () => setMicMuted(false);
+      }
+      // Labels are only populated once permission has been granted, which is why this happens here and
+      // not when the panel first renders.
+      try {
+        const all = await navigator.mediaDevices.enumerateDevices();
+        setDevices(all.filter((d) => d.kind === "audioinput" && d.deviceId)
+          .map((d) => ({ id: d.deviceId, label: d.label || "Microphone" })));
+      } catch { /* the list is a convenience; its absence is not a failure */ }
+
+      frames.current = 0;
+      setDiag((d) => ({ ...d, sent: 0, level: 0 }));
 
       // Safari suspends the context again behind the permission prompt.
       await ctx.resume().catch(() => {});
@@ -241,7 +299,7 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
       silent.connect(ctx.destination);
 
       setError(null);
-      setStatus("listening");
+      setStatus((st) => (st === "muted" ? st : "listening"));
     } catch (e) {
       const name = e instanceof Error ? e.message || e.name : "";
       setError(
@@ -361,7 +419,15 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
         if (type === "user_transcript") {
           const e = (m.user_transcription_event ?? {}) as { user_transcript?: string };
           const text = (e.user_transcript ?? "").trim();
-          if (!text) return;
+          /*
+           * SILENCE IS TRANSCRIBED, NOT SKIPPED.
+           *
+           * A dead microphone does not produce an empty transcript — it produces "..." or "uh", which
+           * is a turn, which gets a full answer. The screen then fills with the member apparently
+           * saying nothing and THE BRAIN briefing them on it, twice. A turn with no letters or digits
+           * in it is not something anybody said.
+           */
+          if (!/[\p{L}\p{N}]/u.test(text)) return;
           // The member spoke, so whatever THE BRAIN was saying is no longer what matters.
           stopPlayback();
           setStatus("listening");
@@ -401,6 +467,14 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
       teardown("error", "Could not start the voice session.");
     }
   }, [enqueueAudio, stopPlayback, teardown, attachMicrophone]);
+
+  /** Change microphone without dropping the line. The socket and the session are untouched. */
+  const switchMic = useCallback((id: string) => {
+    const ctx = audioCtx.current, socket = ws.current;
+    if (!ctx || !socket) return;
+    setError(null);
+    void attachMicrophone(ctx, socket, id);
+  }, [attachMicrophone]);
 
   void onUiAction;
 
@@ -487,15 +561,41 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
                   Your microphone is reaching me but the speech provider hasn&#39;t answered. That&#39;s their side, not yours.
                 </p>
               )}
-              {diag.sent > 0 && diag.level < 0.01 && (
+              {micMuted && (
                 <p className="mt-1 text-[11px]" style={{ color: C.amber }}>
-                  I&#39;m sending audio but it&#39;s silent — check the microphone this browser is using.
+                  {micLabel ?? "That microphone"} is muted by your system, not by this page — check the
+                  hardware switch or your sound settings.
                 </p>
+              )}
+              {!micMuted && diag.sent > 60 && diag.level < 0.01 && (
+                <p className="mt-1 text-[11px]" style={{ color: C.amber }}>
+                  I&#39;m reaching the provider, but {micLabel ?? "the microphone"} is sending pure silence.
+                  {devices.length > 1 ? " It's probably the wrong input — pick another below." : " Nothing is arriving from that device."}
+                </p>
+              )}
+
+              {/*
+                * The device list, once we are allowed to see it.
+                *
+                * This is the difference between a dead end and a fix. A browser picks an input on the
+                * member's behalf and never says which; when the choice is wrong — an unplugged headset,
+                * a webcam on the far side of the room — every symptom points at the voice system
+                * instead of at a dropdown nobody knew existed.
+                */}
+              {devices.length > 1 && (
+                <select
+                  value={micId}
+                  onChange={(e) => switchMic(e.target.value)}
+                  className="mt-2 w-full rounded-lg px-2 py-1.5 text-[11px]"
+                  style={{ background: C.raised, color: C.mut, border: `1px solid ${C.line}` }}
+                >
+                  {devices.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+                </select>
               )}
             </div>
 
             <div className="mt-3 flex gap-2">
-              <button onClick={() => { setMuted((m) => !m); if (!muted) stopPlayback(); setStatus(muted ? "listening" : "muted"); }}
+              <button onClick={() => { setMuted((m) => !m); setStatus(muted ? "listening" : "muted"); }}
                 className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.12em]"
                 style={{
                   background: muted ? "rgba(233,185,73,0.14)" : "rgba(255,255,255,0.04)",
@@ -511,8 +611,9 @@ export function VoiceSession({ onUiAction }: { onUiAction?: (name: string, arg: 
               </button>
             </div>
             <p className="mt-2 text-[10.5px] leading-relaxed" style={{ color: C.mut2 }}>
-              Muting the microphone stops THE BRAIN talking. It does not stop the market engine, the
-              position manager, or an order already on its way to the broker.
+              Muting stops me hearing you; THE BRAIN still speaks. Cut it off mid-word by talking over it.
+              None of this stops the market engine, the position manager, or an order already on its way
+              to the broker.
             </p>
           </>
         )}

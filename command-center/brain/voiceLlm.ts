@@ -129,9 +129,18 @@ export async function handleVoiceLlm(req: Request) {
 
   void touch(session.sessionId, 1);
 
-  if (!question) {
+  /*
+   * A DEAD MICROPHONE STILL PRODUCES TURNS.
+   *
+   * Speech recognition does not hand back an empty string for silence — it hands back "..." or "uh",
+   * which is a turn, which gets a full market brief spoken back at somebody who never said anything.
+   * It happened twice in a row on a silent input and cost real minutes both times. A turn containing
+   * no letters and no digits is not a question, and answering it is worse than saying nothing.
+   */
+  const saidSomething = /[\p{L}\p{N}]/u.test(question);
+  if (!question || !saidSomething) {
     return sse(async function* () {
-      yield `data: ${JSON.stringify(delta("I'm here."))}\n\n`;
+      yield `data: ${JSON.stringify(delta(question ? "I didn't catch that." : "I'm here."))}\n\n`;
     });
   }
 

@@ -111,6 +111,54 @@ test('the session token reaches the brain, not just the provider', async () => {
   assert.ok(/elevenlabs_extra_body/.test(route), 'and read back out of the name it arrives under');
 });
 
+/*
+ * MUTE IS NOT A REQUEST TO BE IGNORED.
+ *
+ * Playback used to be gated on the mute flag, so muting your own microphone destroyed every answer
+ * THE BRAIN gave — each one arriving, being discarded, and appearing on screen marked "cut off".
+ */
+test('muting the microphone does not silence THE BRAIN', async () => {
+  const fs = await import('node:fs/promises');
+  const client = await fs.readFile('src/components/command-center/VoiceSession.tsx', 'utf8');
+  const enqueue = client.slice(client.indexOf('const enqueueAudio'), client.indexOf('/* ── teardown'));
+  assert.ok(enqueue.length > 0, 'the playback path is where this is decided');
+  assert.ok(!/mutedRef\.current/.test(enqueue), 'playback must not be gated on the microphone being muted');
+  // The send path is the one that respects it.
+  const send = client.slice(client.indexOf('node.onaudioprocess'), client.indexOf('source.connect(node)'));
+  assert.ok(/mutedRef\.current/.test(send), 'muting stops audio leaving, which is what muting means');
+});
+
+/*
+ * SILENCE IS TRANSCRIBED, NOT SKIPPED.
+ *
+ * A dead microphone yields "..." rather than an empty string, and "..." is a turn that earns a full
+ * spoken market brief. Both ends refuse it: the screen does not show it, the brain does not answer it.
+ */
+test('a turn with nothing said in it is not answered', async () => {
+  const fs = await import('node:fs/promises');
+  const route = await fs.readFile('command-center/brain/voiceLlm.ts', 'utf8');
+  assert.ok(/\\p\{L\}/.test(route), 'the endpoint requires a letter or a digit before it reasons');
+  assert.ok(/didn't catch that/.test(route), 'and says so plainly instead of briefing nobody');
+  const client = await fs.readFile('src/components/command-center/VoiceSession.tsx', 'utf8');
+  const transcript = client.slice(client.indexOf('user_transcript'), client.indexOf('agent_response'));
+  assert.ok(/\\p\{L\}/.test(transcript), 'and the transcript is held to the same test before it becomes a turn');
+});
+
+/*
+ * A GRANTED PERMISSION IS NOT A WORKING MICROPHONE.
+ *
+ * The browser picks an input on the member's behalf and never says which. When that choice is wrong,
+ * every symptom points at the voice system instead of at a dropdown nobody knew existed.
+ */
+test('the microphone is named, checked, and changeable', async () => {
+  const fs = await import('node:fs/promises');
+  const client = await fs.readFile('src/components/command-center/VoiceSession.tsx', 'utf8');
+  assert.ok(/enumerateDevices/.test(client), 'the alternatives are offered');
+  assert.ok(/deviceId: \{ exact: wanted \}/.test(client), 'and choosing one re-acquires that exact device');
+  assert.ok(/track\.muted|micMuted/.test(client), 'a system-muted device is reported as such');
+  assert.ok(/setMicLabel/.test(client), 'and the device in use is named rather than described');
+});
+
 test('voice is admin-gated on the server, not in a component', async () => {
   const fs = await import('node:fs/promises');
   const route = await fs.readFile('src/app/api/command-center/voice/session/route.ts', 'utf8');
