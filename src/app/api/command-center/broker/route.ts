@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   connect, disconnect, listForUser, selectAccount, authorizeLive, setPermissions, setAutoTrading,
   session, goldInstrument, syncAccountState, PERMISSION_KEYS, type PermissionKey,
@@ -22,16 +23,48 @@ function json(o: unknown, s = 200) {
   return new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }
 
+/**
+ * Servers this member has already signed into elsewhere on the desk.
+ *
+ * TradeLocker server names are brand strings with no discoverable list and unforgiving spelling —
+ * "GenFX" is not "Genx" — so making somebody retype one from memory is a trap. We surface the ones they
+ * have demonstrably used, with the matching email. NOTHING secret is read: no tokens, no passwords.
+ */
+async function knownServers(userId: string): Promise<{ server: string; email: string; env: string }[]> {
+  const admin = createAdminClient();
+  if (!admin) return [];
+  try {
+    const { data } = await admin
+      .from("flow_broker_connections")
+      .select("server, email, environment, updated_at")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(20);
+    const seen = new Set<string>();
+    const out: { server: string; email: string; env: string }[] = [];
+    for (const r of (data ?? []) as { server: string | null; email: string | null; environment: string | null }[]) {
+      if (!r.server || !r.email) continue;
+      const env = r.environment === "live" ? "live" : "demo";
+      const k = `${r.server.toLowerCase()}|${r.email.toLowerCase()}|${env}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ server: r.server, email: r.email, env });
+    }
+    return out.slice(0, 6);
+  } catch { return []; }
+}
+
 export async function GET() {
   const supabase = createClient();
   if (!supabase) return json({ error: "not_configured" }, 503);
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return json({ error: "unauthorized" }, 401);
 
-  const accounts = await listForUser(user.id);
+  const [accounts, known] = await Promise.all([listForUser(user.id), knownServers(user.id)]);
   return json({
     ok: true,
     accounts,
+    known,
     ready: encryptionAvailable(),
     developerKey: hasDeveloperKey(),
     notice: encryptionAvailable() ? null : "Broker connections are unavailable until an encryption key is configured on the server.",

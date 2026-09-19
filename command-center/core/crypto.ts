@@ -8,19 +8,38 @@
  * The key lives only in the environment (CC_ENC_KEY, 32 bytes base64). It is not in this repository and
  * must never be.
  */
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
 const ALGO = "aes-256-gcm";
 const IV_BYTES = 12;
 
+/**
+ * Where the key comes from, in order:
+ *
+ *   1. CC_ENC_KEY  — the Command Center's own key, when one is provisioned. Preferred: a separate key
+ *                    means a compromise of one subsystem's secret does not open the other's.
+ *   2. FLOW_ENC_KEY — the key the desk already runs on. The Command Center keeps its OWN tables, its own
+ *                    connections and its own code path; sharing the key simply avoids making a member
+ *                    wait on an environment variable to connect an account they have already connected
+ *                    elsewhere. Set CC_ENC_KEY whenever you want them properly separated.
+ *
+ * This reads an environment variable. It does NOT import anything from the desk — the clean-room
+ * boundary is about code, and it still holds.
+ *
+ * Any of the three shapes FLOW accepts works, so the same value can be pasted into either name:
+ * a 32-byte base64 key, a 32-byte hex key, or any passphrase (hashed to 32 bytes).
+ */
 function key(): Buffer | null {
-  const raw = process.env.CC_ENC_KEY ?? "";
+  const raw = (process.env.CC_ENC_KEY || process.env.FLOW_ENC_KEY || "").trim();
   if (!raw) return null;
-  try {
-    const b = Buffer.from(raw, "base64");
-    return b.length === 32 ? b : null;
-  } catch { return null; }
+  try { const b = Buffer.from(raw, "base64"); if (b.length === 32) return b; } catch { /* not base64 */ }
+  try { const h = Buffer.from(raw, "hex"); if (h.length === 32) return h; } catch { /* not hex */ }
+  return createHash("sha256").update(raw, "utf8").digest();
 }
+
+/** Which key is in use, for diagnostics. Never returns the key itself. */
+export const keySource = (): "cc" | "flow" | "none" =>
+  process.env.CC_ENC_KEY ? "cc" : process.env.FLOW_ENC_KEY ? "flow" : "none";
 
 export const encryptionAvailable = (): boolean => key() !== null;
 

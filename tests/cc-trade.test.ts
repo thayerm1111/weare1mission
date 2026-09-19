@@ -5,7 +5,7 @@ import { validate, MAX_RISK_PCT } from '../command-center/engines/validator';
 import { metrics, character, protection, health, tradeFocus, tradeQuestion, tradeRead, type LivePosition } from '../command-center/brain/trade';
 import { STYLE, STYLE_MODE, styleOf, decisiveFor } from '../command-center/core/style';
 import { resolve as resolveInstrument, pipSizeOf, roundQty, roundPrice, toPips } from '../command-center/core/instrument';
-import { seal, open as unseal, maskEmail } from '../command-center/core/crypto';
+import { seal, open as unseal, maskEmail, keySource } from '../command-center/core/crypto';
 import { orderBody, isRejection, parseAccounts, parseInstrumentSpec, findGold, orderIdOf, hasDeveloperKey } from '../command-center/adapters/tradelocker';
 import { stopMoveAllowed } from '../command-center/core/risk';
 import type { Bar, MarketSnapshot } from '../command-center/core/types';
@@ -137,11 +137,39 @@ test('sealed credentials round-trip, and tampering fails closed', () => {
   assert.ok(!sealed!.includes('refresh-token-value'), 'the plaintext is not recoverable by eye');
 });
 
-test('with no key configured, nothing is stored in the clear', () => {
-  const prev = process.env.CC_ENC_KEY;
-  delete process.env.CC_ENC_KEY;
+test('with NO key at all, nothing is stored in the clear', () => {
+  const cc = process.env.CC_ENC_KEY, fl = process.env.FLOW_ENC_KEY;
+  delete process.env.CC_ENC_KEY; delete process.env.FLOW_ENC_KEY;
   assert.equal(seal('secret'), null, 'it refuses rather than storing plaintext');
-  process.env.CC_ENC_KEY = prev;
+  if (cc) process.env.CC_ENC_KEY = cc;
+  if (fl) process.env.FLOW_ENC_KEY = fl;
+});
+
+test('it falls back to the desk key so a member is not blocked on an env var', () => {
+  const cc = process.env.CC_ENC_KEY;
+  delete process.env.CC_ENC_KEY;
+  process.env.FLOW_ENC_KEY = 'a-passphrase-the-desk-already-runs-on';
+  assert.equal(keySource(), 'flow');
+  const sealed = seal('refresh');
+  assert.ok(sealed, 'the fallback key works');
+  assert.equal(unseal(sealed), 'refresh');
+  // Its own key wins when there is one — separate keys are the better arrangement.
+  process.env.CC_ENC_KEY = Buffer.alloc(32, 9).toString('base64');
+  assert.equal(keySource(), 'cc');
+  assert.equal(unseal(sealed), null, 'a blob sealed with the other key does not silently decrypt');
+  if (cc) process.env.CC_ENC_KEY = cc; else delete process.env.CC_ENC_KEY;
+  delete process.env.FLOW_ENC_KEY;
+});
+
+test('any key shape works, so one value can be pasted under either name', () => {
+  const cc = process.env.CC_ENC_KEY;
+  for (const k of [Buffer.alloc(32, 3).toString('base64'), Buffer.alloc(32, 4).toString('hex'), 'just a passphrase']) {
+    process.env.CC_ENC_KEY = k;
+    const sealed = seal('x');
+    assert.ok(sealed, `key shape rejected: ${k.slice(0, 12)}`);
+    assert.equal(unseal(sealed), 'x');
+  }
+  if (cc) process.env.CC_ENC_KEY = cc; else delete process.env.CC_ENC_KEY;
 });
 
 test('an email is masked for display', () => {

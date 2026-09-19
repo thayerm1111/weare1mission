@@ -27,8 +27,11 @@ export type BrokerAccount = {
 const money = (n: number | null | undefined, ccy?: string | null) =>
   n == null ? "—" : `${ccy === "USD" || !ccy ? "$" : ""}${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
+type KnownServer = { server: string; email: string; env: string };
+
 export function BrokerBar({ onAccountChange }: { onAccountChange?: (a: BrokerAccount | null) => void }) {
   const [accounts, setAccounts] = useState<BrokerAccount[]>([]);
+  const [known, setKnown] = useState<KnownServer[]>([]);
   const [ready, setReady] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -46,6 +49,7 @@ export function BrokerBar({ onAccountChange }: { onAccountChange?: (a: BrokerAcc
       if (!r.ok) return;
       const j = await r.json();
       setAccounts(j.accounts ?? []);
+      setKnown(j.known ?? []);
       setReady(j.ready !== false);
       setNotice(j.notice ?? null);
       onAccountChange?.((j.accounts ?? []).find((a: BrokerAccount) => a.selected) ?? (j.accounts ?? [])[0] ?? null);
@@ -190,6 +194,27 @@ export function BrokerBar({ onAccountChange }: { onAccountChange?: (a: BrokerAcc
               <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: C.mut2 }}>
                 {accounts.length ? "Connect another account" : "Connect your account"}
               </p>
+              {known.length > 0 && (
+                <div className="mb-2.5">
+                  <p className="mb-1.5 text-[10.5px] leading-relaxed" style={{ color: C.mut2 }}>
+                    Servers you&rsquo;ve already used on this desk — tap one to fill it in. You still enter the password.
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {known.map((k, i) => (
+                      <button key={i}
+                        onClick={() => { setServer(k.server); setEmail(k.email); setEnv(k.env === "live" ? "live" : "demo"); setError(null); }}
+                        className="rounded-full px-2.5 py-1 text-[10.5px] font-semibold"
+                        style={{
+                          background: "rgba(111,168,220,0.10)", color: C.cold,
+                          border: "1px solid rgba(111,168,220,0.26)",
+                        }}>
+                        {k.server} · {k.env.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="flex gap-1.5">
                 {(["demo", "live"] as const).map((e) => (
                   <button key={e} onClick={() => setEnv(e)}
@@ -214,7 +239,9 @@ export function BrokerBar({ onAccountChange }: { onAccountChange?: (a: BrokerAcc
                 ))}
               </div>
               <p className="mt-2 text-[10.5px] leading-relaxed" style={{ color: C.mut2 }}>
-                Your password is used once to sign in and is never stored. Only the broker&rsquo;s refresh token is kept, encrypted.
+                The server is the broker&rsquo;s own name for it and the spelling has to match exactly — it is the field
+                most connections fail on. Your password is used once to sign in and is never stored; only the
+                broker&rsquo;s refresh token is kept, encrypted.
               </p>
               {error && <p className="mt-2 text-[11.5px]" style={{ color: C.down }}>{error}</p>}
               <button
