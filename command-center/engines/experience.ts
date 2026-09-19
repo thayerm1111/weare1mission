@@ -84,6 +84,20 @@ export type CompletedTrade = {
   exitReason: string | null;
   /** THE BRAIN's account of what happened. Built from the numbers, never from a template. */
   say: string;
+  /**
+   * How it was TRADED, as opposed to how it turned out.
+   *
+   * Optional rather than nullable on purpose: `completionRead` builds its sentence from the raw numbers
+   * alone and must stay callable without a grade, because the grade is written a moment after the report
+   * and the screen has to be able to say something true in between.
+   */
+  grade?: {
+    score: number;
+    verdict: string;
+    lines: { what: string; mark: string | null; note: string }[];
+    lesson: string | null;
+    capture: number | null;
+  } | null;
 };
 
 export type ExperienceInput = {

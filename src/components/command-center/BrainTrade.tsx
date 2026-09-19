@@ -357,6 +357,14 @@ function Stat({ label, value, sub, tone }: { label: string; value?: string | nul
 export type CompletedView = {
   at: number; side: "buy" | "sell"; style: string; pips: number; r: number | null; money: number | null;
   mfePips: number; maePips: number; heldMs: number; entry: number; exit: number; say: string;
+  grade?: {
+    score: number; verdict: string; capture: number | null; lesson: string | null;
+    lines: { what: string; mark: string | null; note: string }[];
+  } | null;
+};
+
+const MARK_TONE: Record<string, string> = {
+  excellent: C.up, good: C.up, acceptable: C.amber, poor: C.down,
 };
 
 /**
@@ -392,8 +400,37 @@ export function TradeCompleteCard({ c }: { c: CompletedView }) {
           <span>Out {c.exit.toFixed(2)}</span>
           <span>Best +{Math.round(c.mfePips)}</span>
           <span>Worst {Math.round(c.maePips)}</span>
+          {c.grade?.capture != null && <span>Kept {Math.round(c.grade.capture * 100)}% of the move</span>}
         </div>
       </div>
+
+      {/*
+        HOW IT WAS TRADED, which is a different question from how it turned out — and the only one worth
+        carrying into the next trade. A winner with a loose process says so here.
+      */}
+      {c.grade && (
+        <div className="border-t px-3.5 py-3" style={{ borderColor: C.line }}>
+          <div className="mb-2 flex items-baseline justify-between gap-2">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: C.mut2 }}>How it was traded</p>
+            <span className="text-[11px] font-bold uppercase tracking-[0.1em]" style={{ color: c.grade.score >= 70 ? C.up : c.grade.score >= 45 ? C.gold : C.amber }}>
+              {c.grade.verdict} · {c.grade.score}
+            </span>
+          </div>
+          <ul className="space-y-1">
+            {c.grade.lines.filter((l) => l.mark).map((l, i) => (
+              <li key={i} className="flex gap-2 text-[11.5px]">
+                <span className="w-[86px] shrink-0 font-bold uppercase tracking-[0.08em]" style={{ color: MARK_TONE[l.mark!] ?? C.mut2 }}>{l.mark}</span>
+                <span style={{ color: C.mut }}><span style={{ color: C.text }}>{l.what}.</span> {l.note}</span>
+              </li>
+            ))}
+          </ul>
+          {c.grade.lesson && (
+            <p className="mt-2 text-[12px] leading-relaxed" style={{ color: C.gold }}>
+              Next time — {c.grade.lesson.charAt(0).toLowerCase()}{c.grade.lesson.slice(1)}
+            </p>
+          )}
+        </div>
+      )}
     </section>
   );
 }

@@ -21,6 +21,8 @@ import {
 import type { MarketSnapshot, Side } from "../core/types";
 import type { SnapshotDiff } from "../brain/types";
 import { completionRead, COMPLETE_WINDOW_MS, type CompletedTrade, type PendingExecution } from "./experience";
+import { narrateTrade } from "../brain/narrate";
+import { gradeReport } from "./grade";
 
 const c = () => {
   const x = db();
@@ -177,6 +179,9 @@ async function closeOut(userId: string, r: PositionRow, price: number | null): P
     held_ms: Date.now() - Date.parse(r.opened_at), partials: r.partials ?? [],
     exit_reason: "Closed at the broker.", thesis: r.thesis ?? {},
   });
+  // Grade it immediately, and schedule the second look that answers "did we close too early?". Both are
+  // best-effort by design: the money is already decided, and nothing here may affect a live position.
+  await gradeReport(userId, r.id);
 }
 
 async function event(userId: string, positionId: string, code: string, detail: string, channel = "stream", data?: Record<string, unknown>): Promise<void> {
@@ -232,10 +237,35 @@ export async function tradeState(userId: string, snapshot: MarketSnapshot | null
   const h = ch ? health(live, m2, ch) : null;
   const prot = ch && snapshot ? protection(live, m2, ch, snapshot) : null;
 
-  // Record meaningful movements on the trade's own timeline, on a ladder so it does not chatter.
-  if (h && r.health != null && Math.abs(h.score - r.health) >= 8) {
-    await event(userId, r.id, "HEALTH_CHANGED", `Position health ${r.health} → ${h.score}.`, "stream", { from: r.health, to: h.score });
+  /*
+   * NARRATION.
+   *
+   * The timeline used to carry only mechanical facts — "health 78 to 84", "partial confirmed" — which is
+   * a log, not a companion. `narrateTrade` turns the same state into the lines a professional beside the
+   * member would actually say, and refuses to say anything when nothing happened.
+   *
+   * The dedupe set is read from what has ALREADY been written for this position, so a milestone survives
+   * a page refresh, a redeploy and a second browser: crossing +1R is news exactly once.
+   */
+  const { data: priorEvents } = await c().from("cc_position_events")
+    .select("at, channel, data").eq("position_id", r.id).order("at", { ascending: false }).limit(120);
+  const prior = (priorEvents ?? []) as { at: string; channel: string; data: { key?: string } | null }[];
+  const said = new Set(prior.map((e) => e.data?.key).filter((k): k is string => !!k));
+  const lastSpokeAt = prior
+    .filter((e) => e.channel === "voice" || e.channel === "urgent")
+    .map((e) => Date.parse(e.at))
+    .sort((a, b) => b - a)[0] ?? null;
+
+  if (ch && h && prot && snapshot) {
+    const notes = narrateTrade({
+      position: live, metrics: m2, character: ch, health: h, protection: prot,
+      snapshot, said, lastSpokeAt,
+    });
+    for (const n of notes) {
+      await event(userId, r.id, n.code, n.text, n.channel, { key: n.key, pips: m2.pips, r: m2.r, health: h.score });
+    }
   }
+
   if (h && h.score !== r.health) {
     await c().from("cc_positions").update({
       health: h.score, health_verdict: h.verdict,
@@ -244,6 +274,8 @@ export async function tradeState(userId: string, snapshot: MarketSnapshot | null
     }).eq("id", r.id);
   }
 
+  // Re-read AFTER narration so anything just written appears in this same response rather than on the
+  // next poll — a member should never watch the stream lag a second behind the number it is describing.
   const { data: evs } = await c().from("cc_position_events")
     .select("at, code, detail, channel").eq("position_id", r.id).order("at", { ascending: false }).limit(40);
 
@@ -373,6 +405,8 @@ export async function lastCompleted(userId: string): Promise<CompletedTrade | nu
     created_at: string; side: Side; style: string; entry: number; exit_price: number;
     pips: number | null; pnl: number | null; r: number | null; mfe_pips: number | null;
     mae_pips: number | null; held_ms: number | null; exit_reason: string | null;
+    grade: { score: number; verdict: string; lines: { what: string; mark: string | null; note: string }[]; lesson: string | null; capture: number | null } | null;
+    narrative: string | null;
   } | undefined;
   if (!r) return null;
 
@@ -390,5 +424,6 @@ export async function lastCompleted(userId: string): Promise<CompletedTrade | nu
     exit: Number(r.exit_price),
     exitReason: r.exit_reason ?? null,
   };
-  return { ...base, say: completionRead(base) };
+  // THE BRAIN's graded account is better than the generic one, so it wins when it exists.
+  return { ...base, say: r.narrative || completionRead(base), grade: r.grade ?? null };
 }

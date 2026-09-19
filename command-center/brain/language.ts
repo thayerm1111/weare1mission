@@ -173,7 +173,7 @@ export function briefing(m: BrainMemory): string {
 
 type Intent =
   | "briefing" | "what_changed" | "why" | "change_mind" | "level" | "thesis_history"
-  | "timeframe" | "trade" | "math" | "scalp" | "swing" | "unknown";
+  | "timeframe" | "trade" | "math" | "scalp" | "swing" | "setup" | "unknown";
 
 export function classify(q: string): { intent: Intent; arg: string | null } {
   // People address it by name — "THE BRAIN, talk to me" — so the vocative is stripped before matching.
@@ -193,6 +193,16 @@ export function classify(q: string): { intent: Intent; arg: string | null } {
   if (/(show|focus|pull up|switch to).*(1m|5m|15m|1h|4h|1d|daily|hourly|one minute|five minute|fifteen minute)/.test(t)) {
     const m = t.match(/(1m|5m|15m|1h|4h|1d|daily|one minute|five minute|fifteen minute|hourly)/);
     return { intent: "timeframe", arg: m ? m[1] : null };
+  }
+  // ASKING FOR A TRADE. This must be matched BEFORE the scalp/swing lines below, which would otherwise
+  // swallow "find me a swing trade" and answer it with a lecture about the daily chart instead of the
+  // setup THE BRAIN has actually already computed.
+  if (/find me a|got a trade|see a (trade|setup|long|short)|any (trade|setup)s?\b|what would you (trade|take|do)|is there a (trade|setup)|should i (buy|sell)|trade idea|give me a (trade|setup)|do you (see|have) (a|any)/.test(t)) {
+    const style = /quick|scalp|fast|50.?100|short term/.test(t) ? "quick"
+      : /swing|daily|overnight|multi.?day/.test(t) ? "swing"
+      : /intraday|session|today/.test(t) ? "intraday"
+      : null;
+    return { intent: "setup", arg: style };
   }
   if (/scalp/.test(t)) return { intent: "scalp", arg: null };
   if (/swing/.test(t)) return { intent: "swing", arg: null };
@@ -219,7 +229,18 @@ function mathLines(s: MarketSnapshot): string[] {
  * The narrator's answer. Used when no language model is configured, and as the safety net if one fails.
  * It is grounded in the same state the model would have received — it is a plainer voice, not a fake one.
  */
-export function answer(question: string, m: BrainMemory): BrainResponse {
+/** What THE BRAIN currently wants to do about gold, as the conversation needs to see it. */
+export type SetupView = {
+  state: string; side: string | null; style: string | null; stop: number | null;
+  entryLow: number | null; entryHigh: number | null;
+  initialObjective: number | null; extendedObjective: number | null;
+  stopPips: number | null; expectedMovePips: [number, number] | null;
+  confidence: number; say: string; headline: string;
+  waitingFor: string[]; conditions: { text: string; met: boolean }[];
+  thesis: string | null; invalidation: string | null;
+};
+
+export function answer(question: string, m: BrainMemory, opts?: { setup?: SetupView | null }): BrainResponse {
   const { intent, arg } = classify(question);
   const s = m.now;
   const ui: UiAction[] = [];
@@ -265,6 +286,46 @@ export function answer(question: string, m: BrainMemory): BrainResponse {
         : "You don't have a position open that I can see, so there's nothing for me to manage.";
       ui.push({ name: "SHOW_TRADE", arg: null });
       break;
+    /*
+     * "Find me a trade."
+     *
+     * Answered from the SETUP ENGINE, never improvised. Before this existed the question was matched by
+     * /scalp/ and answered with a generic line about the five minute — a platitude, while three feet away
+     * the engine already held a complete trade with an entry, a stop and objectives. Asking for a trade
+     * and being told about timeframes is the exact failure this product exists to remove.
+     */
+    case "setup": {
+      // A setup legitimately carries nulls (there may be no trade), so it gets its own tolerant
+      // formatter rather than being forced through the market one, which assumes a number exists.
+      const n2 = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(2));
+      const su = opts?.setup ?? null;
+      if (!su) {
+        spoken = "I can't reach my own trade read right now, so I'm not going to guess one for you.";
+        break;
+      }
+      if (arg && su.style && su.style !== arg) {
+        spoken = `The trade I have is ${su.style === "quick" ? "a QUICK" : su.style === "swing" ? "a SWING" : "an INTRADAY"} one, not ${arg === "quick" ? "a quick" : arg === "swing" ? "a swing" : "an intraday"}. ${su.say}`;
+        ui.push({ name: "SHOW_TRADE", arg: null });
+        break;
+      }
+      if (su.state === "trade_ready" && su.side) {
+        const ln = [
+          `${su.say}`,
+          `Entry ${su.entryLow === su.entryHigh ? n2(su.entryLow) : `${n2(su.entryLow)} to ${n2(su.entryHigh)}`}, stop ${n2(su.stop)} — ${su.stopPips} pips.`,
+          `First objective ${n2(su.initialObjective)}, extended ${n2(su.extendedObjective)}.`,
+          `Conviction ${su.confidence}. It's on your screen as TRADE READY — take it or pass, I'm not sending anything without you.`,
+        ];
+        spoken = ln.join(" ");
+      } else if (su.side) {
+        const missing = su.conditions.filter((c) => !c.met).map((c) => c.text.toLowerCase());
+        spoken = `${su.say}${missing.length ? ` I still need ${missing.join(" and ")}.` : ""}`;
+      } else {
+        spoken = `${su.say}${su.waitingFor.length ? ` What would change that: ${su.waitingFor.join("; ")}.` : ""}`;
+      }
+      ui.push({ name: "SHOW_TRADE", arg: null });
+      break;
+    }
+
     case "scalp":
       spoken = s ? `For a scalp I'd be working around ${m.watchedLevels[0] ? px(m.watchedLevels[0].price) : px(s.price)} and I'd want the five minute moving with me, not against me. ${m.thesis?.bias === "range_fade" ? "Inside this range I'd rather fade the edges than chase the middle." : ""}`.trim() : "No live read.";
       break;

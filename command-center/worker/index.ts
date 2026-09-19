@@ -16,6 +16,7 @@ import { marketOpen } from "../core/sessions";
 import { perceive } from "../brain";
 import { emptyRolling, type Rolling } from "../brain/memory";
 import type { Bar, FeedHealth, Timeframe } from "../core/types";
+import { applyFollowUps } from "../engines/grade";
 
 const KEY = process.env.TWELVEDATA_API_KEY ?? "";
 const TICK_MS = Number(process.env.CC_TICK_MS || 20_000);
@@ -28,6 +29,7 @@ const NEEDED: { tf: Timeframe; size: number }[] = [
  * THE BRAIN's rolling memory. Held in the process so perception runs on every tick, and rebuilt from the
  * database at boot so a restart does not give it amnesia about the last hour of the market.
  */
+let lastPrice: number | null = null;
 let brain: Rolling = emptyRolling();
 
 const log = (msg: string, extra?: unknown) => console.log(`[${new Date().toISOString()}] cc: ${msg}`, extra ?? "");
@@ -78,6 +80,7 @@ async function pass(lastPersistAt: number): Promise<number> {
 
   const prevNet = brain.snapshots.length ? brain.snapshots[brain.snapshots.length - 1].pressure.net : null;
   const snap = buildSnapshot({ now, bars, price: live, feeds, prevPressureNet: prevNet });
+  lastPrice = snap.price;          // what the second look measures a finished trade's aftermath against
   const gate = tradeable(snap);
 
   // THE BRAIN runs on EVERY tick, not only when a snapshot is persisted. Perception is cheap and
@@ -111,6 +114,23 @@ async function pass(lastPersistAt: number): Promise<number> {
   return lastPersistAt;
 }
 
+/**
+ * THE SECOND LOOK.
+ *
+ * "Did we close too early?" cannot be answered at the moment of the exit — only afterwards. The worker is
+ * the only thing here with a reliable clock, so it is what comes back to a finished trade three quarters
+ * of an hour later and records what gold actually did next. Without this, the grading system can ask the
+ * most important question in trading and never answer it.
+ */
+async function secondLook(price: number): Promise<void> {
+  try {
+    const n = await applyFollowUps(price);
+    if (n) log(`graded the aftermath of ${n} finished trade${n === 1 ? "" : "s"}`);
+  } catch (e) {
+    log("follow-up error (loop continues)", e instanceof Error ? e.message.slice(0, 160) : e);
+  }
+}
+
 async function main(): Promise<void> {
   if (!KEY) { log("no TWELVEDATA_API_KEY — the Command Center cannot see the market; exiting"); process.exit(1); }
   log(`starting · tick ${TICK_MS}ms · persist ${PERSIST_MS}ms · symbol ${GOLD}`);
@@ -122,9 +142,14 @@ async function main(): Promise<void> {
 
   let lastPersist = 0;
   let lastPrune = 0;
+  let lastFollowUp = 0;
   while (!shuttingDown) {
     try {
       lastPersist = await pass(lastPersist);
+      if (Date.now() - lastFollowUp > 5 * 60_000) {
+        lastFollowUp = Date.now();
+        if (lastPrice != null) await secondLook(lastPrice);
+      }
       if (Date.now() - lastPrune > 6 * 3600_000) { await pruneSnapshots(); lastPrune = Date.now(); }
     } catch (e) {
       log("pass error (loop continues)", e instanceof Error ? e.message.slice(0, 200) : e);

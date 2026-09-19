@@ -1,6 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { liveMemory } from "../../../../../command-center/engines/live";
-import { BRAIN_SYSTEM, contextPacket, tradeSummaryLines } from "../../../../../command-center/brain/context";
+import { BRAIN_SYSTEM, contextPacket, setupSummaryLines, tradeSummaryLines } from "../../../../../command-center/brain/context";
+import { findSetup } from "../../../../../command-center/engines/setup";
+import { getProfile, asSetupProfile } from "../../../../../command-center/engines/profile";
+import { marketOpen } from "../../../../../command-center/core/sessions";
 import { tradeState } from "../../../../../command-center/engines/tradeLive";
 import { answer as narrate, scenarioOf, marketRead } from "../../../../../command-center/brain/language";
 import { saveStatement } from "../../../../../command-center/adapters/db";
@@ -78,6 +81,20 @@ export async function POST(req: Request) {
   const trade = await tradeState(user.id, memory.now);
   const tradeSummary = trade.active ? tradeSummaryLines(trade) : null;
 
+  // THE TRADE THE BRAIN CURRENTLY WANTS travels with every turn as well, computed by the same engine the
+  // screen and the executor use. "Find me a trade" is then a question the conversation can only REPORT
+  // the answer to — it has no path to improvising an entry, a stop or a target of its own.
+  const profile = await getProfile(user.id);
+  const setup = findSetup({
+    snapshot: memory.now,
+    diffs: memory.diffs,
+    profile: asSetupProfile(profile),
+    marketOpen: marketOpen(Date.now()),
+    thesisBias: memory.thesis?.bias ?? null,
+    thesisConfidence: memory.thesis?.confidence ?? null,
+  });
+  const setupSummary = setupSummaryLines(setup);
+
   // No market read at all is not a conversation topic to improvise around — say so and stop.
   if (!memory.now) {
     const r: BrainResponse = {
@@ -89,7 +106,7 @@ export async function POST(req: Request) {
   }
 
   const key = process.env.ANTHROPIC_API_KEY;
-  const fallback = narrate(message, memory);
+  const fallback = narrate(message, memory, { setup });
 
   if (!key) {
     // Honest degradation: the narrator is real, grounded output — not a stub pretending to be a model.
@@ -102,7 +119,7 @@ export async function POST(req: Request) {
     return json({ ...fallback, notice: "Conversational model not configured — this is THE BRAIN's deterministic voice." });
   }
 
-  const packet = contextPacket(memory, { tradeSummary });
+  const packet = contextPacket(memory, { tradeSummary, setupSummary });
   const history = (body.history ?? []).slice(-8).filter((t) => t && (t.role === "user" || t.role === "assistant") && typeof t.content === "string");
   const messages = [
     ...history.map((t) => ({ role: t.role, content: t.content.slice(0, 1500) })),

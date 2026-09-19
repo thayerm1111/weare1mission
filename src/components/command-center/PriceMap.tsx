@@ -32,14 +32,26 @@ export type PriceMapProps = {
    * dashed, and labelled WOULD ENTER rather than ENTRY. Drawn subtly either way: the chart is not handed
    * over to the trade.
    */
-  trade?: { side: "buy" | "sell"; entry: number; stop: number | null; takeProfit: number | null; proposed?: boolean } | null;
+  trade?: {
+    side: "buy" | "sell";
+    entry: number;
+    stop: number | null;
+    takeProfit: number | null;
+    /** Where the stop started, so a protected stop can be seen to have MOVED. */
+    initStop?: number | null;
+    /** Prices partials were actually taken at — the broker's fills, not intentions. */
+    partials?: number[];
+    /** The price that ends the reason for this trade. */
+    invalidation?: number | null;
+    proposed?: boolean;
+  } | null;
   className?: string;
 };
 
 const C = {
   bg: "#080B11", grid: "rgba(255,255,255,0.045)", text: "#E8EFF7",
   mut: "rgba(232,239,247,0.52)", mut2: "rgba(232,239,247,0.32)",
-  up: "#3FD9A0", down: "#F4737B", gold: "#F0C475", cold: "#6FA8DC", red: "#F4737B",
+  up: "#3FD9A0", down: "#F4737B", gold: "#F0C475", cold: "#6FA8DC", red: "#F4737B", amber: "#E9B949",
 };
 
 export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, live, trade = null, className = "" }: PriceMapProps) {
@@ -222,6 +234,44 @@ export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, 
         ctx.textAlign = "left";
       };
       if (trade.proposed) ctx.globalAlpha = 0.62;
+
+      /*
+       * ORDER MATTERS. The faint reference lines go down first so the three lines that decide the trade —
+       * entry, stop, target — are never drawn underneath something less important.
+       */
+
+      // Where the stop STARTED, once it has moved. Seeing the gap is the whole point of protecting.
+      if (!trade.proposed && trade.initStop != null && trade.stop != null && Math.abs(trade.initStop - trade.stop) > 1e-6) {
+        ctx.globalAlpha = 0.34;
+        mark(trade.initStop, C.red, "RISK WAS", [2, 5]);
+        ctx.globalAlpha = 1;
+      }
+
+      // Break even. Only worth a line while it still matters — once the stop is past it, it is the stop.
+      if (!trade.proposed && trade.stop != null) {
+        const protectedPast = trade.side === "buy" ? trade.stop >= trade.entry : trade.stop <= trade.entry;
+        if (!protectedPast) {
+          ctx.globalAlpha = 0.4;
+          mark(trade.entry, C.mut, "BREAK EVEN", [1, 4]);
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      // Where profit was actually banked.
+      for (const p of trade.partials ?? []) {
+        ctx.globalAlpha = 0.5;
+        mark(p, C.up, "BANKED", [1, 3]);
+        ctx.globalAlpha = 1;
+      }
+
+      // The price that ends the reason for the trade. Distinct from the stop on purpose: the stop is
+      // where the money stops, the invalidation is where the ARGUMENT stops, and they are rarely equal.
+      if (trade.invalidation != null && (trade.stop == null || Math.abs(trade.invalidation - trade.stop) > 1e-6)) {
+        ctx.globalAlpha = trade.proposed ? 0.45 : 0.62;
+        mark(trade.invalidation, C.amber, "THESIS FAILS", [6, 4]);
+        ctx.globalAlpha = trade.proposed ? 0.62 : 1;
+      }
+
       mark(trade.entry, C.gold, trade.proposed ? "WOULD ENTER" : "ENTRY", trade.proposed ? [5, 4] : []);
       mark(trade.stop, C.red, trade.proposed ? "WOULD RISK TO" : "STOP", [3, 3]);
       mark(trade.takeProfit, C.up, trade.proposed ? "OBJECTIVE" : "TARGET", [3, 3]);

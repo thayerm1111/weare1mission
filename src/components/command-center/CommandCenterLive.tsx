@@ -422,11 +422,20 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
                 lean={lean}
                 live={!!d?.live}
                 trade={trade?.active && trade.entry != null && trade.side
-                  ? { side: trade.side, entry: trade.entry, stop: trade.stop, takeProfit: trade.takeProfit }
+                  ? {
+                      side: trade.side, entry: trade.entry, stop: trade.stop, takeProfit: trade.takeProfit,
+                      initStop: trade.initStop,
+                      partials: (trade.partials ?? []).map((p) => p.price).filter((x): x is number => typeof x === "number"),
+                      invalidation: trade.thesis?.invalidationPrice ?? null,
+                    }
                   // No position: the chart shows the trade THE BRAIN is PROPOSING, so the member can see
                   // where the risk would sit before deciding, not after.
                   : d?.setup?.side && d.setup.stop != null && d.setup.entryHigh != null
-                    ? { side: d.setup.side, entry: d.setup.entryHigh, stop: d.setup.stop, takeProfit: d.setup.initialObjective, proposed: true }
+                    ? {
+                        side: d.setup.side, entry: d.setup.entryHigh, stop: d.setup.stop,
+                        takeProfit: d.setup.initialObjective,
+                        invalidation: d.setup.invalidationPrice, proposed: true,
+                      }
                     : null}
               />
             </div>

@@ -42,7 +42,7 @@ export type TradeStateView = {
   protection: { action: string; price: number | null; fraction: number | null; urgency: string; say: string } | null;
   thesisState: string | null;
   thesis: { reason?: string; invalidationPrice?: number } | null;
-  partials: { at: number; fraction: number; qty: number }[];
+  partials: { at: number; fraction: number; qty: number; price?: number }[];
   aiManagement: boolean;
   permissions: Record<string, boolean>;
   events: { at: number; code: string; detail: string; channel: string }[];

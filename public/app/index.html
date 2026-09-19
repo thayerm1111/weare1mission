@@ -4861,7 +4861,7 @@ input{font:inherit}
       for (i = 0; i < bars.length; i++) { lo = Math.min(lo, bars[i].l); hi = Math.max(hi, bars[i].h); }
       for (i = 0; i < levels.length; i++) { var lp = levels[i].price; if (lp > lo - (hi - lo) * 0.6 && lp < hi + (hi - lo) * 0.6) { lo = Math.min(lo, lp); hi = Math.max(hi, lp); } }
       if (typeof price === "number") { lo = Math.min(lo, price); hi = Math.max(hi, price); }
-      if (tr) { [tr.entry, tr.stop, tr.takeProfit].forEach(function (v) { if (typeof v === "number") { lo = Math.min(lo, v); hi = Math.max(hi, v); } }); }
+      if (tr) { [tr.entry, tr.stop, tr.takeProfit, tr.invalidation].concat(tr.partials || []).forEach(function (v) { if (typeof v === "number") { lo = Math.min(lo, v); hi = Math.max(hi, v); } }); }
       var pad = Math.max(0.4, (hi - lo) * 0.10); lo -= pad; hi += pad;
       var padR = 54, padL = 6, padT = 8, padB = 8;
       var pw = Math.max(40, W - padR - padL), ph = Math.max(40, H - padT - padB);
@@ -4909,6 +4909,23 @@ input{font:inherit}
         // A PROPOSAL is drawn dimmer, always dashed, and labelled WOULD ENTER. A member glancing at the
         // chart must never mistake a level THE BRAIN is thinking about for money that is actually at risk.
         if (tr.proposed) ctx.globalAlpha = 0.62;
+        // Faint reference lines first, so the three that decide the trade are never drawn underneath
+        // something less important.
+        if (!tr.proposed && tr.initStop != null && tr.stop != null && Math.abs(tr.initStop - tr.stop) > 1e-6) {
+          ctx.globalAlpha = 0.34; mark(tr.initStop, "#f4737b", "RISK WAS", [2, 5]); ctx.globalAlpha = 1;
+        }
+        if (!tr.proposed && tr.stop != null) {
+          var past = tr.side === "buy" ? tr.stop >= tr.entry : tr.stop <= tr.entry;
+          if (!past) { ctx.globalAlpha = 0.4; mark(tr.entry, "rgba(232,239,247,.52)", "BREAK EVEN", [1, 4]); ctx.globalAlpha = 1; }
+        }
+        (tr.partials || []).forEach(function (pp) {
+          ctx.globalAlpha = 0.5; mark(pp, "#3fd9a0", "BANKED", [1, 3]); ctx.globalAlpha = 1;
+        });
+        if (tr.invalidation != null && (tr.stop == null || Math.abs(tr.invalidation - tr.stop) > 1e-6)) {
+          ctx.globalAlpha = tr.proposed ? 0.45 : 0.62;
+          mark(tr.invalidation, "#e9b949", "THESIS FAILS", [6, 4]);
+          ctx.globalAlpha = tr.proposed ? 0.62 : 1;
+        }
         mark(tr.entry, "#f0c475", tr.proposed ? "WOULD ENTER" : "ENTRY", tr.proposed ? [5, 4] : []);
         mark(tr.stop, "#f4737b", tr.proposed ? "WOULD RISK TO" : "STOP", [3, 3]);
         mark(tr.takeProfit, "#3fd9a0", tr.proposed ? "OBJECTIVE" : "TARGET", [3, 3]);
@@ -5373,8 +5390,22 @@ input{font:inherit}
           <span class="br-k">${String(c.style).toUpperCase()} · ${mins} min</span>
         </div>
         <div class="br-scv" style="margin-top:7px">${c.say}</div>
-        <div class="br-note">In ${Number(c.entry).toFixed(2)} · out ${Number(c.exit).toFixed(2)} · best +${Math.round(c.mfePips)} · worst ${Math.round(c.maePips)}</div>
+        <div class="br-note">In ${Number(c.entry).toFixed(2)} · out ${Number(c.exit).toFixed(2)} · best +${Math.round(c.mfePips)} · worst ${Math.round(c.maePips)}${c.grade && c.grade.capture != null ? " · kept " + Math.round(c.grade.capture * 100) + "% of the move" : ""}</div>
       </div>
+      ${c.grade ? html`<div class="br-sc">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+          <span class="br-lab" style="margin:0">How it was traded</span>
+          <span class="br-k" style=${"color:" + (c.grade.score >= 70 ? "#3fd9a0" : c.grade.score >= 45 ? "#f0c475" : "#e9b949")}>${c.grade.verdict} · ${c.grade.score}</span>
+        </div>
+        ${(c.grade.lines || []).filter(function (l) { return !!l.mark; }).map(function (l, i) {
+          var tone = l.mark === "poor" ? "#f4737b" : l.mark === "acceptable" ? "#e9b949" : "#3fd9a0";
+          return html`<div key=${i} style="display:flex;gap:8px;margin-bottom:4px;font-size:11.5px">
+            <span style=${"flex:0 0 74px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:" + tone}>${l.mark}</span>
+            <span style="color:rgba(232,239,247,.56)"><span style="color:#eef3ff">${l.what}.</span> ${l.note}</span>
+          </div>`;
+        })}
+        ${c.grade.lesson ? html`<div class="br-note" style="color:#f0c475">Next time — ${c.grade.lesson}</div>` : null}
+      </div>` : null}
     </div>`;
   }
 
@@ -5770,9 +5801,13 @@ input{font:inherit}
         <div class="br-hd"><div class="br-k">XAUUSD price map</div><div class="br-k">${(s.bars || []).length ? (s.bars.length + " candles") : ""}</div></div>
         <${BrainMap} bars=${s.bars} levels=${s.levels} price=${s.price} lean=${lean}
           trade=${trade.active && typeof trade.entry === "number"
-            ? { side: trade.side, entry: trade.entry, stop: trade.stop, takeProfit: trade.takeProfit }
+            ? { side: trade.side, entry: trade.entry, stop: trade.stop, takeProfit: trade.takeProfit,
+                initStop: trade.initStop,
+                partials: (trade.partials || []).map(function (p) { return p.price; }).filter(function (x) { return typeof x === "number"; }),
+                invalidation: trade.thesis && trade.thesis.invalidationPrice }
             : (s.setup && s.setup.side && s.setup.stop != null
-              ? { side: s.setup.side, entry: s.setup.entryHigh, stop: s.setup.stop, takeProfit: s.setup.initialObjective, proposed: true }
+              ? { side: s.setup.side, entry: s.setup.entryHigh, stop: s.setup.stop, takeProfit: s.setup.initialObjective,
+                  invalidation: s.setup.invalidationPrice, proposed: true }
               : null)} />
       </div>
 

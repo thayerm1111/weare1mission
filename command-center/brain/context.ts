@@ -72,7 +72,43 @@ export function tradeSummaryLines(t: {
   return L.join("\n");
 }
 
-export function contextPacket(m: BrainMemory, extra?: { tradeSummary?: string | null }): string {
+/**
+ * THE TRADE THE BRAIN CURRENTLY WANTS, for the conversation.
+ *
+ * Without this the model was asked "find me a trade" while holding only a market read, so it improvised
+ * one — which is exactly the thing the whole architecture exists to prevent. The setup engine's answer
+ * travels with every turn, so the conversation can only ever REPORT the trade, never invent one.
+ */
+export function setupSummaryLines(su: {
+  state: string; side: string | null; style: string | null; strategy: string | null;
+  entryLow: number | null; entryHigh: number | null; stop: number | null; stopPips: number | null;
+  initialObjective: number | null; extendedObjective: number | null;
+  expectedMovePips: [number, number] | null; confidence: number;
+  thesis: string | null; invalidation: string | null; say: string;
+  waitingFor: string[]; conditions: { text: string; met: boolean; detail: string }[];
+}): string {
+  const n = (v: number | null) => (v == null ? "unknown" : v.toFixed(2));
+  const L: string[] = [];
+  L.push(`state: ${su.state.replace(/_/g, " ")}`);
+  L.push(`my own words about it: ${su.say}`);
+  if (su.side) {
+    L.push(`side: ${su.side.toUpperCase()}, style: ${su.style}, strategy: ${su.strategy}`);
+    L.push(`entry ${n(su.entryLow)}–${n(su.entryHigh)}, stop ${n(su.stop)} (${su.stopPips} pips)`);
+    L.push(`first objective ${n(su.initialObjective)}, extended ${n(su.extendedObjective)}${su.expectedMovePips ? `, expected ${su.expectedMovePips[0]}–${su.expectedMovePips[1]} pips` : ""}`);
+    L.push(`conviction ${su.confidence}`);
+    if (su.thesis) L.push(`why: ${su.thesis}`);
+    if (su.invalidation) L.push(`what would cancel it: ${su.invalidation}`);
+    if (su.conditions.length) {
+      L.push("conditions:");
+      for (const c of su.conditions) L.push(`  ${c.met ? "MET" : "NOT MET"} — ${c.text} (${c.detail})`);
+    }
+  }
+  if (su.waitingFor.length) L.push(`waiting for: ${su.waitingFor.join("; ")}`);
+  L.push("THIS IS THE ONLY TRADE YOU MAY DESCRIBE. Do not invent an entry, a stop or a target that is not listed here.");
+  return L.join("\n");
+}
+
+export function contextPacket(m: BrainMemory, extra?: { tradeSummary?: string | null; setupSummary?: string | null }): string {
   const s = m.now;
   const L: string[] = [];
 
@@ -145,6 +181,9 @@ export function contextPacket(m: BrainMemory, extra?: { tradeSummary?: string | 
     for (const l of m.lessons.slice(-6)) L.push(`- ${l.text}`);
   }
 
+  if (extra?.setupSummary) {
+    L.push("", "=== THE TRADE I CURRENTLY WANT — report this, never invent one ===", extra.setupSummary);
+  }
   if (extra?.tradeSummary) {
     L.push("", "=== THE OPEN POSITION — answer every trade question from THIS, never generically ===", extra.tradeSummary);
   }
