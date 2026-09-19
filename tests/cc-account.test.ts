@@ -101,3 +101,19 @@ test("defaults are not presented as choices the member made", () => {
   assert.ok(/never saved a profile, so these are the defaults/.test(accountLines(LIVE, DEFAULT_PROFILE).join("\n")));
   assert.ok(!/never saved a profile/.test(accountLines(LIVE, { ...DEFAULT_PROFILE, configured: true }).join("\n")));
 });
+
+/*
+ * IT ARMED A WATCH NOBODY ASKED FOR.
+ *
+ * "Can you look at my account and let me know if I should lower my risk?" was classified as a watch
+ * on the strength of "let me know", and registered one — then said so. That is worse than a wrong
+ * answer: it wrote down a promise the member never made and reported it as kept.
+ */
+test("an account question is never mistaken for a monitoring request", async () => {
+  const voice = await fs.readFile("command-center/brain/voiceLlm.ts", "utf8");
+  assert.ok(/intent === "watch" && !asksAboutAccount\(question\) && !asksAboutRecord\(question\)/.test(voice),
+    "the spoken path refuses to arm on an account or record question");
+  const text = await fs.readFile("src/app/api/command-center/brain/route.ts", "utf8");
+  assert.ok(/intent === "watch" && !asksAboutAccount\(message\)/.test(text),
+    "and so does the typed one");
+});

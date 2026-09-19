@@ -9,7 +9,7 @@ import { lookBack, retrospectiveLines, isRetrospective } from "../../../../../co
 import { GOLD_KNOWLEDGE, wantsDomainKnowledge } from "../../../../../command-center/brain/gold";
 import { upcoming, calendarLines } from "../../../../../command-center/adapters/calendar";
 import { recordCall, extractClaim, trackRecord, trackRecordLines } from "../../../../../command-center/engines/record";
-import { accountLines, type AccountFacts } from "../../../../../command-center/brain/account";
+import { accountLines, asksAboutAccount, type AccountFacts } from "../../../../../command-center/brain/account";
 import { parseWatch, arm, armedFor, cancelAll } from "../../../../../command-center/engines/watch";
 import { selectedAccount } from "../../../../../command-center/engines/broker";
 import { tradeState } from "../../../../../command-center/engines/tradeLive";
@@ -138,7 +138,10 @@ export async function POST(req: Request) {
     return json({ ...fallbackShape(text), uiActions: [] });
   }
 
-  if (intent === "watch") {
+  // Same guard as the spoken path: "let me know if I should lower my risk" is a question about the
+  // account, not a request to monitor a price level, and arming one would write down a promise the
+  // member never made.
+  if (intent === "watch" && !asksAboutAccount(message)) {
     const parsed = parseWatch(message, memory.now);
     if (!parsed) {
       return json(fallbackShape("I couldn't tell which level you meant. Give me a price, or name it — the London high, yesterday's low, today's high."));

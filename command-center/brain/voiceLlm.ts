@@ -227,7 +227,16 @@ export async function handleVoiceLlm(req: Request) {
    * spoken promise is the easiest of all to believe and the hardest to check.
    */
   const intent = classify(question).intent;
-  if (intent === "watch") {
+  /*
+   * AN INSTRUCTION OUTRANKS EVERYTHING — EXCEPT A QUESTION THAT IS PLAINLY NOT ONE.
+   *
+   * "Can you look at my account and let me know if I should lower my risk" was classified as a watch
+   * on the strength of "let me know", and ARMED one. That is worse than a wrong answer: it wrote down
+   * a promise the member never made and then told them it was registered. A question about their own
+   * account or their own record is never a request to monitor a price level, and saying so here costs
+   * nothing and prevents the system inventing work for itself.
+   */
+  if (intent === "watch" && !asksAboutAccount(question) && !asksAboutRecord(question)) {
     /*
      * HANDLED BEFORE ANY OTHER ROUTING, including the no-live-market answer below.
      *
