@@ -33,7 +33,7 @@ export async function GET() {
   if (!user) return json({ ok: false, error: "unauthorized" }, 401);
 
   try {
-    const state = await liveState(marketOpen(Date.now()), dayStart());
+    const state = await liveState(marketOpen(Date.now()), dayStart(), user.id);
     return json(state);
   } catch (e) {
     return json({ ok: false, error: "read_failed", detail: e instanceof Error ? e.message.slice(0, 200) : "unknown" }, 500);

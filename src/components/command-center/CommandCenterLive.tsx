@@ -5,6 +5,8 @@ import { Activity, AlertTriangle, BookOpen, Gauge, Radio, Target, Waves } from "
 import BrainCore from "./BrainCore";
 import PriceMap, { type MapBar, type MapLevel } from "./PriceMap";
 import BrainConsole, { type VoiceMode } from "./BrainConsole";
+import BrokerBar from "./BrokerBar";
+import TradePanel, { CallTradeSheet, UnmanagedNotice, type TradeStateView } from "./TradePanel";
 
 /**
  * COMMAND CENTER XAUUSD.
@@ -50,6 +52,8 @@ type Live = {
   changes: { horizon: string; priceMove: number; pipsMove: number; pressureFrom: number; pressureTo: number }[];
   scenario: { bull: string; bear: string; neutral: string } | null;
   summary: string; warnings: string[]; blockers: { code: string; detail: string }[];
+  /** Present once this member has an open position. Everything trade-related hangs off it. */
+  trade?: TradeStateView;
   /** True only for the replay harness, which renders a loud banner. Never set by the live endpoint. */
   replay?: boolean;
 };
@@ -132,6 +136,8 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
   const [focusPrice, setFocusPrice] = useState<number | null>(null);
   const [showMath, setShowMath] = useState(false);
   const [flash, setFlash] = useState(0);
+  const [callOpen, setCallOpen] = useState(false);
+  const [reloadAt, setReloadAt] = useState(0);
   const lastEventKey = useRef<string | null>(null);
 
   useEffect(() => {
@@ -149,7 +155,7 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
     void load();
     const id = setInterval(load, 5000);
     return () => { alive = false; clearInterval(id); };
-  }, [endpoint]);
+  }, [endpoint, reloadAt]);
 
   // A brief flash when something new arrives — a state transition you can see, not a permanent animation.
   useEffect(() => {
@@ -188,6 +194,16 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
       </div>
     );
   }
+
+  const trade = d?.trade;
+
+  // The position's own events join the market's, in one timeline. A trade is not a separate feed — it is
+  // part of what THE BRAIN is noticing.
+  const streamRows = (() => {
+    const market = (d?.events ?? []).map((e) => ({ key: e.key, at: e.at, detail: e.detail, lean: e.lean as string, channel: e.channel, trade: false }));
+    const pos = (trade?.events ?? []).map((e, i) => ({ key: `t${e.at}-${i}`, at: e.at, detail: e.detail, lean: "trade", channel: e.channel, trade: true }));
+    return [...market, ...pos].sort((a, b) => b.at - a.at).slice(0, 34);
+  })();
 
   const brain = d?.brain ?? null;
   const alive = !!d?.connected && !!d?.marketOpen;
@@ -228,6 +244,19 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
             <Radio className="h-3 w-3" />
             {d?.replay ? "REPLAY" : d?.live ? `LIVE · ${d.ageSeconds}s` : d?.marketOpen === false ? "MARKET CLOSED" : "NO LIVE READ"}
           </span>
+
+          {!d?.replay && (
+            <>
+              <BrokerBar />
+              <button
+                onClick={() => setCallOpen(true)}
+                className="rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] transition"
+                style={{ background: "rgba(240,196,117,0.12)", color: C.gold, border: "1px solid rgba(240,196,117,0.32)" }}
+              >
+                Call trade
+              </button>
+            </>
+          )}
         </div>
       </header>
 
@@ -330,9 +359,15 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
                 invalidation={d?.thesis?.invalidationPrice ?? null}
                 lean={lean}
                 live={!!d?.live}
+                trade={trade?.active && trade.entry != null && trade.side
+                  ? { side: trade.side, entry: trade.entry, stop: trade.stop, takeProfit: trade.takeProfit }
+                  : null}
               />
             </div>
           </Panel>
+
+          {trade?.unmanaged?.length ? <UnmanagedNotice trade={trade} onChanged={() => setReloadAt(Date.now())} /> : null}
+          {trade?.active ? <TradePanel trade={trade} onChanged={() => setReloadAt(Date.now())} /> : null}
 
           {/* thesis */}
           <Panel title="BRAIN thesis" icon={<Activity className="h-3.5 w-3.5" />}
@@ -362,6 +397,12 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
                   )}
                   {d.thesis.invalidationPrice != null && <span style={{ color: C.down }}>Wrong at {d.thesis.invalidationPrice.toFixed(2)}</span>}
                 </div>
+                {trade?.active && trade.thesisState && (
+                  <p className="mt-2.5 border-t pt-2.5 text-[12.5px]" style={{ borderColor: C.line, color: C.mut }}>
+                    <span className="font-bold" style={{ color: C.gold }}>TRADE:</span> {trade.thesisState}
+                    {trade.character ? ` — ${trade.character.headline}` : ""}
+                  </p>
+                )}
                 {d.previousThesis?.reasonEnded && (
                   <p className="mt-3 border-t pt-2.5 text-[12px]" style={{ borderColor: C.line, color: C.mut2 }}>
                     I changed my read — before this I was on {d.previousThesis.label.toLowerCase()}, until {d.previousThesis.reasonEnded}.
@@ -466,10 +507,10 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
           <Panel title="Intelligence stream" icon={<AlertTriangle className="h-3.5 w-3.5" />}
             right={<span className="text-[10px] tabular-nums" style={{ color: C.mut2 }}>{flash > 0 ? `${d?.events?.length ?? 0} events` : ""}</span>}>
             <div className="max-h-[340px] overflow-y-auto px-3.5 py-2.5">
-              {d?.events?.length ? d.events.slice(0, 30).map((e) => (
-                <div key={e.key} className="flex gap-2.5 border-l py-1.5 pl-2.5" style={{ borderColor: leanTone(e.lean) }}>
+              {streamRows.length ? streamRows.map((e) => (
+                <div key={e.key} className="flex gap-2.5 border-l py-1.5 pl-2.5" style={{ borderColor: e.trade ? C.gold : leanTone(e.lean) }}>
                   <span className="shrink-0 text-[10.5px] tabular-nums" style={{ color: C.mut2 }}>{clock(e.at)}</span>
-                  <span className="text-[12px] leading-snug" style={{ color: e.channel === "urgent" ? C.amber : C.mut }}>{e.detail}</span>
+                  <span className="text-[12px] leading-snug" style={{ color: e.channel === "urgent" ? C.amber : e.trade ? C.text : C.mut }}>{e.detail}</span>
                 </div>
               )) : (
                 <p className="py-2 text-[12px]" style={{ color: C.mut2 }}>
@@ -482,9 +523,21 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
         </div>
       </div>
 
+      {!d?.replay && (
+        <CallTradeSheet
+          price={d?.price ?? null}
+          levels={(d?.levels ?? []).map((l) => ({ price: l.price, label: l.label }))}
+          open={callOpen}
+          onClose={() => setCallOpen(false)}
+          onDone={() => setReloadAt(Date.now())}
+        />
+      )}
+
       <p className="mt-3 px-1 text-[10.5px] leading-relaxed" style={{ color: C.mut2 }}>
-        Observation only — THE BRAIN interprets the market and is not authorised to place, modify or close any trade.
-        Market pressure is estimated from closes, wicks and momentum, not order flow.
+        THE BRAIN interprets the market. It can place and manage trades only on an account you have connected,
+        only within the permissions you set on it, and never on a live account until you have authorised live
+        trading there. Automatic trading is off unless you switch it on. Market pressure is estimated from
+        closes, wicks and momentum, not order flow.
       </p>
     </div>
   );

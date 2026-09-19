@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { liveMemory } from "../../../../../command-center/engines/live";
-import { BRAIN_SYSTEM, contextPacket } from "../../../../../command-center/brain/context";
+import { BRAIN_SYSTEM, contextPacket, tradeSummaryLines } from "../../../../../command-center/brain/context";
+import { tradeState } from "../../../../../command-center/engines/tradeLive";
 import { answer as narrate, scenarioOf, marketRead } from "../../../../../command-center/brain/language";
 import { saveStatement } from "../../../../../command-center/adapters/db";
 import type { BrainResponse, UiAction, UiActionName } from "../../../../../command-center/brain/types";
@@ -72,6 +73,10 @@ export async function POST(req: Request) {
   if (!message) return json({ error: "empty" }, 400);
 
   const memory = await liveMemory();
+  // The open position travels with EVERY turn, so "how's my trade?" is answered from the actual trade
+  // and the member never has to tell THE BRAIN what they are in.
+  const trade = await tradeState(user.id, memory.now);
+  const tradeSummary = trade.active ? tradeSummaryLines(trade) : null;
 
   // No market read at all is not a conversation topic to improvise around — say so and stop.
   if (!memory.now) {
@@ -88,11 +93,16 @@ export async function POST(req: Request) {
 
   if (!key) {
     // Honest degradation: the narrator is real, grounded output — not a stub pretending to be a model.
+    if (trade.active && trade.read && /trade|position|protect|partial|break even|drawdown|how.?s my/i.test(message)) {
+      const r = { ...fallback, spokenText: trade.read, tradeRead: trade.read };
+      await saveStatement({ at: Date.now(), kind: "answer", text: trade.read, channel: "text", priceAt: memory.now.price, thesisId: memory.thesis?.id ?? null });
+      return json({ ...r, notice: "Conversational model not configured — this is THE BRAIN's deterministic voice." });
+    }
     await saveStatement({ at: Date.now(), kind: "answer", text: fallback.spokenText, channel: "text", priceAt: memory.now.price, thesisId: memory.thesis?.id ?? null });
     return json({ ...fallback, notice: "Conversational model not configured — this is THE BRAIN's deterministic voice." });
   }
 
-  const packet = contextPacket(memory);
+  const packet = contextPacket(memory, { tradeSummary });
   const history = (body.history ?? []).slice(-8).filter((t) => t && (t.role === "user" || t.role === "assistant") && typeof t.content === "string");
   const messages = [
     ...history.map((t) => ({ role: t.role, content: t.content.slice(0, 1500) })),
@@ -128,7 +138,7 @@ export async function POST(req: Request) {
       focus: memory.state?.focus ?? [],
       watchedLevels: memory.watchedLevels.map((l) => l.price),
       scenario: scenarioOf(memory),
-      tradeRead: null,
+      tradeRead: trade.active ? trade.read : null,
       uiActions: actions.length ? actions : fallback.uiActions,
       urgency: fallback.urgency,
       voiceEligible: true,

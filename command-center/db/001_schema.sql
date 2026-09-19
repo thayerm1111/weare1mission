@@ -63,3 +63,12 @@ create table if not exists public.cc_lessons (
   expires_at timestamptz, version int not null default 1);
 
 -- RLS on every table; service role only.
+
+-- ── PHASE 2 (2026-09-19): broker connections and live trading ──────────────────
+-- Applied as migrations cc_broker_connections_and_trading and cc_snapshots_raw_for_exact_replay.
+-- Tables: cc_broker_connections · cc_broker_accounts · cc_trade_intents · cc_trade_executions
+--         cc_position_events · cc_trade_reports, plus trading columns on cc_positions.
+-- All user-scoped and RLS-protected: members may SELECT their own rows and nothing else; every write
+-- goes through the server with the service role, so no browser can create or alter a trade directly.
+-- Broker tokens are stored encrypted (AES-256-GCM, command-center/core/crypto.ts). The member's broker
+-- PASSWORD is never stored — cc_broker_connections.credentials exists but is deliberately never written.

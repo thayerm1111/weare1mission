@@ -12,6 +12,7 @@ import { brainState, intensity, velocityBand, weather } from "../brain/presence"
 import { memoryOf } from "../brain/memory";
 import { marketRead, scenarioOf } from "../brain/language";
 import { latestWithBars, loadRolling, recentStatements, thesisJournal } from "../adapters/db";
+import { tradeState, emptyTrade, type TradeState } from "./tradeLive";
 
 /** Beyond this, the read is history rather than the market, and the UI must say so. */
 export const STALE_MS = 5 * 60_000;
@@ -54,6 +55,8 @@ export type LiveState = {
   summary: string;
   warnings: string[];
   blockers: { code: string; detail: string }[];
+  /** Present and active only when this member has an open position. */
+  trade: TradeState;
 };
 
 const empty = (reason: string, marketIsOpen: boolean): LiveState => ({
@@ -62,10 +65,10 @@ const empty = (reason: string, marketIsOpen: boolean): LiveState => ({
   session: null, regime: null, pressure: null, weather: null, velocity: null, intensity: 0,
   timeframes: {}, levels: [], bars: [],
   brain: null, thesis: null, previousThesis: null, journal: [], events: [], statements: [], changes: [],
-  scenario: null, summary: reason, warnings: [], blockers: [],
+  scenario: null, summary: reason, warnings: [], blockers: [], trade: emptyTrade(),
 });
 
-export async function liveState(marketIsOpen: boolean, journalSince: Date): Promise<LiveState> {
+export async function liveState(marketIsOpen: boolean, journalSince: Date, userId?: string | null): Promise<LiveState> {
   const latest = await latestWithBars();
   if (!latest) {
     return empty(
@@ -85,15 +88,31 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date): Prom
 
   // The BRAIN state the worker last wrote is authoritative; if none exists yet (first minutes after a
   // deploy) it is recomputed here with the same pure function rather than left blank.
-  const state: BrainState = brainState({ snapshot: s, thesis: openThesis, events: rolling.events.slice(-8) });
+  // Presence and the state computation need the trade, so the trade is read first and the BRAIN state
+  // is built with it. Once a position exists, THE BRAIN's attention is supposed to visibly narrow.
+  const preTrade = userId ? await tradeState(userId, s, diffs) : emptyTrade();
+  const protecting = preTrade.active && (preTrade.protection?.action === "protect_stop" || preTrade.protection?.action === "close" || preTrade.character?.state === "character_change");
+  const state: BrainState = brainState({
+    snapshot: s, thesis: openThesis, events: rolling.events.slice(-8),
+    tradeActive: preTrade.active, tradeProtecting: protecting,
+  });
+  // WHAT I'M WATCHING and THE QUESTION become about the trade the moment there is one.
+  if (preTrade.active) {
+    if (preTrade.focus.length) state.focus = preTrade.focus;
+    if (preTrade.question) state.question = preTrade.question;
+    if (preTrade.character) state.headline = preTrade.character.headline;
+  }
 
   const memory: BrainMemory = memoryOf(rolling, s, diffs, state);
   const ageMs = Date.now() - latest.at;
   const stale = ageMs > STALE_MS;
 
-  const [journalRows, statementRows] = await Promise.all([
+  const [journalRows, statementRows, trade] = await Promise.all([
     thesisJournal(journalSince.toISOString()),
     recentStatements(12),
+    // The trade is loaded with the SAME snapshot the screen is about to render, so the market read and
+    // the position read can never disagree about the price of gold.
+    Promise.resolve(preTrade),
   ]);
 
   return {
@@ -144,6 +163,7 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date): Prom
     summary: state.headline || marketRead(memory),
     warnings: s.warnings.slice(0, 5),
     blockers: s.blockers,
+    trade,
   };
 }
 

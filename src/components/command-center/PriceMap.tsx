@@ -24,6 +24,8 @@ export type PriceMapProps = {
   invalidation?: number | null;
   lean: number;
   live: boolean;
+  /** The open position, when there is one. Drawn subtly — the chart is not handed over to the trade. */
+  trade?: { side: "buy" | "sell"; entry: number; stop: number | null; takeProfit: number | null } | null;
   className?: string;
 };
 
@@ -33,7 +35,7 @@ const C = {
   up: "#3FD9A0", down: "#F4737B", gold: "#F0C475", cold: "#6FA8DC", red: "#F4737B",
 };
 
-export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, live, className = "" }: PriceMapProps) {
+export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, live, trade = null, className = "" }: PriceMapProps) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   const wrap = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ w: 800, h: 360 });
@@ -59,9 +61,13 @@ export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, 
       if (l.price > lo - (hi - lo) * 0.6 && l.price < hi + (hi - lo) * 0.6) { lo = Math.min(lo, l.price); hi = Math.max(hi, l.price); }
     }
     if (price != null) { lo = Math.min(lo, price); hi = Math.max(hi, price); }
+    // The trade's own levels must always be on screen — a stop you cannot see is a stop you forget.
+    for (const v of [trade?.entry, trade?.stop, trade?.takeProfit]) {
+      if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    }
     const pad = Math.max(0.4, (hi - lo) * 0.10);
     return { shown, lo: lo - pad, hi: hi + pad };
-  }, [bars, levels, price]);
+  }, [bars, levels, price, trade]);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -174,6 +180,40 @@ export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, 
       ctx.fillText(label, padL + 8, yy - 11);
     }
 
+    // the open position: entry, stop and target, drawn quietly on top of the market
+    if (trade) {
+      const band = (from: number, to: number, colour: string) => {
+        const y1 = y(Math.max(from, to)), y2 = y(Math.min(from, to));
+        ctx.fillStyle = colour;
+        ctx.fillRect(padL, y1, plotW, Math.max(1, y2 - y1));
+      };
+      if (price != null) {
+        const winning = trade.side === "buy" ? price >= trade.entry : price <= trade.entry;
+        band(trade.entry, price, winning ? "rgba(63,217,160,0.07)" : "rgba(244,115,123,0.07)");
+      }
+      const mark = (v: number | null, colour: string, label: string, dash: number[]) => {
+        if (v == null || v < lo || v > hi) return;
+        const yy = Math.round(y(v)) + 0.5;
+        ctx.strokeStyle = colour;
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash(dash);
+        ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(padL + plotW, yy); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.font = "700 10px ui-sans-serif, system-ui";
+        ctx.textAlign = "right";
+        const text = `${label} ${v.toFixed(2)}`;
+        const w2 = ctx.measureText(text).width;
+        ctx.fillStyle = "rgba(8,11,17,0.82)";
+        ctx.fillRect(padL + plotW - w2 - 10, yy - 15, w2 + 8, 13);
+        ctx.fillStyle = colour;
+        ctx.fillText(text, padL + plotW - 6, yy - 8.5);
+        ctx.textAlign = "left";
+      };
+      mark(trade.entry, C.gold, "ENTRY", []);
+      mark(trade.stop, C.red, "STOP", [3, 3]);
+      mark(trade.takeProfit, C.up, "TARGET", [3, 3]);
+    }
+
     // invalidation
     if (invalidation != null && invalidation >= lo && invalidation <= hi) {
       const yy = Math.round(y(invalidation)) + 0.5;
@@ -209,7 +249,7 @@ export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, 
         ctx.fill();
       }
     }
-  }, [view, size, levels, price, focusPrice, invalidation, lean, live]);
+  }, [view, size, levels, price, focusPrice, invalidation, lean, live, trade]);
 
   const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!view || !wrap.current) return;

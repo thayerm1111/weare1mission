@@ -10,9 +10,12 @@ export const dynamic = "force-dynamic";
  * It is deliberately, loudly not live: `live` is false and `replay` is true, and the screen renders a
  * banner saying so. It never touches the live tables.
  */
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const r = replay(46);
+    // ?trade=1 attaches a position built from the recorded bars, so Trade Intelligence Mode can be
+    // reviewed while the market is shut. It is still a replay and the banner still says so.
+    const withTrade = new URL(req.url).searchParams.get("trade") === "1";
+    const r = replay(46, withTrade);
     return new Response(JSON.stringify({ ...r.state, replay: true, replaySteps: r.steps }), {
       headers: { "content-type": "application/json", "cache-control": "no-store" },
     });

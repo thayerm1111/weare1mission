@@ -17,6 +17,8 @@ import { scenarioOf } from "../brain/language";
 import { intensity, velocityBand, weather } from "../brain/presence";
 import type { Bar, MarketSnapshot } from "../core/types";
 import type { LiveState } from "./live";
+import { emptyTrade } from "./tradeLive";
+import { metrics, character, protection, health, tradeFocus, tradeQuestion, tradeRead, tradeThesisState, type LivePosition } from "../brain/trade";
 
 type Row = [number, number, number, number, number];
 const toBars = (rows: Row[]): Bar[] => rows.map(([t, o, h, l, c]) => ({ t: t * 1000, o, h, l, c }));
@@ -27,7 +29,7 @@ export type ReplayResult = { state: LiveState; steps: number; endedAt: number };
  * Step the pipeline forward one 5-minute bar at a time over the recorded window, exactly as the worker
  * would have, and return the state it arrived at.
  */
-export function replay(steps = 40): ReplayResult {
+export function replay(steps = 40, withTrade = false): ReplayResult {
   const m5All = toBars(fixture.m5 as Row[]);
   const h1All = toBars(fixture.h1 as Row[]);
 
@@ -96,7 +98,60 @@ export function replay(steps = 40): ReplayResult {
     summary: last.state.headline,
     warnings: s.warnings.slice(0, 5),
     blockers: s.blockers,
+    trade: withTrade ? replayTrade(s, m5All, last.diffs) : emptyTrade(),
   };
 
   return { state, steps: m5All.length - first, endedAt: s.at };
+}
+
+
+/**
+ * A position for the replay harness ONLY.
+ *
+ * Every number in it is real arithmetic on the real recorded bars: the entry is an actual close from 40
+ * bars back, the stop is an actual swing low, and the P&L, health and character read are produced by the
+ * same functions that run on a live trade. It exists so the trade experience can be built and reviewed
+ * while gold is shut, and it is only ever reachable from the replay endpoint, which renders a banner
+ * saying it is not the market.
+ */
+function replayTrade(s: MarketSnapshot, m5: Bar[], diffs: ReturnType<typeof perceive>["diffs"]): LiveState["trade"] {
+  const entryIdx = Math.max(20, m5.length - 40);
+  const entryBar = m5[entryIdx];
+  const window = m5.slice(entryIdx);
+  // The stop comes from the structure that existed BEFORE the entry — the swing low the trade was
+  // actually behind — not from the low of the move it went on to make.
+  const swingLow = Math.min(...m5.slice(entryIdx - 20, entryIdx).map((b) => b.l));
+  const pipSize = 0.1;
+  const pos: LivePosition = {
+    id: "replay", side: "buy", style: "intraday",
+    entry: +entryBar.c.toFixed(2), qty: 0.2, initQty: 0.2,
+    initStop: +(swingLow - 0.4).toFixed(2), curStop: +(swingLow - 0.4).toFixed(2),
+    takeProfit: +(entryBar.c + 14).toFixed(2),
+    openedAt: entryBar.t, pipSize, pipValuePerLot: 10,
+    mfePips: Math.max(...window.map((b) => (b.h - entryBar.c) / pipSize)),
+    maePips: Math.min(...window.map((b) => (b.l - entryBar.c) / pipSize)),
+    breakEvenAt: null, partials: [],
+    thesis: { reason: "Long from the reclaim of the London low with the 15-minute still bullish.", invalidationPrice: +(swingLow - 0.4).toFixed(2) },
+    aiManagement: false,
+  };
+  const m = metrics(pos, s.price, s.at);
+  const ch = character(pos, s, m, diffs);
+  const h = health(pos, m, ch);
+  const prot = protection(pos, m, ch, s);
+  return {
+    active: true, positionId: "replay", accountRowId: null, side: pos.side, style: pos.style,
+    entry: pos.entry, qty: pos.qty, initQty: pos.initQty, stop: pos.curStop, initStop: pos.initStop,
+    takeProfit: pos.takeProfit, openedAt: pos.openedAt,
+    metrics: m, character: ch, health: h, protection: prot,
+    thesisState: tradeThesisState(ch), thesis: pos.thesis,
+    focus: tradeFocus(pos, m, s), question: tradeQuestion(pos, m, ch, s), read: tradeRead(pos, m, ch, prot),
+    partials: [], aiManagement: false, permissions: {},
+    events: [
+      { at: pos.openedAt, code: "POSITION_OPEN", detail: `BUY XAUUSD opened at ${pos.entry.toFixed(2)}.`, channel: "voice" },
+      { at: pos.openedAt + 9 * 60_000, code: "TRADE_PROGRESS", detail: `Trade +${Math.round(m.mfePips * 0.4)} pips.`, channel: "stream" },
+      { at: pos.openedAt + 22 * 60_000, code: "LEVEL_REACHED", detail: "Reached the first area I was watching.", channel: "stream" },
+      { at: s.at - 60_000, code: "HEALTH_CHANGED", detail: `Position health ${Math.max(0, h.score - 6)} → ${h.score}.`, channel: "stream" },
+    ].sort((a, b) => b.at - a.at),
+    unmanaged: [],
+  };
 }

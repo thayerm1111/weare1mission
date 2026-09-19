@@ -28,6 +28,8 @@ HARD RULES:
 - If your read has changed since your last statement, say so explicitly and say why. Never pretend your current view was always obvious.
 - Talk like a trader: "buyers are getting stronger", not "bullish pressure score increased". The numbers stay available if the user asks for them.
 - Be brief. Two to five sentences unless asked for more. This is spoken aloud.
+- When there is an open position in the context, every answer about "my trade" must use ITS numbers — the entry, the current pips, the R, the stop, the best and worst it has seen. Never give generic trading advice, and never invent a level it does not list.
+- You may recommend protecting, taking a partial or closing, and you should explain why. You cannot do any of it yourself: the member acts, or THE BRAIN's management does within permissions they set. Never say you have moved a stop or closed anything.
 - Address the user directly. Do not use markdown, bullet points or headings — this is speech.`;
 
 function tfLines(s: MarketSnapshot): string[] {
@@ -40,6 +42,36 @@ function tfLines(s: MarketSnapshot): string[] {
 }
 
 /** The packet, as text. Text rather than JSON because the model reasons better over it and it is auditable. */
+/** The open position, written as plain lines the model cannot misread. */
+export function tradeSummaryLines(t: {
+  side: string | null; style: string | null; entry: number | null; qty: number | null;
+  stop: number | null; initStop: number | null; takeProfit: number | null; openedAt: number | null;
+  metrics: { pips: number; money: number | null; r: number | null; mfePips: number; maePips: number; riskPips: number; distanceToStopPips: number; distanceToTargetPips: number | null; beyondBreakEven: boolean; heldMs: number } | null;
+  character: { state: string; explanation: string } | null;
+  health: { score: number; verdict: string } | null;
+  protection: { action: string; say: string } | null;
+  thesis: { reason?: string; invalidationPrice?: number } | null;
+  partials: { fraction: number; qty: number }[];
+}): string {
+  const L: string[] = [];
+  L.push(`${String(t.side).toUpperCase()} XAUUSD, ${t.style} style, ${t.qty} lots from ${t.entry?.toFixed(2)}`);
+  if (t.metrics) {
+    const m = t.metrics;
+    L.push(`now ${m.pips >= 0 ? "+" : ""}${Math.round(m.pips)} pips${m.money != null ? ` (${m.money >= 0 ? "+" : "-"}$${Math.abs(m.money).toFixed(0)})` : ""}, ${m.r}R`);
+    L.push(`best so far +${Math.round(m.mfePips)} pips, worst ${Math.round(m.maePips)} pips`);
+    L.push(`stop ${t.stop?.toFixed(2)} (${Math.round(m.distanceToStopPips)} pips away)${m.beyondBreakEven ? " — already protected beyond break even" : ""}`);
+    if (t.takeProfit != null) L.push(`target ${t.takeProfit.toFixed(2)} (${Math.round(m.distanceToTargetPips ?? 0)} pips away)`);
+    L.push(`risk on the trade was ${Math.round(m.riskPips)} pips; held ${Math.round(m.heldMs / 60_000)} minutes`);
+  }
+  if (t.partials.length) L.push(`partials taken: ${t.partials.map((p) => `${Math.round(p.fraction * 100)}% (${p.qty})`).join(", ")}`);
+  if (t.thesis?.reason) L.push(`the reason we entered: ${t.thesis.reason}`);
+  if (t.thesis?.invalidationPrice) L.push(`this trade is wrong at ${t.thesis.invalidationPrice.toFixed(2)}`);
+  if (t.character) L.push(`character now: ${t.character.state.replace(/_/g, " ")} — ${t.character.explanation}`);
+  if (t.health) L.push(`position health ${t.health.score}/100 (${t.health.verdict})`);
+  if (t.protection) L.push(`what I would do: ${t.protection.action.replace(/_/g, " ")} — ${t.protection.say}`);
+  return L.join("\n");
+}
+
 export function contextPacket(m: BrainMemory, extra?: { tradeSummary?: string | null }): string {
   const s = m.now;
   const L: string[] = [];
@@ -113,7 +145,9 @@ export function contextPacket(m: BrainMemory, extra?: { tradeSummary?: string | 
     for (const l of m.lessons.slice(-6)) L.push(`- ${l.text}`);
   }
 
-  if (extra?.tradeSummary) L.push("", "=== THE OPEN POSITION ===", extra.tradeSummary);
+  if (extra?.tradeSummary) {
+    L.push("", "=== THE OPEN POSITION — answer every trade question from THIS, never generically ===", extra.tradeSummary);
+  }
 
   if (s.news.nextEvent) {
     L.push("", "=== NEWS ===", `${s.news.nextEvent.name} (${s.news.nextEvent.importance}) in ${s.news.minutesToNext ?? "?"} minutes${s.news.inLockout ? " — currently inside the news window" : ""}`);
