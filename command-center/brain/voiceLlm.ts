@@ -145,8 +145,20 @@ export async function handleVoiceLlm(req: Request) {
   ]);
 
   if (!memory.now) {
+    /*
+     * NO SNAPSHOT HAS TWO CAUSES AND THEY ARE NOT THE SAME SENTENCE.
+     *
+     * Gold is shut most of the weekend; saying "there's no live read coming through" then describes a
+     * closed market as a broken one, and the person hearing it goes looking for a fault that does not
+     * exist. A closed market is normal and is said as such. A missing feed during trading hours is not,
+     * and is said plainly too — in both cases without inventing a price to fill the gap.
+     */
+    const open = marketOpen(Date.now());
+    const line = open
+      ? "I can't see the market right now — the live read isn't coming through, and I won't guess at a price. Everything already running on the server is unaffected."
+      : "Gold is closed right now, so there's nothing live to read. I'll pick it up when the market reopens.";
     return sse(async function* () {
-      yield `data: ${JSON.stringify(delta("I can't see the market right now — there's no live read coming through. I'd rather tell you that than make something up."))}\n\n`;
+      yield `data: ${JSON.stringify(delta(line))}\n\n`;
     });
   }
 
