@@ -1,0 +1,29 @@
+[package]
+name = "command-center-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Native shell for COMMAND CENTER XAUUSD"
+
+[lib]
+name = "command_center_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Pinned at or above 2.11.1 deliberately: GHSA-7gmj-67g7-phm9 let a remote page be misclassified as
+# local and invoke local-only commands. This application loads remote content by design, so that
+# advisory is not academic here.
+tauri = { version = "2.11.5", features = ["macos-private-api"] }
+tauri-plugin-window-state = "2"
+tauri-plugin-notification = "2"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-global-shortcut = "2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

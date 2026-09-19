@@ -6,3 +6,8 @@
 .vercel
 *.tsbuildinfo
 next-env.d.ts
+
+# Native shell build output
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/

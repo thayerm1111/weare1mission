@@ -1,0 +1,14 @@
+{
+  "name": "command-center-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Native shell for COMMAND CENTER XAUUSD and THE BRAIN companion.",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build --bundles app,dmg",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4"
+  }
+}

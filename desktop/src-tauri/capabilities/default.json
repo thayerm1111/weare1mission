@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "Local app content. There is none today — the shell loads the deployed site — so this stays minimal.",
+  "windows": ["main", "companion"],
+  "permissions": ["core:default"]
+}
