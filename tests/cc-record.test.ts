@@ -119,3 +119,31 @@ test("the news lockout is finally wired to something", async () => {
   assert.ok(/news\b/.test(worker), "which is the field that has always existed and never been filled");
   assert.ok(LOCKOUT_BEFORE_MIN > 0);
 });
+
+/*
+ * A QUESTION ABOUT ITSELF IS NOT A QUESTION ABOUT THE MARKET.
+ *
+ * "How accurate have your calls been" came back as "gold is closed" — the same failure as refusing to
+ * discuss last week, one layer up. The record either exists or it does not, and neither answer has
+ * anything to do with whether the market happens to be open.
+ */
+test("it can be asked about its own record at any hour", async () => {
+  const { asksAboutRecord } = await import("../command-center/engines/record");
+  for (const q of [
+    "How accurate have your calls been lately?",
+    "what's your track record",
+    "how often are you right",
+    "have you been right this week",
+    "how many did you get wrong",
+  ]) assert.ok(asksAboutRecord(q), q);
+
+  for (const q of ["where is gold", "what happened last week", "how's my trade"]) {
+    assert.ok(!asksAboutRecord(q), q);
+  }
+
+  const src = await fs.readFile("command-center/brain/voiceLlm.ts", "utf8");
+  assert.ok(src.indexOf("asksAboutRecord(question)") < src.indexOf("!memory.now && !history"),
+    "and it is routed before the market-state check, not after it");
+  assert.ok(/haven't got a scored record yet/.test(src),
+    "with an empty record it says that, rather than blaming the market being closed");
+});

@@ -11,7 +11,7 @@ import { classify } from "./language";
 import { lookBack, retrospectiveLines, isRetrospective } from "../engines/history";
 import { GOLD_KNOWLEDGE, wantsDomainKnowledge } from "./gold";
 import { upcoming, calendarLines } from "../adapters/calendar";
-import { recordCall, extractClaim, trackRecord, trackRecordLines } from "../engines/record";
+import { recordCall, extractClaim, trackRecord, trackRecordLines, asksAboutRecord } from "../engines/record";
 
 
 /**
@@ -273,6 +273,22 @@ export async function handleVoiceLlm(req: Request) {
     upcoming().catch(() => null),
     trackRecord().catch(() => null),
   ]);
+
+  /*
+   * A QUESTION ABOUT ITSELF IS NOT A QUESTION ABOUT THE MARKET.
+   *
+   * "How accurate have your calls been" came back as "gold is closed" — the same failure as refusing
+   * to discuss last week, one layer up. The record either exists or it does not, and neither answer
+   * has anything to do with whether the market happens to be open.
+   */
+  if (asksAboutRecord(question)) {
+    if (!record) {
+      return sse(async function* () {
+        yield `data: ${JSON.stringify(delta("I haven't got a scored record yet — I only started keeping one, and a call isn't scored until enough time has passed to judge it. Ask me again once I've been talking through a few sessions."))}\n\n`;
+      });
+    }
+    return streamAnswer(trackRecordLines(record).join("\n"), question, "I have a record but I can't read it back right now.");
+  }
 
   if (!memory.now && !history && !needsBackground) {
     /*

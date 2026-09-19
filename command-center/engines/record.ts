@@ -156,6 +156,17 @@ export async function scoreMatured(priceNow: number, nowMs = Date.now()): Promis
   return scored;
 }
 
+/**
+ * Is the member asking about the system itself rather than about gold?
+ *
+ * This needs a route of its own. "How accurate have you been" is not a market question and must not be
+ * answered out of a live snapshot — asked at the weekend it came back "gold is closed", which is the
+ * same failure as refusing to discuss last week: a router that never asked what was being requested.
+ */
+export function asksAboutRecord(q: string): boolean {
+  return /\b(your (record|calls?|accuracy|track record|hit rate|performance)|how (accurate|often are you right|have you (been )?done)|been right|were you right|get it wrong|how many .* (right|wrong)|track record|scorecard)\b/i.test(q);
+}
+
 export type TrackRecord = {
   scored: number; right: number; wrong: number; flat: number; noCall: number;
   hitRate: number | null;
