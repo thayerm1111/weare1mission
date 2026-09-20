@@ -32,17 +32,44 @@ export const esc = (s: string): string =>
 
 export type Audience = "signals" | "health";
 
+/*
+ * HEALTH NEVER FALLS BACK TO THE MEMBER CHANNEL.
+ *
+ * It used to. The chain ended `|| main`, which looked like sensible defaulting and meant that on a
+ * deployment with no admin chat configured — which was this one — forty-six paying members watched the
+ * engine post "stood down · The broker cancelled or rejected the order", its own pre-flight results,
+ * and lines like "1 account armed · autopilot ON".
+ *
+ * None of that is for them. A member seeing an internal failure does not learn that the desk is
+ * careful; they learn that it is broken. So health now requires an explicit chat id and goes nowhere
+ * without one, and the fallback that felt harmless when I wrote it is gone.
+ *
+ * Trade calls are unaffected — those are exactly what the channel is for.
+ */
+/**
+ * Is THE BRAIN allowed to speak to MEMBERS yet?
+ *
+ * Off by default, and that is a product decision rather than a technical one. An engine that has not
+ * yet completed a single trade should not be announcing setups to a paying channel — a member reading
+ * "setup forming" that is never followed by anything learns less than nothing. Flip
+ * CC_BRAIN_SIGNALS_PUBLIC to "true" once it has actually filled and you want members to see its calls.
+ *
+ * Until then every Brain message, signals included, goes to the owner's own chat.
+ */
+const signalsArePublic = (): boolean =>
+  String(process.env.CC_BRAIN_SIGNALS_PUBLIC ?? "").trim().toLowerCase() === "true";
+
 function chatFor(audience: Audience): string | null {
-  const main = process.env.TELEGRAM_CHANNEL_ID || "";
-  if (audience === "signals") return main || null;
-  return process.env.CC_TELEGRAM_HEALTH_CHAT_ID
-    || process.env.TELEGRAM_ADMIN_CHAT_ID
-    || main
-    || null;
+  const owner = process.env.CC_TELEGRAM_HEALTH_CHAT_ID || process.env.TELEGRAM_ADMIN_CHAT_ID || null;
+  if (audience === "signals" && signalsArePublic()) {
+    return process.env.TELEGRAM_CHANNEL_ID || owner;
+  }
+  return owner;
 }
 
+/** There is somewhere to send to, and a token to send with. Otherwise every send is a no-op. */
 export function telegramConfigured(): boolean {
-  return !!process.env.TELEGRAM_BOT_TOKEN && !!chatFor("signals");
+  return !!process.env.TELEGRAM_BOT_TOKEN && !!(chatFor("signals") || chatFor("health"));
 }
 
 export async function sendTelegram(textHtml: string, audience: Audience = "health"): Promise<TgResult> {
