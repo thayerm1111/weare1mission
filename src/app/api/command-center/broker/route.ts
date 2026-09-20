@@ -1,3 +1,4 @@
+import { requireConsent } from "../../../../../command-center/engines/consent";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -80,6 +81,23 @@ export async function POST(req: Request) {
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json({ error: "bad_request" }, 400); }
   const action = String(body.action ?? "");
+
+  /*
+   * THE GATE, BEFORE THE SWITCH.
+   *
+   * These four actions are the ones that put a member's money at risk: connecting a brokerage
+   * account, authorising live trading on it, granting this system permissions on it, and turning
+   * automatic trading on. None of them may happen until the risk disclosure has been read and signed.
+   *
+   * Placed here rather than in the interface deliberately. A checkbox in a form stops an honest
+   * member and nobody else; this refuses a modified client, a stale tab and a direct API call
+   * identically, and it is the only version of this rule that is worth anything in a dispute.
+   */
+  const GATED = new Set(["connect", "authorize_live", "permissions", "auto_trading"]);
+  if (GATED.has(action)) {
+    const gate = await requireConsent(user.id);
+    if (!gate.ok) return json({ ok: false, reason: gate.reason, needsConsent: true }, 403);
+  }
 
   switch (action) {
     case "connect": {

@@ -1,3 +1,4 @@
+import { requireConsent } from "../../../../../command-center/engines/consent";
 import { createClient } from "@/lib/supabase/server";
 import { latestWithBars } from "../../../../../command-center/adapters/db";
 import { prepare, execute, reconcile, manage, newIdempotencyKey } from "../../../../../command-center/engines/executor";
@@ -62,6 +63,20 @@ export async function POST(req: Request) {
   try { body = await req.json(); } catch { return json({ error: "bad_request" }, 400); }
   const action = String(body.action ?? "");
   const num = (v: unknown): number | null => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+
+  /*
+   * EVERY ACTION THAT CAN REACH THE BROKER.
+   *
+   * An allow-list of the harmless ones rather than a block-list of the dangerous ones: a new action
+   * added later defaults to REQUIRING consent, which is the safe direction to be wrong in. Reading
+   * state, passing on a setup and editing your own risk profile need no signature; everything that
+   * can open, change or close a position does.
+   */
+  const UNGATED = new Set(["prepare", "reconcile", "pass_setup", "profile", "adopt"]);
+  if (!UNGATED.has(action)) {
+    const gate = await requireConsent(user.id);
+    if (!gate.ok) return json({ ok: false, message: gate.reason, needsConsent: true }, 403);
+  }
 
   switch (action) {
     case "prepare": {

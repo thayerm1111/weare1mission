@@ -10,6 +10,7 @@ import TradePanel, { CallTradeSheet, UnmanagedNotice, type TradeStateView } from
 import { BrainTradeCard, ProfileSheet, TradeCompleteCard, type CompletedView, type ProfileView, type SetupView } from "./BrainTrade";
 import VoiceSession from "./VoiceSession";
 import TradeAlert from "./TradeAlert";
+import RiskConsent, { type ConsentView } from "./RiskConsent";
 
 /**
  * COMMAND CENTER XAUUSD.
@@ -152,6 +153,14 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
   const [flash, setFlash] = useState(0);
   const [callOpen, setCallOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  /*
+   * WHETHER THEY HAVE SIGNED.
+   *
+   * Read for the interface only. The routes enforce it independently and would refuse with this state
+   * missing, wrong, or edited in a console — which is the order of authority that matters.
+   */
+  const [consent, setConsent] = useState<ConsentView | null>(null);
+  const [consentOpen, setConsentOpen] = useState(false);
   const [reloadAt, setReloadAt] = useState(0);
   // The account and the idempotency key come from the trading route, which is the only place that knows
   // about the broker. The live read deliberately never touches it.
@@ -161,6 +170,15 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
     profile: ProfileView | null;
   }>({ account: null, idempotencyKey: null, profile: null });
   const lastEventKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/command-center/consent", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => { if (alive) setConsent(j.consent ?? null); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -529,6 +547,33 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
             * member who is not looking at this screen. It decides for itself whether there is
             * anything worth interrupting for, and stays invisible the rest of the time.
             */}
+          <RiskConsent
+            open={consentOpen}
+            onClose={() => setConsentOpen(false)}
+            onSigned={(c) => setConsent(c)}
+          />
+
+          {/*
+            * A standing reminder while unsigned, rather than a refusal at the moment of action.
+            *
+            * Finding out you cannot trade at the second you wanted to is the worst possible time to
+            * learn it. The routes still refuse regardless of whether this banner is on screen.
+            */}
+          {consent && !consent.signed && (
+            <button onClick={() => setConsentOpen(true)}
+              className="w-full rounded-2xl border px-4 py-3 text-left"
+              style={{ borderColor: "rgba(244,115,123,0.30)", background: "rgba(244,115,123,0.06)" }}>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: C.down }}>
+                {consent.stale ? "Risk disclosure updated" : "Risk disclosure not signed"}
+              </p>
+              <p className="mt-1 text-[12.5px]" style={{ color: C.mut }}>
+                {consent.stale
+                  ? "It has changed since you signed it. Read and sign the new version to keep trading."
+                  : "You can read the market and talk to THE BRAIN, but you cannot connect a broker, take a trade or enable automation until you have read and signed it."}
+              </p>
+            </button>
+          )}
+
           <TradeAlert
             setup={d?.setup ?? null}
             riskPct={d?.profile?.riskPct ?? 0.5}

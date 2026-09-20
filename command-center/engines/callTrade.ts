@@ -14,6 +14,7 @@
  * account THE BRAIN may use once, deliberately, in a place designed for that decision. A per-trade risk
  * value arriving in a POST body is exactly the kind of thing that is one bug away from being 20%.
  */
+import { requireConsent } from "./consent";
 import { db } from "../adapters/db";
 import { prepare, execute, type ExecuteResult } from "./executor";
 import { findSetup, stillValid, type BrainSetup, type SetupState } from "./setup";
@@ -46,6 +47,18 @@ export async function takeSetup(
   marketIsOpen: boolean,
   thesis?: { bias: Bias | null; confidence: number | null },
 ): Promise<TakeResult> {
+  /*
+   * THE SAME GATE AGAIN, ONE LAYER DOWN.
+   *
+   * The route already checks this, so in normal operation the check here never fires. It exists
+   * because this function is the single place an order is actually sent, and a future caller — a new
+   * route, a worker, a voice path that grows an execution branch — would otherwise inherit market
+   * access without inheriting the rule. A duplicated check costs one query; a missed one sends an
+   * order for somebody who never signed.
+   */
+  const gate = await requireConsent(userId);
+  if (!gate.ok) return { ok: false, state: "error", message: gate.reason };
+
   const profile = await getProfile(userId);
 
   // 1 — what does THE BRAIN say RIGHT NOW? Not what the browser remembers.
