@@ -33,7 +33,18 @@ export async function GET() {
   if (!user) return json({ ok: false, error: "unauthorized" }, 401);
 
   try {
-    const state = await liveState(marketOpen(Date.now()), dayStart(), user.id);
+    /*
+     * WHEN GOLD IS SHUT, "TODAY" IS THE WRONG WINDOW.
+     *
+     * The journal behind Today's Brain started at the current trading day, which on a Saturday is a
+     * day in which nothing happened — so the panel read "No reads recorded today yet" all weekend,
+     * as though THE BRAIN had never said anything. The last thing it said about gold is exactly what
+     * somebody wants while the market is closed, so the window widens to the last week and the panel
+     * shows the most recent reads instead of an empty box.
+     */
+    const isOpen = marketOpen(Date.now());
+    const since = isOpen ? dayStart() : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const state = await liveState(isOpen, since, user.id);
     return json(state);
   } catch (e) {
     return json({ ok: false, error: "read_failed", detail: e instanceof Error ? e.message.slice(0, 200) : "unknown" }, 500);

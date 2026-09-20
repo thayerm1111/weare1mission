@@ -33,6 +33,7 @@ import type { MarketSnapshot } from "../core/types";
 import { tradeState } from "./tradeLive";
 import { manage, type ManageAction } from "./executor";
 import { autopilotMode } from "./autopilot";
+import { brainOwnsPosition } from "./interlock";
 
 let admin: SupabaseClient | null = null;
 function db(): SupabaseClient | null {
@@ -94,6 +95,16 @@ export async function autoManageTick(snapshot: MarketSnapshot | null): Promise<s
   for (const r of rows) {
     // Re-read the whole trade for THIS member: metrics, character, health and the style-aware
     // protection call all come back together and all come from the current snapshot.
+    /*
+     * NEVER TOUCH A TRADE THIS ENGINE DID NOT OPEN.
+     *
+     * FLOW may be in gold on the same account, running its own strategy and managing its own
+     * position. Both engines sharing an account is allowed; one reaching into the other's trade is
+     * not, and this is the check that says so out loud rather than relying on the two of them
+     * happening to use different tables.
+     */
+    if (!(await brainOwnsPosition(r.user_id, r.id))) continue;
+
     let st;
     try { st = await tradeState(r.user_id, snapshot); }
     catch { continue; }

@@ -58,9 +58,31 @@ async function barsFor(tf: Timeframe, size: number): Promise<{ bars: Bar[]; fres
   return { bars: r.data, fresh: true };
 }
 
+/**
+ * A CLOSED MARKET IS NOT AN EMPTY ONE.
+ *
+ * This used to return immediately when gold shut, which meant no snapshot was written all weekend —
+ * and because the screen is built from the newest snapshot, a member arriving on Saturday saw "no
+ * candles to draw", "no reads recorded today", a blank thesis and blank weather. Nothing was broken;
+ * there was simply nothing to show, which looks identical to broken and is worse, because the last
+ * thing gold actually did is exactly what somebody wants to study while the market is shut.
+ *
+ * So the pass still runs when closed, slowly. It builds and persists the same snapshot from the last
+ * bars the market produced, so the price map, the thesis and the weather keep showing Friday's close
+ * until Sunday moves them. What it does NOT do while closed is look for trades or manage anything —
+ * see the guards further down.
+ */
+const CLOSED_TICK_MS = Number(process.env.CC_CLOSED_TICK_MS || 15 * 60_000);
+let lastClosedPassAt = 0;
+
 async function pass(lastPersistAt: number): Promise<number> {
   const now = Date.now();
-  if (!marketOpen(now)) { log("market closed — idling"); return lastPersistAt; }
+  const isOpen = marketOpen(now);
+  if (!isOpen) {
+    if (now - lastClosedPassAt < CLOSED_TICK_MS) return lastPersistAt;
+    lastClosedPassAt = now;
+    log("market closed — refreshing the last read");
+  }
 
   const bars: Partial<Record<Timeframe, Bar[]>> = {};
   const errors: string[] = [];
@@ -140,7 +162,7 @@ async function pass(lastPersistAt: number): Promise<number> {
    * Both of these no-op entirely unless CC_AUTOPILOT is set, so a deployment that has not opted in
    * runs exactly as it did before: read, narrate, and wait to be asked.
    */
-  if (autopilotMode() !== "off") {
+  if (isOpen && autopilotMode() !== "off") {
     try {
       const managed = await autoManageTick(snap);
       if (managed) log(managed);
@@ -148,7 +170,7 @@ async function pass(lastPersistAt: number): Promise<number> {
     try {
       const traded = await autopilotTick({
         snapshot: snap,
-        marketOpen: marketOpen(now),
+        marketOpen: isOpen,
         tradeable: gate.ok,
         thesis: { bias: pc.thesis.bias ?? null, confidence: pc.thesis.confidence ?? null },
       });

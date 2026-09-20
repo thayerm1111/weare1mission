@@ -1,28 +1,34 @@
 /**
- * WHICH ENGINE OWNS AN ACCOUNT. GENX/FLOW IS NEVER THE ONE THAT YIELDS.
+ * TWO ENGINES, ONE ACCOUNT, SEPARATE HANDS.
  *
- * There are two autonomous systems in this product that could put gold on the same TradeLocker
- * account. GENX/FLOW has been trading real money for months and is not being changed: it keeps its
- * accounts, its behaviour and its guards exactly as they are. COMMAND CENTER is the new one, and the
- * whole burden of staying out of the way falls on it.
+ * GENX/FLOW and COMMAND CENTER are allowed to trade the same broker account. They are NOT allowed to
+ * touch each other's trades. That is the whole of the rule, and it is a deliberate choice by the
+ * owner rather than an accident of the schema: two different strategies may both have an opinion
+ * about gold on the same account, and each is responsible for its own position from entry to exit.
  *
- * The rule is ownership, not negotiation:
+ * An earlier version of this file gave the account to FLOW outright and made THE BRAIN stand down.
+ * That was the wrong reading of "no overlap". The overlap that matters is strategy and execution —
+ * one engine second-guessing, re-managing or closing a trade the other opened — not the account.
  *
- *   An account that FLOW trades belongs to FLOW. THE BRAIN will not trade it. Full stop.
+ * WHAT IS ENFORCED HERE:
  *
- * Ownership is decided per BROKER ACCOUNT NUMBER, not per row id. The same TradeLocker account can be
- * connected twice — once to FLOW, once to Command Center — and our two row ids say nothing about that.
- * To the broker it is one account with one margin pool, and that pool is what would be double-risked.
+ *   One BRAIN position per account. THE BRAIN will not stack its own trades. FLOW's positions are
+ *   counted separately and do not stop it, because FLOW's trade is FLOW's business.
  *
- * A second, narrower check backs it up: even on an account FLOW does not own, refuse if gold is
- * already open there. That catches a position opened by hand, or by FLOW before ownership changed.
+ *   THE BRAIN manages only what THE BRAIN opened. This is already structural — the two engines keep
+ *   their positions in different tables and address them by different ids, so neither can reach the
+ *   other's by accident — and `brainOwnsPosition` makes it checkable rather than merely true.
  *
- * BOTH FAIL CLOSED. If the tables cannot be read, this reports that the account is not available. A
- * missed duplicate costs real money on somebody's account; a skipped entry costs one setup, and gold
- * produces another one shortly.
+ * WHAT THIS DELIBERATELY DOES NOT DO:
  *
- * Nothing in this file writes anything, and nothing in GENX or FLOW imports it. It is a one-way
- * courtesy from the new engine to the established one.
+ *   It does not net the two engines' exposure. An account traded by both can hold a FLOW gold
+ *   position and a BRAIN gold position at the same time, each sized to the member's risk percentage
+ *   by its own engine — so the account's total risk can be the sum of the two. That is the
+ *   consequence of running two strategies on one account, it is intended, and it is written down
+ *   here so nobody later mistakes it for an oversight.
+ *
+ * EVERY CHECK FAILS CLOSED. If a table cannot be read, the answer is "not available". A missed
+ * duplicate costs real money; a skipped entry costs one setup, and gold produces another shortly.
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -39,74 +45,62 @@ function db(): SupabaseClient | null {
 
 export type Availability =
   | { available: true }
-  | { available: false; reason: string; owner: "flow" | "command-center" | "manual" | "unknown" };
+  | { available: false; reason: string };
 
-/** Is this broker account free for THE BRAIN to trade autonomously? */
+/**
+ * May THE BRAIN open a gold position on this broker account right now?
+ *
+ * Only THE BRAIN's own open positions can say no. FLOW may be in gold on the same account and that
+ * is fine — it is running its own strategy and managing its own trade.
+ */
 export async function accountAvailableToBrain(accNum: string | null | undefined): Promise<Availability> {
   const n = String(accNum ?? "").trim();
   if (!n) {
-    return { available: false, reason: "No broker account number to check — refusing rather than guessing.", owner: "unknown" };
+    return { available: false, reason: "No broker account number to check — refusing rather than guessing." };
   }
   const c = db();
   if (!c) {
-    return { available: false, reason: "Cannot reach the account records to check ownership.", owner: "unknown" };
+    return { available: false, reason: "Cannot reach the position records to check for an open trade." };
   }
 
-  // 1 — Does FLOW trade this account? Either switch makes it FLOW's: `autotrade_enabled` is the copy
-  //     path, `genx_follower` is the follower path, and both place gold without asking.
-  try {
-    const { data, error } = await c
-      .from("flow_broker_accounts")
-      .select("autotrade_enabled, genx_follower")
-      .eq("acc_num", n)
-      .limit(20);
-    if (error) throw new Error(error.message);
-    const ownedByFlow = (data ?? []).some((r: { autotrade_enabled?: boolean | null; genx_follower?: boolean | null }) =>
-      r.autotrade_enabled === true || r.genx_follower === true);
-    if (ownedByFlow) {
-      return {
-        available: false,
-        owner: "flow",
-        reason: `Account ${n} is traded by GENX/FLOW. THE BRAIN leaves FLOW's accounts alone.`,
-      };
-    }
-  } catch (e) {
-    return { available: false, reason: `Could not check FLOW's accounts (${String(e).slice(0, 80)}).`, owner: "unknown" };
-  }
-
-  // 2 — Backstop: is gold open on it right now, whoever opened it?
-  try {
-    const { data, error } = await c
-      .from("flow_managed_positions")
-      .select("position_id, symbol")
-      .eq("acc_num", n)
-      .eq("status", "open")
-      .limit(8);
-    if (error) throw new Error(error.message);
-    const gold = (data ?? []).filter((r: { symbol?: string | null }) =>
-      String(r.symbol ?? "").toUpperCase().replace("/", "").includes("XAU"));
-    if (gold.length) {
-      return { available: false, reason: `Gold is already open on account ${n}.`, owner: "manual" };
-    }
-  } catch (e) {
-    return { available: false, reason: `Could not read open positions (${String(e).slice(0, 80)}).`, owner: "unknown" };
-  }
-
-  // 3 — And THE BRAIN's own side: one gold position per account, same as FLOW's rule for itself.
   try {
     const { data, error } = await c
       .from("cc_positions")
       .select("id")
       .eq("acc_num", n)
       .is("closed_at", null)
-      .limit(8);
+      .limit(4);
     if (error) throw new Error(error.message);
     if ((data ?? []).length) {
-      return { available: false, reason: `THE BRAIN already holds a position on account ${n}.`, owner: "command-center" };
+      return { available: false, reason: `THE BRAIN already has a position open on account ${n}.` };
     }
   } catch (e) {
-    return { available: false, reason: `Could not read THE BRAIN's positions (${String(e).slice(0, 80)}).`, owner: "unknown" };
+    return { available: false, reason: `Could not read THE BRAIN's positions (${String(e).slice(0, 80)}).` };
   }
 
   return { available: true };
+}
+
+/**
+ * Is this position one THE BRAIN opened, and therefore one it may act on?
+ *
+ * The autonomous manager asks before every action. It should always be true — the manager only ever
+ * reads `cc_positions` — and the day it is not, something has gone wrong in a way that must stop
+ * rather than proceed.
+ */
+export async function brainOwnsPosition(userId: string, positionRowId: string): Promise<boolean> {
+  const c = db();
+  if (!c) return false;
+  try {
+    const { data, error } = await c
+      .from("cc_positions")
+      .select("id")
+      .eq("id", positionRowId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return !!data;
+  } catch {
+    return false;
+  }
 }
