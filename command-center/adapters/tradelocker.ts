@@ -269,6 +269,67 @@ const pick = (row: Row, keys: string[]): unknown => {
   for (const k of keys) if (row[k] !== undefined && row[k] !== null) return row[k];
   return undefined;
 };
+
+/**
+ * THE SAME LOOKUP, BUT IT LOOKS INSIDE.
+ *
+ * TradeLocker does not put an instrument's numbers where `pick` was looking. Depending on the broker's
+ * build they sit under `details`, or under `tradingRules`, or on the route object — and the flat lookup
+ * returned undefined for every one of them. The result was a specification with ELEVEN null fields, a
+ * refusal to size, and an autopilot that would have declined every setup with "the broker did not
+ * describe this instrument" while the broker had in fact described it perfectly well.
+ *
+ * Breadth-first so a top-level key still wins over a nested one of the same name, depth-limited because
+ * an instrument payload is small and an unbounded walk over broker JSON is not a thing to run on a
+ * trading path. Arrays are walked too: some builds hang the specification off the TRADE route.
+ */
+const deepPick = (row: Row, keys: string[], maxDepth = 3): unknown => {
+  const direct = pick(row, keys);
+  if (direct !== undefined) return direct;
+
+  let frontier: unknown[] = [row];
+  for (let depth = 0; depth < maxDepth; depth++) {
+    const next: unknown[] = [];
+    for (const node of frontier) {
+      if (!node || typeof node !== "object") continue;
+      const children = Array.isArray(node) ? node : Object.values(node as Record<string, unknown>);
+      for (const child of children) {
+        if (!child || typeof child !== "object") continue;
+        const hit = pick(child as Row, keys);
+        if (hit !== undefined) return hit;
+        next.push(child);
+      }
+    }
+    if (!next.length) break;
+    frontier = next;
+  }
+  return undefined;
+};
+
+/**
+ * Every primitive in a payload, as `path=value`, for diagnostics ONLY.
+ *
+ * When a specification will not resolve, the useful question is not "which fields were null" — the
+ * refusal already says that — but "what did the broker actually send". This answers it in the log so
+ * the next fix is made against the real shape instead of a guess about it.
+ *
+ * Instrument payloads are public market metadata: lot steps, tick sizes, contract sizes. No token, no
+ * account credential and no balance passes through this function, and it is never called on anything
+ * but an instrument body.
+ */
+export function describeShape(body: unknown, limit = 900): string {
+  const out: string[] = [];
+  const walk = (node: unknown, path: string, depth: number) => {
+    if (out.join(" ").length > limit || depth > 4 || node == null) return;
+    if (typeof node !== "object") { out.push(`${path}=${String(node).slice(0, 40)}`); return; }
+    if (Array.isArray(node)) { node.slice(0, 4).forEach((v, i) => walk(v, `${path}[${i}]`, depth + 1)); return; }
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      walk(v, path ? `${path}.${k}` : k, depth + 1);
+    }
+  };
+  walk(unwrap(body), "", 0);
+  return out.join(" ").slice(0, limit) || "(empty payload)";
+}
 const asNum = (v: unknown): number | null => { const n = Number(v); return Number.isFinite(n) ? n : null; };
 const asStr = (v: unknown): string | null => (v == null ? null : String(v));
 
@@ -368,20 +429,33 @@ export type TLInstrumentSpec = {
 export function parseInstrumentSpec(body: unknown, fallback: { tradableInstrumentId: string; routeId: string }): TLInstrumentSpec {
   const d = unwrap(body);
   const row = ((Array.isArray(d) ? d[0] : d) ?? {}) as Row;
-  const g = (keys: string[]) => (Array.isArray(row) ? null : asNum(pick(row, keys)));
+  /*
+   * DEEP, AND WITH THE NAMES THIS BROKER ACTUALLY USES.
+   *
+   * Two separate faults produced the empty specification. The lookup was flat, so anything under
+   * `details` or `tradingRules` was invisible — and the alias lists were short, missing the spellings
+   * TradeLocker uses on the live build the desk already trades: `lotSize` for the step, `minQuantity`
+   * and `maxQuantity` for the bounds, `priceIncrement` for the tick.
+   *
+   * `contractSize` deliberately no longer accepts `lotSize` as a synonym. On this broker `lotSize` is
+   * the QUANTITY STEP, not the units per lot, and reading one as the other would have produced a pip
+   * value that was wrong by orders of magnitude — a sizing error that places a real position far larger
+   * than the member's risk setting. A null contract size refuses the trade; a wrong one takes it.
+   */
+  const g = (keys: string[]) => (Array.isArray(row) ? null : asNum(deepPick(row, keys)));
   return {
     tradableInstrumentId: (Array.isArray(row) ? null : asStr(pick(row, ["tradableInstrumentId", "id"]))) ?? fallback.tradableInstrumentId,
     routeId: (Array.isArray(row) ? null : asStr(pick(row, ["routeId"]))) ?? fallback.routeId,
     name: (Array.isArray(row) ? null : asStr(pick(row, ["name", "symbol", "description"]))) ?? "",
-    contractSize: g(["contractSize", "lotSize", "unitsPerLot"]),
-    lotStep: g(["lotStep", "quantityStep", "volumeStep", "lotSizeStep"]),
-    minLot: g(["minLot", "minQty", "minVolume", "minLotSize"]),
-    maxLot: g(["maxLot", "maxQty", "maxVolume", "maxLotSize"]),
-    tickSize: g(["tickSize", "minPriceIncrement", "priceStep"]),
-    tickValue: g(["tickValue", "valuePerTick"]),
-    pricePrecision: g(["pricePrecision", "priceDecimals", "decimals"]),
+    contractSize: g(["contractSize", "contract_size", "unitsPerLot", "contractMultiplier"]),
+    lotStep: g(["lotStep", "quantityStep", "volumeStep", "lotSizeStep", "lotSize", "lot_size", "stepQuantity"]),
+    minLot: g(["minLot", "minQty", "minVolume", "minLotSize", "minQuantity", "minOrderQuantity"]),
+    maxLot: g(["maxLot", "maxQty", "maxVolume", "maxLotSize", "maxQuantity", "maxOrderQuantity"]),
+    tickSize: g(["tickSize", "tick_size", "minPriceIncrement", "priceIncrement", "priceStep"]),
+    tickValue: g(["tickValue", "tick_value", "valuePerTick"]),
+    pricePrecision: g(["pricePrecision", "priceDecimals", "decimals", "digits"]),
     quantityPrecision: g(["quantityPrecision", "qtyDecimals", "lotDecimals"]),
-    currency: Array.isArray(row) ? null : asStr(pick(row, ["currency", "quoteCurrency", "profitCurrency"])),
+    currency: Array.isArray(row) ? null : asStr(deepPick(row, ["marginCurrency", "currency", "quoteCurrency", "profitCurrency"])),
   };
 }
 

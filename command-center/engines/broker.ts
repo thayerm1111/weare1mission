@@ -16,7 +16,7 @@ import { open, seal, encryptionAvailable, maskEmail } from "../core/crypto";
 import { resolve as resolveInstrument, type Resolved } from "../core/instrument";
 import {
   authenticate, refresh as refreshToken, listAccounts, listInstruments, instrumentDetails, instrumentRow,
-  accountState as fetchAccountState, parseAccounts, parseAccountState, parseInstrumentSpec, findGold,
+  accountState as fetchAccountState, parseAccounts, parseAccountState, parseInstrumentSpec, findGold, describeShape,
   type TLAuth, type TLEnv, type TLInstrumentSpec,
 } from "../adapters/tradelocker";
 
@@ -216,6 +216,8 @@ export type InstrumentResolution =
 export async function goldInstrument(s: Session, force = false): Promise<InstrumentResolution> {
   const c = need();
   let spec = (!force && s.account.instrument_spec) ? s.account.instrument_spec : null;
+  // Kept only so a refusal can show what the broker actually sent, rather than what we made of it.
+  let rawBody: unknown = null;
 
   if (!spec) {
     let id = s.account.instrument_id;
@@ -232,11 +234,13 @@ export async function goldInstrument(s: Session, force = false): Promise<Instrum
     // the call the desk has always used. Either way the specification is the BROKER'S, never a guess.
     const det = await instrumentDetails(s.auth, id, route);
     if (det.ok) {
+      rawBody = det.data;
       spec = parseInstrumentSpec(det.data, { tradableInstrumentId: id, routeId: route });
     } else {
       const list = await listInstruments(s.auth);
       const row = list.ok ? instrumentRow(list.data, id) : null;
       if (!row) return { ok: false, reason: `Could not read the XAUUSD specification: ${det.error}` };
+      rawBody = row;
       spec = parseInstrumentSpec(row, { tradableInstrumentId: id, routeId: route });
     }
     await c.from("cc_broker_accounts").update({
@@ -245,7 +249,27 @@ export async function goldInstrument(s: Session, force = false): Promise<Instrum
   }
 
   const r = resolveInstrument(spec, s.account.currency);
-  if (!r.ok) return { ok: false, reason: r.reason };
+
+  /*
+   * A CACHED SPECIFICATION THAT CANNOT SIZE A TRADE IS NOT A CACHE. IT IS A STUCK FAILURE.
+   *
+   * The row on this account held a specification whose every numeric field was null, written by a
+   * parser that was looking in the wrong place. Because a cached spec was preferred over a fresh read,
+   * that empty object would have been handed to the risk engine on every tick forever — the fix to the
+   * parser would have shipped and changed nothing, because the broker was never asked again.
+   *
+   * So an unusable cache is retried once, from the broker, before refusing. Once. A second failure is
+   * the broker genuinely not describing the instrument, and then refusing is the right answer.
+   */
+  if (!r.ok && !force) {
+    const fresh = await goldInstrument(s, true);
+    if (fresh.ok) return fresh;
+    return { ok: false, reason: fresh.ok === false ? fresh.reason : r.reason };
+  }
+
+  if (!r.ok) {
+    return { ok: false, reason: `${r.reason} The broker sent: ${rawBody ? describeShape(rawBody) : "(cached specification, no fresh read)"}` };
+  }
   return { ok: true, spec, resolved: r };
 }
 
