@@ -56,6 +56,18 @@ export type TLPosition = { id: string; instrumentId: string; side: "buy" | "sell
 const TIMEOUT_MS = 15_000;
 
 /**
+ * HOW LONG TO STAND OFF AFTER THE BROKER SAYS "TOO MANY REQUESTS".
+ *
+ * A 429 answered by an immediate retry is how a rate limit becomes a permanent one. Every route shares
+ * this gate, because the limit is on the account rather than on any one of them.
+ */
+const RATE_LIMIT_BACKOFF_MS = Number(process.env.CC_RATE_LIMIT_BACKOFF_MS ?? 60_000);
+let rateLimitedUntil = 0;
+
+/** True while the broker has told us to back off. Exposed so the pre-flight can say so plainly. */
+export const rateLimited = (): boolean => Date.now() < rateLimitedUntil;
+
+/**
  * The Developer Program key for multi-user applications. Absent, the API still works but on the stricter
  * per-route limits — which is precisely what starved the old desk's fan-out. It is read from the
  * environment and never travels to a browser.
@@ -75,6 +87,11 @@ async function call<T>(env: TLEnv, path: string, init: RequestInit & { token?: s
   if (init.token) headers.Authorization = `Bearer ${init.token}`;
   if (init.accNum) headers.accNum = String(init.accNum);
   if (DEVELOPER_KEY) headers["tl-developer-api-key"] = DEVELOPER_KEY;
+  // Refuse locally while backing off, rather than spending another request to be told the same thing.
+  if (rateLimited()) {
+    return { ok: false, status: 429, error: `Backing off — the broker rate-limited this account ${Math.ceil((rateLimitedUntil - Date.now()) / 1000)}s ago.`, uncertain: true };
+  }
+
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
@@ -84,8 +101,24 @@ async function call<T>(env: TLEnv, path: string, init: RequestInit & { token?: s
     try { body = text ? JSON.parse(text) : null; } catch { /* some endpoints answer 204 with no body */ }
     if (isRejection(r.status, body)) {
       const msg = String((body as Record<string, unknown> | null)?.errmsg ?? (body as Record<string, unknown> | null)?.message ?? text.slice(0, 160) ?? `HTTP ${r.status}`);
-      // 5xx and 408 leave the real outcome unknown — the caller must reconcile, never resend.
-      return { ok: false, status: r.status, error: msg, uncertain: r.status >= 500 || r.status === 408, raw: body };
+      /*
+       * 429 — THE BROKER TELLING US TO STOP.
+       *
+       * Tonight this was the quiet root cause. Eighteen orders, four reconcile retries each, and a
+       * handful of worker restarts exhausted TradeLocker's per-route limit. `listPositions` then
+       * returned 429, reconcile's `if (pos.ok)` block never ran, no position was ever found or
+       * recorded, and every guard that reads our position table concluded the account was flat. The
+       * stacking followed from that.
+       *
+       * Rate limits are per-route and published in /trade/config; a Developer Program key raises them
+       * and is not configured on this service. Until it is, the honest response to a 429 is to back
+       * off hard and treat the answer as unknown — which, on any path that asks "am I already in this
+       * trade", means refusing to trade rather than assuming not.
+       */
+      if (r.status === 429) {
+        rateLimitedUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
+      }
+      return { ok: false, status: r.status, error: msg, uncertain: r.status >= 500 || r.status === 408 || r.status === 429, raw: body };
     }
     return { ok: true, data: (body ?? true) as T };
   } catch (e) {

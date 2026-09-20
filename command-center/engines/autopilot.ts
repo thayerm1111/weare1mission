@@ -142,17 +142,26 @@ async function record(row: {
  *
  * IT FAILS CLOSED. If the log cannot be read, the answer is "yes, recently" and nothing is opened.
  */
-const STYLE_SPACING_MS: Record<string, number> = {
-  quick: 90 * 60_000,
-  hold: 180 * 60_000,
-  swing: 480 * 60_000,
-};
+/*
+ * A SETTLE WINDOW, NOT A TRADING CADENCE.
+ *
+ * This started as the desk's style cooldown — 90 minutes for a quick trade — and that was the wrong
+ * instrument for what the owner actually asked for. He wants ONE OPEN POSITION AT A TIME, not one
+ * trade every ninety minutes: when a trade closes, the engine should be free to take the next setup.
+ * A 90-minute gap would have changed how it trades, and the trading is not what is broken.
+ *
+ * So this is short on purpose. It covers only the gap between sending an order and being able to see
+ * the resulting position at the broker — the window in which "am I already in?" is genuinely
+ * unanswerable, which is precisely where eighteen orders went out tonight. After it, the broker's own
+ * position list governs, and that is the right authority.
+ */
+const SETTLE_AFTER_ENTRY_MS = Number(process.env.CC_SETTLE_MS ?? 5 * 60_000);
 
-async function actedRecently(accountRowId: string, style: string): Promise<{ blocked: boolean; detail: string }> {
+async function actedRecently(accountRowId: string): Promise<{ blocked: boolean; detail: string }> {
   const c = db();
   if (!c) return { blocked: true, detail: "Cannot read the action log, so THE BRAIN cannot tell whether it just entered." };
 
-  const window = STYLE_SPACING_MS[style] ?? STYLE_SPACING_MS.quick;
+  const window = SETTLE_AFTER_ENTRY_MS;
   const since = new Date(Date.now() - window).toISOString();
   try {
     const { data, error } = await c
@@ -168,11 +177,10 @@ async function actedRecently(accountRowId: string, style: string): Promise<{ blo
     const last = (data ?? [])[0] as { created_at: string; side: string | null; style: string | null } | undefined;
     if (!last) return { blocked: false, detail: "" };
 
-    const minsAgo = Math.round((Date.now() - Date.parse(last.created_at)) / 60_000);
-    const minsLeft = Math.max(1, Math.round(window / 60_000) - minsAgo);
+    const secsAgo = Math.round((Date.now() - Date.parse(last.created_at)) / 1000);
     return {
       blocked: true,
-      detail: `Already opened a ${last.side ?? ""} ${last.style ?? ""} trade ${minsAgo} min ago — one at a time, ${minsLeft} min before another.`.replace(/\s+/g, " "),
+      detail: `An order went out ${secsAgo}s ago and has not settled yet — waiting to confirm it before considering another.`,
     };
   } catch (e) {
     return { blocked: true, detail: `Cannot read the action log (${String(e).slice(0, 60)}) — refusing rather than risking a second entry.` };
@@ -295,7 +303,7 @@ export async function autopilotTick(input: {
      * ONE TRADE, THEN MANAGE IT — checked against the action log, not against our position records.
      * This is the guard that does not share a failure mode with the other three.
      */
-    const spacing = await actedRecently(a.id, setup.style);
+    const spacing = await actedRecently(a.id);
     if (spacing.blocked) {
       await record({ user_id: a.user_id, account_row_id: a.id, acc_num: a.acc_num, mode, acted: false,
         outcome: "spaced", reason: spacing.detail,
