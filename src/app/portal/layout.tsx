@@ -6,6 +6,7 @@ import { NotificationsBell } from "@/components/portal/NotificationsBell";
 import { ThemeToggle } from "@/components/portal/ThemeToggle";
 import { PendingNotice } from "@/components/portal/PendingNotice";
 import { LowBalanceFlyer } from "@/components/portal/LowBalanceFlyer";
+import RiskConsentGate from "@/components/command-center/RiskConsentGate";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getProfile } from "@/lib/auth";
 import { TIER_LABELS } from "@/lib/access";
@@ -76,6 +77,12 @@ export default async function PortalLayout({ children }: { children: React.React
         )}
       </div>
       {profile && !needsApproval && <LowBalanceFlyer />}
+      {/*
+        * The risk disclosure, shown on the way in rather than at the moment somebody wants to trade.
+        * It renders nothing for a member who has already signed, and it does not lock the portal —
+        * trading is gated on the server, which is where a gate is worth anything.
+        */}
+      {profile && !needsApproval && <RiskConsentGate />}
       {/* SuiteFlyer retired (owner 09-08): the $39/mo Trading Suite is no longer offered —
           members buy credits or auto-refill instead. Existing subscribers keep their plan
           and manage it from the account page. */}

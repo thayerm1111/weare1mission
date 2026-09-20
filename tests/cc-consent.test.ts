@@ -118,3 +118,38 @@ test("the source flags that the words need a lawyer", async () => {
   assert.ok(/NOT LEGAL ADVICE AND HAVE NOT BEEN REVIEWED BY A LAWYER/.test(src),
     "nobody should mistake a draft for a reviewed document");
 });
+
+/*
+ * ASKED ON THE WAY IN, NOT AT THE MOMENT IT BECOMES URGENT.
+ *
+ * Nobody should arrive at the second they want to trade and find a legal document in the way. The
+ * sheet is mounted in the portal shell so it is read once, calmly, before any of it matters.
+ */
+test("every member is asked on the way into the portal", async () => {
+  const layout = await fs.readFile("src/app/portal/layout.tsx", "utf8");
+  assert.ok(/<RiskConsentGate \/>/.test(layout), "mounted in the shell every member passes through");
+});
+
+test("'later' defers for the visit, not for ever", async () => {
+  const gate = await fs.readFile("src/components/command-center/RiskConsentGate.tsx", "utf8");
+  assert.ok(/sessionStorage/.test(gate), "the deferral dies with the tab");
+  // Comments are stripped: the code explains the sessionStorage choice by naming what it rejected.
+  const code = gate.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  assert.ok(!/localStorage/.test(code), "a member who never signs is asked again, every visit");
+  assert.ok(/if \(!consent \|\| consent\.signed\) return null;/.test(gate),
+    "and it disappears entirely once signed");
+});
+
+/*
+ * IT MUST NOT HOLD THE PORTAL HOSTAGE.
+ *
+ * Members pay for the community, the training and the tools. Locking those behind a TRADING
+ * disclosure would punish people for something they may never do — and it would be security theatre
+ * either way, because the gate that matters is the one on the server.
+ */
+test("declining leaves the rest of the product usable", async () => {
+  const sheet = await fs.readFile("src/components/command-center/RiskConsent.tsx", "utf8");
+  assert.ok(/Not now/.test(sheet), "there is a way past the sheet");
+  assert.ok(/cannot connect a broker, place a trade or enable automation/.test(sheet),
+    "and it says exactly what declining costs");
+});

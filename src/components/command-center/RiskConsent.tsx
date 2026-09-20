@@ -35,6 +35,49 @@ export type ConsentView = {
   signedName: string | null; stale: boolean; currentVersion: string;
 };
 
+/**
+ * THE TEXT, SET AS A DOCUMENT RATHER THAN AS A STRING.
+ *
+ * The disclosure is stored with hard line breaks so the hash is stable and the plain text stays
+ * readable wherever it ends up — a log, an email, a court exhibit. Rendering it with `pre-wrap` then
+ * breaks sentences in the middle of the viewport, which is how a serious document comes to look like
+ * a config file. Paragraphs are rejoined and headings picked out instead, so it reads the way it would
+ * on paper without the stored text changing at all.
+ */
+function renderDisclosure(raw: string) {
+  const blocks = raw.split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean);
+  return blocks.map((b, i) => {
+    const lines = b.split("\n").map((l) => l.trim());
+    const isNumbered = /^\d+\.\s+[A-Z]/.test(lines[0]);
+    const heading = isNumbered ? lines[0] : null;
+    const body = (isNumbered ? lines.slice(1) : lines).join(" ").replace(/\s{2,}/g, " ");
+    const isTitle = i === 0;
+    const isFinal = /^BY SIGNING/.test(lines[0]);
+
+    if (isTitle) {
+      return (
+        <p key={i} className="mb-3 text-[13px] font-bold tracking-tight" style={{ color: C.text }}>{body}</p>
+      );
+    }
+    if (isFinal) {
+      return (
+        <p key={i} className="mt-4 rounded-xl px-3 py-2.5 text-[12px] font-semibold leading-relaxed"
+          style={{ color: C.text, background: "rgba(244,115,123,0.08)", border: "1px solid rgba(244,115,123,0.22)" }}>
+          {body}
+        </p>
+      );
+    }
+    return (
+      <div key={i} className="mb-3">
+        {heading && (
+          <p className="mb-1 text-[11.5px] font-bold uppercase tracking-[0.06em]" style={{ color: C.gold }}>{heading}</p>
+        )}
+        {body && <p className="text-[12.5px] leading-relaxed" style={{ color: C.mut }}>{body}</p>}
+      </div>
+    );
+  });
+}
+
 export function RiskConsent({ open, onClose, onSigned }: {
   open: boolean;
   onClose: () => void;
@@ -115,9 +158,9 @@ export function RiskConsent({ open, onClose, onSigned }: {
         )}
 
         <div ref={box} onScroll={onScroll}
-          className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-[12.5px] leading-relaxed"
-          style={{ color: C.mut, whiteSpace: "pre-wrap", background: C.raised }}>
-          {text ?? "Loading…"}
+          className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+          style={{ background: C.raised }}>
+          {text ? renderDisclosure(text) : <p className="text-[12.5px]" style={{ color: C.mut2 }}>Loading…</p>}
         </div>
 
         <div className="border-t px-4 py-3" style={{ borderColor: C.line }}>
