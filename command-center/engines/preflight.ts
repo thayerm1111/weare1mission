@@ -24,6 +24,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { keySource, encryptionAvailable } from "../core/crypto";
 import { session, goldInstrument } from "./broker";
+import { listPositions, parsePositions, positionColumns, DEFAULT_POSITION_COLUMNS, getConfig } from "../adapters/tradelocker";
 import { consentState } from "./consent";
 import { sizePosition, DEFAULT_LIMITS } from "../core/risk";
 
@@ -140,7 +141,36 @@ export async function preflight(): Promise<PreflightLine[]> {
         : ` · SIZING WOULD REFUSE: ${size.reason}`;
     }
 
-    out.push({ ok: true, text: `${label}: token opens, broker session live, XAUUSD resolved (pip ${inst.resolved.pipSize}, ${inst.resolved.source})${sizing}` });
+    /*
+     * 6 — WHAT DOES THE BROKER SAY IS ALREADY OPEN?
+     *
+     * Added after a night when the answer was "fourteen" and this system believed it was "none". The
+     * position parser dropped every columnar row, so the interlock, the cooldown, the hourly budget and
+     * the one-position limit all read an empty table and let the engine re-enter every twenty-five
+     * seconds.
+     *
+     * Printing the broker's own count at boot is how that becomes impossible to miss again: if this
+     * line says 0 while the platform shows positions, the parser is broken and NOTHING should be
+     * switched on. It reads. It never closes, modifies or opens anything.
+     */
+    let openLine = "";
+    try {
+      const cfg = await getConfig(s.session.auth);
+      const cols = cfg.ok ? positionColumns(cfg.data) : DEFAULT_POSITION_COLUMNS;
+      const pos = await listPositions(s.session.auth);
+      if (!pos.ok) {
+        openLine = " · CANNOT READ open positions from the broker";
+      } else {
+        const rows = parsePositions(pos.data, cols);
+        const gold = rows.filter((p) => !p.instrumentId || p.instrumentId === inst.spec.tradableInstrumentId);
+        openLine = ` · broker reports ${rows.length} open position${rows.length === 1 ? "" : "s"}` +
+          (gold.length !== rows.length ? ` (${gold.length} XAUUSD)` : "");
+      }
+    } catch (e) {
+      openLine = ` · open-position check threw (${String(e).slice(0, 60)})`;
+    }
+
+    out.push({ ok: true, text: `${label}: token opens, broker session live, XAUUSD resolved (pip ${inst.resolved.pipSize}, ${inst.resolved.source})${sizing}${openLine}` });
   }
 
   return out;
