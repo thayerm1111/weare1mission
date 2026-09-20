@@ -12,7 +12,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseInstrumentSpec, describeShape } from "../command-center/adapters/tradelocker";
+import { parseInstrumentSpec, describeShape, findGold } from "../command-center/adapters/tradelocker";
 import { resolve } from "../command-center/core/instrument";
 
 const FALLBACK = { tradableInstrumentId: "278", routeId: "900" };
@@ -124,4 +124,45 @@ test("describeShape reports the payload without inventing anything", () => {
   assert.ok(s.includes("name=XAUUSD"));
   assert.ok(s.includes("tradingRules.quantityStep=0.01"));
   assert.equal(describeShape({ d: {} }), "(empty payload)");
+});
+
+test("findGold separates the TRADE route from the INFO route", () => {
+  /*
+   * The live account lists XAUUSD with routes[0] = TRADE 541039 and routes[1] = INFO 541038. The old
+   * code took routes[0] for everything, so the specification was read on the trading route, which does
+   * not serve it — a 404 that fell back to a row carrying no numbers at all.
+   */
+  const body = {
+    d: {
+      instruments: [
+        { tradableInstrumentId: 8542, name: "XAUUSD", routes: [{ id: 541039, type: "TRADE" }, { id: 541038, type: "INFO" }] },
+      ],
+    },
+  };
+  const g = findGold(body);
+  assert.ok(g);
+  assert.equal(g!.tradableInstrumentId, "8542");
+  assert.equal(g!.routeId, "541039", "orders go on the TRADE route");
+  assert.equal(g!.infoRouteId, "541038", "specifications are read on the INFO route");
+});
+
+test("findGold still works when the broker lists only one route", () => {
+  const g = findGold({ d: { instruments: [{ tradableInstrumentId: 1, name: "XAUUSD", routes: [{ id: 7, type: "TRADE" }] }] } });
+  assert.ok(g);
+  assert.equal(g!.routeId, "7");
+  assert.equal(g!.infoRouteId, "7", "with no INFO route, fall back to the trade route rather than refusing");
+});
+
+test("the real list row from the live account cannot size, and says so", () => {
+  // Exactly what the broker returned in the boot check: ids, a name, a type, routes. No numbers.
+  const row = {
+    tradableInstrumentId: 8542, id: 9389, name: "XAUUSD", description: "Gold Spot",
+    type: "EQUITY_CFD", tradingExchange: "GENESIS", marketDataExchange: "Metals",
+    routes: [{ id: 541039, type: "TRADE" }, { id: 541038, type: "INFO" }], barSource: "BID",
+  };
+  const spec = parseInstrumentSpec(row, { tradableInstrumentId: "8542", routeId: "541039" });
+  assert.equal(spec.lotStep, null);
+  assert.equal(spec.contractSize, null);
+  const r = resolve(spec, "USD");
+  assert.equal(r.ok, false, "a list row with no numbers must refuse, never assume a gold contract");
 });

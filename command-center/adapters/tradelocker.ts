@@ -151,9 +151,29 @@ export const accountState = (a: TLAuth) => call<unknown>(a.env, acct(a, "/state"
 
 export const listInstruments = (a: TLAuth) => call<unknown>(a.env, acct(a, "/instruments"), auth(a));
 
-/** Lot steps, sizes, precision and contract size for ONE instrument. Required before any order is sized. */
-export const instrumentDetails = (a: TLAuth, tradableInstrumentId: string, routeId: string) =>
-  call<unknown>(a.env, acct(a, `/instruments/${encodeURIComponent(tradableInstrumentId)}?routeId=${encodeURIComponent(routeId)}`), auth(a));
+/**
+ * Lot steps, sizes, precision and contract size for ONE instrument. Required before any order is sized.
+ *
+ * TWO THINGS HERE WERE WRONG, AND TOGETHER THEY HID EACH OTHER.
+ *
+ * The path was account-scoped — `/trade/accounts/{id}/instruments/{id}` — and TradeLocker does not
+ * publish the detail route there. It answered 404, `goldInstrument` quietly fell back to the row inside
+ * the instrument LIST, and that row carries no numbers at all: an id, a name, a type, two routes. So
+ * the specification came back empty and the refusal blamed the broker for not describing the
+ * instrument, when the broker was never asked at the address where it answers.
+ *
+ * And the route id passed in was the TRADE route. Every instrument here carries two — TRADE for sending
+ * orders, INFO for reading quotes and specifications — and the detail endpoint wants the INFO one.
+ *
+ * The canonical path is tried first and the old account-scoped one is kept as a fallback, but only on a
+ * routing failure: a broker build that genuinely serves it there still works.
+ */
+export const instrumentDetails = async (a: TLAuth, tradableInstrumentId: string, routeId: string): Promise<TLResult<unknown>> => {
+  const qs = `?routeId=${encodeURIComponent(routeId)}&locale=en`;
+  const canonical = await call<unknown>(a.env, `/trade/instruments/${encodeURIComponent(tradableInstrumentId)}${qs}`, auth(a));
+  if (canonical.ok || !isRouting(canonical)) return canonical;
+  return call<unknown>(a.env, acct(a, `/instruments/${encodeURIComponent(tradableInstrumentId)}${qs}`), auth(a));
+};
 
 /** The row for one instrument out of the LIST, for brokers whose build has no per-instrument detail route. */
 export function instrumentRow(body: unknown, tradableInstrumentId: string): unknown | null {
@@ -459,20 +479,34 @@ export function parseInstrumentSpec(body: unknown, fallback: { tradableInstrumen
   };
 }
 
-/** The gold instrument on this account, if the broker lists one. Name matching is deliberately narrow. */
-export function findGold(body: unknown): { tradableInstrumentId: string; routeId: string; name: string } | null {
+/**
+ * The gold instrument on this account, if the broker lists one. Name matching is deliberately narrow.
+ *
+ * TWO ROUTES, AND THEY ARE NOT INTERCHANGEABLE. TradeLocker gives each instrument a TRADE route, which
+ * is the one an order must be sent on, and an INFO route, which is the one quotes and specifications
+ * are read from. This used to take `routes[0]` and call it "the" route — which happens to be the TRADE
+ * route on this broker, so orders would have gone out fine and every specification read would have
+ * asked the wrong one.
+ *
+ * They are returned separately so neither can be silently substituted for the other.
+ */
+export function findGold(body: unknown): { tradableInstrumentId: string; routeId: string; infoRouteId: string; name: string } | null {
   for (const r of rowsOf(body, ["instruments", "d", "data"])) {
     if (Array.isArray(r)) continue;
     const name = String(pick(r, ["name", "symbol"]) ?? "").toUpperCase();
     if (!/^XAUUSD/.test(name.replace(/[^A-Z]/g, ""))) continue;
     const id = asStr(pick(r, ["tradableInstrumentId", "id"]));
+
     const routes = pick(r, ["routes"]);
-    let routeId = asStr(pick(r, ["routeId"]));
-    if (!routeId && Array.isArray(routes) && routes.length) {
-      const first = routes[0] as Record<string, unknown>;
-      routeId = asStr(first?.id ?? first?.routeId);
-    }
-    if (id && routeId) return { tradableInstrumentId: id, routeId, name };
+    const list = Array.isArray(routes) ? (routes as Record<string, unknown>[]) : [];
+    const idOf = (x: Record<string, unknown> | undefined) => (x ? asStr(x.id ?? x.routeId) : null);
+    const typed = (t: string[]) => list.find((x) => t.includes(String(x?.type ?? "").toUpperCase()));
+
+    const tradeId = idOf(typed(["TRADE", "PRIMARY", "ORDER"])) ?? asStr(pick(r, ["routeId"])) ?? idOf(list[0]);
+    // No INFO route is not a failure: fall back to the trade route rather than refusing to read a spec.
+    const infoId = idOf(typed(["INFO", "QUOTE"])) ?? tradeId;
+
+    if (id && tradeId && infoId) return { tradableInstrumentId: id, routeId: tradeId, infoRouteId: infoId, name };
   }
   return null;
 }

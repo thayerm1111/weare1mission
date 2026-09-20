@@ -220,25 +220,31 @@ export async function goldInstrument(s: Session, force = false): Promise<Instrum
   let rawBody: unknown = null;
 
   if (!spec) {
-    let id = s.account.instrument_id;
-    let route = s.account.route_id;
-    if (!id || !route || force) {
-      const list = await listInstruments(s.auth);
-      if (!list.ok) return { ok: false, reason: `Could not read the instrument list: ${list.error}` };
-      const gold = findGold(list.data);
-      if (!gold) return { ok: false, reason: "This account does not list an XAUUSD instrument." };
-      id = gold.tradableInstrumentId;
-      route = gold.routeId;
-    }
-    // Prefer the per-instrument detail route; fall back to the row inside the instrument LIST, which is
-    // the call the desk has always used. Either way the specification is the BROKER'S, never a guess.
-    const det = await instrumentDetails(s.auth, id, route);
+    /*
+     * THE LIST IS READ EVERY TIME A SPECIFICATION HAS TO BE BUILT.
+     *
+     * It used to be skipped whenever the instrument id and route were already on the account row, which
+     * saved one cheap call and cost the INFO route — the only route the detail endpoint answers on.
+     * Without it the detail read 404s and the fallback row supplies no numbers. This branch only runs
+     * when there is no usable cached spec, so the extra call happens once per account, not per tick.
+     */
+    const list = await listInstruments(s.auth);
+    if (!list.ok) return { ok: false, reason: `Could not read the instrument list: ${list.error}` };
+    const gold = findGold(list.data);
+    if (!gold) return { ok: false, reason: "This account does not list an XAUUSD instrument." };
+    const id = gold.tradableInstrumentId;
+    const route = gold.routeId;          // TRADE — what an order is sent on, and what the spec carries
+    const infoRoute = gold.infoRouteId;  // INFO  — what the specification is read from
+
+    // Ask the broker properly, on the INFO route. Only if that genuinely fails do we fall back to the
+    // row inside the LIST — which on this broker carries no numbers, so it will refuse rather than guess.
+    const det = await instrumentDetails(s.auth, id, infoRoute);
     if (det.ok) {
       rawBody = det.data;
       spec = parseInstrumentSpec(det.data, { tradableInstrumentId: id, routeId: route });
     } else {
-      const list = await listInstruments(s.auth);
-      const row = list.ok ? instrumentRow(list.data, id) : null;
+      // Reuse the listing already in hand rather than asking again for the same payload.
+      const row = instrumentRow(list.data, id);
       if (!row) return { ok: false, reason: `Could not read the XAUUSD specification: ${det.error}` };
       rawBody = row;
       spec = parseInstrumentSpec(row, { tradableInstrumentId: id, routeId: route });
