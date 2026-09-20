@@ -24,6 +24,8 @@ import { upcoming, LOCKOUT_BEFORE_MIN, LOCKOUT_AFTER_MIN } from "../adapters/cal
 import { autopilotTick, autopilotMode } from "../engines/autopilot";
 import { autoManageTick } from "../engines/autoManage";
 import { preflight } from "../engines/preflight";
+import { heartbeat, booted, switchChanged } from "../engines/notify";
+import { brainEnabled } from "../engines/killSwitch";
 
 const KEY = process.env.TWELVEDATA_API_KEY ?? "";
 const TICK_MS = Number(process.env.CC_TICK_MS || 20_000);
@@ -38,6 +40,30 @@ const NEEDED: { tf: Timeframe; size: number }[] = [
  */
 let lastPrice: number | null = null;
 let brain: Rolling = emptyRolling();
+/** Null until the first reading, so a fresh boot does not announce a change that did not happen. */
+let lastSwitchOn: boolean | null = null;
+
+/**
+ * How many accounts have automatic entry switched on, for the heartbeat.
+ *
+ * Cached for a minute: it changes when a member flips a toggle, not every twenty seconds, and the
+ * heartbeat is the only caller.
+ */
+let armedCache: { at: number; n: number } | null = null;
+async function armedCount(): Promise<number> {
+  if (armedCache && Date.now() - armedCache.at < 60_000) return armedCache.n;
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) return 0;
+    const c = createClient(url, key, { auth: { persistSession: false } });
+    const { count } = await c.from("cc_broker_accounts")
+      .select("id", { count: "exact", head: true }).eq("auto_trading", true);
+    armedCache = { at: Date.now(), n: count ?? 0 };
+    return armedCache.n;
+  } catch { return armedCache?.n ?? 0; }
+}
 
 const log = (msg: string, extra?: unknown) => console.log(`[${new Date().toISOString()}] cc: ${msg}`, extra ?? "");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -163,6 +189,33 @@ async function pass(lastPersistAt: number): Promise<number> {
    * Both of these no-op entirely unless CC_AUTOPILOT is set, so a deployment that has not opted in
    * runs exactly as it did before: read, narrate, and wait to be asked.
    */
+  /*
+   * THE HOURLY HEARTBEAT, AND THE SWITCH.
+   *
+   * Sent from the worker rather than the autopilot because the owner needs to see it is alive
+   * especially on the ticks where the autopilot returns early and says nothing — a read it does not
+   * trust, a market it will not trade, a switch somebody turned off. Those are exactly the silences
+   * that look identical to a dead process.
+   *
+   * notify throttles to once an hour and only while the market is open; this just supplies the facts.
+   */
+  if (autopilotMode() !== "off") {
+    try {
+      const sw = await brainEnabled();
+      if (lastSwitchOn !== null && lastSwitchOn !== sw.on) switchChanged(sw.on);
+      lastSwitchOn = sw.on;
+
+      heartbeat({
+        snapshot: snap,
+        marketOpen: isOpen,
+        tradeable: gate.ok,
+        switchOn: sw.on,
+        armedAccounts: await armedCount(),
+        thesis: { label: pc.thesis.label, confidence: pc.thesis.confidence ?? null },
+      });
+    } catch { /* a status message must never disturb the loop */ }
+  }
+
   if (isOpen && autopilotMode() !== "off") {
     try {
       const managed = await autoManageTick(snap);
@@ -277,6 +330,11 @@ async function main(): Promise<void> {
       const bad = lines.filter((l) => !l.ok).length;
       log(`pre-flight (${autopilotMode()}) — ${lines.length - bad} ok, ${bad} failing`);
       for (const l of lines) log(`  ${l.ok ? "ok  " : "FAIL"} ${l.text}`);
+      booted({
+        ok: lines.length - bad,
+        failing: bad,
+        detail: bad ? lines.filter((l) => !l.ok).map((l) => l.text).join(" · ") : null,
+      });
       if (bad) {
         await audit({
           actor: "cc-worker",

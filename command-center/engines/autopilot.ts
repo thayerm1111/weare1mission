@@ -42,6 +42,7 @@ import { getProfile, asSetupProfile } from "./profile";
 import { accountAvailableToBrain } from "./interlock";
 import { requireConsent } from "./consent";
 import { brainEnabled } from "./killSwitch";
+import { formingSetup, tookTrade, stoodDown } from "./notify";
 
 export type AutopilotMode = "off" | "shadow" | "live";
 
@@ -194,6 +195,23 @@ export async function autopilotTick(input: {
      * one condition short and is exactly the kind of near-miss a person talks themselves into; an
      * autonomous loop must not have that conversation with itself.
      */
+    /*
+     * "ABOUT TO CALL A TRADE" — the owner asked to see this, and it is the one state worth announcing
+     * that is NOT an order. A setup one condition short is exactly the near-miss an autonomous loop
+     * must not act on, and exactly the thing that proves it is awake and reading the market.
+     * notify throttles it; this only decides that it happened.
+     */
+    if (setup && setup.state === "waiting_for_trigger" && setup.side && setup.style) {
+      formingSetup({
+        side: setup.side,
+        style: setup.style,
+        entry: setup.entryHigh ?? setup.entryLow ?? null,
+        stop: setup.stop ?? null,
+        price: input.snapshot.price ?? null,
+        missing: setup.waitingFor?.length ? setup.waitingFor.join(", ") : null,
+      });
+    }
+
     if (!setup || setup.state !== "trade_ready") continue;
     if (setup.side == null || setup.stop == null || setup.style == null) continue;
     const entry = setup.entryHigh ?? setup.entryLow;
@@ -241,9 +259,15 @@ export async function autopilotTick(input: {
         await record({ ...common, acted: true, outcome: "placed",
           reason: `Sent ${t.side} ${setup.style}, stop ${t.stop}.` });
         notes.push(`LIVE ${t.side} ${setup.style} @${t.entry}`);
+        tookTrade({
+          side: t.side, style: setup.style, entry: t.entry, stop: t.stop,
+          target: t.target ?? null, accNum: a.acc_num,
+        });
       } else {
         await record({ ...common, acted: false, outcome: "refused", reason: res.message });
         notes.push(`refused: ${res.message.slice(0, 60)}`);
+        // The answer to "why is it not trading". Throttled per reason inside notify.
+        stoodDown(res.message, { side: t.side, style: setup.style });
       }
     } catch (e) {
       await record({ ...common, acted: false, outcome: "error", reason: String(e).slice(0, 200) });
