@@ -331,13 +331,29 @@ export async function reconcile(userId: string, executionId: string, tag?: strin
       }
     }
 
-    // No position yet — was the order rejected or cancelled outright?
+    /*
+     * NO POSITION YET — WAS OUR ORDER REJECTED, AND IF SO, WHY?
+     *
+     * This used to stringify the WHOLE orders history and test two things independently: does the blob
+     * contain our order id, and does the blob contain the word "Cancelled" anywhere at all. Those are
+     * unrelated facts. Any cancelled order in the account's history — someone else's, a FLOW order from
+     * last week — made every one of our orders report as cancelled, whatever actually happened to it.
+     *
+     * So the diagnosis could be pure coincidence, and the broker's real reason, which is sitting in the
+     * row, was never read. Now the row matching OUR order id is found, and only that row decides. Its
+     * contents are attached to the error, because "the broker said no" is not an answer anybody can act
+     * on — an order history row is market metadata, no credentials pass through here.
+     */
     const hist = await ordersHistory(s.session.auth);
     if (hist.ok && exec.broker_order_id) {
-      const text = JSON.stringify(hist.data ?? "");
-      if (text.includes(exec.broker_order_id) && /"(Cancelled|Canceled|Rejected|Refused)"/i.test(text)) {
-        await c().from("cc_trade_executions").update({ state: "error", error: "The broker cancelled or rejected the order.", settled_at: nowIso() }).eq("id", executionId);
-        return { ok: false, state: "error", executionId, message: "The broker cancelled or rejected the order." };
+      const row = findOrderRow(hist.data, exec.broker_order_id);
+      if (row) {
+        const rowText = JSON.stringify(row);
+        if (/(Cancelled|Canceled|Rejected|Refused)/i.test(rowText)) {
+          const detail = `The broker rejected the order. It said: ${rowText.slice(0, 400)}`;
+          await c().from("cc_trade_executions").update({ state: "error", error: detail.slice(0, 500), settled_at: nowIso() }).eq("id", executionId);
+          return { ok: false, state: "error", executionId, message: detail };
+        }
       }
     }
 
@@ -355,6 +371,49 @@ export async function reconcile(userId: string, executionId: string, tag?: strin
     uncertain: true,
     message: "The order went to the broker but no matching position has appeared yet. Nothing will be re-sent — THE BRAIN is still checking.",
   };
+}
+
+
+/**
+ * Find the orders-history row for ONE order id.
+ *
+ * The shape varies by broker build — rows may be objects keyed by name or columnar arrays whose
+ * indices come from /trade/config — so this does not assume either. It walks the payload and returns
+ * the first row that actually contains the id, which is the only row entitled to say what happened to
+ * that order.
+ */
+export function findOrderRow(body: unknown, orderId: string): unknown | null {
+  const want = String(orderId);
+  const seen = new Set<unknown>();
+
+  const containsId = (node: unknown): boolean => {
+    if (node == null) return false;
+    if (typeof node !== "object") return String(node) === want;
+    if (Array.isArray(node)) return node.some((v) => typeof v !== "object" && String(v) === want);
+    return Object.values(node as Record<string, unknown>)
+      .some((v) => typeof v !== "object" && String(v) === want);
+  };
+
+  const walk = (node: unknown, depth: number): unknown | null => {
+    if (node == null || typeof node !== "object" || depth > 5 || seen.has(node)) return null;
+    seen.add(node);
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        if (containsId(child)) return child;
+        const deeper = walk(child, depth + 1);
+        if (deeper) return deeper;
+      }
+      return null;
+    }
+    for (const child of Object.values(node as Record<string, unknown>)) {
+      if (containsId(child)) return child;
+      const deeper = walk(child, depth + 1);
+      if (deeper) return deeper;
+    }
+    return null;
+  };
+
+  return walk(body, 0);
 }
 
 async function recordPosition(
@@ -515,3 +574,6 @@ export async function manage(userId: string, positionRowId: string, action: Mana
 }
 
 export const newIdempotencyKey = () => randomUUID();
+
+/** Test seam — the reconciler's order-row lookup, exported so its coincidence bug stays fixed. */
+export { findOrderRow as __findOrderRow };
