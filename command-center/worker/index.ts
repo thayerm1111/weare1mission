@@ -23,6 +23,7 @@ import { scoreMatured } from "../engines/record";
 import { upcoming, LOCKOUT_BEFORE_MIN, LOCKOUT_AFTER_MIN } from "../adapters/calendar";
 import { autopilotTick, autopilotMode } from "../engines/autopilot";
 import { autoManageTick } from "../engines/autoManage";
+import { preflight } from "../engines/preflight";
 
 const KEY = process.env.TWELVEDATA_API_KEY ?? "";
 const TICK_MS = Number(process.env.CC_TICK_MS || 20_000);
@@ -261,6 +262,32 @@ async function main(): Promise<void> {
   // Wake up remembering. The market kept moving while this process was not running.
   brain = await loadRolling();
   log(`memory restored · ${brain.snapshots.length} snapshots · ${brain.events.length} events · ${brain.theses.length} theses`);
+
+  /*
+   * THE PRE-FLIGHT, ONCE, BEFORE THE FIRST TICK.
+   *
+   * Only when automatic entry is switched on — an observation-only deployment has no broker chain to
+   * check and should not be renewing broker sessions at boot for no reason. It never blocks the loop:
+   * a failing check is reported loudly and the worker still watches the market, because perception is
+   * useful even when execution is broken, and a crash-loop would take the screens down too.
+   */
+  if (autopilotMode() !== "off") {
+    try {
+      const lines = await preflight();
+      const bad = lines.filter((l) => !l.ok).length;
+      log(`pre-flight (${autopilotMode()}) — ${lines.length - bad} ok, ${bad} failing`);
+      for (const l of lines) log(`  ${l.ok ? "ok  " : "FAIL"} ${l.text}`);
+      if (bad) {
+        await audit({
+          actor: "cc-worker",
+          action: "preflight_failed",
+          reason: lines.filter((l) => !l.ok).map((l) => l.text).join(" | ").slice(0, 500),
+        });
+      }
+    } catch (e) {
+      log("pre-flight could not run (the loop continues)", e instanceof Error ? e.message.slice(0, 200) : e);
+    }
+  }
 
   let lastPersist = 0;
   let lastPrune = 0;
