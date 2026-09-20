@@ -215,6 +215,19 @@ export type CreateOrder = {
  * type field makes the broker reject the order, which is how a position ends up open with no stop.
  */
 export function orderBody(o: CreateOrder): Record<string, unknown> {
+  /*
+   * A MARKET ORDER CARRIES NO PRICE FIELD AT ALL.
+   *
+   * This used to send `price: 0` on a market order. FLOW — which places real orders on this same broker
+   * every trading day and is the only proven implementation in the building — omits the field entirely
+   * and only sets it on a limit or stop order. Sending a zero where the broker expects nothing is the
+   * kind of thing that either works silently or rejects every single order, and which of the two it is
+   * would have been discovered at the open.
+   *
+   * The header comment on this file claims the surface was verified against the documentation. It also
+   * listed the instrument-details path, which turned out to be wrong, so that claim is not evidence.
+   * A path FLOW exercises daily on this broker is.
+   */
   const body: Record<string, unknown> = {
     tradableInstrumentId: o.tradableInstrumentId,
     routeId: o.routeId,
@@ -222,8 +235,8 @@ export function orderBody(o: CreateOrder): Record<string, unknown> {
     side: o.side,
     type: o.type,
     validity: o.validity,
-    price: o.type === "market" ? 0 : o.price ?? 0,
   };
+  if (o.type !== "market" && o.price != null) body.price = o.price;
   if (o.type === "stop" && o.stopPrice != null) body.stopPrice = o.stopPrice;
   if (o.stopLoss != null) { body.stopLoss = o.stopLoss; body.stopLossType = "absolute"; }
   if (o.takeProfit != null) { body.takeProfit = o.takeProfit; body.takeProfitType = "absolute"; }
