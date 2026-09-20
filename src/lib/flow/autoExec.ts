@@ -1384,6 +1384,12 @@ async function genx3Reserved(admin: NonNullable<ReturnType<typeof createAdminCli
 }
 async function genx3ReservedUsers(admin: NonNullable<ReturnType<typeof createAdminClient>>): Promise<Set<string>> { return (await genx3Reserved(admin)).ids; }
 export type GenxDelivery = { origin?: "genx2" | "genx3"; onlyUserIds?: string[] | null; onlyAccountIds?: string[] | null; tag?: string };
+/** " SCALP" / " NORMAL" / " SWING" after "GENX 1.0" in every desk note, matching the signal it refers to. */
+function genxTypeOf(mode: unknown): string {
+  const t = mode === "quick" ? "SCALP" : mode === "intraday" ? "NORMAL" : mode === "swing" ? "SWING" : "";
+  return t ? ` ${t}` : "";
+}
+
 export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null; sendItOnly?: boolean;
   /* Which horizon this call was found on. Absent means the caller predates the field, and gold's
    * ENTER-NOW calls are the fast one — so it is read as quick rather than as unknown. */
@@ -1400,7 +1406,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     const q = await genxGoldQualityGate(admin, { side: sig.side, entryLow: sig.entryLow, entryHigh: sig.entryHigh, stop: sig.stop, tp: sig.tp });
     if (!q.ok) {
       try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: quality_gate ${q.reason}`.slice(0, 200) }); } catch { /* breadcrumb best-effort */ }
-      if (shouldNote("quality", sig.side)) { try { await sendTelegram(`🧭 <b>${genxLabel()} gold — skipping this ${sig.side.toUpperCase()}</b>\nIt doesn't pass the quality check: ${q.reason}. Waiting for a setup with the trend and at least 1:1 reward.`); } catch { /* note best-effort */ } }
+      if (shouldNote("quality", sig.side)) { try { await sendTelegram(`🧭 <b>${genxLabel()}${genxTypeOf(sig.mode)} gold — skipping this ${sig.side.toUpperCase()}</b>\nIt doesn't pass the quality check: ${q.reason}. Waiting for a setup with the trend and at least 1:1 reward.`); } catch { /* note best-effort */ } }
       return { members: 0, placed: 0 };
     }
   }
@@ -1461,10 +1467,10 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     const gate = await goldEntryHold(admin, sig.side, entry);
     if (gate.hold && gate.scope === "conservative") {
       conservativeHold = true;
-      try { await sendTelegram(`⏸️ <b>${genxLabel()} gold — conservative accounts held</b>\n${gate.reason}`); } catch { /* note best-effort */ }
+      try { await sendTelegram(`⏸️ <b>${genxLabel()}${genxTypeOf(sig.mode)} gold — conservative accounts held</b>\n${gate.reason}`); } catch { /* note best-effort */ }
       try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: choch_conservative_hold ${sig.side} (aggressive proceeding)` }); } catch { /* breadcrumb best-effort */ }
     } else if (gate.hold) {
-      try { await sendTelegram(`⏸️ <b>${genxLabel()} gold — entry paused</b> (🚀 Send It accounts still take it)\n${gate.reason}`); } catch { /* note best-effort */ }
+      try { await sendTelegram(`⏸️ <b>${genxLabel()}${genxTypeOf(sig.mode)} gold — entry paused</b> (🚀 Send It accounts still take it)\n${gate.reason}`); } catch { /* note best-effort */ }
       await deskDrop(`gold_halt ${sig.side} (send-it only)`);
       sendItOnly = true;
     }
@@ -1524,7 +1530,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     // TELL THE ROOM (owner 09-09: an ENTER NOW went out on Telegram while the desk quietly
     // took nobody — "why didn't my account take this last trade?"). A silent skip reads as
     // a broken system; a one-line note reads as discipline.
-    if (shouldNote("chase", sig.side)) { try { await sendTelegram(`⏸️ <b>${genxLabel()} gold — not chasing this fill</b>\nPrice ran past the ${sig.side.toUpperCase()} zone${goldLp != null ? ` (now ~${goldLp.toFixed(2)})` : ""}${rr != null ? ` — live R:R ${rr.toFixed(2)}` : ""}. Watching for a pullback into the zone to enter properly. 🚀 Send It accounts still take it at market.`); } catch { /* note best-effort */ } }
+    if (shouldNote("chase", sig.side)) { try { await sendTelegram(`⏸️ <b>${genxLabel()}${genxTypeOf(sig.mode)} gold — not chasing this fill</b>\nPrice ran past the ${sig.side.toUpperCase()} zone${goldLp != null ? ` (now ~${goldLp.toFixed(2)})` : ""}${rr != null ? ` — live R:R ${rr.toFixed(2)}` : ""}. Watching for a pullback into the zone to enter properly. 🚀 Send It accounts still take it at market.`); } catch { /* note best-effort */ } }
   }
 
   // SELECTIVITY GATES REMOVED (owner 09-16): the same-zone break-even escalation and the

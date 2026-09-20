@@ -69,6 +69,13 @@ export function decideGoldEntry(o: {
 }
 
 export const MODE_LABEL: Record<Mode, string> = { quick: "Quick", intraday: "Intraday", swing: "Swing" };
+/**
+ * The trade TYPE, in the words members use — so every GENX call says which of the three it is in the
+ * first line: "GENX 1.0 SCALP", "GENX 1.0 NORMAL", "GENX 1.0 SWING". Before 09-20 the type sat at the
+ * end of the line as "Quick" / "Intraday" and the calls read as identical.
+ */
+export const TYPE_LABEL: Record<Mode, string> = { quick: "SCALP", intraday: "NORMAL", swing: "SWING" };
+export const genxTyped = (mode: Mode): string => `${genxLabel()} ${TYPE_LABEL[mode] ?? ""}`.trim();
 export const r1 = (n: number) => Math.round(n);
 export const fmt = (n: number | null | undefined) => (typeof n === "number" && Number.isFinite(n) ? n.toFixed(2) : "—");
 
@@ -86,7 +93,7 @@ export function headsUpMsg(side: "buy" | "sell", mode: Mode, a: { entry_low: num
   const zone = a.entry_low != null && a.entry_high != null ? `${fmt(a.entry_low)}–${fmt(a.entry_high)}` : "—";
   const tps = [a.tp1 != null ? `TP1 ${fmt(a.tp1)}` : null, a.tp2 != null ? `TP2 ${fmt(a.tp2)}` : null].filter(Boolean).join(" · ");
   return [
-    `⏳ <b>${genxLabel()} — ${dir} setup forming · ${MODE_LABEL[mode]}</b>`,
+    `⏳ <b>${genxTyped(mode)} — ${dir} setup forming</b>`,
     `Gold (XAU/USD)`,
     `Zone: <b>${esc(zone)}</b>`,
     `Stop: ${fmt(a.stop)}${tps ? " · " + esc(tps) : ""}`,
@@ -104,7 +111,7 @@ export function enterMsg(side: "buy" | "sell", mode: Mode, a: { entry_low: numbe
     ? `Live setup — Gold is at the zone now.`
     : `${side === "sell" ? "Sellers" : "Buyers"} confirmed on the ${MODE_LABEL[mode] === "Quick" ? "5-minute" : MODE_LABEL[mode] === "Intraday" ? "15-minute" : "1-hour"} close.`;
   return [
-    `✅ <b>${genxLabel()} — ENTER NOW · ${dir} · ${MODE_LABEL[mode]}</b>`,
+    `✅ <b>${genxTyped(mode)} — ENTER NOW · ${dir}</b>`,
     `Gold @ ~${fmt(atPrice)}`,
     `Entry ${esc(zone)} · Stop ${fmt(a.stop)}`,
     tps ? esc(tps) : "",
@@ -117,7 +124,7 @@ export function invalidMsg(side: "buy" | "sell", mode: Mode, a: { entry_low: num
   const dir = side === "sell" ? "SELL" : "BUY";
   const zone = a.entry_low != null && a.entry_high != null ? `${fmt(a.entry_low)}–${fmt(a.entry_high)}` : "the zone";
   return [
-    `❌ <b>${genxLabel()} — Setup invalidated · ${dir} · ${MODE_LABEL[mode]}</b>`,
+    `❌ <b>${genxTyped(mode)} — Setup invalidated · ${dir}</b>`,
     `The ${esc(zone)} ${dir.toLowerCase()} is off — price closed beyond ${fmt(a.invalidation)}. Don't take it.`,
   ].join("\n");
 }

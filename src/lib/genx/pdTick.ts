@@ -136,7 +136,7 @@ export async function genx1PdTick(admin: Admin): Promise<PdTickResult> {
   const dir = side === "buy" ? "BUY" : "SELL";
   try {
     await sendTelegram([
-      `✅ <b>${genxLabel()} — ENTER NOW · ${dir} · ${m.level} Break → Retest</b>`,
+      `✅ <b>${genxLabel()} SCALP — ENTER NOW · ${dir} · ${m.level} Break → Retest</b>`,
       `Gold @ ~${c.entry.toFixed(2)}`,
       `Entry ${entryLow.toFixed(2)}–${entryHigh.toFixed(2)} · Stop ${c.stop.toFixed(2)}`,
       `TP1 ${c.target.toFixed(2)}`,
