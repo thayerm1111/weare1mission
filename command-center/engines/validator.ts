@@ -14,6 +14,7 @@ import { STYLE, type Style } from "../core/style";
 import { toPips } from "../core/instrument";
 import { tradeable } from "./snapshot";
 import type { AccountRow } from "./broker";
+import { dayPnlPct, weekPnlPct, type TradingHistory } from "./accountHistory";
 
 export type ValidateInput = {
   account: AccountRow;
@@ -31,6 +32,12 @@ export type ValidateInput = {
   openPositions: number;
   openRiskPct: number;
   limits?: Partial<RiskLimits>;
+  /**
+   * What this account has actually done today and this week. REQUIRED for a trade to be allowed —
+   * without it the loss, drawdown, streak, session and cooldown limits cannot be evaluated, and this
+   * validator refuses rather than approving on numbers it does not have.
+   */
+  history?: TradingHistory;
   /** Is this a member pressing the button, or automation acting on its own? */
   origin: "member" | "brain" | "auto";
 };
@@ -101,13 +108,38 @@ export function validate(i: ValidateInput): Validation {
     ...accountLimits,
     ...(i.limits ?? {}),
   };
+  /*
+   * THE ACCOUNT'S REAL DAY, NOT A ROW OF ZEROS.
+   *
+   * This used to read:
+   *
+   *     dayPnlPct: 0, dayPeakEquity: i.equity, weekPnlPct: 0,
+   *     consecutiveLosses: 0, tradesThisSession: 0, lastTradeAtMs: null,
+   *
+   * Every loss-based limit below was therefore comparing against a constant zero and could never fire.
+   * The daily loss limit, the drawdown limit, the weekly limit, the four-losses-in-a-row stop, the
+   * session count and the cooldown were all decorative — six guards, none of them connected.
+   *
+   * A caller that cannot supply the history gets refused rather than waved through. "I don't know what
+   * this account has lost today" is not a reason to allow another trade; it is the reason not to.
+   */
+  if (!i.history) {
+    return no("The account's trading history was not supplied, so the daily loss and drawdown limits cannot be checked.");
+  }
+  if (!i.history.readable) {
+    return no("Cannot read what this account has done today, so the loss limits cannot be enforced. Refusing rather than trading blind.");
+  }
+
   const state: AccountState = {
     equity: i.equity,
     openRiskPct: i.openRiskPct,
-    dayPnlPct: 0, dayPeakEquity: i.equity, weekPnlPct: 0,
-    consecutiveLosses: 0, tradesThisSession: 0,
+    dayPnlPct: dayPnlPct(i.history, i.equity),
+    dayPeakEquity: i.history.dayPeakEquity,
+    weekPnlPct: weekPnlPct(i.history, i.equity),
+    consecutiveLosses: i.history.consecutiveLosses,
+    tradesThisSession: i.history.tradesToday,
     openPositions: i.openPositions,
-    lastTradeAtMs: null,
+    lastTradeAtMs: i.history.lastTradeAtMs,
   };
   const acct = checkAccountLimits(state, limits, Date.now(), { spread: i.spread, stopPips, newTradeRiskPct: riskPct });
   if (!acct.ok) return no(acct.reason, acct.hard);

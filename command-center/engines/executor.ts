@@ -23,6 +23,7 @@ import { roundPrice, roundQty, toPips } from "../core/instrument";
 import { STYLE_MODE, type Style } from "../core/style";
 import type { MarketSnapshot, Side } from "../core/types";
 import { goldInstrument, session, syncAccountState, type Session } from "./broker";
+import { accountHistory } from "./accountHistory";
 import { validate, type Sizing } from "./validator";
 
 /** The execution lifecycle, as the product reports it. Order state and position state are NOT the same. */
@@ -75,6 +76,8 @@ export async function prepare(userId: string, i: PrepareInput): Promise<Prepared
   const equity = state?.equity ?? state?.balance ?? s.session.account.equity ?? s.session.account.balance ?? null;
 
   const open = await openPositionsFor(userId, i.accountRowId);
+  // The day's real losses, streak and cooldown. Unreadable history is a refusal inside validate().
+  const history = await accountHistory(userId, i.accountRowId, equity ?? 0);
 
   const v = validate({
     account: s.session.account,
@@ -91,6 +94,7 @@ export async function prepare(userId: string, i: PrepareInput): Promise<Prepared
     spread: i.snapshot?.spread ?? null,
     openPositions: open.length,
     openRiskPct: 0,
+    history,
     origin: i.origin,
   });
   if (!v.ok) return { ok: false, reason: v.reason, hard: v.hard, warnings: v.warnings };
@@ -208,12 +212,13 @@ export async function execute(userId: string, intentId: string, idempotencyKey: 
   const st = await syncAccountState(s.session);
   const equity = st?.equity ?? st?.balance ?? s.session.account.equity ?? null;
   const open = await openPositionsFor(userId, intent.account_row_id);
+  const history = await accountHistory(userId, intent.account_row_id, equity ?? 0);
 
   const v = validate({
     account: s.session.account, snapshot, side: intent.side, style: intent.style,
     entry: null, stop: intent.stop, takeProfit: intent.targets?.[0] ?? null,
     riskPct: intent.risk_pct, equity, instrument: inst.resolved.instrument, pipSize: inst.resolved.pipSize,
-    spread: snapshot?.spread ?? null, openPositions: open.length, openRiskPct: 0, origin: "member",
+    spread: snapshot?.spread ?? null, openPositions: open.length, openRiskPct: 0, history, origin: "member",
   });
   if (!v.ok) return fail(v.reason);
 

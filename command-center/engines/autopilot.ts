@@ -50,23 +50,24 @@ export function autopilotMode(): AutopilotMode {
   return m === "live" ? "live" : m === "shadow" ? "shadow" : "off";
 }
 
-/**
- * The most entries this loop may open on one account in one UTC day, whatever the market offers.
+/*
+ * THERE IS NO FIXED CAP ON ENTRIES PER DAY, AND THAT IS DELIBERATE.
  *
- * Settable from the environment so the ceiling can be lowered in one click, from a phone, without a
- * deploy — which is the only thing that is any use on a first live session. `CC_MAX_ENTRIES_PER_DAY=1`
- * makes tonight a single trade and nothing more.
+ * A count is the wrong brake. It stops a good session at an arbitrary number and does nothing at all
+ * about a bad one — four losers and four winners hit it identically. What restrains this loop now is
+ * what the account is actually doing, evaluated in engines/validator.ts on every single entry:
  *
- * It is clamped to the built-in maximum rather than trusting the variable. A typo in an environment
- * field must never be able to RAISE the number of entries; the setting exists to be conservative with,
- * and every path out of it goes down.
+ *   • the daily loss limit, from real closed-trade P&L since midnight
+ *   • the drawdown limit, against the day's reconstructed high-water equity
+ *   • the weekly loss limit
+ *   • a stop after consecutive losses
+ *   • the cooldown since this account last opened a trade
+ *   • one BRAIN position on an account at a time (engines/interlock.ts)
+ *
+ * Those were all comparing against hardcoded zeros until engines/accountHistory.ts was written, which
+ * is why the count cap existed at all: it was standing in for six guards that were not connected. They
+ * are connected now, so the stand-in is gone and the market decides how many trades there are.
  */
-const DEFAULT_MAX_ENTRIES_PER_DAY = 4;
-function maxEntriesPerDay(): number {
-  const raw = Number(process.env.CC_MAX_ENTRIES_PER_DAY);
-  if (!Number.isFinite(raw) || raw < 0) return DEFAULT_MAX_ENTRIES_PER_DAY;
-  return Math.min(Math.floor(raw), DEFAULT_MAX_ENTRIES_PER_DAY);
-}
 /** After acting on a setup, ignore anything with the same shape for this long. */
 const REPEAT_COOLDOWN_MS = 20 * 60_000;
 
@@ -99,20 +100,6 @@ async function armedAccounts(): Promise<AutoAccount[]> {
     .limit(200);
   if (error) return [];
   return (data ?? []) as AutoAccount[];
-}
-
-async function entriesToday(accountRowId: string): Promise<number> {
-  const c = db();
-  if (!c) return Number.MAX_SAFE_INTEGER; // cannot count → treat as at the cap
-  const since = new Date(); since.setUTCHours(0, 0, 0, 0);
-  const { count, error } = await c
-    .from("cc_autopilot_log")
-    .select("id", { count: "exact", head: true })
-    .eq("account_row_id", accountRowId)
-    .eq("acted", true)
-    .gte("created_at", since.toISOString());
-  if (error) return Number.MAX_SAFE_INTEGER;
-  return count ?? 0;
 }
 
 async function record(row: {
@@ -204,16 +191,11 @@ export async function autopilotTick(input: {
     const prev = lastActed.get(key);
     if (prev && prev.sig === sig && Date.now() - prev.at < REPEAT_COOLDOWN_MS) continue;
 
-    // 5 — the daily cap, counted from what was actually acted on.
-    const used = await entriesToday(a.id);
-    const cap = maxEntriesPerDay();
-    if (used >= cap) {
-      await record({ user_id: a.user_id, account_row_id: a.id, acc_num: a.acc_num, mode, acted: false,
-        outcome: "capped", reason: `Already took ${used} of ${cap} entries allowed on this account today.`,
-        side: t.side, style: setup.style, entry: t.entry, stop: t.stop, target: t.target ?? null,
-        price_at: input.snapshot.price ?? null });
-      continue;
-    }
+    /*
+     * 5 — no count check. takeSetup runs the full validator, which enforces the loss, drawdown,
+     *     streak and cooldown limits against this account's real day and refuses with a reason that
+     *     is recorded below. That refusal is the brake; a counter here would only mask it.
+     */
 
     const common = {
       user_id: a.user_id, account_row_id: a.id, acc_num: a.acc_num, mode,
