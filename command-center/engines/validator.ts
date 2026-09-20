@@ -165,6 +165,25 @@ export function validate(i: ValidateInput): Validation {
   });
   if (!sized.ok) return no(sized.reason, false);
 
+  /*
+   * A CLAMPED SIZE IS NEWS, NOT A DETAIL.
+   *
+   * When a ceiling binds, the trade goes on smaller than the risk setting asked for — which is the safe
+   * direction, and exactly the sort of thing that must never happen silently. On the first live night
+   * risk-based sizing wanted 12.5 lots on a 17-pip stop; a person reading "1.98 lots" with no
+   * explanation would reasonably assume the risk setting had changed.
+   */
+  if (sized.cappedBy) {
+    const why = sized.cappedBy === "notional" ? "the position-size limit"
+      : sized.cappedBy === "max_lots" ? "the maximum lot size"
+      : "the broker's own maximum";
+    warnings.push(
+      `Sized down from ${sized.uncappedLots} to ${sized.lots} lots by ${why} — this trade risks ` +
+      `${sized.riskPctUsed}% rather than the ${riskPct}% requested. The stop is tight, so full risk ` +
+      `would have meant an outsized position.`,
+    );
+  }
+
   const rToTp = i.takeProfit != null && sized.stopPips > 0
     ? +(toPips(Math.abs(i.takeProfit - price), i.pipSize) / sized.stopPips).toFixed(2)
     : null;

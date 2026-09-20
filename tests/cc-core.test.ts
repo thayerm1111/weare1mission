@@ -171,10 +171,23 @@ test('pressure acceleration compares against the previous reading', () => {
 const inst = { contractSize: 100, minLot: 0.01, maxLot: 50, lotStep: 0.01, pipValuePerLot: 1 };
 
 test('size comes from risk, and rounds DOWN', () => {
-  const r = sizePosition({ equity: 10_000, entry: 4350, stop: 4345, side: 'buy', riskPct: 0.5, inst });
+  /*
+   * The ceilings are disabled here ON PURPOSE. This test isolates the risk arithmetic and the
+   * round-down; the position-size ceilings have their own file (cc-position-cap.test.ts).
+   *
+   * It used to run with the defaults and expect 1 lot from a $10,000 account — which is 100 ounces,
+   * about $435,000, some forty-three times the equity. That expectation was the unbounded sizing this
+   * suite now guards against, so leaving it would have meant a green test asserting the bug.
+   */
+  const noCaps = { maxNotionalXEquity: Number.POSITIVE_INFINITY, maxLots: Number.POSITIVE_INFINITY };
+  const r = sizePosition({ equity: 10_000, entry: 4350, stop: 4345, side: 'buy', riskPct: 0.5, inst, ...noCaps });
   assert.ok(r.ok && r.stopPips === 50);
   assert.ok(r.ok && r.riskAmount <= 50.0001, 'never more than the requested risk');
   assert.ok(r.ok && Math.abs(r.lots - 1) < 0.011);
+
+  // And with the ceilings on, that same account may not hold anything like a lot of gold.
+  const capped = sizePosition({ equity: 10_000, entry: 4350, stop: 4345, side: 'buy', riskPct: 0.5, inst });
+  assert.ok(capped.ok && capped.lots < 0.1, 'a $10k account does not control $435k of gold');
 });
 
 test('risk refuses what it cannot size honestly', () => {

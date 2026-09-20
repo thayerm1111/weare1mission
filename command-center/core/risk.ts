@@ -102,8 +102,43 @@ export const COOLDOWN_BY_STYLE: Record<string, number> = {
   swing: 480 * 60_000,
 };
 
+
+/**
+ * THE POSITION-SIZE CEILING — the guard that was missing, found on the first live open.
+ *
+ * Risk-based sizing has a hole in it that only opens when the stop is tight. Money-at-risk divided by
+ * (stop distance x value per pip) is correct arithmetic, but as the stop shrinks the quantity grows
+ * without bound. On the first night this produced real orders of 7 to 16 lots on 17-pip stops — 12.5
+ * lots is 1,250 ounces, about $5.5 MILLION of gold against a $435,000 account. Every one was refused
+ * by the broker, which is the only reason it was not a position.
+ *
+ * A broker's refusal is not a risk control. This is.
+ *
+ * TWO CEILINGS, AND THE NOTIONAL ONE IS THE REAL CONSTRAINT.
+ *
+ *   • NOTIONAL, as a multiple of equity. One lot of gold is roughly one times this account's equity, so
+ *     this reads directly as "how many times the account may be controlled at once". It scales as the
+ *     account grows, which a fixed lot number does not.
+ *
+ *   • LOTS, absolute. A backstop for the case where equity is wrong, stale, or enormous. A cap that
+ *     depends on a number the broker reported is not a cap when that number is the thing in doubt.
+ *
+ * WHEN A CEILING BINDS, THE TRADE RISKS LESS THAN THE SETTING ASKED FOR. That is the safe direction
+ * and it is deliberate: the alternative is widening the stop to fit the size, which is moving the exit
+ * to justify the entry. The result reports `cappedBy` so the log says which ceiling bit rather than
+ * leaving somebody to wonder why a trade came out smaller than the arithmetic.
+ */
+export const MAX_NOTIONAL_X_EQUITY = Number(process.env.CC_MAX_NOTIONAL_X_EQUITY ?? 2);
+export const MAX_LOTS_ABSOLUTE = Number(process.env.CC_MAX_LOTS ?? 3);
+
 export type SizeResult =
-  | { ok: true; lots: number; riskAmount: number; stopPips: number; riskPctUsed: number }
+  | {
+      ok: true; lots: number; riskAmount: number; stopPips: number; riskPctUsed: number;
+      /** Which ceiling reduced the size, when one did. Null when risk alone decided it. */
+      cappedBy?: "notional" | "max_lots" | "broker_max" | null;
+      /** What risk-based sizing asked for before any ceiling applied. */
+      uncappedLots?: number;
+    }
   | { ok: false; reason: string };
 
 /**
@@ -112,6 +147,8 @@ export type SizeResult =
  */
 export function sizePosition(input: {
   equity: number; entry: number; stop: number; side: Side; riskPct: number; inst: Instrument; maxStopPips?: number;
+  /** Overrides for the ceilings, so tests and callers can be explicit rather than inheriting the env. */
+  maxNotionalXEquity?: number; maxLots?: number;
 }): SizeResult {
   const { equity, entry, stop, side, riskPct, inst } = input;
   if (!(equity > 0)) return { ok: false, reason: "No account equity" };
@@ -129,8 +166,48 @@ export function sizePosition(input: {
   const stepped = Math.floor(raw / inst.lotStep + 1e-9) * inst.lotStep;
   const lots = +stepped.toFixed(4);
   if (lots < inst.minLot) return { ok: false, reason: `Risk allows ${lots} lots — below the ${inst.minLot} minimum` };
-  const capped = Math.min(lots, inst.maxLot);
-  return { ok: true, lots: capped, riskAmount: +(capped * stopPips * inst.pipValuePerLot).toFixed(2), stopPips: Math.round(stopPips), riskPctUsed: +((capped * stopPips * inst.pipValuePerLot / equity) * 100).toFixed(3) };
+
+  /*
+   * THE CEILINGS. Applied after risk sizing, never before: risk decides what the trade WANTS to be,
+   * and these decide what it is allowed to be.
+   */
+  const maxNotionalX = input.maxNotionalXEquity ?? MAX_NOTIONAL_X_EQUITY;
+  const maxLotsAbs = input.maxLots ?? MAX_LOTS_ABSOLUTE;
+
+  const notionalPerLot = inst.contractSize > 0 ? inst.contractSize * entry : 0;
+  const byNotional = notionalPerLot > 0 && maxNotionalX > 0
+    ? (equity * maxNotionalX) / notionalPerLot
+    : Number.POSITIVE_INFINITY;
+
+  const ceiling = Math.min(inst.maxLot, maxLotsAbs > 0 ? maxLotsAbs : Number.POSITIVE_INFINITY, byNotional);
+
+  let cappedBy: "notional" | "max_lots" | "broker_max" | null = null;
+  if (lots > ceiling) {
+    cappedBy = ceiling === byNotional ? "notional"
+      : ceiling === maxLotsAbs ? "max_lots"
+      : "broker_max";
+  }
+
+  // Round DOWN to a legal lot again: a ceiling that lands between steps must never round up into it.
+  const clamped = Math.min(lots, ceiling);
+  const capped = +(Math.floor(clamped / inst.lotStep + 1e-9) * inst.lotStep).toFixed(4);
+
+  if (capped < inst.minLot) {
+    return {
+      ok: false,
+      reason: `The size ceiling allows ${capped} lots here — below the ${inst.minLot} minimum. The stop is too tight to take this trade within the position limit.`,
+    };
+  }
+
+  return {
+    ok: true,
+    lots: capped,
+    riskAmount: +(capped * stopPips * inst.pipValuePerLot).toFixed(2),
+    stopPips: Math.round(stopPips),
+    riskPctUsed: +((capped * stopPips * inst.pipValuePerLot / equity) * 100).toFixed(3),
+    cappedBy,
+    uncappedLots: lots,
+  };
 }
 
 export type Gate = { ok: boolean; reason: string; hard: boolean };
