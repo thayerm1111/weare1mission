@@ -45,7 +45,17 @@ test('an explicit switch beats the default, in both directions', () => {
 test('the legacy management master switch still turns management off wholesale', () => {
   const a = acct({ manage_trades: false, permissions: { allow_close: true } });
   assert.equal(can(a, 'allow_close', NOW).allowed, false);
-  assert.equal(can(a, 'allow_entries', NOW).allowed, false, 'entries still need their own permission');
+  assert.equal(can(a, 'allow_entries', NOW).allowed, true, 'management off does not stop entries');
+});
+
+test('an armed account with no stored entry permission trades as it did before 09-18', () => {
+  assert.equal(can(acct({ permissions: {} }), 'allow_entries', NOW).allowed, true);
+  assert.equal(can(acct({ permissions: null }), 'allow_entries', NOW).allowed, true);
+  assert.equal(can(acct({ autotrade_enabled: false }), 'allow_entries', NOW).allowed, false, 'auto-trade off still means no entries');
+  assert.equal(can(acct({ autotrade_enabled: null }), 'allow_entries', NOW).allowed, false, 'unknown is not a yes');
+  assert.equal(can(acct({ permissions: { allow_entries: false } }), 'allow_entries', NOW).allowed, false, 'an explicit no is honoured');
+  assert.equal(can(acct({ kill_switch_at: new Date(NOW - 1000).toISOString() }), 'allow_entries', NOW).allowed, false, 'kill switch still wins');
+  assert.equal(can(acct(), 'allow_pending', NOW).allowed, false, 'pending stays opt-in');
 });
 
 test('every refusal explains itself to the member', () => {

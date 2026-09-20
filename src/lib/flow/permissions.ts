@@ -92,7 +92,20 @@ export function can(acct: AccountRow | null | undefined, key: PermissionKey, now
   }
 
   const stored = asBool((acct.permissions ?? {})[key]);
-  const allowed = stored ?? PERMISSION_DEFAULTS[key];
+  /*
+   * "OPEN NEW TRADES" FOLLOWS THE AUTO-TRADE SWITCH UNTIL THE MEMBER SETS IT.
+   *
+   * On 09-18 this defaulted to a flat `false`, and none of the 213 accounts that already had auto-trade
+   * on had ever stored an `allow_entries` value — the field arrived that night. From 23:43 every one of
+   * them skipped every GENX and FLOW entry with "Open new trades is switched off", for members who had
+   * already said yes with the auto-trade switch.
+   *
+   * The opt-in is `autotrade_enabled`. Unset, entries follow it: auto-trade on trades as before 09-18; a
+   * new account (auto-trade off) still trades nothing. An explicit stored `false` is honoured, and the
+   * kill switch above still wins over both.
+   */
+  const fallback = key === "allow_entries" ? acct.autotrade_enabled === true : PERMISSION_DEFAULTS[key];
+  const allowed = stored ?? fallback;
   return allowed
     ? { allowed: true, reason: "" }
     : { allowed: false, reason: `${PERMISSION_LABEL[key]} is switched off for this account` };
