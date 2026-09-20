@@ -53,26 +53,38 @@ export type Availability =
  * Only THE BRAIN's own open positions can say no. FLOW may be in gold on the same account and that
  * is fine — it is running its own strategy and managing its own trade.
  */
-export async function accountAvailableToBrain(accNum: string | null | undefined): Promise<Availability> {
-  const n = String(accNum ?? "").trim();
-  if (!n) {
-    return { available: false, reason: "No broker account number to check — refusing rather than guessing." };
+export async function accountAvailableToBrain(
+  accountRowId: string | null | undefined,
+  accNumForMessage?: string | null,
+): Promise<Availability> {
+  /*
+   * KEYED ON THE ACCOUNT ROW, NOT THE BROKER'S NUMBER.
+   *
+   * The first version of this queried cc_positions.acc_num, which does not exist — the table keys
+   * positions by account_row_id. Every call threw, every throw was caught into "not available", and
+   * the autopilot would have blocked every entry forever while looking like it was working. Found by
+   * running the query against the real schema before switching anything on.
+   */
+  const id = String(accountRowId ?? "").trim();
+  if (!id) {
+    return { available: false, reason: "No account to check — refusing rather than guessing." };
   }
   const c = db();
   if (!c) {
     return { available: false, reason: "Cannot reach the position records to check for an open trade." };
   }
 
+  const label = accNumForMessage ? `account ${accNumForMessage}` : "this account";
   try {
     const { data, error } = await c
       .from("cc_positions")
       .select("id")
-      .eq("acc_num", n)
+      .eq("account_row_id", id)
       .is("closed_at", null)
       .limit(4);
     if (error) throw new Error(error.message);
     if ((data ?? []).length) {
-      return { available: false, reason: `THE BRAIN already has a position open on account ${n}.` };
+      return { available: false, reason: `THE BRAIN already has a position open on ${label}.` };
     }
   } catch (e) {
     return { available: false, reason: `Could not read THE BRAIN's positions (${String(e).slice(0, 80)}).` };

@@ -155,7 +155,7 @@ export async function autopilotTick(input: {
     // 3 — ONE BRAIN POSITION PER ACCOUNT. FLOW may be in gold on this same account running its own
     //     strategy; that is allowed and is not our business. What is our business is not stacking
     //     THE BRAIN's own trades on top of each other.
-    const owns = await accountAvailableToBrain(a.acc_num);
+    const owns = await accountAvailableToBrain(a.id, a.acc_num);
     if (!owns.available) {
       await record({ user_id: a.user_id, account_row_id: a.id, acc_num: a.acc_num, mode, acted: false,
         outcome: "blocked", reason: owns.reason });
