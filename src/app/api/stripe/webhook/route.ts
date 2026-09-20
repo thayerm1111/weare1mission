@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SUITE } from "@/lib/creditConfig";
+import { VOICE_PLAN, VOICE_PRODUCT_TAG } from "@/lib/voicePlan";
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
 
@@ -40,6 +41,62 @@ async function grantSuiteMonth(admin: Admin, userId: string, periodKey: string) 
     { onConflict: "user_id" },
   );
   try { await admin.from("credit_transactions").insert({ user_id: userId, amount: Math.max(0, newBal - bal), feature: "suite_monthly", kind: "grant" }); } catch { /* ledger is best-effort */ }
+}
+
+
+/**
+ * COMMAND CENTER VOICE — a second subscription, and it must never be mistaken for the first.
+ *
+ * `syncSubscription` above writes `plan: "trading_suite"` for ANY subscription it is handed, and the
+ * caller then grants a month of trading credits. Route a voice subscription through it and a member
+ * paying for minutes silently receives a month of Suite credits as well. So voice is detected FIRST,
+ * by the marker set on the subscription at checkout, and written to its own table.
+ *
+ * The billing period is stored, not the calendar month: the meter windows on it, so a member
+ * subscribing mid-month gets one allowance rather than the tail of one and then a fresh one.
+ */
+async function syncVoiceSubscription(admin: Admin, stripe: Stripe, subscriptionId: string, userIdHint?: string | null) {
+  const s = await stripe.subscriptions.retrieve(subscriptionId) as unknown as {
+    id: string; status: string; customer: string | { id: string };
+    current_period_start?: number; current_period_end?: number;
+    cancel_at_period_end?: boolean; canceled_at?: number | null;
+    metadata?: Record<string, string>;
+  };
+  const userId = userIdHint || s.metadata?.user_id || null;
+  if (!userId) return null;
+  const iso = (sec?: number | null) => (sec ? new Date(sec * 1000).toISOString() : null);
+
+  await admin.from("cc_voice_subscriptions").upsert({
+    user_id: userId,
+    status: s.status,
+    stripe_customer_id: typeof s.customer === "string" ? s.customer : s.customer?.id ?? null,
+    stripe_subscription_id: s.id,
+    current_period_start: iso(s.current_period_start),
+    current_period_end: iso(s.current_period_end),
+    cancel_at_period_end: !!s.cancel_at_period_end,
+    canceled_at: iso(s.canceled_at),
+    included_minutes: VOICE_PLAN.includedMinutes,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "user_id" });
+
+  return { userId, status: s.status };
+}
+
+/** Is this Stripe subscription the voice product rather than the Trading Suite? */
+const isVoiceSub = (meta?: Record<string, string> | null) => meta?.product === VOICE_PRODUCT_TAG;
+
+/**
+ * Extra minutes, granted once per checkout session.
+ *
+ * Idempotency comes from the unique constraint on stripe_session_id rather than a separate claim table:
+ * Stripe delivers at least once, and a redelivery must not hand out the minutes twice.
+ */
+async function grantVoiceTopup(admin: Admin, userId: string, sessionId: string, minutes: number, amountUsd: number | null) {
+  const { error } = await admin.from("cc_voice_topups").insert({
+    user_id: userId, minutes, amount_usd: amountUsd, stripe_session_id: sessionId,
+  });
+  // 23505 = unique_violation → already granted on an earlier delivery. Anything else, let Stripe retry.
+  if (error && (error as { code?: string }).code !== "23505") throw new Error(error.message);
 }
 
 /** Save a card on file for auto-refill: record the customer + payment method (with
@@ -96,13 +153,36 @@ export async function POST(req: NextRequest) {
     const session = event.data.object as Stripe.Checkout.Session;
     const userId = session.metadata?.user_id;
 
-    // Trading Suite subscription checkout → record it and grant the first month.
+    // Subscription checkout. VOICE IS CHECKED FIRST — see syncVoiceSubscription. Falling through to
+    // the Suite branch would record the wrong plan and grant a month of trading credits for free.
     if (session.mode === "subscription" && session.subscription) {
       const admin = createAdminClient();
       if (!admin) return json({ error: "no_admin_client" }, 200);
       const subId = typeof session.subscription === "string" ? session.subscription : session.subscription.id;
+
+      if (session.metadata?.product === VOICE_PRODUCT_TAG) {
+        await syncVoiceSubscription(admin, stripe, subId, userId);
+        return json({ received: true }, 200);
+      }
+
       const res = await syncSubscription(admin, stripe, subId, userId);
       if (res && (res.status === "active" || res.status === "trialing")) await grantSuiteMonth(admin, res.userId, res.periodKey);
+      return json({ received: true }, 200);
+    }
+
+    // One-off voice minutes. Checked before the credit-pack branch because it carries no `credits`
+    // field and would otherwise fall through and be silently ignored.
+    if (session.metadata?.product === VOICE_PRODUCT_TAG && session.metadata?.kind === "topup" && userId) {
+      const admin = createAdminClient();
+      if (!admin) return json({ error: "no_admin_client" }, 200);
+      const minutes = Number(session.metadata?.minutes || 0);
+      if (!Number.isFinite(minutes) || minutes <= 0) return json({ received: true, ignored: "bad_minutes" }, 200);
+      try {
+        await grantVoiceTopup(admin, userId, session.id, minutes, session.amount_total != null ? session.amount_total / 100 : null);
+      } catch (e) {
+        // Let Stripe retry rather than leaving a paying member without their minutes.
+        return json({ error: "topup_failed", detail: (e instanceof Error ? e.message : "insert").slice(0, 120) }, 500);
+      }
       return json({ received: true }, 200);
     }
 
@@ -173,7 +253,10 @@ export async function POST(req: NextRequest) {
   if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.created" || event.type === "customer.subscription.deleted") {
     const sub = event.data.object as Stripe.Subscription;
     const admin = createAdminClient();
-    if (admin) await syncSubscription(admin, stripe, sub.id, sub.metadata?.user_id);
+    if (admin) {
+      if (isVoiceSub(sub.metadata)) await syncVoiceSubscription(admin, stripe, sub.id, sub.metadata?.user_id);
+      else await syncSubscription(admin, stripe, sub.id, sub.metadata?.user_id);
+    }
   }
 
   // Renewal payment → refresh the monthly credit allowance for the new period.
@@ -183,8 +266,19 @@ export async function POST(req: NextRequest) {
     if (subId) {
       const admin = createAdminClient();
       if (admin) {
-        const res = await syncSubscription(admin, stripe, subId);
-        if (res && (res.status === "active" || res.status === "trialing")) await grantSuiteMonth(admin, res.userId, res.periodKey);
+        /*
+         * A renewal invoice carries no checkout session, so the product marker has to be read off the
+         * subscription itself — which is why it is set via subscription_data.metadata at checkout and
+         * not only on the session. A voice renewal rolls the billing window forward, which is what
+         * resets the minute allowance; it must not touch trading credits.
+         */
+        const sub = await stripe.subscriptions.retrieve(subId).catch(() => null);
+        if (sub && isVoiceSub(sub.metadata as Record<string, string> | undefined)) {
+          await syncVoiceSubscription(admin, stripe, subId, (sub.metadata as Record<string, string>)?.user_id);
+        } else {
+          const res = await syncSubscription(admin, stripe, subId);
+          if (res && (res.status === "active" || res.status === "trialing")) await grantSuiteMonth(admin, res.userId, res.periodKey);
+        }
       }
     }
   }

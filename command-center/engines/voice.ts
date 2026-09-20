@@ -58,7 +58,13 @@ export const callbackUrl = () =>
 
 /* ── budget ─────────────────────────────────────────────────────────────── */
 
-/** Minutes one member may spend in a calendar month. A meter with no limit is not a meter. */
+/**
+ * The fallback allowance, for a caller that has no subscription window to meter against.
+ *
+ * The real allowance now comes from the member's own subscription row (engines/voiceAccess.ts), so this
+ * is only reached by an admin with no subscription. A meter with no limit is not a meter, and that
+ * applies to admins too — an unmetered line is exactly the liability the gate was built to prevent.
+ */
 export const MONTHLY_MINUTE_BUDGET = Number(process.env.CC_VOICE_MONTHLY_MINUTES ?? 600);
 /** How long a single unattended session may run before it is closed as abandoned. */
 export const MAX_SESSION_MS = 60 * 60_000;
@@ -67,17 +73,38 @@ export const STALE_SESSION_MS = 3 * 60_000;
 
 export type Budget = { usedMinutes: number; budgetMinutes: number; remainingMinutes: number; exhausted: boolean };
 
-export async function budgetFor(userId: string): Promise<Budget> {
+/**
+ * What this member has spoken, and what they have left.
+ *
+ * `window` comes from the subscription: where the current allowance period began and what it is worth,
+ * including any minutes bought on top. Without one, the caller is metered over the last 30 days against
+ * the fallback allowance — which is the admin case, and still a limit.
+ *
+ * A DATABASE THAT CANNOT BE READ REPORTS AN EXHAUSTED BUDGET, NOT AN EMPTY ONE. The previous version
+ * returned a full allowance when the client was missing, so a configuration failure read as "nobody has
+ * used anything" and opened the line to everyone. Minutes cost money; unknown usage is not zero usage.
+ */
+export async function budgetFor(
+  userId: string,
+  window?: { periodStart: Date; includedMinutes: number; topupMinutes: number },
+): Promise<Budget> {
   const c = db();
-  const budgetMinutes = MONTHLY_MINUTE_BUDGET;
-  if (!c) return { usedMinutes: 0, budgetMinutes, remainingMinutes: budgetMinutes, exhausted: false };
+  const budgetMinutes = window
+    ? Math.max(0, window.includedMinutes + window.topupMinutes)
+    : MONTHLY_MINUTE_BUDGET;
 
-  const since = new Date();
-  since.setUTCDate(1);
-  since.setUTCHours(0, 0, 0, 0);
+  if (!c) {
+    return { usedMinutes: budgetMinutes, budgetMinutes, remainingMinutes: 0, exhausted: true };
+  }
 
-  const { data } = await c.from("cc_voice_sessions")
+  const since = window?.periodStart ?? new Date(Date.now() - 30 * 24 * 3600_000);
+
+  const { data, error } = await c.from("cc_voice_sessions")
     .select("minutes").eq("user_id", userId).gte("started_at", since.toISOString());
+  if (error) {
+    return { usedMinutes: budgetMinutes, budgetMinutes, remainingMinutes: 0, exhausted: true };
+  }
+
   const usedMinutes = ((data ?? []) as { minutes: number | null }[])
     .reduce((a, r) => a + (Number(r.minutes) || 0), 0);
 

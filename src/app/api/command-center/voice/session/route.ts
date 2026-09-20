@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { voiceAccess } from "../../../../../../command-center/engines/voiceAccess";
+import { VOICE_PLAN } from "@/lib/voicePlan";
 import { selectedAccount } from "../../../../../../command-center/engines/broker";
 import { callbackUrl } from "../../../../../../command-center/engines/voice";
 import {
@@ -13,9 +15,12 @@ export const maxDuration = 30;
 /**
  * OPENING A VOICE SESSION.
  *
- * Admin only, today, and the gate is here rather than in the interface because a gate in a component is
- * a suggestion. Speech is billed per minute; until there is a way for a member to pay for their own
- * minutes, this is the owner's line and nobody else's.
+ * Subscribers and admins, and the gate is here rather than in the interface because a gate in a
+ * component is a suggestion. Speech is billed per minute, so the two questions are asked in order and
+ * both before any line opens: may this member talk at all, and have they any minutes left?
+ *
+ * This was admin-only until Command Center Voice existed to pay for it. The meter it is wired to is the
+ * same one that was built alongside that gate, for exactly this moment.
  *
  * The provider's API key never leaves this process. What the browser gets back is a signed URL with a
  * short-lived token in it, plus a separate callback token that lets the provider's servers reach our
@@ -25,27 +30,49 @@ function json(o: unknown, s = 200) {
   return new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }
 
-/** The one place that decides who may speak. */
-async function admin(): Promise<{ ok: true; userId: string } | { ok: false; res: Response }> {
+type Gate =
+  | { ok: true; userId: string; access: Extract<Awaited<ReturnType<typeof voiceAccess>>, { allowed: true }> }
+  | { ok: false; res: Response };
+
+/**
+ * The one place that decides who may speak.
+ *
+ * A member without the subscription is told what it is and offered it — unlike the admin-only version,
+ * which deliberately said nothing, because there was nothing for them to do about it. Now there is.
+ */
+async function gate(): Promise<Gate> {
   const supabase = createClient();
   if (!supabase) return { ok: false, res: json({ error: "not_configured" }, 503) };
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false, res: json({ error: "unauthorized" }, 401) };
+
   const { data } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
-  if ((data as { role?: string } | null)?.role !== "admin") {
-    // Deliberately not a 403 with an explanation of what exists. A member who cannot use voice does not
-    // need to learn that voice exists and costs money.
-    return { ok: false, res: json({ ok: false, enabled: false, reason: "Voice sessions are not enabled on this account." }, 200) };
+  const isAdmin = (data as { role?: string } | null)?.role === "admin";
+
+  const access = await voiceAccess(user.id, isAdmin);
+  if (!access.allowed) {
+    return {
+      ok: false,
+      res: json({
+        ok: false,
+        enabled: false,
+        reason: access.reason,
+        needsSubscription: access.needsSubscription,
+        offer: access.needsSubscription
+          ? { priceUsd: VOICE_PLAN.priceUsd, includedMinutes: VOICE_PLAN.includedMinutes, blurb: VOICE_PLAN.blurb }
+          : null,
+      }, 200),
+    };
   }
-  return { ok: true, userId: user.id };
+  return { ok: true, userId: user.id, access };
 }
 
 export async function GET() {
-  const gate = await admin();
-  if (!gate.ok) return gate.res;
+  const g = await gate();
+  if (!g.ok) return g.res;
 
   const avail = availability();
-  const budget = await budgetFor(gate.userId);
+  const budget = await budgetFor(g.userId, g.access);
   return json({
     ok: true,
     enabled: true,
@@ -61,15 +88,15 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const gate = await admin();
-  if (!gate.ok) return gate.res;
+  const g = await gate();
+  if (!g.ok) return g.res;
 
   let body: { action?: string; turns?: number };
   try { body = await req.json(); } catch { body = {}; }
   const action = String(body.action ?? "start");
 
   if (action === "end") {
-    await closeSession(gate.userId, "ended by user");
+    await closeSession(g.userId, "ended by user");
     return json({ ok: true, ended: true });
   }
 
@@ -77,7 +104,7 @@ export async function POST(req: Request) {
     // The browser says it is still listening; the meter agrees or the worker reaps it later.
     const c = createClient();
     const { data } = c
-      ? await c.from("cc_voice_sessions").select("id").eq("user_id", gate.userId).is("ended_at", null).maybeSingle()
+      ? await c.from("cc_voice_sessions").select("id").eq("user_id", g.userId).is("ended_at", null).maybeSingle()
       : { data: null };
     const id = (data as { id?: string } | null)?.id;
     if (id) await touch(id, Number(body.turns) || 0);
@@ -88,7 +115,7 @@ export async function POST(req: Request) {
   if (!avail.ok) return json({ ok: false, configured: false, reason: avail.reason, missing: avail.missing }, 200);
 
   // The meter is checked BEFORE the line is opened, not after it has run.
-  const budget = await budgetFor(gate.userId);
+  const budget = await budgetFor(g.userId, g.access);
   if (budget.exhausted) {
     return json({
       ok: false,
@@ -106,13 +133,13 @@ export async function POST(req: Request) {
   const agent = await ensureAgent();
   if (!agent.ok) return json({ ok: false, configured: true, reason: agent.reason }, 200);
 
-  const account = await selectedAccount(gate.userId);
-  const session = await openSession(gate.userId, account?.id ?? null, agent.agentId);
+  const account = await selectedAccount(g.userId);
+  const session = await openSession(g.userId, account?.id ?? null, agent.agentId);
   if (!session) return json({ ok: false, reason: "Could not open a voice session." }, 200);
 
   const signed = await signedUrl(agent.agentId);
   if (!signed.ok) {
-    await closeSession(gate.userId, "provider refused");
+    await closeSession(g.userId, "provider refused");
     return json({ ok: false, configured: true, reason: signed.reason }, 200);
   }
 

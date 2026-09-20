@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { VOICE_TOPUPS } from "@/lib/voicePlan";
 import { Mic, MicOff, PhoneOff, Radio } from "lucide-react";
 import { VoicePresence, type PresenceMode } from "./VoicePresence";
 
@@ -56,6 +57,8 @@ export type VoiceTurn = { id: string; who: "you" | "brain"; text: string; heard:
 
 type SessionInfo = {
   ok: boolean; enabled?: boolean; configured?: boolean; reason?: string | null; missing?: string[];
+  needsSubscription?: boolean;
+  offer?: { priceUsd: number; includedMinutes: number; blurb: string } | null;
   budget?: { usedMinutes: number; budgetMinutes: number; remainingMinutes: number; exhausted: boolean };
 };
 
@@ -109,6 +112,8 @@ export function VoiceSession({ onUiAction, onStatus }: {
   const [error, setError] = useState<string | null>(null);
   const [turns, setTurns] = useState<VoiceTurn[]>([]);
   const [muted, setMuted] = useState(false);
+  const [buying, setBuying] = useState(false);
+  const [buyError, setBuyError] = useState<string | null>(null);
   /*
    * VISIBLE DIAGNOSTICS.
    *
@@ -591,9 +596,74 @@ export function VoiceSession({ onUiAction, onStatus }: {
 
   void onUiAction;
 
+  /**
+   * Send the member to Stripe. The price is never posted from here — the server reads it from
+   * voicePlan.ts — so a tampered request cannot buy the subscription for a different amount.
+   */
+  const startCheckout = useCallback(async (topupId?: string) => {
+    setBuying(true);
+    setBuyError(null);
+    try {
+      const r = await fetch("/api/command-center/voice/subscribe", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(topupId ? { topupId } : {}),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (j?.url) { window.location.href = j.url as string; return; }
+      setBuyError(j?.detail || j?.error === "stripe_not_configured"
+        ? "Payments aren't switched on yet."
+        : "Could not open checkout. Try again in a moment.");
+    } catch {
+      setBuyError("Could not reach checkout. Check your connection and try again.");
+    } finally {
+      setBuying(false);
+    }
+  }, []);
+
   /* ── the surface ──────────────────────────────────────────────────────── */
 
-  if (info && info.enabled === false) return null;          // not this member's feature; say nothing
+  /*
+   * NOT SUBSCRIBED — OFFER IT, DO NOT HIDE IT.
+   *
+   * This used to `return null`, because voice was admin-only and telling a member about a feature they
+   * had no way to obtain is just an advert for a locked door. Now there is a door, so the panel
+   * explains what it is, what it costs and what they get, and opens checkout.
+   */
+  if (info && info.enabled === false) {
+    if (!info.needsSubscription || !info.offer) return null;   // switched off for another reason
+    return (
+      <section className="overflow-hidden rounded-2xl border" style={{ borderColor: C.line, background: C.panel }}>
+        <div className="flex items-center justify-between gap-2 border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
+          <p className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: C.gold }}>
+            <Radio className="h-3.5 w-3.5" /> Command Center Voice
+          </p>
+          <span className="text-[10px] tabular-nums" style={{ color: C.mut2 }}>
+            ${info.offer.priceUsd}/mo
+          </span>
+        </div>
+        <div className="px-3.5 py-3">
+          <p className="text-[12.5px] leading-relaxed" style={{ color: C.mut }}>
+            {info.offer.blurb} Ask it what gold is doing, why it is standing aside, where your stop is —
+            and it answers from the same read the engine trades on, not a separate one.
+          </p>
+          <p className="mt-2 text-[11.5px] leading-relaxed" style={{ color: C.mut2 }}>
+            Separate from credits. Credits run the auto traders; this is the line to talk to the desk.
+          </p>
+          <button
+            type="button"
+            onClick={() => { void startCheckout(); }}
+            disabled={buying}
+            className="mt-3 rounded-lg px-3.5 py-2 text-[12px] font-semibold transition disabled:opacity-60"
+            style={{ background: C.gold, color: "#10131A" }}
+          >
+            {buying ? "Opening checkout…" : `Turn on voice — $${info.offer.priceUsd}/month`}
+          </button>
+          {buyError && <p className="mt-2 text-[12px]" style={{ color: C.down }}>{buyError}</p>}
+        </div>
+      </section>
+    );
+  }
 
   const live = status === "listening" || status === "speaking" || status === "muted" || status === "awaiting_mic";
 
@@ -627,8 +697,9 @@ export function VoiceSession({ onUiAction, onStatus }: {
           <Radio className="h-3.5 w-3.5" /> Voice session · {label}
         </p>
         {info?.budget && (
-          <span className="text-[10px] tabular-nums" style={{ color: C.mut2 }}>
-            {Math.round(info.budget.remainingMinutes)} min left this month
+          <span className="text-[10px] tabular-nums" style={{ color: info.budget.exhausted ? C.amber : C.mut2 }}>
+            {/* "this period" and not "this month": the allowance windows on the billing date. */}
+            {Math.round(info.budget.remainingMinutes)} of {Math.round(info.budget.budgetMinutes)} min left this period
           </span>
         )}
       </div>
@@ -638,6 +709,38 @@ export function VoiceSession({ onUiAction, onStatus }: {
           <p className="text-[12px] leading-relaxed" style={{ color: C.amber }}>{info.reason}</p>
         )}
         {error && <p className="text-[12px] leading-relaxed" style={{ color: C.down }}>{error}</p>}
+
+        {/*
+          * OUT OF MINUTES — the one moment a member is definitely willing to buy more, so the offer
+          * belongs here rather than buried in a billing page. The text console keeps working either
+          * way, which is said plainly so running out does not read as being locked out.
+          */}
+        {info?.budget?.exhausted && (
+          <div className="mb-3 rounded-lg border px-3 py-2.5" style={{ borderColor: "rgba(233,185,73,0.3)", background: "rgba(233,185,73,0.06)" }}>
+            <p className="text-[12px] leading-relaxed" style={{ color: C.amber }}>
+              You have used all {Math.round(info.budget.budgetMinutes)} minutes for this billing period.
+              The written console still works, and your minutes reset when the period renews.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {VOICE_TOPUPS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => { void startCheckout(t.id); }}
+                  disabled={buying}
+                  className="rounded-md px-2.5 py-1.5 text-[11.5px] font-semibold transition disabled:opacity-60"
+                  style={{ background: "rgba(240,196,117,0.14)", color: C.gold, border: "1px solid rgba(240,196,117,0.28)" }}
+                >
+                  +{t.label} · ${t.priceUsd}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[10.5px]" style={{ color: C.mut2 }}>
+              Extra minutes are good for this billing period.
+            </p>
+            {buyError && <p className="mt-1.5 text-[11.5px]" style={{ color: C.down }}>{buyError}</p>}
+          </div>
+        )}
 
         {!live ? (
           <>
