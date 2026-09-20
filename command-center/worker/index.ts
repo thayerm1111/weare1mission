@@ -21,6 +21,8 @@ import { sweep as sweepWatches } from "../engines/watch";
 import { reapAbandoned } from "../engines/voice";
 import { scoreMatured } from "../engines/record";
 import { upcoming, LOCKOUT_BEFORE_MIN, LOCKOUT_AFTER_MIN } from "../adapters/calendar";
+import { autopilotTick, autopilotMode } from "../engines/autopilot";
+import { autoManageTick } from "../engines/autoManage";
 
 const KEY = process.env.TWELVEDATA_API_KEY ?? "";
 const TICK_MS = Number(process.env.CC_TICK_MS || 20_000);
@@ -127,6 +129,32 @@ async function pass(lastPersistAt: number): Promise<number> {
     log(`thesis ${pc.thesisChange}: ${pc.thesis.label} (${pc.thesis.confidence}) — ${pc.statement?.text ?? ""}`);
   }
   if (pc.statement) await saveStatement(pc.statement);
+
+  /*
+   * TRADING, ON THE SAME TICK AS THE READ.
+   *
+   * Managing what is already open comes FIRST, every time. A trade that has earned its break-even
+   * should get it before anything goes looking for the next entry — a manager that prioritises new
+   * business over open risk is how a good trade becomes a bad one while the engine was busy.
+   *
+   * Both of these no-op entirely unless CC_AUTOPILOT is set, so a deployment that has not opted in
+   * runs exactly as it did before: read, narrate, and wait to be asked.
+   */
+  if (autopilotMode() !== "off") {
+    try {
+      const managed = await autoManageTick(snap);
+      if (managed) log(managed);
+    } catch (e) { log("automanage error", String(e).slice(0, 160)); }
+    try {
+      const traded = await autopilotTick({
+        snapshot: snap,
+        marketOpen: marketOpen(now),
+        tradeable: gate.ok,
+        thesis: { bias: pc.thesis.bias ?? null, confidence: pc.thesis.confidence ?? null },
+      });
+      if (traded) log(traded);
+    } catch (e) { log("autopilot error", String(e).slice(0, 160)); }
+  }
 
   if (now - lastPersistAt >= PERSIST_MS) {
     const id = await saveSnapshotWithBars(snap, m5 ?? []);
