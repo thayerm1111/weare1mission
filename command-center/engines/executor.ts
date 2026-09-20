@@ -17,7 +17,10 @@
 import { randomUUID } from "node:crypto";
 import { db } from "../adapters/db";
 import { audit } from "../adapters/db";
-import { createOrder, closePosition, modifyPosition, listPositions, ordersHistory, parsePositions, orderIdOf } from "../adapters/tradelocker";
+import {
+  createOrder, closePosition, modifyPosition, listPositions, ordersHistory, parsePositions, orderIdOf,
+  getConfig, positionColumns, DEFAULT_POSITION_COLUMNS, type PositionColumns,
+} from "../adapters/tradelocker";
 import { stopMoveAllowed } from "../core/risk";
 import { roundPrice, roundQty, toPips } from "../core/instrument";
 import { STYLE_MODE, type Style } from "../core/style";
@@ -135,6 +138,27 @@ export async function prepare(userId: string, i: PrepareInput): Promise<Prepared
   };
 }
 
+
+/**
+ * The broker's position column order, read once per process.
+ *
+ * /trade/config is static for a connection, so asking on every order would be waste. Cached with the
+ * safe defaults as a fallback: getting the columns slightly wrong degrades a field, while not asking
+ * at all was what dropped every position row.
+ */
+let positionColsCache: { at: number; cols: PositionColumns } | null = null;
+async function positionColumnsFor(sess: Session): Promise<PositionColumns> {
+  if (positionColsCache && Date.now() - positionColsCache.at < 3600_000) return positionColsCache.cols;
+  try {
+    const cfg = await getConfig(sess.auth);
+    const cols = cfg.ok ? positionColumns(cfg.data) : DEFAULT_POSITION_COLUMNS;
+    positionColsCache = { at: Date.now(), cols };
+    return cols;
+  } catch {
+    return DEFAULT_POSITION_COLUMNS;
+  }
+}
+
 async function openPositionsFor(userId: string, accountRowId: string) {
   const { data } = await c().from("cc_positions")
     .select("id, broker_position_id, side, qty, entry")
@@ -221,6 +245,38 @@ export async function execute(userId: string, intentId: string, idempotencyKey: 
     spread: snapshot?.spread ?? null, openPositions: open.length, openRiskPct: 0, history, origin: "member",
   });
   if (!v.ok) return fail(v.reason);
+
+  /*
+   * THE BROKER IS ASKED BEFORE THE ORDER GOES, AND THE BROKER IS THE TRUTH.
+   *
+   * Everything above this line — the interlock, the cooldown, the hourly count, the one-position limit
+   * — is computed from cc_positions, which is OUR record of what we opened. On the first live night a
+   * dropped `if` in parsePositions meant nothing was ever written there, so all four guards read an
+   * empty table, agreed nothing was open, and let the next entry through. Every twenty-five seconds.
+   * Eighteen orders. Fourteen live positions on a funded account.
+   *
+   * Not one of those guards was wrong. They were all reading the same bookkeeping, and the bookkeeping
+   * was broken — which is exactly the failure mode that reading our own records can never catch.
+   *
+   * So the last question before an order is sent goes to the broker: do I ALREADY hold gold on this
+   * account? It costs one call on the act path only, and it is immune to any bug in our own records.
+   *
+   * IT FAILS CLOSED. If the broker cannot be asked, the answer is no. "I cannot tell whether I am
+   * already in this trade" is not a reason to enter it again.
+   */
+  const liveCheck = await listPositions(s.session.auth);
+  if (!liveCheck.ok) {
+    return fail("Could not read the broker's open positions, so THE BRAIN cannot tell whether it is already in this trade. Refusing rather than risking a second entry.");
+  }
+  const cols = await positionColumnsFor(s.session);
+  const alreadyOpen = parsePositions(liveCheck.data, cols)
+    .filter((p) => !inst.ok || !p.instrumentId || p.instrumentId === inst.spec.tradableInstrumentId);
+  if (alreadyOpen.length) {
+    return fail(
+      `The broker already reports ${alreadyOpen.length} open position${alreadyOpen.length === 1 ? "" : "s"} ` +
+      `on this account. THE BRAIN holds one at a time.`,
+    );
+  }
 
   await c().from("cc_trade_intents").update({ status: "executing" }).eq("id", intentId);
   await c().from("cc_trade_executions").update({ account_row_id: intent.account_row_id, qty: v.sizing.qty }).eq("id", executionId);

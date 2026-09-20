@@ -454,9 +454,89 @@ export function parseAccountState(body: unknown): { balance: number | null; equi
   };
 }
 
-export function parsePositions(body: unknown): TLPosition[] {
+/**
+ * WHERE EACH FIELD SITS WHEN THE BROKER SENDS POSITIONS AS ARRAYS.
+ *
+ * The defaults are FLOW's, which have been reading this broker's positions every day for months. The
+ * real order comes from /trade/config's positionsConfig when it can be read; these are the fallback.
+ */
+export type PositionColumns = {
+  idIdx: number; instrIdx: number; sideIdx: number; qtyIdx: number;
+  avgIdx: number; slIdx: number; tpIdx: number; openedIdx: number;
+};
+
+export const DEFAULT_POSITION_COLUMNS: PositionColumns = {
+  idIdx: 0, instrIdx: 1, sideIdx: 3, qtyIdx: 4, avgIdx: 5, slIdx: -1, tpIdx: -1, openedIdx: -1,
+};
+
+/** Read the column order out of /trade/config. Falls back to the defaults above on anything unexpected. */
+export function positionColumns(configBody: unknown): PositionColumns {
+  try {
+    const d = unwrap(configBody) as Record<string, unknown> | null;
+    const raw = d?.positionsConfig as unknown;
+    const cols = (Array.isArray(raw) ? raw : (raw as Record<string, unknown> | undefined)?.columns) as unknown[] | undefined;
+    if (!Array.isArray(cols) || !cols.length) return DEFAULT_POSITION_COLUMNS;
+
+    const nameOf = (c: unknown) => String(
+      (c as Record<string, unknown>)?.id ?? (c as Record<string, unknown>)?.key ?? (c as Record<string, unknown>)?.name ?? "",
+    ).toLowerCase();
+    const find = (...names: string[]) => cols.findIndex((c) => names.includes(nameOf(c)));
+    const or = (i: number, fallback: number) => (i >= 0 ? i : fallback);
+
+    return {
+      idIdx: or(find("id", "positionid"), DEFAULT_POSITION_COLUMNS.idIdx),
+      instrIdx: or(find("tradableinstrumentid", "instrumentid"), DEFAULT_POSITION_COLUMNS.instrIdx),
+      sideIdx: or(find("side"), DEFAULT_POSITION_COLUMNS.sideIdx),
+      qtyIdx: or(find("qty", "quantity", "volume"), DEFAULT_POSITION_COLUMNS.qtyIdx),
+      avgIdx: or(find("avgprice", "openprice", "price"), DEFAULT_POSITION_COLUMNS.avgIdx),
+      slIdx: find("stoploss", "stoplossprice", "sl"),
+      tpIdx: find("takeprofit", "takeprofitprice", "tp"),
+      openedIdx: find("opendate", "opentime", "createddate", "createdat"),
+    };
+  } catch {
+    return DEFAULT_POSITION_COLUMNS;
+  }
+}
+
+/**
+ * THE BROKER'S OPEN POSITIONS — AND IT SENDS THEM AS ARRAYS.
+ *
+ * This function used to begin:
+ *
+ *     if (Array.isArray(r)) return [];   // columnar rows need the config; handled by the caller
+ *
+ * The caller did not handle it. TradeLocker returns positions as columnar arrays on this account, so
+ * every row was dropped and this returned an empty list while real positions were open.
+ *
+ * What that one line cost, on the first live night: the reconciler could not find the position an
+ * order had just opened, so nothing was written to cc_positions. The interlock that permits ONE Brain
+ * position reads cc_positions. So does the cooldown, and the hourly entry count. All three consulted
+ * an empty table, concluded nothing was open, and allowed the next entry — every twenty-five seconds,
+ * eighteen times, until fourteen positions were live on a funded account.
+ *
+ * Three guards, none of them wrong, all reading a table that one dropped `if` kept empty.
+ */
+export function parsePositions(body: unknown, cols: PositionColumns = DEFAULT_POSITION_COLUMNS): TLPosition[] {
+  const at = (r: unknown[], idx: number): unknown => (idx >= 0 && idx < r.length ? r[idx] : undefined);
+
   return rowsOf(body, ["positions", "d", "data"]).flatMap((r) => {
-    if (Array.isArray(r)) return [];                       // columnar rows need the config; handled by the caller
+    if (Array.isArray(r)) {
+      const id = asStr(at(r, cols.idIdx));
+      if (!id) return [];
+      const sideRaw = String(at(r, cols.sideIdx) ?? "").toLowerCase();
+      return [{
+        id,
+        instrumentId: asStr(at(r, cols.instrIdx)) ?? "",
+        side: sideRaw === "sell" ? "sell" : "buy",
+        qty: asNum(at(r, cols.qtyIdx)) ?? 0,
+        avgPrice: asNum(at(r, cols.avgIdx)),
+        sl: asNum(at(r, cols.slIdx)),
+        tp: asNum(at(r, cols.tpIdx)),
+        unrealisedPl: null,
+        openedAt: asNum(at(r, cols.openedIdx)),
+      }];
+    }
+
     const id = asStr(pick(r, ["id", "positionId"]));
     if (!id) return [];
     const sideRaw = String(pick(r, ["side"]) ?? "").toLowerCase();
