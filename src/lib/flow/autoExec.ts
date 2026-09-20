@@ -13,6 +13,7 @@ import { billedAccountIdsForFire, billSetupForming } from "@/lib/flow/flowBillin
 import { genxLabel } from "@/lib/genx/brand";
 import { genxGoldQualityGate } from "@/lib/genx/qualityGate";
 import { originAllowed, genx3AccountFilter } from "@/lib/genx3/engineSelect";
+import { filterAccountsByStyle, styleOfMode } from "@/lib/flow/tradeStyles";
 import { series, livePrice } from "@/lib/marketData";
 import { goldChangeOfCharacter } from "@/lib/genx/choch";
 import { rangePosition, blockedByRange, deskBreaker } from "@/lib/genx/rangeGuard";
@@ -1383,7 +1384,10 @@ async function genx3Reserved(admin: NonNullable<ReturnType<typeof createAdminCli
 }
 async function genx3ReservedUsers(admin: NonNullable<ReturnType<typeof createAdminClient>>): Promise<Set<string>> { return (await genx3Reserved(admin)).ids; }
 export type GenxDelivery = { origin?: "genx2" | "genx3"; onlyUserIds?: string[] | null; onlyAccountIds?: string[] | null; tag?: string };
-export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null; sendItOnly?: boolean } & GenxDelivery): Promise<{ members: number; placed: number }> {
+export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null; sendItOnly?: boolean;
+  /* Which horizon this call was found on. Absent means the caller predates the field, and gold's
+   * ENTER-NOW calls are the fast one — so it is read as quick rather than as unknown. */
+  mode?: Mode | string | null } & GenxDelivery): Promise<{ members: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { members: 0, placed: 0 };
   if (!(await systemSwitches(admin)).genx) return { members: 0, placed: 0 }; // admin GENX kill switch
@@ -1587,6 +1591,21 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       // safeguards (sendItGuards off) take the entry — guards-on Send It accounts stand
       // down with everyone else.
       if (sendItOnly) accounts = accounts.filter((a) => a.sendIt === true && a.sendItGuards !== true);
+      /*
+       * THE HORIZON THE MEMBER CHOSE.
+       *
+       * Applied AFTER Send It, and on purpose. Send It bypasses the desk's selectivity filters —
+       * loss cutoffs, the conservative gate — because those are the desk's judgement about whether a
+       * trade is good. This is not that. It is the member saying which KIND of trade they want at
+       * all, and a member who has switched swing off has not asked to be exempted from their own
+       * decision by a different toggle.
+       */
+      const styleBefore = accounts.length;
+      accounts = filterAccountsByStyle(accounts, sig.mode ?? "quick");
+      if (accounts.length !== styleBefore) {
+        await deskDrop(`${styleBefore - accounts.length} account(s) stood down — ${styleOfMode(sig.mode ?? "quick")} horizon switched off on them`);
+      }
+
       // GENX 3.x ACCOUNT WHITELIST (owner 09-16): a 3.x signal reaches ONLY the whitelisted accounts;
       // a legacy (GENX 1.0/2.0) signal never reaches an account that is running GENX 3.x.
       accounts = genx3AccountFilter(accounts, (a) => String(a.accountId), sig, sig.onlyAccountIds || sig.origin === "genx3" ? new Set() : (await genx3Reserved(admin)).accounts);

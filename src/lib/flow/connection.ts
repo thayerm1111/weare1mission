@@ -106,6 +106,16 @@ export type ActiveAccount = {
   sendIt?: boolean; // 🚀 SEND IT: takes every setup — HOW it behaves is configured per account:
   sendItStack?: boolean;  //   true (default) = every entry, even with one already open; false = one at a time
   sendItGuards?: boolean; //   true = respect the desk safeguards (halts, post-win bar, exhausted-setup); false (default) = bypass them
+  /*
+   * WHICH HORIZONS THIS ACCOUNT TAKES.
+   *
+   * Undefined means the columns were not read — an account written before the feature existed — and
+   * every consumer treats that as the previous behaviour rather than as "off". Silently stopping
+   * accounts that never asked to be stopped is the one failure mode this must not have.
+   */
+  styleQuick?: boolean | null;
+  styleHold?: boolean | null;
+  styleSwing?: boolean | null;
 };
 
 /**
@@ -129,10 +139,10 @@ export async function activeAccounts(userId: string, opts: { maxBrokerAgeMs?: nu
     const out: ActiveAccount[] = [];
     // Include the per-account risk override when the column exists; if it hasn't
     // been added yet, fall back to a select without it so trading never breaks.
-    type AcctRow = { account_id: string; acc_num: string | null; name: string | null; currency: string | null; risk_pct?: number | null; risk_mode?: string | null; send_it?: boolean | null; send_it_stack?: boolean | null; send_it_guards?: boolean | null; permissions?: Record<string, unknown> | null; kill_switch_at?: string | null };
+    type AcctRow = { account_id: string; acc_num: string | null; name: string | null; currency: string | null; risk_pct?: number | null; risk_mode?: string | null; send_it?: boolean | null; send_it_stack?: boolean | null; send_it_guards?: boolean | null; permissions?: Record<string, unknown> | null; kill_switch_at?: string | null; style_quick?: boolean | null; style_hold?: boolean | null; style_swing?: boolean | null };
     let enabled: AcctRow[] = [];
     const withRisk = await admin.from("flow_broker_accounts")
-      .select("account_id, acc_num, name, currency, autotrade_enabled, risk_pct, risk_mode, send_it, send_it_stack, send_it_guards, permissions, kill_switch_at")
+      .select("account_id, acc_num, name, currency, autotrade_enabled, risk_pct, risk_mode, send_it, send_it_stack, send_it_guards, permissions, kill_switch_at, style_quick, style_hold, style_swing")
       .eq("connection_id", conn.id).eq("autotrade_enabled", true);
     if (!withRisk.error) enabled = (withRisk.data ?? []) as AcctRow[];
     else {
@@ -196,6 +206,11 @@ export async function activeAccounts(userId: string, opts: { maxBrokerAgeMs?: nu
         sendIt: SEND_IT_ENABLED && a.send_it === true,
         sendItStack: a.send_it_stack !== false, // default: every entry (classic Send It)
         sendItGuards: a.send_it_guards === true, // default: bypass safeguards (classic Send It)
+        // Undefined when the columns are not there (the fallback select). Consumers read that as the
+        // previous behaviour, never as "off" — see tradeStyles.stylePrefsOf.
+        styleQuick: a.style_quick,
+        styleHold: a.style_hold,
+        styleSwing: a.style_swing,
       });
     }
     return out;

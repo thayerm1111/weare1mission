@@ -35,7 +35,7 @@ export async function GET() {
     if (admin) {
       // Include per-account risk_pct + manage_trades + gold_be_pips when those columns
       // exist; fall back if they haven't been added yet so the accounts list never breaks.
-      const withCols = await admin.from("flow_broker_accounts").select(baseCols + ", risk_pct, manage_trades, gold_be_pips, risk_mode, send_it, send_it_stack, send_it_guards, be_enabled, partials_enabled, profit_guard, permissions, kill_switch_at").eq("connection_id", c.id).order("created_at", { ascending: true });
+      const withCols = await admin.from("flow_broker_accounts").select(baseCols + ", risk_pct, manage_trades, gold_be_pips, risk_mode, send_it, send_it_stack, send_it_guards, be_enabled, partials_enabled, profit_guard, permissions, kill_switch_at, style_quick, style_hold, style_swing").eq("connection_id", c.id).order("created_at", { ascending: true });
       if (!withCols.error) accts = (withCols.data ?? []) as unknown as Record<string, unknown>[];
       else { const fb = await admin.from("flow_broker_accounts").select(baseCols).eq("connection_id", c.id).order("created_at", { ascending: true }); accts = (fb.data ?? []) as unknown as Record<string, unknown>[]; }
     }
@@ -54,6 +54,11 @@ export async function GET() {
         beEnabled: a.manage_trades !== false && a.be_enabled !== false,          // split toggle (default ON; legacy master off = off)
         partialsEnabled: a.manage_trades !== false && a.partials_enabled !== false, // split toggle (default ON; legacy master off = off)
         profitGuard: a.profit_guard === true, // Profit Guard: opt-in reversal protection (default OFF)
+        // Horizons. A row written before these columns existed reads as the previous behaviour —
+        // the two shorter ones on — rather than as nothing switched on.
+        styleQuick: a.style_quick !== false,
+        styleHold: a.style_hold !== false,
+        styleSwing: a.style_swing === true,
         permissions: resolveAll(a as never), // resolved granular permissions (defaults applied)
         killSwitchAt: a.kill_switch_at ?? null,
         goldBePips: typeof a.gold_be_pips === "number" && (a.gold_be_pips as number) > 0 ? a.gold_be_pips : null, // gold-only BE/partial pips; null = AI
@@ -227,6 +232,37 @@ export async function POST(req: NextRequest) {
     const { error } = await q;
     if (error) return json({ error: "needs_setup", detail: "Profit Guard isn't set up yet — the profit_guard column is missing." }, 200);
     return json({ ok: true, accountId, profitGuard: enabled });
+  }
+
+  if (action === "styles") {
+    /*
+     * WHICH HORIZONS THIS ACCOUNT TAKES.
+     *
+     * The three are not aggression settings — they are different trades with different holding
+     * periods and different overnight exposure, and a member running a small funded account has a
+     * real reason to want the fast ones and not the ones that sit through a session.
+     *
+     * AT LEAST ONE MUST STAY ON. An account that is switched on and takes nothing looks like a
+     * broken system rather than a choice, and is exactly the state somebody reaches by accident and
+     * then spends an evening debugging. Turning the last one off is refused, with a reason.
+     */
+    const accountId = String(body.accountId || "");
+    if (!accountId) return json({ error: "missing_account" }, 200);
+
+    const quick = body.quick === true;
+    const hold = body.hold === true;
+    const swing = body.swing === true;
+    if (!quick && !hold && !swing) {
+      return json({ error: "needs_one", detail: "Keep at least one trade style on, or switch the account off instead." }, 200);
+    }
+
+    let q = admin.from("flow_broker_accounts")
+      .update({ style_quick: quick, style_hold: hold, style_swing: swing, updated_at: new Date().toISOString() })
+      .eq("user_id", user.id).eq("account_id", accountId);
+    if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
+    const { error } = await q;
+    if (error) return json({ error: "needs_setup", detail: "Trade styles aren't set up yet — the style columns are missing." }, 200);
+    return json({ ok: true, accountId, styleQuick: quick, styleHold: hold, styleSwing: swing });
   }
 
   if (action === "sendit") {

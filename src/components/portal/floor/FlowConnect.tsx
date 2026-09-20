@@ -42,6 +42,10 @@ type Account = {
   beEnabled?: boolean;
   partialsEnabled?: boolean;
   profitGuard?: boolean;
+  // Which horizons this account takes. Undefined reads as the previous behaviour, never as "off".
+  styleQuick?: boolean;
+  styleHold?: boolean;
+  styleSwing?: boolean;
   sendIt?: boolean;
   sendItStack?: boolean;  // true = every entry (classic) · false = one at a time
   sendItGuards?: boolean; // true = safeguards respected · false = bypassed (classic)
@@ -341,6 +345,28 @@ export function FlowConnect() {
       await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "betoggle", accountId: a.accountId, connectionId: a.connectionId, enabled }) });
       if (a.manageTrades === false) await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: true }) });
     } catch { void load(); }
+  }
+
+  /*
+   * WHICH TRADE STYLES THIS ACCOUNT TAKES.
+   *
+   * Optimistic like the others, with one difference: the last one cannot be switched off. An account
+   * that is on and takes nothing looks like a broken system rather than a choice, so the button for
+   * the only remaining style simply does not respond, and the line underneath says why.
+   */
+  async function setAccountStyles(a: Account, patch: { quick?: boolean; hold?: boolean; swing?: boolean }) {
+    const cur = { quick: a.styleQuick !== false, hold: a.styleHold !== false, swing: a.styleSwing === true };
+    const next = { ...cur, ...patch };
+    if (!next.quick && !next.hold && !next.swing) return;
+    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) =>
+      x.accountId === a.accountId && x.connectionId === a.connectionId
+        ? { ...x, styleQuick: next.quick, styleHold: next.hold, styleSwing: next.swing } : x) } : prev);
+    try {
+      await fetch("/api/flow/broker", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "styles", accountId: a.accountId, connectionId: a.connectionId, ...next }),
+      });
+    } catch { /* optimistic; the next load reconciles */ }
   }
 
   async function setAccountPartials(a: Account, enabled: boolean) {
@@ -655,6 +681,58 @@ export function FlowConnect() {
                       const sendIt = a.sendIt === true;
                       return (
                         <>
+                          {/*
+                            * THE THREE HORIZONS.
+                            *
+                            * Placed above the management toggles because it is a bigger decision than
+                            * any of them: break-even and partials change how a trade is handled, this
+                            * changes which trades exist at all. Swing is off by default — it holds
+                            * risk through sessions and over the weekend gap, and that should be
+                            * chosen rather than inherited.
+                            */}
+                          {(() => {
+                            const styles = [
+                              { key: "quick" as const, on: a.styleQuick !== false, name: "Rapid", blurb: "fastest, tightest stops" },
+                              { key: "hold" as const, on: a.styleHold !== false, name: "Normal", blurb: "held through a session" },
+                              { key: "swing" as const, on: a.styleSwing === true, name: "Swing", blurb: "held for days, overnight" },
+                            ];
+                            const onCount = styles.filter((x) => x.on).length;
+                            return (
+                              <div className="mt-2 border-t border-ice/70 pt-2.5">
+                                <div className="min-w-0">
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55">⏱ Trade styles</span>
+                                  <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">
+                                    Which kinds of trade this account takes. Each one is a different holding period, not a different risk level — the risk % above applies to all three.
+                                  </p>
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  {styles.map((st) => {
+                                    const last = st.on && onCount === 1;
+                                    return (
+                                      <button key={st.key}
+                                        onClick={() => { if (!last) void setAccountStyles(a, { [st.key]: !st.on }); }}
+                                        aria-pressed={st.on}
+                                        title={last ? "Keep at least one style on, or switch the account off instead." : st.blurb}
+                                        className={`rounded-lg border px-2.5 py-1.5 text-left transition-colors ${
+                                          st.on
+                                            ? "border-emerald-500/40 bg-emerald-500/10"
+                                            : "border-ice bg-white hover:border-charcoal/25"
+                                        } ${last ? "cursor-default" : ""}`}>
+                                        <span className={`block text-[11px] font-bold ${st.on ? "text-emerald-700" : "text-charcoal/45"}`}>{st.name}</span>
+                                        <span className="block text-[9.5px] leading-tight text-charcoal/40">{st.blurb}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                {onCount === 1 && (
+                                  <p className="mt-1 text-[9.5px] text-charcoal/35">
+                                    Keep at least one on. To stop this account entirely, use the Trading switch above.
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })()}
+
                           <div {...tour("ft-be")} className="mt-2 flex items-center justify-between gap-3 border-t border-ice/70 pt-2.5">
                             <div className="min-w-0">
                               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55"><ShieldCheck className="h-3.5 w-3.5" /> 🎯 Break even</span>
