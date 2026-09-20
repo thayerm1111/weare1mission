@@ -73,6 +73,12 @@ export type MarketSnapshot = {
   regime: Regime;
   pressure: Pressure;
   levels: Level[];
+  /**
+   * Where price has turned over the past days and weeks (core/levelMap.ts). Reference only — the setup
+   * engine targets `levels`, never this, so adding it changed nothing about how THE BRAIN trades.
+   * Optional because snapshots persisted before 09-20 do not carry it.
+   */
+  map?: Level[];
   news: { nextEvent: { name: string; at: number; importance: "high" | "medium" | "low" } | null; minutesToNext: number | null; inLockout: boolean };
   warnings: string[];      // things worth knowing; they do not stop a trade on their own
   /** Hard reasons this snapshot must not be traded on. Explicit, never inferred from wording. */

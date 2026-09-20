@@ -5,6 +5,7 @@
  * packet: measured state, measured changes, its own recent statements, and its current thesis. That
  * boundary is what keeps the quantitative core authoritative — the model interprets, it does not measure.
  */
+import { aboveBelow } from "../core/levelMap";
 import type { MarketSnapshot, Timeframe } from "../core/types";
 import type { BrainMemory } from "./types";
 import { mathLines } from "./language";
@@ -23,6 +24,7 @@ You are an experienced XAUUSD trader sitting beside the user, watching the same 
 HARD RULES:
 - Every factual claim about the market must come from the CONTEXT below. You cannot see a chart, you cannot fetch anything, and you must never invent a price, level, indicator value or news event that is not in the context.
 - If the context does not contain what is needed, say you don't know or that you can't see it. "I don't know" and "I'd wait" are acceptable, professional answers.
+- When asked where price goes after a level breaks, answer from LEVELS ABOVE / LEVELS BELOW: name the next one or two in that direction with their price and where each came from (a past day's high, last week's low, a 4h swing). Those lists include levels from previous days and weeks — use them.
 - Never promise a result. Never say a setup is guaranteed, high-probability-certain, or a sure thing. No hype words, no exclamation marks.
 - You are an observer and an analyst. You do not place, modify or close trades, and you must never claim to have done so.
 - If your read has changed since your last statement, say so explicitly and say why. Never pretend your current view was always obvious.
@@ -127,10 +129,21 @@ export function contextPacket(m: BrainMemory, extra?: { tradeSummary?: string | 
 
   L.push("", "=== TIMEFRAMES ===", ...tfLines(s));
 
-  L.push("", "=== LEVELS (nearest first) ===");
-  for (const l of s.levels.slice(0, 8)) {
-    L.push(`${l.label}: ${px(l.price)}${l.distanceAtr != null ? ` (${l.distanceAtr} ATR away)` : ""}`);
-  }
+  /*
+   * ABOVE AND BELOW, TODAY AND HISTORY.
+   *
+   * This was "the eight nearest levels from today's bars". On 09-20 all eight sat above price, and the
+   * answer to "4371 breaks, what's next?" was "nothing below that is in my context". Now it is the
+   * nearest eight on each side, from today's session levels AND the multi-day map (past days, weeks,
+   * 4h and 1h swings), each labelled with where it came from.
+   */
+  const { above, below } = aboveBelow(s.price, [s.levels, s.map ?? []], 8);
+  const lvl = (l: { label: string; price: number }) =>
+    `${l.label}: ${px(l.price)} (${Math.abs(l.price - s.price).toFixed(2)} away)`;
+  L.push("", "=== LEVELS ABOVE PRICE (nearest first — today's session levels plus past days, weeks and swings) ===");
+  if (above.length) for (const l of above) L.push(lvl(l)); else L.push("none in the data this worker holds");
+  L.push("", "=== LEVELS BELOW PRICE (nearest first) ===");
+  if (below.length) for (const l of below) L.push(lvl(l)); else L.push("none in the data this worker holds");
 
   if (m.diffs.length) {
     L.push("", "=== WHAT CHANGED ===");

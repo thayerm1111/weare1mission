@@ -14,6 +14,7 @@ import { TF_MINUTES } from "../core/types";
 import { hasGaps, lastClosed } from "../core/bars";
 import { analyseTf, regimeOf } from "../core/regime";
 import { minutesIntoSession, sessionAt, sessionLevels, withDistance } from "../core/sessions";
+import { levelMap } from "../core/levelMap";
 
 export const SNAPSHOT_VERSION = "cc-1.0.0";
 
@@ -102,6 +103,13 @@ export function buildSnapshot(i: SnapshotInput): MarketSnapshot {
 
   const atr = exec?.features.atr ?? 0;
   const levels = withDistance(sessionLevels(i.bars["5m"] ?? i.bars["15m"] ?? [], i.now), i.price, atr);
+  // The history map: days, weeks and swings from the higher timeframes. Reference for the voice and the
+  // screen; the setup engine never reads it. A failure here must never cost the snapshot.
+  let map: ReturnType<typeof levelMap> = [];
+  try {
+    const refAtr = timeframes["1h"]?.features.atr ?? atr;
+    map = levelMap({ d1: i.bars["1d"], h4: i.bars["4h"], h1: i.bars["1h"], nowMs: i.now, price: i.price, atr: refAtr });
+  } catch { map = []; }
 
   /*
    * CAUSES BEFORE CONSEQUENCES.
@@ -135,6 +143,7 @@ export function buildSnapshot(i: SnapshotInput): MarketSnapshot {
     regime,
     pressure,
     levels: levels.slice(0, 12),
+    map,
     news: i.news ?? { nextEvent: null, minutesToNext: null, inLockout: false },
     warnings,
     blockers,
