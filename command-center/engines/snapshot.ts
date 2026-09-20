@@ -103,6 +103,24 @@ export function buildSnapshot(i: SnapshotInput): MarketSnapshot {
   const atr = exec?.features.atr ?? 0;
   const levels = withDistance(sessionLevels(i.bars["5m"] ?? i.bars["15m"] ?? [], i.now), i.price, atr);
 
+  /*
+   * CAUSES BEFORE CONSEQUENCES.
+   *
+   * `tradeable()` reports blockers[0], and the log line and the screen both show that one. Blockers
+   * were being pushed in the order the checks happen, which put "chaotic" first — so an entire closed
+   * weekend was reported as "blocked: chaotic" when the snapshot also plainly carried "market_closed".
+   * Two people then spent a while wondering why the market was chaotic.
+   *
+   * A shut market and a feed we cannot see are REASONS. Chaos is a description of what the numbers look
+   * like when one of those is true. Ordering them this way means the first blocker is the one worth
+   * acting on, and nothing is hidden — the full list is still carried on the snapshot.
+   */
+  const BLOCKER_PRIORITY: BlockerCode[] = [
+    "market_closed", "feed_stale", "feed_divergence", "no_exec_read",
+    "exec_data_behind", "exec_data_gaps", "chaotic",
+  ];
+  blockers.sort((a, b) => BLOCKER_PRIORITY.indexOf(a.code) - BLOCKER_PRIORITY.indexOf(b.code));
+
   return {
     snapshotVersion: SNAPSHOT_VERSION,
     at: i.now,

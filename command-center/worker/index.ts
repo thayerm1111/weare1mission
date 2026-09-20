@@ -42,6 +42,8 @@ let lastPrice: number | null = null;
 let brain: Rolling = emptyRolling();
 /** Null until the first reading, so a fresh boot does not announce a change that did not happen. */
 let lastSwitchOn: boolean | null = null;
+/** When a live quote last arrived. This, not a bar's open time, is what "fresh" means. */
+let lastPriceAt: number | null = null;
 
 /**
  * How many accounts have automatic entry switched on, for the heartbeat.
@@ -125,12 +127,39 @@ async function pass(lastPersistAt: number): Promise<number> {
   const live = p.ok ? p.data : fallback;
   if (live == null) { log("no price and no bars — nothing to read", errors); return lastPersistAt; }
 
+  /*
+   * FEED FRESHNESS IS THE AGE OF THE LAST PRICE, NOT THE AGE OF THE LAST BAR.
+   *
+   * This used to report `now - lastBarAt`, where lastBarAt is the OPEN timestamp of the newest 5-minute
+   * candle. A bar is stamped when it opens, so that number climbs from 0 to 300 seconds as the bar
+   * lives out its five minutes — and the gate it feeds, MAX_TICK_AGE_MS, is ninety seconds.
+   *
+   * The result: the snapshot was declared stale, and every trade hard-blocked, for the last 210 seconds
+   * of every 5-minute bar. Seventy percent of all market time, on a feed that was perfectly healthy.
+   * The field is called `lastTickMs` and the constant `MAX_TICK_AGE_MS`; the gate was always about
+   * quote freshness and was being handed a bar timestamp.
+   *
+   * So freshness now comes from the quote this loop already fetches every tick, and the bar series gets
+   * its own, much looser check — bars legitimately arrive one per interval, so "late" means several
+   * intervals, not ninety seconds.
+   */
+  if (p.ok) lastPriceAt = now;
+
   const lastBarAt = m5?.length ? m5[m5.length - 1].t : null;
+  const barAgeMs = lastBarAt != null ? now - lastBarAt : null;
+  // Three 5-minute bars. A gap that long is a feed genuinely falling behind, not a bar in progress.
+  const BARS_STALE_MS = 3 * 5 * 60_000;
+  const barsStale = barAgeMs != null && barAgeMs > BARS_STALE_MS;
+
+  const priceAgeMs = lastPriceAt != null ? now - lastPriceAt : null;
+
   const feeds: FeedHealth[] = [{
     feed: "twelvedata",
-    state: p.ok ? "live" : errors.length ? "degraded" : "stale",
-    lastTickMs: lastBarAt,
-    ageMs: lastBarAt != null ? now - lastBarAt : null,
+    // "stale" blocks trading; "degraded" only warns. A quote we cannot get AND no recent bars is the
+    // case where the engine genuinely cannot see the market.
+    state: barsStale || (!p.ok && !errors.length) ? "stale" : (!p.ok || errors.length) ? "degraded" : "live",
+    lastTickMs: lastPriceAt,
+    ageMs: priceAgeMs,
   }];
 
   const prevNet = brain.snapshots.length ? brain.snapshots[brain.snapshots.length - 1].pressure.net : null;
