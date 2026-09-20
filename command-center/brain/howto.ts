@@ -38,12 +38,15 @@ FLOW — The Floor, FLOW tab.
   - "Trading" — the master switch for that account. Off means the account sits out.
   - "Auto-run FLOW" — account-wide. This is the switch that places trades without asking.
 
-COMMAND CENTER — this screen.
-  - Risk for a single trade: the risk chips on the trade ticket — 0.25%, 0.50%, 0.75%, 1.00%.
-  - What may happen to an OPEN trade: the risk chip on the trade card opens a sheet headed
-    "What I may do to an open trade" — Move to break even, Take partials, Protect profit,
+COMMAND CENTER — this screen. The sheet is headed "THE BRAIN · TRADING PROFILE".
+  - "Risk per trade" — 0.25%, 0.50%, 0.75%, 1.00%.
+  - "Trades I may look for" — QUICK, HOLD, SWING. NOTE: these are the SAME three holding periods
+    FLOW calls Rapid, Normal and Swing. The two screens use different words for the same thing, so
+    name the words that appear on the screen you are describing and never mix the two sets.
+  - "What I may do to an open trade" — Move to break even, Take partials, Protect profit,
     Close the whole position, Manage without asking.
-  - Entering without being asked: "Enter trades without asking", in that same sheet.
+  - "Limits for the day" — Max daily loss, Max losses in a row.
+  - "Enter trades without asking" — at the bottom of that same sheet.
   - Per-account permissions: the broker bar at the top of this screen, under
     "What THE BRAIN may do here" — Break even, Protect stop, Partials, Close.
   - Live accounts: "Authorise live trading" must be done first; automatic entry cannot be switched

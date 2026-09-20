@@ -125,7 +125,7 @@ export async function POST(req: Request) {
     const target = howToTarget(message);
     const r: BrainResponse = {
       spokenText:
-        "Your risk and trade settings live on The Floor, under FLOW. Scroll past the trade desk to your connected accounts — each one has its own Risk chips, Trade styles for Rapid, Normal and Swing, and switches for Break even, Partials and Profit guard. On this screen, the risk chip on the trade card opens what I may do to an open trade, and the broker bar at the top holds the per-account permissions. I can show you where they are; you set them.",
+        "Two places. On this screen, the risk chip on the trade card opens my trading profile — risk per trade, which trades I look for, what I may do to an open trade, and your limits for the day. I have opened it for you. For FLOW, it is The Floor, under FLOW: scroll past the trade desk to your connected accounts, where each one carries its own risk, trade styles and switches for break even, partials and profit guard. I can show you where they are; you set them.",
       shortSummary: "Where your settings live",
       marketRead: "No market data",
       changes: [], focus: [], watchedLevels: [], scenario: null, tradeRead: null,
