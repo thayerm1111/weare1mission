@@ -91,6 +91,8 @@ function disclosureHashOf(s: string) {
 test("the risks particular to this system are named", () => {
   const t = RISK_DISCLOSURE.toLowerCase();
   for (const [what, re] of [
+    ["the whole point, said first", /trading involves risk, and using this software can lose you money/],
+    ["a tool, not a promise", /it is a tool, not\s+a promise/],
     ["total loss", /lose some, all/],
     ["leverage", /leverage magnifies/],
     ["no guarantee", /is a promise, a guarantee/],

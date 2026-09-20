@@ -32,12 +32,15 @@ import { db } from "../adapters/db";
  * member is agreeing to does. When in doubt, bump — the cost is one interruption, and the cost of not
  * bumping is a record that says somebody agreed to something they never read.
  */
-export const DISCLOSURE_VERSION = "2026-09-20.1";
+export const DISCLOSURE_VERSION = "2026-09-20.2";
 
 export const RISK_DISCLOSURE = `
 COMMAND CENTER XAUUSD AND FLOW — RISK DISCLOSURE
 
 Read this in full. It describes how you can lose money using this system.
+
+IN ONE SENTENCE: trading involves risk, and using this software can lose you money. It is a tool, not
+a promise. Nobody here is telling you that you will profit, and you are choosing to accept that risk.
 
 1. YOU CAN LOSE MONEY, INCLUDING ALL OF IT.
 Trading gold carries a high level of risk. Prices move quickly and can move against you without
