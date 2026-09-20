@@ -41,6 +41,7 @@ import { takeSetup } from "./callTrade";
 import { getProfile, asSetupProfile } from "./profile";
 import { accountAvailableToBrain } from "./interlock";
 import { requireConsent } from "./consent";
+import { brainEnabled } from "./killSwitch";
 
 export type AutopilotMode = "off" | "shadow" | "live";
 
@@ -127,6 +128,18 @@ export async function autopilotTick(input: {
 }): Promise<string | null> {
   const mode = autopilotMode();
   if (mode === "off") return null;
+
+  /*
+   * THE OWNER'S OFF SWITCH, CHECKED FIRST AND ON EVERY PASS.
+   *
+   * Before the market, before the accounts, before anything that costs a broker call — because the
+   * whole value of a kill switch is how quickly it takes effect, and a check buried behind four other
+   * conditions is a check that runs late. Off stops NEW entries only; autoManage still runs on the tick
+   * above this one, so anything already open keeps its stop moved and its targets taken.
+   */
+  const sw = await brainEnabled();
+  if (!sw.on) return null;
+
   if (!input.marketOpen || !input.snapshot) return null;
   // A snapshot the engine itself does not trust is not a snapshot to trade from.
   if (!input.tradeable) return null;

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-type Switches = { flow: boolean; genx: boolean };
+type Switches = { flow: boolean; genx: boolean; brain: boolean };
 type Level = { id: string; price: number; label: string | null; active: boolean; triggered_at: string | null; created_at: string };
 
 export default function AdminControlsPage() {
@@ -17,8 +17,8 @@ export default function AdminControlsPage() {
     try {
       const r = await fetch("/api/admin/switches", { cache: "no-store" });
       if (r.status === 404) { setDenied(true); return; }
-      const d = (await r.json()) as { flow?: boolean; genx?: boolean };
-      setSw({ flow: d.flow !== false, genx: d.genx !== false });
+      const d = (await r.json()) as { flow?: boolean; genx?: boolean; brain?: boolean };
+      setSw({ flow: d.flow !== false, genx: d.genx !== false, brain: d.brain !== false });
     } catch {
       setMsg("Couldn't load the switches — try again.");
     } finally {
@@ -28,7 +28,7 @@ export default function AdminControlsPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  async function toggle(which: "flow" | "genx", next: boolean) {
+  async function toggle(which: "flow" | "genx" | "brain", next: boolean) {
     if (busy) return;
     setBusy(which);
     setMsg("");
@@ -38,9 +38,9 @@ export default function AdminControlsPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ [which]: next }),
       });
-      const d = (await r.json()) as { ok?: boolean; flow?: boolean; genx?: boolean };
+      const d = (await r.json()) as { ok?: boolean; flow?: boolean; genx?: boolean; brain?: boolean };
       if (d.ok) {
-        setSw({ flow: d.flow !== false, genx: d.genx !== false });
+        setSw({ flow: d.flow !== false, genx: d.genx !== false, brain: d.brain !== false });
         setMsg(`${which.toUpperCase()} is now ${next ? "ON" : "OFF"}${next ? "" : " — new trades paused for everyone."}`);
       } else {
         setMsg("Couldn't update — try again.");
@@ -56,7 +56,7 @@ export default function AdminControlsPage() {
     return <main style={{ padding: 40, fontFamily: "system-ui" }}><p>Not found.</p></main>;
   }
 
-  const Row = ({ label, desc, on, which }: { label: string; desc: string; on: boolean; which: "flow" | "genx" }) => (
+  const Row = ({ label, desc, on, which }: { label: string; desc: string; on: boolean; which: "flow" | "genx" | "brain" }) => (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "20px 22px", border: "1px solid #e6ebf1", borderRadius: 16, background: "#fff" }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontWeight: 800, fontSize: 16, display: "flex", alignItems: "center", gap: 8 }}>
@@ -96,6 +96,7 @@ export default function AdminControlsPage() {
         <div style={{ display: "grid", gap: 12, marginTop: 24 }}>
           <Row which="flow" label="FLOW" on={sw.flow} desc="Auto-executes forex + index setups for every armed member." />
           <Row which="genx" label="GENX (gold)" on={sw.genx} desc="Places the GENX gold ENTER-NOW calls across members + follower accounts." />
+          <Row which="brain" label="THE BRAIN (Command Center)" on={sw.brain} desc="The Command Center autopilot finding and taking its own XAUUSD trades. Off stops NEW entries within a tick; anything already open keeps being managed — stops still move, targets are still taken." />
           {msg && <p style={{ fontSize: 13, color: "#334155", marginTop: 4 }}>{msg}</p>}
         </div>
       ) : (
