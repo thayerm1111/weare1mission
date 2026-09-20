@@ -113,6 +113,28 @@ export async function POST(req: Request) {
   });
   const setupSummary = setupSummaryLines(setup);
 
+  /*
+   * NO MARKET READ IS NOT A REASON TO REFUSE A QUESTION ABOUT THE PRODUCT.
+   *
+   * This short-circuit sat in front of everything, so "where do I set up my risk" came back as "I
+   * can't see the market". Adding the product map to the context below did not help, because this
+   * returned before the context was ever built. The guard now asks what was actually being asked
+   * before it decides that a price is what was missing.
+   */
+  if (!memory.now && asksHowTo(message)) {
+    const target = howToTarget(message);
+    const r: BrainResponse = {
+      spokenText:
+        "Your risk and trade settings live on The Floor, under FLOW. Scroll past the trade desk to your connected accounts — each one has its own Risk chips, Trade styles for Rapid, Normal and Swing, and switches for Break even, Partials and Profit guard. On this screen, the risk chip on the trade card opens what I may do to an open trade, and the broker bar at the top holds the per-account permissions. I can show you where they are; you set them.",
+      shortSummary: "Where your settings live",
+      marketRead: "No market data",
+      changes: [], focus: [], watchedLevels: [], scenario: null, tradeRead: null,
+      uiActions: target ? [{ name: target, arg: null }] : [],
+      urgency: "normal", voiceEligible: true, source: "narrator",
+    };
+    return json(r);
+  }
+
   // No market read at all is not a conversation topic to improvise around — say so and stop.
   if (!memory.now) {
     const r: BrainResponse = {
