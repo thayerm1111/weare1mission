@@ -70,3 +70,32 @@ export function withDistance(levels: Level[], price: number, atr: number): Level
     .map((l) => ({ ...l, distanceAtr: +(Math.abs(l.price - price) / atr).toFixed(2) }))
     .sort((a, b) => (a.distanceAtr ?? 99) - (b.distanceAtr ?? 99));
 }
+
+/**
+ * THE LAST THIRTY MINUTES BEFORE THE FRIDAY CLOSE ARE NOT FOR OPENING ANYTHING.
+ *
+ * Lifted from FLOW's `inWeekendCloseWindow`, which applies it to every automated path on the desk, so
+ * the Command Center now closes its entry window at the same moment rather than a different one. A
+ * position opened at 4:45pm New York on a Friday has fifteen minutes to work and then carries a
+ * two-day gap it cannot be managed through.
+ *
+ * ENTRIES ONLY. Nothing here stops an open position from being managed, protected or closed — those
+ * paths matter most in exactly this window.
+ *
+ * The UTC fallback exists because some ICU builds report midnight as hour "24"; it is the same window
+ * against the 22:00 UTC close.
+ */
+export function inWeekendCloseWindow(d: Date = new Date()): boolean {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", hour12: false, weekday: "short", hour: "2-digit", minute: "2-digit",
+    }).formatToParts(d);
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+    if (get("weekday") !== "Fri") return false;
+    const h = Number(get("hour")) % 24;
+    const m = Number(get("minute"));
+    return h > 16 || (h === 16 && m >= 30);
+  } catch {
+    return d.getUTCDay() === 5 && (d.getUTCHours() > 21 || (d.getUTCHours() === 21 && d.getUTCMinutes() >= 30));
+  }
+}

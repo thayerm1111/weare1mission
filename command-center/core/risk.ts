@@ -9,19 +9,32 @@ import type { Side } from "./types";
 import { PIP } from "./types";
 
 export type Instrument = { contractSize: number; minLot: number; maxLot: number; lotStep: number; pipValuePerLot: number };
+/**
+ * NULL MEANS NOT ENFORCED, AND THAT IS A REAL SETTING RATHER THAN A HOLE.
+ *
+ * The loss-accounting gates used to be plain numbers, which left no way to express "the desk does not
+ * run this rule on gold" other than a sentinel — and every sentinel is wrong in this file. Zero is the
+ * worst of them: `dayPnlPct <= -Math.abs(0)` fires on any loss at all, so a limit switched "off" by
+ * setting it to zero would stop the account on its first losing cent.
+ *
+ * So these are nullable. Null is checked for explicitly and skipped, which lets a policy say plainly
+ * which rules it runs — see FLOW_GOLD_LIMITS, which mirrors what the desk actually enforces.
+ */
 export type RiskLimits = {
   riskPct: number;
   maxOpenRiskPct: number;
-  maxDailyLossPct: number;
-  maxDailyDrawdownPct: number;
-  maxWeeklyLossPct: number;
-  maxConsecutiveLosses: number;
-  maxTradesPerSession: number;
+  maxDailyLossPct: number | null;
+  maxDailyDrawdownPct: number | null;
+  maxWeeklyLossPct: number | null;
+  maxConsecutiveLosses: number | null;
+  maxTradesPerSession: number | null;
   maxOpenPositions: number;
   cooldownMs: number;
   maxSpread: number;
   maxStopPips: number;
   minEquity: number;
+  /** Entries per rolling hour on one account. FLOW's equivalent defaults to 10. Null = not enforced. */
+  maxEntriesPerHour?: number | null;
 };
 export type AccountState = {
   equity: number;
@@ -33,12 +46,60 @@ export type AccountState = {
   tradesThisSession: number;
   openPositions: number;
   lastTradeAtMs: number | null;
+  /** Entries opened on this account in the last rolling hour. Null when not measured. */
+  entriesLastHour?: number | null;
 };
 
 export const DEFAULT_LIMITS: RiskLimits = {
   riskPct: 0.5, maxOpenRiskPct: 2, maxDailyLossPct: 3, maxDailyDrawdownPct: 4, maxWeeklyLossPct: 6,
   maxConsecutiveLosses: 4, maxTradesPerSession: 8, maxOpenPositions: 1, cooldownMs: 3 * 60_000,
-  maxSpread: 0.6, maxStopPips: 100, minEquity: 0,
+  maxSpread: 0.6, maxStopPips: 100, minEquity: 0, maxEntriesPerHour: null,
+};
+
+/**
+ * WHAT THE DESK ACTUALLY ENFORCES ON GOLD — and therefore what the Command Center enforces.
+ *
+ * The owner's instruction was to run the same rules as FLOW and GENX rather than a separate set. So
+ * these are read off FLOW's own automated path rather than chosen here, and where FLOW does not run a
+ * rule, this does not invent one:
+ *
+ *   • NO daily loss, drawdown or weekly limit. `daily_loss_limit` exists as a settings field in FLOW
+ *     and is enforced nowhere in the codebase — declared, written once, never read.
+ *
+ *   • NO consecutive-loss breaker on gold. FLOW has one, and gold is explicitly exempt from it by the
+ *     owner's decision of 2026-09-16: "gold no longer pauses an account after 2 losses in a row
+ *     (forex keeps its breaker)". Forex is not traded here, so the breaker has nothing to apply to.
+ *
+ * What FLOW restrains instead is PACE AND CONCURRENCY, and that is what is mirrored here. It is not
+ * the looser choice it might look like: FLOW's cooldown for a quick trade is NINETY MINUTES against
+ * the three minutes this file used to use, and the Command Center trades a single symbol. A 90-minute
+ * gap plus one position at a time is a harder ceiling on a bad session than a loss limit that only
+ * engages after the money is already gone.
+ *
+ * COOLDOWN_BY_STYLE carries FLOW's own numbers per mode. The per-style value is applied by the caller,
+ * because only the caller knows which style the setup is.
+ */
+export const FLOW_GOLD_LIMITS: RiskLimits = {
+  riskPct: 0.5,
+  maxOpenRiskPct: 2,
+  maxDailyLossPct: null,
+  maxDailyDrawdownPct: null,
+  maxWeeklyLossPct: null,
+  maxConsecutiveLosses: null,
+  maxTradesPerSession: null,
+  maxOpenPositions: 1,
+  cooldownMs: 90 * 60_000,      // replaced per style by COOLDOWN_BY_STYLE
+  maxSpread: 0.6,
+  maxStopPips: 100,             // replaced per style by the style's own ceiling
+  minEquity: 0,
+  maxEntriesPerHour: 10,        // FLOW's max_orders_per_hour default
+};
+
+/** FLOW's COOLDOWN_MIN, in the Command Center's own style names. quick 90m · hold 180m · swing 480m. */
+export const COOLDOWN_BY_STYLE: Record<string, number> = {
+  quick: 90 * 60_000,
+  hold: 180 * 60_000,
+  swing: 480 * 60_000,
 };
 
 export type SizeResult =
@@ -79,13 +140,18 @@ export function checkAccountLimits(a: AccountState, l: RiskLimits, nowMs: number
   const no = (reason: string, hard = true): Gate => ({ ok: false, reason, hard });
 
   if (l.minEquity > 0 && a.equity < l.minEquity) return no(`Equity ${a.equity.toFixed(0)} is below the ${l.minEquity} minimum for this account`);
-  if (a.dayPnlPct <= -Math.abs(l.maxDailyLossPct)) return no(`Daily loss limit reached (${a.dayPnlPct.toFixed(2)}% of ${l.maxDailyLossPct}%)`);
-  const dd = a.dayPeakEquity > 0 ? ((a.dayPeakEquity - a.equity) / a.dayPeakEquity) * 100 : 0;
-  if (dd >= Math.abs(l.maxDailyDrawdownPct)) return no(`Daily drawdown limit reached (${dd.toFixed(2)}% from today's peak)`);
-  if (a.weekPnlPct <= -Math.abs(l.maxWeeklyLossPct)) return no(`Weekly loss limit reached (${a.weekPnlPct.toFixed(2)}%)`);
-  if (a.consecutiveLosses >= l.maxConsecutiveLosses) return no(`${a.consecutiveLosses} losses in a row — this account is cooling off`);
+  if (l.maxDailyLossPct != null && a.dayPnlPct <= -Math.abs(l.maxDailyLossPct)) return no(`Daily loss limit reached (${a.dayPnlPct.toFixed(2)}% of ${l.maxDailyLossPct}%)`);
+  if (l.maxDailyDrawdownPct != null) {
+    const dd = a.dayPeakEquity > 0 ? ((a.dayPeakEquity - a.equity) / a.dayPeakEquity) * 100 : 0;
+    if (dd >= Math.abs(l.maxDailyDrawdownPct)) return no(`Daily drawdown limit reached (${dd.toFixed(2)}% from today's peak)`);
+  }
+  if (l.maxWeeklyLossPct != null && a.weekPnlPct <= -Math.abs(l.maxWeeklyLossPct)) return no(`Weekly loss limit reached (${a.weekPnlPct.toFixed(2)}%)`);
+  if (l.maxConsecutiveLosses != null && a.consecutiveLosses >= l.maxConsecutiveLosses) return no(`${a.consecutiveLosses} losses in a row — this account is cooling off`);
   if (a.openPositions >= l.maxOpenPositions) return no(`Already holding ${a.openPositions} position${a.openPositions === 1 ? "" : "s"} (limit ${l.maxOpenPositions})`);
-  if (a.tradesThisSession >= l.maxTradesPerSession) return no(`Session trade limit reached (${a.tradesThisSession})`);
+  if (l.maxTradesPerSession != null && a.tradesThisSession >= l.maxTradesPerSession) return no(`Session trade limit reached (${a.tradesThisSession})`);
+  if (l.maxEntriesPerHour != null && a.entriesLastHour != null && a.entriesLastHour >= l.maxEntriesPerHour) {
+    return no(`${a.entriesLastHour} entries in the last hour (limit ${l.maxEntriesPerHour})`);
+  }
   if (a.lastTradeAtMs != null && nowMs - a.lastTradeAtMs < l.cooldownMs) {
     return no(`Cooldown: ${Math.ceil((l.cooldownMs - (nowMs - a.lastTradeAtMs)) / 1000)}s since the last trade`);
   }

@@ -9,10 +9,11 @@
  * allowed should never have had a size calculated for it in the first place.
  */
 import type { MarketSnapshot, Side } from "../core/types";
-import { checkAccountLimits, sizePosition, DEFAULT_LIMITS, type AccountState, type Instrument, type RiskLimits } from "../core/risk";
+import { checkAccountLimits, sizePosition, FLOW_GOLD_LIMITS, COOLDOWN_BY_STYLE, type AccountState, type Instrument, type RiskLimits } from "../core/risk";
 import { STYLE, type Style } from "../core/style";
 import { toPips } from "../core/instrument";
 import { tradeable } from "./snapshot";
+import { inWeekendCloseWindow } from "../core/sessions";
 import type { AccountRow } from "./broker";
 import { dayPnlPct, weekPnlPct, type TradingHistory } from "./accountHistory";
 
@@ -67,6 +68,16 @@ export function validate(i: ValidateInput): Validation {
     return no("Automatic trading is off for this account.");
   }
 
+  /*
+   * 1b — THE FRIDAY WINDOW. FLOW stops opening anything in the last half hour of the week on every
+   *      automated path; matching it here means the two engines shut their entry windows together
+   *      rather than half an hour apart. A member pressing the button themselves is not blocked —
+   *      this is about what automation does unattended into a two-day gap.
+   */
+  if (i.origin !== "member" && inWeekendCloseWindow()) {
+    return no("The week closes within the half hour — no new automated entries until gold reopens.");
+  }
+
   /* 2 — can we see the market well enough to act on it? */
   if (!i.snapshot) return no("There is no market read — THE BRAIN cannot see gold right now.");
   const gate = tradeable(i.snapshot);
@@ -103,8 +114,10 @@ export function validate(i: ValidateInput): Validation {
          account or caller limit still wins — this only replaces the default. */
   const accountLimits = (i.account.risk_limits as Partial<RiskLimits> | undefined) ?? {};
   const limits: RiskLimits = {
-    ...DEFAULT_LIMITS,
+    ...FLOW_GOLD_LIMITS,
     maxStopPips: STYLE[i.style].maxStopPips,
+    // FLOW paces by style: quick 90 minutes, hold 180, swing 480. This is the brake that does the work.
+    cooldownMs: COOLDOWN_BY_STYLE[i.style] ?? FLOW_GOLD_LIMITS.cooldownMs,
     ...accountLimits,
     ...(i.limits ?? {}),
   };
@@ -124,10 +137,10 @@ export function validate(i: ValidateInput): Validation {
    * this account has lost today" is not a reason to allow another trade; it is the reason not to.
    */
   if (!i.history) {
-    return no("The account's trading history was not supplied, so the daily loss and drawdown limits cannot be checked.");
+    return no("The account's recent trading was not supplied, so the cooldown and hourly pace cannot be checked.");
   }
   if (!i.history.readable) {
-    return no("Cannot read what this account has done today, so the loss limits cannot be enforced. Refusing rather than trading blind.");
+    return no("Cannot read when this account last entered, so the cooldown cannot be enforced. Refusing rather than risking a stacked entry.");
   }
 
   const state: AccountState = {
@@ -140,6 +153,7 @@ export function validate(i: ValidateInput): Validation {
     tradesThisSession: i.history.tradesToday,
     openPositions: i.openPositions,
     lastTradeAtMs: i.history.lastTradeAtMs,
+    entriesLastHour: i.history.entriesLastHour,
   };
   const acct = checkAccountLimits(state, limits, Date.now(), { spread: i.spread, stopPips, newTradeRiskPct: riskPct });
   if (!acct.ok) return no(acct.reason, acct.hard);

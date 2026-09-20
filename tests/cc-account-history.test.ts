@@ -11,14 +11,15 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { checkAccountLimits, DEFAULT_LIMITS, type AccountState } from "../command-center/core/risk";
+import { checkAccountLimits, DEFAULT_LIMITS, FLOW_GOLD_LIMITS, COOLDOWN_BY_STYLE, type AccountState } from "../command-center/core/risk";
 import { dayPnlPct, weekPnlPct, summarise, UNREADABLE, type TradingHistory } from "../command-center/engines/accountHistory";
+import { inWeekendCloseWindow } from "../command-center/core/sessions";
 
 const EQUITY = 435_041;
 
 const history = (over: Partial<TradingHistory> = {}): TradingHistory => ({
   readable: true, dayPnl: 0, weekPnl: 0, dayPeakEquity: EQUITY,
-  consecutiveLosses: 0, tradesToday: 0, lastTradeAtMs: null, ...over,
+  consecutiveLosses: 0, tradesToday: 0, lastTradeAtMs: null, entriesLastHour: 0, ...over,
 });
 
 const stateFrom = (h: TradingHistory, equity = EQUITY, over: Partial<AccountState> = {}): AccountState => ({
@@ -31,6 +32,7 @@ const stateFrom = (h: TradingHistory, equity = EQUITY, over: Partial<AccountStat
   tradesThisSession: h.tradesToday,
   openPositions: 0,
   lastTradeAtMs: h.lastTradeAtMs,
+  entriesLastHour: h.entriesLastHour,
   ...over,
 });
 
@@ -183,4 +185,101 @@ test("an account that has not traded reports a clean, readable slate", () => {
   assert.equal(s.dayPeakEquity, 100_000);
   assert.equal(s.lastTradeAtMs, null);
   assert.equal(s.consecutiveLosses, 0);
+});
+
+/* ── the policy that is actually live: FLOW's, not a separate set ───────── */
+
+const flowGate = (s: AccountState, style: keyof typeof COOLDOWN_BY_STYLE = "quick") =>
+  checkAccountLimits(
+    s,
+    { ...FLOW_GOLD_LIMITS, cooldownMs: COOLDOWN_BY_STYLE[style] },
+    Date.now(),
+    { spread: 0.2, stopPips: 80, newTradeRiskPct: 0.5 },
+  );
+
+test("FLOW's gold policy runs no daily loss limit", () => {
+  // Down 8% on the day. The desk does not stop gold for this, and neither does this.
+  const start = EQUITY / (1 - 0.08);
+  const g = flowGate(stateFrom(history({ dayPnl: EQUITY - start, dayPeakEquity: start })));
+  assert.equal(g.ok, true, "FLOW enforces no daily loss limit on gold, so nor does the Command Center");
+});
+
+test("FLOW's gold policy runs no drawdown or weekly limit", () => {
+  const g = flowGate(stateFrom(history({ dayPnl: 5_000, dayPeakEquity: 600_000, weekPnl: -60_000 })));
+  assert.equal(g.ok, true);
+});
+
+test("FLOW's gold policy runs no consecutive-loss breaker", () => {
+  /*
+   * Gold is exempt from FLOW's breaker by the owner's decision of 2026-09-16 — forex keeps it. Ten in
+   * a row would not pause gold on the desk, so it does not pause it here either.
+   */
+  const g = flowGate(stateFrom(history({ consecutiveLosses: 10 })));
+  assert.equal(g.ok, true);
+});
+
+test("a null limit is skipped, and is NOT the same as a zero one", () => {
+  /*
+   * The trap this replaced. `dayPnlPct <= -Math.abs(0)` is true for any loss at all, so a limit
+   * "switched off" by setting it to zero would stop the account on its first losing cent — the exact
+   * opposite of off. Null is checked for and skipped; zero still means zero.
+   */
+  const losing = stateFrom(history({ dayPnl: -1 }));
+  assert.equal(checkAccountLimits(losing, { ...FLOW_GOLD_LIMITS, maxDailyLossPct: null }, Date.now(), { spread: 0.2, stopPips: 80 }).ok, true);
+  assert.equal(checkAccountLimits(losing, { ...FLOW_GOLD_LIMITS, maxDailyLossPct: 0 }, Date.now(), { spread: 0.2, stopPips: 80 }).ok, false);
+});
+
+test("the cooldown is FLOW's ninety minutes for a quick trade, not three", () => {
+  // Twenty minutes after an entry: fine under the old 3-minute rule, blocked under the desk's.
+  const twentyMin = stateFrom(history({ lastTradeAtMs: Date.now() - 20 * 60_000 }));
+  const g = flowGate(twentyMin, "quick");
+  assert.equal(g.ok, false, "90 minutes is the brake that does the work now");
+  assert.match(g.reason, /cooldown/i);
+
+  const twoHours = stateFrom(history({ lastTradeAtMs: Date.now() - 120 * 60_000 }));
+  assert.equal(flowGate(twoHours, "quick").ok, true);
+});
+
+test("each style carries FLOW's own cooldown", () => {
+  const threeHoursAgo = stateFrom(history({ lastTradeAtMs: Date.now() - 3 * 3600_000 }));
+  assert.equal(flowGate(threeHoursAgo, "quick").ok, true, "quick is 90 minutes — cleared");
+  assert.equal(flowGate(threeHoursAgo, "hold").ok, true, "hold is 180 minutes — just cleared");
+  assert.equal(flowGate(threeHoursAgo, "swing").ok, false, "swing is 480 minutes — still cooling");
+  assert.equal(COOLDOWN_BY_STYLE.quick, 90 * 60_000);
+  assert.equal(COOLDOWN_BY_STYLE.hold, 180 * 60_000);
+  assert.equal(COOLDOWN_BY_STYLE.swing, 480 * 60_000);
+});
+
+test("the hourly entry budget matches FLOW's default of ten", () => {
+  assert.equal(FLOW_GOLD_LIMITS.maxEntriesPerHour, 10);
+  const busy = stateFrom(history(), EQUITY, { entriesLastHour: 10, lastTradeAtMs: null });
+  const g = flowGate(busy);
+  assert.equal(g.ok, false);
+  assert.match(g.reason, /last hour/i);
+  assert.equal(flowGate(stateFrom(history(), EQUITY, { entriesLastHour: 9 })).ok, true);
+});
+
+test("one position at a time still holds", () => {
+  // The rule that makes a 90-minute cooldown on a single symbol into a real ceiling.
+  assert.equal(FLOW_GOLD_LIMITS.maxOpenPositions, 1);
+  assert.equal(flowGate(stateFrom(history(), EQUITY, { openPositions: 1 })).ok, false);
+});
+
+test("summarise counts entries in the last rolling hour", () => {
+  const s = summarise({
+    equityNow: 100_000,
+    openedAtMs: [NOW - 90 * 60_000, NOW - 30 * 60_000, NOW - 5 * 60_000],
+    closed: [], now: NOW,
+  });
+  assert.equal(s.entriesLastHour, 2, "the 90-minute-old entry has aged out of the hour");
+  assert.equal(s.tradesToday, 3);
+});
+
+test("the Friday close window stops automation, not a member", () => {
+  // 4:45pm New York on a Friday — inside the half hour FLOW stops opening on every automated path.
+  assert.equal(inWeekendCloseWindow(new Date("2026-09-25T20:45:00Z")), true);
+  // 3:45pm New York the same day is still an ordinary trading hour.
+  assert.equal(inWeekendCloseWindow(new Date("2026-09-25T19:45:00Z")), false);
+  // Thursday at the same clock time is not the weekly close.
+  assert.equal(inWeekendCloseWindow(new Date("2026-09-24T20:45:00Z")), false);
 });
