@@ -476,12 +476,13 @@ export function FlowConnect() {
       <div>
         <h2 className="flex items-center gap-2 text-xl font-extrabold tracking-tight">
           <span className="bg-gradient-to-r from-navy via-charcoal to-gold-deep bg-clip-text text-transparent">
-            FLOW — Connect your broker
+            {connected ? "FLOW — Your accounts and settings" : "FLOW — Connect your broker"}
           </span>
         </h2>
         <p className="text-sm text-charcoal/50">
-          Link your TradeLocker account so FLOW can show your balance and prepare your trades. Your
-          login is sent straight to the broker and stored encrypted — it never sits in your browser.
+          {connected
+            ? "Risk, trade styles and trade management are set per account below. Nothing here changes until you change it."
+            : "Link your TradeLocker account so FLOW can show your balance and prepare your trades. Your login is sent straight to the broker and stored encrypted — it never sits in your browser."}
         </p>
       </div>
 
@@ -491,7 +492,8 @@ export function FlowConnect() {
         </div>
       ) : connected && !addingAccount ? (
         /* ---------------- Connected ---------------- */
-        <div className="space-y-4">
+        /* Anchored so the top of the tab, and a deep link, can land straight on the settings. */
+        <div id="flow-settings" className="scroll-mt-24 space-y-4">
           {adminSw && (
             <div className="rounded-2xl border-2 border-amber-500/30 bg-amber-500/[0.04] p-5">
               <p className="inline-flex items-center gap-2 text-sm font-bold text-amber-700">

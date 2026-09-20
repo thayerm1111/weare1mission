@@ -86,6 +86,29 @@ export function FlowDesk() {
         <p className="text-sm text-charcoal/50">Read a live setup and take it on your connected account at your risk %. Educational — you approve every trade.</p>
       </div>
 
+      {/*
+        WHERE THE SETTINGS ARE, SAID AT THE TOP.
+
+        A member asked where to set up their risk and concluded there was nowhere, because the account
+        cards that hold risk, trade styles, break even and partials sit below the trade desk, the
+        connect panel and the admin controls — three screens of scrolling from here. The settings were
+        never missing; they were just never visible from the place people start.
+      */}
+      <a
+        href="#flow-settings"
+        onClick={(e) => {
+          e.preventDefault();
+          document.getElementById("flow-settings")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+        className="flex items-center justify-between gap-3 rounded-xl border border-ice bg-offwhite/70 px-3.5 py-2.5 text-sm transition hover:border-navy/25 hover:bg-white"
+      >
+        <span className="text-charcoal/70">
+          <span className="font-semibold text-charcoal">Your risk and trade settings</span>
+          <span className="hidden sm:inline"> — risk %, trade styles, break even and partials, per account</span>
+        </span>
+        <span className="shrink-0 whitespace-nowrap font-semibold text-navy">Take me there ↓</span>
+      </a>
+
       {/* Pair selector */}
       <div className="flex flex-wrap gap-1.5">
         {instruments.map((it) => (
