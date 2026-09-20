@@ -147,6 +147,10 @@ export function VoiceSession({ onUiAction, onStatus }: {
   const pendingBrainId = useRef<string | null>(null);
   const heartbeat = useRef<ReturnType<typeof setInterval> | null>(null);
   const frames = useRef(0);
+  const gotMessage = useRef(false);
+  /** Every audio callback, sent or not — zero means the browser never started the audio engine. */
+  const processed = useRef(0);
+  const [audioPaused, setAudioPaused] = useState(false);
   /** The loudest sample this device has ever produced. A flat bar is ambiguous; this is not. */
   const loudest = useRef(0);
   /*
@@ -374,16 +378,22 @@ export function VoiceSession({ onUiAction, onStatus }: {
       const node = ctx.createScriptProcessor(4096, 1, 1);
       micNode.current = node;
       node.onaudioprocess = (e) => {
-        if (socket.readyState !== WebSocket.OPEN || mutedRef.current) return;
+        processed.current += 1;
+        if (processed.current === 1) setAudioPaused(false);
         const input = e.inputBuffer.getChannelData(0);
         // Peak of this frame, so the member can SEE the microphone is hearing them. A flat bar while
         // they talk is a dead track, which is a different problem from the provider not answering.
+        // Measured BEFORE the socket check, so a closed line can never masquerade as a deaf microphone.
         let peak = 0;
         for (let i = 0; i < input.length; i += 16) { const v = Math.abs(input[i]); if (v > peak) peak = v; }
+        if (peak > loudest.current) loudest.current = peak;
+        if (socket.readyState !== WebSocket.OPEN || mutedRef.current) {
+          if (processed.current % 6 === 0) setDiag((d) => ({ ...d, level: Math.max(peak, d.level * 0.6), peak: loudest.current }));
+          return;
+        }
         const pcm = downsample(input, inputRate.current, 16000);
         socket.send(JSON.stringify({ user_audio_chunk: pcm16ToBase64(pcm) }));
         frames.current += 1;
-        if (peak > loudest.current) loudest.current = peak;
         if (frames.current % 6 === 0) {
           setDiag((d) => ({ ...d, sent: frames.current, level: Math.max(peak, d.level * 0.6), peak: loudest.current }));
         }
@@ -411,6 +421,26 @@ export function VoiceSession({ onUiAction, onStatus }: {
       node.connect(silent);
       silent.connect(ctx.destination);
 
+      /*
+       * THE AUDIO ENGINE MUST ACTUALLY BE RUNNING.
+       *
+       * 09-20: status LISTENING, "0 sent · 0 back · peak 0.000", twenty seconds, four times. The line was
+       * open and the microphone granted, but the browser's audio engine was suspended, so the callback
+       * above never ran once and nothing reached the provider. Everything looked connected.
+       *
+       * Two and a half seconds after attaching, a callback count of zero is that failure. Resume is tried
+       * again; if the browser still refuses without a fresh click, a Resume button appears, because a
+       * click is the one thing that always lets it start.
+       */
+      processed.current = 0;
+      window.setTimeout(async () => {
+        if (processed.current > 0 || audioCtx.current !== ctx) return;
+        await ctx.resume().catch(() => {});
+        window.setTimeout(() => {
+          if (processed.current === 0 && audioCtx.current === ctx) setAudioPaused(true);
+        }, 700);
+      }, 2500);
+
       // A device chosen because the last one was deaf keeps its explanation on screen.
       if (!autoPicked.current || attempt === 0) setError(null);
       setStatus((st) => (st === "muted" ? st : "listening"));
@@ -434,6 +464,8 @@ export function VoiceSession({ onUiAction, onStatus }: {
     setStatus("connecting");
     setDiag({ sent: 0, received: 0, level: 0, peak: 0 });
     loudest.current = 0;
+    gotMessage.current = false;
+    setAudioPaused(false);
 
     /*
      * THE AUDIO CONTEXT IS CREATED HERE, SYNCHRONOUSLY, BEFORE ANY AWAIT.
@@ -512,12 +544,26 @@ export function VoiceSession({ onUiAction, onStatus }: {
         }, 45_000);
 
         void attachMicrophone(ctx, socket);
+
+        /*
+         * THE PROVIDER MUST ANSWER THE HANDSHAKE.
+         *
+         * It replies to the initiation within a second or two. A line that has heard nothing at all after
+         * eight seconds is a conversation that never started — told plainly, and closed so the next press
+         * of Talk opens a fresh one instead of leaving a dead line billing minutes.
+         */
+        window.setTimeout(() => {
+          if (ws.current !== socket || socket.readyState !== WebSocket.OPEN) return;
+          if (gotMessage.current) return;
+          teardown("error", "The voice service opened the line but never answered. Press Talk again to reconnect.");
+        }, 8000);
       };
 
       socket.onmessage = (ev) => {
         let m: Record<string, unknown>;
         try { m = JSON.parse(String(ev.data)) as Record<string, unknown>; } catch { return; }
         const type = String(m.type ?? "");
+        gotMessage.current = true;
         setDiag((d) => ({ ...d, received: d.received + 1 }));
 
         if (type === "conversation_initiation_metadata") {
@@ -801,6 +847,14 @@ export function VoiceSession({ onUiAction, onStatus }: {
                   {diag.sent} sent · {diag.received} back · peak {diag.peak.toFixed(3)}
                 </span>
               </div>
+              {audioPaused && (
+                <button
+                  onClick={() => { void audioCtx.current?.resume().then(() => setAudioPaused(false)).catch(() => {}); }}
+                  className="mt-2 w-full rounded-xl px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em]"
+                  style={{ background: "rgba(240,196,117,0.14)", color: C.gold, border: "1px solid rgba(240,196,117,0.4)" }}>
+                  The browser paused audio — tap to resume
+                </button>
+              )}
               {diag.sent > 40 && diag.received < 2 && (
                 <p className="mt-1 text-[11px]" style={{ color: C.amber }}>
                   Your microphone is reaching me but the speech provider hasn&#39;t answered. That&#39;s their side, not yours.
