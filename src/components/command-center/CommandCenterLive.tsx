@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertTriangle, BookOpen, Gauge, Radio, Target, Waves } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, BookOpen, Gauge, Radio, Target, Waves } from "lucide-react";
 import BrainCore from "./BrainCore";
 import PriceMap, { type MapBar, type MapLevel } from "./PriceMap";
 import BrainConsole, { type VoiceMode } from "./BrainConsole";
@@ -255,7 +255,26 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
     <div className="min-h-screen w-full px-3 py-3 sm:px-5 sm:py-5" style={{ background: C.bg, color: C.text }}>
       {/* ── header ─────────────────────────────────────────────────────────── */}
       <header className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3" style={{ borderColor: C.line, background: C.panel }}>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
+          {/*
+            * THE WAY OUT.
+            *
+            * The Command Center deliberately hides the site's header and footer — it is a screen, not a
+            * page inside a website — and the cost of that was a room with no door. There was no way
+            * back to the portal without editing the address bar, which is not something a member
+            * should ever have to do.
+            *
+            * A link rather than history.back(): arriving here from a bookmark, a notification or the
+            * desktop app leaves nothing to go back TO, and a button that sometimes does nothing is
+            * worse than no button.
+            */}
+          <a href="/portal" aria-label="Back to the portal"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors"
+            style={{ border: `1px solid ${C.line}`, background: C.raised, color: C.mut }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = C.gold; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = C.mut; }}>
+            <ArrowLeft className="h-4 w-4" />
+          </a>
           <div>
             <p className="text-[14px] font-black leading-none tracking-tight">COMMAND CENTER <span style={{ color: C.gold }}>XAUUSD</span></p>
             <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: C.mut2 }}>The BRAIN</p>

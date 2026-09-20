@@ -113,3 +113,25 @@ test("a closed market is never reported as a disconnection", async () => {
   assert.ok(closed > 0 && gone > 0, "both states exist");
   assert.ok(closed < gone, "and the market is checked for being shut before the feed is called missing");
 });
+
+/*
+ * A ROOM WITH NO DOOR.
+ *
+ * The Command Center deliberately hides the site's header and footer — it is a screen, not a page
+ * inside a website — and the cost of that was that there was no way back to the portal without
+ * editing the address bar.
+ */
+test("the Command Center has a way out", async () => {
+  const src = await fs.readFile("src/components/command-center/CommandCenterLive.tsx", "utf8");
+  assert.ok(/href="\/portal"/.test(src), "it leads somewhere real");
+  assert.ok(/aria-label="Back to the portal"/.test(src), "and is reachable without a mouse");
+  /*
+   * A link, not a history pop: arriving from a bookmark, a notification or the desktop app leaves
+   * nothing to go back TO, and a button that sometimes does nothing is worse than no button.
+   *
+   * Comments are stripped before the check, because the code explains this decision in prose and the
+   * first version of this test caught its own explanation.
+   */
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  assert.ok(!/history\.back|router\.back/.test(code), "no history pop");
+});
