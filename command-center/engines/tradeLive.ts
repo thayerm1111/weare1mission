@@ -10,7 +10,7 @@
  * later fails when it actually matters.
  */
 import { db } from "../adapters/db";
-import { listPositions, parsePositions } from "../adapters/tradelocker";
+import { listPositions, parsePositions, ordersHistory, getConfig, closeFillFromHistory } from "../adapters/tradelocker";
 import { goldInstrument, session, syncAccountState, selectedAccount } from "./broker";
 import { STYLE, styleOf, type Style } from "../core/style";
 import { toPips } from "../core/instrument";
@@ -126,8 +126,14 @@ async function syncFromBroker(userId: string, accountRowId: string, rows: Positi
   for (const r of rows) {
     const b = byId.get(r.broker_position_id);
     if (!b) {
-      // Gone from the broker. That is a close, and it is recorded as one.
-      await closeOut(userId, r, price);
+      // Gone from the broker. That is a close, and it is recorded as one — at the broker's own fill when
+      // the closing order can be found, not at whatever gold is quoting now.
+      let fill: number | null = null;
+      try {
+        const [hist, cfg] = await Promise.all([ordersHistory(s.session.auth), getConfig(s.session.auth)]);
+        if (hist.ok) fill = closeFillFromHistory(hist.data, cfg.ok ? cfg.data : null, r.broker_position_id, r.side)?.price ?? null;
+      } catch { fill = null; }
+      await closeOut(userId, r, fill ?? price, fill != null);
       continue;
     }
     const patch: Record<string, unknown> = { last_seen_at: nowIso() };
@@ -164,7 +170,7 @@ async function syncFromBroker(userId: string, accountRowId: string, rows: Positi
   return out;
 }
 
-async function closeOut(userId: string, r: PositionRow, price: number | null): Promise<void> {
+async function closeOut(userId: string, r: PositionRow, price: number | null, brokerFill = false): Promise<void> {
   const live = toLive(r);
   const exit = price ?? r.entry;
   const m = metrics(live, exit);
@@ -177,7 +183,7 @@ async function closeOut(userId: string, r: PositionRow, price: number | null): P
     entry: r.entry, exit_price: exit, qty: r.init_qty ?? r.qty,
     pips: m.pips, pnl: m.money, r: m.r, mfe_pips: m.mfePips, mae_pips: m.maePips,
     held_ms: Date.now() - Date.parse(r.opened_at), partials: r.partials ?? [],
-    exit_reason: "Closed at the broker.", thesis: r.thesis ?? {},
+    exit_reason: brokerFill ? "Closed at the broker — broker fill price." : "Closed at the broker — exit estimated from the last quote (no closing fill found).", thesis: r.thesis ?? {},
   });
   // Grade it immediately, and schedule the second look that answers "did we close too early?". Both are
   // best-effort by design: the money is already decided, and nothing here may affect a live position.
@@ -379,15 +385,15 @@ const PENDING_WINDOW_MS = 4 * 60_000;
 export async function pendingExecution(userId: string): Promise<PendingExecution | null> {
   const since = new Date(Date.now() - PENDING_WINDOW_MS).toISOString();
   const { data } = await c().from("cc_trade_executions")
-    .select("id, state, uncertain, created_at")
+    .select("id, state, uncertain, requested_at")
     .eq("user_id", userId)
     .in("state", ["submitting", "order_accepted", "reconciliation_required"])
-    .gte("created_at", since)
-    .order("created_at", { ascending: false })
+    .gte("requested_at", since)
+    .order("requested_at", { ascending: false })
     .limit(1);
-  const row = (data ?? [])[0] as { id: string; state: string; uncertain: boolean | null; created_at: string } | undefined;
+  const row = (data ?? [])[0] as { id: string; state: string; uncertain: boolean | null; requested_at: string } | undefined;
   if (!row) return null;
-  return { executionId: row.id, state: row.state, at: Date.parse(row.created_at), uncertain: !!row.uncertain };
+  return { executionId: row.id, state: row.state, at: Date.parse(row.requested_at), uncertain: !!row.uncertain };
 }
 
 /**
@@ -399,10 +405,10 @@ export async function pendingExecution(userId: string): Promise<PendingExecution
 export async function lastCompleted(userId: string): Promise<CompletedTrade | null> {
   const since = new Date(Date.now() - COMPLETE_WINDOW_MS).toISOString();
   const { data } = await c().from("cc_trade_reports")
-    .select("*").eq("user_id", userId).gte("created_at", since)
-    .order("created_at", { ascending: false }).limit(1);
+    .select("*").eq("user_id", userId).gte("closed_at", since)
+    .order("closed_at", { ascending: false }).limit(1);
   const r = (data ?? [])[0] as {
-    created_at: string; side: Side; style: string; entry: number; exit_price: number;
+    closed_at: string; side: Side; style: string; entry: number; exit_price: number;
     pips: number | null; pnl: number | null; r: number | null; mfe_pips: number | null;
     mae_pips: number | null; held_ms: number | null; exit_reason: string | null;
     grade: { score: number; verdict: string; lines: { what: string; mark: string | null; note: string }[]; lesson: string | null; capture: number | null } | null;
@@ -411,7 +417,7 @@ export async function lastCompleted(userId: string): Promise<CompletedTrade | nu
   if (!r) return null;
 
   const base = {
-    at: Date.parse(r.created_at),
+    at: Date.parse(r.closed_at),
     side: r.side,
     style: r.style,
     pips: Number(r.pips ?? 0),

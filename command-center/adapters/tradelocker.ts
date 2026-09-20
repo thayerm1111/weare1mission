@@ -722,3 +722,66 @@ export function orderIdOf(body: unknown): string | null {
   const v = d.orderId ?? d.id ?? (d.order as Record<string, unknown> | undefined)?.id;
   return v == null ? null : String(v);
 }
+
+/**
+ * THE PRICE THE BROKER ACTUALLY CLOSED A POSITION AT.
+ *
+ * When a position disappears from the broker's list, the close used to be recorded at whatever gold was
+ * quoting on our next read. On 09-20 that booked a 14.23-lot sell as −7 pips at 4375.22 when the broker
+ * had closed it somewhere else, and the Brain then told the owner it had no record of the trade.
+ *
+ * The closing order is in /ordersHistory: the row whose positionId is this position, on the opposite
+ * side, filled. Rows may be objects or columnar arrays (column names from ordersHistoryConfig in
+ * /trade/config), so both are read. Null when no such row can be found — the caller then falls back.
+ */
+export function closeFillFromHistory(historyBody: unknown, configBody: unknown, positionId: string, openSide: "buy" | "sell"): { price: number; at: number | null } | null {
+  const want = String(positionId);
+  const closeSide = openSide === "buy" ? "sell" : "buy";
+  let cols: string[] = [];
+  try {
+    const d = unwrap(configBody) as Record<string, unknown> | null;
+    const raw = d?.ordersHistoryConfig as unknown;
+    const arr = (Array.isArray(raw) ? raw : (raw as Record<string, unknown> | undefined)?.columns) as unknown[] | undefined;
+    if (Array.isArray(arr)) cols = arr.map((c) => String((c as Record<string, unknown>)?.id ?? (c as Record<string, unknown>)?.key ?? (c as Record<string, unknown>)?.name ?? "").toLowerCase());
+  } catch { cols = []; }
+  // TradeLocker's documented default order, used when the config does not say.
+  if (!cols.length) cols = ["id", "tradableinstrumentid", "routeid", "qty", "side", "type", "status", "filledqty", "avgprice", "price", "stopprice", "validity", "expiredate", "createddate", "lastmodified", "isoco", "stoploss", "stoplosstype", "takeprofit", "takeprofittype", "strategyid", "positionid"];
+
+  const get = (row: unknown, ...names: string[]): unknown => {
+    if (Array.isArray(row)) { for (const n of names) { const i = cols.indexOf(n); if (i >= 0 && row[i] != null) return row[i]; } return undefined; }
+    if (row && typeof row === "object") {
+      const o = row as Record<string, unknown>;
+      for (const k of Object.keys(o)) if (names.includes(k.toLowerCase()) && o[k] != null) return o[k];
+    }
+    return undefined;
+  };
+
+  const rows: unknown[] = [];
+  const walk = (n: unknown, depth: number) => {
+    if (depth > 5 || n == null || typeof n !== "object") return;
+    if (Array.isArray(n)) {
+      if (n.length && n.every((v) => v == null || typeof v !== "object")) { rows.push(n); return; }
+      for (const c of n) walk(c, depth + 1);
+      return;
+    }
+    const o = n as Record<string, unknown>;
+    if (Object.values(o).some((v) => v != null && typeof v !== "object" && String(v) === want) && get(o, "avgprice", "price") != null) rows.push(o);
+    for (const v of Object.values(o)) if (v && typeof v === "object") walk(v, depth + 1);
+  };
+  walk(unwrap(historyBody), 0);
+
+  let best: { price: number; at: number | null } | null = null;
+  for (const r of rows) {
+    if (String(get(r, "positionid") ?? "") !== want) continue;
+    const side = String(get(r, "side") ?? "").toLowerCase();
+    if (side && side !== closeSide) continue;
+    const status = String(get(r, "status") ?? "").toLowerCase();
+    if (status && !/fill/.test(status)) continue;
+    const price = Number(get(r, "avgprice", "filledprice", "price"));
+    if (!(price > 0)) continue;
+    const atRaw = Number(get(r, "lastmodified", "createddate"));
+    const at = Number.isFinite(atRaw) && atRaw > 0 ? atRaw : null;
+    if (!best || (at ?? 0) > (best.at ?? 0)) best = { price, at };
+  }
+  return best;
+}

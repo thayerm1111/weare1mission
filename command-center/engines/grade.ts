@@ -292,7 +292,7 @@ export async function gradeReport(userId: string, positionId: string): Promise<T
   try {
     const { data: rep } = await db0.from("cc_trade_reports")
       .select("*").eq("user_id", userId).eq("position_id", positionId)
-      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      .order("closed_at", { ascending: false }).limit(1).maybeSingle();
     if (!rep) return null;
     const r = rep as Record<string, unknown>;
 
