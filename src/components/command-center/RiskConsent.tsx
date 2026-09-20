@@ -88,9 +88,11 @@ export function RiskConsent({ open, onClose, onSigned }: {
   const [name, setName] = useState("");
   const [ticked, setTicked] = useState(false);
   const [readToEnd, setReadToEnd] = useState(false);
+  const [stuck, setStuck] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const box = useRef<HTMLDivElement | null>(null);
+  const tail = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -101,20 +103,53 @@ export function RiskConsent({ open, onClose, onSigned }: {
         setText(j.disclosure ?? null);
         setConsent(j.consent ?? null);
         // Re-signing an updated version starts clean: the previous signature was for other words.
-        setTicked(false); setReadToEnd(false);
+        setTicked(false); setReadToEnd(false); setStuck(false);
       })
       .catch(() => setErr("Could not load the disclosure. Nothing has been agreed to."));
   }, [open]);
 
-  /** Scrolled to the bottom — or short enough that there is no bottom to reach. */
+  /**
+   * REACHING THE END, DETECTED FOUR WAYS.
+   *
+   * This used to hang on a single scroll handler, and when that handler never fired the box, the
+   * checkbox, the name field and the sign button were all dead at once — a member staring at a form
+   * that could not be filled in and had no way to say so. A gate that can silently fail closed on a
+   * legal document is worse than no gate, so the end of the text is now detected by whichever of
+   * these happens first, and none of them depends on the others working.
+   */
   const onScroll = useCallback(() => {
     const el = box.current;
     if (!el) return;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) setReadToEnd(true);
   }, []);
+
+  // A sentinel at the very end of the text. Fires on wheel, touch, keyboard or programmatic scroll,
+  // and fires immediately when the text is short enough that there is no bottom to reach.
+  useEffect(() => {
+    const el = box.current, end = tail.current;
+    if (!open || !text || !el || !end) return;
+    const io = new IntersectionObserver(
+      (es) => { if (es.some((e) => e.isIntersecting)) setReadToEnd(true); },
+      { root: el, threshold: 0.01 },
+    );
+    io.observe(end);
+    return () => io.disconnect();
+  }, [open, text]);
+
+  // If the pane cannot scroll at all — a layout the text outgrew, a browser that clips instead of
+  // scrolling — there is no end to reach and the gate must not hold the member hostage.
   useEffect(() => {
     const el = box.current;
-    if (el && open && text && el.scrollHeight <= el.clientHeight + 24) setReadToEnd(true);
+    if (!open || !text || !el) return;
+    const check = () => {
+      if (el.scrollHeight <= el.clientHeight + 24) { setReadToEnd(true); return; }
+      setStuck(el.clientHeight < 80);
+    };
+    const raf = requestAnimationFrame(check);
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(check) : null;
+    if (ro) { ro.observe(el); for (const c of Array.from(el.children)) ro.observe(c); }
+    window.addEventListener("resize", check);
+    return () => { cancelAnimationFrame(raf); ro?.disconnect(); window.removeEventListener("resize", check); };
   }, [open, text]);
 
   const submit = useCallback(async () => {
@@ -161,13 +196,29 @@ export function RiskConsent({ open, onClose, onSigned }: {
           className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
           style={{ background: C.raised }}>
           {text ? renderDisclosure(text) : <p className="text-[12.5px]" style={{ color: C.mut2 }}>Loading…</p>}
+          <div ref={tail} aria-hidden style={{ height: 1 }} />
         </div>
 
         <div className="border-t px-4 py-3" style={{ borderColor: C.line }}>
           {!readToEnd && (
-            <p className="mb-2 text-[11.5px]" style={{ color: C.mut2 }}>
-              Scroll to the end of the disclosure to continue.
-            </p>
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <p className="text-[11.5px]" style={{ color: C.mut2 }}>
+                Scroll to the end of the disclosure to continue.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  const el = box.current;
+                  if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+                  // If the pane will not scroll, the member must still be able to reach the end.
+                  if (!el || el.scrollHeight <= el.clientHeight + 24 || stuck) setReadToEnd(true);
+                }}
+                className="rounded-lg px-2.5 py-1 text-[11px] font-semibold"
+                style={{ background: "rgba(240,196,117,0.12)", color: C.gold, border: "1px solid rgba(240,196,117,0.28)" }}
+              >
+                Jump to the end
+              </button>
+            </div>
           )}
 
           <label className="flex cursor-pointer items-start gap-2.5 text-[12.5px] leading-snug" style={{ color: C.text }}>
