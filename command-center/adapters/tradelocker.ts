@@ -62,10 +62,25 @@ const TIMEOUT_MS = 15_000;
  * this gate, because the limit is on the account rather than on any one of them.
  */
 const RATE_LIMIT_BACKOFF_MS = Number(process.env.CC_RATE_LIMIT_BACKOFF_MS ?? 60_000);
-let rateLimitedUntil = 0;
 
-/** True while the broker has told us to back off. Exposed so the pre-flight can say so plainly. */
-export const rateLimited = (): boolean => Date.now() < rateLimitedUntil;
+/*
+ * BACK OFF THE ROUTE THAT SAID STOP — NOT EVERY ROUTE.
+ *
+ * TradeLocker's limits are per route. This gate used to be one global timestamp, so a 429 from the
+ * orders-history call inside reconcile shut the POSITIONS read for a full minute as well. On 09-20 that
+ * is how a filled 14.23-lot sell went unconfirmed: the first positions read came back before the fill,
+ * the history call was rate-limited, and the three remaining positions reads were refused locally
+ * without ever being sent. FLOW's scheduler budgets each route separately; this now does the same.
+ */
+const rateLimitedUntil = new Map<string, number>();
+/** "/trade/accounts/810219/positions/123?x" → "GET /trade/accounts/:id/positions/:id" */
+export function routeKey(method: string, path: string): string {
+  return `${method.toUpperCase()} ${path.split("?")[0].replace(/\/\d+(?=\/|$)/g, "/:id")}`;
+}
+const backoffLeft = (key: string): number => Math.max(0, (rateLimitedUntil.get(key) ?? 0) - Date.now());
+
+/** True while ANY route is backing off. Exposed so the pre-flight can say so plainly. */
+export const rateLimited = (): boolean => [...rateLimitedUntil.values()].some((t) => Date.now() < t);
 
 /**
  * The Developer Program key for multi-user applications. Absent, the API still works but on the stricter
@@ -88,8 +103,9 @@ async function call<T>(env: TLEnv, path: string, init: RequestInit & { token?: s
   if (init.accNum) headers.accNum = String(init.accNum);
   if (DEVELOPER_KEY) headers["tl-developer-api-key"] = DEVELOPER_KEY;
   // Refuse locally while backing off, rather than spending another request to be told the same thing.
-  if (rateLimited()) {
-    return { ok: false, status: 429, error: `Backing off — the broker rate-limited this account ${Math.ceil((rateLimitedUntil - Date.now()) / 1000)}s ago.`, uncertain: true };
+  const rk = routeKey(String(init.method ?? "GET"), path);
+  if (backoffLeft(rk) > 0) {
+    return { ok: false, status: 429, error: `Backing off ${rk} — the broker rate-limited it; ${Math.ceil(backoffLeft(rk) / 1000)}s left.`, uncertain: true };
   }
 
   const ctrl = new AbortController();
@@ -116,7 +132,9 @@ async function call<T>(env: TLEnv, path: string, init: RequestInit & { token?: s
        * trade", means refusing to trade rather than assuming not.
        */
       if (r.status === 429) {
-        rateLimitedUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
+        // Honour the broker's own Retry-After when it sends one; otherwise the default pause.
+        const ra = Number(r.headers.get("retry-after"));
+        rateLimitedUntil.set(rk, Date.now() + (Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, RATE_LIMIT_BACKOFF_MS) : RATE_LIMIT_BACKOFF_MS));
       }
       return { ok: false, status: r.status, error: msg, uncertain: r.status >= 500 || r.status === 408 || r.status === 429, raw: body };
     }

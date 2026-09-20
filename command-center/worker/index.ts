@@ -23,6 +23,7 @@ import { scoreMatured } from "../engines/record";
 import { upcoming, LOCKOUT_BEFORE_MIN, LOCKOUT_AFTER_MIN } from "../adapters/calendar";
 import { autopilotTick, autopilotMode } from "../engines/autopilot";
 import { autoManageTick } from "../engines/autoManage";
+import { reconcilePending } from "../engines/executor";
 import { preflight } from "../engines/preflight";
 import { heartbeat, booted, switchChanged } from "../engines/notify";
 import { brainEnabled } from "../engines/killSwitch";
@@ -246,6 +247,10 @@ async function pass(lastPersistAt: number): Promise<number> {
   }
 
   if (isOpen && autopilotMode() !== "off") {
+    // Adopt any fill the order-time checks missed BEFORE managing or trading, so both see it.
+    try {
+      for (const line of await reconcilePending()) log(line);
+    } catch (e) { log("reconcile sweep error", String(e).slice(0, 160)); }
     try {
       const managed = await autoManageTick(snap);
       if (managed) log(managed);

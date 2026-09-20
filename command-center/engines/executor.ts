@@ -329,8 +329,8 @@ export async function execute(userId: string, intentId: string, idempotencyKey: 
 /* ── reconciliation ─────────────────────────────────────────────────────── */
 
 /** How long after submitting we keep looking before calling it unresolved. */
-const RECONCILE_TRIES = 4;
-const RECONCILE_GAP_MS = 1200;
+const RECONCILE_TRIES = 5;
+const RECONCILE_GAP_MS = 1500;
 
 /**
  * Ask the broker what actually happened, and write down only what it says.
@@ -364,10 +364,23 @@ export async function reconcile(userId: string, executionId: string, tag?: strin
   const inst = await goldInstrument(s.session);
   const instrumentId = inst.ok ? inst.spec.tradableInstrumentId : null;
 
+  /*
+   * A position another execution already owns is never adopted a second time. Without this, the
+   * shape-match fallback (same instrument, same side) could hand one broker position to two of our
+   * executions — the background sweep below re-runs reconcile, which made that a real possibility.
+   */
+  const { data: ownedRows } = await c().from("cc_positions").select("broker_position_id, execution_id")
+    .eq("account_row_id", exec.account_row_id).is("closed_at", null);
+  const ownedByOthers = new Set(((ownedRows ?? []) as { broker_position_id: string; execution_id: string | null }[])
+    .filter((r) => r.execution_id !== executionId).map((r) => String(r.broker_position_id)));
+  let lastRead = "";
+
   for (let attempt = 0; attempt < RECONCILE_TRIES; attempt++) {
     const pos = await listPositions(s.session.auth);
+    if (!pos.ok) lastRead = `positions read failed — HTTP ${pos.status}: ${String(pos.error).slice(0, 120)}`;
     if (pos.ok) {
-      const rows = parsePositions(pos.data);
+      const rows = parsePositions(pos.data, await positionColumnsFor(s.session)).filter((p) => !ownedByOthers.has(String(p.id)));
+      lastRead = `broker listed ${rows.length} unowned position(s)`;
       const raw = JSON.stringify(pos.data ?? "");
       const tagged = tag && raw.includes(tag)
         ? rows.find((p) => raw.indexOf(tag) > -1 && (!instrumentId || p.instrumentId === instrumentId))
@@ -375,7 +388,10 @@ export async function reconcile(userId: string, executionId: string, tag?: strin
       const candidate = tagged ?? rows.find((p) =>
         (!instrumentId || p.instrumentId === instrumentId) &&
         (!intent || p.side === intent.side) &&
-        (p.openedAt == null || Date.now() - p.openedAt < 120_000));
+        // The size WE sent. GENX/FLOW can trade the same account; their positions are sized by their own
+        // rules, so matching our quantity is what stops THE BRAIN adopting a FLOW trade as its own.
+        (exec.qty == null || !(p.qty > 0) || Math.abs(p.qty - exec.qty) < 0.005) &&
+        (p.openedAt == null || Date.now() - p.openedAt < 30 * 60_000));
 
       if (candidate) {
         const positionRowId = await recordPosition(userId, s.session, executionId, candidate, intent, inst.ok ? inst.resolved.pipSize : null, inst.ok ? inst.resolved.instrument.pipValuePerLot : null);
@@ -400,7 +416,11 @@ export async function reconcile(userId: string, executionId: string, tag?: strin
      * contents are attached to the error, because "the broker said no" is not an answer anybody can act
      * on — an order history row is market metadata, no credentials pass through here.
      */
-    const hist = await ordersHistory(s.session.auth);
+    // Orders history only once the position reads have had their chance. It is the tightest-limited
+    // route, and asking it on every attempt is what used to trip the rate limit mid-reconcile.
+    const hist = attempt === RECONCILE_TRIES - 1 && exec.broker_order_id
+      ? await ordersHistory(s.session.auth)
+      : { ok: false as const };
     if (hist.ok && exec.broker_order_id) {
       const row = findOrderRow(hist.data, exec.broker_order_id);
       if (row) {
@@ -418,6 +438,7 @@ export async function reconcile(userId: string, executionId: string, tag?: strin
 
   await c().from("cc_trade_executions").update({
     state: "reconciliation_required", reconcile_count: exec.reconcile_count + RECONCILE_TRIES,
+    error: `still checking · ${lastRead}`.slice(0, 500),
   }).eq("id", executionId);
   return {
     ok: false,
@@ -429,6 +450,45 @@ export async function reconcile(userId: string, executionId: string, tag?: strin
   };
 }
 
+
+/**
+ * KEEP LOOKING UNTIL THE BROKER ANSWERS.
+ *
+ * "THE BRAIN is still checking" used to be a promise nothing kept: once reconcile's few seconds ran out,
+ * no code ever looked again. A fill the first reads missed was never adopted, so it never reached
+ * cc_positions — which is what the position manager, the one-position guard and the screen all read.
+ * FLOW could see the trade on the account; THE BRAIN could not, and would not manage it.
+ *
+ * Every worker tick now re-runs reconcile on each unresolved execution from the last thirty minutes,
+ * newest first, one per account, for thirty minutes. It only ever ADOPTS what the broker lists (never sends anything), and a
+ * position another execution owns is never taken twice. After thirty minutes an execution is left for a
+ * person: a position that old and still unlisted is not something to guess about.
+ */
+export async function reconcilePending(): Promise<string[]> {
+  const since = new Date(Date.now() - 30 * 60_000).toISOString();
+  const { data } = await c().from("cc_trade_executions")
+    .select("id, user_id, account_row_id, requested_at")
+    .eq("state", "reconciliation_required").gte("requested_at", since)
+    .order("requested_at", { ascending: false }).limit(10);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const e of (data ?? []) as { id: string; user_id: string; account_row_id: string | null }[]) {
+    if (!e.account_row_id || seen.has(e.account_row_id)) continue;
+    seen.add(e.account_row_id);
+    try {
+      const r = await reconcile(e.user_id, e.id);
+      if (r.state === "position_open") {
+        await c().from("cc_trade_executions").update({ error: null }).eq("id", e.id);
+        out.push(`reconciled ${e.id.slice(0, 8)} → position open`);
+      } else if (r.state === "error") {
+        out.push(`reconciled ${e.id.slice(0, 8)} → ${r.message.slice(0, 120)}`);
+      }
+    } catch (err) {
+      out.push(`reconcile ${e.id.slice(0, 8)} threw ${String(err).slice(0, 80)}`);
+    }
+  }
+  return out;
+}
 
 /**
  * Find the orders-history row for ONE order id.
