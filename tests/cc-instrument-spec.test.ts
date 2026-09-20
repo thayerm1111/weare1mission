@@ -166,3 +166,66 @@ test("the real list row from the live account cannot size, and says so", () => {
   const r = resolve(spec, "USD");
   assert.equal(r.ok, false, "a list row with no numbers must refuse, never assume a gold contract");
 });
+
+test("the LIVE detail payload from account 2 sizes correctly", () => {
+  /*
+   * Copied field for field out of the boot check on 2026-09-20. This is the specification the broker
+   * actually serves for XAUUSD on the INFO route, and the numbers below are the ones a real order on
+   * this account will be sized with. If this test ever fails, a live position is about to be the wrong
+   * size — treat it as a stop-trading condition, not a flaky test.
+   */
+  const live = {
+    d: {
+      name: "XAUUSD", description: "Gold Spot", type: "EQUITY_CFD",
+      tradingExchange: "GENESIS", marketDataExchange: "Metals", localizedName: "XAUUSD",
+      settlementSystem: "Immediate",
+      tickSize: [{ tickSize: 0.01 }],
+      tickCost: [{ tickCost: 0 }],
+      quotingCurrency: "USD", symbolStatus: "FULLY_OPEN",
+      lotSize: 100, lotStep: 0.01, minLot: 0.01, maxLot: 1000,
+      barSource: "BID", leverage: "500.00",
+    },
+  };
+  const spec = parseInstrumentSpec(live, { tradableInstrumentId: "8542", routeId: "541039" });
+
+  assert.equal(spec.tickSize, 0.01, "tickSize arrives as an array of bands and must still be read");
+  assert.equal(spec.lotStep, 0.01);
+  assert.equal(spec.minLot, 0.01);
+  assert.equal(spec.maxLot, 1000);
+  assert.equal(spec.contractSize, 100, "lotSize 100 beside lotStep 0.01 is the contract size");
+  assert.equal(spec.currency, "USD");
+
+  const r = resolve(spec, "USD");
+  assert.equal(r.ok, true, r.ok ? "" : r.reason);
+  if (r.ok) {
+    assert.equal(r.pipSize, 0.1, "tick 0.01 → pip 0.10");
+    assert.equal(r.instrument.pipValuePerLot, 10, "100 oz × $0.10 = $10 a pip on a 1.00 lot");
+    assert.equal(r.instrument.lotStep, 0.01);
+    assert.equal(r.instrument.minLot, 0.01);
+    assert.equal(r.warnings.length, 0, "USD instrument on a USD account needs no caveat");
+  }
+});
+
+test("a zero tick cost is not a tick value", () => {
+  // The broker sends tickCost 0, which states nothing. Sizing must fall through to the contract size
+  // rather than dividing by zero or believing a pip is worth nothing.
+  const spec = parseInstrumentSpec(
+    { d: { name: "XAUUSD", tickSize: [{ tickSize: 0.01 }], tickCost: [{ tickCost: 0 }], lotSize: 100, lotStep: 0.01, minLot: 0.01 } },
+    FALLBACK,
+  );
+  assert.equal(spec.tickValue, 0);
+  const r = resolve(spec, "USD");
+  assert.equal(r.ok, true);
+  if (r.ok) {
+    assert.equal(r.instrument.pipValuePerLot, 10);
+    assert.ok(r.source.includes("contractSize"), "must have used the contract size, not the zero tick cost");
+  }
+});
+
+test("lotSize alone is still never promoted to a contract size", () => {
+  // No separate step in this payload, so the broker has not distinguished the two meanings.
+  const spec = parseInstrumentSpec({ d: { name: "XAUUSD", lotSize: 0.01, minLot: 0.01, tickSize: 0.01 } }, FALLBACK);
+  assert.equal(spec.lotStep, 0.01, "the conservative reading: it is the step");
+  assert.equal(spec.contractSize, null, "unqualified lotSize must never become a contract size");
+  assert.equal(resolve(spec, "USD").ok, false);
+});

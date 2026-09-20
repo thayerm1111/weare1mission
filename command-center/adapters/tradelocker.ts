@@ -327,6 +327,43 @@ const deepPick = (row: Row, keys: string[], maxDepth = 3): unknown => {
 };
 
 /**
+ * The same deep lookup, but it will not stop on a hit that is not a number.
+ *
+ * TradeLocker returns `tickSize` as an ARRAY of bands — `tickSize: [{ tickSize: 0.01 }]` — because an
+ * instrument may tick differently at different price levels. A lookup that stops at the first key match
+ * finds the array, `Number([...])` is NaN, and the field reads as absent while sitting in plain view in
+ * the payload. So a non-numeric match is not an answer; it is a place to keep looking.
+ *
+ * Gold has one band. If a broker ever sends several, this takes the first, which is the band covering
+ * the current price on every build seen so far — and if that ever stops being true, the specification
+ * is wrong in a way that shows up as a rejected order rather than a mis-sized one.
+ */
+const deepPickNum = (row: Row, keys: string[], maxDepth = 4): number | null => {
+  const num = (v: unknown): number | null => {
+    if (v == null || typeof v === "boolean" || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  let frontier: unknown[] = [row];
+  for (let depth = 0; depth <= maxDepth; depth++) {
+    const next: unknown[] = [];
+    for (const node of frontier) {
+      if (!node || typeof node !== "object") continue;
+      if (!Array.isArray(node)) {
+        const hit = num(pick(node as Row, keys));
+        if (hit !== null) return hit;
+      }
+      const children = Array.isArray(node) ? node : Object.values(node as Record<string, unknown>);
+      for (const child of children) if (child && typeof child === "object") next.push(child);
+    }
+    if (!next.length) break;
+    frontier = next;
+  }
+  return null;
+};
+
+/**
  * Every primitive in a payload, as `path=value`, for diagnostics ONLY.
  *
  * When a specification will not resolve, the useful question is not "which fields were null" — the
@@ -462,20 +499,43 @@ export function parseInstrumentSpec(body: unknown, fallback: { tradableInstrumen
    * value that was wrong by orders of magnitude — a sizing error that places a real position far larger
    * than the member's risk setting. A null contract size refuses the trade; a wrong one takes it.
    */
-  const g = (keys: string[]) => (Array.isArray(row) ? null : asNum(deepPick(row, keys)));
+  const g = (keys: string[]) => (Array.isArray(row) ? null : deepPickNum(row, keys));
+
+  /*
+   * `lotSize` MEANS DIFFERENT THINGS ON DIFFERENT BROKERS, AND GETTING IT BACKWARDS IS NOT SYMMETRIC.
+   *
+   * On this broker's detail payload it is 100 — the units per lot, a hundred ounces of gold — sitting
+   * beside `lotStep: 0.01`. On other builds the same word is the quantity step. The two readings are
+   * not equally safe:
+   *
+   *   step read as contract size → pip value 10,000x too small → position 10,000x TOO LARGE
+   *   contract size read as step → quantity rounds to zero → the order is refused
+   *
+   * One costs an account, the other costs a setup. So `lotSize` is only promoted to a contract size
+   * when the payload ALSO carries an explicit, different step — which is the broker distinguishing the
+   * two itself. Alone and unqualified it stays the conservative reading, and if that leaves no contract
+   * size then sizing refuses, which is the correct answer to an ambiguous specification.
+   */
+  const explicitStep = g(["lotStep", "quantityStep", "volumeStep", "lotSizeStep", "stepQuantity"]);
+  const lotSizeField = g(["lotSize", "lot_size"]);
+  const statedContract = g(["contractSize", "contract_size", "unitsPerLot", "contractMultiplier"]);
+  const contractSize =
+    statedContract ??
+    (explicitStep != null && lotSizeField != null && lotSizeField !== explicitStep ? lotSizeField : null);
+
   return {
     tradableInstrumentId: (Array.isArray(row) ? null : asStr(pick(row, ["tradableInstrumentId", "id"]))) ?? fallback.tradableInstrumentId,
     routeId: (Array.isArray(row) ? null : asStr(pick(row, ["routeId"]))) ?? fallback.routeId,
     name: (Array.isArray(row) ? null : asStr(pick(row, ["name", "symbol", "description"]))) ?? "",
-    contractSize: g(["contractSize", "contract_size", "unitsPerLot", "contractMultiplier"]),
-    lotStep: g(["lotStep", "quantityStep", "volumeStep", "lotSizeStep", "lotSize", "lot_size", "stepQuantity"]),
+    contractSize,
+    lotStep: explicitStep ?? lotSizeField,
     minLot: g(["minLot", "minQty", "minVolume", "minLotSize", "minQuantity", "minOrderQuantity"]),
     maxLot: g(["maxLot", "maxQty", "maxVolume", "maxLotSize", "maxQuantity", "maxOrderQuantity"]),
     tickSize: g(["tickSize", "tick_size", "minPriceIncrement", "priceIncrement", "priceStep"]),
-    tickValue: g(["tickValue", "tick_value", "valuePerTick"]),
+    tickValue: g(["tickValue", "tick_value", "valuePerTick", "tickCost"]),
     pricePrecision: g(["pricePrecision", "priceDecimals", "decimals", "digits"]),
     quantityPrecision: g(["quantityPrecision", "qtyDecimals", "lotDecimals"]),
-    currency: Array.isArray(row) ? null : asStr(deepPick(row, ["marginCurrency", "currency", "quoteCurrency", "profitCurrency"])),
+    currency: Array.isArray(row) ? null : asStr(deepPick(row, ["quotingCurrency", "marginCurrency", "currency", "quoteCurrency", "profitCurrency"])),
   };
 }
 
