@@ -50,8 +50,23 @@ export function autopilotMode(): AutopilotMode {
   return m === "live" ? "live" : m === "shadow" ? "shadow" : "off";
 }
 
-/** The most entries this loop may open on one account in one UTC day, whatever the market offers. */
-const MAX_ENTRIES_PER_ACCOUNT_PER_DAY = 4;
+/**
+ * The most entries this loop may open on one account in one UTC day, whatever the market offers.
+ *
+ * Settable from the environment so the ceiling can be lowered in one click, from a phone, without a
+ * deploy — which is the only thing that is any use on a first live session. `CC_MAX_ENTRIES_PER_DAY=1`
+ * makes tonight a single trade and nothing more.
+ *
+ * It is clamped to the built-in maximum rather than trusting the variable. A typo in an environment
+ * field must never be able to RAISE the number of entries; the setting exists to be conservative with,
+ * and every path out of it goes down.
+ */
+const DEFAULT_MAX_ENTRIES_PER_DAY = 4;
+function maxEntriesPerDay(): number {
+  const raw = Number(process.env.CC_MAX_ENTRIES_PER_DAY);
+  if (!Number.isFinite(raw) || raw < 0) return DEFAULT_MAX_ENTRIES_PER_DAY;
+  return Math.min(Math.floor(raw), DEFAULT_MAX_ENTRIES_PER_DAY);
+}
 /** After acting on a setup, ignore anything with the same shape for this long. */
 const REPEAT_COOLDOWN_MS = 20 * 60_000;
 
@@ -191,9 +206,10 @@ export async function autopilotTick(input: {
 
     // 5 — the daily cap, counted from what was actually acted on.
     const used = await entriesToday(a.id);
-    if (used >= MAX_ENTRIES_PER_ACCOUNT_PER_DAY) {
+    const cap = maxEntriesPerDay();
+    if (used >= cap) {
       await record({ user_id: a.user_id, account_row_id: a.id, acc_num: a.acc_num, mode, acted: false,
-        outcome: "capped", reason: `Already took ${used} entries on this account today.`,
+        outcome: "capped", reason: `Already took ${used} of ${cap} entries allowed on this account today.`,
         side: t.side, style: setup.style, entry: t.entry, stop: t.stop, target: t.target ?? null,
         price_at: input.snapshot.price ?? null });
       continue;
