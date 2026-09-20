@@ -264,10 +264,16 @@ export async function autopilotTick(input: {
           target: t.target ?? null, accNum: a.acc_num,
         });
       } else {
-        await record({ ...common, acted: false, outcome: "refused", reason: res.message });
-        notes.push(`refused: ${res.message.slice(0, 60)}`);
+        /*
+         * Defensive even now that callTrade builds its failure arm properly. A refusal reaching this
+         * point with no message is a bug somewhere upstream, and the right response to that is a
+         * logged refusal a person can chase — not a TypeError that loses the trade AND the reason.
+         */
+        const why = (res.message && String(res.message)) || "Refused without a reason (upstream bug).";
+        await record({ ...common, acted: false, outcome: "refused", reason: why });
+        notes.push(`refused: ${why.slice(0, 60)}`);
         // The answer to "why is it not trading". Throttled per reason inside notify.
-        stoodDown(res.message, { side: t.side, style: setup.style });
+        stoodDown(why, { side: t.side, style: setup.style });
       }
     } catch (e) {
       await record({ ...common, acted: false, outcome: "error", reason: String(e).slice(0, 200) });

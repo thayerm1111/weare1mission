@@ -136,7 +136,29 @@ export async function takeSetup(
   //     a retry and a refresh all mean the same single order.
   const result = await execute(userId, prepared.intentId, idempotencyKey, snapshot);
   await record(userId, setup, snapshot, result.ok ? "taken" : "passed", result.message, prepared.intentId, result.positionId ?? null);
-  return { ok: result.ok, execution: result, setup } as TakeResult;
+  /*
+   * A FAILURE MUST CARRY ITS REASON, AND THE CAST WAS HIDING THAT IT DID NOT.
+   *
+   * This was one line: `return { ok: result.ok, execution: result, setup } as TakeResult`. On a failed
+   * execution that produced `{ ok: false, execution, setup }` — which has no `message`, because the
+   * failure arm of TakeResult requires one. The `as` silenced the exact error that would have caught
+   * it, and every caller reading `res.message` on a refusal got undefined.
+   *
+   * Live consequence, seen on the first open: the autopilot found a sell, execution refused it, and
+   * `res.message.slice(0, 60)` threw TypeError before anything could record or report WHY. The trade
+   * was logged as an error with a stack trace instead of a reason, three times in two minutes.
+   *
+   * So the two arms are now built separately and the cast is gone.
+   */
+  if (!result.ok) {
+    return {
+      ok: false,
+      state: result.state === "error" ? "error" : "drifted",
+      message: result.message || "The execution path refused this trade without giving a reason.",
+      setup,
+    };
+  }
+  return { ok: true, execution: result, setup };
 }
 
 /** The member looked at a trade and chose not to take it. Worth as much to the learning system as a fill. */
