@@ -25,6 +25,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { keySource, encryptionAvailable } from "../core/crypto";
 import { session, goldInstrument } from "./broker";
 import { consentState } from "./consent";
+import { sizePosition, DEFAULT_LIMITS } from "../core/risk";
 
 type Row = {
   id: string; user_id: string; acc_num: string | null;
@@ -113,7 +114,33 @@ export async function preflight(): Promise<PreflightLine[]> {
       continue;
     }
 
-    out.push({ ok: true, text: `${label}: token opens, broker session live, XAUUSD resolved — ready` });
+    /*
+     * 5 — WHAT SIZE WOULD IT ACTUALLY SEND?
+     *
+     * "The specification resolved" and "the position will be the right size" are different claims, and
+     * only the second one matters at 6pm. So this does the real arithmetic on the real equity with the
+     * member's own risk percentage, against a representative stop, and prints the lot size and the
+     * dollars at risk. It is pure computation — no broker call, no order, nothing recorded.
+     *
+     * A person reading the log can now sanity-check the number against what they expect to see in the
+     * platform, which is the one check no amount of code can do for them. If the lots look wrong by a
+     * factor of anything, the answer is CC_AUTOPILOT=off, not a debugging session at the open.
+     */
+    const equity = s.session.account.equity ?? s.session.account.balance;
+    const riskPct = Number(s.session.account.risk_limits?.riskPct ?? DEFAULT_LIMITS.riskPct);
+    let sizing = "";
+    if (equity && equity > 0 && inst.ok) {
+      // A 200-pip stop on gold: $20 of price. Representative, not a prediction of any actual setup.
+      const entry = 4000;
+      const size = sizePosition({
+        equity, entry, stop: entry - 20, side: "buy", riskPct, inst: inst.resolved.instrument,
+      });
+      sizing = size.ok
+        ? ` · at ${riskPct}% on ${Math.round(equity).toLocaleString()} a 200-pip stop sizes to ${size.lots} lots, ${size.riskAmount} at risk`
+        : ` · SIZING WOULD REFUSE: ${size.reason}`;
+    }
+
+    out.push({ ok: true, text: `${label}: token opens, broker session live, XAUUSD resolved (pip ${inst.resolved.pipSize}, ${inst.resolved.source})${sizing}` });
   }
 
   return out;
