@@ -104,32 +104,36 @@ export const COOLDOWN_BY_STYLE: Record<string, number> = {
 
 
 /**
- * THE POSITION-SIZE CEILING — the guard that was missing, found on the first live open.
+ * POSITION-SIZE CEILINGS — OFF BY DEFAULT, BY THE OWNER'S DECISION.
  *
- * Risk-based sizing has a hole in it that only opens when the stop is tight. Money-at-risk divided by
- * (stop distance x value per pip) is correct arithmetic, but as the stop shrinks the quantity grows
- * without bound. On the first night this produced real orders of 7 to 16 lots on 17-pip stops — 12.5
- * lots is 1,250 ounces, about $5.5 MILLION of gold against a $435,000 account. Every one was refused
- * by the broker, which is the only reason it was not a position.
+ * Size is the risk percentage, the stop distance and the account. Nothing else. Choose 1%, and 1% of
+ * the account is what goes at risk, with the lot count falling out of how far away the stop is. That
+ * is the whole model and these ceilings do not interfere with it unless somebody switches them on.
  *
- * A broker's refusal is not a risk control. This is.
+ * WHY THEY EXIST AT ALL, AND WHY THE CASE FOR THEM IS WEAKER THAN IT LOOKED.
  *
- * TWO CEILINGS, AND THE NOTIONAL ONE IS THE REAL CONSTRAINT.
+ * On the first live night the engine sent 7 to 16 lots on 16-to-25-pip stops, and every one came back
+ * "the broker cancelled or rejected the order". That looked like a hard external limit and these
+ * ceilings were the answer to it.
  *
- *   • NOTIONAL, as a multiple of equity. One lot of gold is roughly one times this account's equity, so
- *     this reads directly as "how many times the account may be controlled at once". It scales as the
- *     account grows, which a fixed lot number does not.
+ * Then the reconciler's verdict turned out to be unreliable: it stringified the WHOLE orders history
+ * and asked whether the blob mentioned our order id and whether the blob contained the word
+ * "Cancelled" — two unrelated facts. Any cancelled order anywhere in the account's past made every one
+ * of ours report as rejected. The first orders judged by the fixed code returned no rejection at all.
  *
- *   • LOTS, absolute. A backstop for the case where equity is wrong, stale, or enormous. A cap that
- *     depends on a number the broker reported is not a cap when that number is the thing in doubt.
+ * So the evidence that the broker refuses large orders was produced by a matcher since proven wrong,
+ * and it is not evidence. The honest position is that the ceiling was built on a misread, and the
+ * mechanism stays available while the defaults stop enforcing anything.
  *
- * WHEN A CEILING BINDS, THE TRADE RISKS LESS THAN THE SETTING ASKED FOR. That is the safe direction
- * and it is deliberate: the alternative is widening the stop to fit the size, which is moving the exit
- * to justify the entry. The result reports `cappedBy` so the log says which ceiling bit rather than
- * leaving somebody to wonder why a trade came out smaller than the arithmetic.
+ * THE ARITHMETIC IS UNCHANGED AND WORTH KNOWING. Risk divided by (stop x value per pip) has no bound
+ * as the stop tightens: 1% of a $435,000 account against a 17-pip stop is about 25 lots, roughly $11
+ * million of gold. That is not a malfunction, it is what fixed-risk sizing does on a tight stop, and
+ * the size the engine reports will say so.
+ *
+ * Set either variable above zero to bring a ceiling back. Zero, the default, means no ceiling.
  */
-export const MAX_NOTIONAL_X_EQUITY = Number(process.env.CC_MAX_NOTIONAL_X_EQUITY ?? 2);
-export const MAX_LOTS_ABSOLUTE = Number(process.env.CC_MAX_LOTS ?? 3);
+export const MAX_NOTIONAL_X_EQUITY = Number(process.env.CC_MAX_NOTIONAL_X_EQUITY ?? 0);
+export const MAX_LOTS_ABSOLUTE = Number(process.env.CC_MAX_LOTS ?? 0);
 
 export type SizeResult =
   | {
