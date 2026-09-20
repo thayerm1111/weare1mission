@@ -33,7 +33,18 @@ export type ApprovedSetup = {
 };
 
 export type TakeResult =
-  | { ok: false; state: SetupState | "drifted" | "error"; message: string; setup?: BrainSetup }
+  | {
+      ok: false; state: SetupState | "drifted" | "error"; message: string; setup?: BrainSetup;
+      /**
+       * TRUE WHEN AN ORDER MAY HAVE REACHED THE BROKER.
+       *
+       * A failure before `execute` never sent anything. A failure FROM execute may have sent an order
+       * that filled — tonight eighteen of them did, while every one returned not-ok because the fill
+       * could not be confirmed. Anything counting entries must count those, or it counts successes
+       * rather than orders, which is the wrong thing entirely.
+       */
+      sent?: boolean;
+    }
   | { ok: true; execution: ExecuteResult; setup: BrainSetup };
 
 /** How far the stop may have moved since the member looked, as a fraction of the trade's own risk. */
@@ -156,6 +167,8 @@ export async function takeSetup(
       state: result.state === "error" ? "error" : "drifted",
       message: result.message || "The execution path refused this trade without giving a reason.",
       setup,
+      // This failure came OUT of execute(), so an order may be at the broker whatever we were told.
+      sent: true,
     };
   }
   return { ok: true, execution: result, setup };

@@ -347,7 +347,21 @@ export async function autopilotTick(input: {
          * logged refusal a person can chase — not a TypeError that loses the trade AND the reason.
          */
         const why = (res.message && String(res.message)) || "Refused without a reason (upstream bug).";
-        await record({ ...common, acted: false, outcome: "refused", reason: why });
+        /*
+         * A FAILURE THAT MAY HAVE SENT AN ORDER IS STILL AN ENTRY.
+         *
+         * Tonight every one of the eighteen orders returned not-ok — the fill could not be confirmed —
+         * and every one was logged acted:false. So the action log, the very table the spacing guard
+         * reads, recorded eighteen orders as zero entries. A guard counting SUCCESSES rather than
+         * ORDERS would have let it happen all over again.
+         */
+        const mayHaveSent = res.sent === true;
+        await record({
+          ...common,
+          acted: mayHaveSent,
+          outcome: mayHaveSent ? "sent_unconfirmed" : "refused",
+          reason: why,
+        });
         notes.push(`refused: ${why.slice(0, 60)}`);
         // The answer to "why is it not trading". Throttled per reason inside notify.
         stoodDown(why, { side: t.side, style: setup.style });
