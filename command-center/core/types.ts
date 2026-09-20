@@ -99,6 +99,25 @@ export type Features = {
   wickBias: number;
   rangeExpansion: number;
   zScore: number;
+
+  /*
+   * ACTIVITY, WHICH IS THE ONLY "VOLUME" SPOT GOLD HAS.
+   *
+   * XAU/USD is over-the-counter. There is no exchange, no consolidated tape, and therefore no
+   * reportable traded quantity — the volume figure a spot-gold feed returns is TICK volume, the
+   * number of price updates inside the bar. That measures how busy the market was, not how much
+   * changed hands, and the two are not the same thing. Real gold volume lives on COMEX futures,
+   * which is a different instrument and a second data source.
+   *
+   * Both fields are null when the feed sends nothing, and null must never be read as "quiet" — a
+   * missing number and a low number mean completely different things, and conflating them is how a
+   * system talks confidently about something it cannot see.
+   */
+
+  /** Tick count on the latest bar, straight from the feed. Null when the feed omits it. */
+  ticks: number | null;
+  /** That bar's tick count against its own 20-bar average. 1 is typical, 2 is twice as busy. */
+  relativeActivity: number | null;
 };
 
 /** Why a trade was taken, and what would prove it wrong. Written once, never edited. */

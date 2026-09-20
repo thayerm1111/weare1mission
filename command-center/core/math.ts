@@ -113,6 +113,34 @@ export function rangeExpansion(bars: Bar[], n = 20): number | null {
 }
 
 /** The full feature vector for one timeframe. Null when there is not enough history to be honest. */
+/**
+ * How busy the last bar was, against how busy this market usually is.
+ *
+ * The feed's `v` on a spot-gold bar is a TICK COUNT — how many times the price updated — not a
+ * traded quantity, because spot gold is OTC and no such quantity exists. As an input it is still
+ * worth having: a break on four times the usual tick rate is a different event from a break on half
+ * of it, and that is what every "volume" rule on retail gold has always actually measured.
+ *
+ * Returns nulls rather than zeros when the feed sends nothing, so downstream code can tell "quiet"
+ * from "cannot see". Anything that treats a missing tick count as a low one is lying about what it
+ * knows.
+ */
+export function activity(bars: Bar[], lookback = 20): { ticks: number | null; relativeActivity: number | null } {
+  const l = last(bars) as Bar | undefined;
+  const ticks = l && typeof l.v === "number" && Number.isFinite(l.v) ? l.v : null;
+  if (ticks == null) return { ticks: null, relativeActivity: null };
+
+  const prior = bars.slice(-(lookback + 1), -1)
+    .map((b) => b.v)
+    .filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v > 0);
+  // One or two stray values is not an average worth dividing by.
+  if (prior.length < Math.max(5, Math.floor(lookback / 2))) return { ticks, relativeActivity: null };
+
+  const mean = prior.reduce((s, v) => s + v, 0) / prior.length;
+  if (!(mean > 0)) return { ticks, relativeActivity: null };
+  return { ticks, relativeActivity: ticks / mean };
+}
+
 export function features(bars: Bar[]): Features | null {
   if (bars.length < 60) return null;
   const a = atr(bars, 14);
@@ -143,5 +171,6 @@ export function features(bars: Bar[]): Features | null {
     wickBias: wickBias(bars, 10),
     rangeExpansion: rangeExpansion(bars, 20) ?? 1,
     zScore: zScore(bars, 50) ?? 0,
+    ...activity(bars, 20),
   };
 }

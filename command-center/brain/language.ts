@@ -240,6 +240,15 @@ function mathLines(s: MarketSnapshot): string[] {
     `velocity ${f.velocity.toFixed(3)} · acceleration ${f.acceleration.toFixed(3)}`,
     `slope ${f.slope.toFixed(4)} · R² ${f.slopeR2.toFixed(2)} · efficiency ${(f.efficiency * 100).toFixed(0)}%`,
     `RSI ${f.rsi.toFixed(0)} · z ${f.zScore.toFixed(2)} · regime ${words(s.regime)}`,
+    /*
+     * Said as ACTIVITY, never as volume. Spot gold is over-the-counter, so no traded quantity
+     * exists to report — this is the feed's tick count, meaning how often the price updated. Calling
+     * it volume would be claiming to see something nobody can see on XAUUSD, and a member acting on
+     * "heavy volume" would be acting on a word this system had no right to use.
+     */
+    f.relativeActivity != null
+      ? `activity ${f.relativeActivity.toFixed(2)}× its 20-bar average (tick count, not traded volume — spot gold has none)`
+      : "activity: the feed sends no tick count for gold, so there is nothing to read here",
   ];
 }
 
