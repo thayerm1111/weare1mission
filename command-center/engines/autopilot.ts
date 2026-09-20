@@ -116,6 +116,69 @@ async function record(row: {
   catch { /* the log is evidence, not a gate — never let it stop or start a trade */ }
 }
 
+
+/**
+ * HOW LONG SINCE THIS ACCOUNT ACTUALLY OPENED SOMETHING — read from the ACTION LOG.
+ *
+ * THE INDEPENDENT GUARD, AND WHY IT HAD TO EXIST.
+ *
+ * Tonight four separate guards failed at once — the one-position interlock, the style cooldown, the
+ * hourly budget and the maxOpenPositions limit. Not one of them was wrong. They were all computed from
+ * cc_positions, and a dropped line in the position parser meant that table was never written, so every
+ * one of them read "nothing is open" and let the next entry through. Eighteen orders in twenty-nine
+ * minutes.
+ *
+ * The broker-truth check added in engines/executor.ts fixes the direct cause, but it is NOT an
+ * independent second opinion: it parses positions with the same function. If that parser breaks again,
+ * both fail together, exactly as before.
+ *
+ * cc_autopilot_log is different in the one way that matters. It is written at the MOMENT OF ACTION,
+ * before any reconciliation, and it does not depend on reading a position back. "Did I open something
+ * recently?" is answerable from it even when everything downstream is broken.
+ *
+ * This is not a daily cap — the owner removed those deliberately, and rightly. It is the spacing rule
+ * the desk already runs (FLOW's 90 minutes for a quick trade), sourced from a table that cannot be
+ * silently empty. One trade, then manage it.
+ *
+ * IT FAILS CLOSED. If the log cannot be read, the answer is "yes, recently" and nothing is opened.
+ */
+const STYLE_SPACING_MS: Record<string, number> = {
+  quick: 90 * 60_000,
+  hold: 180 * 60_000,
+  swing: 480 * 60_000,
+};
+
+async function actedRecently(accountRowId: string, style: string): Promise<{ blocked: boolean; detail: string }> {
+  const c = db();
+  if (!c) return { blocked: true, detail: "Cannot read the action log, so THE BRAIN cannot tell whether it just entered." };
+
+  const window = STYLE_SPACING_MS[style] ?? STYLE_SPACING_MS.quick;
+  const since = new Date(Date.now() - window).toISOString();
+  try {
+    const { data, error } = await c
+      .from("cc_autopilot_log")
+      .select("created_at, side, style")
+      .eq("account_row_id", accountRowId)
+      .eq("acted", true)
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (error) throw new Error(error.message);
+
+    const last = (data ?? [])[0] as { created_at: string; side: string | null; style: string | null } | undefined;
+    if (!last) return { blocked: false, detail: "" };
+
+    const minsAgo = Math.round((Date.now() - Date.parse(last.created_at)) / 60_000);
+    const minsLeft = Math.max(1, Math.round(window / 60_000) - minsAgo);
+    return {
+      blocked: true,
+      detail: `Already opened a ${last.side ?? ""} ${last.style ?? ""} trade ${minsAgo} min ago — one at a time, ${minsLeft} min before another.`.replace(/\s+/g, " "),
+    };
+  } catch (e) {
+    return { blocked: true, detail: `Cannot read the action log (${String(e).slice(0, 60)}) — refusing rather than risking a second entry.` };
+  }
+}
+
 /**
  * One pass. Called from the Command Center worker on the same tick as perception.
  *
@@ -227,6 +290,20 @@ export async function autopilotTick(input: {
      *     streak and cooldown limits against this account's real day and refuses with a reason that
      *     is recorded below. That refusal is the brake; a counter here would only mask it.
      */
+
+    /*
+     * ONE TRADE, THEN MANAGE IT — checked against the action log, not against our position records.
+     * This is the guard that does not share a failure mode with the other three.
+     */
+    const spacing = await actedRecently(a.id, setup.style);
+    if (spacing.blocked) {
+      await record({ user_id: a.user_id, account_row_id: a.id, acc_num: a.acc_num, mode, acted: false,
+        outcome: "spaced", reason: spacing.detail,
+        side: t.side, style: setup.style, entry: t.entry, stop: t.stop,
+        target: t.target ?? null, price_at: input.snapshot.price ?? null });
+      stoodDown(spacing.detail, { side: t.side, style: setup.style });
+      continue;
+    }
 
     const common = {
       user_id: a.user_id, account_row_id: a.id, acc_num: a.acc_num, mode,
