@@ -226,7 +226,8 @@ export type BrainMemory = {
 /** The safe, defined UI actions The BRAIN may take. It never gets arbitrary control of the page. */
 export type UiActionName =
   | "FOCUS_TIMEFRAME" | "FOCUS_PRICE_RANGE" | "SHOW_LEVEL" | "SHOW_SESSION"
-  | "SHOW_SCENARIO" | "SHOW_EVENT" | "SHOW_TRADE" | "SHOW_METRICS" | "MARK_CHART";
+  | "SHOW_SCENARIO" | "SHOW_EVENT" | "SHOW_TRADE" | "SHOW_METRICS" | "MARK_CHART"
+  | "OPEN_SETTINGS" | "OPEN_BROKER";
 
 export type UiAction = { name: UiActionName; arg: string | number | null };
 

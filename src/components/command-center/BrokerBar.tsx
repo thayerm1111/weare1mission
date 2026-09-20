@@ -52,6 +52,14 @@ export function BrokerBar({ onAccountChange }: { onAccountChange?: (a: BrokerAcc
   const [ready, setReady] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+
+  // THE BRAIN can open this panel when a member asks where their broker or permissions are set,
+  // so the answer ends with the thing on screen rather than with directions to it.
+  useEffect(() => {
+    const onOpen = () => setOpen(true);
+    window.addEventListener("cc:open-broker", onOpen);
+    return () => window.removeEventListener("cc:open-broker", onOpen);
+  }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("environment");

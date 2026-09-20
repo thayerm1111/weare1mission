@@ -240,6 +240,18 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
     if (name === "SHOW_METRICS") setShowMath(true);
     if (name === "SHOW_SCENARIO") document.getElementById("cc-scenario")?.scrollIntoView({ behavior: "smooth", block: "center" });
     if (name === "FOCUS_TIMEFRAME") document.getElementById("cc-timeframes")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    /*
+     * "Where do I set that up?" should end with the member looking at the thing, not holding
+     * directions to it. These two open the panel the answer just described.
+     */
+    if (name === "OPEN_SETTINGS") {
+      setProfileOpen(true);
+      document.getElementById("cc-trade-card")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    if (name === "OPEN_BROKER") {
+      window.dispatchEvent(new CustomEvent("cc:open-broker"));
+      document.getElementById("cc-broker")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
   }, []);
 
   if (err) {
@@ -353,7 +365,7 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
 
           {!d?.replay && (
             <>
-              <BrokerBar />
+              <span id="cc-broker"><BrokerBar /></span>
               <button
                 onClick={() => setCallOpen(true)}
                 className="rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] transition"

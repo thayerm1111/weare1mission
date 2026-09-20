@@ -10,6 +10,7 @@ import { resolveToken, touch } from "../engines/voice";
 import { classify } from "./language";
 import { lookBack, retrospectiveLines, isRetrospective } from "../engines/history";
 import { GOLD_KNOWLEDGE, wantsDomainKnowledge } from "./gold";
+import { PRODUCT_MAP, asksHowTo } from "./howto";
 import { upcoming, calendarLines } from "../adapters/calendar";
 import { recordCall, extractClaim, trackRecord, trackRecordLines, asksAboutRecord } from "../engines/record";
 import { accountLines, asksAboutAccount, type AccountFacts } from "./account";
@@ -333,7 +334,22 @@ export async function handleVoiceLlm(req: Request) {
     );
   }
 
-  if (!memory.now && !history && !needsBackground) {
+  /*
+   * "WHERE DO I SET THAT UP?" IS NOT A MARKET QUESTION EITHER.
+   *
+   * This came back as "gold is closed", which is the fourth time this router has refused something it
+   * knew the answer to. Where a control lives does not depend on a price, and a member who cannot find
+   * their risk setting is exactly the member who most needs to be answered rather than deflected.
+   */
+  if (asksHowTo(question)) {
+    return streamAnswer(
+      `${PRODUCT_MAP}\n\nAnswer only from the map above. Name the screen and the control by the exact label it carries. If they are set up for FLOW and for COMMAND CENTER differently, say which one you are describing. Do not claim to have changed anything.`,
+      question,
+      "That is set on The Floor, under FLOW — risk, trade styles, break even, partials and the auto-run switch are all on the account card there. On this screen, the risk chip on the trade card opens what I may do to an open trade.",
+    );
+  }
+
+  if (!memory.now && !history && !needsBackground && !asksHowTo(question)) {
     /*
      * Nothing live, nothing historical, nothing conceptual — and only NOW is a refusal honest.
      *
@@ -399,6 +415,7 @@ export async function handleVoiceLlm(req: Request) {
    */
   const pastLines = history ? `\n\n${retrospectiveLines(history).join("\n")}` : "";
   const backgroundLines = needsBackground ? `\n\n${GOLD_KNOWLEDGE}` : "";
+  const howToLines = asksHowTo(question) ? `\n\n${PRODUCT_MAP}` : "";
   const calendarBlock = calendar ? `\n\n${calendarLines(calendar).join("\n")}` : "";
   /*
    * ITS OWN RECORD, handed back as measured fact.
@@ -430,7 +447,7 @@ export async function handleVoiceLlm(req: Request) {
         system: `${BRAIN_SYSTEM}\n${VOICE_RULES}`,
         messages: [
           ...messages.slice(-6).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: speakable(textOf(m.content)).slice(0, 1200) || "..." })),
-          { role: "user", content: `CONTEXT — everything you can see right now:\n\n${packet}${accountBlock}${watchLines}${calendarBlock}${pastLines}${recordBlock}${backgroundLines}\n\n----\nThe trader says: ${question}` },
+          { role: "user", content: `CONTEXT — everything you can see right now:\n\n${packet}${accountBlock}${watchLines}${calendarBlock}${pastLines}${recordBlock}${backgroundLines}${howToLines}\n\n----\nThe trader says: ${question}` },
         ],
       }),
     });

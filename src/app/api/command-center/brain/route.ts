@@ -7,6 +7,7 @@ import { marketOpen } from "../../../../../command-center/core/sessions";
 import { classify } from "../../../../../command-center/brain/language";
 import { lookBack, retrospectiveLines, isRetrospective } from "../../../../../command-center/engines/history";
 import { GOLD_KNOWLEDGE, wantsDomainKnowledge } from "../../../../../command-center/brain/gold";
+import { PRODUCT_MAP, asksHowTo, howToTarget } from "../../../../../command-center/brain/howto";
 import { upcoming, calendarLines } from "../../../../../command-center/adapters/calendar";
 import { recordCall, extractClaim, trackRecord, trackRecordLines } from "../../../../../command-center/engines/record";
 import { accountLines, asksAboutAccount, type AccountFacts } from "../../../../../command-center/brain/account";
@@ -45,6 +46,8 @@ function json(o: unknown, s = 200) {
 const ALLOWED: UiActionName[] = [
   "FOCUS_TIMEFRAME", "FOCUS_PRICE_RANGE", "SHOW_LEVEL", "SHOW_SESSION",
   "SHOW_SCENARIO", "SHOW_EVENT", "SHOW_TRADE", "SHOW_METRICS", "MARK_CHART",
+  // Navigation: a member who asks where a setting is gets taken there, not just told.
+  "OPEN_SETTINGS", "OPEN_BROKER",
 ];
 
 /**
@@ -67,7 +70,7 @@ function extractActions(text: string): { clean: string; actions: UiAction[] } {
 
 const UI_INSTRUCTIONS = `
 If the user asks you to show or focus something on the screen, end your reply with at most one marker on its own, using exactly this syntax and nothing else:
-[[UI: SHOW_LEVEL 4387.20]] or [[UI: FOCUS_TIMEFRAME 15m]] or [[UI: SHOW_SCENARIO bull]] or [[UI: SHOW_METRICS]] or [[UI: SHOW_TRADE]]
+[[UI: SHOW_LEVEL 4387.20]] or [[UI: FOCUS_TIMEFRAME 15m]] or [[UI: SHOW_SCENARIO bull]] or [[UI: SHOW_METRICS]] or [[UI: SHOW_TRADE]] or [[UI: OPEN_SETTINGS]] or [[UI: OPEN_BROKER]]
 Only use a marker when the user actually asked to see something. Never explain the marker.`;
 
 type Turn = { role: "user" | "assistant"; content: string };
@@ -214,6 +217,9 @@ export async function POST(req: Request) {
     past ? `\n\n${retrospectiveLines(past).join("\n")}` : "",
     record ? `\n\n${trackRecordLines(record).join("\n")}` : "",
     background ? `\n\n${GOLD_KNOWLEDGE}` : "",
+    // Where a control lives owes nothing to the market. A member asking how to use the product gets
+    // the map, on any turn, open or closed.
+    asksHowTo(message) ? `\n\n${PRODUCT_MAP}` : "",
   ].join("");
 
   const history = (body.history ?? []).slice(-8).filter((t) => t && (t.role === "user" || t.role === "assistant") && typeof t.content === "string");
