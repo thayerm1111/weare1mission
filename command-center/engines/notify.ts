@@ -24,7 +24,7 @@
  * EVERY SEND IS BEST-EFFORT. Nothing in this file may throw into the trading loop or delay an order.
  */
 
-import { sendTelegram, esc, fmt, telegramConfigured, type Audience } from "../adapters/telegram";
+import { sendTelegram, esc, fmt, telegramConfigured, type Audience, signalsArePublic } from "../adapters/telegram";
 import type { MarketSnapshot } from "../core/types";
 
 /* ── throttling ─────────────────────────────────────────────────────────── */
@@ -87,6 +87,10 @@ export function heartbeat(h: Health): void {
   post(lines.join("\n"), "health");
 }
 
+/** SCALP / NORMAL / SWING — the same words the GENX calls use, so the two feeds read alike. */
+const typeWord = (style: string): string =>
+  style === "quick" ? "SCALP" : style === "hold" || style === "intraday" ? "NORMAL" : style === "swing" ? "SWING" : esc(style.toUpperCase());
+
 /**
  * A SETUP IS FORMING — the "about to call a trade" the owner asked for.
  *
@@ -101,7 +105,7 @@ export function formingSetup(input: {
   if (!due(key, 20 * 60_000)) return;
 
   post([
-    `⏳ <b>THE BRAIN — setup forming · ${esc(input.side.toUpperCase())} · ${esc(input.style)}</b>`,
+    `⏳ <b>THE BRAIN ${typeWord(input.style)} — ${esc(input.side.toUpperCase())} setup forming</b>`,
     `Gold @ ${fmt(input.price)} · watching ${fmt(input.entry)} · stop would be ${fmt(input.stop)}`,
     input.missing ? `Waiting on: ${esc(input.missing)}` : `Waiting on the trigger.`,
     `<i>Not a call. THE BRAIN is watching this one.</i>`,
@@ -115,15 +119,18 @@ export function tookTrade(input: {
   side: string; style: string; entry: number | null; stop: number | null;
   target: number | null; lots?: number | null; riskAmount?: number | null; accNum?: string | null;
 }): void {
-  const size = input.lots != null
+  // In the members' channel the call is the call: direction, style, entry, stop, target. The owner's
+  // lot size, dollars at risk and account number are private and only go to a private chat.
+  const priv = !signalsArePublic();
+  const size = priv && input.lots != null
     ? `${input.lots} lots${input.riskAmount != null ? ` · ${fmt(input.riskAmount)} at risk` : ""}`
     : null;
 
   post([
-    `🤖 <b>THE BRAIN — TAKING · ${esc(input.side.toUpperCase())} · ${esc(input.style)}</b>`,
+    `🤖 <b>THE BRAIN ${typeWord(input.style)} — ENTER NOW · ${esc(input.side.toUpperCase())}</b>`,
     `Entry ~${fmt(input.entry)} · Stop ${fmt(input.stop)}${input.target != null ? ` · Target ${fmt(input.target)}` : ""}`,
     size ? esc(size) : null,
-    input.accNum ? `Account ${esc(input.accNum)}` : null,
+    priv && input.accNum ? `Account ${esc(input.accNum)}` : null,
     `<i>Automated. Educational, not financial advice.</i>`,
   ].filter(Boolean).join("\n"), "signals");
 }

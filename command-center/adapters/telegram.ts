@@ -56,7 +56,7 @@ export type Audience = "signals" | "health";
  *
  * Until then every Brain message, signals included, goes to the owner's own chat.
  */
-const signalsArePublic = (): boolean =>
+export const signalsArePublic = (): boolean =>
   String(process.env.CC_BRAIN_SIGNALS_PUBLIC ?? "").trim().toLowerCase() === "true";
 
 function chatFor(audience: Audience): string | null {
