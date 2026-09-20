@@ -221,19 +221,19 @@ export async function watchPass(admin: Admin, mdKey: string, tgReady: boolean): 
         if (tgReady) await sendTelegram(enterMsg(side, row.mode, tgMsg, lp, false));
         await admin.from("genx_alerts").update({ enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
         // 🚀 SEND IT (owner 09-04): chased signal arms for everyone else — Send It accounts fill at market now.
-        try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, sendItOnly: true }); } catch { /* best-effort */ }
+        try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, sendItOnly: true, mode: row.mode }); } catch { /* best-effort */ }
         try {
           const fKey = (row.entry_low != null && row.entry_high != null) ? `${row.mode}:${side}:${r1(row.entry_low)}:${r1(row.entry_high)}` : `id:${row.id}`;
-          await placeGenxFollower({ signalKey: fKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, sendItOnly: true });
+          await placeGenxFollower({ signalKey: fKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, sendItOnly: true, mode: row.mode });
         } catch { /* best-effort */ }
         sent.push(`${row.mode}:ARM`);
       } else if (act.do === "enter") {
         if (!armedNow && tgReady) await sendTelegram(enterMsg(side, row.mode, tgMsg, lp, false));
         await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
-        try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence }); } catch { /* placement is best-effort */ }
+        try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, mode: row.mode }); } catch { /* placement is best-effort */ }
         try {
           const fKey = (row.entry_low != null && row.entry_high != null) ? `${row.mode}:${side}:${r1(row.entry_low)}:${r1(row.entry_high)}` : `id:${row.id}`;
-          await placeGenxFollower({ signalKey: fKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence });
+          await placeGenxFollower({ signalKey: fKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, mode: row.mode });
         } catch { /* follower is best-effort */ }
         sent.push(`${row.mode}:ENTER`);
       } else if (act.do === "invalidate") {

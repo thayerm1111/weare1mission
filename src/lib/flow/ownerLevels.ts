@@ -102,7 +102,7 @@ export async function checkOwnerLevels(admin: Admin, mdKey: string): Promise<{ c
       const entry = res.enter;
       const tp = levelTarget(side, entry, inv, levels.filter((o) => o.id !== lv.id).map((o) => o.price));
       try {
-        await placeGenxGold({ side, entryLow: zoneLo, entryHigh: zoneHi, stop: inv, tp, conservativeOk: true, confidence: 70 });
+        await placeGenxGold({ side, entryLow: zoneLo, entryHigh: zoneHi, stop: inv, tp, conservativeOk: true, confidence: 70, mode: "intraday" });
         fired += 1;
         const name = lv.label ? `${lv.label} (${lv.price})` : String(lv.price);
         await sendTelegram(

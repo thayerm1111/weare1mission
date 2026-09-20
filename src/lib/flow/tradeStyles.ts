@@ -18,6 +18,8 @@
 import type { Mode } from "@/lib/genxCompute";
 
 export type StyleKey = "quick" | "hold" | "swing";
+/** What styleOfMode returns when the caller stated no horizon at all. */
+export type StyleMatch = StyleKey | "unknown";
 
 /** What a member sees, and what it means. */
 export const STYLE_LABELS: Record<StyleKey, { name: string; blurb: string }> = {
@@ -27,14 +29,24 @@ export const STYLE_LABELS: Record<StyleKey, { name: string; blurb: string }> = {
 };
 
 /** The engine's word for a horizon → ours. `intraday` is the engine's name for the middle one. */
-export function styleOfMode(mode: Mode | string | null | undefined): StyleKey {
+export function styleOfMode(mode: Mode | string | null | undefined): StyleMatch {
   const m = String(mode ?? "").toLowerCase();
   if (m === "swing") return "swing";
   if (m === "intraday" || m === "hold") return "hold";
-  return "quick";
+  if (m === "quick" || m === "scalp" || m === "rapid") return "quick";
+  return "unknown";
 }
 
 export type StylePrefs = { quick: boolean; hold: boolean; swing: boolean };
+
+/**
+ * A horizon the caller did not state.
+ *
+ * This used to collapse to "quick", which meant a signal carrying no horizon was silently treated as
+ * a scalp — so every account with Rapid switched off was dropped from every gold trade, and Normal
+ * and Swing decided nothing. Filtering people out of a trade on a guess is worse than not filtering:
+ * an unknown horizon now matches any account that still takes something.
+ */
 
 /**
  * Read the flags off an account row, tolerating a row written before the columns existed.
@@ -53,7 +65,12 @@ export function stylePrefsOf(a: { styleQuick?: boolean | null; styleHold?: boole
 
 /** Does this account want a trade found on this horizon? */
 export function accountTakesStyle(a: { styleQuick?: boolean | null; styleHold?: boolean | null; styleSwing?: boolean | null }, mode: Mode | string | null | undefined): boolean {
-  return stylePrefsOf(a)[styleOfMode(mode)];
+  const prefs = stylePrefsOf(a);
+  const key = styleOfMode(mode);
+  // An unstated horizon cannot be used to exclude anybody — it is missing information about the
+  // SIGNAL, and taking it out on the member's account would silently cancel trades they asked for.
+  if (key === "unknown") return prefs.quick || prefs.hold || prefs.swing;
+  return prefs[key];
 }
 
 /**

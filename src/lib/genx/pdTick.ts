@@ -144,7 +144,7 @@ export async function genx1PdTick(admin: Admin): Promise<PdTickResult> {
       `<i>Educational, not financial advice.</i>`,
     ].join("\n"));
   } catch { /* note best-effort */ }
-  try { await placeGenxGold({ side, entryLow, entryHigh, stop: c.stop, tp: c.target, conservativeOk: true, confidence: conf, tag: "genx-pd" }); } catch { /* placement best-effort, same as GENX 1.0 */ }
-  try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow, entryHigh, stop: c.stop, tp: c.target, conservativeOk: true, confidence: conf, tag: "genx-pd" }); } catch { /* best-effort */ }
+  try { await placeGenxGold({ side, entryLow, entryHigh, stop: c.stop, tp: c.target, conservativeOk: true, confidence: conf, tag: "genx-pd", mode: "intraday" }); } catch { /* placement best-effort, same as GENX 1.0 */ }
+  try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow, entryHigh, stop: c.stop, tp: c.target, conservativeOk: true, confidence: conf, tag: "genx-pd", mode: "intraday" }); } catch { /* best-effort */ }
   return { ran: true, fired: dedupeKey };
 }

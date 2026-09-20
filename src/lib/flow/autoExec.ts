@@ -1601,7 +1601,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
        * decision by a different toggle.
        */
       const styleBefore = accounts.length;
-      accounts = filterAccountsByStyle(accounts, sig.mode ?? "quick");
+      accounts = filterAccountsByStyle(accounts, sig.mode);
       if (accounts.length !== styleBefore) {
         await deskDrop(`${styleBefore - accounts.length} account(s) stood down — ${styleOfMode(sig.mode ?? "quick")} horizon switched off on them`);
       }
@@ -1675,6 +1675,8 @@ export async function placeGenxFollower(sig: {
   signalKey: string; side: "buy" | "sell";
   entryLow?: number | null; entryHigh?: number | null;
   stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null; sendItOnly?: boolean;
+  /* Which horizon this call was found on, so the account's trade styles decide here too. */
+  mode?: Mode | string | null;
 } & GenxDelivery): Promise<{ accounts: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { accounts: 0, placed: 0 };
@@ -1731,10 +1733,10 @@ export async function placeGenxFollower(sig: {
   // Every follower account, across every user/connection (independent of FLOW).
   // Pull the per-account risk override + management toggle when those columns exist;
   // fall back to a bare select so the follower never breaks before the migration is run.
-  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; risk_pct?: number | null; manage_trades?: boolean | null; risk_mode?: string | null; autotrade_enabled?: boolean | null; send_it?: boolean | null; send_it_stack?: boolean | null; send_it_guards?: boolean | null };
+  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; risk_pct?: number | null; manage_trades?: boolean | null; risk_mode?: string | null; autotrade_enabled?: boolean | null; send_it?: boolean | null; send_it_stack?: boolean | null; send_it_guards?: boolean | null; style_quick?: boolean | null; style_hold?: boolean | null; style_swing?: boolean | null };
   let accts: FollowRow[] = [];
   const withCols = await admin.from("flow_broker_accounts")
-    .select("user_id, account_id, acc_num, connection_id, risk_pct, manage_trades, risk_mode, autotrade_enabled, send_it, send_it_stack, send_it_guards").eq("genx_follower", true);
+    .select("user_id, account_id, acc_num, connection_id, risk_pct, manage_trades, risk_mode, autotrade_enabled, send_it, send_it_stack, send_it_guards, style_quick, style_hold, style_swing").eq("genx_follower", true);
   if (!withCols.error) accts = (withCols.data ?? []) as FollowRow[];
   else {
     const fb = await admin.from("flow_broker_accounts")
@@ -1746,6 +1748,18 @@ export async function placeGenxFollower(sig: {
   // this follower fill for the same setup. Pure-follower accounts (autotrade off) route here.
   // Uses the shared goldRoute() rule so the two paths can never disagree on ownership.
   accts = accts.filter((a) => goldRoute(a) === "follower").map(a => ({ ...a, send_it: SEND_IT_ENABLED && a.send_it === true }));
+  /*
+   * TRADE STYLES APPLY HERE TOO.
+   *
+   * The copy path filtered on the account's horizons and this one never did, so a follower who
+   * switched Swing off kept taking swing calls. "Follow every GENX signal" means every signal of the
+   * kinds this account takes — the three style switches sit on the same card and are the member
+   * saying which kinds those are. A call that states no horizon still reaches everybody.
+   */
+  accts = filterAccountsByStyle(
+    accts.map((a) => ({ ...a, styleQuick: a.style_quick, styleHold: a.style_hold, styleSwing: a.style_swing })),
+    sig.mode,
+  ) as FollowRow[];
   if (sig.onlyUserIds) { const allow = new Set(sig.onlyUserIds); accts = accts.filter((a) => allow.has(String(a.user_id))); } // GENX 3.0 live scope
   else if (sig.origin !== "genx3") { const reserved = await genx3ReservedUsers(admin); if (reserved.size) accts = accts.filter((a) => !reserved.has(String(a.user_id))); }
   accts = genx3AccountFilter(accts, (a) => String(a.account_id), sig, sig.onlyAccountIds || sig.origin === "genx3" ? new Set() : (await genx3Reserved(admin)).accounts);
