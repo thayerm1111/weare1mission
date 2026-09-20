@@ -159,7 +159,9 @@ export async function preflight(): Promise<PreflightLine[]> {
       const cols = cfg.ok ? positionColumns(cfg.data) : DEFAULT_POSITION_COLUMNS;
       const pos = await listPositions(s.session.auth);
       if (!pos.ok) {
-        openLine = " · CANNOT READ open positions from the broker";
+        // The error text, not just the fact of one. "Cannot read" sent me looking at a parser for the
+        // second time tonight when the call itself was failing and the parser never ran.
+        openLine = ` · CANNOT READ open positions — HTTP ${pos.status}: ${String(pos.error).slice(0, 160)}`;
       } else {
         const rows = parsePositions(pos.data, cols);
         const gold = rows.filter((p) => !p.instrumentId || p.instrumentId === inst.spec.tradableInstrumentId);
