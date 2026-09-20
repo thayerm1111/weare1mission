@@ -194,25 +194,64 @@ export async function touch(sessionId: string, turns = 0): Promise<void> {
   const { data } = await c.from("cc_voice_sessions").select("started_at, turns").eq("id", sessionId).maybeSingle();
   if (!data) return;
   const r = data as { started_at: string; turns: number };
-  const minutes = Math.ceil((Date.now() - Date.parse(r.started_at)) / 60_000);
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  // The running figure the live budget reads. Same meter as close, so the number on screen mid-call
+  // is the number that will be billed, not a rounded-up estimate that close later quietly corrects.
+  const minutes = billableMinutes(r.started_at, nowIso, now);
   await c.from("cc_voice_sessions").update({
-    last_seen_at: new Date().toISOString(),
+    last_seen_at: nowIso,
     minutes,
     turns: (r.turns ?? 0) + turns,
   }).eq("id", sessionId);
+}
+
+
+/**
+ * WHAT A SESSION ACTUALLY COST, IN MINUTES.
+ *
+ * Two bugs, found when the owner saw 158 of his 1,000 minutes gone after barely using the microphone.
+ * His sessions were billed 162 minutes for 94 minutes of actual life — 72% over — and a customer paying
+ * $190 for 1,000 minutes would have lost the same share.
+ *
+ * 1. BILLED TO WHEN WE NOTICED, NOT TO WHEN IT STOPPED. The reaper SELECTED last_seen_at and then billed
+ *    `Date.now() - started_at` regardless. A session alive for one second, found abandoned eight minutes
+ *    later, cost eight minutes. The reaper runs on a five-minute cadence with a three-minute staleness
+ *    threshold, so every abandoned line was billed several minutes of nothing.
+ *
+ * 2. EVERY SESSION ROUNDED UP TO A WHOLE MINUTE. `Math.ceil` made an eighteen-second session cost a
+ *    full minute. Tonight's microphone was a virtual device that heard nothing, so the owner reopened
+ *    the line nineteen times — and each reopening was a fresh rounded-up minute.
+ *
+ * So a session now ends at the LATER of its last sign of life and a short grace (a genuine speaker
+ * may go quiet between heartbeats), never at the moment somebody happened to look; and it is metered
+ * to the tenth of a minute. The column is numeric, so tenths store exactly.
+ */
+const HEARTBEAT_GRACE_MS = 30_000;
+
+export function billableMinutes(startedAt: string, lastSeenAt: string | null, endedAtMs: number): number {
+  const start = Date.parse(startedAt);
+  if (!Number.isFinite(start)) return 0;
+  const seen = lastSeenAt ? Date.parse(lastSeenAt) : NaN;
+  // The line was live until its last heartbeat, plus a little grace — but never beyond when it closed.
+  const liveUntil = Number.isFinite(seen) ? Math.min(endedAtMs, seen + HEARTBEAT_GRACE_MS) : endedAtMs;
+  const ms = Math.max(0, liveUntil - start);
+  return Math.round((ms / 60_000) * 10) / 10;
 }
 
 export async function closeSession(userId: string, reason = "ended"): Promise<void> {
   const c = db();
   if (!c) return;
   const { data } = await c.from("cc_voice_sessions")
-    .select("id, started_at").eq("user_id", userId).is("ended_at", null).maybeSingle();
+    .select("id, started_at, last_seen_at").eq("user_id", userId).is("ended_at", null).maybeSingle();
   if (!data) return;
-  const r = data as { id: string; started_at: string };
+  const r = data as { id: string; started_at: string; last_seen_at: string | null };
+  const now = Date.now();
   await c.from("cc_voice_sessions").update({
-    ended_at: new Date().toISOString(),
+    ended_at: new Date(now).toISOString(),
     end_reason: reason.slice(0, 80),
-    minutes: Math.ceil((Date.now() - Date.parse(r.started_at)) / 60_000),
+    // A superseded line was replaced because it was dead; bill it to when it last spoke, not to now.
+    minutes: billableMinutes(r.started_at, r.last_seen_at, now),
   }).eq("id", r.id);
 }
 
@@ -225,12 +264,14 @@ export async function reapAbandoned(): Promise<number> {
   const { data } = await c.from("cc_voice_sessions")
     .select("id, started_at, last_seen_at").is("ended_at", null)
     .or(`last_seen_at.lt.${staleBefore},started_at.lt.${tooOld}`);
-  const rows = (data ?? []) as { id: string; started_at: string }[];
+  const rows = (data ?? []) as { id: string; started_at: string; last_seen_at: string | null }[];
   for (const r of rows) {
+    const now = Date.now();
     await c.from("cc_voice_sessions").update({
-      ended_at: new Date().toISOString(),
+      ended_at: new Date(now).toISOString(),
       end_reason: "abandoned",
-      minutes: Math.ceil((Date.now() - Date.parse(r.started_at)) / 60_000),
+      // It was selected BECAUSE it stopped being seen. Billing it to now charged for the silence.
+      minutes: billableMinutes(r.started_at, r.last_seen_at, now),
     }).eq("id", r.id);
   }
   return rows.length;
