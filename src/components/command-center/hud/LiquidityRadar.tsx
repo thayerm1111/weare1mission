@@ -37,10 +37,12 @@ const KIND_WORD: Record<RadarBlip["kind"], string> = {
 
 type Placed = RadarBlip & { x: number; y: number };
 
-export function LiquidityRadar({ price, blips, size = 150, alive, onHover }: {
+export function LiquidityRadar({ price, blips, size = 150, alive, onHover, onPick }: {
   price: number | null; blips: RadarBlip[]; size?: number; alive: boolean;
   /** The blip under the pointer. The panel shows its detail beside the radar, where there is room for it. */
   onHover?: (b: RadarBlip | null) => void;
+  /** Tapping a blip pins that level on the chart. */
+  onPick?: (b: RadarBlip) => void;
 }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   const placed = useRef<Placed[]>([]);
@@ -125,7 +127,9 @@ export function LiquidityRadar({ price, blips, size = 150, alive, onHover }: {
   }, [setHover]);
 
   return (
-    <div className="relative" style={{ width: size, height: size }} onMouseMove={onMove} onMouseLeave={() => setHover(null)}
+    <div className="relative" style={{ width: size, height: size, cursor: hover ? "pointer" : undefined }}
+      onMouseMove={onMove} onMouseLeave={() => setHover(null)}
+      onClick={() => { if (hover && onPick) onPick(hover); }}
       onTouchStart={(e) => {
         const r = e.currentTarget.getBoundingClientRect(); const t = e.touches[0];
         const x = t.clientX - r.left, y = t.clientY - r.top;

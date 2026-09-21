@@ -116,6 +116,9 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 };
   const [ctx, setCtx] = useState<{ rows: CtxRow[]; history: { t: number; v: number }[]; at: number | null } | null>(null);
   const [radarHover, setRadarHover] = useState<RadarBlip | null>(null);
+  /** A level the member tapped: the chart marks it until they tap it again or a minute passes. */
+  const [pinned, setPinned] = useState<{ price: number; label: string } | null>(null);
+  useEffect(() => { if (!pinned) return; const t = setTimeout(() => setPinned(null), 60_000); return () => clearTimeout(t); }, [pinned]);
   const [now, setNow] = useState(0);   // 0 until mounted, so server and client render the same text
   const [flash, setFlash] = useState<"up" | "dn" | null>(null);
   const [desk, setDesk] = useState<{
@@ -189,9 +192,22 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
   const chartBars: ChartBar[] = useMemo(() => {
     const m5 = (d?.bars ?? []) as ChartBar[];
-    if (tf === "5m") return m5.slice(-160);
-    if (isReplay || !tfBars.length) return aggregate(m5, TF_MIN[tf] ?? 15).slice(-160);
-    return tfBars.slice(-170);
+    const raw = tf === "5m" ? m5.slice(-160)
+      : isReplay || !tfBars.length ? aggregate(m5, TF_MIN[tf] ?? 15).slice(-160)
+      : tfBars.slice(-170);
+    /*
+     * A weekend is not chart data. On the higher timeframes the series runs back through Friday's close,
+     * and a flat two-day line squashes the part a trader is actually looking at. If there is a gap of
+     * more than three hours in the first two-thirds of the series, the chart starts after it — as long
+     * as enough candles remain to be worth drawing.
+     */
+    const step = (TF_MIN[tf] ?? 15) * 60_000;
+    for (let i = raw.length - 1; i > 0; i--) {
+      if (raw[i].t - raw[i - 1].t > Math.max(3 * 3600_000, step * 4) && raw.length - i >= 24 && i > raw.length * 0.25) {
+        return raw.slice(i);
+      }
+    }
+    return raw;
   }, [d?.bars, tf, tfBars, isReplay]);
 
   useEffect(() => {
@@ -285,6 +301,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
     for (const w of thesis?.watching ?? []) lines.push({ price: w, label: "Atlas watch", color: H.gold2 });
     if (thesis?.invalidationPrice != null) lines.push({ price: thesis.invalidationPrice, label: "Read fails here", color: H.red });
   }
+  if (pinned) lines.push({ price: pinned.price, label: `◆ ${pinned.label}`, color: H.cyan2, dashed: false });
   if (trade?.active && trade.entry != null) {
     lines.push({ price: trade.entry, label: `Entry ${trade.side?.toUpperCase()}`, color: H.blue, dashed: false });
     if (trade.stop != null) lines.push({ price: trade.stop, label: "Stop", color: H.red, dashed: false });
@@ -503,6 +520,18 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
               </p>
               <Sparkline values={spark.slice(-30)} color={biasColor} w={64} h={40} />
             </div>
+            {(() => {
+              const c5 = d?.changes?.find((c) => c.horizon === "5m") ?? d?.changes?.[0];
+              if (!c5) return null;
+              const dp = c5.pressureTo - c5.pressureFrom;
+              return (
+                <p className="mt-1 shrink-0 text-[10px] tabular-nums" style={{ color: H.mut }} title="What measurably changed over this window — the engine's own before-and-after">
+                  <span style={{ color: H.gold2 }}>{c5.horizon}:</span>{" "}
+                  price {c5.priceMove >= 0 ? "+" : ""}{c5.priceMove.toFixed(2)} · pressure {Math.round(c5.pressureFrom)} → {Math.round(c5.pressureTo)}
+                  {Math.abs(dp) >= 3 ? <span style={{ color: dp > 0 ? H.green : H.red }}> ({dp > 0 ? "+" : ""}{Math.round(dp)})</span> : null}
+                </p>
+              );
+            })()}
             <div className="mt-1.5 flex items-center justify-between">
               <button onClick={() => ask("Explain your current read in detail: what you think, why, what changed, what you're watching, what would invalidate it and what would strengthen it.")}
                 className="inline-flex items-center gap-1.5 rounded-[5px] px-2 py-[3px] text-[9px] font-bold tracking-[0.12em]"
@@ -538,13 +567,18 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             {(intel?.keyLevels ?? []).map((l, i) => {
               const isPx = l.role === "price";
               const col = isPx ? H.gold3 : l.role === "invalidation" ? H.red : l.watched || l.role === "watch" ? H.gold2 : l.role === "resistance" ? "#E7A0A7" : "#9FE3C8";
+              const isPinned = !isPx && pinned != null && Math.abs(pinned.price - l.price) < 0.01;
               return (
-                <div key={i} className="flex items-center gap-3 rounded-[5px] px-2 py-[3px] text-[11px]"
-                  style={isPx ? { border: `1px solid ${H.gold2}`, background: "rgba(213,169,61,0.1)", boxShadow: "0 0 10px rgba(213,169,61,0.2)" } : undefined}>
+                <button key={i} type="button" title={isPx ? "The live price" : "Mark this level on the chart"}
+                  onClick={() => !isPx && setPinned(isPinned ? null : { price: l.price, label: cap(l.label) })}
+                  className="flex w-full items-center gap-3 rounded-[5px] px-2 py-[3px] text-left text-[11px] transition hover:brightness-125"
+                  style={isPx
+                    ? { border: `1px solid ${H.gold2}`, background: "rgba(213,169,61,0.1)", boxShadow: "0 0 10px rgba(213,169,61,0.2)" }
+                    : isPinned ? { border: `1px solid ${H.cyan2}`, background: "rgba(0,199,232,0.08)" } : { border: "1px solid transparent" }}>
                   <span className="w-[68px] font-semibold tabular-nums" style={{ color: isPx ? H.gold3 : H.text }}>{fmt2(l.price)}</span>
                   <span className="min-w-0 flex-1 truncate" style={{ color: isPx ? H.gold3 : H.mut }} title={l.label}>{cap(l.label)}</span>
-                  <span className="shrink-0 text-[10px]" style={{ color: col }}>{isPx ? "→" : l.watched || l.role === "watch" ? "● watch" : l.role === "invalidation" ? "✕ fails" : "•".repeat(Math.max(1, 4 - Math.min(3, Math.floor(Math.abs(l.price - (d?.price ?? l.price)) / Math.max(1, (intel?.volatility.atr ?? 5)))) ))}</span>
-                </div>
+                  <span className="shrink-0 text-[10px]" style={{ color: isPinned ? H.cyan2 : col }}>{isPx ? "→" : isPinned ? "pinned" : l.watched || l.role === "watch" ? "● watch" : l.role === "invalidation" ? "✕ fails" : "•".repeat(Math.max(1, 4 - Math.min(3, Math.floor(Math.abs(l.price - (d?.price ?? l.price)) / Math.max(1, (intel?.volatility.atr ?? 5)))) ))}</span>
+                </button>
               );
             })}
             {!intel?.keyLevels?.length && <p className="px-2 py-2 text-[11px]" style={{ color: H.mut }}>Levels appear with the first market read.</p>}
@@ -638,7 +672,8 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
               <HudPanel title="LIQUIDITY RADAR" icon={<Radar className="h-3.5 w-3.5" />}
                 right={<span className="flex items-center gap-1" title="Estimated from price structure — gold is over the counter, so no feed here shows resting orders"><Chip active={liquidity} onClick={() => setLiquidity(true)}>Heatmap</Chip><Chip active={!liquidity} tone="cyan" onClick={() => setLiquidity(false)}>Structure</Chip></span>}
                 bodyClass="flex items-center gap-2 px-2 pb-2">
-                <LiquidityRadar price={d?.price ?? null} blips={blips} size={104} alive={alive} onHover={setRadarHover} />
+                <LiquidityRadar price={d?.price ?? null} blips={blips} size={104} alive={alive} onHover={setRadarHover}
+                  onPick={(b) => setPinned(pinned && Math.abs(pinned.price - b.price) < 0.01 ? null : { price: b.price, label: b.label })} />
                 {radarHover ? (
                   <div className="min-w-0 flex-1 self-stretch rounded-[6px] p-1.5 text-[9.5px] leading-snug"
                     style={{ border: `1px solid rgba(${RADAR_KIND_COLOR[radarHover.kind]},0.55)`, background: "rgba(3,7,11,0.7)" }}>
@@ -785,9 +820,10 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             right={<span className="flex items-center gap-[3px]">{(["ALL", "PRICE", "STRUCTURE", "NEWS"] as StreamFilter[]).map((f) => <Chip key={f} active={streamFilter === f} onClick={() => setStreamFilter(f)} className="!px-1.5 !text-[8px]">{f}</Chip>)}<LiveDot size={5} /></span>}
             bodyClass="hud-scroll overflow-y-auto px-2 pb-2">
             {streamRows.length ? streamRows.map((r, i) => (
-              <div key={r.key} className={`flex gap-3 border-b px-1.5 py-[5px] ${i === 0 ? "hud-in" : ""}`} style={{ borderColor: H.lineSoft }}>
+              <div key={r.key} className={`flex gap-2.5 border-b border-l-2 py-[5px] pl-2 pr-1.5 ${i === 0 ? "hud-in" : ""}`}
+                style={{ borderBottomColor: H.lineSoft, borderLeftColor: r.kind === "trade" ? H.gold2 : r.kind === "news" ? H.blue : r.kind === "structure" ? "rgba(39,215,242,0.5)" : "rgba(255,255,255,0.12)" }}>
                 <span className="shrink-0 text-[10px] tabular-nums" style={{ color: H.mut }}>{clock(r.at)}</span>
-                <span className="text-[11px] leading-snug" style={{ color: r.urgent ? H.gold2 : r.kind === "trade" ? H.gold3 : r.lean === "bearish" ? "#F2B8BE" : r.lean === "bullish" ? "#B5EDD8" : "#C9D3DB" }}>{r.detail}</span>
+                <span className="text-[11px] leading-snug" title={`${new Date(r.at).toLocaleTimeString()} · ${r.kind}`} style={{ color: r.urgent ? H.gold2 : r.kind === "trade" ? H.gold3 : r.lean === "bearish" ? "#F2B8BE" : r.lean === "bullish" ? "#B5EDD8" : "#C9D3DB" }}>{r.detail}</span>
               </div>
             )) : <p className="p-2 text-[11px]" style={{ color: H.mut }}>Nothing worth reporting yet. ATLAS stays quiet when nothing has changed.</p>}
           </HudPanel>
