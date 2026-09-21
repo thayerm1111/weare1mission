@@ -1,11 +1,13 @@
 import { type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { genx2Active } from "@/lib/genx3/engineSelect";
-import { computeGenxRead, buildGenx, genxConservativeGate, GOLD, MODES, type Mode } from "@/lib/genxCompute";
+import { computeGenxRead, buildGenx, genxConservativeGate, sessionNow, GOLD, MODES, type Mode } from "@/lib/genxCompute";
+import { detectBreakdownRetest, breakdownLimits, tradingDayStart, type Bar as BrkBar } from "@/lib/genx/breakdownRetest";
+import { newsHold } from "@/lib/news/calendar";
 import { confirmEntry, CONFIRM_IV } from "@/lib/genxConfirm";
 import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
-import { placeGenxGold, placeGenxFollower, rewardRisk, inWeekendCloseWindow, inScanQuietWindow } from "@/lib/flow/autoExec";
+import { placeGenxGold, placeGenxFollower, rewardRisk, inWeekendCloseWindow, inScanQuietWindow, inDailyReopenWindow, goldDeskBreaker } from "@/lib/flow/autoExec";
 import { checkOwnerLevels } from "@/lib/flow/ownerLevels";
 import { billSetupForming } from "@/lib/flow/flowBilling";
 import { watchPass, findSameSetup, decideGoldEntry, beatKeepDecision, headsUpMsg, enterMsg, invalidMsg, MODE_LABEL, r1, fmt, acquireWatchLock, extendWatchLock, releaseWatchLock, type AlertRow } from "@/lib/genx/watchTick";
@@ -141,6 +143,8 @@ async function run(): Promise<Response> {
   } catch { /* grading is best effort */ }
 
   const out: Record<string, unknown> = { modes: {}, sent: [] as string[], tgReady };
+  // the quick read, kept for the breakdown-retest pass after the main scan
+  let quickBias: { bias: string; bull: number; bear: number; price: number } | null = null;
   const sent = out.sent as string[];
 
   // Scalp only for now — the Quick (5-min, 30–80 pip) timeframe. Add "intraday"
@@ -152,6 +156,10 @@ async function run(): Promise<Response> {
       const rr = await computeGenxRead({ mode, mdKey, fresh: true });
       if (!rr.ok) { modeOut.skip = rr.error; continue; }
       const genx = buildGenx(rr.read, { mode, price: rr.price, session: rr.session, dataStatus: rr.dataStatus, hold: MODES[mode].hold, triggerTf: MODES[mode].triggerTf, contextTf: MODES[mode].contextTf, pip: GOLD.pip, dec: GOLD.dec, marketStory: [], volatility: rr.volatility, atr: rr.atr, m15: rr.m15 });
+      if (mode === "quick") {
+        const g = genx as unknown as { directional_bias?: string; bull_case_score?: number; bear_case_score?: number };
+        quickBias = { bias: String(g.directional_bias ?? ""), bull: Number(g.bull_case_score ?? 0), bear: Number(g.bear_case_score ?? 0), price: rr.price };
+      }
 
       const engineState = String(genx.engine_state || "");
       const actionable = engineState === "TRADE_READY" || engineState === "DEVELOPING_SETUP";
@@ -297,6 +305,10 @@ async function run(): Promise<Response> {
     }
   }
 
+  // BREAKDOWN-RETEST SELLS (owner 09-21) — see src/lib/genx/breakdownRetest.ts for the rule and its limits.
+  try { out.breakdown = await breakdownRetestPass(admin, mdKey, quickBias, tgReady, sent); } catch (e) { out.breakdown = { error: e instanceof Error ? e.message : "error" }; }
+  try { await beat(admin, "genx", { tier: "full", flags: genx2FlagsSnapshot(), last_decision: { at: nowIso, mode: "quick", breakdown: out.breakdown } }); } catch { /* best-effort */ }
+
   // MY LEVELS (owner 09-07): after the trend scan, check the owner's drawn
   // support/resistance lines — a confirmed 5-minute rejection at one fires a
   // level-bounce placement through the exact same execution path.
@@ -389,4 +401,71 @@ export async function POST(req: NextRequest) {
   if (sp.get("test")) return sendProbe();
   if (sp.get("watch") === "1") return runWatch();
   return run();
+}
+
+/**
+ * One breakdown-retest pass. Every exit returns the reason, so "why didn't it call?" is always answerable
+ * from the heartbeat. Fails closed: missing data, an unreadable limit or an unknown bias means no call.
+ */
+async function breakdownRetestPass(
+  admin: NonNullable<ReturnType<typeof createAdminClient>>, mdKey: string,
+  bias: { bias: string; bull: number; bear: number; price: number } | null, tgReady: boolean, sent: string[],
+): Promise<Record<string, unknown>> {
+  if ((process.env.GENX_BREAKDOWN_RETEST ?? "").toLowerCase() === "off") return { skip: "switched_off" };
+  if (inWeekendCloseWindow() || inScanQuietWindow() || inDailyReopenWindow()) return { skip: "quiet_window" };
+  if (!bias) return { skip: "no_read" };
+  if (!(bias.bias === "bearish" && bias.bear >= bias.bull)) return { skip: `bias_not_bearish:${bias.bias}` };
+
+  // closed 5-minute bars (the feed's last row is the bar still forming)
+  const raw = await series(GOLD.symbol, "5min", 150, mdKey, false);
+  if (!Array.isArray(raw) || raw.length < 60) return { skip: "no_bars" };
+  // The feed's last row is the bar still forming (same convention as genxConfirm) — never trade on it.
+  const rows = raw.slice(0, -1);
+  const bars: BrkBar[] = rows.map((r) => ({ t: String(r.datetime), o: +r.open, h: +r.high, l: +r.low, c: +r.close }))
+    .filter((b) => [b.o, b.h, b.l, b.c].every(Number.isFinite));
+  const d = detectBreakdownRetest(bars);
+  if (!d.ok) return { skip: d.reason };
+  const s = d.setup;
+
+  // chase check: the live price must still be near the rejection close
+  if (Math.abs(bias.price - s.entry) > 0.35 * s.risk) return { skip: "moved_away", setup: s };
+
+  // limits
+  const since = new Date(Date.now() - 36 * 3600_000).toISOString();
+  const { data: prev, error: prevErr } = await admin.from("genx_alerts").select("created_at, outcome").like("dedupe_key", "quick:sell:brk:%").gte("created_at", since);
+  if (prevErr) return { skip: "limits_unreadable" };
+  const lim = breakdownLimits(
+    ((prev ?? []) as { created_at: string; outcome: string | null }[]).map((p) => ({ createdAt: p.created_at, session: sessionNow(new Date(p.created_at)), outcome: p.outcome })),
+    { session: sessionNow(new Date()), dayStartMs: tradingDayStart() },
+  );
+  if (!lim.ok) return { skip: lim.reason, setup: s };
+  const { data: open, error: openErr } = await admin.from("genx_alerts").select("id").in("state", ["forming", "entered"]).is("outcome", null).like("dedupe_key", "quick:%").limit(1);
+  if (openErr) return { skip: "open_calls_unreadable" };
+  if ((open ?? []).length) return { skip: "another_call_open", setup: s };
+  const brk = await goldDeskBreaker(admin);
+  if (brk.hold) return { skip: "desk_breaker", setup: s };
+  try { if ((await newsHold("XAUUSD")).hold) return { skip: "news_blackout", setup: s }; } catch { return { skip: "news_unreadable" }; }
+
+  // record first (unique key per level), then announce and place — never twice
+  const nowIso = new Date().toISOString();
+  const dedupeKey = `quick:sell:brk:${r1(s.level)}`;
+  const zone = { entry_low: Math.round((s.entry - 0.3) * 100) / 100, entry_high: Math.round((s.entry + 0.3) * 100) / 100 };
+  const { error: insErr } = await admin.from("genx_alerts").insert({
+    dedupe_key: dedupeKey, mode: "quick", side: "sell", action: "SELL_NOW",
+    entry: s.entry, ...zone, stop: s.stop, tp1: s.tp1, tp2: s.tp2, tp3: null,
+    invalidation: s.stop, watch: s.level, confidence: null, trigger_tf: "5-minute",
+    state: "entered", enter_price: bias.price, heads_up_sent_at: nowIso, enter_sent_at: nowIso, last_checked_at: nowIso,
+    quality_ok: false, // conservative accounts never take a breakdown-retest
+  });
+  if (insErr) return { skip: "already_called_this_level", setup: s };
+  if (tgReady) {
+    await sendTelegram([
+      `📉 <b>Breakdown retest</b> — support ${fmt(s.level)} broke, and its first retest just rejected. Aggressive accounts only.`,
+      enterMsg("sell", "quick", { ...zone, stop: s.stop, tp1: s.tp1, tp2: s.tp2, tp3: null }, bias.price, true),
+    ].join("\n"));
+  }
+  try { await placeGenxGold({ side: "sell", ...{ entryLow: zone.entry_low, entryHigh: zone.entry_high }, stop: s.stop, tp: s.tp1, conservativeOk: false, confidence: null, mode: "quick" }); } catch { /* best-effort */ }
+  try { await placeGenxFollower({ signalKey: dedupeKey, side: "sell", entryLow: zone.entry_low, entryHigh: zone.entry_high, stop: s.stop, tp: s.tp1, conservativeOk: false, confidence: null, mode: "quick" }); } catch { /* best-effort */ }
+  sent.push("quick:BREAKDOWN_RETEST");
+  return { result: "called", setup: s };
 }

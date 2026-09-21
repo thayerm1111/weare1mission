@@ -1309,7 +1309,7 @@ export function mergeLossEvents(alertTimes: number[], stopTimes: number[], bucke
   return out;
 }
 
-async function goldDeskBreaker(admin: Admin): Promise<{ hold: boolean; reason: string }> {
+export async function goldDeskBreaker(admin: Admin): Promise<{ hold: boolean; reason: string }> {
   if ((process.env.GENX_DESK_BREAKER ?? "").toLowerCase() === "off") return { hold: false, reason: "" };
   const sinceIso = new Date(Date.now() - 6 * 3600_000).toISOString();
   let alertTimes: number[];
