@@ -103,7 +103,7 @@ export function GoldChart({ bars, price, markers, zones, lines, path, pathLabel,
           return (
             <g key={k}>
               <rect x={x0} y={y1 - (h === 6 ? 3 : 0)} width={plotW - x0 - 4} height={h} fill={`rgba(${col},0.10)`} stroke={`rgba(${col},0.45)`} strokeWidth={0.8} />
-              <text x={x0 + 6} y={y1 + (h === 6 ? -5 : 11)} textAnchor="start" fontSize="10" fill={`rgba(${col},0.95)`}>{z.label}</text>
+              <text x={x0 + 6} y={y1 + (h === 6 ? -5 : 12)} textAnchor="start" fontSize="10" fill={`rgba(${col},0.95)`}>{z.label}</text>
             </g>
           );
         })}
@@ -135,21 +135,36 @@ export function GoldChart({ bars, price, markers, zones, lines, path, pathLabel,
           );
         })}
 
-        {/* markers */}
-        {showOverlays && markers.slice(0, 6).map((m, k) => {
-          const i = idxAt(m.at); if (i < 0) return null;
-          const b = bars[i];
-          const p = m.price ?? (m.tone === "down" ? b.h : b.l);
-          const col = m.tone === "down" ? H.red : m.tone === "up" ? H.green : m.tone === "gold" ? H.gold2 : H.text;
-          const above = m.tone !== "up";
-          const yy = y(p) + (above ? -10 - (k % 3) * 11 : 14 + (k % 3) * 11);
-          return (
-            <g key={k} className="hud-in">
-              <line x1={x(i) - 22} x2={x(i) + 22} y1={y(p)} y2={y(p)} stroke={col} strokeDasharray="2 3" strokeOpacity={0.8} />
-              <text x={x(i)} y={yy} textAnchor="middle" fontSize="10" fontWeight={600} fill={col}>{m.label}</text>
-            </g>
-          );
-        })}
+        {/* markers — placed so their labels never sit on top of each other */}
+        {showOverlays && (() => {
+          const placed: { x: number; y: number; w: number }[] = [];
+          return markers.slice(0, 6).map((m, k) => {
+            const i = idxAt(m.at); if (i < 0) return null;
+            const b = bars[i];
+            const p = m.price ?? (m.tone === "down" ? b.h : b.l);
+            const col = m.tone === "down" ? H.red : m.tone === "up" ? H.green : m.tone === "gold" ? H.gold2 : H.text;
+            const above = m.tone !== "up";
+            const w = m.label.length * 5.4;
+            // Keep the label inside the plot and off the price axis, then walk it away from anything
+            // already drawn until it has its own space. Labels are information, not decoration.
+            const cx = Math.min(plotW - w / 2 - 6, Math.max(w / 2 + 4, x(i)));
+            let yy = y(p) + (above ? -9 : 13);
+            for (let guard = 0; guard < 8; guard++) {
+              const clash = placed.some((q) => Math.abs(q.x - cx) < (q.w + w) / 2 + 4 && Math.abs(q.y - yy) < 11);
+              if (!clash) break;
+              yy += above ? -11 : 11;
+            }
+            yy = Math.max(12, Math.min(priceH - 4, yy));
+            placed.push({ x: cx, y: yy, w });
+            return (
+              <g key={k} className="hud-in">
+                <line x1={x(i) - 18} x2={x(i) + 18} y1={y(p)} y2={y(p)} stroke={col} strokeDasharray="2 3" strokeOpacity={0.8} />
+                {Math.abs(yy - y(p)) > 16 && <line x1={cx} x2={x(i)} y1={yy + (above ? 3 : -7)} y2={y(p)} stroke={col} strokeOpacity={0.25} />}
+                <text x={cx} y={yy} textAnchor="middle" fontSize="9.5" fontWeight={600} fill={col}>{m.label}</text>
+              </g>
+            );
+          });
+        })()}
 
         {/* projected scenario path */}
         {showOverlays && path && path.length > 1 && (() => {

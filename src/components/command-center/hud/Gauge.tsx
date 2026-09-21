@@ -20,10 +20,11 @@ export function Gauge({ title, display, sub, value01, color, empty = false, delt
   return (
     <div className="flex h-full min-w-0 flex-col items-center justify-between rounded-[8px] px-2 pb-1.5 pt-2"
       style={{ background: "linear-gradient(180deg,#0A1520,#07101A)", border: `1px solid ${H.line}` }} title={info}>
-      <p className="w-full truncate text-center text-[9.5px] font-bold uppercase tracking-[0.13em]" style={{ color: H.text }}>
+      {/* Two lines rather than an ellipsis: "SELLER PRESSUR…" tells a trader nothing. */}
+      <p className="w-full text-center text-[8.5px] font-bold uppercase leading-[1.15] tracking-[0.1em]" style={{ color: H.text, minHeight: 20 }}>
         {title}{info ? <span style={{ color: H.mut2 }}> ⓘ</span> : null}
       </p>
-      <div className="relative" style={{ width: 88, height: 50 }}>
+      <div className="relative" style={{ width: 88, height: 48 }}>
         <svg width="88" height="50" viewBox="0 0 88 50" aria-hidden>
           <path d={`M ${cx - R} ${cy} A ${R} ${R} 0 0 1 ${cx + R} ${cy}`} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="7" strokeLinecap="round" />
           <path d={`M ${cx - R} ${cy} A ${R} ${R} 0 0 1 ${cx + R} ${cy}`} fill="none" stroke={color} strokeWidth="7" strokeLinecap="round"
