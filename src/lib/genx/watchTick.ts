@@ -58,7 +58,10 @@ export function decideGoldEntry(o: {
     // The fast-watch runs ~1s on the worker, so a descent through the ~10-pip zone lands a
     // pass while price is in it; only a >10-pip/sec spike outruns it (a true broker limit
     // order would be the next step for that, but this fixes the lag for the common case).
-    if (inZone && rr != null && rr >= GOLD_ENTRY_FLOOR_RR) return { do: "enter", reason: "in_zone_fill" };
+    // OFF since 09-21 (owner: "this exact strategy" — the GENX page's rule is wait for the zone, then a
+    // candle CLOSE that confirms). The touch-fill entered on contact with no confirmation; since it went in
+    // on 09-11 the calls that waited for a zone won 11 and lost 22. GENX_ZONE_TOUCH_FILL=on restores it.
+    if ((process.env.GENX_ZONE_TOUCH_FILL ?? "").toLowerCase() === "on" && inZone && rr != null && rr >= GOLD_ENTRY_FLOOR_RR) return { do: "enter", reason: "in_zone_fill" };
     if (o.confState !== "CONFIRMED") return { do: "wait", reason: "pending:" + o.confState };
     if (takeable) return { do: "enter", reason: "confirmed_rr_ok" };
     return { do: "arm", reason: "chased_below_floor" };
@@ -74,9 +77,9 @@ export const MODE_LABEL: Record<Mode, string> = { quick: "Quick", intraday: "Int
  * first line: "GENX 1.0 SCALP", "GENX 1.0 NORMAL", "GENX 1.0 SWING". Before 09-20 the type sat at the
  * end of the line as "Quick" / "Intraday" and the calls read as identical.
  */
-export const TYPE_LABEL: Record<Mode, string> = { quick: "SCALP", intraday: "NORMAL", swing: "SWING" };
-// Straight GENX (owner 09-21): calls read "GENX 1.0 — ENTER NOW", no SCALP / NORMAL / SWING.
-export const genxTyped = (_mode: Mode): string => genxLabel();
+export const TYPE_LABEL: Record<Mode, string> = { quick: "QUICK", intraday: "INTRADAY", swing: "SWING" };
+// Owner 09-21: the three GENX horizons, named as on the GENX page — QUICK, INTRADAY, SWING.
+export const genxTyped = (mode: Mode): string => `${genxLabel()} ${TYPE_LABEL[mode] ?? ""}`.trim();
 export const r1 = (n: number) => Math.round(n);
 export const fmt = (n: number | null | undefined) => (typeof n === "number" && Number.isFinite(n) ? n.toFixed(2) : "—");
 
@@ -217,7 +220,9 @@ export async function watchPass(admin: Admin, mdKey: string, tgReady: boolean): 
       const conf = await confirmEntry({
         side, entryLow: (row.entry_low ?? 0) as number, entryHigh: (row.entry_high ?? 0) as number,
         watch: (row.watch ?? row.entry_low ?? 0) as number, invalidation: (row.invalidation ?? row.stop ?? 0) as number,
-        mode: row.mode, mdKey, fresh: true, interval: "1min",
+        // Confirmation on the horizon's OWN closed candle, as the GENX page reads it (owner 09-21: "this exact
+        // strategy"): quick 5-minute, intraday 15-minute, swing 1-hour. Was a 1-minute close for every horizon.
+        mode: row.mode, mdKey, fresh: true,
       });
       const cOk = row.quality_ok !== false; // stored at arm time; null (old rows) → allowed
       const armedNow = !!row.enter_sent_at;

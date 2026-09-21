@@ -1460,9 +1460,9 @@ async function genx3Reserved(admin: NonNullable<ReturnType<typeof createAdminCli
 async function genx3ReservedUsers(admin: NonNullable<ReturnType<typeof createAdminClient>>): Promise<Set<string>> { return (await genx3Reserved(admin)).ids; }
 export type GenxDelivery = { origin?: "genx2" | "genx3"; onlyUserIds?: string[] | null; onlyAccountIds?: string[] | null; tag?: string };
 /** " SCALP" / " NORMAL" / " SWING" after "GENX 1.0" in every desk note, matching the signal it refers to. */
-function genxTypeOf(_mode: unknown): string {
-  // Straight GENX (owner 09-21): no SCALP / NORMAL / SWING label on the calls any more.
-  return "";
+function genxTypeOf(mode: unknown): string {
+  const t = mode === "quick" ? "QUICK" : mode === "intraday" ? "INTRADAY" : mode === "swing" ? "SWING" : "";
+  return t ? ` ${t}` : "";
 }
 
 export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null; sendItOnly?: boolean;
@@ -1583,7 +1583,10 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // measures the signal's own ZONE→stop distance — the number the engine actually
   // derived — and only a genuinely broken level (>2.5x the allowance from its own zone)
   // trades for nobody.)
-  if (sig.origin !== "genx3" && gstop != null && Math.abs(entry - gstop) > 2.5 * maxStopDistance("XAUUSD")) {
+  // Intraday and swing calls carry wider structural stops by design (owner 09-21: quick, intraday and
+  // swing, each with the engine's own stop) — the corrupt-data bound scales with the horizon.
+  const sanityMult = sig.mode === "swing" ? 8 : sig.mode === "intraday" ? 4 : 2.5;
+  if (sig.origin !== "genx3" && gstop != null && Math.abs(entry - gstop) > sanityMult * maxStopDistance("XAUUSD")) {
     await deskDrop(`stop_data_insane $${Math.abs(entry - gstop).toFixed(2)} zone-to-stop ${sig.side} (dropped for everyone)`);
     return { members: 0, placed: 0 };
   }
@@ -1593,7 +1596,9 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // that is actually placed. Never widens.
   // GENX 3.x (owner 09-16): the stop is the strategy's structural stop — no 100-pip cap. Its own
   // engine bounds it by volatility and validates it; sizing keeps the account's risk %.
-  if (sig.origin !== "genx3") gstop = capGoldStop(sig.side, gRef, gstop) ?? gstop;
+  // The 100-pip cap is a SCALP rule: intraday and swing keep the engine's own structural stop, and the
+  // size shrinks with it so account risk % is unchanged (owner 09-21: "this exact strategy").
+  if (sig.origin !== "genx3" && (sig.mode == null || sig.mode === "quick")) gstop = capGoldStop(sig.side, gRef, gstop) ?? gstop;
 
   // CHASE GUARD (desk-wide): if price has already run toward TP so the live-price R:R is below
   // the floor, this ENTER NOW is chased — skip it for everyone rather than fill a tiny-TP /

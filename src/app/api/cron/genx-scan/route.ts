@@ -148,9 +148,9 @@ async function run(): Promise<Response> {
   let quickBias: { bias: string; bull: number; bear: number; price: number } | null = null;
   const sent = out.sent as string[];
 
-  // Scalp only for now — the Quick (5-min, 30–80 pip) timeframe. Add "intraday"
-  // and "swing" back here to widen coverage later.
-  for (const mode of ["quick"] as Mode[]) {
+  // All three GENX horizons, exactly as the GENX page reads them (owner 09-21: "go back to quick,
+  // intraday and swing, this exact strategy"): Quick 30–80 pips, Intraday 2–6 hrs, Swing hours–days.
+  for (const mode of ["quick", "intraday", "swing"] as Mode[]) {
     const modeOut: Record<string, unknown> = {};
     (out.modes as Record<string, unknown>)[mode] = modeOut;
     try {

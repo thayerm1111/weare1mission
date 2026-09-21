@@ -86,7 +86,10 @@ export function filterAccountsByStyle<T extends { styleQuick?: boolean | null; s
   // it used to be"). The per-account Rapid / Normal / Swing switches no longer stand anybody down: every
   // account that takes GENX takes every GENX call, as it did before 09-20. GENX_TRADE_STYLES=on restores
   // the filter.
-  if ((process.env.GENX_TRADE_STYLES ?? "").toLowerCase() !== "on") return accounts;
+  // With all three horizons trading again (owner 09-21), each member's Quick / Intraday / Swing switches
+  // decide which they take — swing stays opt-in because it holds through sessions and the weekend gap.
+  // GENX_TRADE_STYLES=off makes every account take every horizon.
+  if ((process.env.GENX_TRADE_STYLES ?? "").toLowerCase() === "off") return accounts;
   return accounts.filter((a) => accountTakesStyle(a, mode));
 }
 
