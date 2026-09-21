@@ -115,6 +115,19 @@ type AccRow = { account_id: string; connection_id: string; acc_num: string; envi
  * Best-effort and cheap on the common path: if there are no recent placements without a
  * managed row, it makes a single small query and returns. Safe to call every manage tick.
  */
+/**
+ * Does a managed row written at `rowAt` account for the placement logged at `eventAt`?
+ *
+ * Only a row written AT or AFTER the placement can be that placement's row (adoption writes late,
+ * never early). The old test was symmetric — any row within 45 minutes either side — so on 09-21 the
+ * 00:57 GENX sell was treated as already managed because the 00:36 sell on the same accounts had a
+ * row 21 minutes EARLIER. It was never adopted: no break-even, no trail. Pure + unit-tested.
+ */
+export function managedRowCovers(rowAt: string, eventAt: string): boolean {
+  const d = Date.parse(rowAt) - Date.parse(eventAt);
+  return d >= -60_000 && d < 45 * 60_000;
+}
+
 export async function recoverOrphans(admin: Admin): Promise<{ adopted: number; checked: number }> {
   const sinceIso = new Date(Date.now() - 15 * 60_000).toISOString();
   const { data: ev } = await admin.from("flow_auto_events")
@@ -148,7 +161,7 @@ export async function recoverOrphans(admin: Admin): Promise<{ adopted: number; c
     // minutes to adopt, and the row is written at ADOPTION time. A 6-minute window stopped matching the
     // placement it came from, so the next pass adopted the SAME position again — three rows for one
     // trade. The window now spans the whole lookback.
-    Math.abs(Date.parse(m.created_at) - Date.parse(e.created_at)) < 45 * 60_000);
+    managedRowCovers(m.created_at, e.created_at));
 
   const orphans = events.filter((e) => e.account_id && e.symbol && e.side && !hasManagedNear(e));
   if (!orphans.length) return { adopted: 0, checked: 0 };

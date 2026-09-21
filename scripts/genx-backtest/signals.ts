@@ -10,7 +10,8 @@ import { runEngine, type EngineCfg } from "../../src/lib/omEngine";
 import { buildGenx, GOLD, MODES, sessionNow, type Row } from "../../src/lib/genxCompute";
 
 type B = [number, number, number, number, number];
-const [, , file, fromS, toS, outFile] = process.argv;
+const [, , file, fromS, toS, outFile, modeArg] = process.argv;
+const MODE = (modeArg === "intraday" || modeArg === "swing" ? modeArg : "quick") as "quick" | "intraday" | "swing";
 const bars5 = JSON.parse(fs.readFileSync(file, "utf8")) as B[];
 const from = Number(fromS), to = Number(toS);
 
@@ -23,7 +24,7 @@ function agg(src: B[], sec: number): B[] {
   }
   return out;
 }
-const s15 = agg(bars5, 900), s30 = agg(bars5, 1800), s60 = agg(bars5, 3600);
+const s15 = agg(bars5, 900), s30 = agg(bars5, 1800), s60 = agg(bars5, 3600), s240 = agg(bars5, 14400), s1d = agg(bars5, 86400);
 const dt = (e: number) => new Date(e * 1000).toISOString().slice(0, 19).replace("T", " ");
 const toRow = (b: B): Row => ({ datetime: dt(b[0]), open: String(b[1]), high: String(b[2]), low: String(b[3]), close: String(b[4]) });
 
@@ -37,8 +38,8 @@ function window(s: B[], sec: number, t: number, n: number, pos: { i: number }): 
   return closed;
 }
 let cur5: B = bars5[0];
-const p15 = { i: 0 }, p30 = { i: 0 }, p60 = { i: 0 };
-const m = MODES.quick;
+const p15 = { i: 0 }, p30 = { i: 0 }, p60 = { i: 0 }, p15b = { i: 0 }, p60b = { i: 0 }, p240 = { i: 0 }, p1d = { i: 0 };
+const m = MODES[MODE];
 const cfg: EngineCfg = { ...GOLD, ...m.eng } as EngineCfg;
 fs.writeFileSync(outFile, "");
 const buf: string[] = [];
@@ -48,28 +49,35 @@ const out = {
 };
 let n = 0, hits = 0;
 for (let i = 200; i < bars5.length; i++) {
+  if (MODE === "intraday" && i % 3 !== 0) continue; // intraday reads every 15 minutes
   const b = bars5[i];
   const t = b[0] + 300; // this 5m bar has just closed
   if (t < from || t > to) continue;
   cur5 = b;
   const m5 = bars5.slice(i - 149, i + 1).map(toRow);
   m5.push({ datetime: dt(t), open: String(b[4]), high: String(b[4]), low: String(b[4]), close: String(b[4]) });
-  const h1 = window(s15, 900, t, 120, p15);
-  const h4 = window(s30, 1800, t, 90, p30);
-  const d1 = window(s60, 3600, t, 90, p60);
+  let h1: Row[], h4: Row[], d1: Row[], m30: Row[], m15: Row[];
+  if (MODE === "intraday") {
+    // intraday: d1=1day, h4=4h, h1=1h, m30=30min, m15=15min, m5=5min
+    m15 = window(s15, 900, t, 150, p15); m30 = window(s30, 1800, t, 120, p30);
+    h1 = window(s60, 3600, t, 120, p60); h4 = window(s240, 14400, t, 90, p240); d1 = window(s1d, 86400, t, 90, p1d);
+  } else {
+    h1 = window(s15, 900, t, 120, p15); m30 = h1;
+    h4 = window(s30, 1800, t, 90, p30); d1 = window(s60, 3600, t, 90, p60); m15 = m5;
+  }
   const price = b[4];
   const nowMs = t * 1000;
   const session = sessionNow(new Date(nowMs));
   n++;
   let read: Record<string, unknown>;
-  try { read = runEngine(cfg, { d1, h4, h1, m30: h1, m15: m5, m5, price, nowMs, session } as never) as Record<string, unknown>; } catch { continue; }
+  try { read = runEngine(cfg, { d1, h4, h1, m30, m15, m5, price, nowMs, session } as never) as Record<string, unknown>; } catch { continue; }
   // volatility bucket exactly as computeGenxRead does it (on the "m15" = 5min series)
   const tr: number[] = [];
-  for (let k = 1; k < m5.length; k++) { const h = +m5[k].high, l = +m5[k].low, pc = +m5[k - 1].close; tr.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc))); }
+  for (let k = 1; k < m15.length; k++) { const h = +m15[k].high, l = +m15[k].low, pc = +m15[k - 1].close; tr.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc))); }
   const atr = tr.slice(-14).reduce((a, x) => a + x, 0) / 14;
   const pct = atr / price;
   const volatility = pct >= 0.0018 ? "High" : pct <= 0.0007 ? "Low" : "Normal";
-  const g = buildGenx(read, { mode: "quick", price, session, dataStatus: "live", hold: m.hold, triggerTf: m.triggerTf, contextTf: m.contextTf, pip: GOLD.pip, dec: GOLD.dec, marketStory: [], volatility, atr, m15: m5 }) as Record<string, unknown>;
+  const g = buildGenx(read, { mode: MODE, price, session, dataStatus: "live", hold: m.hold, triggerTf: m.triggerTf, contextTf: m.contextTf, pip: GOLD.pip, dec: GOLD.dec, marketStory: [], volatility, atr, m15 }) as Record<string, unknown>;
   const st = String(g.engine_state || "");
   if ((st === "TRADE_READY" || st === "DEVELOPING_SETUP") && g.entry_low != null && g.entry_high != null && g.stop_loss != null) {
     hits++;

@@ -201,9 +201,12 @@ async function run(): Promise<Response> {
         if (twin) { modeOut.result = `same_setup:${twin.dedupe_key}:${twin.state}`; continue; }
         // TREND GATE (owner 09-21, see src/lib/genx/trendGate.ts): a NEW call needs the 1h EMA 20/50/200
         // stacked its way and a core-grade setup. Setups already being watched are not affected.
-        const tg = await genxTrendGate(side, mdKey, { profile: String(genx.entry_profile ?? "") || null });
-        modeOut.trend_gate = tg.reason;
-        if (!tg.ok) { modeOut.skip = tg.reason; continue; }
+        // Quick: stack + core-grade. Intraday: stack. Swing: not gated (untested).
+        if (mode !== "swing") {
+          const tg = await genxTrendGate(side, mdKey, { profile: mode === "quick" ? (String(genx.entry_profile ?? "") || null) : null });
+          modeOut.trend_gate = tg.reason;
+          if (!tg.ok) { modeOut.skip = tg.reason; continue; }
+        }
       }
 
       if (!row) {

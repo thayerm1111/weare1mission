@@ -25,9 +25,10 @@ describe("GENX trend gate", () => {
     assert.equal(stackAgrees("buy", "mixed"), false);
     assert.equal(stackAgrees("sell", "mixed"), false);
   });
-  it("is off by default (straight GENX, 09-21)", () => {
-    delete process.env.GENX_TREND_GATE;
+  it("can be switched off", () => {
+    process.env.GENX_TREND_GATE = "off";
     assert.equal(trendGateFrom1m("buy", []).ok, true);
+    delete process.env.GENX_TREND_GATE;
   });
   it("works from 1-minute bars (the PDH/PDL loop) when switched on", () => {
     process.env.GENX_TREND_GATE = "on";

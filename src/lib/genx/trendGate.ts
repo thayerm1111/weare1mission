@@ -39,9 +39,10 @@ export function hourlyStack(closes: number[]): { stack: Stack; e20: number; e50:
 
 export const stackAgrees = (side: "buy" | "sell", s: Stack): boolean => (side === "buy" ? s === "up" : s === "down");
 
-// OFF by default since 09-21 (owner: "go back to how it finds trades … straight GENX how it used to be").
-// GENX_TREND_GATE=on turns it back on; the research above still stands.
-export const trendGateOn = (): boolean => (process.env.GENX_TREND_GATE ?? "").toLowerCase() === "on";
+// ON (owner 09-21, after the three horizons came back: "fix it, make it work better — do the change you
+// were going to do"). Quick: stack + core. Intraday: stack (replayed: +0.06 → +0.08R year 1, +0.05 → +0.10R
+// year 2, 8/9 quarters). Swing is not gated — not enough history to test it. GENX_TREND_GATE=off disables.
+export const trendGateOn = (): boolean => (process.env.GENX_TREND_GATE ?? "").toLowerCase() !== "off";
 
 let cache: { at: number; res: ReturnType<typeof hourlyStack> } | null = null;
 
