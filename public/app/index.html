@@ -4971,8 +4971,11 @@ input{font:inherit}
         var room = placed.every(function (v) { return Math.abs(v - ly) >= 12; });
         if (!room) continue;
         placed.push(ly);
-        ctx.fillStyle = "rgba(232,239,247,.5)"; ctx.font = "9.5px ui-sans-serif,system-ui"; ctx.textAlign = "left";
-        ctx.fillText(L.label, padL + 4, ly - 7);
+        // Labels sit on a dark tab so they read over the candles instead of mixing with them.
+        ctx.font = "600 9px ui-sans-serif,system-ui"; ctx.textAlign = "left";
+        var lw = ctx.measureText(L.label).width + 8;
+        ctx.fillStyle = "rgba(3,7,11,.82)"; ctx.fillRect(padL + 2, ly - 15, lw, 12);
+        ctx.fillStyle = "rgba(232,239,247,.72)"; ctx.fillText(L.label, padL + 6, ly - 6);
       }
       if (tr) {
         function mark(v, col, label, dash) {
@@ -4980,8 +4983,10 @@ input{font:inherit}
           var my = Math.round(y(v)) + 0.5;
           ctx.strokeStyle = col; ctx.lineWidth = 1.2; ctx.setLineDash(dash);
           ctx.beginPath(); ctx.moveTo(padL, my); ctx.lineTo(padL + pw, my); ctx.stroke(); ctx.setLineDash([]);
-          ctx.fillStyle = col; ctx.font = "700 9px ui-sans-serif,system-ui"; ctx.textAlign = "right";
-          ctx.fillText(label, padL + pw - 4, my - 6); ctx.textAlign = "left";
+          ctx.font = "700 9px ui-sans-serif,system-ui"; ctx.textAlign = "right";
+          var mw = ctx.measureText(label).width + 8;
+          ctx.fillStyle = "rgba(3,7,11,.85)"; ctx.fillRect(padL + pw - 2 - mw, my - 15, mw, 12);
+          ctx.fillStyle = col; ctx.fillText(label, padL + pw - 6, my - 6); ctx.textAlign = "left";
         }
         // A PROPOSAL is drawn dimmer, always dashed, and labelled WOULD ENTER. A member glancing at the
         // chart must never mistake a level ATLAS is thinking about for money that is actually at risk.

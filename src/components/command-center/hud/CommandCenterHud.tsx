@@ -90,7 +90,7 @@ const DESK = `
   .hud-right { grid-template-rows: minmax(0,1fr) 236px; }
   .hud-under { display:grid; grid-template-columns: minmax(0,1fr) 262px; gap:8px; min-height:0; }
 }
-@media (max-width:1279px) { .hud-col { display:flex; flex-direction:column; gap:8px; } .hud-under { display:flex; flex-direction:column; gap:8px; } .hud-center > * { min-height: 260px; } }
+@media (max-width:1279px) { .hud-col { display:flex; flex-direction:column; gap:8px; } .hud-under { display:flex; flex-direction:column; gap:8px; } .hud-center > * { min-height: 260px; } .hud-center > :first-child { min-height: 440px; } }
 `;
 
 export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { endpoint?: string } = {}) {
@@ -596,27 +596,27 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           <HudPanel hi bodyClass="flex h-full flex-col">
             <div ref={chartRef} className="flex h-full min-h-0 flex-col" style={{ background: H.panel }}>
               <div className="flex shrink-0 flex-wrap items-center gap-1 border-b px-2 py-1.5" style={{ borderColor: H.lineSoft }}>
-                <div className="flex items-center gap-0.5 rounded-[7px] p-0.5" style={{ border: `1px solid ${H.line}` }}>
+                <div className="flex w-full items-center gap-0.5 rounded-[7px] p-0.5 sm:w-auto" style={{ border: `1px solid ${H.line}` }}>
                   {TF_BTNS.map((b) => (
                     <button key={b.id} disabled={!b.feed} title={b.feed ? `${b.label} candles` : "1-minute candles are not in the feed ATLAS reads"}
                       onClick={() => setTf(b.id)}
-                      className="rounded-[5px] px-2.5 py-1 text-[11px] transition disabled:cursor-not-allowed disabled:opacity-35"
+                      className="flex-1 rounded-[5px] px-2 py-1 text-[11px] transition disabled:cursor-not-allowed disabled:opacity-35 sm:flex-none sm:px-2.5"
                       style={{ color: tf === b.id ? H.gold3 : H.mut, border: tf === b.id ? "1px solid rgba(231,196,103,0.55)" : "1px solid transparent", background: tf === b.id ? "rgba(213,169,61,0.1)" : "transparent" }}>{b.label}</button>
                   ))}
                 </div>
                 <ToolBtn icon={<BarChart3 className="h-3.5 w-3.5" />} label="Indicators" on={indicators} onClick={() => setIndicators((x) => !x)} />
                 <ToolBtn icon={<Sparkles className="h-3.5 w-3.5" style={{ color: H.gold2 }} />} label="AI Overlays" on={overlays} onClick={() => setOverlays((x) => !x)} />
                 <ToolBtn icon={<Layers className="h-3.5 w-3.5" />} label="Liquidity" on={liquidity} onClick={() => setLiquidity((x) => !x)} />
-                <ToolBtn icon={<PenLine className="h-3.5 w-3.5" />} label="Draw" on={false} disabled title="Drawing tools are not built yet" />
+                <span className="hidden sm:contents"><ToolBtn icon={<PenLine className="h-3.5 w-3.5" />} label="Draw" on={false} disabled title="Drawing tools are not built yet" /></span>
                 {setupPill && (
-                  <button onClick={() => setDrawer("trade")} className="ml-1 inline-flex items-center gap-1.5 rounded-[6px] px-2.5 py-1 text-[10px] font-bold tracking-[0.1em] hud-in"
+                  <button onClick={() => setDrawer("trade")} className="order-last inline-flex min-w-0 max-w-full items-center gap-1.5 truncate rounded-[6px] px-2 py-1 text-[9px] font-bold tracking-[0.08em] hud-in sm:order-none sm:ml-1 sm:px-2.5 sm:text-[10px] sm:tracking-[0.1em]"
                     style={{ color: setupPill.color, border: `1px solid ${setupPill.color}`, background: "rgba(0,0,0,0.3)", boxShadow: `0 0 12px ${setupPill.color}55` }}>
                     <LiveDot color={setupPill.color} size={5} />{setupPill.text} ▸
                   </button>
                 )}
                 <div className="ml-auto flex items-center gap-2">
-                  <label className="flex cursor-pointer items-center gap-2 rounded-[6px] px-2 py-1 text-[10.5px]" style={{ color: H.text, border: `1px solid ${H.line}` }}>
-                    Live Analysis
+                  <label className="flex cursor-pointer items-center gap-2 rounded-[6px] px-2 py-1 text-[10.5px]" style={{ color: H.text, border: `1px solid ${H.line}` }} title="Live Analysis">
+                    <span className="hidden sm:inline">Live Analysis</span><span className="sm:hidden">Live</span>
                     <span onClick={() => { const v = !liveAnalysis; setLiveAnalysis(v); setOverlays(v); setLiquidity(v); }} className="relative h-[16px] w-[30px] rounded-full transition" style={{ background: liveAnalysis ? H.blue : "rgba(255,255,255,0.12)" }}>
                       <span className="absolute top-[2px] h-[12px] w-[12px] rounded-full bg-white transition-all" style={{ left: liveAnalysis ? 16 : 2 }} />
                     </span>
@@ -630,7 +630,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                   bars={chartBars} price={d?.price ?? null} markers={markers} zones={zones} lines={lines}
                   path={pathPts} pathLabel={intel?.path?.label ?? "Atlas scenario"}
                   showOverlays={overlays} showLiquidity={liquidity}
-                  tfLabel={`XAUUSD · ${tfWord} · TWELVE DATA`}
+                  tfLabel={`XAUUSD · ${tfWord}`}
                   activityLabel={chartBars.some((b) => b.v && b.v > 0) ? "Activity · tick volume" : "Activity · bar range (spot gold has no traded volume)"}
                 />
               </div>
@@ -639,7 +639,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
           {/* gauges + scenarios */}
           <div className="hud-under">
-            <div className="grid grid-cols-2 gap-[9px] sm:grid-cols-5">
+            <div className="grid grid-cols-2 gap-[9px] sm:grid-cols-5 [&>*:last-child]:col-span-2 sm:[&>*:last-child]:col-span-1">
               <Gauge title="SELLER PRESSURE" display={intel ? `${intel.pressure.sellers}` : "—"}
                 sub={intel?.pressure.sellerLabel ?? "—"} value01={intel ? (intel.pressure.sellers ?? 0) / 100 : null} color={H.red}
                 delta={ch ? -ch.deltaNet / 2 : null} deltaLabel={ch ? `over ${ch.horizon}` : null} info={intel?.pressure.method} />
@@ -956,9 +956,10 @@ function ThesisExplainer({ d, onAsk, full = false }: { d: Live | null; onAsk: (q
 function ToolBtn({ icon, label, on, onClick, disabled, title }: { icon: ReactNode; label: string; on: boolean; onClick?: () => void; disabled?: boolean; title?: string }) {
   return (
     <button onClick={onClick} disabled={disabled} title={title ?? label}
-      className="inline-flex items-center gap-1.5 rounded-[6px] px-2.5 py-1 text-[11px] transition disabled:cursor-not-allowed disabled:opacity-40"
+      aria-label={label}
+      className="inline-flex items-center gap-1.5 rounded-[6px] px-2 py-1 text-[11px] transition disabled:cursor-not-allowed disabled:opacity-40 sm:px-2.5"
       style={{ color: on ? H.text : H.mut, border: `1px solid ${on ? H.line : "transparent"}`, background: on ? "rgba(89,175,255,0.06)" : "transparent" }}>
-      {icon}{label}
+      {icon}<span className="hidden sm:inline">{label}</span>
     </button>
   );
 }

@@ -59,7 +59,8 @@ export function GoldChart({ bars, price, markers, zones, lines, path, pathLabel,
     ro.observe(el); return () => ro.disconnect();
   }, []);
 
-  const AXIS = 58, TIME_H = 18, VOL_FR = 0.17, FUTURE = 0.16;
+  const compact = sz.w < 560;               // phones: fewer words, same information
+  const AXIS = compact ? 50 : 58, TIME_H = 18, VOL_FR = compact ? 0.13 : 0.17, FUTURE = 0.16;
   const plotW = sz.w - AXIS;
   const priceH = (sz.h - TIME_H) * (1 - VOL_FR) - 6;
   const volTop = priceH + 8, volH = (sz.h - TIME_H) * VOL_FR - 6;
@@ -207,20 +208,21 @@ export function GoldChart({ bars, price, markers, zones, lines, path, pathLabel,
       onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
       onPointerLeave={() => { setHover(null); setHoverY(null); }}
       onDoubleClick={reset}>
-      {/* OHLC readout */}
-      <div className="pointer-events-none absolute left-2 top-1 z-10 flex items-center gap-3 text-[11px] tabular-nums">
-        <span className="text-[13px] font-semibold" style={{ color: H.text }}>{tfLabel}</span>
-        <span className="inline-block h-[7px] w-[7px] rounded-full" style={{ background: H.green, boxShadow: `0 0 6px ${H.green}` }} />
-        <span style={{ color: H.mut }}>O <b style={{ color: up(hb) ? H.green : H.red, fontWeight: 500 }}>{fmt2(hb.o)}</b></span>
-        <span style={{ color: H.mut }}>H <b style={{ color: up(hb) ? H.green : H.red, fontWeight: 500 }}>{fmt2(hb.h)}</b></span>
-        <span style={{ color: H.mut }}>L <b style={{ color: up(hb) ? H.green : H.red, fontWeight: 500 }}>{fmt2(hb.l)}</b></span>
+      {/* OHLC readout — one line, on a backing; on phones only the close and change until you touch a candle */}
+      <div className="pointer-events-none absolute left-1.5 top-1 z-10 flex max-w-[calc(100%-70px)] items-center gap-2 overflow-hidden whitespace-nowrap rounded-[5px] px-1.5 py-[2px] tabular-nums"
+        style={{ background: "rgba(3,7,11,0.72)", fontSize: compact ? 10 : 11 }}>
+        <span className="font-semibold" style={{ color: H.text, fontSize: compact ? 10.5 : 13 }}>{tfLabel}</span>
+        <span className="inline-block h-[6px] w-[6px] shrink-0 rounded-full" style={{ background: H.green, boxShadow: `0 0 6px ${H.green}` }} />
+        {(!compact || hover != null) && (["O", "H", "L"] as const).map((k) => (
+          <span key={k} style={{ color: H.mut }}>{k} <b style={{ color: up(hb) ? H.green : H.red, fontWeight: 500 }}>{fmt2(k === "O" ? hb.o : k === "H" ? hb.h : hb.l)}</b></span>
+        ))}
         <span style={{ color: H.mut }}>C <b style={{ color: up(hb) ? H.green : H.red, fontWeight: 500 }}>{fmt2(hb.c)}</b></span>
-        <span style={{ color: up(hb) ? H.green : H.red }}>{hb.c - hb.o >= 0 ? "+" : ""}{(hb.c - hb.o).toFixed(2)} ({(((hb.c - hb.o) / hb.o) * 100).toFixed(2)}%)</span>
+        <span style={{ color: up(hb) ? H.green : H.red }}>{hb.c - hb.o >= 0 ? "+" : ""}{(hb.c - hb.o).toFixed(2)}{compact ? "" : ` (${(((hb.c - hb.o) / hb.o) * 100).toFixed(2)}%)`}</span>
       </div>
 
       {/* view controls — only once the view has been moved off its automatic fit */}
       {touched && (
-        <div className="absolute right-[62px] top-1 z-20 flex items-center gap-1 text-[10px]">
+        <div className="absolute right-[54px] z-20 flex items-center gap-1 text-[10px]" style={{ top: compact ? 24 : 4 }}>
           <span className="rounded-[5px] px-1.5 py-[2px] tabular-nums" style={{ color: H.mut, border: `1px solid ${H.lineSoft}`, background: "rgba(3,7,11,0.72)" }}>
             {Math.round(view.span)} bars
           </span>
@@ -251,7 +253,7 @@ export function GoldChart({ bars, price, markers, zones, lines, path, pathLabel,
             return (
               <g key={k}>
                 <rect x={x0} y={y1 - (h === 6 ? 3 : 0)} width={Math.max(8, plotW - x0 - 4)} height={h} fill={`rgba(${col},0.10)`} stroke={`rgba(${col},0.45)`} strokeWidth={0.8} />
-                <text x={x0 + 6} y={y1 + (h === 6 ? -5 : 12)} textAnchor="start" fontSize="10" fill={`rgba(${col},0.95)`}>{z.label}</text>
+                {!compact && <text x={x0 + 6} y={y1 + (h === 6 ? -5 : 12)} textAnchor="start" fontSize="10" fill={`rgba(${col},0.95)`}>{z.label}</text>}
               </g>
             );
           })}
@@ -273,7 +275,7 @@ export function GoldChart({ bars, price, markers, zones, lines, path, pathLabel,
           {/* markers — placed so their labels never sit on top of each other */}
           {showOverlays && (() => {
             const placed: { x: number; y: number; w: number }[] = [];
-            return markers.slice(0, 6).map((m, k) => {
+            return markers.slice(0, compact ? 3 : 6).map((m, k) => {
               const i = idxAt(m.at);
               if (i < i0 || i > i1) return null;
               const b = bars[i];
@@ -296,7 +298,7 @@ export function GoldChart({ bars, price, markers, zones, lines, path, pathLabel,
                 <g key={k} className="hud-in">
                   <line x1={x(i) - 18} x2={x(i) + 18} y1={y(p)} y2={y(p)} stroke={col} strokeDasharray="2 3" strokeOpacity={0.8} />
                   {Math.abs(yy - y(p)) > 16 && <line x1={cx} x2={x(i)} y1={yy + (above ? 3 : -7)} y2={y(p)} stroke={col} strokeOpacity={0.25} />}
-                  <text x={cx} y={yy} textAnchor="middle" fontSize="9.5" fontWeight={600} fill={col}>{m.label}</text>
+                  <text x={cx} y={yy} textAnchor="middle" fontSize={compact ? 8.5 : 9.5} fontWeight={600} fill={col} stroke="rgba(3,7,11,0.85)" strokeWidth={3} paintOrder="stroke">{m.label}</text>
                 </g>
               );
             });
@@ -318,38 +320,56 @@ export function GoldChart({ bars, price, markers, zones, lines, path, pathLabel,
           })()}
         </g>
 
-        {/* horizontal lines — drawn over the candles, tagged on the axis */}
-        {lines.map((l, k) => {
-          const yy = y(l.price);
-          if (yy < -20 || yy > priceH + 20) return null;
-          return (
-            <g key={k}>
-              <line x1={0} x2={plotW} y1={yy} y2={yy} stroke={l.color} strokeDasharray={l.dashed === false ? undefined : "3 4"} strokeOpacity={0.75} />
-              {l.tag !== false && (
-                <g>
-                  <rect x={plotW + 2} y={yy - 8} width={AXIS - 4} height={16} rx={2} fill={l.color} fillOpacity={0.9} />
-                  <text x={plotW + AXIS / 2} y={yy + 4} textAnchor="middle" fontSize="10" fontWeight={600} fill="#04080C">{l.price.toFixed(2)}</text>
-                </g>
-              )}
-              <text x={6} y={yy < 26 ? yy + 12 : yy - 4} fontSize="9.5" fill={l.color} fillOpacity={0.9}>{l.label}</text>
-            </g>
-          );
-        })}
+        {/* horizontal lines — drawn over the candles, tagged on the axis. Tags and labels are pushed
+            apart so two levels a dollar apart never print on top of each other. */}
+        {(() => {
+          const vis = lines.map((l, k) => ({ l, k, y: y(l.price) })).filter((o) => o.y >= -20 && o.y <= priceH + 20);
+          const place = (ys: number[], gap: number) => {
+            const order = ys.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v);
+            const out = ys.slice();
+            let last = -Infinity;
+            for (const o of order) { const v = Math.max(o.v, last + gap); out[o.i] = v; last = v; }
+            return out;
+          };
+          const pxY = price != null ? y(price) : null;
+          // the live price tag owns its spot; line tags move around it
+          const tagYs = place(vis.map((o) => (pxY != null && Math.abs(o.y - pxY) < 17 ? (o.y < pxY ? pxY - 17 : pxY + 17) : o.y)), 17);
+          const labYs = place(vis.map((o) => (o.y < 26 ? o.y + 12 : o.y - 4)), 12);
+          return vis.map((o, i) => {
+            const { l } = o;
+            return (
+              <g key={o.k}>
+                <line x1={0} x2={plotW} y1={o.y} y2={o.y} stroke={l.color} strokeDasharray={l.dashed === false ? undefined : "3 4"} strokeOpacity={0.75} />
+                {l.tag !== false && (
+                  <g>
+                    <rect x={plotW + 2} y={tagYs[i] - 8} width={AXIS - 4} height={16} rx={2} fill={l.color} fillOpacity={0.9} />
+                    <text x={plotW + AXIS / 2} y={tagYs[i] + 4} textAnchor="middle" fontSize={compact ? 9 : 10} fontWeight={600} fill="#04080C">{l.price.toFixed(2)}</text>
+                  </g>
+                )}
+                <text x={6} y={labYs[i]} fontSize={compact ? 8.5 : 9.5} fill={l.color} fillOpacity={0.95} stroke="rgba(3,7,11,0.85)" strokeWidth={3} paintOrder="stroke">{l.label}</text>
+              </g>
+            );
+          });
+        })()}
 
         {/* last price */}
         {price != null && y(price) >= -10 && y(price) <= priceH + 10 && (
           <g>
             <line x1={0} x2={plotW} y1={y(price)} y2={y(price)} stroke={H.green} strokeOpacity={0.5} strokeDasharray="1 3" />
             <rect x={plotW + 2} y={y(price) - 9} width={AXIS - 4} height={18} rx={2} fill={H.green} />
-            <text x={plotW + AXIS / 2} y={y(price) + 4} textAnchor="middle" fontSize="10.5" fontWeight={700} fill="#04080C">{price.toFixed(2)}</text>
+            <text x={plotW + AXIS / 2} y={y(price) + 4} textAnchor="middle" fontSize={compact ? 9.5 : 10.5} fontWeight={700} fill="#04080C">{price.toFixed(2)}</text>
           </g>
         )}
 
         {/* price axis */}
-        {ticks.map((p) => <text key={p} x={plotW + AXIS - 6} y={y(p) + 3} textAnchor="end" fontSize="10" fill={H.mut}>{p.toFixed(2)}</text>)}
+        {ticks.filter((p) => {
+          const ty = y(p);
+          if (price != null && Math.abs(ty - y(price)) < 12) return false;
+          return !lines.some((l) => l.tag !== false && Math.abs(ty - y(l.price)) < 11);
+        }).map((p) => <text key={p} x={plotW + AXIS - 6} y={y(p) + 3} textAnchor="end" fontSize={compact ? 9 : 10} fill={H.mut}>{compact ? p.toFixed(0) : p.toFixed(2)}</text>)}
 
         {/* activity */}
-        <text x={6} y={volTop + 10} fontSize="10" fill={H.mut}>{activityLabel}</text>
+        <text x={6} y={volTop + 10} fontSize={compact ? 8.5 : 10} fill={H.mut}>{compact ? "Activity" : activityLabel}</text>
         <g clipPath="url(#hudVol)">
           {seen.map((b, k) => {
             const i = i0 + k;
