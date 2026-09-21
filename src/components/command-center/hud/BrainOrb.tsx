@@ -9,19 +9,24 @@ import { useEffect, useRef } from "react";
  * event), and a new thesis sends one ring of light outward. With no live market it slows almost to a
  * stop and desaturates — it never pretends to be watching a feed that is not arriving.
  */
-export type OrbState = "idle" | "watching" | "analyzing" | "opportunity" | "trade_ready" | "in_trade" | "risk_event" | "speaking";
+export type OrbState = "idle" | "watching" | "analyzing" | "opportunity" | "trade_ready" | "in_trade" | "risk_event" | "speaking" | "listening";
 
 const STATE_RGB: Record<OrbState, [number, number, number]> = {
   idle: [89, 175, 255], watching: [39, 215, 242], analyzing: [39, 215, 242], opportunity: [255, 216, 117],
-  trade_ready: [255, 216, 117], in_trade: [41, 223, 166], risk_event: [255, 83, 100], speaking: [255, 216, 117],
+  trade_ready: [255, 216, 117], in_trade: [41, 223, 166], risk_event: [255, 83, 100], speaking: [255, 216, 117], listening: [39, 215, 242],
 };
 
-export function BrainOrb({ state, intensity, alive, pulseKey, size = 240 }: {
+/**
+ * `voice`: while you are talking to ATLAS the core becomes the conversation. Listening, a cyan ring of
+ * bars moves with YOUR voice; speaking, a gold ring moves with ATLAS's; connecting, the rings spin up.
+ */
+export function BrainOrb({ state, intensity, alive, pulseKey, size = 240, voice }: {
   state: OrbState; intensity: number; alive: boolean; pulseKey?: string | number | null; size?: number;
+  voice?: { mode: "connecting" | "listening" | "speaking" | "thinking" | null; level: number } | null;
 }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
-  const live = useRef({ state, intensity, alive });
-  live.current = { state, intensity, alive };
+  const live = useRef({ state, intensity, alive, voice });
+  live.current = { state, intensity, alive, voice };
   const pulse = useRef<{ t: number } | null>(null);
   const lastKey = useRef<string | number | null | undefined>(pulseKey);
 
@@ -42,11 +47,18 @@ export function BrainOrb({ state, intensity, alive, pulseKey, size = 240 }: {
       r: 0.36 + ((i * 37) % 100) / 100 * 0.14, a: (i * 2.399) % (Math.PI * 2), s: 0.15 + ((i * 13) % 10) / 40, z: ((i * 7) % 10) / 10,
     }));
 
-    let raf = 0; let t0 = performance.now(); let phase = 0;
+    let raf = 0; let t0 = performance.now(); let phase = 0; let lvl = 0;
+    const barsN = 72; const bars = new Array(barsN).fill(0);
     const draw = (now: number) => {
       const dt = Math.min(64, now - t0); t0 = now;
-      const { state: st, intensity: it, alive: al } = live.current;
-      const speed = (al ? 0.35 + Math.min(1, it / 100) * 1.1 : 0.06) * (st === "analyzing" || st === "speaking" ? 1.6 : 1);
+      const { state: st, intensity: it, voice: vc } = live.current;
+      const vm = vc?.mode ?? null;
+      // On a call the core is awake whether or not the market is.
+      const al = live.current.alive || vm != null;
+      lvl += ((vc?.level ?? 0) - lvl) * 0.35;
+      const speed = (al ? 0.35 + Math.min(1, it / 100) * 1.1 : 0.06)
+        * (st === "analyzing" || st === "speaking" ? 1.6 : 1)
+        * (vm === "connecting" ? 3.2 : vm === "thinking" ? 2.2 : vm ? 1.4 + lvl * 2 : 1);
       phase += (reduce ? 0 : dt / 1000) * speed;
       const [R, G, B] = STATE_RGB[al ? st : "idle"];
       const W = size, cx = W / 2, cy = W / 2, rad = W * 0.5;
@@ -117,15 +129,30 @@ export function BrainOrb({ state, intensity, alive, pulseKey, size = 240 }: {
         else { g.beginPath(); g.lineWidth = 2; g.strokeStyle = `rgba(255,216,117,${0.7 * (1 - k)})`; g.arc(0, 0, rad * (0.3 + k * 0.7), 0, Math.PI * 2); g.stroke(); }
       }
 
+      // the conversation ring — bars around the core that move with whoever is talking
+      if (vm === "listening" || vm === "speaking" || vm === "thinking") {
+        const col = vm === "speaking" ? "255,216,117" : "39,215,242";
+        const base = rad * 0.4;
+        for (let k = 0; k < barsN; k++) {
+          const a = (k / barsN) * Math.PI * 2 - Math.PI / 2;
+          const n = 0.55 + 0.45 * Math.sin(phase * 6 + k * 0.9) * Math.sin(phase * 3.3 + k * 0.37);
+          const target = vm === "thinking" ? 0.12 + 0.1 * Math.abs(Math.sin(phase * 4 + k * 0.5)) : Math.min(1, lvl * 1.6) * n;
+          bars[k] += (target - bars[k]) * 0.3;
+          const len = 3 + bars[k] * rad * 0.2;
+          g.strokeStyle = `rgba(${col},${0.35 + bars[k] * 0.6})`; g.lineWidth = 2; g.lineCap = "round";
+          g.beginPath(); g.moveTo(Math.cos(a) * base, Math.sin(a) * base); g.lineTo(Math.cos(a) * (base + len), Math.sin(a) * (base + len)); g.stroke();
+        }
+      }
+
       // the core sphere
-      const breathe = 1 + Math.sin(phase * 2.2) * (al ? 0.025 + Math.min(1, it / 100) * 0.03 : 0.005);
+      const breathe = 1 + Math.sin(phase * 2.2) * (al ? 0.025 + Math.min(1, it / 100) * 0.03 : 0.005) + (vm ? lvl * 0.12 : 0);
       const cr = rad * 0.3 * breathe;
       const core = g.createRadialGradient(-cr * 0.3, -cr * 0.35, cr * 0.05, 0, 0, cr);
       core.addColorStop(0, al ? "rgba(255,246,214,1)" : "rgba(200,200,200,0.8)");
       core.addColorStop(0.25, al ? "rgba(255,216,117,0.98)" : "rgba(150,150,150,0.7)");
       core.addColorStop(0.7, al ? "rgba(196,137,32,0.95)" : "rgba(90,90,90,0.6)");
       core.addColorStop(1, al ? "rgba(80,50,10,0.9)" : "rgba(40,40,40,0.6)");
-      g.shadowColor = al ? "rgba(255,196,80,0.8)" : "transparent"; g.shadowBlur = al ? 26 : 0;
+      g.shadowColor = al ? (vm === "listening" ? "rgba(39,215,242,0.85)" : "rgba(255,196,80,0.8)") : "transparent"; g.shadowBlur = al ? 26 + (vm ? lvl * 40 : 0) : 0;
       g.fillStyle = core; g.beginPath(); g.arc(0, 0, cr, 0, Math.PI * 2); g.fill(); g.shadowBlur = 0;
       // circuitry on the sphere
       g.save(); g.beginPath(); g.arc(0, 0, cr, 0, Math.PI * 2); g.clip();

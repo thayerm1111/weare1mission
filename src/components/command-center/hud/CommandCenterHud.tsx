@@ -8,6 +8,7 @@ import {
 import { H, fmt2, toneColor, LABEL } from "./theme";
 import { HudPanel, LiveDot, LivePill, Chip, HUD_CSS } from "./Hud";
 import { BrainOrb, type OrbState } from "./BrainOrb";
+import { voiceBus, useVoiceBus, lineOpen } from "../voiceBus";
 import { Gauge } from "./Gauge";
 import { GoldChart, type ChartBar, type ChartLine, type ChartMarker, type ChartZone } from "./GoldChart";
 import { LiquidityRadar, RADAR_KIND_COLOR, RADAR_KIND_WORD, type RadarBlip } from "./LiquidityRadar";
@@ -273,6 +274,30 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
     : setup?.state === "armed" || setup?.state === "ready" ? "trade_ready"
     : setup?.state === "developing" ? "opportunity"
     : "watching";
+  /* ── talking to ATLAS from the core ─────────────────────────────────────────── */
+  const vb = useVoiceBus();
+  const onCall = lineOpen(vb.status);
+  const voiceMode: "connecting" | "listening" | "speaking" | "thinking" | null =
+    vb.status === "connecting" || vb.status === "awaiting_mic" ? "connecting"
+    : vb.status === "speaking" ? (vb.outLevel > 0.02 ? "speaking" : "thinking")
+    : vb.status === "listening" || vb.status === "muted" ? "listening" : null;
+  const voiceLevel = voiceMode === "speaking" ? vb.outLevel : voiceMode === "listening" ? vb.inLevel : 0;
+  const wasOnCall = useRef(false);
+  useEffect(() => {
+    // A short two-note tone when the line comes up, one note when it drops — the desk telling you it heard.
+    const live = vb.status === "listening";
+    if (live && !wasOnCall.current) chime([660, 990]);
+    if (!onCall && wasOnCall.current && vb.status !== "listening") chime([520]);
+    wasOnCall.current = live || (onCall && wasOnCall.current);
+  }, [vb.status, onCall]);
+  const tapCore = () => {
+    if (isReplay) return;
+    if (onCall) { voiceBus.end(); return; }
+    if (vb.status === "locked" || !voiceBus.ready()) { setTalkTab("VOICE"); return; }
+    setTalkTab("VOICE");
+    voiceBus.start();
+  };
+
   const nyTime = now ? new Date(now).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour12: false }) : "--:--:--";
   const nyDate = now ? new Date(now).toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "";
 
@@ -484,9 +509,17 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
         <div className="hud-col hud-left">
           <HudPanel hi bodyClass="flex h-full flex-col">
             <div className="flex min-h-0 flex-1 flex-col items-center overflow-hidden xl:flex-row">
-              <div className="relative grid w-full flex-1 place-items-center">
-                <BrainOrb state={orbState} intensity={d?.intensity ?? 0} alive={alive} pulseKey={thesis?.id ?? null} size={152} />
-              </div>
+              <button type="button" onClick={tapCore} aria-label={onCall ? "End the conversation with ATLAS" : "Talk to ATLAS"}
+                title={onCall ? "Tap to end" : "Tap to talk to ATLAS"}
+                className="group relative grid w-full flex-1 cursor-pointer place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60">
+                <BrainOrb state={voiceMode === "listening" ? "listening" : voiceMode ? "speaking" : orbState}
+                  intensity={d?.intensity ?? 0} alive={alive} pulseKey={thesis?.id ?? null} size={152}
+                  voice={voiceMode ? { mode: voiceMode, level: voiceLevel } : null} />
+                {!onCall && !isReplay && (
+                  <span className="pointer-events-none absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-2 py-[2px] text-[8.5px] font-bold tracking-[0.2em] opacity-70 transition group-hover:opacity-100"
+                    style={{ color: H.gold3, border: "1px solid rgba(231,196,103,0.35)", background: "rgba(3,7,11,0.7)" }}>TAP TO TALK</span>
+                )}
+              </button>
               <ul className="hud-scroll grid max-h-full w-full grid-cols-2 gap-x-3 gap-y-[4px] overflow-y-auto px-3 pb-2 xl:block xl:w-[112px] xl:shrink-0 xl:space-y-[4px] xl:px-0 xl:pr-2.5">
                 {[
                   ["ANALYZING", d?.live ? `Live · ${d.ageSeconds ?? 0}s old` : "No live read", !!d?.live],
@@ -508,10 +541,26 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                 ))}
               </ul>
             </div>
-            <div className="shrink-0 pb-2 text-center">
+            <div className="shrink-0 px-3 pb-2 text-center">
               <p className="text-[14px] font-semibold tracking-[0.2em]">ATLAS</p>
-              <p className="text-[8.5px] tracking-[0.3em]" style={{ color: H.gold2 }}>GOLD INTELLIGENCE CORE</p>
-              <p className="mt-1 text-[10.5px] italic" style={{ color: H.mut }}>&ldquo;Clarity in the noise. Opportunity in the data.&rdquo;</p>
+              {onCall ? (
+                <div className="hud-in">
+                  <p className="text-[8.5px] font-bold tracking-[0.3em]" style={{ color: voiceMode === "listening" ? H.cyan2 : H.gold3 }}>
+                    {voiceMode === "connecting" ? "COMING ONLINE…" : voiceMode === "listening" ? "LISTENING" : voiceMode === "thinking" ? "THINKING" : "SPEAKING"}
+                    <span style={{ color: H.mut }}> · TAP THE CORE TO END</span>
+                  </p>
+                  {vb.you && <p className="mt-1 line-clamp-1 text-[10.5px]" style={{ color: H.mut }}>You: &ldquo;{vb.you}&rdquo;</p>}
+                  {vb.atlas && <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug" style={{ color: H.text }}>{vb.atlas}</p>}
+                  {vb.error && <p className="mt-1 line-clamp-2 text-[10px]" style={{ color: H.red }}>{vb.error}</p>}
+                </div>
+              ) : (
+                <>
+                  <p className="text-[8.5px] tracking-[0.3em]" style={{ color: H.gold2 }}>GOLD INTELLIGENCE CORE</p>
+                  {vb.error && vb.status !== "idle"
+                    ? <p className="mt-1 line-clamp-2 text-[10px]" style={{ color: H.red }}>{vb.error}</p>
+                    : <p className="mt-1 text-[10.5px] italic" style={{ color: H.mut }}>&ldquo;Clarity in the noise. Opportunity in the data.&rdquo;</p>}
+                </>
+              )}
             </div>
           </HudPanel>
 
@@ -802,8 +851,9 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                     ...(intel?.structure.nextWatched != null ? [{ label: `Watch ${fmt2(intel.structure.nextWatched)}`, q: `Watch ${fmt2(intel.structure.nextWatched)} for me and tell me when price reaches it.` }] : []),
                   ]} />
               </div>
-              {talkTab === "VOICE" && (
-                <div className="hud-scroll h-full overflow-y-auto p-2">
+              {/* Always mounted, only hidden: the ATLAS core starts this line from the other side of the screen. */}
+              {(
+                <div className={talkTab === "VOICE" ? "hud-scroll h-full overflow-y-auto p-2" : "hidden"}>
                   {isReplay ? <p className="p-3 text-[12px]" style={{ color: H.mut }}>Voice is off in the replay.</p> : <VoiceSession onUiAction={onUiAction} />}
                   <p className="px-2 pt-2 text-[10.5px]" style={{ color: H.mut }}>Prefer typing or quick push-to-talk? Use <button className="underline" onClick={() => setTalkTab("CHAT")} style={{ color: H.gold2 }}>Chat</button> — press space to speak there.</p>
                 </div>
@@ -951,6 +1001,23 @@ function ThesisExplainer({ d, onAsk, full = false }: { d: Live | null; onAsk: (q
       <button onClick={() => onAsk("What would change your mind right now?")} className="rounded-[6px] px-3 py-1.5 text-[10px] font-bold tracking-[0.12em]" style={{ color: H.gold2, border: "1px solid rgba(231,196,103,0.45)" }}>WHAT WOULD CHANGE YOUR MIND? ▸</button>
     </div>
   );
+}
+
+/** A short tone from the Web Audio API — no files. Quiet on purpose; it confirms, it doesn't announce. */
+function chime(freqs: number[]) {
+  try {
+    const W = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
+    const Ctx = W.AudioContext ?? W.webkitAudioContext; if (!Ctx) return;
+    const ctx = new Ctx(); const t = ctx.currentTime;
+    freqs.forEach((f, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0, t + i * 0.11); g.gain.linearRampToValueAtTime(0.06, t + i * 0.11 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.11 + 0.25);
+      o.connect(g); g.connect(ctx.destination); o.start(t + i * 0.11); o.stop(t + i * 0.11 + 0.3);
+    });
+    window.setTimeout(() => { void ctx.close().catch(() => {}); }, 900);
+  } catch { /* no audio — the orb still says it */ }
 }
 
 function ToolBtn({ icon, label, on, onClick, disabled, title }: { icon: ReactNode; label: string; on: boolean; onClick?: () => void; disabled?: boolean; title?: string }) {

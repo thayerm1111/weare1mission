@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VOICE_TOPUPS } from "@/lib/voicePlan";
+import { voiceBus } from "./voiceBus";
 import { Mic, MicOff, PhoneOff, Radio } from "lucide-react";
 import { VoicePresence, type PresenceMode } from "./VoicePresence";
 
@@ -688,6 +689,20 @@ export function VoiceSession({ onUiAction, onStatus }: {
   }, [attachMicrophone]);
 
   void onUiAction;
+
+  /* ── the shared line: the ATLAS core can open it, end it, and react to it ── */
+  useEffect(() => voiceBus.register({ start: () => { void start(); }, end }), [start, end]);
+  useEffect(() => {
+    const lastYou = [...turns].reverse().find((t) => t.who === "you")?.text ?? null;
+    const lastAtlas = [...turns].reverse().find((t) => t.who === "brain")?.text ?? null;
+    voiceBus.set({
+      status: info && info.enabled === false ? "locked" : status,
+      inLevel: Math.min(1, diag.level * 3),
+      outLevel: Math.min(1, presenceOut * 4),
+      you: lastYou, atlas: lastAtlas, error,
+      needsSubscription: !!(info && info.enabled === false && info.needsSubscription),
+    });
+  }, [status, diag.level, presenceOut, turns, error, info]);
 
   /**
    * Send the member to Stripe. The price is never posted from here — the server reads it from

@@ -341,7 +341,7 @@ const TTS_MODEL = process.env.CC_VOICE_TTS_MODEL ?? "eleven_flash_v2";
  * and a change here re-applies the whole configuration on the next session instead of waiting for
  * somebody to remember.
  */
-const AGENT_CONFIG_VERSION = 4;   // 3: the agent is ATLAS · 4: idle lines hang up (cost)
+const AGENT_CONFIG_VERSION = 5;   // 3: the agent is ATLAS · 4: idle lines hang up (cost) · 5: ATLAS greets you
 
 const AGENT_PROMPT = [
   "You are a relay. Do not answer from your own knowledge.",
@@ -434,7 +434,9 @@ export async function provisionAgent(): Promise<Provisioned> {
       name: "COMMAND CENTER XAUUSD — ATLAS",
       conversation_config: {
         agent: {
-          first_message: "",
+          // A fixed greeting is spoken by the provider's voice directly — no model call, no market claim,
+          // so it can never say a stale price. It tells you the line is live the instant it is.
+          first_message: "ATLAS online. What do you need?",
           language: "en",
           prompt: {
             prompt: AGENT_PROMPT,
