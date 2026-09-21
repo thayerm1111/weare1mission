@@ -30,37 +30,49 @@ export function pivotsOf(bars: { h: number; l: number }[], k = 3, keep = 5): Piv
   return out.slice(-keep);
 }
 
-const TAG_WORD: Record<Pivot["tag"], string> = { HH: "Higher High", LH: "Lower High", HL: "Higher Low", LL: "Lower Low", H: "Swing High", L: "Swing Low" };
+const TAG_SHORT: Record<Pivot["tag"], string> = { HH: "HH", LH: "LH", HL: "HL", LL: "LL", H: "SH", L: "SL" };
 
+/**
+ * The last few swings as a line, each labelled with its tag AND its price, then where price is now.
+ * Short tags (HH / LH / HL / LL) so nothing is clipped at phone width; the legend under the panel
+ * spells them out. Labels are kept inside the frame.
+ */
 export function StructureViz({ pivots, price, bearish }: { pivots: Pivot[]; price: number | null; bearish: boolean }) {
-  const W = 190, Hh = 120, pad = 14;
+  const W = 220, Hh = 150, padX = 24, padT = 26, padB = 26;
   if (pivots.length < 2) return <div className="grid h-full place-items-center text-[11px]" style={{ color: H.mut }}>Not enough swings yet.</div>;
   const pts = [...pivots.map((p) => p.price), ...(price != null ? [price] : [])];
   const lo = Math.min(...pts), hi = Math.max(...pts);
-  const y = (p: number) => pad + ((hi - p) / (hi - lo || 1)) * (Hh - pad * 2);
+  const y = (p: number) => padT + ((hi - p) / (hi - lo || 1)) * (Hh - padT - padB);
   const n = pivots.length + (price != null ? 1 : 0);
-  const x = (k: number) => pad + (k / (n - 1)) * (W - pad * 2);
+  const x = (k: number) => padX + (k / (n - 1)) * (W - padX * 2);
   const seq = pivots.map((p, k) => [x(k), y(p.price)] as const);
   if (price != null) seq.push([x(n - 1), y(price)] as const);
   const d = seq.map((q, k) => `${k ? "L" : "M"}${q[0]},${q[1]}`).join(" ");
   const tone = bearish ? H.red : H.green;
-  const top = pivots.reduce((a, b) => (b.price > a.price ? b : a), pivots[0]);
+  const cx = (v: number) => Math.min(W - 16, Math.max(16, v));
+  const short = (v: number) => v.toFixed(0);
   return (
     <svg viewBox={`0 0 ${W} ${Hh}`} className="h-full w-full" preserveAspectRatio="xMidYMid meet">
-      {/* wireframe mesh */}
-      {seq.map((q, k) => seq.slice(k + 1, k + 3).map((r, j) => (
-        <line key={`${k}-${j}`} x1={q[0]} y1={q[1]} x2={r[0]} y2={r[1]} stroke="rgba(89,175,255,0.18)" strokeWidth={0.6} />
-      )))}
-      {seq.map((q, k) => <line key={`g${k}`} x1={q[0]} y1={q[1]} x2={q[0]} y2={Hh - 4} stroke="rgba(89,175,255,0.08)" strokeWidth={0.6} />)}
-      <path d={d} fill="none" stroke="#9FC9EE" strokeWidth={1.3} />
-      {price != null && <path d={`M${seq[seq.length - 2][0]},${seq[seq.length - 2][1]} L${seq[seq.length - 1][0]},${seq[seq.length - 1][1]}`} stroke={tone} strokeWidth={1.8} fill="none" />}
-      {pivots.map((p, k) => (
-        <g key={k}>
-          <circle cx={x(k)} cy={y(p.price)} r={2.2} fill={p.kind === "H" ? H.red : H.green} />
-          <text x={x(k)} y={y(p.price) + (p.kind === "H" ? -5 - (k % 2) * 7 : 11 + (k % 2) * 7)} textAnchor="middle" fontSize="7" fill={H.text}>{TAG_WORD[p.tag]}</text>
-          {p === top && <text x={x(k)} y={y(p.price) - 13} textAnchor="middle" fontSize="7" fill={H.red}>{fmt2(p.price)}</text>}
+      {seq.map((q, k) => <line key={`g${k}`} x1={q[0]} y1={q[1]} x2={q[0]} y2={Hh - 6} stroke="rgba(89,175,255,0.08)" strokeWidth={0.6} />)}
+      <path d={d} fill="none" stroke="#9FC9EE" strokeWidth={1.4} />
+      {price != null && <path d={`M${seq[seq.length - 2][0]},${seq[seq.length - 2][1]} L${seq[seq.length - 1][0]},${seq[seq.length - 1][1]}`} stroke={tone} strokeWidth={2} fill="none" />}
+      {pivots.map((p, k) => {
+        const up = p.kind === "H";
+        const col = p.tag === "HH" || p.tag === "HL" ? H.green : p.tag === "LH" || p.tag === "LL" ? H.red : H.text;
+        return (
+          <g key={k}>
+            <circle cx={x(k)} cy={y(p.price)} r={2.6} fill={col} />
+            <text x={cx(x(k))} y={y(p.price) + (up ? -12 : 14)} textAnchor="middle" fontSize="8.5" fontWeight={700} fill={col}>{TAG_SHORT[p.tag]}</text>
+            <text x={cx(x(k))} y={y(p.price) + (up ? -4 : 22)} textAnchor="middle" fontSize="7" fill={H.mut}>{short(p.price)}</text>
+          </g>
+        );
+      })}
+      {price != null && (
+        <g>
+          <circle cx={seq[seq.length - 1][0]} cy={seq[seq.length - 1][1]} r={3.2} fill={H.gold3} />
+          <text x={cx(seq[seq.length - 1][0])} y={seq[seq.length - 1][1] + 14} textAnchor="middle" fontSize="7.5" fontWeight={700} fill={H.gold3}>NOW</text>
         </g>
-      ))}
+      )}
     </svg>
   );
 }

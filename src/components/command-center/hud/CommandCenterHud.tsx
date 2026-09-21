@@ -316,6 +316,12 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   })
     // One of each kind, newest first: three "Failed break" labels stacked on the same candles is noise.
     .filter((m, i, all) => all.findIndex((x) => x.label === m.label) === i)
+    // And one answer per question: "Retest holding" beside "Retest failing" (or a breakout beside a
+    // failed break) contradicts itself. Only the NEWEST of each pair is shown — that is the current read.
+    .filter((m, i, all) => {
+      const family = (l: string) => (/^Retest/.test(l) ? "retest" : /Breakout|Failed break/.test(l) ? "break" : l);
+      return all.findIndex((x) => family(x.label) === family(m.label)) === i;
+    })
     .slice(0, 5);
 
   const zones: ChartZone[] = [];
@@ -725,10 +731,10 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           <div className="hud-under">
             <div className="grid gap-[9px] sm:grid-cols-[250px_minmax(0,1fr)]">
               <HudPanel title="LIQUIDITY RADAR" icon={<Radar className="h-3.5 w-3.5" />}
-                right={<span className="flex items-center gap-1" title="Estimated from price structure — gold is over the counter, so no feed here shows resting orders"><Chip active={liquidity} onClick={() => setLiquidity(true)}>Heatmap</Chip><Chip active={!liquidity} tone="cyan" onClick={() => setLiquidity(false)}>Structure</Chip></span>}
-                bodyClass="flex items-center gap-2 px-2 pb-2">
-                <LiquidityRadar price={d?.price ?? null} blips={blips} size={104} alive={alive} onHover={setRadarHover}
-                  onPick={(b) => setPinned(pinned && Math.abs(pinned.price - b.price) < 0.01 ? null : { price: b.price, label: b.label })} />
+                right={<span title="Draws these liquidity zones on the chart. Estimated from price structure — gold is over the counter, so no feed shows resting orders."><Chip active={liquidity} onClick={() => setLiquidity((x) => !x)}>{liquidity ? "On chart ✓" : "Show on chart"}</Chip></span>}
+                bodyClass="hud-scroll flex flex-col gap-2 overflow-y-auto px-2 pb-2 sm:flex-row sm:items-center">
+                <div className="mx-auto shrink-0"><LiquidityRadar price={d?.price ?? null} blips={blips} size={120} alive={alive} onHover={setRadarHover}
+                  onPick={(b) => setPinned(pinned && Math.abs(pinned.price - b.price) < 0.01 ? null : { price: b.price, label: b.label })} /></div>
                 {radarHover ? (
                   <div className="min-w-0 flex-1 self-stretch rounded-[6px] p-1.5 text-[9.5px] leading-snug"
                     style={{ border: `1px solid rgba(${RADAR_KIND_COLOR[radarHover.kind]},0.55)`, background: "rgba(3,7,11,0.7)" }}>
@@ -740,19 +746,44 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                     <p className="mt-0.5 line-clamp-4" style={{ color: H.mut }}>{radarHover.meaning ?? radarHover.label}</p>
                   </div>
                 ) : (
-                <ul className="space-y-[4px] text-[9px]" style={{ color: H.text }}>
-                  {[["Buyside liq.", H.green], ["Sellside liq.", H.red], ["Equal highs/lows", "#E7A0A7"], ["Busiest price", H.blue], ["Atlas watch", H.gold2], ["Price", H.gold3]].map(([k, c]) => (
-                    <li key={k} className="flex items-center gap-1.5"><span className="h-[7px] w-[7px] rounded-full" style={{ background: c, boxShadow: `0 0 5px ${c}` }} />{k}</li>
-                  ))}
-                  <li className="pt-0.5 leading-tight" style={{ color: H.mut2 }}>Hollow = swept.<br />Hover a blip for detail.</li>
-                </ul>
+                /* THE NEAREST LIQUIDITY, SAID PLAINLY: three levels above and three below, nearest first,
+                   each with what it is and how far away. The radar is the picture; this is the answer. */
+                <div className="w-full min-w-0 flex-1 text-[10.5px]">
+                  {(["above", "below"] as const).map((side) => {
+                    const px = d?.price ?? 0;
+                    const list = blips.filter((b) => (b.side ?? (b.price >= px ? "above" : "below")) === side)
+                      .sort((a, b) => Math.abs(a.price - px) - Math.abs(b.price - px)).slice(0, 3);
+                    return (
+                      <div key={side} className="mb-1.5">
+                        <p className="mb-0.5 text-[8.5px] font-bold tracking-[0.16em]" style={{ color: side === "above" ? H.green : H.red }}>{side === "above" ? "ABOVE PRICE" : "BELOW PRICE"}</p>
+                        {list.length ? list.map((b) => (
+                          <button key={`${side}${b.price}`} onClick={() => setPinned(pinned && Math.abs(pinned.price - b.price) < 0.01 ? null : { price: b.price, label: b.label })}
+                            className="flex w-full items-center gap-2 border-b py-[3px] text-left" style={{ borderColor: H.lineSoft }}>
+                            <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: b.swept ? "transparent" : `rgb(${RADAR_KIND_COLOR[b.kind]})`, border: `1.5px solid rgb(${RADAR_KIND_COLOR[b.kind]})` }} />
+                            <b className="w-[62px] shrink-0 tabular-nums" style={{ color: H.text }}>{fmt2(b.price)}</b>
+                            <span className="min-w-0 flex-1 truncate" style={{ color: H.mut }}>{RADAR_KIND_WORD[b.kind].replace(" (estimated liquidity)", "").replace(" (estimated)", "")}{b.swept ? " · swept" : ""}</span>
+                            <span className="shrink-0 tabular-nums" style={{ color: side === "above" ? H.green : H.red }}>{side === "above" ? "+" : "−"}{Math.abs(b.price - px).toFixed(2)}</span>
+                          </button>
+                        )) : <p style={{ color: H.mut2 }}>None mapped</p>}
+                      </div>
+                    );
+                  })}
+                  <p className="text-[8.5px] leading-tight" style={{ color: H.mut2 }}>Hollow dot = already swept. Tap a level to pin it on the chart. Estimated from price structure, not an order book.</p>
+                </div>
                 )}
               </HudPanel>
-              <HudPanel title="MARKET STRUCTURE" icon={<LineChart className="h-3.5 w-3.5" />} bodyClass="grid grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] gap-2 px-2 pb-2">
-                <div className="relative min-h-[110px]">
-                  <StructureViz pivots={pivots} price={d?.price ?? null} bearish={bias === "bear"} />
-                  <p className="absolute right-1 top-0 text-[9px]" style={{ color: H.mut }}>Structure <b style={{ color: biasColor }}>{bias === "bear" ? "BEARISH" : bias === "bull" ? "BULLISH" : "MIXED"}</b></p>
+              <HudPanel title="MARKET STRUCTURE" icon={<LineChart className="h-3.5 w-3.5" />}
+                right={(() => {
+                  // ONE answer on this panel: the same structure read as the table below, never the thesis.
+                  const tr = intel?.structure.trend ?? "";
+                  const col = /down/i.test(tr) ? H.red : /up/i.test(tr) ? H.green : H.gold2;
+                  return <span className="text-[9px] font-bold tracking-[0.12em]" style={{ color: col }}>{(tr || "NO READ").toUpperCase()}</span>;
+                })()}
+                bodyClass="grid grid-cols-1 gap-2 px-2 pb-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+                <div className="relative h-[190px] sm:h-auto sm:min-h-[110px]">
+                  <StructureViz pivots={pivots} price={d?.price ?? null} bearish={/down/i.test(intel?.structure.trend ?? "")} />
                 </div>
+                <p className="-mt-1 text-center text-[8.5px] sm:hidden" style={{ color: H.mut2 }}>HH higher high · LH lower high · HL higher low · LL lower low</p>
                 <dl className="hud-scroll grid content-start gap-[3px] overflow-y-auto text-[9.5px]">
                   {[
                     ["Trend", intel?.structure.trend, intel?.structure.trend === "Downtrend" ? H.red : intel?.structure.trend === "Uptrend" ? H.green : H.text],
