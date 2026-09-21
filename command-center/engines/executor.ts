@@ -120,7 +120,10 @@ export async function prepare(userId: string, i: PrepareInput): Promise<Prepared
     evidence: i.evidence ?? [],
     status: "prepared",
   }).select("id").single();
-  if (error || !data) return { ok: false, reason: "Could not record the trade intent.", hard: true, warnings: v.warnings };
+  if (error || !data) {
+    // Say WHY in the log: this line hid a check-constraint failure on every NORMAL trade for a day (09-21).
+    return { ok: false, reason: `Could not record the trade intent${error?.message ? `: ${error.message.slice(0, 140)}` : "."}`, hard: true, warnings: v.warnings };
+  }
 
   return {
     ok: true,
