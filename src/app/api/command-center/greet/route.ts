@@ -13,7 +13,8 @@ export const maxDuration = 30;
  *
  * When a member opens the Command Center and pays for a window, ATLAS greets them BY NAME, tells them
  * where their accounts stand, and gives the gold update — out loud, once. Renewing the 30-minute
- * window doesn't replay it; opening again two hours or more after the last welcome does.
+ * window doesn't replay it; opening again two hours or more after the last welcome does, and so does
+ * opening it after signing out and back in.
  *
  * GET  → { eligible, name, accounts }   the member's first name and their FLOW account balances
  * POST → { url }                         a one-time line to the voice agent; the browser sends the
@@ -55,6 +56,17 @@ async function lastWelcome(userId: string): Promise<number | null> {
   return at ? Date.parse(at) : null;
 }
 
+/**
+ * Is a welcome due? Yes when they have never had one, when the last was two hours ago or more, or when
+ * they have SIGNED IN since the last one (owner 09-21: "if I log out and log back in it'll play the
+ * animation again"). A token refresh does not move last_sign_in_at — only a real sign-in does.
+ */
+function welcomeDue(user: { last_sign_in_at?: string | null }, last: number | null): boolean {
+  if (last == null || Date.now() - last >= REPLAY_AFTER_MS) return true;
+  const signedIn = user.last_sign_in_at ? Date.parse(user.last_sign_in_at) : NaN;
+  return Number.isFinite(signedIn) && signedIn > last;
+}
+
 export async function GET(req: Request) {
   const user = await who();
   if (!user) return json({ error: "unauthorized" }, 401);
@@ -62,7 +74,7 @@ export async function GET(req: Request) {
   const c = admin(); if (!c) return json({ eligible: false, reason: "not_configured" });
 
   const last = await lastWelcome(user.id);
-  const eligible = last == null || Date.now() - last >= REPLAY_AFTER_MS || (await adminReplay(req, user.id));
+  const eligible = welcomeDue(user, last) || (await adminReplay(req, user.id));
 
   // Their name, as they gave it — never a default.
   const { data: prof } = await c.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
@@ -93,7 +105,7 @@ export async function POST(req: Request) {
   if (!user) return json({ error: "unauthorized" }, 401);
   if (!(await hasPass(user.id))) return json({ ok: false, reason: "pass_required" }, 402);
   const last = await lastWelcome(user.id);
-  if (last != null && Date.now() - last < REPLAY_AFTER_MS && !(await adminReplay(req, user.id))) return json({ ok: false, reason: "already_welcomed" });
+  if (!welcomeDue(user, last) && !(await adminReplay(req, user.id))) return json({ ok: false, reason: "already_welcomed" });
   if (!availability().ok) return json({ ok: false, reason: "voice_not_configured" });
 
   const agent = await ensureAgent();
