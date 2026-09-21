@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrainOrb } from "./BrainOrb";
 import { H } from "./theme";
+import { HoloBriefing, briefingScript, type BriefData } from "./HoloBriefing";
 import { MarketStorm, DataRain, HudRings, FX_CSS, sfxVaultOpen, sfxLatch, sfxEngage, sfxSlide, sfxHum } from "./EntryFx";
 import { priceWords, moveWords, balanceWords, speakNumbers } from "@/lib/spokenNumbers";
 
@@ -139,7 +140,7 @@ function sayLevel(label: string): string {
  * prices as a desk says them, balances rounded, pressure as who has the edge, no brackets or percents
  * read out digit by digit. Same facts, same source — only the phrasing changes.
  */
-export function spokenWelcome(d: Live | null, g: Greet | null, name: string | null, preview = false): string {
+export function spokenWelcome(d: Live | null, g: Greet | null, name: string | null, preview = false, withClosing = true): string {
   const S: string[] = [];
   const hi = `${greetingWord()}${name ? `, ${name}` : ""}.`;
   S.push(`${hi} ATLAS here.`);
@@ -207,17 +208,23 @@ export function spokenWelcome(d: Live | null, g: Greet | null, name: string | nu
     S.push(`I've got a ${su.side === "sell" ? "sell" : "buy"} setup lining up${su.totalCount ? `, ${su.metCount} of ${su.totalCount} boxes ticked` : ""}.`);
   }
   if (d.intel?.news?.name) S.push(`Heads up, ${d.intel.news.name} is on the calendar.`);
-  S.push(preview
-    ? "That's your first look, on the house. Open the desk for five credits and I'll walk you through the rest, and if you want to talk with me any time, grab a voice plan."
-    : "Desk's yours.");
+  if (withClosing) S.push(closingLine(preview));
   // Anything a label carried in digits still gets said as words.
   return speakNumbers(S.join(" "));
 }
 
+export function closingLine(preview: boolean): string {
+  return preview
+    ? "That's your first look, on the house. Open the desk for five credits and I'll walk you through the rest, and if you want to talk with me any time, grab a voice plan."
+    : "That's the picture. Desk's yours.";
+}
+
 /** Plays the welcome through the voice agent: its first message IS the welcome. Returns a stopper. */
-function speakWelcome(url: string, text: string, on: { level: (v: number) => void; started: () => void; ended: () => void }): () => void {
+function speakWelcome(url: string, text: string, on: { level: (v: number) => void; started: () => void; ended: () => void;
+  /** seconds played so far, and the full length once all the audio has arrived (null until then) */
+  progress?: (played: number, total: number | null) => void }): () => void {
   const ctx = sharedCtx;
-  let closed = false, playHead = 0, lastAudioAt = 0, sawResponse = false;
+  let closed = false, playHead = 0, lastAudioAt = 0, sawResponse = false, firstAt = -1;
   const ws = new WebSocket(url);
   const finish = () => { if (closed) return; closed = true; try { ws.close(); } catch { /* noop */ } on.ended(); };
   ws.onopen = () => ws.send(JSON.stringify({ type: "conversation_initiation_client_data", conversation_config_override: { agent: { first_message: text } } }));
@@ -233,6 +240,7 @@ function speakWelcome(url: string, text: string, on: { level: (v: number) => voi
     const buf = ctx.createBuffer(1, n, 16000); buf.copyToChannel(pcm, 0);
     const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
     const at = Math.max(ctx.currentTime + 0.05, playHead); src.start(at); playHead = at + buf.duration;
+    if (firstAt < 0) firstAt = at;
     if (!lastAudioAt) on.started();
     lastAudioAt = performance.now();
     window.setTimeout(() => on.level(Math.min(1, peak * 2.2)), Math.max(0, (at - ctx.currentTime) * 1000));
@@ -241,10 +249,14 @@ function speakWelcome(url: string, text: string, on: { level: (v: number) => voi
   // Hang up once the welcome has been said and the last chunk has played out.
   const iv = window.setInterval(() => {
     if (closed) { window.clearInterval(iv); return; }
+    if (ctx && firstAt >= 0 && on.progress) {
+      const complete = sawResponse && performance.now() - lastAudioAt > 700;
+      on.progress(Math.max(0, ctx.currentTime - firstAt), complete ? playHead - firstAt : null);
+    }
     const drained = !ctx || ctx.currentTime > playHead + 0.3;
     if (lastAudioAt && sawResponse && drained && performance.now() - lastAudioAt > 1200) { window.clearInterval(iv); finish(); }
-  }, 250);
-  const cap = window.setTimeout(finish, 75_000);
+  }, 100);
+  const cap = window.setTimeout(finish, 180_000); // the welcome plus the holographic briefing
   return () => { window.clearInterval(iv); window.clearTimeout(cap); finish(); };
 }
 
@@ -276,6 +288,7 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
   const stopVoice = useRef<(() => void) | null>(null);
   const stopHum = useRef<(() => void) | null>(null);
   const [flashKey, setFlashKey] = useState(0);
+  const [prog, setProg] = useState<{ played: number; total: number | null } | null>(null);
 
   useEffect(() => { setW(window.innerWidth); }, []);
   useEffect(() => {
@@ -304,9 +317,8 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
   const waitingOnVoice = voice === "idle" || voice === "connecting";
   const typedRaw = t > T_BRIEF && !waitingOnVoice ? Math.min(briefText.length, Math.floor(((t - T_BRIEF) / 1000) * CPS)) : 0;
   const typed = voice === "done" ? briefText.length : typedRaw;
-  const briefDone = !waitingOnVoice && t > T_BRIEF && typed >= briefText.length && voice !== "speaking" && voice !== "blocked";
+  const typedDone = !waitingOnVoice && t > T_BRIEF && typed >= briefText.length && voice !== "speaking" && voice !== "blocked";
   const doneAt = useRef<number | null>(null);
-  if (briefDone && doneAt.current == null) doneAt.current = t;
 
   const leave = () => {
     if (leaving) return; stopVoice.current?.(); stopHum.current?.();
@@ -314,7 +326,48 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
     setLeaving(true); window.setTimeout(onDone, 700);
   };
 
-  const welcomeSpoken = useMemo(() => spokenWelcome(d, greet, name, preview), [d, greet, name, preview]);
+  /*
+   * ONE SPOKEN SCRIPT, FOUR PARTS: the welcome (name, accounts, gold), then one part per holographic
+   * panel, then the closing line. The panels follow the voice: each part's share of the script's
+   * characters, scaled to the audio's real length once it has all arrived, says when its panel flies
+   * forward. Without a voice they run on a timer instead.
+   */
+  const holoSegs = useMemo(() => briefingScript(d as unknown as BriefData), [d]);
+  const script = useMemo(() => {
+    const parts = [spokenWelcome(d, greet, name, preview, false), ...holoSegs.map((x) => x.say), closingLine(preview)];
+    const total = parts.reduce((a, x) => a + x.length + 1, 0);
+    let acc = 0;
+    const bounds = parts.map((x) => { const from = acc / total; acc += x.length + 1; return { from, to: acc / total }; });
+    return { text: parts.join(" "), bounds };
+  }, [d, greet, name, preview, holoSegs]);
+  const welcomeSpoken = script.text;
+  const holoN = holoSegs.length;
+  // which part is playing: 0 = welcome, 1..holoN = panels, holoN+1 = closing
+  const [silentHoloAt, setSilentHoloAt] = useState<number | null>(null);
+  let part = 0, holoShown = false;
+  if (holoN && spoken && prog) {
+    const total = prog.total ?? Math.max(prog.played + 1, welcomeSpoken.length / 14.5);
+    const f = prog.played / total;
+    part = script.bounds.findIndex((b) => f < b.to); if (part < 0) part = script.bounds.length - 1;
+    if (voice === "done") part = script.bounds.length - 1;
+    holoShown = part >= 1 || (script.bounds[1] != null && f > script.bounds[1].from - 1.3 / total);
+  } else if (holoN && silentHoloAt != null) {
+    const k = Math.floor((t - silentHoloAt - 900) / 7000);
+    part = Math.max(0, Math.min(holoN + 1, k + 1));
+    holoShown = true;
+  }
+  const holoActive = !holoShown ? -1 : part === 0 ? -1 : part <= holoN ? part - 1 : 3;
+  const holoDone = !holoN || part > holoN;
+  const holoFocus = holoShown && holoActive < 3;
+  // each panel pulled forward: a latch, a gold pulse and sparks
+  const lastHolo = useRef(-1);
+  useEffect(() => {
+    if (holoActive >= 0 && holoActive !== lastHolo.current) { lastHolo.current = holoActive; sfxLatch(sharedCtx, holoActive + 2); sfxSlide(sharedCtx); setFlashKey((k) => k + 1); }
+  }, [holoActive]);
+  // silent run: once the typed welcome is done, the panels take over on a timer
+  useEffect(() => { if (typedDone && voice !== "done" && holoN && silentHoloAt == null) setSilentHoloAt(t); });
+  const briefDone = typedDone && (voice === "done" || holoDone);
+  if (briefDone && doneAt.current == null) doneAt.current = t;
   const startVoice = () => {
     if (!sharedCtx || sharedCtx.state !== "running") { setVoice("blocked"); return; }
     setVoice("connecting");
@@ -324,6 +377,7 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
         level: (v) => setVLevel(v),
         started: () => { setVoice("speaking"); setSpokeAt(performance.now() - start.current); },
         ended: () => { setVLevel(0); setVoice((v) => (v === "speaking" ? "done" : "off")); },
+        progress: (played, total) => setProg({ played, total }),
       });
     }).catch(() => setVoice("off"));
   };
@@ -427,14 +481,19 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
       <button onClick={leave} className="absolute right-7 top-7 z-20 rounded-md px-3 py-1.5 text-[11px] tracking-[0.18em] sm:right-10 sm:top-10"
         style={{ color: H.mut, border: `1px solid ${H.line}`, background: "rgba(3,7,11,0.6)" }}>SKIP ›</button>
 
+      {/* ATLAS's holographic briefing: panels pulled forward one at a time as it talks about them */}
+      {holoShown && <HoloBriefing d={d as unknown as BriefData} active={holoActive} caption={holoSegs[holoActive]?.show ?? ""} phone={phone} level={voice === "speaking" ? vLevel : 0.2} />}
       <div className="relative z-10 flex h-full flex-col items-center justify-center px-4">
-        {/* core */}
-        <div className="relative grid place-items-center" style={{ width: (phone ? 200 : 280) + 100, height: (phone ? 200 : 280) + 100, margin: "-50px 0", transform: `scale(${0.4 + coreIn * 0.6}) rotate(${(1 - coreIn) * -90}deg)`, opacity: coreIn, filter: glitch ? "brightness(1.8) contrast(1.2)" : "none", transition: "filter .1s" }}>
+        {/* core — rises to the top of the room and becomes the projector while the panels are up */}
+        <div className="relative grid place-items-center" style={{ width: (phone ? 200 : 280) + 100, height: (phone ? 200 : 280) + 100, margin: "-50px 0",
+          transform: holoFocus ? `translateY(-12vh) scale(.3)` : `scale(${0.4 + coreIn * 0.6}) rotate(${(1 - coreIn) * -90}deg)`,
+          opacity: holoFocus ? 0 : coreIn, filter: glitch ? "brightness(1.8) contrast(1.2)" : "none", transition: "filter .1s, transform .8s cubic-bezier(.7,0,.2,1), opacity .6s" }}>
           <HudRings size={(phone ? 200 : 280) + 100} spin={coreIn} />
           <BrainOrb state={speaking ? "speaking" : online ? "watching" : "analyzing"} intensity={60} alive pulseKey={online ? "on" : "off"}
             size={phone ? 200 : 280} voice={{ mode: speaking ? "speaking" : online ? "listening" : "connecting", level }} />
         </div>
 
+        <div className="flex w-full flex-col items-center" style={{ opacity: holoFocus ? 0 : 1, transform: holoFocus ? "translateZ(0) scale(.92)" : "none", transition: "opacity .6s, transform .6s", pointerEvents: holoFocus ? "none" : "auto" }}>
         {/* systems check */}
         {t > T_CORE + 300 && (
           <ul className={`mt-3 grid gap-x-8 gap-y-1 font-mono text-[10px] sm:text-[11px] ${phone ? "grid-cols-1" : "grid-cols-2"}`} style={{ minWidth: phone ? 260 : 520 }}>
@@ -481,6 +540,7 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
           <button onClick={leave} className="es-rise mt-4 rounded-lg px-6 py-2.5 text-[13px] font-semibold tracking-[0.2em]"
             style={{ background: H.gold2, color: "#10131A", boxShadow: "0 0 24px rgba(231,196,103,.35)" }}>{preview ? "CONTINUE" : "ENTER THE DESK"}</button>
         )}
+        </div>
       </div>
       </div>
     </div>
