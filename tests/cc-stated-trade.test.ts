@@ -38,7 +38,7 @@ test('the trade said earlier in the conversation is remembered; a later stop att
 test('guidance lines do the arithmetic from the trader side', () => {
   const L = tradeGuidanceLines('T', { side: 'sell', entry: 4369, stop: 4375, target: null }, 4362,
     [{ price: 4364.5, label: 'London high' }], [{ price: 4359, label: 'yesterday low' }]).join('\n');
-  assert.match(L, /\+70 pips in profit/);
+  assert.match(L, /\+70 pips IN PROFIT/);
   assert.match(L, /4359\.00 \(yesterday low\)/);
   assert.match(L, /1\.17R/);
 });
