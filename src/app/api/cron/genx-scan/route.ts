@@ -307,7 +307,7 @@ async function run(): Promise<Response> {
 
   // BREAKDOWN-RETEST SELLS (owner 09-21) — see src/lib/genx/breakdownRetest.ts for the rule and its limits.
   try { out.breakdown = await breakdownRetestPass(admin, mdKey, quickBias, tgReady, sent); } catch (e) { out.breakdown = { error: e instanceof Error ? e.message : "error" }; }
-  try { await beat(admin, "genx", { tier: "full", flags: genx2FlagsSnapshot(), last_decision: { at: nowIso, mode: "quick", breakdown: out.breakdown } }); } catch { /* best-effort */ }
+  try { await beat(admin, "genx", { tier: "full", flags: genx2FlagsSnapshot(), last_decision: { at: nowIso, mode: "quick", ...(((out.modes as Record<string, unknown>).quick as Record<string, unknown>) ?? {}), breakdown: out.breakdown } }); } catch { /* best-effort */ }
 
   // MY LEVELS (owner 09-07): after the trend scan, check the owner's drawn
   // support/resistance lines — a confirmed 5-minute rejection at one fires a
