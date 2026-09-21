@@ -27,8 +27,17 @@ export type StatedTrade = {
 
 const PRICE = String.raw`(\d{4}(?:\.\d{1,2})?)`;
 
-/** "forty-three sixty-nine" often arrives as "43 69" or "43, 69" — rejoin those into 4369. */
-function normaliseNumbers(t: string): string {
+/**
+ * "forty-three sixty-nine" often arrives as "43 69" or "43, 69" — rejoin those into 4369.
+ *
+ * 09-21, owner: "I'm in a sell at 43.43, take profit at 43.21, stop at 43.50" — the transcriber wrote the
+ * spoken "forty-three forty-three" as 43.43, nothing parsed, and ATLAS did the pip maths in its head and got
+ * it wrong. When the live price is known, "HH.MM" whose first two digits match the price's handle
+ * (43 for 43xx) is read the way a gold trader says it: 43.43 → 4343, 43.21 → 4321, 43.50 → 4350.
+ */
+function normaliseNumbers(t: string, ref: number | null = null): string {
+  const handle = ref != null && ref >= 1000 && ref < 10000 ? String(Math.floor(ref)).slice(0, 2) : null;
+  if (handle) t = t.replace(/(^|[^\d.])(\d{2})\.(\d{2})(?!\d|\.\d)/g, (m, pre: string, a: string, b: string) => (a === handle ? `${pre}${a}${b}` : m));
   return t
     .replace(/\b(3\d|4\d|5\d)[\s,]+(\d{2})(\.\d{1,2})?\b/g, (_m, a: string, b: string, c: string | undefined) => `${a}${b}${c ?? ""}`)
     .replace(/(\d),(\d{3})/g, "$1$2");
@@ -52,7 +61,7 @@ function num(t: string, re: RegExp): number | null {
  * `ref` is the live price: a number more than 5% away from it is not a gold entry and is ignored.
  */
 export function parseStatedTrade(said: string, ref: number | null): StatedTrade | null {
-  const t = normaliseNumbers(said.toLowerCase());
+  const t = normaliseNumbers(said.toLowerCase(), ref);
   const side = sideOf(t);
   if (!side) return null;
   const entry =
@@ -73,7 +82,7 @@ export function statedTradeFrom(userTexts: string[], ref: number | null): Stated
     if (p) {
       // A stop or target given in a later message without restating the trade still belongs to it.
       for (let j = i + 1; j < userTexts.length; j++) {
-        const t = normaliseNumbers(userTexts[j].toLowerCase());
+        const t = normaliseNumbers(userTexts[j].toLowerCase(), ref);
         const s = num(t, new RegExp(String.raw`(?:stop(?:\s*loss)?|sl)\s*(?:is|at|of|was)?\s*\$?${PRICE}`));
         const g = num(t, new RegExp(String.raw`(?:target|tp|take\s*profit)\s*(?:is|at|of|was)?\s*\$?${PRICE}`));
         if (s != null) p.stop = s;
@@ -99,15 +108,16 @@ export function tradeGuidanceLines(
   const pips = ((price - t.entry) * dir) / 0.1;
   const L: string[] = [];
   L.push(`${src}: ${t.side === "sell" ? "SHORT (sold)" : "LONG (bought)"} XAUUSD from ${t.entry.toFixed(2)}${t.qty ? `, ${t.qty} lots` : ""}`);
-  L.push(`price now ${price.toFixed(2)} → ${pips >= 0 ? "+" : ""}${Math.round(pips)} pips ${pips >= 0 ? "in profit" : "against them"}`);
+  const p1 = (x: number) => (Math.abs(x) < 10 ? x.toFixed(1) : String(Math.round(x)));
+  L.push(`price now ${price.toFixed(2)} → ${pips >= 0 ? "+" : ""}${p1(pips)} pips ${pips >= 0 ? "IN PROFIT" : "AGAINST THEM"} (1 pip = $0.10; a ${t.side === "sell" ? "sell profits when price is BELOW entry" : "buy profits when price is ABOVE entry"})`);
   if (t.stop != null) {
     const toStop = Math.abs(price - t.stop) / 0.1;
     const risk = Math.abs(t.entry - t.stop) / 0.1;
-    L.push(`their stop ${t.stop.toFixed(2)} — ${Math.round(toStop)} pips from price; the trade risked ${Math.round(risk)} pips, so it is at ${(pips / Math.max(1, risk)).toFixed(2)}R`);
+    L.push(`their stop ${t.stop.toFixed(2)} — ${p1(toStop)} pips from price; the trade risked ${Math.round(risk)} pips, so it is at ${(pips / Math.max(1, risk)).toFixed(2)}R`);
   } else {
     L.push("they have not told you a stop — ask where it is if the answer depends on it");
   }
-  if (t.target != null) L.push(`their target ${t.target.toFixed(2)} — ${Math.round(Math.abs(t.target - price) / 0.1)} pips away`);
+  if (t.target != null) L.push(`their target ${t.target.toFixed(2)} — ${p1(Math.abs(t.target - price) / 0.1)} pips away`);
   // In the trade's direction first: that is what it needs to break for the trade to pay.
   const fav = t.side === "sell" ? below : above;
   const adv = t.side === "sell" ? above : below;
@@ -138,6 +148,7 @@ export async function ledgerPositions(userId: string): Promise<{ side: "buy" | "
 
 export const TRADE_COACH_RULES = `
 WHEN THE TRADER ASKS ABOUT A TRADE THEY TOOK (the "THEIR OWN TRADE" block):
+- USE THE PIP NUMBERS IN THAT BLOCK EXACTLY. Never work out pips, distances or profit/loss yourself — the block has them. If they described a trade and there is NO "THEIR OWN TRADE" block, you could not read their numbers: say the entry, stop and target back to them as prices and ask them to confirm, instead of guessing the maths.
 - Treat it exactly like an open position: use its entry, the pips now, their stop, and the levels on each side from that block and from LEVELS ABOVE / LEVELS BELOW.
 - Give a clear lean — hold, take some off, tighten, or get out — and the ONE price that would change it ("if it closes back above 4364 I'd be out"). Say what the level is (yesterday's low, a 4h swing) so they can see it.
 - Say whether price is respecting or rejecting the level they mention, using the live read (pressure, structure, the last candles) — not a guess.
