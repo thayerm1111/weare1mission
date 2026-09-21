@@ -87,7 +87,69 @@ export function composeBrief(d: Live | null): string[] {
   return L;
 }
 
-export function EntrySequence({ onDone }: { onDone: () => void }) {
+/* ── the spoken welcome ─────────────────────────────────────────────────────── */
+
+/** One AudioContext, created inside the tap that opened the Command Center — browsers only let audio
+ *  start from a user gesture, and the entrance plays after an await. */
+let sharedCtx: AudioContext | null = null;
+export function primeAudio(): void {
+  try {
+    const W = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
+    const Ctx = W.AudioContext ?? W.webkitAudioContext; if (!Ctx) return;
+    if (!sharedCtx || sharedCtx.state === "closed") sharedCtx = new Ctx();
+    void sharedCtx.resume();
+  } catch { /* no audio: the words are still on screen */ }
+}
+
+type Greet = { eligible: boolean; name: string | null; voice?: boolean;
+  accounts: { liveCount: number; liveTotal: number; demoCount: number; demoTotal: number; asOf: string | null } | null };
+
+const usd = (v: number) => `$${Math.round(v).toLocaleString("en-US")}`;
+export function accountLine(g: Greet | null): string | null {
+  const a = g?.accounts; if (!a) return null;
+  const parts: string[] = [];
+  if (a.liveCount) parts.push(`your ${a.liveCount === 1 ? "live account holds" : `${a.liveCount} live accounts hold`} ${usd(a.liveTotal)}`);
+  if (a.demoCount) parts.push(`${a.demoCount === 1 ? "your demo holds" : `${a.demoCount} demo accounts hold`} ${usd(a.demoTotal)}`);
+  if (!parts.length) return null;
+  const s = parts.join(", and ");
+  return s.charAt(0).toUpperCase() + s.slice(1) + ".";
+}
+
+/** Plays the welcome through the voice agent: its first message IS the welcome. Returns a stopper. */
+function speakWelcome(url: string, text: string, on: { level: (v: number) => void; started: () => void; ended: () => void }): () => void {
+  const ctx = sharedCtx;
+  let closed = false, playHead = 0, lastAudioAt = 0, sawResponse = false;
+  const ws = new WebSocket(url);
+  const finish = () => { if (closed) return; closed = true; try { ws.close(); } catch { /* noop */ } on.ended(); };
+  ws.onopen = () => ws.send(JSON.stringify({ type: "conversation_initiation_client_data", conversation_config_override: { agent: { first_message: text } } }));
+  ws.onmessage = (ev) => {
+    let m: Record<string, unknown>; try { m = JSON.parse(String(ev.data)); } catch { return; }
+    if (m.type === "ping") { ws.send(JSON.stringify({ type: "pong", event_id: (m.ping_event as { event_id?: number })?.event_id })); return; }
+    if (m.type === "agent_response") { sawResponse = true; return; }
+    if (m.type !== "audio" || !ctx) return;
+    const b64 = (m.audio_event as { audio_base_64?: string })?.audio_base_64; if (!b64) return;
+    const bin = atob(b64); const n = bin.length >> 1; const pcm = new Float32Array(n);
+    let peak = 0;
+    for (let i = 0; i < n; i++) { let v = bin.charCodeAt(i * 2) | (bin.charCodeAt(i * 2 + 1) << 8); if (v >= 32768) v -= 65536; pcm[i] = v / 32768; if (i % 8 === 0) peak = Math.max(peak, Math.abs(pcm[i])); }
+    const buf = ctx.createBuffer(1, n, 16000); buf.copyToChannel(pcm, 0);
+    const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+    const at = Math.max(ctx.currentTime + 0.05, playHead); src.start(at); playHead = at + buf.duration;
+    if (!lastAudioAt) on.started();
+    lastAudioAt = performance.now();
+    window.setTimeout(() => on.level(Math.min(1, peak * 2.2)), Math.max(0, (at - ctx.currentTime) * 1000));
+  };
+  ws.onerror = finish; ws.onclose = () => { if (!closed) { closed = true; on.ended(); } };
+  // Hang up once the welcome has been said and the last chunk has played out.
+  const iv = window.setInterval(() => {
+    if (closed) { window.clearInterval(iv); return; }
+    const drained = !ctx || ctx.currentTime > playHead + 0.3;
+    if (lastAudioAt && sawResponse && drained && performance.now() - lastAudioAt > 1200) { window.clearInterval(iv); finish(); }
+  }, 250);
+  const cap = window.setTimeout(finish, 75_000);
+  return () => { window.clearInterval(iv); window.clearTimeout(cap); finish(); };
+}
+
+export function EntrySequence({ onDone, speak = false }: { onDone: () => void; speak?: boolean }) {
   const [t, setT] = useState(0);
   const [d, setD] = useState<Live | null>(null);
   const [name, setName] = useState<string | null>(null);
@@ -96,6 +158,12 @@ export function EntrySequence({ onDone }: { onDone: () => void }) {
   const [w, setW] = useState(1200);
   // when the live read arrived (ms into the sequence); the update waits for it, up to four seconds
   const [dAt, setDAt] = useState<number | null>(null);
+  const [greet, setGreet] = useState<Greet | null>(null);
+  // spoken welcome: idle → connecting → speaking → done (or 'blocked' when the browser needs a tap)
+  const [voice, setVoice] = useState<"idle" | "connecting" | "speaking" | "done" | "blocked" | "off">(speak ? "idle" : "off");
+  const [vLevel, setVLevel] = useState(0);
+  const [spokeAt, setSpokeAt] = useState<number | null>(null);
+  const stopVoice = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     setW(window.innerWidth);
@@ -104,24 +172,48 @@ export function EntrySequence({ onDone }: { onDone: () => void }) {
     const tick = () => { setT(performance.now() - start.current); raf = requestAnimationFrame(tick); };
     raf = requestAnimationFrame(tick);
     fetch("/api/command-center/live", { cache: "no-store" }).then((r) => r.json()).then((j) => { setD(j); setDAt(performance.now() - start.current); }).catch(() => setDAt(0));
-    fetch("/api/me", { cache: "no-store" }).then((r) => r.json()).then((j) => {
-      const n = String(j?.name ?? "").trim();
-      setName(n ? n.split(/\s+/)[0].replace(/^./, (c) => c.toUpperCase()) : null);
-    }).catch(() => {});
+    fetch("/api/command-center/greet", { cache: "no-store" }).then((r) => r.json()).then((j: Greet) => { setGreet(j); setName(j?.name ?? null); }).catch(() => setGreet(null));
     return () => cancelAnimationFrame(raf);
   }, []);
 
   const phone = w < 640;
   const brief = useMemo(() => composeBrief(d), [d]);
-  const briefText = brief.join(" ");
-  const T_CORE = 1200, T_ONLINE = 4400, CPS = 52;
-  const T_BRIEF = dAt != null ? Math.max(6200, dAt + 200) : 10200;
-  const typed = t > T_BRIEF ? Math.min(briefText.length, Math.floor(((t - T_BRIEF) / 1000) * CPS)) : 0;
-  const briefDone = t > T_BRIEF && typed >= briefText.length;
+  const acctLine = accountLine(greet);
+  const briefText = [acctLine, ...brief].filter(Boolean).join(" ");
+  const T_CORE = 1200, T_ONLINE = 4400;
+  const spoken = voice === "speaking" || voice === "done";
+  // Spoken: the words appear at speaking pace, starting with the voice. Silent: a quick type-out.
+  const CPS = spoken ? 15 : 52;
+  const T_BRIEF = spoken && spokeAt != null ? spokeAt : dAt != null ? Math.max(6200, dAt + 200) : 10200;
+  const waitingOnVoice = voice === "idle" || voice === "connecting";
+  const typedRaw = t > T_BRIEF && !waitingOnVoice ? Math.min(briefText.length, Math.floor(((t - T_BRIEF) / 1000) * CPS)) : 0;
+  const typed = voice === "done" ? briefText.length : typedRaw;
+  const briefDone = !waitingOnVoice && t > T_BRIEF && typed >= briefText.length && voice !== "speaking" && voice !== "blocked";
   const doneAt = useRef<number | null>(null);
   if (briefDone && doneAt.current == null) doneAt.current = t;
 
-  const leave = () => { if (leaving) return; setLeaving(true); window.setTimeout(onDone, 700); };
+  const leave = () => { if (leaving) return; stopVoice.current?.(); setLeaving(true); window.setTimeout(onDone, 700); };
+
+  const welcomeSpoken = `${greetingWord()}${name ? `, ${name}` : ""}. ATLAS online. ${briefText}`;
+  const startVoice = () => {
+    if (!sharedCtx || sharedCtx.state !== "running") { setVoice("blocked"); return; }
+    setVoice("connecting");
+    fetch("/api/command-center/greet", { method: "POST" }).then((r) => r.json()).then((j) => {
+      if (!j?.url) { setVoice("off"); return; }
+      stopVoice.current = speakWelcome(j.url, welcomeSpoken, {
+        level: (v) => setVLevel(v),
+        started: () => { setVoice("speaking"); setSpokeAt(performance.now() - start.current); },
+        ended: () => { setVLevel(0); setVoice((v) => (v === "speaking" ? "done" : "off")); },
+      });
+    }).catch(() => setVoice("off"));
+  };
+  // Ready when the live read and the member's details are in, and the room has come up.
+  useEffect(() => {
+    if (voice !== "idle" || t < 3600 || dAt == null || greet === null) return;
+    if (!greet.eligible || greet.voice === false) { setVoice("off"); return; }
+    startVoice();
+  });
+  useEffect(() => () => { stopVoice.current?.(); }, []);
   useEffect(() => { if (doneAt.current != null && t - doneAt.current > 2600) leave(); });
   const toned = useRef(false);
   useEffect(() => { if (t > T_ONLINE && !toned.current) { toned.current = true; tone([392, 587, 784]); } }, [t]);
@@ -143,8 +235,8 @@ export function EntrySequence({ onDone }: { onDone: () => void }) {
   const bootShown = Math.min(bootLines.length, Math.floor(t / 300) + 1);
   const coreIn = Math.max(0, Math.min(1, (t - T_CORE) / 900));
   const online = t > T_ONLINE;
-  const speaking = t > T_BRIEF && !briefDone;
-  const level = speaking ? 0.35 + 0.35 * Math.abs(Math.sin(t / 90)) * Math.abs(Math.sin(t / 233)) : online ? 0.12 : 0;
+  const speaking = voice === "speaking" || (voice === "off" && t > T_BRIEF && !briefDone);
+  const level = voice === "speaking" ? vLevel : speaking ? 0.35 + 0.35 * Math.abs(Math.sin(t / 90)) * Math.abs(Math.sin(t / 233)) : online ? 0.12 : 0;
   const glitch = online && t < T_ONLINE + 500;
 
   return (
@@ -198,6 +290,11 @@ export function EntrySequence({ onDone }: { onDone: () => void }) {
           )}
         </div>
 
+        {voice === "blocked" && (
+          <button onClick={() => { primeAudio(); setVoice("idle"); }} className="es-rise mb-1 rounded-full px-4 py-2 text-[12px] font-semibold tracking-[0.16em]"
+            style={{ color: H.gold3, border: "1px solid rgba(231,196,103,.55)", background: "rgba(213,169,61,.12)" }}>🔊 TAP TO HEAR ATLAS</button>
+        )}
+        {voice === "connecting" && <p className="mb-1 font-mono text-[10px] tracking-[0.2em]" style={{ color: H.cyan2 }}>OPENING VOICE CHANNEL…</p>}
         {/* the brief */}
         <div className="mt-3 w-full max-w-[640px] rounded-xl px-4 py-3 text-left text-[13.5px] leading-relaxed sm:text-[15px]"
           style={{ minHeight: phone ? 150 : 120, border: t > T_BRIEF ? `1px solid ${H.lineHi}` : "1px solid transparent", background: t > T_BRIEF ? "rgba(7,16,26,0.78)" : "transparent", transition: "all .4s" }}>
@@ -209,7 +306,7 @@ export function EntrySequence({ onDone }: { onDone: () => void }) {
           )}
         </div>
 
-        {briefDone && (
+        {(briefDone || (voice === "blocked" && typed >= briefText.length && t > T_BRIEF)) && (
           <button onClick={leave} className="es-rise mt-4 rounded-lg px-6 py-2.5 text-[13px] font-semibold tracking-[0.2em]"
             style={{ background: H.gold2, color: "#10131A", boxShadow: "0 0 24px rgba(231,196,103,.35)" }}>ENTER THE DESK</button>
         )}

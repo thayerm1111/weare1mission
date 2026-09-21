@@ -1,7 +1,7 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { H } from "./theme";
-import { EntrySequence } from "./EntrySequence";
+import { EntrySequence, primeAudio } from "./EntrySequence";
 
 /**
  * COMMAND CENTER ACCESS — 5 credits opens it for 30 minutes, the clock starting when you open it.
@@ -32,21 +32,23 @@ export function PassGate({ children }: { children: React.ReactNode }) {
   const open = !!pass && (pass.admin || (pass.active && exp != null && exp > now));
 
   /*
-   * THE ENTRANCE plays once per paid window (and once per browser session for admins). Opening the
-   * same window again — a refresh, a second tab — goes straight to the desk.
+   * THE ENTRANCE (owner 09-21): the animation and ATLAS's spoken welcome — their name, their accounts,
+   * the gold update — play when they open the Command Center, but only if it has been two hours since
+   * the last welcome. Renewing the 30-minute window inside that goes straight to the desk. The server
+   * decides (GET /api/command-center/greet), so the rule holds across devices.
    */
-  const introKey = pass ? (pass.admin ? "cc-intro-admin" : `cc-intro-${pass.expiresAt}`) : null;
+  const checked = useRef(false);
   useEffect(() => {
-    if (!open || !introKey) return;
-    try {
-      const store = pass?.admin ? sessionStorage : localStorage;
-      if (store.getItem(introKey)) return;
-      store.setItem(introKey, "1");
-    } catch { /* storage blocked: still show it once for this page */ }
-    setIntro(true);
-  }, [open, introKey, pass?.admin]);
+    if (!open || checked.current) return;
+    checked.current = true;
+    fetch("/api/command-center/greet", { cache: "no-store" }).then((r) => r.json())
+      .then((j) => { if (j?.eligible) setIntro(true); }).catch(() => {});
+  }, [open]);
+  // A window that expires and is renewed re-checks (it will usually be inside the two hours).
+  useEffect(() => { if (!open) checked.current = false; }, [open]);
 
   const buy = useCallback(async () => {
+    primeAudio(); // inside the tap, so ATLAS may speak once the room is up
     setBusy(true); setMsg(null);
     try {
       const r = await fetch("/api/command-center/pass", { method: "POST" });
@@ -91,7 +93,7 @@ export function PassGate({ children }: { children: React.ReactNode }) {
   return (
     <>
       {children}
-      {intro && <EntrySequence onDone={() => setIntro(false)} />}
+      {intro && <EntrySequence speak onDone={() => setIntro(false)} />}
       {!pass.admin && left != null && (
         <div className="pointer-events-none fixed bottom-3 left-3 z-50 rounded-full px-3 py-1 text-[11px] tabular-nums"
           style={{ background: "rgba(7,16,26,0.9)", border: `1px solid ${left < 5 * 60_000 ? H.gold2 : H.line}`, color: left < 5 * 60_000 ? H.gold3 : H.mut }}>

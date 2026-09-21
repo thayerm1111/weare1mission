@@ -341,7 +341,7 @@ const TTS_MODEL = process.env.CC_VOICE_TTS_MODEL ?? "eleven_flash_v2";
  * and a change here re-applies the whole configuration on the next session instead of waiting for
  * somebody to remember.
  */
-const AGENT_CONFIG_VERSION = 5;   // 3: the agent is ATLAS · 4: idle lines hang up (cost) · 5: ATLAS greets you
+const AGENT_CONFIG_VERSION = 6;   // 3: ATLAS · 4: idle hang-up · 5: greeting · 6: spoken welcome may set the first message
 
 const AGENT_PROMPT = [
   "You are a relay. Do not answer from your own knowledge.",
@@ -476,7 +476,12 @@ export async function provisionAgent(): Promise<Provisioned> {
        * from a browser.
        */
       platform_settings: {
-        overrides: { custom_llm_extra_body: true },
+        overrides: {
+          custom_llm_extra_body: true,
+          // The entrance welcome (name, accounts, gold update) is spoken as the first message of a
+          // one-off line. Only the first message may be overridden — never the prompt or the model.
+          conversation_config_override: { agent: { first_message: true } },
+        },
       },
     };
 
