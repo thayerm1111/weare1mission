@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrainOrb } from "./BrainOrb";
 import { H } from "./theme";
-import { MarketStorm, DataRain, HudRings, FX_CSS, sfxBoom, sfxWhoosh, sfxBlip, sfxOnline, sfxHum } from "./EntryFx";
+import { MarketStorm, DataRain, HudRings, FX_CSS, sfxVaultOpen, sfxLatch, sfxEngage, sfxSlide, sfxHum } from "./EntryFx";
 import { priceWords, moveWords, balanceWords, speakNumbers } from "@/lib/spokenNumbers";
 
 /**
@@ -281,8 +281,8 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
   useEffect(() => {
     if (!armed) return;
     start.current = performance.now();
-    // the doors: boom, hydraulics, and a hum under the room until ATLAS speaks
-    sfxBoom(sharedCtx); sfxWhoosh(sharedCtx, 1.4, 180, 2600, 0.24);
+    // the vault: bolts, gears, the seal breaking, doors rolling — and a machine room under it until ATLAS speaks
+    sfxVaultOpen(sharedCtx);
     stopHum.current = sfxHum(sharedCtx);
     let raf = 0;
     const tick = () => { setT(performance.now() - start.current); raf = requestAnimationFrame(tick); };
@@ -310,7 +310,7 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
 
   const leave = () => {
     if (leaving) return; stopVoice.current?.(); stopHum.current?.();
-    sfxWhoosh(sharedCtx, 0.7, 2400, 300, 0.14);
+    sfxSlide(sharedCtx);
     setLeaving(true); window.setTimeout(onDone, 700);
   };
 
@@ -341,7 +341,7 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
   useEffect(() => {
     if (t > T_ONLINE && !toned.current) {
       toned.current = true;
-      if (sharedCtx?.state === "running") sfxOnline(sharedCtx); else tone([392, 587, 784]);
+      sfxEngage(sharedCtx);
       setFlashKey((k) => k + 1);
     }
   }, [t]);
@@ -360,7 +360,7 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
   const shown = Math.max(0, Math.min(checks.length, Math.floor((t - T_CORE - 500) / 420)));
   const shownRef = useRef(0);
   useEffect(() => {
-    if (shown > shownRef.current) { shownRef.current = shown; sfxBlip(sharedCtx, 880 + shown * 140); setFlashKey((k) => k + 1); }
+    if (shown > shownRef.current) { shownRef.current = shown; sfxLatch(sharedCtx, shown); setFlashKey((k) => k + 1); }
   }, [shown]);
 
   const bootLines = ["OM // COMMAND CENTER XAUUSD", "SECURE LINK ESTABLISHED", `OPERATOR: ${(name ?? "MEMBER").toUpperCase()}`, "WAKING ATLAS…"];
@@ -485,24 +485,6 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
       </div>
     </div>
   );
-}
-
-/** A soft tone from the Web Audio API. Silent if the browser won't play without a tap. */
-function tone(freqs: number[]) {
-  try {
-    const W = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
-    const Ctx = W.AudioContext ?? W.webkitAudioContext; if (!Ctx) return;
-    const ctx = new Ctx(); if (ctx.state === "suspended") { void ctx.close(); return; }
-    const t0 = ctx.currentTime;
-    freqs.forEach((f, i) => {
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = "sine"; o.frequency.value = f;
-      g.gain.setValueAtTime(0, t0 + i * 0.12); g.gain.linearRampToValueAtTime(0.05, t0 + i * 0.12 + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.12 + 0.5);
-      o.connect(g); g.connect(ctx.destination); o.start(t0 + i * 0.12); o.stop(t0 + i * 0.12 + 0.55);
-    });
-    window.setTimeout(() => { void ctx.close().catch(() => {}); }, 1400);
-  } catch { /* the words still say it */ }
 }
 
 const ENTRY_CSS = `

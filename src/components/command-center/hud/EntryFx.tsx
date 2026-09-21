@@ -30,64 +30,130 @@ function noiseBuf(ctx: Ctx, secs: number) {
 }
 const ok = (ctx: Ctx | null): ctx is Ctx => !!ctx && ctx.state === "running";
 
-/** Deep sub-boom — the doors unlocking. */
-export function sfxBoom(ctx: Ctx | null) {
-  if (!ok(ctx)) return;
-  const t = ctx.currentTime, o = ctx.createOscillator(), g = out(ctx, 0);
-  o.type = "sine"; o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(28, t + 1.1);
-  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.55, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.3);
-  o.connect(g); o.start(t); o.stop(t + 1.35);
-  // the crack on top
-  const n = ctx.createBufferSource(); n.buffer = noiseBuf(ctx, 0.3);
-  const f = ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 900;
-  const ng = out(ctx, 0); ng.gain.setValueAtTime(0.35, t); ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
-  n.connect(f); f.connect(ng); n.start(t);
-}
+/*
+ * MECHANICAL, NOT ELECTRONIC (owner 09-21): "Change the sounds to more gears and things opening, not
+ * lasers and beeps." Every sound below is built from filtered noise and short inharmonic metal rings —
+ * the ingredients of real machinery — instead of pitched tones.
+ */
 
-/** Rising air rush — hydraulics and the doors sliding. */
-export function sfxWhoosh(ctx: Ctx | null, dur = 1.2, from = 250, to = 3200, vol = 0.22) {
-  if (!ok(ctx)) return;
-  const t = ctx.currentTime, n = ctx.createBufferSource(); n.buffer = noiseBuf(ctx, dur + 0.1);
-  const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.Q.value = 1.1;
-  f.frequency.setValueAtTime(from, t); f.frequency.exponentialRampToValueAtTime(to, t + dur * 0.8);
-  const g = out(ctx, 0); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + dur * 0.35); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  n.connect(f); f.connect(g); n.start(t); n.stop(t + dur + 0.05);
-}
-
-/** A tight digital blip — a system coming online. */
-export function sfxBlip(ctx: Ctx | null, freq = 1320, vol = 0.05) {
-  if (!ok(ctx)) return;
-  const t = ctx.currentTime, o = ctx.createOscillator(), g = out(ctx, 0);
-  o.type = "square"; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(freq * 1.5, t + 0.06);
-  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
-  o.connect(g); o.start(t); o.stop(t + 0.1);
-}
-
-/** Power-up swell and chord — ATLAS ONLINE. */
-export function sfxOnline(ctx: Ctx | null) {
-  if (!ok(ctx)) return;
-  const t = ctx.currentTime;
-  [196, 293.66, 392, 587.33, 783.99].forEach((fq, i) => {
-    const o = ctx.createOscillator(), g = out(ctx, 0);
-    o.type = i < 2 ? "sawtooth" : "sine"; o.frequency.value = fq;
-    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.setValueAtTime(400, t); lp.frequency.exponentialRampToValueAtTime(4200, t + 0.9);
-    const v = i < 2 ? 0.035 : 0.05;
-    g.gain.setValueAtTime(0.0001, t + i * 0.05); g.gain.exponentialRampToValueAtTime(v, t + 0.25 + i * 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 2.2);
-    o.connect(lp); lp.connect(g); o.start(t + i * 0.05); o.stop(t + 2.3);
+/** A heavy steel clunk: a thud, a short grit transient and a dull metal ring. `at` = seconds from now. */
+function clunk(ctx: Ctx, at = 0, weight = 1) {
+  const t = ctx.currentTime + at;
+  // body thud
+  const o = ctx.createOscillator(), og = out(ctx, 0);
+  o.type = "sine"; o.frequency.setValueAtTime(95 * (1.2 - weight * 0.3), t); o.frequency.exponentialRampToValueAtTime(38, t + 0.22);
+  og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(0.5 * weight, t + 0.006); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+  o.connect(og); o.start(t); o.stop(t + 0.4);
+  // grit of steel meeting steel
+  const n = ctx.createBufferSource(); n.buffer = noiseBuf(ctx, 0.12);
+  const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 900; bp.Q.value = 0.9;
+  const ng = out(ctx, 0); ng.gain.setValueAtTime(0.28 * weight, t); ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+  n.connect(bp); bp.connect(ng); n.start(t);
+  // dull inharmonic ring (a plate, not a bell)
+  [211, 347, 529, 773].forEach((f, i) => {
+    const r = ctx.createOscillator(), rg = out(ctx, 0);
+    r.type = "triangle"; r.frequency.value = f * (0.9 + weight * 0.1);
+    rg.gain.setValueAtTime(0.0001, t); rg.gain.exponentialRampToValueAtTime(0.03 * weight / (i + 1), t + 0.004);
+    rg.gain.exponentialRampToValueAtTime(0.0001, t + 0.18 + 0.12 / (i + 1));
+    r.connect(rg); r.start(t); r.stop(t + 0.4);
   });
-  sfxWhoosh(ctx, 0.9, 600, 6000, 0.08);
 }
 
-/** A low hum under the whole sequence, faded by the returned stopper. */
+/** One gear tooth / ratchet pawl: a tiny, bright, dry tick. */
+function tick(ctx: Ctx, at: number, vol = 0.1, tone = 2600) {
+  const t = ctx.currentTime + at;
+  const n = ctx.createBufferSource(); n.buffer = noiseBuf(ctx, 0.02);
+  const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = tone; bp.Q.value = 5;
+  const g = out(ctx, 0); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.018);
+  n.connect(bp); bp.connect(g); n.start(t);
+}
+
+/** A run of gear teeth, speeding up or slowing down. */
+function ratchet(ctx: Ctx, at: number, count: number, first: number, last: number, vol = 0.09) {
+  let when = at;
+  for (let i = 0; i < count; i++) {
+    const k = i / Math.max(1, count - 1);
+    tick(ctx, when, vol * (0.7 + 0.3 * Math.random()), 2200 + Math.random() * 900);
+    when += first + (last - first) * k;
+  }
+}
+
+/** Machinery turning: a low geared motor that spins up, then down. */
+function motor(ctx: Ctx, at: number, dur: number, vol = 0.07) {
+  const t = ctx.currentTime + at;
+  const o = ctx.createOscillator(); o.type = "sawtooth";
+  o.frequency.setValueAtTime(28, t); o.frequency.linearRampToValueAtTime(62, t + dur * 0.5); o.frequency.linearRampToValueAtTime(34, t + dur);
+  const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 260; lp.Q.value = 3;
+  const g = out(ctx, 0); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.15); g.gain.setValueAtTime(vol, t + dur * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(lp); lp.connect(g); o.start(t); o.stop(t + dur + 0.05);
+}
+
+/** Heavy doors on rails: a rolling rumble with a scrape, plus the pneumatic release as the seal breaks. */
+function doorsSlide(ctx: Ctx, at: number, dur: number, vol = 0.22) {
+  const t = ctx.currentTime + at;
+  const n = ctx.createBufferSource(); n.buffer = noiseBuf(ctx, dur + 0.1);
+  const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.setValueAtTime(140, t); lp.frequency.linearRampToValueAtTime(420, t + dur * 0.6); lp.frequency.linearRampToValueAtTime(160, t + dur);
+  const g = out(ctx, 0); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.12); g.gain.setValueAtTime(vol, t + dur * 0.75); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  n.connect(lp); lp.connect(g); n.start(t); n.stop(t + dur + 0.05);
+  // rail scrape
+  const s = ctx.createBufferSource(); s.buffer = noiseBuf(ctx, dur);
+  const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1400; bp.Q.value = 8;
+  const sg = out(ctx, 0); sg.gain.setValueAtTime(0.0001, t); sg.gain.exponentialRampToValueAtTime(0.025, t + 0.2); sg.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.9);
+  s.connect(bp); bp.connect(sg); s.start(t); s.stop(t + dur);
+  // pneumatic seal release
+  const h = ctx.createBufferSource(); h.buffer = noiseBuf(ctx, 0.7);
+  const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 3000;
+  const hg = out(ctx, 0); hg.gain.setValueAtTime(0.0001, t); hg.gain.exponentialRampToValueAtTime(0.07, t + 0.02); hg.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+  h.connect(hp); hp.connect(hg); h.start(t);
+}
+
+/** The tap: the vault's bolts throw back, gears turn, the seal breaks and the doors roll open. */
+export function sfxVaultOpen(ctx: Ctx | null) {
+  if (!ok(ctx)) return;
+  clunk(ctx, 0, 1);                       // main lock releases
+  ratchet(ctx, 0.08, 16, 0.07, 0.025);    // gears spin up
+  motor(ctx, 0.05, 1.6);
+  [0.18, 0.26, 0.34].forEach((d) => clunk(ctx, d, 0.45)); // bolts retracting
+  doorsSlide(ctx, 0.26, 1.15);
+  clunk(ctx, 1.38, 0.8);                  // doors hit their stops
+  ratchet(ctx, 1.3, 8, 0.03, 0.09, 0.06); // gears wind down
+}
+
+/** A system coming online: a latch clicking home. */
+export function sfxLatch(ctx: Ctx | null, n = 0) {
+  if (!ok(ctx)) return;
+  tick(ctx, 0, 0.14, 1800 + n * 120);
+  tick(ctx, 0.045, 0.1, 1300 + n * 80);
+  clunk(ctx, 0.05, 0.18);
+}
+
+/** ATLAS ONLINE: the core locks into place — a turn of gears and a heavy, final engage. */
+export function sfxEngage(ctx: Ctx | null) {
+  if (!ok(ctx)) return;
+  motor(ctx, 0, 0.9, 0.06);
+  ratchet(ctx, 0, 12, 0.03, 0.06, 0.08);
+  clunk(ctx, 0.72, 1.15);
+  clunk(ctx, 0.84, 0.35);
+}
+
+/** Leaving to the desk: a short roll of the doors. */
+export function sfxSlide(ctx: Ctx | null) {
+  if (!ok(ctx)) return;
+  doorsSlide(ctx, 0, 0.6, 0.12);
+}
+
+/** A machine room under the whole sequence — low rumble with a slow turbine, faded by the stopper. */
 export function sfxHum(ctx: Ctx | null): () => void {
   if (!ok(ctx)) return () => {};
   const t = ctx.currentTime, g = out(ctx, 0);
-  const a = ctx.createOscillator(), b = ctx.createOscillator();
-  a.type = "sine"; a.frequency.value = 55; b.type = "sine"; b.frequency.value = 55.7;
-  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.06, t + 1.5);
-  a.connect(g); b.connect(g); a.start(t); b.start(t);
+  const n = ctx.createBufferSource(); n.buffer = noiseBuf(ctx, 4); n.loop = true;
+  const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 110;
+  const a = ctx.createOscillator(); a.type = "sine"; a.frequency.value = 48;
+  const ag = ctx.createGain(); ag.gain.value = 0.35;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + 1.2);
+  n.connect(lp); lp.connect(g); a.connect(ag); ag.connect(g); n.start(t); a.start(t);
   return () => {
-    try { const n = ctx.currentTime; g.gain.cancelScheduledValues(n); g.gain.setValueAtTime(g.gain.value, n); g.gain.exponentialRampToValueAtTime(0.0001, n + 0.8); a.stop(n + 0.9); b.stop(n + 0.9); } catch { /* gone */ }
+    try { const x = ctx.currentTime; g.gain.cancelScheduledValues(x); g.gain.setValueAtTime(g.gain.value, x); g.gain.exponentialRampToValueAtTime(0.0001, x + 0.8); n.stop(x + 0.9); a.stop(x + 0.9); } catch { /* gone */ }
   };
 }
 
