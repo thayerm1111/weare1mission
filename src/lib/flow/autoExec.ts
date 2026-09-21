@@ -1460,9 +1460,9 @@ async function genx3Reserved(admin: NonNullable<ReturnType<typeof createAdminCli
 async function genx3ReservedUsers(admin: NonNullable<ReturnType<typeof createAdminClient>>): Promise<Set<string>> { return (await genx3Reserved(admin)).ids; }
 export type GenxDelivery = { origin?: "genx2" | "genx3"; onlyUserIds?: string[] | null; onlyAccountIds?: string[] | null; tag?: string };
 /** " SCALP" / " NORMAL" / " SWING" after "GENX 1.0" in every desk note, matching the signal it refers to. */
-function genxTypeOf(mode: unknown): string {
-  const t = mode === "quick" ? "SCALP" : mode === "intraday" ? "NORMAL" : mode === "swing" ? "SWING" : "";
-  return t ? ` ${t}` : "";
+function genxTypeOf(_mode: unknown): string {
+  // Straight GENX (owner 09-21): no SCALP / NORMAL / SWING label on the calls any more.
+  return "";
 }
 
 export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null; sendItOnly?: boolean;

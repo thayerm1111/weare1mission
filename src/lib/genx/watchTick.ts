@@ -75,7 +75,8 @@ export const MODE_LABEL: Record<Mode, string> = { quick: "Quick", intraday: "Int
  * end of the line as "Quick" / "Intraday" and the calls read as identical.
  */
 export const TYPE_LABEL: Record<Mode, string> = { quick: "SCALP", intraday: "NORMAL", swing: "SWING" };
-export const genxTyped = (mode: Mode): string => `${genxLabel()} ${TYPE_LABEL[mode] ?? ""}`.trim();
+// Straight GENX (owner 09-21): calls read "GENX 1.0 — ENTER NOW", no SCALP / NORMAL / SWING.
+export const genxTyped = (_mode: Mode): string => genxLabel();
 export const r1 = (n: number) => Math.round(n);
 export const fmt = (n: number | null | undefined) => (typeof n === "number" && Number.isFinite(n) ? n.toFixed(2) : "—");
 

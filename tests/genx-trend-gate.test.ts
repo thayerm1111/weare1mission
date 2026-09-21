@@ -25,9 +25,15 @@ describe("GENX trend gate", () => {
     assert.equal(stackAgrees("buy", "mixed"), false);
     assert.equal(stackAgrees("sell", "mixed"), false);
   });
-  it("works from 1-minute bars (the PDH/PDL loop)", () => {
+  it("is off by default (straight GENX, 09-21)", () => {
+    delete process.env.GENX_TREND_GATE;
+    assert.equal(trendGateFrom1m("buy", []).ok, true);
+  });
+  it("works from 1-minute bars (the PDH/PDL loop) when switched on", () => {
+    process.env.GENX_TREND_GATE = "on";
     const bars = Array.from({ length: 300 * 60 }, (_, i) => ({ t: 1_700_000_000_000 - (1_700_000_000_000 % 3_600_000) + i * 60_000, c: 4400 - i / 60 }));
     assert.equal(trendGateFrom1m("sell", bars).ok, true);
     assert.equal(trendGateFrom1m("buy", bars).ok, false);
+    delete process.env.GENX_TREND_GATE;
   });
 });

@@ -417,7 +417,8 @@ async function breakdownRetestPass(
   admin: NonNullable<ReturnType<typeof createAdminClient>>, mdKey: string,
   bias: { bias: string; bull: number; bear: number; price: number } | null, tgReady: boolean, sent: string[],
 ): Promise<Record<string, unknown>> {
-  if ((process.env.GENX_BREAKDOWN_RETEST ?? "").toLowerCase() === "off") return { skip: "switched_off" };
+  // OFF by default since 09-21 (owner: straight GENX, how it used to find trades). GENX_BREAKDOWN_RETEST=on restores it.
+  if ((process.env.GENX_BREAKDOWN_RETEST ?? "").toLowerCase() !== "on") return { skip: "switched_off" };
   if (inWeekendCloseWindow() || inScanQuietWindow() || inDailyReopenWindow()) return { skip: "quiet_window" };
   if (!bias) return { skip: "no_read" };
   if (!(bias.bias === "bearish" && bias.bear >= bias.bull)) return { skip: `bias_not_bearish:${bias.bias}` };

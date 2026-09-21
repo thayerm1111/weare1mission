@@ -39,7 +39,9 @@ export function hourlyStack(closes: number[]): { stack: Stack; e20: number; e50:
 
 export const stackAgrees = (side: "buy" | "sell", s: Stack): boolean => (side === "buy" ? s === "up" : s === "down");
 
-export const trendGateOn = (): boolean => (process.env.GENX_TREND_GATE ?? "").toLowerCase() !== "off";
+// OFF by default since 09-21 (owner: "go back to how it finds trades … straight GENX how it used to be").
+// GENX_TREND_GATE=on turns it back on; the research above still stands.
+export const trendGateOn = (): boolean => (process.env.GENX_TREND_GATE ?? "").toLowerCase() === "on";
 
 let cache: { at: number; res: ReturnType<typeof hourlyStack> } | null = null;
 

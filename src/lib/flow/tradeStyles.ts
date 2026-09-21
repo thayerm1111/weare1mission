@@ -82,6 +82,11 @@ export function accountTakesStyle(a: { styleQuick?: boolean | null; styleHold?: 
 export function filterAccountsByStyle<T extends { styleQuick?: boolean | null; styleHold?: boolean | null; styleSwing?: boolean | null }>(
   accounts: T[], mode: Mode | string | null | undefined,
 ): T[] {
+  // STRAIGHT GENX (owner 09-21: "I don't want the scalp or the swing. I just want the straight GENX how
+  // it used to be"). The per-account Rapid / Normal / Swing switches no longer stand anybody down: every
+  // account that takes GENX takes every GENX call, as it did before 09-20. GENX_TRADE_STYLES=on restores
+  // the filter.
+  if ((process.env.GENX_TRADE_STYLES ?? "").toLowerCase() !== "on") return accounts;
   return accounts.filter((a) => accountTakesStyle(a, mode));
 }
 

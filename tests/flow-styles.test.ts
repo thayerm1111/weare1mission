@@ -53,7 +53,14 @@ test("an explicit choice is honoured in both directions", () => {
   assert.equal(accountTakesStyle(swingOn, "swing"), true);
 });
 
-test("the filter drops exactly the accounts that switched the horizon off", () => {
+test("straight GENX (09-21): by default the style switches stand nobody down", () => {
+  delete process.env.GENX_TRADE_STYLES;
+  const accounts = [{ id: "a", styleQuick: false, styleHold: true, styleSwing: false }];
+  assert.deepEqual(filterAccountsByStyle(accounts, "quick").map((a) => a.id), ["a"]);
+});
+
+test("the filter drops exactly the accounts that switched the horizon off (GENX_TRADE_STYLES=on)", () => {
+  process.env.GENX_TRADE_STYLES = "on";
   const accounts = [
     { id: "a", styleQuick: true, styleHold: true, styleSwing: false },
     { id: "b", styleQuick: true, styleHold: false, styleSwing: false },
@@ -62,6 +69,7 @@ test("the filter drops exactly the accounts that switched the horizon off", () =
   assert.deepEqual(filterAccountsByStyle(accounts, "quick").map((a) => a.id), ["a", "b", "c"]);
   assert.deepEqual(filterAccountsByStyle(accounts, "intraday").map((a) => a.id), ["a", "c"]);
   assert.deepEqual(filterAccountsByStyle(accounts, "swing").map((a) => a.id), ["c"]);
+  delete process.env.GENX_TRADE_STYLES;
 });
 
 /*
