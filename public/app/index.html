@@ -1081,6 +1081,32 @@ input{font:inherit}
 .br-ctxr b{flex:0 0 58px;color:#81909e;font-weight:700}
 .br-ctxr u{flex:1;text-decoration:none;text-align:right;color:#f0f4f7}
 .br-ctxr em{font-style:normal;width:62px;text-align:right}
+/* -- ATLAS: website Command Center look (owner 09-21) -- */
+.br.hud{background:radial-gradient(900px 400px at 10% -10%,rgba(0,199,232,.06),transparent),radial-gradient(700px 400px at 100% 0,rgba(213,169,61,.05),transparent)}
+.hud-head{display:flex;align-items:center;justify-content:space-between;padding:4px 2px 2px}
+.hud-title{font-size:13px;font-weight:900;letter-spacing:.16em;color:#f0f4f7}
+.hud-title em{font-style:normal;color:#ffd875}
+.hud-live{font-size:9.5px;font-weight:900;letter-spacing:.16em;padding:4px 9px;border-radius:7px;border:1px solid rgba(233,185,73,.4);color:#e7c467}
+.hud-live.on{color:#29dfa6;border-color:rgba(41,223,166,.45);background:rgba(41,223,166,.08)}
+.hud-price{padding:12px 13px}
+.hud-pr1{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.hud-sym{display:flex;align-items:center;gap:9px}
+.hud-sym b{display:block;font-size:14px;font-weight:900;letter-spacing:.06em;color:#f0f4f7}
+.hud-sym span{display:block;font-size:10px;color:#81909e;margin-top:1px}
+.hud-bar{width:26px;height:16px;border-radius:3px;background:linear-gradient(135deg,#fff3c4,#ffd875 35%,#c4891f 75%,#6b4610);box-shadow:0 0 12px rgba(255,196,80,.45);transform:perspective(40px) rotateX(18deg)}
+.hud-px{text-align:right}
+.hud-px b{display:block;font-size:27px;font-weight:900;letter-spacing:-.01em;color:#fff;font-variant-numeric:tabular-nums;line-height:1}
+.hud-px span{display:block;font-size:11.5px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums}
+.hud-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:11px;padding-top:10px;border-top:1px solid rgba(89,175,255,.08)}
+.hud-stats2{grid-template-columns:1.2fr .9fr 1.1fr}
+.hud-stats span{display:block;font-size:8.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#81909e}
+.hud-stats b{display:block;font-size:12.5px;font-weight:900;color:#f0f4f7;margin-top:3px;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.hud-conf{display:block;height:4px;border-radius:999px;background:rgba(255,255,255,.08);margin-top:5px;overflow:hidden}
+.hud-conf u{display:block;height:100%;background:linear-gradient(90deg,#00c7e8,#27d7f2);text-decoration:none}
+.hud .br-hd .br-k:first-child{color:#f0f4f7;display:flex;align-items:center;gap:7px}
+.hud .br-hd .br-k:first-child::before{content:"";width:6px;height:6px;border-radius:2px;background:#d5a93d;box-shadow:0 0 6px rgba(213,169,61,.7);transform:rotate(45deg)}
+.hud .br-card{margin-top:9px}
+.hud .br-pres{color:#ffd875;letter-spacing:.24em}
 /* -- Command Center (observation) -- */
 .cc{background:linear-gradient(180deg,rgba(14,18,28,.96),rgba(10,13,20,.96));border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px;margin:12px 0}
 .cc-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
@@ -4815,82 +4841,81 @@ input{font:inherit}
 
   /* Atlas core. Breathing rate, swell and tilt are market measurements, never a timer —
      if gold is still, this is still, and that stillness is information. */
+  /* ATLAS CORE — the same golden sphere and instrument rings as the website's Command Center.
+     Speed follows market intensity; the ring colour follows ATLAS state; no live feed = slow and grey. */
+  var ORB_RGB = { idle: [89, 175, 255], watching: [39, 215, 242], analyzing: [39, 215, 242], opportunity: [255, 216, 117],
+    trade_ready: [255, 216, 117], in_trade: [41, 223, 166], risk_event: [255, 83, 100] };
   function BrainOrb(props) {
     var ref = useRef(null);
-    var live = useRef({ i: props.intensity || 0, lean: props.lean || 0, alive: !!props.alive, load: props.load || 0 });
-    live.current = { i: props.intensity || 0, lean: props.lean || 0, alive: !!props.alive, load: props.load || 0 };
-    var size = props.size || 168;
+    var live = useRef({});
+    live.current = { st: props.state || "watching", it: props.intensity || 0, al: !!props.alive };
+    var size = props.size || 200;
     useEffect(function () {
-      var c = ref.current; if (!c) return; var ctx = c.getContext("2d"); if (!ctx) return;
+      var c = ref.current; if (!c) return; var g = c.getContext("2d"); if (!g) return;
       var dpr = Math.min(2, window.devicePixelRatio || 1);
-      c.width = size * dpr; c.height = size * dpr; ctx.scale(dpr, dpr);
-      var cx = size / 2, cy = size / 2, base = size * 0.26;
-      var iN = 0, lN = 0, aN = 0, phase = 0, ring = 0, raf = 0, last = performance.now();
-      var reduced = false; try { reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) {}
+      c.width = size * dpr; c.height = size * dpr; g.scale(dpr, dpr);
+      var reduce = false; try { reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) {}
+      var parts = []; for (var i = 0; i < 60; i++) parts.push({ r: 0.36 + ((i * 37) % 100) / 100 * 0.14, a: (i * 2.399) % (Math.PI * 2), s: 0.15 + ((i * 13) % 10) / 40, z: ((i * 7) % 10) / 10 });
+      var raf = 0, t0 = performance.now(), phase = 0;
       function draw(now) {
-        var dt = Math.min(64, now - last) / 1000; last = now;
-        var t = live.current, ease = 1 - Math.exp(-dt * 1.6);
-        iN += ((t.alive ? t.i : 2) - iN) * ease;
-        lN += (t.lean - lN) * ease;
-        aN += ((t.alive ? 1 : 0) - aN) * ease;
-        var period = 7 - (iN / 100) * 5.9;
-        phase += (dt / Math.max(0.6, period)) * Math.PI * 2 * (reduced ? 0.35 : 1);
-        ring += dt * (0.08 + (iN / 100) * 0.85) * (reduced ? 0.3 : 1);
-        var swell = 1 + (0.04 + (iN / 100) * 0.12) * Math.sin(phase);
-        var r = base * swell;
-        var l = Math.max(-100, Math.min(100, lN)) / 100;
-        var H = l >= 0 ? 44 - l * 12 : 208 + l * 4;
-        var sat = (28 + Math.abs(l) * 34) * (0.25 + aN * 0.75);
-        var lum = 52 + (iN / 100) * 14;
-        var tilt = l * size * 0.035;
-        ctx.clearRect(0, 0, size, size);
-        var g = ctx.createRadialGradient(cx + tilt, cy, r * 0.25, cx, cy, size * 0.5);
-        g.addColorStop(0, "hsla(" + H + "," + sat + "%," + lum + "%," + (0.30 * (0.25 + aN * 0.75)) + ")");
-        g.addColorStop(0.45, "hsla(" + H + "," + sat + "%," + (lum - 14) + "%," + (0.12 * (0.25 + aN * 0.75)) + ")");
-        g.addColorStop(1, "hsla(210,20%,8%,0)");
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, size * 0.5, 0, Math.PI * 2); ctx.fill();
-        var strands = Math.round(6 + Math.min(16, t.load) * 1.1);
-        ctx.lineWidth = 1;
-        for (var k = 0; k < strands; k++) {
-          var a = (k / strands) * Math.PI * 2 + ring * 0.6;
-          var wob = Math.sin(phase * 1.7 + k) * (0.04 + (iN / 100) * 0.22);
-          var r1 = r * (1.08 + wob), r2 = r * (1.55 + wob * 1.6);
-          ctx.strokeStyle = "hsla(" + H + "," + sat + "%," + (lum + 12) + "%," + ((0.07 + (iN / 100) * 0.22) * aN) + ")";
-          ctx.beginPath();
-          ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
-          ctx.quadraticCurveTo(cx + Math.cos(a + 0.3) * r2 * 1.05, cy + Math.sin(a + 0.3) * r2 * 1.05, cx + Math.cos(a + 0.62) * r2, cy + Math.sin(a + 0.62) * r2);
-          ctx.stroke();
+        var dt = Math.min(64, now - t0); t0 = now;
+        var L = live.current, al = L.al, st = L.st, it = L.it;
+        phase += (reduce ? 0 : dt / 1000) * (al ? 0.35 + Math.min(1, it / 100) * 1.1 : 0.06) * (st === "analyzing" ? 1.6 : 1);
+        var C = ORB_RGB[al ? st : "idle"] || ORB_RGB.watching, R = C[0], G = C[1], B = C[2];
+        var W = size, cx = W / 2, cy = W / 2, rad = W * 0.5;
+        g.clearRect(0, 0, W, W);
+        var halo = g.createRadialGradient(cx, cy, rad * 0.1, cx, cy, rad);
+        halo.addColorStop(0, "rgba(255,200,90," + (al ? 0.2 : 0.06) + ")");
+        halo.addColorStop(0.45, "rgba(" + R + "," + G + "," + B + "," + (al ? 0.07 : 0.02) + ")");
+        halo.addColorStop(1, "rgba(0,0,0,0)");
+        g.fillStyle = halo; g.fillRect(0, 0, W, W);
+        g.save(); g.translate(cx, cy);
+        function ring(r, alpha, w, dash) { g.beginPath(); g.setLineDash(dash || []); g.lineWidth = w || 1; g.strokeStyle = "rgba(" + R + "," + G + "," + B + "," + alpha + ")"; g.arc(0, 0, r, 0, Math.PI * 2); g.stroke(); g.setLineDash([]); }
+        ring(rad * 0.93, 0.18, 1, [1, 5]); ring(rad * 0.84, 0.22); ring(rad * 0.62, 0.16, 1, [2, 3]);
+        g.save(); g.rotate(phase * 0.15);
+        for (var k = 0; k < 120; k++) {
+          var ang = (k / 120) * Math.PI * 2, lg = k % 10 === 0;
+          g.strokeStyle = "rgba(" + R + "," + G + "," + B + "," + (lg ? 0.55 : 0.22) + ")"; g.lineWidth = 1;
+          g.beginPath(); g.moveTo(Math.cos(ang) * rad * 0.86, Math.sin(ang) * rad * 0.86);
+          g.lineTo(Math.cos(ang) * rad * (lg ? 0.905 : 0.885), Math.sin(ang) * rad * (lg ? 0.905 : 0.885)); g.stroke();
         }
-        ctx.lineWidth = 1.4;
-        ctx.strokeStyle = "hsla(" + H + "," + (sat + 10) + "%," + (lum + 16) + "%," + ((0.22 + (iN / 100) * 0.3) * aN) + ")";
-        ctx.beginPath(); ctx.arc(cx, cy, r * 1.62, ring, ring + Math.PI * 1.55); ctx.stroke();
-        var core = ctx.createRadialGradient(cx + tilt * 0.35, cy, r * 0.02, cx + tilt * 0.35, cy, r);
-        core.addColorStop(0, "hsla(" + H + "," + (sat + 10) + "%," + Math.max(8, lum - 38) + "%," + (0.55 + aN * 0.4) + ")");
-        core.addColorStop(0.62, "hsla(" + H + "," + (sat + 6) + "%," + Math.max(12, lum - 26) + "%," + (0.42 + aN * 0.32) + ")");
-        core.addColorStop(0.9, "hsla(" + H + "," + Math.min(92, sat + 30) + "%," + Math.min(88, lum + 22) + "%," + (0.30 + aN * 0.4) + ")");
-        core.addColorStop(1, "hsla(" + H + "," + Math.min(92, sat + 34) + "%," + Math.min(94, lum + 30) + "%," + (0.10 + aN * 0.22) + ")");
-        ctx.fillStyle = core; ctx.beginPath(); ctx.arc(cx + tilt * 0.35, cy, r, 0, Math.PI * 2); ctx.fill();
-        for (var q = 1; q <= 3; q++) {
-          var rr = r * (0.3 + q * 0.2) * (1 + (iN / 100) * 0.10 * Math.sin(phase + q));
-          ctx.lineWidth = 0.7;
-          ctx.strokeStyle = "hsla(" + H + "," + (sat + 16) + "%," + (lum + 20) + "%," + ((0.10 + (iN / 100) * 0.16) * aN) + ")";
-          ctx.beginPath(); ctx.arc(cx + tilt * 0.35, cy, rr, 0, Math.PI * 2); ctx.stroke();
+        g.restore();
+        function arc(r, from, len, col, w) { g.beginPath(); g.strokeStyle = col; g.lineWidth = w; g.lineCap = "round"; g.arc(0, 0, r, from, from + len); g.stroke(); }
+        arc(rad * 0.76, phase * 0.9, 1.3, "rgba(255,216,117," + (al ? 0.85 : 0.3) + ")", 2.2);
+        arc(rad * 0.76, phase * 0.9 + Math.PI, 0.55, "rgba(255,216,117," + (al ? 0.5 : 0.2) + ")", 1.4);
+        arc(rad * 0.7, -phase * 1.3, 0.9, "rgba(39,215,242," + (al ? 0.8 : 0.25) + ")", 1.8);
+        arc(rad * 0.7, -phase * 1.3 + 2.4, 1.6, "rgba(39,215,242," + (al ? 0.35 : 0.12) + ")", 1);
+        arc(rad * 0.955, phase * 0.4 + 1, 0.8, "rgba(" + R + "," + G + "," + B + ",0.6)", 1.6);
+        arc(rad * 0.53, phase * 2.1, 0.6, "rgba(255,216,117," + (al ? 0.6 : 0.2) + ")", 1.2);
+        arc(rad * 0.53, phase * 2.1 + 3.4, 1.1, "rgba(39,215,242," + (al ? 0.45 : 0.15) + ")", 1);
+        for (var q = 0; q < parts.length; q++) {
+          var pp = parts[q], pa = pp.a + phase * pp.s;
+          g.fillStyle = pp.z > 0.5 ? "rgba(255,216,117," + (0.25 + pp.z * 0.4) + ")" : "rgba(" + R + "," + G + "," + B + "," + (0.2 + pp.z * 0.5) + ")";
+          g.fillRect(Math.cos(pa) * rad * pp.r * 1.55, Math.sin(pa) * rad * pp.r * 1.55, pp.z > 0.8 ? 1.6 : 1, pp.z > 0.8 ? 1.6 : 1);
         }
-        ctx.lineWidth = 1.2;
-        ctx.strokeStyle = "hsla(" + H + "," + (sat + 20) + "%," + (lum + 28) + "%," + ((0.42 + (iN / 100) * 0.34) * aN) + ")";
-        ctx.beginPath(); ctx.arc(cx + tilt * 0.35, cy, r, 0, Math.PI * 2); ctx.stroke();
-        if (Math.abs(l) > 0.06) {
-          var start = l >= 0 ? -Math.PI / 2 - 0.5 : Math.PI / 2 - 0.5;
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = "hsla(" + (l >= 0 ? 152 : 356) + ",62%,62%," + (Math.min(0.62, Math.abs(l) * 0.8) * aN) + ")";
-          ctx.beginPath(); ctx.arc(cx + tilt * 0.35, cy, r * 1.06, start, start + Math.min(2.4, Math.abs(l) * 3)); ctx.stroke();
+        var cr = rad * 0.3 * (1 + Math.sin(phase * 2.2) * (al ? 0.025 + Math.min(1, it / 100) * 0.03 : 0.005));
+        var core = g.createRadialGradient(-cr * 0.3, -cr * 0.35, cr * 0.05, 0, 0, cr);
+        core.addColorStop(0, al ? "rgba(255,246,214,1)" : "rgba(200,200,200,0.8)");
+        core.addColorStop(0.25, al ? "rgba(255,216,117,0.98)" : "rgba(150,150,150,0.7)");
+        core.addColorStop(0.7, al ? "rgba(196,137,32,0.95)" : "rgba(90,90,90,0.6)");
+        core.addColorStop(1, al ? "rgba(80,50,10,0.9)" : "rgba(40,40,40,0.6)");
+        g.shadowColor = al ? "rgba(255,196,80,0.8)" : "transparent"; g.shadowBlur = al ? 24 : 0;
+        g.fillStyle = core; g.beginPath(); g.arc(0, 0, cr, 0, Math.PI * 2); g.fill(); g.shadowBlur = 0;
+        g.save(); g.beginPath(); g.arc(0, 0, cr, 0, Math.PI * 2); g.clip();
+        g.strokeStyle = "rgba(255,240,200,0.35)"; g.lineWidth = 0.7;
+        for (var e = -3; e <= 3; e++) {
+          g.beginPath(); g.ellipse(0, 0, cr, Math.abs(e) * cr * 0.28 + 0.5, 0, 0, Math.PI * 2); g.stroke();
+          g.beginPath(); g.ellipse(Math.sin(phase * 0.6) * 2, 0, Math.abs(e) * cr * 0.28 + 0.5, cr, 0, 0, Math.PI * 2); g.stroke();
         }
+        g.restore();
+        g.beginPath(); g.lineWidth = 1.5; g.strokeStyle = "rgba(39,215,242," + (al ? 0.7 : 0.2) + ")"; g.arc(0, 0, cr * 1.18, 0, Math.PI * 2); g.stroke();
+        g.restore();
         raf = requestAnimationFrame(draw);
       }
       raf = requestAnimationFrame(draw);
       return function () { cancelAnimationFrame(raf); };
     }, [size]);
-    return html`<canvas ref=${ref} width=${size} height=${size} style=${"width:" + size + "px;height:" + size + "px"} aria-hidden="true"></canvas>`;
+    return html`<canvas ref=${ref} width=${size} height=${size} style=${"width:" + size + "px;height:" + size + "px;display:block;margin:0 auto"} aria-label="ATLAS core"></canvas>`;
   }
 
   /* The price map: the candles ATLAS actually read, with its levels and your trade on top. */
@@ -4899,9 +4924,9 @@ input{font:inherit}
     useEffect(function () {
       var c = ref.current, w = wrap.current; if (!c || !w) return;
       var ctx = c.getContext("2d"); if (!ctx) return;
-      var W = w.clientWidth || 340, H = 220;
+      var W = w.clientWidth || 340, H = Math.max(260, Math.min(360, Math.round((w.clientWidth || 340) * 0.8)));
       var dpr = Math.min(2, window.devicePixelRatio || 1);
-      c.width = W * dpr; c.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      c.style.height = H + "px"; c.width = W * dpr; c.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       var bars = (props.bars || []).slice(-90), levels = props.levels || [], price = props.price, tr = props.trade;
       ctx.fillStyle = "#080b11"; ctx.fillRect(0, 0, W, H);
       if (!bars.length) {
@@ -6168,23 +6193,38 @@ input{font:inherit}
       ? { key: "s" + loud.at, text: loud.text, urgent: loud.channel === "urgent" }
       : (loudEv ? { key: loudEv.key, text: loudEv.detail, urgent: loudEv.channel === "urgent" } : null);
 
-    return html`<div class="br">
-      <div class="br-top">
-        <div>
-          <div class="br-name">COMMAND CENTER <em>XAUUSD</em></div>
-          <div class="br-kick">Atlas</div>
+    var dayI = intel && intel.day ? intel.day : null;
+    var modeI = intel && intel.mode ? intel.mode : null;
+    var conf = s.thesis && typeof s.thesis.confidence === "number" ? s.thesis.confidence : null;
+    var SESS = { asia: "ASIA", london: "LONDON", new_york: "NEW YORK", overlap: "LDN / NY", closed: "CLOSED" };
+    var orbState = trade.active ? "in_trade" : (s.setup && (s.setup.state === "trade_ready" || s.setup.state === "armed")) ? "trade_ready"
+      : brain.presence === "market_shift" || brain.presence === "attention" ? "analyzing" : brain.presence === "offline" ? "idle" : "watching";
+
+    return html`<div class="br hud">
+      <div class="hud-head">
+        <div class="hud-title">COMMAND CENTER <em>XAUUSD</em></div>
+        <span class="hud-live ${s.live ? "on" : ""}">${s.live ? "LIVE" : (s.marketOpen === false ? "CLOSED" : "NO FEED")}</span>
+      </div>
+
+      <div class="br-card hi hud-price">
+        <div class="hud-pr1">
+          <div class="hud-sym"><i class="hud-bar"></i><div><b>XAUUSD</b><span>Gold Spot / U.S. Dollar</span></div></div>
+          <div class="hud-px">
+            <b>${typeof s.price === "number" ? s.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</b>
+            ${dayI ? html`<span style=${"color:" + (dayI.change >= 0 ? "#29dfa6" : "#ff5364")}>${dayI.change >= 0 ? "▲ +" : "▼ "}${dayI.change.toFixed(2)} (${dayI.changePct >= 0 ? "+" : ""}${dayI.changePct.toFixed(2)}%)</span>` : null}
+          </div>
         </div>
-        <div>
-          <div class="br-px">${typeof s.price === "number" ? s.price.toFixed(2) : "—"}</div>
-          <div class="br-sub">
-            ${typeof s.spread === "number" ? "spread " + s.spread.toFixed(2) : "single feed"}
-            ${p5 ? " · " + (p5.priceMove >= 0 ? "+" : "") + p5.priceMove.toFixed(2) + " in 5m" : ""}
-          </div>
-          <div style="text-align:right;margin-top:5px">
-            <span class="br-badge" style=${s.live ? "background:rgba(63,217,160,.12);color:#3fd9a0" : "background:rgba(233,185,73,.12);color:#e9b949"}>
-              ${s.live ? "Live · " + s.ageSeconds + "s" : (s.marketOpen === false ? "Market closed" : "No live read")}
-            </span>
-          </div>
+        <div class="hud-stats">
+          <div><span>Day high</span><b>${dayI ? dayI.high.toFixed(2) : "—"}</b></div>
+          <div><span>Day low</span><b>${dayI ? dayI.low.toFixed(2) : "—"}</b></div>
+          <div><span>Range</span><b>${dayI ? dayI.range.toFixed(2) : "—"}</b></div>
+          <div><span>Spread</span><b>${typeof s.spread === "number" ? s.spread.toFixed(2) : "—"}</b></div>
+        </div>
+        <div class="hud-stats hud-stats2">
+          <div><span>Market mode</span><b style=${"color:" + (modeI && modeI.tone === "up" ? "#29dfa6" : modeI && modeI.tone === "down" ? "#ff5364" : "#27d7f2")}>${modeI ? modeI.label : "—"}</b></div>
+          <div><span>Session</span><b>${SESS[s.session] || String(s.session || "—").toUpperCase()}</b></div>
+          <div><span>ATLAS confidence</span><b style="color:#27d7f2">${conf != null ? conf + "%" : "—"}</b>
+            ${conf != null ? html`<i class="hud-conf"><u style=${"width:" + conf + "%"}></u></i>` : null}</div>
         </div>
       </div>
 
@@ -6198,8 +6238,9 @@ input{font:inherit}
       </div>` : null}
 
       <div class="br-card">
+        <div class="br-hd"><div class="br-k">ATLAS · Gold intelligence core</div><div class="br-k" style=${alive ? "color:#29dfa6" : ""}>${alive ? "● ONLINE" : "STANDBY"}</div></div>
         <div class="br-orb">
-          <${BrainOrb} intensity=${brain.intensity || 0} lean=${lean} load=${(s.events || []).length} alive=${alive} size=${168} />
+          <${BrainOrb} intensity=${brain.intensity || 0} state=${orbState} alive=${alive} size=${210} />
           <div class="br-pres" style=${alive ? "" : "color:#65748f"}>${BR_PRESENCE[brain.presence] || "OBSERVING"}</div>
           <div class="br-head">${brain.headline || s.summary || ""}</div>
         </div>
@@ -6225,6 +6266,45 @@ input{font:inherit}
         </div>
       </div>
 
+      <div class="br-card">
+        <div class="br-hd"><div class="br-k">XAUUSD · live chart</div><div class="br-k">${(s.bars || []).length ? (s.bars.length + " candles") : ""}</div></div>
+        <${BrainMap} bars=${s.bars} levels=${s.levels} price=${s.price} lean=${lean}
+          trade=${trade.active && typeof trade.entry === "number"
+            ? { side: trade.side, entry: trade.entry, stop: trade.stop, takeProfit: trade.takeProfit,
+                initStop: trade.initStop,
+                partials: (trade.partials || []).map(function (p) { return p.price; }).filter(function (x) { return typeof x === "number"; }),
+                invalidation: trade.thesis && trade.thesis.invalidationPrice }
+            : (s.setup && s.setup.side && s.setup.stop != null
+              ? { side: s.setup.side, entry: s.setup.entryHigh, stop: s.setup.stop, takeProfit: s.setup.initialObjective,
+                  invalidation: s.setup.invalidationPrice, proposed: true }
+              : null)} />
+      </div>
+
+      <div class="br-card">
+        <div class="br-hd"><div class="br-k">Pressure and conditions</div><div class="br-k">Display only</div></div>
+        <div class="br-b">
+          <div class="br-gs">
+            ${brGauge("Seller pressure", intel ? String(intel.pressure.sellers) : "—", intel ? intel.pressure.sellerLabel : "—", intel ? intel.pressure.sellers / 100 : null, "#ff5364", chg ? -chg.deltaNet / 2 : null, chg ? "over " + chg.horizon : null)}
+            ${brGauge("Buyer pressure", intel ? String(intel.pressure.buyers) : "—", intel ? intel.pressure.buyerLabel : "—", intel ? intel.pressure.buyers / 100 : null, "#29dfa6", chg ? chg.deltaNet / 2 : null, chg ? "over " + chg.horizon : null)}
+            ${brGauge("Volatility", intel && intel.volatility.atr != null ? intel.volatility.atr.toFixed(1) : "—", intel ? intel.volatility.label + " · 15m ATR" : "—", brVolLevel(intel && intel.volatility.band), "#e7c467", null, null)}
+            ${brGauge("Momentum", intel && intel.momentum.value != null ? (intel.momentum.value > 0 ? "+" : "") + intel.momentum.value.toFixed(2) : "—", intel ? intel.momentum.label : "—", intel && intel.momentum.value != null ? (intel.momentum.value + 3) / 6 : null, intel && intel.momentum.tone === "up" ? "#29dfa6" : intel && intel.momentum.tone === "down" ? "#ff5364" : "#00c7e8", null, null)}
+          </div>
+          <div class="br-note">Estimated buying and selling pressure, scored 0–100 from closes, wicks, momentum, slope and structure. Sellers = 100 − buyers. Not order flow, and not a probability of winning.</div>
+          <button class="br-btn" style="margin-top:8px;padding:7px 11px;letter-spacing:0;text-transform:none;font-size:11px" onClick=${function () { math[1](!math[0]); }}>
+            ${math[0] ? "Hide the math" : "Show me the math"}
+          </button>
+          ${math[0] ? html`<div style="margin-top:8px;border-radius:10px;padding:9px 11px;background:#0e131c">
+            <div class="br-note" style="margin-top:0">pressure ${s.pressure ? s.pressure.bullish + " / " + s.pressure.bearish + " (net " + s.pressure.net + ")" : "—"}</div>
+            <div class="br-note">regime ${brWords(s.regime)} · session ${brWords(s.session)}</div>
+            <div class="br-note">intensity ${s.intensity} · weather ${brWords(s.weather)} · velocity ${brWords(s.velocity)}</div>
+            ${TFS.filter(function (tf) { return s.timeframes && s.timeframes[tf]; }).map(function (tf) {
+              var v = s.timeframes[tf];
+              return html`<div class="br-note" key=${tf}>${tf} rsi ${v.rsi == null ? "—" : Math.round(v.rsi)} · eff ${v.efficiency == null ? "—" : Math.round(v.efficiency * 100) + "%"} · ${brWords(v.sequence)}</div>`;
+            })}
+          </div>` : null}
+        </div>
+      </div>
+
       ${trade.active ? html`<${BrainTrade} trade=${trade} onChanged=${reload} />` : null}
 
       ${!trade.active ? html`<${BrainSetupCard}
@@ -6247,20 +6327,6 @@ input{font:inherit}
           })}</div>
         </div>
       </div>` : null}
-
-      <div class="br-card">
-        <div class="br-hd"><div class="br-k">XAUUSD price map</div><div class="br-k">${(s.bars || []).length ? (s.bars.length + " candles") : ""}</div></div>
-        <${BrainMap} bars=${s.bars} levels=${s.levels} price=${s.price} lean=${lean}
-          trade=${trade.active && typeof trade.entry === "number"
-            ? { side: trade.side, entry: trade.entry, stop: trade.stop, takeProfit: trade.takeProfit,
-                initStop: trade.initStop,
-                partials: (trade.partials || []).map(function (p) { return p.price; }).filter(function (x) { return typeof x === "number"; }),
-                invalidation: trade.thesis && trade.thesis.invalidationPrice }
-            : (s.setup && s.setup.side && s.setup.stop != null
-              ? { side: s.setup.side, entry: s.setup.entryHigh, stop: s.setup.stop, takeProfit: s.setup.initialObjective,
-                  invalidation: s.setup.invalidationPrice, proposed: true }
-              : null)} />
-      </div>
 
       <div class="br-card">
         <div class="br-hd"><div class="br-k">ATLAS thesis</div>${s.thesis ? html`<div class="br-k">since ${brClock(s.thesis.startedAt)}</div>` : null}</div>
@@ -6294,31 +6360,6 @@ input{font:inherit}
             })}
           </div>
           ${s.summary ? html`<div class="br-scv" style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(89,175,255,.08)">${s.summary}</div>` : null}
-        </div>
-      </div>
-
-      <div class="br-card">
-        <div class="br-hd"><div class="br-k">Pressure and conditions</div><div class="br-k">Display only</div></div>
-        <div class="br-b">
-          <div class="br-gs">
-            ${brGauge("Seller pressure", intel ? String(intel.pressure.sellers) : "—", intel ? intel.pressure.sellerLabel : "—", intel ? intel.pressure.sellers / 100 : null, "#ff5364", chg ? -chg.deltaNet / 2 : null, chg ? "over " + chg.horizon : null)}
-            ${brGauge("Buyer pressure", intel ? String(intel.pressure.buyers) : "—", intel ? intel.pressure.buyerLabel : "—", intel ? intel.pressure.buyers / 100 : null, "#29dfa6", chg ? chg.deltaNet / 2 : null, chg ? "over " + chg.horizon : null)}
-            ${brGauge("Volatility", intel && intel.volatility.atr != null ? intel.volatility.atr.toFixed(1) : "—", intel ? intel.volatility.label + " · 15m ATR" : "—", brVolLevel(intel && intel.volatility.band), "#e7c467", null, null)}
-            ${brGauge("Momentum", intel && intel.momentum.value != null ? (intel.momentum.value > 0 ? "+" : "") + intel.momentum.value.toFixed(2) : "—", intel ? intel.momentum.label : "—", intel && intel.momentum.value != null ? (intel.momentum.value + 3) / 6 : null, intel && intel.momentum.tone === "up" ? "#29dfa6" : intel && intel.momentum.tone === "down" ? "#ff5364" : "#00c7e8", null, null)}
-          </div>
-          <div class="br-note">Estimated buying and selling pressure, scored 0–100 from closes, wicks, momentum, slope and structure. Sellers = 100 − buyers. Not order flow, and not a probability of winning.</div>
-          <button class="br-btn" style="margin-top:8px;padding:7px 11px;letter-spacing:0;text-transform:none;font-size:11px" onClick=${function () { math[1](!math[0]); }}>
-            ${math[0] ? "Hide the math" : "Show me the math"}
-          </button>
-          ${math[0] ? html`<div style="margin-top:8px;border-radius:10px;padding:9px 11px;background:#0e131c">
-            <div class="br-note" style="margin-top:0">pressure ${s.pressure ? s.pressure.bullish + " / " + s.pressure.bearish + " (net " + s.pressure.net + ")" : "—"}</div>
-            <div class="br-note">regime ${brWords(s.regime)} · session ${brWords(s.session)}</div>
-            <div class="br-note">intensity ${s.intensity} · weather ${brWords(s.weather)} · velocity ${brWords(s.velocity)}</div>
-            ${TFS.filter(function (tf) { return s.timeframes && s.timeframes[tf]; }).map(function (tf) {
-              var v = s.timeframes[tf];
-              return html`<div class="br-note" key=${tf}>${tf} rsi ${v.rsi == null ? "—" : Math.round(v.rsi)} · eff ${v.efficiency == null ? "—" : Math.round(v.efficiency * 100) + "%"} · ${brWords(v.sequence)}</div>`;
-            })}
-          </div>` : null}
         </div>
       </div>
 
