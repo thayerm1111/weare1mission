@@ -3532,7 +3532,7 @@ input{font:inherit}
     if (view[0] === "live") return html`<div>${back()}<${WeeklyScreen} onLogout=${props.onLogout} /></div>`;
     if (view[0] === "ghost") return html`<div>${back()}<${XGhostSection} key="xghost" onLogout=${props.onLogout} /></div>`;
     if (view[0] === "genx") return html`<div>${back()}<${GenxScreen} onLogout=${props.onLogout} /></div>`;
-    if (view[0] === "brain") return html`<div>${back()}<${BrainScreen} onLogout=${props.onLogout} /></div>`;
+    if (view[0] === "brain") return html`<div>${back()}<${CommandCenterEmbed} onLogout=${props.onLogout} /></div>`;
     function open(v) { return function () { view[1](v); }; }
     return html`<div class="scr">
       <${LiveTradeCard} />
@@ -6110,6 +6110,27 @@ input{font:inherit}
   }
 
   /* The screen itself. */
+  /* COMMAND CENTER XAUUSD — the website's own screen, shown inside the app (owner 09-21: "the app
+     still doesn't look new"). One Command Center for both, so the app can never fall behind again.
+     The app's tokens are handed to /api/auth/app-bridge once, which sets the same member's cookie
+     session on this site; then the real page loads full-height with microphone access for ATLAS.
+     If the bridge fails, the app's own screen is shown instead — the member is never left blank. */
+  function CommandCenterEmbed(props) {
+    var st = useState("bridging");
+    useEffect(function () {
+      var s = getSession();
+      if (!s || !s.access_token || !s.refresh_token) { st[1]("fallback"); return; }
+      fetch("/api/auth/app-bridge", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_token: s.access_token, refresh_token: s.refresh_token }) })
+        .then(function (r) { st[1](r.ok ? "ready" : "fallback"); })
+        .catch(function () { st[1]("fallback"); });
+    }, []);
+    if (st[0] === "fallback") return html`<${BrainScreen} onLogout=${props.onLogout} />`;
+    if (st[0] === "bridging") return html`<div class="br"><div class="br-card"><div class="br-b"><div class="br-note">Opening the Command Center…</div></div></div></div>`;
+    return html`<iframe src="/command-center?app=1" title="Command Center XAUUSD" allow="microphone; autoplay; clipboard-write; fullscreen"
+      style="display:block;width:calc(100% + 28px);margin:0 -14px;border:0;height:calc(100dvh - 160px);min-height:560px;background:#03070B;border-radius:0"></iframe>`;
+  }
+
   function BrainScreen(props) {
     var d = useState(null), err = useState(""), tick = useState(0);
     // 5 credits opens the Command Center for 30 minutes, from the moment it is opened (owner 09-21).
