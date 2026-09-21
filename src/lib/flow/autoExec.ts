@@ -1,7 +1,7 @@
 import { autoSourceEnabled, SEND_IT_ENABLED } from "./automationPolicy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { flowDecision } from "@/lib/flow/decision";
-import { placeOnActiveAccounts, placeFixedLotFollower, goldMaxEntry } from "@/lib/flow/executor";
+import { placeOnActiveAccounts, placeFixedLotFollower } from "@/lib/flow/executor";
 import { activeAccounts, connectionToken, type ActiveAccount } from "@/lib/flow/connection";
 import { listAccounts, listPositions, type TLEnv } from "@/lib/flow/tradelocker";
 import { sizeFromRisk, floorStop, structuralStop, maxStopDistance, capGoldStop } from "@/lib/flow/sizing";
@@ -799,7 +799,8 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T, index: num
 // back to a takeable R:R (see GOLD_RETRY_WINDOW_MS in the scanner); only a fill still under
 // the floor after the window is skipped. Combined with sizing off the live entry, the dollar
 // risk is still capped at the member's risk %.
-const GOLD_MIN_PLACEMENT_RR = 0.75;
+// Owner 09-21: "take the trade as long as it's a .8 to 1" — raised from 0.75.
+const GOLD_MIN_PLACEMENT_RR = 0.8;
 // STRUCTURE-FIRST STOP (owner 09-07): pad-only noise floor. When a fill sits nearly ON the
 // structural invalidation, the stop extends BEYOND the level to give at least this much
 // room - it is never tightened and never re-derived from the live print.
@@ -1726,7 +1727,14 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       const p = (pref as { risk_pct?: number | null } | null) ?? null;
       const riskPct = p && typeof p.risk_pct === "number" && p.risk_pct > 0 ? p.risk_pct : 1;
 
-      const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry: sizeEntry, stop: goldStop, tp: sig.tp, riskPct, source: sig.tag ?? "genx", accounts, structuralStop: true, maxEntry: goldMaxEntry(sig.side, sig.entryLow, sig.entryHigh) });
+      const res = await placeOnActiveAccounts({ userId, symbol: "XAUUSD", side: sig.side, entry: sizeEntry, stop: goldStop, tp: sig.tp, riskPct, source: sig.tag ?? "genx", accounts, structuralStop: true,
+        // TAKE THE TRADE (owner 09-21): "it's putting in a limit order and the market isn't touching that exact
+        // price. I want GENX to actually take the trade … as long as it's .8 to 1." The 10-pip chase cap (zone
+        // edge ± 1.00) is gone: the 09-21 9:00 sell confirmed at ~4348 with the zone at 4357-4359, so the order
+        // sat at 4356 and never filled, though the live reward:risk was 1.8. The order is now marketable at the
+        // live price and bounded only by the 0.8:1 floor (entryLimitPrice), so it fills immediately whenever the
+        // trade is still 0.8:1 or better — and can never fill worse than that.
+        maxEntry: null });
       if (res.placed === 0 && !res.accounts.some(a => a.reason?.includes("uncertain"))) { await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); return 0; } // nothing filled → let the next ENTER NOW retry
       return res.placed;
     } catch { return 0; } // per-member best-effort
@@ -1976,7 +1984,7 @@ export async function placeGenxFollower(sig: {
       const r = await placeFixedLotFollower({
         userId: a.user_id, env: tok.env, token: tok.token, connId: a.connection_id,
         accountId: a.account_id, accNum: String(a.acc_num),
-        symbol: "XAUUSD", side: sig.side, qty, stop: fstop, tp: sig.tp, source: sig.tag ? `${sig.tag}f` : "genx_follow", maxEntry: goldMaxEntry(sig.side, sig.entryLow, sig.entryHigh),
+        symbol: "XAUUSD", side: sig.side, qty, stop: fstop, tp: sig.tp, source: sig.tag ? `${sig.tag}f` : "genx_follow", maxEntry: null, // owner 09-21: fill at market while >= 0.8:1
       });
       if (r.ok) {
         // RULE #1: hold the reservation until this position closes (filled w/ positionId) or,

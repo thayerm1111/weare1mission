@@ -5,7 +5,7 @@ import { entryLimitPrice, ENTRY_FLOOR_RR } from '../src/lib/flow/executor';
 const rr = (side: 'buy'|'sell', px: number, stop: number, tp: number) =>
   side === 'buy' ? (tp - px) / (px - stop) : (px - tp) / (stop - px);
 
-test('owner floor is 0.75', () => assert.equal(ENTRY_FLOOR_RR, 0.75));
+test('owner floor is 0.8 (09-21, was 0.75)', () => assert.equal(ENTRY_FLOOR_RR, 0.8));
 
 test('a chased SELL is capped at the 0.75 floor instead of filling at 0.18:1', () => {
   // The 02:56 incident shape: sell zone ~4350, stop 4358, target 4326.
@@ -31,7 +31,7 @@ test('a good price still gets cap-width tolerance, not a zero-tolerance limit', 
   // the quote left no room for a single adverse tick and nothing filled (72% -> 0%).
   const px = 4329, stop = 4337, tp = 4317.75;
   const lim = entryLimitPrice('sell', px, stop, tp, 2);
-  assert.equal(lim, 4326);
+  assert.equal(lim, 4326.31); // 0.8 floor (09-21)
   assert.ok(lim < px, 'a sell limit must sit BELOW the quote so the round-trip can tick');
   const rrAtLimit = (lim - tp) / (stop - lim);
   assert.ok(rrAtLimit >= ENTRY_FLOOR_RR - 1e-9, 'the worst fill it permits is still >= 0.75');

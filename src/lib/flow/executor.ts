@@ -144,7 +144,8 @@ async function instrumentsFor(a: { env: TLEnv; token: string; accNum: string; ac
 
 /** Owner floor (09-03): never enter below 1:0.75 reward:risk. Mirrors GOLD_ENTRY_FLOOR_RR
  *  in the GENX watcher; kept local so execution never reaches into signal selection. */
-export const ENTRY_FLOOR_RR = 0.75;
+// Owner 09-21: 0.8 (was 0.75). The marketable-limit cap below is priced at this ratio.
+export const ENTRY_FLOOR_RR = 0.8;
 
 /** The entry limit price: the WORST price that still yields ENTRY_FLOOR_RR against the
  *  signal's absolute stop/target. Solving (tp-px)/(px-stop) = F for a buy (and the mirror

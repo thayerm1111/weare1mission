@@ -11,14 +11,14 @@ test('max entry is the zone edge plus 10 pips on the adverse side', () => {
 test("the 09-15 19:20 buy: limit is capped at the zone edge + 10p, not the 0.75 R:R price", () => {
   // stop 4280.02, tp 4291.11 → R:R cap ≈ 4286.35; chase cap 4283.74 is stricter.
   assert.equal(entryLimitPrice('buy', 4285.5, 4280.02, 4291.11, 2, 4283.74), 4283.74);
-  assert.equal(entryLimitPrice('buy', 4285.5, 4280.02, 4291.11, 2, null), 4286.35);
+  assert.equal(entryLimitPrice('buy', 4285.5, 4280.02, 4291.11, 2, null), 4286.18); // 0.8 floor (09-21)
 });
 test('the 09-15 21:05 sell: limit is floored at the zone edge - 10p', () => {
   assert.equal(entryLimitPrice('sell', 4284.6, 4294.44, 4276.25, 2, 4287.33), 4287.33);
 });
 test('when the R:R cap is already stricter, it still wins', () => {
   // buy stop 4290, tp 4300 → R:R cap ≈ 4295.72; loose chase cap 4299 → R:R cap applies.
-  assert.equal(entryLimitPrice('buy', 4295, 4290, 4300, 2, 4299), 4295.71);
+  assert.equal(entryLimitPrice('buy', 4295, 4290, 4300, 2, 4299), 4295.55); // 0.8 floor (09-21)
 });
 test('past-chase detection and env default', () => {
   assert.equal(goldPastChaseLimit('buy', 4284, 4283.74), true);

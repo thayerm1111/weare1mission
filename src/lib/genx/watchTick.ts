@@ -25,7 +25,7 @@ type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
 
 // ── GOLD ENTRY PREFERENCE (owner directive): get IN when the trade is working; only wait
 // for a pull-back when the fill is genuinely too rich. See genx-scan route history.
-const GOLD_ENTRY_FLOOR_RR = 0.75;      // owner floor (09-03): never enter below 1:0.75; below it, wait for a pullback
+const GOLD_ENTRY_FLOOR_RR = 0.8;       // owner floor (09-21, was 0.75 since 09-03): take the trade at 0.8:1 or better; below it, wait for a pullback
 const GOLD_ARM_MAX_MS = 5 * 60_000;    // owner rule 2: wait only 5 min for the pullback, then abandon
 
 /** Pure decision for a gold entry: enter now, arm-and-wait, abandon, or keep waiting.
