@@ -89,8 +89,13 @@ export async function goldTrendSlope(admin: Admin): Promise<number | null> {
   return slope;
 }
 
-export async function genxGoldQualityGate(admin: Admin, sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null }): Promise<GateResult> {
+export async function genxGoldQualityGate(admin: Admin, sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; setup?: string | null }): Promise<GateResult> {
   if (!gateEnabled()) return { ok: true, reason: "gate_off", slope: null, rr: null };
+  // RANGE FADE (src/lib/genx/rangeFade.ts): a fade sells the top of a sideways range after a push up, so
+  // the 20h slope points AGAINST it by construction — the slope check would refuse every one (replayed:
+  // 102 of 108). The fade has its own regime read (1h EMAs not stacked, low efficiency) in its place.
+  // The reward check still applies to it in full.
+  if (sig.setup === "range_fade") return decideGate({ ...sig, slope: null });
   const slope = await goldTrendSlope(admin);
   return decideGate({ ...sig, slope });
 }

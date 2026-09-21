@@ -44,18 +44,26 @@ export const stackAgrees = (side: "buy" | "sell", s: Stack): boolean => (side ==
 // year 2, 8/9 quarters). Swing is not gated — not enough history to test it. GENX_TREND_GATE=off disables.
 export const trendGateOn = (): boolean => (process.env.GENX_TREND_GATE ?? "").toLowerCase() !== "off";
 
-let cache: { at: number; res: ReturnType<typeof hourlyStack> } | null = null;
+let cache: { at: number; closes: number[]; res: ReturnType<typeof hourlyStack> } | null = null;
+
+/** CLOSED hourly closes (the forming hour dropped) and their EMA stack, cached 5 minutes. null = no data. */
+export async function hourlyRead(mdKey: string): Promise<{ closes: number[]; res: ReturnType<typeof hourlyStack> } | null> {
+  if (!cache || Date.now() - cache.at > 5 * 60_000) {
+    const rows = await series("XAU/USD", "1h", 500, mdKey, false);
+    if (!Array.isArray(rows) || rows.length < 222) return null;
+    const closes = rows.slice(0, -1).map((r) => +r.close); // the last row is the hour still forming
+    cache = { at: Date.now(), closes, res: hourlyStack(closes) };
+  }
+  return { closes: cache.closes, res: cache.res };
+}
 
 /** Live gate for the scanner. Fails CLOSED: no trend read means no new call. */
 export async function genxTrendGate(side: "buy" | "sell", mdKey: string, opts: { profile?: string | null } = {}): Promise<{ ok: boolean; reason: string; stack?: Stack }> {
   if (!trendGateOn()) return { ok: true, reason: "gate_off" };
   if (opts.profile != null && opts.profile !== "core") return { ok: false, reason: `trend_gate: ${opts.profile} setup (only core setups pass)` };
-  if (!cache || Date.now() - cache.at > 5 * 60_000) {
-    const rows = await series("XAU/USD", "1h", 500, mdKey, false);
-    if (!Array.isArray(rows) || rows.length < 222) return { ok: false, reason: "trend_gate: no hourly data" };
-    cache = { at: Date.now(), res: hourlyStack(rows.slice(0, -1).map((r) => +r.close)) }; // the last row is the hour still forming
-  }
-  const r = cache.res;
+  const h = await hourlyRead(mdKey);
+  if (!h) return { ok: false, reason: "trend_gate: no hourly data" };
+  const r = h.res;
   if (!r) return { ok: false, reason: "trend_gate: not enough hourly history" };
   return stackAgrees(side, r.stack)
     ? { ok: true, reason: "ok", stack: r.stack }
