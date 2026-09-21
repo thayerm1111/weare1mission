@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrainOrb } from "./BrainOrb";
 import { H } from "./theme";
+import { MarketStorm, DataRain, HudRings, FX_CSS, sfxBoom, sfxWhoosh, sfxBlip, sfxOnline, sfxHum } from "./EntryFx";
 import { priceWords, moveWords, balanceWords, speakNumbers } from "@/lib/spokenNumbers";
 
 /**
@@ -264,11 +265,16 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
   const [vLevel, setVLevel] = useState(0);
   const [spokeAt, setSpokeAt] = useState<number | null>(null);
   const stopVoice = useRef<(() => void) | null>(null);
+  const stopHum = useRef<(() => void) | null>(null);
+  const [flashKey, setFlashKey] = useState(0);
 
   useEffect(() => { setW(window.innerWidth); }, []);
   useEffect(() => {
     if (!armed) return;
     start.current = performance.now();
+    // the doors: boom, hydraulics, and a hum under the room until ATLAS speaks
+    sfxBoom(sharedCtx); sfxWhoosh(sharedCtx, 1.4, 180, 2600, 0.24);
+    stopHum.current = sfxHum(sharedCtx);
     let raf = 0;
     const tick = () => { setT(performance.now() - start.current); raf = requestAnimationFrame(tick); };
     raf = requestAnimationFrame(tick);
@@ -293,7 +299,11 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
   const doneAt = useRef<number | null>(null);
   if (briefDone && doneAt.current == null) doneAt.current = t;
 
-  const leave = () => { if (leaving) return; stopVoice.current?.(); setLeaving(true); window.setTimeout(onDone, 700); };
+  const leave = () => {
+    if (leaving) return; stopVoice.current?.(); stopHum.current?.();
+    sfxWhoosh(sharedCtx, 0.7, 2400, 300, 0.14);
+    setLeaving(true); window.setTimeout(onDone, 700);
+  };
 
   const welcomeSpoken = useMemo(() => spokenWelcome(d, greet, name), [d, greet, name]);
   const startVoice = () => {
@@ -314,10 +324,18 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
     if (!greet.eligible || greet.voice === false) { setVoice("off"); return; }
     startVoice();
   });
-  useEffect(() => () => { stopVoice.current?.(); }, []);
+  useEffect(() => () => { stopVoice.current?.(); stopHum.current?.(); }, []);
+  // the hum steps aside for the voice
+  useEffect(() => { if (voice === "speaking") { stopHum.current?.(); stopHum.current = null; } }, [voice]);
   useEffect(() => { if (doneAt.current != null && t - doneAt.current > 2600) leave(); });
   const toned = useRef(false);
-  useEffect(() => { if (t > T_ONLINE && !toned.current) { toned.current = true; tone([392, 587, 784]); } }, [t]);
+  useEffect(() => {
+    if (t > T_ONLINE && !toned.current) {
+      toned.current = true;
+      if (sharedCtx?.state === "running") sfxOnline(sharedCtx); else tone([392, 587, 784]);
+      setFlashKey((k) => k + 1);
+    }
+  }, [t]);
 
   // the systems that check off — each from the live read
   const tfCount = Object.keys(d?.timeframes ?? {}).length;
@@ -331,9 +349,15 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
     ["RISK ENGINE", "ONLINE"],
   ];
   const shown = Math.max(0, Math.min(checks.length, Math.floor((t - T_CORE - 500) / 420)));
+  const shownRef = useRef(0);
+  useEffect(() => {
+    if (shown > shownRef.current) { shownRef.current = shown; sfxBlip(sharedCtx, 880 + shown * 140); setFlashKey((k) => k + 1); }
+  }, [shown]);
 
   const bootLines = ["OM // COMMAND CENTER XAUUSD", "SECURE LINK ESTABLISHED", `OPERATOR: ${(name ?? "MEMBER").toUpperCase()}`, "WAKING ATLAS…"];
-  const bootShown = Math.min(bootLines.length, Math.floor(t / 300) + 1);
+  const bootShown = Math.max(0, Math.min(bootLines.length, Math.floor((t - 700) / 260) + 1));
+  const doorsOpen = t > 260;
+  const shaking = (t > 260 && t < 820) || (t > T_ONLINE && t < T_ONLINE + 560);
   const coreIn = Math.max(0, Math.min(1, (t - T_CORE) / 900));
   const online = t > T_ONLINE;
   const speaking = voice === "speaking" || (voice === "off" && t > T_BRIEF && !briefDone);
@@ -343,12 +367,17 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
   if (!armed) {
     return (
       <div className="fixed inset-0 z-[200] grid place-items-center overflow-hidden" style={{ background: H.bg0, color: H.text }}>
-        <style>{ENTRY_CSS}</style>
-        <div className="es-grid" style={{ opacity: 0.5 }} /><div className="es-vignette" />
+        <style>{ENTRY_CSS + FX_CSS}</style>
+        <div className="es-grid" style={{ opacity: 0.5 }} /><div className="es-hex" /><div className="es-vignette" /><div className="es-scan" />
+        {["tl", "tr", "bl", "br"].map((c) => <span key={c} className={`es-corner es-${c}`} />)}
         <button onClick={() => { primeAudio(); setArmed(true); }} className="relative z-10 flex flex-col items-center gap-4" aria-label="Enter the Command Center">
-          <BrainOrb state="watching" intensity={20} alive size={phone ? 180 : 230} />
-          <span className="text-[11px] tracking-[0.3em]" style={{ color: H.cyan2 }}>COMMAND CENTER XAUUSD</span>
-          <span className="es-rise rounded-full px-6 py-2.5 text-[13px] font-semibold tracking-[0.25em]" style={{ color: "#10131A", background: H.gold2, boxShadow: "0 0 26px rgba(231,196,103,.4)" }}>TAP TO ENTER</span>
+          <div className="relative grid place-items-center" style={{ width: (phone ? 180 : 230) + 90, height: (phone ? 180 : 230) + 90 }}>
+            <HudRings size={(phone ? 180 : 230) + 90} spin={0.7} />
+            <BrainOrb state="watching" intensity={20} alive size={phone ? 180 : 230} />
+          </div>
+          <span className="font-mono text-[10px] tracking-[0.35em]" style={{ color: H.cyan2 }}>SECURE ACCESS · XAUUSD</span>
+          <span className="es-rise es-tapglow rounded-full px-7 py-3 text-[13px] font-semibold tracking-[0.3em]" style={{ color: "#10131A", background: `linear-gradient(180deg, ${H.gold3}, ${H.gold2})` }}>TAP TO ENTER</span>
+          <span className="text-[10px] tracking-[0.2em]" style={{ color: H.mut }}>🔊 SOUND ON</span>
         </button>
       </div>
     );
@@ -357,9 +386,22 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
   return (
     <div className="fixed inset-0 z-[200] overflow-hidden" role="dialog" aria-label="Entering the Command Center"
       style={{ background: H.bg0, color: H.text, opacity: leaving ? 0 : 1, transition: "opacity .7s ease", fontFamily: "Inter, system-ui, sans-serif" }}>
-      <style>{ENTRY_CSS}</style>
-      {/* the room: perspective grid floor, vignette, scan line */}
+      <style>{ENTRY_CSS + FX_CSS}</style>
+      {/* the blast doors and the gold flash from the seam */}
+      {t < 1500 && (
+        <div className={doorsOpen ? "es-open" : ""}>
+          <div className="es-door es-door-top"><span className="es-door-label">OM · SECURE VAULT</span></div>
+          <div className="es-door es-door-bot"><span className="es-door-label">XAUUSD · COMMAND</span></div>
+        </div>
+      )}
+      {t < 900 && <div className="es-flash" />}
+      {flashKey > 0 && <div key={flashKey} className="es-pulse" />}
+      <div className={`absolute inset-0 ${shaking ? "es-shake" : ""}`}>
+      {/* the room: perspective grid floor, vignette, scan line, the market racing across the back wall */}
       <div className="es-grid" style={{ opacity: Math.min(1, t / 900) }} />
+      <div className="es-hex" />
+      <MarketStorm price={typeof d?.price === "number" ? d.price : null} flashKey={flashKey} />
+      {!phone && t > 700 && <><DataRain price={typeof d?.price === "number" ? d.price : null} side="left" /><DataRain price={typeof d?.price === "number" ? d.price : null} side="right" /></>}
       <div className="es-vignette" />
       <div className="es-scan" />
       {/* corner brackets */}
@@ -374,7 +416,8 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
 
       <div className="relative z-10 flex h-full flex-col items-center justify-center px-4">
         {/* core */}
-        <div style={{ transform: `scale(${0.4 + coreIn * 0.6})`, opacity: coreIn, filter: glitch ? "brightness(1.8) contrast(1.2)" : "none", transition: "filter .1s" }}>
+        <div className="relative grid place-items-center" style={{ width: (phone ? 200 : 280) + 100, height: (phone ? 200 : 280) + 100, margin: "-50px 0", transform: `scale(${0.4 + coreIn * 0.6}) rotate(${(1 - coreIn) * -90}deg)`, opacity: coreIn, filter: glitch ? "brightness(1.8) contrast(1.2)" : "none", transition: "filter .1s" }}>
+          <HudRings size={(phone ? 200 : 280) + 100} spin={coreIn} />
           <BrainOrb state={speaking ? "speaking" : online ? "watching" : "analyzing"} intensity={60} alive pulseKey={online ? "on" : "off"}
             size={phone ? 200 : 280} voice={{ mode: speaking ? "speaking" : online ? "listening" : "connecting", level }} />
         </div>
@@ -425,6 +468,7 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
           <button onClick={leave} className="es-rise mt-4 rounded-lg px-6 py-2.5 text-[13px] font-semibold tracking-[0.2em]"
             style={{ background: H.gold2, color: "#10131A", boxShadow: "0 0 24px rgba(231,196,103,.35)" }}>ENTER THE DESK</button>
         )}
+      </div>
       </div>
     </div>
   );

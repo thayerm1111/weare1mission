@@ -84,7 +84,7 @@ export function balanceWords(v: number): string {
  *   1.8R                         → "one point eight R"
  */
 export function speakNumbers(text: string): string {
-  return text
+  return speakWords(text)
     // money with a dollar sign
     .replace(/\$\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?\b/g, (_m, i: string, c: string | undefined) => {
       const v = Number(i.replace(/,/g, "") + (c ? `.${c}` : ""));
@@ -136,4 +136,39 @@ export class SpokenStream {
     const out = this.held; this.held = "";
     return out ? speakNumbers(out) : "";
   }
+}
+
+/* ── words a person says in full ─────────────────────────────────────────────── */
+
+const DAYS: Record<string, string> = { Mon: "Monday", Tue: "Tuesday", Tues: "Tuesday", Wed: "Wednesday", Thu: "Thursday",
+  Thur: "Thursday", Thurs: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday" };
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const ORD: Record<number, string> = { 1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth", 6: "sixth", 7: "seventh",
+  8: "eighth", 9: "ninth", 10: "tenth", 11: "eleventh", 12: "twelfth", 13: "thirteenth", 14: "fourteenth", 15: "fifteenth",
+  16: "sixteenth", 17: "seventeenth", 18: "eighteenth", 19: "nineteenth", 20: "twentieth", 30: "thirtieth" };
+function ordinal(n: number): string {
+  if (ORD[n]) return ORD[n];
+  const t = Math.floor(n / 10) * 10;
+  return `${TENS[t / 10]}-${ORD[n % 10]}`;
+}
+
+/**
+ * Abbreviations the screen uses and a voice must not (owner 09-21: it said "Sun" instead of "Sunday").
+ * Day names, month/day dates, timeframe shorthand and desk jargon become the words a person says.
+ */
+export function speakWords(text: string): string {
+  return text
+    // "(Sun, 09/20)" → "Sunday the twentieth" style: drop the brackets, keep the words
+    .replace(/\(\s*(Mon|Tues?|Wed|Thu(?:rs?)?|Fri|Sat|Sun)\.?,?\s*(\d{1,2})\/(\d{1,2})\s*\)/g,
+      (_m, d: string, mo: string, da: string) => `from ${DAYS[d]}, ${MONTHS[Number(mo) - 1] ?? ""} ${ordinal(Number(da))}`)
+    .replace(/\b(\d{1,2})\/(\d{1,2})\b(?!\/)/g, (m, mo: string, da: string) =>
+      Number(mo) >= 1 && Number(mo) <= 12 && Number(da) >= 1 && Number(da) <= 31 ? `${MONTHS[Number(mo) - 1]} ${ordinal(Number(da))}` : m)
+    .replace(/\b(Mon|Tues?|Wed|Thu(?:rs?)?|Fri|Sat|Sun)\b\.?(?=[\s,;:)\-—]|$)/g, (_m, d: string) => DAYS[d])
+    .replace(/\b(\d{1,2})\s?h\b/gi, (_m, n: string) => `${intWords(Number(n))}-hour`)
+    .replace(/\b(\d{1,2})\s?m\b(?![a-z])/g, (_m, n: string) => `${intWords(Number(n))}-minute`)
+    .replace(/\b(\d{1,2})\s?D\b/g, (_m, n: string) => `${intWords(Number(n))}-day`)
+    .replace(/\bPDH\b/g, "yesterday's high").replace(/\bPDL\b/g, "yesterday's low")
+    .replace(/\bNY\b/g, "New York").replace(/\bHTF\b/g, "higher timeframe").replace(/\bLTF\b/g, "lower timeframe")
+    .replace(/\bvs\.?(?=\s)/g, "versus").replace(/\bapprox\.?(?=\s)/g, "about")
+    .replace(/\s·\s/g, ", ").replace(/\s[—–]\s/g, ", ");
 }
