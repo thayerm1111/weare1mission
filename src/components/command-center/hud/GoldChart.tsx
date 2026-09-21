@@ -25,7 +25,8 @@ export type ChartLine = { price: number; label: string; color: string; dashed?: 
  * This is a VIEW control and nothing else. It reads the same bars the engine already sent, changes no
  * data, and reports nothing back — zooming the cockpit glass never touches the pilot.
  */
-const MIN_BARS = 10;       // never zoom past a handful of candles
+const MIN_BARS = 10;
+const PHONE_BARS = 14;     // the default window on a phone-width chart       // never zoom past a handful of candles
 const OVERSCROLL = 0.35;   // how far past the newest / oldest candle panning may run, as a fraction of the view
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 
@@ -72,7 +73,12 @@ export function GoldChart({ bars, price, markers, zones, lines, path, pathLabel,
     const usable = Math.max(40, plotW - futurePx);
 
     /* the time window */
-    const span = clamp(vp.span > 0 ? vp.span : n, Math.min(MIN_BARS, n), n);
+    // PHONES START ZOOMED IN (owner 09-21: "default the chart to this zoomed in so it's showing the candles
+    // more clearly … just change the starting point"): the automatic view on a small screen is the newest
+    // PHONE_BARS candles, not the whole series. Same data; pinch / drag / Reset all work as before, and
+    // Reset returns here.
+    const autoSpan = compact ? Math.min(n, PHONE_BARS) : n;
+    const span = clamp(vp.span > 0 ? vp.span : autoSpan, Math.min(MIN_BARS, n), n);
     const end = vp.follow ? n - 1 : clamp(vp.end, span - 1 - span * OVERSCROLL, n - 1 + span * OVERSCROLL);
     const iL = end - span + 1;
     const bw = usable / span;
@@ -99,7 +105,7 @@ export function GoldChart({ bars, price, markers, zones, lines, path, pathLabel,
     const ticks: number[] = []; for (let p = Math.ceil(pLo / step) * step; p <= pHi; p += step) ticks.push(+p.toFixed(2));
     const idxAt = (t: number) => { let best = -1, d = Infinity; bars.forEach((b, i) => { const dd = Math.abs(b.t - t); if (dd < d) { d = dd; best = i; } }); return best; };
     return { n, bw, iL, end, span, usable, futurePx, pLo, pHi, y, x, vmax, ticks, idxAt, i0, i1, seen, pricePerPx: (pHi - pLo) / Math.max(1, priceH) };
-  }, [bars, plotW, priceH, path, lines, zones, showOverlays, showLiquidity, vp]);
+  }, [bars, plotW, priceH, path, lines, zones, showOverlays, showLiquidity, vp, compact]);
 
   /* Gesture maths reads this rather than a stale closure. */
   const st = useRef({ n: 0, bw: 1, iL: 0, end: 0, span: 0, usable: 1, plotW: 1, pricePerPx: 1 });
@@ -120,7 +126,7 @@ export function GoldChart({ bars, price, markers, zones, lines, path, pathLabel,
       if (e.shiftKey) { setVp((v) => ({ ...v, pz: clamp(v.pz * Math.exp(-dy * 0.0018), 0.2, 30) })); return; }
       const anchor = s.iL + px / s.bw - 0.5;
       setVp((v) => {
-        const cur = v.span > 0 ? v.span : s.n;
+        const cur = v.span > 0 ? v.span : s.span;
         const span = clamp(cur * Math.exp(dy * 0.0014), Math.min(MIN_BARS, s.n), s.n);
         const iL = anchor - (px / (s.usable / span) - 0.5);
         const end = iL + span - 1;
@@ -174,7 +180,7 @@ export function GoldChart({ bars, price, markers, zones, lines, path, pathLabel,
       if (!d.moved && Math.hypot(dx, dy) > 2) d.moved = true;
       if (d.axis) { setVp((v) => ({ ...v, pz: clamp(d.pz * Math.exp(-dy * 0.006), 0.2, 30) })); return; }
       const end = d.end - dx / s.bw;
-      setVp((v) => ({ ...v, span: v.span > 0 ? v.span : s.n, end, follow: end >= s.n - 1.25, pOff: d.pOff + dy * s.pricePerPx }));
+      setVp((v) => ({ ...v, span: v.span > 0 ? v.span : s.span, end, follow: end >= s.n - 1.25, pOff: d.pOff + dy * s.pricePerPx }));
       return;
     }
 
