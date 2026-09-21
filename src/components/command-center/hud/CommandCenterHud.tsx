@@ -10,7 +10,7 @@ import { HudPanel, LiveDot, LivePill, Chip, HUD_CSS } from "./Hud";
 import { BrainOrb, type OrbState } from "./BrainOrb";
 import { Gauge } from "./Gauge";
 import { GoldChart, type ChartBar, type ChartLine, type ChartMarker, type ChartZone } from "./GoldChart";
-import { LiquidityRadar, type RadarBlip } from "./LiquidityRadar";
+import { LiquidityRadar, RADAR_KIND_COLOR, RADAR_KIND_WORD, type RadarBlip } from "./LiquidityRadar";
 import { StructureViz, pivotsOf } from "./StructureViz";
 import type { Live } from "../CommandCenterLive";
 import BrainConsole, { VOICE_MODES, type VoiceMode } from "../BrainConsole";
@@ -109,7 +109,13 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   const [consentOpen, setConsentOpen] = useState(false);
   const [askSignal, setAskSignal] = useState<{ n: number; q: string } | null>(null);
   const [activity, setActivity] = useState({ busy: false, speaking: false, listening: false });
-  const [ctx, setCtx] = useState<{ label: string; value: number | null; changePct: number | null; via?: string | null }[] | null>(null);
+  type CtxRow = {
+  key: string; label: string; instrument: string; source: string; note: string;
+  value: number | null; change: number | null; changePct: number | null;
+  period: string; asOf: string | null; status: "live" | "delayed" | "stale" | "not_connected";
+};
+  const [ctx, setCtx] = useState<{ rows: CtxRow[]; history: { t: number; v: number }[]; at: number | null } | null>(null);
+  const [radarHover, setRadarHover] = useState<RadarBlip | null>(null);
   const [now, setNow] = useState(0);   // 0 until mounted, so server and client render the same text
   const [flash, setFlash] = useState<"up" | "dn" | null>(null);
   const [desk, setDesk] = useState<{
@@ -165,7 +171,8 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   useEffect(() => {
     if (isReplay) return;
     let alive = true;
-    const load = () => fetch("/api/command-center/context", { cache: "no-store" }).then((r) => r.json()).then((j) => { if (alive) setCtx(j.quotes ?? []); }).catch(() => {});
+    const load = () => fetch("/api/command-center/context", { cache: "no-store" }).then((r) => r.json())
+      .then((j) => { if (alive) setCtx({ rows: j.rows ?? [], history: j.history ?? [], at: j.at ?? null }); }).catch(() => {});
     load(); const id = setInterval(load, 5 * 60_000);
     return () => { alive = false; clearInterval(id); };
   }, [isReplay]);
@@ -287,14 +294,15 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
     lines.push({ price: setup.stop, label: "Proposed stop", color: H.red, tag: false });
   }
 
-  const blips: RadarBlip[] = [
-    ...(intel?.liquidity.above ?? []).slice(0, 5).map((l) => ({ price: l.price, kind: "buyside" as const, label: l.label, swept: l.swept })),
-    ...(intel?.liquidity.below ?? []).slice(0, 5).map((l) => ({ price: l.price, kind: "sellside" as const, label: l.label, swept: l.swept })),
-    ...(thesis?.watching ?? []).map((p) => ({ price: p, kind: "watch" as const, label: "Brain watch" })),
-    ...(activityNode(chartBars) != null ? [{ price: activityNode(chartBars)!, kind: "node" as const, label: "Busiest price" }] : []),
-  ];
+  // Every blip is computed server-side in the read-only present layer, so the meaning shown on hover is
+  // the same sentence everywhere and nothing is invented in the browser.
+  const blips: RadarBlip[] = (intel?.radar ?? []).map((b) => ({
+    price: b.price, kind: b.kind, label: b.label, meaning: b.meaning, swept: b.swept, side: b.side, distance: b.distance,
+  }));
+
 
   const pivots = pivotsOf(chartBars, 3, 5);
+  const ch = intel?.pressure.change ?? null;
   const tfWord = TF_BTNS.find((b) => b.id === tf)?.label ?? tf;
   const change = intel?.day.change ?? null;
   const spark = (d?.bars ?? []).slice(-60).map((b) => (b as ChartBar).c);
@@ -592,11 +600,18 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           {/* gauges + scenarios */}
           <div className="hud-under">
             <div className="grid grid-cols-2 gap-[9px] sm:grid-cols-5">
-              <Gauge title="SELLER PRESSURE" display={intel ? `${intel.pressure.sellers}%` : "—"} sub={intel?.pressure.sellerLabel ?? "—"} value01={intel ? (intel.pressure.sellers ?? 0) / 100 : null} color={H.red} />
-              <Gauge title="BUYER PRESSURE" display={intel ? `${intel.pressure.buyers}%` : "—"} sub={intel?.pressure.buyerLabel ?? "—"} value01={intel ? (intel.pressure.buyers ?? 0) / 100 : null} color={H.green} />
-              <Gauge title="VOLATILITY" display={intel?.volatility.atr != null ? intel.volatility.atr.toFixed(1) : "—"} sub={intel ? `${intel.volatility.label} · 15m ATR` : "—"} value01={volLevel(intel?.volatility.band)} color={H.gold2} />
-              <Gauge title="MOMENTUM" display={intel?.momentum.value != null ? `${intel.momentum.value > 0 ? "+" : ""}${intel.momentum.value.toFixed(2)}` : "—"} sub={intel?.momentum.label ?? "—"} value01={intel?.momentum.value != null ? (intel.momentum.value + 3) / 6 : null} color={toneColor(intel?.momentum.tone)} />
-              <Gauge title="BRAIN CONVICTION" display={thesis ? `${thesis.confidence}%` : "—"} sub={bias === "bear" ? "Downside" : bias === "bull" ? "Upside" : "No side"} value01={thesis ? thesis.confidence / 100 : null} color={biasColor} />
+              <Gauge title="SELLER PRESSURE" display={intel ? `${intel.pressure.sellers}` : "—"}
+                sub={intel?.pressure.sellerLabel ?? "—"} value01={intel ? (intel.pressure.sellers ?? 0) / 100 : null} color={H.red}
+                delta={ch ? -ch.deltaNet / 2 : null} deltaLabel={ch ? `over ${ch.horizon}` : null} info={intel?.pressure.method} />
+              <Gauge title="BUYER PRESSURE" display={intel ? `${intel.pressure.buyers}` : "—"}
+                sub={intel?.pressure.buyerLabel ?? "—"} value01={intel ? (intel.pressure.buyers ?? 0) / 100 : null} color={H.green}
+                delta={ch ? ch.deltaNet / 2 : null} deltaLabel={ch ? `over ${ch.horizon}` : null} info={intel?.pressure.method} />
+              <Gauge title="VOLATILITY" display={intel?.volatility.atr != null ? intel.volatility.atr.toFixed(1) : "—"} sub={intel ? `${intel.volatility.label} · 15m ATR` : "—"} value01={volLevel(intel?.volatility.band)} color={H.gold2}
+                info="The 15-minute average true range in dollars, with the engine's own weather band (compressed → extreme) from the ratio of current range to normal." />
+              <Gauge title="MOMENTUM" display={intel?.momentum.value != null ? `${intel.momentum.value > 0 ? "+" : ""}${intel.momentum.value.toFixed(2)}` : "—"} sub={intel?.momentum.label ?? "—"} value01={intel?.momentum.value != null ? (intel.momentum.value + 3) / 6 : null} color={toneColor(intel?.momentum.tone)}
+                info="The 15-minute frame's five-bar return measured in average ranges: −1.6 means price fell 1.6 normal ranges in five bars. Measured by the engine (core/math.ts)." />
+              <Gauge title="BRAIN CONVICTION" display={thesis ? `${thesis.confidence}%` : "—"} sub={bias === "bear" ? "Downside" : bias === "bull" ? "Upside" : "No side"} value01={thesis ? thesis.confidence / 100 : null} color={biasColor}
+                info="THE BRAIN's own confidence in the thesis it is trading, 0–100, as recorded by the engine. It is not a probability that the trade wins." />
             </div>
             <HudPanel title="SCENARIO ANALYSIS" right={<span className="text-[8px] tracking-[0.1em]" style={{ color: H.mut }} title="THE BRAIN has no probability model, so these are ranked by its current thesis rather than given percentages">RANKED</span>} bodyClass="hud-scroll flex flex-col gap-[3px] overflow-y-auto px-2.5 pb-1.5">
               {(intel?.scenarios ?? []).map((s, i) => {
@@ -620,14 +635,28 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           {/* radar + structure + context */}
           <div className="hud-under">
             <div className="grid gap-[9px] sm:grid-cols-[250px_minmax(0,1fr)]">
-              <HudPanel title="LIQUIDITY RADAR" icon={<Radar className="h-3.5 w-3.5" />} right={<span className="flex gap-1"><Chip active={liquidity} onClick={() => setLiquidity(true)}>Heatmap</Chip><Chip active={!liquidity} tone="cyan" onClick={() => setLiquidity(false)}>Structure</Chip></span>}
+              <HudPanel title="LIQUIDITY RADAR" icon={<Radar className="h-3.5 w-3.5" />}
+                right={<span className="flex items-center gap-1" title="Estimated from price structure — gold is over the counter, so no feed here shows resting orders"><Chip active={liquidity} onClick={() => setLiquidity(true)}>Heatmap</Chip><Chip active={!liquidity} tone="cyan" onClick={() => setLiquidity(false)}>Structure</Chip></span>}
                 bodyClass="flex items-center gap-2 px-2 pb-2">
-                <LiquidityRadar price={d?.price ?? null} blips={blips} size={104} alive={alive} />
-                <ul className="space-y-[5px] text-[9px]" style={{ color: H.text }}>
-                  {[["Buyside liquidity", H.green], ["Sellside liquidity", H.red], ["Busiest price", H.blue], ["Brain watch", H.gold2], ["Price", H.gold3]].map(([k, c]) => (
+                <LiquidityRadar price={d?.price ?? null} blips={blips} size={104} alive={alive} onHover={setRadarHover} />
+                {radarHover ? (
+                  <div className="min-w-0 flex-1 self-stretch rounded-[6px] p-1.5 text-[9.5px] leading-snug"
+                    style={{ border: `1px solid rgba(${RADAR_KIND_COLOR[radarHover.kind]},0.55)`, background: "rgba(3,7,11,0.7)" }}>
+                    <p className="flex items-baseline justify-between gap-1">
+                      <b className="text-[11.5px] tabular-nums" style={{ color: H.text }}>{fmt2(radarHover.price)}</b>
+                      <span style={{ color: H.mut }}>{radarHover.side === "above" ? "above" : "below"}{radarHover.distance != null ? ` · ${radarHover.distance.toFixed(2)}` : ""}</span>
+                    </p>
+                    <p style={{ color: `rgb(${RADAR_KIND_COLOR[radarHover.kind]})` }}>{RADAR_KIND_WORD[radarHover.kind]}{radarHover.swept ? " · swept" : ""}</p>
+                    <p className="mt-0.5 line-clamp-4" style={{ color: H.mut }}>{radarHover.meaning ?? radarHover.label}</p>
+                  </div>
+                ) : (
+                <ul className="space-y-[4px] text-[9px]" style={{ color: H.text }}>
+                  {[["Buyside liq.", H.green], ["Sellside liq.", H.red], ["Equal highs/lows", "#E7A0A7"], ["Busiest price", H.blue], ["Brain watch", H.gold2], ["Price", H.gold3]].map(([k, c]) => (
                     <li key={k} className="flex items-center gap-1.5"><span className="h-[7px] w-[7px] rounded-full" style={{ background: c, boxShadow: `0 0 5px ${c}` }} />{k}</li>
                   ))}
+                  <li className="pt-0.5 leading-tight" style={{ color: H.mut2 }}>Hollow = swept.<br />Hover a blip for detail.</li>
                 </ul>
+                )}
               </HudPanel>
               <HudPanel title="MARKET STRUCTURE" icon={<LineChart className="h-3.5 w-3.5" />} bodyClass="grid grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] gap-2 px-2 pb-2">
                 <div className="relative min-h-[110px]">
@@ -650,30 +679,63 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                 </dl>
               </HudPanel>
             </div>
-            <HudPanel bodyClass="flex flex-col gap-1.5 p-2.5">
-              <div className="flex items-center gap-3">
-                <span className="h-[54px] w-[54px] shrink-0 rounded-full" style={{ background: "radial-gradient(circle at 35% 30%, #7FD3FF, #0B4A7A 55%, #03101C 80%)", boxShadow: "0 0 16px rgba(89,175,255,0.45), inset -6px -6px 12px rgba(0,0,0,0.55)" }} />
-                <div className="min-w-0 flex-1">
-                  <p className="mb-1 text-[10px] font-bold tracking-[0.14em]" style={{ color: H.text }}>GLOBAL CONTEXT</p>
-                  <table className="w-full text-[10px] tabular-nums">
-                    <tbody>
-                      {(ctx?.length ? ctx : [{ label: "DXY", value: null, changePct: null }, { label: "US10Y", value: null, changePct: null }, { label: "SPX", value: null, changePct: null }, { label: "WTI", value: null, changePct: null }]).map((q) => (
-                        <tr key={q.label}>
-                          <td style={{ color: H.mut }} title={q.via ? `${q.label} is not on this data plan — showing ${q.via} as a proxy` : undefined}>{q.label}{q.via ? <span style={{ color: H.mut2 }}> ({q.via})</span> : null}</td>
-                          <td className="text-right" style={{ color: H.text }}>{q.value == null ? "—" : q.value.toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
-                          <td className="w-[52px] text-right" style={{ color: q.changePct == null ? H.mut2 : q.changePct >= 0 ? H.green : H.red }}>{q.changePct == null ? "" : `${q.changePct >= 0 ? "+" : ""}${q.changePct.toFixed(2)}%`}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 rounded-[6px] px-2 py-1.5" style={{ border: `1px solid ${H.line}` }}>
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" style={{ color: intel?.news?.lockout ? H.red : H.gold2 }} />
-                <p className="min-w-0 flex-1 text-[10px] leading-snug" style={{ color: H.text }}>
-                  {intel?.news ? <>{intel.news.name}<span className="block text-[9px]" style={{ color: H.mut }}>{intel.news.lockout ? "Release lockout active" : intel.news.minutesTo != null ? `in ${Math.round(intel.news.minutesTo)} min · ${intel.news.importance} impact` : intel.news.importance}</span></> : <>No high-impact release scheduled<span className="block text-[9px]" style={{ color: H.mut }}>Context is informational — the Brain does not trade on it</span></>}
-                </p>
-              </div>
+            <HudPanel title="GLOBAL CONTEXT" icon={<Globe2 className="h-3 w-3" />}
+              right={<span className="text-[8px] tracking-[0.1em]" style={{ color: H.mut }} title="Shown for context only. GENX and THE BRAIN do not read these — nothing here changes a trade. Refreshed every 15 minutes from Twelve Data.">DISPLAY ONLY{ctx?.at ? ` · ${new Date(ctx.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}</span>}
+              bodyClass="flex flex-col gap-[3px] px-2.5 pb-1.5">
+              {(() => {
+                const rows = ctx?.rows ?? [];
+                const dxy = rows.find((r) => r.key === "dxy") ?? null;
+                const rest = rows.filter((r) => r.key !== "dxy");
+                const dot = (st: CtxRow["status"]) => st === "live" ? H.green : st === "delayed" ? H.gold2 : st === "stale" ? H.mut : H.red;
+                return (
+                  <>
+                    <div className="flex items-center gap-2.5" title={dxy?.note}>
+                      <span className="h-[36px] w-[36px] shrink-0 rounded-full" style={{ background: "radial-gradient(circle at 35% 30%, #7FD3FF, #0B4A7A 55%, #03101C 80%)", boxShadow: "0 0 14px rgba(89,175,255,0.4), inset -5px -5px 10px rgba(0,0,0,0.55)" }} />
+                      <div className="min-w-0 flex-1">
+                        <p className="flex items-center gap-1.5 text-[10px] font-bold tracking-[0.12em]" style={{ color: H.text }}>
+                          DXY
+                          <span className="inline-flex items-center gap-1 text-[8px] font-semibold tracking-[0.1em]" style={{ color: dot(dxy?.status ?? "not_connected") }}>
+                            <span className="h-[5px] w-[5px] rounded-full" style={{ background: dot(dxy?.status ?? "not_connected") }} />
+                            {(dxy?.status ?? "not_connected").replace("_", " ").toUpperCase()}
+                          </span>
+                        </p>
+                        {dxy?.value != null ? (
+                          <p className="flex items-baseline gap-2">
+                            <b className="text-[17px] tabular-nums" style={{ color: H.text }}>{dxy.value.toFixed(2)}</b>
+                            <span className="text-[10.5px] tabular-nums" style={{ color: (dxy.changePct ?? 0) >= 0 ? H.green : H.red }}>
+                              {(dxy.changePct ?? 0) >= 0 ? "+" : ""}{dxy.change?.toFixed(2) ?? "—"} ({(dxy.changePct ?? 0) >= 0 ? "+" : ""}{dxy.changePct?.toFixed(2) ?? "—"}%)
+                            </span>
+
+                          </p>
+                        ) : (
+                          <p className="text-[10.5px]" style={{ color: H.red }}>DXY feed not connected</p>
+                        )}
+                        <p className="truncate text-[8.5px]" style={{ color: H.mut2 }} title={dxy?.note}>{dxy ? `${dxy.instrument}${dxy.value != null ? ` · ${dxy.period}` : ""}` : "waiting for the context feed"}</p>
+                      </div>
+                      <Sparkline values={(ctx?.history ?? []).map((h) => h.v)} color={(dxy?.changePct ?? 0) >= 0 ? H.green : H.red} w={46} h={24} />
+                    </div>
+
+                    <table className="w-full text-[9.5px] tabular-nums">
+                      <tbody>
+                        {(rest.length ? rest : [{ key: "x", label: "US10Y" }, { key: "y", label: "SPX" }, { key: "z", label: "WTI" }] as CtxRow[]).map((q) => (
+                          <tr key={q.key} title={q.note ? `${q.instrument} · ${q.source} — ${q.note}` : undefined}>
+                            <td style={{ color: H.mut }}>{q.label}<span style={{ color: H.mut2 }}>{q.instrument && q.instrument !== "—" ? ` ${q.instrument.replace(" ETF", "")}` : ""}</span></td>
+                            <td className="text-right" style={{ color: H.text }}>{q.value == null ? "—" : q.value.toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
+                            <td className="w-[48px] text-right" style={{ color: q.changePct == null ? H.mut2 : q.changePct >= 0 ? H.green : H.red }}>{q.changePct == null ? "" : `${q.changePct >= 0 ? "+" : ""}${q.changePct.toFixed(2)}%`}</td>
+                            <td className="w-[10px] text-right"><span className="inline-block h-[5px] w-[5px] rounded-full" style={{ background: dot(q.status ?? "not_connected") }} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="mt-auto flex items-center gap-2 rounded-[6px] px-2 py-[3px]" style={{ border: `1px solid ${H.line}` }}>
+                      <AlertTriangle className="h-3 w-3 shrink-0" style={{ color: intel?.news?.lockout ? H.red : H.gold2 }} />
+                      <p className="min-w-0 flex-1 text-[9.5px] leading-tight" style={{ color: H.text }}>
+                        {intel?.news ? <>{intel.news.name}<span className="block text-[8.5px]" style={{ color: H.mut }}>{intel.news.lockout ? "Release lockout active" : intel.news.minutesTo != null ? `in ${Math.round(intel.news.minutesTo)} min · ${intel.news.importance} impact` : intel.news.importance}</span></> : <>No high-impact release scheduled<span className="block text-[8.5px]" style={{ color: H.mut }}>The Brain does read the calendar; the quotes above it do not reach any trade.</span></>}
+                      </p>
+                    </div>
+                  </>
+                );
+              })()}
             </HudPanel>
           </div>
         </div>
@@ -798,19 +860,6 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 function volLevel(band?: string | null): number | null {
   const m: Record<string, number> = { compressed: 0.15, quiet: 0.3, normal: 0.45, active: 0.62, expanding: 0.78, extreme: 0.95, news_shock: 0.95 };
   return band ? m[band] ?? 0.45 : null;
-}
-
-/** The price where the most bar activity overlapped — the display's "busiest price". */
-function activityNode(bars: ChartBar[]): number | null {
-  if (bars.length < 20) return null;
-  const lo = Math.min(...bars.map((b) => b.l)), hi = Math.max(...bars.map((b) => b.h));
-  const bins = 30, w = (hi - lo) / bins || 1, acc = new Array(bins).fill(0);
-  for (const b of bars) {
-    const a = Math.floor((b.l - lo) / w), z = Math.min(bins - 1, Math.floor((b.h - lo) / w));
-    for (let k = Math.max(0, a); k <= z; k++) acc[k] += (b.v ?? 1);
-  }
-  const k = acc.indexOf(Math.max(...acc));
-  return +(lo + (k + 0.5) * w).toFixed(2);
 }
 
 function pulseText(d: Live | null): string {

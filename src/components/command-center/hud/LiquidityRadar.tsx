@@ -1,20 +1,53 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { H } from "./theme";
 
-export type RadarBlip = { price: number; kind: "buyside" | "sellside" | "node" | "watch"; label: string; swept?: boolean };
+export type RadarBlip = {
+  price: number;
+  kind: "buyside" | "sellside" | "equal_high" | "equal_low" | "node" | "watch";
+  label: string;
+  meaning?: string;
+  swept?: boolean;
+  side?: "above" | "below";
+  distance?: number;
+};
 
 /**
- * LIQUIDITY RADAR — where the engine's levels sit around price.
+ * LIQUIDITY RADAR — where the levels sit around price, and what each one is.
  *
- * Distance from the centre is distance from price (scaled to the farthest level shown); levels above
- * price sit in the upper half, below in the lower. Swept levels are drawn hollow. It only draws levels
- * the engine and its history map actually hold; the sweep line is decoration, the blips are data.
+ * Distance from the centre is distance from price (scaled to the farthest blip shown); blips above price
+ * sit in the upper half, below in the lower. A hollow ring means the level has already been swept.
+ *
+ * IT DOES NOT SEE ORDERS. Gold is over the counter and no feed in this system carries a book, so nothing
+ * here claims to show resting orders or institutional size. Blips are levels the engine holds plus two
+ * display-only detections (equal highs/lows, the busiest recent price); the tooltip says, for each one,
+ * what it is and that clustered liquidity there is an estimate.
+ *
+ * Read-only: it renders what it is handed and reports nothing back to anything.
  */
-export function LiquidityRadar({ price, blips, size = 150, alive }: { price: number | null; blips: RadarBlip[]; size?: number; alive: boolean }) {
+const COL: Record<RadarBlip["kind"], string> = {
+  buyside: "41,223,166", sellside: "255,83,100", equal_high: "255,83,100",
+  equal_low: "41,223,166", node: "89,175,255", watch: "255,216,117",
+};
+const KIND_WORD: Record<RadarBlip["kind"], string> = {
+  buyside: "Buyside liquidity (estimated)", sellside: "Sellside liquidity (estimated)",
+  equal_high: "Equal highs (estimated liquidity)", equal_low: "Equal lows (estimated liquidity)",
+  node: "Busiest price", watch: "Brain watch level",
+};
+
+type Placed = RadarBlip & { x: number; y: number };
+
+export function LiquidityRadar({ price, blips, size = 150, alive, onHover }: {
+  price: number | null; blips: RadarBlip[]; size?: number; alive: boolean;
+  /** The blip under the pointer. The panel shows its detail beside the radar, where there is room for it. */
+  onHover?: (b: RadarBlip | null) => void;
+}) {
   const ref = useRef<HTMLCanvasElement | null>(null);
+  const placed = useRef<Placed[]>([]);
   const data = useRef({ price, blips, alive });
   data.current = { price, blips, alive };
+  const [hover, setHoverState] = useState<Placed | null>(null);
+  const setHover = useCallback((b: Placed | null) => { setHoverState(b); onHover?.(b); }, [onHover]);
 
   useEffect(() => {
     const c = ref.current; if (!c) return;
@@ -24,7 +57,6 @@ export function LiquidityRadar({ price, blips, size = 150, alive }: { price: num
     g.scale(dpr, dpr);
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     let raf = 0; const t0 = performance.now();
-    const col: Record<RadarBlip["kind"], string> = { buyside: "41,223,166", sellside: "255,83,100", node: "89,175,255", watch: "255,216,117" };
 
     const draw = (now: number) => {
       const { price: p, blips: bl, alive: al } = data.current;
@@ -36,45 +68,76 @@ export function LiquidityRadar({ price, blips, size = 150, alive }: { price: num
       for (let k = 1; k <= 4; k++) { g.beginPath(); g.strokeStyle = `rgba(89,175,255,${0.08 + k * 0.03})`; g.lineWidth = 1; g.arc(cx, cy, (R * k) / 4, 0, Math.PI * 2); g.stroke(); }
       g.strokeStyle = "rgba(89,175,255,0.12)";
       g.beginPath(); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.stroke();
-      // tick crown
       for (let k = 0; k < 72; k++) {
         const a = (k / 72) * Math.PI * 2;
         g.strokeStyle = k % 6 === 0 ? "rgba(255,83,100,0.55)" : "rgba(255,83,100,0.22)";
         g.beginPath(); g.moveTo(cx + Math.cos(a) * (R + 1), cy + Math.sin(a) * (R + 1)); g.lineTo(cx + Math.cos(a) * (R - (k % 6 === 0 ? 6 : 3)), cy + Math.sin(a) * (R - (k % 6 === 0 ? 6 : 3))); g.stroke();
       }
-      // sweep
-      const sa = reduce ? -Math.PI / 4 : ((now - t0) / 2600) * Math.PI * 2;
+
+      const sa = reduce ? -Math.PI / 4 : ((now - t0) / 3200) * Math.PI * 2;
       if (al) {
         const cg = g.createConicGradient ? g.createConicGradient(sa - 0.9, cx, cy) : null;
-        if (cg) { cg.addColorStop(0, "rgba(0,0,0,0)"); cg.addColorStop(0.14, "rgba(39,215,242,0.22)"); cg.addColorStop(0.15, "rgba(0,0,0,0)"); g.fillStyle = cg; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill(); }
-        g.strokeStyle = "rgba(39,215,242,0.7)"; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(sa) * R, cy + Math.sin(sa) * R); g.stroke();
+        if (cg) { cg.addColorStop(0, "rgba(0,0,0,0)"); cg.addColorStop(0.14, "rgba(39,215,242,0.20)"); cg.addColorStop(0.15, "rgba(0,0,0,0)"); g.fillStyle = cg; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill(); }
+        g.strokeStyle = "rgba(39,215,242,0.6)"; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(sa) * R, cy + Math.sin(sa) * R); g.stroke();
       }
-      // blips
+
+      const out: Placed[] = [];
       if (p != null && bl.length) {
         const maxD = Math.max(...bl.map((b) => Math.abs(b.price - p)), 0.5);
-        const byHalf = { up: 0, dn: 0 };
-        bl.forEach((b) => {
+        let up = 0, dn = 0;
+        for (const b of bl) {
           const d = Math.abs(b.price - p) / maxD;
-          const upHalf = b.price >= p;
-          const k = upHalf ? byHalf.up++ : byHalf.dn++;
-          const a = (upHalf ? -Math.PI : 0) + 0.35 + ((k * 0.61) % 1) * (Math.PI - 0.7);
-          const r = 10 + d * (R - 16);
+          const above = (b.side ?? (b.price >= p ? "above" : "below")) === "above";
+          const k = above ? up++ : dn++;
+          // Fan each half out so blips never stack: above in the upper half, below in the lower.
+          const a = (above ? -Math.PI : 0) + 0.32 + ((k * 0.37) % 1) * (Math.PI - 0.64);
+          const r = 11 + d * (R - 17);
           const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
-          const pulseK = 0.5 + 0.5 * Math.sin(now / 420 + k);
-          const c = col[b.kind];
-          g.beginPath(); g.fillStyle = `rgba(${c},${0.12 + pulseK * 0.12})`; g.arc(x, y, 6 + pulseK * 2, 0, Math.PI * 2); g.fill();
-          g.beginPath(); g.lineWidth = 1.4;
-          if (b.swept) { g.strokeStyle = `rgba(${c},0.95)`; g.arc(x, y, 3, 0, Math.PI * 2); g.stroke(); }
-          else { g.fillStyle = `rgba(${c},0.95)`; g.arc(x, y, 3, 0, Math.PI * 2); g.fill(); }
-        });
+          out.push({ ...b, x, y });
+          const pulse = reduce ? 0.5 : 0.5 + 0.5 * Math.sin(now / 520 + k);
+          const col = COL[b.kind];
+          const isHover = hover && Math.abs(hover.price - b.price) < 0.001;
+          g.beginPath(); g.fillStyle = `rgba(${col},${0.10 + pulse * 0.10})`; g.arc(x, y, 6 + pulse * 2, 0, Math.PI * 2); g.fill();
+          g.beginPath(); g.lineWidth = isHover ? 2 : 1.4;
+          if (b.swept) { g.strokeStyle = `rgba(${col},0.95)`; g.arc(x, y, isHover ? 4.5 : 3.2, 0, Math.PI * 2); g.stroke(); }
+          else { g.fillStyle = `rgba(${col},0.95)`; g.arc(x, y, isHover ? 4.5 : 3.2, 0, Math.PI * 2); g.fill(); }
+          if (b.kind === "watch") { g.beginPath(); g.strokeStyle = `rgba(${col},0.75)`; g.lineWidth = 1; g.arc(x, y, 7.5, 0, Math.PI * 2); g.stroke(); }
+        }
       }
-      // price
+      placed.current = out;
+
       g.beginPath(); g.fillStyle = H.gold3; g.shadowColor = H.gold3; g.shadowBlur = 8; g.arc(cx, cy, 3.5, 0, Math.PI * 2); g.fill(); g.shadowBlur = 0;
       raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [size]);
+  }, [size, hover]);
 
-  return <canvas ref={ref} style={{ width: size, height: size, display: "block" }} aria-label="Liquidity radar" />;
+  const onMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    let best: Placed | null = null, bd = 12;
+    for (const b of placed.current) {
+      const d = Math.hypot(b.x - x, b.y - y);
+      if (d < bd) { bd = d; best = b; }
+    }
+    setHover(best);
+  }, [setHover]);
+
+  return (
+    <div className="relative" style={{ width: size, height: size }} onMouseMove={onMove} onMouseLeave={() => setHover(null)}
+      onTouchStart={(e) => {
+        const r = e.currentTarget.getBoundingClientRect(); const t = e.touches[0];
+        const x = t.clientX - r.left, y = t.clientY - r.top;
+        let best: Placed | null = null, bd = 16;
+        for (const b of placed.current) { const d = Math.hypot(b.x - x, b.y - y); if (d < bd) { bd = d; best = b; } }
+        setHover(best);
+      }}>
+      <canvas ref={ref} style={{ width: size, height: size, display: "block" }} aria-label="Liquidity radar" />
+    </div>
+  );
 }
+
+/** The plain-English name for each blip kind, so the panel and the radar always agree. */
+export const RADAR_KIND_WORD = KIND_WORD;
+export const RADAR_KIND_COLOR = COL;

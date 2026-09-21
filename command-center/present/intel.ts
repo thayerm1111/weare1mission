@@ -20,7 +20,7 @@
  */
 import type { Bar, Level, MarketSnapshot, Timeframe } from "../core/types";
 import type { BrainThesis, PerceptionEvent } from "../brain/types";
-import { aboveBelow } from "../core/levelMap";
+import { aboveBelow, swings } from "../core/levelMap";
 
 export type Band = { value: number | null; label: string; tone: "up" | "down" | "gold" | "cold" | "mut" };
 
@@ -34,6 +34,11 @@ export type Intel = {
     /** Net pressure change over each horizon the engine diffs (5m, 15m, …). Positive = toward buyers. */
     trend: { horizon: string; from: number; to: number }[];
     buyerLabel: string; sellerLabel: string;
+    /** The move over the shortest horizon the engine diffs, for "strengthening / weakening over X". */
+    change: { horizon: string; deltaNet: number; buyersDelta: number; sellersDelta: number; direction: "toward buyers" | "toward sellers" | "flat" } | null;
+    /** What the number is and is not. Shown on the gauges, never shortened into "order flow". */
+    method: string;
+    complementary: true;
   };
   velocity: Band & { band: string };
   volatility: Band & { band: string; atr: number | null };
@@ -55,6 +60,21 @@ export type Intel = {
     aboveZone: [number, number] | null; belowZone: [number, number] | null;
   };
   keyLevels: { price: number; label: string; role: "resistance" | "support" | "price" | "watch" | "invalidation"; watched: boolean }[];
+  /**
+   * THE LIQUIDITY RADAR's blips. Every one is a price the engine (or this display layer) actually
+   * measured, with the plain meaning shown on hover. Nothing here claims to see resting orders: gold is
+   * over the counter and no feed in this system carries a book, so these are levels where stops and
+   * resting interest are LIKELY to sit, and they say so.
+   */
+  radar: {
+    price: number;
+    kind: "buyside" | "sellside" | "equal_high" | "equal_low" | "node" | "watch";
+    label: string;
+    meaning: string;
+    swept: boolean;
+    side: "above" | "below";
+    distance: number;
+  }[];
   scenarios: { rank: "PRIMARY" | "ALTERNATIVE" | "LOWER"; kind: "bear" | "bull" | "range"; title: string; detail: string }[];
   /** A path consistent with the thesis, for the chart. Informational; never a prediction. */
   path: { points: number[]; label: string } | null;
@@ -80,6 +100,58 @@ export function kindOfEvent(code: string): "price" | "structure" | "news" | "tra
   if (/TRADE_/.test(code)) return "trade";
   if (/STRUCTURE|LEVEL|BREAKOUT|RETEST|LIQUIDITY|REGIME|TIMEFRAME/.test(code)) return "structure";
   return "price";
+}
+
+/** Minutes in a diff horizon label ("5m", "15m", "1h"), for picking the shortest one. */
+function horizonMin(h: string): number {
+  const n = parseFloat(h);
+  return /h$/.test(h) ? n * 60 : n;
+}
+
+/**
+ * EQUAL HIGHS AND LOWS — display only.
+ *
+ * Prices the market has stopped at more than once within a tolerance. Traders read repeated touches as
+ * where stops cluster; this only reports the repetition it can see in the candles, and the UI labels it
+ * as estimated. Nothing here is fed to the engine.
+ */
+export function equalLevels(bars: Bar[], tol: number, minCount = 2): { price: number; kind: "high" | "low"; count: number }[] {
+  if (bars.length < 12) return [];
+  const recent = bars.slice(-200);
+  const { highs, lows } = swings(recent, 2);
+  const cluster = (pts: number[], kind: "high" | "low") => {
+    const used = new Array(pts.length).fill(false);
+    const out: { price: number; kind: "high" | "low"; count: number }[] = [];
+    for (let i = 0; i < pts.length; i++) {
+      if (used[i]) continue;
+      const group = [pts[i]];
+      used[i] = true;
+      for (let j = i + 1; j < pts.length; j++) {
+        if (!used[j] && Math.abs(pts[j] - pts[i]) <= tol) { group.push(pts[j]); used[j] = true; }
+      }
+      if (group.length >= minCount) out.push({ price: +(group.reduce((a, b) => a + b, 0) / group.length).toFixed(2), kind, count: group.length });
+    }
+    return out;
+  };
+  return [...cluster(highs.map((b) => b.h), "high"), ...cluster(lows.map((b) => b.l), "low")]
+    .sort((a, b) => b.count - a.count).slice(0, 4);
+}
+
+/** The price the most recent candles overlapped most — display only, weighted by tick activity if the feed has it. */
+export function busiestPrice(bars: Bar[]): number | null {
+  const bs = bars.slice(-240);
+  if (bs.length < 20) return null;
+  const lo = Math.min(...bs.map((b) => b.l)), hi = Math.max(...bs.map((b) => b.h));
+  const bins = 40, w = (hi - lo) / bins;
+  if (!(w > 0)) return null;
+  const acc = new Array(bins).fill(0);
+  for (const b of bs) {
+    const a = Math.max(0, Math.floor((b.l - lo) / w)), z = Math.min(bins - 1, Math.floor((b.h - lo) / w));
+    const weight = b.v && b.v > 0 ? b.v : 1;
+    for (let k = a; k <= z; k++) acc[k] += weight / Math.max(1, z - a + 1);
+  }
+  const k = acc.indexOf(Math.max(...acc));
+  return +(lo + (k + 0.5) * w).toFixed(2);
 }
 
 export function buildIntel(i: {
@@ -122,11 +194,24 @@ export function buildIntel(i: {
     if (Math.abs(d) < 3) return null;
     return side === "s" ? (d > 0 ? "Easing" : "Building") : (d > 0 ? "Building" : "Fading");
   };
-  const pressure = {
+  const shortest = i.changes.slice().sort((a, b) => horizonMin(a.horizon) - horizonMin(b.horizon))[0] ?? null;
+  const deltaNet = shortest ? Math.round(shortest.pressureTo - shortest.pressureFrom) : 0;
+  const pressure: Intel["pressure"] = {
     buyers, sellers, dominant: dominant as Intel["pressure"]["dominant"],
     trend: i.changes.map((c) => ({ horizon: c.horizon, from: Math.round(c.pressureFrom), to: Math.round(c.pressureTo) })),
     buyerLabel: dominant === "buyers" ? "Dominant" : easing("b") ?? (buyers < 35 ? "Weak" : "Holding"),
     sellerLabel: dominant === "sellers" ? "Dominant" : easing("s") ?? (sellers < 35 ? "Weak" : "Holding"),
+    // Net pressure runs −100 (all sellers) to +100 (all buyers), so each side's share moves by half the
+    // net move. Stated rather than implied, because a "+12" with no scale is not a measurement.
+    change: shortest ? {
+      horizon: shortest.horizon,
+      deltaNet,
+      buyersDelta: Math.round(deltaNet / 2),
+      sellersDelta: -Math.round(deltaNet / 2),
+      direction: Math.abs(deltaNet) < 3 ? "flat" : deltaNet > 0 ? "toward buyers" : "toward sellers",
+    } : null,
+    method: "Estimated buying and selling pressure — scored 0–100 by the engine (core/regime.ts) from where candles close inside their range, which side the wicks punish, momentum, trend slope and whether a structure break was accepted. The two sides are complementary by construction: sellers = 100 − buyers. It is NOT order flow, and it is not a probability of winning.",
+    complementary: true,
   };
 
   /* velocity / volatility / momentum — bands the engine already names */
@@ -225,6 +310,32 @@ export function buildIntel(i: {
     ? { name: s.news.nextEvent.name, at: s.news.nextEvent.at, importance: s.news.nextEvent.importance, minutesTo: s.news.minutesToNext, lockout: s.news.inLockout }
     : null;
 
+  /* ── the radar ─────────────────────────────────────────────────────────
+   * Levels the engine holds, plus two display-only detections: equal highs/lows (prices tested more than
+   * once within a tick or two — where stops cluster) and the busiest price in the recent candles.
+   */
+  const radar: Intel["radar"] = [];
+  const pushBlip = (price: number, kind: Intel["radar"][number]["kind"], label: string, meaning: string, swept: boolean) => {
+    if (!Number.isFinite(price) || radar.some((b) => Math.abs(b.price - price) < 0.15)) return;
+    radar.push({ price: +price.toFixed(2), kind, label, meaning, swept, side: price >= s.price ? "above" : "below", distance: +Math.abs(price - s.price).toFixed(2) });
+  };
+  for (const w of watched) pushBlip(w, "watch", "Brain watch level", "THE BRAIN is watching this price for its current read.", isSwept(w));
+  for (const l of ab.above.slice(0, 6)) {
+    pushBlip(l.price, "buyside", l.label, `Above price — ${isSwept(l.price) ? "already swept once. " : ""}Potential liquidity: stops from shorts and breakout orders usually sit above a level like this.`, isSwept(l.price));
+  }
+  for (const l of ab.below.slice(0, 6)) {
+    pushBlip(l.price, "sellside", l.label, `Below price — ${isSwept(l.price) ? "already swept once. " : ""}Potential liquidity: stops from longs and breakdown orders usually sit below a level like this.`, isSwept(l.price));
+  }
+  for (const e of equalLevels(i.bars, Math.max(0.3, (f15?.atr ?? 3) * 0.08))) {
+    pushBlip(e.price, e.kind === "high" ? "equal_high" : "equal_low",
+      `Equal ${e.kind}s ×${e.count}`,
+      `Price stopped within a few cents of ${e.price.toFixed(2)} ${e.count} times. Estimated liquidity: repeated touches are where stop orders tend to pile up.`,
+      isSwept(e.price));
+  }
+  const node = busiestPrice(i.bars);
+  if (node != null) pushBlip(node, "node", "Busiest price", "Where the most candle activity has overlapped recently — a price the market keeps trading around. Derived from candles, not from traded volume.", false);
+  radar.sort((a, b) => a.distance - b.distance);
+
   const streamKinds: Intel["streamKinds"] = {};
   for (const e of i.events) streamKinds[e.key] = kindOfEvent(e.code);
 
@@ -236,7 +347,7 @@ export function buildIntel(i: {
       brokeStructure: st?.brokeStructure ?? null, sweptLevel: st?.sweptLevel ?? null,
       nextWatched, invalidation: inv,
     },
-    liquidity, keyLevels, scenarios, path, news, streamKinds,
+    liquidity, keyLevels, radar, scenarios, path, news, streamKinds,
   };
 }
 
