@@ -25,10 +25,11 @@ import type { Bar, Level } from "./types";
 type Cand = { price: number; kind: Level["kind"]; label: string; weight: number };
 
 const NY = "America/New_York";
-const dayKey = (ms: number) =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: NY, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
-const dayName = (ms: number) =>
-  new Intl.DateTimeFormat("en-US", { timeZone: NY, weekday: "short", month: "2-digit", day: "2-digit" }).format(new Date(ms));
+// Built once (see core/sessions.ts): a formatter per call is slow and allocation-heavy.
+const DAY_KEY_FMT = new Intl.DateTimeFormat("en-CA", { timeZone: NY, year: "numeric", month: "2-digit", day: "2-digit" });
+const DAY_NAME_FMT = new Intl.DateTimeFormat("en-US", { timeZone: NY, weekday: "short", month: "2-digit", day: "2-digit" });
+const dayKey = (ms: number) => DAY_KEY_FMT.format(new Date(ms));
+const dayName = (ms: number) => DAY_NAME_FMT.format(new Date(ms));
 
 /** Monday-anchored week key in New York time. */
 function weekKey(ms: number): string {

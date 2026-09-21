@@ -6,8 +6,12 @@
  */
 import type { Bar, Level, SessionName } from "./types";
 
+// Formatters are built ONCE. Creating an Intl.DateTimeFormat per call (per bar, several times a second)
+// is slow and allocates heavily — a replay of the engine grew to 4.6 GB in 500 steps because of it.
+const NY_PARTS_FMT = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", weekday: "short", hour12: false });
+const NY_DAY_FMT = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
 const nyParts = (ms: number) => {
-  const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", weekday: "short", hour12: false });
+  const f = NY_PARTS_FMT;
   const p = Object.fromEntries(f.formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
   return { hour: Number(p.hour) % 24, minute: Number(p.minute), weekday: String(p.weekday) };
 };
@@ -38,7 +42,7 @@ export const marketOpen = (ms: number): boolean => sessionAt(ms) !== "closed";
 /** Session and day levels built from bars — no constants, no assumptions about when "yesterday" was. */
 export function sessionLevels(bars: Bar[], nowMs: number): Level[] {
   if (!bars.length) return [];
-  const dayKey = (ms: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
+  const dayKey = (ms: number) => NY_DAY_FMT.format(new Date(ms));
   const today = dayKey(nowMs);
   const byDay = new Map<string, Bar[]>();
   for (const b of bars) { const k = dayKey(b.t); const l = byDay.get(k) ?? []; l.push(b); byDay.set(k, l); }
