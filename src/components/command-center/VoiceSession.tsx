@@ -284,6 +284,12 @@ export function VoiceSession({ onUiAction, onStatus }: {
     if (!open) return;
     if (!lastActive.current) lastActive.current = Date.now();
     const id = window.setInterval(() => {
+      // ATLAS STILL TALKING IS NOT QUIET (owner 09-21: "it was in the middle of talking and cut off because
+      // of the 40 seconds"). A long answer arrives from the provider in a few seconds and then PLAYS for a
+      // minute or more, so the clock used to run out mid-sentence. While audio is still queued to play, the
+      // line is active; the 40 seconds only start once ATLAS has finished speaking and you haven't spoken.
+      const ctx = audioCtx.current;
+      if (ctx && playHead.current > ctx.currentTime) { lastActive.current = Date.now(); return; }
       if (Date.now() - lastActive.current > IDLE_HANGUP_MS) {
         lastActive.current = 0;
         end();
