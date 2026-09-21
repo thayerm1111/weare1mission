@@ -76,6 +76,8 @@ function sse(chunks: () => AsyncGenerator<string>): Response {
       } catch {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(delta("I lost my footing there. Say that again."))}\n\n`));
       }
+      // The OpenAI stream ends with a finish_reason before [DONE]; some clients treat a stream without it as broken.
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id: "cc", object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: "command-center-xauusd", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`));
       controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       controller.close();
     },
@@ -165,7 +167,50 @@ function streamAnswer(packet: string, question: string, fallback: string): Respo
   });
 }
 
-export async function handleVoiceLlm(req: Request) {
+/**
+ * ANSWER THE PROVIDER AT ONCE (owner 09-21: "I click and talk but it doesn't seamlessly flow with my voice";
+ * the session closed with "custom_llm_error: LLM Cascade Error").
+ *
+ * Before the first word, a turn gathers the whole context — the live read, the member's trade, account,
+ * calendar, record — and only then asks the model. That can take several seconds, and the voice provider
+ * gives up on a custom LLM that has not started streaming, retries it (one session logged 12 turns in 70
+ * seconds), and finally closes the line with a cascade error.
+ *
+ * So the stream now opens immediately: the assistant role chunk goes out at once, an empty content chunk
+ * keeps it warm every 700 ms while the context is built, and the real answer is piped through the moment
+ * it exists. Nothing about WHAT is said changes — only that the provider is never left waiting in silence.
+ */
+export async function handleVoiceLlm(req: Request): Promise<Response> {
+  const encoder = new TextEncoder();
+  const chunk = (d: Record<string, unknown>) => encoder.encode(`data: ${JSON.stringify({ id: "cc", object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: "command-center-xauusd", choices: [{ index: 0, delta: d, finish_reason: null }] })}\n\n`);
+  // Refuse an unauthenticated caller before opening anything.
+  const secret = process.env.CC_VOICE_LLM_SECRET;
+  if (!secret || (req.headers.get("authorization") ?? "") !== `Bearer ${secret}`) {
+    return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { "content-type": "application/json" } });
+  }
+  const inner = handleVoiceLlmInner(req);
+  const stream = new ReadableStream({
+    async start(controller) {
+      controller.enqueue(chunk({ role: "assistant", content: "" }));
+      const keep = setInterval(() => { try { controller.enqueue(chunk({ content: "" })); } catch { /* closed */ } }, 700);
+      try {
+        const res = await inner;
+        clearInterval(keep);
+        if (!res.body) { controller.enqueue(encoder.encode("data: [DONE]\n\n")); controller.close(); return; }
+        const reader = res.body.getReader();
+        for (;;) { const { done, value } = await reader.read(); if (done) break; controller.enqueue(value); }
+      } catch {
+        clearInterval(keep);
+        controller.enqueue(chunk({ content: "I lost my footing there. Say that again." }));
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      }
+      controller.close();
+    },
+  });
+  return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" } });
+}
+
+async function handleVoiceLlmInner(req: Request): Promise<Response> {
   // The provider authenticates with a shared secret it holds as its "API key". Without it, this endpoint
   // is a public door into a member's account context.
   const secret = process.env.CC_VOICE_LLM_SECRET;
