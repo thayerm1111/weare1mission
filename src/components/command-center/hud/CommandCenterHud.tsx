@@ -109,7 +109,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   const [consentOpen, setConsentOpen] = useState(false);
   const [askSignal, setAskSignal] = useState<{ n: number; q: string } | null>(null);
   const [activity, setActivity] = useState({ busy: false, speaking: false, listening: false });
-  const [ctx, setCtx] = useState<{ label: string; value: number | null; changePct: number | null }[] | null>(null);
+  const [ctx, setCtx] = useState<{ label: string; value: number | null; changePct: number | null; via?: string | null }[] | null>(null);
   const [now, setNow] = useState(0);   // 0 until mounted, so server and client render the same text
   const [flash, setFlash] = useState<"up" | "dn" | null>(null);
   const [desk, setDesk] = useState<{
@@ -656,7 +656,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                     <tbody>
                       {(ctx?.length ? ctx : [{ label: "DXY", value: null, changePct: null }, { label: "US10Y", value: null, changePct: null }, { label: "SPX", value: null, changePct: null }, { label: "WTI", value: null, changePct: null }]).map((q) => (
                         <tr key={q.label}>
-                          <td style={{ color: H.mut }}>{q.label}</td>
+                          <td style={{ color: H.mut }} title={q.via ? `${q.label} is not on this data plan — showing ${q.via} as a proxy` : undefined}>{q.label}{q.via ? <span style={{ color: H.mut2 }}> ({q.via})</span> : null}</td>
                           <td className="text-right" style={{ color: H.text }}>{q.value == null ? "—" : q.value.toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
                           <td className="w-[52px] text-right" style={{ color: q.changePct == null ? H.mut2 : q.changePct >= 0 ? H.green : H.red }}>{q.changePct == null ? "" : `${q.changePct >= 0 ? "+" : ""}${q.changePct.toFixed(2)}%`}</td>
                         </tr>

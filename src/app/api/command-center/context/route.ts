@@ -15,17 +15,19 @@ export const dynamic = "force-dynamic";
  * as null and is shown as "—", never guessed.
  */
 const TTL_MS = 15 * 60_000;
-const SYMBOLS: { key: string; label: string; symbol: string }[] = [
-  { key: "dxy", label: "DXY", symbol: "DXY" },
-  { key: "us10y", label: "US10Y", symbol: "US10Y" },
-  { key: "spx", label: "SPX", symbol: "SPX" },
-  { key: "wti", label: "WTI", symbol: "WTI/USD" },
+const SYMBOLS: { key: string; label: string; symbols: string[] }[] = [
+  // Index symbols are plan-gated on Twelve Data, so each row lists fallbacks. Whichever one answers is
+  // named in the row, so a proxy is never passed off as the index itself.
+  { key: "dxy", label: "DXY", symbols: ["DXY", "UUP"] },
+  { key: "us10y", label: "US10Y", symbols: ["US10Y", "TNX", "IEF"] },
+  { key: "spx", label: "SPX", symbols: ["SPX", "SPY"] },
+  { key: "wti", label: "WTI", symbols: ["WTI/USD", "USO"] },
 ];
 
 function json(o: unknown, s = 200) {
   return new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }
-type Quote = { label: string; value: number | null; changePct: number | null };
+type Quote = { label: string; value: number | null; changePct: number | null; via?: string | null };
 
 export async function GET() {
   const supabase = createClient();
@@ -45,13 +47,18 @@ export async function GET() {
   if (!key) return json({ ok: false, quotes: row?.bars ?? [], error: "feed_not_configured" });
   try {
     const q = new URL("https://api.twelvedata.com/quote");
-    q.searchParams.set("symbol", SYMBOLS.map((s) => s.symbol).join(","));
+    q.searchParams.set("symbol", SYMBOLS.flatMap((s) => s.symbols).join(","));
     const r = await fetch(q.toString(), { headers: { Authorization: `apikey ${key}` }, cache: "no-store", signal: AbortSignal.timeout(8000) });
     const body = (await r.json().catch(() => ({}))) as Record<string, Record<string, unknown>>;
     const quotes: Quote[] = SYMBOLS.map((s) => {
-      const o = body[s.symbol] ?? {};
-      const v = Number(o.close), ch = Number(o.percent_change);
-      return { label: s.label, value: o.status === "error" || !Number.isFinite(v) ? null : v, changePct: Number.isFinite(ch) ? ch : null };
+      for (const sym of s.symbols) {
+        const o = body[sym] ?? {};
+        const v = Number(o.close), ch = Number(o.percent_change);
+        if (o.status !== "error" && Number.isFinite(v)) {
+          return { label: s.label, value: v, changePct: Number.isFinite(ch) ? ch : null, via: sym === s.symbols[0] ? null : sym };
+        }
+      }
+      return { label: s.label, value: null, changePct: null, via: null };
     });
     await c.from("cc_chart_bars").upsert({ tf: "ctx", bars: quotes, updated_at: new Date().toISOString() }, { onConflict: "tf" });
     return json({ ok: true, quotes, at: Date.now() });
