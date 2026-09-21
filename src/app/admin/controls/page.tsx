@@ -103,6 +103,7 @@ export default function AdminControlsPage() {
         <p style={{ marginTop: 24, color: "#dc2626" }}>{msg || "Couldn't load."}</p>
       )}
 
+      {!denied && <SuiteRetire />}
       {!denied && <MyLevels />}
       {!denied && <WorkerEnvSync />}
     </main>
@@ -265,6 +266,71 @@ function MyLevels() {
             </div>
           </div>
         ))}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * THE $39 TRADING SUITE, CLOSED FOR GOOD.
+ *
+ * Sign-ups were closed on 09-08; the members already on it kept renewing. This cancels every live one so
+ * no card is run again. The default keeps the month they have already paid for — nobody loses time they
+ * bought. It shows exactly who is affected before it will do anything.
+ */
+function SuiteRetire() {
+  const [info, setInfo] = useState<{ total: number; willCancel: number; alreadyCancelling: number; renewals?: { renewsAt: string | null }[] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [armed, setArmed] = useState(false);
+
+  useEffect(() => {
+    void fetch("/api/admin/subscriptions/retire", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.ok) setInfo(d); })
+      .catch(() => {});
+  }, [busy]);
+
+  async function run() {
+    setBusy(true); setMsg(null);
+    try {
+      const r = await fetch("/api/admin/subscriptions/retire", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: true }),
+      });
+      const d = await r.json();
+      setMsg(d?.ok ? `Cancelled ${d.cancelled} subscription(s) at period end. Nothing will be charged again.` : `Cancelled ${d?.cancelled ?? 0}; ${d?.failed?.length ?? 0} failed.`);
+      setArmed(false);
+    } catch { setMsg("Couldn't reach Stripe just then."); }
+    setBusy(false);
+  }
+
+  if (!info) return null;
+  return (
+    <section style={{ marginTop: 28, padding: "20px 22px", border: "1px solid #e6ebf1", borderRadius: 16, background: "#fff" }}>
+      <h2 style={{ fontSize: 16, fontWeight: 800, margin: 0 }}>Trading Suite ($39/mo) — retire</h2>
+      <p style={{ marginTop: 6, fontSize: 13, color: "#64748b" }}>
+        Sign-ups are already closed. {info.willCancel} member{info.willCancel === 1 ? "" : "s"} still renew;
+        {" "}{info.alreadyCancelling} already cancelling. Cancelling sets them to end at the period they have paid for —
+        no further charges, no refunds, and they keep the credits already granted.
+      </p>
+      {msg && <p style={{ marginTop: 8, fontSize: 13, color: "#334155" }}>{msg}</p>}
+      <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+        {!armed ? (
+          <button onClick={() => setArmed(true)} disabled={busy || info.willCancel === 0}
+            style={{ padding: "10px 16px", borderRadius: 10, border: "1px solid #dc2626", background: "#fff", color: "#dc2626", fontWeight: 700, cursor: "pointer" }}>
+            Cancel all {info.willCancel} subscriptions
+          </button>
+        ) : (
+          <>
+            <button onClick={() => void run()} disabled={busy}
+              style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: "#dc2626", color: "#fff", fontWeight: 700, cursor: "pointer" }}>
+              {busy ? "Cancelling…" : "Yes — cancel them"}
+            </button>
+            <button onClick={() => setArmed(false)} style={{ padding: "10px 16px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#fff", fontWeight: 600, cursor: "pointer" }}>
+              Keep them
+            </button>
+          </>
+        )}
       </div>
     </section>
   );
