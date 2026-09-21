@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import { createClient as adminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { hasPass } from "@/lib/ccPass";
+import { hasPassOrPreview } from "@/lib/ccPass";
 import { ensureAgent, signedUrl, availability } from "../../../../../command-center/engines/voice";
 
 export const runtime = "nodejs";
@@ -70,11 +70,13 @@ function welcomeDue(user: { last_sign_in_at?: string | null }, last: number | nu
 export async function GET(req: Request) {
   const user = await who();
   if (!user) return json({ error: "unauthorized" }, 401);
-  if (!(await hasPass(user.id))) return json({ eligible: false, reason: "pass_required" });
+  const access = await hasPassOrPreview(user.id);
+  if (!access.ok) return json({ eligible: false, reason: "pass_required" });
   const c = admin(); if (!c) return json({ eligible: false, reason: "not_configured" });
 
+  // A free preview always gets its welcome — that is the point of it.
   const last = await lastWelcome(user.id);
-  const eligible = welcomeDue(user, last) || (await adminReplay(req, user.id));
+  const eligible = access.preview || welcomeDue(user, last) || (await adminReplay(req, user.id));
 
   // Their name, as they gave it — never a default.
   const { data: prof } = await c.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
@@ -90,6 +92,7 @@ export async function GET(req: Request) {
   const newest = rows.map((r) => (r.updated_at ? Date.parse(r.updated_at) : 0)).reduce((a, b) => Math.max(a, b), 0);
   return json({
     eligible,
+    preview: access.preview,
     name,
     voice: availability().ok,
     accounts: rows.length ? {
@@ -103,9 +106,10 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const user = await who();
   if (!user) return json({ error: "unauthorized" }, 401);
-  if (!(await hasPass(user.id))) return json({ ok: false, reason: "pass_required" }, 402);
+  const access = await hasPassOrPreview(user.id);
+  if (!access.ok) return json({ ok: false, reason: "pass_required" }, 402);
   const last = await lastWelcome(user.id);
-  if (!welcomeDue(user, last) && !(await adminReplay(req, user.id))) return json({ ok: false, reason: "already_welcomed" });
+  if (!access.preview && !welcomeDue(user, last) && !(await adminReplay(req, user.id))) return json({ ok: false, reason: "already_welcomed" });
   if (!availability().ok) return json({ ok: false, reason: "voice_not_configured" });
 
   const agent = await ensureAgent();
@@ -114,7 +118,7 @@ export async function POST(req: Request) {
   if (!s.ok) return json({ ok: false, reason: "no_line" });
 
   const c = admin();
-  if (c) {
+  if (c && !access.preview) { // the preview's own row already records it
     const nowIso = new Date().toISOString();
     await c.from("cc_voice_sessions").insert({
       user_id: user.id, token: randomBytes(16).toString("hex"), token_expires_at: nowIso,

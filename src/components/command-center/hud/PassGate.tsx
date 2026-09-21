@@ -9,7 +9,7 @@ import { EntrySequence, primeAudio } from "./EntrySequence";
  * Nothing renews on its own: when the window ends, the screen asks. Admins pass straight through.
  * The data routes enforce the same rule on the server, so this screen is the explanation, not the lock.
  */
-type Pass = { active: boolean; admin: boolean; expiresAt: string | null; cost: number; minutes: number; balance: number | null };
+type Pass = { preview?: boolean; active: boolean; admin: boolean; expiresAt: string | null; cost: number; minutes: number; balance: number | null };
 
 /** Admins can replay the entrance for a recording: /command-center?replay=1 */
 function replayWanted(): boolean {
@@ -22,6 +22,8 @@ export function PassGate({ children }: { children: React.ReactNode }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [now, setNow] = useState(0);
   const [intro, setIntro] = useState(false);
+  // the one free look: shown to anyone who has never had it, before the gate
+  const [previewDone, setPreviewDone] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -70,12 +72,30 @@ export function PassGate({ children }: { children: React.ReactNode }) {
     return <div className="grid min-h-screen place-items-center text-[13px]" style={{ background: H.bg0, color: H.mut }}>Checking your access…</div>;
   }
 
+  if (!open && pass.preview && !previewDone) {
+    return (
+      <div className="min-h-screen" style={{ background: H.bg0 }}>
+        <EntrySequence speak awaitTap preview
+          onArm={async () => {
+            const r = await fetch("/api/command-center/pass?preview=1", { method: "POST" }).catch(() => null);
+            return !!r?.ok;
+          }}
+          onDone={() => { setPreviewDone(true); void load(); }} />
+      </div>
+    );
+  }
+
   if (!open) {
     const expired = exp != null && exp <= now;
     return (
       <div className="grid min-h-screen place-items-center px-4" style={{ background: H.bg0, color: H.text }}>
         <div className="w-full max-w-[420px] rounded-2xl p-6" style={{ border: `1px solid ${H.lineHi}`, background: H.bg1 }}>
           <p className="text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: H.gold3 }}>Command Center XAUUSD</p>
+          {previewDone && (
+            <div className="mt-3 rounded-lg px-3 py-2.5 text-[12.5px] leading-relaxed" style={{ border: "1px solid rgba(231,196,103,.45)", background: "rgba(213,169,61,.08)", color: H.text }}>
+              <b style={{ color: H.gold3 }}>That was ATLAS.</b> Your free first look is done. Open the live desk below to keep going — and to talk with ATLAS any time, add a voice plan from the Voice tab inside ($100 for 400 minutes or $190 for 1,000).
+            </div>
+          )}
           <h1 className="mt-2 text-[22px] font-semibold">{expired ? "Your 30 minutes are up" : "Open the Command Center"}</h1>
           <p className="mt-2 text-[13.5px] leading-relaxed" style={{ color: H.mut }}>
             {pass.cost} credits opens the live desk with ATLAS for {pass.minutes} minutes. The clock starts when you press open, and nothing renews without you.

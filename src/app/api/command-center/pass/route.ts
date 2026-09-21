@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
-import { openPass, passState } from "@/lib/ccPass";
+import { randomBytes } from "crypto";
+import { claimPreview, openPass, passState } from "@/lib/ccPass";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,9 +23,14 @@ export async function GET() {
   return json(await passState(w.user.id, w.supabase));
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   const w = await who();
   if (!w) return json({ error: "unauthorized" }, 401);
+  // ?preview=1 — the one free look at the entrance. Charges nothing; works once per member.
+  if (new URL(req.url).searchParams.get("preview") === "1") {
+    const ok = await claimPreview(w.user.id, randomBytes(16).toString("hex"));
+    return json({ ok, preview: ok }, ok ? 200 : 409);
+  }
   const r = await openPass(w.user.id, w.supabase);
   return json(r, r.error === "insufficient" ? 402 : 200);
 }

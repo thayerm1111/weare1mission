@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { hasPass } from "@/lib/ccPass";
+import { hasPassOrPreview } from "@/lib/ccPass";
 import { liveState } from "../../../../../command-center/engines/live";
 import { marketOpen } from "../../../../../command-center/core/sessions";
 
@@ -33,7 +33,10 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return json({ ok: false, error: "unauthorized" }, 401);
   // 5 credits per 30 minutes (owner 09-21). No open window, no data.
-  if (!(await hasPass(user.id))) return json({ ok: false, error: "pass_required" }, 402);
+  // The free preview may read the live gold update for the entrance, and nothing else.
+  if (!(await hasPassOrPreview(user.id)).ok) {
+    return json({ ok: false, error: "pass_required" }, 402);
+  }
 
   try {
     /*

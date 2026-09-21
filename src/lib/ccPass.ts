@@ -17,6 +17,8 @@ export const CC_PASS_MS = 30 * 60_000;
 export const CC_PASS_COST = CREDIT_COST.command_center;
 
 export type PassState = {
+  /** A one-time free look at the entrance (and ATLAS's spoken welcome) is still available. */
+  preview?: boolean;
   active: boolean;
   admin: boolean;
   expiresAt: string | null;
@@ -59,7 +61,50 @@ export async function passState(userId: string, supabase: NonNullable<ReturnType
   const base = { cost: CC_PASS_COST, minutes: CC_PASS_MS / 60_000 };
   if (await isAdmin(userId)) return { ...base, active: true, admin: true, expiresAt: null, balance: null };
   const exp = await passExpiry(userId);
-  return { ...base, active: exp != null && exp > Date.now(), admin: false, expiresAt: exp ? new Date(exp).toISOString() : null, balance: await balanceOf(supabase) };
+  const active = exp != null && exp > Date.now();
+  const preview = active ? false : !(await previewInfo(userId)).used;
+  return { ...base, preview, active, admin: false, expiresAt: exp ? new Date(exp).toISOString() : null, balance: await balanceOf(supabase) };
+}
+
+/*
+ * THE FREE PREVIEW (owner 09-21): "I want every user when they click the command center, at least be
+ * able to see that animation for themselves … experience it at least one time and then it says for
+ * more voice have to pay."
+ *
+ * One per member, ever. Claimed by the tap that starts it (a zero-minute voice-session row, reason
+ * 'welcome_preview'), and for the next few minutes that claim lets the entrance read the live gold
+ * update and open ATLAS's spoken welcome — nothing else. After that it is the normal 5-credit window.
+ */
+export const PREVIEW_MS = 6 * 60_000;
+
+export async function previewInfo(userId: string): Promise<{ used: boolean; openUntil: number | null }> {
+  const c = admin(); if (!c) return { used: true, openUntil: null };
+  const { data } = await c.from("cc_voice_sessions").select("started_at")
+    .eq("user_id", userId).eq("end_reason", "welcome_preview").order("started_at", { ascending: false }).limit(1).maybeSingle();
+  const at = (data as { started_at?: string } | null)?.started_at;
+  if (!at) return { used: false, openUntil: null };
+  const until = Date.parse(at) + PREVIEW_MS;
+  return { used: true, openUntil: until > Date.now() ? until : null };
+}
+
+/** Claim the one free preview. Returns false if it was already used. */
+export async function claimPreview(userId: string, token: string): Promise<boolean> {
+  const c = admin(); if (!c) return false;
+  const p = await previewInfo(userId);
+  if (p.used) return p.openUntil != null; // a double tap inside the preview is not a second preview
+  const nowIso = new Date().toISOString();
+  const { error } = await c.from("cc_voice_sessions").insert({
+    user_id: userId, token, token_expires_at: nowIso, provider: "elevenlabs", started_at: nowIso, ended_at: nowIso,
+    last_seen_at: nowIso, minutes: 0, turns: 0, end_reason: "welcome_preview",
+  });
+  return !error;
+}
+
+/** For the entrance only: a paid window, or a free preview claimed in the last few minutes. */
+export async function hasPassOrPreview(userId: string): Promise<{ ok: boolean; preview: boolean }> {
+  if (await hasPass(userId)) return { ok: true, preview: false };
+  const p = await previewInfo(userId);
+  return { ok: p.openUntil != null, preview: p.openUntil != null };
 }
 
 /**

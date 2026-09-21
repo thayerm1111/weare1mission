@@ -45,6 +45,9 @@ function greetingWord(): string {
   return h < 5 ? "Good evening" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
 }
 
+/** "4h swing high (Thu, 09/17) · 1h swing high (Thu, 09/17)" → "4h swing high". */
+const shortLabel = (l: string) => l.split("·")[0].replace(/\([^)]*\)/g, "").trim();
+
 /** The spoken-style gold update, from real numbers only. */
 export function composeBrief(d: Live | null): string[] {
   if (!d || typeof d.price !== "number") return ["I can't see a live read yet — the desk will fill in as the feed arrives."];
@@ -76,8 +79,8 @@ export function composeBrief(d: Live | null): string[] {
   const below = real.filter((l) => l.price < d.price!).sort((a, b) => b.price - a.price)[0];
   if (above || below) {
     L.push([
-      above ? `Resistance ${money(above.price)} (${above.label})` : null,
-      below ? `support ${money(below.price)} (${below.label})` : null,
+      above ? `Resistance ${money(above.price)} (${shortLabel(above.label)})` : null,
+      below ? `support ${money(below.price)} (${shortLabel(below.label)})` : null,
     ].filter(Boolean).join("; ").replace(/^s/, "S") + ".");
   }
   const th = d.thesis;
@@ -136,7 +139,7 @@ function sayLevel(label: string): string {
  * prices as a desk says them, balances rounded, pressure as who has the edge, no brackets or percents
  * read out digit by digit. Same facts, same source — only the phrasing changes.
  */
-export function spokenWelcome(d: Live | null, g: Greet | null, name: string | null): string {
+export function spokenWelcome(d: Live | null, g: Greet | null, name: string | null, preview = false): string {
   const S: string[] = [];
   const hi = `${greetingWord()}${name ? `, ${name}` : ""}.`;
   S.push(`${hi} ATLAS here.`);
@@ -204,7 +207,9 @@ export function spokenWelcome(d: Live | null, g: Greet | null, name: string | nu
     S.push(`I've got a ${su.side === "sell" ? "sell" : "buy"} setup lining up${su.totalCount ? `, ${su.metCount} of ${su.totalCount} boxes ticked` : ""}.`);
   }
   if (d.intel?.news?.name) S.push(`Heads up, ${d.intel.news.name} is on the calendar.`);
-  S.push("Desk's yours.");
+  S.push(preview
+    ? "That's your first look, on the house. Open the desk for five credits and I'll walk you through the rest, and if you want to talk with me any time, grab a voice plan."
+    : "Desk's yours.");
   // Anything a label carried in digits still gets said as words.
   return speakNumbers(S.join(" "));
 }
@@ -243,7 +248,11 @@ function speakWelcome(url: string, text: string, on: { level: (v: number) => voi
   return () => { window.clearInterval(iv); window.clearTimeout(cap); finish(); };
 }
 
-export function EntrySequence({ onDone, speak = false, awaitTap = false, replay = false }: {
+export function EntrySequence({ onDone, speak = false, awaitTap = false, replay = false, preview = false, onArm }: {
+  /** The one free look (owner 09-21): ends with an invitation instead of the desk. */
+  preview?: boolean;
+  /** Called inside the tap before the room opens (claims the free preview). False = don't open. */
+  onArm?: () => Promise<boolean>;
   onDone: () => void; speak?: boolean;
   /** No paying tap happened (admins): show "TAP TO ENTER" first, because sound may only start from a tap. */
   awaitTap?: boolean;
@@ -305,7 +314,7 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
     setLeaving(true); window.setTimeout(onDone, 700);
   };
 
-  const welcomeSpoken = useMemo(() => spokenWelcome(d, greet, name), [d, greet, name]);
+  const welcomeSpoken = useMemo(() => spokenWelcome(d, greet, name, preview), [d, greet, name, preview]);
   const startVoice = () => {
     if (!sharedCtx || sharedCtx.state !== "running") { setVoice("blocked"); return; }
     setVoice("connecting");
@@ -370,7 +379,11 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
         <style>{ENTRY_CSS + FX_CSS}</style>
         <div className="es-grid" style={{ opacity: 0.5 }} /><div className="es-hex" /><div className="es-vignette" /><div className="es-scan" />
         {["tl", "tr", "bl", "br"].map((c) => <span key={c} className={`es-corner es-${c}`} />)}
-        <button onClick={() => { primeAudio(); setArmed(true); }} className="relative z-10 flex flex-col items-center gap-4" aria-label="Enter the Command Center">
+        <button onClick={() => {
+          primeAudio(); // must run inside the tap itself
+          if (!onArm) { setArmed(true); return; }
+          void onArm().then((ok) => (ok ? setArmed(true) : onDone())).catch(() => onDone());
+        }} className="relative z-10 flex flex-col items-center gap-4" aria-label="Enter the Command Center">
           <div className="relative grid place-items-center" style={{ width: (phone ? 180 : 230) + 90, height: (phone ? 180 : 230) + 90 }}>
             <HudRings size={(phone ? 180 : 230) + 90} spin={0.7} />
             <BrainOrb state="watching" intensity={20} alive size={phone ? 180 : 230} />
@@ -466,7 +479,7 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
 
         {(briefDone || (voice === "blocked" && typed >= briefText.length && t > T_BRIEF)) && (
           <button onClick={leave} className="es-rise mt-4 rounded-lg px-6 py-2.5 text-[13px] font-semibold tracking-[0.2em]"
-            style={{ background: H.gold2, color: "#10131A", boxShadow: "0 0 24px rgba(231,196,103,.35)" }}>ENTER THE DESK</button>
+            style={{ background: H.gold2, color: "#10131A", boxShadow: "0 0 24px rgba(231,196,103,.35)" }}>{preview ? "CONTINUE" : "ENTER THE DESK"}</button>
         )}
       </div>
       </div>
