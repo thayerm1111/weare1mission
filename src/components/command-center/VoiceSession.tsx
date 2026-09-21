@@ -443,6 +443,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
 
       // A device chosen because the last one was deaf keeps its explanation on screen.
       if (!autoPicked.current || attempt === 0) setError(null);
+      if (socket.readyState !== WebSocket.OPEN) return; // the provider already hung up; onclose said why
       setStatus((st) => (st === "muted" ? st : "listening"));
       return;
     } catch (e) {
@@ -623,9 +624,29 @@ export function VoiceSession({ onUiAction, onStatus }: {
       };
 
       socket.onerror = () => { teardown("error", "The voice connection dropped."); };
-      socket.onclose = () => {
-        setStatus((st) => (st === "idle" ? st : "disconnected"));
+      /*
+       * THE PROVIDER SAYS WHY IT HUNG UP — SAY IT ON SCREEN.
+       *
+       * 09-21: the speech account ran out of credits. The provider accepted the line, then closed it
+       * 60ms later with code 3000 "[quota_exceeded] You've run out of credits". The close was
+       * swallowed, the microphone finished attaching a moment later and set the status back to
+       * LISTENING, and the screen showed a green orb over "0 sent · 0 back" for as long as anyone
+       * waited. A line the provider closed is closed, and its reason is the most useful sentence
+       * this panel can show.
+       */
+      socket.onclose = (ev) => {
         if (heartbeat.current) { clearInterval(heartbeat.current); heartbeat.current = null; }
+        if (ws.current !== socket) return; // an old line closing after a new one opened
+        const reason = String(ev.reason ?? "");
+        if (/quota|credit/i.test(reason)) {
+          teardown("error", "Voice is paused: the speech service account is out of credits. The owner needs to top it up at elevenlabs.io (Subscription / Usage). Typed chat still works.");
+          return;
+        }
+        if (ev.code !== 1000 && ev.code !== 1005) {
+          teardown("error", `The voice service closed the line${reason ? `: ${reason.replace(/^\[[^\]]+\]\s*/, "").slice(0, 160)}` : ` (code ${ev.code})`}. Press Talk to try again.`);
+          return;
+        }
+        setStatus((st) => (st === "idle" ? st : "disconnected"));
       };
     } catch {
       teardown("error", "Could not start the voice session.");
