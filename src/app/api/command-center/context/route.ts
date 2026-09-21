@@ -64,9 +64,15 @@ async function quotes(symbols: string[], key: string): Promise<Record<string, Re
   return body as Record<string, Record<string, unknown>>;
 }
 
+/**
+ * Live, delayed or stale — and a shut market is not a broken feed.
+ *
+ * A Friday close read on a Sunday is the latest price that exists for that instrument, so it is DELAYED,
+ * not stale. Only a quote older than five days (a market that should have traded and did not) is stale.
+ */
 function statusOf(q: Record<string, unknown> | undefined, ageMs: number | null): Status {
   if (!q || q.status === "error") return "not_connected";
-  if (ageMs != null && ageMs > 36 * 3600_000) return "stale";
+  if (ageMs != null && ageMs > 5 * 24 * 3600_000) return "stale";
   return q.is_market_open === true ? "live" : "delayed";
 }
 
