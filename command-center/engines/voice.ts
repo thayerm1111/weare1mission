@@ -329,7 +329,20 @@ const API = "https://api.elevenlabs.io/v1";
  * conversation you can interrupt, latency is not a nicety. Overridable, because this is exactly the kind
  * of provider-side constraint that changes without warning.
  */
-const TTS_MODEL = process.env.CC_VOICE_TTS_MODEL ?? "eleven_flash_v2";
+const TTS_MODEL = process.env.CC_VOICE_TTS_MODEL ?? "eleven_turbo_v2";
+
+/**
+ * THE VOICE ITSELF (owner 09-21: "Voice doesn't sound authentic").
+ *
+ * The agent had never been given a voice, so it spoke in the provider's stock default on the flash
+ * model — the quickest and flattest of the two English models. Now: turbo (noticeably more natural
+ * delivery, a fraction slower to start), a calm, warm British male voice for the aide-at-your-side
+ * feel, and settings that let it breathe — lower stability for natural intonation instead of a
+ * read-out monotone. All overridable without a deploy. If the provider ever refuses these, the agent
+ * falls back to the old stock voice rather than going silent (see ensureAgent).
+ */
+const TTS_VOICE_ID = process.env.CC_VOICE_VOICE_ID ?? "JBFqnCBsd6RMkjVDRZzb";
+const TTS_TUNING = { stability: 0.4, similarity_boost: 0.8, speed: 1.0 };
 
 /**
  * THE CONFIGURATION VERSION.
@@ -341,7 +354,7 @@ const TTS_MODEL = process.env.CC_VOICE_TTS_MODEL ?? "eleven_flash_v2";
  * and a change here re-applies the whole configuration on the next session instead of waiting for
  * somebody to remember.
  */
-const AGENT_CONFIG_VERSION = 6;   // 3: ATLAS · 4: idle hang-up · 5: greeting · 6: spoken welcome may set the first message
+const AGENT_CONFIG_VERSION = 7;   // 3: ATLAS · 4: idle hang-up · 5: greeting · 6: spoken welcome may set the first message · 7: real voice
 
 const AGENT_PROMPT = [
   "You are a relay. Do not answer from your own knowledge.",
@@ -452,7 +465,7 @@ export async function provisionAgent(): Promise<Provisioned> {
           },
         },
         asr: { quality: "high", user_input_audio_format: "pcm_16000" },
-        tts: { model_id: TTS_MODEL, agent_output_audio_format: "pcm_16000" },
+        tts: { model_id: TTS_MODEL, voice_id: TTS_VOICE_ID, ...TTS_TUNING, agent_output_audio_format: "pcm_16000" },
         /*
          * COST (owner 09-21). The provider bills for every minute the line is OPEN, spoken into or not:
          * 48 billed minutes had used 12,100 credits, and 24 of the last 54 sessions never had a single
@@ -497,9 +510,16 @@ export async function provisionAgent(): Promise<Provisioned> {
           .data as { agent_id?: string } | null)?.agent_id || null
       : null;
 
-    const res = existing
-      ? await fetch(`${API}/convai/agents/${existing}`, { method: "PATCH", headers, body: JSON.stringify(body) })
-      : await fetch(`${API}/convai/agents/create`, { method: "POST", headers, body: JSON.stringify(body) });
+    const send = (b: unknown) => existing
+      ? fetch(`${API}/convai/agents/${existing}`, { method: "PATCH", headers, body: JSON.stringify(b) })
+      : fetch(`${API}/convai/agents/create`, { method: "POST", headers, body: JSON.stringify(b) });
+    let res = await send(body);
+    if (!res.ok && (res.status === 400 || res.status === 422)) {
+      // A refused voice must never cost the member their voice line: retry on the known-good stock voice.
+      const safe = JSON.parse(JSON.stringify(body)) as { conversation_config: { tts: Record<string, unknown> } };
+      safe.conversation_config.tts = { model_id: "eleven_flash_v2", agent_output_audio_format: "pcm_16000" };
+      res = await send(safe);
+    }
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       const reason = `The speech provider refused the agent (${res.status}). ${text.slice(0, 500)}`;

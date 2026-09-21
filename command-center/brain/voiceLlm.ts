@@ -1,3 +1,4 @@
+import { SpokenStream, speakNumbers } from "@/lib/spokenNumbers";
 import { liveMemory } from "../engines/live";
 import { tradeState } from "../engines/tradeLive";
 import { BRAIN_SYSTEM, contextPacket, setupSummaryLines, tradeSummaryLines } from "./context";
@@ -124,7 +125,7 @@ You are speaking OUT LOUD to a trader who can see the screen. Rules for this cha
  */
 function streamAnswer(packet: string, question: string, fallback: string): Response {
   const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return sse(async function* () { yield `data: ${JSON.stringify(delta(fallback))}\n\n`; });
+  if (!key) return sse(async function* () { yield `data: ${JSON.stringify(delta(speakNumbers(fallback)))}\n\n`; });
 
   return sse(async function* () {
     const r = await fetch(ANTHROPIC_URL, {
@@ -136,10 +137,11 @@ function streamAnswer(packet: string, question: string, fallback: string): Respo
         messages: [{ role: "user", content: `CONTEXT — everything you can see right now:\n\n${packet}\n\n----\nThe trader says: ${question}` }],
       }),
     });
-    if (!r.ok || !r.body) { yield `data: ${JSON.stringify(delta(fallback))}\n\n`; return; }
+    if (!r.ok || !r.body) { yield `data: ${JSON.stringify(delta(speakNumbers(fallback)))}\n\n`; return; }
 
     const reader = r.body.getReader();
     const decoder = new TextDecoder();
+    const say = new SpokenStream();
     let buf = "";
     for (;;) {
       const { done, value } = await reader.read();
@@ -152,11 +154,14 @@ function streamAnswer(packet: string, question: string, fallback: string): Respo
         try {
           const evt = JSON.parse(line.slice(5).trim()) as { type?: string; delta?: { type?: string; text?: string } };
           if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta" && evt.delta.text) {
-            yield `data: ${JSON.stringify(delta(evt.delta.text.replace(/\[\[UI:[^\]]*\]\]/g, "")))}\n\n`;
+            const out = say.push(evt.delta.text.replace(/\[\[UI:[^\]]*\]\]/g, ""));
+            if (out) yield `data: ${JSON.stringify(delta(out))}\n\n`;
           }
         } catch { /* a partial frame; the next read completes it */ }
       }
     }
+    const tail = say.flush();
+    if (tail) yield `data: ${JSON.stringify(delta(tail))}\n\n`;
   });
 }
 
@@ -261,7 +266,7 @@ export async function handleVoiceLlm(req: Request) {
         }))
         ? `${parsed.confirm} It's registered, so it survives you closing this.`
         : "I could not register that, so I'm not going to tell you I'm watching it.";
-    return sse(async function* () { yield `data: ${JSON.stringify(delta(spoken))}\n\n`; });
+    return sse(async function* () { yield `data: ${JSON.stringify(delta(speakNumbers(spoken)))}\n\n`; });
   }
 
   /*
@@ -364,7 +369,7 @@ export async function handleVoiceLlm(req: Request) {
       ? "I can't see the market right now — the live read isn't coming through, and I won't guess at a price. Everything already running on the server is unaffected."
       : "Gold is closed right now, so there's nothing live to read. Ask me about last week, or about what moves gold, and I can still help.";
     return sse(async function* () {
-      yield `data: ${JSON.stringify(delta(line))}\n\n`;
+      yield `data: ${JSON.stringify(delta(speakNumbers(line)))}\n\n`;
     });
   }
 
@@ -454,7 +459,7 @@ export async function handleVoiceLlm(req: Request) {
     const spoken = trade.active && trade.read && /trade|position|protect|partial|break even|how.?s/i.test(question)
       ? trade.read
       : fallback.spokenText;
-    return sse(async function* () { yield `data: ${JSON.stringify(delta(speakable(spoken)))}\n\n`; });
+    return sse(async function* () { yield `data: ${JSON.stringify(delta(speakNumbers(speakable(spoken))))}\n\n`; });
   }
 
   return sse(async function* () {
@@ -475,7 +480,7 @@ export async function handleVoiceLlm(req: Request) {
 
     if (!r.ok || !r.body) {
       const fallback = narrate(question, memory, { setup });
-      yield `data: ${JSON.stringify(delta(speakable(fallback.spokenText)))}\n\n`;
+      yield `data: ${JSON.stringify(delta(speakNumbers(speakable(fallback.spokenText))))}\n\n`;
       return;
     }
 
@@ -491,6 +496,7 @@ export async function handleVoiceLlm(req: Request) {
      * answer exists — the provider gets it in pieces and never gives it back.
      */
     let spokenSoFar = "";
+    const say = new SpokenStream();
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -504,11 +510,14 @@ export async function handleVoiceLlm(req: Request) {
           if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta" && evt.delta.text) {
             const clean = evt.delta.text.replace(/\[\[UI:[^\]]*\]\]/g, "");
             spokenSoFar += clean;
-            if (speakable(evt.delta.text)) yield `data: ${JSON.stringify(delta(clean))}\n\n`;
+            const out = say.push(clean);
+            if (out && speakable(out)) yield `data: ${JSON.stringify(delta(out))}\n\n`;
           }
         } catch { /* a partial frame; the next read completes it */ }
       }
     }
+    const tail = say.flush();
+    if (tail && speakable(tail)) yield `data: ${JSON.stringify(delta(tail))}\n\n`;
 
     /*
      * WRITTEN DOWN AFTER IT WAS SAID, never before.

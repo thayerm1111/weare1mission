@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrainOrb } from "./BrainOrb";
 import { H } from "./theme";
+import { priceWords, moveWords, balanceWords, speakNumbers } from "@/lib/spokenNumbers";
 
 /**
  * ENTERING THE COMMAND CENTER (owner 09-21).
@@ -116,6 +117,97 @@ export function accountLine(g: Greet | null): string | null {
   return s.charAt(0).toUpperCase() + s.slice(1) + ".";
 }
 
+
+/** Level names as a person says them: "4h swing high (Thu, 09/17) · 1h swing high" → "the four-hour swing high". */
+function sayLevel(label: string): string {
+  let l = label.split("·")[0].replace(/\([^)]*\)/g, "").trim();
+  l = l.replace(/\b(\d+)h\b/gi, (_m, n: string) => `${["", "one", "two", "three", "four"][Number(n)] ?? n}-hour`)
+       .replace(/\b(\d+)m\b/gi, (_m, n: string) => `${n}-minute`)
+       .replace(/\bnew york\b/gi, "New York").replace(/\basia\b/gi, "Asia").replace(/\blondon\b/gi, "London");
+  return /^(today|yesterday)/i.test(l) ? l : `the ${l}`;
+}
+
+/**
+ * THE WELCOME AS IT IS SAID — not as it is shown.
+ *
+ * Owner 09-21: "when it reads numbers, it does it literal. It doesn't speak how someone would normally
+ * speak." The screen keeps the precise figures; the voice gets a script a person would actually say:
+ * prices as a desk says them, balances rounded, pressure as who has the edge, no brackets or percents
+ * read out digit by digit. Same facts, same source — only the phrasing changes.
+ */
+export function spokenWelcome(d: Live | null, g: Greet | null, name: string | null): string {
+  const S: string[] = [];
+  const hi = `${greetingWord()}${name ? `, ${name}` : ""}.`;
+  S.push(`${hi} ATLAS here.`);
+
+  const a = g?.accounts;
+  if (a && (a.liveCount || a.demoCount)) {
+    const bits: string[] = [];
+    if (a.liveCount) bits.push(a.liveCount === 1 ? `your live account is sitting at ${balanceWords(a.liveTotal)}` : `your ${a.liveCount} live accounts are at ${balanceWords(a.liveTotal)} combined`);
+    if (a.demoCount) bits.push(a.demoCount === 1 ? `your demo's at ${balanceWords(a.demoTotal)}` : `your demos are at ${balanceWords(a.demoTotal)}`);
+    const t = bits.join(", and ");
+    S.push(`Quick look at your accounts: ${t}.`);
+  }
+
+  if (!d || typeof d.price !== "number") {
+    S.push("I'm still pulling in the live feed, so give me a second and the desk will fill in.");
+    return S.join(" ");
+  }
+  const closed = d.marketOpen === false;
+  const day = d.intel?.day;
+  if (day) {
+    const up = day.change >= 0;
+    const flat = Math.abs(day.change) < 1;
+    S.push(closed
+      ? `Gold's closed at ${priceWords(d.price)}${flat ? ", pretty much flat on the day" : `, ${up ? "up" : "down"} ${moveWords(day.change)} on the day`}.`
+      : `Gold's at ${priceWords(d.price)} right now${flat ? ", pretty much flat on the day" : `, ${up ? "up" : "down"} ${moveWords(day.change)} on the day`}.`);
+  } else {
+    S.push(`Gold's ${closed ? "closed" : "trading"} at ${priceWords(d.price)}.`);
+  }
+
+  const ch = d.changes ?? [];
+  const recent = ch.find((c) => c.horizon === "1h") ?? ch.find((c) => c.horizon === "15m");
+  if (recent && !closed) {
+    const span = recent.horizon === "1h" ? "the last hour" : "the last fifteen minutes";
+    S.push(Math.abs(recent.priceMove) < 1
+      ? `It's been quiet over ${span}.`
+      : `Over ${span} it's ${recent.priceMove > 0 ? "picked up" : "given back"} about ${moveWords(recent.priceMove)}.`);
+  }
+
+  const p = d.intel?.pressure;
+  if (p && !closed) {
+    S.push(p.sellers >= 65 ? "Sellers are firmly in control."
+      : p.sellers > 55 ? "Sellers have the edge."
+      : p.buyers >= 65 ? "Buyers are firmly in control."
+      : p.buyers > 55 ? "Buyers have the edge."
+      : "Neither side has control yet.");
+  }
+
+  const lv = d.intel?.keyLevels ?? [];
+  const real = lv.filter((l) => !/current price/i.test(l.label) && Math.abs(l.price - d.price!) >= 0.05);
+  const above = real.filter((l) => l.price > d.price!).sort((x, y) => x.price - y.price)[0];
+  const below = real.filter((l) => l.price < d.price!).sort((x, y) => y.price - x.price)[0];
+  if (above && below) S.push(`I'm watching ${priceWords(above.price)} overhead, ${sayLevel(above.label)}, and ${priceWords(below.price)} underneath, ${sayLevel(below.label)}.`);
+  else if (above) S.push(`The next level overhead is ${priceWords(above.price)}, ${sayLevel(above.label)}.`);
+  else if (below) S.push(`The next level underneath is ${priceWords(below.price)}, ${sayLevel(below.label)}.`);
+
+  const th = d.thesis;
+  if (th?.label) {
+    const c = th.confidence;
+    const how = typeof c !== "number" ? "" : c >= 70 ? ", and I'm fairly confident in it" : c >= 55 ? ", with moderate conviction" : ", but it's a light read";
+    const lab = th.label.toLowerCase();
+    S.push(lab === "neutral" ? `My read is neutral for now${how === ", but it's a light read" ? "" : how}.` : `My read is ${lab}${how}.`);
+  }
+  const su = d.setup;
+  if (su && (su.state === "armed" || su.state === "ready") && su.side) {
+    S.push(`I've got a ${su.side === "sell" ? "sell" : "buy"} setup lining up${su.totalCount ? `, ${su.metCount} of ${su.totalCount} boxes ticked` : ""}.`);
+  }
+  if (d.intel?.news?.name) S.push(`Heads up, ${d.intel.news.name} is on the calendar.`);
+  S.push("Desk's yours.");
+  // Anything a label carried in digits still gets said as words.
+  return speakNumbers(S.join(" "));
+}
+
 /** Plays the welcome through the voice agent: its first message IS the welcome. Returns a stopper. */
 function speakWelcome(url: string, text: string, on: { level: (v: number) => void; started: () => void; ended: () => void }): () => void {
   const ctx = sharedCtx;
@@ -203,7 +295,7 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
 
   const leave = () => { if (leaving) return; stopVoice.current?.(); setLeaving(true); window.setTimeout(onDone, 700); };
 
-  const welcomeSpoken = `${greetingWord()}${name ? `, ${name}` : ""}. ATLAS online. ${briefText}`;
+  const welcomeSpoken = useMemo(() => spokenWelcome(d, greet, name), [d, greet, name]);
   const startVoice = () => {
     if (!sharedCtx || sharedCtx.state !== "running") { setVoice("blocked"); return; }
     setVoice("connecting");
