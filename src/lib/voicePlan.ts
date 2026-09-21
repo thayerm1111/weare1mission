@@ -27,13 +27,32 @@ export type VoicePlan = {
   blurb: string;
 };
 
-export const VOICE_PLAN: VoicePlan = {
-  id: "cc_voice_1000",
-  label: "Command Center Voice",
-  priceUsd: 190,
-  includedMinutes: 1000,
-  blurb: "1,000 minutes a month talking to the Command Center about XAUUSD.",
-};
+/*
+ * TWO MONTHLY PLANS (owner 09-21): $190 for 1,000 minutes and $100 for 400 minutes.
+ * Provider cost is about $0.08 per open-line minute, so the floor is ~$80 and ~$32 at full use.
+ */
+export const VOICE_PLANS: VoicePlan[] = [
+  {
+    id: "cc_voice_1000",
+    label: "ATLAS Voice — 1,000 minutes",
+    priceUsd: 190,
+    includedMinutes: 1000,
+    blurb: "1,000 minutes a month talking to ATLAS about XAUUSD.",
+  },
+  {
+    id: "cc_voice_400",
+    label: "ATLAS Voice — 400 minutes",
+    priceUsd: 100,
+    includedMinutes: 400,
+    blurb: "400 minutes a month talking to ATLAS about XAUUSD.",
+  },
+];
+
+/** The default plan (kept for older callers). */
+export const VOICE_PLAN: VoicePlan = VOICE_PLANS[0];
+
+export const planById = (id: string | null | undefined): VoicePlan =>
+  VOICE_PLANS.find((p) => p.id === id) ?? VOICE_PLAN;
 
 export type VoiceTopup = {
   id: string;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic, Send, Square, Volume2, VolumeX } from "lucide-react";
+import { Mic, Send, Square } from "lucide-react";
 
 /**
  * TALKING TO ATLAS.
@@ -27,14 +27,20 @@ type RecognitionCtor = new () => SpeechRecognitionLike;
 
 export type VoiceMode = "off" | "push_to_talk" | "important_only" | "briefing_1m" | "briefing_5m" | "war_room";
 
+/*
+ * OWNER 09-21: the written console never speaks. Only the ATLAS voice line (VoiceSession) talks —
+ * one voice, the one you called. These modes now only decide how much ATLAS volunteers IN TEXT.
+ */
 export const VOICE_MODES: { id: VoiceMode; label: string; hint: string }[] = [
-  { id: "off", label: "Voice off", hint: "ATLAS stays silent. Everything still updates on screen." },
-  { id: "push_to_talk", label: "Push to talk", hint: "It only speaks when you ask it something." },
-  { id: "important_only", label: "Important only", hint: "It speaks when something genuinely changes." },
-  { id: "briefing_1m", label: "Every minute", hint: "A short read every minute, plus anything important." },
-  { id: "briefing_5m", label: "Every 5 minutes", hint: "A fuller read every five minutes." },
-  { id: "war_room", label: "War room", hint: "It talks through everything it notices. Loud by design." },
+  { id: "off", label: "Quiet", hint: "ATLAS only answers what you ask." },
+  { id: "push_to_talk", label: "On ask", hint: "Answers what you ask, plus urgent alerts." },
+  { id: "important_only", label: "Important only", hint: "Posts a line when something genuinely changes." },
+  { id: "briefing_1m", label: "Every minute", hint: "A short written read every minute." },
+  { id: "briefing_5m", label: "Every 5 minutes", hint: "A fuller written read every five minutes." },
+  { id: "war_room", label: "War room", hint: "Writes up everything it notices." },
 ];
+
+const TEXT_ONLY = true;
 
 export type Turn = { role: "user" | "assistant"; content: string; source?: string; at: number };
 
@@ -93,8 +99,9 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
     setSpeaking(false);
   }, [canSpeak]);
 
+  // The written console is text only (owner 09-21). Kept as a no-op so every caller stays simple.
   const speak = useCallback((text: string) => {
-    if (!canSpeak || modeRef.current === "off" || !text.trim()) return;
+    if (TEXT_ONLY || !canSpeak || modeRef.current === "off" || !text.trim()) return;
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.rate = 1.03;
@@ -311,10 +318,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
         </div>
 
         <div className="flex items-center justify-between gap-2 px-3 pb-3 pt-1">
-          <button onClick={() => onModeChange(mode === "off" ? "important_only" : "off")} aria-label="Toggle spoken replies"
-            className="grid h-8 w-8 place-items-center rounded-full" style={{ border: "1px solid rgba(89,175,255,0.18)", color: "#81909E" }}>
-            {mode === "off" ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-          </button>
+          <span className="h-8 w-8" aria-hidden />
           <Wave active={listening || speaking} color={speaking ? "#E7C467" : "#27D7F2"} />
           <button
             onClick={listening ? stopListening : startListening}
@@ -375,7 +379,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
             <p className="text-[12px]" style={{ color: "rgba(232,239,247,0.45)" }}>
               Press the microphone and say &ldquo;ATLAS, talk to me&rdquo;, or ask it anything about gold right now.
             </p>
-            {!canSpeak && <p className="text-[11px]" style={{ color: "rgba(232,239,247,0.32)" }}>This browser can&rsquo;t speak aloud — replies will still appear here.</p>}
+            
           </div>
         )}
         {turns.map((t, i) => (
@@ -438,11 +442,6 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
           className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition disabled:opacity-35"
           style={{ background: "rgba(111,168,220,0.14)", border: "1px solid rgba(111,168,220,0.28)", color: "#6FA8DC" }}>
           <Send className="h-4 w-4" />
-        </button>
-        <button onClick={() => onModeChange(mode === "off" ? "important_only" : "off")} aria-label="Toggle voice"
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-full"
-          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(232,239,247,0.5)" }}>
-          {mode === "off" ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
         </button>
       </div>
     </div>

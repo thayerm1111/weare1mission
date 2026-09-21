@@ -15,6 +15,8 @@ import { upcoming, calendarLines } from "../adapters/calendar";
 import { recordCall, extractClaim, trackRecord, trackRecordLines, asksAboutRecord } from "../engines/record";
 import { accountLines, asksAboutAccount, type AccountFacts } from "./account";
 import { selectedAccount } from "../engines/broker";
+import { aboveBelow } from "../core/levelMap";
+import { statedTradeFrom, tradeGuidanceLines, ledgerPositions, TRADE_COACH_RULES } from "./statedTrade";
 
 
 /**
@@ -400,6 +402,24 @@ export async function handleVoiceLlm(req: Request) {
     setupSummary: setupSummaryLines(setup),
   });
 
+  /*
+   * THEIR OWN TRADE (owner 09-21). ATLAS used to see only positions it opened itself, so "should I get
+   * out of my short from 4369?" had nothing to reason over. Now the trade they described in this
+   * conversation, and any gold FLOW/GENX is holding for them, go in with the arithmetic already done.
+   */
+  const now = memory.now;
+  const lv = aboveBelow(now.price, [now.levels, now.map ?? []], 6);
+  const userTexts = messages.filter((m) => m.role === "user").map((m) => speakable(textOf(m.content)));
+  const stated = statedTradeFrom(userTexts, now.price);
+  const ledger = await ledgerPositions(session.userId);
+  const ownBlocks: string[] = [];
+  if (stated) ownBlocks.push(tradeGuidanceLines("THE TRADE THEY TOLD YOU ABOUT", stated, now.price, lv.above, lv.below).join("\n"));
+  for (const p of ledger.slice(0, 2)) {
+    if (stated && stated.side === p.side && Math.abs(stated.entry - p.entry) < 1.5) continue; // same trade, said and held
+    ownBlocks.push(tradeGuidanceLines(`OPEN FLOW/GENX POSITION (placed ${new Date(p.openedAt).toISOString().slice(11, 16)} UTC)`, p, now.price, lv.above, lv.below).join("\n"));
+  }
+  const ownTradeLines = ownBlocks.length ? `\n\n=== THEIR OWN TRADE ===\n${ownBlocks.join("\n\n")}` : "";
+
   const watchLines = watches.length
     ? `\n\n=== WHAT THEY ASKED YOU TO WATCH (still armed) ===\n${watches.map((w) => `- ${w.said} (${w.kind}${w.levelPrice != null ? ` at ${w.levelPrice.toFixed(2)}` : ""})`).join("\n")}`
     : "";
@@ -444,10 +464,10 @@ export async function handleVoiceLlm(req: Request) {
         model: MODEL,
         max_tokens: 400,
         stream: true,
-        system: `${BRAIN_SYSTEM}\n${VOICE_RULES}`,
+        system: `${BRAIN_SYSTEM}\n${VOICE_RULES}\n${TRADE_COACH_RULES}`,
         messages: [
           ...messages.slice(-6).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: speakable(textOf(m.content)).slice(0, 1200) || "..." })),
-          { role: "user", content: `CONTEXT — everything you can see right now:\n\n${packet}${accountBlock}${watchLines}${calendarBlock}${pastLines}${recordBlock}${backgroundLines}${howToLines}\n\n----\nThe trader says: ${question}` },
+          { role: "user", content: `CONTEXT — everything you can see right now:\n\n${packet}${ownTradeLines}${accountBlock}${watchLines}${calendarBlock}${pastLines}${recordBlock}${backgroundLines}${howToLines}\n\n----\nThe trader says: ${question}` },
         ],
       }),
     });

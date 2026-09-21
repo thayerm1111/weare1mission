@@ -51,6 +51,8 @@ const MIC_TIMEOUT_MS = 20_000;
  * symptom points at the voice system. This is how 444 frames of nothing got sent and diagnosed as a
  * provider fault. Matched by name because it is the only signal available before opening the device.
  */
+const IDLE_HANGUP_MS = 40_000;
+
 const VIRTUAL_INPUT = /blackhole|soundflower|loopback|vb-?audio|voicemeeter|virtual|aggregate|zoomaudio|krisp|obs|ndi|teams audio/i;
 
 export type VoiceTurn = { id: string; who: "you" | "brain"; text: string; heard: boolean; at: number };
@@ -58,7 +60,7 @@ export type VoiceTurn = { id: string; who: "you" | "brain"; text: string; heard:
 type SessionInfo = {
   ok: boolean; enabled?: boolean; configured?: boolean; reason?: string | null; missing?: string[];
   needsSubscription?: boolean;
-  offer?: { priceUsd: number; includedMinutes: number; blurb: string } | null;
+  offer?: { priceUsd: number; includedMinutes: number; blurb: string; plans?: { id: string; priceUsd: number; minutes: number }[] } | null;
   budget?: { usedMinutes: number; budgetMinutes: number; remainingMinutes: number; exhausted: boolean };
 };
 
@@ -268,6 +270,28 @@ export function VoiceSession({ onUiAction, onStatus }: {
 
   useEffect(() => () => teardown("idle"), [teardown]);
 
+  /*
+   * AN OPEN LINE COSTS MONEY WHETHER ANYONE TALKS OR NOT (owner 09-21).
+   *
+   * The speech provider bills every minute the line is open. So when nobody has said anything and ATLAS
+   * has said nothing back for 40 seconds, the line closes itself, and says so. Pressing Talk reopens it
+   * in a fraction of a second. The provider enforces the same limit on its side as a backstop.
+   */
+  const lastActive = useRef(0);
+  useEffect(() => {
+    const open = status === "listening" || status === "speaking" || status === "muted" || status === "awaiting_mic";
+    if (!open) return;
+    if (!lastActive.current) lastActive.current = Date.now();
+    const id = window.setInterval(() => {
+      if (Date.now() - lastActive.current > IDLE_HANGUP_MS) {
+        lastActive.current = 0;
+        end();
+        setError("Line closed after 40 seconds of quiet so it isn't billing minutes. Press Talk with ATLAS to start again.");
+      }
+    }, 5000);
+    return () => window.clearInterval(id);
+  }, [status, end]);
+
   /* ── the microphone, as a separate step ───────────────────────────────── */
 
   /**
@@ -463,6 +487,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
   const start = useCallback(async () => {
     setError(null);
     setStatus("connecting");
+    lastActive.current = Date.now();
     setDiag({ sent: 0, received: 0, level: 0, peak: 0 });
     loudest.current = 0;
     gotMessage.current = false;
@@ -593,6 +618,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
            * in it is not something anybody said.
            */
           if (!/[\p{L}\p{N}]/u.test(text)) return;
+          lastActive.current = Date.now();
           // The member spoke, so whatever ATLAS was saying is no longer what matters.
           stopPlayback();
           setStatus("listening");
@@ -612,7 +638,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
 
         if (type === "audio") {
           const e = (m.audio_event ?? {}) as { audio_base_64?: string };
-          if (e.audio_base_64) enqueueAudio(e.audio_base_64);
+          if (e.audio_base_64) { lastActive.current = Date.now(); enqueueAudio(e.audio_base_64); }
           return;
         }
 
@@ -667,14 +693,14 @@ export function VoiceSession({ onUiAction, onStatus }: {
    * Send the member to Stripe. The price is never posted from here — the server reads it from
    * voicePlan.ts — so a tampered request cannot buy the subscription for a different amount.
    */
-  const startCheckout = useCallback(async (topupId?: string) => {
+  const startCheckout = useCallback(async (topupId?: string, planId?: string) => {
     setBuying(true);
     setBuyError(null);
     try {
       const r = await fetch("/api/command-center/voice/subscribe", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(topupId ? { topupId } : {}),
+        body: JSON.stringify(topupId ? { topupId } : planId ? { planId } : {}),
       });
       const j = await r.json().catch(() => ({}));
       if (j?.url) { window.location.href = j.url as string; return; }
@@ -706,7 +732,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
             <Radio className="h-3.5 w-3.5" /> Command Center Voice
           </p>
           <span className="text-[10px] tabular-nums" style={{ color: C.mut2 }}>
-            ${info.offer.priceUsd}/mo
+            from ${Math.min(...(info.offer.plans ?? [info.offer]).map((p) => p.priceUsd))}/mo
           </span>
         </div>
         <div className="px-3.5 py-3">
@@ -717,15 +743,22 @@ export function VoiceSession({ onUiAction, onStatus }: {
           <p className="mt-2 text-[11.5px] leading-relaxed" style={{ color: C.mut2 }}>
             Separate from credits. Credits run the auto traders; this is the line to talk to the desk.
           </p>
-          <button
-            type="button"
-            onClick={() => { void startCheckout(); }}
-            disabled={buying}
-            className="mt-3 rounded-lg px-3.5 py-2 text-[12px] font-semibold transition disabled:opacity-60"
-            style={{ background: C.gold, color: "#10131A" }}
-          >
-            {buying ? "Opening checkout…" : `Turn on voice — $${info.offer.priceUsd}/month`}
-          </button>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {(info.offer.plans ?? [{ id: "cc_voice_1000", priceUsd: info.offer.priceUsd, minutes: info.offer.includedMinutes }]).map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => { void startCheckout(undefined, p.id); }}
+                disabled={buying}
+                className="rounded-lg px-3.5 py-2.5 text-left transition disabled:opacity-60"
+                style={{ background: C.gold, color: "#10131A" }}
+              >
+                <span className="block text-[13px] font-bold">${p.priceUsd}/month</span>
+                <span className="block text-[11.5px] font-medium opacity-80">{p.minutes.toLocaleString()} minutes of talk</span>
+              </button>
+            ))}
+          </div>
+          {buying && <p className="mt-2 text-[12px]" style={{ color: C.mut }}>Opening checkout…</p>}
           {buyError && <p className="mt-2 text-[12px]" style={{ color: C.down }}>{buyError}</p>}
         </div>
       </section>

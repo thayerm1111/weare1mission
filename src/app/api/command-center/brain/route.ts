@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { aboveBelow } from "../../../../../command-center/core/levelMap";
+import { statedTradeFrom, tradeGuidanceLines, ledgerPositions, TRADE_COACH_RULES } from "../../../../../command-center/brain/statedTrade";
 import { liveMemory } from "../../../../../command-center/engines/live";
 import { BRAIN_SYSTEM, contextPacket, setupSummaryLines, tradeSummaryLines } from "../../../../../command-center/brain/context";
 import { findSetup } from "../../../../../command-center/engines/setup";
@@ -245,9 +247,25 @@ export async function POST(req: Request) {
   ].join("");
 
   const history = (body.history ?? []).slice(-8).filter((t) => t && (t.role === "user" || t.role === "assistant") && typeof t.content === "string");
+
+  // THEIR OWN TRADE (owner 09-21) — the one they described, and any gold FLOW/GENX holds for them.
+  let own = "";
+  if (memory.now) {
+    const now = memory.now;
+    const lv = aboveBelow(now.price, [now.levels, now.map ?? []], 6);
+    const stated = statedTradeFrom([...history.filter((t) => t.role === "user").map((t) => t.content), message], now.price);
+    const ledger = await ledgerPositions(user.id);
+    const blocks: string[] = [];
+    if (stated) blocks.push(tradeGuidanceLines("THE TRADE THEY TOLD YOU ABOUT", stated, now.price, lv.above, lv.below).join("\n"));
+    for (const p of ledger.slice(0, 2)) {
+      if (stated && stated.side === p.side && Math.abs(stated.entry - p.entry) < 1.5) continue;
+      blocks.push(tradeGuidanceLines("OPEN FLOW/GENX POSITION", p, now.price, lv.above, lv.below).join("\n"));
+    }
+    if (blocks.length) own = `\n\n=== THEIR OWN TRADE ===\n${blocks.join("\n\n")}`;
+  }
   const messages = [
     ...history.map((t) => ({ role: t.role, content: t.content.slice(0, 1500) })),
-    { role: "user" as const, content: `CONTEXT — everything you can see right now:\n\n${packet}${extra}\n\n----\nThe trader says: ${message}` },
+    { role: "user" as const, content: `CONTEXT — everything you can see right now:\n\n${packet}${own}${extra}\n\n----\nThe trader says: ${message}` },
   ];
 
   try {
@@ -257,7 +275,7 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 700,
-        system: `${BRAIN_SYSTEM}\n${UI_INSTRUCTIONS}`,
+        system: `${BRAIN_SYSTEM}\n${UI_INSTRUCTIONS}\n${TRADE_COACH_RULES}`,
         messages,
       }),
     });

@@ -5259,7 +5259,30 @@ input{font:inherit}
     }
 
     var a = avail[0];
-    if (!a || a.enabled === false) return null;        // not this member's feature; say nothing
+    if (!a) return null;
+    // Not subscribed: offer it (owner 09-21) — $190 for 1,000 minutes or $100 for 400.
+    if (a.enabled === false) {
+      if (!a.needsSubscription || !a.offer) return null;
+      var plans = a.offer.plans || [{ id: "cc_voice_1000", priceUsd: a.offer.priceUsd, minutes: a.offer.includedMinutes }];
+      var buy = function (id) {
+        err[1]("");
+        apiPost("/api/command-center/voice/subscribe", { planId: id }).then(function (j) {
+          if (j && j.url) { window.location.href = j.url; return; }
+          err[1]((j && j.detail) || "Could not open checkout. Try again in a moment.");
+        }).catch(function () { err[1]("Could not reach checkout."); });
+      };
+      return html`<div class="br-card">
+        <div class="br-hd"><div class="br-k">Talk to ATLAS · voice</div></div>
+        <div class="br-b">
+          <div class="br-note" style="margin:0 0 8px">Talk to ATLAS out loud about gold, your trade and your levels. Separate from credits.</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            ${plans.map(function (p) { return html`<button class="br-btn gold" style="padding:10px 8px;text-align:left" onClick=${function () { buy(p.id); }}>
+              <b style="display:block;font-size:14px">$${p.priceUsd}/month</b><span style="font-size:11.5px;opacity:.85">${p.minutes.toLocaleString()} minutes of talk</span></button>`; })}
+          </div>
+          ${err[0] ? html`<div class="br-note" style="color:#f4737b;margin-top:8px">${err[0]}</div>` : null}
+        </div>
+      </div>`;
+    }
     var live = status[0] !== "idle" && status[0] !== "error";
     var WORD = { connecting: "connecting", awaiting_mic: "waiting for the microphone", listening: "listening",
       speaking: "speaking", muted: "muted", disconnected: "disconnected", error: "error" };
@@ -5332,6 +5355,8 @@ input{font:inherit}
       // The line has a real voice with real turn-taking. A synthesiser talking over it is not a
       // fallback, it is two systems answering the same question at the same time.
       if (props.lineLive) return;
+      // Owner 09-21: the written chat is text only. Only the ATLAS voice line speaks.
+      return;
       if (!voice[0] || !canSpeak[0] || !text) return;
       try {
         window.speechSynthesis.cancel();
@@ -5398,10 +5423,7 @@ input{font:inherit}
         <div class="br-k">Talk to ATLAS</div>
         <div style="display:flex;gap:6px">
           ${props.lineLive ? html`<div class="br-note" style="margin:0">on the line</div>` : html`
-            ${speaking[0] ? html`<button class="br-btn gold" style="padding:5px 9px" onClick=${stopSpeak}>Stop</button>` : null}
-            <button class="br-btn" style="padding:5px 9px" onClick=${function () { if (voice[0]) stopSpeak(); voice[1](!voice[0]); }}>
-              ${voice[0] ? "Voice on" : "Voice off"}
-            </button>`}
+            <div class="br-note" style="margin:0">text</div>`}
         </div>
       </div>
       <div class="br-b">

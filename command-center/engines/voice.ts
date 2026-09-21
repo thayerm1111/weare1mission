@@ -341,7 +341,7 @@ const TTS_MODEL = process.env.CC_VOICE_TTS_MODEL ?? "eleven_flash_v2";
  * and a change here re-applies the whole configuration on the next session instead of waiting for
  * somebody to remember.
  */
-const AGENT_CONFIG_VERSION = 3;   // 3: the agent is ATLAS
+const AGENT_CONFIG_VERSION = 4;   // 3: the agent is ATLAS · 4: idle lines hang up (cost)
 
 const AGENT_PROMPT = [
   "You are a relay. Do not answer from your own knowledge.",
@@ -451,9 +451,15 @@ export async function provisionAgent(): Promise<Provisioned> {
         },
         asr: { quality: "high", user_input_audio_format: "pcm_16000" },
         tts: { model_id: TTS_MODEL, agent_output_audio_format: "pcm_16000" },
-        turn: { turn_timeout: 10 },
+        /*
+         * COST (owner 09-21). The provider bills for every minute the line is OPEN, spoken into or not:
+         * 48 billed minutes had used 12,100 credits, and 24 of the last 54 sessions never had a single
+         * exchange. So an open line with nobody talking hangs itself up after 40 seconds, and no single
+         * call runs past 15 minutes. Press Talk again and it is back in a quarter of a second.
+         */
+        turn: { turn_timeout: 10, silence_end_call_timeout: 40 },
         conversation: {
-          max_duration_seconds: 1800,
+          max_duration_seconds: 900,
           client_events: ["audio", "interruption", "user_transcript", "agent_response", "agent_response_correction"],
         },
       },

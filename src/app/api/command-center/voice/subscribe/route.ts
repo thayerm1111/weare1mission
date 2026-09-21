@@ -1,7 +1,7 @@
 import { type NextRequest } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
-import { VOICE_PLAN, VOICE_PRODUCT_TAG, topupById } from "@/lib/voicePlan";
+import { planById, VOICE_PRODUCT_TAG, topupById } from "@/lib/voicePlan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   const secret = process.env.STRIPE_SECRET_KEY;
   if (!secret) return json({ error: "stripe_not_configured", detail: "Payments aren't switched on yet." }, 200);
 
-  let body: { topupId?: string } = {};
+  let body: { topupId?: string; planId?: string } = {};
   try { body = await req.json(); } catch { /* an empty body means the subscription */ }
 
   const origin = req.headers.get("origin") || `https://${req.headers.get("host")}`;
@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
     }
 
     /* ── the monthly subscription ───────────────────────────────────────── */
+    const VOICE_PLAN = planById(body.planId);
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{
@@ -89,11 +90,11 @@ export async function POST(req: NextRequest) {
       }],
       client_reference_id: user.id,
       customer_email: user.email || undefined,
-      metadata: { user_id: user.id, product: VOICE_PRODUCT_TAG, kind: "subscription" },
+      metadata: { user_id: user.id, product: VOICE_PRODUCT_TAG, kind: "subscription", plan: VOICE_PLAN.id, minutes: String(VOICE_PLAN.includedMinutes) },
       // Carried onto the subscription itself as well: a renewal event arrives with no checkout session
       // attached, so the marker has to live somewhere the subscription object can be read from.
       subscription_data: {
-        metadata: { user_id: user.id, product: VOICE_PRODUCT_TAG },
+        metadata: { user_id: user.id, product: VOICE_PRODUCT_TAG, plan: VOICE_PLAN.id, minutes: String(VOICE_PLAN.includedMinutes) },
       },
       success_url: `${back}?voice=on`,
       cancel_url: `${back}?voice=canceled`,

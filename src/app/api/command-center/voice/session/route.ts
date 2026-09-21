@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { voiceAccess } from "../../../../../../command-center/engines/voiceAccess";
-import { VOICE_PLAN } from "@/lib/voicePlan";
+import { VOICE_PLAN, VOICE_PLANS } from "@/lib/voicePlan";
 import { selectedAccount } from "../../../../../../command-center/engines/broker";
 import { callbackUrl } from "../../../../../../command-center/engines/voice";
 import {
@@ -59,7 +59,7 @@ async function gate(): Promise<Gate> {
         reason: access.reason,
         needsSubscription: access.needsSubscription,
         offer: access.needsSubscription
-          ? { priceUsd: VOICE_PLAN.priceUsd, includedMinutes: VOICE_PLAN.includedMinutes, blurb: VOICE_PLAN.blurb }
+          ? { priceUsd: VOICE_PLAN.priceUsd, includedMinutes: VOICE_PLAN.includedMinutes, blurb: VOICE_PLAN.blurb, plans: VOICE_PLANS.map((p) => ({ id: p.id, priceUsd: p.priceUsd, minutes: p.includedMinutes })) }
           : null,
       }, 200),
     };

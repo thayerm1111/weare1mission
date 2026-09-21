@@ -2,7 +2,7 @@ import { type NextRequest } from "next/server";
 import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SUITE } from "@/lib/creditConfig";
-import { VOICE_PLAN, VOICE_PRODUCT_TAG } from "@/lib/voicePlan";
+import { planById, VOICE_PRODUCT_TAG } from "@/lib/voicePlan";
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
 
@@ -75,7 +75,8 @@ async function syncVoiceSubscription(admin: Admin, stripe: Stripe, subscriptionI
     current_period_end: iso(s.current_period_end),
     cancel_at_period_end: !!s.cancel_at_period_end,
     canceled_at: iso(s.canceled_at),
-    included_minutes: VOICE_PLAN.includedMinutes,
+    // The plan rides on the subscription's own metadata, so renewals keep the allowance that was bought.
+    included_minutes: planById(s.metadata?.plan).includedMinutes,
     updated_at: new Date().toISOString(),
   }, { onConflict: "user_id" });
 
