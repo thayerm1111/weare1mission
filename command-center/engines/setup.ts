@@ -753,9 +753,29 @@ function priceTheTrade(s: MarketSnapshot, c: Candidate, fit: StyleFit, pipSize: 
   const up = c.side === "buy";
   const base = c.score + fit.score * 0.22;
 
-  // The stop is a real structural shelter plus a fraction of that timeframe's ATR, so ordinary movement
-  // does not reach it. Never a round number, never a fixed distance.
-  const pad = c.atr * (fit.style === "quick" ? 0.35 : fit.style === "hold" ? 0.5 : 0.75);
+  /*
+   * The stop is a real structural shelter plus a fraction of that timeframe's ATR, so ordinary movement
+   * does not reach it. Never a round number, never a fixed distance.
+   *
+   * 09-21 — AND A PAD FOR WHAT IT COSTS TO BE IN THE TRADE.
+   *
+   * A 14-lot sell was planned with a 13-pip stop, filled five pips worse than the entry it was priced
+   * from, and was then taken out by a spike that traded 1.5 pips through the level. The read was right;
+   * the stop was simply closer to the noise than the arithmetic admitted, because two real costs were
+   * missing from it:
+   *
+   *   • the SPREAD. A sell is entered on the bid and stopped on the ask, so the stop is already that
+   *     much nearer than it looks on the chart.
+   *   • SLIPPAGE. A market order fills where the book is, not where the plan was.
+   *
+   * So the structural pad now carries the live spread plus a quarter of the execution frame's ATR. The
+   * risk percentage is untouched: a wider stop simply sizes to fewer lots for the same dollars at risk.
+   * This only moves a stop FURTHER from price, and only when the setup is first priced — nothing here
+   * can widen a stop that has already been published or sent.
+   */
+  const spread = s.spread != null && s.spread > 0 ? s.spread : 0;
+  const frictionPad = spread + c.atr * 0.25;
+  const pad = c.atr * (fit.style === "quick" ? 0.35 : fit.style === "hold" ? 0.5 : 0.75) + frictionPad;
   const stop = up ? c.shelter - pad : c.shelter + pad;
   const stopPips = toPips(Math.abs(s.price - stop), pipSize);
 
