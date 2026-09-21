@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { hasPass } from "@/lib/ccPass";
 import { aboveBelow } from "../../../../../command-center/core/levelMap";
 import { statedTradeFrom, tradeGuidanceLines, ledgerPositions, TRADE_COACH_RULES } from "../../../../../command-center/brain/statedTrade";
 import { liveMemory } from "../../../../../command-center/engines/live";
@@ -89,6 +90,8 @@ export async function POST(req: Request) {
   if (!supabase) return json({ error: "not_configured" }, 503);
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return json({ error: "unauthorized" }, 401);
+  // 5 credits per 30 minutes (owner 09-21). No open window, no data.
+  if (!(await hasPass(user.id))) return json({ ok: false, error: "pass_required" }, 402);
 
   let body: { message?: string; history?: Turn[]; spoken?: boolean };
   try { body = await req.json(); } catch { return json({ error: "bad_request" }, 400); }

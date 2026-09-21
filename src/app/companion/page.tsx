@@ -1,4 +1,5 @@
 import BrainCompanion from "@/components/command-center/BrainCompanion";
+import { PassGate } from "@/components/command-center/hud/PassGate";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "ATLAS" };
@@ -11,5 +12,5 @@ export const metadata = { title: "ATLAS" };
  * sitting on top of the member's work.
  */
 export default function Page() {
-  return <BrainCompanion />;
+  return <PassGate><BrainCompanion /></PassGate>;
 }

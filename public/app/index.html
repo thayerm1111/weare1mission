@@ -6082,6 +6082,8 @@ input{font:inherit}
   /* The screen itself. */
   function BrainScreen(props) {
     var d = useState(null), err = useState(""), tick = useState(0);
+    // 5 credits opens the Command Center for 30 minutes, from the moment it is opened (owner 09-21).
+    var pass = useState(null), passBusy = useState(false), passMsg = useState("");
     var call = useState(false), conn = useState(false), math = useState(false), prof = useState(false);
     // The desk read is separate and slower than the market read: it talks to the broker layer, and
     // polling that every five seconds would burn rate limits that matter far more when an order has to
@@ -6111,8 +6113,12 @@ input{font:inherit}
       function load() {
         apiGet("/api/command-center/live").then(function (j) {
           if (dead || !j) return;
+          if (j.error === "pass_required") {
+            apiGet("/api/command-center/pass").then(function (p) { if (!dead) pass[1](p || { cost: 5, minutes: 30 }); });
+            return;
+          }
           if (j.error) { err[1](j.error === "unauthorized" ? "Sign in to open the Command Center." : "The Command Center is not answering."); return; }
-          err[1](""); d[1](j);
+          pass[1](null); err[1](""); d[1](j);
         }).catch(function () {});
       }
       load(); var t = setInterval(load, 5000);
@@ -6120,7 +6126,25 @@ input{font:inherit}
     }, [tick[0]]);
     function reload() { tick[1](tick[0] + 1); }
 
+    function openPass() {
+      passBusy[1](true); passMsg[1]("");
+      apiPost("/api/command-center/pass", {}).then(function (r) {
+        passBusy[1](false);
+        if (r && r.active) { pass[1](null); d[1](null); reload(); } else passMsg[1]("Could not open it. Try again.");
+      }).catch(function (e) {
+        passBusy[1](false);
+        passMsg[1](e && e.code === 402 ? "Not enough credits. Top up credits, then open it." : "Could not open it. Try again.");
+      });
+    }
     var s = d[0];
+    if (pass[0]) {
+      var pc = pass[0].cost || 5, pm = pass[0].minutes || 30;
+      return html`<div class="br"><div class="br-card"><div class="br-hd"><div class="br-k">Command Center · ATLAS</div></div><div class="br-b">
+        <div class="br-note" style="margin:0 0 10px">${pass[0].expiresAt ? "Your " + pm + " minutes are up." : "Open the live Command Center with ATLAS."} ${pc} credits opens it for ${pm} minutes, starting now.${typeof pass[0].balance === "number" ? " You have " + pass[0].balance + " credits." : ""}</div>
+        <button class="br-btn gold" style="padding:10px 14px" disabled=${passBusy[0]} onClick=${openPass}>${passBusy[0] ? "Opening…" : "Open for " + pm + " min — " + pc + " credits"}</button>
+        ${passMsg[0] ? html`<div class="br-note" style="color:#f4737b;margin-top:8px">${passMsg[0]}</div>` : null}
+      </div></div></div>`;
+    }
     if (err[0]) return html`<div class="br"><div class="br-card"><div class="br-b"><div class="br-note">${err[0]}</div></div></div></div>`;
     if (!s) return html`<div class="br"><div class="br-card"><div class="br-b"><div class="br-note">Waking ATLAS…</div></div></div></div>`;
 
