@@ -354,7 +354,7 @@ const TTS_TUNING = { stability: 0.4, similarity_boost: 0.8, speed: 1.0 };
  * and a change here re-applies the whole configuration on the next session instead of waiting for
  * somebody to remember.
  */
-const AGENT_CONFIG_VERSION = 7;   // 3: ATLAS · 4: idle hang-up · 5: greeting · 6: spoken welcome may set the first message · 7: real voice
+const AGENT_CONFIG_VERSION = 8;   // 3: ATLAS · 4: idle hang-up · 5: greeting · 6: spoken welcome may set the first message · 7: real voice
 
 const AGENT_PROMPT = [
   "You are a relay. Do not answer from your own knowledge.",
@@ -472,7 +472,10 @@ export async function provisionAgent(): Promise<Provisioned> {
          * exchange. So an open line with nobody talking hangs itself up after 40 seconds, and no single
          * call runs past 15 minutes. Press Talk again and it is back in a quarter of a second.
          */
-        turn: { turn_timeout: 10, silence_end_call_timeout: 40 },
+        // The provider counts silence from the last thing YOU said, so a long ATLAS answer could trip 40 s on its
+        // side mid-sentence. The real 40-second rule now lives in the browser (it waits until ATLAS finishes
+        // speaking); this is only the backstop for a tab that died.
+        turn: { turn_timeout: 10, silence_end_call_timeout: 120 },
         conversation: {
           max_duration_seconds: 900,
           client_events: ["audio", "interruption", "user_transcript", "agent_response", "agent_response_correction"],
