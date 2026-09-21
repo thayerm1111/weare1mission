@@ -4,7 +4,8 @@ import { genx2Active } from "@/lib/genx3/engineSelect";
 import { computeGenxRead, buildGenx, genxConservativeGate, sessionNow, GOLD, MODES, type Mode } from "@/lib/genxCompute";
 import { detectBreakdownRetest, breakdownLimits, tradingDayStart, type Bar as BrkBar } from "@/lib/genx/breakdownRetest";
 import { newsHold } from "@/lib/news/calendar";
-import { genxTrendGate } from "@/lib/genx/trendGate";
+import { genxTrendGate, hourlyRead } from "@/lib/genx/trendGate";
+import { detectRangeFade, readRegime, rangeFadeLimits, inNewYorkHours, RNG, type Bar as RngBar } from "@/lib/genx/rangeFade";
 import { confirmEntry, CONFIRM_IV } from "@/lib/genxConfirm";
 import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
@@ -316,7 +317,9 @@ async function run(): Promise<Response> {
 
   // BREAKDOWN-RETEST SELLS (owner 09-21) — see src/lib/genx/breakdownRetest.ts for the rule and its limits.
   try { out.breakdown = await breakdownRetestPass(admin, mdKey, quickBias, tgReady, sent); } catch (e) { out.breakdown = { error: e instanceof Error ? e.message : "error" }; }
-  try { await beat(admin, "genx", { tier: "full", flags: genx2FlagsSnapshot(), last_decision: { at: nowIso, mode: "quick", ...(((out.modes as Record<string, unknown>).quick as Record<string, unknown>) ?? {}), breakdown: out.breakdown } }); } catch { /* best-effort */ }
+  // SIDEWAYS-MARKET STRATEGY (owner 09-21) — see src/lib/genx/rangeFade.ts. Only runs when the regime read says RANGE.
+  try { out.range = await rangeFadePass(admin, mdKey, quickBias?.price ?? null, tgReady, sent); } catch (e) { out.range = { error: e instanceof Error ? e.message : "error" }; }
+  try { await beat(admin, "genx", { tier: "full", flags: genx2FlagsSnapshot(), last_decision: { at: nowIso, mode: "quick", ...(((out.modes as Record<string, unknown>).quick as Record<string, unknown>) ?? {}), breakdown: out.breakdown, range: out.range } }); } catch { /* best-effort */ }
 
   // MY LEVELS (owner 09-07): after the trend scan, check the owner's drawn
   // support/resistance lines — a confirmed 5-minute rejection at one fires a
@@ -480,4 +483,73 @@ async function breakdownRetestPass(
   try { await placeGenxFollower({ signalKey: dedupeKey, side: "sell", entryLow: zone.entry_low, entryHigh: zone.entry_high, stop: s.stop, tp: s.tp1, conservativeOk: false, confidence: null, mode: "quick" }); } catch { /* best-effort */ }
   sent.push("quick:BREAKDOWN_RETEST");
   return { result: "called", setup: s };
+}
+
+/**
+ * One range-fade pass (the sideways-market strategy). Every exit returns its reason and the regime read,
+ * so "what does GENX think the market is doing?" is answerable from the heartbeat. Fails closed.
+ */
+async function rangeFadePass(
+  admin: NonNullable<ReturnType<typeof createAdminClient>>, mdKey: string, livePx: number | null, tgReady: boolean, sent: string[],
+): Promise<Record<string, unknown>> {
+  if ((process.env.GENX_RANGE_FADE ?? "").toLowerCase() === "off") return { skip: "switched_off" };
+  const h = await hourlyRead(mdKey);
+  const regime = readRegime(h?.res?.stack ?? null, h?.closes ?? []);
+  const base = { regime: regime.regime, regimeWhy: regime.why, eff: regime.eff };
+  if (regime.regime !== "range") return { ...base, skip: `regime_${regime.regime}` };
+  if (inWeekendCloseWindow() || inScanQuietWindow() || inDailyReopenWindow()) return { ...base, skip: "quiet_window" };
+  if (inNewYorkHours()) return { ...base, skip: "new_york_hours" };
+
+  const raw = await series(GOLD.symbol, "5min", 400, mdKey, false);
+  if (!Array.isArray(raw) || raw.length < RNG.lookback + 30) return { ...base, skip: "no_bars" };
+  const bars: RngBar[] = raw.slice(0, -1) // the feed's last row is the bar still forming — never trade on it
+    .map((r) => ({ t: String(r.datetime), o: +r.open, h: +r.high, l: +r.low, c: +r.close }))
+    .filter((b) => [b.o, b.h, b.l, b.c].every(Number.isFinite));
+  const last = bars.at(-1);
+  const range = bars.length > RNG.lookback ? (() => { const seg = bars.slice(-1 - RNG.lookback, -1); return { high: Math.max(...seg.map((b) => b.h)), low: Math.min(...seg.map((b) => b.l)) }; })() : null;
+  const d = detectRangeFade(bars);
+  if (!d.ok) return { ...base, range, skip: d.reason };
+  const s = d.setup;
+
+  const px = livePx ?? last?.c ?? null;
+  if (px == null || Math.abs(px - s.entry) > RNG.chaseR * s.risk) return { ...base, skip: "moved_away", setup: s };
+
+  // limits: gap + per-day, and never while any GENX gold call is still open
+  const since = new Date(Date.now() - 36 * 3600_000).toISOString();
+  const { data: prev, error: prevErr } = await admin.from("genx_alerts").select("created_at").like("dedupe_key", "intraday:%:rng:%").gte("created_at", since);
+  if (prevErr) return { ...base, skip: "limits_unreadable" };
+  const lim = rangeFadeLimits(((prev ?? []) as { created_at: string }[]).map((p) => ({ createdAt: p.created_at })), { nowMs: Date.now(), dayStartMs: tradingDayStart() });
+  if (!lim.ok) return { ...base, skip: lim.reason, setup: s };
+  const { data: open, error: openErr } = await admin.from("genx_alerts").select("id").eq("state", "entered").is("outcome", null).neq("mode", "meta").limit(1);
+  if (openErr) return { ...base, skip: "open_calls_unreadable" };
+  if ((open ?? []).length) return { ...base, skip: "another_call_open", setup: s };
+  const brk = await goldDeskBreaker(admin);
+  if (brk.hold) return { ...base, skip: "desk_breaker", setup: s };
+  try { if ((await newsHold("XAUUSD")).hold) return { ...base, skip: "news_blackout", setup: s }; } catch { return { ...base, skip: "news_unreadable" }; }
+
+  // record first (unique per signal bar), then announce and place — never twice
+  const nowIso = new Date().toISOString();
+  const dedupeKey = `intraday:${s.side}:rng:${String(last?.t ?? nowIso).replace(/\s+/g, "T")}`;
+  const zone = { entry_low: Math.round((s.entry - 0.3) * 100) / 100, entry_high: Math.round((s.entry + 0.3) * 100) / 100 };
+  const { error: insErr } = await admin.from("genx_alerts").insert({
+    dedupe_key: dedupeKey, mode: "intraday", side: s.side, action: s.side === "sell" ? "SELL_NOW" : "BUY_NOW",
+    entry: s.entry, ...zone, stop: s.stop, tp1: s.tp1, tp2: s.tp2, tp3: null,
+    invalidation: s.stop, watch: s.side === "sell" ? s.high : s.low, confidence: null, trigger_tf: "5-minute",
+    state: "entered", enter_price: px, heads_up_sent_at: nowIso, enter_sent_at: nowIso, last_checked_at: nowIso,
+    quality_ok: false, // new strategy: aggressive accounts only until it has a live record
+  });
+  if (insErr) return { ...base, skip: "already_called_this_bar", setup: s };
+  if (tgReady) {
+    const edge = s.side === "sell" ? "top" : "bottom";
+    await sendTelegram([
+      `↔️ <b>Sideways market — range ${s.side === "sell" ? "SELL" : "BUY"}</b>`,
+      `Gold has been ranging ${fmt(s.low)}–${fmt(s.high)} for 24h with no hourly trend. Price just rejected the ${edge} of it.`,
+      enterMsg(s.side, "intraday", { ...zone, stop: s.stop, tp1: s.tp1, tp2: s.tp2, tp3: null }, px, true),
+      `TP1 is the middle of the range, TP2 the far side. The idea is wrong if gold closes beyond ${fmt(s.side === "sell" ? s.high : s.low)} and keeps going — the stop sits past it. Aggressive accounts only.`,
+    ].join("\n"));
+  }
+  try { await placeGenxGold({ side: s.side, entryLow: zone.entry_low, entryHigh: zone.entry_high, stop: s.stop, tp: s.tp1, conservativeOk: false, confidence: null, mode: "intraday", setup: "range_fade" }); } catch { /* best-effort */ }
+  try { await placeGenxFollower({ signalKey: dedupeKey, side: s.side, entryLow: zone.entry_low, entryHigh: zone.entry_high, stop: s.stop, tp: s.tp1, conservativeOk: false, confidence: null, mode: "intraday", setup: "range_fade" }); } catch { /* best-effort */ }
+  sent.push(`intraday:RANGE_FADE_${s.side.toUpperCase()}`);
+  return { ...base, result: "called", setup: s };
 }
