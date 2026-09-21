@@ -11,7 +11,7 @@ import { BrainOrb, type OrbState } from "./BrainOrb";
 import { voiceBus, useVoiceBus, lineOpen } from "../voiceBus";
 import { Gauge } from "./Gauge";
 import { GoldChart, type ChartBar, type ChartLine, type ChartMarker, type ChartZone } from "./GoldChart";
-import { LiquidityRadar, RADAR_KIND_COLOR, RADAR_KIND_WORD, type RadarBlip } from "./LiquidityRadar";
+import { LiquidityRadar, RADAR_KIND_WORD, blipRgb, radarRead, type RadarBlip } from "./LiquidityRadar";
 import { StructureViz, pivotsOf } from "./StructureViz";
 import type { Live } from "../CommandCenterLive";
 import BrainConsole, { VOICE_MODES, type VoiceMode } from "../BrainConsole";
@@ -123,6 +123,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 };
   const [ctx, setCtx] = useState<{ rows: CtxRow[]; history: { t: number; v: number }[]; at: number | null } | null>(null);
   const [radarHover, setRadarHover] = useState<RadarBlip | null>(null);
+  const [radarHelp, setRadarHelp] = useState(false);
   /** A level the member tapped: the chart marks it until they tap it again or a minute passes. */
   const [pinned, setPinned] = useState<{ price: number; label: string } | null>(null);
   useEffect(() => { if (!pinned) return; const t = setTimeout(() => setPinned(null), 60_000); return () => clearTimeout(t); }, [pinned]);
@@ -737,18 +738,27 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                   onPick={(b) => setPinned(pinned && Math.abs(pinned.price - b.price) < 0.01 ? null : { price: b.price, label: b.label })} /></div>
                 {radarHover ? (
                   <div className="min-w-0 flex-1 self-stretch rounded-[6px] p-1.5 text-[9.5px] leading-snug"
-                    style={{ border: `1px solid rgba(${RADAR_KIND_COLOR[radarHover.kind]},0.55)`, background: "rgba(3,7,11,0.7)" }}>
+                    style={{ border: `1px solid rgba(${blipRgb(radarHover, d?.price ?? null)},0.55)`, background: "rgba(3,7,11,0.7)" }}>
                     <p className="flex items-baseline justify-between gap-1">
                       <b className="text-[11.5px] tabular-nums" style={{ color: H.text }}>{fmt2(radarHover.price)}</b>
                       <span style={{ color: H.mut }}>{radarHover.side === "above" ? "above" : "below"}{radarHover.distance != null ? ` · ${radarHover.distance.toFixed(2)}` : ""}</span>
                     </p>
-                    <p style={{ color: `rgb(${RADAR_KIND_COLOR[radarHover.kind]})` }}>{RADAR_KIND_WORD[radarHover.kind]}{radarHover.swept ? " · swept" : ""}</p>
+                    <p style={{ color: `rgb(${blipRgb(radarHover, d?.price ?? null)})` }}>{RADAR_KIND_WORD[radarHover.kind]}{radarHover.swept ? " · swept" : ""}</p>
                     <p className="mt-0.5 line-clamp-4" style={{ color: H.mut }}>{radarHover.meaning ?? radarHover.label}</p>
                   </div>
                 ) : (
                 /* THE NEAREST LIQUIDITY, SAID PLAINLY: three levels above and three below, nearest first,
                    each with what it is and how far away. The radar is the picture; this is the answer. */
                 <div className="w-full min-w-0 flex-1 text-[10.5px]">
+                  {(() => {
+                    const r = radarRead(blips, d?.price ?? null);
+                    return r ? (
+                      <div className="mb-1.5 rounded-[6px] px-1.5 py-1 text-[10px] leading-snug" style={{ background: "rgba(255,216,117,0.06)", border: `1px solid ${H.lineSoft}` }}>
+                        <p className="mb-0.5 text-[8.5px] font-bold tracking-[0.16em]" style={{ color: H.gold2 }}>WHAT IT&apos;S SAYING</p>
+                        <p style={{ color: H.text }}>{r}</p>
+                      </div>
+                    ) : null;
+                  })()}
                   {(["above", "below"] as const).map((side) => {
                     const px = d?.price ?? 0;
                     const list = blips.filter((b) => (b.side ?? (b.price >= px ? "above" : "below")) === side)
@@ -759,7 +769,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                         {list.length ? list.map((b) => (
                           <button key={`${side}${b.price}`} onClick={() => setPinned(pinned && Math.abs(pinned.price - b.price) < 0.01 ? null : { price: b.price, label: b.label })}
                             className="flex w-full items-center gap-2 border-b py-[3px] text-left" style={{ borderColor: H.lineSoft }}>
-                            <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: b.swept ? "transparent" : `rgb(${RADAR_KIND_COLOR[b.kind]})`, border: `1.5px solid rgb(${RADAR_KIND_COLOR[b.kind]})` }} />
+                            <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: b.swept ? "transparent" : `rgb(${blipRgb(b, px)})`, border: `1.5px solid rgb(${blipRgb(b, px)})`, transform: b.kind === "equal_high" || b.kind === "equal_low" ? "rotate(45deg) scale(0.9)" : undefined, borderRadius: b.kind === "equal_high" || b.kind === "equal_low" ? 1 : undefined }} />
                             <b className="w-[62px] shrink-0 tabular-nums" style={{ color: H.text }}>{fmt2(b.price)}</b>
                             <span className="min-w-0 flex-1 truncate" style={{ color: H.mut }}>{RADAR_KIND_WORD[b.kind].replace(" (estimated liquidity)", "").replace(" (estimated)", "")}{b.swept ? " · swept" : ""}</span>
                             <span className="shrink-0 tabular-nums" style={{ color: side === "above" ? H.green : H.red }}>{side === "above" ? "+" : "−"}{Math.abs(b.price - px).toFixed(2)}</span>
@@ -768,7 +778,20 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                       </div>
                     );
                   })}
-                  <p className="text-[8.5px] leading-tight" style={{ color: H.mut2 }}>Hollow dot = already swept. Tap a level to pin it on the chart. Estimated from price structure, not an order book.</p>
+                  <button onClick={() => setRadarHelp((x) => !x)} className="mb-1 text-[9px] font-bold tracking-[0.12em]" style={{ color: H.gold2 }}>{radarHelp ? "HIDE HOW TO READ ▴" : "HOW TO READ IT ▾"}</button>
+                  {radarHelp && (
+                    <ul className="mb-1.5 grid gap-[3px] text-[9.5px] leading-snug" style={{ color: H.mut }}>
+                      <li><b style={{ color: H.gold2 }}>Gold centre</b> = gold&apos;s price right now.</li>
+                      <li><b style={{ color: H.text }}>Up = above price, down = below.</b> The farther from the centre, the farther away. Each ring is the dollar distance printed on it. Left/right means nothing — dots are just spread out so they don&apos;t overlap.</li>
+                      <li><b style={{ color: `rgb(41,223,166)` }}>Green</b> = liquidity above: stop orders from sellers sit over old highs. Price often runs up to take them.</li>
+                      <li><b style={{ color: `rgb(255,83,100)` }}>Red</b> = liquidity below: stop orders from buyers sit under old lows. Price often runs down to take them.</li>
+                      <li><b style={{ color: `rgb(89,175,255)` }}>Blue</b> = the busiest price — where gold has traded the most lately. It tends to pull price back.</li>
+                      <li><b style={{ color: H.text }}>◆ Diamond</b> = equal highs/lows: price stopped at the same spot more than once, so stops are stacked there — a stronger magnet than a single swing (● dot).</li>
+                      <li><b style={{ color: H.text }}>Hollow</b> = already swept (the stops there were taken). Bright dots are the nearest three each side — the ones listed here; faint dots are farther back.</li>
+                      <li><b style={{ color: H.text }}>How to use it:</b> the nearest pools are the likely next targets. A quick run into one that snaps back is a sweep — often the turn. A run that closes through it and holds usually keeps going to the next pool.</li>
+                    </ul>
+                  )}
+                  <p className="text-[8.5px] leading-tight" style={{ color: H.mut2 }}>Tap a level to pin it on the chart. Estimated from price structure, not an order book.</p>
                 </div>
                 )}
               </HudPanel>
