@@ -152,10 +152,15 @@ export function buildIntel(i: {
   };
 
   /* alignment */
+  // Short words, because the cards are narrow: a truncated "Volatility Expa…" tells a trader nothing.
+  const SHORT: Record<string, string> = {
+    compression: "Coiled", range: "Range", volatility_expansion: "Expanding", breakout: "Breakout",
+    chaotic: "Chaotic", reversal: "Reversal", retest: "Retest", quiet: "Quiet",
+  };
   const rows = TF_ORDER.filter((tf) => s.timeframes[tf]).map((tf) => {
     const st = s.timeframes[tf]!.state;
     const dir = dirOf(st);
-    return { tf, state: st, dir, word: dir === "up" ? "Bullish" : dir === "down" ? "Bearish" : title(st).replace(/^Volatility /, "Vol. ") };
+    return { tf, state: st, dir, word: dir === "up" ? "Bullish" : dir === "down" ? "Bearish" : SHORT[st] ?? title(st).split(" ")[0] };
   });
   const ups = rows.filter((r) => r.dir === "up").length, downs = rows.filter((r) => r.dir === "down").length;
   const alignment = {

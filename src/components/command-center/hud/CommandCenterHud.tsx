@@ -259,7 +259,10 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
     const map: Record<string, string> = { STRUCTURE_BREAK: "BOS", STRUCTURE_RECLAIM: "Reclaim", LIQUIDITY_SWEEP: "Liquidity sweep", FAILED_BREAKOUT: "Failed break", BREAKOUT_CONFIRMED: "Breakout", RETEST_HOLDING: "Retest holding", RETEST_FAILING: "Retest failing" };
     const label = map[e.code]; if (!label) return [];
     return [{ at: e.at, price: evPrice(raw), label, tone: e.lean === "bearish" ? "down" : e.lean === "bullish" ? "up" : "gold" } as ChartMarker];
-  }).slice(0, 8);
+  })
+    // One of each kind, newest first: three "Failed break" labels stacked on the same candles is noise.
+    .filter((m, i, all) => all.findIndex((x) => x.label === m.label) === i)
+    .slice(0, 5);
 
   const zones: ChartZone[] = [];
   if (intel?.liquidity.aboveZone) zones.push({ from: intel.liquidity.aboveZone[0], to: intel.liquidity.aboveZone[1], tone: "supply", label: `Resistance ${fmt2(intel.liquidity.aboveZone[0])} – ${fmt2(intel.liquidity.aboveZone[1])}` });
