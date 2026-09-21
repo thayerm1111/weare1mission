@@ -803,7 +803,41 @@ const GOLD_MIN_PLACEMENT_RR = 0.75;
 // STRUCTURE-FIRST STOP (owner 09-07): pad-only noise floor. When a fill sits nearly ON the
 // structural invalidation, the stop extends BEYOND the level to give at least this much
 // room - it is never tightened and never re-derived from the live print.
-const GOLD_STRUCT_MIN_ROOM = 4; // $4 (~40 pips)
+const GOLD_STRUCT_MIN_ROOM = 4; // $4 (~40 pips) — the absolute floor; the live floor is goldNoiseRoom()
+
+/**
+ * NOISE ROOM (09-21). A fixed $4 was tighter than ONE ordinary 5-minute candle on 09-20/21 (they were
+ * running $5–9), so the 8:35pm sell was stopped by noise and then fell $6 in its favour. The room a stop
+ * needs is set by how far the market is actually moving: 1.3 × the average range of the last twelve
+ * closed 5-minute candles, never below $4. Member risk % is unchanged — a wider stop sizes to fewer
+ * lots for the same dollars at risk — and the existing 100-pip cap still bounds it.
+ * Feed unavailable → $6, the middle of what gold has been printing; never the bare $4.
+ */
+export const GOLD_NOISE_MULT = 1.3;
+export const GOLD_NOISE_FALLBACK = 6;
+export function noiseRoomFromBars(bars: { h: number; l: number }[], mult = GOLD_NOISE_MULT, floor = GOLD_STRUCT_MIN_ROOM): number {
+  const ranges = bars.map((b) => b.h - b.l).filter((r) => Number.isFinite(r) && r > 0);
+  if (ranges.length < 6) return Math.max(floor, GOLD_NOISE_FALLBACK);
+  const avg = ranges.reduce((a, b) => a + b, 0) / ranges.length;
+  return +Math.max(floor, avg * mult).toFixed(2);
+}
+let noiseCache: { at: number; room: number } | null = null;
+async function goldNoiseRoom(): Promise<number> {
+  if (noiseCache && Date.now() - noiseCache.at < 60_000) return noiseCache.room;
+  const key = process.env.TWELVEDATA_API_KEY;
+  let room = Math.max(GOLD_STRUCT_MIN_ROOM, GOLD_NOISE_FALLBACK);
+  try {
+    if (key) {
+      const rows = await series("XAU/USD", "5min", 14, key);
+      if (rows && rows !== "ratelimit" && Array.isArray(rows)) {
+        const bars = (closedBars(rows, 12) ?? rows).slice(-12).map((r) => ({ h: +r.high, l: +r.low }));
+        room = noiseRoomFromBars(bars);
+      }
+    }
+  } catch { /* keep the fallback */ }
+  noiseCache = { at: Date.now(), room };
+  return room;
+}
 
 /** Does a recorded GENX/FLOW gold position still count as OPEN for the "max one" cap? TRUE
  *  only when the broker's live open set actually contains one of this account's ledger gold
@@ -1250,26 +1284,67 @@ async function goldRangeHold(side: "buy" | "sell", entry?: number | null): Promi
   } catch { return { hold: false, reason: "" }; }
 }
 
-// ── DESK BREAKER (owner 09-18) ───────────────────────────────────────────────────────────────────────
+// ── DESK BREAKER (owner 09-18, hardened 09-21) ─────────────────────────────────────────────────────────
 // Three real stop-outs inside six hours means the desk's read of this market is wrong, and every further
 // entry is paying again to find that out. New entries pause for four hours from the last loss, then
 // resume on their own. Open trades are never touched. Set GENX_DESK_BREAKER=off to disable.
+//
+// 09-21: it did not fire. Three GENX sells had stopped out by 9:05pm NY (23:25, 00:45, 01:05 UTC) and a
+// fourth still went out to 45 members, −$6,376 on the owner's account alone. So the breaker no longer
+// trusts a single record:
+//   • it counts losing SIGNALS from genx_alerts AND real member stop-outs from the managed ledger, and
+//     uses whichever count is higher — a loss the scanner has not written yet is still a loss the
+//     members already took;
+//   • stop-outs of one fan-out collapse into one event (a 10-minute bucket), so 50 members stopped by
+//     the same signal count once, never 50 times;
+//   • it FAILS CLOSED. If the loss record cannot be read, the desk does not know whether it is on a
+//     losing streak, and "I don't know" is not permission to trade.
+export const DESK_BREAKER_BUCKET_MS = 10 * 60_000;
+
+/** Merge loss timestamps from both sources into distinct loss EVENTS, newest first. Pure, tested. */
+export function mergeLossEvents(alertTimes: number[], stopTimes: number[], bucketMs = DESK_BREAKER_BUCKET_MS): number[] {
+  const all = [...alertTimes, ...stopTimes].filter((t) => Number.isFinite(t)).sort((a, b) => b - a);
+  const out: number[] = [];
+  for (const t of all) if (!out.length || out[out.length - 1] - t > bucketMs) out.push(t);
+  return out;
+}
+
 async function goldDeskBreaker(admin: Admin): Promise<{ hold: boolean; reason: string }> {
   if ((process.env.GENX_DESK_BREAKER ?? "").toLowerCase() === "off") return { hold: false, reason: "" };
+  const sinceIso = new Date(Date.now() - 6 * 3600_000).toISOString();
+  let alertTimes: number[];
   try {
-    const sinceIso = new Date(Date.now() - 6 * 3600_000).toISOString();
-    const { data } = await admin.from("genx_alerts").select("resolved_at,outcome")
+    const { data, error } = await admin.from("genx_alerts").select("resolved_at,outcome")
       .eq("outcome", "loss").gte("resolved_at", sinceIso).order("resolved_at", { ascending: false }).limit(20);
-    const times = ((data ?? []) as { resolved_at: string | null }[])
+    if (error) throw error;
+    alertTimes = ((data ?? []) as { resolved_at: string | null }[])
       .map((r) => (r.resolved_at ? Date.parse(r.resolved_at) : NaN)).filter((t) => Number.isFinite(t));
-    const b = deskBreaker(times);
-    if (!b.paused) return { hold: false, reason: "" };
-    const mins = Math.max(1, Math.round((b.until - Date.now()) / 60_000));
+  } catch {
     return {
       hold: true,
-      reason: `Desk breaker: ${b.count} stop-outs in the last six hours. New entries are paused for another ${mins < 60 ? `${mins} min` : `${Math.round(mins / 60)}h`} so the desk stops paying to re-test a read the market keeps rejecting. Open trades are still managed; entries resume on their own.`,
+      reason: "Desk breaker: the loss record could not be read, so the desk cannot tell whether it is on a losing streak. New entries wait until it can. Open trades are still managed.",
     };
-  } catch { return { hold: false, reason: "" }; }
+  }
+  // Second source: real (live, automated, no partial banked) member stop-outs. Best-effort — the
+  // alert record above is the one that must be readable; this only ever ADDS losses it missed.
+  let stopTimes: number[] = [];
+  try {
+    const { data } = await admin.from("flow_managed_positions")
+      .select("resolved_at, result_pips, partial_taken")
+      .in("symbol", GOLD_SYMS).eq("status", "closed").eq("outcome", "stop").neq("environment", "demo")
+      .gte("resolved_at", sinceIso).order("resolved_at", { ascending: false }).limit(400);
+    stopTimes = ((data ?? []) as { resolved_at: string | null; result_pips: number | null; partial_taken: boolean | null }[])
+      .filter((r) => !r.partial_taken && Number(r.result_pips) <= -GOLD_REAL_LOSS_MIN_PIPS)
+      .map((r) => (r.resolved_at ? Date.parse(r.resolved_at) : NaN)).filter((t) => Number.isFinite(t));
+  } catch { /* the alert record already answered; this source only adds */ }
+
+  const b = deskBreaker(mergeLossEvents(alertTimes, stopTimes));
+  if (!b.paused) return { hold: false, reason: "" };
+  const mins = Math.max(1, Math.round((b.until - Date.now()) / 60_000));
+  return {
+    hold: true,
+    reason: `Desk breaker: ${b.count} stop-outs in the last six hours. New entries are paused for another ${mins < 60 ? `${mins} min` : `${Math.round(mins / 60)}h`} so the desk stops paying to re-test a read the market keeps rejecting. Open trades are still managed; entries resume on their own.`,
+  };
 }
 
 async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: number | null): Promise<{ hold: boolean; reason: string; scope?: "desk" | "conservative" }> {
@@ -1489,7 +1564,8 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   //   • structure needs more than the $10 allowance from the live fill → the desk does NOT
   //     take it with a mangled stop — Send It accounts only, with a logged + posted reason.
   const gRef = goldLp != null ? goldLp : entry;
-  let gstop = sig.stop != null ? structuralStop({ side: sig.side, ref: gRef, anchor: sig.stop, minRoom: GOLD_STRUCT_MIN_ROOM }) : sig.stop;
+  const gRoom = sig.origin === "genx3" ? GOLD_STRUCT_MIN_ROOM : await goldNoiseRoom();
+  let gstop = sig.stop != null ? structuralStop({ side: sig.side, ref: gRef, anchor: sig.stop, minRoom: gRoom }) : sig.stop;
   // KEEP THE TRADE — ADJUST THE SIZE (owner 09-07): a wider structural stop is NEVER a
   // reason to skip. A 72-pip invalidation takes normal calculated risk; a 97-pip one takes
   // the SAME setup at a smaller size — sizing divides the member's risk % by the stop
@@ -1709,7 +1785,8 @@ export async function placeGenxFollower(sig: {
     : (sig.entryLow ?? sig.entryHigh ?? null);
   // STRUCTURE-FIRST (owner 09-07): followers ride the signal's ABSOLUTE structural stop,
   // pad-only adjusted when the fill sits on the invalidation — never re-derived.
-  let fstop = (entry != null && sig.stop != null) ? structuralStop({ side: sig.side, ref: entry, anchor: sig.stop, minRoom: GOLD_STRUCT_MIN_ROOM }) : sig.stop;
+  const fRoom = sig.origin === "genx3" ? GOLD_STRUCT_MIN_ROOM : await goldNoiseRoom();
+  let fstop = (entry != null && sig.stop != null) ? structuralStop({ side: sig.side, ref: entry, anchor: sig.stop, minRoom: fRoom }) : sig.stop;
 
   // Live gold price, fetched ONCE — used for the chase guard AND for risk-sizing below.
   let goldLp: number | null = null;
