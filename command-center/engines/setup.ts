@@ -507,6 +507,9 @@ function conditionsFor(s: MarketSnapshot, c: Candidate, style: Style): SetupCond
 
 /* ── the setup ──────────────────────────────────────────────────────────── */
 
+/** Owner 09-21: ATLAS takes a setup it likes as long as reward:risk from the live price is at least this. */
+export const ATLAS_MIN_TAKE_RR = 0.8;
+
 export type FindSetupInput = {
   snapshot: MarketSnapshot | null;
   diffs?: SnapshotDiff[];
@@ -614,6 +617,26 @@ export function findSetup(i: FindSetupInput): BrainSetup {
 
   /* 3 — conditions, and the state that follows from them. */
   const conditions = conditionsFor(s, c, fit.style);
+  /*
+   * TAKE IT AT 0.8:1 (owner 09-21: "ATLAS's analysis is almost perfect. The problem is it's not taking any
+   * trades. If its analysis is there and it likes the trade and it sees the setup, take the trade in the
+   * direction it sees — it just has to be at least a .8 to 1").
+   *
+   * The only trigger this relaxes is "Entry is still close to the level" — the rule that refused a setup
+   * once price had moved more than 1.8 ATR from the level, however good the trade still was from here.
+   * Every other condition still has to hold, a "Break X" trigger still has to break, the confidence floor
+   * and the counter-thesis bar still apply, and the stop is still the structural one priced from the
+   * live price. What replaces the distance rule is the arithmetic that actually matters: reward to the
+   * first objective over risk to the stop, from the price it would fill at, must be at least 0.8:1.
+   */
+  if (c.trigger == null) {
+    const ext = conditions.find((x) => x.id === "trigger" && x.trigger);
+    if (ext && !ext.met && rToInitial >= ATLAS_MIN_TAKE_RR) {
+      ext.met = true;
+      ext.text = "Reward:risk from here is at least 0.8:1";
+      ext.detail = `Price has moved away from the level, but from ${s.price.toFixed(2)} it is ${rToInitial.toFixed(1)}:1 to the first objective — good enough to take.`;
+    }
+  }
   const metCount = conditions.filter((x) => x.met).length;
   const totalCount = conditions.length;
   const nonTrigger = conditions.filter((x) => !x.trigger);
