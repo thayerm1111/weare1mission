@@ -1469,7 +1469,9 @@ function genxTypeOf(mode: unknown): string {
 export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: number | null; entryHigh: number | null; stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null; sendItOnly?: boolean;
   /* Which horizon this call was found on. Absent means the caller predates the field, and gold's
    * ENTER-NOW calls are the fast one — so it is read as quick rather than as unknown. */
-  mode?: Mode | string | null } & GenxDelivery): Promise<{ members: number; placed: number }> {
+  mode?: Mode | string | null;
+  /* Which GENX setup produced the call ("range_fade" = the sideways-market strategy). */
+  setup?: string | null } & GenxDelivery): Promise<{ members: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { members: 0, placed: 0 };
   if (!(await systemSwitches(admin)).genx) return { members: 0, placed: 0 }; // admin GENX kill switch
@@ -1479,7 +1481,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // QUALITY GATE (GENX 2.0 only, owner 09-16): 20h trend slope must agree and reward at the worst
   // allowed fill must be >= 1.5R. GENX 3.0 applies its own versioned setup rules instead.
   if (sig.origin !== "genx3") {
-    const q = await genxGoldQualityGate(admin, { side: sig.side, entryLow: sig.entryLow, entryHigh: sig.entryHigh, stop: sig.stop, tp: sig.tp });
+    const q = await genxGoldQualityGate(admin, { side: sig.side, entryLow: sig.entryLow, entryHigh: sig.entryHigh, stop: sig.stop, tp: sig.tp, setup: sig.setup ?? null });
     if (!q.ok) {
       try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: quality_gate ${q.reason}`.slice(0, 200) }); } catch { /* breadcrumb best-effort */ }
       if (shouldNote("quality", sig.side)) { try { await sendTelegram(`🧭 <b>${genxLabel()}${genxTypeOf(sig.mode)} gold — skipping this ${sig.side.toUpperCase()}</b>\nIt doesn't pass the quality check: ${q.reason}. Waiting for a setup with the trend and at least 1:1 reward.`); } catch { /* note best-effort */ } }
@@ -1772,6 +1774,7 @@ export async function placeGenxFollower(sig: {
   stop: number | null; tp: number | null; conservativeOk?: boolean; confidence?: number | null; sendItOnly?: boolean;
   /* Which horizon this call was found on, so the account's trade styles decide here too. */
   mode?: Mode | string | null;
+  setup?: string | null;
 } & GenxDelivery): Promise<{ accounts: number; placed: number }> {
   const admin = createAdminClient();
   if (!admin) return { accounts: 0, placed: 0 };
@@ -1785,7 +1788,7 @@ export async function placeGenxFollower(sig: {
   if (!originAllowed(sig.origin)) return { accounts: 0, placed: 0 }; // engine selection (owner 09-16)
   // QUALITY GATE (GENX 2.0 only) — same hard gate as the copy path (the copy path posts the note).
   if (sig.origin !== "genx3") {
-    const q = await genxGoldQualityGate(admin, { side: sig.side, entryLow: sig.entryLow ?? null, entryHigh: sig.entryHigh ?? null, stop: sig.stop, tp: sig.tp });
+    const q = await genxGoldQualityGate(admin, { side: sig.side, entryLow: sig.entryLow ?? null, entryHigh: sig.entryHigh ?? null, stop: sig.stop, tp: sig.tp, setup: sig.setup ?? null });
     if (!q.ok) return { accounts: 0, placed: 0 };
   }
   const signalKey = String(sig.signalKey || "").slice(0, 200);
