@@ -47,6 +47,14 @@ export type BrainConsoleProps = {
   /** Scheduled briefings only run against a live market — there is nothing to brief on a dead feed. */
   live?: boolean;
   className?: string;
+  /** "hud" is the Command Center HUD layout: avatars, action chips, and the large microphone bar. */
+  variant?: "classic" | "hud";
+  /** HUD action chips (replace the classic quick asks). */
+  quick?: { label: string; q: string }[];
+  /** Ask something from outside the console (EXPLAIN FURTHER, a chip elsewhere). A new `n` asks again. */
+  askSignal?: { n: number; q: string } | null;
+  /** Lets the page show the Brain as thinking / speaking / listening. */
+  onActivity?: (a: { busy: boolean; speaking: boolean; listening: boolean }) => void;
 };
 
 const QUICK = [
@@ -57,7 +65,7 @@ const QUICK = [
   { label: "Show me the math", q: "Show me the math." },
 ];
 
-export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = false, className = "" }: BrainConsoleProps) {
+export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = false, className = "", variant = "classic", quick, askSignal, onActivity }: BrainConsoleProps) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -217,6 +225,122 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
 
   useEffect(() => () => { try { recognition.current?.abort(); } catch { /* noop */ } window.speechSynthesis?.cancel(); }, []);
 
+  // Outside asks (EXPLAIN FURTHER, HUD chips elsewhere on the page).
+  const lastSignal = useRef<number | null>(null);
+  useEffect(() => {
+    if (!askSignal || askSignal.n === lastSignal.current) return;
+    lastSignal.current = askSignal.n;
+    void askRef.current(askSignal.q);
+  }, [askSignal]);
+
+  useEffect(() => { onActivity?.({ busy, speaking, listening }); }, [busy, speaking, listening, onActivity]);
+
+  // Space to talk, when the HUD is showing and focus is not in a text field.
+  useEffect(() => {
+    if (variant !== "hud") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || e.repeat) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable || el.tagName === "BUTTON" || el.tagName === "SELECT")) return;
+      e.preventDefault();
+      if (listening) stopListening(); else startListening();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [variant, listening, startListening, stopListening]);
+
+  if (variant === "hud") {
+    const t12 = (at: number) => new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return (
+      <div className={`flex h-full min-h-0 flex-col ${className}`}>
+        <div ref={scroller} className="hud-scroll min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+          {!turns.length && (
+            <div className="flex gap-2.5">
+              <BrainAvatar />
+              <div className="min-w-0 flex-1">
+                <p className="mb-1 text-[9.5px] font-bold uppercase tracking-[0.12em]" style={{ color: "#E7C467" }}>The Brain</p>
+                <div className="rounded-[8px] px-3 py-2.5 text-[12.5px] leading-relaxed" style={{ background: "rgba(9,19,29,0.9)", border: "1px solid rgba(89,175,255,0.13)", color: "#DCE6EE" }}>
+                  I&rsquo;m watching gold. Ask me what I&rsquo;m seeing, why, or what would change my mind — or press the microphone and just talk.
+                </div>
+              </div>
+            </div>
+          )}
+          {turns.map((t, i) => t.role === "user" ? (
+            <div key={i} className="flex flex-col items-end">
+              <p className="mb-1 text-[9.5px]" style={{ color: "#81909E" }}><span style={{ color: "#59AFFF", fontWeight: 700 }}>You</span> &nbsp;{t12(t.at)}</p>
+              <div className="max-w-[88%] rounded-[8px] px-3 py-2 text-[12.5px] leading-relaxed" style={{ background: "rgba(21,52,92,0.75)", border: "1px solid rgba(89,175,255,0.35)", color: "#F0F4F7" }}>{t.content}</div>
+            </div>
+          ) : (
+            <div key={i} className="flex gap-2.5">
+              <BrainAvatar />
+              <div className="min-w-0 flex-1">
+                <p className="mb-1 text-[9.5px]" style={{ color: "#81909E" }}><span className="font-bold uppercase tracking-[0.12em]" style={{ color: "#E7C467" }}>The Brain</span> &nbsp;{t12(t.at)}</p>
+                <div className="whitespace-pre-line rounded-[8px] px-3 py-2.5 text-[12.5px] leading-relaxed" style={{ background: "rgba(9,19,29,0.9)", border: "1px solid rgba(89,175,255,0.13)", color: "#DCE6EE" }}>{t.content}</div>
+              </div>
+            </div>
+          ))}
+          {busy && <p className="pl-10 text-[11.5px]" style={{ color: "#27D7F2" }}>THE BRAIN is thinking…</p>}
+          {notice && <p className="text-[11px]" style={{ color: "#E7C467" }}>{notice}</p>}
+          {micError && <p className="text-[11px]" style={{ color: "#FF5364" }}>{micError}</p>}
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 px-3 pb-2">
+          {(quick ?? QUICK).map((q) => (
+            <button key={q.label} onClick={() => void ask(q.q)} disabled={busy}
+              className="rounded-[6px] px-2.5 py-[5px] text-[10.5px] transition hover:brightness-125 disabled:opacity-40"
+              style={{ background: "rgba(9,19,29,0.9)", color: "#C5D1DB", border: "1px solid rgba(89,175,255,0.18)" }}>
+              {q.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 border-t px-3 py-2.5" style={{ borderColor: "rgba(89,175,255,0.1)" }}>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void ask(input); } }}
+            placeholder={listening ? "Listening…" : "Ask THE BRAIN…"}
+            className="min-w-0 flex-1 rounded-[6px] px-2.5 py-1.5 text-[12px] outline-none"
+            style={{ background: "rgba(3,7,11,0.8)", border: "1px solid rgba(89,175,255,0.14)", color: "#F0F4F7" }}
+          />
+          <button onClick={() => void ask(input)} disabled={busy || !input.trim()} aria-label="Send"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full disabled:opacity-35"
+            style={{ border: "1px solid rgba(89,175,255,0.25)", color: "#59AFFF" }}>
+            <Send className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between gap-2 px-3 pb-3 pt-1">
+          <button onClick={() => onModeChange(mode === "off" ? "important_only" : "off")} aria-label="Toggle spoken replies"
+            className="grid h-8 w-8 place-items-center rounded-full" style={{ border: "1px solid rgba(89,175,255,0.18)", color: "#81909E" }}>
+            {mode === "off" ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+          </button>
+          <Wave active={listening || speaking} color={speaking ? "#E7C467" : "#27D7F2"} />
+          <button
+            onClick={listening ? stopListening : startListening}
+            aria-label={listening ? "Stop listening" : "Talk to THE BRAIN"}
+            className="relative grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full transition"
+            style={{
+              background: "radial-gradient(circle at 40% 35%, #3A2C0C, #120D04)",
+              border: `2px solid ${listening ? "#FFD875" : "#D5A93D"}`,
+              color: "#FFD875",
+              boxShadow: listening ? "0 0 0 6px rgba(255,216,117,0.12), 0 0 26px rgba(255,216,117,0.55)" : "0 0 16px rgba(213,169,61,0.35)",
+            }}>
+            {listening && <span className="hud-ping absolute inset-0 rounded-full" style={{ border: "1px solid #FFD875" }} />}
+            <Mic className="h-5 w-5" />
+          </button>
+          <Wave active={listening || speaking} color={speaking ? "#E7C467" : "#27D7F2"} flip />
+          <p className="w-[72px] text-[10px] leading-tight" style={{ color: "#81909E" }}>{listening ? "Listening…" : speaking ? "Speaking — tap to interrupt" : "Click to speak or press space"}</p>
+          {speaking && (
+            <button onClick={stopSpeaking} aria-label="Stop speaking" className="grid h-8 w-8 place-items-center rounded-full" style={{ border: "1px solid rgba(231,196,103,0.4)", color: "#E7C467" }}>
+              <Square className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`flex h-full min-h-0 flex-col ${className}`}>
       {/* mode strip */}
@@ -322,6 +446,28 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
         </button>
       </div>
     </div>
+  );
+}
+
+function BrainAvatar() {
+  return (
+    <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full" style={{ background: "radial-gradient(circle at 40% 35%, #FFD875, #8A5F12 70%)", boxShadow: "0 0 0 2px rgba(39,215,242,0.35), 0 0 10px rgba(255,216,117,0.4)" }}>
+      <span className="h-2 w-2 rounded-full" style={{ background: "#FFF3D0" }} />
+    </span>
+  );
+}
+
+function Wave({ active, color, flip = false }: { active: boolean; color: string; flip?: boolean }) {
+  const hs = [4, 8, 13, 7, 16, 10, 5, 12, 6];
+  return (
+    <span className="flex h-6 items-center gap-[2px]" style={{ transform: flip ? "scaleX(-1)" : undefined }} aria-hidden>
+      {hs.map((h, i) => (
+        <span key={i} className="w-[2px] rounded-full" style={{
+          height: h + 4, background: color, opacity: active ? 0.95 : 0.35,
+          animation: active ? `hudBar ${0.6 + (i % 4) * 0.15}s ease-in-out ${i * 0.07}s infinite` : "none", transformOrigin: "center",
+        }} />
+      ))}
+    </span>
   );
 }
 

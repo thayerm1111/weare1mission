@@ -30,16 +30,16 @@ const C = {
 };
 
 type Tf = { state: string; efficiency: number | null; rsi: number | null; sequence: string | null; positionInRange: number | null };
-type Thesis = {
+export type Thesis = {
   id: string; label: string; strength: string; confidence: number; startedAt: number;
   reasonStarted: string[]; reasonStrengthened: string[]; reasonWeakened: string[];
   watching: number[]; invalidationPrice: number | null; priceAtStart: number;
 };
-type Ev = {
+export type Ev = {
   key: string; at: number; code: string; detail: string; lean: "bullish" | "bearish" | "neutral";
   channel: string; significance: { score: number; confidence: number };
 };
-type Live = {
+export type Live = {
   ok: boolean; live: boolean; connected: boolean; reason: string | null; at: number | null;
   ageSeconds: number | null; marketOpen: boolean;
   price: number | null; bid: number | null; ask: number | null; spread: number | null;
@@ -71,6 +71,9 @@ type Live = {
   watches?: { id: string; said: string; kind: string; label: string | null; price: number | null; progress: number | null; expiresAt: number | null }[];
   /** True only for the replay harness, which renders a loud banner. Never set by the live endpoint. */
   replay?: boolean;
+  /** Display-only intelligence (command-center/present/intel.ts). */
+  intel?: import("../../../command-center/present/intel").Intel | null;
+  features?: Record<string, { atr: number; atrPct: number; volRatio: number; velocity: number; acceleration: number; returns5: number; rangeExpansion: number }>;
 };
 
 const TF_ORDER = ["1d", "4h", "1h", "15m", "5m", "1m"];

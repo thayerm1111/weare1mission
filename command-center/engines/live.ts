@@ -17,6 +17,8 @@ import { findSetup, noSetup, type BrainSetup } from "./setup";
 import { getProfile, asSetupProfile, DEFAULT_PROFILE, type TradingProfile } from "./profile";
 import { experienceOf, type Experience } from "./experience";
 import { armedFor, type Watch } from "./watch";
+// Read-only presentation analytics for the screen. Nothing here flows back into a decision — see present/intel.ts.
+import { presentExtras, type Intel } from "../present/intel";
 
 /** Beyond this, the read is history rather than the market, and the UI must say so. */
 export const STALE_MS = 5 * 60_000;
@@ -74,6 +76,10 @@ export type LiveState = {
    * hour ago should be able to SEE that it is still armed, and how close it is, without asking.
    */
   watches: { id: string; said: string; kind: string; label: string | null; price: number | null; progress: number | null; expiresAt: number | null }[];
+  /** Display-only intelligence derived from the same snapshot (present/intel.ts). Null without a read. */
+  intel: Intel | null;
+  /** Per-timeframe feature readings the screen gauges use. Display only. */
+  features: Record<string, { atr: number; atrPct: number; volRatio: number; velocity: number; acceleration: number; returns5: number; rangeExpansion: number }>;
 };
 
 const empty = (reason: string, marketIsOpen: boolean): LiveState => ({
@@ -95,6 +101,8 @@ const empty = (reason: string, marketIsOpen: boolean): LiveState => ({
   }),
   profile: { ...DEFAULT_PROFILE },
   watches: [],
+  intel: null,
+  features: {},
 });
 
 export async function liveState(marketIsOpen: boolean, journalSince: Date, userId?: string | null): Promise<LiveState> {
@@ -205,6 +213,10 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
     }])),
     levels: s.levels.slice(0, 10),
     bars: latest.bars.slice(-140),
+    ...presentExtras({
+      s, thesis: openThesis, events: rolling.events.slice(-60), bars: latest.bars, diffs,
+      velocityBand: velocityBand(s), weather: weather(s),
+    }),
 
     brain: state,
     thesis: openThesis,

@@ -9,7 +9,7 @@
  */
 import { series, price as tdPrice, GOLD } from "../adapters/twelvedata";
 import {
-  pruneSnapshots, audit, saveSnapshotWithBars, saveEvents, saveBrainState, saveThesis, saveStatement, loadRolling,
+  pruneSnapshots, audit, saveSnapshotWithBars, saveChartBars, saveEvents, saveBrainState, saveThesis, saveStatement, loadRolling,
 } from "../adapters/db";
 import { buildSnapshot, tradeable } from "../engines/snapshot";
 import { marketOpen } from "../core/sessions";
@@ -268,6 +268,8 @@ async function pass(lastPersistAt: number): Promise<number> {
 
   if (now - lastPersistAt >= PERSIST_MS) {
     const id = await saveSnapshotWithBars(snap, m5 ?? []);
+    // Display only: the chart's candles for every timeframe, from bars this pass already has. Not awaited.
+    void saveChartBars(bars).catch(() => {});
     await saveBrainState(pc.state);
     if (pc.thesisChange === "none") await saveThesis(pc.thesis);   // keep the open thesis' confidence current
     const tfs = Object.entries(snap.timeframes).map(([tf, v]) => `${tf}:${v!.state}`).join(" ");

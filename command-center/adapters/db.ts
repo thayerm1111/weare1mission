@@ -248,3 +248,17 @@ export async function recentStatements(limit = 20): Promise<Record<string, unkno
   const { data } = await c.from("cc_brain_statements").select("*").order("at", { ascending: false }).limit(limit);
   return (data ?? []) as Record<string, unknown>[];
 }
+
+/**
+ * Leave the bars this pass already fetched where the Command Center chart can read them. Display only:
+ * one overwritten row per timeframe, best-effort, and nothing on a trading path ever reads it back.
+ */
+export async function saveChartBars(bars: Partial<Record<string, Bar[]>>): Promise<void> {
+  const c = db();
+  if (!c) return;
+  const rows = Object.entries(bars)
+    .filter(([, b]) => Array.isArray(b) && b.length)
+    .map(([tf, b]) => ({ tf, bars: (b as Bar[]).slice(-240), updated_at: new Date().toISOString() }));
+  if (!rows.length) return;
+  try { await c.from("cc_chart_bars").upsert(rows, { onConflict: "tf" }); } catch { /* the screen can wait; the engine cannot */ }
+}

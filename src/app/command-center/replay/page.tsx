@@ -1,4 +1,4 @@
-import CommandCenterLive from "@/components/command-center/CommandCenterLive";
+import CommandCenterHud from "@/components/command-center/hud/CommandCenterHud";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Command Center XAUUSD — replay" };
@@ -9,5 +9,5 @@ export const metadata = { title: "Command Center XAUUSD — replay" };
  */
 export default function Page({ searchParams }: { searchParams?: { trade?: string } }) {
   const withTrade = searchParams?.trade === "1";
-  return <CommandCenterLive endpoint={`/api/command-center/replay${withTrade ? "?trade=1" : ""}`} />;
+  return <CommandCenterHud endpoint={`/api/command-center/replay${withTrade ? "?trade=1" : ""}`} />;
 }

@@ -8,6 +8,8 @@
  *
  * It is never used by the live product. Every surface that renders a replay is labelled as one.
  */
+// Display-only analytics for the replay screen; never reaches a decision.
+import { presentExtras } from "../present/intel";
 import fixture from "../fixtures/replay-bars.json";
 import { buildSnapshot } from "./snapshot";
 import { resample } from "../core/bars";
@@ -125,6 +127,10 @@ export function replay(steps = 40, withTrade = false, endOffset = 0): ReplayResu
     }),
     profile: { ...DEFAULT_PROFILE },
     watches: [],
+    ...presentExtras({
+      s, thesis: openThesis, events: rolling.events.slice(-60), bars: m5All, diffs: last.diffs,
+      velocityBand: velocityBand(s), weather: weather(s),
+    }),
   };
 
   return { state, steps: m5All.length - first, endedAt: s.at, snapshot: s, diffs: last.diffs };
