@@ -11,6 +11,11 @@ import { EntrySequence, primeAudio } from "./EntrySequence";
  */
 type Pass = { active: boolean; admin: boolean; expiresAt: string | null; cost: number; minutes: number; balance: number | null };
 
+/** Admins can replay the entrance for a recording: /command-center?replay=1 */
+function replayWanted(): boolean {
+  try { return new URLSearchParams(window.location.search).get("replay") === "1"; } catch { return false; }
+}
+
 export function PassGate({ children }: { children: React.ReactNode }) {
   const [pass, setPass] = useState<Pass | null>(null);
   const [busy, setBusy] = useState(false);
@@ -38,10 +43,11 @@ export function PassGate({ children }: { children: React.ReactNode }) {
    * decides (GET /api/command-center/greet), so the rule holds across devices.
    */
   const checked = useRef(false);
+  const paidNow = useRef(false); // this window was opened by a tap here, so sound is allowed
   useEffect(() => {
     if (!open || checked.current) return;
     checked.current = true;
-    fetch("/api/command-center/greet", { cache: "no-store" }).then((r) => r.json())
+    fetch(`/api/command-center/greet${replayWanted() ? "?replay=1" : ""}`, { cache: "no-store" }).then((r) => r.json())
       .then((j) => { if (j?.eligible) setIntro(true); }).catch(() => {});
   }, [open]);
   // A window that expires and is renewed re-checks (it will usually be inside the two hours).
@@ -49,6 +55,7 @@ export function PassGate({ children }: { children: React.ReactNode }) {
 
   const buy = useCallback(async () => {
     primeAudio(); // inside the tap, so ATLAS may speak once the room is up
+    paidNow.current = true;
     setBusy(true); setMsg(null);
     try {
       const r = await fetch("/api/command-center/pass", { method: "POST" });
@@ -93,7 +100,7 @@ export function PassGate({ children }: { children: React.ReactNode }) {
   return (
     <>
       {children}
-      {intro && <EntrySequence speak onDone={() => setIntro(false)} />}
+      {intro && <EntrySequence speak awaitTap={!!pass.admin && !paidNow.current} replay={replayWanted()} onDone={() => setIntro(false)} />}
       {!pass.admin && left != null && (
         <div className="pointer-events-none fixed bottom-3 left-3 z-50 rounded-full px-3 py-1 text-[11px] tabular-nums"
           style={{ background: "rgba(7,16,26,0.9)", border: `1px solid ${left < 5 * 60_000 ? H.gold2 : H.line}`, color: left < 5 * 60_000 ? H.gold3 : H.mut }}>

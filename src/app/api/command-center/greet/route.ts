@@ -39,6 +39,14 @@ async function who() {
   return user ?? null;
 }
 
+/** ?replay=1 lets an ADMIN hear the welcome again inside the two hours (screen recordings, testing). */
+async function adminReplay(req: Request, userId: string): Promise<boolean> {
+  if (new URL(req.url).searchParams.get("replay") !== "1") return false;
+  const c = admin(); if (!c) return false;
+  const { data } = await c.from("profiles").select("role").eq("id", userId).maybeSingle();
+  return (data as { role?: string } | null)?.role === "admin";
+}
+
 async function lastWelcome(userId: string): Promise<number | null> {
   const c = admin(); if (!c) return null;
   const { data } = await c.from("cc_voice_sessions").select("started_at")
@@ -47,14 +55,14 @@ async function lastWelcome(userId: string): Promise<number | null> {
   return at ? Date.parse(at) : null;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const user = await who();
   if (!user) return json({ error: "unauthorized" }, 401);
   if (!(await hasPass(user.id))) return json({ eligible: false, reason: "pass_required" });
   const c = admin(); if (!c) return json({ eligible: false, reason: "not_configured" });
 
   const last = await lastWelcome(user.id);
-  const eligible = last == null || Date.now() - last >= REPLAY_AFTER_MS;
+  const eligible = last == null || Date.now() - last >= REPLAY_AFTER_MS || (await adminReplay(req, user.id));
 
   // Their name, as they gave it — never a default.
   const { data: prof } = await c.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
@@ -80,12 +88,12 @@ export async function GET() {
   });
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   const user = await who();
   if (!user) return json({ error: "unauthorized" }, 401);
   if (!(await hasPass(user.id))) return json({ ok: false, reason: "pass_required" }, 402);
   const last = await lastWelcome(user.id);
-  if (last != null && Date.now() - last < REPLAY_AFTER_MS) return json({ ok: false, reason: "already_welcomed" });
+  if (last != null && Date.now() - last < REPLAY_AFTER_MS && !(await adminReplay(req, user.id))) return json({ ok: false, reason: "already_welcomed" });
   if (!availability().ok) return json({ ok: false, reason: "voice_not_configured" });
 
   const agent = await ensureAgent();

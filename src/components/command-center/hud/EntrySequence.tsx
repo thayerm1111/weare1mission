@@ -69,8 +69,9 @@ export function composeBrief(d: Live | null): string[] {
     L.push(`Pressure reads buyers ${p.buyers}, sellers ${p.sellers} — ${side}.`);
   }
   const lv = d.intel?.keyLevels ?? [];
-  const above = lv.filter((l) => l.price > d.price!).sort((a, b) => a.price - b.price)[0];
-  const below = lv.filter((l) => l.price < d.price!).sort((a, b) => b.price - a.price)[0];
+  const real = lv.filter((l) => !/current price/i.test(l.label) && Math.abs(l.price - d.price!) >= 0.05);
+  const above = real.filter((l) => l.price > d.price!).sort((a, b) => a.price - b.price)[0];
+  const below = real.filter((l) => l.price < d.price!).sort((a, b) => b.price - a.price)[0];
   if (above || below) {
     L.push([
       above ? `Resistance ${money(above.price)} (${above.label})` : null,
@@ -149,7 +150,14 @@ function speakWelcome(url: string, text: string, on: { level: (v: number) => voi
   return () => { window.clearInterval(iv); window.clearTimeout(cap); finish(); };
 }
 
-export function EntrySequence({ onDone, speak = false }: { onDone: () => void; speak?: boolean }) {
+export function EntrySequence({ onDone, speak = false, awaitTap = false, replay = false }: {
+  onDone: () => void; speak?: boolean;
+  /** No paying tap happened (admins): show "TAP TO ENTER" first, because sound may only start from a tap. */
+  awaitTap?: boolean;
+  /** Admin replay (?replay=1): ask the server for a welcome even inside the two hours. */
+  replay?: boolean;
+}) {
+  const [armed, setArmed] = useState(!awaitTap);
   const [t, setT] = useState(0);
   const [d, setD] = useState<Live | null>(null);
   const [name, setName] = useState<string | null>(null);
@@ -165,16 +173,17 @@ export function EntrySequence({ onDone, speak = false }: { onDone: () => void; s
   const [spokeAt, setSpokeAt] = useState<number | null>(null);
   const stopVoice = useRef<(() => void) | null>(null);
 
+  useEffect(() => { setW(window.innerWidth); }, []);
   useEffect(() => {
-    setW(window.innerWidth);
+    if (!armed) return;
     start.current = performance.now();
     let raf = 0;
     const tick = () => { setT(performance.now() - start.current); raf = requestAnimationFrame(tick); };
     raf = requestAnimationFrame(tick);
     fetch("/api/command-center/live", { cache: "no-store" }).then((r) => r.json()).then((j) => { setD(j); setDAt(performance.now() - start.current); }).catch(() => setDAt(0));
-    fetch("/api/command-center/greet", { cache: "no-store" }).then((r) => r.json()).then((j: Greet) => { setGreet(j); setName(j?.name ?? null); }).catch(() => setGreet(null));
+    fetch(`/api/command-center/greet${replay ? "?replay=1" : ""}`, { cache: "no-store" }).then((r) => r.json()).then((j: Greet) => { setGreet(j); setName(j?.name ?? null); }).catch(() => setGreet(null));
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [armed, replay]);
 
   const phone = w < 640;
   const brief = useMemo(() => composeBrief(d), [d]);
@@ -198,7 +207,7 @@ export function EntrySequence({ onDone, speak = false }: { onDone: () => void; s
   const startVoice = () => {
     if (!sharedCtx || sharedCtx.state !== "running") { setVoice("blocked"); return; }
     setVoice("connecting");
-    fetch("/api/command-center/greet", { method: "POST" }).then((r) => r.json()).then((j) => {
+    fetch(`/api/command-center/greet${replay ? "?replay=1" : ""}`, { method: "POST" }).then((r) => r.json()).then((j) => {
       if (!j?.url) { setVoice("off"); return; }
       stopVoice.current = speakWelcome(j.url, welcomeSpoken, {
         level: (v) => setVLevel(v),
@@ -238,6 +247,20 @@ export function EntrySequence({ onDone, speak = false }: { onDone: () => void; s
   const speaking = voice === "speaking" || (voice === "off" && t > T_BRIEF && !briefDone);
   const level = voice === "speaking" ? vLevel : speaking ? 0.35 + 0.35 * Math.abs(Math.sin(t / 90)) * Math.abs(Math.sin(t / 233)) : online ? 0.12 : 0;
   const glitch = online && t < T_ONLINE + 500;
+
+  if (!armed) {
+    return (
+      <div className="fixed inset-0 z-[200] grid place-items-center overflow-hidden" style={{ background: H.bg0, color: H.text }}>
+        <style>{ENTRY_CSS}</style>
+        <div className="es-grid" style={{ opacity: 0.5 }} /><div className="es-vignette" />
+        <button onClick={() => { primeAudio(); setArmed(true); }} className="relative z-10 flex flex-col items-center gap-4" aria-label="Enter the Command Center">
+          <BrainOrb state="watching" intensity={20} alive size={phone ? 180 : 230} />
+          <span className="text-[11px] tracking-[0.3em]" style={{ color: H.cyan2 }}>COMMAND CENTER XAUUSD</span>
+          <span className="es-rise rounded-full px-6 py-2.5 text-[13px] font-semibold tracking-[0.25em]" style={{ color: "#10131A", background: H.gold2, boxShadow: "0 0 26px rgba(231,196,103,.4)" }}>TAP TO ENTER</span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[200] overflow-hidden" role="dialog" aria-label="Entering the Command Center"
