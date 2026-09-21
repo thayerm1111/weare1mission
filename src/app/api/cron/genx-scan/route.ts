@@ -4,6 +4,7 @@ import { genx2Active } from "@/lib/genx3/engineSelect";
 import { computeGenxRead, buildGenx, genxConservativeGate, sessionNow, GOLD, MODES, type Mode } from "@/lib/genxCompute";
 import { detectBreakdownRetest, breakdownLimits, tradingDayStart, type Bar as BrkBar } from "@/lib/genx/breakdownRetest";
 import { newsHold } from "@/lib/news/calendar";
+import { genxTrendGate } from "@/lib/genx/trendGate";
 import { confirmEntry, CONFIRM_IV } from "@/lib/genxConfirm";
 import { series } from "@/lib/marketData";
 import { sendTelegram, esc } from "@/lib/telegram";
@@ -198,6 +199,11 @@ async function run(): Promise<Response> {
       if (!row) {
         const twin = await findSameSetup(admin, { side, entry_low: genx.entry_low, entry_high: genx.entry_high });
         if (twin) { modeOut.result = `same_setup:${twin.dedupe_key}:${twin.state}`; continue; }
+        // TREND GATE (owner 09-21, see src/lib/genx/trendGate.ts): a NEW call needs the 1h EMA 20/50/200
+        // stacked its way and a core-grade setup. Setups already being watched are not affected.
+        const tg = await genxTrendGate(side, mdKey, { profile: String(genx.entry_profile ?? "") || null });
+        modeOut.trend_gate = tg.reason;
+        if (!tg.ok) { modeOut.skip = tg.reason; continue; }
       }
 
       if (!row) {
@@ -415,6 +421,8 @@ async function breakdownRetestPass(
   if (inWeekendCloseWindow() || inScanQuietWindow() || inDailyReopenWindow()) return { skip: "quiet_window" };
   if (!bias) return { skip: "no_read" };
   if (!(bias.bias === "bearish" && bias.bear >= bias.bull)) return { skip: `bias_not_bearish:${bias.bias}` };
+  const tg = await genxTrendGate("sell", mdKey);
+  if (!tg.ok) return { skip: tg.reason };
 
   // closed 5-minute bars (the feed's last row is the bar still forming)
   const raw = await series(GOLD.symbol, "5min", 150, mdKey, false);

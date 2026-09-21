@@ -13,6 +13,7 @@
  * quality gate, stop cap and each account's own risk %.
  * Every state machine (transitions, evidence, why it was taken or rejected) is logged to genx3_pd_setups.
  */
+import { trendGateFrom1m } from "@/lib/genx/trendGate";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { liveTick, tickBar } from "@/lib/flow/liveTicks";
 import { sendTelegram, esc } from "@/lib/telegram";
@@ -121,6 +122,9 @@ export async function genx1PdTick(admin: Admin): Promise<PdTickResult> {
   if (why.length) { await persist(admin, out.machines, { anchor: c.anchor, status: "REJECTED", reasons: why, cand: c, confidence: conf }).catch(() => {}); return { ran: true, fired: null, reasons: why }; }
 
   const side: "buy" | "sell" = c.side === "BUY" ? "buy" : "sell";
+  // TREND GATE (owner 09-21, src/lib/genx/trendGate.ts): the 1h EMA stack must agree with the side.
+  const tg = trendGateFrom1m(side, closed);
+  if (!tg.ok) { await persist(admin, out.machines, { anchor: c.anchor, status: "REJECTED", reasons: [tg.reason], cand: c, confidence: conf }).catch(() => {}); return { ran: true, fired: null, reasons: [tg.reason] }; }
   const m = out.machines.find((x) => anchorOf(x) === c.anchor)!;
   const dedupeKey = `pd:${c.anchor}`;
   const entryLow = +(c.entry - 0.25).toFixed(2), entryHigh = +(c.entry + 0.25).toFixed(2);
