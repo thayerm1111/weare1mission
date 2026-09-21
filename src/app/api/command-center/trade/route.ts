@@ -19,7 +19,7 @@ export const maxDuration = 60;
  * THE TRADING ROUTE.
  *
  * Every path here goes through the deterministic engines: nothing reaches a broker without the validator
- * approving it, and nothing is ever sent twice. THE BRAIN can propose a trade; only this route, invoked
+ * approving it, and nothing is ever sent twice. ATLAS can propose a trade; only this route, invoked
  * by an authenticated member (or by automation they explicitly enabled), can act on one.
  *
  * `prepare` and `execute` are deliberately separate calls. The preview a member confirms is a real,
@@ -139,7 +139,7 @@ export async function POST(req: Request) {
     case "take_profit":
       return json(await manage(user.id, String(body.positionId ?? ""), { kind: "take_profit", price: num(body.price) }, "member"));
 
-    /** Protect = move the stop to wherever THE BRAIN currently says it should be, with its reason shown. */
+    /** Protect = move the stop to wherever ATLAS currently says it should be, with its reason shown. */
     case "protect": {
       const snap = await snapshotNow();
       const t = await tradeState(user.id, snap);
@@ -184,7 +184,7 @@ export async function POST(req: Request) {
     case "pass_setup":
       return json(await passSetup(user.id, await snapshotNow(), marketOpen(Date.now()), String(body.reason ?? "")));
 
-    /** The boundaries THE BRAIN works inside. Every value is clamped server-side. */
+    /** The boundaries ATLAS works inside. Every value is clamped server-side. */
     case "profile": {
       const p = (body.profile ?? {}) as Record<string, unknown>;
       const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);

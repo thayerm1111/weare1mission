@@ -1,7 +1,7 @@
 import BrainCompanion from "@/components/command-center/BrainCompanion";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "THE BRAIN" };
+export const metadata = { title: "ATLAS" };
 
 /**
  * The floating companion, served from the same origin as everything else.

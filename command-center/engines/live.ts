@@ -54,7 +54,7 @@ export type LiveState = {
   previousThesis: BrainThesis | null;
   journal: { id: string; at: number; label: string; strength: string; confidence: number; endedAt: number | null; reasonEnded: string | null }[];
   events: PerceptionEvent[];
-  /** What THE BRAIN has actually said, newest first. The screen speaks these; it never writes its own. */
+  /** What ATLAS has actually said, newest first. The screen speaks these; it never writes its own. */
   statements: { at: number; kind: string; text: string; channel: string }[];
   changes: { horizon: string; priceMove: number; pipsMove: number; pressureFrom: number; pressureTo: number; regimeChanged: boolean }[];
   scenario: { bull: string; bear: string; neutral: string } | null;
@@ -63,14 +63,14 @@ export type LiveState = {
   blockers: { code: string; detail: string }[];
   /** Present and active only when this member has an open position. */
   trade: TradeState;
-  /** What THE BRAIN currently wants to do about gold. Null until a member context exists. */
+  /** What ATLAS currently wants to do about gold. Null until a member context exists. */
   setup: BrainSetup;
   /** Where the Command Center is in its own lifecycle. The screen changes emphasis from this. */
   experience: Experience;
-  /** The boundaries THE BRAIN is working inside. */
+  /** The boundaries ATLAS is working inside. */
   profile: TradingProfile;
   /**
-   * What the member has asked THE BRAIN to watch, still armed.
+   * What the member has asked ATLAS to watch, still armed.
    *
    * Shown so a promise is visible rather than remembered. A member who said "watch the London high" an
    * hour ago should be able to SEE that it is still armed, and how close it is, without asking.
@@ -110,8 +110,8 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
   if (!latest) {
     return empty(
       marketIsOpen
-        ? "THE BRAIN has not written a market read yet."
-        : "Gold is closed. THE BRAIN resumes when the market reopens.",
+        ? "ATLAS has not written a market read yet."
+        : "Gold is closed. ATLAS resumes when the market reopens.",
       marketIsOpen,
     );
   }
@@ -123,10 +123,10 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
   const openThesis = [...rolling.theses].reverse().find((t) => !t.endedAt) ?? null;
   const closed = rolling.theses.filter((t) => t.endedAt).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
 
-  // The BRAIN state the worker last wrote is authoritative; if none exists yet (first minutes after a
+  // Atlas state the worker last wrote is authoritative; if none exists yet (first minutes after a
   // deploy) it is recomputed here with the same pure function rather than left blank.
-  // Presence and the state computation need the trade, so the trade is read first and the BRAIN state
-  // is built with it. Once a position exists, THE BRAIN's attention is supposed to visibly narrow.
+  // Presence and the state computation need the trade, so the trade is read first and Atlas state
+  // is built with it. Once a position exists, ATLAS's attention is supposed to visibly narrow.
   const profile = userId ? await getProfile(userId) : { ...DEFAULT_PROFILE };
   const preTrade = userId ? await tradeState(userId, s, diffs) : emptyTrade();
   const protecting = preTrade.active && (preTrade.protection?.action === "protect_stop" || preTrade.protection?.action === "close" || preTrade.character?.state === "character_change");
@@ -146,7 +146,7 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
   const stale = ageMs > STALE_MS;
 
   /*
-   * THE BRAIN's own trade decision.
+   * ATLAS's own trade decision.
    *
    * Computed from the SAME snapshot the screen is about to render and the member's own profile, so what
    * the member is shown and what the server would execute can never be two different reads of gold. A
@@ -158,7 +158,7 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
     diffs,
     profile: asSetupProfile(profile),
     marketOpen: marketIsOpen && !stale,
-    // The standing market thesis is fed back in so the trade card and BRAIN THESIS cannot contradict
+    // The standing market thesis is fed back in so the trade card and ATLAS THESIS cannot contradict
     // each other on the same screen.
     thesisBias: openThesis?.bias ?? null,
     thesisConfidence: openThesis?.confidence ?? null,

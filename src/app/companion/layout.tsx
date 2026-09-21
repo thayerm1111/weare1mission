@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getProfile } from "@/lib/auth";
 
-export const metadata = { title: "THE BRAIN", robots: { index: false, follow: false } };
+export const metadata = { title: "ATLAS", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
 
 /**

@@ -45,7 +45,7 @@ export function velocityBand(s: MarketSnapshot): VelocityBand {
   return "calm";
 }
 
-/** 0 = perfectly still, 100 = violent. This is what the BRAIN core visual breathes to. */
+/** 0 = perfectly still, 100 = violent. This is what Atlas core visual breathes to. */
 export function intensity(s: MarketSnapshot): number {
   const f = s.timeframes[EXEC]?.features;
   if (!f) return 4;

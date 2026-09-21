@@ -1,7 +1,7 @@
 /**
  * TRADE STYLE — QUICK, INTRADAY, SWING.
  *
- * These are NOT three take-profit distances with different names. A style changes what THE BRAIN pays
+ * These are NOT three take-profit distances with different names. A style changes what ATLAS pays
  * attention to, how long it gives the trade to prove itself, how fast it protects, and — most importantly
  * — what it is willing to ignore. A five-minute wobble is information in a QUICK trade and noise in a
  * SWING one, and a system that reacts to both identically will either panic out of good swings or sit

@@ -6,16 +6,16 @@
  * owner rather than an accident of the schema: two different strategies may both have an opinion
  * about gold on the same account, and each is responsible for its own position from entry to exit.
  *
- * An earlier version of this file gave the account to FLOW outright and made THE BRAIN stand down.
+ * An earlier version of this file gave the account to FLOW outright and made ATLAS stand down.
  * That was the wrong reading of "no overlap". The overlap that matters is strategy and execution —
  * one engine second-guessing, re-managing or closing a trade the other opened — not the account.
  *
  * WHAT IS ENFORCED HERE:
  *
- *   One BRAIN position per account. THE BRAIN will not stack its own trades. FLOW's positions are
+ *   One BRAIN position per account. ATLAS will not stack its own trades. FLOW's positions are
  *   counted separately and do not stop it, because FLOW's trade is FLOW's business.
  *
- *   THE BRAIN manages only what THE BRAIN opened. This is already structural — the two engines keep
+ *   ATLAS manages only what ATLAS opened. This is already structural — the two engines keep
  *   their positions in different tables and address them by different ids, so neither can reach the
  *   other's by accident — and `brainOwnsPosition` makes it checkable rather than merely true.
  *
@@ -48,9 +48,9 @@ export type Availability =
   | { available: false; reason: string };
 
 /**
- * May THE BRAIN open a gold position on this broker account right now?
+ * May ATLAS open a gold position on this broker account right now?
  *
- * Only THE BRAIN's own open positions can say no. FLOW may be in gold on the same account and that
+ * Only ATLAS's own open positions can say no. FLOW may be in gold on the same account and that
  * is fine — it is running its own strategy and managing its own trade.
  */
 export async function accountAvailableToBrain(
@@ -84,17 +84,17 @@ export async function accountAvailableToBrain(
       .limit(4);
     if (error) throw new Error(error.message);
     if ((data ?? []).length) {
-      return { available: false, reason: `THE BRAIN already has a position open on ${label}.` };
+      return { available: false, reason: `ATLAS already has a position open on ${label}.` };
     }
   } catch (e) {
-    return { available: false, reason: `Could not read THE BRAIN's positions (${String(e).slice(0, 80)}).` };
+    return { available: false, reason: `Could not read ATLAS's positions (${String(e).slice(0, 80)}).` };
   }
 
   return { available: true };
 }
 
 /**
- * Is this position one THE BRAIN opened, and therefore one it may act on?
+ * Is this position one ATLAS opened, and therefore one it may act on?
  *
  * The autonomous manager asks before every action. It should always be true — the manager only ever
  * reads `cc_positions` — and the day it is not, something has gone wrong in a way that must stop

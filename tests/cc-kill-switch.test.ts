@@ -1,7 +1,7 @@
 /**
  * THE OFF SWITCH.
  *
- * The owner's requirement is simple and absolute: when he switches THE BRAIN off, it stops. Everything
+ * The owner's requirement is simple and absolute: when he switches ATLAS off, it stops. Everything
  * here is about the one way that promise can quietly break — a database blip immediately after the
  * switch is thrown, answering "I don't know" and being read as "carry on".
  */

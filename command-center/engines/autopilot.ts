@@ -1,5 +1,5 @@
 /**
- * THE BRAIN, TRADING BY ITSELF.
+ * ATLAS, TRADING BY ITSELF.
  *
  * Until now "Enter trades without asking" stored a boolean that nothing read. The toggle was there,
  * the badge said AUTHORISED, and no code path could ever send an order — Command Center was a
@@ -25,7 +25,7 @@
  * to change.
  *
  * WHAT IT WILL NOT DO, EVER:
- *   • Place on an account where FLOW or THE BRAIN already holds gold (engines/interlock.ts). The two
+ *   • Place on an account where FLOW or ATLAS already holds gold (engines/interlock.ts). The two
  *     engines cannot see each other's tables, so this is checked before anything else.
  *   • Place without a signed risk disclosure, or on an unauthorised live account. Both are enforced
  *     again inside takeSetup; the checks here exist so the refusal is logged with a reason.
@@ -159,7 +159,7 @@ const SETTLE_AFTER_ENTRY_MS = Number(process.env.CC_SETTLE_MS ?? 5 * 60_000);
 
 async function actedRecently(accountRowId: string): Promise<{ blocked: boolean; detail: string }> {
   const c = db();
-  if (!c) return { blocked: true, detail: "Cannot read the action log, so THE BRAIN cannot tell whether it just entered." };
+  if (!c) return { blocked: true, detail: "Cannot read the action log, so ATLAS cannot tell whether it just entered." };
 
   const window = SETTLE_AFTER_ENTRY_MS;
   const since = new Date(Date.now() - window).toISOString();
@@ -241,7 +241,7 @@ export async function autopilotTick(input: {
 
     // 3 — ONE BRAIN POSITION PER ACCOUNT. FLOW may be in gold on this same account running its own
     //     strategy; that is allowed and is not our business. What is our business is not stacking
-    //     THE BRAIN's own trades on top of each other.
+    //     ATLAS's own trades on top of each other.
     const owns = await accountAvailableToBrain(a.id, a.acc_num);
     if (!owns.available) {
       await record({ user_id: a.user_id, account_row_id: a.id, acc_num: a.acc_num, mode, acted: false,
@@ -249,7 +249,7 @@ export async function autopilotTick(input: {
       continue;
     }
 
-    // 4 — what does THE BRAIN actually see, for this member's own profile?
+    // 4 — what does ATLAS actually see, for this member's own profile?
     const profile = await getProfile(a.user_id);
     const setup = findSetup({
       snapshot: input.snapshot,
@@ -328,7 +328,7 @@ export async function autopilotTick(input: {
     }
 
     // 6 — live. takeSetup re-derives the setup server-side and refuses on drift, so what is sent is
-    //     what THE BRAIN believes at the instant of sending, not what this loop saw a moment ago.
+    //     what ATLAS believes at the instant of sending, not what this loop saw a moment ago.
     lastActed.set(key, { sig, at: Date.now() });
     const idem = `auto:${a.id}:${sig}:${Math.floor(Date.now() / REPEAT_COOLDOWN_MS)}`;
     try {

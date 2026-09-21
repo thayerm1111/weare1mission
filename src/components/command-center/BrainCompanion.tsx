@@ -7,7 +7,7 @@ import { VoiceSession, type VoiceStatus } from "./VoiceSession";
 import { isDesktop, onSummoned, openCommandCenter, setAlwaysOnTop, setCompanionSize, followEverywhere } from "@/lib/desktop";
 
 /**
- * THE BRAIN COMPANION.
+ * ATLAS COMPANION.
  *
  * A small presence that sits in the corner of a working day and knows one instrument extremely well.
  * It is not a second Command Center and it is emphatically not a miniature broker terminal: it shows
@@ -96,7 +96,7 @@ function stateOf(d: Live | null, booting: boolean): { word: string; tone: string
 
 /** The single line the companion says. One, chosen by what matters most right now. */
 function oneLine(d: Live | null, booting: boolean): string {
-  if (booting) return "Reaching THE BRAIN…";
+  if (booting) return "Reaching ATLAS…";
   if (!d || !d.ok) return "I can't reach the server. Nothing here is live.";
   if (!d.connected || !d.marketOpen) return d.reason ?? d.summary ?? "Nothing live to read.";
   const t = d.trade;
@@ -198,7 +198,7 @@ export default function BrainCompanion() {
       {/* Drag handle. On the web it is simply a header; the attribute means nothing outside the shell. */}
       <div data-tauri-drag-region className="flex items-center justify-between gap-2 px-3 pt-2.5 pb-1.5 select-none">
         <p data-tauri-drag-region className="flex items-baseline gap-2 text-[9.5px] font-bold uppercase tracking-[0.2em]" style={{ color: C.gold }}>
-          The Brain
+          Atlas
           {/* The line's own state, reported by the session rather than guessed at from out here. */}
           {open && voice !== "idle" && (
             <span style={{ color: VOICE_TONE[voice] ?? C.mut2 }}>{VOICE_WORD[voice] ?? ""}</span>
@@ -247,7 +247,7 @@ export default function BrainCompanion() {
         {/*
           * THE QUESTION.
           *
-          * The thing THE BRAIN is actually trying to answer about gold right now, and the most
+          * The thing ATLAS is actually trying to answer about gold right now, and the most
           * revealing sentence on the full screen — it says what the system is uncertain about, which
           * is more useful than any number it is certain of. Shown only while there is a market to be
           * uncertain about.
@@ -312,7 +312,7 @@ export default function BrainCompanion() {
           className="inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.14em]"
           style={{ background: open ? "rgba(255,255,255,0.04)" : "rgba(240,196,117,0.14)", color: open ? C.mut : C.gold, border: `1px solid ${open ? C.line : "rgba(240,196,117,0.30)"}` }}>
           <ChevronUp className="h-3.5 w-3.5" style={{ transform: open ? "rotate(180deg)" : undefined }} />
-          {open ? "Close the line" : "Talk to THE BRAIN"}
+          {open ? "Close the line" : "Talk to ATLAS"}
         </button>
       </div>
     </div>

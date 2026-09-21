@@ -26,7 +26,7 @@ export type WatchKind =
   | "retest_fail"      // it broke, came back, and failed to hold — the one people actually ask for
   | "pressure"         // one side's pressure crosses a threshold
   | "structure"        // structure breaks on a timeframe
-  | "setup_ready"      // THE BRAIN's own setup reaches TRADE READY
+  | "setup_ready"      // ATLAS's own setup reaches TRADE READY
   | "price";           // plain price touch
 
 export type Watch = {
@@ -62,7 +62,7 @@ export type ParsedWatch = {
   direction: "above" | "below" | "either";
   params: Record<string, number | string | boolean>;
   ttlMs: number;
-  /** What THE BRAIN will say back, so the member can hear whether it understood. */
+  /** What ATLAS will say back, so the member can hear whether it understood. */
   confirm: string;
 };
 

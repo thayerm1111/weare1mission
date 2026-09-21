@@ -1,5 +1,5 @@
 /**
- * THE BRAIN — CONTRACTS
+ * ATLAS — CONTRACTS
  *
  * The deterministic engine under command-center/core answers "what is true now?". These types answer the
  * question that makes an intelligence feel alive: "what just changed, and does it matter?"
@@ -12,7 +12,7 @@ import type { Level, MarketSnapshot, Regime, SessionName, TfState, Timeframe } f
 /* ───────────────────────────── horizons ───────────────────────────── */
 
 /**
- * The look-back windows The BRAIN compares against. These are the windows the data can actually support:
+ * The look-back windows Atlas compares against. These are the windows the data can actually support:
  * the market read is rebuilt from closed bars plus a live price poll, so a "one second ago" comparison
  * would be invented rather than measured. We compare what we really have.
  */
@@ -89,7 +89,7 @@ export type EventCode =
   | "FEED_DEGRADED" | "MARKET_CLOSED" | "MARKET_OPENED";
 
 /**
- * How loud an event is allowed to be. The BRAIN earning the right to stay quiet is what makes it worth
+ * How loud an event is allowed to be. Atlas earning the right to stay quiet is what makes it worth
  * listening to when it does speak — a professional does not narrate every tick.
  */
 export type Channel = "silent" | "visual" | "stream" | "text" | "voice" | "urgent";
@@ -129,7 +129,7 @@ export type PerceptionEvent = {
 /* ───────────────────────────── presence ───────────────────────────── */
 
 /**
- * The BRAIN's current internal state. The screen shows this so the intelligence itself visibly
+ * Atlas's current internal state. The screen shows this so the intelligence itself visibly
  * notices things, rather than the user having to hunt for a changed number.
  */
 export type Presence =
@@ -223,7 +223,7 @@ export type BrainMemory = {
 
 /* ───────────────────────────── conversation ───────────────────────────── */
 
-/** The safe, defined UI actions The BRAIN may take. It never gets arbitrary control of the page. */
+/** The safe, defined UI actions Atlas may take. It never gets arbitrary control of the page. */
 export type UiActionName =
   | "FOCUS_TIMEFRAME" | "FOCUS_PRICE_RANGE" | "SHOW_LEVEL" | "SHOW_SESSION"
   | "SHOW_SCENARIO" | "SHOW_EVENT" | "SHOW_TRADE" | "SHOW_METRICS" | "MARK_CHART"

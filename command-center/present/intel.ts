@@ -1,7 +1,7 @@
 /**
  * THE INTELLIGENCE PRESENTATION LAYER — gauges, not steering.
  *
- * Everything in this folder turns what THE BRAIN has ALREADY measured into things a person can read at a
+ * Everything in this folder turns what ATLAS has ALREADY measured into things a person can read at a
  * glance: pressure trends, a structure summary, liquidity above and below, scenario ranking, a velocity
  * and volatility band. It exists so the Command Center screen can show far more of the engine's own
  * state without inventing a second opinion.
@@ -282,7 +282,7 @@ export function buildIntel(i: {
     ...ab.below.slice(0, 3).map((l) => ({ price: l.price, label: l.label, role: (inv != null && Math.abs(inv - l.price) < 0.3 ? "invalidation" : "support") as Intel["keyLevels"][number]["role"], watched: near(l.price, watched) })),
   ];
   for (const w of watched) {
-    if (!keyLevels.some((k) => Math.abs(k.price - w) < 0.3)) keyLevels.push({ price: r2(w), label: "Brain watch level", role: "watch", watched: true });
+    if (!keyLevels.some((k) => Math.abs(k.price - w) < 0.3)) keyLevels.push({ price: r2(w), label: "Atlas watch level", role: "watch", watched: true });
   }
   if (inv != null && !keyLevels.some((k) => Math.abs(k.price - inv) < 0.3)) keyLevels.push({ price: r2(inv), label: "Read fails here", role: "invalidation", watched: false });
   keyLevels.sort((a, b) => b.price - a.price);
@@ -300,10 +300,10 @@ export function buildIntel(i: {
   let path: Intel["path"] = null;
   if (bias === "bearish" && dn1 != null) {
     const retest = up1 != null && up1 - s.price < (s.price - dn1) * 1.2 ? up1 : null;
-    path = { points: [s.price, ...(retest != null ? [r2((s.price + retest) / 2)] : []), dn1, ...(dn2 != null ? [dn2] : [])], label: "Brain scenario · potential path" };
+    path = { points: [s.price, ...(retest != null ? [r2((s.price + retest) / 2)] : []), dn1, ...(dn2 != null ? [dn2] : [])], label: "Atlas scenario · potential path" };
   } else if (bias === "bullish" && up1 != null) {
     const retest = dn1 != null && s.price - dn1 < (up1 - s.price) * 1.2 ? dn1 : null;
-    path = { points: [s.price, ...(retest != null ? [r2((s.price + retest) / 2)] : []), up1, ...(up2 != null ? [up2] : [])], label: "Brain scenario · potential path" };
+    path = { points: [s.price, ...(retest != null ? [r2((s.price + retest) / 2)] : []), up1, ...(up2 != null ? [up2] : [])], label: "Atlas scenario · potential path" };
   }
 
   const news = s.news?.nextEvent
@@ -319,7 +319,7 @@ export function buildIntel(i: {
     if (!Number.isFinite(price) || radar.some((b) => Math.abs(b.price - price) < 0.15)) return;
     radar.push({ price: +price.toFixed(2), kind, label, meaning, swept, side: price >= s.price ? "above" : "below", distance: +Math.abs(price - s.price).toFixed(2) });
   };
-  for (const w of watched) pushBlip(w, "watch", "Brain watch level", "THE BRAIN is watching this price for its current read.", isSwept(w));
+  for (const w of watched) pushBlip(w, "watch", "Atlas watch level", "ATLAS is watching this price for its current read.", isSwept(w));
   for (const l of ab.above.slice(0, 6)) {
     pushBlip(l.price, "buyside", l.label, `Above price — ${isSwept(l.price) ? "already swept once. " : ""}Potential liquidity: stops from shorts and breakout orders usually sit above a level like this.`, isSwept(l.price));
   }

@@ -1,8 +1,8 @@
 /**
- * THE BRAIN'S MARKET THESIS — what it currently believes, and its willingness to say it was wrong.
+ * ATLAS'S MARKET THESIS — what it currently believes, and its willingness to say it was wrong.
  *
  * Distinct from core/thesis.ts, which is the thesis attached to an individual TRADE. This one is the
- * running market read: the thing The BRAIN would answer "why are you bullish?" with, and the thing it
+ * running market read: the thing Atlas would answer "why are you bullish?" with, and the thing it
  * must be able to retract out loud when the market stops agreeing with it.
  *
  * The design rule that matters: a thesis is APPENDED to, never rewritten. When the read changes, the old
@@ -160,7 +160,7 @@ export type ThesisUpdate = {
   thesis: BrainThesis;
   previous: BrainThesis | null;
   change: "none" | "strengthened" | "weakened" | "changed_mind" | "opened";
-  /** What The BRAIN should say about the change, in its own voice. Empty when nothing changed. */
+  /** What Atlas should say about the change, in its own voice. Empty when nothing changed. */
   statement: string;
 };
 

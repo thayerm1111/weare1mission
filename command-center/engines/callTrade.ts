@@ -1,17 +1,17 @@
 /**
- * TAKING THE BRAIN'S TRADE.
+ * TAKING ATLAS'S TRADE.
  *
  * One member taps TAKE THIS TRADE. Everything between that tap and a live order lives here, and the
  * shape of it is governed by one idea: THE MEMBER APPROVES A SPECIFIC TRADE, NOT A BUTTON.
  *
  * So the numbers that reach the broker are never the numbers the browser sent. The setup is recomputed
  * on the server from the current market read, and then compared against the one the member was actually
- * looking at. If gold has moved, or THE BRAIN has changed its mind, or the stop is no longer where it was,
+ * looking at. If gold has moved, or ATLAS has changed its mind, or the stop is no longer where it was,
  * the order is NOT sent — the member is shown what changed and asked again. A browser that has been open
  * for four minutes is a stale opinion, and executing on it would be executing on a screenshot.
  *
  * The second idea: risk comes from the PROFILE, never from the request. The member sets how much of their
- * account THE BRAIN may use once, deliberately, in a place designed for that decision. A per-trade risk
+ * account ATLAS may use once, deliberately, in a place designed for that decision. A per-trade risk
  * value arriving in a POST body is exactly the kind of thing that is one bug away from being 20%.
  */
 import { requireConsent } from "./consent";
@@ -72,7 +72,7 @@ export async function takeSetup(
 
   const profile = await getProfile(userId);
 
-  // 1 — what does THE BRAIN say RIGHT NOW? Not what the browser remembers.
+  // 1 — what does ATLAS say RIGHT NOW? Not what the browser remembers.
   const setup = findSetup({
     snapshot,
     profile: asSetupProfile(profile),

@@ -5,7 +5,7 @@ import { X } from "lucide-react";
 import { isDesktop } from "@/lib/desktop";
 
 /**
- * THE BRAIN BRINGING YOU A TRADE, instead of waiting to be asked.
+ * ATLAS BRINGING YOU A TRADE, instead of waiting to be asked.
  *
  * Everything needed to find a setup already existed: the engine has always produced one, and the
  * screen has always shown it. What was missing is the part that matters when you are working on
@@ -94,13 +94,13 @@ export function TradeAlert({
             await import("@tauri-apps/plugin-notification");
           const ok = (await isPermissionGranted()) || (await requestPermission()) === "granted";
           if (ok) sendNotification({
-            title: `THE BRAIN has a trade ready`,
+            title: `ATLAS has a trade ready`,
             body: `${setup.side === "buy" ? "Buy" : "Sell"} XAUUSD · ${setup.style ?? ""} — ${setup.headline}`,
           });
           return;
         }
         if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-          new Notification("THE BRAIN has a trade ready", {
+          new Notification("ATLAS has a trade ready", {
             body: `${setup.side === "buy" ? "Buy" : "Sell"} XAUUSD · ${setup.style ?? ""} — ${setup.headline}`,
           });
         }
@@ -154,7 +154,7 @@ export function TradeAlert({
 
         <div className="flex items-center justify-between border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
           <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: C.gold }}>
-            THE BRAIN · trade ready
+            ATLAS · trade ready
           </p>
           <button onClick={() => setShown(null)} className="rounded-lg p-1" style={{ color: C.mut2 }} aria-label="Dismiss">
             <X className="h-3.5 w-3.5" />

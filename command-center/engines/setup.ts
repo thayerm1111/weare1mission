@@ -1,8 +1,8 @@
 /**
- * SETUP ORIGINATION — THE BRAIN decides whether there is a trade.
+ * SETUP ORIGINATION — ATLAS decides whether there is a trade.
  *
  * This is the file that inverts the product. Before it, the member picked a side, a style and a stop and
- * the system graded the result; that is a trade ticket with an opinion attached. After it, THE BRAIN
+ * the system graded the result; that is a trade ticket with an opinion attached. After it, ATLAS
  * watches gold, forms its own view, and either presents a complete trade — side, style, entry, stop,
  * objectives, reasoning, invalidation — or says, in words, that it is staying out.
  *
@@ -32,7 +32,7 @@ import type { Bias, SnapshotDiff } from "../brain/types";
 
 export type SetupState =
   | "blocked"              // something upstream means no trade may be considered at all
-  | "no_setup"             // THE BRAIN has looked and does not want a trade here
+  | "no_setup"             // ATLAS has looked and does not want a trade here
   | "watching"             // a direction it likes, without a trade yet
   | "setup_developing"     // some of what it needs has happened
   | "waiting_for_trigger"  // everything but the entry trigger
@@ -45,7 +45,7 @@ export const SETUP_RANK: Record<SetupState, number> = {
   watching: 1, setup_developing: 2, waiting_for_trigger: 3, trade_ready: 4,
 };
 
-/** One thing THE BRAIN needs to see. Every condition is a live boolean over the current snapshot. */
+/** One thing ATLAS needs to see. Every condition is a live boolean over the current snapshot. */
 export type SetupCondition = {
   id: string;
   /** What the member reads: "Hold above 4382.30". */
@@ -91,7 +91,7 @@ export type BrainSetup = {
   invalidationPrice: number | null;
   /** When there is no trade: exactly what would have to happen for there to be one. */
   waitingFor: string[];
-  /** THE BRAIN's own words about the current state. Read aloud unchanged. */
+  /** ATLAS's own words about the current state. Read aloud unchanged. */
   say: string;
   /** Short headline for the button/strip. */
   headline: string;
@@ -117,7 +117,7 @@ export type SetupProfile = {
   allowQuick: boolean;
   allowHold: boolean;
   allowSwing: boolean;
-  /** The minimum confidence THE BRAIN must have before it is willing to present a trade at all. */
+  /** The minimum confidence ATLAS must have before it is willing to present a trade at all. */
   minConfidence: number;
 };
 
@@ -202,7 +202,7 @@ export function styleFits(s: MarketSnapshot, side: Side, profile: SetupProfile, 
     const decisive = pol.decisive.map((t) => tf(s, t)).filter(Boolean) as TfView[];
     // A style needs at least ONE of its own decisive timeframes to be readable. Requiring two looked
     // prudent and was not: when a single timeframe was briefly missing — which happens whenever a higher
-    // timeframe has not accumulated enough bars yet — every style was excluded at once, and THE BRAIN
+    // timeframe has not accumulated enough bars yet — every style was excluded at once, and ATLAS
     // fell through to "nothing has set up cleanly", blaming the market for its own blind spot. Missing
     // data is now a PENALTY that is said out loud, never a silent veto.
     if (!decisive.length) continue;
@@ -282,7 +282,7 @@ export type Candidate = {
 };
 
 /**
- * Every strategy THE BRAIN knows, evaluated against one timeframe.
+ * Every strategy ATLAS knows, evaluated against one timeframe.
  *
  * Each returns a candidate only when the evidence for it genuinely exists on that timeframe. A missing
  * swing, a missing range or an absent break means no candidate — never a candidate with a guessed number.
@@ -515,9 +515,9 @@ export type FindSetupInput = {
   /** The broker's real pip size when an account is connected; gold's 0.1 otherwise. */
   pipSize?: number;
   /**
-   * THE BRAIN's own open market thesis, when it has one.
+   * ATLAS's own open market thesis, when it has one.
    *
-   * Used as hysteresis, not as a veto. THE BRAIN already refuses to flip its market read more than once
+   * Used as hysteresis, not as a veto. ATLAS already refuses to flip its market read more than once
    * every eight minutes; without feeding that back in here, the SETUP could flip from long to short in
    * two, and a member would watch it contradict itself on the same screen. A setup that argues against
    * the standing thesis is still allowed — a sweep and reclaim is exactly that — but it has to be more
@@ -537,7 +537,7 @@ const BIAS_SIDE: Partial<Record<Bias, Side>> = {
  * Look at gold and decide whether there is a trade.
  *
  * Pure: the same snapshot always produces the same answer, which is what makes the replay harness able to
- * prove what THE BRAIN would have said at any moment of a recorded session.
+ * prove what ATLAS would have said at any moment of a recorded session.
  */
 export function findSetup(i: FindSetupInput): BrainSetup {
   const now = i.now ?? Date.now();
@@ -565,14 +565,14 @@ export function findSetup(i: FindSetupInput): BrainSetup {
    * down because both were invisible in synthetic fixtures:
    *
    *   • The first version took the first candidate whose style was allowed and, if its stop did not fit,
-   *     declared there was no trade in the market at all. One daily-scale break silenced THE BRAIN for a
+   *     declared there was no trade in the market at all. One daily-scale break silenced ATLAS for a
    *     whole session while four other candidates sat unexamined.
    *
    *   • The second version aimed at the nearest level ahead, and so offered a trade risking 107 pips to
    *     make 28 — with ninety confidence. Being right about direction does not rescue that arithmetic.
    *
    * So a candidate is never rejected on behalf of the whole market: it is rejected FOR THAT PAIRING, the
-   * reason is kept, and the next pairing is tried. Only when nothing at all survives does THE BRAIN speak,
+   * reason is kept, and the next pairing is tried. Only when nothing at all survives does ATLAS speak,
    * and then it says the most specific true thing it found rather than a generic refusal.
    */
   const viable: Priced[] = [];
@@ -637,14 +637,14 @@ export function findSetup(i: FindSetupInput): BrainSetup {
   else if (nonTriggerMet >= Math.ceil(nonTrigger.length / 2)) state = "setup_developing";
   else state = "watching";
 
-  // A trade THE BRAIN is not confident enough about is never presented as ready. It stays a watch.
+  // A trade ATLAS is not confident enough about is never presented as ready. It stays a watch.
   if (state === "trade_ready" && confidence < profile.minConfidence) state = "waiting_for_trigger";
 
   /*
-   * Hysteresis against THE BRAIN's own standing market thesis.
+   * Hysteresis against ATLAS's own standing market thesis.
    *
    * The thesis engine will not flip its read more than once every eight minutes, on purpose. If the setup
-   * engine ignored that, a member could watch BRAIN THESIS say "bullish continuation" while the trade
+   * engine ignored that, a member could watch ATLAS THESIS say "bullish continuation" while the trade
    * card underneath it offered a SELL — the two halves of the same mind disagreeing on one screen. A
    * counter-thesis setup is still allowed, because a sweep and reclaim IS a counter-thesis trade; it just
    * has to clear a higher bar and say plainly that it is arguing with the house view.

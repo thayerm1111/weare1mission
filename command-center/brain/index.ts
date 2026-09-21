@@ -1,8 +1,8 @@
 /**
- * THE BRAIN — the perception pass.
+ * ATLAS — the perception pass.
  *
  * One function, run on every worker tick, that turns "a new snapshot arrived" into everything the product
- * needs: what changed, what was worth noticing, how loud it is allowed to be, what The BRAIN now believes,
+ * needs: what changed, what was worth noticing, how loud it is allowed to be, what Atlas now believes,
  * and whether it should say something out loud.
  *
  * It is pure. Persistence and the language model live outside it, so this whole pipeline can be replayed

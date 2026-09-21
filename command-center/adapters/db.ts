@@ -70,7 +70,7 @@ export async function pruneSnapshots(keepDays = 14): Promise<void> {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   THE BRAIN — perception, opinions and memory.
+   ATLAS — perception, opinions and memory.
    Same rule as above: one function per table, so the schema has one place that knows it.
    ══════════════════════════════════════════════════════════════════════════════ */
 
@@ -169,7 +169,7 @@ export async function latestWithBars(): Promise<{ id: number; snapshot: MarketSn
 }
 
 /**
- * Rebuild The BRAIN's rolling memory from the database.
+ * Rebuild Atlas's rolling memory from the database.
  *
  * This is what lets awareness survive a worker restart and lets a browser that has just opened see the
  * same history the worker has been accumulating — the market does not stop when a process does.
@@ -226,7 +226,7 @@ export async function loadRolling(windowMs = 80 * 60_000): Promise<Rolling> {
   return r;
 }
 
-/** The day's opinions, in order — the BRAIN JOURNAL. */
+/** The day's opinions, in order — Atlas JOURNAL. */
 export async function thesisJournal(sinceIso: string): Promise<Record<string, unknown>[]> {
   const c = db();
   if (!c) return [];

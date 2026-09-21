@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * TEACH THE BRAIN.
+ * TEACH ATLAS.
  *
  * The trader says what they see, in their own words, and it is stored against the exact market state at
  * that moment — price, regime, pressure, the timeframe read and the levels in play. A lesson without the

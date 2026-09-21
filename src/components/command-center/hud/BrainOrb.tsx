@@ -2,10 +2,10 @@
 import { useEffect, useRef } from "react";
 
 /**
- * THE BRAIN CORE — the golden intelligence sphere with its orbital instrument rings.
+ * ATLAS CORE — the golden intelligence sphere with its orbital instrument rings.
  *
  * Its motion is tied to state, not decoration: rotation speed follows market intensity, the pulse
- * colour follows the Brain state (cyan watching, gold opportunity, green in a trade, red on a risk
+ * colour follows Atlas state (cyan watching, gold opportunity, green in a trade, red on a risk
  * event), and a new thesis sends one ring of light outward. With no live market it slows almost to a
  * stop and desaturates — it never pretends to be watching a feed that is not arriving.
  */
@@ -145,5 +145,5 @@ export function BrainOrb({ state, intensity, alive, pulseKey, size = 240 }: {
     return () => cancelAnimationFrame(raf);
   }, [size]);
 
-  return <canvas ref={ref} style={{ width: size, height: size, display: "block" }} aria-label="THE BRAIN core" />;
+  return <canvas ref={ref} style={{ width: size, height: size, display: "block" }} aria-label="ATLAS core" />;
 }

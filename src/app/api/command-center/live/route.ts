@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 /**
  * COMMAND CENTER XAUUSD — THE LIVE READ.
  *
- * One request, the whole living state: price, market read, THE BRAIN's presence and thesis, what it has
+ * One request, the whole living state: price, market read, ATLAS's presence and thesis, what it has
  * noticed, and the candles it read it from. The screen renders this and computes no market opinion of
  * its own, so what you see is always what the engine actually measured.
  */
@@ -16,7 +16,7 @@ function json(o: unknown, s = 200) {
   return new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }
 
-/** The BRAIN JOURNAL covers the current trading day, measured from the 17:00 New York close. */
+/** Atlas JOURNAL covers the current trading day, measured from the 17:00 New York close. */
 function dayStart(now = new Date()): Date {
   const ny = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
   const start = new Date(ny);
@@ -38,7 +38,7 @@ export async function GET() {
      *
      * The journal behind Today's Brain started at the current trading day, which on a Saturday is a
      * day in which nothing happened — so the panel read "No reads recorded today yet" all weekend,
-     * as though THE BRAIN had never said anything. The last thing it said about gold is exactly what
+     * as though ATLAS had never said anything. The last thing it said about gold is exactly what
      * somebody wants while the market is closed, so the window widens to the last week and the panel
      * shows the most recent reads instead of an empty box.
      */

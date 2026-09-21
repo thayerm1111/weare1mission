@@ -1,7 +1,7 @@
 /**
  * WHAT ALREADY HAPPENED.
  *
- * THE BRAIN could describe the present in great detail and remembered nothing. Asked what gold did last
+ * ATLAS could describe the present in great detail and remembered nothing. Asked what gold did last
  * week it answered that the market was closed — true, irrelevant, and the giveaway that every question
  * was being routed through one live snapshot. A trader who cannot discuss last Tuesday is not a trader
  * you can talk to.
@@ -245,6 +245,6 @@ export function retrospectiveLines(r: Retrospective): string[] {
       ? ["each session separately:", ...r.days.map((d) =>
           `  ${new Date(d.at).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short", timeZone: "UTC" })}: open ${px(d.o)}, high ${px(d.h)}, low ${px(d.l)}, close ${px(d.c)} (${pips(d.movePips)} pips)`)]
       : []),
-    `NOTE: this is measured price history. It is NOT a record of what THE BRAIN thought at the time — that was not being stored, so do not claim to have called any of it.`,
+    `NOTE: this is measured price history. It is NOT a record of what ATLAS thought at the time — that was not being stored, so do not claim to have called any of it.`,
   ].filter(Boolean);
 }

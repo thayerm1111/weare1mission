@@ -23,9 +23,9 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 45;
 
 /**
- * TALK TO THE BRAIN.
+ * TALK TO ATLAS.
  *
- * The conversation is always grounded: the latest MarketSnapshot, what changed, what THE BRAIN has
+ * The conversation is always grounded: the latest MarketSnapshot, what changed, what ATLAS has
  * already said and what it currently believes are attached to every single turn. The user never has to
  * tell it the price of gold.
  *
@@ -42,7 +42,7 @@ function json(o: unknown, s = 200) {
   return new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }
 
-/** The ONLY UI actions THE BRAIN may take. Anything it emits outside this list is discarded silently. */
+/** The ONLY UI actions ATLAS may take. Anything it emits outside this list is discarded silently. */
 const ALLOWED: UiActionName[] = [
   "FOCUS_TIMEFRAME", "FOCUS_PRICE_RANGE", "SHOW_LEVEL", "SHOW_SESSION",
   "SHOW_SCENARIO", "SHOW_EVENT", "SHOW_TRADE", "SHOW_METRICS", "MARK_CHART",
@@ -95,11 +95,11 @@ export async function POST(req: Request) {
 
   const memory = await liveMemory();
   // The open position travels with EVERY turn, so "how's my trade?" is answered from the actual trade
-  // and the member never has to tell THE BRAIN what they are in.
+  // and the member never has to tell ATLAS what they are in.
   const trade = await tradeState(user.id, memory.now);
   const tradeSummary = trade.active ? tradeSummaryLines(trade) : null;
 
-  // THE TRADE THE BRAIN CURRENTLY WANTS travels with every turn as well, computed by the same engine the
+  // THE TRADE ATLAS CURRENTLY WANTS travels with every turn as well, computed by the same engine the
   // screen and the executor use. "Find me a trade" is then a question the conversation can only REPORT
   // the answer to — it has no path to improvising an entry, a stop or a target of its own.
   const profile = await getProfile(user.id);
@@ -200,10 +200,10 @@ export async function POST(req: Request) {
     if (trade.active && trade.read && /trade|position|protect|partial|break even|drawdown|how.?s my/i.test(message)) {
       const r = { ...fallback, spokenText: trade.read, tradeRead: trade.read };
       await saveStatement({ at: Date.now(), kind: "answer", text: trade.read, channel: "text", priceAt: memory.now.price, thesisId: memory.thesis?.id ?? null });
-      return json({ ...r, notice: "Conversational model not configured — this is THE BRAIN's deterministic voice." });
+      return json({ ...r, notice: "Conversational model not configured — this is ATLAS's deterministic voice." });
     }
     await saveStatement({ at: Date.now(), kind: "answer", text: fallback.spokenText, channel: "text", priceAt: memory.now.price, thesisId: memory.thesis?.id ?? null });
-    return json({ ...fallback, notice: "Conversational model not configured — this is THE BRAIN's deterministic voice." });
+    return json({ ...fallback, notice: "Conversational model not configured — this is ATLAS's deterministic voice." });
   }
 
   const packet = contextPacket(memory, { tradeSummary, setupSummary });
@@ -263,7 +263,7 @@ export async function POST(req: Request) {
     });
     const j = await r.json();
     if (!r.ok) {
-      return json({ ...fallback, notice: "THE BRAIN's language model is unavailable — this is its deterministic voice." });
+      return json({ ...fallback, notice: "ATLAS's language model is unavailable — this is its deterministic voice." });
     }
     const text: string = Array.isArray(j?.content)
       ? j.content.filter((b: { type?: string }) => b?.type === "text").map((b: { text?: string }) => b.text ?? "").join("").trim()
@@ -304,6 +304,6 @@ export async function POST(req: Request) {
     });
     return json(response);
   } catch {
-    return json({ ...fallback, notice: "THE BRAIN's language model could not be reached — this is its deterministic voice." });
+    return json({ ...fallback, notice: "ATLAS's language model could not be reached — this is its deterministic voice." });
   }
 }

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 /**
  * THE XAUUSD PRICE MAP.
  *
- * Not a chart widget dropped into a box — the candles THE BRAIN actually read, with its intelligence drawn
+ * Not a chart widget dropped into a box — the candles ATLAS actually read, with its intelligence drawn
  * on top of them: the levels it is watching, the level that would prove it wrong, and the two paths it
  * thinks the market can take from here.
  *
@@ -18,17 +18,17 @@ export type PriceMapProps = {
   bars: MapBar[];
   levels: MapLevel[];
   price: number | null;
-  /** Level THE BRAIN (or the user) asked to highlight. */
+  /** Level ATLAS (or the user) asked to highlight. */
   focusPrice?: number | null;
   /** Where the current read stops being right. Drawn in red, dashed. */
   invalidation?: number | null;
   lean: number;
   live: boolean;
   /**
-   * The open position, when there is one — or the trade THE BRAIN is PROPOSING, when there is not.
+   * The open position, when there is one — or the trade ATLAS is PROPOSING, when there is not.
    *
    * `proposed` is what keeps those two honest. A member glancing at the chart must never mistake a level
-   * THE BRAIN is thinking about for money that is actually at risk, so a proposal is drawn dimmer, always
+   * ATLAS is thinking about for money that is actually at risk, so a proposal is drawn dimmer, always
    * dashed, and labelled WOULD ENTER rather than ENTRY. Drawn subtly either way: the chart is not handed
    * over to the trade.
    */
@@ -330,7 +330,7 @@ export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, 
       <canvas ref={ref} className="block h-full w-full" />
       {!bars.length && (
         <div className="absolute inset-0 grid place-items-center text-[12px]" style={{ color: C.mut2 }}>
-          No candles to draw — THE BRAIN has not read the market yet.
+          No candles to draw — ATLAS has not read the market yet.
         </div>
       )}
       {hover && (

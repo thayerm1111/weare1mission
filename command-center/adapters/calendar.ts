@@ -2,7 +2,7 @@
  * THE ECONOMIC CALENDAR.
  *
  * Gold trades on rate expectations, and rate expectations move on scheduled releases. Without a
- * calendar THE BRAIN could explain how CPI affects gold and had no idea when CPI was — which is the
+ * calendar ATLAS could explain how CPI affects gold and had no idea when CPI was — which is the
  * difference between a textbook and a trading desk. Worse, the snapshot has always carried a `news`
  * field that nothing ever populated, so the news lockout that is supposed to keep the system out of
  * the market around a release has never once fired.

@@ -1,7 +1,7 @@
 /**
  * THE MARKET SNAPSHOT BUILDER.
  *
- * This assembles the ONE object The BRAIN and the strategy engine are allowed to read. Two consequences,
+ * This assembles the ONE object Atlas and the strategy engine are allowed to read. Two consequences,
  * both deliberate:
  *   • A model can never see data the snapshot did not carry, so replay and live are identical by construction.
  *   • Everything that should make a decision suspicious travels WITH the data, in `warnings`, instead of being

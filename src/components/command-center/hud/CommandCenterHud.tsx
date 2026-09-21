@@ -24,7 +24,7 @@ import RiskConsent, { type ConsentView } from "../RiskConsent";
 /**
  * COMMAND CENTER XAUUSD — THE INTELLIGENCE HUD.
  *
- * LAYER 2 ONLY. This screen visualises and explains what THE BRAIN has already measured; it computes no
+ * LAYER 2 ONLY. This screen visualises and explains what ATLAS has already measured; it computes no
  * market opinion that could reach a trade. Every number here arrives from /api/command-center/live (the
  * engine's snapshot, thesis and events, plus the read-only `intel` block from command-center/present),
  * from /bars (the candles the worker already fetched) or from /context (informational macro quotes).
@@ -282,7 +282,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
   const lines: ChartLine[] = [];
   if (indicators) {
-    for (const w of thesis?.watching ?? []) lines.push({ price: w, label: "Brain watch", color: H.gold2 });
+    for (const w of thesis?.watching ?? []) lines.push({ price: w, label: "Atlas watch", color: H.gold2 });
     if (thesis?.invalidationPrice != null) lines.push({ price: thesis.invalidationPrice, label: "Read fails here", color: H.red });
   }
   if (trade?.active && trade.entry != null) {
@@ -414,7 +414,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             <p className="mt-0.5 inline-flex items-center gap-1.5 text-[10px]" style={{ color: d?.marketOpen ? H.green : H.mut }}><LiveDot color={d?.marketOpen ? H.green : H.mut2} size={5} />{d?.marketOpen ? "Active" : "Closed"}</p>
           </div>
           <div>
-            <p className={LABEL} style={{ color: H.mut }} title="THE BRAIN's own confidence in its current thesis">Brain confidence</p>
+            <p className={LABEL} style={{ color: H.mut }} title="ATLAS's own confidence in its current thesis">Atlas confidence</p>
             <div className="mt-1 flex items-center gap-2.5">
               <p className="text-[20px] font-semibold tabular-nums" style={{ color: H.cyan2 }}>{thesis ? `${thesis.confidence}%` : "—"}</p>
               <span className="h-[5px] flex-1 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.07)" }}>
@@ -450,7 +450,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           {isReplay && <Notice color={H.gold2}>REPLAY — recorded XAUUSD stepped through the live engine. This is not the market.</Notice>}
           {!isReplay && (hardBlock || d?.reason) && <Notice color={H.gold2}>{d?.blockers?.[0]?.detail ?? d?.reason}</Notice>}
           {consent && !consent.signed && (
-            <button onClick={() => setConsentOpen(true)}><Notice color={H.red}>{consent.stale ? "Risk disclosure updated — sign the new version to keep trading." : "Risk disclosure not signed — you can read the market and talk to THE BRAIN, but not trade. Tap to read and sign."}</Notice></button>
+            <button onClick={() => setConsentOpen(true)}><Notice color={H.red}>{consent.stale ? "Risk disclosure updated — sign the new version to keep trading." : "Risk disclosure not signed — you can read the market and talk to ATLAS, but not trade. Tap to read and sign."}</Notice></button>
           )}
         </div>
       )}
@@ -486,7 +486,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
               </ul>
             </div>
             <div className="shrink-0 pb-2 text-center">
-              <p className="text-[14px] font-semibold tracking-[0.2em]">THE BRAIN</p>
+              <p className="text-[14px] font-semibold tracking-[0.2em]">ATLAS</p>
               <p className="text-[8.5px] tracking-[0.3em]" style={{ color: H.gold2 }}>GOLD INTELLIGENCE CORE</p>
               <p className="mt-1 text-[10.5px] italic" style={{ color: H.mut }}>&ldquo;Clarity in the noise. Opportunity in the data.&rdquo;</p>
             </div>
@@ -558,7 +558,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
               <div className="flex shrink-0 flex-wrap items-center gap-1 border-b px-2 py-1.5" style={{ borderColor: H.lineSoft }}>
                 <div className="flex items-center gap-0.5 rounded-[7px] p-0.5" style={{ border: `1px solid ${H.line}` }}>
                   {TF_BTNS.map((b) => (
-                    <button key={b.id} disabled={!b.feed} title={b.feed ? `${b.label} candles` : "1-minute candles are not in the feed THE BRAIN reads"}
+                    <button key={b.id} disabled={!b.feed} title={b.feed ? `${b.label} candles` : "1-minute candles are not in the feed ATLAS reads"}
                       onClick={() => setTf(b.id)}
                       className="rounded-[5px] px-2.5 py-1 text-[11px] transition disabled:cursor-not-allowed disabled:opacity-35"
                       style={{ color: tf === b.id ? H.gold3 : H.mut, border: tf === b.id ? "1px solid rgba(231,196,103,0.55)" : "1px solid transparent", background: tf === b.id ? "rgba(213,169,61,0.1)" : "transparent" }}>{b.label}</button>
@@ -581,14 +581,14 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                       <span className="absolute top-[2px] h-[12px] w-[12px] rounded-full bg-white transition-all" style={{ left: liveAnalysis ? 16 : 2 }} />
                     </span>
                   </label>
-                  <button aria-label="Brain settings" onClick={() => !isReplay && setProfileOpen(true)} className="p-1" style={{ color: H.mut }}><Settings className="h-4 w-4" /></button>
+                  <button aria-label="Atlas settings" onClick={() => !isReplay && setProfileOpen(true)} className="p-1" style={{ color: H.mut }}><Settings className="h-4 w-4" /></button>
                   <button aria-label="Fullscreen" onClick={() => { const el = chartRef.current; if (el) void (document.fullscreenElement ? document.exitFullscreen() : el.requestFullscreen()); }} className="p-1" style={{ color: H.mut }}><Maximize2 className="h-4 w-4" /></button>
                 </div>
               </div>
               <div className="min-h-0 flex-1 px-1 pt-1">
                 <GoldChart
                   bars={chartBars} price={d?.price ?? null} markers={markers} zones={zones} lines={lines}
-                  path={pathPts} pathLabel={intel?.path?.label ?? "Brain scenario"}
+                  path={pathPts} pathLabel={intel?.path?.label ?? "Atlas scenario"}
                   showOverlays={overlays} showLiquidity={liquidity}
                   tfLabel={`XAUUSD · ${tfWord} · TWELVE DATA`}
                   activityLabel={chartBars.some((b) => b.v && b.v > 0) ? "Activity · tick volume" : "Activity · bar range (spot gold has no traded volume)"}
@@ -610,10 +610,10 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                 info="The 15-minute average true range in dollars, with the engine's own weather band (compressed → extreme) from the ratio of current range to normal." />
               <Gauge title="MOMENTUM" display={intel?.momentum.value != null ? `${intel.momentum.value > 0 ? "+" : ""}${intel.momentum.value.toFixed(2)}` : "—"} sub={intel?.momentum.label ?? "—"} value01={intel?.momentum.value != null ? (intel.momentum.value + 3) / 6 : null} color={toneColor(intel?.momentum.tone)}
                 info="The 15-minute frame's five-bar return measured in average ranges: −1.6 means price fell 1.6 normal ranges in five bars. Measured by the engine (core/math.ts)." />
-              <Gauge title="BRAIN CONVICTION" display={thesis ? `${thesis.confidence}%` : "—"} sub={bias === "bear" ? "Downside" : bias === "bull" ? "Upside" : "No side"} value01={thesis ? thesis.confidence / 100 : null} color={biasColor}
-                info="THE BRAIN's own confidence in the thesis it is trading, 0–100, as recorded by the engine. It is not a probability that the trade wins." />
+              <Gauge title="ATLAS CONVICTION" display={thesis ? `${thesis.confidence}%` : "—"} sub={bias === "bear" ? "Downside" : bias === "bull" ? "Upside" : "No side"} value01={thesis ? thesis.confidence / 100 : null} color={biasColor}
+                info="ATLAS's own confidence in the thesis it is trading, 0–100, as recorded by the engine. It is not a probability that the trade wins." />
             </div>
-            <HudPanel title="SCENARIO ANALYSIS" right={<span className="text-[8px] tracking-[0.1em]" style={{ color: H.mut }} title="THE BRAIN has no probability model, so these are ranked by its current thesis rather than given percentages">RANKED</span>} bodyClass="hud-scroll flex flex-col gap-[3px] overflow-y-auto px-2.5 pb-1.5">
+            <HudPanel title="SCENARIO ANALYSIS" right={<span className="text-[8px] tracking-[0.1em]" style={{ color: H.mut }} title="ATLAS has no probability model, so these are ranked by its current thesis rather than given percentages">RANKED</span>} bodyClass="hud-scroll flex flex-col gap-[3px] overflow-y-auto px-2.5 pb-1.5">
               {(intel?.scenarios ?? []).map((s, i) => {
                 const col = s.kind === "bear" ? H.red : s.kind === "bull" ? H.green : H.mut;
                 const Icon = s.kind === "bear" ? TrendingDown : s.kind === "bull" ? TrendingUp : MoveHorizontal;
@@ -651,7 +651,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                   </div>
                 ) : (
                 <ul className="space-y-[4px] text-[9px]" style={{ color: H.text }}>
-                  {[["Buyside liq.", H.green], ["Sellside liq.", H.red], ["Equal highs/lows", "#E7A0A7"], ["Busiest price", H.blue], ["Brain watch", H.gold2], ["Price", H.gold3]].map(([k, c]) => (
+                  {[["Buyside liq.", H.green], ["Sellside liq.", H.red], ["Equal highs/lows", "#E7A0A7"], ["Busiest price", H.blue], ["Atlas watch", H.gold2], ["Price", H.gold3]].map(([k, c]) => (
                     <li key={k} className="flex items-center gap-1.5"><span className="h-[7px] w-[7px] rounded-full" style={{ background: c, boxShadow: `0 0 5px ${c}` }} />{k}</li>
                   ))}
                   <li className="pt-0.5 leading-tight" style={{ color: H.mut2 }}>Hollow = swept.<br />Hover a blip for detail.</li>
@@ -680,7 +680,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
               </HudPanel>
             </div>
             <HudPanel title="GLOBAL CONTEXT" icon={<Globe2 className="h-3 w-3" />}
-              right={<span className="text-[8px] tracking-[0.1em]" style={{ color: H.mut }} title="Shown for context only. GENX and THE BRAIN do not read these — nothing here changes a trade. Refreshed every 15 minutes from Twelve Data.">DISPLAY ONLY{ctx?.at ? ` · ${new Date(ctx.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}</span>}
+              right={<span className="text-[8px] tracking-[0.1em]" style={{ color: H.mut }} title="Shown for context only. GENX and ATLAS do not read these — nothing here changes a trade. Refreshed every 15 minutes from Twelve Data.">DISPLAY ONLY{ctx?.at ? ` · ${new Date(ctx.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}</span>}
               bodyClass="flex flex-col gap-[3px] px-2.5 pb-1.5">
               {(() => {
                 const rows = ctx?.rows ?? [];
@@ -730,7 +730,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                     <div className="mt-auto flex items-center gap-2 rounded-[6px] px-2 py-[3px]" style={{ border: `1px solid ${H.line}` }}>
                       <AlertTriangle className="h-3 w-3 shrink-0" style={{ color: intel?.news?.lockout ? H.red : H.gold2 }} />
                       <p className="min-w-0 flex-1 text-[9.5px] leading-tight" style={{ color: H.text }}>
-                        {intel?.news ? <>{intel.news.name}<span className="block text-[8.5px]" style={{ color: H.mut }}>{intel.news.lockout ? "Release lockout active" : intel.news.minutesTo != null ? `in ${Math.round(intel.news.minutesTo)} min · ${intel.news.importance} impact` : intel.news.importance}</span></> : <>No high-impact release scheduled<span className="block text-[8.5px]" style={{ color: H.mut }}>The Brain does read the calendar; the quotes above it do not reach any trade.</span></>}
+                        {intel?.news ? <>{intel.news.name}<span className="block text-[8.5px]" style={{ color: H.mut }}>{intel.news.lockout ? "Release lockout active" : intel.news.minutesTo != null ? `in ${Math.round(intel.news.minutesTo)} min · ${intel.news.importance} impact` : intel.news.importance}</span></> : <>No high-impact release scheduled<span className="block text-[8.5px]" style={{ color: H.mut }}>Atlas does read the calendar; the quotes above it do not reach any trade.</span></>}
                       </p>
                     </div>
                   </>
@@ -742,7 +742,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
         {/* RIGHT */}
         <div className="hud-col hud-right">
-          <HudPanel title="TALK WITH THE BRAIN" icon={<Mic className="h-3.5 w-3.5" />} right={<span className="inline-flex items-center gap-1.5 text-[10px]" style={{ color: H.green }}><LiveDot size={5} />Online</span>} bodyClass="flex h-full flex-col">
+          <HudPanel title="TALK WITH ATLAS" icon={<Mic className="h-3.5 w-3.5" />} right={<span className="inline-flex items-center gap-1.5 text-[10px]" style={{ color: H.green }}><LiveDot size={5} />Online</span>} bodyClass="flex h-full flex-col">
             <div className="grid shrink-0 grid-cols-4 gap-1.5 px-3 pb-2">
               {(["CHAT", "VOICE", "ANALYSIS", "SETTINGS"] as TalkTab[]).map((t) => (
                 <button key={t} onClick={() => setTalkTab(t)} className="rounded-[6px] py-1 text-[9.5px] font-semibold tracking-[0.14em]"
@@ -770,7 +770,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
               {talkTab === "ANALYSIS" && <div className="hud-scroll h-full overflow-y-auto p-3"><ThesisExplainer d={d} onAsk={ask} /></div>}
               {talkTab === "SETTINGS" && (
                 <div className="hud-scroll h-full space-y-3 overflow-y-auto p-3">
-                  <p className={LABEL} style={{ color: H.mut }}>When THE BRAIN speaks</p>
+                  <p className={LABEL} style={{ color: H.mut }}>When ATLAS speaks</p>
                   <div className="flex flex-wrap gap-1.5">
                     {VOICE_MODES.map((m) => <Chip key={m.id} active={mode === m.id} onClick={() => setMode(m.id)} title={m.hint}>{m.label}</Chip>)}
                   </div>
@@ -789,7 +789,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                 <span className="shrink-0 text-[10px] tabular-nums" style={{ color: H.mut }}>{clock(r.at)}</span>
                 <span className="text-[11px] leading-snug" style={{ color: r.urgent ? H.gold2 : r.kind === "trade" ? H.gold3 : r.lean === "bearish" ? "#F2B8BE" : r.lean === "bullish" ? "#B5EDD8" : "#C9D3DB" }}>{r.detail}</span>
               </div>
-            )) : <p className="p-2 text-[11px]" style={{ color: H.mut }}>Nothing worth reporting yet. THE BRAIN stays quiet when nothing has changed.</p>}
+            )) : <p className="p-2 text-[11px]" style={{ color: H.mut }}>Nothing worth reporting yet. ATLAS stays quiet when nothing has changed.</p>}
           </HudPanel>
         </div>
       </div>
@@ -799,7 +799,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
         <div className="fixed inset-0 z-40 flex justify-end" style={{ background: "rgba(0,0,0,0.45)" }} onClick={() => { setDrawer(null); setNav("OVERVIEW"); }}>
           <aside className="hud-scroll hud-in h-full w-full max-w-[560px] overflow-y-auto p-3" style={{ background: H.bg1, borderLeft: `1px solid ${H.lineHi}` }} onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
-              <p className="text-[12px] font-bold tracking-[0.16em]" style={{ color: H.gold2 }}>{drawer === "trade" ? "THE BRAIN'S TRADE" : drawer === "analysis" ? "ANALYSIS" : drawer === "alerts" ? "ALERTS & WATCHES" : "TODAY'S BRAIN"}</p>
+              <p className="text-[12px] font-bold tracking-[0.16em]" style={{ color: H.gold2 }}>{drawer === "trade" ? "ATLAS'S TRADE" : drawer === "analysis" ? "ANALYSIS" : drawer === "alerts" ? "ALERTS & WATCHES" : "TODAY'S ATLAS"}</p>
               <button onClick={() => { setDrawer(null); setNav("OVERVIEW"); }} aria-label="Close" style={{ color: H.mut }}><X className="h-5 w-5" /></button>
             </div>
             {drawer === "trade" && (
@@ -822,7 +822,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                     <p className="mt-0.5 text-[11px]" style={{ color: H.mut }}>&ldquo;{w.said}&rdquo;</p>
                     <div className="mt-2 h-[3px] overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.07)" }}><div className="h-full" style={{ width: `${Math.round((w.progress ?? 0) * 100)}%`, background: H.gold2 }} /></div>
                   </div>
-                )) : <p className="text-[12px]" style={{ color: H.mut }}>No alerts armed. Ask THE BRAIN to watch a level — &ldquo;watch 4,360 for me&rdquo; — and it appears here.</p>}
+                )) : <p className="text-[12px]" style={{ color: H.mut }}>No alerts armed. Ask ATLAS to watch a level — &ldquo;watch 4,360 for me&rdquo; — and it appears here.</p>}
                 <button onClick={() => { setDrawer(null); ask("What level should I have you watch right now, and why?"); }} className="mt-2 rounded-[6px] px-3 py-1.5 text-[10px] font-bold tracking-[0.12em]" style={{ color: H.gold2, border: "1px solid rgba(231,196,103,0.45)" }}>ASK WHAT TO WATCH ▸</button>
               </div>
             )}
@@ -879,7 +879,7 @@ function pulseText(d: Live | null): string {
 /** The thesis translated: what, why, what changed, watching, what invalidates, what strengthens. */
 function ThesisExplainer({ d, onAsk, full = false }: { d: Live | null; onAsk: (q: string) => void; full?: boolean }) {
   const t = d?.thesis;
-  if (!t) return <p className="text-[12px]" style={{ color: H.mut }}>No firm read yet — THE BRAIN is still building one.</p>;
+  if (!t) return <p className="text-[12px]" style={{ color: H.mut }}>No firm read yet — ATLAS is still building one.</p>;
   const p5 = d?.changes?.find((c) => c.horizon === "5m");
   const rows: [string, ReactNode][] = [
     ["What I think", <><b>{t.label.toUpperCase()}</b> <span style={{ color: H.mut }}>· {t.strength} · {t.confidence}</span></>],

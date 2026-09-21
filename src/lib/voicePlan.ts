@@ -2,7 +2,7 @@
  * THE COMMAND CENTER VOICE PLAN — pricing in one place, server and browser.
  *
  * This is the ONLY product on the site that is not paid for in credits, and the separation is
- * deliberate. Credits buy automated TRADING: FLOW, GENX, the Brain's autopilot, OM AI plays. This buys
+ * deliberate. Credits buy automated TRADING: FLOW, GENX, Atlas's autopilot, OM AI plays. This buys
  * TALKING to the Command Center. A member out of credits can still ask what gold is doing; a member out
  * of minutes still has every trade they paid for. Neither balance can be spent on the other, because
  * they are different tables with different writers.

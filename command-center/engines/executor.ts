@@ -11,7 +11,7 @@
  *      is not a failure — it is an unknown. On any uncertain outcome this engine RECONCILES against the
  *      broker's own view and never, under any circumstance, re-sends.
  *
- * THE BRAIN cannot call anything here directly. Only an authorised path can, and only after the
+ * ATLAS cannot call anything here directly. Only an authorised path can, and only after the
  * deterministic validator has approved.
  */
 import { randomUUID } from "node:crypto";
@@ -266,7 +266,7 @@ export async function execute(userId: string, intentId: string, idempotencyKey: 
    */
   const liveCheck = await listPositions(s.session.auth);
   if (!liveCheck.ok) {
-    return fail("Could not read the broker's open positions, so THE BRAIN cannot tell whether it is already in this trade. Refusing rather than risking a second entry.");
+    return fail("Could not read the broker's open positions, so ATLAS cannot tell whether it is already in this trade. Refusing rather than risking a second entry.");
   }
   const cols = await positionColumnsFor(s.session);
   const alreadyOpen = parsePositions(liveCheck.data, cols)
@@ -274,7 +274,7 @@ export async function execute(userId: string, intentId: string, idempotencyKey: 
   if (alreadyOpen.length) {
     return fail(
       `The broker already reports ${alreadyOpen.length} open position${alreadyOpen.length === 1 ? "" : "s"} ` +
-      `on this account. THE BRAIN holds one at a time.`,
+      `on this account. ATLAS holds one at a time.`,
     );
   }
 
@@ -389,7 +389,7 @@ export async function reconcile(userId: string, executionId: string, tag?: strin
         (!instrumentId || p.instrumentId === instrumentId) &&
         (!intent || p.side === intent.side) &&
         // The size WE sent. GENX/FLOW can trade the same account; their positions are sized by their own
-        // rules, so matching our quantity is what stops THE BRAIN adopting a FLOW trade as its own.
+        // rules, so matching our quantity is what stops ATLAS adopting a FLOW trade as its own.
         (exec.qty == null || !(p.qty > 0) || Math.abs(p.qty - exec.qty) < 0.005) &&
         (p.openedAt == null || Date.now() - p.openedAt < 30 * 60_000));
 
@@ -446,7 +446,7 @@ export async function reconcile(userId: string, executionId: string, tag?: strin
     executionId,
     orderId: exec.broker_order_id,
     uncertain: true,
-    message: "The order went to the broker but no matching position has appeared yet. Nothing will be re-sent — THE BRAIN is still checking.",
+    message: "The order went to the broker but no matching position has appeared yet. Nothing will be re-sent — ATLAS is still checking.",
   };
 }
 
@@ -454,10 +454,10 @@ export async function reconcile(userId: string, executionId: string, tag?: strin
 /**
  * KEEP LOOKING UNTIL THE BROKER ANSWERS.
  *
- * "THE BRAIN is still checking" used to be a promise nothing kept: once reconcile's few seconds ran out,
+ * "ATLAS is still checking" used to be a promise nothing kept: once reconcile's few seconds ran out,
  * no code ever looked again. A fill the first reads missed was never adopted, so it never reached
  * cc_positions — which is what the position manager, the one-position guard and the screen all read.
- * FLOW could see the trade on the account; THE BRAIN could not, and would not manage it.
+ * FLOW could see the trade on the account; ATLAS could not, and would not manage it.
  *
  * Every worker tick now re-runs reconcile on each unresolved execution from the last thirty minutes,
  * newest first, one per account, for thirty minutes. It only ever ADOPTS what the broker lists (never sends anything), and a
@@ -613,7 +613,7 @@ export async function manage(userId: string, positionRowId: string, action: Mana
   const spec = inst.ok ? inst.spec : null;
   const pipSize = pos.pip_size ?? (inst.ok ? inst.resolved.pipSize : 0.1);
 
-  // THE BRAIN may only do what this account has explicitly allowed it to do.
+  // ATLAS may only do what this account has explicitly allowed it to do.
   if (actor === "brain") {
     const perm = { ...(s.session.account.permissions ?? {}), ...(pos.permissions ?? {}) };
     const needed =
@@ -622,7 +622,7 @@ export async function manage(userId: string, positionRowId: string, action: Mana
       : action.kind === "break_even" ? "ai_break_even"
       : "ai_protect_stop";
     if (!pos.ai_management) return { ok: false, message: "AI management is off for this position." };
-    if (!perm[needed]) return { ok: false, message: `THE BRAIN is not permitted to ${action.kind.replace("_", " ")} on this account.` };
+    if (!perm[needed]) return { ok: false, message: `ATLAS is not permitted to ${action.kind.replace("_", " ")} on this account.` };
   }
 
   const event = async (code: string, detail: string, channel = "stream", data?: Record<string, unknown>) => {
@@ -634,7 +634,7 @@ export async function manage(userId: string, positionRowId: string, action: Mana
     const r = await closePosition(s.session.auth, pos.broker_position_id, 0);
     if (!r.ok) {
       await c().from("cc_positions").update({ state: "open" }).eq("id", pos.id);
-      return { ok: false, message: r.uncertain ? "The close request went out but the broker has not confirmed it. THE BRAIN is checking rather than sending it again." : r.error, state: r.uncertain ? "reconciliation_required" : "error" };
+      return { ok: false, message: r.uncertain ? "The close request went out but the broker has not confirmed it. ATLAS is checking rather than sending it again." : r.error, state: r.uncertain ? "reconciliation_required" : "error" };
     }
     await event("CLOSE_REQUESTED", "Close requested — waiting for the broker to confirm.", "voice");
     return { ok: true, message: "Close requested. The position is marked closed only once the broker confirms it.", state: "close_requested" };
@@ -646,7 +646,7 @@ export async function manage(userId: string, positionRowId: string, action: Mana
     if (!(qty > 0)) return { ok: false, message: "That partial is smaller than the minimum lot this broker accepts." };
     if (qty >= pos.qty) return { ok: false, message: "That would close the whole position — use Close instead." };
     const r = await closePosition(s.session.auth, pos.broker_position_id, qty);
-    if (!r.ok) return { ok: false, message: r.uncertain ? "The partial went out but is unconfirmed. THE BRAIN is checking." : r.error };
+    if (!r.ok) return { ok: false, message: r.uncertain ? "The partial went out but is unconfirmed. ATLAS is checking." : r.error };
     await event("PARTIAL_TAKEN", `Took ${Math.round(f * 100)}% off — ${qty} lots.`, "voice", { qty, fraction: f });
     return { ok: true, message: `Partial sent: ${qty} lots.` };
   }
@@ -663,7 +663,7 @@ export async function manage(userId: string, positionRowId: string, action: Mana
 
     const price = spec ? roundPrice(target, spec) : +target.toFixed(2);
     const r = await modifyPosition(s.session.auth, pos.broker_position_id, { stopLoss: price });
-    if (!r.ok) return { ok: false, message: r.uncertain ? "The stop change went out but is unconfirmed. THE BRAIN is checking rather than sending it again." : r.error, state: r.uncertain ? "reconciliation_required" : "error" };
+    if (!r.ok) return { ok: false, message: r.uncertain ? "The stop change went out but is unconfirmed. ATLAS is checking rather than sending it again." : r.error, state: r.uncertain ? "reconciliation_required" : "error" };
 
     await c().from("cc_positions").update({
       cur_stop: price,
@@ -683,7 +683,7 @@ export async function manage(userId: string, positionRowId: string, action: Mana
   // take profit
   const tp = action.price == null ? null : spec ? roundPrice(action.price, spec) : +action.price.toFixed(2);
   const r = await modifyPosition(s.session.auth, pos.broker_position_id, { takeProfit: tp });
-  if (!r.ok) return { ok: false, message: r.uncertain ? "The target change is unconfirmed. THE BRAIN is checking." : r.error };
+  if (!r.ok) return { ok: false, message: r.uncertain ? "The target change is unconfirmed. ATLAS is checking." : r.error };
   await c().from("cc_positions").update({ take_profit: tp }).eq("id", pos.id);
   await event("TARGET_MOVED", tp == null ? "Target removed." : `Target set to ${tp.toFixed(2)}.`, "stream", { tp });
   return { ok: true, message: tp == null ? "Target removed." : `Target is now ${tp.toFixed(2)}.`, state: "modification_confirmed" };

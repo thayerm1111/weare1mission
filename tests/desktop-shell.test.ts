@@ -30,7 +30,7 @@ test("the shell loads the deployed application rather than bundling a second one
   assert.equal(c.app.macOSPrivateApi, true, "transparency requires it on macOS, and it must be declared");
 });
 
-test("THE BRAIN appears first and the Command Center waits behind it", async () => {
+test("ATLAS appears first and the Command Center waits behind it", async () => {
   const c = await conf();
   const windows = c.app.windows as { label: string; visible?: boolean }[];
   assert.equal(windows[0].label, "companion", "the companion is created first");

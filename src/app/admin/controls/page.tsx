@@ -96,7 +96,7 @@ export default function AdminControlsPage() {
         <div style={{ display: "grid", gap: 12, marginTop: 24 }}>
           <Row which="flow" label="FLOW" on={sw.flow} desc="Auto-executes forex + index setups for every armed member." />
           <Row which="genx" label="GENX (gold)" on={sw.genx} desc="Places the GENX gold ENTER-NOW calls across members + follower accounts." />
-          <Row which="brain" label="THE BRAIN (Command Center)" on={sw.brain} desc="The Command Center autopilot finding and taking its own XAUUSD trades. Off stops NEW entries within a tick; anything already open keeps being managed — stops still move, targets are still taken." />
+          <Row which="brain" label="ATLAS (Command Center)" on={sw.brain} desc="The Command Center autopilot finding and taking its own XAUUSD trades. Off stops NEW entries within a tick; anything already open keeps being managed — stops still move, targets are still taken." />
           {msg && <p style={{ fontSize: 13, color: "#334155", marginTop: 4 }}>{msg}</p>}
         </div>
       ) : (

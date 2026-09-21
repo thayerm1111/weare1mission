@@ -185,7 +185,7 @@ test('asking for a trade is routed to the setup engine, not to a timeframe lectu
     'do you see a swing?',
     'is there a trade here',
     'got a trade for me',
-    'THE BRAIN, give me a setup',
+    'ATLAS, give me a setup',
   ]) {
     assert.equal(classify(q).intent, 'setup', `"${q}" should ask for a trade`);
   }
@@ -225,7 +225,7 @@ test('with no setup available it says so rather than improvising one', () => {
   assert.match(r.spokenText, /not going to guess/i);
 });
 
-test('asking for a style THE BRAIN does not have gets the truth, not a substitute', () => {
+test('asking for a style ATLAS does not have gets the truth, not a substitute', () => {
   const su = {
     state: 'trade_ready', side: 'sell', style: 'swing', stop: 4400, entryLow: 4380, entryHigh: 4380,
     initialObjective: 4340, extendedObjective: 4320, stopPips: 200, expectedMovePips: [400, 600],

@@ -244,7 +244,7 @@ export function gradeTrade(i: GradeInput): TradeGrade {
   return { score, verdict, lines, lesson, capture: capture == null ? null : +capture.toFixed(2) };
 }
 
-/** THE BRAIN's account of the trade, built from the grade. Read aloud unchanged. */
+/** ATLAS's account of the trade, built from the grade. Read aloud unchanged. */
 export function gradeNarrative(g: TradeGrade, i: GradeInput): string {
   const won = i.pips > 0;
   const mins = Math.max(1, Math.round(i.heldMs / 60_000));

@@ -79,7 +79,7 @@ export function CallTradeSheet({ price, levels, open, onClose, onDone }: {
   const idemKey = useRef<string>("");
   useEffect(() => { if (open) idemKey.current = crypto.randomUUID(); }, [open]);
 
-  // Pre-populate a sensible stop from the market THE BRAIN is already reading: the nearest level on the
+  // Pre-populate a sensible stop from the market ATLAS is already reading: the nearest level on the
   // protective side, if there is one, otherwise a style-appropriate distance.
   useEffect(() => {
     if (!open || !price || stop) return;
@@ -199,7 +199,7 @@ export function CallTradeSheet({ price, levels, open, onClose, onDone }: {
             </label>
           </div>
           <p className="text-[10.5px]" style={{ color: C.mut2 }}>
-            Entry is at market{price ? ` — gold is ${price.toFixed(2)} right now` : ""}. THE BRAIN suggested the stop from the nearest level it is watching; change it if you disagree.
+            Entry is at market{price ? ` — gold is ${price.toFixed(2)} right now` : ""}. ATLAS suggested the stop from the nearest level it is watching; change it if you disagree.
           </p>
 
           {err && <p className="text-[12px]" style={{ color: C.down }}>{err}</p>}
@@ -378,11 +378,11 @@ export function TradePanel({ trade, onChanged }: { trade: TradeStateView; onChan
         </div>
       </div>
 
-      {/* what THE BRAIN would do */}
+      {/* what ATLAS would do */}
       {trade.protection && (
         <div className="border-t px-3.5 py-3" style={{ borderColor: C.line, background: trade.protection.action === "hold" ? "transparent" : "rgba(240,196,117,0.04)" }}>
           <p className="mb-1 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: C.mut2 }}>
-            <Shield className="h-3.5 w-3.5" /> THE BRAIN would {trade.protection.action.replace(/_/g, " ")}
+            <Shield className="h-3.5 w-3.5" /> ATLAS would {trade.protection.action.replace(/_/g, " ")}
           </p>
           <p className="text-[12.5px] leading-relaxed" style={{ color: C.mut }}>{trade.protection.say}</p>
         </div>
@@ -419,8 +419,8 @@ export function TradePanel({ trade, onChanged }: { trade: TradeStateView; onChan
               </p>
               <p className="text-[10.5px]" style={{ color: C.mut2 }}>
                 {trade.aiManagement
-                  ? "THE BRAIN may act on this position, within the permissions set on the account."
-                  : "THE BRAIN is watching this position but will not touch it."}
+                  ? "ATLAS may act on this position, within the permissions set on the account."
+                  : "ATLAS is watching this position but will not touch it."}
               </p>
             </div>
             <Btn id="ai" label={trade.aiManagement ? "Turn off" : "Turn on"} color={C.gold}
@@ -432,7 +432,7 @@ export function TradePanel({ trade, onChanged }: { trade: TradeStateView; onChan
   );
 }
 
-/** A position opened directly in TradeLocker — offered to THE BRAIN rather than silently adopted. */
+/** A position opened directly in TradeLocker — offered to ATLAS rather than silently adopted. */
 export function UnmanagedNotice({ trade, onChanged }: { trade: TradeStateView; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   if (!trade.unmanaged?.length) return null;
@@ -452,7 +452,7 @@ export function UnmanagedNotice({ trade, onChanged }: { trade: TradeStateView; o
       <div className="px-3.5 py-3">
         <p className="text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: C.gold }}>New XAUUSD position detected</p>
         <p className="mt-1 text-[12.5px]" style={{ color: C.mut }}>
-          A {p.side === "buy" ? "BUY" : "SELL"} of {p.qty} lots{p.entry ? ` from ${p.entry.toFixed(2)}` : ""} was opened in TradeLocker. Manage it with THE BRAIN?
+          A {p.side === "buy" ? "BUY" : "SELL"} of {p.qty} lots{p.entry ? ` from ${p.entry.toFixed(2)}` : ""} was opened in TradeLocker. Manage it with ATLAS?
         </p>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {STYLES.map((s) => (

@@ -32,7 +32,7 @@ const COL: Record<RadarBlip["kind"], string> = {
 const KIND_WORD: Record<RadarBlip["kind"], string> = {
   buyside: "Buyside liquidity (estimated)", sellside: "Sellside liquidity (estimated)",
   equal_high: "Equal highs (estimated liquidity)", equal_low: "Equal lows (estimated liquidity)",
-  node: "Busiest price", watch: "Brain watch level",
+  node: "Busiest price", watch: "Atlas watch level",
 };
 
 type Placed = RadarBlip & { x: number; y: number };

@@ -246,7 +246,7 @@ test('weather and velocity are words a trader would use', () => {
   assert.ok(['calm', 'building', 'fast', 'accelerating', 'extreme', 'decelerating'].includes(velocityBand(snapAt(NOW, calm))));
 });
 
-test('THE BRAIN always has a question it is trying to answer', () => {
+test('ATLAS always has a question it is trying to answer', () => {
   const bars = fresh(140, 4300, 0.3);
   const st = brainState({ snapshot: snapAt(NOW, bars), thesis: null, events: [] });
   assert.ok(st.question.length > 8 && st.question.endsWith('?'));
@@ -348,7 +348,7 @@ test('what-would-change-my-mind names the actual level, not a platitude', () => 
 });
 
 test('question routing picks the right answer', () => {
-  assert.equal(classify('THE BRAIN, talk to me.').intent, 'briefing');
+  assert.equal(classify('ATLAS, talk to me.').intent, 'briefing');
   assert.equal(classify('what changed over the last five minutes?').intent, 'what_changed');
   assert.equal(classify('why are you bullish?').intent, 'why');
   assert.equal(classify('what would change your mind?').intent, 'change_mind');

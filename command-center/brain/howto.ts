@@ -1,10 +1,10 @@
 /**
  * WHERE THINGS ARE, AND HOW TO GET THERE.
  *
- * A member asked THE BRAIN "where do I set that up?" and was told gold was closed. That is the same
+ * A member asked ATLAS "where do I set that up?" and was told gold was closed. That is the same
  * router failure that has already produced wrong refusals about the account, the record and last week,
  * and it is the worst version of it: the member was not asking about the market at all. They were
- * asking how to use the product, and the product is the one subject THE BRAIN should never have to
+ * asking how to use the product, and the product is the one subject ATLAS should never have to
  * look at a price to discuss.
  *
  * So the map lives here, as text, written from what the interface actually contains. It owes nothing
@@ -15,7 +15,7 @@
  *   confidently wrong direction is worse than "I don't know where that is".
  *
  *   IT DESCRIBES, IT DOES NOT PROMISE. Telling somebody where the risk setting is does not change
- *   their risk, and THE BRAIN must never imply it has set something on their behalf.
+ *   their risk, and ATLAS must never imply it has set something on their behalf.
  */
 
 export const PRODUCT_MAP = `
@@ -38,7 +38,7 @@ FLOW — The Floor, FLOW tab.
   - "Trading" — the master switch for that account. Off means the account sits out.
   - "Auto-run FLOW" — account-wide. This is the switch that places trades without asking.
 
-COMMAND CENTER — this screen. The sheet is headed "THE BRAIN · TRADING PROFILE".
+COMMAND CENTER — this screen. The sheet is headed "ATLAS · TRADING PROFILE".
   - "Risk per trade" — 0.25%, 0.50%, 0.75%, 1.00%.
   - "Trades I may look for" — QUICK, HOLD, SWING. NOTE: these are the SAME three holding periods
     FLOW calls Rapid, Normal and Swing. The two screens use different words for the same thing, so
@@ -48,7 +48,7 @@ COMMAND CENTER — this screen. The sheet is headed "THE BRAIN · TRADING PROFIL
   - "Limits for the day" — Max daily loss, Max losses in a row.
   - "Enter trades without asking" — at the bottom of that same sheet.
   - Per-account permissions: the broker bar at the top of this screen, under
-    "What THE BRAIN may do here" — Break even, Protect stop, Partials, Close.
+    "What ATLAS may do here" — Break even, Protect stop, Partials, Close.
   - Live accounts: "Authorise live trading" must be done first; automatic entry cannot be switched
     on for a live account until it is.
 

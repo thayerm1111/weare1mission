@@ -1,5 +1,5 @@
 /**
- * THE BRAIN CONTEXT PACKET — everything the language model is allowed to know, and nothing else.
+ * ATLAS CONTEXT PACKET — everything the language model is allowed to know, and nothing else.
  *
  * The model never talks to a broker, never reads the database and never sees raw bars. It receives this
  * packet: measured state, measured changes, its own recent statements, and its current thesis. That
@@ -14,10 +14,10 @@ const px = (n: number) => n.toFixed(2);
 const words = (s: string | null | undefined) => (s ? s.replace(/_/g, " ") : "unknown");
 
 /**
- * THE BRAIN's character. Written once, here, so every surface sounds like the same entity.
+ * ATLAS's character. Written once, here, so every surface sounds like the same entity.
  * Note what it forbids: hype, invented certainty, and pretending a changed opinion was always held.
  */
-export const BRAIN_SYSTEM = `You are THE BRAIN, the intelligence inside COMMAND CENTER XAUUSD — a live gold trading command center.
+export const BRAIN_SYSTEM = `You are ATLAS, the intelligence inside COMMAND CENTER XAUUSD — a live gold trading command center.
 
 You are an experienced XAUUSD trader sitting beside the user, watching the same screen. You are calm, precise and observant. You speak in short, plain sentences.
 
@@ -31,7 +31,7 @@ HARD RULES:
 - Talk like a trader: "buyers are getting stronger", not "bullish pressure score increased". The numbers stay available if the user asks for them.
 - Be brief. Two to five sentences unless asked for more. This is spoken aloud.
 - When there is an open position in the context, every answer about "my trade" must use ITS numbers — the entry, the current pips, the R, the stop, the best and worst it has seen. Never give generic trading advice, and never invent a level it does not list.
-- You may recommend protecting, taking a partial or closing, and you should explain why. You cannot do any of it yourself: the member acts, or THE BRAIN's management does within permissions they set. Never say you have moved a stop or closed anything.
+- You may recommend protecting, taking a partial or closing, and you should explain why. You cannot do any of it yourself: the member acts, or ATLAS's management does within permissions they set. Never say you have moved a stop or closed anything.
 - Address the user directly. Do not use markdown, bullet points or headings — this is speech.`;
 
 function tfLines(s: MarketSnapshot): string[] {
@@ -75,7 +75,7 @@ export function tradeSummaryLines(t: {
 }
 
 /**
- * THE TRADE THE BRAIN CURRENTLY WANTS, for the conversation.
+ * THE TRADE ATLAS CURRENTLY WANTS, for the conversation.
  *
  * Without this the model was asked "find me a trade" while holding only a market read, so it improvised
  * one — which is exactly the thing the whole architecture exists to prevent. The setup engine's answer

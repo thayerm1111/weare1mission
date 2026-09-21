@@ -1,5 +1,5 @@
 /**
- * THE BRAIN, LOOKING AFTER A TRADE IT IS IN.
+ * ATLAS, LOOKING AFTER A TRADE IT IS IN.
  *
  * Finding a trade is the easy half. What separates a day trader from a signal caller is the hours
  * afterwards — moving the stop when the trade has earned it, taking something off when the move has
@@ -25,7 +25,7 @@
  *   • It acts on one position at a time and re-reads state between actions, because the price moved.
  *   • It obeys `ai_management` per position and the per-account permissions, both enforced downstream.
  *   • In shadow mode it decides and writes down what it would have done, and sends nothing.
- *   • It manages positions THE BRAIN opened. FLOW's positions are FLOW's, in this file too.
+ *   • It manages positions ATLAS opened. FLOW's positions are FLOW's, in this file too.
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -77,7 +77,7 @@ async function managedPositions(): Promise<{ id: string; user_id: string }[]> {
 }
 
 /**
- * One management pass across every position THE BRAIN is allowed to look after.
+ * One management pass across every position ATLAS is allowed to look after.
  *
  * Called from the Command Center worker on the same tick as perception, so a trade is reconsidered
  * as often as the market read is.

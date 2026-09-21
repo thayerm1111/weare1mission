@@ -257,7 +257,7 @@ export function RiskConsent({ open, onClose, onSigned }: {
           </div>
 
           <p className="mt-2 text-[10.5px] leading-relaxed" style={{ color: C.mut2 }}>
-            Declining is fine — you can read the market and talk to THE BRAIN without signing. You
+            Declining is fine — you can read the market and talk to ATLAS without signing. You
             cannot connect a broker, place a trade or enable automation until you have.
           </p>
         </div>

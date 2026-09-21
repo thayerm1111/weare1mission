@@ -64,7 +64,7 @@ test('the reasoning endpoint refuses an unauthenticated caller', async () => {
   assert.ok(/status: 401/.test(route), 'and refuses without it');
   // The whole point of this endpoint: the market read and the position come from OUR engines.
   assert.ok(/contextPacket/.test(route), 'it answers from the same context the screen uses');
-  assert.ok(/findSetup/.test(route), 'including THE BRAIN\'s own current trade');
+  assert.ok(/findSetup/.test(route), 'including ATLAS\'s own current trade');
   assert.ok(/resolveToken/.test(route), 'and it identifies the member by token, never by voice');
 });
 
@@ -106,7 +106,7 @@ test('the provider\'s own path is mounted, not just the base one', async () => {
  *
  * `dynamic_variables` never leaves the provider; only `custom_llm_extra_body` reaches our endpoint,
  * where it arrives as `elevenlabs_extra_body`. Sent in the wrong field, the line works perfectly and
- * THE BRAIN refuses every question about the member's own position — a failure that looks like bad
+ * ATLAS refuses every question about the member's own position — a failure that looks like bad
  * reasoning and is actually a missing key.
  */
 test('the session token reaches the brain, not just the provider', async () => {
@@ -121,9 +121,9 @@ test('the session token reaches the brain, not just the provider', async () => {
  * MUTE IS NOT A REQUEST TO BE IGNORED.
  *
  * Playback used to be gated on the mute flag, so muting your own microphone destroyed every answer
- * THE BRAIN gave — each one arriving, being discarded, and appearing on screen marked "cut off".
+ * ATLAS gave — each one arriving, being discarded, and appearing on screen marked "cut off".
  */
-test('muting the microphone does not silence THE BRAIN', async () => {
+test('muting the microphone does not silence ATLAS', async () => {
   const fs = await import('node:fs/promises');
   const client = await fs.readFile('src/components/command-center/VoiceSession.tsx', 'utf8');
   const enqueue = client.slice(client.indexOf('const enqueueAudio'), client.indexOf('/* ── teardown'));

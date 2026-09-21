@@ -53,7 +53,7 @@ Leveraged trading means a small move in the market produces a much larger move i
 same leverage that produces a good day produces a bad one faster than most people expect.
 
 3. NOTHING HERE IS A PREDICTION, AND NOTHING IS GUARANTEED.
-THE BRAIN produces opinions from measured data. Opinions are frequently wrong. No setup, signal,
+ATLAS produces opinions from measured data. Opinions are frequently wrong. No setup, signal,
 analysis, confidence figure or statement made by this system is a promise, a guarantee, or a
 representation that a trade will be profitable. Losing trades are a normal part of the strategy and
 will happen.

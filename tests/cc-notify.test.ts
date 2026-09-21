@@ -1,5 +1,5 @@
 /**
- * WHAT THE BRAIN SAYS OUT LOUD, AND HOW OFTEN.
+ * WHAT ATLAS SAYS OUT LOUD, AND HOW OFTEN.
  *
  * The worker ticks every 20 seconds. Untuned, that is 180 messages an hour in a channel the owner
  * shares with GENX signals — not monitoring, a denial of service on his attention. These tests pin the

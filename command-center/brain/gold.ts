@@ -1,7 +1,7 @@
 /**
  * WHAT MOVES GOLD.
  *
- * Durable domain knowledge about XAUUSD: mechanisms, not prices. It is here because THE BRAIN could
+ * Durable domain knowledge about XAUUSD: mechanisms, not prices. It is here because ATLAS could
  * read the present precisely and could not hold a conversation about the instrument — asked how news
  * affects gold, or why the dollar matters, it had nothing to say, because every fact it was permitted
  * to use came from a live snapshot that contains no such thing.

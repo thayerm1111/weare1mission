@@ -1,7 +1,7 @@
 /**
- * THE BRAIN, SPEAKING IN THE GENX CHANNEL.
+ * ATLAS, SPEAKING IN THE GENX CHANNEL.
  *
- * The owner watches one Telegram channel. GENX 1.0 posts its ENTER NOW calls there; THE BRAIN now
+ * The owner watches one Telegram channel. GENX 1.0 posts its ENTER NOW calls there; ATLAS now
  * posts alongside them, clearly labelled, so one feed answers both "what was called" and "is the new
  * engine alive".
  *
@@ -47,7 +47,7 @@ export type Audience = "signals" | "health";
  * Trade calls are unaffected — those are exactly what the channel is for.
  */
 /**
- * Is THE BRAIN allowed to speak to MEMBERS yet?
+ * Is ATLAS allowed to speak to MEMBERS yet?
  *
  * Off by default, and that is a product decision rather than a technical one. An engine that has not
  * yet completed a single trade should not be announcing setups to a paying channel — a member reading

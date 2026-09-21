@@ -1,5 +1,5 @@
 /**
- * THE SIGNIFICANCE ENGINE — when The BRAIN is allowed to make a sound.
+ * THE SIGNIFICANCE ENGINE — when Atlas is allowed to make a sound.
  *
  * This is the most important restraint in the product. An intelligence that comments on every tick is
  * noise, and noise gets muted; an intelligence that stays quiet for forty minutes and then says one
@@ -41,7 +41,7 @@ export type ScoreContext = {
   snapshot: MarketSnapshot;
   /** Events already raised in the recent past — used for novelty, so nothing repeats itself. */
   recent: PerceptionEvent[];
-  /** When The BRAIN last spoke out loud. Restraint is enforced here, not left to taste. */
+  /** When Atlas last spoke out loud. Restraint is enforced here, not left to taste. */
   lastSpokeAt: number | null;
   /** Minimum gap between spoken comments, unless the event is urgent. */
   quietMs?: number;
@@ -56,7 +56,7 @@ const SUPPRESS_MS = 18 * 60_000;
 const ESCALATION = 10;
 
 /**
- * Novelty: has The BRAIN effectively already said this? Same code within the window decays hard,
+ * Novelty: has Atlas effectively already said this? Same code within the window decays hard,
  * so "bullish pressure rising" does not get announced six times during one push.
  */
 function noveltyOf(e: Omit<PerceptionEvent, "significance" | "channel">, recent: PerceptionEvent[]): number {

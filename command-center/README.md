@@ -1,6 +1,6 @@
 # COMMAND CENTER XAUUSD
 
-A fresh, self-contained gold trading command center. The intelligence engine inside it is **The BRAIN**.
+A fresh, self-contained gold trading command center. The intelligence engine inside it is **Atlas**.
 
 **Isolation is a rule, not a preference.** Nothing in `command-center/` imports from `src/lib/genx*`,
 `src/lib/flow*`, or any other existing desk code, and nothing there imports from here. It owns its own

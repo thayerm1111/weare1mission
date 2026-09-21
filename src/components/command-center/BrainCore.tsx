@@ -3,14 +3,14 @@
 import { useEffect, useRef } from "react";
 
 /**
- * THE BRAIN CORE.
+ * ATLAS CORE.
  *
  * A living visual, and every part of its motion is a market measurement:
  *   • breathing rate  ← intensity (volatility + velocity). A dead market breathes slowly. A violent one races.
  *   • radius swell    ← intensity
  *   • directional tilt← pressure lean: the field leans toward whichever side has control
  *   • ring rotation   ← intensity
- *   • filament count  ← how much THE BRAIN currently has to process (events in play)
+ *   • filament count  ← how much ATLAS currently has to process (events in play)
  *   • hue             ← lean, from cold blue through gold to warm red
  *
  * There is no idle animation. If the market is still, this is still, and that stillness is information.

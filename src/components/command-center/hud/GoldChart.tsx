@@ -8,7 +8,7 @@ export type ChartZone = { from: number; to: number; label: string; tone: "supply
 export type ChartLine = { price: number; label: string; color: string; dashed?: boolean; tag?: boolean };
 
 /**
- * THE PRIMARY GOLD CHART — candles, activity, and the Brain's own overlays.
+ * THE PRIMARY GOLD CHART — candles, activity, and Atlas's own overlays.
  *
  * Every overlay is something the engine produced: zones are its nearest levels above and below, markers
  * are its own perception events (structure breaks, reclaims, liquidity sweeps) placed at the bar they

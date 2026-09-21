@@ -1,7 +1,7 @@
 /**
  * WHAT IT KNOWS ABOUT THE ACCOUNT IT IS TRADING.
  *
- * Asked "look at my account and tell me whether I should lower my risk", THE BRAIN said gold was
+ * Asked "look at my account and tell me whether I should lower my risk", ATLAS said gold was
  * closed. The account has nothing to do with whether the market is open: the balance, the risk
  * setting, the permissions and the authorisation state are all facts about the member's own
  * configuration, and a system that cannot discuss them is not a trading partner.

@@ -3,7 +3,7 @@
  *
  * A trading system that talks all day and never checks itself is a commentator. The difference between
  * a commentator and a trader is that the trader keeps a journal and the journal is allowed to be
- * unflattering. This is that journal, and it is deliberately built so that THE BRAIN cannot flatter
+ * unflattering. This is that journal, and it is deliberately built so that ATLAS cannot flatter
  * itself with it.
  *
  * WHAT "LEARNING" HONESTLY MEANS HERE, because the word is usually oversold. No weights are updated;
@@ -48,7 +48,7 @@ export type Call = {
  *
  * "I'd wait" contains no view. "It could go either way" contains no view. "Buyers are in control"
  * does. The negative list exists because the cheap version of this — search for the word "up" — would
- * score THE BRAIN on sentences it never meant as calls, and a record built from misreadings is worse
+ * score ATLAS on sentences it never meant as calls, and a record built from misreadings is worse
  * than no record.
  */
 const BULL = /\b(buyers?\s+(are\s+|look\s+|remain\s+)?(in control|stronger|on top)|higher|upside|pushing up|breaking up|bullish|i'?d be (a )?buyer|favou?r the long|going up|rally|lean long|long here)\b/i;

@@ -728,7 +728,7 @@ export function orderIdOf(body: unknown): string | null {
  *
  * When a position disappears from the broker's list, the close used to be recorded at whatever gold was
  * quoting on our next read. On 09-20 that booked a 14.23-lot sell as −7 pips at 4375.22 when the broker
- * had closed it somewhere else, and the Brain then told the owner it had no record of the trade.
+ * had closed it somewhere else, and Atlas then told the owner it had no record of the trade.
  *
  * The closing order is in /ordersHistory: the row whose positionId is this position, on the opposite
  * side, filled. Rows may be objects or columnar arrays (column names from ordersHistoryConfig in

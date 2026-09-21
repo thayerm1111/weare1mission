@@ -82,7 +82,7 @@ export type CompletedTrade = {
   entry: number;
   exit: number;
   exitReason: string | null;
-  /** THE BRAIN's account of what happened. Built from the numbers, never from a template. */
+  /** ATLAS's account of what happened. Built from the numbers, never from a template. */
   say: string;
   /**
    * How it was TRADED, as opposed to how it turned out.
@@ -170,7 +170,7 @@ export function experienceOf(i: ExperienceInput): Experience {
       : make("returning_to_market", "Back to watching the whole market.", i.completed);
   }
 
-  /* 4 — no position, no order: what does THE BRAIN see? */
+  /* 4 — no position, no order: what does ATLAS see? */
   const st = i.setup?.state;
   if (st === "trade_ready") return make("trade_preparing", i.setup?.headline ?? null);
   if (st === "waiting_for_trigger" || st === "setup_developing" || st === "watching") {
@@ -180,7 +180,7 @@ export function experienceOf(i: ExperienceInput): Experience {
 }
 
 /**
- * THE BRAIN's account of a finished trade.
+ * ATLAS's account of a finished trade.
  *
  * Written from what actually happened — the excursions, the exit, the reason — and honest about a loss.
  * A system that only narrates its winners teaches a member nothing and is not worth listening to.

@@ -118,7 +118,7 @@ export function replay(steps = 40, withTrade = false, endOffset = 0): ReplayResu
     warnings: s.warnings.slice(0, 5),
     blockers: s.blockers,
     trade: withTrade ? replayTrade(s, m5All, last.diffs) : emptyTrade(),
-    // The setup engine runs over the REPLAYED snapshot too, so the harness shows what THE BRAIN would
+    // The setup engine runs over the REPLAYED snapshot too, so the harness shows what ATLAS would
     // actually have called on recorded gold rather than on a fixture invented to make it look clever.
     setup: replaySetup,
     experience: experienceOf({

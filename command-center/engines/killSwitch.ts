@@ -5,7 +5,7 @@
  * deploy and a worker restart. That is the wrong instrument for the thing an owner actually needs at
  * two in the morning, which is to stop it NOW, from a phone, without waiting for a build.
  *
- * So the Brain shares the switch FLOW and GENX already use — the same single `flow_switches` row, read
+ * So Atlas shares the switch FLOW and GENX already use — the same single `flow_switches` row, read
  * on the same cadence, with the same meaning:
  *
  *   OFF stops NEW entries. Open positions keep being managed.
@@ -47,7 +47,7 @@ export type SwitchState = { on: boolean; reason: string };
  * THE LATCH, AS ARITHMETIC.
  *
  * Separated from the database call so the one rule that matters can be tested without one: a failed
- * read must never be able to turn the Brain back on after somebody has switched it off.
+ * read must never be able to turn Atlas back on after somebody has switched it off.
  *
  * `reading` is what the database said — `null` when it could not be reached or the query threw.
  */
@@ -70,7 +70,7 @@ export function nextSwitchState(
 }
 
 /**
- * May the Brain open new positions right now?
+ * May Atlas open new positions right now?
  *
  * Never throws. A caller on the trading path must always get an answer, and the answer when nothing is
  * known is the conservative one.

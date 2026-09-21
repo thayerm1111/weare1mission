@@ -58,7 +58,7 @@ export type StructureState = {
   reclaimed: boolean;
 };
 
-/** The ONLY thing The BRAIN and the strategy engine ever read. Versioned, persisted, replayable. */
+/** The ONLY thing Atlas and the strategy engine ever read. Versioned, persisted, replayable. */
 export type MarketSnapshot = {
   snapshotVersion: string;
   at: number;
@@ -75,7 +75,7 @@ export type MarketSnapshot = {
   levels: Level[];
   /**
    * Where price has turned over the past days and weeks (core/levelMap.ts). Reference only — the setup
-   * engine targets `levels`, never this, so adding it changed nothing about how THE BRAIN trades.
+   * engine targets `levels`, never this, so adding it changed nothing about how ATLAS trades.
    * Optional because snapshots persisted before 09-20 do not carry it.
    */
   map?: Level[];

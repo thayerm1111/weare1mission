@@ -179,7 +179,7 @@ export async function handleVoiceLlm(req: Request) {
    * `elevenlabs_extra_body` is the documented one — what the client sends as `custom_llm_extra_body`
    * arrives here under that name. The rest are cheap insurance: this is a provider-shaped payload whose
    * shape is not fully published, and the failure mode of losing the token is not an error message but
-   * THE BRAIN politely declining to discuss the member's own position, which reads like a bug in the
+   * ATLAS politely declining to discuss the member's own position, which reads like a bug in the
    * reasoning rather than a missing field.
    */
   const extra = { ...(body.extra_body ?? {}), ...(body.elevenlabs_extra_body ?? {}) };

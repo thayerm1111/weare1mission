@@ -1,7 +1,7 @@
 /**
- * TRADE INTELLIGENCE — THE BRAIN, once a position exists.
+ * TRADE INTELLIGENCE — ATLAS, once a position exists.
  *
- * Before a trade, THE BRAIN watches gold. After a trade, it watches gold THROUGH the position. That is
+ * Before a trade, ATLAS watches gold. After a trade, it watches gold THROUGH the position. That is
  * not a different screen; it is a different question. "What is gold doing?" becomes "is the reason we
  * took this still true?"
  *
@@ -234,7 +234,7 @@ export type Protection = {
 };
 
 /**
- * What THE BRAIN would do about this position right now, and why.
+ * What ATLAS would do about this position right now, and why.
  *
  * It is biased toward HOLD on purpose. Protecting a trade costs a little upside every time it is wrong,
  * and closing a healthy trade early is the most expensive habit a trader can have.

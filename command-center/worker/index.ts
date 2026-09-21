@@ -36,7 +36,7 @@ const NEEDED: { tf: Timeframe; size: number }[] = [
 ];
 
 /**
- * THE BRAIN's rolling memory. Held in the process so perception runs on every tick, and rebuilt from the
+ * ATLAS's rolling memory. Held in the process so perception runs on every tick, and rebuilt from the
  * database at boot so a restart does not give it amnesia about the last hour of the market.
  */
 let lastPrice: number | null = null;
@@ -185,7 +185,7 @@ async function pass(lastPersistAt: number): Promise<number> {
   lastPrice = snap.price;          // what the second look measures a finished trade's aftermath against
   const gate = tradeable(snap);
 
-  // THE BRAIN runs on EVERY tick, not only when a snapshot is persisted. Perception is cheap and
+  // ATLAS runs on EVERY tick, not only when a snapshot is persisted. Perception is cheap and
   // deterministic; what it costs is nothing, and what it buys is noticing a change within one tick
   // instead of within a minute.
   const previousSnapshot = brain.snapshots.length ? brain.snapshots[brain.snapshots.length - 1] : null;
@@ -315,13 +315,13 @@ async function secondLook(price: number): Promise<void> {
 /**
  * PERSISTENT MONITORING INSTRUCTIONS.
  *
- * Everything a member asked THE BRAIN to watch is checked here, against the same snapshot every other
+ * Everything a member asked ATLAS to watch is checked here, against the same snapshot every other
  * decision uses, on every pass. This is what makes "watch the London high and tell me if the retest
  * fails" survive a closed browser — the promise lives in the database and is kept by a process the
  * member never sees.
  *
  * A fired watch becomes a BRAIN statement, so it reaches the stream and the voice through exactly the
- * same path as everything else THE BRAIN says. There is no second notification channel to get out of
+ * same path as everything else ATLAS says. There is no second notification channel to get out of
  * sync with the first.
  */
 async function keepPromises(snap: MarketSnapshot, previous: MarketSnapshot | null): Promise<void> {

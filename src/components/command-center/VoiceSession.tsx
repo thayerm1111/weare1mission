@@ -6,7 +6,7 @@ import { Mic, MicOff, PhoneOff, Radio } from "lucide-react";
 import { VoicePresence, type PresenceMode } from "./VoicePresence";
 
 /**
- * TALK WITH THE BRAIN — one continuous session, not a button you hold.
+ * TALK WITH ATLAS — one continuous session, not a button you hold.
  *
  * The old console was press-to-talk: a microphone button before every sentence, and a speech synthesiser
  * that could not be stopped once it started. That is a demo. This is a line you open once and then
@@ -199,7 +199,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
     scheduled.current = [];
     outLevel.current = 0;      // interrupted mid-word: the mouth closes immediately
     playHead.current = audioCtx.current?.currentTime ?? 0;
-    // Anything queued and never started was never heard. Saying otherwise would let THE BRAIN refer back
+    // Anything queued and never started was never heard. Saying otherwise would let ATLAS refer back
     // to a sentence the member has no memory of, which is worse than silence.
     setTurns((t) => t.map((x) => (x.who === "brain" && !x.heard && x.id === pendingBrainId.current ? { ...x, text: x.text, heard: false } : x)));
   }, []);
@@ -210,7 +210,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
      * MUTED MEANS THE MICROPHONE IS OFF, NOT THAT THE MEMBER HAS GONE DEAF.
      *
      * This used to drop every incoming frame while muted, so muting yourself to stop talking also
-     * destroyed everything THE BRAIN said back — each answer arriving, being discarded, and appearing
+     * destroyed everything ATLAS said back — each answer arriving, being discarded, and appearing
      * on screen marked "cut off". Muting your own microphone is not a request to be ignored.
      */
     if (!ctx) return;
@@ -415,7 +415,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
       };
       source.connect(node);
       // A ScriptProcessor needs a destination to run at all; routing the microphone to the speakers
-      // would make THE BRAIN talk over itself, so it goes through a silenced gain node.
+      // would make ATLAS talk over itself, so it goes through a silenced gain node.
       const silent = ctx.createGain();
       silent.gain.value = 0;
       node.connect(silent);
@@ -588,11 +588,11 @@ export function VoiceSession({ onUiAction, onStatus }: {
            *
            * A dead microphone does not produce an empty transcript — it produces "..." or "uh", which
            * is a turn, which gets a full answer. The screen then fills with the member apparently
-           * saying nothing and THE BRAIN briefing them on it, twice. A turn with no letters or digits
+           * saying nothing and ATLAS briefing them on it, twice. A turn with no letters or digits
            * in it is not something anybody said.
            */
           if (!/[\p{L}\p{N}]/u.test(text)) return;
-          // The member spoke, so whatever THE BRAIN was saying is no longer what matters.
+          // The member spoke, so whatever ATLAS was saying is no longer what matters.
           stopPlayback();
           setStatus("listening");
           setTurns((t) => [...t.slice(-40), { id: `u${Date.now()}`, who: "you", text, heard: true, at: Date.now() }]);
@@ -791,13 +791,13 @@ export function VoiceSession({ onUiAction, onStatus }: {
         {!live ? (
           <>
             <p className="text-[12.5px] leading-relaxed" style={{ color: C.mut }}>
-              Open one line and talk normally — no button before each sentence. You can cut THE BRAIN off
+              Open one line and talk normally — no button before each sentence. You can cut ATLAS off
               mid-word and it will stop.
             </p>
             <button onClick={() => void start()} disabled={status === "connecting" || info?.configured === false}
               className="mt-2.5 w-full rounded-xl px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.14em] disabled:opacity-40"
               style={{ background: "rgba(240,196,117,0.14)", color: C.gold, border: "1px solid rgba(240,196,117,0.32)" }}>
-              {status === "connecting" ? "Connecting…" : "Talk with THE BRAIN"}
+              {status === "connecting" ? "Connecting…" : "Talk with ATLAS"}
             </button>
           </>
         ) : (
@@ -820,7 +820,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
               {turns.slice(-12).map((t) => (
                 <div key={t.id}>
                   <p className="text-[9.5px] font-bold uppercase tracking-[0.16em]" style={{ color: t.who === "you" ? C.cold : C.gold }}>
-                    {t.who === "you" ? "You" : "THE BRAIN"}
+                    {t.who === "you" ? "You" : "ATLAS"}
                     {t.who === "brain" && !t.heard && <span style={{ color: C.mut2 }}> · cut off</span>}
                   </p>
                   <p className="text-[12.5px] leading-relaxed" style={{ color: t.heard ? C.text : C.mut2 }}>{t.text}</p>
@@ -910,7 +910,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
               </button>
             </div>
             <p className="mt-2 text-[10.5px] leading-relaxed" style={{ color: C.mut2 }}>
-              Muting stops me hearing you; THE BRAIN still speaks. Cut it off mid-word by talking over it.
+              Muting stops me hearing you; ATLAS still speaks. Cut it off mid-word by talking over it.
               None of this stops the market engine, the position manager, or an order already on its way
               to the broker.
             </p>

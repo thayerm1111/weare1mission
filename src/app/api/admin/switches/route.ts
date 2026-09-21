@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * ADMIN KILL SWITCH — global on/off for FLOW, GENX and THE BRAIN, owner-gated.
+ * ADMIN KILL SWITCH — global on/off for FLOW, GENX and ATLAS, owner-gated.
  *
  *   GET  → { flow: boolean, genx: boolean, brain: boolean }
  *   POST → { flow?: boolean, genx?: boolean, brain?: boolean } sets any of them.
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
  * placing NEW trades for that engine (open trades keep being managed). Owner only —
  * gateAdmin returns 404 to everyone else so the endpoint's existence isn't leaked.
  *
- * THE BRAIN reads this on every pass of its worker loop, so switching it off here takes effect within
+ * ATLAS reads this on every pass of its worker loop, so switching it off here takes effect within
  * a tick — no deploy, no restart. Its reader is deliberately stickier than FLOW's: once it has seen
  * OFF it stays off through a database failure, because the moment right after somebody hits a kill
  * switch is exactly the wrong moment to fail open. See command-center/engines/killSwitch.ts.

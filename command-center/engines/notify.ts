@@ -1,5 +1,5 @@
 /**
- * WHAT THE BRAIN SAYS OUT LOUD.
+ * WHAT ATLAS SAYS OUT LOUD.
  *
  * The owner asked to see the engine's health in the same channel as the GENX calls: that it is
  * watching, that it is about to act, and what it did. The hard part is not sending — it is sending
@@ -77,7 +77,7 @@ export function heartbeat(h: Health): void {
   const blocked = s?.blockers?.length ? s.blockers.map((b) => b.code).join(", ") : null;
 
   const lines = [
-    `👁 <b>THE BRAIN — watching</b>`,
+    `👁 <b>ATLAS — watching</b>`,
     s ? `Gold @ ${fmt(s.price)} · ${esc(s.regime)} · ${esc(s.session)}` : `No market read yet`,
     h.thesis?.label ? `Read: ${esc(h.thesis.label)}${h.thesis.confidence != null ? ` (${h.thesis.confidence})` : ""}` : null,
     blocked ? `Standing aside: ${esc(blocked)}` : (h.tradeable ? `Clear to trade` : `Not tradeable right now`),
@@ -105,10 +105,10 @@ export function formingSetup(input: {
   if (!due(key, 20 * 60_000)) return;
 
   post([
-    `⏳ <b>THE BRAIN ${typeWord(input.style)} — ${esc(input.side.toUpperCase())} setup forming</b>`,
+    `⏳ <b>ATLAS ${typeWord(input.style)} — ${esc(input.side.toUpperCase())} setup forming</b>`,
     `Gold @ ${fmt(input.price)} · watching ${fmt(input.entry)} · stop would be ${fmt(input.stop)}`,
     input.missing ? `Waiting on: ${esc(input.missing)}` : `Waiting on the trigger.`,
-    `<i>Not a call. THE BRAIN is watching this one.</i>`,
+    `<i>Not a call. ATLAS is watching this one.</i>`,
   ].join("\n"), "signals");
 }
 
@@ -127,7 +127,7 @@ export function tookTrade(input: {
     : null;
 
   post([
-    `🤖 <b>THE BRAIN ${typeWord(input.style)} — ENTER NOW · ${esc(input.side.toUpperCase())}</b>`,
+    `🤖 <b>ATLAS ${typeWord(input.style)} — ENTER NOW · ${esc(input.side.toUpperCase())}</b>`,
     `Entry ~${fmt(input.entry)} · Stop ${fmt(input.stop)}${input.target != null ? ` · Target ${fmt(input.target)}` : ""}`,
     size ? esc(size) : null,
     priv && input.accNum ? `Account ${esc(input.accNum)}` : null,
@@ -147,7 +147,7 @@ export function stoodDown(reason: string, ctx?: { side?: string; style?: string 
   if (!due(key, 30 * 60_000)) return;
 
   post([
-    `⛔ <b>THE BRAIN — stood down</b>${ctx?.side ? ` · ${esc(ctx.side.toUpperCase())}${ctx.style ? ` · ${esc(ctx.style)}` : ""}` : ""}`,
+    `⛔ <b>ATLAS — stood down</b>${ctx?.side ? ` · ${esc(ctx.side.toUpperCase())}${ctx.style ? ` · ${esc(ctx.style)}` : ""}` : ""}`,
     esc(reason),
   ].join("\n"), "health");
 }
@@ -156,8 +156,8 @@ export function stoodDown(reason: string, ctx?: { side?: string; style?: string 
 export function switchChanged(on: boolean): void {
   post(
     on
-      ? `🟢 <b>THE BRAIN — autopilot ON</b>\nNew entries are enabled again.`
-      : `🔴 <b>THE BRAIN — autopilot OFF</b>\nNo new entries. Open positions keep being managed.`,
+      ? `🟢 <b>ATLAS — autopilot ON</b>\nNew entries are enabled again.`
+      : `🔴 <b>ATLAS — autopilot OFF</b>\nNo new entries. Open positions keep being managed.`,
     "health",
   );
 }
@@ -166,7 +166,7 @@ export function switchChanged(on: boolean): void {
 export function booted(preflight: { ok: number; failing: number; detail?: string | null }): void {
   const bad = preflight.failing > 0;
   post([
-    `${bad ? "⚠️" : "🟢"} <b>THE BRAIN — worker started</b>`,
+    `${bad ? "⚠️" : "🟢"} <b>ATLAS — worker started</b>`,
     `Pre-flight: ${preflight.ok} ok, ${preflight.failing} failing`,
     bad && preflight.detail ? esc(preflight.detail.slice(0, 300)) : null,
   ].filter(Boolean).join("\n"), "health");

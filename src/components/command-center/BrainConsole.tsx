@@ -4,14 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Mic, Send, Square, Volume2, VolumeX } from "lucide-react";
 
 /**
- * TALKING TO THE BRAIN.
+ * TALKING TO ATLAS.
  *
  * Speech in through the browser's recognition API, speech out through its synthesis API, behind one small
  * abstraction so a dedicated speech provider can replace either end without touching this component.
  * Nothing here is simulated: if the browser cannot listen, the microphone says so rather than pretending.
  *
  * Interruption is the part that makes it feel like a conversation rather than an announcement system:
- * the moment you start speaking, THE BRAIN stops.
+ * the moment you start speaking, ATLAS stops.
  */
 
 /* Minimal shapes for the Web Speech API, which TypeScript's DOM lib still does not ship. */
@@ -28,7 +28,7 @@ type RecognitionCtor = new () => SpeechRecognitionLike;
 export type VoiceMode = "off" | "push_to_talk" | "important_only" | "briefing_1m" | "briefing_5m" | "war_room";
 
 export const VOICE_MODES: { id: VoiceMode; label: string; hint: string }[] = [
-  { id: "off", label: "Voice off", hint: "THE BRAIN stays silent. Everything still updates on screen." },
+  { id: "off", label: "Voice off", hint: "ATLAS stays silent. Everything still updates on screen." },
   { id: "push_to_talk", label: "Push to talk", hint: "It only speaks when you ask it something." },
   { id: "important_only", label: "Important only", hint: "It speaks when something genuinely changes." },
   { id: "briefing_1m", label: "Every minute", hint: "A short read every minute, plus anything important." },
@@ -39,7 +39,7 @@ export const VOICE_MODES: { id: VoiceMode; label: string; hint: string }[] = [
 export type Turn = { role: "user" | "assistant"; content: string; source?: string; at: number };
 
 export type BrainConsoleProps = {
-  /** A proactive line THE BRAIN wants to say. A new `key` means a new thing to announce. */
+  /** A proactive line ATLAS wants to say. A new `key` means a new thing to announce. */
   announce: { key: string; text: string; urgent: boolean } | null;
   onUiAction?: (name: string, arg: string | number | null) => void;
   mode: VoiceMode;
@@ -53,12 +53,12 @@ export type BrainConsoleProps = {
   quick?: { label: string; q: string }[];
   /** Ask something from outside the console (EXPLAIN FURTHER, a chip elsewhere). A new `n` asks again. */
   askSignal?: { n: number; q: string } | null;
-  /** Lets the page show the Brain as thinking / speaking / listening. */
+  /** Lets the page show Atlas as thinking / speaking / listening. */
   onActivity?: (a: { busy: boolean; speaking: boolean; listening: boolean }) => void;
 };
 
 const QUICK = [
-  { label: "Talk to me", q: "THE BRAIN, talk to me." },
+  { label: "Talk to me", q: "ATLAS, talk to me." },
   { label: "What changed?", q: "What changed over the last five minutes?" },
   { label: "Why?", q: "Why are you reading it that way?" },
   { label: "What would change your mind?", q: "What would change your mind?" },
@@ -122,7 +122,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
         body: JSON.stringify({ message: q, history }),
       });
       const j = await r.json();
-      const text: string = j?.spokenText ?? "Something went wrong reaching THE BRAIN.";
+      const text: string = j?.spokenText ?? "Something went wrong reaching ATLAS.";
       setTurns((t) => [...t, { role: "assistant", content: text, source: j?.source, at: Date.now() }]);
       if (j?.notice) setNotice(String(j.notice));
       for (const a of (j?.uiActions ?? []) as { name: string; arg: string | number | null }[]) onUiAction?.(a.name, a.arg);
@@ -199,7 +199,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
   /**
    * THE MINUTE INTELLIGENCE LOOP.
    *
-   * On the briefing modes THE BRAIN volunteers a short read on a fixed cadence. It only runs against a
+   * On the briefing modes ATLAS volunteers a short read on a fixed cadence. It only runs against a
    * live market — briefing someone about a frozen feed is theatre — and it never stacks on top of a
    * request already in flight.
    */
@@ -258,7 +258,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
             <div className="flex gap-2.5">
               <BrainAvatar />
               <div className="min-w-0 flex-1">
-                <p className="mb-1 text-[9.5px] font-bold uppercase tracking-[0.12em]" style={{ color: "#E7C467" }}>The Brain</p>
+                <p className="mb-1 text-[9.5px] font-bold uppercase tracking-[0.12em]" style={{ color: "#E7C467" }}>Atlas</p>
                 <div className="rounded-[8px] px-3 py-2.5 text-[12.5px] leading-relaxed" style={{ background: "rgba(9,19,29,0.9)", border: "1px solid rgba(89,175,255,0.13)", color: "#DCE6EE" }}>
                   I&rsquo;m watching gold. Ask me what I&rsquo;m seeing, why, or what would change my mind — or press the microphone and just talk.
                 </div>
@@ -274,12 +274,12 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
             <div key={i} className="flex gap-2.5">
               <BrainAvatar />
               <div className="min-w-0 flex-1">
-                <p className="mb-1 text-[9.5px]" style={{ color: "#81909E" }}><span className="font-bold uppercase tracking-[0.12em]" style={{ color: "#E7C467" }}>The Brain</span> &nbsp;{t12(t.at)}</p>
+                <p className="mb-1 text-[9.5px]" style={{ color: "#81909E" }}><span className="font-bold uppercase tracking-[0.12em]" style={{ color: "#E7C467" }}>Atlas</span> &nbsp;{t12(t.at)}</p>
                 <div className="whitespace-pre-line rounded-[8px] px-3 py-2.5 text-[12.5px] leading-relaxed" style={{ background: "rgba(9,19,29,0.9)", border: "1px solid rgba(89,175,255,0.13)", color: "#DCE6EE" }}>{t.content}</div>
               </div>
             </div>
           ))}
-          {busy && <p className="pl-10 text-[11.5px]" style={{ color: "#27D7F2" }}>THE BRAIN is thinking…</p>}
+          {busy && <p className="pl-10 text-[11.5px]" style={{ color: "#27D7F2" }}>ATLAS is thinking…</p>}
           {notice && <p className="text-[11px]" style={{ color: "#E7C467" }}>{notice}</p>}
           {micError && <p className="text-[11px]" style={{ color: "#FF5364" }}>{micError}</p>}
         </div>
@@ -299,7 +299,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void ask(input); } }}
-            placeholder={listening ? "Listening…" : "Ask THE BRAIN…"}
+            placeholder={listening ? "Listening…" : "Ask ATLAS…"}
             className="min-w-0 flex-1 rounded-[6px] px-2.5 py-1.5 text-[12px] outline-none"
             style={{ background: "rgba(3,7,11,0.8)", border: "1px solid rgba(89,175,255,0.14)", color: "#F0F4F7" }}
           />
@@ -318,7 +318,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
           <Wave active={listening || speaking} color={speaking ? "#E7C467" : "#27D7F2"} />
           <button
             onClick={listening ? stopListening : startListening}
-            aria-label={listening ? "Stop listening" : "Talk to THE BRAIN"}
+            aria-label={listening ? "Stop listening" : "Talk to ATLAS"}
             className="relative grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full transition"
             style={{
               background: "radial-gradient(circle at 40% 35%, #3A2C0C, #120D04)",
@@ -373,7 +373,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
         {!turns.length && (
           <div className="space-y-2 py-4 text-center">
             <p className="text-[12px]" style={{ color: "rgba(232,239,247,0.45)" }}>
-              Press the microphone and say &ldquo;THE BRAIN, talk to me&rdquo;, or ask it anything about gold right now.
+              Press the microphone and say &ldquo;ATLAS, talk to me&rdquo;, or ask it anything about gold right now.
             </p>
             {!canSpeak && <p className="text-[11px]" style={{ color: "rgba(232,239,247,0.32)" }}>This browser can&rsquo;t speak aloud — replies will still appear here.</p>}
           </div>
@@ -395,7 +395,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
             </div>
           </div>
         ))}
-        {busy && <div className="text-[12px]" style={{ color: "rgba(232,239,247,0.4)" }}>THE BRAIN is thinking…</div>}
+        {busy && <div className="text-[12px]" style={{ color: "rgba(232,239,247,0.4)" }}>ATLAS is thinking…</div>}
         {notice && <div className="text-[11px]" style={{ color: "#F0C475" }}>{notice}</div>}
         {micError && <div className="text-[11px]" style={{ color: "#F4737B" }}>{micError}</div>}
       </div>
@@ -415,7 +415,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
       <div className="flex items-center gap-2 border-t px-3 py-2.5" style={{ borderColor: "rgba(255,255,255,0.07)" }}>
         <button
           onClick={listening ? stopListening : startListening}
-          aria-label={listening ? "Stop listening" : "Talk to THE BRAIN"}
+          aria-label={listening ? "Stop listening" : "Talk to ATLAS"}
           className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition"
           style={{
             background: listening ? "rgba(244,115,123,0.18)" : "rgba(240,196,117,0.14)",
@@ -430,7 +430,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void ask(input); } }}
-          placeholder={listening ? "Listening…" : "Ask THE BRAIN about gold…"}
+          placeholder={listening ? "Listening…" : "Ask ATLAS about gold…"}
           className="min-w-0 flex-1 rounded-xl px-3 py-2 text-[13px] outline-none"
           style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#E8EFF7" }}
         />

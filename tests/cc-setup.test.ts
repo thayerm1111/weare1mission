@@ -43,7 +43,7 @@ function trend(n: number, start: number, drift: number, noise = 1.4): Bar[] {
   return out;
 }
 
-/** A flat, noisy series: the middle of a range, where THE BRAIN is supposed to say no. */
+/** A flat, noisy series: the middle of a range, where ATLAS is supposed to say no. */
 function chop(n: number, mid: number, noise = 1.1): Bar[] {
   const out: Bar[] = [];
   for (let i = 0; i < n; i++) {
@@ -61,9 +61,9 @@ const snap = (bars: Bar[], price?: number): MarketSnapshot => buildSnapshot({
   feeds: [{ feed: 'twelvedata', state: 'live', lastTickMs: bars[bars.length - 1].t, ageMs: 4_000 }],
 });
 
-/* ═══════════════ THE BRAIN decides, the member approves ═══════════════ */
+/* ═══════════════ ATLAS decides, the member approves ═══════════════ */
 
-test('a setup is never produced from a snapshot THE BRAIN cannot see', () => {
+test('a setup is never produced from a snapshot ATLAS cannot see', () => {
   const none = findSetup({ snapshot: null });
   assert.equal(none.state, 'blocked');
   assert.equal(none.side, null);
@@ -90,7 +90,7 @@ test('the middle of a range produces NO TRADE, with what would change it', () =>
   assert.ok(out.say.length > 30, 'a refusal has to explain itself');
 });
 
-test('every trade style switched off means THE BRAIN has nothing it is allowed to take', () => {
+test('every trade style switched off means ATLAS has nothing it is allowed to take', () => {
   const off: SetupProfile = { allowQuick: false, allowHold: false, allowSwing: false, minConfidence: 55 };
   const out = findSetup({ snapshot: snap(trend(140, 4300, 1.1)), profile: off });
   assert.equal(out.state, 'blocked');
@@ -113,7 +113,7 @@ test('a style may only be chosen when it listens to the timeframe the candidate 
 });
 
 test('a missing timeframe is a penalty that is said out loud, never a silent veto', () => {
-  // Only 5m present. Before this was fixed, every style was excluded at once and THE BRAIN blamed the
+  // Only 5m present. Before this was fixed, every style was excluded at once and ATLAS blamed the
   // market for its own blind spot.
   const bars = trend(140, 4300, 1.1);
   const s = buildSnapshot({
@@ -137,7 +137,7 @@ test('article() reads like a person wrote it', () => {
 
 /* ═══════════════ the arithmetic has to be worth doing ═══════════════ */
 
-test('THE BRAIN refuses to risk more than the first objective is worth', () => {
+test('ATLAS refuses to risk more than the first objective is worth', () => {
   // Real recorded gold produced exactly this: a 107-pip stop aiming at a level 28 pips away, offered as
   // TRADE READY with ninety confidence. Being right about direction does not rescue that arithmetic.
   const bars = trend(160, 4300, 1.4);
@@ -387,7 +387,7 @@ test('the narrower consent always wins', () => {
   assert.equal(positionSaysNo.close, false, 'the position is the narrowest consent of all');
 });
 
-test('a fresh profile lets THE BRAIN talk and protect, and nothing else', () => {
+test('a fresh profile lets ATLAS talk and protect, and nothing else', () => {
   assert.equal(DEFAULT_PROFILE.autoEntry, false);
   assert.equal(DEFAULT_PROFILE.autoManagement, false);
   assert.equal(DEFAULT_PROFILE.allowFullClose, false);
@@ -397,7 +397,7 @@ test('a fresh profile lets THE BRAIN talk and protect, and nothing else', () => 
 
 /* ═══════════════ replaying REAL recorded gold ═══════════════ */
 
-test('over a real recorded session THE BRAIN behaves like a trader, not a slot machine', () => {
+test('over a real recorded session ATLAS behaves like a trader, not a slot machine', () => {
   const counts: Record<string, number> = {};
   for (let off = 0; off <= 140; off++) {
     let r;
@@ -457,7 +457,7 @@ test('a style stored under the old name is still read, never silently reinterpre
   assert.equal(styleOf(null), 'hold');
 });
 
-test('THE BRAIN refuses to widen a stop to make a small move fit a bigger label', () => {
+test('ATLAS refuses to widen a stop to make a small move fit a bigger label', () => {
   // Walk the recording and assert the invariant everywhere it produced a trade: whatever horizon it
   // chose, the room it actually found is not wildly short of what that horizon exists for.
   for (let off = 0; off <= 130; off += 3) {

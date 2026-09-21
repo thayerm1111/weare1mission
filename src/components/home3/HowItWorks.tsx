@@ -96,7 +96,7 @@ const STEPS: Step[] = [
       <Panel title="Talking">
         <p className="text-[11px] font-bold uppercase tracking-[0.16em]" style={{ color: "#4C7DF0" }}>You</p>
         <p className="mt-1 text-[13px]" style={{ color: "var(--h3-ink)" }}>Why don&rsquo;t you trust that breakout?</p>
-        <p className="mt-3 text-[11px] font-bold uppercase tracking-[0.16em]" style={{ color: "#C9A961" }}>The Brain</p>
+        <p className="mt-3 text-[11px] font-bold uppercase tracking-[0.16em]" style={{ color: "#C9A961" }}>Atlas</p>
         <p className="mt-1 text-[13px] leading-relaxed" style={{ color: "var(--h3-ink)" }}>
           Price cleared the level but never spent time above it — one wick, then back inside.
           Volume didn&rsquo;t confirm. I&rsquo;d want acceptance before I call it a break.

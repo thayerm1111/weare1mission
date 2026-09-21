@@ -2,7 +2,7 @@
  * TRADE INTELLIGENCE MODE — the server side.
  *
  * Assembles, for one member, the complete picture of their open XAUUSD position: what the broker says it
- * is, what it is worth right now, whether the reason for it still holds, and what THE BRAIN would do
+ * is, what it is worth right now, whether the reason for it still holds, and what ATLAS would do
  * about it. It also writes the position's own timeline, so the intelligence stream can replay the trade.
  *
  * Deliberately conservative with the broker: positions are re-read on a cadence, not on every browser
@@ -318,7 +318,7 @@ export async function tradeState(userId: string, snapshot: MarketSnapshot | null
 
 /**
  * Adopt a position that was opened directly in TradeLocker. The member chooses the style, because the
- * style is what tells THE BRAIN how to manage it — and guessing that would be guessing their intent.
+ * style is what tells ATLAS how to manage it — and guessing that would be guessing their intent.
  */
 export async function adopt(userId: string, brokerPositionId: string, style: Style): Promise<{ ok: boolean; message: string; positionId?: string }> {
   const account = await selectedAccount(userId);
@@ -342,7 +342,7 @@ export async function adopt(userId: string, brokerPositionId: string, style: Sty
     init_stop: stop, cur_stop: p.sl ?? stop, take_profit: p.tp ?? null,
     instrument_id: p.instrumentId, route_id: account.route_id,
     pip_size: pipSize, pip_value_per_lot: inst.ok ? inst.resolved.instrument.pipValuePerLot : null,
-    state: "open", thesis: { reason: "Opened directly in TradeLocker and handed to THE BRAIN to manage." },
+    state: "open", thesis: { reason: "Opened directly in TradeLocker and handed to ATLAS to manage." },
     opened_at: p.openedAt ? new Date(p.openedAt).toISOString() : nowIso(),
     last_seen_at: nowIso(), source: "tradelocker",
   }, { onConflict: "account_id,broker_position_id" }).select("id").single();
@@ -363,7 +363,7 @@ export async function setAiManagement(userId: string, positionId: string, on: bo
   const { error } = await c().from("cc_positions").update(patch).eq("id", positionId).eq("user_id", userId).is("closed_at", null);
   if (!error) {
     await event(userId, positionId, on ? "AI_MANAGEMENT_ON" : "AI_MANAGEMENT_OFF",
-      on ? "THE BRAIN is now managing this position within the permissions you set." : "THE BRAIN is watching this position but will not act on it.", "stream");
+      on ? "ATLAS is now managing this position within the permissions you set." : "ATLAS is watching this position but will not act on it.", "stream");
   }
   return !error;
 }
@@ -430,6 +430,6 @@ export async function lastCompleted(userId: string): Promise<CompletedTrade | nu
     exit: Number(r.exit_price),
     exitReason: r.exit_reason ?? null,
   };
-  // THE BRAIN's graded account is better than the generic one, so it wins when it exists.
+  // ATLAS's graded account is better than the generic one, so it wins when it exists.
   return { ...base, say: r.narrative || completionRead(base), grade: r.grade ?? null };
 }

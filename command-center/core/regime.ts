@@ -2,7 +2,7 @@
  * TIMEFRAME STATE, PRESSURE AND REGIME.
  *
  * These are the system's opinions — and every one of them is a deterministic function of the measurements
- * in math.ts and structure.ts. When The BRAIN says "the market is in compression", that sentence can be
+ * in math.ts and structure.ts. When Atlas says "the market is in compression", that sentence can be
  * traced to an efficiency number and a volatility ratio, not to a model's mood.
  */
 import type { Bar, Features, Pressure, Regime, StructureState, TfState } from "./types";

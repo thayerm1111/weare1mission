@@ -4,13 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, Minus, Sliders, X } from "lucide-react";
 
 /**
- * THE BRAIN'S TRADE — the primary trading surface.
+ * ATLAS'S TRADE — the primary trading surface.
  *
- * The old surface asked the member to pick a side, a style, a stop and a target, and then had THE BRAIN
+ * The old surface asked the member to pick a side, a style, a stop and a target, and then had ATLAS
  * grade the result. That is a trade ticket with an opinion bolted on, and it puts the analysis back on
  * the person who came here precisely so they would not have to do it.
  *
- * This card inverts that. THE BRAIN says what it sees — nothing, a developing idea, or a complete trade
+ * This card inverts that. ATLAS says what it sees — nothing, a developing idea, or a complete trade
  * with an entry, a stop, objectives and a reason — and the member's job is to approve it or not. The
  * building-your-own path still exists, because some members want it, but it lives behind a link and it
  * is no longer what the product is about.
@@ -83,7 +83,7 @@ const STATE_TONE: Record<string, string> = {
 const money = (n: number | null | undefined, cur?: string | null) =>
   n == null ? "—" : `${cur === "USD" || !cur ? "$" : `${cur} `}${Math.round(n).toLocaleString()}`;
 
-/* ══════════════════════ THE BRAIN'S TRADE ══════════════════════ */
+/* ══════════════════════ ATLAS'S TRADE ══════════════════════ */
 
 export function BrainTradeCard({
   setup, profile, account, idempotencyKey, marketOpen, onChanged, onOpenManual, onOpenProfile,
@@ -162,7 +162,7 @@ export function BrainTradeCard({
     <section className="overflow-hidden rounded-2xl border" style={{ borderColor: ready ? "rgba(240,196,117,0.30)" : C.line, background: C.panel }}>
       <div className="flex items-center justify-between gap-2 border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
         <p className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: tone }}>
-          <Brain className="h-3.5 w-3.5" /> {setup?.headline ?? "THE BRAIN"}
+          <Brain className="h-3.5 w-3.5" /> {setup?.headline ?? "ATLAS"}
         </p>
         <div className="flex items-center gap-2">
           {setup && setup.confidence > 0 && (
@@ -178,7 +178,7 @@ export function BrainTradeCard({
         </div>
       </div>
 
-      {/* what THE BRAIN says — always present, whatever the state */}
+      {/* what ATLAS says — always present, whatever the state */}
       <div className="px-3.5 py-3">
         <p className="text-[13.5px] leading-relaxed" style={{ color: C.text }}>
           {marketOpen === false
@@ -320,7 +320,7 @@ export function BrainTradeCard({
             {setup?.state === "waiting_for_trigger" ? "Waiting for the trigger — nothing for you to do"
               : setup?.state === "setup_developing" ? "Setup developing"
               : setup?.state === "watching" ? "Watching"
-              : "THE BRAIN is watching"}
+              : "ATLAS is watching"}
           </p>
         )}
       </div>
@@ -335,7 +335,7 @@ export function BrainTradeCard({
 
       {account?.isLive && !account.liveAuthorized && (
         <p className="border-t px-3.5 py-2 text-[11px]" style={{ borderColor: C.line, color: C.amber }}>
-          This is a LIVE account. Authorise live trading on it before THE BRAIN can send anything.
+          This is a LIVE account. Authorise live trading on it before ATLAS can send anything.
         </p>
       )}
     </section>
@@ -496,7 +496,7 @@ export function ProfileSheet({ open, profile, onClose, onSaved }: {
       style={{ background: "rgba(3,5,9,0.72)", backdropFilter: "blur(6px)" }}>
       <div className="w-full max-w-lg rounded-2xl border" style={{ borderColor: C.line, background: C.panel, color: C.text }}>
         <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: C.line }}>
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: C.mut2 }}>THE BRAIN · trading profile</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: C.mut2 }}>ATLAS · trading profile</p>
           <button onClick={onClose} aria-label="Close"><X className="h-4 w-4" style={{ color: C.mut2 }} /></button>
         </div>
 
@@ -517,7 +517,7 @@ export function ProfileSheet({ open, profile, onClose, onSaved }: {
               ))}
             </div>
             <p className="mt-1.5 text-[11px]" style={{ color: C.mut2 }}>
-              This is the only number you normally need to set. THE BRAIN sizes every trade from it and the
+              This is the only number you normally need to set. ATLAS sizes every trade from it and the
               broker&#39;s own contract spec.
             </p>
           </div>

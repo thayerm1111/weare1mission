@@ -5,7 +5,7 @@
  * its tools. That would hand the most important reasoning in this system to a generic assistant that has
  * never seen a market snapshot, and it is exactly what the specification forbids. So the provider here
  * does two jobs and no others — turn speech into text, and turn text into speech. Everything between
- * those two points is the BRAIN that already exists.
+ * those two points is Atlas that already exists.
  *
  * THE ADAPTER BOUNDARY IS THE POINT. `VoiceProvider` is the whole surface. A different speech vendor, or
  * the browser's own recognition, satisfies the same three functions, and nothing upstream of this file
@@ -341,7 +341,7 @@ const TTS_MODEL = process.env.CC_VOICE_TTS_MODEL ?? "eleven_flash_v2";
  * and a change here re-applies the whole configuration on the next session instead of waiting for
  * somebody to remember.
  */
-const AGENT_CONFIG_VERSION = 2;
+const AGENT_CONFIG_VERSION = 3;   // 3: the agent is ATLAS
 
 const AGENT_PROMPT = [
   "You are a relay. Do not answer from your own knowledge.",
@@ -429,9 +429,9 @@ export async function provisionAgent(): Promise<Provisioned> {
       }
     }
 
-    // 2 — the agent itself, pointed at THE BRAIN.
+    // 2 — the agent itself, pointed at ATLAS.
     const body = {
-      name: "COMMAND CENTER XAUUSD — THE BRAIN",
+      name: "COMMAND CENTER XAUUSD — ATLAS",
       conversation_config: {
         agent: {
           first_message: "",

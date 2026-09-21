@@ -989,7 +989,7 @@ input{font:inherit}
 .gx-hist-row:active{border-color:rgba(245,196,81,.5)}
 .gx-replay{margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;border-radius:13px;border:1px solid rgba(245,196,81,.35);background:rgba(245,196,81,.08);padding:9px 11px;font-size:11px;font-weight:700;color:#f5d68a}
 .gx-replay button{flex-shrink:0;border-radius:9px;border:1px solid rgba(245,196,81,.45);background:transparent;color:#f5d68a;font-size:11px;font-weight:800;padding:5px 9px;cursor:pointer}
-/* -- THE BRAIN (in-app Command Center) -- */
+/* -- ATLAS (in-app Command Center) -- */
 .br{padding:0 0 26px}
 .br-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:2px 2px 10px}
 .br-name{font-size:13px;font-weight:900;letter-spacing:-.01em;color:#eef3ff}
@@ -1053,6 +1053,34 @@ input{font:inherit}
 .br-mic{width:42px;height:42px;border-radius:999px;display:grid;place-items:center;flex:0 0 auto;font-size:17px;background:rgba(240,196,117,.14);border:1px solid rgba(240,196,117,.34);color:#f0c475}
 .br-mic.on{background:rgba(244,115,123,.18);border-color:rgba(244,115,123,.42);color:#f4737b}
 .br-foot{font-size:10px;color:#65748f;line-height:1.5;padding:12px 4px 0}
+/* -- ATLAS: the HUD look, matching the desktop Command Center -- */
+.br-card{background:linear-gradient(180deg,#09131d,#07101a);border:1px solid rgba(89,175,255,.13);box-shadow:inset 0 1px 0 rgba(255,255,255,.025);border-radius:12px}
+.br-card.hi{border-color:rgba(39,215,242,.42);box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 0 22px rgba(0,199,232,.06)}
+.br-hd{border-bottom:1px solid rgba(89,175,255,.08)}
+.br-k{color:#81909e}
+.br-sc{border-top:1px solid rgba(89,175,255,.08)}
+.br-gs{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.br-gauge{border:1px solid rgba(89,175,255,.13);border-radius:9px;background:linear-gradient(180deg,#0a1520,#07101a);padding:8px 6px;text-align:center}
+.br-gt{font-size:9px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:#f0f4f7}
+.br-gv{font-size:19px;font-weight:900;font-variant-numeric:tabular-nums;margin-top:-6px}
+.br-gsub{font-size:10px;font-weight:700}
+.br-gd{font-size:9px;font-variant-numeric:tabular-nums}
+.br-segs{display:flex;gap:2px;margin-top:5px}
+.br-segs i{flex:1;height:4px;border-radius:1px;background:rgba(255,255,255,.07)}
+.br-tfg{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
+.br-tfc{border:1px solid rgba(89,175,255,.13);border-radius:7px;background:rgba(3,7,11,.5);padding:6px 2px;text-align:center}
+.br-tfc b{display:block;font-size:11.5px;color:#f0f4f7}
+.br-tfc span{display:block;font-size:9px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.br-lvr{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:5px;font-size:11.5px}
+.br-lvr b{width:64px;font-variant-numeric:tabular-nums;font-weight:800}
+.br-lvr span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#81909e}
+.br-lvr.now{border:1px solid #d5a93d;background:rgba(213,169,61,.1)}
+.br-blip{display:flex;align-items:center;gap:7px;padding:5px 4px;border-bottom:1px solid rgba(89,175,255,.07);font-size:11px}
+.br-blip i{width:7px;height:7px;border-radius:999px;flex:0 0 auto}
+.br-ctxr{display:flex;align-items:baseline;gap:8px;font-size:11px;font-variant-numeric:tabular-nums;padding:2px 0}
+.br-ctxr b{flex:0 0 58px;color:#81909e;font-weight:700}
+.br-ctxr u{flex:1;text-decoration:none;text-align:right;color:#f0f4f7}
+.br-ctxr em{font-style:normal;width:62px;text-align:right}
 /* -- Command Center (observation) -- */
 .cc{background:linear-gradient(180deg,rgba(14,18,28,.96),rgba(10,13,20,.96));border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px;margin:12px 0}
 .cc-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
@@ -3498,7 +3526,7 @@ input{font:inherit}
         </button>
         <button class="flcard span" onClick=${open("brain")}>
           <div class="fl-ic">\u25C9</div>
-          <div class="fl-nm">THE BRAIN</div>
+          <div class="fl-nm">ATLAS</div>
           <div class="fl-bl">Command Center XAUUSD \u2014 live market read, your open trade, and an intelligence you can talk to.</div>
           <div class="fl-cta">Open the Command Center \u203A</div>
         </button>
@@ -4736,10 +4764,33 @@ input{font:inherit}
       ${out[0] ? html`<div class=${"ltc-out " + (out[0].ok ? "ok" : "bad")}>${out[0].text}</div>` : null}
     </div>`;
   }
-  /* ══════════════ THE BRAIN — the Command Center, native in the app ══════════════
+  /* ══════════════ ATLAS — the Command Center, native in the app ══════════════
      Same engine, same data, same language as the desktop screen. It renders inside the
      app rather than pushing the member out to a browser, because being thrown to Safari
      mid-trade is the moment you lose them. */
+
+
+  /* Gauge + context helpers for the app's Command Center — display only, same numbers as the desktop. */
+  function brVolLevel(band) {
+    var m = { compressed: .15, quiet: .3, normal: .45, active: .62, expanding: .78, extreme: .95, news_shock: .95 };
+    return band && m[band] != null ? m[band] : null;
+  }
+  function brGauge(title, display, sub, v01, color, delta, deltaLabel) {
+    var v = v01 == null ? 0 : Math.max(0, Math.min(1, v01));
+    var lit = Math.round(v * 8);
+    return html`<div class="br-gauge">
+      <div class="br-gt">${title}</div>
+      <svg width="88" height="46" viewBox="0 0 88 46" style="display:block;margin:0 auto">
+        <path d="M 10 42 A 34 34 0 0 1 78 42" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="7" stroke-linecap="round" />
+        <path d="M 10 42 A 34 34 0 0 1 78 42" fill="none" stroke=${color} stroke-width="7" stroke-linecap="round"
+          stroke-dasharray=${String(Math.PI * 34)} stroke-dashoffset=${String(Math.PI * 34 * (1 - v))} style="transition:stroke-dashoffset .8s cubic-bezier(.22,.9,.24,1)" />
+      </svg>
+      <div class="br-gv" style="color:#f0f4f7">${display}</div>
+      <div class="br-gsub" style=${"color:" + color}>${sub}</div>
+      ${delta == null || !deltaLabel ? null : html`<div class="br-gd" style=${"color:" + (Math.abs(delta) < 1.5 ? "#596773" : delta > 0 ? "#29dfa6" : "#ff5364")}>${Math.abs(delta) < 1.5 ? "flat " : (delta > 0 ? "↑ +" : "↓ ") + Math.round(delta) + " "}${deltaLabel}</div>`}
+      <div class="br-segs">${[0,1,2,3,4,5,6,7].map(function (i) { return html`<i key=${i} style=${i < lit ? "background:" + color : ""}></i>`; })}</div>
+    </div>`;
+  }
 
   var BR_PRESENCE = {
     offline: "OFFLINE", market_closed: "MARKET CLOSED", observing: "OBSERVING", calm: "CALM",
@@ -4762,7 +4813,7 @@ input{font:inherit}
     return m >= 60 ? (Math.floor(m / 60) + "h " + (m % 60) + "m") : (m + "m " + s2 + "s");
   }
 
-  /* The BRAIN core. Breathing rate, swell and tilt are market measurements, never a timer —
+  /* Atlas core. Breathing rate, swell and tilt are market measurements, never a timer —
      if gold is still, this is still, and that stillness is information. */
   function BrainOrb(props) {
     var ref = useRef(null);
@@ -4842,7 +4893,7 @@ input{font:inherit}
     return html`<canvas ref=${ref} width=${size} height=${size} style=${"width:" + size + "px;height:" + size + "px"} aria-hidden="true"></canvas>`;
   }
 
-  /* The price map: the candles THE BRAIN actually read, with its levels and your trade on top. */
+  /* The price map: the candles ATLAS actually read, with its levels and your trade on top. */
   function BrainMap(props) {
     var ref = useRef(null), wrap = useRef(null);
     useEffect(function () {
@@ -4855,7 +4906,7 @@ input{font:inherit}
       ctx.fillStyle = "#080b11"; ctx.fillRect(0, 0, W, H);
       if (!bars.length) {
         ctx.fillStyle = "rgba(232,239,247,.32)"; ctx.font = "11px ui-sans-serif,system-ui"; ctx.textAlign = "center";
-        ctx.fillText("No candles yet — THE BRAIN has not read the market.", W / 2, H / 2);
+        ctx.fillText("No candles yet — ATLAS has not read the market.", W / 2, H / 2);
         return;
       }
       var lo = Infinity, hi = -Infinity, i;
@@ -4908,7 +4959,7 @@ input{font:inherit}
           ctx.fillText(label, padL + pw - 4, my - 6); ctx.textAlign = "left";
         }
         // A PROPOSAL is drawn dimmer, always dashed, and labelled WOULD ENTER. A member glancing at the
-        // chart must never mistake a level THE BRAIN is thinking about for money that is actually at risk.
+        // chart must never mistake a level ATLAS is thinking about for money that is actually at risk.
         if (tr.proposed) ctx.globalAlpha = 0.62;
         // Faint reference lines first, so the three that decide the trade are never drawn underneath
         // something less important.
@@ -4953,7 +5004,7 @@ input{font:inherit}
    * answer through its speech synthesiser. That is a demo. It could not be interrupted, it could not
    * hear a second sentence without another button press, and on iOS it frequently could not hear at
    * all. This opens a socket to the speech provider and streams audio both ways, and every word that
-   * comes back was reasoned by THE BRAIN from live market data — the provider is transport, never the
+   * comes back was reasoned by ATLAS from live market data — the provider is transport, never the
    * mind.
    *
    * IT IS THE SAME ENDPOINTS THE WEB USES. Nothing here is app-specific except the bearer token, which
@@ -5112,7 +5163,7 @@ input{font:inherit}
           };
           source.connect(proc);
           // A ScriptProcessor will not run without a destination; routing the microphone to the
-          // speakers would make THE BRAIN talk over itself, so it goes through a silenced gain.
+          // speakers would make ATLAS talk over itself, so it goes through a silenced gain.
           var silent = ctx.createGain(); silent.gain.value = 0;
           proc.connect(silent); silent.connect(ctx.destination);
           if (!autoPicked.current) err[1]("");
@@ -5156,7 +5207,7 @@ input{font:inherit}
           socket.send(JSON.stringify({
             type: "conversation_initiation_client_data",
             // The only field the provider forwards to our reasoning endpoint. Sent anywhere else, the
-            // line works perfectly and THE BRAIN knows nothing about this account.
+            // line works perfectly and ATLAS knows nothing about this account.
             custom_llm_extra_body: { voice_token: j.voiceToken },
             dynamic_variables: { voice_token: j.voiceToken }
           }));
@@ -5223,12 +5274,12 @@ input{font:inherit}
         ${err[0] ? html`<div class="br-note" style="color:#f4737b">${err[0]}</div>` : null}
         ${!live ? html`
           <div class="br-note" style="margin-top:0">
-            Open one line and talk normally — no button before each sentence. You can cut THE BRAIN off
+            Open one line and talk normally — no button before each sentence. You can cut ATLAS off
             mid-word and it will stop.
           </div>
           <button class="br-btn gold" style="width:100%;margin-top:9px"
             disabled=${status[0] === "connecting" || a.configured === false} onClick=${start}>
-            ${status[0] === "connecting" ? "Connecting…" : "Talk with THE BRAIN"}
+            ${status[0] === "connecting" ? "Connecting…" : "Talk with ATLAS"}
           </button>` : html`
           <div style="max-height:200px;overflow-y:auto;-webkit-overflow-scrolling:touch">
             ${turns[0].length ? turns[0].map(function (t, i) {
@@ -5260,14 +5311,14 @@ input{font:inherit}
             <button class="br-btn" style="padding:10px 14px;color:#f4737b" onClick=${end}>End</button>
           </div>
           <div class="br-note" style="font-size:10.5px">
-            Muting stops me hearing you; THE BRAIN still speaks. None of this stops the market engine,
+            Muting stops me hearing you; ATLAS still speaks. None of this stops the market engine,
             the position manager, or an order already on its way to the broker.
           </div>`}
       </div>
     </div>`;
   }
 
-  /* Talk to THE BRAIN. Speech in where the webview supports it, speech out where it does. */
+  /* Talk to ATLAS. Speech in where the webview supports it, speech out where it does. */
   function BrainChat(props) {
     var turns = useState([]), input = useState(""), busy = useState(false);
     var listening = useState(false), speaking = useState(false), voice = useState(true), note = useState("");
@@ -5329,7 +5380,7 @@ input{font:inherit}
         rec.current = r; listening[1](true); r.start();
       } catch (e) { note[1]("Couldn't start the microphone."); listening[1](false); }
     }
-    // A proactive line from THE BRAIN drops straight into the conversation.
+    // A proactive line from ATLAS drops straight into the conversation.
     useEffect(function () {
       var a = props.announce; if (!a || said.current[a.key]) return;
       said.current[a.key] = 1;
@@ -5338,13 +5389,13 @@ input{font:inherit}
     }, [props.announce && props.announce.key]);
     useEffect(function () { return function () { try { rec.current && rec.current.abort(); } catch (e) {} stopSpeak(); }; }, []);
 
-    var QUICK = [["Talk to me", "THE BRAIN, talk to me."], ["What changed?", "What changed over the last five minutes?"],
+    var QUICK = [["Talk to me", "ATLAS, talk to me."], ["What changed?", "What changed over the last five minutes?"],
       ["Why?", "Why are you reading it that way?"], ["Change your mind?", "What would change your mind?"]];
     if (props.hasTrade) QUICK.unshift(["How's my trade?", "How is my trade doing?"]);
 
     return html`<div class="br-card">
       <div class="br-hd">
-        <div class="br-k">Talk to THE BRAIN</div>
+        <div class="br-k">Talk to ATLAS</div>
         <div style="display:flex;gap:6px">
           ${props.lineLive ? html`<div class="br-note" style="margin:0">on the line</div>` : html`
             ${speaking[0] ? html`<button class="br-btn gold" style="padding:5px 9px" onClick=${stopSpeak}>Stop</button>` : null}
@@ -5363,9 +5414,9 @@ input{font:inherit}
           }) : html`<div class="br-note" style="text-align:center;padding:10px 0">
             ${props.lineLive
               ? "The line is open above — just talk. You can still type here if you'd rather not speak out loud."
-              : "Ask THE BRAIN anything about gold right now, or press the microphone and say “talk to me”."}
+              : "Ask ATLAS anything about gold right now, or press the microphone and say “talk to me”."}
           </div>`}
-          ${busy[0] ? html`<div class="br-note">THE BRAIN is thinking…</div>` : null}
+          ${busy[0] ? html`<div class="br-note">ATLAS is thinking…</div>` : null}
           ${note[0] ? html`<div class="br-note" style="color:#f0c475">${note[0]}</div>` : null}
           <div ref=${endRef}></div>
         </div>
@@ -5373,8 +5424,8 @@ input{font:inherit}
           return html`<button class="br-chip" key=${i} disabled=${busy[0]} onClick=${function () { ask(q[1]); }}>${q[0]}</button>`;
         })}</div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:9px">
-          ${props.lineLive ? null : html`<button class=${"br-mic" + (listening[0] ? " on" : "")} onClick=${mic} aria-label="Talk to THE BRAIN">●</button>`}
-          <input class="br-in" style="flex:1" value=${input[0]} placeholder=${listening[0] ? "Listening…" : "Ask THE BRAIN…"}
+          ${props.lineLive ? null : html`<button class=${"br-mic" + (listening[0] ? " on" : "")} onClick=${mic} aria-label="Talk to ATLAS">●</button>`}
+          <input class="br-in" style="flex:1" value=${input[0]} placeholder=${listening[0] ? "Listening…" : "Ask ATLAS…"}
             onInput=${function (e) { input[1](e.target.value); }}
             onKeyDown=${function (e) { if (e.key === "Enter") { e.preventDefault(); ask(input[0]); } }} />
           <button class="br-btn cold" style="padding:10px 12px" disabled=${busy[0] || !input[0]} onClick=${function () { ask(input[0]); }}>Send</button>
@@ -5448,7 +5499,7 @@ input{font:inherit}
       </div>
 
       ${t.protection ? html`<div class="br-sc" style=${t.protection.action === "hold" ? "" : "background:rgba(240,196,117,.04)"}>
-        <div class="br-sck" style="color:#65748f">THE BRAIN would ${brWords(t.protection.action)}</div>
+        <div class="br-sck" style="color:#65748f">ATLAS would ${brWords(t.protection.action)}</div>
         <div class="br-scv">${t.protection.say}</div>
       </div>` : null}
 
@@ -5471,7 +5522,7 @@ input{font:inherit}
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;padding-top:9px;border-top:1px solid rgba(255,255,255,.06)">
           <div>
             <div style=${"font-size:10.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:" + (t.aiManagement ? "#f0c475" : "#65748f")}>AI management ${t.aiManagement ? "on" : "off"}</div>
-            <div class="br-note" style="margin-top:2px">${t.aiManagement ? "THE BRAIN may act, within the permissions on the account." : "THE BRAIN is watching but will not touch it."}</div>
+            <div class="br-note" style="margin-top:2px">${t.aiManagement ? "ATLAS may act, within the permissions on the account." : "ATLAS is watching but will not touch it."}</div>
           </div>
           ${B("ai", t.aiManagement ? "Turn off" : "Turn on", "gold", { action: "ai_management", positionId: t.positionId, on: !t.aiManagement })}
         </div>
@@ -5546,7 +5597,7 @@ input{font:inherit}
             <label><span class="br-lab">Stop</span><input class="br-in" value=${stop[0]} inputmode="decimal" onInput=${function (e) { stop[1](e.target.value); reset(); }} /></label>
             <label><span class="br-lab">Target (optional)</span><input class="br-in" value=${target[0]} inputmode="decimal" onInput=${function (e) { target[1](e.target.value); reset(); }} /></label>
           </div>
-          <div class="br-note">Entry is at market${typeof props.price === "number" ? " — gold is " + props.price.toFixed(2) + " right now" : ""}. THE BRAIN suggested the stop from the nearest level it is watching.</div>
+          <div class="br-note">Entry is at market${typeof props.price === "number" ? " — gold is " + props.price.toFixed(2) + " right now" : ""}. ATLAS suggested the stop from the nearest level it is watching.</div>
           ${err[0] ? html`<div class="br-note" style="color:#f4737b">${err[0]}</div>` : null}
           ${sz ? html`<div style="border-radius:12px;padding:11px;margin-top:10px;background:#0e131c;border:1px solid rgba(255,255,255,.07)">
             <div class="br-mini" style="margin-top:0">
@@ -5572,9 +5623,9 @@ input{font:inherit}
 
   /* Connect a TradeLocker account, with the servers this member already uses offered up. */
   /*
-   * THE BRAIN'S TRADE — the app's primary trading surface.
+   * ATLAS'S TRADE — the app's primary trading surface.
    *
-   * Same inversion as the desktop: THE BRAIN says what it sees and the member approves it, rather than
+   * Same inversion as the desktop: ATLAS says what it sees and the member approves it, rather than
    * the member building a ticket for the machine to grade. Every number rendered here came from the
    * server; this component computes nothing, because a card that did its own arithmetic could disagree
    * with the order that actually goes out.
@@ -5625,7 +5676,7 @@ input{font:inherit}
 
     return html`<div class="br-card" style=${"border-color:" + (ready ? "rgba(240,196,117,.30)" : "rgba(255,255,255,.07)")}>
       <div class="br-hd">
-        <div class="br-k" style=${"color:" + tone}>${(setup && setup.headline) || "THE BRAIN"}</div>
+        <div class="br-k" style=${"color:" + tone}>${(setup && setup.headline) || "ATLAS"}</div>
         <div style="display:flex;gap:8px;align-items:center">
           ${setup && setup.confidence > 0 ? html`<div class="br-k">conviction ${setup.confidence}</div>` : null}
           <button class="br-btn" style="padding:5px 9px;letter-spacing:0;text-transform:none;font-size:11px"
@@ -5696,12 +5747,12 @@ input{font:inherit}
           setup && setup.state === "waiting_for_trigger" ? "Waiting for the trigger — nothing for you to do"
           : setup && setup.state === "setup_developing" ? "Setup developing"
           : setup && setup.state === "watching" ? "Watching"
-          : "THE BRAIN is watching"
+          : "ATLAS is watching"
         }</div>`}
         <button class="br-btn" style="padding:6px 10px;letter-spacing:0;text-transform:none;font-size:11px" onClick=${props.onManual}>Build my own</button>
       </div>
 
-      ${(acct && acct.isLive && !acct.liveAuthorized) ? html`<div class="br-sc"><div class="br-note" style="color:#e9b949">This is a LIVE account. Authorise live trading on it before THE BRAIN can send anything.</div></div>` : null}
+      ${(acct && acct.isLive && !acct.liveAuthorized) ? html`<div class="br-sc"><div class="br-note" style="color:#e9b949">This is a LIVE account. Authorise live trading on it before ATLAS can send anything.</div></div>` : null}
     </div>`;
   }
 
@@ -5777,7 +5828,7 @@ input{font:inherit}
 
     return html`<div class="br-sheet" onClick=${function (e) { if (e.target && e.target.className === "br-sheet") props.onClose(); }}>
       <div class="br-sheet-in">
-        <div class="br-hd"><div class="br-k">THE BRAIN · trading profile</div><button class="br-btn" style="padding:5px 9px" onClick=${props.onClose}>Close</button></div>
+        <div class="br-hd"><div class="br-k">ATLAS · trading profile</div><button class="br-btn" style="padding:5px 9px" onClick=${props.onClose}>Close</button></div>
 
         <div class="br-b">
           <span class="br-lab">Risk per trade</span>
@@ -5785,7 +5836,7 @@ input{font:inherit}
             return html`<button key=${r} class=${"br-btn " + (d.riskPct === r ? "cold" : "")} style="padding:8px 14px" disabled=${busy[0]}
               onClick=${function () { save({ riskPct: r }); }}>${r.toFixed(2)}%</button>`;
           })}</div>
-          <div class="br-note">This is the only number you normally need to set. THE BRAIN sizes every trade from it and the broker’s own contract spec.</div>
+          <div class="br-note">This is the only number you normally need to set. ATLAS sizes every trade from it and the broker’s own contract spec.</div>
         </div>
 
         <div class="br-b" style="border-top:1px solid rgba(255,255,255,.06)">
@@ -5815,7 +5866,7 @@ input{font:inherit}
         </div>
 
         <div class="br-b" style="border-top:1px solid rgba(255,255,255,.06)">
-          ${toggle("Enter trades without asking", "FULL BRAIN MODE. I find the setup, size it, send it and manage it. You watch, and you can step in at any moment. This still needs live trading authorised on the account itself.", "autoEntry", true)}
+          ${toggle("Enter trades without asking", "FULL ATLAS MODE. I find the setup, size it, send it and manage it. You watch, and you can step in at any moment. This still needs live trading authorised on the account itself.", "autoEntry", true)}
         </div>
       </div>
     </div>`;
@@ -5894,17 +5945,17 @@ input{font:inherit}
 
         <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:10px;letter-spacing:.1em;text-transform:uppercase">
           <span style=${"color:" + (a.connectionStatus === "active" ? "#3fd9a0" : "#e9b949")}>TradeLocker ${a.connectionStatus === "active" ? "connected" : a.connectionStatus}</span>
-          <span style=${"color:" + (a.isLive && !a.liveAuthorized ? "#e9b949" : (a.autoTrading ? "#f0c475" : "#65748f"))}>BRAIN execution ${a.isLive && !a.liveAuthorized ? "not authorised" : (a.autoTrading ? "on" : "off")}</span>
+          <span style=${"color:" + (a.isLive && !a.liveAuthorized ? "#e9b949" : (a.autoTrading ? "#f0c475" : "#65748f"))}>ATLAS execution ${a.isLive && !a.liveAuthorized ? "not authorised" : (a.autoTrading ? "on" : "off")}</span>
         </div>
 
         ${a.isLive && !a.liveAuthorized ? html`<div style="margin-top:9px;border-radius:10px;padding:9px;background:rgba(244,115,123,.07);border:1px solid rgba(244,115,123,.22)">
-          <div class="br-note" style="color:rgba(232,239,247,.6);margin-top:0">This is a real-money account. THE BRAIN can read it, and can send nothing on it, until you authorise live trading.</div>
+          <div class="br-note" style="color:rgba(232,239,247,.6);margin-top:0">This is a real-money account. ATLAS can read it, and can send nothing on it, until you authorise live trading.</div>
           <button class="br-btn sell" style="margin-top:7px;padding:7px 11px" disabled=${busy[0]}
             onClick=${function () { post({ action: "authorize_live", accountRowId: a.id, confirm: true }); }}>Authorise live trading</button>
         </div>` : null}
 
         ${a.selected ? html`<div style="margin-top:10px;padding-top:9px;border-top:1px solid rgba(255,255,255,.06)">
-          <span class="br-lab">What THE BRAIN may do here</span>
+          <span class="br-lab">What ATLAS may do here</span>
           <div class="br-acts">${[["ai_break_even", "Break even"], ["ai_protect_stop", "Protect stop"], ["ai_partial", "Partials"], ["ai_close", "Close"]].map(function (kv) {
             var on = !!(a.permissions && a.permissions[kv[0]]);
             var body = { action: "permissions", accountRowId: a.id }; body[kv[0]] = !on;
@@ -5913,7 +5964,7 @@ input{font:inherit}
           })}</div>
           <button class=${"br-btn " + (a.autoTrading ? "gold" : "")} style="margin-top:8px;padding:6px 10px;letter-spacing:0;text-transform:none;font-size:11px"
             disabled=${busy[0]} onClick=${function () { post({ action: "auto_trading", accountRowId: a.id, on: !a.autoTrading }); }}>
-            ${a.autoTrading ? "Turn auto entry off" : "Allow THE BRAIN to enter by itself"}
+            ${a.autoTrading ? "Turn auto entry off" : "Allow ATLAS to enter by itself"}
           </button>
         </div>` : null}
 
@@ -6014,6 +6065,14 @@ input{font:inherit}
     // polling that every five seconds would burn rate limits that matter far more when an order has to
     // actually go out.
     var desk = useState({ account: null, idempotencyKey: null, profile: null });
+    var blip = useState(-1);
+    var ctx = useState(null);
+    useEffect(function () {
+      var dead = false;
+      function loadCtx() { apiGet("/api/command-center/context").then(function (j) { if (!dead && j && j.rows) ctx[1](j); }).catch(function () {}); }
+      loadCtx(); var ci = setInterval(loadCtx, 300000);
+      return function () { dead = true; clearInterval(ci); };
+    }, []);
     useEffect(function () {
       var dead = false;
       function loadDesk() {
@@ -6041,9 +6100,11 @@ input{font:inherit}
 
     var s = d[0];
     if (err[0]) return html`<div class="br"><div class="br-card"><div class="br-b"><div class="br-note">${err[0]}</div></div></div></div>`;
-    if (!s) return html`<div class="br"><div class="br-card"><div class="br-b"><div class="br-note">Waking THE BRAIN…</div></div></div></div>`;
+    if (!s) return html`<div class="br"><div class="br-card"><div class="br-b"><div class="br-note">Waking ATLAS…</div></div></div></div>`;
 
     var brain = s.brain || {}, trade = s.trade || {}, lean = brain.lean || 0;
+    var intel = s.intel || null;                     // read-only display analytics (present/intel.ts)
+    var chg = intel && intel.pressure ? intel.pressure.change : null;
     var bull = Math.max(3, Math.min(97, Math.round(50 + lean / 2)));
     var alive = !!s.connected && !!s.marketOpen;
     var p5 = (s.changes || []).filter(function (c) { return c.horizon === "5m"; })[0];
@@ -6065,7 +6126,7 @@ input{font:inherit}
       <div class="br-top">
         <div>
           <div class="br-name">COMMAND CENTER <em>XAUUSD</em></div>
-          <div class="br-kick">The BRAIN</div>
+          <div class="br-kick">Atlas</div>
         </div>
         <div>
           <div class="br-px">${typeof s.price === "number" ? s.price.toFixed(2) : "—"}</div>
@@ -6132,7 +6193,7 @@ input{font:inherit}
       ${(trade.unmanaged || []).length ? html`<div class="br-card" style="border-color:rgba(240,196,117,.26);background:rgba(240,196,117,.04)">
         <div class="br-b">
           <div class="br-sck" style="color:#f0c475">New XAUUSD position detected</div>
-          <div class="br-scv">A ${trade.unmanaged[0].side === "buy" ? "BUY" : "SELL"} of ${trade.unmanaged[0].qty} lots was opened in TradeLocker. Manage it with THE BRAIN?</div>
+          <div class="br-scv">A ${trade.unmanaged[0].side === "buy" ? "BUY" : "SELL"} of ${trade.unmanaged[0].qty} lots was opened in TradeLocker. Manage it with ATLAS?</div>
           <div class="br-acts" style="margin-top:8px">${["quick", "hold", "swing"].map(function (st) {
             return html`<button key=${st} class="br-btn gold" style="padding:7px 11px" onClick=${function () {
               apiPost("/api/command-center/trade", { action: "adopt", brokerPositionId: trade.unmanaged[0].brokerPositionId, style: st }).then(reload);
@@ -6156,7 +6217,7 @@ input{font:inherit}
       </div>
 
       <div class="br-card">
-        <div class="br-hd"><div class="br-k">BRAIN thesis</div>${s.thesis ? html`<div class="br-k">since ${brClock(s.thesis.startedAt)}</div>` : null}</div>
+        <div class="br-hd"><div class="br-k">ATLAS thesis</div>${s.thesis ? html`<div class="br-k">since ${brClock(s.thesis.startedAt)}</div>` : null}</div>
         <div class="br-b">
           ${s.thesis ? html`
             <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
@@ -6177,34 +6238,29 @@ input{font:inherit}
       </div>
 
       <div class="br-card">
-        <div class="br-hd"><div class="br-k">Timeframe story</div></div>
+        <div class="br-hd"><div class="br-k">Timeframe alignment</div><div class="br-k" style=${"color:" + (intel && intel.alignment.bias === "BEARISH BIAS" ? "#ff5364" : intel && intel.alignment.bias === "BULLISH BIAS" ? "#29dfa6" : "#e7c467")}>${intel ? intel.alignment.bias : "NO READ"}</div></div>
         <div class="br-b">
-          ${TFS.filter(function (tf) { return s.timeframes && s.timeframes[tf]; }).map(function (tf) {
-            var v = s.timeframes[tf];
-            return html`<div class="br-row" key=${tf}>
-              <span class="br-tf">${tf}</span>
-              <span class=${"br-ar " + brTone(v.state)}>${/up/.test(v.state) ? "↑" : /down/.test(v.state) ? "↓" : "→"}</span>
-              <span class=${"br-st " + brTone(v.state)}>${brWords(v.state)}</span>
-              <span class="br-eff">${typeof v.efficiency === "number" ? "eff " + Math.round(v.efficiency * 100) + "%" : ""}</span>
-            </div>`;
-          })}
-          ${s.summary ? html`<div class="br-scv" style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06)">${s.summary}</div>` : null}
+          <div class="br-tfg">
+            ${["1d", "4h", "1h", "15m", "5m"].map(function (k) {
+              var r = intel ? intel.alignment.rows.filter(function (x) { return x.tf === k; })[0] : null;
+              var col = r ? (r.dir === "down" ? "#ff5364" : r.dir === "up" ? "#29dfa6" : "#81909e") : "#596773";
+              return html`<div class="br-tfc" key=${k}><b>${k === "1d" ? "1D" : k.toUpperCase()}</b><span style=${"color:" + col}>${r ? r.word : "No read"}</span><span style=${"color:" + col}>${!r ? "·" : r.dir === "down" ? "⌄" : r.dir === "up" ? "⌃" : "—"}</span></div>`;
+            })}
+          </div>
+          ${s.summary ? html`<div class="br-scv" style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(89,175,255,.08)">${s.summary}</div>` : null}
         </div>
       </div>
 
       <div class="br-card">
-        <div class="br-hd"><div class="br-k">Who is winning</div></div>
+        <div class="br-hd"><div class="br-k">Pressure &amp; conditions</div><div class="br-k">Display only</div></div>
         <div class="br-b">
-          <div style="display:flex;justify-content:space-between;align-items:flex-end">
-            <div><div class="br-k">Buyers</div><div style="font-size:22px;font-weight:900;color:#3fd9a0;font-variant-numeric:tabular-nums">${bull}</div></div>
-            <div style="text-align:right"><div class="br-k">Sellers</div><div style="font-size:22px;font-weight:900;color:#f4737b;font-variant-numeric:tabular-nums">${100 - bull}</div></div>
+          <div class="br-gs">
+            ${brGauge("Seller pressure", intel ? String(intel.pressure.sellers) : "—", intel ? intel.pressure.sellerLabel : "—", intel ? intel.pressure.sellers / 100 : null, "#ff5364", chg ? -chg.deltaNet / 2 : null, chg ? "over " + chg.horizon : null)}
+            ${brGauge("Buyer pressure", intel ? String(intel.pressure.buyers) : "—", intel ? intel.pressure.buyerLabel : "—", intel ? intel.pressure.buyers / 100 : null, "#29dfa6", chg ? chg.deltaNet / 2 : null, chg ? "over " + chg.horizon : null)}
+            ${brGauge("Volatility", intel && intel.volatility.atr != null ? intel.volatility.atr.toFixed(1) : "—", intel ? intel.volatility.label + " · 15m ATR" : "—", brVolLevel(intel && intel.volatility.band), "#e7c467", null, null)}
+            ${brGauge("Momentum", intel && intel.momentum.value != null ? (intel.momentum.value > 0 ? "+" : "") + intel.momentum.value.toFixed(2) : "—", intel ? intel.momentum.label : "—", intel && intel.momentum.value != null ? (intel.momentum.value + 3) / 6 : null, intel && intel.momentum.tone === "up" ? "#29dfa6" : intel && intel.momentum.tone === "down" ? "#ff5364" : "#00c7e8", null, null)}
           </div>
-          <div class="br-bar"><span style=${"width:" + bull + "%;background:#3fd9a0"}></span><span style=${"width:" + (100 - bull) + "%;background:#f4737b"}></span></div>
-          ${p5 && Math.abs(p5.pressureTo - p5.pressureFrom) >= 3 ? html`<div class="br-note" style="color:rgba(232,239,247,.55)">
-            ${(p5.pressureTo > p5.pressureFrom ? (p5.pressureTo > 0 ? "Buyers strengthening" : "Sellers easing off") : (p5.pressureFrom > 0 ? "Buyers fading" : "Sellers strengthening"))
-              + " — " + (p5.pressureTo > p5.pressureFrom ? "+" : "") + Math.round(p5.pressureTo - p5.pressureFrom) + " over five minutes."}
-          </div>` : null}
-          <div class="br-note">Estimated from closes, wicks and momentum — not order flow.</div>
+          <div class="br-note">Estimated buying and selling pressure, scored 0–100 from closes, wicks, momentum, slope and structure. Sellers = 100 − buyers. Not order flow, and not a probability of winning.</div>
           <button class="br-btn" style="margin-top:8px;padding:7px 11px;letter-spacing:0;text-transform:none;font-size:11px" onClick=${function () { math[1](!math[0]); }}>
             ${math[0] ? "Hide the math" : "Show me the math"}
           </button>
@@ -6217,6 +6273,53 @@ input{font:inherit}
               return html`<div class="br-note" key=${tf}>${tf} rsi ${v.rsi == null ? "—" : Math.round(v.rsi)} · eff ${v.efficiency == null ? "—" : Math.round(v.efficiency * 100) + "%"} · ${brWords(v.sequence)}</div>`;
             })}
           </div>` : null}
+        </div>
+      </div>
+
+      ${intel && intel.keyLevels.length ? html`<div class="br-card">
+        <div class="br-hd"><div class="br-k">Key levels</div></div>
+        <div class="br-b" style="padding:8px 9px">
+          ${intel.keyLevels.map(function (l, i) {
+            var isPx = l.role === "price";
+            var col = isPx ? "#ffd875" : l.role === "invalidation" ? "#ff5364" : (l.watched || l.role === "watch") ? "#e7c467" : l.role === "resistance" ? "#e7a0a7" : "#9fe3c8";
+            return html`<div class=${"br-lvr" + (isPx ? " now" : "")} key=${i}>
+              <b style=${"color:" + (isPx ? "#ffd875" : "#f0f4f7")}>${brNum(l.price)}</b>
+              <span style=${isPx ? "color:#ffd875" : ""}>${l.label}</span>
+              <span style=${"flex:0 0 auto;color:" + col}>${isPx ? "→" : (l.watched || l.role === "watch") ? "● watch" : l.role === "invalidation" ? "✕ fails" : ""}</span>
+            </div>`;
+          })}
+        </div>
+      </div>` : null}
+
+      ${intel && intel.radar.length ? html`<div class="br-card">
+        <div class="br-hd"><div class="br-k">Liquidity map</div><div class="br-k">Estimated</div></div>
+        <div class="br-b" style="padding:6px 11px 10px">
+          ${intel.radar.slice(0, 8).map(function (b, i) {
+            var col = b.kind === "watch" ? "#ffd875" : b.kind === "node" ? "#59afff" : (b.side === "above" ? "#29dfa6" : "#ff5364");
+            return html`<div class="br-blip" key=${i} onClick=${function () { blip[1](blip[0] === i ? -1 : i); }}>
+              <i style=${"background:" + col + (b.swept ? ";box-shadow:inset 0 0 0 2px #07101a" : "")}></i>
+              <b style="font-variant-numeric:tabular-nums;width:62px">${brNum(b.price)}</b>
+              <span style="flex:1;color:#81909e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.label}${b.swept ? " · swept" : ""}</span>
+              <span style=${"color:" + col + ";font-size:10px"}>${b.side === "above" ? "▲" : "▼"} ${b.distance.toFixed(2)}</span>
+            </div>`;
+          })}
+          ${blip[0] >= 0 && intel.radar[blip[0]] ? html`<div class="br-note" style="color:rgba(232,239,247,.6)">${intel.radar[blip[0]].meaning}</div>` : html`<div class="br-note">Tap a level for what it means. Gold is over the counter — no feed here shows resting orders, so clustered liquidity is an estimate from price structure.</div>`}
+        </div>
+      </div>` : null}
+
+      <div class="br-card">
+        <div class="br-hd"><div class="br-k">Global context</div><div class="br-k">Display only</div></div>
+        <div class="br-b">
+          ${(ctx[0] && ctx[0].rows && ctx[0].rows.length) ? ctx[0].rows.map(function (q) {
+            var dot = q.status === "live" ? "#29dfa6" : q.status === "delayed" ? "#e7c467" : q.status === "stale" ? "#81909e" : "#ff5364";
+            return html`<div class="br-ctxr" key=${q.key}>
+              <b>${q.label}<span style="color:#596773;font-weight:600"> ${q.instrument && q.instrument !== "—" ? q.instrument.replace(" ETF", "").replace("Computed from the ICE basket", "computed") : ""}</span></b>
+              <u>${q.value == null ? "—" : q.value.toLocaleString("en-US", { maximumFractionDigits: 2 })}</u>
+              <em style=${"color:" + (q.changePct == null ? "#596773" : q.changePct >= 0 ? "#29dfa6" : "#ff5364")}>${q.changePct == null ? "" : (q.changePct >= 0 ? "+" : "") + q.changePct.toFixed(2) + "%"}</em>
+              <i style=${"width:6px;height:6px;border-radius:999px;background:" + dot}></i>
+            </div>`;
+          }) : html`<div class="br-note" style="margin-top:0">Context feed loading…</div>`}
+          <div class="br-note">DXY is computed live from the ICE currency basket; US10Y and SPX use the IEF and SPY funds because the index feeds are not on this data plan. Shown for context — Atlas does not trade on them.</div>
         </div>
       </div>
 
@@ -6248,12 +6351,12 @@ input{font:inherit}
               <span class="br-evt">${brClock(e.at)}</span>
               <span class="br-evd" style=${e.ch === "urgent" ? "color:#e9b949" : e.tr ? "color:#eef3ff" : ""}>${e.d}</span>
             </div>`;
-          }) : html`<div class="br-note">Nothing worth reporting yet. THE BRAIN stays quiet when nothing has changed — that is deliberate.</div>`}
+          }) : html`<div class="br-note">Nothing worth reporting yet. ATLAS stays quiet when nothing has changed — that is deliberate.</div>`}
         </div>
       </div>
 
       ${(s.journal || []).length ? html`<div class="br-card">
-        <div class="br-hd"><div class="br-k">Today’s BRAIN</div></div>
+        <div class="br-hd"><div class="br-k">Today’s ATLAS</div></div>
         <div class="br-b br-scroll">
           ${s.journal.slice().reverse().map(function (j) {
             return html`<div class="br-ev" key=${j.id} style="border-color:rgba(255,255,255,.1)">
@@ -6265,7 +6368,7 @@ input{font:inherit}
       </div>` : null}
 
       <div class="br-foot">
-        THE BRAIN interprets the market. It can place and manage trades only on an account you have connected,
+        ATLAS interprets the market. It can place and manage trades only on an account you have connected,
         only within the permissions you set on it, and never on a live account until you have authorised live
         trading there. Automatic trading is off unless you switch it on.
       </div>
@@ -6278,10 +6381,10 @@ input{font:inherit}
     </div>`;
   }
 
-  /* Opens THE BRAIN inside the app. It used to be a link to the website, which threw the member out to a
+  /* Opens ATLAS inside the app. It used to be a link to the website, which threw the member out to a
      browser and lost the app around them — exactly the wrong thing to do to somebody mid-trade. */
   function CommandCenterLink() {
-    return html`<button class="cc-open" onClick=${function () { if (window.__omGoBrain) window.__omGoBrain(); }}>Open THE BRAIN \u2192</button>`;
+    return html`<button class="cc-open" onClick=${function () { if (window.__omGoBrain) window.__omGoBrain(); }}>Open ATLAS \u2192</button>`;
   }
   function CommandCenterCard() {
     var st = useState(null);
@@ -6629,7 +6732,7 @@ input{font:inherit}
     // window.__omGoConnect() to jump to FLOW with the TradeLocker connect open.
     useEffect(function () {
       window.__omGoConnect = function () { flowConnect[1](true); window.scrollTo(0, 0); sec[1]("flow"); };
-      // THE BRAIN opens INSIDE the app. Nothing here leaves for a browser.
+      // ATLAS opens INSIDE the app. Nothing here leaves for a browser.
       window.__omGoBrain = function () { window.scrollTo(0, 0); goFloor("brain"); };
       return function () { window.__omGoConnect = null; window.__omGoBrain = null; };
     }, []);

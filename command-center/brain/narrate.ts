@@ -45,14 +45,14 @@ export type NarrateInput = {
   snapshot: MarketSnapshot;
   /** Keys already said for this position, in any channel. */
   said: Set<string>;
-  /** When THE BRAIN last spoke ALOUD about anything. */
+  /** When ATLAS last spoke ALOUD about anything. */
   lastSpokeAt: number | null;
   now?: number;
 };
 
 /** How long between spoken lines while a position is open. Shorter than the market's, but not by much. */
 const QUIET_MS = 100_000;
-/** How long a healthy, uneventful trade goes before THE BRAIN offers one line of reassurance. */
+/** How long a healthy, uneventful trade goes before ATLAS offers one line of reassurance. */
 const REASSURE_MS = 20 * 60_000;
 
 /** The R ladder. Deliberately sparse: every quarter-R would be chatter dressed as precision. */
@@ -110,7 +110,7 @@ export function narrateTrade(i: NarrateInput): TradeNote[] {
     }
   }
 
-  /* 4 — REACHING SOMETHING THE BRAIN WAS WATCHING. Real levels only; the label is the broker's own. */
+  /* 4 — REACHING SOMETHING ATLAS WAS WATCHING. Real levels only; the label is the broker's own. */
   const atr = s.timeframes[pol.decisive[0]]?.features.atr ?? s.timeframes["5m"]?.features.atr ?? 0;
   if (atr > 0 && m.pips > 0) {
     const reached = s.levels

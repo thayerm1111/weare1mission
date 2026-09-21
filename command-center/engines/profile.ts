@@ -1,15 +1,15 @@
 /**
- * THE BRAIN TRADING PROFILE — the boundaries the member sets once.
+ * ATLAS TRADING PROFILE — the boundaries the member sets once.
  *
  * The whole point of the product correction is that the member stops making a decision per trade and
- * starts setting a policy. This file is that policy: how much risk THE BRAIN may use, which kinds of
+ * starts setting a policy. This file is that policy: how much risk ATLAS may use, which kinds of
  * trade it may present, what it is permitted to do to an open position, and the daily limits that
  * protect a member from a bad DAY rather than a bad trade.
  *
  * Two deliberate choices:
  *
  * • Every permission defaults to the conservative answer. A profile that has never been touched allows
- *   THE BRAIN to talk and to protect, and nothing else: no automatic entry, no automatic management, no
+ *   ATLAS to talk and to protect, and nothing else: no automatic entry, no automatic management, no
  *   full closes. Consent is something a member gives, not something a default assumes on their behalf.
  *
  * • SWING is OFF by default. It is the style that holds risk overnight and through news, and a member who
@@ -137,7 +137,7 @@ export async function saveProfile(userId: string, patch: ProfilePatch): Promise<
 }
 
 /**
- * Which management actions THE BRAIN is permitted to take on its own, for one position.
+ * Which management actions ATLAS is permitted to take on its own, for one position.
  *
  * The account's own permissions and the position's override the profile, in that order — the narrower
  * consent always wins, and switching AI management off on a position turns everything off regardless of

@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 /**
  * GLOBAL CONTEXT — DXY, US 10-YEAR, S&P AND WTI. INFORMATIONAL, NEVER AN INPUT.
  *
- * Shown because a gold trader wants them on screen. GENX and THE BRAIN do not read this route, this
+ * Shown because a gold trader wants them on screen. GENX and ATLAS do not read this route, this
  * file imports nothing from the engine, and nothing it returns reaches a trading decision.
  *
  * WHAT THE DATA PLAN ACTUALLY SERVES (probed 09-21 with /api/admin/feed-probe):
@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
  * (live / delayed / stale / not connected). Nothing is invented and nothing delayed is called live.
  *
  * COST: one batched quote every fifteen minutes, shared by every viewer through the cached row, so the
- * feed budget THE BRAIN depends on is barely touched. A failure here leaves the last good values in
+ * feed budget ATLAS depends on is barely touched. A failure here leaves the last good values in
  * place and the panel says how old they are.
  */
 const TTL_MS = 15 * 60_000;

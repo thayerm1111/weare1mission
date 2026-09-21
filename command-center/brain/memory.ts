@@ -74,7 +74,7 @@ export const priorThesis = (r: Rolling): BrainThesis | null => {
   return closed[0] ?? null;
 };
 
-/** Assemble the bounded view of itself that The BRAIN reasons over. */
+/** Assemble the bounded view of itself that Atlas reasons over. */
 export function memoryOf(r: Rolling, now: MarketSnapshot | null, diffs: SnapshotDiff[], state: BrainState | null): BrainMemory {
   return {
     now,
@@ -100,7 +100,7 @@ export function statementAround(r: Rolling, at: number, toleranceMs = 4 * 60_000
   return gap <= toleranceMs ? best : null;
 }
 
-/** The day's theses in order — the BRAIN JOURNAL. */
+/** The day's theses in order — Atlas JOURNAL. */
 export function journal(r: Rolling, sinceMs: number): BrainThesis[] {
   return r.theses.filter((t) => t.startedAt >= sinceMs).sort((a, b) => a.startedAt - b.startedAt);
 }

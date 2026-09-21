@@ -53,7 +53,7 @@ export function BrokerBar({ onAccountChange }: { onAccountChange?: (a: BrokerAcc
   const [notice, setNotice] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 
-  // THE BRAIN can open this panel when a member asks where their broker or permissions are set,
+  // ATLAS can open this panel when a member asks where their broker or permissions are set,
   // so the answer ends with the thing on screen rather than with directions to it.
   useEffect(() => {
     const onOpen = () => setOpen(true);
@@ -147,7 +147,7 @@ export function BrokerBar({ onAccountChange }: { onAccountChange?: (a: BrokerAcc
 
             {!ready && <p className="px-4 py-3 text-[12px]" style={{ color: C.amber }}>{notice}</p>}
 
-            {/* ── the account THE BRAIN is managing ── */}
+            {/* ── the account ATLAS is managing ── */}
             {step === "accounts" && active && (
               <div className="border-b px-4 py-3.5" style={{ borderColor: C.line }}>
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: C.gold }}>Active trading account</p>
@@ -333,14 +333,14 @@ function AccountCard({ a, active = false, busy, post, details, setDetails }: {
           TradeLocker {a.connectionStatus === "active" ? "connected" : a.connectionStatus}
         </span>
         <span style={{ color: a.isLive && !a.liveAuthorized ? C.amber : a.autoTrading ? C.gold : C.mut2 }}>
-          BRAIN execution {a.isLive && !a.liveAuthorized ? "not authorised" : a.autoTrading ? "on" : "off"}
+          ATLAS execution {a.isLive && !a.liveAuthorized ? "not authorised" : a.autoTrading ? "on" : "off"}
         </span>
       </div>
 
       {a.isLive && !a.liveAuthorized && (
         <div className="mt-2.5 rounded-lg px-2.5 py-2" style={{ background: "rgba(244,115,123,0.07)", border: "1px solid rgba(244,115,123,0.22)" }}>
           <p className="text-[11.5px] leading-relaxed" style={{ color: C.mut }}>
-            This is a real-money account. THE BRAIN can read it, and can send nothing on it, until you authorise live trading.
+            This is a real-money account. ATLAS can read it, and can send nothing on it, until you authorise live trading.
           </p>
           <button onClick={() => void post({ action: "authorize_live", accountRowId: a.id, confirm: true })} disabled={busy}
             className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
@@ -352,7 +352,7 @@ function AccountCard({ a, active = false, busy, post, details, setDetails }: {
 
       {a.selected && (
         <div className="mt-2.5 border-t pt-2.5" style={{ borderColor: C.line }}>
-          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: C.mut2 }}>What THE BRAIN may do here</p>
+          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: C.mut2 }}>What ATLAS may do here</p>
           <div className="flex flex-wrap gap-1.5">
             {([
               ["ai_break_even", "Break even"],
@@ -381,7 +381,7 @@ function AccountCard({ a, active = false, busy, post, details, setDetails }: {
               color: a.autoTrading ? C.amber : C.mut2,
               border: `1px solid ${a.autoTrading ? "rgba(233,185,73,0.30)" : C.line}`,
             }}>
-            {a.autoTrading ? "Turn auto entry off" : "Allow THE BRAIN to enter by itself"}
+            {a.autoTrading ? "Turn auto entry off" : "Allow ATLAS to enter by itself"}
           </button>
         </div>
       )}

@@ -1,7 +1,7 @@
 /**
  * THE EXECUTION VALIDATOR — the last deterministic word before anything is sent to a broker.
  *
- * Nothing above this file can overrule it. Not the member clicking quickly, not THE BRAIN being confident,
+ * Nothing above this file can overrule it. Not the member clicking quickly, not ATLAS being confident,
  * not an automation flag. It answers one question — "may this order be sent, and at what size?" — from
  * numbers, limits and permissions, and it says no with a reason a person can read.
  *
@@ -79,14 +79,14 @@ export function validate(i: ValidateInput): Validation {
   }
 
   /* 2 — can we see the market well enough to act on it? */
-  if (!i.snapshot) return no("There is no market read — THE BRAIN cannot see gold right now.");
+  if (!i.snapshot) return no("There is no market read — ATLAS cannot see gold right now.");
   const gate = tradeable(i.snapshot);
   if (!gate.ok) return no(gate.reason);
 
   /* 3 — is the instruction itself coherent? */
   const price = i.entry ?? i.snapshot.price;
   if (!(price > 0)) return no("No usable price for this order.");
-  if (!(i.stop > 0)) return no("A stop is required. THE BRAIN will not send an order without one.");
+  if (!(i.stop > 0)) return no("A stop is required. ATLAS will not send an order without one.");
   const wrongSide = i.side === "buy" ? i.stop >= price : i.stop <= price;
   if (wrongSide) return no(`For a ${i.side} the stop must sit ${i.side === "buy" ? "below" : "above"} the entry.`);
   if (i.takeProfit != null) {

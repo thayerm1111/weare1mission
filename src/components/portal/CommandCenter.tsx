@@ -57,7 +57,7 @@ export function CommandCenter({ className = "" }: { className?: string }) {
           <span className="grid h-8 w-8 place-items-center rounded-lg" style={{ background: `${C.gold}1a`, color: C.gold }}><Layers className="h-4 w-4" /></span>
           <div>
             <p className="text-[13px] font-black tracking-tight">COMMAND CENTER <span style={{ color: C.gold }}>XAUUSD</span></p>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.mut2 }}>The BRAIN · market read</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.mut2 }}>Atlas · market read</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -138,7 +138,7 @@ export function CommandCenter({ className = "" }: { className?: string }) {
 
       {warnings.length > 0 && (
         <div className="border-t px-4 py-2.5" style={{ borderColor: C.line, background: "rgba(251,191,36,0.05)" }}>
-          <p className="mb-1 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: C.amber }}><AlertTriangle className="h-3.5 w-3.5" /> The BRAIN is flagging</p>
+          <p className="mb-1 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: C.amber }}><AlertTriangle className="h-3.5 w-3.5" /> Atlas is flagging</p>
           <ul className="space-y-0.5">
             {warnings.slice(0, 4).map((w, i) => <li key={i} className="text-[11.5px]" style={{ color: C.mut }}>{w}</li>)}
           </ul>
@@ -147,12 +147,12 @@ export function CommandCenter({ className = "" }: { className?: string }) {
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-2.5" style={{ borderColor: C.line }}>
         <span className="text-[10px]" style={{ color: C.mut2 }}>
-          THE BRAIN reads the market here. Trading lives in the full Command Center, on accounts you connect and authorise.
+          ATLAS reads the market here. Trading lives in the full Command Center, on accounts you connect and authorise.
         </span>
         <a href="/command-center"
           className="shrink-0 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em]"
           style={{ background: `${C.gold}1a`, color: C.gold, border: `1px solid ${C.gold}44`, textDecoration: "none" }}>
-          Open THE BRAIN →
+          Open ATLAS →
         </a>
       </div>
     </section>

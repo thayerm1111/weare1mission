@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
  * CHART CANDLES FOR THE COMMAND CENTER SCREEN — READ-ONLY, DISPLAY ONLY.
  *
  * Served from cc_chart_bars, which the worker overwrites each pass with the bars it already fetched for
- * THE BRAIN. So opening a chart costs the market-data feed nothing: there is no second upstream call that
+ * ATLAS. So opening a chart costs the market-data feed nothing: there is no second upstream call that
  * could eat into the rate limit the engine itself depends on. Nothing here is read by any trading path.
  */
 function json(o: unknown, s = 200) {

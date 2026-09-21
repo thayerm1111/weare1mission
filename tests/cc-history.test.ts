@@ -10,7 +10,7 @@ const DAY = 86_400_000;
 /*
  * THE BUG THIS FILE EXISTS FOR.
  *
- * Asked "what happened to gold last week", THE BRAIN said the market was closed. Twice. The market
+ * Asked "what happened to gold last week", ATLAS said the market was closed. Twice. The market
  * being shut has nothing to do with a question about finished history — everything was being routed
  * through one live snapshot, so a missing tick silenced the entire system.
  */
@@ -92,7 +92,7 @@ test("measured history is never presented as a recorded opinion", () => {
     { t: NOW - 1 * DAY, o: 4040, h: 4060, l: 4030, c: 4055 },
   ];
   const lines = retrospectiveLines(measure(parseWindow("last week", NOW)!, bars)!).join("\n");
-  assert.ok(/NOT a record of what THE BRAIN thought/.test(lines), "the packet says so in the packet itself");
+  assert.ok(/NOT a record of what ATLAS thought/.test(lines), "the packet says so in the packet itself");
   assert.ok(/do not claim to have called any of it/i.test(lines));
 });
 

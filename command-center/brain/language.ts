@@ -1,5 +1,5 @@
 /**
- * THE BRAIN'S VOICE — deterministic trader language.
+ * ATLAS'S VOICE — deterministic trader language.
  *
  * Two jobs. First, this is how perception becomes something a person wants to hear: "buyers are getting
  * stronger", not "bullish price-pressure score has increased". Second, it is the REAL fallback when no
@@ -176,9 +176,11 @@ type Intent =
   | "timeframe" | "trade" | "math" | "scalp" | "swing" | "setup" | "watch" | "unwatch" | "unknown";
 
 export function classify(q: string): { intent: Intent; arg: string | null } {
-  // People address it by name — "THE BRAIN, talk to me" — so the vocative is stripped before matching.
+  // People address it by name — "ATLAS, talk to me" — so the vocative is stripped before matching.
   const t = q.toLowerCase().trim()
-    .replace(/^(hey |ok |okay )?(the )?brain[,:]?\s*/i, "")
+    // "Atlas" is the name; "the brain" still works, because members who learned the old one should not
+    // have to relearn it to be understood.
+    .replace(/^(hey |ok |okay )?(atlas|the brain|brain)[,:]?\s*/i, "")
     .replace(/^(hey|ok|okay)[,:]?\s*/i, "")
     .trim();
   if (/^(talk to me|brief|briefing|what('s| is) going on|how does .* look|give me the read|what do you see)/.test(t)) return { intent: "briefing", arg: null };
@@ -214,7 +216,7 @@ export function classify(q: string): { intent: Intent; arg: string | null } {
   }
   // ASKING FOR A TRADE. This must be matched BEFORE the scalp/swing lines below, which would otherwise
   // swallow "find me a swing trade" and answer it with a lecture about the daily chart instead of the
-  // setup THE BRAIN has actually already computed.
+  // setup ATLAS has actually already computed.
   if (/find me a|got a trade|see a (trade|setup|long|short)|any (trade|setup)s?\b|what would you (trade|take|do)|is there a (trade|setup)|should i (buy|sell)|trade idea|give me a (trade|setup)|do you (see|have) (a|any)/.test(t)) {
     const style = /quick|scalp|fast|50.?100|short term/.test(t) ? "quick"
       : /swing|daily|overnight|multi.?day/.test(t) ? "swing"
@@ -256,7 +258,7 @@ function mathLines(s: MarketSnapshot): string[] {
  * The narrator's answer. Used when no language model is configured, and as the safety net if one fails.
  * It is grounded in the same state the model would have received — it is a plainer voice, not a fake one.
  */
-/** What THE BRAIN currently wants to do about gold, as the conversation needs to see it. */
+/** What ATLAS currently wants to do about gold, as the conversation needs to see it. */
 export type SetupView = {
   state: string; side: string | null; style: string | null; stop: number | null;
   entryLow: number | null; entryHigh: number | null;

@@ -121,7 +121,7 @@ export function CommandCenterMoment() {
               <div key={q} className={i ? "mt-5 border-t pt-5" : ""} style={{ borderColor: "rgba(255,255,255,0.08)" }}>
                 <p className="text-[10.5px] font-bold uppercase tracking-[0.18em]" style={{ color: "rgba(255,255,255,0.40)" }}>You</p>
                 <p className="mt-1 text-[14.5px] text-white">{q}</p>
-                <p className="mt-3 text-[10.5px] font-bold uppercase tracking-[0.18em]" style={{ color: "#C9A961" }}>The Brain</p>
+                <p className="mt-3 text-[10.5px] font-bold uppercase tracking-[0.18em]" style={{ color: "#C9A961" }}>Atlas</p>
                 <p className="mt-1 text-[14.5px] leading-relaxed" style={{ color: "rgba(255,255,255,0.80)" }}>{a}</p>
               </div>
             ))}
