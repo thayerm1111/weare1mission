@@ -71,16 +71,22 @@ function evPrice(e: Record<string, unknown>): number | null {
   return Number.isFinite(p) ? p : null;
 }
 
-/** The sizes that make the desktop layout match the reference at 1672 × 941. */
+/**
+ * The sizes that make the desktop layout match the reference at 1672 × 941.
+ *
+ * The desk is a cockpit: it fills the window and does not scroll while it fits. On a shorter window it
+ * would rather scroll than silently cut the bottom row off, so the grid keeps a floor height and the
+ * root scrolls past it — nothing on this screen is allowed to be invisible.
+ */
 const DESK = `
 .hud-grid { display:grid; gap:8px; min-width:0; }
 .hud-col > *, .hud-under > *, .hud-grid > * { min-width:0; }
 @media (min-width:1280px) {
-  .hud-root { height:100vh; overflow:hidden; display:flex; flex-direction:column; }
-  .hud-grid { grid-template-columns: minmax(296px,21.4%) minmax(0,1fr) minmax(300px,21.2%); flex:1 1 auto; min-height:0; }
+  .hud-root { height:100dvh; overflow-x:hidden; overflow-y:auto; display:flex; flex-direction:column; }
+  .hud-grid { grid-template-columns: minmax(296px,21.4%) minmax(0,1fr) minmax(300px,21.2%); flex:1 1 auto; min-height:664px; }
   .hud-col { min-height:0; display:grid; gap:8px; }
   .hud-left { grid-template-rows: 1.34fr 1fr 0.84fr 1.16fr; }
-  .hud-center { grid-template-rows: minmax(0,1fr) 136px 160px; }
+  .hud-center { grid-template-rows: minmax(300px,1fr) 136px 172px; }
   .hud-right { grid-template-rows: minmax(0,1fr) 236px; }
   .hud-under { display:grid; grid-template-columns: minmax(0,1fr) 262px; gap:8px; min-height:0; }
 }
@@ -698,7 +704,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                   <StructureViz pivots={pivots} price={d?.price ?? null} bearish={bias === "bear"} />
                   <p className="absolute right-1 top-0 text-[9px]" style={{ color: H.mut }}>Structure <b style={{ color: biasColor }}>{bias === "bear" ? "BEARISH" : bias === "bull" ? "BULLISH" : "MIXED"}</b></p>
                 </div>
-                <dl className="grid content-center gap-[3px] text-[9.5px]">
+                <dl className="hud-scroll grid content-start gap-[3px] overflow-y-auto text-[9.5px]">
                   {[
                     ["Trend", intel?.structure.trend, intel?.structure.trend === "Downtrend" ? H.red : intel?.structure.trend === "Uptrend" ? H.green : H.text],
                     ["Market structure", intel?.structure.sequence, intel?.structure.sequence?.startsWith("Lower") ? H.red : intel?.structure.sequence?.startsWith("Higher") ? H.green : H.text],
