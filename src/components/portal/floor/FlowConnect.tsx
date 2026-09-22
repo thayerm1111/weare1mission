@@ -132,8 +132,6 @@ export function FlowConnect() {
   const [auto, setAuto] = useState<AutoRun | null>(null);
   const [risk, setRisk] = useState<number>(1);
   const [riskLocked, setRiskLocked] = useState(false);
-  // Send It setup prompt state — key is `${connectionId}:${accountId}` of the account being configured.
-  const [sendItCfg, setSendItCfg] = useState<{ key: string; stack: boolean; be: boolean; partials: boolean; guards: boolean } | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
   const [autoMsg, setAutoMsg] = useState("");
   // Owner-only global kill switch. GET returns 404 for non-owners → stays null → hidden.
@@ -322,6 +320,20 @@ export function FlowConnect() {
     }
   }
 
+  /**
+   * AI PIPS — the one management switch (owner 09-22). It writes manage_trades (what the trade manager
+   * actually reads) and lines the retired split toggles up behind it, so an account can never end up
+   * "managed" with break-even and the guard switched off underneath.
+   */
+  async function setAccountAiPips(a: Account, enabled: boolean) {
+    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, manageTrades: enabled, beEnabled: enabled, profitGuard: enabled } : x) } : prev);
+    const post = (action: string) => fetch("/api/flow/broker", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action, accountId: a.accountId, connectionId: a.connectionId, enabled }),
+    });
+    try { await post("manage"); void post("betoggle"); void post("guardtoggle"); } catch { void load(); }
+  }
+
   async function setAccountManage(a: Account, enabled: boolean) {
     // Optimistic: flip locally, then persist. Controls breakeven + partials (the
     // trade-manager) for this account's FLOW and GENX trades alike.
@@ -337,16 +349,6 @@ export function FlowConnect() {
     }
   }
 
-  async function setAccountBe(a: Account, enabled: boolean) {
-    // Break-even toggle (split, owner 09-03): once price runs the trigger, the stop moves to
-    // entry +5 pips PROFIT — a scratched trade closes green, never red on fees.
-    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, beEnabled: enabled, manageTrades: true } : x) } : prev);
-    try {
-      await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "betoggle", accountId: a.accountId, connectionId: a.connectionId, enabled }) });
-      if (a.manageTrades === false) await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: true }) });
-    } catch { void load(); }
-  }
-
   /*
    * WHICH TRADE STYLES THIS ACCOUNT TAKES.
    *
@@ -354,39 +356,6 @@ export function FlowConnect() {
    * that is on and takes nothing looks like a broken system rather than a choice, so the button for
    * the only remaining style simply does not respond, and the line underneath says why.
    */
-  async function setAccountStyles(a: Account, patch: { quick?: boolean; hold?: boolean; swing?: boolean }) {
-    const cur = { quick: a.styleQuick !== false, hold: a.styleHold !== false, swing: a.styleSwing === true };
-    const next = { ...cur, ...patch };
-    if (!next.quick && !next.hold && !next.swing) return;
-    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) =>
-      x.accountId === a.accountId && x.connectionId === a.connectionId
-        ? { ...x, styleQuick: next.quick, styleHold: next.hold, styleSwing: next.swing } : x) } : prev);
-    try {
-      await fetch("/api/flow/broker", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "styles", accountId: a.accountId, connectionId: a.connectionId, ...next }),
-      });
-    } catch { /* optimistic; the next load reconciles */ }
-  }
-
-  async function setAccountPartials(a: Account, enabled: boolean) {
-    // Partials toggle (split, owner 09-03): bank 25% at the halfway point on 1:2+ setups.
-    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, partialsEnabled: enabled, manageTrades: true } : x) } : prev);
-    try {
-      await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "partialtoggle", accountId: a.accountId, connectionId: a.connectionId, enabled }) });
-      if (a.manageTrades === false) await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: true }) });
-    } catch { void load(); }
-  }
-
-  async function setAccountGuard(a: Account, enabled: boolean) {
-    // 🛡 PROFIT GUARD (owner 09-17): opt-in. When gold's structure flips against a trade that is already
-    // 1R / 50+ pips in profit, the stop snaps in behind the market so most of the move is kept.
-    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, profitGuard: enabled } : x) } : prev);
-    try {
-      await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "guardtoggle", accountId: a.accountId, connectionId: a.connectionId, enabled }) });
-    } catch { void load(); }
-  }
-
   async function setAccountMatty(a: Account, enabled: boolean) {
     // 🧠 MATTY PIPS (owner 09-04): copy the standalone Matty Pips AI onto this account.
     // Stored ONLY in matty_pips_* tables via the matty-pips API — FLOW's engine, tables
@@ -398,23 +367,6 @@ export function FlowConnect() {
         body: JSON.stringify({ accountId: a.accountId, connectionId: a.connectionId, accNum: a.accNum, enabled }),
       });
     } catch { /* optimistic; the Matty Pips page shows authoritative state */ }
-  }
-
-  // 🚀 SEND IT v2 (owner 09-08): turning Send It ON opens a setup prompt where the member
-  // chooses how it operates — every entry vs one at a time, break-even on/off, partials
-  // on/off, and whether the desk safeguards still apply. Turning it OFF is immediate.
-  async function turnOffSendIt(a: Account) {
-    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, sendIt: false } : x) } : prev);
-    try {
-      await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "sendit", accountId: a.accountId, connectionId: a.connectionId, enabled: false }) });
-    } catch { void load(); }
-  }
-  async function confirmSendIt(a: Account, cfg: { stack: boolean; be: boolean; partials: boolean; guards: boolean }) {
-    setSendItCfg(null);
-    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, sendIt: true, sendItStack: cfg.stack, sendItGuards: cfg.guards, beEnabled: cfg.be, partialsEnabled: cfg.partials, manageTrades: true } : x) } : prev);
-    try {
-      await fetch("/api/flow/broker", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "sendit", accountId: a.accountId, connectionId: a.connectionId, enabled: true, stack: cfg.stack, guards: cfg.guards, be: cfg.be, partials: cfg.partials }) });
-    } catch { void load(); }
   }
 
   async function setAccountMode(a: Account, mode: "conservative" | "aggressive") {
@@ -481,7 +433,7 @@ export function FlowConnect() {
         </h2>
         <p className="text-sm text-charcoal/50">
           {connected
-            ? "Risk, trade styles and trade management are set per account below. Nothing here changes until you change it."
+            ? "Risk and AI Pips are set per account below. Nothing here changes until you change it."
             : "Link your TradeLocker account so FLOW can show your balance and prepare your trades. Your login is sent straight to the broker and stored encrypted — it never sits in your browser."}
         </p>
       </div>
@@ -674,240 +626,52 @@ export function FlowConnect() {
                         );
                       })()}
                     </div>
-                    {/* Per-account trade management, SPLIT (owner 09-03): break-even and partials each
-                        have their own switch, plus 🚀 Send It below the safety mode. */}
+                    {/*
+                      * ONE SWITCH — "AI PIPS" (owner 09-22: "I don't want any other settings anymore …
+                      * I just want the toggle for Gen X and for the break-even profit guard AI Pips").
+                      *
+                      * What used to live here: three horizon buttons, break-even, partials, profit guard,
+                      * Send It and its setup prompt. Seven controls on one card, each of which could
+                      * silently stop an account from taking a call. What is left is the switch that says
+                      * whether the AI manages an open trade, and safety mode — and safety mode now changes
+                      * exactly one thing: a conservative account sits out for 2 hours after 2 losses in a
+                      * row. Both modes take the same calls.
+                      */}
                     {(() => {
                       const managed = a.manageTrades !== false;
-                      const beOn = managed && a.beEnabled !== false;
-                      const parOn = managed && a.partialsEnabled !== false;
-                      const sendIt = a.sendIt === true;
+                      const mode = a.riskMode === "aggressive" ? "aggressive" : "conservative";
                       return (
                         <>
-                          {/*
-                            * THE THREE HORIZONS.
-                            *
-                            * Placed above the management toggles because it is a bigger decision than
-                            * any of them: break-even and partials change how a trade is handled, this
-                            * changes which trades exist at all. Swing is off by default — it holds
-                            * risk through sessions and over the weekend gap, and that should be
-                            * chosen rather than inherited.
-                            */}
-                          {(() => {
-                            const styles = [
-                              { key: "quick" as const, on: a.styleQuick !== false, name: "Rapid", blurb: "fastest, tightest stops" },
-                              { key: "hold" as const, on: a.styleHold !== false, name: "Normal", blurb: "held through a session" },
-                              { key: "swing" as const, on: a.styleSwing === true, name: "Swing", blurb: "held for days, overnight" },
-                            ];
-                            const onCount = styles.filter((x) => x.on).length;
-                            return (
-                              <div className="mt-2 border-t border-ice/70 pt-2.5">
-                                <div className="min-w-0">
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55">⏱ Trade styles</span>
-                                  <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">
-                                    Which kinds of trade this account takes. Each one is a different holding period, not a different risk level — the risk % above applies to all three.
-                                  </p>
-                                </div>
-                                <div className="mt-2 flex flex-wrap gap-1.5">
-                                  {styles.map((st) => {
-                                    const last = st.on && onCount === 1;
-                                    return (
-                                      <button key={st.key}
-                                        onClick={() => { if (!last) void setAccountStyles(a, { [st.key]: !st.on }); }}
-                                        aria-pressed={st.on}
-                                        title={last ? "Keep at least one style on, or switch the account off instead." : st.blurb}
-                                        className={`rounded-lg border px-2.5 py-1.5 text-left transition-colors ${
-                                          st.on
-                                            ? "border-emerald-500/40 bg-emerald-500/10"
-                                            : "border-ice bg-white hover:border-charcoal/25"
-                                        } ${last ? "cursor-default" : ""}`}>
-                                        <span className={`block text-[11px] font-bold ${st.on ? "text-emerald-700" : "text-charcoal/45"}`}>{st.name}</span>
-                                        <span className="block text-[9.5px] leading-tight text-charcoal/40">{st.blurb}</span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                                {onCount === 1 && (
-                                  <p className="mt-1 text-[9.5px] text-charcoal/35">
-                                    Keep at least one on. To stop this account entirely, use the Trading switch above.
-                                  </p>
-                                )}
-                              </div>
-                            );
-                          })()}
-
-                          <div {...tour("ft-be")} className="mt-2 flex items-center justify-between gap-3 border-t border-ice/70 pt-2.5">
+                          <div className="mt-2 flex items-start justify-between gap-3 border-t border-ice/70 pt-2.5">
                             <div className="min-w-0">
-                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55"><ShieldCheck className="h-3.5 w-3.5" /> 🎯 Break even</span>
-                              <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">Once price runs your trigger, the stop moves to entry +5 pips PROFIT — a scratched trade closes green, never red on fees.</p>
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55"><ShieldCheck className="h-3.5 w-3.5" /> 🎯 AI Pips</span>
+                              <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">
+                                {managed
+                                  ? "On — the stop moves to break even once the trade has earned it, snaps in to keep the move when the market turns against it, and trails behind the best price."
+                                  : "Off — the trade runs to the stop and target it was placed with. Nothing is moved."}
+                              </p>
                             </div>
-                            <div className="flex flex-shrink-0 items-center gap-2">
-                              <span className={`text-[11px] font-semibold ${beOn ? "text-emerald-600" : "text-charcoal/40"}`}>{beOn ? "On" : "Off"}</span>
-                              <button
-                                onClick={() => void setAccountBe(a, !beOn)}
-                                aria-pressed={beOn}
-                                className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${beOn ? "bg-emerald-500" : "bg-charcoal/20"}`}
-                              >
-                                <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${beOn ? "left-[22px]" : "left-0.5"}`} />
-                              </button>
-                            </div>
+                            <button
+                              onClick={() => void setAccountAiPips(a, !managed)}
+                              aria-pressed={managed}
+                              className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${managed ? "bg-emerald-500" : "bg-charcoal/20"}`}>
+                              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${managed ? "left-[22px]" : "left-0.5"}`} />
+                            </button>
                           </div>
-                          <div {...tour("ft-partials")} className="mt-2 flex items-center justify-between gap-3">
+                          <div className="mt-2 flex items-start justify-between gap-3 border-t border-ice/70 pt-2.5">
                             <div className="min-w-0">
-                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55">💰 Partials</span>
-                              <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">Bank 25% at the halfway point on 1:2+ setups — the runner keeps going.</p>
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55"><ShieldCheck className="h-3.5 w-3.5" /> Safety mode</span>
+                              <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">
+                                The only difference: conservative sits this account out for 2 hours after 2 losses in a row (gold and forex counted separately). Aggressive has no cap.
+                              </p>
                             </div>
-                            <div className="flex flex-shrink-0 items-center gap-2">
-                              <span className={`text-[11px] font-semibold ${parOn ? "text-emerald-600" : "text-charcoal/40"}`}>{parOn ? "On" : "Off"}</span>
-                              <button
-                                onClick={() => void setAccountPartials(a, !parOn)}
-                                aria-pressed={parOn}
-                                className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${parOn ? "bg-emerald-500" : "bg-charcoal/20"}`}
-                              >
-                                <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${parOn ? "left-[22px]" : "left-0.5"}`} />
-                              </button>
+                            <div className="flex flex-shrink-0 items-center gap-1.5">
+                              <button onClick={() => void setAccountMode(a, "conservative")} aria-pressed={mode === "conservative"}
+                                className={`rounded-lg border px-2 py-1 text-[10.5px] font-bold ${mode === "conservative" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700" : "border-ice bg-white text-charcoal/45"}`}>Cons.</button>
+                              <button onClick={() => void setAccountMode(a, "aggressive")} aria-pressed={mode === "aggressive"}
+                                className={`rounded-lg border px-2 py-1 text-[10.5px] font-bold ${mode === "aggressive" ? "border-amber-500/40 bg-amber-500/10 text-amber-700" : "border-ice bg-white text-charcoal/45"}`}>Aggr.</button>
                             </div>
                           </div>
-                          {(() => {
-                            const grdOn = managed && a.profitGuard === true;
-                            return (
-                              <div className="mt-2 flex items-center justify-between gap-3">
-                                <div className="min-w-0">
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55">🛡 Profit guard</span>
-                                  <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">Gold only. If the market flips against a trade that is already 1R and 50+ pips up, the stop snaps in behind price — most of the move is kept instead of riding back to break-even. Off by default.</p>
-                                </div>
-                                <div className="flex flex-shrink-0 items-center gap-2">
-                                  <span className={`text-[11px] font-semibold ${grdOn ? "text-emerald-600" : "text-charcoal/40"}`}>{grdOn ? "On" : "Off"}</span>
-                                  <button
-                                    onClick={() => void setAccountGuard(a, !grdOn)}
-                                    aria-pressed={grdOn}
-                                    className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${grdOn ? "bg-emerald-500" : "bg-charcoal/20"}`}
-                                  >
-                                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${grdOn ? "left-[22px]" : "left-0.5"}`} />
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })()}
-                          {/* Per-account SAFETY MODE: conservative (2-loss cutoff) vs aggressive */}
-                          {(() => {
-                            const mode = a.riskMode === "aggressive" ? "aggressive" : "conservative";
-                            return (
-                              <div {...tour("ft-safety")} className="mt-2 flex items-center justify-between gap-3">
-                                <div className="min-w-0">
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55"><ShieldCheck className="h-3.5 w-3.5" /> Safety mode</span>
-                                  <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">Conservative pauses THIS account 4h after 2 losses in a row (gold &amp; forex separate). Aggressive has no cap.</p>
-                                </div>
-                                <div className="flex flex-shrink-0 items-center gap-1">
-                                  <button onClick={() => void setAccountMode(a, "conservative")} aria-pressed={mode === "conservative"}
-                                    className={`rounded-lg border px-2 py-1 text-[11px] font-bold transition-colors ${mode === "conservative" ? "border-emerald-500/60 bg-emerald-500/[0.08] text-emerald-600" : "border-ice bg-offwhite/60 text-charcoal/50 hover:border-charcoal/25"}`}>🛡 Cons.</button>
-                                  <button onClick={() => void setAccountMode(a, "aggressive")} aria-pressed={mode === "aggressive"}
-                                    className={`rounded-lg border px-2 py-1 text-[11px] font-bold transition-colors ${mode === "aggressive" ? "border-amber-500/60 bg-amber-500/[0.08] text-amber-600" : "border-ice bg-offwhite/60 text-charcoal/50 hover:border-charcoal/25"}`}>⚡ Aggr.</button>
-                                </div>
-                              </div>
-                            );
-                          })()}
-                          {beOn && (
-                            <div {...tour("ft-bepips")} className="mt-2 flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <span className="text-[11px] font-semibold text-charcoal/55">Break-even trigger pips</span>
-                                <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">Gold only. The stop protects after this many pips in your favor. Blank = AI decides. Forex is always AI.</p>
-                              </div>
-                              <div className="flex flex-shrink-0 items-center gap-1.5">
-                                <input
-                                  type="number"
-                                  min={1}
-                                  inputMode="numeric"
-                                  placeholder="AI"
-                                  key={`gbe-${a.accountId}-${a.goldBePips ?? "ai"}`}
-                                  defaultValue={a.goldBePips ?? ""}
-                                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                                  onBlur={(e) => {
-                                    const v = e.currentTarget.value.trim();
-                                    const n = v === "" ? null : Number(v);
-                                    void setAccountGoldBePips(a, n != null && Number.isFinite(n) && n > 0 ? Math.round(n) : null);
-                                  }}
-                                  className="w-16 rounded-lg border border-ice bg-white px-2 py-1 text-right text-[11px] font-bold text-navy focus:border-emerald-500/60 focus:outline-none"
-                                />
-                                <span className="text-[11px] text-charcoal/45">pips</span>
-                              </div>
-                            </div>
-                          )}
-                          {SHOW_LEGACY_ENGINES && (
-                          <div {...tour("ft-sendit")} className={`mt-2 rounded-lg border px-2.5 py-2 ${sendIt ? "border-amber-500/50 bg-amber-500/[0.07]" : "border-ice bg-offwhite/40"}`}>
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${sendIt ? "text-amber-600" : "text-charcoal/55"}`}>🚀 Send It</span>
-                                <p className="mt-0.5 text-[10px] leading-tight text-charcoal/45">
-                                  {sendIt
-                                    ? `ON — ${a.sendItStack !== false ? "every entry" : "one entry at a time"} · break-even ${a.beEnabled !== false ? "on" : "off"} · partials ${a.partialsEnabled !== false ? "on" : "off"} · safeguards ${a.sendItGuards === true ? "on" : "bypassed"}. Sized at your risk %.`
-                                    : "Take EVERY setup the AI calls, your way — you'll choose entries, break-even, partials and safeguards when you turn it on."}
-                                </p>
-                              </div>
-                              <div className="flex flex-shrink-0 items-center gap-2">
-                                <span className={`text-[11px] font-semibold ${sendIt ? "text-amber-600" : "text-charcoal/40"}`}>{sendIt ? "On" : "Off"}</span>
-                                <button
-                                  onClick={() => {
-                                    if (sendIt) { void turnOffSendIt(a); return; }
-                                    // SETUP PROMPT: seed from the account's current toggles, classic Send It defaults.
-                                    setSendItCfg({ key: `${a.connectionId}:${a.accountId}`, stack: a.sendItStack !== false, be: a.beEnabled !== false, partials: a.partialsEnabled !== false, guards: a.sendItGuards === true });
-                                  }}
-                                  aria-pressed={sendIt}
-                                  className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${sendIt ? "bg-amber-500" : "bg-charcoal/20"}`}
-                                >
-                                  <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${sendIt ? "left-[22px]" : "left-0.5"}`} />
-                                </button>
-                              </div>
-                            </div>
-                            {/* SEND IT SETUP PROMPT (owner 09-08): how should Send It operate on this account? */}
-                            {sendItCfg && sendItCfg.key === `${a.connectionId}:${a.accountId}` && (
-                              <div className="mt-2 space-y-2 border-t border-amber-500/30 pt-2">
-                                <p className="text-[10px] font-bold uppercase tracking-wide text-amber-700">Set up Send It for this account</p>
-                                {([
-                                  { label: "Entries", get: sendItCfg.stack, set: (v: boolean) => setSendItCfg({ ...sendItCfg, stack: v }), onText: "Every entry", offText: "One at a time", hint: sendItCfg.stack ? "Takes every call — even with a trade already open (positions can stack)." : "Waits for the open trade to close before taking the next call." },
-                                  { label: "Break-even", get: sendItCfg.be, set: (v: boolean) => setSendItCfg({ ...sendItCfg, be: v }), onText: "On", offText: "Off", hint: sendItCfg.be ? "Stop moves into profit once the trigger hits — scratches close green." : "Stop never moves — every trade runs to its SL or TP as placed." },
-                                  { label: "Partials", get: sendItCfg.partials, set: (v: boolean) => setSendItCfg({ ...sendItCfg, partials: v }), onText: "On", offText: "Off", hint: sendItCfg.partials ? "Banks 25% at the halfway point on qualifying setups." : "Full position rides to the end — nothing banked early." },
-                                  { label: "Safeguards", get: sendItCfg.guards, set: (v: boolean) => setSendItCfg({ ...sendItCfg, guards: v }), onText: "On", offText: "Bypassed", hint: sendItCfg.guards ? "Respects the desk's protections — halts after stop-outs, post-win quality bar, news blackouts." : "Classic Send It: trades through halts, blackouts and quality gates. Max action, max risk." },
-                                ] as const).map((row) => (
-                                  <div key={row.label} className="flex items-start justify-between gap-2">
-                                    <div className="min-w-0">
-                                      <span className="text-[11px] font-semibold text-charcoal/70">{row.label}</span>
-                                      <p className="mt-0.5 text-[10px] leading-tight text-charcoal/45">{row.hint}</p>
-                                    </div>
-                                    <div className="flex flex-shrink-0 gap-1">
-                                      <button onClick={() => row.set(true)} className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${row.get ? "border-amber-500/60 bg-amber-500/[0.12] text-amber-700" : "border-ice bg-white text-charcoal/50"}`}>{row.onText}</button>
-                                      <button onClick={() => row.set(false)} className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${!row.get ? "border-amber-500/60 bg-amber-500/[0.12] text-amber-700" : "border-ice bg-white text-charcoal/50"}`}>{row.offText}</button>
-                                    </div>
-                                  </div>
-                                ))}
-                                <div className="flex gap-2 pt-1">
-                                  <button onClick={() => void confirmSendIt(a, sendItCfg)} className="flex-1 rounded-lg bg-amber-500 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-amber-600">🚀 Turn on Send It</button>
-                                  <button onClick={() => setSendItCfg(null)} className="rounded-lg border border-ice bg-white px-3 py-1.5 text-[11px] font-semibold text-charcoal/60">Cancel</button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          )}
-                          {SHOW_LEGACY_ENGINES && (() => {
-                            const mpOn = mpMap[`${a.connectionId}:${a.accountId}`] === true;
-                            return (
-                              <div className={`mt-2 flex items-center justify-between gap-3 rounded-lg border px-2.5 py-2 ${mpOn ? "border-sky-500/50 bg-sky-500/[0.07]" : "border-ice bg-offwhite/40"}`}>
-                                <div className="min-w-0">
-                                  <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${mpOn ? "text-sky-600" : "text-charcoal/55"}`}>🧠 Matty Pips</span>
-                                  <p className="mt-0.5 text-[10px] leading-tight text-charcoal/45">{mpOn ? "ON — this account copies Matty Pips AI trades (its own BE, partials and risk %). Fine-tune on the Matty Pips page." : "Copy the Matty Pips AI onto this account — level-first gold reads, structural stops, its own management. Configure risk on the Matty Pips page."}</p>
-                                </div>
-                                <div className="flex flex-shrink-0 items-center gap-2">
-                                  <span className={`text-[11px] font-semibold ${mpOn ? "text-sky-600" : "text-charcoal/40"}`}>{mpOn ? "On" : "Off"}</span>
-                                  <button
-                                    onClick={() => void setAccountMatty(a, !mpOn)}
-                                    aria-pressed={mpOn}
-                                    className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${mpOn ? "bg-sky-500" : "bg-charcoal/20"}`}
-                                  >
-                                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${mpOn ? "left-[22px]" : "left-0.5"}`} />
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })()}
                         </>
                       );
                     })()}
