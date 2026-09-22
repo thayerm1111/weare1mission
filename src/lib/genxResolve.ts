@@ -170,7 +170,9 @@ export async function resolveGenxOpen(
     const oldest = Math.min(...sigs.map((s) => tsOf(s.created_at)));
     const barsNeeded = Math.ceil((nowMs - oldest) / (ivMin * 60 * 1000)) + 5;
     const size = Math.max(60, Math.min(500, barsNeeded));
-    const rows = await series("XAU/USD", iv, size, mdKey, true);
+    // UTC (09-22): without it the feed returns exchange-local datetimes that read HOURS late as UTC, so
+    // candles printed BEFORE a setup was shown were graded as if they came after it (fake wins).
+    const rows = await series("XAU/USD", iv, size, mdKey, true, "UTC");
     if (rows === "ratelimit" || !Array.isArray(rows) || rows.length < 2) continue;
     for (const s of sigs) {
       checked++;

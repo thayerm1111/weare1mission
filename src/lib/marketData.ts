@@ -124,15 +124,17 @@ export async function series(
   size: number,
   key: string,
   fresh = false,
+  /** Pass "UTC" to get UTC datetimes; omitted = the feed's exchange-local times (unchanged for existing callers). */
+  timezone?: string,
 ): Promise<Row[] | "ratelimit" | null> {
-  const ck = `s:${td}:${interval}:${size}`;
+  const ck = `s:${td}:${interval}:${size}${timezone ? `:${timezone}` : ""}`;
   const g = await getOrReserve(ck, 1, fresh);
   if (g.hit && Array.isArray(g.payload)) return g.payload as Row[];
   if (g.ok === false) return "ratelimit";
   const { fetchTd, scale } = resolveTd(td);
   try {
     const r = await fetch(
-      `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(fetchTd)}&interval=${interval}&outputsize=${size}&apikey=${key}`,
+      `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(fetchTd)}&interval=${interval}&outputsize=${size}${timezone ? `&timezone=${encodeURIComponent(timezone)}` : ""}&apikey=${key}`,
       { cache: "no-store" },
     );
     const j = await r.json();
