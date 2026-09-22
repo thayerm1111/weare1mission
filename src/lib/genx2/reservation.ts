@@ -13,6 +13,7 @@
  * together they satisfy "count both working entry orders and open positions as exposure."
  */
 import { genx2ReservationEnabled } from "@/lib/genx2/flags";
+import { hedgeEnabled } from "@/lib/genx/hedge";
 
 // Structural, minimal shape of the Supabase admin client we use here. `rpc` is typed as a
 // PromiseLike (the client returns a thenable PostgrestFilterBuilder, not a native Promise),
@@ -23,20 +24,34 @@ type RpcClient = {
 
 export type ReserveResult = { reserved: boolean; reason: string; state: string | null };
 
-/** Attempt to reserve the account for a gold entry. reserved=false → DO NOT submit. */
+/**
+ * Attempt to reserve the account for a gold entry. reserved=false → DO NOT submit.
+ *
+ * 09-22: with a `side` and hedging on, the reservation is taken through genx_reserve_gold_side, which
+ * keys the lock as SYMBOL:SIDE and counts only SAME-SIDE open positions as exposure. A BUY may then be
+ * reserved while a SELL is open; a second BUY still cannot. Without a side (or with GENX_HEDGE=off) it
+ * is the original one-gold-per-account function, unchanged. Callers must pass the matching
+ * goldResvKey() to markReservation/releaseGold, or they will mark the wrong row.
+ */
 export async function reserveGold(
   admin: RpcClient,
   accountId: string,
   symbol: string,
   signalKey: string,
   ttlSecs = 60,
+  side?: string | null,
 ): Promise<ReserveResult> {
   if (!genx2ReservationEnabled()) return { reserved: true, reason: "disabled", state: null };
   if (!admin) return { reserved: true, reason: "no_admin_fail_open", state: null };
+  const sided = hedgeEnabled() && (String(side ?? "").toLowerCase() === "buy" || String(side ?? "").toLowerCase() === "sell");
   try {
-    const { data, error } = await admin.rpc("genx_reserve_gold", {
-      p_account_id: accountId, p_symbol: symbol, p_signal_key: signalKey, p_ttl_secs: ttlSecs,
-    });
+    const { data, error } = sided
+      ? await admin.rpc("genx_reserve_gold_side", {
+          p_account_id: accountId, p_symbol: symbol, p_side: String(side).toUpperCase(), p_signal_key: signalKey, p_ttl_secs: ttlSecs,
+        })
+      : await admin.rpc("genx_reserve_gold", {
+          p_account_id: accountId, p_symbol: symbol, p_signal_key: signalKey, p_ttl_secs: ttlSecs,
+        });
     if (error) return { reserved: true, reason: "rpc_error_fail_open", state: null };
     const d = (data ?? {}) as { reserved?: boolean; reason?: string; state?: string | null };
     return { reserved: d.reserved === true, reason: String(d.reason ?? "unknown"), state: d.state ?? null };

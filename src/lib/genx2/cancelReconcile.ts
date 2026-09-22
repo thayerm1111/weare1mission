@@ -38,10 +38,11 @@ export async function reconcileStaleGoldEntries(): Promise<{ scanned: number; re
     // order_id, gold, older than the bounded validity. A filled reservation is state 'filled' and
     // is not touched here.
     const { data: resv } = await admin.from("flow_account_reservations")
-      .select("account_id, order_id, reserved_at")
-      .eq("state", "active").eq("symbol", "XAUUSD").not("order_id", "is", null)
+      .select("account_id, order_id, reserved_at, symbol")
+      // 09-22: side-keyed reservations (XAUUSD:BUY / XAUUSD:SELL) reconcile exactly like the plain one.
+      .eq("state", "active").in("symbol", ["XAUUSD", "XAUUSD:BUY", "XAUUSD:SELL"]).not("order_id", "is", null)
       .lt("reserved_at", cutoff).limit(200);
-    const rows = (resv ?? []) as { account_id: string; order_id: string | null; reserved_at: string }[];
+    const rows = (resv ?? []) as { account_id: string; order_id: string | null; reserved_at: string; symbol: string | null }[];
     for (const r of rows) {
       if (!r.order_id) continue;
       out.scanned++;
@@ -61,8 +62,8 @@ export async function reconcileStaleGoldEntries(): Promise<{ scanned: number; re
         hasPos = !!pos;
       }
       const decision = afterCancel({ canceled: c.ok, hasOpenPosition: hasPos });
-      if (decision === "release") { await releaseGold(admin, r.account_id, "XAUUSD"); out.released++; }
-      else if (decision === "filled") { await markReservation(admin, r.account_id, "XAUUSD", "filled"); out.filled++; }
+      if (decision === "release") { await releaseGold(admin, r.account_id, r.symbol ?? "XAUUSD"); out.released++; }   // 09-22: the row's own key (may be XAUUSD:BUY)
+      else if (decision === "filled") { await markReservation(admin, r.account_id, r.symbol ?? "XAUUSD", "filled"); out.filled++; }
       else out.held++;
     }
   } catch { /* best-effort; the SQL stale-reconcile + open-position backstop remain the safety net */ }
