@@ -95,7 +95,9 @@ export async function genxGoldQualityGate(admin: Admin, sig: { side: "buy" | "se
   // the 20h slope points AGAINST it by construction — the slope check would refuse every one (replayed:
   // 102 of 108). The fade has its own regime read (1h EMAs not stacked, low efficiency) in its place.
   // The reward check still applies to it in full.
-  if (sig.setup === "range_fade") return decideGate({ ...sig, slope: null });
+  // GENX PAGE SETUPS (src/lib/genx/zoneSetups.ts) are entered at a level GENX chose in advance; they were
+  // regraded WITHOUT the slope check (+1,479 pips, 09-20→09-22), so the slope is skipped for them too.
+  if (sig.setup === "range_fade" || sig.setup === "genx_zone") return decideGate({ ...sig, slope: null });
   const slope = await goldTrendSlope(admin);
   return decideGate({ ...sig, slope });
 }

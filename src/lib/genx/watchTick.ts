@@ -8,6 +8,7 @@ import { warmGoldFleet } from "@/lib/flow/warmFleet";
 import { placeGenxGold, placeGenxFollower, rewardRisk } from "@/lib/flow/autoExec";
 import { beat } from "@/lib/flow/health";
 import { genx2FlagsSnapshot } from "@/lib/genx2/flags";
+import { zonePass } from "@/lib/genx/zoneSetups";
 
 /**
  * GENX FAST-WATCH TICK — shared by the Vercel cron loop AND the always-on worker
@@ -204,6 +205,8 @@ export async function watchPass(admin: Admin, mdKey: string, tgReady: boolean): 
   // Entry speed: a setup is forming and could confirm any second — keep every member's broker login warm (worker only).
   if (rows.length && process.env.WORKER_WARM_FLEET !== "off" && typeof process !== "undefined" && !process.env.VERCEL) warmGoldFleet(`${rows.length} forming GENX setup(s)`);
   const sent: string[] = [];
+  // GENX page setups (zoneSetups.ts): enter the moment price touches the entry GENX is showing.
+  try { sent.push(...(await zonePass(admin, mdKey, tgReady, enterMsg))); } catch { /* zone pass best-effort */ }
   for (const row of rows) {
     try {
       const side = row.side;
