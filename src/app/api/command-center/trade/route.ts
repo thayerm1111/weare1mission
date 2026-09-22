@@ -189,20 +189,17 @@ export async function POST(req: Request) {
       const p = (body.profile ?? {}) as Record<string, unknown>;
       const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
       const current = await getProfile(user.id);
+      /*
+       * 09-22: three things are settable now — the risk, AI Pips, and whether ATLAS enters by itself —
+       * plus safety mode. The old permission and horizon fields are still accepted so an older app
+       * build cannot error, but they no longer decide anything (engines/profile.ts derives them).
+       */
       const saved = await saveProfile(user.id, {
         riskPct: num(p.riskPct) ?? current.riskPct,
-        allowQuick: bool(p.allowQuick, current.allowQuick),
-        allowHold: bool(p.allowHold, current.allowHold),
-        allowSwing: bool(p.allowSwing, current.allowSwing),
-        minConfidence: num(p.minConfidence) ?? current.minConfidence,
-        allowBreakEven: bool(p.allowBreakEven, current.allowBreakEven),
-        allowPartials: bool(p.allowPartials, current.allowPartials),
-        allowProfitProtection: bool(p.allowProfitProtection, current.allowProfitProtection),
-        allowFullClose: bool(p.allowFullClose, current.allowFullClose),
-        autoManagement: bool(p.autoManagement, current.autoManagement),
+        aiPips: bool(p.aiPips, current.aiPips),
+        riskMode: String(p.riskMode ?? current.riskMode).toLowerCase() === "aggressive" ? "aggressive" : "conservative",
         autoEntry: bool(p.autoEntry, current.autoEntry),
-        maxDailyLossPct: num(p.maxDailyLossPct) ?? current.maxDailyLossPct,
-        maxConsecutiveLosses: num(p.maxConsecutiveLosses) ?? current.maxConsecutiveLosses,
+        minConfidence: num(p.minConfidence) ?? current.minConfidence,
         maxOpenRiskPct: num(p.maxOpenRiskPct) ?? current.maxOpenRiskPct,
         newsLockoutMinutes: num(p.newsLockoutMinutes) ?? current.newsLockoutMinutes,
       });
