@@ -33,10 +33,20 @@
 
 export type Bar = { t: string; o: number; h: number; l: number; c: number };
 
+/*
+ * 09-21 (owner: "the market still moves 80–100 pips — pick the best strategy for this market"). Replayed on the
+ * 2-year 5m archive, one trade at a time, 0.35 spread charged, sideways regime only. Tried for the in-range swings:
+ *   fade a 12h box −0.01R (Y1) / +0.19R (Y2) · 8h box −0.07/+0.23 · 6h box −0.22/+0.11 · 4h box −0.28/+0.11
+ *   break of a 4h box, stop at the box middle −0.25/+0.09 · stop under the break bar, 2R target −0.13/+0.14
+ *   snap back to the 5m EMA50 after a 3-ATR stretch −0.14/−0.11 · 4-ATR stretch −0.02/+0.04
+ * None held up in both years, so none trades. The 24h fade is the only sideways strategy with an edge; widening its
+ * trigger zone to the outer 15% of the range (was 10%) is the one change that helped: 12.5% and 15% both beat 10%,
+ * 17.5%/20% fall away again, so 15% sits on a plateau, not a spike.
+ */
 export const RNG = {
   lookback: 288,        // 24h of 5-minute bars, excluding the signal bar
   minWidthAtr: 6,
-  band: 0.10,
+  band: 0.15,           // 09-21 replay (2y, one trade at a time, 0.35 spread): 0.10 → 103 trades +0.23R; 0.15 → 128 trades +0.26R, both years +, 7/9 quarters
   wick: 0.3,
   overAtr: 0.5,
   padAtr: 0.3,
