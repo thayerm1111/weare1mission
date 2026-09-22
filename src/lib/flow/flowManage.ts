@@ -1255,9 +1255,9 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // ── STEP 2.5: PROFIT GUARD (opt-in) — the market just flipped against a trade that is already
       //    a real winner: snap the stop to just behind the market so most of the move is banked if the
       //    reversal is real, and the runner still runs if it isn't. Only ever tightens. ──
-      if (manageOn && guardAccts.has(String(row.account_id)) && contractKey(row.symbol) === "XAUUSD" && guardChoch) {
+      if (manageOn && guardAccts.has(String(row.account_id)) && contractKey(row.symbol) === "XAUUSD") {
         const plan = profitGuardPlan({
-          side: row.side, entry, price, R, pip, curStop: row.cur_stop ?? null, bePx,
+          side: row.side, entry, price, R, pip, curStop: row.cur_stop ?? null, bePx, best,
           choch: guardChoch, spread: spreadCache.get(`${tok.env}|${row.account_id}|${row.symbol}`) ?? null,
         });
         if (plan) {
@@ -1266,8 +1266,8 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
             update.cur_stop = plan.stop; row.cur_stop = plan.stop;
             if (!row.be_done) { update.be_done = true; row.be_done = true; }
             didAction = true;
-            actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "profit_guard", detail: `SL→${plan.stop} (+${plan.profitPips}p, ${guardChoch} flip)` });
-            await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "profit_guard", reason: `choch_${guardChoch}`, price: plan.stop, detail: { profitPips: plan.profitPips } });
+            actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "profit_guard", detail: `SL→${plan.stop} (+${plan.profitPips}p now, peak +${plan.peakPips}p, ${plan.why === "flip" ? `${guardChoch} flip` : "peak lock"})` });
+            await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "profit_guard", reason: plan.why === "flip" ? `choch_${guardChoch}` : "peak_lock", price: plan.stop, detail: { profitPips: plan.profitPips, peakPips: plan.peakPips } });
           } else {
             update.last_error = `guard_err: ${mv.ok ? "" : mv.error}`.slice(0, 120);
             actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "guard_err", detail: (mv.ok ? "" : mv.error).slice(0, 60) });
