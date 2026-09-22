@@ -60,17 +60,21 @@ const closed = (r: RealRow) => r.outcome != null && r.outcome !== "excluded";
 
 export type FireRec = { at: string; side: string; accounts: number; open: number; results: Partial<Record<Bucket, { trades: number; avgPips: number }>>; avgPips: number | null;
   /** Best realized result among the accounts that closed (null until one has). Additive: no existing number uses it. */
-  bestPips: number | null };
+  bestPips: number | null;
+  /** Any account on this fire closed at break-even (outcome "breakeven" or exactly 0 pips). */
+  anyBreakeven: boolean;
+  /** Every closed account on this fire hit its stop (nothing hand-closed, trailed or targeted). */
+  allStops: boolean };
 
 export function buildRealResults(rows: RealRow[]) {
   const tagged = clusterFires(rows);
   const acc = new Map<Bucket, ReturnType<typeof empty>>(BUCKETS.map((b) => [b, empty()]));
-  const fires = new Map<number, { at: string; side: string; accounts: number; open: number; sum: number; n: number; best: number | null; by: Map<Bucket, { sum: number; n: number }> }>();
+  const fires = new Map<number, { at: string; side: string; accounts: number; open: number; sum: number; n: number; best: number | null; be: boolean; stops: number; by: Map<Bucket, { sum: number; n: number }> }>();
   let open = 0;
 
   for (const { row, fire, firedAt, side } of tagged) {
     let f = fires.get(fire);
-    if (!f) { f = { at: firedAt, side, accounts: 0, open: 0, sum: 0, n: 0, best: null, by: new Map() }; fires.set(fire, f); }
+    if (!f) { f = { at: firedAt, side, accounts: 0, open: 0, sum: 0, n: 0, best: null, be: false, stops: 0, by: new Map() }; fires.set(fire, f); }
     f.accounts++;
     if (!closed(row)) { f.open++; open++; continue; }
     const b = bucketOf(row);
@@ -81,6 +85,8 @@ export function buildRealResults(rows: RealRow[]) {
     if (p > 0) t.wins++; else if (p < 0) t.losses++; else t.breakeven++;
     f.sum += p; f.n++;
     if (f.best == null || p > f.best) f.best = p;
+    if (row.outcome === "breakeven" || p === 0) f.be = true;
+    if (row.outcome === "stop") f.stops++;
     const fb = f.by.get(b) ?? { sum: 0, n: 0 }; fb.sum += p; fb.n++; f.by.set(b, fb);
   }
 
@@ -100,6 +106,8 @@ export function buildRealResults(rows: RealRow[]) {
     at: f.at, side: f.side, accounts: f.accounts, open: f.open,
     avgPips: f.n ? Math.round(f.sum / f.n) : null,
     bestPips: f.best == null ? null : Math.round(f.best),
+    anyBreakeven: f.be,
+    allStops: f.n > 0 && f.stops === f.n,
     results: Object.fromEntries([...f.by.entries()].map(([b, v]) => [b, { trades: v.n, avgPips: Math.round(v.sum / v.n) }])),
   })).sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
