@@ -2795,6 +2795,20 @@ input{font:inherit}
       st[1](Object.assign({}, cur, { accounts: accts }));
       apiPost("/api/flow/broker", { action: "risk", accountId: a.accountId, connectionId: a.connectionId, riskPct: pct }).catch(function () { load(); });
     }
+    function setAiPips(a, onv) {
+      /*
+       * AI PIPS — ONE SWITCH (owner 09-22: "I just want the toggle for Gen X and for the break-even
+       * profit guard AI Pips"). On: break-even when the trade earns it, profit guard on a reversal, and
+       * the trail. Off: the trade rides the stop and target it was placed with. It writes manage_trades,
+       * which is what the manager reads, and lines the old split toggles up behind it so a half-migrated
+       * account can never end up managed-but-nothing-allowed.
+       */
+      var cur = st[0] || {}; var accts = (cur.accounts || []).map(function (x) { return (x.accountId === a.accountId && x.connectionId === a.connectionId) ? Object.assign({}, x, { manageTrades: onv, beEnabled: onv, profitGuard: onv }) : x; });
+      st[1](Object.assign({}, cur, { accounts: accts }));
+      apiPost("/api/flow/broker", { action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: onv }).catch(function () { load(); });
+      apiPost("/api/flow/broker", { action: "betoggle", accountId: a.accountId, connectionId: a.connectionId, enabled: onv }).catch(function () {});
+      apiPost("/api/flow/broker", { action: "guardtoggle", accountId: a.accountId, connectionId: a.connectionId, enabled: onv }).catch(function () {});
+    }
     function setBe(a, onv) {
       // Break-even toggle: once price runs the trigger, the stop moves to entry +5 pips PROFIT
       // (covers fees — a scratched trade closes green, never red).
@@ -2858,7 +2872,7 @@ input{font:inherit}
       ${loading[0] ? html`<div class="gx-analyzing">◆ Checking your broker connection…</div>` : ((connected && !adding[0]) ? html`<div>
         <div class="bk-h">TradeLocker connected</div>
         <div class="bk-sub">${accounts.length} account${accounts.length === 1 ? "" : "s"} · <b style="color:#2ee88f">${activeN} trading</b>. FLOW takes every trade on all accounts switched on.</div>
-        ${accounts.map(function (a) { var on = a.autotradeEnabled !== false; var fol = a.genxFollower === true; var mng = a.manageTrades !== false; var beOn = a.beEnabled !== false && mng; var parOn = a.partialsEnabled !== false && mng; var grdOn = a.profitGuard === true; var rp = (a.riskPct != null ? a.riskPct : null); var gp = (a.goldBePips != null ? a.goldBePips : ""); var chipOn = "font-size:11px;font-weight:800;padding:5px 9px;border-radius:9px;cursor:pointer;border:1px solid rgba(46,232,143,.55);background:rgba(46,232,143,.13);color:#2ee88f"; var chipOff = "font-size:11px;font-weight:800;padding:5px 9px;border-radius:9px;cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#fff"; var subRow = "display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-top:0;padding:8px 12px;background:rgba(0,0,0,.18)"; return html`<div>
+        ${accounts.map(function (a) { var on = a.autotradeEnabled !== false; var fol = a.genxFollower === true; var mng = a.manageTrades !== false; var rp = (a.riskPct != null ? a.riskPct : null); var chipOn = "font-size:11px;font-weight:800;padding:5px 9px;border-radius:9px;cursor:pointer;border:1px solid rgba(46,232,143,.55);background:rgba(46,232,143,.13);color:#2ee88f"; var chipOff = "font-size:11px;font-weight:800;padding:5px 9px;border-radius:9px;cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#fff"; var subRow = "display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-top:0;padding:8px 12px;background:rgba(0,0,0,.18)"; return html`<div>
           <div class=${"bk-acct " + (on ? "on" : "")}>
           <div><div class="bk-cv">${a.name || ("Account " + a.accountId)} ${a.environment ? html`<span class=${"bk-badge " + (a.environment === "live" ? "live" : "demo")} style="font-size:9px;padding:1px 5px">${(a.environment || "").toUpperCase()}</span>` : null}</div><div class="bk-ck" style="margin-top:3px">#${a.accNum || a.accountId}${a.currency ? " · " + a.currency : ""} · ${fmtMoney(a.equity != null ? a.equity : a.balance)}</div></div>
           <div style="display:flex;align-items:center;gap:8px">
@@ -2879,45 +2893,17 @@ input{font:inherit}
             ${[0.25, 0.5, 1, 1.5, 2, 3, 5].map(function (v) { return html`<button onClick=${function () { setRisk(a, v); }} style=${rp === v ? chipOn : chipOff}>${v}%</button>`; })}
           </div>
           <div style=${subRow}>
-            <div><div style="font-size:12px;font-weight:700;color:#fff">🎯 Break even</div><div class="bk-ck" style="margin-top:2px">Once price runs your trigger, stop moves to entry +5 pips PROFIT — a scratched trade closes green, never red on fees.</div></div>
+            <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:700;color:#fff">🎯 AI Pips</div><div class="bk-ck" style="margin-top:2px">${mng ? "On — the AI moves the stop to break even once the trade earns it, snaps it in to keep the move when the market turns, and trails behind the best price." : "Off — the trade runs to the stop and target it was placed with. Nothing is moved."}</div></div>
             <div style="display:flex;align-items:center;gap:8px">
-              <span style=${"font-size:11px;font-weight:700;color:" + (beOn ? "#2ee88f" : "rgba(255,255,255,.4)")}>${beOn ? "On" : "Off"}</span>
-              <button onClick=${function () { setBe(a, !beOn); }} style=${"position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (beOn ? "#2ee88f" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (beOn ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
+              <span style=${"font-size:11px;font-weight:700;color:" + (mng ? "#2ee88f" : "rgba(255,255,255,.4)")}>${mng ? "On" : "Off"}</span>
+              <button onClick=${function () { setAiPips(a, !mng); }} style=${"position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (mng ? "#2ee88f" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (mng ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
             </div>
           </div>
-          ${beOn ? html`<div style=${subRow}>
-            <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:700;color:#fff">Break-even trigger pips</div><div class="bk-ck" style="margin-top:2px">Gold only. Stop protects after this many pips in your favor. Blank = AI. Forex always AI.</div></div>
-            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-              <input type="number" min="1" inputmode="numeric" placeholder="AI" value=${gp} onBlur=${function (e) { setGoldBe(a, e.target.value.trim()); }} style="width:60px;padding:7px 9px;border-radius:9px;border:1px solid var(--line);background:rgba(8,16,32,.6);color:#fff;font-size:13px;font-weight:700;text-align:right" />
-              <span style="font-size:11px;color:var(--faint)">pips</span>
-            </div>
-          </div>` : null}
-          <div style=${subRow}>
-            <div><div style="font-size:12px;font-weight:700;color:#fff">💰 Partials</div><div class="bk-ck" style="margin-top:2px">Bank 25% at the halfway point on 1:2+ setups — the runner keeps going.</div></div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <span style=${"font-size:11px;font-weight:700;color:" + (parOn ? "#2ee88f" : "rgba(255,255,255,.4)")}>${parOn ? "On" : "Off"}</span>
-              <button onClick=${function () { setPartials(a, !parOn); }} style=${"position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (parOn ? "#2ee88f" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (parOn ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
-            </div>
-          </div>
-          <div style=${subRow}>
-            <div><div style="font-size:12px;font-weight:700;color:#fff">🛡 Profit guard</div><div class="bk-ck" style="margin-top:2px">Gold only. If the market flips against a trade that is already 1R and 50+ pips up, the stop snaps in behind price — most of the move is kept instead of riding back to break-even.</div></div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <span style=${"font-size:11px;font-weight:700;color:" + (grdOn ? "#2ee88f" : "rgba(255,255,255,.4)")}>${grdOn ? "On" : "Off"}</span>
-              <button onClick=${function () { setGuard(a, !grdOn); }} style=${"position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (grdOn ? "#2ee88f" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (grdOn ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
-            </div>
-          </div>
-          ${(function () { var md = a.riskMode === "aggressive" ? "aggressive" : "conservative"; var mOn = "font-size:11px;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1px solid rgba(46,232,143,.55);background:rgba(46,232,143,.13);color:#2ee88f"; var mAg = "font-size:11px;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1px solid rgba(245,180,60,.55);background:rgba(245,180,60,.13);color:#f5c451"; var mOff = "font-size:11px;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,.04);color:rgba(255,255,255,.5)"; return html`<div style=${subRow}>
-            <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:700;color:#fff">🛡 Safety mode</div><div class="bk-ck" style="margin-top:2px">Conservative pauses THIS account 4h after 2 losses in a row (gold &amp; forex separate). Aggressive has no cap.</div></div>
+          ${(function () { var md = a.riskMode === "aggressive" ? "aggressive" : "conservative"; var mOn = "font-size:11px;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1px solid rgba(46,232,143,.55);background:rgba(46,232,143,.13);color:#2ee88f"; var mAg = "font-size:11px;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1px solid rgba(245,180,60,.55);background:rgba(245,180,60,.13);color:#f5c451"; var mOff = "font-size:11px;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,.04);color:rgba(255,255,255,.5)"; return html`<div style=${subRow + ";border-radius:0 0 11px 11px"}>
+            <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:700;color:#fff">🛡 Safety mode</div><div class="bk-ck" style="margin-top:2px">The only difference: conservative sits this account out for 2 hours after 2 losses in a row (gold &amp; forex counted separately). Aggressive has no cap. Both take exactly the same calls.</div></div>
             <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
               <button onClick=${function () { setMode(a, "conservative"); }} style=${md === "conservative" ? mOn : mOff}>Cons.</button>
               <button onClick=${function () { setMode(a, "aggressive"); }} style=${md === "aggressive" ? mAg : mOff}>Aggr.</button>
-            </div>
-          </div>`; })()}
-          ${(function () { var si = a.sendIt === true; return html`<div style=${subRow + ";border-radius:0 0 11px 11px;border-top:1px solid rgba(245,180,60,.25)"}>
-            <div style="flex:1;min-width:0"><div style=${"font-size:12px;font-weight:800;color:" + (si ? "#f5c451" : "#fff")}>🚀 Send It</div><div class="bk-ck" style="margin-top:2px">${si ? "ON — every setup, every time. No pauses, no blackout windows, no breakeven move: trades run to SL or TP at your risk %." : "Take EVERY setup the AI calls — skips all calm-downs and filters, and never moves the stop to breakeven. Max action, max risk."}</div></div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <span style=${"font-size:11px;font-weight:700;color:" + (si ? "#f5c451" : "rgba(255,255,255,.4)")}>${si ? "On" : "Off"}</span>
-              <button onClick=${function () { setSendIt(a, !si); }} style=${"position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (si ? "#f5b43c" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (si ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
             </div>
           </div>`; })()}
         </div>`; })}
@@ -5891,30 +5877,24 @@ input{font:inherit}
           <div class="br-note">This is the only number you normally need to set. ATLAS sizes every trade from it and the broker’s own contract spec.</div>
         </div>
 
-        <div class="br-b" style="border-top:1px solid rgba(255,255,255,.06)">
-          <span class="br-lab">Trades I may look for</span>
-          ${toggle("QUICK", "Fast momentum, 30 to 100 pips. 1m and 5m decide, and it fails fast.", "allowQuick", false)}
-          ${toggle("HOLD", "Session momentum, held for the move. 15-minute and hourly structure decide.", "allowHold", false)}
-          ${toggle("SWING", "500 pips and up, held overnight and through news. Off unless you want that.", "allowSwing", false)}
-        </div>
-
+        <!--
+          09-22 (owner: "I don't want any other settings anymore … I want GenX and Atlas to take the
+          trades they need to take without limits"). The horizon list, the five permission switches and
+          the day limits are gone. ATLAS takes every kind of trade it sees; what is left is the risk,
+          one management switch, and safety mode.
+        -->
         <div class="br-b" style="border-top:1px solid rgba(255,255,255,.06)">
           <span class="br-lab">What I may do to an open trade</span>
-          ${toggle("Move to break even", "Take the loss off the table once the trade has earned it.", "allowBreakEven", false)}
-          ${toggle("Take partials", "Bank part of the move and let the rest run.", "allowPartials", false)}
-          ${toggle("Protect profit", "Trail the stop when the trade starts handing back its best.", "allowProfitProtection", false)}
-          ${toggle("Close the whole position", "End the trade without asking, when the reason for it is gone.", "allowFullClose", true)}
-          ${toggle("Manage without asking", "Act on the permissions above by itself. Off means I ask first, every time.", "autoManagement", true)}
+          ${toggle("AI Pips", "Break even once the trade has earned it, snap the stop in to keep the move when the market turns, and trail behind the best price. Off means the trade runs to the stop and target it was opened with.", "aiPips", false)}
         </div>
 
         <div class="br-b" style="border-top:1px solid rgba(255,255,255,.06)">
-          <span class="br-lab">Limits for the day</span>
-          <label style="display:block;margin-bottom:8px"><span class="br-lab">Max daily loss %</span>
-            <input class="br-in" inputmode="decimal" value=${String(d.maxDailyLossPct)}
-              onChange=${function (e) { save({ maxDailyLossPct: Number(e.target.value) || d.maxDailyLossPct }); }} /></label>
-          <label style="display:block"><span class="br-lab">Max losses in a row</span>
-            <input class="br-in" inputmode="numeric" value=${String(d.maxConsecutiveLosses)}
-              onChange=${function (e) { save({ maxConsecutiveLosses: Number(e.target.value) || d.maxConsecutiveLosses }); }} /></label>
+          <span class="br-lab">Safety mode</span>
+          <div class="br-acts">${[["conservative", "Conservative"], ["aggressive", "Aggressive"]].map(function (kv) {
+            return html`<button key=${kv[0]} class=${"br-btn " + ((d.riskMode || "conservative") === kv[0] ? "cold" : "")} style="padding:8px 14px" disabled=${busy[0]}
+              onClick=${function () { save({ riskMode: kv[0] }); }}>${kv[1]}</button>`;
+          })}</div>
+          <div class="br-note">The only difference: conservative sits out for 2 hours after 2 losses in a row. Aggressive has no cap. Both take exactly the same trades.</div>
         </div>
 
         <div class="br-b" style="border-top:1px solid rgba(255,255,255,.06)">
@@ -6668,10 +6648,6 @@ input{font:inherit}
         : accounts.map(function (a) {
             var on = a.autotradeEnabled !== false;
             var mng = a.manageTrades !== false;
-            var beOn = a.beEnabled !== false && mng;
-            var parOn = a.partialsEnabled !== false && mng;
-            var grdOn = a.profitGuard === true;
-            var needMng = a.manageTrades === false;
             return html`<div class=${"hx-acct" + (on ? " on" : "")}>
               <div class="hx-acct-top">
                 <div style="min-width:0">
@@ -6681,9 +6657,8 @@ input{font:inherit}
                 <button class=${"hx-tg" + (on ? " on" : "")} aria-label="Auto-trading" onClick=${function () { setAcct(a, { autotradeEnabled: !on }, "toggle", { enabled: !on }); }}><span></span></button>
               </div>
               <div class="hx-minis">
-                <button class=${"hx-mini" + (beOn ? " on" : "")} onClick=${function () { setAcct(a, { beEnabled: !beOn, manageTrades: true }, "betoggle", { enabled: !beOn }); if (needMng) apiPost("/api/flow/broker", { action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: true }).catch(function () {}); }}><span class="dot"></span>Break even</button>
-                <button class=${"hx-mini" + (parOn ? " on" : "")} onClick=${function () { setAcct(a, { partialsEnabled: !parOn, manageTrades: true }, "partialtoggle", { enabled: !parOn }); if (needMng) apiPost("/api/flow/broker", { action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: true }).catch(function () {}); }}><span class="dot"></span>Partials</button>
-                <button class=${"hx-mini" + (grdOn ? " on" : "")} onClick=${function () { setAcct(a, { profitGuard: !grdOn }, "guardtoggle", { enabled: !grdOn }); }}><span class="dot"></span>Profit guard</button>
+                <!-- 09-22: one switch instead of three. AI Pips = break-even + profit guard + trail. -->
+                <button class=${"hx-mini" + (mng ? " on" : "")} onClick=${function () { setAcct(a, { manageTrades: !mng, beEnabled: !mng, profitGuard: !mng }, "manage", { enabled: !mng }); apiPost("/api/flow/broker", { action: "betoggle", accountId: a.accountId, connectionId: a.connectionId, enabled: !mng }).catch(function () {}); apiPost("/api/flow/broker", { action: "guardtoggle", accountId: a.accountId, connectionId: a.connectionId, enabled: !mng }).catch(function () {}); }}><span class="dot"></span>AI Pips</button>
               </div>
             </div>`;
           })}
