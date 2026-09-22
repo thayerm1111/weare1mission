@@ -40,6 +40,7 @@ import { findSetup } from "./setup";
 import { takeSetup } from "./callTrade";
 import { getProfile, asSetupProfile } from "./profile";
 import { accountAvailableToBrain } from "./interlock";
+import { reconcileOpenPositions } from "./tradeLive";
 import { requireConsent } from "./consent";
 import { brainEnabled } from "./killSwitch";
 import { formingSetup, tookTrade, stoodDown } from "./notify";
@@ -238,6 +239,19 @@ export async function autopilotTick(input: {
         outcome: "refused", reason: consent.reason ?? "The risk disclosure is not signed." });
       continue;
     }
+
+    /*
+     * 3a — ASK THE BROKER BEFORE TRUSTING THE LEDGER (09-22).
+     *
+     * The interlock below is only as good as cc_positions, and nothing server-side used to refresh
+     * that table: the broker sync ran on the Command Center screen, and autoManage only visits
+     * positions with AI management on. One row left "open" after its trade was gone at the broker
+     * blocked ATLAS for a full day — 2,367 refusals, no trades, and nothing wrong with the market
+     * read. Reconciling here costs one broker call per armed account, and only when that account has
+     * an open row nothing has looked at for a minute.
+     */
+    try { await reconcileOpenPositions(a.user_id, a.id, input.snapshot?.price ?? null); }
+    catch { /* the interlock still decides; a failed reconcile just means it decides on what it has */ }
 
     // 3 — ONE BRAIN POSITION PER ACCOUNT. FLOW may be in gold on this same account running its own
     //     strategy; that is allowed and is not our business. What is our business is not stacking

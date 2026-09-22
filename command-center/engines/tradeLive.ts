@@ -320,6 +320,32 @@ export async function tradeState(userId: string, snapshot: MarketSnapshot | null
  * Adopt a position that was opened directly in TradeLocker. The member chooses the style, because the
  * style is what tells ATLAS how to manage it — and guessing that would be guessing their intent.
  */
+/**
+ * RECONCILE AN ACCOUNT'S OPEN POSITIONS WITH THE BROKER — for callers that have no member on screen.
+ *
+ * 09-22 incident. ATLAS took nothing for a full day: every autopilot pass was refused with "ATLAS
+ * already has a position open on account 3" (2,367 passes in 24 hours). The broker sync only ever ran
+ * inside tradeState(), i.e. when a member had the Command Center open, and autoManage() only reaches
+ * positions with ai_management on. So a row whose trade had gone from the broker stayed "open" in the
+ * ledger forever, and the interlock — reading that row — blocked every new entry for as long as
+ * nobody looked at the screen.
+ *
+ * The broker is the truth about what is open. This gives the server-side loops the same reconcile the
+ * screen has always had, so the interlock is never deciding from a ledger nothing has refreshed.
+ */
+export async function reconcileOpenPositions(userId: string, accountRowId: string, price: number | null, maxAgeMs = 60_000): Promise<number> {
+  if (!userId || !accountRowId) return 0;
+  const { data } = await c().from("cc_positions").select("*")
+    .eq("user_id", userId).eq("account_row_id", accountRowId).is("closed_at", null)
+    .order("opened_at", { ascending: false });
+  const rows = (data ?? []) as PositionRow[];
+  if (!rows.length) return 0;
+  const stale = rows.some((r) => !r.last_seen_at || Date.now() - Date.parse(r.last_seen_at) > maxAgeMs);
+  if (!stale) return rows.length;
+  const synced = await syncFromBroker(userId, accountRowId, rows, price);
+  return synced.length;
+}
+
 export async function adopt(userId: string, brokerPositionId: string, style: Style): Promise<{ ok: boolean; message: string; positionId?: string }> {
   const account = await selectedAccount(userId);
   if (!account) return { ok: false, message: "No account selected." };
