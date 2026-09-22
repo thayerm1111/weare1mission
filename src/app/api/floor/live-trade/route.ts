@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildRealResults, type RealRow } from "@/lib/genx/realResults";
 import { statsSince } from "@/lib/genx/statsSince";
-import { setupLabel, gradeOf } from "@/lib/genx/liveTrade";
+import { setupLabel, memberGrade } from "@/lib/genx/liveTrade";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,16 +56,11 @@ export async function GET() {
   const rows = dedupePositions((data ?? []) as PosRow[]);
   const real = buildRealResults(rows);
 
-  // OWNER RULE (09-22): "If I close one of my accounts in profit I want that recorded as a win, even if I
-  // self-managed it." A trade counts as a WIN on the member's own record when ANY of their accounts closed it in
-  // profit (hand-closed included), shown at that account's result. Otherwise it is graded at the average as before.
-  // Member-only: the desk record, the GENX results card and FLOW stats are unchanged.
+  // OWNER RULE (09-22): a trade closed in profit or at break-even on ANY of the member's accounts (hand-closed
+  // included) is a WIN; LESSON only when every account hit its full stop; a hand-close at a loss is CLOSED.
+  // Member-only: the desk record, the GENX results card and FLOW stats are unchanged. See memberGrade.
   const recent = real.recentFiresAll.filter((f) => f.open === 0 && f.avgPips != null).slice(0, 3)
-    .map((f) => {
-      const won = (f.bestPips ?? 0) > 0;
-      const pips = won ? f.bestPips : f.avgPips;
-      return { at: f.at, side: f.side.toUpperCase(), pips, accounts: f.accounts, grade: won ? "WIN" as const : gradeOf(f.avgPips) };
-    });
+    .map((f) => { const g = memberGrade(f); return { at: f.at, side: f.side.toUpperCase(), pips: g.pips, accounts: f.accounts, grade: g.grade }; });
 
   const liveFire = real.recentFiresAll.find((f) => f.open > 0 && Date.now() - Date.parse(f.at) < 72 * 3600_000);
   let live: Record<string, unknown> | null = null;
