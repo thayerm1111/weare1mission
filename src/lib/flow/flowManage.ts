@@ -9,6 +9,7 @@ import { normalizeQuantity, getInstrument } from "@/lib/flow/instruments";
 import { contractKey } from "@/lib/flow/sizing";
 import { listInstruments, listPositions, getQuote, getConfig, modifyPosition, closePosition, listOrdersHistory, type TLEnv, type TLInstrument } from "@/lib/flow/tradelocker";
 import { releaseGold } from "@/lib/genx2/reservation";
+import { goldResvKey } from "@/lib/genx/hedge";
 import { genx2TrailAckGate } from "@/lib/genx2/flags";
 import { reconcileStaleGoldEntries } from "@/lib/genx2/cancelReconcile";
 import { recoverOrphans } from "@/lib/flow/recover";
@@ -928,7 +929,12 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         }).eq("id", row.id);
         // RULE #1: the position is broker-confirmed CLOSED, so the account is free for the
         // next automated gold entry — release the reservation (reconciled-before-release).
-        if (contractKey(row.symbol) === "XAUUSD") { try { await releaseGold(admin, row.account_id, "XAUUSD"); } catch { /* best-effort */ } }
+        // 09-22: releases the side-keyed reservation this trade holds AND the legacy plain-symbol one,
+        // so a desk mid-way through the switch never leaves an account locked by the key it is not using.
+        if (contractKey(row.symbol) === "XAUUSD") {
+          try { await releaseGold(admin, row.account_id, goldResvKey("XAUUSD", row.side)); } catch { /* best-effort */ }
+          try { await releaseGold(admin, row.account_id, "XAUUSD"); } catch { /* best-effort */ }
+        }
         actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "closed", detail: `${oc.outcome}[${rec.reason}] ${oc.result_pips>0?"+":""}${oc.result_pips}p` });
         await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "closed", reason: `${oc.outcome}/${rec.reason}`, price: oc.exit_price, detail: { result_pips: oc.result_pips, partial_taken: oc.partial_taken } });
         return;

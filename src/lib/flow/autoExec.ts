@@ -9,6 +9,7 @@ import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
 import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
+import { goldResvKey, blocksEntry } from "@/lib/genx/hedge";
 import { billedAccountIdsForFire, billSetupForming } from "@/lib/flow/flowBilling";
 import { genxLabel } from "@/lib/genx/brand";
 import { genxGoldQualityGate } from "@/lib/genx/qualityGate";
@@ -1272,6 +1273,13 @@ async function goldShortMomentum(): Promise<"up" | "down" | "flat" | null> {
 // trades a range punishes, and they are exactly what the desk kept taking (23:40 sell @4344 and 03:30
 // sell @4345, both into a 4341–4380 floor). 12 hours of 15-minute candles is the box.
 async function goldRangeHold(side: "buy" | "sell", entry?: number | null): Promise<{ hold: boolean; reason: string }> {
+  /*
+   * OFF BY DEFAULT SINCE 09-22 (owner: "turn it off … take everything that GenX says to take. Missed a
+   * buy that could of saved some money"). It refused 8 GENX calls that day and 34 in the week, among
+   * them the 12:51 BUY that would have covered the open sell. Set GENX_RANGE_GUARD=on to re-arm it —
+   * the rule and its unit tests are untouched, only the arming is.
+   */
+  if (String(process.env.GENX_RANGE_GUARD ?? "off").trim().toLowerCase() !== "on") return { hold: false, reason: "" };
   const key = process.env.TWELVEDATA_API_KEY;
   if (!key) return { hold: false, reason: "" };
   try {
@@ -1505,16 +1513,18 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // OWNER RULE: only an AUTOMATED (GENX/FLOW) open trade counts toward the cap. The ledger
   // also holds member-clicked "play"/"test" placements (they insert the same rows), so we
   // drop any row whose placement event was manual before it can occupy the cap.
-  const { data: openGoldRows } = await admin.from("flow_managed_positions").select("account_id, position_id, created_at").eq("status", "open").eq("symbol", "XAUUSD");
+  // 09-22: the row's SIDE comes back too — an open SELL no longer holds a BUY (lib/genx/hedge.ts).
+  const { data: openGoldRows } = await admin.from("flow_managed_positions").select("account_id, position_id, created_at, side").eq("status", "open").eq("symbol", "XAUUSD");
   const manualGold = await manualGoldPlacements(admin);
   const ledgerGoldByAcct = new Map<string, Set<string>>();
-  const allOpenGoldByAcct = new Map<string, { position_id: string | null; created_at: string }[]>(); // incl. manual rows — the reservation counts them all
-  for (const r of ((openGoldRows ?? []) as { account_id: string | null; position_id: string | null; created_at: string }[])) {
+  const allOpenGoldByAcct = new Map<string, { position_id: string | null; created_at: string; side?: string | null }[]>(); // incl. manual rows — the reservation counts them all
+  for (const r of ((openGoldRows ?? []) as { account_id: string | null; position_id: string | null; created_at: string; side: string | null }[])) {
     const aid = String(r.account_id ?? ""); const pid = String(r.position_id ?? "");
     if (!aid || !pid) continue;
     if (!allOpenGoldByAcct.has(aid)) allOpenGoldByAcct.set(aid, []);
     allOpenGoldByAcct.get(aid)!.push(r);
     if (isManualGoldRow(manualGold, aid, r.created_at)) continue; // manual play/test → never blocks
+    if (!blocksEntry(r.side, sig.side)) continue;                 // opposite side → not in this entry's way
     if (!ledgerGoldByAcct.has(aid)) ledgerGoldByAcct.set(aid, new Set());
     ledgerGoldByAcct.get(aid)!.add(pid);
   }
@@ -1915,6 +1925,7 @@ export async function placeGenxFollower(sig: {
   // makes each fill idempotent even under concurrency.
   const perAccount = async (a: FollowRow): Promise<{ touched: number; placed: number }> => {
     if (!a.acc_num) return { touched: 0, placed: 0 };
+    const resvKeyF = goldResvKey("XAUUSD", sig.side);   // 09-22: side-keyed while hedging is on
     try {
       // FLOW CREDITS PER TRADE (owner 09-18): the member pays 5 credits for this fire, once.
       const fireKey = `genx:${sig.signalKey}`;
@@ -1938,11 +1949,12 @@ export async function placeGenxFollower(sig: {
       // we FAIL CLOSED and skip (owner incident 08-31): a missed entry is recoverable, a
       // stacked double position is not.
       const { data: openGold } = await admin.from("flow_managed_positions")
-        .select("position_id, created_at").eq("account_id", a.account_id).eq("symbol", "XAUUSD").eq("status", "open");
+        .select("position_id, created_at, side").eq("account_id", a.account_id).eq("symbol", "XAUUSD").eq("status", "open");
       const manualGoldF = await manualGoldPlacements(admin);
-      const allOpenRows = (openGold ?? []) as { position_id: string | null; created_at: string }[];
-      const ledgerPids = ((openGold ?? []) as { position_id: string | null; created_at: string }[])
+      const allOpenRows = (openGold ?? []) as { position_id: string | null; created_at: string; side?: string | null }[];
+      const ledgerPids = allOpenRows
         .filter((r) => !isManualGoldRow(manualGoldF, String(a.account_id), r.created_at)) // manual play/test → never blocks
+        .filter((r) => blocksEntry(r.side, sig.side))                                     // 09-22: only the SAME side blocks
         .map((r) => String(r.position_id ?? "")).filter(Boolean);
       // 🚀 Send It v2: only "every entry" mode (send_it_stack on) skips the one-open cap;
       // "one at a time" Send It respects it like a normal account.
@@ -1961,15 +1973,15 @@ export async function placeGenxFollower(sig: {
       // DIFFERENT signals ~97s apart both filled one follower account (owner 09-15). The
       // reservation is serialized in Postgres and held through the fill/unknown window, so a
       // second signal cannot stack. reserved=false → this account already holds gold → skip.
-      const fresv = await reserveGold(admin, a.account_id, "XAUUSD", signalKey);
+      const fresv = await reserveGold(admin, a.account_id, "XAUUSD", signalKey, 60, sig.side);
       if (!fresv.reserved) return { touched: 1, placed: 0 };
       // Idempotent claim: one fill per (signal, account). A duplicate row → already
       // handled this ENTER NOW on this account → skip.
       const { error: dupErr } = await admin.from("genx_follower_fills").insert({ signal_key: signalKey, account_id: a.account_id });
-      if (dupErr) { await releaseGold(admin, a.account_id, "XAUUSD"); return { touched: 1, placed: 0 }; }
+      if (dupErr) { await releaseGold(admin, a.account_id, resvKeyF); return { touched: 1, placed: 0 }; }
 
       const tok = await tokenFor(a.connection_id);
-      if (!tok) { await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id); await releaseGold(admin, a.account_id, "XAUUSD"); return { touched: 1, placed: 0 }; }
+      if (!tok) { await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id); await releaseGold(admin, a.account_id, resvKeyF); return { touched: 1, placed: 0 }; }
 
       // Risk-size this account to its own % (override → owner default → 1% fallback).
       // If we can't size (missing entry/stop/equity), take the 0.01 floor so the
@@ -1993,7 +2005,7 @@ export async function placeGenxFollower(sig: {
         // RULE #1: hold the reservation until this position closes (filled w/ positionId) or,
         // for an accepted-but-unresolved order, keep it 'active'. Never a confirmed fill unless
         // the broker gave us a position. The manager releases it on broker-confirmed close.
-        await markReservation(admin, a.account_id, "XAUUSD", r.positionId ? "filled" : "active", r.orderId, r.positionId);
+        await markReservation(admin, a.account_id, resvKeyF, r.positionId ? "filled" : "active", r.orderId, r.positionId);
         // Record the fill in the manager's ledger REGARDLESS of the management toggle. The
         // trade-manager books a CONFIRMED closed-trade outcome for every tracked row (its
         // gone/close detection runs before the management steps), and that outcome is what the
@@ -2019,13 +2031,13 @@ export async function placeGenxFollower(sig: {
       // TERMINAL no-fill (placeOnAccount never returns ok on an uncertain result — it throws),
       // so releasing the account here cannot free it while an order might still fill.
       await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id);
-      await releaseGold(admin, a.account_id, "XAUUSD");
+      await releaseGold(admin, a.account_id, resvKeyF);
       return { touched: 1, placed: 0 };
     } catch {
       // UNKNOWN (an uncertain order that may have filled): hold the reservation as 'unknown'
       // — never release blind. Leave the follower_fill in place so the same signal doesn't
       // re-fire onto a possibly-live position.
-      try { await markReservation(admin, a.account_id, "XAUUSD", "unknown"); } catch { /* best-effort */ }
+      try { await markReservation(admin, a.account_id, resvKeyF, "unknown"); } catch { /* best-effort */ }
       return { touched: 1, placed: 0 };
     } // per-account best-effort
   };
