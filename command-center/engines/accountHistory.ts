@@ -42,13 +42,16 @@ export type TradingHistory = {
   lastTradeAtMs: number | null;
   /** Entries opened on this account in the last rolling hour — FLOW's max_orders_per_hour equivalent. */
   entriesLastHour: number;
+  /** When the most recent LOSING trade closed. Null when there is none. Drives the conservative
+   *  cool-down: a streak only holds an account while the last loss is still recent (09-22). */
+  lastLossAtMs: number | null;
 };
 
 /** What a caller gets when nothing can be read. Every field is the one that blocks. */
 export const UNREADABLE: TradingHistory = {
   readable: false,
   dayPnl: 0, weekPnl: 0, dayPeakEquity: 0,
-  consecutiveLosses: 0, tradesToday: 0, lastTradeAtMs: null, entriesLastHour: 0,
+  consecutiveLosses: 0, tradesToday: 0, lastTradeAtMs: null, entriesLastHour: 0, lastLossAtMs: null,
 };
 
 const startOfUtcDay = (now = Date.now()): Date => {
@@ -108,6 +111,8 @@ export function summarise(input: {
     if (closed[i].pnl < 0) consecutiveLosses++;
     else break;
   }
+  const losses = closed.filter((r) => r.pnl < 0).map((r) => r.at);
+  const lastLossAtMs = losses.length ? Math.max(...losses) : null;
 
   return {
     readable: true,
@@ -118,6 +123,7 @@ export function summarise(input: {
     tradesToday,
     lastTradeAtMs,
     entriesLastHour,
+    lastLossAtMs,
   };
 }
 
@@ -162,7 +168,7 @@ export async function accountHistory(
 
     if (!positions.length) {
       // Nothing traded this week. Readable, and every counter is genuinely zero.
-      return { readable: true, dayPnl: 0, weekPnl: 0, dayPeakEquity: equityNow, consecutiveLosses: 0, tradesToday: 0, lastTradeAtMs: null, entriesLastHour: 0 };
+      return { readable: true, dayPnl: 0, weekPnl: 0, dayPeakEquity: equityNow, consecutiveLosses: 0, tradesToday: 0, lastTradeAtMs: null, entriesLastHour: 0, lastLossAtMs: null };
     }
 
     const { data: repData, error: repErr } = await c

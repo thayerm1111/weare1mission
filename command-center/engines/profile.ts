@@ -21,6 +21,15 @@ import { MAX_RISK_PCT } from "./validator";
 
 export type TradingProfile = {
   riskPct: number;
+  /**
+   * 09-22 (owner: "I just want the toggle for Gen X and for the break-even profit guard AI Pips").
+   * ONE switch for what ATLAS may do to an open trade: break-even, profit guard and the trail. Off
+   * means the trade rides the stop and target it was opened with. Partials and full closes are not
+   * part of it.
+   */
+  aiPips: boolean;
+  /** conservative | aggressive. The only difference: conservative stops for 2 hours after 2 losses in a row. */
+  riskMode: "conservative" | "aggressive";
   allowQuick: boolean;
   allowHold: boolean;
   allowSwing: boolean;
@@ -41,15 +50,19 @@ export type TradingProfile = {
 
 export const DEFAULT_PROFILE: TradingProfile = {
   riskPct: 0.5,
+  aiPips: true,
+  riskMode: "conservative",
+  // 09-22: every horizon is on for everyone — ATLAS takes what it sees, and the member no longer
+  // picks kinds of trade. The three fields stay so nothing downstream has to change shape.
   allowQuick: true,
   allowHold: true,
-  allowSwing: false,
+  allowSwing: true,
   minConfidence: 55,
   allowBreakEven: true,
-  allowPartials: true,
+  allowPartials: false,
   allowProfitProtection: true,
   allowFullClose: false,
-  autoManagement: false,
+  autoManagement: true,
   autoEntry: false,
   maxDailyLossPct: 3.0,
   maxConsecutiveLosses: 3,
@@ -64,26 +77,38 @@ type Row = {
   allow_profit_protection: boolean; allow_full_close: boolean; auto_management: boolean;
   auto_entry: boolean; max_daily_loss_pct: number; max_consecutive_losses: number;
   max_open_risk_pct: number; news_lockout_minutes: number;
+  ai_pips?: boolean | null; risk_mode?: string | null;
 };
 
-const fromRow = (r: Row): TradingProfile => ({
+/*
+ * 09-22: the saved row still has the old permission columns, and they are no longer read. Everything
+ * ATLAS may do to an open trade comes from ONE switch (ai_pips), every horizon is allowed, and
+ * partials and full closes are off for everybody. Leaving the columns in place means a future owner
+ * can bring the fine-grained permissions back without a migration.
+ */
+const fromRow = (r: Row): TradingProfile => {
+  const aiPips = r.ai_pips !== false;
+  return {
   riskPct: Number(r.risk_pct),
-  allowQuick: r.allow_quick,
-  allowHold: r.allow_hold,
-  allowSwing: r.allow_swing,
+  aiPips,
+  riskMode: String(r.risk_mode ?? "conservative").toLowerCase() === "aggressive" ? "aggressive" : "conservative",
+  allowQuick: true,
+  allowHold: true,
+  allowSwing: true,
   minConfidence: Number(r.min_confidence),
-  allowBreakEven: r.allow_break_even,
-  allowPartials: r.allow_partials,
-  allowProfitProtection: r.allow_profit_protection,
-  allowFullClose: r.allow_full_close,
-  autoManagement: r.auto_management,
+  allowBreakEven: aiPips,
+  allowPartials: false,
+  allowProfitProtection: aiPips,
+  allowFullClose: false,
+  autoManagement: aiPips,
   autoEntry: r.auto_entry,
   maxDailyLossPct: Number(r.max_daily_loss_pct),
   maxConsecutiveLosses: Number(r.max_consecutive_losses),
   maxOpenRiskPct: Number(r.max_open_risk_pct),
   newsLockoutMinutes: Number(r.news_lockout_minutes),
   configured: true,
-});
+  };
+};
 
 export async function getProfile(userId: string): Promise<TradingProfile> {
   const c = db();
@@ -94,9 +119,9 @@ export async function getProfile(userId: string): Promise<TradingProfile> {
 
 /** The slice of the profile the setup engine needs. Kept narrow so the engine stays pure and testable. */
 export const asSetupProfile = (p: TradingProfile): SetupProfile => ({
-  allowQuick: p.allowQuick,
-  allowHold: p.allowHold,
-  allowSwing: p.allowSwing,
+  allowQuick: true,   // 09-22: ATLAS takes every horizon it sees
+  allowHold: true,
+  allowSwing: true,
   minConfidence: p.minConfidence,
 });
 
@@ -116,15 +141,17 @@ export async function saveProfile(userId: string, patch: ProfilePatch): Promise<
   const row = {
     user_id: userId,
     risk_pct: clamp(Number(next.riskPct) || 0.5, 0.05, MAX_RISK_PCT),
-    allow_quick: !!next.allowQuick,
-    allow_hold: !!next.allowHold,
-    allow_swing: !!next.allowSwing,
+    ai_pips: next.aiPips !== false,
+    risk_mode: next.riskMode === "aggressive" ? "aggressive" : "conservative",
+    allow_quick: true,
+    allow_hold: true,
+    allow_swing: true,
     min_confidence: Math.round(clamp(Number(next.minConfidence) || 55, 0, 95)),
-    allow_break_even: !!next.allowBreakEven,
-    allow_partials: !!next.allowPartials,
-    allow_profit_protection: !!next.allowProfitProtection,
-    allow_full_close: !!next.allowFullClose,
-    auto_management: !!next.autoManagement,
+    allow_break_even: next.aiPips !== false,
+    allow_partials: false,
+    allow_profit_protection: next.aiPips !== false,
+    allow_full_close: false,
+    auto_management: next.aiPips !== false,
     auto_entry: !!next.autoEntry,
     max_daily_loss_pct: clamp(Number(next.maxDailyLossPct) || 3, 0.25, 20),
     max_consecutive_losses: Math.round(clamp(Number(next.maxConsecutiveLosses) || 3, 1, 20)),
@@ -134,6 +161,20 @@ export async function saveProfile(userId: string, patch: ProfilePatch): Promise<
   };
   const { data } = await c.from("cc_trading_profiles").upsert(row, { onConflict: "user_id" }).select("*").single();
   return data ? fromRow(data as Row) : next;
+}
+
+/** 2 losses in a row on a conservative account → two hours off (09-22). */
+export const CONSERVATIVE_STREAK = 2;
+export const CONSERVATIVE_COOLDOWN_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * The account limits this member's safety mode implies — the ONLY thing conservative and aggressive
+ * change. Conservative stops for two hours after two losses in a row; aggressive has no streak cap.
+ */
+export function limitsForMode(p: TradingProfile): { maxConsecutiveLosses: number | null; streakWindowMs: number | null } {
+  return p.riskMode === "aggressive"
+    ? { maxConsecutiveLosses: null, streakWindowMs: null }
+    : { maxConsecutiveLosses: CONSERVATIVE_STREAK, streakWindowMs: CONSERVATIVE_COOLDOWN_MS };
 }
 
 /**

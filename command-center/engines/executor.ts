@@ -23,6 +23,7 @@ import {
 } from "../adapters/tradelocker";
 import { stopMoveAllowed } from "../core/risk";
 import { blockingPositions } from "../core/hedge";
+import { getProfile, limitsForMode } from "./profile";
 import { roundPrice, roundQty, toPips } from "../core/instrument";
 import { STYLE_MODE, type Style } from "../core/style";
 import type { MarketSnapshot, Side } from "../core/types";
@@ -100,6 +101,9 @@ export async function prepare(userId: string, i: PrepareInput): Promise<Prepared
     openRiskPct: 0,
     history,
     origin: i.origin,
+    // 09-22: safety mode is the only per-member limit left. Conservative = 2 losses in a row, two
+    // hours off; aggressive = no streak cap at all.
+    limits: limitsForMode(await getProfile(userId)),
   });
   if (!v.ok) return { ok: false, reason: v.reason, hard: v.hard, warnings: v.warnings };
 
@@ -256,6 +260,7 @@ export async function execute(userId: string, intentId: string, idempotencyKey: 
     entry: null, stop: intent.stop, takeProfit: intent.targets?.[0] ?? null,
     riskPct: intent.risk_pct, equity, instrument: inst.resolved.instrument, pipSize: inst.resolved.pipSize,
     spread: snapshot?.spread ?? null, openPositions: countAgainstLimit(open, intent.side), openRiskPct: 0, history, origin: "member",
+    limits: limitsForMode(await getProfile(userId)),   // 09-22: safety mode, same as prepare()
   });
   if (!v.ok) return fail(v.reason);
 
