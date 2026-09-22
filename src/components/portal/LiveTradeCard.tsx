@@ -10,7 +10,7 @@ import { Radio, Trophy, Lightbulb, Minus, Users, Target, ShieldCheck, TrendingUp
    trades graded WIN / LESSON. Data: /api/floor/live-trade, polled every 10s.
    ========================================================================== */
 
-type Grade = "WIN" | "LESSON" | "BREAKEVEN";
+type Grade = "WIN" | "LESSON" | "BREAKEVEN" | "CLOSED";
 type Live = { side: "BUY" | "SELL"; openedAt: string; accountsIn: number; entry: number | null; stop: number | null; target: number | null; setup: string; confidence: number | null; price: number | null; pips: number | null };
 type Recent = { at: string; side: string; pips: number | null; accounts: number; grade: Grade };
 type Payload = { live: Live | null; recent: Recent[] };
@@ -197,7 +197,7 @@ function LastThree({ recent, now }: { recent: Recent[]; now: number }) {
             return (
               <div key={r.at} className="rounded-xl p-2.5 text-center" style={{ background: `${c}14`, boxShadow: `inset 0 0 0 1px ${c}33` }}>
                 <Icon className="mx-auto h-4 w-4" style={{ color: c }} />
-                <p className="mt-1 text-[12px] font-black uppercase tracking-[0.1em]" style={{ color: c }}>{r.grade === "BREAKEVEN" ? "Even" : r.grade === "WIN" ? "Win" : "Lesson"}</p>
+                <p className="mt-1 text-[12px] font-black uppercase tracking-[0.1em]" style={{ color: c }}>{r.grade === "WIN" ? "Win" : r.grade === "LESSON" ? "Lesson" : r.grade === "CLOSED" ? "Closed" : "Even"}</p>
                 <p className="text-[13px] font-bold tabular-nums">{r.pips == null ? "—" : `${r.pips > 0 ? "+" : ""}${r.pips}`}<span className="ml-0.5 text-[10px] font-semibold" style={{ color: K.mut2 }}>p</span></p>
                 <p className="mt-0.5 text-[10px]" style={{ color: K.mut2 }}>{r.side} · {ago(r.at, now)}</p>
               </div>
