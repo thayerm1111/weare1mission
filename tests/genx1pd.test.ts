@@ -29,8 +29,13 @@ test('GENX 1.0 placement: two-loss, break-even-in-a-row and post-win pauses are 
   assert.ok(/newsHold\("XAUUSD"\)/.test(place), 'news guard kept');
   assert.ok(/genxGoldStillOpen\(ledgerPids, brokerOpen\)/.test(place) && /reserveGold\(/.test(place), 'one open gold trade per account kept');
   assert.ok(/genx_follower_fills/.test(place), 'follower duplicate protection kept');
+  // 09-22: gold is back INSIDE the conservative cutoff, and that cutoff is the only thing safety mode
+  // does — no account is filtered on the quality of the call any more.
   const filt = src.slice(src.indexOf('async function filterAccountsForAsset'), src.indexOf('async function systemSwitches'));
-  assert.ok(/asset === "gold"/.test(filt), 'gold no longer uses the 2-losses-in-a-row account cutoff');
+  assert.ok(!/asset === "gold"/.test(filt), 'gold uses the conservative 2-losses-in-a-row cutoff again');
+  assert.ok(/isConservative\(a\.riskMode\)/.test(filt), 'only conservative accounts are capped');
+  assert.ok(!/sig\.conservativeOk === false\) accounts = accounts\.filter/.test(place), 'the conservative quality gate is gone');
+  assert.ok(/MEMBER_BREAKER_COOLDOWN_MS = 2 \* 60 \* 60 \* 1000/.test(src), 'the cool-down is 2 hours');
 });
 test('falling-knife guards hold aggressive accounts too: change of character is desk-wide and applies to followers', () => {
   const src = readFileSync('src/lib/flow/autoExec.ts', 'utf8');

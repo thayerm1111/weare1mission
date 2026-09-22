@@ -90,7 +90,7 @@ test('the validator reaches the same verdict either way', () => {
     side: 'sell' as const, style: 'quick' as const, entry: null, stop: s.price + 3, takeProfit: s.price - 6,
     riskPct: 0.5, equity: 100_000, instrument: { pipSize: 0.1, pipValuePerLot: 10, lotStep: 0.01, minLot: 0.01, maxLot: 100, contractSize: 100 } as never,
     pipSize: 0.1, spread: 0.2, openPositions: 0, openRiskPct: 0,
-    history: { readable: true, dayPnl: 0, weekPnl: 0, dayPeakEquity: 100_000, consecutiveLosses: 0, tradesToday: 0, lastTradeAtMs: null, entriesLastHour: 0 },
+    history: { readable: true, dayPnl: 0, weekPnl: 0, dayPeakEquity: 100_000, consecutiveLosses: 0, tradesToday: 0, lastTradeAtMs: null, entriesLastHour: 0, lastLossAtMs: null },
     origin: 'auto' as const,
   };
   const a = validate({ ...common, snapshot: s });

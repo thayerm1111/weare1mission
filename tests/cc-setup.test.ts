@@ -6,7 +6,7 @@ import {
   DEFAULT_SETUP_PROFILE, type SetupProfile,
 } from '../command-center/engines/setup';
 import { experienceOf, completionRead, COMPLETE_WINDOW_MS } from '../command-center/engines/experience';
-import { managementPermissions, DEFAULT_PROFILE, asSetupProfile } from '../command-center/engines/profile';
+import { managementPermissions, DEFAULT_PROFILE, asSetupProfile, limitsForMode } from '../command-center/engines/profile';
 import { replay } from '../command-center/engines/replay';
 import { STYLE } from '../command-center/core/style';
 import type { Bar, MarketSnapshot } from '../command-center/core/types';
@@ -387,12 +387,23 @@ test('the narrower consent always wins', () => {
   assert.equal(positionSaysNo.close, false, 'the position is the narrowest consent of all');
 });
 
-test('a fresh profile lets ATLAS talk and protect, and nothing else', () => {
-  assert.equal(DEFAULT_PROFILE.autoEntry, false);
-  assert.equal(DEFAULT_PROFILE.autoManagement, false);
-  assert.equal(DEFAULT_PROFILE.allowFullClose, false);
-  assert.equal(DEFAULT_PROFILE.allowSwing, false, 'swing holds risk overnight — that is a deliberate yes, not a default');
-  assert.equal(asSetupProfile(DEFAULT_PROFILE).allowSwing, false);
+test('a fresh profile: entry is still a deliberate yes, and AI Pips is the one management switch (09-22)', () => {
+  assert.equal(DEFAULT_PROFILE.autoEntry, false, 'ATLAS never starts trading by itself on a profile nobody configured');
+  assert.equal(DEFAULT_PROFILE.allowFullClose, false, 'it never closes a whole position on its own');
+  assert.equal(DEFAULT_PROFILE.allowPartials, false, 'partials are not part of AI Pips');
+  // One switch — break-even, profit guard and the trail travel together.
+  assert.equal(DEFAULT_PROFILE.aiPips, true);
+  assert.equal(DEFAULT_PROFILE.allowBreakEven, true);
+  assert.equal(DEFAULT_PROFILE.allowProfitProtection, true);
+  assert.equal(DEFAULT_PROFILE.autoManagement, true);
+  // Every horizon is on: the member no longer picks kinds of trade, ATLAS takes what it sees.
+  assert.equal(asSetupProfile(DEFAULT_PROFILE).allowSwing, true);
+  assert.equal(asSetupProfile(DEFAULT_PROFILE).allowQuick, true);
+  assert.equal(asSetupProfile(DEFAULT_PROFILE).allowHold, true);
+});
+test('safety mode is the only per-member limit: conservative stops 2 hours after 2 losses in a row', () => {
+  assert.deepEqual(limitsForMode({ ...DEFAULT_PROFILE, riskMode: 'conservative' }), { maxConsecutiveLosses: 2, streakWindowMs: 2 * 60 * 60 * 1000 });
+  assert.deepEqual(limitsForMode({ ...DEFAULT_PROFILE, riskMode: 'aggressive' }), { maxConsecutiveLosses: null, streakWindowMs: null });
 });
 
 /* ═══════════════ replaying REAL recorded gold ═══════════════ */

@@ -19,7 +19,7 @@ const EQUITY = 435_041;
 
 const history = (over: Partial<TradingHistory> = {}): TradingHistory => ({
   readable: true, dayPnl: 0, weekPnl: 0, dayPeakEquity: EQUITY,
-  consecutiveLosses: 0, tradesToday: 0, lastTradeAtMs: null, entriesLastHour: 0, ...over,
+  consecutiveLosses: 0, tradesToday: 0, lastTradeAtMs: null, entriesLastHour: 0, lastLossAtMs: null, ...over,
 });
 
 const stateFrom = (h: TradingHistory, equity = EQUITY, over: Partial<AccountState> = {}): AccountState => ({
