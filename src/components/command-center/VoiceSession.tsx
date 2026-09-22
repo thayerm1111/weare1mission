@@ -167,6 +167,8 @@ export function VoiceSession({ onUiAction, onStatus }: {
   const [presenceOut, setPresenceOut] = useState(0);
   const micTrack = useRef<MediaStreamTrack | null>(null);
   const chosenMic = useRef<string | null>(null);
+  /** The microphone the member picked from the list this page visit. null = follow the computer's own input. */
+  const manualMic = useRef<string | null>(null);
   const autoPicked = useRef(false);
   const rawRetry = useRef(false);
 
@@ -346,10 +348,26 @@ export function VoiceSession({ onUiAction, onStatus }: {
       const base: MediaTrackConstraints = rawRetry.current
         ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
         : { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
-      const stream = await Promise.race([
-        navigator.mediaDevices.getUserMedia({ audio: wanted ? { ...base, deviceId: { exact: wanted } } : base }),
+      /*
+       * FOLLOW THE COMPUTER'S MICROPHONE (owner 09-22: "I want it to default the mic I'm using to what my
+       * computer is using because I have to switch it every time"). A bare { audio } request gets whatever the
+       * BROWSER last remembered for this site, which is not the computer's current input. Chrome and Edge expose a
+       * "default" device that tracks the system input exactly, so that is asked for first; browsers without it
+       * (Safari, Firefox) already use the system input and fall through to the plain request.
+       */
+      const ask = (constraints: MediaTrackConstraints) => Promise.race([
+        navigator.mediaDevices.getUserMedia({ audio: constraints }),
         new Promise<never>((_, rej) => setTimeout(() => rej(new Error("MIC_TIMEOUT")), MIC_TIMEOUT_MS)),
       ]);
+      let stream: MediaStream;
+      if (wanted) stream = await ask({ ...base, deviceId: { exact: wanted } });
+      else {
+        try { stream = await ask({ ...base, deviceId: { exact: "default" } }); }
+        catch (e) {
+          if (e instanceof Error && e.message === "MIC_TIMEOUT") throw e;
+          stream = await ask(base);
+        }
+      }
       micStream.current = stream;
 
       /*
@@ -576,7 +594,7 @@ export function VoiceSession({ onUiAction, onStatus }: {
           }).catch(() => {});
         }, 45_000);
 
-        void attachMicrophone(ctx, socket);
+        void attachMicrophone(ctx, socket, manualMic.current ?? undefined);
 
         /*
          * THE PROVIDER MUST ANSWER THE HANDSHAKE.
@@ -691,7 +709,29 @@ export function VoiceSession({ onUiAction, onStatus }: {
     const ctx = audioCtx.current, socket = ws.current;
     if (!ctx || !socket) return;
     setError(null);
+    manualMic.current = id === "default" ? null : id;
     void attachMicrophone(ctx, socket, id);
+  }, [attachMicrophone]);
+
+  /*
+   * WHEN THE COMPUTER CHANGES ITS INPUT, FOLLOW IT. Joining a Zoom call, plugging in a headset or switching the
+   * input in System Settings fires `devicechange`; unless the member picked a microphone themselves, the live
+   * line re-attaches to the computer's current input so ATLAS keeps hearing the same mic Zoom does.
+   */
+  useEffect(() => {
+    const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+    if (!md?.addEventListener) return;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const onChange = () => {
+      if (manualMic.current) return;
+      if (t) clearTimeout(t);
+      t = setTimeout(() => {
+        const ctx = audioCtx.current, socket = ws.current;
+        if (ctx && socket && socket.readyState === WebSocket.OPEN && micStream.current) void attachMicrophone(ctx, socket);
+      }, 800);
+    };
+    md.addEventListener("devicechange", onChange);
+    return () => { md.removeEventListener("devicechange", onChange); if (t) clearTimeout(t); };
   }, [attachMicrophone]);
 
   void onUiAction;
