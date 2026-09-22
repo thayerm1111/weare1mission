@@ -418,7 +418,7 @@ async function forexBreakerHalt(admin: Admin): Promise<{ halt: boolean; streak: 
 // (desk-wide guards like the forex breaker + gold trend gate still apply to both).
 // A single win resets the streak. Fails OPEN — a read error never blocks trading.
 const MEMBER_BREAKER_STREAK = 2;
-const MEMBER_BREAKER_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
+const MEMBER_BREAKER_COOLDOWN_MS = 2 * 60 * 60 * 1000; // 2 hours (owner 09-22)
 const GOLD_SYMS = ["XAUUSD", "GOLD"];
 
 type MemberAsset = "gold" | "forex";
@@ -466,8 +466,13 @@ async function accountAssetCutoff(admin: Admin, accountId: string, asset: Member
  *  Aggressive accounts, and symbols that aren't gold/forex, pass through untouched. */
 async function filterAccountsForAsset(admin: Admin, accounts: ActiveAccount[], symbol: string): Promise<ActiveAccount[]> {
   const asset = memberAssetOf(symbol);
-  // OWNER 09-16: gold no longer pauses an account after 2 losses in a row (forex keeps its breaker).
-  if (!asset || asset === "gold" || !accounts.length) return accounts;
+  /*
+   * 09-22 (owner: "You can keep conservative and aggressive, and all that changes is on conservative.
+   * You can't lose more than two trades in a row and it will calm down"). Gold is back inside this cap
+   * — it was taken out on 09-16 — and this is now the ONLY thing safety mode does. Conservative pauses
+   * THIS account for 2 hours after 2 losses in a row on this asset class; aggressive has no cap.
+   */
+  if (!asset || !accounts.length) return accounts;
   const keep: ActiveAccount[] = [];
   for (const a of accounts) {
     if (!isConservative(a.riskMode)) { keep.push(a); continue; } // aggressive → no cap
@@ -1695,11 +1700,13 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
       // PER-ACCOUNT SAFETY MODE: drop this member's accounts that are conservative AND in
       // a gold loss-cutoff. Aggressive accounts still take it. None left → release claim.
       let accounts = await filterAccountsForAsset(admin, allAccounts, "XAUUSD");
-      // CONSERVATIVE QUALITY GATE: when this setup FAILED the conservative confluence
-      // checks, drop conservative accounts for THIS entry (aggressive accounts are never
-      // touched — they take every gold ENTER NOW). conservativeOk defaults to true so an
-      // ungraded call still behaves exactly as before.
-      if (sig.conservativeOk === false || conservativeHold) accounts = accounts.filter((a) => !isConservative(a.riskMode));
+      /*
+       * THE CONSERVATIVE QUALITY GATE IS GONE (owner 09-22). Safety mode used to do two things: pause
+       * after losses, and sit out any call that failed the confluence checks. The owner's rule is that
+       * conservative differs by the loss cool-down alone, so a conservative account now takes the same
+       * calls as an aggressive one — it just stops sooner when it is being wrong.
+       */
+      void conservativeHold;
       // 🚀 SEND IT: these accounts bypass EVERY selectivity filter above (loss-cutoff safety
       // mode, conservative gate) — re-add any that were dropped. When a desk gate fired
       // (sendItOnly) they are the ONLY takers of this entry.
@@ -1953,14 +1960,16 @@ export async function placeGenxFollower(sig: {
         try { await admin.from("flow_auto_events").insert({ user_id: a.user_id, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: "genx: flow_credits (account paused)", account_id: a.account_id }); } catch { /* log best-effort */ }
         return { touched: 1, placed: 0 };
       }
-      // PER-ACCOUNT SAFETY MODE: a CONSERVATIVE follower account sits gold out for 4h
-      // after 2 losing gold trades in a row. Aggressive follower accounts take it raw.
-      // 🚀 Send It accounts bypass the safety mode entirely.
-      if (a.send_it !== true && isConservative(a.risk_mode)) {
-        // CONSERVATIVE QUALITY GATE: skip this setup on conservative followers when it
-        // failed the confluence checks (aggressive followers below still take it).
-        if (sig.conservativeOk === false) return { touched: 1, placed: 0 };
-        // OWNER 09-16: the 2-losses-in-a-row gold cutoff is removed.
+      // PER-ACCOUNT SAFETY MODE (owner 09-22, the ONLY thing it does): a CONSERVATIVE follower sits
+      // this asset out for 2 hours after 2 losing trades in a row on it. Aggressive has no cap, and
+      // no account is filtered on the quality of the call any more — conservative takes what
+      // aggressive takes, it just stops sooner when it is being wrong.
+      if (isConservative(a.risk_mode)) {
+        const cut = await accountAssetCutoff(admin, String(a.account_id), "gold");
+        if (cut.halt) {
+          try { await admin.from("flow_auto_events").insert({ user_id: a.user_id, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: conservative_cooldown (${cut.streak} losses in a row — 2h)`, account_id: a.account_id }); } catch { /* log best-effort */ }
+          return { touched: 1, placed: 0 };
+        }
       }
       // MAX ONE OPEN GENX/FLOW GOLD PER ACCOUNT — broker-verified (same rule as the copy
       // path). The ledger holds only engine-placed trades, so a MANUAL gold trade never

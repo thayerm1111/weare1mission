@@ -89,7 +89,13 @@ export function filterAccountsByStyle<T extends { styleQuick?: boolean | null; s
   // With all three horizons trading again (owner 09-21), each member's Quick / Intraday / Swing switches
   // decide which they take — swing stays opt-in because it holds through sessions and the weekend gap.
   // GENX_TRADE_STYLES=off makes every account take every horizon.
-  if ((process.env.GENX_TRADE_STYLES ?? "").toLowerCase() === "off") return accounts;
+  /*
+   * 09-22 (owner: "I don't want quick hold or swing toggles … I want GenX and Atlas to take the trades
+   * they need to take without limits"). The three horizon switches no longer stand anybody down: every
+   * account that takes GENX takes every GENX call, whichever horizon found it. The rule and its tests
+   * stay here, and GENX_TRADE_STYLES=on re-arms them.
+   */
+  if ((process.env.GENX_TRADE_STYLES ?? "off").toLowerCase() !== "on") return accounts;
   return accounts.filter((a) => accountTakesStyle(a, mode));
 }
 

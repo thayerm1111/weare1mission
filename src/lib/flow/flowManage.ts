@@ -646,20 +646,28 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         const fb = await admin.from("flow_broker_accounts").select("account_id, manage_trades").in("account_id", acctIds);
         cfg = (fb.data ?? []) as unknown as AcctCfg[];
       }
+      /*
+       * ONE SWITCH — "AI PIPS" (owner 09-22: "I just want the toggle for Gen X and for the break-even
+       * profit guard AI Pips").
+       *
+       * There used to be four per-account switches here — manage_trades, be_enabled, partials_enabled
+       * and profit_guard — and a member had to understand all four to get the behaviour they expected.
+       * Now manage_trades is the single switch, and it means exactly this:
+       *
+       *   ON  — break-even when the trade earns it, profit guard on a reversal, and the trail. Every
+       *         account gets the guard now; it is no longer a separate opt-in.
+       *   OFF — nothing is touched: the trade rides the stop and target it was placed with.
+       *
+       * Partials are off for everyone, by the same instruction. The old columns are left in place and
+       * simply not read, so nothing is lost if a future owner wants them back.
+       */
       for (const a of cfg) {
-        // 🚀 SEND IT v2 (owner 09-08): Send It no longer forces hands-off management.
-        // The member chooses in the Send It setup prompt — break-even and partials each
-        // follow the account's own toggles (be_enabled / partials_enabled), exactly like
-        // a normal account. Only the legacy manage_trades master switch disables the
-        // manager outright.
-        if (a.manage_trades === false) manageOff.add(String(a.account_id));
-        // SPLIT TOGGLES (owner 09-03): break-even and partials each have their own switch.
-        // null/undefined = ON (back-compat).
-        if (a.be_enabled === false) beOffAccts.add(String(a.account_id));
-        if (a.partials_enabled === false) partialOffAccts.add(String(a.account_id));
-        // PROFIT GUARD (owner 09-17): opt-in per account — nobody's exits change until they turn it on.
-        if (a.profit_guard === true) guardAccts.add(String(a.account_id));
-        if (typeof a.gold_be_pips === "number" && a.gold_be_pips > 0) goldBePips.set(String(a.account_id), a.gold_be_pips);
+        const aiPips = a.manage_trades !== false;   // null/undefined = ON (back-compat)
+        const id = String(a.account_id);
+        if (!aiPips) { manageOff.add(id); beOffAccts.add(id); }
+        else guardAccts.add(id);
+        partialOffAccts.add(id);
+        if (typeof a.gold_be_pips === "number" && a.gold_be_pips > 0) goldBePips.set(id, a.gold_be_pips);
       }
     }
   } catch { /* column missing / read blip → treat all as managed */ }
