@@ -46,3 +46,16 @@ test('a zero-pip close is break-even, not a win or a loss', () => {
   const r = buildRealResults([row({ outcome: 'breakeven', result_pips: 0 })]);
   assert.deepEqual([r.buckets.be_on.wins, r.buckets.be_on.losses, r.buckets.be_on.breakeven, r.buckets.be_on.winRate], [0, 0, 1, null]);
 });
+
+test("bestPips: the best closed account on a fire (owner 09-22: a hand-closed profit is a win on the member's record)", () => {
+  const t0 = "2026-09-22T15:05:00Z";
+  const r = buildRealResults([
+    { side: "buy", outcome: "manual", result_pips: 80, created_at: t0, resolved_at: t0, manage_style: "be_off" },
+    { side: "buy", outcome: "trail", result_pips: 1, created_at: t0, resolved_at: t0, manage_style: "be_off" },
+    { side: "buy", outcome: "stop", result_pips: -106, created_at: t0, resolved_at: t0, manage_style: "be_off" },
+  ]);
+  const f = r.recentFiresAll[0];
+  assert.equal(f.avgPips, -8);
+  assert.equal(f.bestPips, 80);
+  assert.equal(r.summary.losses, 1, "desk summary still grades the fire at its average");
+});
