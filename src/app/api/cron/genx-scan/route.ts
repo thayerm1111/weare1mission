@@ -17,6 +17,7 @@ import { watchPass, findSameSetup, decideGoldEntry, beatKeepDecision, headsUpMsg
 // decideGoldEntry + the gold entry preference rules now live in @/lib/genx/watchTick
 // (shared with the always-on worker).
 import { beat } from "@/lib/flow/health";
+import { registerZone } from "@/lib/genx/zoneSetups";
 import { genx2FlagsSnapshot } from "@/lib/genx2/flags";
 
 export const runtime = "nodejs";
@@ -166,6 +167,8 @@ async function run(): Promise<Response> {
       const engineState = String(genx.engine_state || "");
       const actionable = engineState === "TRADE_READY" || engineState === "DEVELOPING_SETUP";
       modeOut.action = genx.action; modeOut.state = engineState; modeOut.conf = genx.confidence_score; modeOut.profile = genx.entry_profile;
+      // GENX PAGE SETUP → FLOW (zoneSetups.ts): register what this horizon is showing; the fast watch enters on touch.
+      if (!inWeekendCloseWindow() && !inScanQuietWindow()) modeOut.zone = await registerZone(admin, mode, genx as never, rr.price ?? null);
       if (!actionable || genx.entry_low == null || genx.entry_high == null || genx.stop_loss == null) { modeOut.skip = "not_actionable"; continue; }
 
       const side: "buy" | "sell" = String(genx.action).includes("SELL") ? "sell" : "buy";
