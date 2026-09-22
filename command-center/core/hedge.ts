@@ -4,8 +4,8 @@
  *
  * ATLAS's rule was one open trade per account, full stop: while it held a sell, the buy it called an
  * hour later was refused — the trade that would have covered the sell. The rule becomes side-aware,
- * exactly as GENX/FLOW's did on the same day (src/lib/genx/hedge.ts holds that copy; the two engines
- * share no code by design, so this is the same rule written once for each side of the wall):
+ * exactly as the older desk's did on the same day (the two engines share no code by design, so this is
+ * the same rule written once on each side of the wall):
  *
  *   an open SELL blocks another SELL, never a BUY — and the mirror.
  *

@@ -35,6 +35,11 @@ export type RiskLimits = {
   minEquity: number;
   /** Entries per rolling hour on one account. FLOW's equivalent defaults to 10. Null = not enforced. */
   maxEntriesPerHour?: number | null;
+  /**
+   * How long a losing streak keeps an account out (09-22, conservative mode: 2 losses in a row → two
+   * hours). Measured from the last loss. Null/absent = a streak holds until a win, as before.
+   */
+  streakWindowMs?: number | null;
 };
 export type AccountState = {
   equity: number;
@@ -48,6 +53,8 @@ export type AccountState = {
   lastTradeAtMs: number | null;
   /** Entries opened on this account in the last rolling hour. Null when not measured. */
   entriesLastHour?: number | null;
+  /** When the last losing trade closed, for the streak window above. */
+  lastLossAtMs?: number | null;
 };
 
 export const DEFAULT_LIMITS: RiskLimits = {
@@ -227,7 +234,16 @@ export function checkAccountLimits(a: AccountState, l: RiskLimits, nowMs: number
     if (dd >= Math.abs(l.maxDailyDrawdownPct)) return no(`Daily drawdown limit reached (${dd.toFixed(2)}% from today's peak)`);
   }
   if (l.maxWeeklyLossPct != null && a.weekPnlPct <= -Math.abs(l.maxWeeklyLossPct)) return no(`Weekly loss limit reached (${a.weekPnlPct.toFixed(2)}%)`);
-  if (l.maxConsecutiveLosses != null && a.consecutiveLosses >= l.maxConsecutiveLosses) return no(`${a.consecutiveLosses} losses in a row — this account is cooling off`);
+  if (l.maxConsecutiveLosses != null && a.consecutiveLosses >= l.maxConsecutiveLosses) {
+    // 09-22: with a streak window set, the streak only holds the account while the last loss is still
+    // inside it — two losses in a row cool this account down for two hours, not for the rest of time.
+    const window = l.streakWindowMs ?? null;
+    const stillCooling = window == null || a.lastLossAtMs == null || nowMs - a.lastLossAtMs < window;
+    if (stillCooling) {
+      const mins = window != null && a.lastLossAtMs != null ? Math.ceil((window - (nowMs - a.lastLossAtMs)) / 60_000) : null;
+      return no(`${a.consecutiveLosses} losses in a row — this account is cooling off${mins != null ? ` for another ${mins} min` : ""}`);
+    }
+  }
   if (a.openPositions >= l.maxOpenPositions) return no(`Already holding ${a.openPositions} position${a.openPositions === 1 ? "" : "s"} (limit ${l.maxOpenPositions})`);
   if (l.maxTradesPerSession != null && a.tradesThisSession >= l.maxTradesPerSession) return no(`Session trade limit reached (${a.tradesThisSession})`);
   if (l.maxEntriesPerHour != null && a.entriesLastHour != null && a.entriesLastHour >= l.maxEntriesPerHour) {
