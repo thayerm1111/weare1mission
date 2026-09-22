@@ -22,6 +22,7 @@ import {
   getConfig, positionColumns, DEFAULT_POSITION_COLUMNS, type PositionColumns,
 } from "../adapters/tradelocker";
 import { stopMoveAllowed } from "../core/risk";
+import { blockingPositions } from "../core/hedge";
 import { roundPrice, roundQty, toPips } from "../core/instrument";
 import { STYLE_MODE, type Style } from "../core/style";
 import type { MarketSnapshot, Side } from "../core/types";
@@ -95,7 +96,7 @@ export async function prepare(userId: string, i: PrepareInput): Promise<Prepared
     instrument: inst.resolved.instrument,
     pipSize: inst.resolved.pipSize,
     spread: i.snapshot?.spread ?? null,
-    openPositions: open.length,
+    openPositions: countAgainstLimit(open, i.side),
     openRiskPct: 0,
     history,
     origin: i.origin,
@@ -160,6 +161,15 @@ async function positionColumnsFor(sess: Session): Promise<PositionColumns> {
   } catch {
     return DEFAULT_POSITION_COLUMNS;
   }
+}
+
+/**
+ * 09-22: the one-position limit counts only the positions on the SAME side as the entry being
+ * validated, so ATLAS may hold one buy and one sell (core/hedge.ts). With hedging off, or a side it
+ * cannot read, every open position counts — the original rule.
+ */
+function countAgainstLimit(open: { side: string }[], side?: string | null): number {
+  return blockingPositions(open, side).length;
 }
 
 async function openPositionsFor(userId: string, accountRowId: string) {
@@ -245,7 +255,7 @@ export async function execute(userId: string, intentId: string, idempotencyKey: 
     account: s.session.account, snapshot, side: intent.side, style: intent.style,
     entry: null, stop: intent.stop, takeProfit: intent.targets?.[0] ?? null,
     riskPct: intent.risk_pct, equity, instrument: inst.resolved.instrument, pipSize: inst.resolved.pipSize,
-    spread: snapshot?.spread ?? null, openPositions: open.length, openRiskPct: 0, history, origin: "member",
+    spread: snapshot?.spread ?? null, openPositions: countAgainstLimit(open, intent.side), openRiskPct: 0, history, origin: "member",
   });
   if (!v.ok) return fail(v.reason);
 

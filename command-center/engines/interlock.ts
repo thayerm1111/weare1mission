@@ -31,6 +31,7 @@
  * duplicate costs real money; a skipped entry costs one setup, and gold produces another shortly.
  */
 
+import { blockingPositions } from "../core/hedge";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let admin: SupabaseClient | null = null;
@@ -56,6 +57,12 @@ export type Availability =
 export async function accountAvailableToBrain(
   accountRowId: string | null | undefined,
   accNumForMessage?: string | null,
+  /**
+   * 09-22: the side this entry would take. With it (and hedging on) only a SAME-SIDE open trade
+   * refuses the entry, so ATLAS can hold one buy and one sell. Without it, any open trade refuses —
+   * the original rule, which is what a caller that does not know its side should get.
+   */
+  side?: string | null,
 ): Promise<Availability> {
   /*
    * KEYED ON THE ACCOUNT ROW, NOT THE BROKER'S NUMBER.
@@ -78,13 +85,16 @@ export async function accountAvailableToBrain(
   try {
     const { data, error } = await c
       .from("cc_positions")
-      .select("id")
+      .select("id, side")
       .eq("account_row_id", id)
       .is("closed_at", null)
-      .limit(4);
+      .limit(8);
     if (error) throw new Error(error.message);
-    if ((data ?? []).length) {
-      return { available: false, reason: `ATLAS already has a position open on ${label}.` };
+    const open = (data ?? []) as { id: string; side: string | null }[];
+    const blocking = blockingPositions(open, side);
+    if (blocking.length) {
+      const dir = String(side ?? "").toLowerCase() === "buy" ? "BUY" : String(side ?? "").toLowerCase() === "sell" ? "SELL" : null;
+      return { available: false, reason: dir ? `ATLAS already has a ${dir} open on ${label}.` : `ATLAS already has a position open on ${label}.` };
     }
   } catch (e) {
     return { available: false, reason: `Could not read ATLAS's positions (${String(e).slice(0, 80)}).` };

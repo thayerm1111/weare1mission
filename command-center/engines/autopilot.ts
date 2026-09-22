@@ -240,30 +240,12 @@ export async function autopilotTick(input: {
       continue;
     }
 
-    /*
-     * 3a — ASK THE BROKER BEFORE TRUSTING THE LEDGER (09-22).
-     *
-     * The interlock below is only as good as cc_positions, and nothing server-side used to refresh
-     * that table: the broker sync ran on the Command Center screen, and autoManage only visits
-     * positions with AI management on. One row left "open" after its trade was gone at the broker
-     * blocked ATLAS for a full day — 2,367 refusals, no trades, and nothing wrong with the market
-     * read. Reconciling here costs one broker call per armed account, and only when that account has
-     * an open row nothing has looked at for a minute.
-     */
-    try { await reconcileOpenPositions(a.user_id, a.id, input.snapshot?.price ?? null); }
-    catch { /* the interlock still decides; a failed reconcile just means it decides on what it has */ }
-
-    // 3 — ONE BRAIN POSITION PER ACCOUNT. FLOW may be in gold on this same account running its own
-    //     strategy; that is allowed and is not our business. What is our business is not stacking
-    //     ATLAS's own trades on top of each other.
-    const owns = await accountAvailableToBrain(a.id, a.acc_num);
-    if (!owns.available) {
-      await record({ user_id: a.user_id, account_row_id: a.id, acc_num: a.acc_num, mode, acted: false,
-        outcome: "blocked", reason: owns.reason });
-      continue;
-    }
-
-    // 4 — what does ATLAS actually see, for this member's own profile?
+    // 3 — what does ATLAS actually see, for this member's own profile?
+    //
+    //     09-22: this now runs BEFORE the one-position check, because that check became side-aware
+    //     (one buy and one sell may be open at once) and therefore needs to know which way this entry
+    //     would go. Nothing here reaches the broker or the market — it reads the snapshot ATLAS has
+    //     already taken — so asking first costs nothing.
     const profile = await getProfile(a.user_id);
     const setup = findSetup({
       snapshot: input.snapshot,
@@ -301,6 +283,30 @@ export async function autopilotTick(input: {
     if (setup.side == null || setup.stop == null || setup.style == null) continue;
     const entry = setup.entryHigh ?? setup.entryLow;
     if (entry == null) continue;
+
+    /*
+     * 3a — ASK THE BROKER BEFORE TRUSTING THE LEDGER (09-22).
+     *
+     * The interlock below is only as good as cc_positions, and nothing server-side used to refresh
+     * that table: the broker sync ran on the Command Center screen, and autoManage only visits
+     * positions with AI management on. One row left "open" after its trade was gone at the broker
+     * blocked ATLAS for a full day — 2,367 refusals, no trades, and nothing wrong with the market
+     * read. Reconciling here costs one broker call per armed account, and only when that account has
+     * an open row nothing has looked at for a minute.
+     */
+    try { await reconcileOpenPositions(a.user_id, a.id, input.snapshot?.price ?? null); }
+    catch { /* the interlock still decides; a failed reconcile just means it decides on what it has */ }
+
+    // 3b — ONE BRAIN POSITION PER SIDE ON AN ACCOUNT (09-22: "they each can have a sell or a buy open
+    //      each"). An open SELL no longer refuses a BUY; a second trade the SAME way is still refused.
+    //      FLOW may be in gold on this same account running its own strategy; that is allowed and is
+    //      not our business. What is our business is not stacking ATLAS's own trades on top of itself.
+    const owns = await accountAvailableToBrain(a.id, a.acc_num, setup.side);
+    if (!owns.available) {
+      await record({ user_id: a.user_id, account_row_id: a.id, acc_num: a.acc_num, mode, acted: false,
+        outcome: "blocked", reason: owns.reason, side: setup.side, style: setup.style });
+      continue;
+    }
 
     const t = { side: setup.side, stop: setup.stop, entry, target: setup.initialObjective };
     const sig = `${t.side}|${setup.style}|${t.stop}|${t.entry}`;
