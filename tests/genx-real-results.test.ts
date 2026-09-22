@@ -59,3 +59,13 @@ test("bestPips: the best closed account on a fire (owner 09-22: a hand-closed pr
   assert.equal(f.bestPips, 80);
   assert.equal(r.summary.losses, 1, "desk summary still grades the fire at its average");
 });
+
+test("member grade (owner 09-22): profit or break-even on any account = Win; Lesson only for full stop-outs; hand-closed loss = Closed", async () => {
+  const { memberGrade } = await import("../src/lib/genx/liveTrade");
+  const t0 = "2026-09-22T15:05:00Z";
+  const fire = (rows: Partial<RealRow>[]) => buildRealResults(rows.map((o) => row({ created_at: t0, resolved_at: t0, ...o }))).recentFiresAll[0];
+  assert.deepEqual(memberGrade(fire([{ outcome: "manual", result_pips: 80 }, { outcome: "stop", result_pips: -106 }])), { grade: "WIN", pips: 80 });
+  assert.deepEqual(memberGrade(fire([{ outcome: "breakeven", result_pips: 0 }, { outcome: "stop", result_pips: -99 }])), { grade: "WIN", pips: 0 });
+  assert.equal(memberGrade(fire([{ outcome: "stop", result_pips: -99 }, { outcome: "stop", result_pips: -96 }])).grade, "LESSON");
+  assert.equal(memberGrade(fire([{ outcome: "manual", result_pips: -30 }, { outcome: "stop", result_pips: -99 }])).grade, "CLOSED");
+});
