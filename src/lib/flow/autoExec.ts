@@ -1268,6 +1268,21 @@ async function goldShortMomentum(): Promise<"up" | "down" | "flat" | null> {
  * GOLD_LOSS_COOLDOWN_MS — so the lookback window and the cooldown are the same ~2h.
  */
 
+/*
+ * NEWS AND SESSION BLACKOUTS (owner 09-22: "take everything that GenX says to take") — OFF by default.
+ *
+ * Three windows used to flip a GENX call to Send-It-only for everyone else: a high-impact USD event, the
+ * 4:45–7:00pm New York daily close/reopen, and the last 30 minutes before Friday's close. They were
+ * spread guards, not read guards — GENX's call itself was never the thing in question — and the owner's
+ * instruction is that a call GENX makes goes out. Set GENX_BLACKOUTS=on to re-arm all three.
+ *
+ * What is NOT changed by this switch, and still holds an entry: the change-of-character flip, the desk
+ * breaker after three stop-outs, the chase guard, and the admin GENX kill switch.
+ */
+function blackoutsArmed(): boolean {
+  return String(process.env.GENX_BLACKOUTS ?? "off").trim().toLowerCase() === "on";
+}
+
 // ── RANGE GUARD (owner 09-18) ────────────────────────────────────────────────────────────────────────
 // Where in the recent range is this entry? A short at the floor and a long at the ceiling are the two
 // trades a range punishes, and they are exactly what the desk kept taking (23:40 sell @4344 and 03:30
@@ -1359,8 +1374,9 @@ export async function goldDeskBreaker(admin: Admin): Promise<{ hold: boolean; re
 async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: number | null): Promise<{ hold: boolean; reason: string; scope?: "desk" | "conservative" }> {
   const dir = side === "sell" ? "SELL" : "BUY";
 
-  // WEEKEND-CLOSE BLACKOUT — no new entries in the final 30 min before Friday's close.
-  if (inWeekendCloseWindow()) {
+  // WEEKEND-CLOSE BLACKOUT — no new entries in the final 30 min before Friday's close. (09-22: only
+  // while GENX_BLACKOUTS=on; see blackoutsArmed.)
+  if (blackoutsArmed() && inWeekendCloseWindow()) {
     return {
       hold: true, scope: "desk",
       reason: `Weekend-close blackout: no new ${dir} entries in the final 30 minutes before Friday's close. Open positions keep being managed; fresh setups resume at the Sunday reopen.`,
@@ -1370,7 +1386,7 @@ async function goldEntryHold(admin: Admin, side: "buy" | "sell", newEntry?: numb
   // DAILY REOPEN BLACKOUT — no new entries around the daily close/reopen (4:45–7:00pm New
   // York): widest spreads + thinnest liquidity of the day, where a fresh fill goes straight
   // to its stop. Open positions keep being managed; fresh setups resume after 7pm NY.
-  if (inDailyReopenWindow()) {
+  if (blackoutsArmed() && inDailyReopenWindow()) {
     return {
       hold: true, scope: "desk",
       reason: `Daily-reopen blackout: no new ${dir} entries between 4:45pm and 7:00pm New York (around the daily market close/reopen — spreads are widest and liquidity thinnest right there). Open positions keep being managed; fresh setups resume after 7pm NY.`,
@@ -1545,7 +1561,9 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
 
   // NEWS GUARD (falling-knife): gold reacts to USD data — if a HIGH-impact USD event is
   // inside the blackout window, hold this ENTER NOW. GENX will re-offer once it passes.
-  try { if ((await newsHold("XAUUSD")).hold) { await deskDrop(`news_blackout ${sig.side} (send-it only)`); sendItOnly = true; } } catch { /* feed down → don't block */ }
+  if (blackoutsArmed()) {
+    try { if ((await newsHold("XAUUSD")).hold) { await deskDrop(`news_blackout ${sig.side} (send-it only)`); sendItOnly = true; } } catch { /* feed down → don't block */ }
+  }
 
   // OWNER RULE 1 HALT (see goldEntryHold): a side pauses ONLY after a real stop-out on that side
   // within the ~2h cooldown. A pause is VISIBLE: it posts a Telegram note ("why it didn't enter")
@@ -1792,8 +1810,8 @@ export async function placeGenxFollower(sig: {
   // accounts with the Send It toggle still take it; everyone else is protected as before.
   // sig.sendItOnly starts the call that way (scanner arm-time fill for chased signals).
   let sendItOnly = sig.sendItOnly === true;
-  if (inWeekendCloseWindow()) sendItOnly = true; // no new entries near Friday close (send-it excepted)
-  if (inDailyReopenWindow()) sendItOnly = true; // no new entries around the daily close/reopen (send-it excepted)
+  if (blackoutsArmed() && inWeekendCloseWindow()) sendItOnly = true; // 09-22: only while GENX_BLACKOUTS=on
+  if (blackoutsArmed() && inDailyReopenWindow()) sendItOnly = true;  // 09-22: only while GENX_BLACKOUTS=on
   if (!(await systemSwitches(admin)).genx) return { accounts: 0, placed: 0 }; // admin GENX kill switch — hard, even for send-it
   if (!originAllowed(sig.origin)) return { accounts: 0, placed: 0 }; // engine selection (owner 09-16)
   // QUALITY GATE (GENX 2.0 only) — same hard gate as the copy path (the copy path posts the note).
@@ -1828,7 +1846,9 @@ export async function placeGenxFollower(sig: {
   // FALLING-KNIFE GUARDS (owner 09-16: "make this for the aggressive also") — the same change-of-
   // character hold and high-impact news hold as the copy path now apply to follower accounts, whether
   // conservative or aggressive (the copy path posts the Telegram note).
-  try { if ((await newsHold("XAUUSD")).hold) sendItOnly = true; } catch { /* feed down → don't block */ }
+  if (blackoutsArmed()) {
+    try { if ((await newsHold("XAUUSD")).hold) sendItOnly = true; } catch { /* feed down → don't block */ }
+  }
   try { const gate = await goldEntryHold(admin, sig.side, entry); if (gate.hold) sendItOnly = true; } catch { /* read error → don't block */ }
 
   // SELECTIVITY GATES REMOVED (owner 09-16) — same as the copy path: no break-even escalation,
