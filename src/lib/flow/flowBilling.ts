@@ -40,6 +40,43 @@ export function billingOpen(nowMs: number): boolean {
 /** Manual member plays/tests are not FLOW automation. */
 export const isManualSource = (source: string) => /^(play|test)/i.test(source);
 
+/**
+ * FLOW OFF = NO CHARGES (owner 09-23: "if people don't have flow turned on it's gotta stop taking their
+ * credits — some people are saying their credits are going down even though they aren't using flow").
+ *
+ * FLOW has two switches: the member's master auto-run toggle (flow_auto_settings.enabled, what the FLOW
+ * panel shows) and the older per-account arm flags on flow_broker_accounts (autotrade_enabled /
+ * genx_follower). Billing used to read ONLY the per-account flags, so a member who turned the master
+ * toggle OFF kept paying — 56 members were billed 6,149 credits over 14 days for ZERO trades, almost all
+ * of it the 1-credit "setup is forming" charge.
+ *
+ * This is the single gate every billing path runs through. A member is billable unless their settings row
+ * says enabled === false:
+ *   • row with enabled=false → NEVER billed, and never traded (their accounts are dropped from the fire).
+ *   • row with enabled=true  → billed as before.
+ *   • NO row at all          → billed as before. This is deliberate: the engine deliberately fans out to
+ *     autotrade-enabled accounts that have no settings row (see autoExec "UNIFIED FAN-OUT"), so those
+ *     members DO trade and must still pay. Only an explicit OFF stops the meter.
+ * Unreadable settings table → everyone stays billable (fail open; never break billing over a DB blip).
+ */
+export async function flowOffUserIds(admin: Admin, userIds: string[]): Promise<Set<string>> {
+  const off = new Set<string>();
+  if (!userIds.length) return off;
+  const { data, error } = await admin.from("flow_auto_settings").select("user_id, enabled").in("user_id", userIds);
+  if (error) return off;                                                   // fail open
+  for (const r of (data ?? []) as { user_id: string; enabled?: boolean | null }[]) {
+    if (r.enabled === false) off.add(String(r.user_id));
+  }
+  return off;
+}
+
+/** Drop members whose master FLOW toggle is OFF from a user→accounts map. Mutates nothing. */
+async function billableUsers(admin: Admin, byUser: Map<string, BillRow[]>): Promise<Map<string, BillRow[]>> {
+  const off = await flowOffUserIds(admin, [...byUser.keys()]);
+  if (!off.size) return byUser;
+  return new Map([...byUser].filter(([uid]) => !off.has(uid)));
+}
+
 export type ChargeResult = "charged" | "inside_window" | "paused" | "closed" | "error";
 /** Bill one MEMBER for the current 30-min window (one credit however many accounts). Atomic in Postgres. */
 export async function chargeMember(admin: Admin, userId: string, wasPaused: boolean, nowMs = Date.now()): Promise<{ result: ChargeResult; ok: boolean }> {
@@ -61,7 +98,7 @@ export async function billedAccountIds(admin: Admin, accountIds: string[]): Prom
   const rows = (data ?? []) as BillRow[];
   const byUser = new Map<string, BillRow[]>();
   for (const r of rows) { const l = byUser.get(r.user_id) ?? []; l.push(r); byUser.set(r.user_id, l); }
-  for (const [uid, list] of byUser) {
+  for (const [uid, list] of await billableUsers(admin, byUser)) {
     const wasPaused = list.every((r) => !!r.flow_credit_paused);
     const c = await chargeMember(admin, uid, wasPaused);
     if (c.ok) for (const r of list) out.add(String(r.account_id));
@@ -96,7 +133,7 @@ export async function billedAccountIdsForFire(admin: Admin, accountIds: string[]
   const rows = (data ?? []) as BillRow[];
   const byUser = new Map<string, BillRow[]>();
   for (const r of rows) { const l = byUser.get(r.user_id) ?? []; l.push(r); byUser.set(r.user_id, l); }
-  for (const [uid, list] of byUser) {
+  for (const [uid, list] of await billableUsers(admin, byUser)) {
     const wasPaused = list.every((r) => !!r.flow_credit_paused);
     const c = await billEvent(admin, uid, fireKey, "trade", wasPaused);
     if (c.ok) for (const r of list) out.add(String(r.account_id));
@@ -111,14 +148,15 @@ export async function billSetupForming(admin: Admin, setupKey: string): Promise<
   const byUser = new Map<string, BillRow[]>();
   for (const r of (data ?? []) as BillRow[]) { const l = byUser.get(r.user_id) ?? []; l.push(r); byUser.set(r.user_id, l); }
   let charged = 0, paused = 0;
-  for (const [uid, list] of byUser) {
+  const billable = await billableUsers(admin, byUser);
+  for (const [uid, list] of billable) {
     const wasPaused = list.every((r) => !!r.flow_credit_paused);
     const c = await billEvent(admin, uid, setupKey, "setup", wasPaused);
     if (c.result === "charged") charged++; else if (c.result === "paused") paused++;
     const isPaused = c.result === "paused" || (c.result === "error" && wasPaused);
     if (c.result === "charged" || c.result === "paused") { try { await admin.from("flow_auto_settings").update({ credit_paused: isPaused }).eq("user_id", uid).neq("credit_paused", isPaused); } catch { /* UI mirror best-effort */ } }
   }
-  return { members: byUser.size, charged, paused };
+  return { members: billable.size, charged, paused };
 }
 
 /** LEGACY time-window pass — no longer called by the worker (kept for the Vercel cron fallback until it is
@@ -130,7 +168,8 @@ export async function billFlowAccounts(admin: Admin, nowMs = Date.now()): Promis
   const byUser = new Map<string, BillRow[]>();
   for (const r of (data ?? []) as BillRow[]) { const l = byUser.get(r.user_id) ?? []; l.push(r); byUser.set(r.user_id, l); }
   let charged = 0, paused = 0, errors = 0;
-  for (const [uid, list] of byUser) {
+  const billable = await billableUsers(admin, byUser);
+  for (const [uid, list] of billable) {
     const wasPaused = list.every((r) => !!r.flow_credit_paused);
     // skip the RPC when every account is clearly inside a paid window
     if (!list.some((r) => billingDue(r, nowMs))) continue;
@@ -139,5 +178,5 @@ export async function billFlowAccounts(admin: Admin, nowMs = Date.now()): Promis
     const isPaused = c.result === "paused" || (c.result === "error" && wasPaused);
     if (c.result !== "inside_window") { try { await admin.from("flow_auto_settings").update({ credit_paused: isPaused }).eq("user_id", uid).neq("credit_paused", isPaused); } catch { /* UI mirror best-effort */ } }
   }
-  return { open: true, members: byUser.size, charged, paused, errors };
+  return { open: true, members: billable.size, charged, paused, errors };
 }

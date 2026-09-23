@@ -10,7 +10,7 @@ import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
 import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
 import { goldResvKey, blocksEntry } from "@/lib/genx/hedge";
-import { billedAccountIdsForFire, billSetupForming } from "@/lib/flow/flowBilling";
+import { billedAccountIdsForFire, billSetupForming, flowOffUserIds } from "@/lib/flow/flowBilling";
 import { genxLabel } from "@/lib/genx/brand";
 import { genxGoldQualityGate } from "@/lib/genx/qualityGate";
 import { originAllowed, genx3AccountFilter } from "@/lib/genx3/engineSelect";
@@ -1669,6 +1669,14 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // two partitions cover every opted-in account exactly once — no gap, no double-fill.
   const { data: onRows } = await admin.from("flow_broker_accounts").select("user_id").eq("autotrade_enabled", true);
   let userIds = [...new Set(((onRows ?? []) as { user_id: string | null }[]).map((r) => r.user_id).filter((x): x is string => !!x))];
+  // OFF MEANS OFF (owner 09-23). A member who switched their master FLOW toggle off is out of the
+  // fan-out entirely — no fill, and therefore nothing to bill. Until now this fan-out read only the
+  // per-account arm flag, so 35 members who turned FLOW off kept getting orders placed (and charged)
+  // for weeks. An absent settings row is NOT off: those members still trade (see UNIFIED FAN-OUT above).
+  {
+    const off = await flowOffUserIds(admin, userIds);
+    if (off.size) userIds = userIds.filter((u) => !off.has(u));
+  }
   // GENX 3.0 live scope: only the designated members (still subject to every per-account rule below).
   if (sig.onlyUserIds) { const allow = new Set(sig.onlyUserIds); userIds = userIds.filter((u) => allow.has(u)); }
   else if (sig.origin !== "genx3") { const reserved = await genx3ReservedUsers(admin); if (reserved.size) userIds = userIds.filter((u) => !reserved.has(u)); } // accounts running GENX 3.x get no legacy signals
@@ -1884,6 +1892,12 @@ export async function placeGenxFollower(sig: {
   // this follower fill for the same setup. Pure-follower accounts (autotrade off) route here.
   // Uses the shared goldRoute() rule so the two paths can never disagree on ownership.
   accts = accts.filter((a) => goldRoute(a) === "follower").map(a => ({ ...a, send_it: SEND_IT_ENABLED && a.send_it === true }));
+  // OFF MEANS OFF (owner 09-23) — same rule as the copy path: a member whose master FLOW toggle is off
+  // takes no follower fills either, so nothing reaches them and nothing is billed.
+  {
+    const off = await flowOffUserIds(admin, [...new Set(accts.map((a) => String(a.user_id)))]);
+    if (off.size) accts = accts.filter((a) => !off.has(String(a.user_id)));
+  }
   /*
    * TRADE STYLES APPLY HERE TOO.
    *
