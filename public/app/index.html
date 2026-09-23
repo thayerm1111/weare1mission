@@ -1157,6 +1157,8 @@ input{font:inherit}
 .ltc-riders{margin-top:12px;font-size:12.5px;font-weight:800;color:#dff;text-align:center}
 .ltc-last{margin-top:14px;border-top:1px solid rgba(255,255,255,.07);padding-top:12px}
 .ltc-lk{font-size:10px;font-weight:900;letter-spacing:.14em;color:rgba(200,220,240,.55);text-transform:uppercase;margin-bottom:8px}
+.ltc-streak{float:right;font-size:10px;font-weight:900;letter-spacing:.06em;padding:2px 8px;border-radius:999px;color:rgba(255,255,255,.45);border:1px solid var(--line);background:rgba(255,255,255,.04)}
+.ltc-streak.on{color:#ffb020;border-color:rgba(255,176,32,.45);background:rgba(255,176,32,.12)}
 .ltc-chips{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .ltc-chip{border-radius:14px;padding:9px 6px;text-align:center;border:1px solid}
 .ltc-chip b{display:block;font-size:13px;font-weight:900}.ltc-chip span{font-size:10px;color:rgba(200,220,240,.6);font-weight:700}
@@ -6566,7 +6568,10 @@ input{font:inherit}
     var d = st[0]; if (!d) return null;
     var recent = arr(d.recent), L = d.live;
     function ago(at) { var m = Math.max(0, Math.round((Date.now() - Date.parse(at)) / 60000)); return m < 60 ? m + "m ago" : m < 1440 ? Math.round(m / 60) + "h ago" : Math.round(m / 1440) + "d ago"; }
-    var last = recent.length ? html`<div class="ltc-last"><div class="ltc-lk">Your last ${recent.length === 1 ? "trade" : recent.length + " trades"}</div><div class="ltc-chips">${recent.map(function (r) {
+    // WIN STREAK (owner 09-23): consecutive wins, counted across every closed trade; one lesson resets it.
+    var stk = (typeof d.streak === "number" && d.streak > 0) ? d.streak : 0;
+    var streakTag = html`<span class=${"ltc-streak" + (stk ? " on" : "")}>${stk ? "\uD83D\uDD25 Streak " + stk : "No streak yet"}</span>`;
+    var last = recent.length ? html`<div class="ltc-last"><div class="ltc-lk">Your last ${recent.length === 1 ? "trade" : recent.length + " trades"}${streakTag}</div><div class="ltc-chips">${recent.map(function (r) {
       var c = r.grade === "WIN" ? "w" : r.grade === "LESSON" ? "l" : "e";
       return html`<div class=${"ltc-chip " + c}><b>${r.grade === "WIN" ? "🏆 Win" : r.grade === "LESSON" ? "💡 Lesson" : r.grade === "CLOSED" ? "Closed" : "Even"}</b><span>${r.side} · ${r.pips > 0 ? "+" : ""}${r.pips}p · ${ago(r.at)}</span></div>`;
     })}</div></div>` : null;
