@@ -15,6 +15,9 @@ export async function GET(req: Request) {
   const connIds = [...new Set((accounts ?? []).map((a) => a.connection_id))];
   const { data: conns } = connIds.length ? await c.admin.from("auric_broker_connections").select("id, env, server, email_masked, status, last_error, imported_from").in("id", connIds) : { data: [] };
   const acct = accountId ? (accounts ?? []).find((a) => a.id === accountId) : (accounts ?? [])[0];
+  // Active sessions across ALL of the member's accounts (for the auto-run control and the account picker).
+  const ids = (accounts ?? []).map((a) => a.id);
+  const { data: sessions } = ids.length ? await c.admin.from("auric_sessions").select("account_id, expires_at, status, auto_renew").in("account_id", ids).eq("status", "active").gt("expires_at", new Date().toISOString()) : { data: [] as { account_id: string; expires_at: string; status: string; auto_renew: boolean }[] };
   let snapshot = null, session = null, positions: unknown[] = [], recent: unknown[] = [];
   if (acct) {
     const [s, se, p, ev] = await Promise.all([
@@ -28,7 +31,7 @@ export async function GET(req: Request) {
   const workerAlive = hb ? Date.now() - Date.parse(hb.at) < 45_000 : false;
   const price = settings.daily_price_credits ?? null;
   return json({
-    ok: true, accounts: accounts ?? [], connections: conns ?? [], account: acct ?? null, snapshot, session, positions, events: recent,
+    ok: true, accounts: accounts ?? [], connections: conns ?? [], account: acct ?? null, snapshot, session, sessions: sessions ?? [], positions, events: recent,
     wallet: bal.data ?? null,
     product: { price, priceConfigured: price != null, sessionHours: settings.session_hours ?? 24, engineEnabled: settings.engine_enabled === true, liveOrdersEnabled: settings.live_orders_enabled === true, memberLiveSelfAuthorize: settings.member_live_self_authorize === true, worker: { alive: workerAlive, at: hb?.at ?? null, info: hb?.info ?? null } },
     isAdmin: c.isAdmin,
