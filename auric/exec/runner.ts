@@ -13,14 +13,14 @@ import { fallbackSession, type SessionWindow } from "../market/session";
 import { referencePrice, referenceConfigured, referenceBudget } from "../market/twelvedata";
 import { inBlackout, loadCalendar } from "../market/calendar";
 import * as TL from "../broker/tradelocker";
-import { discoverGold } from "../broker/instrument";
+import { discoverGold, missingFields } from "../broker/instrument";
 import { authFor, type ConnRow } from "../broker/session";
 import { checkOwnership, isAuricTag, AURIC_TAG_PREFIX } from "./ownership";
 import { LatencySet } from "./latency";
 
 export type AccountRow = {
   id: string; user_id: string; connection_id: string; broker_account_id: string; acc_num: string; currency: string | null;
-  instrument_spec: InstrumentSpec | null; risk_fraction: number; allow_shared_account: boolean; status: string; live_authorized_at: string | null;
+  instrument_spec: InstrumentSpec | null; risk_fraction: number; allow_shared_account: boolean; status: string; live_authorized_at: string | null; updated_at?: string | null;
 };
 export type SessionRow = { id: string; expires_at: string; status: string; paused_entries: boolean; pause_reason: string | null; auto_renew: boolean };
 type PosRow = { id: string; broker_position_id: string; strategy_tag: string; side: "buy" | "sell"; qty: number; entry: number; stop: number; target: number; initial_risk: number; invalidation: number; setup_family: string; protected: boolean; protection_attempts: number; opened_at: string; status: string; close_reason: string | null; management_version: string; mgmt: Record<string, unknown>; session_id: string | null; intent_id: string | null };
@@ -87,15 +87,38 @@ export class AccountRunner {
   }
 
   /* ------------------------------------------------------------ market data */
+  private specRetryAt = 0; private specEventAt = 0;
   async ensureSpec(a: TL.TLAuth) {
-    if (this.spec && Date.now() - this.lastSpecCheck < 6 * 3600_000) return;
-    this.lastSpecCheck = Date.now();
+    const now = Date.now();
+    // 1) Reuse the persisted specification (written by an earlier successful discovery) instead of asking the
+    //    broker again on every restart: several runners share one broker login and the instrument endpoints are
+    //    the first thing Cloudflare rate-limits. A complete persisted spec is trusted for 6h, then re-checked.
+    if (!this.spec && this.acct.instrument_spec && missingFields(this.acct.instrument_spec).length === 0) {
+      this.spec = this.acct.instrument_spec; this.cfg = { ...this.cfg, priceDecimals: this.spec.priceDecimals ?? 2 };
+      this.lastSpecCheck = Date.parse(this.acct.updated_at ?? "") || now;
+    }
+    if (this.spec && now - this.lastSpecCheck < 6 * 3600_000) return;
+    // 2) Failed discoveries retry with backoff (60s → 10 min), never every tick.
+    if (now < this.specRetryAt) return;
     if (!this.tlcfg) { const c = await TL.getConfig(a); if (c.ok) { this.tlcfg = c.data; TL.applyRateLimits(c.data); } }
     const d = await discoverGold(a);
-    if (!d.ok) { this.health.lastError = d.error; await event(this.acct.id, this.session?.id ?? null, "instrument", `instrument discovery failed: ${d.error}`); return; }
+    if (!d.ok) {
+      this.health.lastError = d.error;
+      this.specRetryAt = now + Math.min(600_000, 60_000 * Math.max(1, Math.round((now - this.lastSpecCheck) / 60_000) || 1));
+      if (now - this.specEventAt > 300_000) { this.specEventAt = now; await event(this.acct.id, this.session?.id ?? null, "instrument", `instrument discovery failed: ${d.error}${this.spec ? " — keeping the last good specification" : ""}`); }
+      return;
+    }
+    // 3) Never replace a complete specification with an incomplete one.
+    if (d.missing.length && this.spec && missingFields(this.spec).length === 0) {
+      this.specRetryAt = now + 300_000;
+      if (now - this.specEventAt > 300_000) { this.specEventAt = now; await event(this.acct.id, this.session?.id ?? null, "instrument", `broker returned an incomplete specification (missing ${d.missing.join(", ")}) — keeping the last good one`); }
+      return;
+    }
+    this.lastSpecCheck = now; this.specRetryAt = 0;
     this.spec = d.spec; this.cfg = { ...this.cfg, priceDecimals: d.spec.priceDecimals ?? 2 };
     await admin().from("auric_accounts").update({ instrument_spec: d.spec, spec_missing: d.missing, updated_at: new Date().toISOString() }).eq("id", this.acct.id);
     if (d.missing.length) await event(this.acct.id, this.session?.id ?? null, "instrument", `broker specification incomplete: missing ${d.missing.join(", ")} — sizing will refuse`);
+    else if (d.missing.length === 0 && this.specEventAt) { this.specEventAt = 0; await event(this.acct.id, this.session?.id ?? null, "instrument", `instrument specification confirmed: ${d.spec.name} tick ${d.spec.tickSize} · step ${d.spec.lotStep} · min ${d.spec.minLot} · contract ${d.spec.contractSize ?? "n/a"}`); }
   }
 
   async refreshHistory(a: TL.TLAuth, force = false) {
