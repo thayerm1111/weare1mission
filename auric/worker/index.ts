@@ -1,7 +1,7 @@
 /**
  * auric-engine — the always-on Railway service. `npm run auric-engine`.
  *
- * Every 1s: refresh the set of accounts that need a runner (active credit session OR open AURIC position
+ * Every 1s: refresh the set of accounts that need a runner (consented account, active credit session, open AURIC position
  * OR unresolved intent), tick each runner (serialized per account), flush telemetry, heartbeat.
  * Never touches GENX / FLOW / ATLAS tables except the read-only ownership look-up.
  */
@@ -34,7 +34,10 @@ async function activeAccounts(): Promise<Array<{ acct: AccountRow; conn: ConnRow
     await db.from("auric_events").insert({ account_id: s.account_id, session_id: r?.session_id ?? s.id, kind: "session", state: r?.ok ? "OBSERVING" : "PAUSED", message: r?.ok ? `Session auto-renewed: ${r.charged} credits (until ${r.expires_at}).` : `Auto-renew did not run (${r?.error ?? "error"}): new entries stopped, open positions still managed.` });
   }
   await db.from("auric_sessions").update({ status: "expired" }).eq("status", "active").lte("expires_at", nowIso);
-  const ids = new Set<string>([...(sessions ?? []).map((s) => s.account_id), ...(open ?? []).map((p) => p.account_id), ...(inflight ?? []).map((i) => i.account_id)]);
+  // Consented, linked accounts are observed too (read-only: quotes, bars, regime, account state) so the member sees
+  // AURIC working before paying. Orders need an active credit session — the runner's NO_SESSION gate enforces that.
+  const { data: watch } = await db.from("auric_accounts").select("id").eq("status", "linked").not("consent_at", "is", null);
+  const ids = new Set<string>([...(sessions ?? []).map((s) => s.account_id), ...(open ?? []).map((p) => p.account_id), ...(inflight ?? []).map((i) => i.account_id), ...(watch ?? []).map((w) => w.id)]);
   if (!ids.size) return [];
   const { data: accts } = await db.from("auric_accounts").select("*").in("id", [...ids]).in("status", ["linked", "blocked"]);
   const connIds = [...new Set((accts ?? []).map((a) => a.connection_id))];
