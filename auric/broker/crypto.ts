@@ -18,11 +18,25 @@ export function seal(plain: string): string {
   const ct = Buffer.concat([c.update(plain, "utf8"), c.final()]);
   return `v1.${iv.toString("base64url")}.${c.getAuthTag().toString("base64url")}.${ct.toString("base64url")}`;
 }
+/** Candidate keys for opening a v1 blob: AURIC's own key first, then FLOW_ENC_KEY (blobs sealed while
+ *  AURIC_ENC_KEY was not yet configured on that side). Sealing always uses auricKey(). */
+function openKeys(): Buffer[] {
+  const out: Buffer[] = []; const seen = new Set<string>();
+  for (const raw of [process.env.AURIC_ENC_KEY, process.env.FLOW_ENC_KEY]) { if (raw && !seen.has(raw)) { seen.add(raw); out.push(keyFrom(raw)); } }
+  if (!out.length) throw new Error("AURIC_ENC_KEY missing");
+  return out;
+}
 export function open(blob: string): string {
   if (blob.startsWith("v1.")) {
     const [, iv, tag, ct] = blob.split(".");
-    const d = createDecipheriv("aes-256-gcm", auricKey(), Buffer.from(iv, "base64url")); d.setAuthTag(Buffer.from(tag, "base64url"));
-    return Buffer.concat([d.update(Buffer.from(ct, "base64url")), d.final()]).toString("utf8");
+    let lastErr: unknown = null;
+    for (const key of openKeys()) {
+      try {
+        const d = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64url")); d.setAuthTag(Buffer.from(tag, "base64url"));
+        return Buffer.concat([d.update(Buffer.from(ct, "base64url")), d.final()]).toString("utf8");
+      } catch (e) { lastErr = e; }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error("unable to open sealed blob");
   }
   return openLegacy(blob, process.env.FLOW_ENC_KEY || "");
 }
