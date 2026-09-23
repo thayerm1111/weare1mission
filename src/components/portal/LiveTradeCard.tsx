@@ -187,7 +187,7 @@ function IdleState({ recent, streak, streakPips, best, bestPips, now }: { recent
 
 /**
  * WIN STREAK (owner 09-23): consecutive wins across every closed trade, not just the three shown. One
- * Lesson — or a hand-close at a loss — and it reads "No streak yet" again.
+ * Lesson — or a hand-close at a loss — and it reads "No current streak" again.
  */
 function LastThree({ recent, streak, streakPips, best, bestPips, now }: { recent: Recent[]; streak: number; streakPips: number; best: number; bestPips: number; now: number }) {
   return (
@@ -199,13 +199,13 @@ function LastThree({ recent, streak, streakPips, best, bestPips, now }: { recent
             style={streak > 0
               ? { color: K.gold, background: `${K.gold}1F`, boxShadow: `inset 0 0 0 1px ${K.gold}55` }
               : { color: K.mut2, background: "rgba(255,255,255,0.04)", boxShadow: `inset 0 0 0 1px ${K.line}` }}>
-            {streak > 0 ? `\u{1F525} Streak ${streak}${streakPips > 0 ? ` \u00B7 +${streakPips.toLocaleString("en-US")}p` : ""}` : "No streak yet"}
+            {streak > 0 ? `\u{1F525} Streak ${streak}${streakPips > 0 ? ` \u00B7 +${streakPips.toLocaleString("en-US")}p` : ""}` : "No current streak"}
           </span>
           {best > 0 && (
             <span className="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.08em]"
               style={{ color: K.cyan, background: `${K.cyan}14`, boxShadow: `inset 0 0 0 1px ${K.cyan}40` }}
               title="Your longest run of wins, and what it made">
-              {`Best ${best}${bestPips > 0 ? ` \u00B7 +${bestPips.toLocaleString("en-US")}p` : ""}`}
+              {`Record ${best}${bestPips > 0 ? ` \u00B7 +${bestPips.toLocaleString("en-US")}p` : ""}`}
             </span>
           )}
         </span>
