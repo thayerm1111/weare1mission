@@ -17,6 +17,20 @@ export function memberGrade(f: { avgPips: number | null; bestPips: number | null
   return { grade: "CLOSED", pips: f.avgPips };
 }
 
+/**
+ * WIN STREAK (owner 09-23: "if there's three wins in a row, I wanted to say streak three … as soon as
+ * there's one lesson, it goes back to no streak yet").
+ *
+ * Counts consecutive WINs from the newest trade backwards and stops at the first one that is not a win
+ * — a Lesson or a hand-close at a loss both end it. Only wins are counted, so a streak of 7 means seven
+ * winning trades in a row on this member's own accounts, with nothing else in between.
+ */
+export function winStreak(grades: readonly string[]): number {
+  let n = 0;
+  for (const g of grades) { if (g === "WIN") n++; else break; }
+  return n;
+}
+
 export function gradeOf(pips: number | null): "WIN" | "LESSON" | "BREAKEVEN" {
   if (pips == null || pips === 0) return "BREAKEVEN";
   return pips > 0 ? "WIN" : "LESSON";
