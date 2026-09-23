@@ -73,11 +73,20 @@ export async function discoverGold(a: TLAuth): Promise<{ ok: true; spec: Instrum
   if ("error" in f) return { ok: false, error: f.error };
   const det = await getInstrumentDetails(a, f.row.tradableInstrumentId, f.infoRouteId);
   const spec = parseSpec(det.ok ? det.data : f.row.raw, { tradableInstrumentId: f.row.tradableInstrumentId, tradeRouteId: f.tradeRouteId, infoRouteId: f.infoRouteId, name: f.row.name });
+  const missing = missingFields(spec);
+  // A failed/rate-limited details call with a thin list row is a transient failure, not a specification:
+  // report it as such so the caller keeps whatever complete spec it already has and retries later.
+  if (!det.ok && missing.length) return { ok: false, error: `details: ${det.error}` };
+  if (spec.priceDecimals == null && spec.tickSize != null) spec.priceDecimals = Math.max(0, Math.round(-Math.log10(spec.tickSize)));
+  return { ok: true, spec, missing };
+}
+
+/** Which sizing-critical fields a spec lacks. Empty means the spec is complete enough to size with. */
+export function missingFields(spec: InstrumentSpec): string[] {
   const missing: string[] = [];
   if (spec.tickSize == null) missing.push("tickSize");
   if (spec.lotStep == null) missing.push("lotStep");
   if (spec.minLot == null) missing.push("minLot");
   if (spec.contractSize == null && spec.tickValue == null) missing.push("contractSize/tickValue");
-  if (spec.priceDecimals == null && spec.tickSize != null) spec.priceDecimals = Math.max(0, Math.round(-Math.log10(spec.tickSize)));
-  return { ok: true, spec, missing };
+  return missing;
 }
