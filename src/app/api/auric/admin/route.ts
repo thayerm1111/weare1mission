@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
  *  { action:"set_price", credits:number|null }        — daily session price; null = not for sale
  *  { action:"engine", enabled:boolean }               — global worker flag
  *  { action:"live_orders", enabled:boolean }          — global live-order flag
+ *  { action:"member_live_self_authorize", enabled }   — signed per-account consent also grants live authorization
  *  { action:"authorize_live", accountId, enabled }    — per-account live authorization
  *  { action:"review_drawdown", accountId }            — clears a DRAWDOWN latch after deliberate review
  *  { action:"block", accountId, reason } / { action:"unblock", accountId }
@@ -27,6 +28,7 @@ export async function POST(req: Request) {
     }
     case "engine": await set("engine_enabled", b.enabled === true); return json({ ok: true });
     case "live_orders": await set("live_orders_enabled", b.enabled === true); return json({ ok: true });
+    case "member_live_self_authorize": await set("member_live_self_authorize", b.enabled === true); return json({ ok: true });
     case "authorize_live": {
       const { data: a } = await c.admin.from("auric_accounts").select("id").eq("id", String(b.accountId)).maybeSingle(); if (!a) return json({ error: "account_not_found" }, 404);
       await c.admin.from("auric_accounts").update({ live_authorized_at: b.enabled ? now : null, live_authorized_by: b.enabled ? by : null, updated_at: now }).eq("id", a.id);
