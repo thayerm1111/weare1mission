@@ -27,7 +27,7 @@ const REG: Record<string, Item> = {
   command: { href: "/portal/market-command", label: "OM AI Market Command", icon: Crosshair },
   scanner: { href: "/portal/strategy-scanner", label: "OM Strategy Scanner", icon: Radar },
   scalp: { href: "/portal/scalp", label: "OM Scalp", icon: Gauge },
-  auric: { href: "/auric", label: "AURIC", icon: Crosshair },
+  auric: { href: "/portal/auric", label: "AURIC", icon: Crosshair },
   leaderboard: { href: "/portal/leaderboard", label: "Leaderboard", icon: Medal },
   results: { href: "/portal/community", label: "Results", icon: BarChart3 },
   trading: { href: "/portal/trading", label: "The Floor", icon: LineChart },
