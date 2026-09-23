@@ -89,3 +89,11 @@ test('the streak carries its own pips: only the wins in the run are added up', a
   assert.deepEqual(winStreakOf([e('LESSON', -50)]), { count: 0, pips: 0 });
   assert.deepEqual(winStreakOf([e('WIN', null), e('WIN', 25)]), { count: 2, pips: 25 }, 'a missing figure never becomes a wrong total');
 });
+test('the record is the longest run of wins anywhere in the history, with its pips', async () => {
+  const { bestStreakOf } = await import("../src/lib/genx/liveTrade");
+  const e = (grade: string, pips: number | null) => ({ grade, pips });
+  const hist = [e('WIN', 10), e('LESSON', -50), e('WIN', 30), e('WIN', 40), e('WIN', 50), e('CLOSED', -5), e('WIN', 20)];
+  assert.deepEqual(bestStreakOf(hist), { count: 3, pips: 120 }, 'the three-win run, not the current one');
+  assert.deepEqual(bestStreakOf([e('LESSON', -20), e('CLOSED', -5)]), { count: 0, pips: 0 }, 'no wins, no record');
+  assert.deepEqual(bestStreakOf([e('WIN', 5), e('WIN', 5), e('LESSON', -9), e('WIN', 90), e('WIN', 90)]), { count: 2, pips: 180 }, 'a tie on length goes to the run that made more');
+});
