@@ -69,3 +69,14 @@ test("member grade (owner 09-22): profit or break-even on any account = Win; Les
   assert.equal(memberGrade(fire([{ outcome: "stop", result_pips: -99 }, { outcome: "stop", result_pips: -96 }])).grade, "LESSON");
   assert.equal(memberGrade(fire([{ outcome: "manual", result_pips: -30 }, { outcome: "stop", result_pips: -99 }])).grade, "CLOSED");
 });
+
+/* ── WIN STREAK (owner 09-23) ─────────────────────────────────────────────────────────────────── */
+test('win streak counts consecutive wins from the newest trade and resets on anything else', async () => {
+  const { winStreak } = await import("../src/lib/genx/liveTrade");
+  assert.equal(winStreak(['WIN', 'WIN', 'WIN']), 3);
+  assert.equal(winStreak(['WIN', 'WIN', 'WIN', 'WIN', 'WIN', 'WIN', 'WIN', 'LESSON', 'WIN']), 7, 'stops at the lesson, never counts past it');
+  assert.equal(winStreak(['LESSON', 'WIN', 'WIN']), 0, 'the newest trade was a lesson — no streak yet');
+  assert.equal(winStreak(['CLOSED', 'WIN', 'WIN']), 0, 'a hand-close at a loss ends it too');
+  assert.equal(winStreak(['WIN']), 1);
+  assert.equal(winStreak([]), 0, 'no trades yet — no streak');
+});
