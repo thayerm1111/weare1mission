@@ -1156,14 +1156,19 @@ input{font:inherit}
 .ltc-grid b{display:block;font-size:13px;color:#fff;font-variant-numeric:tabular-nums}.ltc-grid span{font-size:9.5px;color:rgba(200,220,240,.55);font-weight:800;letter-spacing:.08em;text-transform:uppercase}
 .ltc-riders{margin-top:12px;font-size:12.5px;font-weight:800;color:#dff;text-align:center}
 .ltc-last{margin-top:14px;border-top:1px solid rgba(255,255,255,.07);padding-top:12px}
-.ltc-lk{font-size:10px;font-weight:900;letter-spacing:.14em;color:rgba(200,220,240,.55);text-transform:uppercase;margin-bottom:8px}
-.ltc-tags{float:right;display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
-.ltc-streak{font-size:10px;font-weight:900;letter-spacing:.06em;padding:2px 8px;border-radius:999px;color:rgba(255,255,255,.45);border:1px solid var(--line);background:rgba(255,255,255,.04)}
+.ltc-lk{font-size:10px;font-weight:900;letter-spacing:.14em;color:rgba(200,220,240,.55);text-transform:uppercase}
+/* 09-23: the header is a flex row. It used to float the chips right, which let them sit ON TOP of the
+   trade chips below on a phone. Nothing here floats, so nothing can overlap. */
+.ltc-lhead{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.ltc-tags{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;min-width:0}
+.ltc-streak{font-size:9.5px;font-weight:900;letter-spacing:.05em;padding:3px 8px;border-radius:999px;white-space:nowrap;color:rgba(255,255,255,.45);border:1px solid var(--line);background:rgba(255,255,255,.04)}
 .ltc-streak.on{color:#ffb020;border-color:rgba(255,176,32,.45);background:rgba(255,176,32,.12)}
 .ltc-streak.best{color:rgba(120,220,255,.85);border-color:rgba(120,220,255,.3);background:rgba(120,220,255,.08)}
 .ltc-chips{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-.ltc-chip{border-radius:14px;padding:9px 6px;text-align:center;border:1px solid}
-.ltc-chip b{display:block;font-size:13px;font-weight:900}.ltc-chip span{font-size:10px;color:rgba(200,220,240,.6);font-weight:700}
+.ltc-chip{border-radius:14px;padding:10px 6px;text-align:center;border:1px solid;min-width:0}
+.ltc-chip b{display:block;font-size:12.5px;font-weight:900;white-space:nowrap}
+.ltc-chip .p{display:block;margin-top:3px;font-size:12px;font-weight:900;white-space:nowrap}
+.ltc-chip .m{display:block;margin-top:1px;font-size:9.5px;font-weight:700;color:rgba(200,220,240,.5);white-space:nowrap}
 .ltc-chip.w{background:rgba(46,232,143,.1);border-color:rgba(46,232,143,.35)}.ltc-chip.w b{color:#2ee88f}
 .ltc-chip.l{background:rgba(255,180,84,.1);border-color:rgba(255,180,84,.35)}.ltc-chip.l b{color:#ffb454}
 .ltc-chip.e{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12)}.ltc-chip.e b{color:#cfe}
@@ -6576,9 +6581,9 @@ input{font:inherit}
     var bst = (typeof d.bestStreak === "number" && d.bestStreak > 0) ? d.bestStreak : 0;
     var bstP = (typeof d.bestStreakPips === "number" && d.bestStreakPips > 0) ? d.bestStreakPips : 0;
     var streakTag = html`<span class="ltc-tags"><span class=${"ltc-streak" + (stk ? " on" : "")}>${stk ? "\uD83D\uDD25 Streak " + stk + (stkP ? " \u00B7 +" + stkP.toLocaleString("en-US") + "p" : "") : "No current streak"}</span>${bst ? html`<span class="ltc-streak best">Record ${bst}${bstP ? " \u00B7 +" + bstP.toLocaleString("en-US") + "p" : ""}</span>` : null}</span>`;
-    var last = recent.length ? html`<div class="ltc-last"><div class="ltc-lk">Your last ${recent.length === 1 ? "trade" : recent.length + " trades"}${streakTag}</div><div class="ltc-chips">${recent.map(function (r) {
+    var last = recent.length ? html`<div class="ltc-last"><div class="ltc-lhead"><div class="ltc-lk">Your last ${recent.length === 1 ? "trade" : recent.length + " trades"}</div>${streakTag}</div><div class="ltc-chips">${recent.map(function (r) {
       var c = r.grade === "WIN" ? "w" : r.grade === "LESSON" ? "l" : "e";
-      return html`<div class=${"ltc-chip " + c}><b>${r.grade === "WIN" ? "🏆 Win" : r.grade === "LESSON" ? "💡 Lesson" : r.grade === "CLOSED" ? "Closed" : "Even"}</b><span>${r.side} · ${r.pips > 0 ? "+" : ""}${r.pips}p · ${ago(r.at)}</span></div>`;
+      return html`<div class=${"ltc-chip " + c}><b>${r.grade === "WIN" ? "🏆 Win" : r.grade === "LESSON" ? "💡 Lesson" : r.grade === "CLOSED" ? "Closed" : "Even"}</b><span class="p">${r.pips > 0 ? "+" : ""}${r.pips}p</span><span class="m">${r.side} · ${ago(r.at)}</span></div>`;
     })}</div></div>` : null;
     if (!L) {
       var wins = recent.filter(function (r) { return r.grade === "WIN"; }).length;
