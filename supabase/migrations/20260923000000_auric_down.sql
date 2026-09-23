@@ -1,0 +1,20 @@
+-- Rollback for 20260923000000_auric.sql. Drops only auric_* objects. Nothing else is touched.
+drop function if exists public.auric_fenced_intent_update(uuid, bigint, jsonb);
+drop function if exists public.auric_acquire_lease(uuid, text, int);
+drop function if exists public.auric_renew_session(uuid, int);
+drop function if exists public.auric_refund_session(uuid, text);
+drop function if exists public.auric_activate_session(uuid, uuid, text, int, jsonb);
+drop table if exists public.auric_worker_heartbeat;
+drop table if exists public.auric_commands;
+drop table if exists public.auric_telemetry;
+drop table if exists public.auric_leases;
+drop table if exists public.auric_snapshots;
+drop table if exists public.auric_events;
+drop table if exists public.auric_positions;
+drop table if exists public.auric_intents;
+drop table if exists public.auric_engine_state;
+drop table if exists public.auric_risk_state;
+drop table if exists public.auric_sessions;
+drop table if exists public.auric_accounts;
+drop table if exists public.auric_broker_connections;
+drop table if exists public.auric_settings;

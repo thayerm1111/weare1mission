@@ -10,7 +10,11 @@
     "lint": "next lint",
     "worker": "tsx worker/index.ts",
     "relay": "tsx relay/server.ts",
-    "cc-worker": "tsx command-center/worker/index.ts"
+    "cc-worker": "tsx command-center/worker/index.ts",
+    "auric-engine": "tsx auric/worker/index.ts",
+    "test:auric": "node --import tsx --test tests/auric-*.test.ts",
+    "auric-research": "tsx auric/research/run.ts",
+    "auric-bench": "tsx auric/research/bench.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
