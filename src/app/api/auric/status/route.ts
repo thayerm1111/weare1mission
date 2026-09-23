@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   return json({
     ok: true, accounts: accounts ?? [], connections: conns ?? [], account: acct ?? null, snapshot, session, positions, events: recent,
     wallet: bal.data ?? null,
-    product: { price, priceConfigured: price != null, sessionHours: settings.session_hours ?? 24, engineEnabled: settings.engine_enabled === true, liveOrdersEnabled: settings.live_orders_enabled === true, worker: { alive: workerAlive, at: hb?.at ?? null, info: hb?.info ?? null } },
+    product: { price, priceConfigured: price != null, sessionHours: settings.session_hours ?? 24, engineEnabled: settings.engine_enabled === true, liveOrdersEnabled: settings.live_orders_enabled === true, memberLiveSelfAuthorize: settings.member_live_self_authorize === true, worker: { alive: workerAlive, at: hb?.at ?? null, info: hb?.info ?? null } },
     isAdmin: c.isAdmin,
   });
 }
