@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildRealResults, type RealRow } from "@/lib/genx/realResults";
 import { statsSince } from "@/lib/genx/statsSince";
-import { setupLabel, memberGrade, winStreakOf } from "@/lib/genx/liveTrade";
+import { setupLabel, memberGrade, winStreakOf, bestStreakOf } from "@/lib/genx/liveTrade";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,6 +69,8 @@ export async function GET() {
    */
   const run = winStreakOf(closed);
   const streak = run.count, streakPips = run.pips;
+  const record = bestStreakOf(closed);   // the longest run they have ever put together, and its pips
+  const bestStreak = record.count, bestStreakPips = record.pips;
 
   const liveFire = real.recentFiresAll.find((f) => f.open > 0 && Date.now() - Date.parse(f.at) < 72 * 3600_000);
   let live: Record<string, unknown> | null = null;
@@ -92,7 +94,7 @@ export async function GET() {
       price, pips: price != null && entry != null ? Math.round(d * (price - entry) * 10) : null,
     };
   }
-  return json({ live, recent, streak, streakPips, scope: "member", asOf: new Date().toISOString() });
+  return json({ live, recent, streak, streakPips, bestStreak, bestStreakPips, scope: "member", asOf: new Date().toISOString() });
 }
 
 /** One row per broker position (the ledger can carry a duplicate row for the same position). */
