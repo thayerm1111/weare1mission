@@ -140,11 +140,46 @@ function dedupe(rs: Json[]) { const seen = new Set<string>(); return rs.filter((
 const KV = ({ k, v }: { k: string; v: React.ReactNode }) => <div className="flex justify-between gap-3"><span className="text-[#7A7468]">{k}</span><span className="text-right text-[#0F1A2B] break-words">{v}</span></div>;
 const Stat = ({ label, value, sub }: { label: string; value: string; sub?: string }) => (<div className="rounded-2xl bg-white/80 border border-[#E6E1D6] p-3"><div className="text-[10px] tracking-[0.22em] uppercase text-[#7A7468]">{label}</div><div className="text-lg font-semibold text-[#0F1A2B] mt-0.5 truncate">{value}</div>{sub && <div className="text-[11px] text-[#4A4640] mt-0.5 line-clamp-2">{sub}</div>}</div>);
 
+/* AURIC dark variant — follows the portal theme toggle (html.om-dark). Light mode is the default palette. */
+const DARK_CSS = `
+.om-dark .auric-surface { background:#14161C !important; color:#E9E7E1 !important; border-color:rgba(255,255,255,0.10) !important; color-scheme:dark; }
+.om-dark .auric-surface [class*="bg-white"] { background-color:#1B1E26 !important; }
+.om-dark .auric-surface [class*="bg-[#F7F5F0]"] { background-color:#14161C !important; }
+.om-dark .auric-surface [class*="bg-[#F1EEE6]"] { background-color:#232733 !important; }
+.om-dark .auric-surface [class*="hover:bg-[#F1EEE6]"]:hover { background-color:#2A2F3D !important; }
+.om-dark .auric-surface [class*="bg-[#0F1A2B]"] { background-color:#E9E7E1 !important; color:#14161C !important; }
+.om-dark .auric-surface [class*="hover:bg-[#1A2A45]"]:hover { background-color:#FFFFFF !important; }
+.om-dark .auric-surface [class*="text-[#0F1A2B]"] { color:#E9E7E1 !important; }
+.om-dark .auric-surface [class*="bg-[#0F1A2B]"][class*="text-[#F7F5F0]"] { color:#14161C !important; }
+.om-dark .auric-surface [class*="text-[#4A4640]"] { color:#C9C4B8 !important; }
+.om-dark .auric-surface [class*="text-[#7A7468]"] { color:#A39E93 !important; }
+.om-dark .auric-surface [class*="border-[#E6E1D6]"] { border-color:rgba(255,255,255,0.12) !important; }
+.om-dark .auric-surface [class*="text-[#B4443C]"] { color:#E07A72 !important; }
+.om-dark .auric-surface [class*="text-[#2E7D5B]"] { color:#5FB48F !important; }
+.om-dark .auric-surface [class*="text-[#8A6508]"] { color:#E0BE5A !important; }
+.om-dark .auric-surface [class*="bg-[#EAF4EE]"] { background-color:rgba(95,180,143,0.14) !important; }
+.om-dark .auric-surface [class*="bg-[#FBEBEA]"] { background-color:rgba(224,122,114,0.14) !important; }
+.om-dark .auric-surface [class*="bg-[#FBF3E0]"] { background-color:rgba(224,190,90,0.14) !important; }
+.om-dark .auric-surface [class*="border-[#CFE6D8]"], .om-dark .auric-surface [class*="border-[#F1CFCB]"], .om-dark .auric-surface [class*="border-[#F0DFAE]"] { border-color:rgba(255,255,255,0.14) !important; }
+.om-dark .auric-surface select, .om-dark .auric-surface input, .om-dark .auric-surface textarea { background-color:#1B1E26 !important; color:#E9E7E1 !important; border-color:rgba(255,255,255,0.14) !important; }
+.om-dark .auric-surface svg [fill="#7A7468"] { fill:#A39E93 !important; }
+.om-dark .auric-surface svg [fill="#0F1A2B"] { fill:#E9E7E1 !important; }
+.om-dark .auric-surface svg [stroke="#0F1A2B"] { stroke:#E9E7E1 !important; }
+.om-dark .auric-surface svg [stroke="#E6E1D6"] { stroke:rgba(255,255,255,0.10) !important; }
+.om-dark .auric-surface svg rect[fill="#fff"] { fill:#14161C !important; }
+.om-dark .auric-surface svg text[fill="#fff"] { fill:#14161C !important; }
+.om-dark .auric-surface svg [fill="#B4443C"] { fill:#E07A72 !important; } .om-dark .auric-surface svg [stroke="#B4443C"] { stroke:#E07A72 !important; }
+.om-dark .auric-surface svg [fill="#2E7D5B"] { fill:#5FB48F !important; } .om-dark .auric-surface svg [stroke="#2E7D5B"] { stroke:#5FB48F !important; }
+.om-dark .auric-surface svg [fill="#B8860B"] { fill:#E0BE5A !important; } .om-dark .auric-surface svg [stroke="#B8860B"] { stroke:#E0BE5A !important; }
+.om-dark .auric-surface svg [fill="#3B6EA8"] { fill:#7FA6DD !important; } .om-dark .auric-surface svg [stroke="#3B6EA8"] { stroke:#7FA6DD !important; }
+`;
+
 function Shell({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
   // Rendered inside The Floor (portal layout keeps its top bar and side nav). AURIC keeps its own light,
   // off-white surface regardless of the portal theme, so it reads as a distinct product without leaving the page.
   return (
-    <main className="auric-surface rounded-2xl border border-[#E6E1D6] bg-[#F7F5F0] text-[#0F1A2B] px-4 py-5 md:px-6 md:py-6 font-sans" style={{ colorScheme: "light" }}>
+    <main className="auric-surface rounded-2xl border border-[#E6E1D6] bg-[#F7F5F0] text-[#0F1A2B] px-4 py-5 md:px-6 md:py-6 font-sans">
+      <style dangerouslySetInnerHTML={{ __html: DARK_CSS }} />
       <header className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div><div className="text-[22px] font-semibold tracking-[0.18em] text-[#0F1A2B]">AURIC<span className="text-[#B8860B]">.</span></div><div className="text-[11px] text-[#7A7468] tracking-wide">XAUUSD automation · One Mission · seeks $5–$10 gold-price movements, one position at a time</div></div>
         {right}
