@@ -13,7 +13,7 @@ import { Radio, Trophy, Lightbulb, Minus, Users, Target, ShieldCheck, TrendingUp
 type Grade = "WIN" | "LESSON" | "BREAKEVEN" | "CLOSED";
 type Live = { side: "BUY" | "SELL"; openedAt: string; accountsIn: number; entry: number | null; stop: number | null; target: number | null; setup: string; confidence: number | null; price: number | null; pips: number | null };
 type Recent = { at: string; side: string; pips: number | null; accounts: number; grade: Grade };
-type Payload = { live: Live | null; recent: Recent[]; streak?: number };
+type Payload = { live: Live | null; recent: Recent[]; streak?: number; streakPips?: number };
 
 const K = { panel: "#0B1017", raised: "#121A24", line: "rgba(255,255,255,0.08)", text: "#EEF4FA", mut: "rgba(238,244,250,0.62)", mut2: "rgba(238,244,250,0.40)", green: "#34D399", greenDeep: "#059669", rose: "#FB7185", amber: "#FBBF24", cyan: "#22D3EE", gold: "#FFC24B" };
 
@@ -59,7 +59,7 @@ export function LiveTradeCard({ className = "" }: { className?: string }) {
   return (
     <section className={`relative ${className}`} aria-label="GENX live trade">
       <style>{`@keyframes ltSweep{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}@keyframes ltRadar{to{transform:rotate(360deg)}}@keyframes ltGlow{0%,100%{opacity:.55}50%{opacity:1}}`}</style>
-      {data.live ? <LiveState live={data.live} recent={data.recent} streak={data.streak ?? 0} now={now} /> : <IdleState recent={data.recent} streak={data.streak ?? 0} now={now} />}
+      {data.live ? <LiveState live={data.live} recent={data.recent} streak={data.streak ?? 0} streakPips={data.streakPips ?? 0} now={now} /> : <IdleState recent={data.recent} streak={data.streak ?? 0} streakPips={data.streakPips ?? 0} now={now} />}
     </section>
   );
 }
@@ -76,7 +76,7 @@ function Shell({ accent, children }: { accent: string; children: React.ReactNode
   );
 }
 
-function LiveState({ live, recent, streak, now }: { live: Live; recent: Recent[]; streak: number; now: number }) {
+function LiveState({ live, recent, streak, streakPips, now }: { live: Live; recent: Recent[]; streak: number; streakPips: number; now: number }) {
   const up = live.side === "BUY";
   const winning = (live.pips ?? 0) >= 0;
   const accent = winning ? K.green : K.rose;
@@ -153,14 +153,14 @@ function LiveState({ live, recent, streak, now }: { live: Live; recent: Recent[]
             </div>
           </div>
           <TradeControls />
-          <LastThree recent={recent} streak={streak} now={now} />
+          <LastThree recent={recent} streak={streak} streakPips={streakPips} now={now} />
         </div>
       </div>
     </Shell>
   );
 }
 
-function IdleState({ recent, streak, now }: { recent: Recent[]; streak: number; now: number }) {
+function IdleState({ recent, streak, streakPips, now }: { recent: Recent[]; streak: number; streakPips: number; now: number }) {
   const wins = recent.filter((r) => r.grade === "WIN").length;
   return (
     <Shell accent={K.cyan}>
@@ -177,7 +177,7 @@ function IdleState({ recent, streak, now }: { recent: Recent[]; streak: number; 
             {recent.length > 0 && <p className="mt-2 text-[12px] font-semibold" style={{ color: K.green }}>{wins} of the last {recent.length} {recent.length === 1 ? "trade" : "trades"} closed as wins for you</p>}
           </div>
         </div>
-        <div className="lg:border-l lg:pl-5" style={{ borderColor: K.line }}><LastThree recent={recent} streak={streak} now={now} /></div>
+        <div className="lg:border-l lg:pl-5" style={{ borderColor: K.line }}><LastThree recent={recent} streak={streak} streakPips={streakPips} now={now} /></div>
       </div>
     </Shell>
   );
@@ -187,7 +187,7 @@ function IdleState({ recent, streak, now }: { recent: Recent[]; streak: number; 
  * WIN STREAK (owner 09-23): consecutive wins across every closed trade, not just the three shown. One
  * Lesson — or a hand-close at a loss — and it reads "No streak yet" again.
  */
-function LastThree({ recent, streak, now }: { recent: Recent[]; streak: number; now: number }) {
+function LastThree({ recent, streak, streakPips, now }: { recent: Recent[]; streak: number; streakPips: number; now: number }) {
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -196,7 +196,7 @@ function LastThree({ recent, streak, now }: { recent: Recent[]; streak: number; 
           style={streak > 0
             ? { color: K.gold, background: `${K.gold}1F`, boxShadow: `inset 0 0 0 1px ${K.gold}55` }
             : { color: K.mut2, background: "rgba(255,255,255,0.04)", boxShadow: `inset 0 0 0 1px ${K.line}` }}>
-          {streak > 0 ? `\u{1F525} Streak ${streak}` : "No streak yet"}
+          {streak > 0 ? `\u{1F525} Streak ${streak}${streakPips > 0 ? ` \u00B7 +${streakPips.toLocaleString("en-US")}p` : ""}` : "No streak yet"}
         </span>
       </div>
       {recent.length === 0 ? (
