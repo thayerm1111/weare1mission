@@ -27,6 +27,7 @@ const REG: Record<string, Item> = {
   command: { href: "/portal/market-command", label: "OM AI Market Command", icon: Crosshair },
   scanner: { href: "/portal/strategy-scanner", label: "OM Strategy Scanner", icon: Radar },
   scalp: { href: "/portal/scalp", label: "OM Scalp", icon: Gauge },
+  auric: { href: "/auric", label: "AURIC", icon: Crosshair },
   leaderboard: { href: "/portal/leaderboard", label: "Leaderboard", icon: Medal },
   results: { href: "/portal/community", label: "Results", icon: BarChart3 },
   trading: { href: "/portal/trading", label: "The Floor", icon: LineChart },
@@ -55,7 +56,7 @@ const ONES_UTILITY = ["getApp", "account", "support"];
 const ONES = [...ONES_PRIMARY, ...ONES_UTILITY];
 const BUILDERS = ["training", "getApp", "omai", "prospects", "team", "compPlan", "schedule", "leadership", "resources", "updates", "account", "support", "results", "leaderboard"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources", "compPlan"];
-const ONES_ONLY = ["trading", "genx", "signals", "xaughost", "charts", "command", "scanner", "scalp"];
+const ONES_ONLY = ["trading", "genx", "signals", "xaughost", "charts", "command", "scanner", "scalp", "auric"];
 
 // Children shown under "The Floor". Two kinds: live-desk VIEWS (query-param
 // views of /portal/trading) and standalone PAGES (their own routes). Rendered
@@ -76,6 +77,7 @@ const FLOOR_CHILDREN: FloorChild[] = [
   { kind: "page", key: "xaughost" },
   { kind: "page", key: "omai" },
   { kind: "page", key: "signals" },
+  { kind: "page", key: "auric" },
   { kind: "view", view: "pulse", label: "Market Pulse", icon: Activity },
 ];
 // Page keys that now live inside The Floor submenu (used for active detection).
