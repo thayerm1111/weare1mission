@@ -80,3 +80,12 @@ test('win streak counts consecutive wins from the newest trade and resets on any
   assert.equal(winStreak(['WIN']), 1);
   assert.equal(winStreak([]), 0, 'no trades yet — no streak');
 });
+test('the streak carries its own pips: only the wins in the run are added up', async () => {
+  const { winStreakOf } = await import("../src/lib/genx/liveTrade");
+  const e = (grade: string, pips: number | null) => ({ grade, pips });
+  assert.deepEqual(winStreakOf([e('WIN', 17), e('WIN', 92), e('WIN', 20)]), { count: 3, pips: 129 });
+  assert.deepEqual(winStreakOf([e('WIN', 30), e('LESSON', -99), e('WIN', 500)]), { count: 1, pips: 30 }, 'nothing past the lesson counts');
+  assert.deepEqual(winStreakOf([e('WIN', 0), e('WIN', 40)]), { count: 2, pips: 40 }, 'a break-even win extends the streak and adds nothing');
+  assert.deepEqual(winStreakOf([e('LESSON', -50)]), { count: 0, pips: 0 });
+  assert.deepEqual(winStreakOf([e('WIN', null), e('WIN', 25)]), { count: 2, pips: 25 }, 'a missing figure never becomes a wrong total');
+});
