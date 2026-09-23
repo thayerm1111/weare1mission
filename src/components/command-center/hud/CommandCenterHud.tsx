@@ -19,6 +19,7 @@ import BrokerBar from "../BrokerBar";
 import TradePanel, { CallTradeSheet, UnmanagedNotice } from "../TradePanel";
 import { BrainTradeCard, ProfileSheet, TradeCompleteCard, type ProfileView } from "../BrainTrade";
 import VoiceSession from "../VoiceSession";
+import { HudTour, tourSeen } from "./HudTour";
 import TradeAlert from "../TradeAlert";
 import RiskConsent, { type ConsentView } from "../RiskConsent";
 
@@ -138,6 +139,9 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
   /* ── data ─────────────────────────────────────────────────────────────── */
   useEffect(() => { setNow(Date.now()); const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
+  // Guided walkthrough: opens by itself the first time this browser sees the desk, and from GUIDE any time.
+  const [tourOpen, setTourOpen] = useState(false);
+  useEffect(() => { if (!isReplay && !tourSeen()) { const t = setTimeout(() => setTourOpen(true), 1800); return () => clearTimeout(t); } }, [isReplay]);
 
   useEffect(() => {
     if (isReplay) return;
@@ -372,6 +376,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   return (
     <div className="hud-root w-full px-[10px] pb-[10px] pt-[8px]" style={{ background: `radial-gradient(1200px 500px at 12% -10%, rgba(0,199,232,0.06), transparent), radial-gradient(900px 500px at 100% 0%, rgba(213,169,61,0.05), transparent), ${H.bg0}`, color: H.text, fontFamily: "Inter, var(--font-inter), system-ui, sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: HUD_CSS + DESK }} />
+      {tourOpen && <HudTour onClose={() => setTourOpen(false)} />}
 
       {/* ── GLOBAL HEADER ─────────────────────────────────────────────── */}
       <header className="mb-[8px] flex h-[42px] shrink-0 items-center gap-4">
@@ -385,7 +390,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           </span>
         </a>
 
-        <nav className="hud-scroll mx-auto hidden h-full min-w-0 items-center gap-0.5 overflow-x-auto rounded-[10px] px-1.5 lg:flex" style={{ border: `1px solid ${H.line}`, background: "rgba(7,16,26,0.7)" }}>
+        <nav data-tour="nav" className="hud-scroll mx-auto hidden h-full min-w-0 items-center gap-0.5 overflow-x-auto rounded-[10px] px-1.5 lg:flex" style={{ border: `1px solid ${H.line}`, background: "rgba(7,16,26,0.7)" }}>
           {NAV.map((n) => (
             <button key={n}
               onClick={() => {
@@ -413,6 +418,10 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
         <div className="ml-auto flex shrink-0 items-center gap-4">
           {!isReplay && <span className="hidden min-[1800px]:block"><BrokerBar /></span>}
           {!isReplay && (
+            <button onClick={() => setTourOpen(true)} className="rounded-[7px] px-3 py-1.5 text-[9.5px] font-bold tracking-[0.14em]" title="A guided walk through every part of the Command Center"
+              style={{ color: H.cyan2, border: "1px solid rgba(0,199,232,0.35)", background: "rgba(0,199,232,0.06)" }}>GUIDE</button>
+          )}
+          {!isReplay && (
             <button onClick={() => setCallOpen(true)} className="hidden rounded-[7px] px-3 py-1.5 text-[9.5px] font-bold tracking-[0.14em] md:block"
               style={{ color: H.gold2, border: "1px solid rgba(231,196,103,0.4)", background: "rgba(213,169,61,0.08)" }}>MANUAL</button>
           )}
@@ -431,7 +440,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
       {/* ── MARKET STATUS BAR ─────────────────────────────────────────── */}
       <div className="mb-[8px] grid shrink-0 gap-[8px] xl:h-[74px] xl:grid-cols-[minmax(0,1fr)_430px_310px]">
-        <HudPanel bodyClass="flex items-center gap-x-4 overflow-hidden px-3.5 py-2" hi>
+        <HudPanel tour="price" bodyClass="flex items-center gap-x-4 overflow-hidden px-3.5 py-2" hi>
           <div className="flex items-center gap-3">
             <GoldBars />
             <div>
@@ -458,7 +467,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           </div>
         </HudPanel>
 
-        <HudPanel bodyClass="grid grid-cols-[1.25fr_1fr_1.15fr] items-center gap-3 px-4 py-2" style={{ borderColor: bias === "bear" ? "rgba(255,83,100,0.45)" : bias === "bull" ? "rgba(41,223,166,0.4)" : H.line }}>
+        <HudPanel tour="mode" bodyClass="grid grid-cols-[1.25fr_1fr_1.15fr] items-center gap-3 px-4 py-2" style={{ borderColor: bias === "bear" ? "rgba(255,83,100,0.45)" : bias === "bull" ? "rgba(41,223,166,0.4)" : H.line }}>
           <div>
             <p className={LABEL} style={{ color: H.mut }}>Market mode</p>
             <p className="mt-1.5 text-[14px] font-bold tracking-[0.08em]" style={{ color: toneColor(intel?.mode.tone) }}>{intel?.mode.label ?? "NO READ"}</p>
@@ -479,7 +488,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           </div>
         </HudPanel>
 
-        <HudPanel bodyClass="flex items-center justify-between gap-3 px-4 py-2">
+        <HudPanel tour="thesis" bodyClass="flex items-center justify-between gap-3 px-4 py-2">
           <div className="flex items-center gap-3">
             <span className="grid h-9 w-9 place-items-center rounded-full" style={{ border: `1px solid ${H.line}` }}><Zap className="h-4 w-4" style={{ color: profile?.autoEntry ? H.gold2 : H.mut }} /></span>
             <div>
@@ -514,7 +523,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       <div className="hud-grid">
         {/* LEFT */}
         <div className="hud-col hud-left">
-          <HudPanel hi bodyClass="flex h-full flex-col">
+          <HudPanel tour="core" hi bodyClass="flex h-full flex-col">
             <div className="flex min-h-0 flex-1 flex-col items-center overflow-hidden xl:flex-row">
               <button type="button" onClick={tapCore} aria-label={onCall ? "End the conversation with ATLAS" : "Talk to ATLAS"}
                 title={onCall ? "Tap to end" : "Tap to talk to ATLAS"}
@@ -571,7 +580,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             </div>
           </HudPanel>
 
-          <HudPanel title="MARKET PULSE" icon={<Activity className="h-3.5 w-3.5" />} right={d?.live ? <LivePill /> : <LivePill label={d?.marketOpen === false ? "CLOSED" : "STALE"} color={H.gold2} />} bodyClass="flex flex-col px-3 pb-2.5">
+          <HudPanel tour="pulse" title="MARKET PULSE" icon={<Activity className="h-3.5 w-3.5" />} right={d?.live ? <LivePill /> : <LivePill label={d?.marketOpen === false ? "CLOSED" : "STALE"} color={H.gold2} />} bodyClass="flex flex-col px-3 pb-2.5">
             <div className="flex items-center gap-2">
               <p className="text-[17px] font-semibold" style={{ color: H.text }}>{thesis?.label ?? "No firm read"}</p>
               {thesis && <span className="rounded-[4px] px-1.5 py-[2px] text-[8.5px] font-bold tracking-[0.14em]" style={{ color: H.gold2, border: "1px solid rgba(231,196,103,0.45)", background: "rgba(213,169,61,0.08)" }}>{thesis.strength.toUpperCase()}</span>}
@@ -602,7 +611,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             </div>
           </HudPanel>
 
-          <HudPanel title="TIMEFRAME ALIGNMENT" icon={<Layers className="h-3.5 w-3.5" />}
+          <HudPanel tour="tf" title="TIMEFRAME ALIGNMENT" icon={<Layers className="h-3.5 w-3.5" />}
             right={<span className="text-[9.5px] font-bold tracking-[0.14em]" style={{ color: intel?.alignment.bias === "BEARISH BIAS" ? H.red : intel?.alignment.bias === "BULLISH BIAS" ? H.green : H.gold2 }}>{intel?.alignment.bias ?? "NO READ"}</span>}
             bodyClass="flex flex-col px-3 pb-2">
             <div className="grid flex-1 grid-cols-5 gap-1.5">
@@ -623,7 +632,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             </p>
           </HudPanel>
 
-          <HudPanel title="KEY LEVELS" icon={<Target className="h-3.5 w-3.5" />}
+          <HudPanel tour="levels" title="KEY LEVELS" icon={<Target className="h-3.5 w-3.5" />}
             right={<button onClick={() => setDrawer("alerts")} className="inline-flex items-center gap-1 rounded-[5px] px-2 py-[2px] text-[9px] font-bold tracking-[0.12em]" style={{ color: H.gold2, border: "1px solid rgba(231,196,103,0.45)" }}><Bell className="h-3 w-3" />ALERTS</button>}
             bodyClass="hud-scroll overflow-y-auto px-2 pb-2">
             {(intel?.keyLevels ?? []).map((l, i) => {
@@ -649,7 +658,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
         {/* CENTER */}
         <div className="hud-col hud-center">
-          <HudPanel hi bodyClass="flex h-full flex-col">
+          <HudPanel tour="chart" hi bodyClass="flex h-full flex-col">
             <div ref={chartRef} className="flex h-full min-h-0 flex-col" style={{ background: H.panel }}>
               <div className="flex shrink-0 flex-wrap items-center gap-1 border-b px-2 py-1.5" style={{ borderColor: H.lineSoft }}>
                 <div className="flex w-full items-center gap-0.5 rounded-[7px] p-0.5 sm:w-auto" style={{ border: `1px solid ${H.line}` }}>
@@ -695,7 +704,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
           {/* gauges + scenarios */}
           <div className="hud-under">
-            <div className="grid grid-cols-2 gap-[9px] sm:grid-cols-5 [&>*:last-child]:col-span-2 sm:[&>*:last-child]:col-span-1">
+            <div data-tour="gauges" className="grid grid-cols-2 gap-[9px] sm:grid-cols-5 [&>*:last-child]:col-span-2 sm:[&>*:last-child]:col-span-1">
               <Gauge title="SELLER PRESSURE" display={intel ? `${intel.pressure.sellers}` : "—"}
                 sub={intel?.pressure.sellerLabel ?? "—"} value01={intel ? (intel.pressure.sellers ?? 0) / 100 : null} color={H.red}
                 delta={ch ? -ch.deltaNet / 2 : null} deltaLabel={ch ? `over ${ch.horizon}` : null} info={intel?.pressure.method} />
@@ -709,7 +718,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
               <Gauge title="ATLAS CONVICTION" display={thesis ? `${thesis.confidence}%` : "—"} sub={bias === "bear" ? "Downside" : bias === "bull" ? "Upside" : "No side"} value01={thesis ? thesis.confidence / 100 : null} color={biasColor}
                 info="ATLAS's own confidence in the thesis it is trading, 0–100, as recorded by the engine. It is not a probability that the trade wins." />
             </div>
-            <HudPanel title="SCENARIO ANALYSIS" right={<span className="text-[8px] tracking-[0.1em]" style={{ color: H.mut }} title="ATLAS has no probability model, so these are ranked by its current thesis rather than given percentages">RANKED</span>} bodyClass="hud-scroll flex flex-col gap-[3px] overflow-y-auto px-2.5 pb-1.5">
+            <HudPanel tour="scenarios" title="SCENARIO ANALYSIS" right={<span className="text-[8px] tracking-[0.1em]" style={{ color: H.mut }} title="ATLAS has no probability model, so these are ranked by its current thesis rather than given percentages">RANKED</span>} bodyClass="hud-scroll flex flex-col gap-[3px] overflow-y-auto px-2.5 pb-1.5">
               {(intel?.scenarios ?? []).map((s, i) => {
                 const col = s.kind === "bear" ? H.red : s.kind === "bull" ? H.green : H.mut;
                 const Icon = s.kind === "bear" ? TrendingDown : s.kind === "bull" ? TrendingUp : MoveHorizontal;
@@ -731,7 +740,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           {/* radar + structure + context */}
           <div className="hud-under">
             <div className="grid gap-[9px] sm:grid-cols-[250px_minmax(0,1fr)]">
-              <HudPanel title="LIQUIDITY RADAR" icon={<Radar className="h-3.5 w-3.5" />}
+              <HudPanel tour="liquidity" title="LIQUIDITY RADAR" icon={<Radar className="h-3.5 w-3.5" />}
                 right={<span title="Draws these liquidity zones on the chart. Estimated from price structure — gold is over the counter, so no feed shows resting orders."><Chip active={liquidity} onClick={() => setLiquidity((x) => !x)}>{liquidity ? "On chart ✓" : "Show on chart"}</Chip></span>}
                 bodyClass="hud-scroll flex flex-col gap-2 overflow-y-auto px-2 pb-2 sm:flex-row sm:items-center">
                 <div className="mx-auto shrink-0"><LiquidityRadar price={d?.price ?? null} blips={blips} size={120} alive={alive} onHover={setRadarHover}
@@ -795,7 +804,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                 </div>
                 )}
               </HudPanel>
-              <HudPanel title="MARKET STRUCTURE" icon={<LineChart className="h-3.5 w-3.5" />}
+              <HudPanel tour="structure" title="MARKET STRUCTURE" icon={<LineChart className="h-3.5 w-3.5" />}
                 right={(() => {
                   // ONE answer on this panel: the same structure read as the table below, never the thesis.
                   const tr = intel?.structure.trend ?? "";
@@ -823,7 +832,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                 </dl>
               </HudPanel>
             </div>
-            <HudPanel title="GLOBAL CONTEXT" icon={<Globe2 className="h-3 w-3" />}
+            <HudPanel tour="context" title="GLOBAL CONTEXT" icon={<Globe2 className="h-3 w-3" />}
               right={<span className="text-[8px] tracking-[0.1em]" style={{ color: H.mut }} title="Shown for context only. GENX and ATLAS do not read these — nothing here changes a trade. Refreshed every 15 minutes from Twelve Data.">DISPLAY ONLY{ctx?.at ? ` · ${new Date(ctx.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}</span>}
               bodyClass="flex flex-col gap-[3px] px-2.5 pb-1.5">
               {(() => {
@@ -886,7 +895,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
         {/* RIGHT */}
         <div className="hud-col hud-right">
-          <HudPanel title="TALK WITH ATLAS" icon={<Mic className="h-3.5 w-3.5" />} right={<span className="inline-flex items-center gap-1.5 text-[10px]" style={{ color: H.green }}><LiveDot size={5} />Online</span>} bodyClass="flex h-full flex-col">
+          <HudPanel tour="talk" title="TALK WITH ATLAS" icon={<Mic className="h-3.5 w-3.5" />} right={<span className="inline-flex items-center gap-1.5 text-[10px]" style={{ color: H.green }}><LiveDot size={5} />Online</span>} bodyClass="flex h-full flex-col">
             <div className="grid shrink-0 grid-cols-4 gap-1.5 px-3 pb-2">
               {(["CHAT", "VOICE", "ANALYSIS", "SETTINGS"] as TalkTab[]).map((t) => (
                 <button key={t} onClick={() => setTalkTab(t)} className="rounded-[6px] py-1 text-[9.5px] font-semibold tracking-[0.14em]"
@@ -926,7 +935,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             </div>
           </HudPanel>
 
-          <HudPanel title="INTELLIGENCE STREAM" icon={<Brain className="h-3 w-3" />}
+          <HudPanel tour="stream" title="INTELLIGENCE STREAM" icon={<Brain className="h-3 w-3" />}
             right={<span className="flex items-center gap-[3px]">{(["ALL", "PRICE", "STRUCTURE", "NEWS"] as StreamFilter[]).map((f) => <Chip key={f} active={streamFilter === f} onClick={() => setStreamFilter(f)} className="!px-1.5 !text-[8px]">{f}</Chip>)}<LiveDot size={5} /></span>}
             bodyClass="hud-scroll overflow-y-auto px-2 pb-2">
             {streamRows.length ? streamRows.map((r, i) => (
