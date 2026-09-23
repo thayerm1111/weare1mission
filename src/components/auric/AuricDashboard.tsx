@@ -38,7 +38,7 @@ export default function AuricDashboard() {
     const j = await api(`status${accountId ? `?accountId=${accountId}` : ""}`);
     if (j.status === 401) { window.location.href = "/login?redirect=/portal/auric"; return; }
     if (!j.ok) { setErr(j.error ?? "error"); return; }
-    setErr(null); setData(j); if (!accountId && j.account) setAccountId(j.account.id);
+    setErr(null); setData(j); if (!accountId && j.accounts?.length) { const pick = j.accounts.find((a: Json) => a.consent_at) ?? j.account ?? j.accounts[0]; setAccountId(pick.id); }
   }, [accountId]);
   useEffect(() => { load(); timer.current = setInterval(load, 3000); return () => { if (timer.current) clearInterval(timer.current); }; }, [load]);
 
@@ -203,7 +203,7 @@ function PositionsTable({ rows, onReplay }: { rows: Json[]; onReplay: (id: strin
 }
 
 function ReplayModal({ r, onClose }: { r: Json; onClose: () => void }) {
-  return (<div className="fixed inset-0 bg-[#0F1A2B]/40 grid place-items-center p-4 z-50" onClick={onClose}><div className="bg-[#F7F5F0] rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-auto p-5" onClick={(e) => e.stopPropagation()}>
+  return (<div className="fixed inset-0 bg-black/50 grid place-items-center p-4 z-50" onClick={onClose}><div className="auric-surface bg-[#F7F5F0] text-[#0F1A2B] rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-auto p-5" onClick={(e) => e.stopPropagation()}>
     <div className="flex justify-between items-center mb-2"><h3 className="text-sm font-semibold">Trade replay — {r.position.side} {r.position.qty} @ {fmt(r.position.entry)}</h3><Btn onClick={onClose}>close</Btn></div>
     <p className="text-[11px] text-[#7A7468] mb-3">{r.note}</p>
     {r.intent?.candidate && <div className="text-[12px] mb-3 rounded-xl bg-white p-3 border border-[#E6E1D6]"><b>Known at decision time:</b> {r.intent.candidate.family} · regime {r.intent.candidate.regime} · trigger: {r.intent.candidate.trigger} · stop {fmt(r.intent.candidate.plannedStop)} · target {fmt(r.intent.candidate.plannedTarget)} · net R:R {fmt(r.intent.candidate.rewardRiskNet)} · sizing: {r.intent.sizing?.explanation ?? "—"} · ack {r.intent.ack_latency_ms ?? "—"} ms · fill {fmt(r.intent.fill_price)}</div>}
@@ -218,8 +218,10 @@ function SessionPanel({ data, acct, session, snap, reload }: { data: Json; acct:
   const act = async (action: string, extra: Json = {}) => { setBusy(true); const j = await api("control", { accountId: acct?.id, action, ...extra }); setBusy(false); setMsg(j.ok ? null : `${j.error}${j.detail ? `: ${j.detail}` : ""}`); await reload(); };
   const getQuote = async () => { setBusy(true); const j = await api(`activate?accountId=${acct?.id}`); setBusy(false); setQuote(j); keyRef.current = uuid(); };
   const activate = async () => { setBusy(true); const j = await api("activate", { accountId: acct?.id, key: keyRef.current, confirm: true, autoRenew }); setBusy(false); if (!j.ok) setMsg(`${j.error}${j.detail?.detail ? `: ${j.detail.detail}` : ""}`); else { setMsg(null); setQuote(null); } await reload(); };
-  const openConsent = async () => { const j = await api("consent"); setConsent(j); setConsentOpen(true); };
-  const sign = async () => { setBusy(true); const j = await api("consent", { accountId: acct?.id, acknowledged: true, signedName: name, riskFraction: Number(rf) / 100, allowShared }); setBusy(false); if (!j.ok) setMsg(j.error); else { setConsentOpen(false); setMsg(null); } await reload(); };
+  const others: Json[] = (data.accounts ?? []).filter((a: Json) => a.id !== acct?.id);
+  const [also, setAlso] = useState<string[]>([]);
+  const openConsent = async () => { const j = await api("consent"); setConsent(j); setAlso(others.filter((a) => !a.consent_at).map((a) => a.id)); setConsentOpen(true); };
+  const sign = async () => { setBusy(true); const j = await api("consent", { accountId: acct?.id, acknowledged: true, signedName: name, riskFraction: Number(rf) / 100, allowShared, alsoAccountIds: also }); setBusy(false); if (!j.ok) setMsg(j.error); else { setConsentOpen(false); setMsg(null); } await reload(); };
   const wallet = data.wallet; const balance = wallet ? (wallet.daily_left ?? 0) + (wallet.purchased ?? 0) : null;
   return (<Card title="Credit session" aside={<span className="text-[11px] text-[#7A7468]">balance {balance ?? "—"} credits</span>}>
     {msg && <p className="text-[12px] text-[#B4443C] mb-2">{msg}</p>}
@@ -246,12 +248,17 @@ function SessionPanel({ data, acct, session, snap, reload }: { data: Json; acct:
           </div>}
         <div className="pt-1"><Btn onClick={() => { const v = prompt("Risk per trade, % of equity (0.25–1.0)", rf); if (v) act("set_risk", { riskFraction: Number(v) / 100 }); }} disabled={busy}>Risk: {((acct?.risk_fraction ?? 0.005) * 100).toFixed(2)}%</Btn></div>
       </div>}
-    {consentOpen && consent && <div className="fixed inset-0 bg-[#0F1A2B]/40 grid place-items-center p-4 z-50"><div className="bg-[#F7F5F0] rounded-2xl max-w-xl w-full max-h-[85vh] overflow-auto p-5 space-y-3 text-[12px]">
-      <h3 className="text-sm font-semibold">AURIC consent — {consent.version}</h3><p className="whitespace-pre-wrap text-[#4A4640]">{consent.text}</p>
-      <label className="block">Risk per trade (% of equity, 0.25–1.0) <input className="ml-2 border rounded px-2 py-1 w-20" value={rf} onChange={(e) => setRf(e.target.value)} /></label>
-      <label className="flex gap-2 items-start"><input type="checkbox" checked={allowShared} onChange={(e) => setAllowShared(e.target.checked)} /><span>I understand this broker account may also be traded by another One Mission product and I explicitly allow AURIC on a shared account (not recommended; netting accounts can merge positions). Leave unchecked for a dedicated account.</span></label>
-      <label className="block">Type your full name to sign <input className="ml-2 border rounded px-2 py-1" value={name} onChange={(e) => setName(e.target.value)} /></label>
-      <div className="flex gap-2"><Btn kind="gold" onClick={sign} disabled={busy || !name.trim()}>I consent</Btn><Btn onClick={() => setConsentOpen(false)}>Cancel</Btn></div>
+    {consentOpen && consent && <div className="fixed inset-0 bg-black/50 grid place-items-center p-4 z-50"><div className="auric-surface bg-[#F7F5F0] text-[#0F1A2B] rounded-2xl max-w-xl w-full max-h-[85vh] overflow-auto p-5 space-y-3 text-[12px]">
+      <h3 className="text-sm font-semibold text-[#0F1A2B]">AURIC consent — {consent.version}</h3><p className="whitespace-pre-wrap text-[#4A4640]">{consent.text}</p>
+      <label className="block text-[#0F1A2B]">Risk per trade (% of equity, 0.25–1.0) <input className="ml-2 border rounded px-2 py-1 w-20" value={rf} onChange={(e) => setRf(e.target.value)} /></label>
+      <label className="flex gap-2 items-start text-[#0F1A2B]"><input type="checkbox" checked={allowShared} onChange={(e) => setAllowShared(e.target.checked)} /><span>I understand this broker account may also be traded by another One Mission product and I explicitly allow AURIC on a shared account (not recommended; netting accounts can merge positions). Leave unchecked for a dedicated account.</span></label>
+      {others.length > 0 && <div className="rounded-xl border border-[#E6E1D6] bg-white p-3 space-y-1">
+        <p className="font-medium text-[#0F1A2B]">Apply this same consent to your other linked accounts</p>
+        <p className="text-[11px] text-[#7A7468]">Each account gets its own consent record; untick any account you want to keep out of AURIC.</p>
+        {others.map((a: Json) => <label key={a.id} className="flex items-center gap-2 text-[#0F1A2B]"><input type="checkbox" checked={also.includes(a.id)} onChange={(e) => setAlso(e.target.checked ? [...also, a.id] : also.filter((x) => x !== a.id))} />{a.name ?? a.broker_account_id} · #{a.acc_num} · {data.connections.find((c: Json) => c.id === a.connection_id)?.env ?? "?"}{a.consent_at ? " (already consented — re-signs at this risk)" : ""}</label>)}
+      </div>}
+      <label className="block text-[#0F1A2B]">Type your full name to sign <input className="ml-2 border rounded px-2 py-1" value={name} onChange={(e) => setName(e.target.value)} /></label>
+      <div className="flex gap-2"><Btn kind="gold" onClick={sign} disabled={busy || !name.trim()}>I consent{also.length ? ` (${also.length + 1} accounts)` : ""}</Btn><Btn onClick={() => setConsentOpen(false)}>Cancel</Btn></div>
     </div></div>}
   </Card>);
 }
