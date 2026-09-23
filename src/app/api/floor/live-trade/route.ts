@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildRealResults, type RealRow } from "@/lib/genx/realResults";
 import { statsSince } from "@/lib/genx/statsSince";
-import { setupLabel, memberGrade, winStreak } from "@/lib/genx/liveTrade";
+import { setupLabel, memberGrade, winStreakOf } from "@/lib/genx/liveTrade";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,9 +65,10 @@ export async function GET() {
   /*
    * THE WIN STREAK (owner 09-23) is counted over EVERY closed trade in the window, not just the three
    * on the card: a member on a run of seven should be told seven, and the card only ever shows three.
-   * A Lesson or a hand-close at a loss ends it — see winStreak.
+   * A Lesson or a hand-close at a loss ends it — see winStreakOf, which also adds up what the run made.
    */
-  const streak = winStreak(closed.map((r) => r.grade));
+  const run = winStreakOf(closed);
+  const streak = run.count, streakPips = run.pips;
 
   const liveFire = real.recentFiresAll.find((f) => f.open > 0 && Date.now() - Date.parse(f.at) < 72 * 3600_000);
   let live: Record<string, unknown> | null = null;
@@ -91,7 +92,7 @@ export async function GET() {
       price, pips: price != null && entry != null ? Math.round(d * (price - entry) * 10) : null,
     };
   }
-  return json({ live, recent, streak, scope: "member", asOf: new Date().toISOString() });
+  return json({ live, recent, streak, streakPips, scope: "member", asOf: new Date().toISOString() });
 }
 
 /** One row per broker position (the ledger can carry a duplicate row for the same position). */
