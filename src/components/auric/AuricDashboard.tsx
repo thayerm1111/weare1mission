@@ -36,7 +36,7 @@ export default function AuricDashboard() {
 
   const load = useCallback(async () => {
     const j = await api(`status${accountId ? `?accountId=${accountId}` : ""}`);
-    if (j.status === 401) { window.location.href = "/login?redirect=/auric"; return; }
+    if (j.status === 401) { window.location.href = "/login?redirect=/portal/auric"; return; }
     if (!j.ok) { setErr(j.error ?? "error"); return; }
     setErr(null); setData(j); if (!accountId && j.account) setAccountId(j.account.id);
   }, [accountId]);
@@ -141,8 +141,10 @@ const KV = ({ k, v }: { k: string; v: React.ReactNode }) => <div className="flex
 const Stat = ({ label, value, sub }: { label: string; value: string; sub?: string }) => (<div className="rounded-2xl bg-white/80 border border-[#E6E1D6] p-3"><div className="text-[10px] tracking-[0.22em] uppercase text-[#7A7468]">{label}</div><div className="text-lg font-semibold text-[#0F1A2B] mt-0.5 truncate">{value}</div>{sub && <div className="text-[11px] text-[#4A4640] mt-0.5 line-clamp-2">{sub}</div>}</div>);
 
 function Shell({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
+  // Rendered inside The Floor (portal layout keeps its top bar and side nav). AURIC keeps its own light,
+  // off-white surface regardless of the portal theme, so it reads as a distinct product without leaving the page.
   return (
-    <main className="max-w-[1320px] mx-auto px-4 py-5 md:py-7 font-sans">
+    <main className="auric-surface rounded-2xl border border-[#E6E1D6] bg-[#F7F5F0] text-[#0F1A2B] px-4 py-5 md:px-6 md:py-6 font-sans" style={{ colorScheme: "light" }}>
       <header className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div><div className="text-[22px] font-semibold tracking-[0.18em] text-[#0F1A2B]">AURIC<span className="text-[#B8860B]">.</span></div><div className="text-[11px] text-[#7A7468] tracking-wide">XAUUSD automation · One Mission · seeks $5–$10 gold-price movements, one position at a time</div></div>
         {right}
