@@ -6575,7 +6575,7 @@ input{font:inherit}
     var stkP = (typeof d.streakPips === "number" && d.streakPips > 0) ? d.streakPips : 0;
     var bst = (typeof d.bestStreak === "number" && d.bestStreak > 0) ? d.bestStreak : 0;
     var bstP = (typeof d.bestStreakPips === "number" && d.bestStreakPips > 0) ? d.bestStreakPips : 0;
-    var streakTag = html`<span class="ltc-tags"><span class=${"ltc-streak" + (stk ? " on" : "")}>${stk ? "\uD83D\uDD25 Streak " + stk + (stkP ? " \u00B7 +" + stkP.toLocaleString("en-US") + "p" : "") : "No streak yet"}</span>${bst ? html`<span class="ltc-streak best">Best ${bst}${bstP ? " \u00B7 +" + bstP.toLocaleString("en-US") + "p" : ""}</span>` : null}</span>`;
+    var streakTag = html`<span class="ltc-tags"><span class=${"ltc-streak" + (stk ? " on" : "")}>${stk ? "\uD83D\uDD25 Streak " + stk + (stkP ? " \u00B7 +" + stkP.toLocaleString("en-US") + "p" : "") : "No current streak"}</span>${bst ? html`<span class="ltc-streak best">Record ${bst}${bstP ? " \u00B7 +" + bstP.toLocaleString("en-US") + "p" : ""}</span>` : null}</span>`;
     var last = recent.length ? html`<div class="ltc-last"><div class="ltc-lk">Your last ${recent.length === 1 ? "trade" : recent.length + " trades"}${streakTag}</div><div class="ltc-chips">${recent.map(function (r) {
       var c = r.grade === "WIN" ? "w" : r.grade === "LESSON" ? "l" : "e";
       return html`<div class=${"ltc-chip " + c}><b>${r.grade === "WIN" ? "🏆 Win" : r.grade === "LESSON" ? "💡 Lesson" : r.grade === "CLOSED" ? "Closed" : "Even"}</b><span>${r.side} · ${r.pips > 0 ? "+" : ""}${r.pips}p · ${ago(r.at)}</span></div>`;
