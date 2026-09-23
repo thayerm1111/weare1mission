@@ -28,10 +28,18 @@ export type VoicePlan = {
 };
 
 /*
- * TWO MONTHLY PLANS (owner 09-21): $190 for 1,000 minutes and $100 for 400 minutes.
+ * THREE MONTHLY PLANS: $29 for 50 minutes (owner 09-22), $100 for 400 and $190 for 1,000 (owner 09-21).
  * Provider cost is about $0.08 per open-line minute, so the floor is ~$80 and ~$32 at full use.
  */
 export const VOICE_PLANS: VoicePlan[] = [
+  {
+    // Owner 09-22: the starter — 50 minutes for $29, so the first step up from credits is small.
+    id: "cc_voice_50",
+    label: "ATLAS Talk Time — 50 minutes",
+    priceUsd: 29,
+    includedMinutes: 50,
+    blurb: "50 minutes a month of talk time with ATLAS about XAUUSD.",
+  },
   {
     id: "cc_voice_1000",
     label: "ATLAS Voice — 1,000 minutes",
@@ -48,8 +56,8 @@ export const VOICE_PLANS: VoicePlan[] = [
   },
 ];
 
-/** The default plan (kept for older callers). */
-export const VOICE_PLAN: VoicePlan = VOICE_PLANS[0];
+/** The default plan (kept for older callers): the 1,000-minute plan. */
+export const VOICE_PLAN: VoicePlan = VOICE_PLANS.find((p) => p.id === "cc_voice_1000") ?? VOICE_PLANS[0];
 
 export const planById = (id: string | null | undefined): VoicePlan =>
   VOICE_PLANS.find((p) => p.id === id) ?? VOICE_PLAN;
