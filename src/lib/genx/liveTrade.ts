@@ -31,6 +31,23 @@ export function winStreak(grades: readonly string[]): number {
   return n;
 }
 
+/**
+ * The streak and what it is worth (owner 09-23: "add the total pip count of the streak").
+ *
+ * Same rule, one pass: the consecutive wins from the newest trade backwards, and the pips those wins
+ * made added together. A break-even win contributes 0 pips and still extends the streak — it was a win
+ * by the owner's own rule, it just did not pay.
+ */
+export function winStreakOf(entries: readonly { grade: string; pips: number | null }[]): { count: number; pips: number } {
+  let count = 0, pips = 0;
+  for (const e of entries) {
+    if (e.grade !== "WIN") break;
+    count++;
+    pips += Number.isFinite(Number(e.pips)) ? Number(e.pips) : 0;
+  }
+  return { count, pips: Math.round(pips) };
+}
+
 export function gradeOf(pips: number | null): "WIN" | "LESSON" | "BREAKEVEN" {
   if (pips == null || pips === 0) return "BREAKEVEN";
   return pips > 0 ? "WIN" : "LESSON";
