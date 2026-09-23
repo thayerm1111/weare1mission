@@ -48,6 +48,23 @@ export function winStreakOf(entries: readonly { grade: string; pips: number | nu
   return { count, pips: Math.round(pips) };
 }
 
+/**
+ * THE RECORD (owner 09-23: "add best streak and how many pips the record is").
+ *
+ * The longest run of consecutive wins anywhere in the member's record, and what that run made. Ties on
+ * length go to the run that made more pips, so the number beside the record is always the best version
+ * of it. Same window as the card itself.
+ */
+export function bestStreakOf(entries: readonly { grade: string; pips: number | null }[]): { count: number; pips: number } {
+  let best = { count: 0, pips: 0 }, run = { count: 0, pips: 0 };
+  for (const e of entries) {
+    if (e.grade !== "WIN") { run = { count: 0, pips: 0 }; continue; }
+    run = { count: run.count + 1, pips: run.pips + (Number.isFinite(Number(e.pips)) ? Number(e.pips) : 0) };
+    if (run.count > best.count || (run.count === best.count && run.pips > best.pips)) best = run;
+  }
+  return { count: best.count, pips: Math.round(best.pips) };
+}
+
 export function gradeOf(pips: number | null): "WIN" | "LESSON" | "BREAKEVEN" {
   if (pips == null || pips === 0) return "BREAKEVEN";
   return pips > 0 ? "WIN" : "LESSON";
