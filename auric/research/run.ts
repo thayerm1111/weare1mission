@@ -8,14 +8,17 @@ import type { Bar } from "../core/types";
 import { DEFAULT_CONFIG } from "../config/defaults";
 
 async function loadBars(fromIso: string): Promise<Bar[]> {
-  const db = admin(); const out: Bar[] = []; let cursor = fromIso;
+  // PostgREST caps a single response at its configured max rows (1000 by default), so page by
+  // timestamp cursor until a page comes back short. Read-only: select only.
+  const db = admin(); const out: Bar[] = []; let cursor = fromIso; const PAGE = 1000;
   for (;;) {
-    const { data, error } = await db.from("genx_candle_archive").select("t,o,h,l,c").eq("symbol", "XAU/USD").eq("interval", "1min").gt("t", cursor).order("t").limit(20000);
+    const { data, error } = await db.from("genx_candle_archive").select("t,o,h,l,c").eq("symbol", "XAU/USD").eq("interval", "1min").gt("t", cursor).order("t").limit(PAGE);
     if (error) throw new Error(error.message);
     if (!data?.length) break;
     for (const r of data) out.push({ t: Date.parse(r.t), o: +r.o, h: +r.h, l: +r.l, c: +r.c });
-    cursor = data[data.length - 1].t; console.log(`[research] loaded ${out.length} bars to ${cursor}`);
-    if (data.length < 20000) break;
+    cursor = data[data.length - 1].t;
+    if (out.length % 50_000 < PAGE) console.log(`[research] loaded ${out.length} bars to ${cursor}`);
+    if (data.length < PAGE) break;
   }
   return out;
 }

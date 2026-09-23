@@ -48,6 +48,7 @@ export function backtest(m1All: Bar[], a: BtAssumptions, cfg: AuricConfig = DEFA
   let open: (ManagedPosition & { family: string; regime: string; atrPct: number; openIdx: number }) | null = null;
   let barsInPosition = 0; let lastEntryIdx = -1e9; let lastCandidateBarT = 0;
   const warm = 1500;
+  if (bars.length < warm + 100) throw new Error(`backtest needs at least ${warm + 100} bars; got ${bars.length}`);
   // Incremental higher-timeframe caches: recompute M5/M15/H1 only when a new bucket closes.
   let m5: Bar[] = [], m15: Bar[] = [], h1: Bar[] = []; let last5 = -1, last15 = -1, last60 = -1;
   const tick = SPEC.tickSize!;
