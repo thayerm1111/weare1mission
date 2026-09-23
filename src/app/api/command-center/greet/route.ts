@@ -83,22 +83,52 @@ export async function GET(req: Request) {
   const full = String((prof as { full_name?: string } | null)?.full_name ?? "").trim();
   const name = full ? full.split(/\s+/)[0].replace(/^./, (x) => x.toUpperCase()) : null;
 
-  // Their accounts, from the balances FLOW keeps current.
-  const { data: accts } = await c.from("flow_broker_accounts").select("environment, balance, updated_at").eq("user_id", user.id);
-  const rows = ((accts ?? []) as { environment: string; balance: number | null; updated_at: string | null }[])
-    .filter((r) => r.balance != null && Number.isFinite(Number(r.balance)));
-  const live = rows.filter((r) => r.environment === "live"), demo = rows.filter((r) => r.environment !== "live");
-  const sum = (a: typeof rows) => a.reduce((t, r) => t + Number(r.balance), 0);
-  const newest = rows.map((r) => (r.updated_at ? Date.parse(r.updated_at) : 0)).reduce((a, b) => Math.max(a, b), 0);
+  /*
+   * ONE ACCOUNT, NOT A TOTAL (owner 09-23, about to go live on Zoom: "The recap said the balance of
+   * all my accounts together. I just want it to tell my balance of one of the accounts").
+   *
+   * The welcome used to add every connected account together and say "your 3 live accounts are at
+   * $X combined" — a number that is on no screen anywhere and that a member cannot check against
+   * their platform. It now speaks the ONE account ATLAS is set to: the selected account in the
+   * Command Center, which is the same account its trade panel and its answers use. Its equity comes
+   * from ATLAS's own account state, so the figure matches the one on the member's broker screen.
+   *
+   * Fallback, in order: the ATLAS-selected account → the ATLAS account with the largest balance →
+   * the FLOW account with the largest balance (a member who has connected FLOW but never opened the
+   * Command Center). No account anywhere → no account line at all, rather than a made-up zero.
+   */
+  type CcAcct = { account_id: string | null; is_live: boolean | null; is_selected: boolean | null; equity: number | null; balance: number | null; state_at: string | null; updated_at: string | null };
+  const { data: ccData } = await c.from("cc_broker_accounts")
+    .select("account_id, is_live, is_selected, equity, balance, state_at, updated_at").eq("user_id", user.id);
+  const ccRows = ((ccData ?? []) as CcAcct[])
+    .map((r) => ({ ...r, amount: r.equity != null && Number.isFinite(Number(r.equity)) ? Number(r.equity) : (r.balance != null && Number.isFinite(Number(r.balance)) ? Number(r.balance) : null) }))
+    .filter((r) => r.amount != null);
+  const pickedCc = ccRows.find((r) => r.is_selected === true)
+    ?? [...ccRows].sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0))[0]
+    ?? null;
+
+  let one: { amount: number; isLive: boolean; asOf: string | null } | null = pickedCc
+    ? { amount: pickedCc.amount as number, isLive: pickedCc.is_live !== false, asOf: pickedCc.state_at ?? pickedCc.updated_at ?? null }
+    : null;
+
+  if (!one) {
+    const { data: accts } = await c.from("flow_broker_accounts").select("environment, balance, updated_at").eq("user_id", user.id);
+    const rows = ((accts ?? []) as { environment: string; balance: number | null; updated_at: string | null }[])
+      .filter((r) => r.balance != null && Number.isFinite(Number(r.balance)));
+    const biggest = [...rows].sort((a, b) => Number(b.balance) - Number(a.balance))[0];
+    if (biggest) one = { amount: Number(biggest.balance), isLive: biggest.environment === "live", asOf: biggest.updated_at ?? null };
+  }
+
   return json({
     eligible,
     preview: access.preview,
     name,
     voice: availability().ok,
-    accounts: rows.length ? {
-      liveCount: live.length, liveTotal: Math.round(sum(live) * 100) / 100,
-      demoCount: demo.length, demoTotal: Math.round(sum(demo) * 100) / 100,
-      asOf: newest ? new Date(newest).toISOString() : null,
+    // The shape stays as it was so the welcome script needs no change: one account, counted once.
+    accounts: one ? {
+      liveCount: one.isLive ? 1 : 0, liveTotal: one.isLive ? Math.round(one.amount * 100) / 100 : 0,
+      demoCount: one.isLive ? 0 : 1, demoTotal: one.isLive ? 0 : Math.round(one.amount * 100) / 100,
+      asOf: one.asOf,
     } : null,
   });
 }
