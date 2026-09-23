@@ -6570,7 +6570,8 @@ input{font:inherit}
     function ago(at) { var m = Math.max(0, Math.round((Date.now() - Date.parse(at)) / 60000)); return m < 60 ? m + "m ago" : m < 1440 ? Math.round(m / 60) + "h ago" : Math.round(m / 1440) + "d ago"; }
     // WIN STREAK (owner 09-23): consecutive wins, counted across every closed trade; one lesson resets it.
     var stk = (typeof d.streak === "number" && d.streak > 0) ? d.streak : 0;
-    var streakTag = html`<span class=${"ltc-streak" + (stk ? " on" : "")}>${stk ? "\uD83D\uDD25 Streak " + stk : "No streak yet"}</span>`;
+    var stkP = (typeof d.streakPips === "number" && d.streakPips > 0) ? d.streakPips : 0;
+    var streakTag = html`<span class=${"ltc-streak" + (stk ? " on" : "")}>${stk ? "\uD83D\uDD25 Streak " + stk + (stkP ? " \u00B7 +" + stkP.toLocaleString("en-US") + "p" : "") : "No streak yet"}</span>`;
     var last = recent.length ? html`<div class="ltc-last"><div class="ltc-lk">Your last ${recent.length === 1 ? "trade" : recent.length + " trades"}${streakTag}</div><div class="ltc-chips">${recent.map(function (r) {
       var c = r.grade === "WIN" ? "w" : r.grade === "LESSON" ? "l" : "e";
       return html`<div class=${"ltc-chip " + c}><b>${r.grade === "WIN" ? "🏆 Win" : r.grade === "LESSON" ? "💡 Lesson" : r.grade === "CLOSED" ? "Closed" : "Even"}</b><span>${r.side} · ${r.pips > 0 ? "+" : ""}${r.pips}p · ${ago(r.at)}</span></div>`;
