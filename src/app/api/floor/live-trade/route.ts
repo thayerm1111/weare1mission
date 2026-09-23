@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildRealResults, type RealRow } from "@/lib/genx/realResults";
 import { statsSince } from "@/lib/genx/statsSince";
-import { setupLabel, memberGrade } from "@/lib/genx/liveTrade";
+import { setupLabel, memberGrade, winStreak } from "@/lib/genx/liveTrade";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,8 +59,15 @@ export async function GET() {
   // OWNER RULE (09-22): a trade closed in profit or at break-even on ANY of the member's accounts (hand-closed
   // included) is a WIN; LESSON only when every account hit its full stop; a hand-close at a loss is CLOSED.
   // Member-only: the desk record, the GENX results card and FLOW stats are unchanged. See memberGrade.
-  const recent = real.recentFiresAll.filter((f) => f.open === 0 && f.avgPips != null).slice(0, 3)
+  const closed = real.recentFiresAll.filter((f) => f.open === 0 && f.avgPips != null)
     .map((f) => { const g = memberGrade(f); return { at: f.at, side: f.side.toUpperCase(), pips: g.pips, accounts: f.accounts, grade: g.grade }; });
+  const recent = closed.slice(0, 3);
+  /*
+   * THE WIN STREAK (owner 09-23) is counted over EVERY closed trade in the window, not just the three
+   * on the card: a member on a run of seven should be told seven, and the card only ever shows three.
+   * A Lesson or a hand-close at a loss ends it — see winStreak.
+   */
+  const streak = winStreak(closed.map((r) => r.grade));
 
   const liveFire = real.recentFiresAll.find((f) => f.open > 0 && Date.now() - Date.parse(f.at) < 72 * 3600_000);
   let live: Record<string, unknown> | null = null;
@@ -84,7 +91,7 @@ export async function GET() {
       price, pips: price != null && entry != null ? Math.round(d * (price - entry) * 10) : null,
     };
   }
-  return json({ live, recent, scope: "member", asOf: new Date().toISOString() });
+  return json({ live, recent, streak, scope: "member", asOf: new Date().toISOString() });
 }
 
 /** One row per broker position (the ledger can carry a duplicate row for the same position). */
