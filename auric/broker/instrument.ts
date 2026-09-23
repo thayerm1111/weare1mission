@@ -5,7 +5,16 @@ import { getInstrumentDetails, listInstruments, type TLAuth, type TLInstrumentRo
 function deepPickNum(o: unknown, keys: string[], depth = 0): number | null {
   if (!o || typeof o !== "object" || depth > 3) return null;
   const rec = o as Record<string, unknown>;
-  for (const k of keys) { const v = rec[k]; if (v != null && v !== "" && Number.isFinite(Number(v))) return Number(v); }
+  for (const k of keys) {
+    const v = rec[k]; if (v != null && v !== "" && Number.isFinite(Number(v))) return Number(v);
+    // TradeLocker publishes price-range tables: tickSize: [{ tickSize, leftRangeLimit }], tickCost: [{ tickCost, leftRangeLimit }].
+    // Use the base range (leftRangeLimit null/0 → first entry); a positive value only.
+    if (Array.isArray(v) && v.length) {
+      const base = v.find((e) => e && typeof e === "object" && ((e as Record<string, unknown>).leftRangeLimit == null || Number((e as Record<string, unknown>).leftRangeLimit) === 0)) ?? v[0];
+      const inner = base && typeof base === "object" ? (base as Record<string, unknown>)[k] : base;
+      if (inner != null && inner !== "" && Number.isFinite(Number(inner))) return Number(inner);
+    }
+  }
   for (const v of Object.values(rec)) { if (v && typeof v === "object" && !Array.isArray(v)) { const r = deepPickNum(v, keys, depth + 1); if (r != null) return r; } }
   return null;
 }
