@@ -213,13 +213,27 @@ function ReplayModal({ r, onClose }: { r: Json; onClose: () => void }) {
 
 function SessionPanel({ data, acct, session, snap, reload }: { data: Json; acct: Json | null; session: Json | null; snap: Json | null; reload: () => Promise<void> }) {
   const [quote, setQuote] = useState<Json | null>(null); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null);
-  const [consentOpen, setConsentOpen] = useState(false); const [consent, setConsent] = useState<Json | null>(null); const [name, setName] = useState(""); const [rf, setRf] = useState(String(((acct?.risk_fraction ?? 0.005) * 100).toFixed(2))); const [allowShared, setAllowShared] = useState(false); const [autoRenew, setAutoRenew] = useState(false);
+  const [consentOpen, setConsentOpen] = useState(false); const [consent, setConsent] = useState<Json | null>(null); const [name, setName] = useState(""); const [rf, setRf] = useState(String(((acct?.risk_fraction ?? 0.005) * 100).toFixed(2))); const [allowShared, setAllowShared] = useState(false); const [autoRenew, setAutoRenew] = useState(true);
   const keyRef = useRef<string>(uuid());
   const act = async (action: string, extra: Json = {}) => { setBusy(true); const j = await api("control", { accountId: acct?.id, action, ...extra }); setBusy(false); setMsg(j.ok ? null : `${j.error}${j.detail ? `: ${j.detail}` : ""}`); await reload(); };
   const getQuote = async () => { setBusy(true); const j = await api(`activate?accountId=${acct?.id}`); setBusy(false); setQuote(j); keyRef.current = uuid(); };
   const activate = async () => { setBusy(true); const j = await api("activate", { accountId: acct?.id, key: keyRef.current, confirm: true, autoRenew }); setBusy(false); if (!j.ok) setMsg(`${j.error}${j.detail?.detail ? `: ${j.detail.detail}` : ""}`); else { setMsg(null); setQuote(null); } await reload(); };
   const others: Json[] = (data.accounts ?? []).filter((a: Json) => a.id !== acct?.id);
   const [also, setAlso] = useState<string[]>([]);
+  // "Auto-run": activate every consented account that has no active session, auto-renew on, in one go.
+  const idle: Json[] = (data.accounts ?? []).filter((a: Json) => a.consent_at && !(data.sessions ?? []).some((s: Json) => s.account_id === a.id && s.status === "active" && Date.parse(s.expires_at) > Date.now()));
+  const activateAll = async () => {
+    if (!data.product.priceConfigured || !idle.length) return;
+    if (!confirm(`Start AURIC on ${idle.length} account${idle.length > 1 ? "s" : ""} now, auto-renewing every ${data.product.sessionHours} hours at ${data.product.price} credits each (${idle.length * data.product.price} credits now)? Accounts that fail their readiness check are skipped and listed.`)) return;
+    setBusy(true); const skipped: string[] = []; let started = 0;
+    for (const a of idle) {
+      const q = await api(`activate?accountId=${a.id}`);
+      if (!q.ok || (q.blocking?.length ?? 1) > 0) { skipped.push(`${a.name ?? a.broker_account_id} #${a.acc_num}: ${(q.blocking ?? []).map((b: Json) => b.detail ?? b.name).join("; ") || q.error || "not ready"}`); continue; }
+      const r = await api("activate", { accountId: a.id, key: uuid(), confirm: true, autoRenew: true });
+      if (r.ok) started++; else skipped.push(`${a.name ?? a.broker_account_id} #${a.acc_num}: ${r.error}`);
+    }
+    setBusy(false); setMsg(skipped.length ? `Started ${started}. Skipped — ${skipped.join(" · ")}` : null); await reload();
+  };
   const openConsent = async () => { const j = await api("consent"); setConsent(j); setAlso(others.filter((a) => !a.consent_at).map((a) => a.id)); setConsentOpen(true); };
   const sign = async () => { setBusy(true); const j = await api("consent", { accountId: acct?.id, acknowledged: true, signedName: name, riskFraction: Number(rf) / 100, allowShared, alsoAccountIds: also }); setBusy(false); if (!j.ok) setMsg(j.error); else { setConsentOpen(false); setMsg(null); } await reload(); };
   const wallet = data.wallet; const balance = wallet ? (wallet.daily_left ?? 0) + (wallet.purchased ?? 0) : null;
@@ -231,6 +245,7 @@ function SessionPanel({ data, acct, session, snap, reload }: { data: Json; acct:
         <div className="flex flex-wrap gap-2 pt-1">
           {session.paused_entries ? <Btn onClick={() => act("resume_entries")} disabled={busy}>Resume entries</Btn> : <Btn onClick={() => act("pause_entries")} disabled={busy}>Pause new entries</Btn>}
           <Btn kind="danger" onClick={() => { if (confirm("Close every AURIC-owned position on this account? Other trades on the account are never touched.")) act("close_auric"); }} disabled={busy}>Close AURIC positions</Btn>
+          {idle.length > 0 && <Btn onClick={activateAll} disabled={busy || !data.product.priceConfigured}>Auto-run {idle.length} other account{idle.length > 1 ? "s" : ""}</Btn>}
           {session.auto_renew ? <Btn onClick={() => act("auto_renew_off")} disabled={busy}>Disable auto-renew</Btn> : data.product.priceConfigured && <Btn onClick={() => { if (confirm(`Enable auto-renew at ${data.product.price} credits per ${data.product.sessionHours}-hour session? It stops automatically if the price changes or credits run out.`)) act("auto_renew_on", { price: data.product.price }); }} disabled={busy}>Enable auto-renew</Btn>}
         </div>
         <p className="text-[10px] text-[#7A7468]">Pausing stops new entries only. Closing sends close orders for AURIC positions only; closure is confirmed once the broker reports it.</p>
@@ -238,7 +253,7 @@ function SessionPanel({ data, acct, session, snap, reload }: { data: Json; acct:
     : <div className="text-[12px] space-y-2">
         <p>{data.product.priceConfigured ? `One ${data.product.sessionHours}-hour session on this account costs ${data.product.price} credits. Viewing this page never charges.` : "The administrator has not set a session price yet — activation is unavailable."}</p>
         {snap?.session?.pauseReason && <p className="text-[#7A7468]">Last session: {snap.session.pauseReason}</p>}
-        {!quote ? <Btn kind="gold" onClick={getQuote} disabled={busy || !data.product.priceConfigured}>Review activation</Btn>
+        {!quote ? <div className="flex flex-wrap gap-2"><Btn kind="gold" onClick={getQuote} disabled={busy || !data.product.priceConfigured}>Review activation</Btn>{idle.length > 1 && <Btn onClick={activateAll} disabled={busy || !data.product.priceConfigured}>Auto-run all {idle.length} accounts</Btn>}</div>
         : <div className="rounded-xl bg-white border border-[#E6E1D6] p-3 space-y-2">
             <p className="font-medium">{quote.scope}</p>
             <ul className="space-y-0.5">{(quote.checks ?? []).map((ch: Json) => <li key={ch.name} className="flex gap-2"><Chip ok={ch.ok} warn={ch.name === "live" || ch.name === "instrument"} label={ch.name} /><span className="text-[#4A4640]">{ch.detail}</span></li>)}</ul>
