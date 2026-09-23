@@ -1,4 +1,4 @@
-import { CONSENT_TEXT, CONSENT_VERSION, ctx, json, ownedAccount } from "../_lib";
+import { CONSENT_TEXT, CONSENT_VERSION, ctx, json, ownedAccount, readSettings } from "../_lib";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -23,8 +23,15 @@ export async function POST(req: Request) {
   if (b.acknowledged !== true || !String(b.signedName ?? "").trim()) return json({ error: "acknowledgement_required" }, 400);
   const rf = b.riskFraction != null ? Math.min(0.01, Math.max(0.0025, Number(b.riskFraction))) : Number(acct.risk_fraction);
   const terms = { version: CONSENT_VERSION, textSha256: await sha(CONSENT_TEXT), signedName: String(b.signedName).trim(), ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null, userAgent: req.headers.get("user-agent"), riskFraction: rf, allowShared: b.allowShared === true, at: now };
-  await c.admin.from("auric_accounts").update({ consent_at: now, consent_version: CONSENT_VERSION, consent_terms: terms, risk_fraction: rf, allow_shared_account: b.allowShared === true, updated_at: now }).eq("id", acct.id);
-  await c.admin.from("auric_events").insert({ account_id: acct.id, kind: "consent", message: `Consent recorded (${CONSENT_VERSION}); risk ${(rf * 100).toFixed(2)}% per trade${b.allowShared ? "; shared account explicitly allowed" : ""}.`, state: "PAUSED" });
+  // Admin setting `member_live_self_authorize` (default false): when true, this signed, versioned per-account
+  // consent also counts as the account's live authorization, so members can run live accounts without an
+  // admin touching each one. The global `live_orders_enabled` flag still gates every order.
+  const settings = await readSettings(c);
+  const selfAuth = settings.member_live_self_authorize === true;
+  const upd: Record<string, unknown> = { consent_at: now, consent_version: CONSENT_VERSION, consent_terms: terms, risk_fraction: rf, allow_shared_account: b.allowShared === true, updated_at: now };
+  if (selfAuth && !acct.live_authorized_at) { upd.live_authorized_at = now; upd.live_authorized_by = c.user.id; }
+  await c.admin.from("auric_accounts").update(upd).eq("id", acct.id);
+  await c.admin.from("auric_events").insert({ account_id: acct.id, kind: "consent", message: `Consent recorded (${CONSENT_VERSION}); risk ${(rf * 100).toFixed(2)}% per trade${b.allowShared ? "; shared account explicitly allowed" : ""}${selfAuth ? "; live orders authorized for this account by your signed consent" : ""}.`, state: "PAUSED" });
   return json({ ok: true, riskFraction: rf });
 }
 
