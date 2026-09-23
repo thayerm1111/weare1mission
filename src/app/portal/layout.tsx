@@ -6,6 +6,7 @@ import { NotificationsBell } from "@/components/portal/NotificationsBell";
 import { ThemeToggle } from "@/components/portal/ThemeToggle";
 import { PendingNotice } from "@/components/portal/PendingNotice";
 import { LowBalanceFlyer } from "@/components/portal/LowBalanceFlyer";
+import { AtlasAnnouncement } from "@/components/portal/AtlasAnnouncement";
 import RiskConsentGate from "@/components/command-center/RiskConsentGate";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getProfile } from "@/lib/auth";
@@ -77,6 +78,7 @@ export default async function PortalLayout({ children }: { children: React.React
         )}
       </div>
       {profile && !needsApproval && <LowBalanceFlyer />}
+      {profile && !needsApproval && <AtlasAnnouncement />}
       {/*
         * The risk disclosure, shown on the way in rather than at the moment somebody wants to trade.
         * It renders nothing for a member who has already signed, and it does not lock the portal —
