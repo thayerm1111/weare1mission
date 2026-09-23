@@ -3,12 +3,15 @@ import type { ReactNode, CSSProperties } from "react";
 import { H, LABEL } from "./theme";
 
 /** A HUD panel: near-black navy, 1px blue-steel edge, a faint inner light. `hi` lifts the edge to cyan. */
-export function HudPanel({ children, className = "", style, hi = false, title, icon, right, bodyClass = "" }: {
+export function HudPanel({ children, className = "", style, hi = false, title, icon, right, bodyClass = "", tour }: {
   children?: ReactNode; className?: string; style?: CSSProperties; hi?: boolean;
   title?: string; icon?: ReactNode; right?: ReactNode; bodyClass?: string;
+  /** Anchor id for the guided walkthrough (HudTour). Purely additive: renders as data-tour. */
+  tour?: string;
 }) {
   return (
     <section
+      data-tour={tour}
       className={`hud-panel relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[10px] ${className}`}
       style={{
         background: `linear-gradient(180deg, ${H.panel2} 0%, ${H.panel} 100%)`,

@@ -93,7 +93,7 @@ export function PassGate({ children }: { children: React.ReactNode }) {
           <p className="text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: H.gold3 }}>Command Center XAUUSD</p>
           {previewDone && (
             <div className="mt-3 rounded-lg px-3 py-2.5 text-[12.5px] leading-relaxed" style={{ border: "1px solid rgba(231,196,103,.45)", background: "rgba(213,169,61,.08)", color: H.text }}>
-              <b style={{ color: H.gold3 }}>That was ATLAS.</b> Your free first look is done. Open the live desk below to keep going — and to talk with ATLAS any time, add a voice plan from the Voice tab inside ($100 for 400 minutes or $190 for 1,000).
+              <b style={{ color: H.gold3 }}>That was ATLAS.</b> Your free first look is done. Open the live desk below to keep going — and to talk with ATLAS any time, add talk time from the Voice tab inside (from $29 for 50 minutes).
             </div>
           )}
           <h1 className="mt-2 text-[22px] font-semibold">{expired ? "Your 30 minutes are up" : "Open the Command Center"}</h1>
