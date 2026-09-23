@@ -9,7 +9,7 @@ const walk = (dir: string, exts = [".ts", ".tsx"]): string[] =>
 const FORBIDDEN_IN_AURIC = ["@/lib/flow", "@/lib/genx", "src/lib/flow", "src/lib/genx", "@/lib/genxCompute", "command-center/", "@/lib/matty", "matty-pips", "om-ai", "omai", "@/lib/ccPass", "@/lib/credits", "@/lib/marketData", "@/lib/econCalendar", "worker/"];
 
 test("AURIC IS CLEAN ROOM: nothing under auric/ imports GENX, FLOW, ATLAS, OM AI Plays or Matty Pips code", () => {
-  const files = [...walk("auric"), ...walk("src/app/api/auric"), ...walk("src/app/auric"), ...walk("src/components/auric")];
+  const files = [...walk("auric"), ...walk("src/app/api/auric"), ...walk("src/app/auric"), ...walk("src/app/portal/auric"), ...walk("src/components/auric")];
   assert.ok(files.length >= 20, `expected the auric package to exist (${files.length} files)`);
   for (const f of files) {
     const src = readFileSync(f, "utf8");
@@ -21,7 +21,7 @@ test("NOTHING ELSE IMPORTS AURIC: existing products are unchanged by the package
   const roots = ["src", "command-center", "worker", "relay"];
   for (const root of roots) {
     for (const f of walk(root)) {
-      if (f.startsWith("src/app/api/auric") || f.startsWith("src/app/auric") || f.startsWith("src/components/auric")) continue;
+      if (f.startsWith("src/app/api/auric") || f.startsWith("src/app/auric") || f.startsWith("src/app/portal/auric") || f.startsWith("src/components/auric")) continue;
       const src = readFileSync(f, "utf8");
       assert.ok(!/from\s+["'][^"']*\/auric\//.test(src) && !/from\s+["']auric\//.test(src), `${f} must not import from auric/`);
     }
