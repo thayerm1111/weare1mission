@@ -11,6 +11,7 @@ import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservati
 import { goldResvKey } from "@/lib/genx/hedge";
 import { recordExec, execContext } from "@/lib/flow/execTelemetry";
 import { billedAccountIdsForFire, isManualSource } from "@/lib/flow/flowBilling";
+import { workingEntrySides, workingBlocks } from "@/lib/flow/workingOrders";
 
 /**
  * FLOW order placement (server-only). Places a single market order on the
@@ -123,6 +124,11 @@ const INSTRUMENT_TTL_MS = 60 * 60_000; // owner 09-17 entry speed: 10→60 min s
 const instrumentCache = new Map<string, { at: number; data: TLInstrument[] }>();
 /** Pre-load a connection's instrument list before a setup triggers (entry speed, owner 09-17). */
 export async function warmInstruments(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }): Promise<boolean> { return (await instrumentsFor(a)).ok; }
+/** The broker's instrument id for `canonical` on this account, or null. Uses the shared cache. */
+export async function instrumentIdFor(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string): Promise<string | number | null> {
+  const r = await instrumentsFor(a);
+  return r.ok ? (matchInstrument(canonical, r.data)?.tradableInstrumentId ?? null) : null;
+}
 async function instrumentsFor(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }): Promise<{ ok: true; data: TLInstrument[] } | { ok: false; error: string }> {
   // Key by CONNECTION when we know it: every account under one broker login shares
   // the same instrument universe, so the accounts on a multi-account login (e.g. the
@@ -481,6 +487,24 @@ export async function placeOnActiveAccounts(opts: {
     // RULE #1 gate: reserve THIS account for gold before the order leaves. reserved=false
     // means it already holds (or has in-flight) an automated gold entry → skip, never stack.
     if (reserveOne) {
+      /*
+       * RESTING ORDERS COUNT (owner 09-24: "multiple entries on all accounts, it's supposed to be one
+       * at a time"). A zone entry is a LIMIT order that can rest for hours without ever becoming a
+       * position, so the reservation (60s) and the open-position check both saw an empty account and
+       * let a second same-side entry through. Checked BEFORE the reservation so a blocked account
+       * never takes one out and has to release it.
+       */
+      // The instrument list is cached per broker login, so resolving the gold id here is
+      // effectively free and keeps the check exact — a resting EURUSD order must not block gold.
+      const instForChk = await instrumentsFor({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId, connId: a.connId });
+      const goldId = instForChk.ok ? (matchInstrument(canonical, instForChk.data)?.tradableInstrumentId ?? null) : null;
+      const wsides = await workingEntrySides({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId }, goldId);
+      if (workingBlocks(wsides, opts.side)) {
+        const why = wsides === null ? "broker_unreadable" : "resting_order";
+        await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: lots, status: "skipped", reason: `${opts.source}: one_open_gold (${why})`.slice(0, 60), account_id: a.accountId });
+        fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", lots: s.lots, reason: `one_open_gold (${why})` });
+        return;
+      }
       // 09-22: reserved per SIDE while hedging is on, so an open SELL does not refuse a BUY.
       const resv = await reserveGold(tlog, a.accountId, canonical, resvKey, 60, opts.side);
       if (!resv.reserved) {

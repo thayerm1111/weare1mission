@@ -18,6 +18,7 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CREDIT_COST, DAILY_FREE } from "@/lib/creditConfig";
+import { flowPassUserIds } from "@/lib/subscription";
 import { goldMarketOpen } from "@/lib/genx3/v31/series";
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
@@ -70,11 +71,38 @@ export async function flowOffUserIds(admin: Admin, userIds: string[]): Promise<S
   return off;
 }
 
-/** Drop members whose master FLOW toggle is OFF from a user→accounts map. Mutates nothing. */
-async function billableUsers(admin: Admin, byUser: Map<string, BillRow[]>): Promise<Map<string, BillRow[]>> {
-  const off = await flowOffUserIds(admin, [...byUser.keys()]);
-  if (!off.size) return byUser;
-  return new Map([...byUser].filter(([uid]) => !off.has(uid)));
+/**
+ * Split a user→accounts map three ways. Every billing path runs through this, so the three rules
+ * live in exactly one place:
+ *
+ *   OFF   — master FLOW toggle explicitly off → no trade AND no charge. Dropped entirely.
+ *   PASS  — active $99 FLOW Pass          → TRADES NORMALLY, never charged, never credit-paused.
+ *                                            This is the whole product they bought; do not confuse
+ *                                            "not billable" with "not allowed to trade".
+ *   BILL  — everyone else                 → metered exactly as before.
+ *
+ * A member who is both off and a Pass holder is OFF: they asked for it not to run, and a paid plan
+ * is not a reason to override that.
+ */
+export type Split = { bill: Map<string, BillRow[]>; pass: Map<string, BillRow[]> };
+
+/** The decision itself, with no I/O, so it can be tested directly. */
+export function splitBy(byUser: Map<string, BillRow[]>, off: Set<string>, pass: Set<string>): Split {
+  if (!off.size && !pass.size) return { bill: byUser, pass: new Map() };
+  const bill = new Map<string, BillRow[]>();
+  const free = new Map<string, BillRow[]>();
+  for (const [uid, list] of byUser) {
+    if (off.has(uid)) continue;            // off beats everything, including a paid Pass
+    if (pass.has(uid)) free.set(uid, list);
+    else bill.set(uid, list);
+  }
+  return { bill, pass: free };
+}
+
+async function splitUsers(admin: Admin, byUser: Map<string, BillRow[]>): Promise<Split> {
+  const ids = [...byUser.keys()];
+  const [off, pass] = await Promise.all([flowOffUserIds(admin, ids), flowPassUserIds(admin, ids)]);
+  return splitBy(byUser, off, pass);
 }
 
 export type ChargeResult = "charged" | "inside_window" | "paused" | "closed" | "error";
@@ -98,7 +126,9 @@ export async function billedAccountIds(admin: Admin, accountIds: string[]): Prom
   const rows = (data ?? []) as BillRow[];
   const byUser = new Map<string, BillRow[]>();
   for (const r of rows) { const l = byUser.get(r.user_id) ?? []; l.push(r); byUser.set(r.user_id, l); }
-  for (const [uid, list] of await billableUsers(admin, byUser)) {
+  const split = await splitUsers(admin, byUser);
+  for (const list of split.pass.values()) for (const r of list) out.add(String(r.account_id)); // Pass: trade, no charge
+  for (const [uid, list] of split.bill) {
     const wasPaused = list.every((r) => !!r.flow_credit_paused);
     const c = await chargeMember(admin, uid, wasPaused);
     if (c.ok) for (const r of list) out.add(String(r.account_id));
@@ -133,7 +163,9 @@ export async function billedAccountIdsForFire(admin: Admin, accountIds: string[]
   const rows = (data ?? []) as BillRow[];
   const byUser = new Map<string, BillRow[]>();
   for (const r of rows) { const l = byUser.get(r.user_id) ?? []; l.push(r); byUser.set(r.user_id, l); }
-  for (const [uid, list] of await billableUsers(admin, byUser)) {
+  const split = await splitUsers(admin, byUser);
+  for (const list of split.pass.values()) for (const r of list) out.add(String(r.account_id)); // Pass: trade, no charge
+  for (const [uid, list] of split.bill) {
     const wasPaused = list.every((r) => !!r.flow_credit_paused);
     const c = await billEvent(admin, uid, fireKey, "trade", wasPaused);
     if (c.ok) for (const r of list) out.add(String(r.account_id));
@@ -142,13 +174,14 @@ export async function billedAccountIdsForFire(admin: Admin, accountIds: string[]
 }
 
 /** A setup is forming: bill 1 credit to every member armed for it (once per member per setup). */
-export async function billSetupForming(admin: Admin, setupKey: string): Promise<{ members: number; charged: number; paused: number }> {
+export async function billSetupForming(admin: Admin, setupKey: string): Promise<{ members: number; charged: number; paused: number; pass: number }> {
   const { data, error } = await admin.from("flow_broker_accounts").select("account_id, user_id, flow_last_credit_at, flow_credit_paused").or("autotrade_enabled.eq.true,genx_follower.eq.true");
-  if (error) return { members: 0, charged: 0, paused: 0 };
+  if (error) return { members: 0, charged: 0, paused: 0, pass: 0 };
   const byUser = new Map<string, BillRow[]>();
   for (const r of (data ?? []) as BillRow[]) { const l = byUser.get(r.user_id) ?? []; l.push(r); byUser.set(r.user_id, l); }
   let charged = 0, paused = 0;
-  const billable = await billableUsers(admin, byUser);
+  const split = await splitUsers(admin, byUser);
+  const billable = split.bill;
   for (const [uid, list] of billable) {
     const wasPaused = list.every((r) => !!r.flow_credit_paused);
     const c = await billEvent(admin, uid, setupKey, "setup", wasPaused);
@@ -156,7 +189,7 @@ export async function billSetupForming(admin: Admin, setupKey: string): Promise<
     const isPaused = c.result === "paused" || (c.result === "error" && wasPaused);
     if (c.result === "charged" || c.result === "paused") { try { await admin.from("flow_auto_settings").update({ credit_paused: isPaused }).eq("user_id", uid).neq("credit_paused", isPaused); } catch { /* UI mirror best-effort */ } }
   }
-  return { members: billable.size, charged, paused };
+  return { members: billable.size, charged, paused, pass: split.pass.size };
 }
 
 /** LEGACY time-window pass — no longer called by the worker (kept for the Vercel cron fallback until it is
@@ -168,7 +201,8 @@ export async function billFlowAccounts(admin: Admin, nowMs = Date.now()): Promis
   const byUser = new Map<string, BillRow[]>();
   for (const r of (data ?? []) as BillRow[]) { const l = byUser.get(r.user_id) ?? []; l.push(r); byUser.set(r.user_id, l); }
   let charged = 0, paused = 0, errors = 0;
-  const billable = await billableUsers(admin, byUser);
+  const split5 = await splitUsers(admin, byUser);
+  const billable = split5.bill;
   for (const [uid, list] of billable) {
     const wasPaused = list.every((r) => !!r.flow_credit_paused);
     // skip the RPC when every account is clearly inside a paid window

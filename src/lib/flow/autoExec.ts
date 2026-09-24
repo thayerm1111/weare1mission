@@ -10,6 +10,9 @@ import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
 import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
 import { goldResvKey, blocksEntry } from "@/lib/genx/hedge";
+import { workingEntrySides, workingBlocks } from "@/lib/flow/workingOrders";
+import { partitionBySwingFloor, swingAllowed, isSwingMode, SWING_MIN_BALANCE } from "@/lib/genx/swingFloor";
+import { instrumentIdFor } from "@/lib/flow/executor";
 import { billedAccountIdsForFire, billSetupForming, flowOffUserIds } from "@/lib/flow/flowBilling";
 import { genxLabel } from "@/lib/genx/brand";
 import { genxGoldQualityGate } from "@/lib/genx/qualityGate";
@@ -17,7 +20,7 @@ import { originAllowed, genx3AccountFilter } from "@/lib/genx3/engineSelect";
 import { filterAccountsByStyle, styleOfMode } from "@/lib/flow/tradeStyles";
 import { series, livePrice } from "@/lib/marketData";
 import { goldChangeOfCharacter } from "@/lib/genx/choch";
-import { rangePosition, blockedByRange, deskBreaker } from "@/lib/genx/rangeGuard";
+import { rangePosition, blockedByRange, deskBreaker, BREAKER_WINDOW_MS } from "@/lib/genx/rangeGuard";
 import { trendOfCloses, closedBars } from "@/lib/mtf";
 import { sendTelegram } from "@/lib/telegram";
 import { BE_DISPLAY_PIPS } from "@/lib/genx/goldRecord";
@@ -1330,7 +1333,8 @@ async function goldRangeHold(side: "buy" | "sell", entry?: number | null): Promi
 //     losing streak, and "I don't know" is not permission to trade.
 export const DESK_BREAKER_BUCKET_MS = 10 * 60_000;
 
-/** Merge loss timestamps from both sources into distinct loss EVENTS, newest first. Pure, tested. */
+/** Merge loss timestamps into distinct loss EVENTS by time proximity, newest first. Pure, tested.
+ *  Only the fallback now — see lossEventsByTrade, which identifies the trade exactly. */
 export function mergeLossEvents(alertTimes: number[], stopTimes: number[], bucketMs = DESK_BREAKER_BUCKET_MS): number[] {
   const all = [...alertTimes, ...stopTimes].filter((t) => Number.isFinite(t)).sort((a, b) => b - a);
   const out: number[] = [];
@@ -1338,41 +1342,77 @@ export function mergeLossEvents(alertTimes: number[], stopTimes: number[], bucke
   return out;
 }
 
+export type StopRow = { side: string | null; init_stop: number | null; resolved_at: string | null };
+
+/**
+ * ONE REAL TRADE = ONE LOSS (owner 09-24: "when they are actual loses. Check the broker and see if it
+ * hit stop loss").
+ *
+ * A fan-out puts the SAME GENX trade on dozens of member accounts, and those accounts do not stop out
+ * together — on 09-23 one sell closed on one account at 22:06 and on another at 00:56, nearly three
+ * hours apart. The old 10-minute time bucket therefore counted that single trade as two losses, and
+ * counting paper `genx_alerts` outcomes on top took the total to four. The desk paused over what was,
+ * on real money, ONE losing trade.
+ *
+ * The trade's identity is its side plus its INITIAL STOP: every member filling one signal is given the
+ * same stop, and no two live GENX signals share one to the cent. So rows are grouped by that, and each
+ * group counts once, timestamped by its LAST close (the breaker cools off from the most recent loss).
+ * Rows with no init_stop fall back to the time bucket rather than being dropped.
+ */
+export function lossEventsByTrade(rows: StopRow[], bucketMs = DESK_BREAKER_BUCKET_MS): number[] {
+  const byTrade = new Map<string, number>();
+  const loose: number[] = [];
+  for (const r of rows) {
+    const t = r.resolved_at ? Date.parse(r.resolved_at) : NaN;
+    if (!Number.isFinite(t)) continue;
+    if (r.init_stop == null || !Number.isFinite(Number(r.init_stop))) { loose.push(t); continue; }
+    const key = `${String(r.side ?? "").toLowerCase()}@${Number(r.init_stop).toFixed(2)}`;
+    byTrade.set(key, Math.max(byTrade.get(key) ?? 0, t));   // newest close represents the trade
+  }
+  const grouped = [...byTrade.values()];
+  const bucketedLoose = mergeLossEvents([], loose, bucketMs);
+  return [...grouped, ...bucketedLoose].sort((a, b) => b - a);
+}
+
 export async function goldDeskBreaker(admin: Admin): Promise<{ hold: boolean; reason: string }> {
   if ((process.env.GENX_DESK_BREAKER ?? "").toLowerCase() === "off") return { hold: false, reason: "" };
-  const sinceIso = new Date(Date.now() - 6 * 3600_000).toISOString();
-  let alertTimes: number[];
+  const sinceIso = new Date(Date.now() - BREAKER_WINDOW_MS).toISOString();
+
+  /*
+   * ONLY REAL, BROKER-CONFIRMED STOP-OUTS COUNT (owner 09-24).
+   *
+   * This used to also count `genx_alerts` rows the scanner had graded a loss. Those are the scanner's
+   * opinion of a SIGNAL — resolved by watching price, whether or not a single member ever took it — so
+   * a paper result could pause a desk that had lost nothing. On 09-23 that is exactly what happened:
+   * four "stop-outs" were reported and three GENX trades blocked, when the broker record showed ONE
+   * real losing trade in the window. A loss now has to be money that actually left a real account:
+   * a live (never demo) position, closed by its stop, with no partial banked to soften it.
+   */
+  let rows: StopRow[];
   try {
-    const { data, error } = await admin.from("genx_alerts").select("resolved_at,outcome")
-      .eq("outcome", "loss").gte("resolved_at", sinceIso).order("resolved_at", { ascending: false }).limit(20);
+    const { data, error } = await admin.from("flow_managed_positions")
+      .select("side, init_stop, resolved_at, result_pips, partial_taken")
+      .in("symbol", GOLD_SYMS).eq("status", "closed").eq("outcome", "stop").neq("environment", "demo")
+      .gte("resolved_at", sinceIso).order("resolved_at", { ascending: false }).limit(500);
     if (error) throw error;
-    alertTimes = ((data ?? []) as { resolved_at: string | null }[])
-      .map((r) => (r.resolved_at ? Date.parse(r.resolved_at) : NaN)).filter((t) => Number.isFinite(t));
+    rows = ((data ?? []) as (StopRow & { result_pips: number | null; partial_taken: boolean | null })[])
+      .filter((r) => !r.partial_taken && Number(r.result_pips) <= -GOLD_REAL_LOSS_MIN_PIPS);
   } catch {
+    // FAILS CLOSED, unchanged: not knowing whether the desk is on a losing streak is not permission
+    // to trade. This is the one read that must succeed.
     return {
       hold: true,
       reason: "Desk breaker: the loss record could not be read, so the desk cannot tell whether it is on a losing streak. New entries wait until it can. Open trades are still managed.",
     };
   }
-  // Second source: real (live, automated, no partial banked) member stop-outs. Best-effort — the
-  // alert record above is the one that must be readable; this only ever ADDS losses it missed.
-  let stopTimes: number[] = [];
-  try {
-    const { data } = await admin.from("flow_managed_positions")
-      .select("resolved_at, result_pips, partial_taken")
-      .in("symbol", GOLD_SYMS).eq("status", "closed").eq("outcome", "stop").neq("environment", "demo")
-      .gte("resolved_at", sinceIso).order("resolved_at", { ascending: false }).limit(400);
-    stopTimes = ((data ?? []) as { resolved_at: string | null; result_pips: number | null; partial_taken: boolean | null }[])
-      .filter((r) => !r.partial_taken && Number(r.result_pips) <= -GOLD_REAL_LOSS_MIN_PIPS)
-      .map((r) => (r.resolved_at ? Date.parse(r.resolved_at) : NaN)).filter((t) => Number.isFinite(t));
-  } catch { /* the alert record already answered; this source only adds */ }
 
-  const b = deskBreaker(mergeLossEvents(alertTimes, stopTimes));
+  const b = deskBreaker(lossEventsByTrade(rows));
   if (!b.paused) return { hold: false, reason: "" };
   const mins = Math.max(1, Math.round((b.until - Date.now()) / 60_000));
+  const n = b.count === 1 ? "1 losing trade" : `${b.count} losing trades`;
   return {
     hold: true,
-    reason: `Desk breaker: ${b.count} stop-outs in the last six hours. New entries are paused for another ${mins < 60 ? `${mins} min` : `${Math.round(mins / 60)}h`} so the desk stops paying to re-test a read the market keeps rejecting. Open trades are still managed; entries resume on their own.`,
+    reason: `Desk breaker: ${n} in the last six hours. New entries are paused for another ${mins < 60 ? `${mins} min` : `${Math.round(mins / 60)}h`} so the desk stops paying to re-test a read the market keeps rejecting. Open trades are still managed; entries resume on their own.`,
   };
 }
 
@@ -1739,6 +1779,25 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
         await deskDrop(`${styleBefore - accounts.length} account(s) stood down — ${styleOfMode(sig.mode ?? "quick")} horizon switched off on them`);
       }
 
+      /*
+       * SWING FLOOR (owner 09-24). A swing stop is ~695 pips, so the minimum 0.01 lot still risks
+       * about $69.50 and no amount of risk-% sizing can make that smaller. Accounts under the floor
+       * sit swing entries out. Quick and intraday are untouched.
+       */
+      {
+        const split = partitionBySwingFloor(accounts, sig.mode);
+        if (split.tooSmall.length) {
+          accounts = split.allowed;
+          for (const a of split.tooSmall) {
+            try { await admin.from("flow_auto_events").insert({ user_id: userId, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: swing_floor (account under $${SWING_MIN_BALANCE.toLocaleString("en-US")})`, account_id: String(a.accountId) }); } catch { /* log best-effort */ }
+          }
+          await deskDrop(`${split.tooSmall.length} account(s) under $${SWING_MIN_BALANCE.toLocaleString("en-US")} sat out a swing entry`);
+          if (shouldNote("swingfloor", sig.side)) {
+            try { await sendTelegram(`🛡️ <b>${genxLabel()}${genxTypeOf(sig.mode)} gold — smaller accounts sitting this one out</b>\nSwing stops run wide (this one is structural), and the smallest position a broker allows would still put too much of a small account on one trade. Accounts under $${SWING_MIN_BALANCE.toLocaleString("en-US")} skip swing entries and keep taking the quick and intraday calls.`); } catch { /* note best-effort */ } }
+        }
+        if (!accounts.length) { await memberSkip(`swing_floor (every account under $${SWING_MIN_BALANCE.toLocaleString("en-US")})`); await admin.rpc("flow_release_claim", { p_user: userId, p_symbol: "XAUUSD" }); return 0; }
+      }
+
       // GENX 3.x ACCOUNT WHITELIST (owner 09-16): a 3.x signal reaches ONLY the whitelisted accounts;
       // a legacy (GENX 1.0/2.0) signal never reaches an account that is running GENX 3.x.
       accounts = genx3AccountFilter(accounts, (a) => String(a.accountId), sig, sig.onlyAccountIds || sig.origin === "genx3" ? new Set() : (await genx3Reserved(admin)).accounts);
@@ -1877,14 +1936,14 @@ export async function placeGenxFollower(sig: {
   // Every follower account, across every user/connection (independent of FLOW).
   // Pull the per-account risk override + management toggle when those columns exist;
   // fall back to a bare select so the follower never breaks before the migration is run.
-  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; risk_pct?: number | null; manage_trades?: boolean | null; risk_mode?: string | null; autotrade_enabled?: boolean | null; send_it?: boolean | null; send_it_stack?: boolean | null; send_it_guards?: boolean | null; style_quick?: boolean | null; style_hold?: boolean | null; style_swing?: boolean | null };
+  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; equity?: number | null; balance?: number | null; risk_pct?: number | null; manage_trades?: boolean | null; risk_mode?: string | null; autotrade_enabled?: boolean | null; send_it?: boolean | null; send_it_stack?: boolean | null; send_it_guards?: boolean | null; style_quick?: boolean | null; style_hold?: boolean | null; style_swing?: boolean | null };
   let accts: FollowRow[] = [];
   const withCols = await admin.from("flow_broker_accounts")
-    .select("user_id, account_id, acc_num, connection_id, risk_pct, manage_trades, risk_mode, autotrade_enabled, send_it, send_it_stack, send_it_guards, style_quick, style_hold, style_swing").eq("genx_follower", true);
+    .select("user_id, account_id, acc_num, connection_id, equity, balance, risk_pct, manage_trades, risk_mode, autotrade_enabled, send_it, send_it_stack, send_it_guards, style_quick, style_hold, style_swing").eq("genx_follower", true);
   if (!withCols.error) accts = (withCols.data ?? []) as FollowRow[];
   else {
     const fb = await admin.from("flow_broker_accounts")
-      .select("user_id, account_id, acc_num, connection_id").eq("genx_follower", true);
+      .select("user_id, account_id, acc_num, connection_id, equity, balance").eq("genx_follower", true);
     accts = (fb.data ?? []) as FollowRow[];
   }
   // ONE PATH PER ACCOUNT: an account that is ALSO autotrade-enabled routes to the risk-sized
@@ -1910,6 +1969,22 @@ export async function placeGenxFollower(sig: {
     accts.map((a) => ({ ...a, styleQuick: a.style_quick, styleHold: a.style_hold, styleSwing: a.style_swing })),
     sig.mode,
   ) as FollowRow[];
+  /*
+   * SWING FLOOR (owner 09-24) — same rule as the copy path. The follower path reads equity live
+   * during sizing, but that is far too late: the account must be stood down BEFORE the reservation
+   * and the order, so the stored size is used here and an unknown size refuses swing.
+   */
+  {
+    const before = accts.length;
+    const split = partitionBySwingFloor(accts, sig.mode);
+    accts = split.allowed;
+    if (split.tooSmall.length) {
+      for (const a of split.tooSmall) {
+        try { await admin.from("flow_auto_events").insert({ user_id: a.user_id, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: swing_floor (account under $${SWING_MIN_BALANCE.toLocaleString("en-US")})`, account_id: String(a.account_id) }); } catch { /* log best-effort */ }
+      }
+      void before;
+    }
+  }
   if (sig.onlyUserIds) { const allow = new Set(sig.onlyUserIds); accts = accts.filter((a) => allow.has(String(a.user_id))); } // GENX 3.0 live scope
   else if (sig.origin !== "genx3") { const reserved = await genx3ReservedUsers(admin); if (reserved.size) accts = accts.filter((a) => !reserved.has(String(a.user_id))); }
   accts = genx3AccountFilter(accts, (a) => String(a.account_id), sig, sig.onlyAccountIds || sig.origin === "genx3" ? new Set() : (await genx3Reserved(admin)).accounts);
@@ -2016,6 +2091,23 @@ export async function placeGenxFollower(sig: {
       // DIFFERENT signals ~97s apart both filled one follower account (owner 09-15). The
       // reservation is serialized in Postgres and held through the fill/unknown window, so a
       // second signal cannot stack. reserved=false → this account already holds gold → skip.
+      /*
+       * RESTING ORDERS COUNT (owner 09-24). Same gap as the copy path: a GENX zone entry is a LIMIT
+       * order that may rest for hours without becoming a position, so the ledger check above and the
+       * 60s reservation below both saw an empty account and a second same-side entry went out.
+       * Checked before the reservation so a blocked account never has to release one.
+       */
+      const tokW = await tokenFor(a.connection_id);
+      const brokerRef = { env: tokW?.env as TLEnv, token: tokW?.token as string, accNum: String(a.acc_num), accountId: a.account_id, connId: a.connection_id };
+      const wsidesF = tokW
+        // Scope to gold: a member's resting EURUSD order must never block a GENX gold entry.
+        ? await workingEntrySides(brokerRef, await instrumentIdFor(brokerRef, "XAUUSD"))
+        : null;
+      if (workingBlocks(wsidesF, sig.side)) {
+        const why = wsidesF === null ? "broker_unreadable" : "resting_order";
+        try { await admin.from("flow_auto_events").insert({ user_id: a.user_id, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: one_open_gold (${why})`, account_id: a.account_id }); } catch { /* log best-effort */ }
+        return { touched: 1, placed: 0 };
+      }
       const fresv = await reserveGold(admin, a.account_id, "XAUUSD", signalKey, 60, sig.side);
       if (!fresv.reserved) return { touched: 1, placed: 0 };
       // Idempotent claim: one fill per (signal, account). A duplicate row → already
