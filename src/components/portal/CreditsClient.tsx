@@ -10,6 +10,7 @@ import {
   Zap, Sparkles, TrendingUp, Search, Activity, Check, Loader2, AlertTriangle, CreditCard,
 } from "lucide-react";
 import { AutoRefillCard } from "@/components/portal/AutoRefillCard";
+import { FlowPassCard } from "@/components/portal/FlowPassCard";
 
 type Balance = { dailyLeft: number; purchased: number; dailyAllowance: number };
 type Pack = { id: string; label: string; credits: number; priceUsd: number; blurb: string; best?: boolean };
@@ -29,7 +30,7 @@ export function CreditsClient() {
   const [loading, setLoading] = useState(true);
   const [buying, setBuying] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
-  const [banner, setBanner] = useState<"success" | "canceled" | "">("");
+  const [banner, setBanner] = useState<"success" | "canceled" | "pass" | "">("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -47,7 +48,8 @@ export function CreditsClient() {
     void load();
     try {
       const p = new URLSearchParams(window.location.search);
-      if (p.get("success")) { setBanner("success"); window.history.replaceState({}, "", "/portal/credits"); }
+      if (p.get("pass")) { setBanner("pass"); window.history.replaceState({}, "", "/portal/credits"); }
+      else if (p.get("success")) { setBanner("success"); window.history.replaceState({}, "", "/portal/credits"); }
       else if (p.get("canceled")) { setBanner("canceled"); window.history.replaceState({}, "", "/portal/credits"); }
     } catch { /* ignore */ }
   }, [load]);
@@ -82,6 +84,11 @@ export function CreditsClient() {
           <Check className="h-4 w-4" /> Payment received — your credits have been added. Thanks!
         </div>
       )}
+      {banner === "pass" && (
+        <div className="flex items-center gap-2 rounded-xl border border-navy/15 bg-navy/[0.04] px-4 py-3 text-sm text-navy">
+          <Check className="h-4 w-4" /> Your FLOW Pass is live — FLOW and GENX are unmetered from now on.
+        </div>
+      )}
       {banner === "canceled" && (
         <div className="rounded-xl border border-ice bg-offwhite px-4 py-3 text-sm text-charcoal/70">
           Checkout canceled — no charge was made.
@@ -108,6 +115,11 @@ export function CreditsClient() {
         </div>
       </div>
 
+      {/* THE FLOW PASS — first thing on the page (owner 09-23). It is the answer to why members keep
+          running out: packs are priced per-event, FLOW is always-on. Above auto-refill and the packs
+          deliberately, because a member who takes the Pass never needs either. */}
+      <FlowPassCard />
+
       {/* Auto-refill — FRONT AND CENTER (owner directive 08-30): every member who lands on the
           credits page sees the card-on-file option before the one-time packs. The card itself
           handles setup, toggle, and status; it links to Stripe's hosted page for the card. */}
@@ -127,7 +139,7 @@ export function CreditsClient() {
             );
           })}
         </ul>
-        <p className="mt-3 text-[11px] text-charcoal/45">Plays of the Week and the Daily Market Brief are free — they’re shared across the whole community.</p>
+        <p className="mt-3 text-[11px] text-charcoal/45">FLOW and GENX are included free with the FLOW Pass. Plays of the Week and the Daily Market Brief are free for everyone — they’re shared across the whole community.</p>
       </div>
 
       {/* Packs */}

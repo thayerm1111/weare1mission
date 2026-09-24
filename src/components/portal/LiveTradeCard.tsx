@@ -58,7 +58,7 @@ export function LiveTradeCard({ className = "" }: { className?: string }) {
   if (!data) return <div className={`h-[168px] animate-pulse rounded-2xl ${className}`} style={{ background: K.panel }} />;
   return (
     <section className={`relative ${className}`} aria-label="GENX live trade">
-      <style>{`@keyframes ltSweep{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}@keyframes ltRadar{to{transform:rotate(360deg)}}@keyframes ltGlow{0%,100%{opacity:.55}50%{opacity:1}}`}</style>
+      <style>{`@keyframes ltSweep{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}@keyframes ltRadar{to{transform:rotate(360deg)}}@keyframes ltGlow{0%,100%{opacity:.55}50%{opacity:1}}@keyframes ltPulse{0%,100%{opacity:1}50%{opacity:.35}}`}</style>
       {data.live
         ? <LiveState live={data.live} recent={data.recent} streak={data.streak ?? 0} streakPips={data.streakPips ?? 0} best={data.bestStreak ?? 0} bestPips={data.bestStreakPips ?? 0} now={now} />
         : <IdleState recent={data.recent} streak={data.streak ?? 0} streakPips={data.streakPips ?? 0} best={data.bestStreak ?? 0} bestPips={data.bestStreakPips ?? 0} now={now} />}
@@ -156,6 +156,7 @@ function LiveState({ live, recent, streak, streakPips, best, bestPips, now }: { 
           </div>
           <TradeControls />
           <LastThree recent={recent} streak={streak} streakPips={streakPips} best={best} bestPips={bestPips} now={now} />
+          <GrowthLadder live={live} streakPips={streakPips} bestPips={bestPips} />
         </div>
       </div>
     </Shell>
@@ -179,7 +180,7 @@ function IdleState({ recent, streak, streakPips, best, bestPips, now }: { recent
             {recent.length > 0 && <p className="mt-2 text-[12px] font-semibold" style={{ color: K.green }}>{wins} of the last {recent.length} {recent.length === 1 ? "trade" : "trades"} closed as wins for you</p>}
           </div>
         </div>
-        <div className="lg:border-l lg:pl-5" style={{ borderColor: K.line }}><LastThree recent={recent} streak={streak} streakPips={streakPips} best={best} bestPips={bestPips} now={now} /></div>
+        <div className="lg:border-l lg:pl-5" style={{ borderColor: K.line }}><LastThree recent={recent} streak={streak} streakPips={streakPips} best={best} bestPips={bestPips} now={now} /><GrowthLadder live={null} streakPips={streakPips} bestPips={bestPips} /></div>
       </div>
     </Shell>
   );
@@ -189,6 +190,86 @@ function IdleState({ recent, streak, streakPips, best, bestPips, now }: { recent
  * WIN STREAK (owner 09-23): consecutive wins across every closed trade, not just the three shown. One
  * Lesson — or a hand-close at a loss — and it reads "No current streak" again.
  */
+/*
+ * THE GROWTH LADDER (owner 09-24) — mirrors the phone app's card exactly. What a run of pips is worth
+ * at each lot size, with the sizes the reference account cannot margin shown LOCKED rather than hidden.
+ *
+ * Two rules carried over from the app, both deliberate:
+ *
+ *  1. IT NEVER SHOWS A LOSS (owner: "when the trade is winning then show what you would be making.
+ *     Never show what you could be losing"). A winning open trade drives it; anything else falls back
+ *     to the closed streak. This is presentation, not concealment — the card prints the trade's real
+ *     P&L in large type right beside this, so an underwater trade is impossible to miss; the ladder
+ *     just declines to multiply that loss by a hundred lots. It never blinks out either, so a missing
+ *     ladder can't become the tell that someone is down.
+ *
+ *  2. THE LOCK IS THE HONEST PART. Gold is $10 per pip per 1.0 lot, so the top of the ladder is a very
+ *     large number — but 100 lots is ~$42M of notional and needs ~$427k of margin. A $3,000 account
+ *     cannot hold 1.0 lot, let alone 100. Presenting those as reachable on $3,000 would be wrong by
+ *     four orders of magnitude and would push members to over-leverage real money. So they are dimmed
+ *     and labelled with the account they need: a goal, not a promise.
+ */
+const LAD_ACCOUNT = 3000;       // reference account (owner 09-24)
+const LAD_LEVERAGE = 100;       // 1:100 retail gold leverage → margin = lots × price
+const LAD_PER_PIP_PER_LOT = 10; // XAUUSD: 1.0 lot moves $10 per pip
+const LAD_SIZES = [0.01, 0.1, 1, 10, 100];
+
+const ladMoney = (v: number) => (v >= 1000 ? `$${Math.round(v).toLocaleString("en-US")}` : `$${v.toFixed(2)}`);
+const ladShort = (v: number) => (v >= 10000 ? `$${Math.round(v / 1000)}k` : v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.round(v)}`);
+
+function GrowthLadder({ live, streakPips, bestPips }: { live: Live | null; streakPips: number; bestPips: number }) {
+  const livePips = live && typeof live.pips === "number" ? live.pips : null;
+  const isLive = livePips != null && livePips > 0;
+  const pips = isLive ? (livePips as number) : streakPips > 0 ? streakPips : bestPips;
+  const isRecord = !isLive && streakPips <= 0 && bestPips > 0;
+  const px = live && live.price != null && live.price > 0 ? live.price : 4300;
+  const rows = useMemo(() => LAD_SIZES.map((lots) => {
+    const usd = pips * lots * LAD_PER_PIP_PER_LOT;
+    const need = lots * px * (100 / LAD_LEVERAGE);
+    return { lots, usd, need, ok: need <= LAD_ACCOUNT };
+  }), [pips, px]);
+  if (!(pips > 0)) return null;
+  /*
+   * LOG WIDTHS. Four decades of range: linearly, 0.01 is a single pixel next to 100, which would make
+   * the only two sizes a $3,000 account can actually trade look worthless beside the locked ones —
+   * exactly the wrong message. On a log scale every 10x is an equal step and it reads as a climb.
+   */
+  const lo = Math.log10(Math.max(1e-6, rows[0].usd));
+  const hi = Math.log10(Math.max(1e-6, rows[rows.length - 1].usd));
+  const span = Math.max(0.0001, hi - lo);
+  return (
+    <div className="mt-3 border-t pt-3" style={{ borderColor: K.line }}>
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: isLive ? K.green : K.mut2 }}>
+          {isLive ? "This trade right now" : isRecord ? "Your record streak was worth" : "This streak is worth"}
+          {isLive && <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: K.green, boxShadow: `0 0 8px ${K.green}`, animation: "ltPulse 1.6s ease-in-out infinite" }} />}
+        </p>
+        <p className="text-[10px] font-semibold" style={{ color: K.mut2 }}>+{pips.toLocaleString("en-US")} pips · ${LAD_ACCOUNT.toLocaleString("en-US")} account</p>
+      </div>
+      <div className="flex flex-col gap-1">
+        {rows.map((r) => {
+          const w = Math.round(10 + ((Math.log10(Math.max(1e-6, r.usd)) - lo) / span) * 90);
+          return (
+            <div key={r.lots} className="grid items-center gap-2" style={{ gridTemplateColumns: "44px 1fr auto" }}>
+              <span className="text-[11px] font-black tabular-nums" style={{ color: r.ok ? K.text : K.mut2 }}>{r.lots < 1 ? r.lots.toFixed(2) : r.lots.toFixed(1)}</span>
+              <span className="relative h-[7px] min-w-0 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
+                <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${w}%`, background: r.ok ? `linear-gradient(90deg, ${K.greenDeep}, ${K.green})` : "rgba(255,255,255,0.20)", boxShadow: r.ok ? `0 0 8px ${K.green}66` : "none" }} />
+              </span>
+              <span className="text-right">
+                <span className="block text-[12px] font-black tabular-nums" style={{ color: r.ok ? K.green : K.mut2 }}>{r.ok ? `+${ladMoney(r.usd)}` : ladMoney(r.usd)}</span>
+                {!r.ok && <span className="block text-[9px] font-bold" style={{ color: `${K.amber}BB` }}>needs {ladShort(r.need)}</span>}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-[9.5px] leading-snug" style={{ color: K.mut2 }}>
+        Dimmed sizes need a bigger account to hold the margin. {isLive ? "This trade is still open — the number moves until it closes." : "Past results, not a forecast."}
+      </p>
+    </div>
+  );
+}
+
 function LastThree({ recent, streak, streakPips, best, bestPips, now }: { recent: Recent[]; streak: number; streakPips: number; best: number; bestPips: number; now: number }) {
   return (
     <div>
