@@ -2,8 +2,8 @@ import { type NextRequest } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { SUITE } from "@/lib/creditConfig";
-import { getSubscription, safeSubView } from "@/lib/subscription";
+import { SUITE, FLOW_PASS } from "@/lib/creditConfig";
+import { getSubscription, safeSubView, isFlowPass, PLAN_SUITE } from "@/lib/subscription";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,7 +25,22 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return json({ error: "unauthorized" }, 401);
   const sub = await getSubscription(user.id);
-  return json({ ok: true, price: SUITE.priceUsd, credits: SUITE.monthlyCredits, ...safeSubView(sub) });
+  const view = safeSubView(sub);
+  return json({
+    ok: true,
+    price: SUITE.priceUsd, credits: SUITE.monthlyCredits,
+    ...view,
+    plan: sub?.plan ?? null,
+    // FLOW Pass — what the Credits page needs to render the offer, the active state, or the upgrade.
+    pass: {
+      active: isFlowPass(sub),
+      price: FLOW_PASS.priceUsd,
+      credits: FLOW_PASS.monthlyCredits,
+      label: FLOW_PASS.label,
+      // A legacy $39 Suite member who is still active: show them the one-tap upgrade (owner 09-23).
+      canUpgrade: !!sub && sub.plan === PLAN_SUITE && view.active,
+    },
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -43,11 +58,50 @@ export async function POST(req: NextRequest) {
   const action = String(body.action || "");
 
   if (action === "subscribe") {
-    // RETIRED (owner 09-08): the $39/mo Trading Suite is closed to new sign-ups — members
-    // buy credit packs or use auto-refill instead. Blocked server-side so a cached page or
-    // old link can never start a new subscription. Existing subscribers are untouched:
-    // cancel/resume below still work and the webhook keeps granting their monthly credits.
-    return json({ error: "retired", detail: "The monthly plan is no longer offered — grab a credit pack or turn on auto-refill on the Credits page." }, 200);
+    // RETIRED (owner 09-08): the $39/mo Trading Suite is closed to new sign-ups. Still blocked
+    // server-side so a cached page or old link can never start one. Existing subscribers are
+    // untouched: cancel/resume below still work and the webhook keeps granting their credits.
+    return json({ error: "retired", detail: "That plan is no longer offered — the FLOW Pass replaces it." }, 200);
+  }
+
+  /*
+   * FLOW PASS — $99/mo, unmetered FLOW + GENX (owner 09-23). Open to everyone, including the legacy
+   * $39 Suite members, whose old subscription the webhook cancels the moment this one activates.
+   * Inline price_data, same as the credit packs, so nothing has to be pre-created in Stripe.
+   * The plan marker goes on BOTH the session and the subscription, because renewal invoices only
+   * carry the latter — without it a renewal would be mistaken for a Suite and regrade the member.
+   */
+  if (action === "subscribe_pass") {
+    const existing = await getSubscription(user.id);
+    if (isFlowPass(existing)) return json({ error: "already_active", detail: "Your FLOW Pass is already running." }, 200);
+    const origin = req.headers.get("origin") || `https://${req.headers.get("host")}`;
+    try {
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        line_items: [{
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: Math.round(FLOW_PASS.priceUsd * 100),
+            recurring: { interval: FLOW_PASS.interval },
+            product_data: {
+              name: `1 Mission — ${FLOW_PASS.label}`,
+              description: `Unlimited FLOW + GENX, plus ${FLOW_PASS.monthlyCredits} credits a month for everything else`,
+            },
+          },
+        }],
+        client_reference_id: user.id,
+        customer_email: user.email || undefined,
+        metadata: { user_id: user.id, plan: FLOW_PASS.tag },
+        subscription_data: { metadata: { user_id: user.id, plan: FLOW_PASS.tag } },
+        success_url: `${origin}/portal/credits?pass=1`,
+        cancel_url: `${origin}/portal/credits?canceled=1`,
+        managed_payments: { enabled: false },
+      } as Stripe.Checkout.SessionCreateParams);
+      return json({ ok: true, url: session.url }, 200);
+    } catch (e) {
+      return json({ error: "checkout_failed", detail: (e instanceof Error ? e.message : "").slice(0, 200) }, 502);
+    }
   }
 
   if (action === "cancel" || action === "resume") {
