@@ -8,7 +8,8 @@ import { checkBreakers, freshRiskState, recordClose, recordRejection, type RiskS
 import { manage, type ManagedPosition } from "../engine/management";
 import { noteRangeFailure } from "../engine/setups";
 import { confirmedPivots } from "../engine/features";
-import { aggregate, closedBars, mergeBars } from "../market/bars";
+import { aggregate, closedBars } from "../market/bars";
+import { feedFor } from "../market/feed";
 import { fallbackSession, type SessionWindow } from "../market/session";
 import { referencePrice, referenceConfigured, referenceBudget } from "../market/twelvedata";
 import { inBlackout, loadCalendar } from "../market/calendar";
@@ -17,6 +18,9 @@ import { discoverGold, missingFields } from "../broker/instrument";
 import { authFor, type ConnRow } from "../broker/session";
 import { checkOwnership, isAuricTag, AURIC_TAG_PREFIX } from "./ownership";
 import { LatencySet } from "./latency";
+
+/** Routes an entry actually needs; a backoff on discovery/history must not freeze order placement. */
+const ENTRY_ROUTES = ["GET /trade/quotes", "POST /trade/accounts/:id/orders", "GET /trade/accounts/:id/positions", "GET /trade/accounts/:id/state"];
 
 export type AccountRow = {
   id: string; user_id: string; connection_id: string; broker_account_id: string; acc_num: string; currency: string | null;
@@ -121,30 +125,25 @@ export class AccountRunner {
     else if (d.missing.length === 0 && this.specEventAt) { this.specEventAt = 0; await event(this.acct.id, this.session?.id ?? null, "instrument", `instrument specification confirmed: ${d.spec.name} tick ${d.spec.tickSize} · step ${d.spec.lotStep} · min ${d.spec.minLot} · contract ${d.spec.contractSize ?? "n/a"}`); }
   }
 
+  private feed() { return feedFor(this.conn.env, this.spec!.tradableInstrumentId, this.spec!.infoRouteId); }
+
   async refreshHistory(a: TL.TLAuth, force = false) {
     if (!this.spec) return;
-    const now = Date.now();
-    if (!force && now - this.lastHistory < this.cfg.feed.m1RefreshMs) return;
-    this.lastHistory = now;
-    const need = this.m1.length < 1500;
-    const from = need ? now - 3 * 86_400_000 : (this.m1[this.m1.length - 1]?.t ?? now - 3600_000) - 5 * 60_000;
-    const r = await TL.getHistory(a, this.spec.tradableInstrumentId, this.spec.infoRouteId, "1m", from, now);
-    this.lat.add("history_fetch", r.latencyMs);
-    if (!r.ok) { this.health.data = "stale"; telemetry(this.acct.id, "history_error", { error: r.error, status: r.status }); return; }
-    const m = mergeBars(this.m1, r.data, 6000);
-    this.m1 = m.bars;
-    if (m.outOfOrder || m.replaced > 3) telemetry(this.acct.id, "history_anomaly", m);
+    const f = this.feed();
+    const r = await f.refreshHistory(a, this.cfg.feed.m1RefreshMs, force);
+    if (!r.ok) { this.lat.add("history_fetch", r.latencyMs); this.health.data = f.m1.length && Date.now() - f.lastHistoryOk < 3 * this.cfg.feed.m1RefreshMs ? "ok" : "stale"; this.m1 = f.m1; telemetry(this.acct.id, "history_error", { error: r.error, status: r.status }); if (r.status === 401) this.conn.token_exp = null; return; }
+    if (!r.shared) { this.lat.add("history_fetch", r.latencyMs); if (r.data.outOfOrder || r.data.replaced > 3) telemetry(this.acct.id, "history_anomaly", r.data); }
+    this.m1 = f.m1;
     this.health.data = this.m1.length ? "ok" : "stale";
   }
 
   async pollQuote(a: TL.TLAuth) {
     if (!this.spec) return;
-    const r = await TL.getQuote(a, this.spec.tradableInstrumentId, this.spec.infoRouteId);
-    this.lat.add("quote_roundtrip", r.latencyMs);
+    const r = await this.feed().pollQuote(a, this.cfg.feed.brokerQuotePollMs);
     if (!r.ok) { this.health.broker = r.status === 401 ? "error" : this.health.broker; telemetry(this.acct.id, "quote_error", { error: r.error, status: r.status }); if (r.status === 401) this.conn.token_exp = null; return; }
+    if (!r.shared) { this.lat.add("quote_roundtrip", r.latencyMs); telemetry(this.acct.id, "quote", { b: r.data.bid, a: r.data.ask, ms: +r.latencyMs.toFixed(1) }); }
     this.health.broker = "ok"; this.lastQuoteRaw = r.data; this.lastQuoteAt = r.data.receivedAt;
     this.quote = { source: "broker", bid: r.data.bid, ask: r.data.ask, providerTs: null, providerTsPrecision: "none", receivedAt: r.data.receivedAt };
-    telemetry(this.acct.id, "quote", { b: r.data.bid, a: r.data.ask, ms: +r.latencyMs.toFixed(1) });
   }
 
   async pollReference() {
@@ -271,7 +270,7 @@ export class AccountRunner {
     if (!this.sessionWindow.open) return { ok: false, code: "MARKET_CLOSED", reason: `Market closed: ${this.sessionWindow.label}` };
     if (this.sessionWindow.minutesToClose != null && this.sessionWindow.minutesToClose <= this.cfg.protection.noNewEntriesBeforeCloseMin) return { ok: false, code: "NEAR_CLOSE", reason: `${this.sessionWindow.minutesToClose} min to session close — no new intraday positions.` };
     const fg = this.feedGate(); if (!fg.ok) return { ok: false, code: "FEED", reason: fg.reason };
-    if (TL.anyBackoff()) return { ok: false, code: "RATE_LIMITED", reason: "Broker rate limit backoff in effect." };
+    if (TL.anyBackoff(ENTRY_ROUTES)) return { ok: false, code: "RATE_LIMITED", reason: "Broker rate limit backoff in effect on an order-path route." };
     const cal = inBlackout(await loadCalendar(now), now, this.cfg.calendar); if (cal.blocked) return { ok: false, code: "NEWS", reason: `High-impact release window: ${cal.reason}` };
     const rows = await this.openRows();
     if (rows.length) return { ok: false, code: "POSITION_OPEN", reason: rows.some((r) => r.status === "orphan_review") ? "An AURIC-tagged position is held for review." : "One AURIC position is already open (limit: one at a time)." };
