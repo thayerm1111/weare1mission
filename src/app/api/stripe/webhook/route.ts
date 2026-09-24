@@ -1,7 +1,7 @@
 import { type NextRequest } from "next/server";
 import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { SUITE } from "@/lib/creditConfig";
+import { SUITE, FLOW_PASS } from "@/lib/creditConfig";
 import { planById, VOICE_PRODUCT_TAG } from "@/lib/voicePlan";
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
@@ -17,8 +17,17 @@ async function syncSubscription(admin: Admin, stripe: Stripe, subscriptionId: st
   const userId = userIdHint || s.metadata?.user_id || null;
   if (!userId) return null;
   const periodEndIso = s.current_period_end ? new Date(s.current_period_end * 1000).toISOString() : null;
+  /*
+   * WHICH PLAN. This used to hardcode "trading_suite" for any subscription handed to it, which was
+   * safe while the Suite was the only one. It is not safe now: a FLOW Pass renewal would rewrite the
+   * row as a Suite and grant 250 credits instead of 50, and the member would quietly lose unmetered
+   * FLOW mid-month. The marker rides on the SUBSCRIPTION's own metadata (not just the checkout
+   * session) precisely so a renewal invoice can still read it.
+   */
+  const plan = s.metadata?.plan === FLOW_PASS.tag ? FLOW_PASS.key : "trading_suite";
+  const monthly = plan === FLOW_PASS.key ? FLOW_PASS.monthlyCredits : SUITE.monthlyCredits;
   await admin.from("user_subscriptions").upsert({
-    user_id: userId, plan: "trading_suite", status: s.status,
+    user_id: userId, plan, status: s.status,
     stripe_customer_id: typeof s.customer === "string" ? s.customer : s.customer?.id ?? null,
     stripe_subscription_id: s.id,
     current_period_end: periodEndIso,
@@ -26,21 +35,29 @@ async function syncSubscription(admin: Admin, stripe: Stripe, subscriptionId: st
     canceled_at: s.canceled_at ? new Date(s.canceled_at * 1000).toISOString() : null,
     updated_at: new Date().toISOString(),
   }, { onConflict: "user_id" });
-  return { userId, status: s.status, periodKey: String(s.current_period_end ?? "") };
+  return { userId, status: s.status, periodKey: String(s.current_period_end ?? ""), plan, monthly };
+}
+
+/** The Stripe subscription id currently on file for this member, read BEFORE it gets overwritten. */
+async function priorSubscriptionId(admin: Admin, userId: string): Promise<string | null> {
+  try {
+    const { data } = await admin.from("user_subscriptions").select("stripe_subscription_id").eq("user_id", userId).maybeSingle();
+    return (data as { stripe_subscription_id?: string | null } | null)?.stripe_subscription_id ?? null;
+  } catch { return null; }
 }
 
 /** Grant the monthly Suite allowance: top the balance UP TO the floor for this
  *  billing period (no rollover, no stacking). Idempotent per period. */
-async function grantSuiteMonth(admin: Admin, userId: string, periodKey: string) {
+async function grantSuiteMonth(admin: Admin, userId: string, periodKey: string, amount: number = SUITE.monthlyCredits) {
   const { data: cur } = await admin.from("user_credits").select("balance, suite_period").eq("user_id", userId).maybeSingle();
   if (cur && (cur as { suite_period?: string }).suite_period === periodKey) return; // already granted
   const bal = Number((cur as { balance?: number } | null)?.balance ?? 0);
-  const newBal = Math.max(bal, SUITE.monthlyCredits);
+  const newBal = Math.max(bal, amount);
   await admin.from("user_credits").upsert(
     { user_id: userId, balance: newBal, suite_period: periodKey, updated_at: new Date().toISOString() },
     { onConflict: "user_id" },
   );
-  try { await admin.from("credit_transactions").insert({ user_id: userId, amount: Math.max(0, newBal - bal), feature: "suite_monthly", kind: "grant" }); } catch { /* ledger is best-effort */ }
+  try { await admin.from("credit_transactions").insert({ user_id: userId, amount: Math.max(0, newBal - bal), feature: amount === SUITE.monthlyCredits ? "suite_monthly" : "flow_pass_monthly", kind: "grant" }); } catch { /* ledger is best-effort */ }
 }
 
 
@@ -166,8 +183,20 @@ export async function POST(req: NextRequest) {
         return json({ received: true }, 200);
       }
 
+      /*
+       * UPGRADE SAFETY. user_subscriptions holds one row per member, so activating a new plan
+       * OVERWRITES the old one — taking the old stripe_subscription_id with it. Read it FIRST and
+       * cancel the old Stripe subscription, or a member upgrading from the $39 Suite to the $99 Pass
+       * keeps paying both forever while the row shows only the Pass. Cancelled immediately (not at
+       * period end) because they are paying for the superset from right now.
+       * Done here rather than when checkout STARTS, so abandoning checkout costs them nothing.
+       */
+      const prior = userId ? await priorSubscriptionId(admin, userId) : null;
       const res = await syncSubscription(admin, stripe, subId, userId);
-      if (res && (res.status === "active" || res.status === "trialing")) await grantSuiteMonth(admin, res.userId, res.periodKey);
+      if (res && prior && prior !== subId && res.plan !== "trading_suite") {
+        try { await stripe.subscriptions.cancel(prior); } catch { /* already gone / manual cleanup */ }
+      }
+      if (res && (res.status === "active" || res.status === "trialing")) await grantSuiteMonth(admin, res.userId, res.periodKey, res.monthly);
       return json({ received: true }, 200);
     }
 
@@ -278,7 +307,7 @@ export async function POST(req: NextRequest) {
           await syncVoiceSubscription(admin, stripe, subId, (sub.metadata as Record<string, string>)?.user_id);
         } else {
           const res = await syncSubscription(admin, stripe, subId);
-          if (res && (res.status === "active" || res.status === "trialing")) await grantSuiteMonth(admin, res.userId, res.periodKey);
+          if (res && (res.status === "active" || res.status === "trialing")) await grantSuiteMonth(admin, res.userId, res.periodKey, res.monthly);
         }
       }
     }
