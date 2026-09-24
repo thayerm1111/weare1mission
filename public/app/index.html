@@ -1172,6 +1172,27 @@ input{font:inherit}
 .ltc-chip.w{background:rgba(46,232,143,.1);border-color:rgba(46,232,143,.35)}.ltc-chip.w b{color:#2ee88f}
 .ltc-chip.l{background:rgba(255,180,84,.1);border-color:rgba(255,180,84,.35)}.ltc-chip.l b{color:#ffb454}
 .ltc-chip.e{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12)}.ltc-chip.e b{color:#cfe}
+/* 09-24: THE GROWTH LADDER. What the member's winning streak was worth at each lot size, with the
+   sizes a $3,000 account cannot margin shown locked rather than hidden — the big numbers stay on
+   screen as something to grow into instead of as a promise. */
+.ltc-lad{margin-top:14px;border-top:1px solid rgba(255,255,255,.07);padding-top:12px}
+.ltc-ladh{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:9px}
+.ltc-ladk{font-size:10px;font-weight:900;letter-spacing:.14em;color:rgba(200,220,240,.55);text-transform:uppercase}
+.ltc-ladsub{font-size:10px;font-weight:700;color:rgba(200,220,240,.4)}
+.ltc-lrow{display:grid;grid-template-columns:52px 1fr auto;align-items:center;gap:9px;padding:5px 0}
+.ltc-lot{font-size:12px;font-weight:900;color:#dfe9f5;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ltc-bar{position:relative;height:9px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden;min-width:0}
+.ltc-bar i{position:absolute;inset:0 auto 0 0;border-radius:999px;background:linear-gradient(90deg,#2ee88f,#7ef0c0);box-shadow:0 0 10px rgba(46,232,143,.45);animation:ltcgrow .9s cubic-bezier(.2,.9,.25,1) both}
+@keyframes ltcgrow{from{transform:scaleX(0);transform-origin:left}to{transform:scaleX(1);transform-origin:left}}
+.ltc-lval{font-size:13px;font-weight:900;color:#2ee88f;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ltc-lrow.lock .ltc-lot{color:rgba(200,220,240,.38)}
+.ltc-lrow.lock .ltc-bar i{background:linear-gradient(90deg,rgba(255,255,255,.16),rgba(255,255,255,.26));box-shadow:none}
+.ltc-lrow.lock .ltc-lval{color:rgba(200,220,240,.45)}
+.ltc-need{display:block;font-size:9px;font-weight:700;color:rgba(255,176,32,.75);letter-spacing:.02em;white-space:nowrap}
+.ltc-ladnote{margin-top:9px;font-size:9.5px;line-height:1.45;color:rgba(200,220,240,.42)}
+.ltc-lad.live .ltc-ladk{color:#2ee88f}
+.ltc-lad.live .ltc-ladk:after{content:"";display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:50%;background:#2ee88f;box-shadow:0 0 8px #2ee88f;animation:ltcpulse 1.6s ease-in-out infinite;vertical-align:middle}
+@keyframes ltcpulse{0%,100%{opacity:1}50%{opacity:.35}}
 .ltc-radar{position:absolute;right:-30px;top:-30px;width:140px;height:140px;border-radius:50%;border:1px solid rgba(65,216,230,.25);animation:ltcping 2.8s ease-out infinite}
 .ltc-btns{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:12px}
 .ltc-btn{border-radius:14px;padding:11px 4px;font-size:12px;font-weight:900;border:1px solid;background:transparent;transition:transform .1s}
@@ -6585,13 +6606,90 @@ input{font:inherit}
       var c = r.grade === "WIN" ? "w" : r.grade === "LESSON" ? "l" : "e";
       return html`<div class=${"ltc-chip " + c}><b>${r.grade === "WIN" ? "🏆 Win" : r.grade === "LESSON" ? "💡 Lesson" : r.grade === "CLOSED" ? "Closed" : "Even"}</b><span class="p">${r.pips > 0 ? "+" : ""}${r.pips}p</span><span class="m">${r.side} · ${ago(r.at)}</span></div>`;
     })}</div></div>` : null;
+
+    /*
+     * THE GROWTH LADDER (owner 09-24: "show how much $$ you would have made with a .01, .1, 1.0, 10.0
+     * and a 100.0 with an account size of $3,000... I want them excited about the results").
+     *
+     * Built on the member's WINNING STREAK, not the open trade: a live trade swings red (it was -187
+     * pips when this was asked for) and a home screen counting down someone's losses in ten-thousand
+     * dollar steps is the opposite of the intended feeling. Streak pips are closed, real results.
+     *
+     * THE LOCK IS THE HONEST PART. Gold is $10 per pip per 1.0 lot, so the top of this ladder is a
+     * very large number — but 100 lots of gold is about $42 MILLION in notional and needs roughly
+     * $427k of margin. A $3,000 account cannot hold 1.0 lot, never mind 100. Showing those figures as
+     * if they were reachable on $3,000 would be off by four orders of magnitude, and members acting on
+     * it would over-leverage real money. So sizes the reference account cannot margin are shown DIMMED
+     * with the account size they need. The big numbers stay visible as a goal, not as a promise.
+     */
+    var LAD_ACCOUNT = 3000;        // the reference account the owner specified
+    var LAD_LEVERAGE = 100;        // 1:100, the common retail gold leverage; margin = lots * price
+    var LAD_PER_PIP_PER_LOT = 10;  // XAUUSD: 1.0 lot moves $10 per pip
+    /*
+     * WINNING TRADE -> LIVE NUMBERS; otherwise the streak (owner 09-24: "when the trade is winning
+     * then show what you would be making. Never show what you could be losing").
+     *
+     * The ladder never renders a negative. That is a presentation choice, not concealment: the card
+     * shows the trade's real P&L in large red type directly above this, so an underwater trade is
+     * impossible to miss — the ladder simply does not multiply the loss by a hundred lots. The
+     * section also never blinks out of existence on a loser; it falls back to closed, already-won
+     * results, and the heading always says which of the two the member is looking at so a streak
+     * figure can never be mistaken for the open trade.
+     */
+    var livePips = (L && typeof L.pips === "number") ? L.pips : null;
+    var ladLive = livePips != null && livePips > 0;
+    var ladPips = ladLive ? livePips : (stkP || bstP || 0);
+    var ladIsRecord = !ladLive && !stkP && !!bstP;
+    var goldPx = (L && L.price != null && +L.price > 0) ? +L.price : 4300;
+    var ladder = null;
+    if (ladPips > 0) {
+      var sizes = [0.01, 0.1, 1, 10, 100];
+      var rows = sizes.map(function (lots) {
+        var usd = ladPips * lots * LAD_PER_PIP_PER_LOT;
+        var need = lots * goldPx * (100 / LAD_LEVERAGE);   // margin required to hold this size
+        return { lots: lots, usd: usd, need: need, ok: need <= LAD_ACCOUNT };
+      });
+      /*
+       * LOG WIDTHS. The sizes span four decades, so a linear bar makes 0.01 a 1-pixel sliver next to
+       * 100 — which would make the two sizes a member can ACTUALLY trade look worthless and the
+       * locked ones look like the only real option. That is precisely the wrong message. On a log
+       * scale each 10x step is an equal, visible jump, so the ladder reads as a climb.
+       */
+      var loUsd = Math.log10(Math.max(1e-6, rows[0].usd));
+      var hiUsd = Math.log10(Math.max(1e-6, rows[rows.length - 1].usd));
+      var span = Math.max(0.0001, hiUsd - loUsd);
+      var money = function (v) {
+        if (v >= 1000) return "$" + Math.round(v).toLocaleString("en-US");
+        return "$" + v.toFixed(2);
+      };
+      var shortMoney = function (v) {
+        if (v >= 10000) return "$" + Math.round(v / 1000) + "k";
+        if (v >= 1000) return "$" + (v / 1000).toFixed(1) + "k";   // $4.3k, never a misleading "$4k"
+        return "$" + Math.round(v);
+      };
+      ladder = html`<div class=${"ltc-lad" + (ladLive ? " live" : "")}>
+        <div class="ltc-ladh">
+          <div class="ltc-ladk">${ladLive ? "This trade right now" : ladIsRecord ? "Your record streak was worth" : "This streak is worth"}</div>
+          <div class="ltc-ladsub">+${ladPips.toLocaleString("en-US")} pips · $${LAD_ACCOUNT.toLocaleString("en-US")} account</div>
+        </div>
+        ${rows.map(function (r) {
+          var w = Math.round(10 + (Math.log10(Math.max(1e-6, r.usd)) - loUsd) / span * 90);
+          return html`<div class=${"ltc-lrow" + (r.ok ? "" : " lock")}>
+            <span class="ltc-lot">${r.lots < 1 ? r.lots.toFixed(2) : r.lots.toFixed(1)}</span>
+            <span class="ltc-bar"><i style=${"width:" + w + "%"}></i></span>
+            <span class="ltc-lval">${r.ok ? "+" + money(r.usd) : money(r.usd)}${r.ok ? null : html`<span class="ltc-need">needs ${shortMoney(r.need)}</span>`}</span>
+          </div>`;
+        })}
+        <div class="ltc-ladnote">Dimmed sizes need a bigger account to hold the margin. ${ladLive ? "This trade is still open — the number moves until it closes." : "Past results, not a forecast."}</div>
+      </div>`;
+    }
     if (!L) {
       var wins = recent.filter(function (r) { return r.grade === "WIN"; }).length;
       return html`<div class="ltc idle"><div class="ltc-radar"></div>
         <div class="ltc-top"><span class="ltc-badge"><i></i>GENX SCANNING</span></div>
         <div class="ltc-side">Hunting the next entry</div>
         <div class="ltc-setup">${recent.length ? wins + " of the last " + recent.length + " were wins for you" : "No trade live on your account right now — this lights up the moment one fills."}</div>
-        ${last}</div>`;
+        ${last}${ladder}</div>`;
     }
     var buy = L.side === "BUY", secs = Math.max(0, Math.round((now[0] - Date.parse(L.openedAt)) / 1000));
     var dur = secs < 3600 ? Math.floor(secs / 60) + "m " + (secs % 60) + "s" : Math.floor(secs / 3600) + "h " + Math.floor((secs % 3600) / 60) + "m";
@@ -6609,7 +6707,7 @@ input{font:inherit}
       <div class="ltc-grid"><div><b>${f(L.entry)}</b><span>Entry</span></div><div><b>${f(L.price)}</b><span>Now</span></div><div><b>${f(L.target)}</b><span>Target</span></div><div><b>${f(L.stop)}</b><span>Stop</span></div></div>
       <div class="ltc-riders">🔥 ${L.accountsIn === 1 ? "Your account is" : "Your " + L.accountsIn + " accounts are"} in this trade</div>
       <${TradeControls} />
-      ${last}</div>`;
+      ${last}${ladder}</div>`;
   }
   function HomeScreen(props) {
     var me = useState(null), bk = useState(null), gx = useState(null);
