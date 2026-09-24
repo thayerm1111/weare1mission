@@ -80,10 +80,10 @@ export function SupportChat() {
       </div>
 
       <p className="mt-1 text-[12px] text-charcoal/55">
-        Message us about your account, your credits, or a trade. We read every one.
+        A person reads every one of these, and answers here.
       </p>
 
-      <div className="mt-4 max-h-[340px] space-y-2 overflow-y-auto pr-1">
+      <div className="mt-4 min-h-[260px] max-h-[55vh] space-y-2 overflow-y-auto pr-1">
         {!loaded && <p className="text-[12px] text-charcoal/40">Loading…</p>}
         {loaded && msgs.length === 0 && (
           <p className="rounded-xl bg-offwhite/70 px-3 py-3 text-[12.5px] text-charcoal/60">
