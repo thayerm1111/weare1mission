@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { FLOW_PASS } from "@/lib/creditConfig";
 
 /**
  * Trading Suite subscription helpers (server-only).
@@ -52,4 +53,49 @@ export function safeSubView(sub: SubRow | null) {
     currentPeriodEnd: sub?.current_period_end ?? null,
     canceledAt: sub?.canceled_at ?? null,
   };
+}
+
+/*
+ * PLANS. `user_subscriptions` holds at most ONE row per member (keyed on user_id), so a member is on
+ * exactly one trading plan at a time: the legacy $39 Trading Suite, or the $99 FLOW Pass. Upgrading
+ * overwrites the row — which is why the upgrade path must cancel the old Stripe subscription first,
+ * or the member would be billed twice while the row shows only the newer plan.
+ * ATLAS voice lives in its own table and is never one of these.
+ */
+export const PLAN_SUITE = "trading_suite";
+export const PLAN_FLOW_PASS = FLOW_PASS.key;
+
+/** Is this row an ACTIVE FLOW Pass? (active plan + active status) */
+export function isFlowPass(sub: SubRow | null): boolean {
+  return !!sub && sub.plan === PLAN_FLOW_PASS && isActive(sub);
+}
+
+/**
+ * Does this member have an active FLOW Pass — i.e. is FLOW/GENX free for them right now?
+ *
+ * FAILS CLOSED. Every other billing read in this codebase fails OPEN so a DB blip never blocks a
+ * paying member. This one is the opposite: if we cannot confirm the Pass, we report NO pass and the
+ * member is metered as normal. Failing open here would hand the entire product to everyone for free
+ * on a transient error, and an over-charge can be refunded while a giveaway cannot be clawed back.
+ */
+export async function hasFlowPass(userId: string, admin?: Admin | null): Promise<boolean> {
+  try {
+    const db = admin ?? createAdminClient();
+    if (!db) return false;
+    const { data, error } = await db.from("user_subscriptions").select("*").eq("user_id", userId).maybeSingle();
+    if (error) return false;
+    return isFlowPass((data as SubRow) ?? null);
+  } catch { return false; }
+}
+
+/** Which of these members hold an active Pass? Batched for the billing fan-outs. Fails closed (empty). */
+export async function flowPassUserIds(admin: Admin, userIds: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (!userIds.length) return out;
+  try {
+    const { data, error } = await admin.from("user_subscriptions").select("*").in("user_id", userIds).eq("plan", PLAN_FLOW_PASS);
+    if (error) return out;
+    for (const r of (data ?? []) as SubRow[]) if (isFlowPass(r)) out.add(String(r.user_id));
+  } catch { /* fail closed */ }
+  return out;
 }

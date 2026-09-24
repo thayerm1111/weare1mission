@@ -58,6 +58,46 @@ export const SUITE = {
   interval: "month" as const,
 } as const;
 
+/*
+ * THE FLOW PASS — $99/month, unmetered FLOW + GENX (owner 09-23).
+ *
+ * WHY THIS EXISTS. FLOW is an always-on product that was priced per-event, and the two never fit.
+ * At the median member's burn (~22 credits/day) a $19.99 Starter pack lasted 2.3 days, a $39.99
+ * Trader 9 days and a $79.99 Pro 23 days — so nobody could keep FLOW running for a month without
+ * rebuying, and 73% of members who bought once never bought again. The Pass sells the thing the
+ * member actually wants — "it just runs" — for one predictable price.
+ *
+ * WHAT IT COVERS. While the Pass is active, the features in PASS_COVERED are FREE and UNMETERED:
+ * the FLOW/GENX automation (flow_autorun) and the GENX Gold decision engine (genx). A Pass holder
+ * still TRADES normally — they are simply never charged for it, and never credit-paused.
+ *
+ * WHAT IT DOES NOT COVER. Everything else on the site (OM AI chat and plays, Market Pulse, MFXGHOST,
+ * chart reads, Command Center) still costs credits, and the Pass tops the member up to
+ * `monthlyCredits` each billing period — topped UP TO, never stacked, no rollover, exactly like the
+ * old Suite allowance. ATLAS voice minutes are a separate product and are untouched.
+ *
+ * FAIR USE. `genx` is a real AI call, so unmetered is capped at GENX_FAIR_USE_PER_DAY analyses a day
+ * per member — high enough that no honest member will ever see it, low enough that a stuck re-analyze
+ * loop cannot run up a bill. Past the cap the member falls back to paying credits, they are not blocked.
+ */
+export const FLOW_PASS = {
+  key: "flow_pass",
+  label: "FLOW Pass",
+  priceUsd: Number(process.env.NEXT_PUBLIC_FLOW_PASS_PRICE_USD ?? 99),
+  monthlyCredits: Number(process.env.NEXT_PUBLIC_FLOW_PASS_CREDITS ?? 50),
+  interval: "month" as const,
+  // Marker written to BOTH the checkout session and the subscription metadata, so a renewal
+  // invoice (which carries no session) can still tell this plan from the Suite and from voice.
+  tag: "flow_pass",
+} as const;
+
+/** Features the Pass makes free. Everything not listed still costs credits. */
+export const PASS_COVERED: ReadonlyArray<Feature> = ["flow_autorun", "genx"];
+export const isPassCovered = (f: Feature): boolean => PASS_COVERED.includes(f);
+
+/** Fair-use ceiling on the one covered feature that is an on-demand AI call. */
+export const GENX_FAIR_USE_PER_DAY = Number(process.env.GENX_FAIR_USE_PER_DAY ?? 100);
+
 // Auto-refill — card on file, off-session top-ups (replaces the subscription as the
 // primary path). When a member turns it ON and their spendable balance drops BELOW
 // `threshold`, the auto-refill cron charges their saved card `priceCents` and grants
