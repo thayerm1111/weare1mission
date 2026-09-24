@@ -6,6 +6,7 @@ import { SignOutButton } from "@/components/portal/SignOutButton";
 import { AccountForm } from "@/components/portal/AccountForm";
 import { PasswordForm } from "@/components/portal/PasswordForm";
 import { SubscriptionCard } from "@/components/portal/SubscriptionCard";
+import { FlowPassCard } from "@/components/portal/FlowPassCard";
 import { AutoRefillCard } from "@/components/portal/AutoRefillCard";
 import { TIER_LABELS } from "@/lib/access";
 import { packById } from "@/lib/creditConfig";
@@ -84,6 +85,9 @@ export default async function AccountPage() {
           <PasswordForm />
         </div>
       </section>
+
+      {/* The Pass sits above the legacy Suite card so a $39 member sees the upgrade first. */}
+      <FlowPassCard />
 
       <SubscriptionCard />
 
