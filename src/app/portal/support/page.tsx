@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { LifeBuoy, ArrowUp, Mail, Send, Plus } from "lucide-react";
+import { SupportChat } from "@/components/portal/SupportChat";
 
 const SUPPORT_EMAIL = "support@onemissioncollection.com";
 const STORE_KEY = "w1m_support_chat";
@@ -129,9 +130,18 @@ export default function SupportPage() {
           <LifeBuoy className="h-7 w-7 text-primary" aria-hidden="true" /> Support
         </h1>
         <p className="mt-2 text-charcoal/70">
-          Ask our AI assistant anything about your account, credits, or the tools. Need a human? Email us anytime.
+          Ask our AI assistant anything about your account, credits, or the tools — or message the team
+          directly below and we&rsquo;ll look at your account ourselves.
         </p>
       </header>
+
+      {/*
+        MESSAGE THE TEAM (owner 09-24). Sits ABOVE the email box and below the header, because it is
+        now the fastest route to a person: it reaches the desk, gets read against the member's own
+        account data, and is answered in-thread. The AI assistant underneath still handles the
+        general "how does X work" questions instantly.
+      */}
+      <SupportChat />
 
       {/* Email a human */}
       <div className="flex flex-col gap-3 rounded-2xl border border-[#E4DCCB] bg-offwhite/60 p-5 sm:flex-row sm:items-center sm:justify-between">
