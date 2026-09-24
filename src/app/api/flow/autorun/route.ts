@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getConnection } from "@/lib/flow/connection";
 import { readBalance } from "@/lib/credits";
 import { CREDIT_COST } from "@/lib/creditConfig";
+import { setMaster, syncAccountsFromMaster } from "@/lib/flow/armState";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,8 +22,6 @@ export const maxDuration = 20;
  */
 const json = (o: unknown, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store" } });
-
-const DEFAULT_SYMBOLS = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "NAS100"];
 
 async function authUser() {
   const supabase = createClient();
@@ -70,8 +69,16 @@ export async function POST(req: NextRequest) {
   const action = String(body.action || "");
 
   if (action === "disable") {
-    await admin.from("flow_auto_settings").update({ enabled: false, credit_paused: false, updated_at: new Date().toISOString() }).eq("user_id", user.id);
-    return json({ ok: true, ...(await status(user.id)) });
+    /*
+     * OFF MEANS OFF (owner 09-23, reaffirmed 09-24). Switching the master off used to leave every
+     * per-account flag armed, so the broker panel still showed the accounts trading and — because
+     * billing meters on those same flags — a member who turned FLOW off could still be charged.
+     * Disarming the accounts here is what makes one switch actually stop everything, GENX following
+     * included.
+     */
+    await setMaster(admin, user.id, false);
+    const applied = await syncAccountsFromMaster(admin, user.id, false);
+    return json({ ok: true, accountsDisarmed: applied.accountsChanged, ...(await status(user.id)) });
   }
 
   if (action === "enable") {
@@ -84,20 +91,24 @@ export async function POST(req: NextRequest) {
     const bal = await readBalance();
     const credits = bal ? bal.dailyLeft + bal.purchased : 0;
 
-    const nowIso = new Date().toISOString();
-    // Upsert a fully-formed armed row. last_credit_at=null → the first market-open
+    // setMaster upserts a fully-formed armed row. last_credit_at=null → the first market-open
     // tick charges immediately; risk-based sizing (flow_trade_prefs) overrides lots.
-    const { data: existing } = await admin.from("flow_auto_settings").select("user_id").eq("user_id", user.id).maybeSingle();
-    if (existing) {
-      await admin.from("flow_auto_settings").update({ enabled: true, credit_paused: false, last_credit_at: null, updated_at: nowIso }).eq("user_id", user.id);
-    } else {
-      await admin.from("flow_auto_settings").insert({
-        user_id: user.id, enabled: true, mode: "auto", symbols: DEFAULT_SYMBOLS,
-        max_lot: 1.0, max_open: 1, max_orders_per_hour: 6, daily_loss_limit: 0,
-        credit_paused: false, last_credit_at: null, updated_at: nowIso,
-      });
-    }
-    return json({ ok: true, lowCredits: credits < (CREDIT_COST.flow_autorun ?? 1), ...(await status(user.id)) });
+    await setMaster(admin, user.id, true);
+    /*
+     * ...and make sure "on" has something to run on. 8 members had the master armed with no account
+     * armed: the panel said auto-run was live and nothing could ever be placed. We arm the accounts
+     * they have selected, or their only account. With several accounts and none selected we arm
+     * nothing and say so — picking which of someone's brokerage accounts starts trading real money
+     * is not a guess worth making.
+     */
+    const applied = await syncAccountsFromMaster(admin, user.id, true);
+    return json({
+      ok: true,
+      lowCredits: credits < (CREDIT_COST.flow_autorun ?? 1),
+      accountsArmed: applied.accountsChanged,
+      needsAccountPick: applied.needsAccountPick,
+      ...(await status(user.id)),
+    });
   }
 
   return json({ error: "bad_action" }, 200);
