@@ -31,7 +31,7 @@ const DEV_KEY = () => process.env.TL_DEVELOPER_API_KEY ?? "";
 /* ---- per-route rate gate: refuses locally instead of spending a request to be told 429 ---- */
 const backoffUntil = new Map<string, number>();
 export const routeKey = (m: string, p: string) => `${m.toUpperCase()} ${p.split("?")[0].replace(/\/\d+(?=\/|$)/g, "/:id")}`;
-export const anyBackoff = () => [...backoffUntil.values()].some((t) => Date.now() < t);
+export const anyBackoff = (routes?: string[]) => [...backoffUntil.entries()].some(([k, t]) => (!routes || routes.includes(k)) && Date.now() < t);
 const lastCall = new Map<string, number>();
 /** Minimum spacing per route derived from /trade/config (default 550ms when unknown). */
 const minSpacing = new Map<string, number>();
