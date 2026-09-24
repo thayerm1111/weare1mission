@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { syncMasterFromAccounts } from "@/lib/flow/armState";
 import { sanitisePermissions, resolveAll, PERMISSION_KEYS } from "@/lib/flow/permissions";
 import { authenticate, listAccounts, type TLEnv } from "@/lib/flow/tradelocker";
 import { encryptSecret, encryptionReady } from "@/lib/flow/crypto";
@@ -103,7 +104,15 @@ export async function POST(req: NextRequest) {
     let q = admin.from("flow_broker_accounts").update({ autotrade_enabled: enabled, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
     if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
     await q;
-    return json({ ok: true, accountId, autotradeEnabled: enabled });
+    /*
+     * ONE SWITCH (owner 09-24). Arming an account here used to leave the master FLOW toggle alone,
+     * so a member could switch an account on, see it on, and be dropped by the master's OFF — 25
+     * members were in exactly that state. The master now follows the accounts, and `flowEnabled` is
+     * read back from the database rather than assumed, so if the sync fails the panel shows the
+     * truth instead of quietly recreating the drift.
+     */
+    const sync = await syncMasterFromAccounts(admin, user.id);
+    return json({ ok: true, accountId, autotradeEnabled: enabled, flowEnabled: sync.master, armedAccounts: sync.armedAccounts });
   }
 
   if (action === "genxfollow") {
@@ -115,7 +124,9 @@ export async function POST(req: NextRequest) {
     let q = admin.from("flow_broker_accounts").update({ genx_follower: enabled, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
     if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
     await q;
-    return json({ ok: true, accountId, genxFollower: enabled });
+    // GENX following is billed as FLOW running, so it arms the master the same way auto-trading does.
+    const sync = await syncMasterFromAccounts(admin, user.id);
+    return json({ ok: true, accountId, genxFollower: enabled, flowEnabled: sync.master, armedAccounts: sync.armedAccounts });
   }
 
   if (action === "risk") {
