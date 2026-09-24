@@ -635,6 +635,17 @@ input{font:inherit}
 .send{flex:0 0 auto;padding:0 18px;border-radius:12px;font-weight:800;color:#04121f;background:linear-gradient(180deg,#65d6ff,#2eb8ef)}
 .send:disabled{opacity:.6}
 
+/* support thread — the member's line to a person. Same bubbles as the AI chat on purpose:
+   one visual language for "I typed something and someone answered". */
+.sup-empty{border:1px solid var(--line);border-radius:14px;padding:16px;background:var(--bg2);text-align:center;color:var(--muted);font-size:13px;line-height:1.55}
+.sup-empty b{display:block;color:var(--ink);font-size:14px;margin-bottom:5px}
+.sup-day{align-self:center;font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);padding:2px 0}
+.bub.staff{align-self:flex-start;background:linear-gradient(180deg,rgba(46,232,143,.14),rgba(46,232,143,.05));border:1px solid rgba(46,232,143,.3);border-bottom-left-radius:4px}
+.sup-who{display:block;font-size:9.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;margin-bottom:4px;opacity:.75}
+.sup-t{display:block;font-size:9.5px;font-weight:700;color:var(--faint);margin-top:5px}
+.sup-ack{align-self:flex-start;font-size:11.5px;color:var(--muted);padding:2px 4px}
+.sup-err{border:1px solid rgba(255,141,153,.35);background:rgba(255,141,153,.08);color:#ffb7bf;border-radius:11px;padding:9px 12px;font-size:12px;font-weight:600;margin-bottom:8px}
+
 /* charts / upload */
 .upl{display:flex;align-items:center;justify-content:center;min-height:120px;border:1px dashed var(--line);border-radius:14px;background:var(--bg2);color:var(--muted);font-size:14px;margin-bottom:10px;cursor:pointer;overflow:hidden}
 .uplimg{width:100%;border-radius:12px;display:block}
@@ -2051,6 +2062,94 @@ input{font:inherit}
     </div></div>`;
   }
 
+  /*
+   * SUPPORT — the member's line to an actual person (owner 09-24: "I need to set up a support chat
+   * on we are one mission, and I want that support chat to be connected to you").
+   *
+   * Deliberately NOT another AI chat. The Floor already has OM AI for "how does X work"; this thread
+   * goes to the desk, gets read against the member's own account, and comes back answered by a human.
+   * That is why a sent message shows a plain "Received" line and no typing dots — a fake typing
+   * indicator on a queue that a person works would be a lie about who is on the other end.
+   *
+   * The member only ever sees approved replies: the database filters unapproved drafts out of the
+   * read itself, so this screen cannot render one even if it tried.
+   */
+  function SupportScreen(props) {
+    var msgs = useState(null), text = useState(""), busy = useState(false), err = useState(""), thread = useState(null);
+    var boxRef = useRef(null);
+
+    function load(quiet) {
+      return apiGet("/api/support/thread").then(function (d) {
+        if (!d || d.error) { if (!quiet) msgs[1]([]); return; }
+        thread[1](d.thread || null);
+        msgs[1](arr(d.messages));
+      }).catch(function () { if (!quiet) msgs[1]([]); });
+    }
+    useEffect(function () {
+      load(false);
+      // Poll while the screen is open. 20s: a reply is written by hand, so there is nothing to
+      // catch in real time, and a phone on cell data should not be hammered for it.
+      var iv = setInterval(function () { load(true); }, 20000);
+      return function () { clearInterval(iv); };
+    }, []);
+    useEffect(function () { var el = boxRef.current; if (el) el.scrollTop = el.scrollHeight; }, [msgs[0]]);
+
+    function send(e) {
+      if (e) e.preventDefault();
+      var body = String(text[0] || "").trim();
+      if (!body || busy[0]) return;
+      busy[1](true); err[1]("");
+      // Optimistic: the message appears the instant they hit send, then the reload confirms it.
+      var mine = { id: "tmp" + Date.now(), role: "member", body: body, created_at: new Date().toISOString(), pending: true };
+      msgs[1]((msgs[0] || []).concat([mine]));
+      text[1]("");
+      apiPost("/api/support/thread", { body: body }).then(function (r) {
+        busy[1](false);
+        if (r && r.error) {
+          err[1](r.detail || (r.error === "slow_down" ? "Give us a moment to read the last few." : "Couldn't send that — try again."));
+          msgs[1]((msgs[0] || []).filter(function (m) { return m.id !== mine.id; }));
+          text[1](body);
+          return;
+        }
+        load(true);
+      }).catch(function () {
+        busy[1](false);
+        err[1]("No connection — your message wasn't sent.");
+        msgs[1]((msgs[0] || []).filter(function (m) { return m.id !== mine.id; }));
+        text[1](body);
+      });
+    }
+
+    var list = msgs[0];
+    var lastMine = null;
+    (list || []).forEach(function (m) { if (m.role === "member") lastMine = m; });
+    var awaiting = lastMine && !(list || []).some(function (m) { return m.role === "staff" && m.created_at > lastMine.created_at; });
+
+    return html`<div class="scr chatscreen">
+      <button class="hx-back" onClick=${props.onBack}>‹ Account</button>
+      <div class="scr-h">Support</div>
+      <div class="scr-blurb">Message the team. We can see your account, your credits and your FLOW setup from here — so tell us what is happening and we will look at it ourselves.</div>
+      ${err[0] ? html`<div class="sup-err">${err[0]}</div>` : null}
+      <div class="chat" ref=${boxRef}>
+        ${list == null ? html`<div class="load">Loading…</div>`
+        : !list.length ? html`<div class="sup-empty"><b>Nothing here yet</b>Tell us what is going on — credits, FLOW, GENX, your broker connection, billing, anything. A person reads every one of these.</div>`
+        : list.map(function (m) {
+            var staff = m.role === "staff";
+            return html`<div class=${"bub " + (staff ? "staff" : "me")} key=${m.id}>
+              ${staff ? html`<span class="sup-who" style="color:var(--green)">One Mission</span>` : null}
+              ${m.body}
+              <span class="sup-t">${m.pending ? "Sending…" : agoTxt(m.created_at)}</span>
+            </div>`;
+          })}
+        ${list && list.length && awaiting ? html`<div class="sup-ack">Received — we'll come back to you right here.</div>` : null}
+      </div>
+      <form class="chatbar" onSubmit=${send}>
+        <input class="inp" style="margin:0" placeholder="What's going on?" value=${text[0]} onInput=${function (e) { text[1](e.target.value); }} />
+        <button class="send" type="submit" disabled=${busy[0] || !String(text[0] || "").trim()}>${busy[0] ? "…" : "Send"}</button>
+      </form>
+    </div>`;
+  }
+
   function AccountScreen(props) {
     var me = useState(null), trades = useState(null), flow = useState(null);
     useEffect(function () { apiGet("/api/me").then(function (d) { me[1](d || {}); }).catch(function () { me[1]({}); }); apiGet("/api/signals").then(function (d) { trades[1](arr(d && d.signals)); }).catch(function () { trades[1]([]); }); apiGet("/api/flow/autorun").then(function (d) { flow[1](d || {}); }).catch(function () {}); }, []);
@@ -2075,6 +2174,7 @@ input{font:inherit}
       </div>
       <${AutoRefillCard} />
       <${SuiteCard} />
+      <button class="ac-open" onClick=${props.onOpenSupport}><span>✉ Message support</span><em>Something wrong with your account? Talk to a person here.</em></button>
       <button class="ac-open" onClick=${props.onOpenAcademy}><span>🎓 Affiliate Academy</span><em>Your step-by-step roadmap to build One Mission</em></button>
       ${m && m.role === "admin" ? html`<button class="xperf-open" onClick=${props.onOpenXperf}><span>◆ xGhost Performance</span><em>admin · win rate, expectancy, by-pair</em></button>` : null}
       <div class="scr-sub">Your saved plays</div>
@@ -6944,12 +7044,13 @@ input{font:inherit}
         ${sec[0] === "flow" ? html`<button class="hx-back" onClick=${function () { sec[1]("home"); }}>‹ Home</button><${FlowScreen} key="flowdesk" onLogout=${props.onLogout} initConnect=${flowConnect[0]} onConnectHandled=${function () { flowConnect[1](false); }} />` : null}
         ${sec[0] === "dashboard" ? html`<${DashboardScreen} go=${go} goFloor=${goFloor} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "floor" ? html`<${FloorSection} key=${"fl" + floorInit[0]} init=${floorInit[0]} onLogout=${props.onLogout} />` : null}
-        ${sec[0] === "account" ? html`<${AccountScreen} onLogout=${props.onLogout} onOpenXperf=${function () { sec[1]("xperf"); }} onOpenAcademy=${function () { sec[1]("academy"); }} />` : null}
+        ${sec[0] === "account" ? html`<${AccountScreen} onLogout=${props.onLogout} onOpenXperf=${function () { sec[1]("xperf"); }} onOpenAcademy=${function () { sec[1]("academy"); }} onOpenSupport=${function () { window.scrollTo(0, 0); sec[1]("support"); }} />` : null}
         ${sec[0] === "plugin" ? html`<${PlugInScreen} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "xperf" ? html`<${XGhostStatsScreen} onBack=${function () { sec[1]("account"); }} onLogout=${props.onLogout} />` : null}
         ${sec[0] === "academy" ? html`<${AcademyScreen} onBack=${function () { sec[1]("home"); }} onLogout=${props.onLogout} />` : null}
+        ${sec[0] === "support" ? html`<${SupportScreen} onBack=${function () { sec[1]("account"); }} />` : null}
       </main>
-      <nav class="bnav">${NAV.map(function (n) { var on = sec[0] === n.id || (sec[0] === "xperf" && n.id === "account") || ((sec[0] === "flow" || sec[0] === "dashboard") && n.id === "home"); return html`<button class=${"bn " + (on ? "on" : "")} data-id=${n.id} onClick=${function () { if (n.id === "floor") goFloor(""); else go(n.id); }}><span class="bn-i">${n.icon}</span><span class="bn-l">${n.label}</span></button>`; })}</nav>
+      <nav class="bnav">${NAV.map(function (n) { var on = sec[0] === n.id || ((sec[0] === "xperf" || sec[0] === "support") && n.id === "account") || ((sec[0] === "flow" || sec[0] === "dashboard") && n.id === "home"); return html`<button class=${"bn " + (on ? "on" : "")} data-id=${n.id} onClick=${function () { if (n.id === "floor") goFloor(""); else go(n.id); }}><span class="bn-i">${n.icon}</span><span class="bn-l">${n.label}</span></button>`; })}</nav>
       <${SuiteFlyerModal} />
       <${FlowIntroTour} go=${go} />
     </div>`;
