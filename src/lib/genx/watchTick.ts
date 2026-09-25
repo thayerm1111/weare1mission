@@ -184,9 +184,12 @@ export async function acquireWatchLock(admin: Admin, holder: string, ttlMs = 150
     .eq("id", 2).lt("expires_at", nowIso).select("id");
   return Array.isArray(data) && data.length > 0;
 }
-export async function extendWatchLock(admin: Admin, holder: string, ttlMs = 15000): Promise<void> {
+/** Extends the lock and reports whether `holder` still owns it. False means it expired mid-pass and another
+ *  process (a cron invocation) took it: the caller must stop acting and re-acquire, never keep going blind. */
+export async function extendWatchLock(admin: Admin, holder: string, ttlMs = 15000): Promise<boolean> {
   const exp = new Date(Date.now() + ttlMs).toISOString();
-  await admin.from("flow_manage_lock").update({ expires_at: exp }).eq("id", 2).eq("holder", holder);
+  const { data } = await admin.from("flow_manage_lock").update({ expires_at: exp }).eq("id", 2).eq("holder", holder).select("id");
+  return Array.isArray(data) && data.length > 0;
 }
 export async function releaseWatchLock(admin: Admin, holder: string): Promise<void> {
   await admin.from("flow_manage_lock").update({ expires_at: new Date().toISOString() }).eq("id", 2).eq("holder", holder);
