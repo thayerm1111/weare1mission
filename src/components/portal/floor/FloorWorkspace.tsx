@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { LayoutGrid, Sparkles, Zap, Activity, TrendingUp, Gem, Link2, Volume2, VolumeX, Maximize2, Minimize2, Brain } from "lucide-react";
+import { LayoutGrid, Sparkles, Zap, Activity, TrendingUp, Gem, Link2, Volume2, VolumeX, Maximize2, Minimize2, Brain, Timer } from "lucide-react";
 import MattyPips from "@/components/matty-pips/MattyPips";
 import { FloorHome } from "./FloorHome";
 import { LivePlays } from "./LivePlays";
@@ -13,6 +13,7 @@ import { GenxDesk } from "./GenxDesk";
 import { OmAiChat } from "../OmAiChat";
 import { SignalGenerator } from "../SignalGenerator";
 import { FlowIntro } from "./FlowTour";
+import RapidDesk from "../rapid/RapidDesk";
 
 /* The Floor workspace — a dark trading-desk shell around the launcher (home) and
    the in-desk tools. Adds: a premium entry transition (with a tasteful WebAudio
@@ -31,6 +32,7 @@ const SHOW_MATTY_TAB = false;
 const VIEW_TABS = [
   { id: "home", label: "Floor" },
   { id: "flow", label: "FLOW" },
+  { id: "rapid", label: "Rapid" },
   { id: "matty", label: "Matty Pips" },
   { id: "genx", label: "GENX" },
   { id: "omai", label: "OM AI" },
@@ -44,6 +46,7 @@ type SwitchItem = { key: string; label: string; icon: typeof LayoutGrid } & ({ v
 const SWITCHER: SwitchItem[] = [
   { key: "home", label: "Floor", icon: LayoutGrid, view: "home" },
   { key: "flow", label: "FLOW", icon: Link2, view: "flow" },
+  { key: "rapid", label: "Rapid", icon: Timer, view: "rapid" },
   { key: "matty", label: "Matty Pips", icon: Brain, view: "matty" },
   { key: "genx", label: "GENX", icon: Gem, view: "genx" },
   { key: "omai", label: "OM AI", icon: Sparkles, view: "omai" },
@@ -161,7 +164,8 @@ export function FloorWorkspace({ isCaller = false, followerCount = 0 }: { isCall
         {/* First-visit "Connect to FLOW" popup — routes into the FLOW tab where the guided tour takes over. */}
         {tab === "home" && <FlowIntro onGo={() => go("flow")} />}
         {tab === "home" && <FloorHome onGo={go} />}
-        {tab !== "home" && (
+        {tab === "rapid" && <RapidDesk />}
+        {tab !== "home" && tab !== "rapid" && (
           <div className="rounded-xl bg-cream p-2.5 text-charcoal sm:p-3">
             {tab === "matty" && <MattyPips />}
             {tab === "flow" && <FlowDesk />}

@@ -14,7 +14,9 @@
     "auric-engine": "tsx auric/worker/index.ts",
     "test:auric": "node --import tsx --test tests/auric-*.test.ts",
     "auric-research": "tsx auric/research/run.ts",
-    "auric-bench": "tsx auric/research/bench.ts"
+    "auric-bench": "tsx auric/research/bench.ts",
+    "rapid-worker": "tsx rapid/worker/index.ts",
+    "rapid-replay": "tsx rapid/research/run.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

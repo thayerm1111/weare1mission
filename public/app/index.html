@@ -3634,6 +3634,90 @@ input{font:inherit}
       </div>` : null}
     </div>`;
   }
+  // ── Rapid (matty_rapid_v1) ────────────────────────────────────────────────
+  // A read-only phone view of the same snapshot the desk shows, plus the two
+  // per-account switches. It never says "take it now": the snapshot's age is on
+  // screen and a scenario stays conditional until it has triggered.
+  function RapidScreen(props) {
+    var d = useState(null), busy = useState(false), err = useState(""), tickN = useState(0);
+    function load() {
+      busy[1](true); err[1]("");
+      apiGet("/api/rapid/analyze").then(function (j) {
+        if (j && j.error) err[1](String(j.error)); else d[1](j || null);
+      }).catch(function (e) { err[1](String((e && e.message) || e)); }).then(function () { busy[1](false); });
+    }
+    useEffect(function () { load(); var t = setInterval(load, 20000); return function () { clearInterval(t); }; }, []);
+    useEffect(function () { var t = setInterval(function () { tickN[1](function (n) { return n + 1; }); }, 1000); return function () { clearInterval(t); }; }, []);
+    function set(accountId, body) {
+      busy[1](true);
+      apiPost("/api/rapid/settings", Object.assign({ accountId: accountId }, body))
+        .then(function (j) { if (j && j.error) err[1]((j.blockers && j.blockers.join("; ")) || String(j.error)); load(); })
+        .catch(function (e) { err[1](String((e && e.j && e.j.error) || (e && e.message) || e)); busy[1](false); });
+    }
+    var j = d[0] || {};
+    var ageMs = j.generatedAt ? (Date.now() - new Date(j.generatedAt).getTime()) : null;
+    var ageTxt = ageMs == null ? "\u2014" : ageMs < 60000 ? (Math.round(ageMs / 1000) + "s") : (Math.round(ageMs / 60000) + "m");
+    var n2 = function (v) { return (v == null || isNaN(Number(v))) ? "\u2014" : Number(v).toFixed(2); };
+    var regimes = j.regimes || {};
+    var tfs = [["D1", "Daily"], ["H4", "4H"], ["H1", "1H"], ["M15", "15m"], ["M5", "5m"]];
+    return html`<div class="scr">
+      <div class="floor-h">
+        <div class="floor-k">Rapid \u00b7 XAUUSD</div>
+        <div class="floor-t">${j.available === false ? "No analysis yet" : "Analysis " + ageTxt + " old"}</div>
+        <div class="floor-s">Looking for $5\u2013$15 of movement in the price of gold. That is a distance, not a profit \u2014 what it is worth depends on your position size.</div>
+      </div>
+      ${err[0] ? html`<div class="err">${err[0]}</div>` : null}
+      ${j.health && j.health.state !== "ok" ? html`<div class="br-card br-b"><b>${j.health.state}</b> \u2014 ${(j.health.reasons || []).join("; ")}</div>` : null}
+      <div class="br-card br-b">
+        <div class="br-hd" style="border:0;padding:0;flex-wrap:wrap;gap:6px">
+          ${tfs.map(function (t) {
+            return html`<div style="flex:1;min-width:56px;text-align:center">
+              <div style="font-size:10px;opacity:.55;text-transform:uppercase">${t[1]}</div>
+              <div style="font-size:12px;font-weight:600;text-transform:capitalize">${regimes[t[0]] || "unknown"}</div>
+            </div>`;
+          })}
+        </div>
+        ${j.regimeConflict ? html`<div style="font-size:11px;opacity:.7;margin-top:6px">Timeframes disagree on direction.</div>` : null}
+      </div>
+      ${(j.scenarios || []).length === 0
+        ? html`<div class="br-card br-b"><div style="font-size:12px;opacity:.75">Nothing qualifies right now. ${j.deterministicExplanation || ""}</div></div>`
+        : (j.scenarios || []).map(function (s) {
+            return html`<div class="br-card br-b">
+              <div class="br-hd" style="border:0;padding:0"><b>${s.side === "buy" ? "Long" : "Short"}</b>
+                <span style="opacity:.7;text-transform:capitalize">${String(s.family).replace(/_/g, " ")}</span>
+                <span style="margin-left:auto;font-size:11px;opacity:.7">${s.timeframe}</span></div>
+              <div style="font-size:12px;margin-top:6px">Entry ${n2(s.entryBandLow)}\u2013${n2(s.entryBandHigh)} \u00b7 stop ${n2(s.stop)} (${n2(s.stopUsd)}) \u00b7 target ${n2(s.target)} (${n2(s.targetUsd)})</div>
+              ${(s.conditionsPending || []).length ? html`<div style="font-size:11px;opacity:.8;margin-top:4px">Still needs: ${(s.conditionsPending || []).join("; ")}</div>` : null}
+              <div style="font-size:10px;opacity:.5;margin-top:4px">Conditional until triggered. This is not an order.</div>
+            </div>`;
+          })}
+      ${(j.accountEligibility || []).map(function (a) {
+        return html`<div class="br-card br-b">
+          <div class="br-hd" style="border:0;padding:0"><b>${a.name || "Account"}</b><span style="margin-left:auto;font-size:11px;opacity:.7">${a.environment}</span></div>
+          <div style="font-size:11px;opacity:.7;margin:6px 0 4px">Risk per trade</div>
+          <div class="br-hd" style="border:0;padding:0;gap:6px">
+            ${[0.25, 0.5, 1, 2].map(function (v) {
+              return html`<button class="br-btn" disabled=${busy[0]} style=${a.selectedRisk === v ? "flex:1;opacity:1" : "flex:1;opacity:.55"}
+                onClick=${function () { set(a.accountId, { riskPct: v }); }}>${v}%</button>`;
+            })}
+          </div>
+          <div class="br-hd" style="border:0;padding:0;margin-top:8px">
+            <span style="font-size:12px">Trade Management</span>
+            <button class="br-btn" style="margin-left:auto" disabled=${busy[0]}
+              onClick=${function () { set(a.accountId, { managementEnabled: !a.managementEnabled }); }}>${a.managementEnabled ? "On" : "Off"}</button>
+          </div>
+          <div class="br-hd" style="border:0;padding:0;margin-top:6px">
+            <span style="font-size:12px">Automation</span>
+            <button class="br-btn" style="margin-left:auto" disabled=${busy[0]}
+              onClick=${function () { set(a.accountId, { automationEnabled: !a.automationEnabled }); }}>${a.automationEnabled ? "On" : "Off"}</button>
+          </div>
+          ${(a.blockers || []).length ? html`<ul style="font-size:11px;opacity:.8;margin:6px 0 0;padding-left:16px">${(a.blockers || []).map(function (b) { return html`<li>${b}</li>`; })}</ul>` : null}
+        </div>`;
+      })}
+      <div style="font-size:10px;opacity:.45;padding:8px 2px">${j.strategyVersion || "matty_rapid_v1"} \u00b7 research defaults, not a demonstrated edge.</div>
+    </div>`;
+  }
+
   function FloorSection(props) {
     var view = useState(props.init || "");
     var pulseTool = TOOLS.filter(function (t) { return t.id === "pulse"; })[0];
@@ -3648,6 +3732,7 @@ input{font:inherit}
     if (view[0] === "live") return html`<div>${back()}<${WeeklyScreen} onLogout=${props.onLogout} /></div>`;
     if (view[0] === "ghost") return html`<div>${back()}<${XGhostSection} key="xghost" onLogout=${props.onLogout} /></div>`;
     if (view[0] === "genx") return html`<div>${back()}<${GenxScreen} onLogout=${props.onLogout} /></div>`;
+    if (view[0] === "rapid") return html`<div>${back()}<${RapidScreen} onLogout=${props.onLogout} /></div>`;
     if (view[0] === "brain") return html`<div>${back()}<${CommandCenterEmbed} onLogout=${props.onLogout} /></div>`;
     function open(v) { return function () { view[1](v); }; }
     return html`<div class="scr">
@@ -3665,6 +3750,12 @@ input{font:inherit}
           <div class="fl-nm">GENX</div>
           <div class="fl-bl">Gold intelligence engine — one tap tells you exactly what to do on Gold right now.</div>
           <div class="fl-cta">Analyze Gold ›</div>
+        </button>
+        <button class="flcard span" onClick=${open("rapid")}>
+          <div class="fl-ic">\u26A1</div>
+          <div class="fl-nm">Rapid</div>
+          <div class="fl-bl">XAUUSD Rapid \u2014 the level map, what has to happen for an entry, and your risk, management and automation switches.</div>
+          <div class="fl-cta">Analyze \u203A</div>
         </button>
         <button class="flcard span" onClick=${open("brain")}>
           <div class="fl-ic">\u25C9</div>

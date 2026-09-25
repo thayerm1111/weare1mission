@@ -1,0 +1,22 @@
+-- Rollback for 20260925120000_rapid.sql. Drops only rapid_* objects; nothing else is touched.
+-- Order matters: children before parents.
+drop table if exists public.rapid_position_actions   cascade;
+drop table if exists public.rapid_positions          cascade;
+drop table if exists public.rapid_broker_events      cascade;
+drop table if exists public.rapid_intents            cascade;
+drop table if exists public.rapid_risk_reservations  cascade;
+drop table if exists public.rapid_automation_sessions cascade;
+drop table if exists public.rapid_visit_transitions  cascade;
+drop table if exists public.rapid_setup_visits       cascade;
+drop table if exists public.rapid_snapshots          cascade;
+drop table if exists public.rapid_zone_versions      cascade;
+drop table if exists public.rapid_partial_operations cascade;
+drop table if exists public.rapid_leases             cascade;
+drop table if exists public.rapid_health_events      cascade;
+drop table if exists public.rapid_heartbeat          cascade;
+drop table if exists public.rapid_journal            cascade;
+drop table if exists public.rapid_accounts           cascade;
+drop table if exists public.rapid_broker_connections cascade;
+drop table if exists public.rapid_control_events     cascade;
+drop table if exists public.rapid_control            cascade;
+drop table if exists public.rapid_config_versions    cascade;
