@@ -92,14 +92,21 @@ async function manageLoop(): Promise<never> {
     let ticks = 0;
     while (!shuttingDown) {
       const t0 = Date.now();
+      // LOCK LIVENESS (audit 09-24): under broker rate limiting a single manage pass ran 17s+, longer than the
+      // 15s TTL. The lock expired mid-pass, the minutely cron took it, and this loop kept ticking anyway because
+      // the extend below silently matched zero rows — two managers on the same positions. Now the lock is
+      // extended every 5s WHILE the pass runs, and a lost lock ends the loop so we re-acquire cleanly.
+      const keepAlive = setInterval(() => { extendManageLock(admin, HOLDER, LOCK_TTL_MS).catch(() => {}); }, 5_000);
       try {
         const r = await manageOpenPositions();
         ticks += 1;
         await beat(admin, "manager", { worker: true, ticks, lastManaged: r?.managed ?? null, passMs: Date.now() - t0 }).catch(() => {});
       } catch (e) {
         log("manage: tick error (loop continues)", e instanceof Error ? e.message.slice(0, 200) : e);
-      }
-      try { await extendManageLock(admin, HOLDER, LOCK_TTL_MS); } catch { /* next acquire re-takes */ }
+      } finally { clearInterval(keepAlive); }
+      let held = true;
+      try { held = await extendManageLock(admin, HOLDER, LOCK_TTL_MS); } catch { /* transient DB error: keep going, next extend decides */ }
+      if (!held) { log(`manage: lock lost after a ${Date.now() - t0}ms pass — another process holds it; re-acquiring`); break; }
       // MATTY PIPS management at worker speed (owner 09-11: "Matty pips AI is not
       // getting managed"): the same excursion-aware manager the cron runs, every ~5s
       // instead of once a minute. The cron stands down while our heartbeat is fresh.
@@ -115,7 +122,7 @@ async function manageLoop(): Promise<never> {
       await sleep(Math.max(50, MANAGE_MS - elapsed));
     }
     await releaseManageLock(admin, HOLDER).catch(() => {});
-    process.exit(0);
+    if (shuttingDown) process.exit(0);
   }
 }
 
@@ -134,14 +141,17 @@ async function watchLoop(): Promise<never> {
     log(`watch: lock acquired as ${HOLDER} — ticking every ${WATCH_MS}ms`);
     while (!shuttingDown) {
       const t0 = Date.now();
+      const keepAlive = setInterval(() => { extendWatchLock(admin, HOLDER, LOCK_TTL_MS).catch(() => {}); }, 5_000);
       try {
         if (inWeekendCloseWindow() || inScanQuietWindow()) break; // release and idle through the quiet window
         if (tgReady) { try { await beatKeepDecision(admin, { tier: "watch", worker: true }); } catch { /* liveness best-effort */ } }
         await watchPass(admin, mdKey, tgReady);
       } catch (e) {
         log("watch: pass error (loop continues)", e instanceof Error ? e.message.slice(0, 200) : e);
-      }
-      try { await extendWatchLock(admin, HOLDER, LOCK_TTL_MS); } catch { /* next acquire re-takes */ }
+      } finally { clearInterval(keepAlive); }
+      let held = true;
+      try { held = await extendWatchLock(admin, HOLDER, LOCK_TTL_MS); } catch { /* transient DB error */ }
+      if (!held) { log(`watch: lock lost after a ${Date.now() - t0}ms pass — another process holds it; re-acquiring`); break; }
       const elapsed = Date.now() - t0;
       await sleep(Math.max(100, WATCH_MS - elapsed));
     }
