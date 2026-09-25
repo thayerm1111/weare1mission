@@ -110,7 +110,7 @@ export type ManagedRow = {
   id: string; user_id: string; connection_id: string; account_id: string; acc_num: string; environment: string;
   position_id: string; symbol: string; side: "buy" | "sell";
   entry: number; init_stop: number; tp1: number | null; r: number; qty: number;
-  cur_stop: number | null; best_price: number | null; be_done: boolean | null; partial_done: boolean | null; status: string;
+  cur_stop: number | null; best_price: number | null; worst_price: number | null; be_done: boolean | null; partial_done: boolean | null; status: string;
   last_error?: string | null;
   created_at?: string | null;
 };
@@ -1013,6 +1013,26 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       const bestPrev = row.best_price ?? entry;
       const best = long ? Math.max(bestPrev, favRaw) : Math.min(bestPrev, favRaw);
       update.best_price = best;
+
+      /*
+       * ADVERSE EXCURSION (owner 09-25: "the stops, do they need to be that large? Can they maybe
+       * be smaller?").
+       *
+       * The honest answer today is that nobody can know, because we only ever recorded the
+       * favourable side. Whether a 110-pip stop can safely become 70 depends entirely on how deep a
+       * WINNING trade dips before it turns — and that number exists nowhere in the system. Tightening
+       * a stop against the favourable-excursion data alone is the classic way to build a backtest
+       * that looks wonderful and loses money live: it counts every loser you would have cut smaller
+       * and none of the winners you would have cut out.
+       *
+       * So record it, with the same bad-tick guard and the same ratchet as best_price, and the
+       * question becomes answerable from real fills in a couple of weeks instead of arguable forever.
+       */
+      const advRaw = long
+        ? Math.min(price, extSane(ext?.low) ?? price)
+        : Math.max(price, extSane(ext?.high) ?? price);
+      const worstPrev = row.worst_price ?? entry;
+      update.worst_price = long ? Math.min(worstPrev, advRaw) : Math.max(worstPrev, advRaw);
 
       const manageOn = !manageOff.has(String(row.account_id));
       const beOn = manageOn && !beOffAccts.has(String(row.account_id));
