@@ -1,6 +1,7 @@
 import { executablePrice } from "./executionQuote";
 import { readProtectiveStop } from "./brokerEvidence";
 import { partialOnce } from "./partialOperation";
+import { nearTargetPrice, nearTargetApplies } from "@/lib/flow/nearTarget";
 import { feedPrice } from "./feedPrice";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { connectionToken } from "@/lib/flow/connection";
@@ -1181,7 +1182,16 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       //    the market has already passed (the broker would close the position instantly). ──
       if (manageOn && tp != null && towardTp && cols.tpIdx >= 0) {
         const brokerTp = st.tp.get(String(row.position_id)) ?? null;
-        const tpPx = roundPx(row.symbol, tp);
+        /*
+         * Re-attach the NEAR target, not GENX's (owner 09-25). The ledger's tp1 is still the GENX
+         * plan at ~1.9R — that is what the desk published — but the take-profit ORDER belongs at
+         * ~0.5R, where the data says price actually trades. If this healed to tp1 it would quietly
+         * undo the change on any position whose bracket the broker dropped.
+         */
+        const nearPx = nearTargetApplies(row.symbol)
+          ? nearTargetPrice(row.side as "buy" | "sell", entry, row.init_stop, pip, tp)
+          : null;
+        const tpPx = roundPx(row.symbol, nearPx ?? tp);
         const notPassed = long ? price < tpPx - 2 * pip : price > tpPx + 2 * pip;
         if ((brokerTp == null || brokerTp <= 0) && notPassed) {
           // Send the CURRENT stop alongside the TP — broker truth first, ledger fallback — so

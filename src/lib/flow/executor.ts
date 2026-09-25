@@ -12,6 +12,7 @@ import { goldResvKey } from "@/lib/genx/hedge";
 import { recordExec, execContext } from "@/lib/flow/execTelemetry";
 import { billedAccountIdsForFire, isManualSource } from "@/lib/flow/flowBilling";
 import { workingEntrySides, workingBlocks } from "@/lib/flow/workingOrders";
+import { nearTargetPrice, nearTargetApplies } from "@/lib/flow/nearTarget";
 
 /**
  * FLOW order placement (server-only). Places a single market order on the
@@ -256,6 +257,25 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
   // unlikely. IOC keeps the old semantics: fill now at this price or better, else cancel —
   // nothing rests on the book.
   const limitPx = entryLimitPrice(side, price, stop, tp, prec, maxEntry);
+  /*
+   * THE NEAR TARGET (owner 09-25) — see nearTarget.ts for the measurement behind it. GENX's own
+   * target sits at ~1.9R and only 8% of gold trades ever reach it; the take-profit ORDER parked at
+   * the broker goes at ~0.5R instead, where price actually trades.
+   *
+   * Computed HERE, after limitPx, because the target is measured from the entry and this is the
+   * first point the intended entry exists. And `tp` itself is deliberately never reassigned: it
+   * feeds entryLimitPrice above, which caps the entry at the worst fill still yielding a 0.75
+   * reward:risk floor — hand that a 0.5R target and the floor becomes unsatisfiable and every entry
+   * is refused. It is also what the ledger stores as tp1, the published GENX plan. Only the bracket
+   * leg moves.
+   */
+  const brokerTp = (() => {
+    if (tp == null || stop == null || !nearTargetApplies(canonical)) return tp;
+    const entryRef = limitPx ?? price;
+    if (entryRef == null || !(entryRef > 0)) return tp;
+    const px = nearTargetPrice(side, entryRef, stop, getInstrument(canonical).pipSize, tp);
+    return px == null ? tp : +px.toFixed(prec);
+  })();
   const norm = normalizeQuantity(canonical, qty, { quantityStep: tl.quantityStep, minQuantity: tl.minQuantity });
   if (!norm.ok || !(norm.qty > 0)) return { ok: false, error: "invalid_broker_quantity" };
   const base = {
@@ -272,7 +292,7 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
   const hasBracket = stop != null || tp != null;
   const hasStop = stop != null;
   const submitAt = Date.now();
-  let ord = await createOrder(a.env, a.token, { ...base, stopLoss: stop ?? null, takeProfit: tp ?? null });
+  let ord = await createOrder(a.env, a.token, { ...base, stopLoss: stop ?? null, takeProfit: brokerTp ?? null });
   const ackAt = Date.now();
   const telem = (ok: boolean, orderId: string | null, positionId: string | null, error: string | null) => { if (execContext()) recordExec({ accountId: a.accountId, bid: quote.ok ? quote.data.bid : null, ask: quote.ok ? quote.data.ask : null, quoteAt, limitPrice: limitPx ?? null, qty: norm.qty, riskPct: risk?.riskPct ?? null, equity: risk?.equity ?? null, stop: stop ?? null, target: tp ?? null, submitAt, ackAt, ok, orderId, positionId, error }); };
   let note = "";
@@ -316,7 +336,7 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
     try {
       const fix = await modifyPosition(a.env, a.token, a.accNum, positionId, {
         ...(stop != null ? { stopLoss: stop } : {}),
-        ...(tp != null ? { takeProfit: tp } : {}),
+        ...(brokerTp != null ? { takeProfit: brokerTp } : {}),
       });
       // "Nothing to change" is the broker CONFIRMING the brackets are already exactly
       // where we sent them — that's a verify SUCCESS, not a failure (live 09-09: every
