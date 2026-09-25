@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair, Radar, LifeBuoy, BarChart3, Smartphone, Gauge, Link2,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair, Radar, LifeBuoy, BarChart3, Smartphone, Gauge, Link2, Timer,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
@@ -73,6 +73,7 @@ type FloorChild =
 // Scalp, OM Charts, OM Strategy Scanner.
 const FLOOR_CHILDREN: FloorChild[] = [
   { kind: "view", view: "flow", label: "FLOW", icon: Link2 },
+  { kind: "view", view: "rapid", label: "Rapid", icon: Timer },
   { kind: "page", key: "genx" },
   { kind: "page", key: "xaughost" },
   { kind: "page", key: "omai" },

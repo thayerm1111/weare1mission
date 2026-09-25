@@ -1,0 +1,134 @@
+RAPID replay — strategy matty_rapid_v1 config matty_rapid_v1.cfg.1
+Parameters were frozen before this ran. Nothing below was tuned to these periods.
+[done w1-2024-10 ON]
+
+── w1-2024-10 [dev] management ON ─────────────────────────────
+   2024-10-07 to 2024-10-20 · 2758 closed M5 bars · 5-minute OHLC only; 10 gap(s) preserved; spread assumed at 0.35
+   evaluations 1717 · candidates surfaced 295 · trades taken 34
+   net -8.82R · expectancy -0.2595R/trade (95% CI -0.68 to 0.161)
+   win 8.8% (3W 18L 13BE) · profit factor 0.504 · max drawdown -14.232R
+   median favourable excursion 2.8 · median adverse -3.14 · median hold 16 bars
+   exits {"stop":16,"breakeven":13,"change_of_character":2,"target":2,"session_end":1}
+   by family {"trend_pullback":"5 trades, -3.78R","break_retest":"29 trades, -5.04R"}
+   rejection funnel: target_room_short=16404 no_zone=3488 regime_conflict=1659 expired=1624 stop_too_wide=1220 opposite_break=951 arbitration_lost=423 band_not_touched=261 warmup=68 reward_risk_short=7
+
+── w1-2024-10 [dev] management OFF ─────────────────────────────
+   2024-10-07 to 2024-10-20 · 2758 closed M5 bars · 5-minute OHLC only; 10 gap(s) preserved; spread assumed at 0.35
+   evaluations 1288 · candidates surfaced 250 · trades taken 20
+   net -2.37R · expectancy -0.1184R/trade (95% CI -0.884 to 0.648)
+   win 25.0% (5W 15L 0BE) · profit factor 0.842 · max drawdown -8R
+   median favourable excursion 6.46 · median adverse -6.23 · median hold 28 bars
+   exits {"stop":15,"target":4,"session_end":1}
+   by family {"trend_pullback":"2 trades, -2.00R","break_retest":"18 trades, -0.37R"}
+   rejection funnel: target_room_short=12674 no_zone=2855 regime_conflict=1198 expired=1186 opposite_break=781 stop_too_wide=625 arbitration_lost=403 band_not_touched=230 warmup=68 session_closed=4
+[done w2-2025-01 ON]
+
+── w2-2025-01 [dev] management ON ─────────────────────────────
+   1970-03-08 to 1970-04-05 · 5475 closed M5 bars · 5-minute OHLC only; 22 gap(s) preserved; spread assumed at 0.35
+   evaluations 3025 · candidates surfaced 440 · trades taken 72
+   net 4.23R · expectancy 0.0587R/trade (95% CI -0.314 to 0.432)
+   win 13.9% (10W 29L 33BE) · profit factor 1.146 · max drawdown -13.829R
+   median favourable excursion 3.75 · median adverse -2.47 · median hold 20 bars
+   exits {"stop":28,"breakeven":33,"target":10,"change_of_character":1}
+   by family {"break_retest":"66 trades, 9.23R","trend_pullback":"6 trades, -5.00R"}
+   rejection funnel: target_room_short=28357 no_zone=6581 regime_conflict=2959 expired=2911 stop_too_wide=1652 opposite_break=1405 band_not_touched=366 arbitration_lost=234 warmup=105 session_closed=75
+
+── w2-2025-01 [dev] management OFF ─────────────────────────────
+   1970-03-08 to 1970-04-05 · 5475 closed M5 bars · 5-minute OHLC only; 22 gap(s) preserved; spread assumed at 0.35
+   evaluations 1906 · candidates surfaced 319 · trades taken 55
+   net -7.88R · expectancy -0.1434R/trade (95% CI -0.549 to 0.262)
+   win 25.5% (14W 41L 0BE) · profit factor 0.808 · max drawdown -18.415R
+   median favourable excursion 4.14 · median adverse -4.8 · median hold 30 bars
+   exits {"stop":41,"target":14}
+   by family {"break_retest":"52 trades, -4.89R","trend_pullback":"3 trades, -3.00R"}
+   rejection funnel: target_room_short=20015 no_zone=4014 expired=1910 regime_conflict=1786 stop_too_wide=1333 opposite_break=999 band_not_touched=264 arbitration_lost=232 warmup=105 reward_risk_short=61
+[done w3-2025-05 ON]
+
+── w3-2025-05 [validation] management ON ─────────────────────────────
+   1970-03-09 to 1970-04-06 · 6277 closed M5 bars · 5-minute OHLC only; 225 gap(s) preserved; spread assumed at 0.35
+   evaluations 4509 · candidates surfaced 1610 · trades taken 68
+   net -15.54R · expectancy -0.2286R/trade (95% CI -0.499 to 0.042)
+   win 14.7% (10W 34L 24BE) · profit factor 0.572 · max drawdown -18.163R
+   median favourable excursion 3.25 · median adverse -3 · median hold 3 bars
+   exits {"breakeven":24,"stop":32,"target":10,"change_of_character":1,"ambiguous_adverse":1}
+   by family {"break_retest":"57 trades, -6.20R","trend_pullback":"10 trades, -9.34R","range_reaction":"1 trades, 0.00R"}
+   1 trade(s) resolved ADVERSELY because the bar touched both the entry and the stop and OHLC cannot say which came first
+   rejection funnel: target_room_short=43063 stop_too_wide=12907 no_zone=9090 expired=5211 regime_conflict=4139 opposite_break=2411 band_not_touched=1534 arbitration_lost=1303 session_closed=1174 reward_risk_short=340
+
+── w3-2025-05 [validation] management OFF ─────────────────────────────
+   1970-03-09 to 1970-04-06 · 6277 closed M5 bars · 5-minute OHLC only; 225 gap(s) preserved; spread assumed at 0.35
+   evaluations 4260 · candidates surfaced 1578 · trades taken 64
+   net -23.09R · expectancy -0.3607R/trade (95% CI -0.703 to -0.018)
+   win 18.8% (12W 52L 0BE) · profit factor 0.556 · max drawdown -25.469R
+   median favourable excursion 3.09 · median adverse -5.22 · median hold 4 bars
+   exits {"stop":51,"target":12,"ambiguous_adverse":1}
+   by family {"break_retest":"54 trades, -13.09R","trend_pullback":"9 trades, -9.00R","range_reaction":"1 trades, -1.00R"}
+   1 trade(s) resolved ADVERSELY because the bar touched both the entry and the stop and OHLC cannot say which came first
+   rejection funnel: target_room_short=41017 stop_too_wide=12593 no_zone=8489 expired=4937 regime_conflict=3948 opposite_break=2288 band_not_touched=1507 arbitration_lost=1288 session_closed=1148 reward_risk_short=338
+[done w4-2026-04 ON]
+
+── w4-2026-04 [holdout] management ON ─────────────────────────────
+   1970-03-10 to 1970-04-07 · 8063 closed M5 bars · 5-minute OHLC only; 1 gap(s) preserved; spread assumed at 0.35
+   evaluations 5084 · candidates surfaced 1710 · trades taken 64
+   net 27.48R · expectancy 0.4294R/trade (95% CI -0.061 to 0.92)
+   win 31.3% (20W 28L 16BE) · profit factor 1.981 · max drawdown -4.999R
+   median favourable excursion 5.01 · median adverse -3.02 · median hold 2 bars
+   exits {"target":20,"stop":27,"breakeven":15,"ambiguous_adverse":2}
+   by family {"break_retest":"46 trades, 21.28R","range_reaction":"3 trades, -0.06R","trend_pullback":"15 trades, 6.26R"}
+   2 trade(s) resolved ADVERSELY because the bar touched both the entry and the stop and OHLC cannot say which came first
+   rejection funnel: target_room_short=24991 stop_too_wide=13000 no_zone=10222 regime_conflict=6419 expired=3341 session_closed=2543 opposite_break=1929 band_not_touched=1644 arbitration_lost=1376 reward_risk_short=547
+
+── w4-2026-04 [holdout] management OFF ─────────────────────────────
+   1970-03-10 to 1970-04-07 · 8063 closed M5 bars · 5-minute OHLC only; 1 gap(s) preserved; spread assumed at 0.35
+   evaluations 5040 · candidates surfaced 1689 · trades taken 62
+   net 23.55R · expectancy 0.3798R/trade (95% CI -0.149 to 0.909)
+   win 38.7% (24W 38L 0BE) · profit factor 1.62 · max drawdown -5.874R
+   median favourable excursion 5.1 · median adverse -4.25 · median hold 2 bars
+   exits {"target":24,"stop":37,"ambiguous_adverse":1}
+   by family {"break_retest":"45 trades, 20.35R","range_reaction":"3 trades, -1.06R","trend_pullback":"14 trades, 4.26R"}
+   1 trade(s) resolved ADVERSELY because the bar touched both the entry and the stop and OHLC cannot say which came first
+   rejection funnel: target_room_short=24612 stop_too_wide=12933 no_zone=10128 regime_conflict=6383 expired=3292 session_closed=2522 opposite_break=1909 band_not_touched=1625 arbitration_lost=1359 reward_risk_short=534
+[done w5-2026-08 ON]
+
+── w5-2026-08 [holdout] management ON ─────────────────────────────
+   2026-08-03 to 2026-08-16 · 4032 closed M5 bars · 5-minute OHLC only; 0 gap(s) preserved; spread assumed at 0.35
+   evaluations 2417 · candidates surfaced 1145 · trades taken 52
+   net 11.09R · expectancy 0.2133R/trade (95% CI -0.294 to 0.721)
+   win 32.7% (17W 27L 8BE) · profit factor 1.411 · max drawdown -8.68R
+   median favourable excursion 4.07 · median adverse -3.28 · median hold 2 bars
+   exits {"stop":26,"target":17,"breakeven":8,"ambiguous_adverse":1}
+   by family {"break_retest":"41 trades, 8.06R","trend_pullback":"11 trades, 3.03R"}
+   1 trade(s) resolved ADVERSELY because the bar touched both the entry and the stop and OHLC cannot say which came first
+   rejection funnel: target_room_short=18328 stop_too_wide=8996 no_zone=4918 regime_conflict=2189 expired=1982 opposite_break=1387 session_closed=1272 band_not_touched=1087 arbitration_lost=917 reward_risk_short=831
+
+── w5-2026-08 [holdout] management OFF ─────────────────────────────
+   2026-08-03 to 2026-08-16 · 4032 closed M5 bars · 5-minute OHLC only; 0 gap(s) preserved; spread assumed at 0.35
+   evaluations 2358 · candidates surfaced 1127 · trades taken 51
+   net 9.29R · expectancy 0.1822R/trade (95% CI -0.352 to 0.716)
+   win 37.3% (19W 32L 0BE) · profit factor 1.29 · max drawdown -10.787R
+   median favourable excursion 4.13 · median adverse -4.57 · median hold 2 bars
+   exits {"stop":31,"target":19,"ambiguous_adverse":1}
+   by family {"break_retest":"40 trades, 7.26R","trend_pullback":"11 trades, 2.03R"}
+   1 trade(s) resolved ADVERSELY because the bar touched both the entry and the stop and OHLC cannot say which came first
+   rejection funnel: target_room_short=17677 stop_too_wide=8883 no_zone=4770 regime_conflict=2142 expired=1950 opposite_break=1366 session_closed=1272 band_not_touched=1070 arbitration_lost=910 reward_risk_short=820
+
+── by phase, management ON ─────────────────────────────
+   dev          106 trades  net   -4.594R  expectancy  -0.0433R  95% CI -0.331 to 0.244
+   validation    68 trades  net  -15.541R  expectancy  -0.2286R  95% CI -0.499 to 0.042
+   holdout      116 trades  net   38.574R  expectancy   0.3325R  95% CI -0.02 to 0.685
+
+── sensitivity ─────────────────────────────
+   spread 0.35 (base)           trades  159  net   15.284R  expectancy 0.0961R
+   spread 0.80 (the ceiling)    trades  123  net   14.252R  expectancy 0.1159R
+   breakeven off                trades  138  net   24.881R  expectancy 0.1803R
+   stop cap 6 instead of 10     trades  140  net   12.777R  expectancy 0.0913R
+
+── overall, management ON ─────────────────────────────
+   290 trades across 5 window(s), 26605 closed M5 bars
+   net 18.438R, expectancy 0.0636R/trade, 95% CI -0.125 to 0.252
+
+── verdict ─────────────────────────────
+   INCONCLUSIVE. Not a profitability claim, in either direction.
+   · the confidence interval spans zero
+   · 5-minute OHLC cannot verify intrabar touch order or same-bar management
+   · the spread is assumed, not measured from the account that would trade it
