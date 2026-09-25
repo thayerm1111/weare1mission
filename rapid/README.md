@@ -191,25 +191,31 @@ breakeven trigger as the first thing under examination — see below.
 
 Full report: **`rapid/research/RESULTS.md`**. Raw output: `rapid/research/replay-2026-09-25.log`.
 
-**290 trades over 26,605 closed M5 bars (~92 trading days, Oct 2024 → Aug 2026), five windows,
-chronologically split.** Net +18.44R, expectancy **+0.064R per trade, 95% CI −0.125 to +0.252**.
-Dev −0.043R, validation **−0.229R**, holdout +0.333R.
+**315 trades over 26,605 closed M5 bars (~92 trading days, Oct 2024 → Aug 2026), five windows,
+chronologically split.** Net −3.22R, expectancy **−0.010R per trade, 95% CI −0.176 to +0.156**.
+Dev −0.001R, validation **−0.219R**, holdout +0.085R.
 
-**INCONCLUSIVE.** The interval spans zero, the validation period was the worst of the three, and
-290 trades is too few for the uncertainty to mean anything. No edge has been demonstrated.
+**INCONCLUSIVE, with a negative point estimate.** The interval spans zero and its centre sits just
+below zero; the validation period was the worst of the three; and of the two holdout windows, the
+four-week one is flat (+0.74R on 87 trades) while the two-week one carries the entire positive
+result. No edge has been demonstrated.
 
-Two findings worth acting on:
+Three findings worth acting on:
 
 - **The breakeven trigger is the biggest single drag.** Disabling it while keeping the trail and the
-  structural exit takes expectancy from +0.096R to +0.180R. It fires at $3 while the median
-  favourable excursion is $2.80–$5.01, so it pulls the stop to entry at roughly the point where half
-  these trades make their high.
-- **`range_reaction` produced 4 trades in 92 days.** The range validator is strict enough that the
+  structural exit takes expectancy from +0.065R to +0.117R on the same sample — the only variation
+  that beats the base. It fires at $3 while the median favourable excursion is $2.80–$4.13, so it
+  pulls the stop to entry at roughly the point where half these trades make their high.
+- **`trend_pullback` lost money over the full sample** — −14.51R on 47 trades, positive in only one
+  of five windows.
+- **`range_reaction` produced 1 trade in 92 days.** The range validator is strict enough that the
   family Matthew described first is effectively not running.
 
-A look-ahead bug in the harness itself (filling on the bar whose close produced the signal) inflated
-one window to a 45% win rate and a 5.7 profit factor before it was found. Every number above is
-post-fix.
+Two bugs in the harness itself were found and fixed before these numbers. A look-ahead bug (filling
+on the bar whose close produced the signal) inflated one window to a 45% win rate and a 5.7 profit
+factor. Corrupt window timestamps (`t0` written as a slot index rather than an epoch in three of
+five files) misaligned the session calendar; fixing them moved the headline from +18.44R to
+−3.22R. Every number above is post-fix for both.
 
 ## Configuration
 

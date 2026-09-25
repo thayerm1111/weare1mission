@@ -55,7 +55,15 @@ export function loadWindow(path: string, name: string, phase: Window["phase"]): 
   const nl = text.indexOf("\n");
   const header = text.slice(0, nl).trim().split(/\s+/);
   const payload = text.slice(nl + 1).trim();
-  const { bars, gaps } = decode(Number(header[0]), Number(header[1]), payload);
+  const t0 = Number(header[0]);
+  // A gold epoch is ~1.7e9 seconds. A value orders of magnitude below that is a SLOT INDEX that
+  // lost its x300 during extraction — which silently dates the whole window to 1970 and puts every
+  // session boundary, weekend and daily rollover in the wrong place. It is not recoverable by
+  // guessing, so it is refused.
+  if (!(t0 > 1_000_000_000) || !(t0 < 4_000_000_000)) {
+    throw new Error(`${name}: t0 ${t0} is not a plausible epoch in seconds — the window header is wrong, refusing to evaluate on it`);
+  }
+  const { bars, gaps } = decode(t0, Number(header[1]), payload);
   const expected = Number(header[2]);
   if (bars.length !== expected) {
     throw new Error(`${name}: decoded ${bars.length} bars, header says ${expected} — the file is corrupt, refusing to evaluate on it`);
