@@ -18,7 +18,7 @@
    ========================================================================== */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, CheckCircle2, Clock, Loader2, Lock, RefreshCw, Shield, Zap } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Clock, Link2, Loader2, Lock, RefreshCw, Shield, Unplug, Zap } from "lucide-react";
 
 const C = {
   base: "#0A0E13", panel: "#0E141C", raised: "#131A24", line: "rgba(255,255,255,0.07)",
@@ -35,10 +35,13 @@ type Scenario = {
 };
 
 type Eligibility = {
-  accountId: string; name: string | null; environment: string; currency: string | null;
+  accountId: string; connectionId?: string; name: string | null; environment: string; currency: string | null;
   automationEnabled: boolean; managementEnabled: boolean; selectedRisk: number;
   equity: number | null; blockers: string[];
+  allowSharedAccount?: boolean; sharedWith?: string[]; resolvedSymbol?: string | null;
 };
+
+type BrokerAccount = { accountId: string; accNum: string; name: string | null; currency: string | null; balance: number | null };
 
 type Analyze = {
   available: boolean; reason?: string;
@@ -127,6 +130,26 @@ export default function RapidDesk() {
   const accounts = data?.accountEligibility ?? [];
   const scenarios = data?.scenarios ?? [];
   const mode = data?.control?.mode ?? "off";
+  const [showConnect, setShowConnect] = useState(false);
+
+  const disconnect = useCallback(async (connectionId: string) => {
+    if (!window.confirm("Disconnect this TradeLocker connection from Rapid? New Rapid entries stop. Any open position stays at your broker with the protection the broker holds; Rapid will no longer manage it.")) return;
+    setBusy(`disc:${connectionId}`);
+    setError(null);
+    try {
+      const res = await fetch("/api/rapid/connect", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "disconnect", connectionId }),
+      });
+      const out = (await res.json()) as { error?: string; detail?: string };
+      if (!res.ok) throw new Error(out.detail ?? out.error ?? "could not disconnect");
+      await load();
+    } catch (e) {
+      setError(String((e as Error)?.message ?? e));
+    } finally {
+      setBusy(null);
+    }
+  }, [load]);
 
   return (
     <div style={{ background: C.base, color: C.text }} className="min-h-[70vh] rounded-xl p-4">
@@ -160,25 +183,52 @@ export default function RapidDesk() {
           <ScenarioPanel scenarios={scenarios} explanation={data?.deterministicExplanation} stale={Boolean(data?.stale)} />
         </div>
         <div className="space-y-3">
-          {accounts.length === 0 ? (
-            <Panel title="Your accounts">
+          {accounts.length === 0 && !showConnect && (
+            <Panel
+              title="Your accounts"
+              right={
+                <button
+                  onClick={() => setShowConnect(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-semibold transition-colors hover:bg-white/5"
+                  style={{ background: "rgba(34,211,238,0.14)", color: C.cyan }}
+                >
+                  <Link2 size={13} /> Connect TradeLocker
+                </button>
+              }
+            >
               <p style={{ color: C.mut }} className="text-[12px] leading-relaxed">
                 No TradeLocker account is connected to Rapid yet. Analyze works without one; execution needs a
                 connected account so entry prices, spread and risk can be checked against the money that would
                 actually be traded.
               </p>
             </Panel>
-          ) : (
-            accounts.map((a) => (
-              <AccountPanel
-                key={a.accountId}
-                account={a}
-                busy={busy}
-                onRisk={(pct) => void patch(a.accountId, { riskPct: pct }, `risk:${a.accountId}`)}
-                onManagement={(on) => void patch(a.accountId, { managementEnabled: on }, `mgmt:${a.accountId}`)}
-                onAutomation={(on) => void patch(a.accountId, { automationEnabled: on }, `auto:${a.accountId}`)}
-              />
-            ))
+          )}
+          {showConnect && (
+            <ConnectPanel
+              onDone={() => { setShowConnect(false); void load(); }}
+              onCancel={() => setShowConnect(false)}
+            />
+          )}
+          {accounts.map((a) => (
+            <AccountPanel
+              key={a.accountId}
+              account={a}
+              busy={busy}
+              onRisk={(pct) => void patch(a.accountId, { riskPct: pct }, `risk:${a.accountId}`)}
+              onManagement={(on) => void patch(a.accountId, { managementEnabled: on }, `mgmt:${a.accountId}`)}
+              onAutomation={(on) => void patch(a.accountId, { automationEnabled: on }, `auto:${a.accountId}`)}
+              onAllowShared={(on) => void patch(a.accountId, { allowSharedAccount: on }, `shared:${a.accountId}`)}
+              onDisconnect={a.connectionId ? () => void disconnect(a.connectionId!) : undefined}
+            />
+          ))}
+          {accounts.length > 0 && !showConnect && (
+            <button
+              onClick={() => setShowConnect(true)}
+              className="inline-flex items-center gap-1.5 text-[11px] font-semibold hover:underline"
+              style={{ color: C.mut2 }}
+            >
+              <Link2 size={12} /> Connect another TradeLocker account
+            </button>
           )}
           <PositionsPanel positions={data?.ownedPositions ?? []} />
         </div>
@@ -344,13 +394,31 @@ function Field({ label, value, tone }: { label: string; value: string; tone?: st
 function AccountPanel(p: {
   account: Eligibility; busy: string | null;
   onRisk: (pct: number) => void; onManagement: (on: boolean) => void; onAutomation: (on: boolean) => void;
+  onAllowShared?: (on: boolean) => void; onDisconnect?: () => void;
 }) {
   const a = p.account;
   const armBlocked = a.blockers.filter((b) => !/automation is off/.test(b));
+  const shared = (a.sharedWith ?? []).length > 0;
   return (
     <Panel
       title={a.name ? `${a.name} · ${a.environment}` : `Account · ${a.environment}`}
-      right={<span className="text-[11px]" style={{ color: C.mut2 }}>{a.currency ?? ""} {a.equity != null ? fmt(a.equity, 2) : ""}</span>}
+      right={
+        <span className="flex items-center gap-2 text-[11px]" style={{ color: C.mut2 }}>
+          {a.resolvedSymbol && <span className="font-mono" style={{ color: C.gold }}>{a.resolvedSymbol}</span>}
+          <span>{a.currency ?? ""} {a.equity != null ? fmt(a.equity, 2) : ""}</span>
+          {p.onDisconnect && (
+            <button
+              onClick={p.onDisconnect}
+              disabled={p.busy === `disc:${a.connectionId}`}
+              title="Disconnect this TradeLocker connection"
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-white/5 disabled:opacity-40"
+              style={{ color: C.mut2 }}
+            >
+              <Unplug size={12} /> Disconnect
+            </button>
+          )}
+        </span>
+      }
     >
       <div className="mb-2">
         <div className="mb-1 text-[10px] uppercase tracking-wider" style={{ color: C.mut2 }}>Risk per trade</div>
@@ -394,6 +462,19 @@ function AccountPanel(p: {
         onChange={p.onAutomation}
       />
 
+      {(shared || a.allowSharedAccount) && p.onAllowShared && (
+        <Toggle
+          icon={<AlertTriangle size={13} />}
+          label="Allow shared account"
+          hint={a.allowSharedAccount
+            ? `You have accepted that ${(a.sharedWith ?? []).join(" and ") || "another One Mission product"} also trades this account. Equity and margin are shared; Rapid touches only positions it opened.`
+            : `${(a.sharedWith ?? []).join(" and ")} already trades this broker account. Rapid refuses to arm a shared account unless you accept that equity, margin and — on a netting account — positions are shared. A dedicated account or sub-account is the safer choice.`}
+          on={a.allowSharedAccount === true}
+          busy={p.busy === `shared:${a.accountId}`}
+          onChange={p.onAllowShared}
+        />
+      )}
+
       {armBlocked.length > 0 && (
         <ul className="mt-2 space-y-0.5 text-[11px]" style={{ color: C.amber }}>
           {armBlocked.map((b, i) => <li key={i}>• {b}</li>)}
@@ -402,6 +483,135 @@ function AccountPanel(p: {
       {armBlocked.length === 0 && a.automationEnabled && (
         <div className="mt-2 flex items-center gap-1.5 text-[11px]" style={{ color: C.green }}>
           <CheckCircle2 size={12} /> Execution ready
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+/**
+ * Connect TradeLocker. The password goes from this form to OUR server and from there to the broker,
+ * once, and is not kept unless "stay connected" is ticked (then it is stored encrypted, server-side,
+ * for unattended reconnection). A selected account always starts with Automation OFF.
+ */
+function ConnectPanel({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [env, setEnv] = useState<"demo" | "live">("live");
+  const [server, setServer] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [savePassword, setSavePassword] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [found, setFound] = useState<{ connectionId: string; accounts: BrokerAccount[] } | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [readiness, setReadiness] = useState<string | null>(null);
+
+  const connect = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const res = await fetch("/api/rapid/connect", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "connect", environment: env, server: server.trim(), email: email.trim(), password, savePassword }),
+      });
+      const out = (await res.json()) as { error?: string; detail?: string; connectionId?: string; accounts?: BrokerAccount[] };
+      if (!res.ok || !out.connectionId) throw new Error(out.detail ?? out.error ?? "sign-in failed");
+      setPassword("");
+      setFound({ connectionId: out.connectionId, accounts: out.accounts ?? [] });
+      if ((out.accounts ?? []).length === 1) setPicked(out.accounts![0].accountId);
+    } catch (e) {
+      setErr(String((e as Error)?.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const select = async () => {
+    if (!found || !picked) return;
+    const acct = found.accounts.find((a) => a.accountId === picked);
+    if (!acct) return;
+    setBusy(true); setErr(null);
+    try {
+      const res = await fetch("/api/rapid/connect", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "select", connectionId: found.connectionId, brokerAccountId: acct.accountId, accNum: acct.accNum, name: acct.name, currency: acct.currency }),
+      });
+      const out = (await res.json()) as { error?: string; detail?: string; readiness?: { ok: boolean; resolvedSymbol: string | null; reason: string | null } | null };
+      if (!res.ok) throw new Error(out.detail ?? out.error ?? "could not link the account");
+      const r = out.readiness;
+      setReadiness(r ? (r.ok ? `Linked. Gold resolved as ${r.resolvedSymbol}. Automation is OFF until you switch it on.` : `Linked, but not ready yet: ${r.reason ?? "checking with the broker"}`) : "Linked. Readiness will be checked by the worker shortly.");
+      setTimeout(onDone, 1800);
+    } catch (e) {
+      setErr(String((e as Error)?.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const input = "w-full rounded-lg px-3 py-2 text-[12px] outline-none";
+  const inputStyle = { background: C.raised, border: `1px solid ${C.line}`, color: C.text } as const;
+
+  return (
+    <Panel
+      title="Connect TradeLocker"
+      right={<button onClick={onCancel} className="text-[11px] hover:underline" style={{ color: C.mut2 }}>Cancel</button>}
+    >
+      {readiness ? (
+        <p className="flex items-start gap-1.5 text-[12px] leading-relaxed" style={{ color: C.green }}><CheckCircle2 size={14} className="mt-0.5" /> {readiness}</p>
+      ) : !found ? (
+        <div className="space-y-2">
+          <div className="flex gap-1.5">
+            {(["live", "demo"] as const).map((e) => (
+              <button
+                key={e}
+                onClick={() => setEnv(e)}
+                className="rounded-lg px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors"
+                style={env === e ? { background: e === "live" ? "rgba(251,191,36,0.18)" : "rgba(34,211,238,0.16)", color: e === "live" ? C.amber : C.cyan } : { background: C.raised, color: C.mut }}
+              >
+                {e}
+              </button>
+            ))}
+          </div>
+          <input className={input} style={inputStyle} placeholder="Server (e.g. GENFX)" value={server} onChange={(e) => setServer(e.target.value)} autoComplete="off" />
+          <input className={input} style={inputStyle} placeholder="TradeLocker email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
+          <input className={input} style={inputStyle} placeholder="TradeLocker password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+          <label className="flex items-start gap-2 text-[11px] leading-relaxed" style={{ color: C.mut }}>
+            <input type="checkbox" checked={savePassword} onChange={(e) => setSavePassword(e.target.checked)} className="mt-0.5" />
+            <span>Stay connected: keep my password encrypted on the server so Rapid can sign in again on its own when the broker session expires. Untick it and you will need to reconnect whenever that happens.</span>
+          </label>
+          {err && <p className="text-[11px]" style={{ color: C.red }}>{err}</p>}
+          <button
+            onClick={() => void connect()}
+            disabled={busy || !server.trim() || !email.trim() || !password}
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors hover:bg-white/5 disabled:opacity-40"
+            style={{ background: "rgba(34,211,238,0.14)", color: C.cyan }}
+          >
+            {busy ? <Loader2 size={13} className="animate-spin" /> : <Link2 size={13} />} Sign in to TradeLocker
+          </button>
+          <p className="text-[10px] leading-relaxed" style={{ color: C.mut2 }}>
+            The sign-in is made by our server, never by your browser. Nothing is traded by connecting: the account starts with Automation OFF.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-[12px]" style={{ color: C.mut }}>Signed in. Choose the account Rapid may trade:</p>
+          {found.accounts.length === 0 && <p className="text-[12px]" style={{ color: C.amber }}>The broker returned no accounts for this login.</p>}
+          {found.accounts.map((a) => (
+            <label key={a.accountId} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-[12px]" style={{ background: C.raised, border: `1px solid ${picked === a.accountId ? "rgba(34,211,238,0.5)" : C.lineSoft}` }}>
+              <input type="radio" name="rapid-acct" checked={picked === a.accountId} onChange={() => setPicked(a.accountId)} />
+              <span className="font-semibold">{a.name ?? `Account ${a.accNum}`}</span>
+              <span className="font-mono" style={{ color: C.mut2 }}>#{a.accNum}</span>
+              <span className="ml-auto" style={{ color: C.mut }}>{a.currency ?? ""} {a.balance != null ? fmt(a.balance, 2) : ""}</span>
+            </label>
+          ))}
+          {err && <p className="text-[11px]" style={{ color: C.red }}>{err}</p>}
+          <button
+            onClick={() => void select()}
+            disabled={busy || !picked}
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors hover:bg-white/5 disabled:opacity-40"
+            style={{ background: "rgba(52,211,153,0.16)", color: C.green }}
+          >
+            {busy ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />} Use this account
+          </button>
         </div>
       )}
     </Panel>

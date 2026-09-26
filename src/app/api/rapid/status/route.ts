@@ -46,7 +46,7 @@ export async function GET() {
     if (!conn) blockers.push("no broker connection");
     else if (conn.status === "reconnect_required") blockers.push("reconnect required: the broker session could not be renewed");
     else if (conn.status === "revoked") blockers.push("this connection was disconnected");
-    if (!a.instrument_spec) blockers.push("gold has not been resolved on this account");
+    if (!a.instrument_spec) blockers.push(a.block_reason ? `gold not resolved on this account: ${a.block_reason}` : "gold has not been resolved on this account");
     if (missing.length) blockers.push(`contract metadata incomplete: ${missing.join(", ")}`);
     if (ownership && ownership.ok === false) blockers.push(ownership.reason ?? "account is shared with another product");
     if (mine.length) blockers.push(`${mine.length} unresolved order(s) must be reconciled first`);

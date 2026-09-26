@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { encryptSecret, encryptionReady, maskEmail } from "../../../../../rapid/broker/crypto";
 import { authenticate, listAccounts } from "../../../../../rapid/broker/tradelocker";
 import type { TLEnv } from "../../../../../rapid/broker/http";
+import { prepareAccount, type PreparableAccount } from "../../../../../rapid/exec/prepare";
 
 export const dynamic = "force-dynamic";
 
@@ -103,7 +104,22 @@ export async function POST(req: Request) {
       }
       return json({ error: error.message }, 500);
     }
-    return json({ ok: true, accountId: (data as { id: string }).id, automationEnabled: false });
+    const accountId = (data as { id: string }).id;
+
+    // Readiness, established now rather than on the worker's next pass, so the desk can show at once
+    // whether gold resolved, whether the account is shared, and what it holds. Best effort: a broker
+    // hiccup here leaves the account linked and the worker re-prepares it on its cadence.
+    let readiness: Awaited<ReturnType<typeof prepareAccount>> | null = null;
+    try {
+      readiness = await prepareAccount({
+        id: accountId, user_id: auth.user.id, connection_id: connectionId, broker_account_id: brokerAccountId,
+        acc_num: accNum, environment: c.environment as PreparableAccount["environment"], allow_shared_account: false,
+        instrument_spec: null, instrument_resolved_at: null,
+      });
+    } catch (e) {
+      readiness = { ok: false, resolvedSymbol: null, missing: [], ownershipOk: null, equity: null, reason: String((e as Error)?.message ?? e) };
+    }
+    return json({ ok: true, accountId, automationEnabled: false, readiness });
   }
 
   if (action === "disconnect") {

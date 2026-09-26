@@ -21,6 +21,8 @@ export type PortContext = {
   token: string;
   accNum: string;
   accountId: string;
+  /** The strategy's canonical symbol, used only to break an otherwise ambiguous gold match. */
+  preferredSymbol?: string | null;
 };
 
 const isSessionClosed = (msg: string) => /session|market[^a-z]*(clos|halt)|not[^a-z]*open|trading[^a-z]*(clos|halt|disabl)/i.test(msg);
@@ -50,7 +52,7 @@ export class TradeLockerPort implements BrokerPort {
     if (this.cachedSpec) return { ok: true, ...this.cachedSpec };
     const list = await listInstruments(this.ctx.env, this.ctx.token, this.ctx.accNum, this.ctx.accountId);
     if (!list.ok) return { ok: false, error: list.error };
-    const gold = resolveGold(list.data);
+    const gold = resolveGold(list.data, this.ctx.preferredSymbol ?? null);
     if (!gold.ok) return { ok: false, error: `${gold.reason}${gold.candidates.length ? `: ${gold.candidates.join(", ")}` : ""}` };
     const details = await getInstrumentDetails(this.ctx.env, this.ctx.token, this.ctx.accNum, gold.row.tradableInstrumentId, gold.row.tradeRouteId);
     if (!details.ok) return { ok: false, error: details.error };

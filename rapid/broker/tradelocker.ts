@@ -359,7 +359,7 @@ export function toInstrumentSpec(row: TLInstrumentRow, details: unknown): { spec
  * Resolve gold on THIS account by verified identity, never by a hard-coded symbol. An ambiguous
  * match blocks with the candidates listed, so a human picks rather than the code guessing.
  */
-export function resolveGold(rows: TLInstrumentRow[]): { ok: true; row: TLInstrumentRow } | { ok: false; reason: string; candidates: string[] } {
+export function resolveGold(rows: TLInstrumentRow[], preferred?: string | null): { ok: true; row: TLInstrumentRow } | { ok: false; reason: string; candidates: string[] } {
   const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
   // Anything that could plausibly be gold. A "XAUUSD" and a "XAUUSD.raw" on the same account are
   // usually DIFFERENT contracts with different spread and commission, so picking one silently is a
@@ -368,6 +368,13 @@ export function resolveGold(rows: TLInstrumentRow[]): { ok: true; row: TLInstrum
   if (goldish.length === 1) return { ok: true, row: goldish[0] };
   if (goldish.length === 0) {
     return { ok: false, reason: "no gold instrument was found on this account", candidates: [] };
+  }
+  // The one sanctioned tie-break: the strategy's canonical symbol, configured by the operator, not
+  // inferred. It only applies when EXACTLY one candidate is that symbol, so "XAUUSD" among
+  // "XAUUSD" and "XAUUSD.raw" resolves, while two suffixed variants still block.
+  if (preferred) {
+    const exact = goldish.filter((r) => norm(r.brokerSymbol) === norm(preferred));
+    if (exact.length === 1) return { ok: true, row: exact[0] };
   }
   return {
     ok: false,

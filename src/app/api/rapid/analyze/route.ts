@@ -32,6 +32,13 @@ export async function GET() {
       control: control ?? null,
       strategyVersion: DEFAULT_CONFIG.version,
       configVersion: DEFAULT_CONFIG.configVersion,
+      accountEligibility: ((accounts ?? []) as Array<Record<string, unknown>>).map((a) => ({
+        accountId: a.id, connectionId: a.connection_id, name: a.name, environment: a.environment, currency: a.currency,
+        automationEnabled: a.automation_enabled === true, managementEnabled: a.management_enabled === true,
+        selectedRisk: Number(a.risk_pct), equity: a.equity, allowSharedAccount: a.allow_shared_account === true,
+        sharedWith: [], resolvedSymbol: (a.instrument_spec as { brokerSymbol?: string } | null)?.brokerSymbol ?? null,
+        blockers: ["no analysis has been produced yet"],
+      })),
     });
   }
 
@@ -50,7 +57,7 @@ export async function GET() {
     const blockers: string[] = [];
     const missing = (a.spec_missing as string[] | null) ?? [];
     if (missing.length) blockers.push(`instrument metadata incomplete: ${missing.join(", ")}`);
-    if (!a.instrument_spec) blockers.push("gold has not been resolved on this account yet");
+    if (!a.instrument_spec) blockers.push(a.block_reason ? `gold not resolved on this account: ${a.block_reason}` : "gold has not been resolved on this account yet — checking with the broker");
     if (a.status !== "linked") blockers.push(`account ${a.status}`);
     const ownership = a.ownership_check as { ok?: boolean; reason?: string } | null;
     if (ownership && ownership.ok === false) blockers.push(ownership.reason ?? "account ownership check failed");
@@ -59,6 +66,7 @@ export async function GET() {
     if (!a.automation_enabled) blockers.push("automation is off for this account");
     return {
       accountId: a.id,
+      connectionId: a.connection_id,
       name: a.name,
       environment: a.environment,
       currency: a.currency,
@@ -66,6 +74,9 @@ export async function GET() {
       managementEnabled: a.management_enabled === true,
       selectedRisk: Number(a.risk_pct),
       equity: a.equity,
+      allowSharedAccount: a.allow_shared_account === true,
+      sharedWith: (ownership as { sharedWith?: string[] } | null)?.sharedWith ?? [],
+      resolvedSymbol: (a.instrument_spec as { brokerSymbol?: string } | null)?.brokerSymbol ?? null,
       blockers,
     };
   });
