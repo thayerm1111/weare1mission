@@ -12,13 +12,13 @@ import { QuoteStream } from "../market/quotes";
 import { withLease } from "../exec/leases";
 import { reconcileAccount } from "../exec/reconcile";
 import { executablePrice, preSubmissionGate } from "../exec/guards";
-import { TradeLockerPort, type PortContext } from "../exec/tradelockerPort";
+import { TradeLockerPort } from "../exec/tradelockerPort";
 import { tagFor } from "../exec/ownership";
 import { submitProtected } from "../exec/submit";
 import { managePosition, type PositionRow } from "../manage/runner";
 import { sizePosition } from "../risk/sizing";
-import { freshToken, type RapidConnection } from "../broker/session";
 import type { TLEnv } from "../broker/http";
+import { portForAccount, prepareAllLinked } from "../exec/prepare";
 
 /**
  * The Rapid worker.
@@ -45,6 +45,7 @@ const ACCOUNT_MS = Number(process.env.RAPID_ACCOUNT_MS || 1_000);
 const WATCHDOG_MS = Number(process.env.RAPID_WATCHDOG_MS || 1_000);
 const BAR_REFRESH_MS = Number(process.env.RAPID_BAR_REFRESH_MS || 30_000);
 const PROTECTION_DEADLINE_MS = Number(process.env.RAPID_PROTECTION_DEADLINE_MS || 8_000);
+const PREPARE_MS = Number(process.env.RAPID_PREPARE_MS || 30_000);
 
 let shuttingDown = false;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -188,13 +189,8 @@ async function accountsToServe(): Promise<ArmedAccount[]> {
 }
 
 async function portFor(acct: ArmedAccount): Promise<{ ok: true; port: TradeLockerPort } | { ok: false; error: string }> {
-  const db = admin();
-  const { data } = await db.from("rapid_broker_connections").select("*").eq("id", acct.connection_id).maybeSingle();
-  if (!data) return { ok: false, error: "connection row is missing" };
-  const tok = await freshToken(data as RapidConnection);
-  if (!tok.ok) return { ok: false, error: tok.error };
-  const ctx: PortContext = { env: acct.environment, token: tok.token, accNum: acct.acc_num, accountId: acct.broker_account_id };
-  return { ok: true, port: new TradeLockerPort(ctx) };
+  const p = await portForAccount(acct);
+  return p.ok ? { ok: true, port: p.port } : { ok: false, error: p.error };
 }
 
 async function accountLoop(cfg: RapidConfig): Promise<void> {
@@ -409,6 +405,26 @@ async function remainingSessionRisk(accountId: string, equity: number, cfg: Rapi
   return Math.max(0, ceiling - lost);
 }
 
+// ---- Preparation -------------------------------------------------------------------------------------
+/**
+ * Readiness for EVERY linked account, armed or not: gold resolved on the account, ownership checked
+ * against the other products, equity refreshed. This is what lets a member see "execution ready"
+ * (or exactly why not) before they touch the Automation switch, and it is the only path that writes
+ * `instrument_spec`, so without it the switch could never be turned on.
+ */
+async function prepareLoop(): Promise<void> {
+  while (!shuttingDown) {
+    const started = Date.now();
+    try {
+      const r = await prepareAllLinked();
+      await beat("rapid-prepare", { ...r, passMs: Date.now() - started });
+    } catch (e) {
+      await health("rapid-prepare", "degraded", { error: String((e as Error)?.message ?? e) });
+    }
+    await sleep(Math.max(1_000, PREPARE_MS - (Date.now() - started)));
+  }
+}
+
 // ---- Watchdog -----------------------------------------------------------------------------------------
 async function watchdog(cfg: RapidConfig): Promise<void> {
   while (!shuttingDown) {
@@ -435,14 +451,16 @@ async function main(): Promise<void> {
   const cfg = await loadConfig();
   const control = await readControl();
   console.log(`[rapid] ${HOLDER} starting — strategy ${cfg.version}, config ${cfg.configVersion}, mode ${control.mode}, entries ${control.entriesPaused ? "PAUSED" : "enabled"}`);
-  if (!cfg.liveEnabled) console.log("[rapid] the strategy feature flag is OFF: analysis runs, nothing executes.");
+  // What actually governs an order: rapid_control (mode must be 'live' and entries not paused) and
+  // the account's own Automation switch. Both are read live on every pass; neither needs a deploy.
+  console.log(`[rapid] entries ${control.mode === "live" && !control.entriesPaused ? "ENABLED for armed accounts" : "disabled"} (control mode=${control.mode}, paused=${control.entriesPaused}); config liveEnabled=${cfg.liveEnabled} (informational)`);
 
   process.on("SIGTERM", () => { shuttingDown = true; });
   process.on("SIGINT", () => { shuttingDown = true; });
   process.on("unhandledRejection", (e) => console.error("[rapid] unhandled rejection", e));
   process.on("uncaughtException", (e) => { console.error("[rapid] uncaught", e); process.exit(1); });
 
-  await Promise.all([analysisLoop(cfg), accountLoop(cfg), watchdog(cfg)]);
+  await Promise.all([analysisLoop(cfg), accountLoop(cfg), prepareLoop(), watchdog(cfg)]);
   console.log("[rapid] stopped cleanly");
   process.exit(0);
 }

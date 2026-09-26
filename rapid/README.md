@@ -3,9 +3,12 @@
 Product identifier: `rapid`. Floor tab: **Rapid**. API: `/api/rapid/*`. Tables: `rapid_*`.
 Worker: `npm run rapid-worker`. Strategy version: `matty_rapid_v1`, config `matty_rapid_v1.cfg.1`.
 
-> **Status: NOT live-ready, by design.** The feature flag ships off, automation defaults off for
-> every account, and the global control starts with entries paused. The replay evidence below is
-> **negative-to-inconclusive**, which is a reason not to turn it on, not a detail to work around.
+> **Status: switched on by the owner on 2026-09-25, against the evidence below.** The replay
+> evidence is **negative-to-inconclusive**; no edge has been demonstrated. What governs an order,
+> read live on every worker pass: `rapid_control.mode = 'live'` with `entries_paused = false`, and
+> the account's own Automation switch (defaults off; refused until the account is ready). Flipping
+> `rapid_control` back to `off` or `entries_paused = true` stops new entries without a deploy.
+> `liveEnabled` in `rapid/config/defaults.ts` is informational only and does not gate execution.
 
 ---
 
@@ -41,6 +44,7 @@ Worker: `npm run rapid-worker`. Strategy version: `matty_rapid_v1`, config `matt
 | Failure-injecting simulator | `rapid/exec/simulator.ts` |
 | Leases with fencing | `rapid/exec/leases.ts` |
 | Account-level isolation | `rapid/exec/ownership.ts` |
+| Account readiness (instrument, ownership, equity) | `rapid/exec/prepare.ts` |
 | Pre-submission gate | `rapid/exec/guards.ts` |
 | Submission state machine | `rapid/exec/submit.ts` |
 | Reconciliation | `rapid/exec/reconcile.ts` |
@@ -153,6 +157,13 @@ and measure feed age and round-trip latency on the real feed against the 2-secon
 
 ## 6. How a member operates it
 
+0. **Connect TradeLocker** — on the desk: environment, server, email, password. The sign-in is made
+   by the server; the password is kept (encrypted) only if "stay connected" is ticked. Pick the
+   account. Selecting it runs the readiness step at once: gold is resolved on that account (an
+   ambiguous match is broken only by the strategy's canonical symbol, `XAUUSD`; two suffixed
+   variants still block), other One Mission products on the same broker account are detected, and
+   equity is read. The worker repeats this for every linked account every 30 seconds
+   (`RAPID_PREPARE_MS`). A shared account can be armed only after the member explicitly allows it.
 1. **Analyze** — read-only, safe with automation off, shows the level map, the structure per
    timeframe, at most one long and one short scenario, and the snapshot's age. Pressing it cannot
    arm anything.
@@ -236,6 +247,7 @@ Environment variables (names only, no values):
 restart policy always. It is deliberately NOT added to the existing worker: a slow pass in one must
 not be able to starve the other.
 
-**Rollout order.** Core and fixtures → replay → paper/demo on a dedicated account → controlled
-production. `liveEnabled` stays false and `rapid_control.mode` stays `off` until the acceptance
-evidence exists. Nobody is migrated into this, and no account is armed by a deploy.
+**Rollout.** The owner chose to go straight to production on 2026-09-25 (`rapid_control.mode =
+'live'`, `entries_paused = false`), skipping the paper/demo step this document recommended. Nobody
+is migrated into this, and no account is armed by a deploy: each account still has to be connected,
+pass readiness, and have its Automation switch turned on by its owner.
