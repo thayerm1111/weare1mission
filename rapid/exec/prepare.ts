@@ -30,6 +30,7 @@ export type PreparableAccount = {
   allow_shared_account: boolean;
   instrument_spec: unknown;
   instrument_resolved_at: string | null;
+  spec_missing?: string[] | null;
 };
 
 export type PrepareResult = {
@@ -78,7 +79,10 @@ export async function prepareAccount(acct: PreparableAccount): Promise<PrepareRe
 
   // 1. The instrument. Re-resolved when missing or stale; the contract does not change on a tick.
   const specAge = acct.instrument_resolved_at ? Date.now() - new Date(acct.instrument_resolved_at).getTime() : Infinity;
-  if (!acct.instrument_spec || specAge > SPEC_TTL_MS) {
+  const incomplete = (acct.spec_missing ?? []).length > 0;
+  // Re-resolved when absent, stale, or incomplete: a parser fix must reach an already-linked account
+  // on the next pass, not after the TTL.
+  if (!acct.instrument_spec || incomplete || specAge > SPEC_TTL_MS) {
     const s = await port.spec();
     if (s.ok) {
       patch.instrument_spec = s.spec;
@@ -138,7 +142,7 @@ export async function prepareAllLinked(): Promise<{ prepared: number; ready: num
   const db = admin();
   const { data } = await db
     .from("rapid_accounts")
-    .select("id, user_id, connection_id, broker_account_id, acc_num, environment, allow_shared_account, instrument_spec, instrument_resolved_at")
+    .select("id, user_id, connection_id, broker_account_id, acc_num, environment, allow_shared_account, instrument_spec, instrument_resolved_at, spec_missing")
     .eq("status", "linked");
   const rows = (data ?? []) as PreparableAccount[];
   let ready = 0;
