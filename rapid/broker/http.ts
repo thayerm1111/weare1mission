@@ -206,6 +206,33 @@ export function brokerError(body: unknown): string | null {
   return null;
 }
 
+/**
+ * The broker's own words for a failure, whatever shape it used: the `{s:"error", errmsg}` envelope,
+ * a plain `{message}` / `{error}` body, or raw text. Nothing here ever includes what was sent.
+ */
+export function brokerMessage(r: { status: number; json: unknown; text: string }, fallback: string): string {
+  const env = brokerError(r.json);
+  if (env) return env;
+  const b = r.json as Record<string, unknown> | null;
+  if (b && typeof b === "object") {
+    for (const k of ["message", "errmsg", "error", "detail", "title"]) {
+      const v = b[k];
+      if (typeof v === "string" && v.trim()) return v.trim();
+      if (Array.isArray(v) && v.length && typeof v[0] === "string") return v.join("; ");
+    }
+    const errors = b.errors;
+    if (Array.isArray(errors) && errors.length) {
+      const first = errors[0] as Record<string, unknown> | string;
+      const msg = typeof first === "string" ? first : (first?.message ?? first?.msg);
+      if (typeof msg === "string" && msg.trim()) return msg.trim();
+    }
+  }
+  const text = (r.text ?? "").replace(/\s+/g, " ").trim();
+  if (text && !/^</.test(text)) return `${fallback}: ${text.slice(0, 160)}`;
+  if (/cloudflare|attention required|access denied/i.test(text)) return `${fallback}: the broker's edge refused the request (Cloudflare)`;
+  return fallback;
+}
+
 /** Rows arrive as objects OR as positional arrays described by `/trade/config`. */
 export function readCollection(body: unknown, ...fields: string[]): { ok: true; data: unknown[] } | { ok: false; error: string } {
   if (Array.isArray(body)) return { ok: true, data: body };
