@@ -18,7 +18,7 @@
    ========================================================================== */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, CheckCircle2, Clock, Link2, Loader2, Lock, RefreshCw, Shield, Unplug, Zap } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Clock, Eye, EyeOff, Link2, Loader2, Lock, RefreshCw, Shield, Unplug, Zap } from "lucide-react";
 
 const C = {
   base: "#0A0E13", panel: "#0E141C", raised: "#131A24", line: "rgba(255,255,255,0.07)",
@@ -500,6 +500,7 @@ function ConnectPanel({ onDone, onCancel }: { onDone: () => void; onCancel: () =
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [savePassword, setSavePassword] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [found, setFound] = useState<{ connectionId: string; accounts: BrokerAccount[] } | null>(null);
@@ -571,9 +572,36 @@ function ConnectPanel({ onDone, onCancel }: { onDone: () => void; onCancel: () =
               </button>
             ))}
           </div>
-          <input className={input} style={inputStyle} placeholder="Server (e.g. GENFX)" value={server} onChange={(e) => setServer(e.target.value)} autoComplete="off" />
-          <input className={input} style={inputStyle} placeholder="TradeLocker email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
-          <input className={input} style={inputStyle} placeholder="TradeLocker password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+          {/* These are the BROKER's credentials, not this site's. autoComplete is set so the browser's
+              saved login for this site is never dropped into them, and the password can be revealed so
+              what is sent is what the member sees. */}
+          <input className={input} style={inputStyle} placeholder="Server (e.g. GENFX)" value={server} onChange={(e) => setServer(e.target.value)} autoComplete="off" name="rapid-broker-server" spellCheck={false} />
+          <input className={input} style={inputStyle} placeholder="TradeLocker email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" name="rapid-broker-email" spellCheck={false} />
+          <div className="relative">
+            <input
+              className={input}
+              style={{ ...inputStyle, paddingRight: 36 }}
+              placeholder="TradeLocker password"
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+              name="rapid-broker-password"
+              spellCheck={false}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-white/5"
+              style={{ color: C.mut2 }}
+            >
+              {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+          {password.length > 0 && !showPassword && (
+            <p className="text-[10px]" style={{ color: C.mut2 }}>{password.length} characters entered. Tap the eye to check it — a browser can silently fill this box with your saved login for this site instead of your broker password.</p>
+          )}
           <label className="flex items-start gap-2 text-[11px] leading-relaxed" style={{ color: C.mut }}>
             <input type="checkbox" checked={savePassword} onChange={(e) => setSavePassword(e.target.checked)} className="mt-0.5" />
             <span>Stay connected: keep my password encrypted on the server so Rapid can sign in again on its own when the broker session expires. Untick it and you will need to reconnect whenever that happens.</span>
