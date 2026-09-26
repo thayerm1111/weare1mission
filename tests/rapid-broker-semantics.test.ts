@@ -115,6 +115,23 @@ test("gold resolution: an ambiguous match BLOCKS with the candidates named", () 
   assert.equal(none.ok, false);
 });
 
+test("contract metadata: TradeLocker's tiered fields and quotingCurrency are read", () => {
+  // The exact shape GenFX live returned for XAUUSD on 2026-09-26.
+  const live = toInstrumentSpec(inst("XAUUSD"), {
+    lotSize: 100, lotStep: 0.01, minLot: 0.01, maxLot: 1000, quotingCurrency: "USD",
+    tickSize: [{ tickSize: 0.01, leftRangeLimit: null }],
+    tickCost: [{ tickCost: 0, leftRangeLimit: null }],
+  });
+  assert.deepEqual(live.missing, []);
+  assert.equal(live.spec.tickSize, 0.01);
+  assert.equal(live.spec.currency, "USD");
+  assert.equal(live.spec.contractSize, 100);
+  assert.equal(live.spec.tickValue, null, "a zero tickCost is not a tick value; sizing falls back to contractSize");
+  // A base band is preferred over a higher band when both exist.
+  const banded = toInstrumentSpec(inst("XAUUSD"), { tickSize: [{ tickSize: 0.1, leftRangeLimit: 5000 }, { tickSize: 0.01, leftRangeLimit: null }], lotStep: 0.01, minLot: 0.01, lotSize: 100, currency: "USD" });
+  assert.equal(banded.spec.tickSize, 0.01);
+});
+
 test("contract metadata: what is missing is NAMED, never defaulted", () => {
   const full = toInstrumentSpec(inst("XAUUSD"), { contractSize: 100, lotStep: 0.01, minLot: 0.01, tickSize: 0.01, tickValue: 1, currency: "USD" });
   assert.deepEqual(full.missing, []);

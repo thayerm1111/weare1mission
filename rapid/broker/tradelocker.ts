@@ -326,12 +326,30 @@ export { columnMap, field };
  * `specMissing` rather than defaulted, because a default here is a guess about how much money is at
  * risk per lot.
  */
+/**
+ * TradeLocker publishes some contract fields as TIERS rather than numbers, e.g.
+ * `tickSize: [{ tickSize: 0.01, leftRangeLimit: null }]` — one entry per price band, the base band
+ * carrying a null lower limit. The base band is the one that applies at any ordinary price; a
+ * tiered value with no base band falls back to its first entry. A zero is treated as not reported
+ * (the broker sends `tickCost: 0` when it does not price the tick), never as a real value.
+ */
+function tiered(v: unknown, key: string): number | null {
+  if (Array.isArray(v)) {
+    const rows = v as Array<Record<string, unknown>>;
+    const base = rows.find((r) => r && (r.leftRangeLimit == null || Number(r.leftRangeLimit) === 0)) ?? rows[0];
+    const n = num(base?.[key] ?? base?.value);
+    return n != null && n > 0 ? n : null;
+  }
+  const n = num(v);
+  return n != null && n > 0 ? n : null;
+}
+
 export function toInstrumentSpec(row: TLInstrumentRow, details: unknown): { spec: InstrumentSpec; missing: string[] } {
   const d = (details ?? {}) as Record<string, unknown>;
   const nested = (d.details ?? {}) as Record<string, unknown>;
   const pick = (...keys: string[]): number | null => {
     for (const k of keys) {
-      const v = num(d[k] ?? nested[k]);
+      const v = tiered(d[k] ?? nested[k], k);
       if (v != null) return v;
     }
     return null;
@@ -346,9 +364,10 @@ export function toInstrumentSpec(row: TLInstrumentRow, details: unknown): { spec
     minLot: pick("minLot", "minQuantity", "minLotSize"),
     maxLot: pick("maxLot", "maxQuantity", "maxLotSize"),
     tickSize: pick("tickSize", "minPriceIncrement", "priceIncrement"),
-    tickValue: pick("tickValue", "priceIncrementValue"),
+    tickValue: pick("tickValue", "tickCost", "priceIncrementValue"),
     priceDecimals: pick("priceDecimals", "decimals", "pricePrecision"),
-    currency: str(d.currency ?? nested.currency ?? d.profitCurrency),
+    // The profit currency. TradeLocker names it `quotingCurrency` on the details payload.
+    currency: str(d.currency ?? nested.currency ?? d.profitCurrency ?? d.quotingCurrency ?? nested.quotingCurrency),
     minStopDistance: pick("minStopDistance", "stopsLevel", "minDistance"),
     raw: details,
   };
