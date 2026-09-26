@@ -4,6 +4,7 @@ import { encryptSecret, encryptionReady, maskEmail } from "../../../../../rapid/
 import { authenticate, listAccounts } from "../../../../../rapid/broker/tradelocker";
 import type { TLEnv } from "../../../../../rapid/broker/http";
 import { prepareAccount, type PreparableAccount } from "../../../../../rapid/exec/prepare";
+import { journal } from "../../../../../rapid/db";
 
 export const dynamic = "force-dynamic";
 
@@ -42,10 +43,19 @@ export async function POST(req: Request) {
     if (!server || !email || !password) return json({ error: "server, email and password are required" }, 400);
 
     const tokens = await authenticate(environment, email, password, server);
-    if (!tokens.ok) return json({ error: "sign_in_failed", detail: tokens.error }, 400);
+    if (!tokens.ok) {
+      // The broker's reason is kept, so a refused sign-in can be diagnosed later. Never the password.
+      await journal({ userId: auth.user.id, stage: "connect", code: "sign_in_failed", decision: "refused", reason: tokens.error,
+        evidence: { environment, server, emailMasked: maskEmail(email), brokerStatus: tokens.status, latencyMs: tokens.latencyMs } });
+      return json({ error: "sign_in_failed", detail: tokens.error, brokerStatus: tokens.status }, 400);
+    }
 
     const accounts = await listAccounts(environment, tokens.data.accessToken);
-    if (!accounts.ok) return json({ error: "account_discovery_failed", detail: accounts.error }, 502);
+    if (!accounts.ok) {
+      await journal({ userId: auth.user.id, stage: "connect", code: "account_discovery_failed", decision: "refused", reason: accounts.error,
+        evidence: { environment, server, emailMasked: maskEmail(email), brokerStatus: accounts.status } });
+      return json({ error: "account_discovery_failed", detail: accounts.error }, 502);
+    }
 
     const row = {
       user_id: auth.user.id,

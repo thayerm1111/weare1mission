@@ -1,5 +1,5 @@
 import type { InstrumentSpec, Quote, Side } from "../core/types";
-import { brokerError, columnMap, field, readCollection, tlFetch, type Priority, type TLEnv, type TLResult } from "./http";
+import { brokerError, brokerMessage, columnMap, field, readCollection, tlFetch, type Priority, type TLEnv, type TLResult } from "./http";
 
 /**
  * Typed TradeLocker operations.
@@ -36,7 +36,13 @@ const str = (v: unknown): string | null => (v == null ? null : String(v));
 export async function authenticate(env: TLEnv, email: string, password: string, server: string): Promise<TLResult<TLTokens>> {
   const r = await tlFetch(env, "/auth/jwt/token", { method: "POST", body: JSON.stringify({ email, password, server }), priority: "auth" });
   const err = brokerError(r.json);
-  if (r.status < 200 || r.status >= 300 || err) return bad(r.status, err ?? `sign-in failed (${r.status})`, r.latencyMs);
+  if (r.status === 0) return bad(0, `could not reach the broker: ${r.text || "network error"}`, r.latencyMs);
+  if (r.status < 200 || r.status >= 300 || err) {
+    const why = brokerMessage(r, r.status === 401 || r.status === 403
+      ? "TradeLocker rejected those credentials — check the email, password and server name"
+      : `TradeLocker refused the sign-in (HTTP ${r.status})`);
+    return bad(r.status, why, r.latencyMs);
+  }
   const d = (r.json as Record<string, unknown>) ?? {};
   const accessToken = str(d.accessToken ?? d.access_token);
   const refreshToken = str(d.refreshToken ?? d.refresh_token);
@@ -47,7 +53,7 @@ export async function authenticate(env: TLEnv, email: string, password: string, 
 export async function refresh(env: TLEnv, refreshToken: string): Promise<TLResult<TLTokens>> {
   const r = await tlFetch(env, "/auth/jwt/refresh", { method: "POST", body: JSON.stringify({ refreshToken }), priority: "auth" });
   const err = brokerError(r.json);
-  if (r.status < 200 || r.status >= 300 || err) return bad(r.status, err ?? `token refresh failed (${r.status})`, r.latencyMs);
+  if (r.status < 200 || r.status >= 300 || err) return bad(r.status, brokerMessage(r, `token refresh failed (${r.status})`), r.latencyMs);
   const d = (r.json as Record<string, unknown>) ?? {};
   const accessToken = str(d.accessToken ?? d.access_token);
   if (!accessToken) return bad(r.status, "refresh returned no access token", r.latencyMs);
@@ -57,7 +63,7 @@ export async function refresh(env: TLEnv, refreshToken: string): Promise<TLResul
 export async function listAccounts(env: TLEnv, accessToken: string): Promise<TLResult<TLAccount[]>> {
   const r = await tlFetch(env, "/auth/jwt/all-accounts", { accessToken, priority: "auth" });
   const err = brokerError(r.json);
-  if (r.status < 200 || r.status >= 300 || err) return bad(r.status, err ?? `account discovery failed (${r.status})`, r.latencyMs);
+  if (r.status < 200 || r.status >= 300 || err) return bad(r.status, brokerMessage(r, `account discovery failed (${r.status})`), r.latencyMs);
   const coll = readCollection(r.json, "accounts");
   if (!coll.ok) return bad(r.status, coll.error, r.latencyMs);
   const rows: TLAccount[] = [];
