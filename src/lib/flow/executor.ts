@@ -10,7 +10,7 @@ import { listInstruments, createOrder, getQuote, listOrders, listPositions, list
 import { reserveGold, markReservation, releaseGold } from "@/lib/genx2/reservation";
 import { goldResvKey } from "@/lib/genx/hedge";
 import { recordExec, execContext } from "@/lib/flow/execTelemetry";
-import { billedAccountIdsForFire, isManualSource } from "@/lib/flow/flowBilling";
+import { chargePlacedFire, fireEligibleAccountIds, isManualSource, type FireGate } from "@/lib/flow/flowBilling";
 import { workingEntrySides, workingBlocks } from "@/lib/flow/workingOrders";
 import { nearTargetPrice, nearTargetApplies } from "@/lib/flow/nearTarget";
 
@@ -462,13 +462,17 @@ export async function placeOnActiveAccounts(opts: {
   const fills: AccountFill[] = [];
   // FLOW CREDITS PER TRADE (owner 09-18: "5 credits per trade"): a member pays 5 credits when GENX puts an
   // order on their account — once for the whole fire, however many accounts they run. Watching is free.
+  // PAY FOR THE TRADE, NOT THE ATTEMPT (owner 09-29): nobody is charged here. This only decides who may
+  // trade (an account whose member cannot pay the fee sits out, as before); the fee itself is taken
+  // below, after an order is confirmed on the account — see chargePlacedFire.
+  let fireGate: FireGate = { eligible: new Set(), billable: new Set() };
   if (!isManualSource(opts.source) && tlog && accts.length) {
-    const paid = await billedAccountIdsForFire(tlog, accts.map((a) => String(a.accountId)), resvKey);
-    for (const a of accts) if (!paid.has(String(a.accountId))) {
+    fireGate = await fireEligibleAccountIds(tlog, accts.map((a) => String(a.accountId)));
+    for (const a of accts) if (!fireGate.eligible.has(String(a.accountId))) {
       fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", reason: "flow_credits: out of credits (account paused)" });
       await logEvent(opts.userId, { symbol: canonical, side: opts.side, status: "skipped", reason: `${opts.source}: flow_credits (out of credits)`.slice(0, 60), account_id: a.accountId });
     }
-    accts = accts.filter((a) => paid.has(String(a.accountId)));
+    accts = accts.filter((a) => fireGate.eligible.has(String(a.accountId)));
   }
   let placed = 0;
   // ONE ACCOUNT = ONE PLACEMENT PIPELINE (owner 09-09: "when a trade is there all
@@ -599,6 +603,12 @@ export async function placeOnActiveAccounts(opts: {
     fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "placed", qty: r.qty, lots: r.qty, estLossAtStop: s.estLossAtStop, orderId: r.orderId });
     if (tlog) await logTrade(tlog, { account_id: a.accountId, user_id: opts.userId, symbol: canonical, phase: "entry_confirmed", reason: opts.source, position_id: r.positionId, price: opts.entry, qty: r.qty, detail: { latencyMs: Date.now() - t0, orderId: r.orderId, estLossAtStop: s.estLossAtStop } });
     placed += 1;
+    // FLOW CREDITS PER TRADE — collected now that an order is actually on the account (owner 09-29), once
+    // per member per fire however many accounts filled. Billing never undoes a fill: a fee that cannot be
+    // collected pauses the member for the next fire, and this trade stands.
+    if (tlog && fireGate.billable.has(opts.userId)) {
+      try { await chargePlacedFire(tlog, opts.userId, resvKey, fireGate); } catch { /* billing is best-effort after the fact */ }
+    }
     // Hand the fill to the trade-manager (breakeven → partial → trail). Needs a
     // positionId + a real stop; a bare/unstopped fill isn't managed. OM AI PLAYS ARE
     // NOT ENROLLED (owner directive 09-01: "OM AI plays should not be managed — only

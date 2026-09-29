@@ -13,7 +13,7 @@ import { goldResvKey, blocksEntry } from "@/lib/genx/hedge";
 import { workingEntrySides, workingBlocks } from "@/lib/flow/workingOrders";
 import { partitionBySwingFloor, swingAllowed, isSwingMode, SWING_MIN_BALANCE } from "@/lib/genx/swingFloor";
 import { instrumentIdFor } from "@/lib/flow/executor";
-import { billedAccountIdsForFire, billSetupForming, flowOffUserIds } from "@/lib/flow/flowBilling";
+import { chargePlacedFire, fireEligibleAccountIds, billSetupForming, flowOffUserIds } from "@/lib/flow/flowBilling";
 import { genxLabel } from "@/lib/genx/brand";
 import { genxGoldQualityGate } from "@/lib/genx/qualityGate";
 import { originAllowed, genx3AccountFilter } from "@/lib/genx3/engineSelect";
@@ -1886,15 +1886,25 @@ export async function placeGenxFollower(sig: {
   let sendItOnly = sig.sendItOnly === true;
   if (blackoutsArmed() && inWeekendCloseWindow()) sendItOnly = true; // 09-22: only while GENX_BLACKOUTS=on
   if (blackoutsArmed() && inDailyReopenWindow()) sendItOnly = true;  // 09-22: only while GENX_BLACKOUTS=on
-  if (!(await systemSwitches(admin)).genx) return { accounts: 0, placed: 0 }; // admin GENX kill switch — hard, even for send-it
-  if (!originAllowed(sig.origin)) return { accounts: 0, placed: 0 }; // engine selection (owner 09-16)
+  /*
+   * NOTHING SILENT (owner 09-29). This path had placed no order in 14 days and left no trace of why:
+   * every exit below returned without a row, so 62 follower-only members paid for a path nobody could
+   * see. Every drop now leaves a desk breadcrumb (same marker row the copy path uses), and every
+   * per-account silent return leaves a skip on that member — so "why didn't my account take this?"
+   * is one query away.
+   */
+  const followDrop = async (reason: string): Promise<void> => {
+    try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx_follow: ${reason}`.slice(0, 200) }); } catch { /* breadcrumb best-effort */ }
+  };
+  if (!(await systemSwitches(admin)).genx) { await followDrop("genx_switch_off (admin kill switch)"); return { accounts: 0, placed: 0 }; } // admin GENX kill switch — hard, even for send-it
+  if (!originAllowed(sig.origin)) { await followDrop(`engine_off (${sig.origin ?? "genx2"} is not the selected engine)`); return { accounts: 0, placed: 0 }; } // engine selection (owner 09-16)
   // QUALITY GATE (GENX 2.0 only) — same hard gate as the copy path (the copy path posts the note).
   if (sig.origin !== "genx3") {
     const q = await genxGoldQualityGate(admin, { side: sig.side, entryLow: sig.entryLow ?? null, entryHigh: sig.entryHigh ?? null, stop: sig.stop, tp: sig.tp, setup: sig.setup ?? null });
-    if (!q.ok) return { accounts: 0, placed: 0 };
+    if (!q.ok) { await followDrop(`quality_gate ${q.reason}`); return { accounts: 0, placed: 0 }; }
   }
   const signalKey = String(sig.signalKey || "").slice(0, 200);
-  if (!signalKey) return { accounts: 0, placed: 0 };
+  if (!signalKey) { await followDrop("no_signal_key"); return { accounts: 0, placed: 0 }; }
 
   // Entry price for risk sizing: midpoint of the zone (fallbacks handle a one-sided
   // zone). null → we can't size, so those accounts fall back to the 0.01 floor.
@@ -1950,12 +1960,19 @@ export async function placeGenxFollower(sig: {
   // GENX copy (placeGenxGold) instead — drop it here so it never gets both the copy fill AND
   // this follower fill for the same setup. Pure-follower accounts (autotrade off) route here.
   // Uses the shared goldRoute() rule so the two paths can never disagree on ownership.
+  // Count every filter so the breadcrumb below can say exactly where the accounts went.
+  const dropped: Record<string, number> = {};
+  const countDrop = (label: string, before: number, after: number) => { if (before !== after) dropped[label] = (dropped[label] ?? 0) + (before - after); };
   accts = accts.filter((a) => goldRoute(a) === "follower").map(a => ({ ...a, send_it: SEND_IT_ENABLED && a.send_it === true }));
+  const loaded = accts.length; // follower-routed accounts (copy-path accounts are the copy path's business)
+  let n = accts.length;
   // OFF MEANS OFF (owner 09-23) — same rule as the copy path: a member whose master FLOW toggle is off
   // takes no follower fills either, so nothing reaches them and nothing is billed.
   {
     const off = await flowOffUserIds(admin, [...new Set(accts.map((a) => String(a.user_id)))]);
+    n = accts.length;
     if (off.size) accts = accts.filter((a) => !off.has(String(a.user_id)));
+    countDrop("flow_off", n, accts.length);
   }
   /*
    * TRADE STYLES APPLY HERE TOO.
@@ -1965,10 +1982,12 @@ export async function placeGenxFollower(sig: {
    * kinds this account takes — the three style switches sit on the same card and are the member
    * saying which kinds those are. A call that states no horizon still reaches everybody.
    */
+  n = accts.length;
   accts = filterAccountsByStyle(
     accts.map((a) => ({ ...a, styleQuick: a.style_quick, styleHold: a.style_hold, styleSwing: a.style_swing })),
     sig.mode,
   ) as FollowRow[];
+  countDrop(`style_${styleOfMode(sig.mode ?? "quick")}_off`, n, accts.length);
   /*
    * SWING FLOOR (owner 09-24) — same rule as the copy path. The follower path reads equity live
    * during sizing, but that is far too late: the account must be stood down BEFORE the reservation
@@ -1982,16 +2001,25 @@ export async function placeGenxFollower(sig: {
       for (const a of split.tooSmall) {
         try { await admin.from("flow_auto_events").insert({ user_id: a.user_id, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: swing_floor (account under $${SWING_MIN_BALANCE.toLocaleString("en-US")})`, account_id: String(a.account_id) }); } catch { /* log best-effort */ }
       }
-      void before;
     }
+    countDrop("swing_floor", before, accts.length);
   }
+  n = accts.length;
   if (sig.onlyUserIds) { const allow = new Set(sig.onlyUserIds); accts = accts.filter((a) => allow.has(String(a.user_id))); } // GENX 3.0 live scope
   else if (sig.origin !== "genx3") { const reserved = await genx3ReservedUsers(admin); if (reserved.size) accts = accts.filter((a) => !reserved.has(String(a.user_id))); }
   accts = genx3AccountFilter(accts, (a) => String(a.account_id), sig, sig.onlyAccountIds || sig.origin === "genx3" ? new Set() : (await genx3Reserved(admin)).accounts);
+  countDrop("genx3_scope", n, accts.length);
   // 🚀 SEND IT v2: when a desk safeguard fired, only Send It followers that chose to
   // BYPASS the safeguards (send_it_guards off) take this entry.
+  n = accts.length;
   if (sendItOnly) accts = accts.filter((a) => a.send_it === true && a.send_it_guards !== true);
-  if (!accts.length) return { accounts: 0, placed: 0 };
+  countDrop("send_it_only", n, accts.length);
+  // The breadcrumb: how many follower accounts were loaded, how many are left, and where the rest went.
+  {
+    const parts = Object.entries(dropped).map(([k, v]) => `${k} -${v}`).join(", ");
+    if (!accts.length) { await followDrop(`fanout ${loaded} follower accts → 0 eligible${parts ? ` (${parts})` : ""}`); return { accounts: 0, placed: 0 }; }
+    if (parts) await followDrop(`fanout ${loaded} follower accts → ${accts.length} eligible (${parts})`);
+  }
 
   // Mint one token per connection (a connection can hold several follower accounts),
   // and read that connection's live account equities ONCE (cached) for risk sizing.
@@ -2040,12 +2068,21 @@ export async function placeGenxFollower(sig: {
   // double-fetch on a race (harmless), and genx_follower_fills' unique (signal_key, account_id)
   // makes each fill idempotent even under concurrency.
   const perAccount = async (a: FollowRow): Promise<{ touched: number; placed: number }> => {
-    if (!a.acc_num) return { touched: 0, placed: 0 };
+    // NOTHING SILENT (owner 09-29): every early return leaves a skip on the member, same prefix the
+    // copy path uses, so readiness/recent-event filters and the member's own history stay one shape.
+    const skip = async (reason: string): Promise<{ touched: number; placed: number }> => {
+      try { await admin.from("flow_auto_events").insert({ user_id: a.user_id, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: ${reason}`.slice(0, 60), account_id: a.account_id }); } catch { /* log best-effort */ }
+      return { touched: 1, placed: 0 };
+    };
+    if (!a.acc_num) return skip("no_broker_account (account has no broker number)");
     const resvKeyF = goldResvKey("XAUUSD", sig.side);   // 09-22: side-keyed while hedging is on
     try {
       // FLOW CREDITS PER TRADE (owner 09-18): the member pays 5 credits for this fire, once.
+      // PAY FOR THE TRADE, NOT THE ATTEMPT (owner 09-29): this only asks whether the member could pay;
+      // the fee is collected below, after the order is confirmed on the account (chargePlacedFire).
       const fireKey = `genx:${sig.signalKey}`;
-      if (!(await billedAccountIdsForFire(admin, [String(a.account_id)], fireKey)).has(String(a.account_id))) {
+      const fireGate = await fireEligibleAccountIds(admin, [String(a.account_id)]);
+      if (!fireGate.eligible.has(String(a.account_id))) {
         try { await admin.from("flow_auto_events").insert({ user_id: a.user_id, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: "genx: flow_credits (account paused)", account_id: a.account_id }); } catch { /* log best-effort */ }
         return { touched: 1, placed: 0 };
       }
@@ -2081,9 +2118,9 @@ export async function placeGenxFollower(sig: {
         const brokerOpen = tokChk ? await brokerOpenPosIds({ env: tokChk.env, token: tokChk.token, accNum: String(a.acc_num), accountId: a.account_id }) : null;
         if (brokerOpen) await retireStaleGoldRows(admin, String(a.account_id), allOpenRows, brokerOpen);
         if (!(a.send_it === true && a.send_it_stack !== false) && ledgerPids.length) {
-          if (!tokChk) return { touched: 1, placed: 0 }; // can't verify → fail closed, never stack
-          if (brokerOpen === null) return { touched: 1, placed: 0 }; // broker unreadable → fail closed, never stack
-          if (genxGoldStillOpen(ledgerPids, brokerOpen)) return { touched: 1, placed: 0 }; // genuinely open → skip
+          if (!tokChk) return skip("no_broker_token (reconnect your broker)"); // can't verify → fail closed, never stack
+          if (brokerOpen === null) return skip("broker_unreadable (can't confirm the open gold trade closed)"); // broker unreadable → fail closed, never stack
+          if (genxGoldStillOpen(ledgerPids, brokerOpen)) return skip("one_open_gold (already in a GENX gold trade)"); // genuinely open → skip
         }
       }
       // RULE #1 (GENX 2.0): atomic one-gold-at-a-time reservation for THIS account. This is
@@ -2118,14 +2155,14 @@ export async function placeGenxFollower(sig: {
         return { touched: 1, placed: 0 };
       }
       const fresv = await reserveGold(admin, a.account_id, "XAUUSD", signalKey, 60, sig.side);
-      if (!fresv.reserved) return { touched: 1, placed: 0 };
+      if (!fresv.reserved) return skip(`one_open_gold (${fresv.reason})`);
       // Idempotent claim: one fill per (signal, account). A duplicate row → already
       // handled this ENTER NOW on this account → skip.
       const { error: dupErr } = await admin.from("genx_follower_fills").insert({ signal_key: signalKey, account_id: a.account_id });
-      if (dupErr) { await releaseGold(admin, a.account_id, resvKeyF); return { touched: 1, placed: 0 }; }
+      if (dupErr) { await releaseGold(admin, a.account_id, resvKeyF); return { touched: 1, placed: 0 }; } // already handled this signal on this account — idempotent, not a skip
 
       const tok = await tokenFor(a.connection_id);
-      if (!tok) { await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id); await releaseGold(admin, a.account_id, resvKeyF); return { touched: 1, placed: 0 }; }
+      if (!tok) { await admin.from("genx_follower_fills").delete().eq("signal_key", signalKey).eq("account_id", a.account_id); await releaseGold(admin, a.account_id, resvKeyF); return skip("no_broker_token (reconnect your broker)"); }
 
       // Risk-size this account to its own % (override → owner default → 1% fallback).
       // If we can't size (missing entry/stop/equity), take the 0.01 floor so the
@@ -2150,6 +2187,9 @@ export async function placeGenxFollower(sig: {
         // for an accepted-but-unresolved order, keep it 'active'. Never a confirmed fill unless
         // the broker gave us a position. The manager releases it on broker-confirmed close.
         await markReservation(admin, a.account_id, resvKeyF, r.positionId ? "filled" : "active", r.orderId, r.positionId);
+        // FLOW CREDITS PER TRADE — collected now that the order is on the account (owner 09-29), once per
+        // member per fire. Billing never undoes a fill.
+        try { await chargePlacedFire(admin, a.user_id, fireKey, fireGate); } catch { /* billing is best-effort after the fact */ }
         // Record the fill in the manager's ledger REGARDLESS of the management toggle. The
         // trade-manager books a CONFIRMED closed-trade outcome for every tracked row (its
         // gone/close detection runs before the management steps), and that outcome is what the

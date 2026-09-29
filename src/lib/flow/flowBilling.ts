@@ -20,11 +20,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { CREDIT_COST, DAILY_FREE } from "@/lib/creditConfig";
 import { flowPassUserIds } from "@/lib/subscription";
 import { goldMarketOpen } from "@/lib/genx3/v31/series";
+import { swingAllowed } from "@/lib/genx/swingFloor";
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
 export const FLOW_ACCOUNT_COST = CREDIT_COST.flow_autorun ?? 1;
 export const FLOW_ACCOUNT_WINDOW_MS = 30 * 60_000;
-export type BillRow = { account_id: string; user_id: string; flow_last_credit_at: string | null; flow_credit_paused: boolean | null };
+export type BillRow = { account_id: string; user_id: string; flow_last_credit_at: string | null; flow_credit_paused: boolean | null; equity?: number | null; balance?: number | null };
 
 /** Is this account due for a charge? (pure) */
 export function billingDue(r: Pick<BillRow, "flow_last_credit_at" | "flow_credit_paused">, nowMs: number): boolean {
@@ -153,35 +154,164 @@ export async function billEvent(admin: Admin, userId: string, key: string, kind:
   } catch { return { result: "error", ok: !wasPaused }; }
 }
 
-/** Placement gate under event billing: which of these accounts may trade this fire? Bills 5 credits per
- *  member, once for the whole fire, however many accounts they run. */
-export async function billedAccountIdsForFire(admin: Admin, accountIds: string[], fireKey: string): Promise<Set<string>> {
-  const out = new Set<string>();
-  if (!accountIds.length) return out;
+/*
+ * PAY FOR THE TRADE, NOT THE ATTEMPT (owner 09-29: "when it's on and never takes a trade it looks like
+ * it's pulling more than it should").
+ *
+ * The 5-credit fire fee used to be taken at the top of the fan-out, before a single per-account check
+ * had run — so an account the broker did not return, one whose orders could not be read, one under
+ * the swing floor, one already in a trade, all paid the full fee for a fire that placed nothing. Over
+ * one week that was 509 of 1,577 fires (32%), 2,545 credits, 48 members; one member paid 355 credits
+ * for zero trades.
+ *
+ * Now the fee has two halves. BEFORE placing, `fireEligibleAccountIds` decides who may trade this
+ * fire — the OFF / Pass / billable split as before, plus "can this member actually pay the fee?" —
+ * and charges nobody. AFTER an order is confirmed on the account, `chargePlacedFire` bills the member
+ * once for the fire (idempotent per member per fire key, so a second account or a retry never
+ * double-charges). A member whose fire ends in a skip pays nothing for it. If the fee cannot be
+ * collected after the fill (the balance moved in between), the trade stands and the member is
+ * credit-paused for the NEXT fire, exactly as an up-front failure used to pause them.
+ */
+
+/** The Monday 00:00 UTC that starts the current billing week — the same boundary the DB top-up uses. */
+export function weekStartUtc(nowMs: number): number {
+  const d = new Date(nowMs);
+  const dow = d.getUTCDay();               // 0 = Sunday
+  const back = (dow + 6) % 7;              // days since Monday
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - back);
+}
+
+/**
+ * Could this member pay `cost` right now? Mirrors spend_credits_for without touching anything: the
+ * balance covers it, or the weekly top-up to the free floor is still owed this week and the floor
+ * covers it. No row at all is a brand-new member, whose first touch mints the welcome grant. Pure.
+ */
+export function canAfford(row: { balance?: number | null; topped_up_on?: string | null } | null, cost: number, allowance: number, nowMs: number): boolean {
+  if (!row) return Math.max(5, allowance) >= cost;      // welcome grant on first touch
+  const bal = Number(row.balance) || 0;
+  if (bal >= cost) return true;
+  const topped = row.topped_up_on ? Date.parse(row.topped_up_on) : NaN;
+  const owedThisWeek = !Number.isFinite(topped) || topped < weekStartUtc(nowMs);
+  return owedThisWeek && Math.max(bal, allowance) >= cost;
+}
+
+async function canAffordFire(admin: Admin, userId: string, nowMs = Date.now()): Promise<boolean> {
+  try {
+    const { data, error } = await admin.from("user_credits").select("balance, topped_up_on").eq("user_id", userId).maybeSingle();
+    if (error) return true;                              // unreadable → fail open, never bench a paid member on a blip
+    return canAfford((data as { balance?: number | null; topped_up_on?: string | null } | null) ?? null, TRADE_COST, DAILY_FREE, nowMs);
+  } catch { return true; }
+}
+
+export type FireGate = {
+  /** Accounts that may trade this fire. */
+  eligible: Set<string>;
+  /** Members to bill once an order is actually placed. Pass holders and OFF members are never in here. */
+  billable: Set<string>;
+};
+
+/** Placement PRE-GATE under event billing: which of these accounts may trade this fire? Charges nobody. */
+export async function fireEligibleAccountIds(admin: Admin, accountIds: string[]): Promise<FireGate> {
+  const eligible = new Set<string>();
+  const billable = new Set<string>();
+  if (!accountIds.length) return { eligible, billable };
   const { data, error } = await admin.from("flow_broker_accounts").select("account_id, user_id, flow_last_credit_at, flow_credit_paused").in("account_id", accountIds);
-  if (error) { for (const id of accountIds) out.add(id); return out; }      // unreadable → fail open
+  if (error) { for (const id of accountIds) eligible.add(id); return { eligible, billable }; } // unreadable → trade, and (as before) nobody is charged
   const rows = (data ?? []) as BillRow[];
   const byUser = new Map<string, BillRow[]>();
   for (const r of rows) { const l = byUser.get(r.user_id) ?? []; l.push(r); byUser.set(r.user_id, l); }
   const split = await splitUsers(admin, byUser);
-  for (const list of split.pass.values()) for (const r of list) out.add(String(r.account_id)); // Pass: trade, no charge
+  for (const list of split.pass.values()) for (const r of list) eligible.add(String(r.account_id)); // Pass: trade, no charge
   for (const [uid, list] of split.bill) {
-    const wasPaused = list.every((r) => !!r.flow_credit_paused);
-    const c = await billEvent(admin, uid, fireKey, "trade", wasPaused);
-    if (c.ok) for (const r of list) out.add(String(r.account_id));
+    if (!(await canAffordFire(admin, uid))) continue;    // out of credits → skipped before any order, as before
+    billable.add(uid);
+    for (const r of list) eligible.add(String(r.account_id));
   }
+  return { eligible, billable };
+}
+
+/**
+ * Charge the fire fee for an order that WAS placed. Once per member per fire — a second account on the
+ * same fire, or a retry, gets "already". Members outside `billable` (Pass, OFF) pay nothing.
+ */
+export async function chargePlacedFire(admin: Admin, userId: string, fireKey: string, gate: FireGate): Promise<"charged" | "already" | "paused" | "error" | "free"> {
+  if (!gate.billable.has(userId)) return "free";
+  const c = await billEvent(admin, userId, fireKey, "trade", false);
+  return c.result;
+}
+
+/*
+ * THE SETUP FEE GOES TO MEMBERS WHO COULD TAKE THE SETUP (owner 09-29). "1 when the trade is forming"
+ * was billed to every armed member, including the ones the fire could never reach: a member whose
+ * broker no longer returns their account, and a member under the $1,500 swing floor when the setup
+ * forming is a swing. In one week 61 members with zero trades paid 775 credits in setup fees.
+ *
+ * Two rules, both from evidence the desk already has:
+ *   • BROKER NOT USABLE — the member's latest broker-level failure (account not returned, login
+ *     failed, no token, orders unreadable) is more recent than their latest placed order, within the
+ *     last 24h. They are not billed until a fire actually reaches their account again.
+ *   • SWING FLOOR — for a swing setup, a member whose every armed account is under the floor (or of
+ *     unknown size, which swing refuses) is not billed for it. Quick and intraday setups are untouched.
+ */
+const BROKER_FAILURE_PATTERNS = ["no_equity", "connection_unreachable", "no_broker_token", "no_active_accounts", "broker_unreadable"];
+export const UNREACHABLE_WINDOW_MS = 24 * 60 * 60_000;
+
+/** Pure: which members' latest broker failure is newer than their latest placed order. */
+export function unreachableFrom(
+  fails: { user_id: string; created_at: string }[],
+  placed: { user_id: string; created_at: string }[],
+): Set<string> {
+  const lastFail = new Map<string, number>();
+  for (const f of fails) { const t = Date.parse(f.created_at); if (Number.isFinite(t) && t > (lastFail.get(f.user_id) ?? -Infinity)) lastFail.set(f.user_id, t); }
+  const lastPlaced = new Map<string, number>();
+  for (const p of placed) { const t = Date.parse(p.created_at); if (Number.isFinite(t) && t > (lastPlaced.get(p.user_id) ?? -Infinity)) lastPlaced.set(p.user_id, t); }
+  const out = new Set<string>();
+  for (const [uid, t] of lastFail) if ((lastPlaced.get(uid) ?? -Infinity) < t) out.add(uid);
   return out;
 }
 
-/** A setup is forming: bill 1 credit to every member armed for it (once per member per setup). */
-export async function billSetupForming(admin: Admin, setupKey: string): Promise<{ members: number; charged: number; paused: number; pass: number }> {
-  const { data, error } = await admin.from("flow_broker_accounts").select("account_id, user_id, flow_last_credit_at, flow_credit_paused").or("autotrade_enabled.eq.true,genx_follower.eq.true");
-  if (error) return { members: 0, charged: 0, paused: 0, pass: 0 };
+/** Members whose broker has not been usable in the window. Empty (everyone billable) on a read error. */
+export async function unreachableUserIds(admin: Admin, nowMs = Date.now()): Promise<Set<string>> {
+  const since = new Date(nowMs - UNREACHABLE_WINDOW_MS).toISOString();
+  try {
+    const [fails, placed] = await Promise.all([
+      admin.from("flow_auto_events").select("user_id, created_at").eq("status", "skipped").gte("created_at", since)
+        .or(BROKER_FAILURE_PATTERNS.map((p) => `reason.ilike.*${p}*`).join(",")).limit(20000),
+      admin.from("flow_auto_events").select("user_id, created_at").in("status", ["placed", "uncertain"]).gte("created_at", since).limit(20000),
+    ]);
+    if (fails.error || placed.error) return new Set();
+    return unreachableFrom(
+      (fails.data ?? []) as { user_id: string; created_at: string }[],
+      (placed.data ?? []) as { user_id: string; created_at: string }[],
+    );
+  } catch { return new Set(); }
+}
+
+/** Pure: which billable members should pay for this setup. */
+export function setupBillableUsers(billable: Map<string, BillRow[]>, unreachable: Set<string>, mode: string | null | undefined): { bill: Map<string, BillRow[]>; unreachable: number; underFloor: number } {
+  const out = new Map<string, BillRow[]>();
+  let nUnreachable = 0, nFloor = 0;
+  for (const [uid, list] of billable) {
+    if (unreachable.has(uid)) { nUnreachable++; continue; }
+    if (!list.some((a) => swingAllowed(a, mode))) { nFloor++; continue; }   // only bites for swing setups
+    out.set(uid, list);
+  }
+  return { bill: out, unreachable: nUnreachable, underFloor: nFloor };
+}
+
+/** A setup is forming: bill 1 credit to every member armed for it who could take it (once per member per setup). */
+export async function billSetupForming(admin: Admin, setupKey: string, mode?: string | null): Promise<{ members: number; charged: number; paused: number; pass: number; unreachable: number; underFloor: number }> {
+  const none = { members: 0, charged: 0, paused: 0, pass: 0, unreachable: 0, underFloor: 0 };
+  const { data, error } = await admin.from("flow_broker_accounts").select("account_id, user_id, flow_last_credit_at, flow_credit_paused, equity, balance").or("autotrade_enabled.eq.true,genx_follower.eq.true");
+  if (error) return none;
   const byUser = new Map<string, BillRow[]>();
   for (const r of (data ?? []) as BillRow[]) { const l = byUser.get(r.user_id) ?? []; l.push(r); byUser.set(r.user_id, l); }
   let charged = 0, paused = 0;
   const split = await splitUsers(admin, byUser);
-  const billable = split.bill;
+  // The mode is the first segment of the dedupe key ("swing:sell:4130:4135") when the caller did not say.
+  const setupMode = mode ?? setupKey.split(":")[0] ?? null;
+  const gated = setupBillableUsers(split.bill, await unreachableUserIds(admin), setupMode);
+  const billable = gated.bill;
   for (const [uid, list] of billable) {
     const wasPaused = list.every((r) => !!r.flow_credit_paused);
     const c = await billEvent(admin, uid, setupKey, "setup", wasPaused);
@@ -189,7 +319,7 @@ export async function billSetupForming(admin: Admin, setupKey: string): Promise<
     const isPaused = c.result === "paused" || (c.result === "error" && wasPaused);
     if (c.result === "charged" || c.result === "paused") { try { await admin.from("flow_auto_settings").update({ credit_paused: isPaused }).eq("user_id", uid).neq("credit_paused", isPaused); } catch { /* UI mirror best-effort */ } }
   }
-  return { members: billable.size, charged, paused, pass: split.pass.size };
+  return { members: billable.size, charged, paused, pass: split.pass.size, unreachable: gated.unreachable, underFloor: gated.underFloor };
 }
 
 /** LEGACY time-window pass — no longer called by the worker (kept for the Vercel cron fallback until it is

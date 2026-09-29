@@ -22,17 +22,27 @@ test('manual plays/tests are not FLOW automation', () => {
   assert.ok(isManualSource('play')); assert.ok(isManualSource('test_order')); assert.ok(!isManualSource('genx')); assert.ok(!isManualSource('genx-pd'));
 });
 test('owner 09-18: every placement path charges the TRADE event; watching is free', () => {
+  // Owner 09-29: the fee is collected AFTER an order is placed, never for the attempt. Each path gates
+  // BEFORE placing (can the member pay?) and charges only in its confirmed-fill branch.
   const ex = readFileSync('src/lib/flow/executor.ts', 'utf8');
-  assert.ok(/billedAccountIdsForFire\(tlog, accts\.map/.test(ex), 'copy / FLOW placement bills the fire');
+  assert.ok(/fireEligibleAccountIds\(tlog, accts\.map/.test(ex), 'copy / FLOW placement gates the fire before placing');
+  assert.ok(!/billedAccountIdsForFire\(/.test(ex), 'no up-front charge left in the copy path');
+  const exPlaced = ex.indexOf('placed += 1;');
+  const exCharge = ex.indexOf('chargePlacedFire(tlog, opts.userId, resvKey, fireGate)');
+  assert.ok(exPlaced > 0 && exCharge > exPlaced, 'the copy path charges right after the fill is confirmed');
   const ae = readFileSync('src/lib/flow/autoExec.ts', 'utf8');
   const follower = ae.slice(ae.indexOf('export async function placeGenxFollower'));
-  assert.ok(/billedAccountIdsForFire\(admin, \[String\(a\.account_id\)\], fireKey\)/.test(follower), 'follower accounts billed per fire');
+  assert.ok(/fireEligibleAccountIds\(admin, \[String\(a\.account_id\)\]\)/.test(follower), 'follower accounts gated per fire before placing');
+  assert.ok(!/billedAccountIdsForFire\(/.test(follower), 'no up-front charge left in the follower path');
+  const fOk = follower.indexOf('if (r.ok) {');
+  const fCharge = follower.indexOf('chargePlacedFire(admin, a.user_id, fireKey, fireGate)');
+  assert.ok(fOk > 0 && fCharge > fOk, 'the follower path charges inside its confirmed-fill branch');
   const meter = ae.slice(ae.indexOf('async function meterAutoRun'), ae.indexOf('const COOLDOWN_MIN'));
   assert.ok(!/hasActiveSuite\(/.test(meter), 'no free pass for Trading Suite');
   const worker = readFileSync('worker/index.ts', 'utf8');
   assert.ok(!/billFlowAccounts\(/.test(worker), 'the worker no longer bills by the clock');
   const scan = readFileSync('src/app/api/cron/genx-scan/route.ts', 'utf8');
-  assert.ok(/billSetupForming\(admin, dedupeKey\)/.test(scan), 'a forming setup charges its one credit');
+  assert.ok(/billSetupForming\(admin, dedupeKey, mode\)/.test(scan), 'a forming setup charges its one credit — to members who could take that horizon');
 });
 
 test('owner 09-18: the event charge is idempotent per member per event', () => {

@@ -246,7 +246,9 @@ async function run(): Promise<Response> {
           if (insErr) { modeOut.result = "already_recorded"; continue; }
           // CREDITS (owner 09-18: "1 when the trade is forming"): every member armed for this setup pays
           // one credit, once — charged on the insert, so a re-scan of the same setup never charges twice.
-          try { const b = await billSetupForming(admin, dedupeKey); modeOut.billed = b; } catch { /* billing is best-effort; it never blocks an alert */ }
+          // Only members who could take THIS setup pay for it (owner 09-29): a swing forming does not bill
+          // accounts under the swing floor, and a member whose broker is not usable is not billed at all.
+          try { const b = await billSetupForming(admin, dedupeKey, mode); modeOut.billed = b; } catch { /* billing is best-effort; it never blocks an alert */ }
           if (tgReady) await sendTelegram(headsUpMsg(side, mode, { entry_low: genx.entry_low, entry_high: genx.entry_high, stop: genx.stop_loss, tp1: genx.tp1, tp2: genx.tp2, confidence: genx.confidence_score }));
           sent.push(`${mode}:HEADSUP`); modeOut.result = "headsup";
         }
