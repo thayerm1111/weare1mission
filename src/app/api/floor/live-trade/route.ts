@@ -53,7 +53,17 @@ export async function GET() {
     .select("side,outcome,result_pips,created_at,resolved_at,manage_style,status,entry,cur_stop,tp1,position_id,account_id")
     .eq("user_id", user.id).eq("symbol", "XAUUSD").gte("created_at", since).order("created_at", { ascending: false }).limit(2000);
 
-  const rows = dedupePositions((data ?? []) as PosRow[]);
+  /*
+   * A RETIRED ROW IS NOT A LIVE TRADE (owner 09-29: a member's card said "Your account is in this
+   * trade — in trade 30h" with no entry, stop or target, while every position on his broker was
+   * closed). When the broker stops listing a position before the manager booked its result, the row
+   * is retired with outcome 'excluded' — kept out of results by design. buildRealResults counts an
+   * excluded row as still OPEN, so one retired row kept a phantom fire "live" for days on this card.
+   * Retired rows are dropped here before the fold: they never carried a result, so the last-3 grades
+   * and the streak are unchanged. The desk record and the GENX results card do not go through this
+   * route and are untouched.
+   */
+  const rows = dedupePositions((data ?? []) as PosRow[]).filter((r) => r.outcome !== "excluded");
   const real = buildRealResults(rows);
 
   // OWNER RULE (09-22): a trade closed in profit or at break-even on ANY of the member's accounts (hand-closed
@@ -74,9 +84,14 @@ export async function GET() {
 
   const liveFire = real.recentFiresAll.find((f) => f.open > 0 && Date.now() - Date.parse(f.at) < 72 * 3600_000);
   let live: Record<string, unknown> | null = null;
-  if (liveFire) {
+  // And the card only ever says "in this trade" over a row the ledger still holds OPEN — a fire with no
+  // open row behind it (whatever the fold concluded) is not shown as live.
+  const liveOpenRows = liveFire
+    ? rows.filter((r) => r.status === "open" && String(r.side).toLowerCase() === liveFire.side && Math.abs(Date.parse(r.created_at) - Date.parse(liveFire.at)) <= 20 * 60_000)
+    : [];
+  if (liveFire && liveOpenRows.length) {
     const t0 = Date.parse(liveFire.at);
-    const openRows = rows.filter((r) => r.status === "open" && String(r.side).toLowerCase() === liveFire.side && Math.abs(Date.parse(r.created_at) - t0) <= 20 * 60_000);
+    const openRows = liveOpenRows;
     const entry = avg(openRows.map((r) => r.entry));
     const stop = avg(openRows.map((r) => r.cur_stop));
     const target = avg(openRows.map((r) => r.tp1));

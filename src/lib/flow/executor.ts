@@ -214,9 +214,24 @@ export function goldPastChaseLimit(side: "buy" | "sell", price: number | null | 
   return side === "buy" ? price > maxEntry : price < maxEntry;
 }
 
+/**
+ * SAY WHAT THE BROKER SAID, AND WHAT TO DO ABOUT IT (owner 09-29). TradeLocker answers 403 "You are not
+ * allowed to use this API endpoint. Please check with your broker whether they allow API access" when
+ * the BROKER has API trading switched off for the account — nothing on our side can place through it.
+ * The old 160-character cut left members reading "...whether they allow A" with no idea who to call.
+ * This keeps the broker's sentence whole and names the fix; every other error keeps the old shape.
+ */
+export function brokerRefusalMessage(detail: unknown): string {
+  const text = String(detail ?? "");
+  if (/not allowed to use this API endpoint/i.test(text) || /\(403\)/.test(text)) {
+    return "broker_api_access_off (403): your broker has API trading switched off for this account, so FLOW cannot read or place on it. Ask the broker to enable API access, then re-check the connection here.";
+  }
+  return `instrument_list_failed: ${text}`.slice(0, 160);
+}
+
 async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null, ensureBrackets?: boolean, risk?: { equity: number; riskPct: number }, maxEntry?: number | null): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean }> {
   const instRes = await instrumentsFor(a);
-  if (!instRes.ok) return { ok: false, error: `instrument_list_failed: ${instRes.error}`.slice(0, 160) };
+  if (!instRes.ok) return { ok: false, error: brokerRefusalMessage(instRes.error) };
   const tl = matchInstrument(canonical, instRes.data);
   if (!tl) return { ok: false, error: `instrument_not_found: ${canonical}` };
 

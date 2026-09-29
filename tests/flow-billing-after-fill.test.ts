@@ -91,3 +91,22 @@ test('quick and intraday setups are untouched by the floor — a small account c
     assert.equal(g.underFloor, 0);
   }
 });
+
+/**
+ * SAY WHAT THE BROKER SAID (owner 09-29). GenesisFX began answering 403 "You are not allowed to use this API
+ * endpoint…" on Monday evening; the panel showed members "…whether they allow A" — cut at 160 characters
+ * with no idea who to call. The refusal now reads whole, names the fix, and every other error is unchanged.
+ */
+import { brokerRefusalMessage } from '../src/lib/flow/executor';
+
+test("a broker 403 tells the member it's the broker's API switch and what to do", () => {
+  const m = brokerRefusalMessage("Couldn't load broker instruments (403): You are not allowed to use this API endpoint. Please check with your broker whether they allow API access");
+  assert.match(m, /^broker_api_access_off \(403\)/);
+  assert.match(m, /Ask the broker to enable API access/);
+  assert.ok(!/allow A$/.test(m), 'no mid-sentence cut');
+});
+
+test('any other instrument-list failure keeps its old shape', () => {
+  assert.equal(brokerRefusalMessage('timeout'), 'instrument_list_failed: timeout');
+  assert.ok(brokerRefusalMessage('x'.repeat(500)).length <= 160);
+});
