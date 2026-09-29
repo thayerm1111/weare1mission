@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isWorkingEntry, orderSide, workingBlocks } from '../src/lib/flow/workingOrders';
+import { isWorkingEntry, orderSide, workingBlocks, isTransientReadFailure } from '../src/lib/flow/workingOrders';
 
 /**
  * A RESTING ORDER IS EXPOSURE (owner 09-24: "Now there's multiple entries on all accounts. It's
@@ -71,4 +71,31 @@ test('no resting orders blocks nothing', () => {
 test('the 09-24 stack is refused: a resting 4299.35 sell blocks the 4292.55 sell', () => {
   const resting = new Set(['sell']);            // the 01:46 SELL_LIMIT, still unfilled at 01:50
   assert.equal(workingBlocks(resting, 'sell'), true);
+});
+
+/**
+ * ONE FAILED READ IS NOT AN ANSWER (owner 09-29: a member was told he had a trade open when he did
+ * not). Because the caller fails closed, a single unreadable orders call benched that account for
+ * the whole cycle — 17 of 82 GenFX members in one 24h window. tlFetch already re-queues 429/503 and
+ * the Cloudflare 1015, so what survives to here is the class nothing retried: the 15s timeout, which
+ * throws rather than returning a status, and 5xx other than 503.
+ *
+ * These pin WHICH failures earn another try. Fail closed itself is unchanged and still covered above.
+ */
+
+test('a read that threw — timeout, abort, network — is worth retrying', () => {
+  assert.equal(isTransientReadFailure(null), true);
+  assert.equal(isTransientReadFailure(0), true);
+});
+
+test("the broker's own faults are worth retrying", () => {
+  for (const s of [500, 502, 503, 504]) assert.equal(isTransientReadFailure(s), true, String(s));
+});
+
+test('a 4xx is an answer, not a blip — retrying it only delays the skip', () => {
+  for (const s of [400, 401, 403, 404, 422, 429]) assert.equal(isTransientReadFailure(s), false, String(s));
+});
+
+test('a success is never retried', () => {
+  for (const s of [200, 201, 204]) assert.equal(isTransientReadFailure(s), false, String(s));
 });

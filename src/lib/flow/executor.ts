@@ -520,9 +520,16 @@ export async function placeOnActiveAccounts(opts: {
       const goldId = instForChk.ok ? (matchInstrument(canonical, instForChk.data)?.tradableInstrumentId ?? null) : null;
       const wsides = await workingEntrySides({ env: a.env, token: a.token, accNum: a.accNum, accountId: a.accountId }, goldId);
       if (workingBlocks(wsides, opts.side)) {
-        const why = wsides === null ? "broker_unreadable" : "resting_order";
-        await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: lots, status: "skipped", reason: `${opts.source}: one_open_gold (${why})`.slice(0, 60), account_id: a.accountId });
-        fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", lots: s.lots, reason: `one_open_gold (${why})` });
+        /*
+         * SAY WHICH IT IS (owner 09-29). An unreadable broker and a genuine resting order are not
+         * the same event, and calling both "one_open_gold" told members they were already in a
+         * trade when the truth was that we could not reach their account. Same skip, honest label.
+         */
+        const reason = wsides === null
+          ? "broker_unreadable (couldn't read your orders)"
+          : "one_open_gold (resting_order)";
+        await logEvent(opts.userId, { symbol: canonical, side: opts.side, qty: lots, status: "skipped", reason: `${opts.source}: ${reason}`.slice(0, 60), account_id: a.accountId });
+        fills.push({ accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, status: "skipped", lots: s.lots, reason });
         return;
       }
       // 09-22: reserved per SIDE while hedging is on, so an open SELL does not refuse a BUY.

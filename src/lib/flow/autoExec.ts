@@ -2104,8 +2104,17 @@ export async function placeGenxFollower(sig: {
         ? await workingEntrySides(brokerRef, await instrumentIdFor(brokerRef, "XAUUSD"))
         : null;
       if (workingBlocks(wsidesF, sig.side)) {
-        const why = wsidesF === null ? "broker_unreadable" : "resting_order";
-        try { await admin.from("flow_auto_events").insert({ user_id: a.user_id, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: one_open_gold (${why})`, account_id: a.account_id }); } catch { /* log best-effort */ }
+        /*
+         * SAY WHICH IT IS (owner 09-29) — see the matching note in executor.ts. Three distinct
+         * causes used to share one misleading label: no broker token at all, an account we could
+         * not read, and a genuine resting entry. Only the last one means "already in a trade".
+         */
+        const reason = !tokW
+          ? "no_broker_token (reconnect your broker)"
+          : wsidesF === null
+            ? "broker_unreadable (couldn't read your orders)"
+            : "one_open_gold (resting_order)";
+        try { await admin.from("flow_auto_events").insert({ user_id: a.user_id, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: ${reason}`.slice(0, 60), account_id: a.account_id }); } catch { /* log best-effort */ }
         return { touched: 1, placed: 0 };
       }
       const fresv = await reserveGold(admin, a.account_id, "XAUUSD", signalKey, 60, sig.side);

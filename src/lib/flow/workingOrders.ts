@@ -48,6 +48,58 @@ export function orderSide(row: unknown, cols: Record<string, number> | undefined
 }
 
 /**
+ * ONE UNREADABLE READ IS NOT AN ANSWER (owner 09-29: a member reported FLOW saying he had a trade
+ * open when he did not). Because the caller fails closed, a single failed orders read silently
+ * benches that account for the whole cycle — and on 09-29 that was 17 of 82 GenFX members in 24h.
+ *
+ * tlFetch already re-queues 429/503 on GETs and the Cloudflare 1015, so what reaches here is the
+ * class nothing retries: the 15s timeout (which THROWS rather than returning a status) and 5xx
+ * other than 503. Those are worth asking again; a 4xx is a real answer and is not retried, because
+ * hammering an auth or not-found error just delays the skip.
+ *
+ * Fail-closed itself is unchanged. This only decides how hard we try before conceding we can't read.
+ *
+ * BOUNDED, because flow-exec runs the whole membership inside maxDuration 120. A broker timeout
+ * costs 15s on its own, so attempts are capped BOTH by count and by a wall-clock budget: a cheap
+ * failure (a 502 back in 300ms) gets all three tries, while a timing-out account spends at most two
+ * and never starves the members behind it in the cycle.
+ */
+const ORDERS_READ_ATTEMPTS = 3;
+const ORDERS_READ_BUDGET_MS = 25_000;
+const _pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+type OrdersRead = { ok: true; data: unknown[] } | { ok: false; status: number | null };
+
+/** One orders read. status null means it threw — a timeout, abort or network fault, never a reply. */
+async function readOrdersOnce(a: { env: TLEnv; token: string; accNum: string; accountId: string }): Promise<OrdersRead> {
+  try {
+    const res = await listOrders(a.env, a.token, a.accNum, a.accountId);
+    return res.ok ? { ok: true, data: res.data } : { ok: false, status: res.status ?? null };
+  } catch {
+    return { ok: false, status: null }; // threw: timeout/abort/network
+  }
+}
+
+/**
+ * Transient = no reply at all, or the broker's own fault. A 4xx is an answer (bad auth, wrong
+ * account, gone) and retrying it only delays the skip. Exported so the rule is pinned by tests.
+ */
+export const isTransientReadFailure = (status: number | null) => status === null || status === 0 || status >= 500;
+
+/** Read the account's orders, retrying only what is worth retrying. */
+async function readOrders(a: { env: TLEnv; token: string; accNum: string; accountId: string }): Promise<OrdersRead> {
+  const started = Date.now();
+  let res = await readOrdersOnce(a);
+  for (let attempt = 1; attempt < ORDERS_READ_ATTEMPTS; attempt++) {
+    if (res.ok || !isTransientReadFailure(res.status)) break;
+    if (Date.now() - started >= ORDERS_READ_BUDGET_MS) break; // out of time — concede and fail closed
+    await _pause(200 * attempt + Math.floor(Math.random() * 200)); // 200-400ms, then 400-600ms
+    res = await readOrdersOnce(a);
+  }
+  return res;
+}
+
+/**
  * Sides on which this account currently has a RESTING entry order for `instrumentId`.
  * Returns null when the broker could not be read — callers must fail closed on null.
  */
@@ -58,7 +110,7 @@ export async function workingEntrySides(
   try {
     const cfg = await brokerConfig(a.env, a.token, a.accNum, a.accountId).catch(() => null);
     const cols = cfg ? columnMap(cfg, "ordersConfig") : undefined;
-    const res = await listOrders(a.env, a.token, a.accNum, a.accountId);
+    const res = await readOrders(a);
     if (!res.ok) return null;
     const want = instrumentId == null ? null : String(instrumentId);
     const out = new Set<string>();
