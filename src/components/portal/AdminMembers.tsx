@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarPlus, Check, Coins, Infinity as InfinityIcon, KeyRound, Loader2, PauseCircle, RotateCcw, Search, Star, Trash2 } from "lucide-react";
+import { CalendarPlus, Check, Coins, Infinity as InfinityIcon, KeyRound, Loader2, PauseCircle, RotateCcw, Search, ShoppingBag, Star, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { TIERS, TIER_LABELS } from "@/lib/access";
+import { PACK_LABELS, type MemberBilling, type PackKey } from "@/lib/adminBilling";
 
 export interface MemberRow {
   id: string;
@@ -56,20 +57,39 @@ function extendPatch(m: MemberRow, days: number): Record<string, unknown> {
   return { status: "active", access_expires_at: new Date(base + days * 86400000).toISOString() };
 }
 
-type SortKey = "newest" | "name" | "email" | "expiring" | "status";
+type SortKey = "newest" | "name" | "email" | "expiring" | "status" | "spent";
 const SORTS: { key: SortKey; label: string }[] = [
   { key: "newest", label: "Newest first" },
   { key: "name", label: "Name A–Z" },
   { key: "email", label: "Email A–Z" },
   { key: "expiring", label: "Expiring soonest" },
   { key: "status", label: "Status" },
+  { key: "spent", label: "Biggest buyers" },
 ];
 
-export function AdminMembers({ members }: { members: MemberRow[] }) {
+/** WHO BOUGHT WHAT (owner 09-29): narrow the list to members with money in. */
+type BuyerFilter = "all" | "buyers" | "subscribers" | "none";
+const BUYER_FILTERS: { key: BuyerFilter; label: string }[] = [
+  { key: "all", label: "Everyone" },
+  { key: "buyers", label: "Bought a pack" },
+  { key: "subscribers", label: "On a subscription" },
+  { key: "none", label: "Never paid" },
+];
+const PACK_ORDER: PackKey[] = ["pro", "trader", "starter", "autorefill"];
+const hasBought = (b: MemberBilling | undefined) => !!b && b.creditsBought > 0;
+const hasSub = (b: MemberBilling | undefined) => !!b?.sub?.active;
+const fmtDay = (iso: string | null) => {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+};
+
+export function AdminMembers({ members, billing = {} }: { members: MemberRow[]; billing?: Record<string, MemberBilling> }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
+  const [buyers, setBuyers] = useState<BuyerFilter>("all");
 
   async function update(id: string, patch: Record<string, unknown>) {
     const supabase = createClient();
@@ -104,12 +124,27 @@ export function AdminMembers({ members }: { members: MemberRow[] }) {
   // SEARCH: one box matches name, email, and Conectiv username/ID, case-insensitive.
   const needle = q.trim().toLowerCase();
   const filtered = useMemo(() => {
-    if (!needle) return members;
-    return members.filter((m) =>
+    let list = members;
+    if (buyers === "buyers") list = list.filter((m) => hasBought(billing[m.id]));
+    else if (buyers === "subscribers") list = list.filter((m) => hasSub(billing[m.id]));
+    else if (buyers === "none") list = list.filter((m) => !hasBought(billing[m.id]) && !hasSub(billing[m.id]));
+    if (!needle) return list;
+    return list.filter((m) =>
       [m.full_name, m.email, m.conectiv_username, m.conectiv_id]
         .some((v) => (v ?? "").toLowerCase().includes(needle)),
     );
-  }, [members, needle]);
+  }, [members, needle, buyers, billing]);
+
+  // Headline for the page: how many members have paid, and how much of it is packs vs subscriptions.
+  const totals = useMemo(() => {
+    let buyersN = 0, subsN = 0, credits = 0;
+    for (const m of members) {
+      const b = billing[m.id];
+      if (hasBought(b)) { buyersN++; credits += b!.creditsBought; }
+      if (hasSub(b)) subsN++;
+    }
+    return { buyers: buyersN, subs: subsN, credits };
+  }, [members, billing]);
 
   // SORT: applied inside each section so "Pending approval" always stays on top.
   const sorted = useMemo(() => {
@@ -124,10 +159,11 @@ export function AdminMembers({ members }: { members: MemberRow[] }) {
         return ta - tb; // soonest (and already-expired) first; permanent (no expiry) last
       }); break;
       case "status": arr.sort((a, b) => a.status.localeCompare(b.status) || name(a).localeCompare(name(b))); break;
+      case "spent": arr.sort((a, b) => (billing[b.id]?.creditsBought ?? 0) - (billing[a.id]?.creditsBought ?? 0) || name(a).localeCompare(name(b))); break;
       default: arr.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
     }
     return arr;
-  }, [filtered, sort]);
+  }, [filtered, sort, billing]);
 
   const pending = sorted.filter((m) => m.status === "pending");
   const others = sorted.filter((m) => m.status !== "pending");
@@ -156,23 +192,76 @@ export function AdminMembers({ members }: { members: MemberRow[] }) {
         >
           {SORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
-        {needle && (
+        <label className="sr-only" htmlFor="member-buyers">Show</label>
+        <select
+          id="member-buyers"
+          value={buyers}
+          onChange={(e) => setBuyers(e.target.value as BuyerFilter)}
+          className="rounded-xl border border-[#E4DCCB] bg-cream px-3 py-2.5 text-sm outline-none focus:border-primary"
+        >
+          {BUYER_FILTERS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+        </select>
+        {(needle || buyers !== "all") && (
           <p className="text-xs text-charcoal/60 sm:whitespace-nowrap">{sorted.length} match{sorted.length === 1 ? "" : "es"}</p>
         )}
       </div>
 
+      {/* WHO BOUGHT WHAT (owner 09-29) — the headline, then the detail sits on every card below. */}
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-charcoal/70">
+        <ShoppingBag className="h-4 w-4 text-primary" aria-hidden="true" />
+        <span><strong className="text-navy">{totals.buyers}</strong> member{totals.buyers === 1 ? " has" : "s have"} bought a pack ({totals.credits.toLocaleString()} credits)</span>
+        <span aria-hidden="true">·</span>
+        <span><strong className="text-navy">{totals.subs}</strong> on an active subscription</span>
+      </p>
+
       <div className="space-y-8">
-        <Section title={`Pending approval (${pending.length})`} rows={pending} onUpdate={update} onRemove={remove} busy={busy} highlight />
-        <Section title={`All members (${others.length})`} rows={others} onUpdate={update} onRemove={remove} busy={busy} />
+        <Section title={`Pending approval (${pending.length})`} rows={pending} billing={billing} onUpdate={update} onRemove={remove} busy={busy} highlight />
+        <Section title={`All members (${others.length})`} rows={others} billing={billing} onUpdate={update} onRemove={remove} busy={busy} />
       </div>
     </div>
   );
 }
 
+/**
+ * One line per member: which packs they bought (and how many times), the credits that came with
+ * them, the last purchase date, auto-refill if it is on — and a pill for the subscription. A member
+ * with nothing in the ledger reads "No purchases" so the absence is visible, not just blank.
+ */
+function PurchasesLine({ b }: { b: MemberBilling | undefined }) {
+  const bought = PACK_ORDER.filter((k) => (b?.packs[k] ?? 0) > 0).map((k) => `${PACK_LABELS[k]}${b!.packs[k] > 1 ? ` ×${b!.packs[k]}` : ""}`);
+  const sub = b?.sub ?? null;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+      <ShoppingBag className="h-3.5 w-3.5 text-charcoal/45" aria-hidden="true" />
+      {bought.length ? (
+        <span className="text-charcoal/75">
+          <span className="font-semibold text-navy">Bought:</span> {bought.join(", ")}
+          <span className="text-charcoal/55"> · {b!.creditsBought.toLocaleString()} credits{b!.lastPurchaseAt ? ` · last ${fmtDay(b!.lastPurchaseAt)}` : ""}</span>
+        </span>
+      ) : (
+        <span className="text-charcoal/50">No purchases</span>
+      )}
+      {b?.autoRefill?.enabled && (
+        <span className="rounded-full bg-ice px-2 py-0.5 text-[11px] font-semibold text-navy" title={b.autoRefill.last4 ? `Card ending ${b.autoRefill.last4}` : undefined}>
+          Auto-refill on{b.autoRefill.credits ? ` · ${b.autoRefill.credits}` : ""}
+        </span>
+      )}
+      {sub && (
+        <span
+          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${sub.active ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}
+          title={sub.periodEnd ? `${sub.cancelAtPeriodEnd ? "Ends" : "Renews"} ${fmtDay(sub.periodEnd)}` : undefined}
+        >
+          {sub.label} · {sub.active ? (sub.cancelAtPeriodEnd ? `ends ${fmtDay(sub.periodEnd)}` : sub.status) : sub.status}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function Section({
-  title, rows, onUpdate, onRemove, busy, highlight = false,
+  title, rows, billing, onUpdate, onRemove, busy, highlight = false,
 }: {
-  title: string; rows: MemberRow[]; busy: string | null; highlight?: boolean;
+  title: string; rows: MemberRow[]; billing: Record<string, MemberBilling>; busy: string | null; highlight?: boolean;
   onUpdate: (id: string, patch: Record<string, unknown>) => void;
   onRemove: (id: string, label: string) => void;
 }) {
@@ -210,6 +299,8 @@ function Section({
                 })() : m.status === "active" ? (
                   <p className="mt-0.5 text-xs font-medium text-emerald-700">Permanent access</p>
                 ) : null}
+                {/* WHO BOUGHT WHAT (owner 09-29): packs, auto-refill and subscription, right on the card. */}
+                <PurchasesLine b={billing[m.id]} />
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
