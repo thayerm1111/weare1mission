@@ -119,7 +119,9 @@ export class TradeLockerPort implements BrokerPort {
   }
 
   async positions(): Promise<{ ok: true; rows: BrokerPosition[] } | { ok: false; error: string }> {
-    await this.ensureConfig();
+    // A config refusal is an answer ("could not read"), not a crash: prepare and the account loop
+    // record it on the account and carry on to the next one.
+    try { await this.ensureConfig(); } catch (e) { return { ok: false, error: String((e as Error)?.message ?? e) }; }
     const p = await listPositions(this.ctx.env, this.ctx.token, this.ctx.accNum, this.ctx.accountId);
     if (!p.ok) return { ok: false, error: p.error };
     const cols = this.cols!.positions;

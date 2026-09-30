@@ -3,6 +3,7 @@ import { DEFAULT_CONFIG } from "../config/defaults";
 import { freshToken, type RapidConnection } from "../broker/session";
 import { checkOwnership } from "./ownership";
 import { TradeLockerPort } from "./tradelockerPort";
+import { brokerReadProblem } from "../broker/refusal";
 
 /**
  * Account preparation.
@@ -96,8 +97,8 @@ export async function prepareAccount(acct: PreparableAccount): Promise<PrepareRe
     } else {
       // Left unresolved on purpose. The reason is surfaced, and Automation stays refusable.
       patch.instrument_spec = null;
-      patch.block_reason = s.error;
-      result.reason = s.error;
+      patch.block_reason = brokerReadProblem(s.error);
+      result.reason = patch.block_reason as string;
       await journal({ accountId: acct.id, userId: acct.user_id, stage: "prepare", code: "instrument_unresolved", decision: "skip", reason: s.error });
     }
   } else {
@@ -112,6 +113,8 @@ export async function prepareAccount(acct: PreparableAccount): Promise<PrepareRe
     {},
     acct.allow_shared_account === true,
   );
+  // When the broker would not even hand over the positions, say why — a refusal is not "unknown".
+  if (!positions.ok) ownership.reason = `${ownership.reason ?? "the broker's open positions could not be read"} — ${brokerReadProblem(positions.error)}`;
   patch.ownership_check = ownership;
   result.ownershipOk = ownership.ok;
 
@@ -151,7 +154,9 @@ export async function prepareAllLinked(): Promise<{ prepared: number; ready: num
       const r = await prepareAccount(acct);
       if (r.ok) ready++;
     } catch (e) {
-      await journal({ accountId: acct.id, userId: acct.user_id, stage: "prepare", code: "error", decision: "skip", reason: String((e as Error)?.message ?? e) });
+      const reason = brokerReadProblem(String((e as Error)?.message ?? e));
+      await journal({ accountId: acct.id, userId: acct.user_id, stage: "prepare", code: "error", decision: "skip", reason });
+      await db.from("rapid_accounts").update({ block_reason: reason, updated_at: new Date().toISOString() }).eq("id", acct.id);
     }
   }
   return { prepared: rows.length, ready };

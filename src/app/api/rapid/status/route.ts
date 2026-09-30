@@ -46,9 +46,12 @@ export async function GET() {
     if (!conn) blockers.push("no broker connection");
     else if (conn.status === "reconnect_required") blockers.push("reconnect required: the broker session could not be renewed");
     else if (conn.status === "revoked") blockers.push("this connection was disconnected");
-    if (!a.instrument_spec) blockers.push(a.block_reason ? `gold not resolved on this account: ${a.block_reason}` : "gold has not been resolved on this account");
+    // A broker refusal (owner 09-29: GenesisFX 403) is shown once, as itself — not as "gold not resolved".
+    const refusal = typeof a.block_reason === "string" && /^broker_api_access_off/.test(a.block_reason) ? a.block_reason : null;
+    if (refusal) blockers.push(refusal);
+    else if (!a.instrument_spec) blockers.push(a.block_reason ? `gold not resolved on this account: ${a.block_reason}` : "gold has not been resolved on this account");
     if (missing.length) blockers.push(`contract metadata incomplete: ${missing.join(", ")}`);
-    if (ownership && ownership.ok === false) blockers.push(ownership.reason ?? "account is shared with another product");
+    if (ownership && ownership.ok === false && !(refusal && /broker_api_access_off/.test(ownership.reason ?? ""))) blockers.push(ownership.reason ?? "account is shared with another product");
     if (mine.length) blockers.push(`${mine.length} unresolved order(s) must be reconciled first`);
     if (workerAgeMs == null || workerAgeMs > 60_000) blockers.push("the Rapid worker has not reported in the last minute");
     if ((control as { mode?: string } | null)?.mode !== "live") blockers.push("Rapid is not switched on for live execution");

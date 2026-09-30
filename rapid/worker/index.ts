@@ -19,6 +19,7 @@ import { managePosition, type PositionRow } from "../manage/runner";
 import { sizePosition } from "../risk/sizing";
 import type { TLEnv } from "../broker/http";
 import { portForAccount, prepareAllLinked } from "../exec/prepare";
+import { brokerReadProblem } from "../broker/refusal";
 
 /**
  * The Rapid worker.
@@ -205,6 +206,10 @@ async function accountLoop(cfg: RapidConfig): Promise<void> {
 
       for (const acct of accounts) {
         if (shuttingDown) break;
+        // Per account: a broker refusal (owner 09-29: GenesisFX 403) on one member's login is recorded
+        // on THAT account and the pass moves on. Before this it escaped the loop, skipped every account
+        // after it, and the accounts heartbeat went silent.
+        try {
         await withLease(acct.id, HOLDER, LEASE_TTL_MS, async (lease, stillOwned) => {
           const p = await portFor(acct);
           if (!p.ok) {
@@ -221,6 +226,9 @@ async function accountLoop(cfg: RapidConfig): Promise<void> {
             await considerEntry(acct, p.port, cfg, lease.fence, stillOwned);
           }
         });
+        } catch (e) {
+          await health("rapid-account", "degraded", { error: brokerReadProblem(String((e as Error)?.message ?? e)) }, acct.id);
+        }
       }
       await beat("rapid-accounts", { served: accounts.length, passMs: Date.now() - started });
     } catch (e) {
