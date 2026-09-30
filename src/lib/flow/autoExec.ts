@@ -1946,14 +1946,20 @@ export async function placeGenxFollower(sig: {
   // Every follower account, across every user/connection (independent of FLOW).
   // Pull the per-account risk override + management toggle when those columns exist;
   // fall back to a bare select so the follower never breaks before the migration is run.
-  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; equity?: number | null; balance?: number | null; risk_pct?: number | null; manage_trades?: boolean | null; risk_mode?: string | null; autotrade_enabled?: boolean | null; send_it?: boolean | null; send_it_stack?: boolean | null; send_it_guards?: boolean | null; style_quick?: boolean | null; style_hold?: boolean | null; style_swing?: boolean | null };
+  type FollowRow = { user_id: string; account_id: string; acc_num: string | null; connection_id: string; equity?: number | null; balance?: number | null; risk_pct?: number | null; manage_trades?: boolean | null; risk_mode?: string | null; autotrade_enabled?: boolean | null; genx_follower?: boolean | null; send_it?: boolean | null; send_it_stack?: boolean | null; send_it_guards?: boolean | null; style_quick?: boolean | null; style_hold?: boolean | null; style_swing?: boolean | null };
   let accts: FollowRow[] = [];
+  /*
+   * genx_follower MUST be selected (found 09-30). goldRoute() below routes a row to this path only
+   * when it reads genx_follower === true; the column was filtered on but never selected, so every
+   * follower-only account read as undefined, routed to "none", and was dropped — the fan-out
+   * breadcrumb said "0 follower accts" on every fire and follower-only members never got a trade.
+   */
   const withCols = await admin.from("flow_broker_accounts")
-    .select("user_id, account_id, acc_num, connection_id, equity, balance, risk_pct, manage_trades, risk_mode, autotrade_enabled, send_it, send_it_stack, send_it_guards, style_quick, style_hold, style_swing").eq("genx_follower", true);
+    .select("user_id, account_id, acc_num, connection_id, equity, balance, risk_pct, manage_trades, risk_mode, autotrade_enabled, genx_follower, send_it, send_it_stack, send_it_guards, style_quick, style_hold, style_swing").eq("genx_follower", true);
   if (!withCols.error) accts = (withCols.data ?? []) as FollowRow[];
   else {
     const fb = await admin.from("flow_broker_accounts")
-      .select("user_id, account_id, acc_num, connection_id, equity, balance").eq("genx_follower", true);
+      .select("user_id, account_id, acc_num, connection_id, equity, balance, autotrade_enabled, genx_follower").eq("genx_follower", true);
     accts = (fb.data ?? []) as FollowRow[];
   }
   // ONE PATH PER ACCOUNT: an account that is ALSO autotrade-enabled routes to the risk-sized
