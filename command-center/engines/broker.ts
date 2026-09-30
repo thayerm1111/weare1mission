@@ -289,6 +289,8 @@ export type AccountSummary = {
   stateAt: string | null;
   selected: boolean; autoTrading: boolean; liveAuthorized: boolean;
   permissions: Record<string, boolean>; connectionStatus: string; env: string; server: string;
+  /** The login this account came in on — what "Disconnect" revokes (every account on that login goes with it). */
+  connectionId: string;
 };
 
 export async function listForUser(userId: string): Promise<AccountSummary[]> {
@@ -302,6 +304,7 @@ export async function listForUser(userId: string): Promise<AccountSummary[]> {
     .filter((a) => a.cc_broker_connections?.status !== "revoked")
     .map((a) => ({
       id: a.id,
+      connectionId: String(a.connection_id),
       accountId: a.account_id,
       accNum: a.acc_num,
       label: a.name || `Account ${a.acc_num}`,

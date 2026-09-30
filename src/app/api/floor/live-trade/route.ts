@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildRealResults, type RealRow } from "@/lib/genx/realResults";
-import { statsSince } from "@/lib/genx/statsSince";
+import { statsSince, memberStatsSince, effectiveSince } from "@/lib/genx/statsSince";
 import { setupLabel, memberGrade, winStreakOf, bestStreakOf } from "@/lib/genx/liveTrade";
 
 export const runtime = "nodejs";
@@ -48,7 +48,9 @@ export async function GET() {
   if (!admin) return json({ live: null, recent: [] });
 
   // PER MEMBER (owner 09-17: "only show the person's account, not everyone's"): only this member's own positions.
-  const since = new Date(Math.max(Date.parse(statsSince()), Date.now() - 30 * 86_400_000)).toISOString();
+  // And from the member's OWN reset point when they have one (owner 09-29: fresh stats on new accounts).
+  const communitySince = new Date(Math.max(Date.parse(statsSince()), Date.now() - 30 * 86_400_000)).toISOString();
+  const since = effectiveSince(communitySince, await memberStatsSince(admin, user.id));
   const { data } = await admin.from("flow_managed_positions")
     .select("side,outcome,result_pips,created_at,resolved_at,manage_style,status,entry,cur_stop,tp1,position_id,account_id")
     .eq("user_id", user.id).eq("symbol", "XAUUSD").gte("created_at", since).order("created_at", { ascending: false }).limit(2000);

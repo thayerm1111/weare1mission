@@ -32,6 +32,7 @@ export type BrokerAccount = {
   marginAvailable: number | null; stateAt: string | null;
   selected: boolean; autoTrading: boolean; liveAuthorized: boolean;
   permissions: Record<string, boolean>; connectionStatus: string; env: string; server: string;
+  connectionId: string;
 };
 
 /**
@@ -385,6 +386,23 @@ function AccountCard({ a, active = false, busy, post, details, setDetails }: {
           </button>
         </div>
       )}
+
+      {/*
+       * DISCONNECT (owner 09-29: "there is no way to disconnect right now"). The engine and the API have
+       * had a disconnect for as long as they have had a connect; the sheet never offered it, so a member
+       * who wanted ATLAS off their broker had nowhere to go. It revokes the LOGIN — every account that
+       * came in on it leaves the Command Center together — and wipes the stored tokens. Nothing is sent
+       * to the broker: positions already open there stay open, they are simply no longer managed here.
+       */}
+      <button disabled={busy}
+        onClick={() => {
+          if (!window.confirm(`Disconnect this TradeLocker login from the Command Center?\n\nEvery account on it (${a.server || "this server"} · ${a.env.toUpperCase()}) is removed and ATLAS stops watching, managing and entering on them. Positions already open at the broker stay open. You can connect again any time.`)) return;
+          void post({ action: "disconnect", connectionId: a.connectionId });
+        }}
+        className="mt-3 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
+        style={{ background: "rgba(244,115,123,0.10)", color: C.down, border: "1px solid rgba(244,115,123,0.28)" }}>
+        Disconnect
+      </button>
 
       {/* The identifiers the system actually trades on — findable, not in anybody's face. */}
       <button onClick={() => setDetails(open ? null : a.id)}

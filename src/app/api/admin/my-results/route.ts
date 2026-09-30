@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { memberStatsSince } from "@/lib/genx/statsSince";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,11 +83,15 @@ export async function GET(_req: NextRequest) {
   const admin = createAdminClient();
   if (!admin) return json({ error: "no_admin_client" }, 500);
 
-  const { data } = await admin
+  // The owner's own reset point (owner 09-29: fresh stats on new accounts) — fills before it are not counted.
+  const mine = await memberStatsSince(admin, OWNER_USER_ID);
+  let q = admin
     .from("flow_managed_positions")
     .select("id,symbol,side,entry,init_stop,qty,outcome,result_pips,best_price,created_at,resolved_at,environment")
     .eq("user_id", OWNER_USER_ID)
-    .eq("status", "closed")
+    .eq("status", "closed");
+  if (mine) q = q.gte("created_at", mine);
+  const { data } = await q
     .neq("environment", "demo")
     .not("outcome", "is", null)
     .order("resolved_at", { ascending: false, nullsFirst: false })
