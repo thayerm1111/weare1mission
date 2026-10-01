@@ -76,6 +76,9 @@ type AutoRun = {
   riskPct?: number | null;
   credits?: number | null;
   costPer30m?: number;
+  /** An active FLOW Pass: FLOW and GENX are unmetered until passUntil. */
+  pass?: boolean;
+  passUntil?: string | null;
 };
 
 const RISK_CHIPS = [0.5, 1, 2, 3];
@@ -747,6 +750,19 @@ export function FlowConnect() {
               </button>
             </div>
 
+            {auto?.pass ? (
+            <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-3">
+              <p className="text-xs leading-relaxed text-emerald-700">
+                <b>FLOW Pass active{auto.passUntil ? ` until ${new Date(auto.passUntil).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}</b> —
+                FLOW and GENX are free: no credits for setups or trades, on every account you connect. Your
+                credits are only used by other tools.
+              </p>
+              <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-charcoal/60">
+                <Coins className="h-3.5 w-3.5" /> Credits:{" "}
+                <b className="text-navy">{auto?.credits ?? "—"}</b>
+              </p>
+            </div>
+            ) : (
             <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-3">
               <p className="text-xs leading-relaxed text-amber-700">
                 <b>1 credit when a setup starts forming, 5 when a trade is actually placed</b> on your
@@ -761,6 +777,7 @@ export function FlowConnect() {
                 </a>
               </p>
             </div>
+            )}
 
             {auto?.enabled && (
               <p

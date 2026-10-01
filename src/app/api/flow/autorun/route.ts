@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getConnection } from "@/lib/flow/connection";
 import { readBalance } from "@/lib/credits";
 import { CREDIT_COST } from "@/lib/creditConfig";
+import { getSubscription, isFlowPass } from "@/lib/subscription";
 import { setMaster, syncAccountsFromMaster } from "@/lib/flow/armState";
 
 export const runtime = "nodejs";
@@ -41,9 +42,20 @@ async function status(userId: string) {
     : { data: null };
   const bal = await readBalance();
   const r = (row as { enabled?: boolean; credit_paused?: boolean; last_credit_at?: string | null } | null) ?? null;
+  /*
+   * THE PASS, SAID ON THE PANEL (owner 10-01: a FLOW Pass member reported "bought the unlimited but
+   * getting charged credits"). Billing already skipped him — 24 trades free, balance untouched since
+   * the Pass — but this panel told every member "1 credit per setup, 5 per trade" and could still say
+   * "paused — out of credits" from a flag set before the Pass. A Pass holder now sees that FLOW and
+   * GENX are free and until when, and is never shown as credit-paused.
+   */
+  const sub = await getSubscription(userId, admin);
+  const pass = isFlowPass(sub);
   return {
+    pass,
+    passUntil: pass ? sub?.current_period_end ?? null : null,
     enabled: !!r?.enabled,
-    paused: !!r?.credit_paused,
+    paused: pass ? false : !!r?.credit_paused,
     lastCreditAt: r?.last_credit_at ?? null,
     connected: !!conn && conn.status === "connected",
     riskPct: (pref as { risk_pct?: number } | null)?.risk_pct ?? null,
@@ -102,12 +114,14 @@ export async function POST(req: NextRequest) {
      * is not a guess worth making.
      */
     const applied = await syncAccountsFromMaster(admin, user.id, true);
+    const st = await status(user.id);
     return json({
       ok: true,
-      lowCredits: credits < (CREDIT_COST.flow_autorun ?? 1),
+      // A Pass holder is never short of credits for FLOW — it is free for them.
+      lowCredits: !st.pass && credits < (CREDIT_COST.flow_autorun ?? 1),
       accountsArmed: applied.accountsChanged,
       needsAccountPick: applied.needsAccountPick,
-      ...(await status(user.id)),
+      ...st,
     });
   }
 
