@@ -63,6 +63,13 @@ export type MarketSnapshot = {
   snapshotVersion: string;
   at: number;
   price: number;
+  /**
+   * A quote FRESHER than this snapshot, attached at the moment of an answer (engines/livePrice.ts): the
+   * price to SAY and SHOW, when it was read and where it came from. `price` above is never replaced by
+   * it — decisions keep reading what the worker measured (core/priceNow.ts says which to use where).
+   * Never persisted: the worker's snapshots do not carry it.
+   */
+  live?: { price: number; at: number; source: "stream" | "quote" };
   bid: number | null;
   ask: number | null;
   spread: number | null;

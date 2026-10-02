@@ -71,8 +71,8 @@ export async function series(tf: Timeframe, size: number, key: string, symbol = 
   return bars.length ? { ok: true, data: bars } : { ok: false, error: "no_data", detail: "empty series" };
 }
 
-export async function price(key: string, symbol = GOLD): Promise<FetchResult<number>> {
-  const r = await call<{ price?: string }>("/price", { symbol }, key);
+export async function price(key: string, symbol = GOLD, timeoutMs?: number): Promise<FetchResult<number>> {
+  const r = await call<{ price?: string }>("/price", { symbol }, key, timeoutMs);
   if (!r.ok) return r;
   const p = Number(r.data.price);
   return Number.isFinite(p) && p > 0 ? { ok: true, data: p } : { ok: false, error: "no_data", detail: "no price" };

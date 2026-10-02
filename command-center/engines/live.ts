@@ -19,6 +19,9 @@ import { experienceOf, type Experience } from "./experience";
 import { armedFor, type Watch } from "./watch";
 // Read-only presentation analytics for the screen. Nothing here flows back into a decision — see present/intel.ts.
 import { presentExtras, type Intel } from "../present/intel";
+import { marketOpen } from "../core/sessions";
+import { priceNow, priceReadAt, shownSnapshot } from "../core/priceNow";
+import { withLivePrice, liveGoldPrice } from "./livePrice";
 
 /** Beyond this, the read is history rather than the market, and the UI must say so. */
 export const STALE_MS = 5 * 60_000;
@@ -37,6 +40,13 @@ export type LiveState = {
   bid: number | null;
   ask: number | null;
   spread: number | null;
+  /**
+   * When `price` was read and from where. The analysis is a snapshot written about once a minute; the
+   * price shown is the newest streamed tick when there is one (engines/livePrice.ts), so these can be
+   * much newer than `at`. "snapshot" means no fresher quote was available.
+   */
+  priceReadAt?: number | null;
+  priceSource?: "stream" | "quote" | "snapshot" | null;
 
   session: string | null;
   regime: string | null;
@@ -116,8 +126,24 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
     );
   }
 
-  const s: MarketSnapshot = latest.snapshot;
-  const rolling = await loadRolling();
+  /*
+   * THE PRICE SHOWN IS READ NOW; EVERYTHING ELSE IS THE SNAPSHOT (owner 10-01: ATLAS "is always a
+   * little behind"). The snapshot is written about once a minute, so its price was up to ~88 seconds
+   * old on a screen that says "live". The newest streamed tick is ATTACHED to the snapshot (s.live) and
+   * is what the headline price and the display-only panels show.
+   *
+   * It is deliberately NOT written over s.price. The setup, the open position's read and its protection
+   * are computed below from what the worker measured, exactly as before, because the server recomputes
+   * them from that same snapshot when the member presses TAKE THIS TRADE or PROTECT — a setup built on
+   * a tick the server never saw would be refused as "drifted", and a position read built on one would
+   * ratchet its best/worst excursion on a quote nobody validated.
+   *
+   * Stream only here: the screen polls every five seconds and must not spend a quote each time. A
+   * stale or closed read is left exactly as it was written.
+   */
+  const wantLive = marketIsOpen && Date.now() - latest.at <= STALE_MS;
+  const [rolling, livePx] = await Promise.all([loadRolling(), wantLive ? liveGoldPrice() : Promise.resolve(null)]);
+  const s: MarketSnapshot = withLivePrice(latest.snapshot, livePx);
   const diffs = diffSet(s, rolling.snapshots.filter((x) => x.at < s.at));
 
   const openThesis = [...rolling.theses].reverse().find((t) => !t.endedAt) ?? null;
@@ -183,7 +209,7 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
     thesisJournal(journalSince.toISOString()),
     recentStatements(12),
     // The trade is loaded with the SAME snapshot the screen is about to render, so the market read and
-    // the position read can never disagree about the price of gold.
+    // the position read can never disagree about the price of gold they were measured at.
     Promise.resolve(preTrade),
   ]);
 
@@ -198,7 +224,9 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
     ageSeconds: Math.round(ageMs / 1000),
     marketOpen: marketIsOpen,
 
-    price: s.price, bid: s.bid, ask: s.ask, spread: s.spread,
+    // The headline price is the fresher quote when there is one; bid/ask described the measured quote.
+    price: priceNow(s), bid: s.live ? null : s.bid, ask: s.live ? null : s.ask, spread: s.live ? null : s.spread,
+    priceReadAt: priceReadAt(s), priceSource: s.live?.source ?? "snapshot",
     session: s.session, regime: s.regime,
     pressure: { bullish: Math.round(s.pressure.bullish), bearish: Math.round(s.pressure.bearish), net: Math.round(s.pressure.net) },
     weather: weather(s), velocity: velocityBand(s),
@@ -213,8 +241,10 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
     }])),
     levels: s.levels.slice(0, 10),
     bars: latest.bars.slice(-140),
+    // Display only (present/intel.ts): "Current price", the day's change and the above/below split
+    // follow the headline price, so the screen never shows two different prices for now.
     ...presentExtras({
-      s, thesis: openThesis, events: rolling.events.slice(-60), bars: latest.bars, diffs,
+      s: shownSnapshot(s), thesis: openThesis, events: rolling.events.slice(-60), bars: latest.bars, diffs,
       velocityBand: velocityBand(s), weather: weather(s),
     }),
 
@@ -250,12 +280,25 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
   };
 }
 
-/** The memory packet, for the conversation route. Same assembly, so chat and screen never disagree. */
-export async function liveMemory(): Promise<BrainMemory> {
+/**
+ * The memory packet, for the conversation route. Same assembly, so chat and screen never disagree.
+ *
+ * With `livePrice`, the freshest quote at the moment of the question is attached to `now`
+ * (engines/livePrice.ts): the newest streamed tick, or — because a spoken answer is worth one API
+ * credit — a direct quote when the stream's newest tick is more than a few seconds old. `now.price`
+ * itself is still what the worker measured, so everything a conversation turn decides or records from
+ * it is unchanged; the context packet and the deterministic voice SAY the fresher one
+ * (core/priceNow.ts). Without the option nothing is read and the packet is exactly the snapshot.
+ */
+export async function liveMemory(opts: { livePrice?: boolean } = {}): Promise<BrainMemory> {
   const latest = await latestWithBars();
-  const rolling = await loadRolling();
-  if (!latest) return memoryOf(rolling, null, [], null);
-  const s = latest.snapshot;
+  if (!latest) return memoryOf(await loadRolling(), null, [], null);
+  const wantLive = !!opts.livePrice && marketOpen(Date.now()) && Date.now() - latest.at <= STALE_MS;
+  const [rolling, livePx] = await Promise.all([
+    loadRolling(),
+    wantLive ? liveGoldPrice({ allowQuote: true }) : Promise.resolve(null),
+  ]);
+  const s = withLivePrice(latest.snapshot, livePx);
   const diffs = diffSet(s, rolling.snapshots.filter((x) => x.at < s.at));
   const openThesis = [...rolling.theses].reverse().find((t) => !t.endedAt) ?? null;
   const state = brainState({ snapshot: s, thesis: openThesis, events: rolling.events.slice(-8) });

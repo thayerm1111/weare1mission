@@ -17,6 +17,7 @@ import { recordCall, extractClaim, trackRecord, trackRecordLines, asksAboutRecor
 import { accountLines, asksAboutAccount, type AccountFacts } from "./account";
 import { selectedAccount } from "../engines/broker";
 import { aboveBelow } from "../core/levelMap";
+import { priceNow } from "../core/priceNow";
 import { statedTradeFrom, tradeGuidanceLines, ledgerPositions, TRADE_COACH_RULES } from "./statedTrade";
 
 
@@ -266,7 +267,13 @@ async function handleVoiceLlmInner(req: Request): Promise<Response> {
 
   /* ── the same context the screen is built from ───────────────────────── */
 
-  const memory = await liveMemory();
+  /*
+   * THE PRICE ATLAS SAYS IS READ NOW (owner 10-01: "it doesn't say real price right then and there").
+   * `livePrice` attaches the freshest quote to memory.now; the packet and the member's own-trade
+   * arithmetic below say that one (priceNow). memory.now.price is still what the worker measured, so
+   * the position read, the setup and the watch parser decide from exactly what they always have.
+   */
+  const memory = await liveMemory({ livePrice: true });
   const [trade, profile, watches] = await Promise.all([
     tradeState(session.userId, memory.now),
     getProfile(session.userId),
@@ -459,15 +466,16 @@ async function handleVoiceLlmInner(req: Request): Promise<Response> {
    * conversation, and any gold FLOW/GENX is holding for them, go in with the arithmetic already done.
    */
   const now = memory.now;
-  const lv = aboveBelow(now.price, [now.levels, now.map ?? []], 6);
+  const saidPrice = priceNow(now);   // the member's own trade is worked out at the price ATLAS is about to say
+  const lv = aboveBelow(saidPrice, [now.levels, now.map ?? []], 6);
   const userTexts = messages.filter((m) => m.role === "user").map((m) => speakable(textOf(m.content)));
-  const stated = statedTradeFrom(userTexts, now.price);
+  const stated = statedTradeFrom(userTexts, saidPrice);
   const ledger = await ledgerPositions(session.userId);
   const ownBlocks: string[] = [];
-  if (stated) ownBlocks.push(tradeGuidanceLines("THE TRADE THEY TOLD YOU ABOUT", stated, now.price, lv.above, lv.below).join("\n"));
+  if (stated) ownBlocks.push(tradeGuidanceLines("THE TRADE THEY TOLD YOU ABOUT", stated, saidPrice, lv.above, lv.below).join("\n"));
   for (const p of ledger.slice(0, 2)) {
     if (stated && stated.side === p.side && Math.abs(stated.entry - p.entry) < 1.5) continue; // same trade, said and held
-    ownBlocks.push(tradeGuidanceLines(`OPEN FLOW/GENX POSITION (placed ${new Date(p.openedAt).toISOString().slice(11, 16)} UTC)`, p, now.price, lv.above, lv.below).join("\n"));
+    ownBlocks.push(tradeGuidanceLines(`OPEN FLOW/GENX POSITION (placed ${new Date(p.openedAt).toISOString().slice(11, 16)} UTC)`, p, saidPrice, lv.above, lv.below).join("\n"));
   }
   const ownTradeLines = ownBlocks.length ? `\n\n=== THEIR OWN TRADE ===\n${ownBlocks.join("\n\n")}` : "";
 
@@ -574,7 +582,7 @@ async function handleVoiceLlmInner(req: Request): Promise<Response> {
     const claim = extractClaim(spokenSoFar);
     void recordCall({
       userId: session.userId, channel: "voice", question, answer: spokenSoFar,
-      priceAt: memory.now?.price ?? null, snapshotId: null,
+      priceAt: memory.now ? priceNow(memory.now) : null, snapshotId: null,   // graded from the price it said
       direction: claim.direction, horizonMin: claim.horizonMin,
       regime: memory.now?.regime ?? null, sessionName: memory.now?.session ?? null,
       thesisId: memory.thesis?.id ?? null, setupState: setup?.state ?? null,

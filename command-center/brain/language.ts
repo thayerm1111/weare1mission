@@ -11,6 +11,8 @@
 import type { MarketSnapshot, Timeframe } from "../core/types";
 import type { BrainMemory, BrainResponse, Horizon, SnapshotDiff, UiAction } from "./types";
 import { diffFor } from "./diff";
+// What is SAID as "the price" is the fresher quote when one is attached to the snapshot (core/priceNow.ts).
+import { priceNow } from "../core/priceNow";
 import { velocityBand, weather } from "./presence";
 
 const EXEC: Timeframe = "5m";
@@ -32,7 +34,7 @@ export function marketRead(m: BrainMemory): string {
   if (s.session === "closed") return "Gold is closed, so there's nothing live to read.";
 
   const bits: string[] = [];
-  bits.push(`XAUUSD is at ${px(s.price)}`);
+  bits.push(`XAUUSD is at ${px(priceNow(s))}`);
 
   const ctx = (["4h", "1h"] as Timeframe[]).map((tf) => s.timeframes[tf]?.state).filter(Boolean);
   if (ctx.length) bits.push(`higher timeframes are ${words(ctx[0])}`);
@@ -124,7 +126,7 @@ export function briefing(m: BrainMemory): string {
   }
 
   const parts: string[] = [];
-  parts.push(`XAUUSD is trading at ${px(s.price)}.`);
+  parts.push(`XAUUSD is trading at ${px(priceNow(s))}.`);
 
   const h4 = s.timeframes["4h"]?.state;
   const m15 = s.timeframes["15m"]?.state;
@@ -283,7 +285,7 @@ export function answer(question: string, m: BrainMemory, opts?: { setup?: SetupV
     case "level": {
       const l = m.watchedLevels[0];
       spoken = l
-        ? `The one that matters is ${l.label} at ${px(l.price)}. ${s && s.price > l.price ? "We're above it" : "We're below it"}, and whether that holds is the question.`
+        ? `The one that matters is ${l.label} at ${px(l.price)}. ${s && priceNow(s) > l.price ? "We're above it" : "We're below it"}, and whether that holds is the question.`
         : "I don't have a level mapped that's close enough to matter right now.";
       if (l) ui.push({ name: "SHOW_LEVEL", arg: l.price });
       break;
@@ -374,7 +376,7 @@ export function answer(question: string, m: BrainMemory, opts?: { setup?: SetupV
       break;
 
     case "scalp":
-      spoken = s ? `For a scalp I'd be working around ${m.watchedLevels[0] ? px(m.watchedLevels[0].price) : px(s.price)} and I'd want the five minute moving with me, not against me. ${m.thesis?.bias === "range_fade" ? "Inside this range I'd rather fade the edges than chase the middle." : ""}`.trim() : "No live read.";
+      spoken = s ? `For a scalp I'd be working around ${m.watchedLevels[0] ? px(m.watchedLevels[0].price) : px(priceNow(s))} and I'd want the five minute moving with me, not against me. ${m.thesis?.bias === "range_fade" ? "Inside this range I'd rather fade the edges than chase the middle." : ""}`.trim() : "No live read.";
       break;
     case "swing":
       spoken = s ? `The swing picture is set by the four hour and daily. ${s.timeframes["4h"] ? `Four hour is ${words(s.timeframes["4h"]!.state)}` : "I don't have a clean four hour read"}${s.timeframes["1d"] ? ` and the daily is ${words(s.timeframes["1d"]!.state)}` : ""}. That's a slower decision than anything happening on the five minute right now.` : "No live read.";
@@ -406,9 +408,10 @@ export function scenarioOf(m: BrainMemory): { bull: string; bear: string; neutra
   if (!s) return null;
   let above: number | null = null;
   let below: number | null = null;
+  const at = priceNow(s);   // "above" and "below" are said about the price the member is looking at
   for (const l of s.levels) {
-    if (l.price > s.price && (above == null || l.price < above)) above = l.price;
-    if (l.price < s.price && (below == null || l.price > below)) below = l.price;
+    if (l.price > at && (above == null || l.price < above)) above = l.price;
+    if (l.price < at && (below == null || l.price > below)) below = l.price;
   }
   return {
     bull: above != null ? `Acceptance above ${px(above)} opens continuation higher.` : "A clean break of the session high opens continuation higher.",

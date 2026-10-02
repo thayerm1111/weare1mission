@@ -6,6 +6,7 @@
  * boundary is what keeps the quantitative core authoritative — the model interprets, it does not measure.
  */
 import { aboveBelow } from "../core/levelMap";
+import { priceNow } from "../core/priceNow";
 import type { MarketSnapshot, Timeframe } from "../core/types";
 import type { BrainMemory } from "./types";
 import { mathLines } from "./language";
@@ -24,6 +25,7 @@ You are an experienced XAUUSD trader sitting beside the user, watching the same 
 HARD RULES:
 - Every factual claim about the market must come from the CONTEXT below. You cannot see a chart, you cannot fetch anything, and you must never invent a price, level, indicator value or news event that is not in the context.
 - If the context does not contain what is needed, say you don't know or that you can't see it. "I don't know" and "I'd wait" are acceptable, professional answers.
+- The price line says whether its number is the price right now. When it says so, that is the price — say that number, and measure every "how far" from it. When it gives an age instead, say how old it is ("about a minute ago") rather than presenting it as the price this second.
 - When asked where price goes after a level breaks, answer from LEVELS ABOVE / LEVELS BELOW: name the next one or two in that direction with their price and where each came from (a past day's high, last week's low, a 4h swing). Those lists include levels from previous days and weeks — use them.
 - Never promise a result. Never say a setup is guaranteed, high-probability-certain, or a sure thing. No hype words, no exclamation marks.
 - You are an observer and an analyst. You do not place, modify or close trades, and you must never claim to have done so.
@@ -110,7 +112,22 @@ export function setupSummaryLines(su: {
   return L.join("\n");
 }
 
-export function contextPacket(m: BrainMemory, extra?: { tradeSummary?: string | null; setupSummary?: string | null }): string {
+/** A read this fresh is "now" even without a fresher quote beside it. */
+const CURRENT_READ_MS = 10_000;
+
+/** "3 seconds", "2 minutes", "5 hours", "2 days" — how old something is, in words a person would say. */
+export function agoWords(ms: number): string {
+  const sec = Math.max(0, Math.round(ms / 1000));
+  const n = (v: number, unit: string) => `${v} ${unit}${v === 1 ? "" : "s"}`;
+  if (sec < 90) return n(sec, "second");
+  const min = Math.round(sec / 60);
+  if (min < 90) return n(min, "minute");
+  const hrs = Math.round(min / 60);
+  if (hrs < 36) return n(hrs, "hour");
+  return n(Math.round(hrs / 24), "day");
+}
+
+export function contextPacket(m: BrainMemory, extra?: { tradeSummary?: string | null; setupSummary?: string | null; nowMs?: number }): string {
   const s = m.now;
   const L: string[] = [];
 
@@ -119,8 +136,29 @@ export function contextPacket(m: BrainMemory, extra?: { tradeSummary?: string | 
     L.push("No market read available. The feed is not delivering usable data.");
     return L.join("\n");
   }
-  L.push(`time: ${new Date(s.at).toISOString()}`);
-  L.push(`price: ${px(s.price)}${s.bid != null && s.ask != null ? ` (bid ${px(s.bid)} / ask ${px(s.ask)}, spread ${s.spread?.toFixed(2)})` : ""}`);
+  /*
+   * HOW OLD IS THE PRICE? (owner 10-01: ATLAS "doesn't say real price right then and there").
+   *
+   * This block used to give one timestamp — the snapshot's — and a price beside it, so a price measured
+   * a minute ago was spoken as the price now. The price SAID is now the freshest quote available at the
+   * moment of the question (engines/livePrice.ts attaches it; core/priceNow.ts reads it) and the packet
+   * says so in words: which number is the price this second, and how old the rest of the read is. When
+   * no fresher quote came through, the price is labelled with its age instead of being passed off as
+   * current.
+   */
+  const nowMs = extra?.nowMs ?? Date.now();
+  const ago = (ms: number) => agoWords(nowMs - ms);
+  const shown = priceNow(s);
+  const measuredQuote = `${px(s.price)}${s.bid != null && s.ask != null ? ` (bid ${px(s.bid)} / ask ${px(s.ask)}, spread ${s.spread?.toFixed(2)})` : ""}`;
+  L.push(`time now: ${new Date(nowMs).toISOString()}`);
+  if (s.live) {
+    L.push(`price: ${px(shown)} — LIVE quote, read ${ago(s.live.at)} ago. This is the price right now: when you say the price, say this number.`);
+    L.push(`the rest of this read (session, regime, pressure, timeframes, what changed) was measured ${ago(s.at)} ago, at ${new Date(s.at).toISOString()}, when price was ${px(s.price)}`);
+  } else if (nowMs - s.at <= CURRENT_READ_MS) {
+    L.push(`price: ${measuredQuote} — measured ${ago(s.at)} ago. This is the price right now.`);
+  } else {
+    L.push(`price: ${measuredQuote} — measured ${ago(s.at)} ago, at ${new Date(s.at).toISOString()}. No fresher quote came through: if you say the price, say how old it is.`);
+  }
   L.push(`session: ${words(s.session)} (${s.minutesIntoSession} minutes in)`);
   L.push(`regime: ${words(s.regime)}`);
   L.push(`pressure: buyers ${Math.round(s.pressure.bullish)} / sellers ${Math.round(s.pressure.bearish)} (net ${Math.round(s.pressure.net)}) — estimated from closes, wicks and momentum, NOT order flow`);
@@ -137,9 +175,10 @@ export function contextPacket(m: BrainMemory, extra?: { tradeSummary?: string | 
    * nearest eight on each side, from today's session levels AND the multi-day map (past days, weeks,
    * 4h and 1h swings), each labelled with where it came from.
    */
-  const { above, below } = aboveBelow(s.price, [s.levels, s.map ?? []], 8);
+  // Measured from the price that is SAID, so "how far" agrees with the price line above.
+  const { above, below } = aboveBelow(shown, [s.levels, s.map ?? []], 8);
   const lvl = (l: { label: string; price: number }) =>
-    `${l.label}: ${px(l.price)} (${Math.abs(l.price - s.price).toFixed(2)} away)`;
+    `${l.label}: ${px(l.price)} (${Math.abs(l.price - shown).toFixed(2)} away)`;
   L.push("", "=== LEVELS ABOVE PRICE (nearest first — today's session levels plus past days, weeks and swings) ===");
   if (above.length) for (const l of above) L.push(lvl(l)); else L.push("none in the data this worker holds");
   L.push("", "=== LEVELS BELOW PRICE (nearest first) ===");
@@ -199,6 +238,8 @@ export function contextPacket(m: BrainMemory, extra?: { tradeSummary?: string | 
   }
   if (extra?.tradeSummary) {
     L.push("", "=== THE OPEN POSITION — answer every trade question from THIS, never generically ===", extra.tradeSummary);
+    // The position's read is built on the measured price (it is what PROTECT would act on), not the live one.
+    if (s.live) L.push(`(the pips, dollars and distances in this block were measured ${ago(s.at)} ago, with price at ${px(s.price)})`);
   }
 
   if (s.news.nextEvent) {

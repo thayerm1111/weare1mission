@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { hasPass } from "@/lib/ccPass";
 import { aboveBelow } from "../../../../../command-center/core/levelMap";
+import { priceNow } from "../../../../../command-center/core/priceNow";
 import { statedTradeFrom, tradeGuidanceLines, ledgerPositions, TRADE_COACH_RULES } from "../../../../../command-center/brain/statedTrade";
 import { liveMemory } from "../../../../../command-center/engines/live";
 import { BRAIN_SYSTEM, contextPacket, setupSummaryLines, tradeSummaryLines } from "../../../../../command-center/brain/context";
@@ -98,7 +99,9 @@ export async function POST(req: Request) {
   const message = (body.message ?? "").toString().trim().slice(0, 2000);
   if (!message) return json({ error: "empty" }, 400);
 
-  const memory = await liveMemory();
+  // The price ATLAS says is read now (owner 10-01); memory.now.price is still the worker's measurement,
+  // so the position read and the setup below are exactly what the screen and the server compute.
+  const memory = await liveMemory({ livePrice: true });
   // The open position travels with EVERY turn, so "how's my trade?" is answered from the actual trade
   // and the member never has to tell ATLAS what they are in.
   const trade = await tradeState(user.id, memory.now);
@@ -204,10 +207,10 @@ export async function POST(req: Request) {
     // Honest degradation: the narrator is real, grounded output — not a stub pretending to be a model.
     if (trade.active && trade.read && /trade|position|protect|partial|break even|drawdown|how.?s my/i.test(message)) {
       const r = { ...fallback, spokenText: trade.read, tradeRead: trade.read };
-      await saveStatement({ at: Date.now(), kind: "answer", text: trade.read, channel: "text", priceAt: memory.now.price, thesisId: memory.thesis?.id ?? null });
+      await saveStatement({ at: Date.now(), kind: "answer", text: trade.read, channel: "text", priceAt: priceNow(memory.now), thesisId: memory.thesis?.id ?? null });
       return json({ ...r, notice: "Conversational model not configured — this is ATLAS's deterministic voice." });
     }
-    await saveStatement({ at: Date.now(), kind: "answer", text: fallback.spokenText, channel: "text", priceAt: memory.now.price, thesisId: memory.thesis?.id ?? null });
+    await saveStatement({ at: Date.now(), kind: "answer", text: fallback.spokenText, channel: "text", priceAt: priceNow(memory.now), thesisId: memory.thesis?.id ?? null });
     return json({ ...fallback, notice: "Conversational model not configured — this is ATLAS's deterministic voice." });
   }
 
@@ -255,14 +258,15 @@ export async function POST(req: Request) {
   let own = "";
   if (memory.now) {
     const now = memory.now;
-    const lv = aboveBelow(now.price, [now.levels, now.map ?? []], 6);
-    const stated = statedTradeFrom([...history.filter((t) => t.role === "user").map((t) => t.content), message], now.price);
+    const saidPrice = priceNow(now);   // their own trade is worked out at the price ATLAS is about to say
+    const lv = aboveBelow(saidPrice, [now.levels, now.map ?? []], 6);
+    const stated = statedTradeFrom([...history.filter((t) => t.role === "user").map((t) => t.content), message], saidPrice);
     const ledger = await ledgerPositions(user.id);
     const blocks: string[] = [];
-    if (stated) blocks.push(tradeGuidanceLines("THE TRADE THEY TOLD YOU ABOUT", stated, now.price, lv.above, lv.below).join("\n"));
+    if (stated) blocks.push(tradeGuidanceLines("THE TRADE THEY TOLD YOU ABOUT", stated, saidPrice, lv.above, lv.below).join("\n"));
     for (const p of ledger.slice(0, 2)) {
       if (stated && stated.side === p.side && Math.abs(stated.entry - p.entry) < 1.5) continue;
-      blocks.push(tradeGuidanceLines("OPEN FLOW/GENX POSITION", p, now.price, lv.above, lv.below).join("\n"));
+      blocks.push(tradeGuidanceLines("OPEN FLOW/GENX POSITION", p, saidPrice, lv.above, lv.below).join("\n"));
     }
     if (blocks.length) own = `\n\n=== THEIR OWN TRADE ===\n${blocks.join("\n\n")}`;
   }
@@ -307,7 +311,7 @@ export async function POST(req: Request) {
       source: "llm",
     };
     // Its own words go into memory, so five minutes from now it knows what it already told you.
-    await saveStatement({ at: Date.now(), kind: "answer", text: clean, channel: "text", priceAt: memory.now.price, thesisId: memory.thesis?.id ?? null });
+    await saveStatement({ at: Date.now(), kind: "answer", text: clean, channel: "text", priceAt: priceNow(memory.now), thesisId: memory.thesis?.id ?? null });
     /*
      * And into the journal, where it will be scored.
      *
@@ -318,7 +322,7 @@ export async function POST(req: Request) {
     const claim = extractClaim(clean);
     void recordCall({
       userId: user.id, channel: "text", question: message, answer: clean,
-      priceAt: memory.now.price, snapshotId: null,
+      priceAt: priceNow(memory.now), snapshotId: null,
       direction: claim.direction, horizonMin: claim.horizonMin,
       regime: memory.now.regime ?? null, sessionName: memory.now.session ?? null,
       thesisId: memory.thesis?.id ?? null, setupState: setup?.state ?? null,

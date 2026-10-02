@@ -21,7 +21,7 @@
  * Env: TWELVEDATA_API_KEY (required), WORKER_STREAM=0 to disable.
  */
 import { createAdminClient } from "@/lib/supabase/admin";
-import { pushLiveTick, liveTickStats } from "@/lib/flow/liveTicks";
+import { pushLiveTick, liveTickStats, liveTickDetail } from "@/lib/flow/liveTicks";
 import { getInstrument } from "@/lib/flow/instruments";
 import { contractKey } from "@/lib/flow/sizing";
 import { beat } from "@/lib/flow/health";
@@ -33,6 +33,17 @@ const HEARTBEAT_MS = 10_000;             // keep-alive ping the server expects
 const BEAT_MS = 15_000;                  // liveness row in flow_heartbeat
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
+/*
+ * PUBLISH THE NEWEST TICK (owner 10-01: "when I talk to ATLAS it's behind on actual live price").
+ * The tick store lives in THIS process, so everything on Vercel — ATLAS's voice, its chat, the Command
+ * Center screen — was reading the price out of a market snapshot that is only written about once a
+ * minute (measured: 67s between snapshots, gold moving $0.69 at the median and up to $5.40 between
+ * them). The newest tick is now written to one row of market_live_ticks, at most once a second and
+ * only when a new tick has arrived, so those readers can quote a price that is a second or two old.
+ */
+const PUBLISH_MS = 1_000;
+const PUBLISH_SYMBOLS = ["XAU/USD"];
+const PUBLISH_TIMEOUT_MS = 4_000;        // a write that hangs is abandoned so the next tick can go out
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -117,8 +128,36 @@ export async function streamLoop(isShuttingDown: () => boolean): Promise<void> {
     let lastResync = 0;
     let lastHeartbeat = Date.now();
     let lastBeat = 0;
+    let lastPublish = 0;
+    let publishing = false;
+    let publishWarned = false;
+    const published = new Map<string, number>();   // symbol → receipt time of the tick last written
+    const publishTicks = async (): Promise<void> => {
+      for (const sym of PUBLISH_SYMBOLS) {
+        const tk = liveTickDetail(sym);
+        if (!tk || published.get(sym) === tk.receivedAt) continue;   // nothing new since the last write
+        try {
+          const { error } = await admin.from("market_live_ticks").upsert({
+            symbol: sym, price: tk.price,
+            tick_at: new Date(tk.at).toISOString(), received_at: new Date(tk.receivedAt).toISOString(),
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "symbol" }).abortSignal(AbortSignal.timeout(PUBLISH_TIMEOUT_MS));
+          if (!error) published.set(sym, tk.receivedAt);
+          // Said once per connection, not once a second: a missing table must be visible in the log.
+          else if (!publishWarned) { publishWarned = true; log("tick publish failed — readers fall back to their own quote", error.message); }
+        } catch { /* publishing is best-effort — readers fall back to their own quote */ }
+      }
+    };
     while (!closed && !isShuttingDown()) {
       const now = Date.now();
+      // NEVER AWAITED: this loop also sends the keep-alive ping and re-derives the subscriptions, and
+      // the trade manager reads the ticks this socket delivers. A slow database must not be able to
+      // delay any of that, so the write runs beside the loop, one at a time.
+      if (!publishing && now - lastPublish >= PUBLISH_MS) {
+        lastPublish = now;
+        publishing = true;
+        void publishTicks().catch(() => {}).finally(() => { publishing = false; });
+      }
       if (now - lastResync >= RESYNC_MS || lastResync === 0) {
         lastResync = now;
         const want = await wantedSymbols(admin);

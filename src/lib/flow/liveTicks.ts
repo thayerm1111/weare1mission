@@ -55,6 +55,16 @@ export function liveTick(td: string, maxAgeMs: number): number | null {
   return Date.now() - buf.last.t <= maxAgeMs ? buf.last.p : null;
 }
 
+/**
+ * The newest streamed tick with both clocks: `at` is the provider's timestamp, `receivedAt` is when
+ * this process got it. The publisher (worker/priceStream.ts) writes this to market_live_ticks so
+ * code that does NOT run in the worker — ATLAS on Vercel — can read a price that is seconds old.
+ */
+export function liveTickDetail(td: string): { price: number; at: number; receivedAt: number } | null {
+  const buf = store.get(td);
+  return buf ? { price: buf.last.p, at: buf.last.t, receivedAt: buf.last.rt } : null;
+}
+
 /** High/low of streamed ticks at/after sinceMs (bounded by the ring window). */
 export function liveTickExtremes(td: string, sinceMs: number): { high: number; low: number } | null {
   const buf = store.get(td);

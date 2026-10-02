@@ -169,6 +169,23 @@ export async function latestWithBars(): Promise<{ id: number; snapshot: MarketSn
 }
 
 /**
+ * The newest streamed tick for a symbol, as the price stream published it (market_live_ticks). Read
+ * only: this adapter never writes that table. Null when there is no row or the read fails — the
+ * caller decides what to fall back to.
+ */
+export async function latestTick(symbol: string): Promise<{ price: number; tickAt: number; receivedAt: number } | null> {
+  const c = db();
+  if (!c) return null;
+  try {
+    const { data, error } = await c.from("market_live_ticks").select("price, tick_at, received_at").eq("symbol", symbol).maybeSingle();
+    if (error || !data) return null;
+    const r = data as { price: number | string; tick_at: string; received_at: string };
+    const price = Number(r.price), tickAt = Date.parse(r.tick_at), receivedAt = Date.parse(r.received_at);
+    return Number.isFinite(price) && price > 0 && Number.isFinite(receivedAt) ? { price, tickAt, receivedAt } : null;
+  } catch { return null; }
+}
+
+/**
  * Rebuild Atlas's rolling memory from the database.
  *
  * This is what lets awareness survive a worker restart and lets a browser that has just opened see the
