@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair, Radar, LifeBuoy, BarChart3, Smartphone, Gauge, Link2, Timer,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair, Radar, LifeBuoy, BarChart3, Smartphone, Gauge, Link2, Timer, ArrowLeftRight,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
@@ -20,6 +20,7 @@ const REG: Record<string, Item> = {
   training: { href: "/portal/training", label: "Affiliate Academy", icon: GraduationCap },
   compPlan: { href: "/portal/comp-plan", label: "The Comp Plan", icon: Trophy },
   genx: { href: "/portal/genx", label: "GENX", icon: Gem },
+  genfx: { href: "/portal/genfx", label: "GEN FX", icon: ArrowLeftRight },
   omai: { href: "/portal/om-ai", label: "OM AI", icon: Sparkles },
   signals: { href: "/portal/signals", label: "OM AI Plays", icon: Zap },
   xaughost: { href: "/portal/xaughost", label: "MFXGHOST", icon: Ghost },
@@ -56,7 +57,7 @@ const ONES_UTILITY = ["getApp", "account", "support"];
 const ONES = [...ONES_PRIMARY, ...ONES_UTILITY];
 const BUILDERS = ["training", "getApp", "omai", "prospects", "team", "compPlan", "schedule", "leadership", "resources", "updates", "account", "support", "results", "leaderboard"];
 const BUILDERS_ONLY = ["team", "prospects", "training", "resources", "compPlan"];
-const ONES_ONLY = ["trading", "genx", "signals", "xaughost", "charts", "command", "scanner", "scalp", "auric"];
+const ONES_ONLY = ["trading", "genx", "genfx", "signals", "xaughost", "charts", "command", "scanner", "scalp", "auric"];
 
 // Children shown under "The Floor". Two kinds: live-desk VIEWS (query-param
 // views of /portal/trading) and standalone PAGES (their own routes). Rendered
@@ -75,6 +76,7 @@ const FLOOR_CHILDREN: FloorChild[] = [
   { kind: "view", view: "flow", label: "FLOW", icon: Link2 },
   { kind: "view", view: "rapid", label: "Rapid", icon: Timer },
   { kind: "page", key: "genx" },
+  { kind: "page", key: "genfx" },   // GEN FX — the GENX engine on EUR/USD and GBP/JPY (owner 10-02)
   { kind: "page", key: "xaughost" },
   { kind: "page", key: "omai" },
   { kind: "page", key: "signals" },

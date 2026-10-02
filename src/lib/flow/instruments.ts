@@ -31,6 +31,10 @@ export const INSTRUMENTS: Record<string, InstrumentMeta> = {
   USDJPY: { canonical: "USDJPY", displayName: "US Dollar / Yen", twelveDataSymbol: "USD/JPY", assetClass: "forex", pipSize: 0.01, pointSize: 0.001, pricePrecision: 3, quantityStep: 0.01, minQuantity: 0.01 },
   AUDUSD: { canonical: "AUDUSD", displayName: "Aussie / US Dollar", twelveDataSymbol: "AUD/USD", assetClass: "forex", pipSize: 0.0001, pointSize: 0.00001, pricePrecision: 5, quantityStep: 0.01, minQuantity: 0.01 },
   USDCAD: { canonical: "USDCAD", displayName: "US Dollar / Canadian Dollar", twelveDataSymbol: "USD/CAD", assetClass: "forex", pipSize: 0.0001, pointSize: 0.00001, pricePrecision: 5, quantityStep: 0.01, minQuantity: 0.01 },
+  // GEN FX (10-02). Without this row getInstrument("GBPJPY") fell back to GOLD's metadata — a 0.1 pip,
+  // 2-decimal prices and the XAU/USD feed — which is the wrong answer for every question the trade
+  // manager asks about an open GBP/JPY position (break-even distance, stop rounding, the price it reads).
+  GBPJPY: { canonical: "GBPJPY", displayName: "Pound / Yen", twelveDataSymbol: "GBP/JPY", assetClass: "forex", pipSize: 0.01, pointSize: 0.001, pricePrecision: 3, quantityStep: 0.01, minQuantity: 0.01 },
   NAS100: { canonical: "NAS100", displayName: "Nasdaq 100", twelveDataSymbol: "NAS100", assetClass: "index", pipSize: 1, pointSize: 0.1, pricePrecision: 1, quantityStep: 0.1, minQuantity: 0.1 },
   US30: { canonical: "US30", displayName: "Dow Jones 30", twelveDataSymbol: "DJI", assetClass: "index", pipSize: 1, pointSize: 0.1, pricePrecision: 1, quantityStep: 0.1, minQuantity: 0.1 },
   USOIL: { canonical: "USOIL", displayName: "WTI Crude Oil", twelveDataSymbol: "WTI/USD", assetClass: "commodity", pipSize: 0.01, pointSize: 0.001, pricePrecision: 2, quantityStep: 0.01, minQuantity: 0.01 },

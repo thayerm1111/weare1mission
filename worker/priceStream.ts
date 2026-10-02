@@ -15,7 +15,8 @@
  *     to the REST/polling path automatically until we reconnect (1s→30s backoff).
  *   • Vercel never runs this file; its tick store stays empty, behavior unchanged.
  *
- * Subscriptions: XAU/USD always (the GENX instrument) + the TwelveData symbol of
+ * Subscriptions: XAU/USD always (the GENX instrument), GEN FX's pairs and the USD/JPY rate GEN FX
+ * sizes GBP/JPY with (unless WORKER_GENFX=0), + the TwelveData symbol of
  * every OPEN managed position, refreshed every 30s. Runs on Node 22's native
  * WebSocket (same requirement supabase-js already pinned us to).
  * Env: TWELVEDATA_API_KEY (required), WORKER_STREAM=0 to disable.
@@ -27,7 +28,11 @@ import { contractKey } from "@/lib/flow/sizing";
 import { beat } from "@/lib/flow/health";
 
 const WS_URL = (key: string) => `wss://ws.twelvedata.com/v1/quotes/price?apikey=${key}`;
-const ALWAYS_SYMBOLS = ["XAU/USD"];      // GENX's instrument — streamed whenever markets are open
+// GENX's instrument — streamed whenever markets are open. GEN FX (10-02) adds its two pairs, so a page
+// setup is entered on the tick that touches it rather than on a polled quote, and USD/JPY, the rate
+// that turns a GBP/JPY pip into dollars. A symbol the plan refuses simply stays on polling.
+const GENFX_SYMBOLS = process.env.WORKER_GENFX === "0" ? [] : ["EUR/USD", "GBP/JPY", "USD/JPY"];
+const ALWAYS_SYMBOLS = ["XAU/USD", ...GENFX_SYMBOLS];
 const RESYNC_MS = 30_000;                // re-derive the wanted symbol set from open positions
 const HEARTBEAT_MS = 10_000;             // keep-alive ping the server expects
 const BEAT_MS = 15_000;                  // liveness row in flow_heartbeat

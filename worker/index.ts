@@ -10,9 +10,10 @@
  *     TP self-heal — the identical manageOpenPositions() the cron calls.
  *   • GENX FAST WATCH (~WORKER_WATCH_MS, default 1500ms): armed/forming setups checked
  *     against a fresh confirmation read — the identical watchPass() the cron calls.
+ *   • GEN FX (worker/genfx.ts): the same scanner and fast watch for EUR/USD and GBP/JPY.
  *
  * COORDINATION — the DB locks are the whole story:
- *   flow_manage_lock id=1 (manager) and id=2 (watch). The worker holds them while
+ *   flow_manage_lock id=1 (manager), id=2 (watch) and id=6 (GEN FX). The worker holds them while
  *   alive; the Vercel crons only act when they can take a lock. Worker dies → locks
  *   expire in seconds → the next minutely cron takes over automatically. Worker comes
  *   back → it re-takes the locks as soon as the cron's current pass releases them.
@@ -36,6 +37,7 @@ import { brokerRelays } from "@/lib/flow/tradelocker";
 import { archiveGoldCandles } from "@/lib/genx/candleArchive";
 import { recordStyleSetups, resolveStyleSetups, styleScoreboard } from "@/lib/genx/styles/shadow";
 import { streamLoop } from "./priceStream";
+import { genfxLoop } from "./genfx";
 import { genx31Tick } from "@/lib/genx3/v31/runtime";
 import { genx32Tick } from "@/lib/genx3/v32/runtime";
 import { readControl, emergencyDisable } from "@/lib/genx3/runtime";
@@ -359,6 +361,9 @@ void styleShadowLoop().catch((e) => log("styles: loop died", e instanceof Error 
 void genx3Loop().catch((e) => log("genx3: loop died", e instanceof Error ? e.message : e));
 void pdLoop().catch((e) => log("genx1-pd: loop died", e instanceof Error ? e.message : e));
 void billingLoop().catch((e) => log("flow-billing: loop died", e instanceof Error ? e.message : e));
+// GEN FX (EUR/USD, GBP/JPY) — its own lock (6), its own loop, outside the fatal Promise.all: nothing it
+// does can take the trade manager or the gold watch down with it. The Vercel cron covers it if it dies.
+void genfxLoop(() => shuttingDown, HOLDER).catch((e) => log("genfx: loop died (cron still covers it)", e instanceof Error ? e.message : e));
 void Promise.all([manageLoop(), watchLoop()]).catch((e) => {
   log("fatal — exiting so the platform restarts the worker", e);
   process.exit(1);

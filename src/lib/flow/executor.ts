@@ -130,6 +130,20 @@ export async function instrumentIdFor(a: { env: TLEnv; token: string; accNum: st
   const r = await instrumentsFor(a);
   return r.ok ? (matchInstrument(canonical, r.data)?.tradableInstrumentId ?? null) : null;
 }
+/**
+ * The price an ENTRY on `side` would fill at on this account right now — the ask for a buy, the bid
+ * for a sell — or null when the broker's quote cannot be read. The same instrument lookup and quote
+ * call placeOnAccount makes, exposed so a caller that sizes its own orders (GEN FX, 10-02) can measure
+ * the stop distance from the price the order will really get.
+ */
+export async function entryQuoteFor(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string, side: "buy" | "sell"): Promise<number | null> {
+  const r = await instrumentsFor(a);
+  if (!r.ok) return null;
+  const tl = matchInstrument(canonical, r.data);
+  if (!tl) return null;
+  const quote = await getQuote(a.env, a.token, a.accNum, tl.tradableInstrumentId, tl.infoRouteId || tl.routeId);
+  return quote.ok ? executablePrice(quote.data, side, "entry") : null;
+}
 async function instrumentsFor(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }): Promise<{ ok: true; data: TLInstrument[] } | { ok: false; error: string }> {
   // Key by CONNECTION when we know it: every account under one broker login shares
   // the same instrument universe, so the accounts on a multi-account login (e.g. the

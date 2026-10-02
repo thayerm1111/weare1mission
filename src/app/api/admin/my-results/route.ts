@@ -43,7 +43,7 @@ const EXCLUDED_POSITION_IDS = new Set([
 function pipSize(symbol: string): number {
   const s = symbol.toUpperCase();
   if (s === "XAUUSD" || s === "GOLD") return 0.1;
-  if (s === "USDJPY") return 0.01;
+  if (s.endsWith("JPY")) return 0.01;   // every yen pair — USD/JPY and the crosses (GBP/JPY from GEN FX)
   if (s === "NAS100" || s === "US30") return 1;
   return 0.0001; // fx majors
 }
@@ -52,6 +52,9 @@ function pipUsdPerLot(symbol: string, entry: number): number {
   const s = symbol.toUpperCase();
   if (s === "XAUUSD" || s === "GOLD") return 10;                 // 1 lot = 100oz → $10 / 0.1 pip
   if (s === "USDJPY") return entry > 0 ? 1000 / entry : 6.7;     // 100000 * 0.01 / price
+  // A yen CROSS (GBP/JPY): a pip is 1,000 yen a lot, and yen → dollars needs USD/JPY, which this row
+  // does not carry. 6.7 is that at USD/JPY 150 — an estimate, like the rest of this function.
+  if (s.endsWith("JPY")) return 6.7;
   if (s === "USDCAD") return entry > 0 ? 10 / entry : 7.4;       // 100000 * 0.0001 / price
   if (s === "NAS100" || s === "US30") return 10;                 // $10 / point / lot
   return 10;                                                     // fx majors ≈ $10 / pip / lot

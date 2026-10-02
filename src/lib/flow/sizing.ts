@@ -27,6 +27,12 @@ const CONTRACT: Record<string, { size: number; quote: "USD" | "JPY" | "CAD" }> =
   USDJPY: { size: 100000, quote: "JPY" },
   AUDUSD: { size: 100000, quote: "USD" }, // USD-quoted (AUD base) → $100 per 0.0100 move
   USDCAD: { size: 100000, quote: "CAD" }, // CAD-quoted (USD base) → pip value in CAD, convert by /price
+  // GBP/JPY is a CROSS: neither side is USD, so the pair's own price cannot convert yen to dollars.
+  // Pass `price: <USD/JPY rate>` to sizeFromRisk and the value per lot is exact. A caller that does
+  // not (it then divides by the GBP/JPY price) sizes about a third too large — far better than the
+  // old state, where the missing row sized a GBP/JPY play at the 100-lot clamp. GEN FX does not go
+  // through here at all: it sizes with src/lib/genfx/sizing.ts, which demands the USD/JPY rate.
+  GBPJPY: { size: 100000, quote: "JPY" },
   NAS100: { size: 10, quote: "USD" }, // $10 / point / lot (verified vs live fill)
   US30: { size: 10, quote: "USD" },   // estimated; broker-specific — verify vs a fill
   USOIL: { size: 1000, quote: "USD" },

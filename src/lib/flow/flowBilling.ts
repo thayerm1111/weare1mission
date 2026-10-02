@@ -274,10 +274,17 @@ export function unreachableFrom(
 export async function unreachableUserIds(admin: Admin, nowMs = Date.now()): Promise<Set<string>> {
   const since = new Date(nowMs - UNREACHABLE_WINDOW_MS).toISOString();
   try {
+    // GEN FX's rows are left out of both reads (10-02). GEN FX trades its own accounts on its own
+    // switch — often a member's demo account — and writes to this same table. Without this, a GEN FX
+    // order placed on a demo account would make a member whose GOLD account is unreachable billable
+    // again, and a GEN FX skip on a broken demo login would exempt a member whose gold account is
+    // fine. This rule is about gold fires, so it reads gold-era evidence only: exactly what it read
+    // before GEN FX existed.
     const [fails, placed] = await Promise.all([
       admin.from("flow_auto_events").select("user_id, created_at").eq("status", "skipped").gte("created_at", since)
-        .or(BROKER_FAILURE_PATTERNS.map((p) => `reason.ilike.*${p}*`).join(",")).limit(20000),
-      admin.from("flow_auto_events").select("user_id, created_at").in("status", ["placed", "uncertain"]).gte("created_at", since).limit(20000),
+        .or(BROKER_FAILURE_PATTERNS.map((p) => `reason.ilike.*${p}*`).join(",")).not("reason", "like", "genfx%").limit(20000),
+      admin.from("flow_auto_events").select("user_id, created_at").in("status", ["placed", "uncertain"]).gte("created_at", since)
+        .or("reason.is.null,reason.not.like.genfx*").limit(20000),
     ]);
     if (fails.error || placed.error) return new Set();
     return unreachableFrom(
