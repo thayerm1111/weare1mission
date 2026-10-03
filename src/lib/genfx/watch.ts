@@ -1,37 +1,64 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { connectionToken } from "@/lib/flow/connection";
-import { cancelOrder, listOrdersHistory } from "@/lib/flow/tradelocker";
-import { brokerConfig, columnMap, positionForOrder } from "@/lib/flow/brokerEvidence";
-import { markReservation, releaseGold } from "@/lib/genx2/reservation";
-import { afterCancel } from "@/lib/genx2/cancelReconcile";
-import { genx2CancelOnInvalidation, genx2OrderValiditySec } from "@/lib/genx2/flags";
-import { goldResvKey } from "@/lib/genx/hedge";
-import { inWeekendCloseWindow, inScanQuietWindow } from "@/lib/flow/autoExec";
-import { PAIRS, PAIR_KEYS, type PairKey } from "@/lib/genfx/pairs";
-import { zoneAction, ZONE_TTL_MS } from "@/lib/genfx/decide";
-import { readControl, GENFX_VERSION, type GenfxControl } from "@/lib/genfx/control";
-import { pairPrice } from "@/lib/genfx/market";
+import { PAIRS, px, type PairKey } from "@/lib/genfx/pairs";
+import { zoneAction, decideFxEntry, lastReopenMs, ZONE_TTL_MS, ARM_MAX_MS, FORMING_TTL_MS } from "@/lib/genfx/decide";
+import { readControl, type GenfxControl } from "@/lib/genfx/control";
+import { pairQuote, fxSeries, withTimeout, candleFloorMs, type Quote } from "@/lib/genfx/market";
+import { livePriceSane } from "@/lib/marketData";
+import { type Row } from "@/lib/genxCompute";
 import { enterMsg } from "@/lib/genfx/messages";
 import { placeGenfx } from "@/lib/genfx/place";
-import { findSameSetup, stepForming, type FxAlert } from "@/lib/genfx/scan";
+import { confirmFxEntry } from "@/lib/genfx/confirm";
+import { findSameSetup, actOnForming, isQuiet, isOlder, type FxAlert } from "@/lib/genfx/scan";
+import { settleFills, type SettleOut } from "@/lib/genfx/settle";
 import { sendTelegram } from "@/lib/telegram";
 
 /**
  * GEN FX FAST WATCH — GENX's watchTick, for the two pairs.
  *
- * Between full scans, something has to be looking at the market: a page setup is entered the moment
- * price touches its level, and a pending scanner setup is entered the moment its candle closes right.
- * One pass does both. The always-on worker runs a pass about once a second; the Vercel cron runs the
- * same pass as a fallback when the worker is not holding the lock.
+ * Between full scans, something has to be looking at the market: a page setup is entered when price
+ * touches its level, and a pending scanner setup is entered when its candle closes right. One pass
+ * does both. The always-on worker runs a pass about once a second; the Vercel cron runs the same pass
+ * as a fallback when the worker is not holding the lock.
  *
  * THE LOCK is row 6 of flow_manage_lock (1 is the trade manager, 2 the gold watch, 3–5 other loops).
  * Exactly one process watches GEN FX at a time; a crashed holder's lock simply expires.
  *
- * It also keeps GEN FX's own books straight, on a slower beat (`sweep`):
- *   • an entry order that is still resting after its bounded validity is withdrawn — price moved away,
- *     and filling there later would be the chase the limit exists to refuse;
- *   • an order the broker accepted without yet naming the position is followed up until it has a
- *     ledger row marked as GEN FX's, so the trade manager runs it and the result is booked here.
+ * ONE PRICE DECIDES NOTHING. A setup is entered — and orders go out — on the strength of a number
+ * from the feed, and a feed prints a bad number now and then. So a touch, a break of the stop, an
+ * armed setup's "it has come back", and a pending setup's "confirmed, and worth taking here" (or
+ * "confirmed, but chased") each have to be seen on TWO OBSERVATIONS at least a second apart: two
+ * different ticks, or two different quotes. Asking twice is not seeing twice — the same streamed tick
+ * is handed back for as long as it is the newest, and a quote is reused for a few seconds — so the rule
+ * compares when each price was observed, not when it was asked for. A price more than 1.5% from the
+ * recent closes is not believed at all — and neither is any price while there are no recent closes to
+ * hold it against. Every price the watch acts on is its own: a pending setup's confirmation is given
+ * the watch's quote to read with, it does not fetch one of its own.
+ *
+ * A CONFIRMATION IS A FACT ABOUT CLOSED CANDLES, with one exception: the "momentum" entry also asks
+ * whether price has run too far, and that changes with every tick. Asked every ten seconds it would
+ * let a setup in half-way through a candle on wherever price happened to be — which the replay, asking
+ * once per close, never does. So momentum is asked once per five-minute candle: on the first read after
+ * the close — the scan's, normally, eight seconds in — and not again until the next. "Already read in
+ * this candle" is taken from the row itself (when it was last checked), so it holds across a restart and
+ * in the fallback, where every minute is a new process.
+ *
+ * THE WATCH DOES NOT WAIT ON CANDLES TO LOOK AT PRICE. Those recent closes are a reference kept on hand
+ * and refreshed in the background; a pass uses whatever it has. A candle request that hangs for twelve
+ * seconds must not be twelve seconds in which nobody looks at price — and one that fails must not switch
+ * the rule off. The pending setups' own confirmations ARE read from candles, so a pass gives all of them
+ * together three seconds; what has not come back by then is read again on the next pass, and everything
+ * that is decided on price alone — a touch, an armed setup's pull-back, its five minutes — goes ahead.
+ *
+ * NOTHING LEFT OVER FROM BEFORE THE MARKET LAST REOPENED IS ACTED ON. A setup registered before the
+ * daily close (or before the weekend) describes a market that has since shut and reopened, possibly
+ * with a gap. It lapses; if the page still shows it after the reopen, the first scan brings it back
+ * with levels read from the market as it is now. An armed setup's five minutes run through the close
+ * like any other five minutes: it is let go, not entered at the reopen.
+ *
+ * AN ARMED SETUP IS LOOKED AT ON EVERY PASS. Once a scanner setup has confirmed but been judged too
+ * far gone, it has five minutes to come back to a price worth taking, and "come back" is a matter of
+ * price, not of candles — so that is checked on the live price every pass, while its candles (which
+ * can only invalidate it) are still read every ten seconds.
  */
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
 const LOCK_ID = 6;
@@ -50,210 +77,277 @@ export async function releaseFxLock(admin: Admin, holder: string): Promise<void>
   await admin.from("flow_manage_lock").update({ expires_at: new Date().toISOString() }).eq("id", LOCK_ID).eq("holder", holder);
 }
 
-/** A pending setup's confirmation only changes when a candle closes; re-reading it every second buys nothing. */
+/** A pending setup's confirmation changes when a candle closes; re-reading it every second buys nothing. (A read that says "enter" or "arm" is the exception: it is looked at again on the next pass, for its second observation.) */
 const CONFIRM_EVERY_MS = 10_000;
+/** All the candle reads of one pass together may hold it up this long, and no longer. */
+const CONFIRM_BUDGET_MS = 3_000;
 const lastConfirm = new Map<string, number>();
+/** A candle read that ran a pass's allowance out: the feed is not answering, and no pass asks it again before this. */
+const confirmHold = { until: 0 };
+
+/** How long an entry waits for its Telegram note before the order goes out without it. */
+export const NOTE_WAIT_MS = 4_000;
+/** The second observation must be at least this much later than the first… */
+export const TOUCH_CONFIRM_MS = 1_000;
+/** …and a first observation older than this is not "the look before" any more: the second look has to follow the first, not turn up half a minute later. */
+export const TOUCH_STALE_MS = 8_000;
+const touchSeen = new Map<string, number>();
+
+/**
+ * Has this now been seen on two observations? `observedAt` is when the PRICE was observed (market.Quote),
+ * not when this was called: the first sighting is recorded and answers false; the same observation
+ * asked about again answers false; a later observation — a second or more after the first, and inside
+ * the window — answers true. `seeing: false` forgets it. Pure given the map.
+ */
+export function touchConfirmed(seen: Map<string, number>, id: string, seeing: boolean, observedAt: number): boolean {
+  if (!seeing) { seen.delete(id); return false; }
+  const first = seen.get(id);
+  if (first == null || observedAt - first > TOUCH_STALE_MS) { seen.set(id, observedAt); return false; }
+  if (observedAt - first < TOUCH_CONFIRM_MS) return false;
+  seen.delete(id);
+  return true;
+}
+
+let reopenMemo: { slot: number; at: number } | null = null;
+/** When entries last reopened, worked out once per five-minute slot. */
+function reopenedAt(nowMs: number): number {
+  const slot = Math.floor(nowMs / 300_000);
+  if (!reopenMemo || reopenMemo.slot !== slot) reopenMemo = { slot, at: lastReopenMs(nowMs, isQuiet) };
+  return reopenMemo.at;
+}
+
+/** What a pass asks of the market, and what it does with a call. The desk's own are the defaults; the tests hand in theirs. */
+export type WatchDeps = {
+  /** The pair's price with its observation time, already sanity-checked; null when there is none to believe. */
+  quote?: (pair: PairKey) => Promise<Quote | null>;
+  confirm?: typeof confirmFxEntry;
+  place?: typeof placeGenfx;
+  quiet?: (d: Date) => boolean;
+  now?: () => number;
+  /** How long all of a pass's candle reads together may hold it up (default three seconds). */
+  confirmBudgetMs?: number;
+};
+
+/** The recent five-minute closes a price is held against, per pair: the last good read, and when it was made. */
+const sanityRef = new Map<PairKey, { rows: Row[]; at: number }>();
+const sanityTried = new Map<PairKey, number>();
+/** A reference this old is refreshed (in the background)… */
+const REF_REFRESH_MS = 60_000;
+/** …a refresh that failed is not tried again sooner than this… */
+const REF_RETRY_MS = 10_000;
+/** …and with no good reference for this long there is nothing to believe a price against: the watch decides nothing. */
+export const REF_MAX_AGE_MS = 10 * 60_000;
+
+/** Start a refresh of a pair's reference if one is due. Never awaited by a pass; never throws. */
+function refreshSanityRef(k: PairKey, nowMs: number, read: (k: PairKey) => Promise<Row[] | "ratelimit" | null>): void {
+  const have = sanityRef.get(k);
+  if (have && nowMs - have.at < REF_REFRESH_MS) return;
+  if (nowMs - (sanityTried.get(k) ?? 0) < REF_RETRY_MS) return;          // a miss is remembered: one request every ten seconds, not one a pass
+  sanityTried.set(k, nowMs);
+  const started = Date.now();
+  // Stamped with when it ARRIVED, on the caller's clock: a read that took eight seconds is eight seconds newer than its request.
+  void read(k).then((rows) => { if (Array.isArray(rows) && rows.length >= 3) sanityRef.set(k, { rows, at: nowMs + (Date.now() - started) }); }).catch(() => { /* the old reference stands until it is too old */ });
+}
+
+/**
+ * Is this quote to be believed? Only against a reference: within 1.5% of the median of the recent closes
+ * (the scanner's own sanity rule). No reference, or one too old to mean anything: no. Pure given the map.
+ */
+export function believable(q: Quote | null, ref: { rows: Row[]; at: number } | undefined, nowMs: number): Quote | null {
+  if (!q || !ref || nowMs - ref.at > REF_MAX_AGE_MS) return null;
+  const s = livePriceSane(q.px, ref.rows);
+  return s.ok && s.deviationPct != null ? q : null;
+}
+
+/** The desk's price for the watch: the newest quote, believed only if it is in sight of the recent five-minute closes. It waits for the quote and for nothing else. */
+async function deskQuote(k: PairKey): Promise<Quote | null> {
+  const now = Date.now();
+  // (A copy the scanner fetched in the last few seconds is shared; a request still hanging from the last try is not joined, and is given up on before the next one.)
+  refreshSanityRef(k, now, (key) => fxSeries(PAIRS[key].td, "5min", 150, { maxAgeMs: 5_000, timeoutMs: 8_000 }));
+  return believable(await pairQuote(PAIRS[k]), sanityRef.get(k), now);
+}
+/** For the tests: the reference bookkeeping, driven by hand — and the pass's own memory, to start from nothing. */
+export const _sanity = { ref: sanityRef, tried: sanityTried, refresh: refreshSanityRef, hold: confirmHold, forget: () => { touchSeen.clear(); lastConfirm.clear(); confirmHold.until = 0; } };
 
 /** One pass: page setups on touch, then pending scanner setups. Never throws. */
-export async function genfxWatchPass(admin: Admin, mdKey: string, ctlIn?: GenfxControl): Promise<{ zones: number; forming: number; sent: string[] }> {
+export async function genfxWatchPass(admin: Admin, mdKey: string, ctlIn?: GenfxControl, deps: WatchDeps = {}): Promise<{ zones: number; forming: number; sent: string[] }> {
   const sent: string[] = [];
   const ctl = ctlIn ?? (await readControl(admin));
   if (!ctl.readable || !ctl.scan) return { zones: 0, forming: 0, sent };
-  if (inWeekendCloseWindow() || inScanQuietWindow()) return { zones: 0, forming: 0, sent };
-  const nowIso = new Date().toISOString();
+  const quiet = deps.quiet ?? isQuiet;
+  const nowMs = (deps.now ?? Date.now)();
+  if (quiet(new Date(nowMs))) return { zones: 0, forming: 0, sent };
+  const confirm = deps.confirm ?? confirmFxEntry;
+  const place = deps.place ?? placeGenfx;
+  const nowIso = new Date(nowMs).toISOString();
   const tg = ctl.telegram && !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHANNEL_ID);
 
-  const { data } = await admin.from("genfx_alerts").select("*").in("state", ["zone", "forming"]);
-  const rows = ((data ?? []) as FxAlert[]).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  let rows: FxAlert[] = [];
+  try {
+    const { data, error } = await admin.from("genfx_alerts").select("*").in("state", ["zone", "forming"]).limit(500);
+    if (error) return { zones: 0, forming: 0, sent };
+    rows = ((data ?? []) as FxAlert[]).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  } catch { return { zones: 0, forming: 0, sent }; }
   const zones = rows.filter((r) => r.state === "zone");
   const forming = rows.filter((r) => r.state === "forming");
+  if (touchSeen.size > 1500) touchSeen.clear();
+  if (lastConfirm.size > 500) lastConfirm.clear();
 
-  // ── PAGE SETUPS: enter the moment price touches the entry the page is showing ──
-  const live = new Map<PairKey, number | null>();
+  // One price per pair per pass, with when it was observed.
+  const live = new Map<PairKey, Promise<Quote | null>>();
+  const quoteOf = (k: PairKey): Promise<Quote | null> => {
+    let p = live.get(k);
+    if (!p) { p = (deps.quote ?? deskQuote)(k).catch(() => null); live.set(k, p); }
+    return p;
+  };
+
+  // ── PAGE SETUPS: entered when price touches the entry the page is showing ──
+  const reopened = deps.quiet ? lastReopenMs(nowMs, quiet) : reopenedAt(nowMs);
   for (const r of zones) {
     try {
       const pair = PAIRS[r.pair];
       if (!pair) continue;
-      if (Date.now() - Date.parse(r.created_at) > ZONE_TTL_MS) {
+      const shown = Date.parse(r.last_checked_at ?? r.created_at);
+      if (nowMs - shown > ZONE_TTL_MS || shown < reopened) {
         await admin.from("genfx_alerts").update({ state: "expired", updated_at: nowIso }).eq("id", r.id).eq("state", "zone");
+        touchSeen.delete(r.id);
         continue;
       }
-      if (!live.has(r.pair)) live.set(r.pair, await pairPrice(pair).catch(() => null));
-      const lp = live.get(r.pair) ?? null;
-      if (lp == null) continue;
+      const q = await quoteOf(r.pair);
+      if (!q) continue;
+      const lp = q.px;
       const act = zoneAction(pair, r.side, Number(r.entry), Number(r.stop), lp);
-      if (act === "invalidate") {
+      // Through the stop — on two observations. One bad print must not retire a setup for the day.
+      if (touchConfirmed(touchSeen, `break:${r.id}`, act === "invalidate", q.at)) {
+        touchSeen.delete(r.id);
         await admin.from("genfx_alerts").update({ state: "invalidated", last_checked_at: nowIso, updated_at: nowIso }).eq("id", r.id).eq("state", "zone");
         sent.push(`${r.pair}:${r.mode}:ZONE_INVALID`);
         continue;
       }
-      if (act !== "enter") continue;
+      if (!touchConfirmed(touchSeen, r.id, act === "enter", q.at)) continue;
       // Move the row forward FIRST, conditionally — two watchers can never both place it.
       const { data: won } = await admin.from("genfx_alerts")
         .update({ state: "entered", enter_price: lp, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso })
         .eq("id", r.id).eq("state", "zone").select("id");
       if (!won?.length) continue;
-      if (tg) { try { await sendTelegram(enterMsg(pair, r.side, r.mode, { entry_low: r.entry_low, entry_high: r.entry_high, stop: r.stop, tp1: r.tp1, tp2: r.tp2, tp3: r.tp3 }, lp, true)); } catch { /* note best-effort */ } }
-      try { await placeGenfx({ pair: r.pair, signalKey: r.dedupe_key, side: r.side, mode: r.mode, entryLow: r.entry_low, entryHigh: r.entry_high, stop: r.stop, tp: r.tp1, setup: "zone", confidence: r.confidence, alertId: r.id }); } catch { /* placement best-effort */ }
+      // The note is not waited on for long: the order is next, and a messaging service that hangs must not hold it.
+      if (tg) { try { await withTimeout(sendTelegram(enterMsg(pair, r.side, r.mode, { entry_low: r.entry_low, entry_high: r.entry_high, stop: r.stop, tp1: r.tp1, tp2: r.tp2, tp3: r.tp3 }, lp, true)), NOTE_WAIT_MS); } catch { /* note best-effort */ } }
+      try { await place({ pair: r.pair, signalKey: r.dedupe_key, side: r.side, mode: r.mode, entryLow: r.entry_low, entryHigh: r.entry_high, stop: r.stop, tp: r.tp1, setup: "zone", confidence: r.confidence, alertId: r.id }); } catch { /* placement best-effort */ }
       sent.push(`${r.pair}:${r.mode}:ZONE_ENTER`);
     } catch { /* per-row best effort */ }
   }
 
   // ── PENDING SCANNER SETUPS: enter, arm, invalidate or keep waiting ──
+  // A confirmation is a read of candles. The pass waits for them inside one shared allowance; a read
+  // that has not come back is simply not acted on (nothing is done late, behind the pass's back).
+  const confirmBudget = deps.confirmBudgetMs ?? CONFIRM_BUDGET_MS;
+  let confirmLeft = confirmBudget;
+  type Conf = Awaited<ReturnType<typeof confirmFxEntry>>;
+  /** `live`: the price the confirmation reads with — the watch's own, or null for none (an armed setup's candles are read only to see whether they end it). */
+  const readConfirm = async (row: FxAlert, pair: (typeof PAIRS)[PairKey], o: { live: number | null; noMomentum: boolean }): Promise<Conf | null> => {
+    if (confirmLeft <= 0 || nowMs < confirmHold.until) return null;
+    const t = Date.now();
+    try {
+      const got = await withTimeout(confirm({
+        pair, side: row.side, entryLow: (row.entry_low ?? 0) as number, entryHigh: (row.entry_high ?? 0) as number,
+        watch: (row.watch ?? row.entry_low ?? 0) as number, invalidation: (row.invalidation ?? row.stop ?? 0) as number,
+        mode: row.mode, mdKey, fresh: true, desk: true, live: o.live, noMomentum: o.noMomentum,
+      }), confirmLeft);
+      // It ran the allowance out: no other read is started this pass. And if this ONE read took (all but)
+      // a whole allowance by itself, the feed is not answering: no pass asks again for ten seconds — it
+      // would otherwise cost every pass its three seconds, and passes that far apart cannot see a touch
+      // twice. A read that was merely the one running when several slowish reads had used the allowance
+      // up says nothing of the kind: the rows it did not reach are read first on the next pass.
+      if (!got) { confirmLeft = 0; if (Date.now() - t >= 0.8 * confirmBudget) confirmHold.until = nowMs + CONFIRM_EVERY_MS; }
+      return got;
+    } catch { return null; } finally { confirmLeft -= Date.now() - t; }
+  };
+  const floor = candleFloorMs(nowMs);
   for (const row of forming) {
     try {
       const pair = PAIRS[row.pair];
       if (!pair) continue;
-      const last = lastConfirm.get(row.id) ?? 0;
-      if (Date.now() - last < CONFIRM_EVERY_MS) continue;
-      lastConfirm.set(row.id, Date.now());
-      if (lastConfirm.size > 500) lastConfirm.clear();
-      // A later pending alert that duplicates an earlier open one (the zone drifted) is retired quietly.
-      if (row.dedupe_key.startsWith(`${row.pair}:quick:`)) {
-        const twin = await findSameSetup(admin, pair, row, row.id);
-        if (twin && Date.parse(twin.created_at) <= Date.parse(row.created_at)) {
-          await admin.from("genfx_alerts").update({ state: "invalidated", last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id).eq("state", "forming");
-          sent.push(`${row.pair}:${row.mode}:MERGED`);
+      // A PENDING SETUP THAT HAS WAITED PAST ITS TIME IS LET GO HERE TOO. The scan's housekeeping does
+      // that every five minutes — but not while the scanner is switched off, and the first passes after
+      // it is switched back on come before the first scan. What was left pending days ago is not acted on.
+      // (A time nobody can read counts as past.)
+      if (!(nowMs - Date.parse(row.created_at) <= (FORMING_TTL_MS[row.mode] ?? FORMING_TTL_MS.quick))) {
+        await admin.from("genfx_alerts").update({ state: "expired", updated_at: nowIso }).eq("id", row.id).eq("state", "forming");
+        for (const k of [`arm:${row.id}`, `conf:enter:${row.id}`, `conf:arm:${row.id}`]) touchSeen.delete(k);
+        sent.push(`${row.pair}:${row.mode}:EXPIRED`);
+        continue;
+      }
+      const due = nowMs - (lastConfirm.get(row.id) ?? 0) >= CONFIRM_EVERY_MS;
+
+      // ARMED: its candles can only end it; whether to take it is a matter of price, asked every pass.
+      if (row.enter_sent_at) {
+        const armedAtMs = Date.parse(row.enter_sent_at);
+        // Its five minutes are asked first, and need neither a price nor a candle: a setup whose time has
+        // run out is let go whatever the feed is doing (and one whose arming time cannot be read has no time left).
+        if (!(nowMs - armedAtMs <= ARM_MAX_MS)) {
+          touchSeen.delete(`arm:${row.id}`);
+          const res = await actOnForming(admin, ctl, pair, row, "ARMED", null, null, { place, nowMs });
+          if (res && /^invalid/.test(res)) sent.push(`${row.pair}:${row.mode}:${res.toUpperCase()}`);
           continue;
         }
+        if (due) {
+          const conf = await readConfirm(row, pair, { live: null, noMomentum: true });
+          if (conf) lastConfirm.set(row.id, nowMs);
+          if (conf?.state === "INVALIDATED") {
+            touchSeen.delete(`arm:${row.id}`);
+            const res = await actOnForming(admin, ctl, pair, row, "INVALIDATED", conf.price, conf.price, { place, nowMs });
+            if (res) sent.push(`${row.pair}:${row.mode}:${res.toUpperCase()}`);
+            continue;
+          }
+        }
+        const q = await quoteOf(row.pair);
+        if (!q) continue;
+        const d = decideFxEntry(pair, { armed: true, confState: "ARMED", lp: q.px, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp1: row.tp1, armedAtMs, nowMs });
+        // "It has come back" is entered on two observations, like a touch.
+        if (d.do === "wait" || (d.do === "enter" && !touchConfirmed(touchSeen, `arm:${row.id}`, true, q.at))) { if (d.do === "wait") touchSeen.delete(`arm:${row.id}`); continue; }
+        const res = await actOnForming(admin, ctl, pair, row, "ARMED", q.px, q.px, { place, nowMs });
+        if (res && /^(enter|invalid)/.test(res)) sent.push(`${row.pair}:${row.mode}:${res.toUpperCase()}`);
+        continue;
       }
-      const res = await stepForming(admin, ctl, pair, row, mdKey);
+      if (!due) continue;
+
+      // A later pending alert that duplicates an earlier open one (the zone drifted) is retired quietly.
+      let twin: FxAlert | null = null;
+      try { twin = await findSameSetup(admin, pair, row.mode, row, row.id); } catch { /* cannot check → leave it */ }
+      if (twin && isOlder(twin, row)) {
+        lastConfirm.set(row.id, nowMs);
+        await admin.from("genfx_alerts").update({ state: "invalidated", last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id).eq("state", "forming");
+        sent.push(`${row.pair}:${row.mode}:MERGED`);
+        continue;
+      }
+      // The confirmation is read with the watch's own price (or none: the forming candle's close stands
+      // in, and nothing can be entered on it). Momentum is asked once per candle: not again once this
+      // setup's confirmation has been read — by the scan or by a pass — since the candle's close was in.
+      const q = await quoteOf(row.pair);
+      const readAt = Date.parse(String(row.last_checked_at ?? ""));
+      const conf = await readConfirm(row, pair, { live: q ? q.px : null, noMomentum: Number.isFinite(readAt) && readAt >= floor });
+      if (!conf) continue;                                   // not back in time: read again when the feed is
+      const lp = q ? px(pair, q.px) : null;
+      const seen = (what: string) => `conf:${what}:${row.id}`;
+      const d = decideFxEntry(pair, { armed: false, confState: conf.state, lp, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp1: row.tp1, armedAtMs: nowMs, nowMs });
+      if (d.do === "enter" || d.do === "arm") {
+        // What the candles say is settled; whether price is worth taking HERE is one number, and one
+        // number decides nothing. Seen once: the row is read again on the next pass, not in ten seconds —
+        // the second look has to follow the first. No price to believe: nothing is entered or armed.
+        touchSeen.delete(seen(d.do === "enter" ? "arm" : "enter"));
+        if (!q || !touchConfirmed(touchSeen, seen(d.do), true, q.at)) continue;
+      } else { touchSeen.delete(seen("enter")); touchSeen.delete(seen("arm")); }
+      lastConfirm.set(row.id, nowMs);
+      const res = await actOnForming(admin, ctl, pair, row, conf.state, lp, lp, { place, nowMs });
+      // (A read that could not be made — no candles, a busy feed — is not a read: the row's "last checked" stays where it was.)
+      if (res && !/^(enter|arm|invalid)/.test(res) && conf.state !== "NO_DATA" && conf.state !== "BUSY") await admin.from("genfx_alerts").update({ last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id).eq("state", "forming");
       if (res && /^(enter|arm|invalid)/.test(res)) sent.push(`${row.pair}:${row.mode}:${res.toUpperCase()}`);
     } catch { /* per-row best effort */ }
   }
   return { zones: zones.length, forming: forming.length, sent };
 }
 
-/* ── the slower beat: GEN FX's own books ────────────────────────────────────────────────────────── */
-
-const FX_RESV_KEYS = PAIR_KEYS.flatMap((k) => [k, goldResvKey(k, "buy"), goldResvKey(k, "sell"), `${k}:BUY`, `${k}:SELL`]).filter((v, i, a) => a.indexOf(v) === i);
-const baseOf = (resvSymbol: string): string => String(resvSymbol).split(":")[0];
-
-/**
- * Withdraw GEN FX entry orders that are still resting past their bounded validity (the desk's own
- * setting, 180s by default). The account is freed only on a broker-confirmed cancel: a filled order
- * cannot be cancelled, so the race can never free an account that actually holds a position.
- * The same rule as genx2/cancelReconcile, which only looks at gold.
- */
-export async function cancelStaleFxEntries(admin: Admin): Promise<{ scanned: number; released: number; filled: number; held: number }> {
-  const out = { scanned: 0, released: 0, filled: 0, held: 0 };
-  if (!genx2CancelOnInvalidation()) return out;
-  const cutoff = new Date(Date.now() - genx2OrderValiditySec() * 1000).toISOString();
-  try {
-    const { data } = await admin.from("flow_account_reservations").select("account_id, order_id, reserved_at, symbol")
-      .eq("state", "active").in("symbol", FX_RESV_KEYS).not("order_id", "is", null).lt("reserved_at", cutoff).limit(200);
-    for (const r of (data ?? []) as { account_id: string; order_id: string | null; symbol: string }[]) {
-      if (!r.order_id) continue;
-      out.scanned++;
-      const { data: acct } = await admin.from("flow_broker_accounts").select("connection_id, acc_num").eq("account_id", r.account_id).limit(1).maybeSingle();
-      const connId = (acct as { connection_id?: string } | null)?.connection_id;
-      const accNum = (acct as { acc_num?: string | number } | null)?.acc_num;
-      if (!connId || accNum == null) { out.held++; continue; }
-      const tok = await connectionToken(connId);
-      if (!tok.ok) { out.held++; continue; }
-      const c = await cancelOrder(tok.env, tok.token, String(accNum), r.order_id);
-      let hasPos = false;
-      if (!c.ok) {
-        const { data: pos } = await admin.from("flow_managed_positions").select("id").eq("account_id", r.account_id).eq("symbol", baseOf(r.symbol)).eq("status", "open").limit(1).maybeSingle();
-        hasPos = !!pos;
-      }
-      const decision = afterCancel({ canceled: c.ok, hasOpenPosition: hasPos });
-      if (decision === "release") {
-        await releaseGold(admin, r.account_id, r.symbol);
-        // A fill the pending-fill sweep already matched to a position stays as it is; anything else was never filled.
-        try { await admin.from("genfx_fills").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("account_id", r.account_id).eq("order_id", r.order_id).eq("status", "placed"); } catch { /* best-effort */ }
-        out.released++;
-      } else if (decision === "filled") { await markReservation(admin, r.account_id, r.symbol, "filled"); out.filled++; }
-      else out.held++;
-    }
-  } catch { /* best-effort; the SQL stale-reconcile and the open-position check remain the safety net */ }
-  return out;
-}
-
-type FillRow = {
-  signal_key: string; account_id: string; user_id: string; connection_id: string; acc_num: string | null; environment: string | null;
-  pair: PairKey; side: "buy" | "sell"; mode: string | null; setup: string | null; qty: number | null;
-  entry: number | null; stop: number | null; tp: number | null; order_id: string | null; position_id: string | null; status: string; created_at: string;
-};
-
-/** How long the trade manager's own orphan recovery gets to adopt a fill before this sweep writes the row itself. */
-const ADOPT_AFTER_MS = 60_000;
-
-/**
- * Follow up orders the broker accepted without yet naming the position. TradeLocker answers a limit
- * order with an order id; the position appears a moment later. The fill has its stop and target at
- * the broker either way — this is what makes sure it also has a ledger row, so the trade manager runs
- * it (break-even, trail) and its result is booked as GEN FX's.
- *
- * The manager's orphan recovery (flow/recover.ts) normally adopts such a fill within ~20 seconds from
- * the placement event; this sweep then only marks that row as GEN FX's. If a minute passes with the
- * position known and no row, it writes the row itself. A fill marked "cancelled" by the stale-order
- * sweep is re-checked too: the broker answers "order not found" both for an order it cancelled and for
- * one that had already filled, and only the order history tells them apart.
- */
-export async function settlePendingFills(admin: Admin): Promise<{ checked: number; adopted: number; stamped: number }> {
-  const out = { checked: 0, adopted: 0, stamped: 0 };
-  try {
-    const since = new Date(Date.now() - 30 * 60_000).toISOString();
-    const { data } = await admin.from("genfx_fills").select("*").in("status", ["placed", "uncertain", "cancelled"]).gte("created_at", since).limit(100);
-    for (const f of (data ?? []) as FillRow[]) {
-      out.checked++;
-      const stamp = { strategy_version: GENFX_VERSION, mode: f.mode, signal_id: f.signal_key, setup_family: f.setup };
-      const done = async (positionId: string | null) => {
-        await admin.from("genfx_fills").update({ status: "managed", position_id: positionId, updated_at: new Date().toISOString() }).eq("signal_key", f.signal_key).eq("account_id", f.account_id);
-        try { await markReservation(admin, f.account_id, goldResvKey(f.pair, f.side), "filled", f.order_id, positionId); } catch { /* best-effort */ }
-      };
-      let positionId: string | null = f.position_id;
-
-      if (!positionId && f.order_id && f.acc_num) {
-        const tok = await connectionToken(String(f.connection_id));
-        if (tok.ok) {
-          try {
-            const cfg = await brokerConfig(tok.env, tok.token, String(f.acc_num), f.account_id);
-            const hist = await listOrdersHistory(tok.env, tok.token, String(f.acc_num), f.account_id);
-            if (hist.ok) positionId = positionForOrder(hist.data, columnMap(cfg, "ordersHistoryConfig"), String(f.order_id));
-          } catch { /* next pass */ }
-        }
-      }
-
-      if (positionId) {
-        const { data: have } = await admin.from("flow_managed_positions").select("id, strategy_version").eq("account_id", f.account_id).eq("position_id", positionId).limit(1);
-        const row = ((have ?? []) as { id: string; strategy_version: string | null }[])[0];
-        if (row) {
-          if (!row.strategy_version) { await admin.from("flow_managed_positions").update(stamp).eq("id", row.id); out.stamped++; }
-          await done(positionId);
-        } else if (Date.now() - Date.parse(f.created_at) >= ADOPT_AFTER_MS && f.entry != null && f.stop != null && f.qty != null) {
-          const ins = await admin.from("flow_managed_positions").insert({
-            user_id: f.user_id, connection_id: f.connection_id, account_id: f.account_id, acc_num: f.acc_num, environment: f.environment,
-            position_id: positionId, symbol: f.pair, side: f.side, entry: f.entry, init_stop: f.stop, tp1: f.tp,
-            r: Math.abs(Number(f.entry) - Number(f.stop)), qty: f.qty, cur_stop: f.stop, best_price: f.entry, ...stamp,
-          });
-          if (!ins.error) { out.adopted++; await done(positionId); }
-        }
-        continue;
-      }
-      if (f.status === "cancelled") continue;   // withdrawn and never filled, as far as the broker's history says
-
-      // No position id to be had (an order that threw, or a history this broker does not expose): the
-      // manager's orphan recovery adopts the live position from the placement event. Find that row.
-      const t = Date.parse(f.created_at);
-      const { data: near } = await admin.from("flow_managed_positions").select("id, position_id")
-        .eq("account_id", f.account_id).eq("symbol", f.pair).eq("side", f.side).is("strategy_version", null)
-        .gte("created_at", new Date(t - 60_000).toISOString()).lte("created_at", new Date(t + 25 * 60_000).toISOString()).limit(2);
-      const cands = (near ?? []) as { id: string; position_id: string | null }[];
-      if (cands.length === 1) {
-        await admin.from("flow_managed_positions").update(stamp).eq("id", cands[0].id);
-        await done(cands[0].position_id);
-        out.stamped++;
-      }
-    }
-  } catch { /* best-effort */ }
-  return out;
-}
-
-/** The slower beat, run every ~20 seconds by whoever holds the lock. */
-export async function genfxSweep(admin: Admin): Promise<Record<string, unknown>> {
-  const cancel = await cancelStaleFxEntries(admin);
-  const settle = await settlePendingFills(admin);
-  return { cancel, settle };
+/** The slower beat, run every ~20 seconds by whoever holds the lock: GEN FX's own books (settle.ts). */
+export async function genfxSweep(admin: Admin): Promise<{ settle: SettleOut }> {
+  return { settle: await settleFills(admin) };
 }

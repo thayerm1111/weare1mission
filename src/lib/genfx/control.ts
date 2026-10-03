@@ -119,7 +119,8 @@ export function controlOf(row: Record<string, unknown> | null | undefined): Genf
 export async function readControl(admin: Admin | null): Promise<GenfxControl> {
   if (!admin) return SHUT;
   try {
-    const { data, error } = await admin.from("genfx_control").select("*").eq("id", 1).maybeSingle();
+    // The switches only — not replay_result, which can be large and is read by the desk when it is wanted.
+    const { data, error } = await admin.from("genfx_control").select("id, scan_enabled, auto_enabled, auto_scope, billing_enabled, telegram_enabled, config, replay_request, updated_at").eq("id", 1).maybeSingle();
     if (error || !data) return SHUT;
     return controlOf(data as Record<string, unknown>);
   } catch { return SHUT; }

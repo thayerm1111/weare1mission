@@ -31,10 +31,21 @@ export function protectiveStop(orders: unknown[], cols: Record<string,number> | 
   // Ambiguous replacement orders are not proof of the effective stop.
   return matches.length === 1 ? matches[0] : null;
 }
-export function positionForOrder(history: unknown[], cols: Record<string,number> | undefined, orderId: string): string | null {
+/**
+ * The position an order's own history row names. `executedOnly` (GEN FX, 10-03) believes the row only
+ * if it also says the order EXECUTED — a filled quantity or a "filled" status: a position id on a row
+ * that has not executed is not a fill. Unset, it reads exactly as it always has.
+ */
+export function positionForOrder(history: unknown[], cols: Record<string,number> | undefined, orderId: string, executedOnly = false): string | null {
   const ids = new Set<string>();
   for (const row of history) {
     if (String(field(row, cols, ['id','orderId'])) !== orderId) continue;
+    if (executedOnly) {
+      const done = Number(field(row, cols, ['filledQty','filledQuantity','execQty','executedQty']) ?? 0);
+      // The whole word — "Filled", "Partially Filled" — and not a word that merely contains it ("Unfilled").
+      const status = String(field(row, cols, ['status','orderStatus']) ?? '').toLowerCase().replace(/[ _-]/g, '');
+      if (!(done > 0) && !/^(partially|partial|part)?fill(ed)?$/.test(status)) continue;
+    }
     const pid = field(row, cols, ['positionId','positionID']);
     if (pid != null && String(pid) !== '0') ids.add(String(pid));
   }

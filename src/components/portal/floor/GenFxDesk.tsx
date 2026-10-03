@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { ArrowLeftRight, Loader2, ChevronDown } from "lucide-react";
 import { ConfirmHelp } from "./GenxFlow";
 import { GenFxFlow } from "./GenFxFlow";
@@ -37,22 +37,27 @@ type Genfx = {
 type AutoNote = { minStopPips: number; stopPips: number | null; stopOk: boolean; costPips: number };
 type Resp = { ok?: boolean; pair?: PairKey; signal_id?: string | null; price?: number; data_status?: string; asOf?: string; genfx?: Genfx; candles?: Candle[]; auto?: AutoNote; error?: string; detail?: string; notConfigured?: string; balance?: number };
 
-type DeskAccount = { accountId: string; accNum: string | null; name: string | null; environment: string | null; server: string | null; connected: boolean; riskPct: number | null; killed: boolean; EURUSD: boolean; GBPJPY: boolean; inScope: boolean };
+type DeskAccount = { accountId: string; connectionId: string; accNum: string | null; name: string | null; environment: string | null; server: string | null; connected: boolean; riskPct: number | null; killed: boolean; EURUSD: boolean; GBPJPY: boolean; inScope: boolean };
 type DeskAlert = { id: string; pair: PairKey; mode: string; side: "buy" | "sell"; state: string; kind: "zone" | "scanner"; entry: number | null; entry_low: number | null; entry_high: number | null; stop: number | null; tp1: number | null; created_at: string; enter_price: number | null; enter_sent_at: string | null; outcome: string | null; result_pips: number | null };
 type Rec = { calls: number; win: number; loss: number; flat: number; pips: number; open: number };
 type Switches = { readable: boolean; scan: boolean; auto: boolean; scope: "owner" | "demo" | "all"; billing: boolean; telegram: boolean };
 type Tally = { n: number; wins: number; losses: number; pips: number; r: number; avgStopPips: number; avgR: number; winRate: number; maxDrawdownR: number };
-type ReplayPair = { error?: string; from?: string; to?: string; costPips?: number; minStopPips?: number; placement?: { calls: number; placed: number; skipped: Record<string, number> }; managed?: { all: Tally; byMode: Record<string, Tally> }; raw?: { all: Tally; byMode: Record<string, Tally> }; alerts?: Record<string, { entered: number; win: number; loss: number; expired: number }> };
+type Tallies = { all: Tally; byMode: Record<string, Tally>; byTrend?: Record<string, Tally>; byTouch?: Record<string, Tally>; byVia?: Record<string, Tally>; byShown?: Record<string, Tally>; byAfter?: Record<string, Tally> };
+type Placement = { calls: number; placed: number; skipped: Record<string, number> };
+type ReplayPair = { error?: string; from?: string; to?: string; costPips?: number; minStopPips?: number; placement?: Placement; placements?: { managed?: Placement; managedLow?: Placement; raw?: Placement }; managed?: Tallies; managedLow?: Tallies; raw?: Tallies; alerts?: Record<string, { entered: number; win: number; loss: number; expired: number }>; clock?: { zone: string; verified: boolean; forced?: boolean; note?: string } };
+type ReplayState = { status?: string; startedAt?: string; heartbeatAt?: string; finishedAt?: string; error?: string; weeks?: number; progress?: { pair?: string; stage?: string; done?: number; total?: number }; pairs?: Record<string, ReplayPair> };
+type Unsettled = { account_id: string; acc_num: string | null; pair: string; side: string; status: string; note: string | null; checks: number | null; created_at: string };
 type Desk = {
   ok?: boolean; owner?: boolean; switches?: Switches;
   pairs?: { key: PairKey; name: string; minStopPips: number; costPips: number; dec: number }[];
   limits?: { maxMinLotRiskPct: number; maxLots: number };
   accounts?: DeskAccount[]; alerts?: DeskAlert[];
-  record?: Record<string, { d7: { win: number; loss: number }; d30: { win: number; loss: number; pips: number } }>;
+  record?: Record<string, { d7: { win: number; loss: number }; d30: { win: number; loss: number; pips: number }; repeats?: number }>;
   real?: Record<string, { demo: Rec; live: Rec }>;
   activity?: { symbol: string; side: string | null; status: string; reason: string | null; created_at: string; account_id: string | null }[];
   lastScan?: { at: string | null; beat: string | null; quiet: boolean | null; decisions: Record<string, Record<string, unknown>> | null } | null;
-  ownerView?: { armed: { accounts: number; members: number; EURUSD: number; GBPJPY: number }; replayPending: boolean; replay: { status?: string; startedAt?: string; finishedAt?: string; weeks?: number; pairs?: Record<string, ReplayPair> } | null };
+  recordComplete?: boolean;
+  ownerView?: { armed: { accounts: number; members: number; EURUSD: number; GBPJPY: number; inScope?: number | null; byScope?: Record<Switches["scope"], number> | null; complete?: boolean }; replayPending: boolean; replay: ReplayState | null; books?: { readable: boolean; unsettled: Unsettled[] } };
 };
 
 const PAIRS: { id: PairKey; name: string; sub: string; dec: number }[] = [
@@ -261,7 +266,8 @@ function TrackedRow({ t, onRemove }: { t: Tracked; onRemove: () => void }) {
         </div>
         <button onClick={onRemove} aria-label="Stop tracking" className="flex-shrink-0 rounded-md px-1.5 py-0.5 text-[13px] text-white/35 transition hover:bg-white/5 hover:text-white/70">✕</button>
       </div>
-      <LiveConfirm setup={t} />
+      {/* Keyed on the setup: a new setup starts from "checking", never from the last one's answer. */}
+      <LiveConfirm key={`${t.pair}:${t.mode}:${t.side}:${t.entry}:${t.stop}`} setup={t} />
     </div>
   );
 }
@@ -296,14 +302,17 @@ const SCOPE_TEXT: Record<Switches["scope"], string> = {
 function AutoTrade({ desk, reload }: { desk: Desk; reload: () => Promise<void> }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  // Turning a pair ON hands GEN FX the right to place orders on that account, so it is asked twice.
+  const [asking, setAsking] = useState<{ key: string; accountId: string; connectionId: string; pair: PairKey } | null>(null);
   const sw = desk.switches;
   const accounts = desk.accounts ?? [];
   const pairs = desk.pairs ?? [];
+  const rowKey = (a: DeskAccount) => `${a.connectionId}:${a.accountId}`;
 
-  async function arm(accountId: string, pair: PairKey, enabled: boolean) {
-    setBusy(`${accountId}:${pair}`); setNote("");
+  async function arm(a: { accountId: string; connectionId: string }, pair: PairKey, enabled: boolean) {
+    setBusy(`${a.connectionId}:${a.accountId}:${pair}`); setNote(""); setAsking(null);
     try {
-      const r = await fetch("/api/genfx/desk", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "arm", accountId, pair, enabled }) });
+      const r = await fetch("/api/genfx/desk", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "arm", accountId: a.accountId, connectionId: a.connectionId, pair, enabled }) });
       const d = await r.json();
       if (!d.ok) setNote(d.detail || "Couldn't save that switch — try again.");
       await reload();
@@ -321,7 +330,7 @@ function AutoTrade({ desk, reload }: { desk: Desk; reload: () => Promise<void> }
         </span>
       </div>
       <p className="mt-2 text-[12.5px] leading-relaxed text-white/60">
-        Switch a pair on for an account and GEN FX places its calls there: sized to that account&apos;s risk %, one trade per pair at a time, stop and target attached, then managed to break-even and trailed like every FLOW trade. It is separate from GENX gold — nothing here is on until you turn it on.
+        Switch a pair on for an account and GEN FX places its calls there: sized to that account&apos;s risk %, one trade per pair in each direction, stop and target attached, then managed to break-even and trailed like every FLOW trade. It is separate from GENX gold — nothing here is on until you turn it on.
       </p>
       {sw && sw.scope !== "all" && (
         <p className="mt-2 rounded-lg border border-sky-400/20 bg-sky-400/[0.06] px-3 py-2 text-[12px] leading-relaxed text-sky-100/80">
@@ -333,31 +342,47 @@ function AutoTrade({ desk, reload }: { desk: Desk; reload: () => Promise<void> }
         <p className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3 text-[12.5px] text-white/55">No broker account connected yet. Connect one under FLOW, then come back and switch a pair on.</p>
       ) : (
         <div className="mt-3 space-y-2">
-          {accounts.map((a) => (
-            <div key={a.accountId} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-                <div className="min-w-0">
-                  <p className="truncate text-[13px] font-bold text-white/90">
-                    {a.server || "Account"} · #{a.accNum ?? a.accountId}
-                    <span className={`ml-2 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${a.environment === "live" ? "bg-amber-400/15 text-amber-300" : "bg-white/10 text-white/50"}`}>{a.environment === "live" ? "Live" : "Demo"}</span>
-                  </p>
-                  <p className="mt-0.5 text-[10.5px] text-white/40">
-                    Risk per trade: {a.riskPct != null ? `${a.riskPct}%` : "your FLOW default (1% if none)"}
-                    {a.killed ? " · kill switch is ON — no new trades" : ""}{!a.connected ? " · broker needs reconnecting" : ""}
-                  </p>
+          {accounts.map((a) => {
+            const ask = asking && asking.key === rowKey(a) ? asking : null;
+            const askName = ask ? (pairs.find((p) => p.key === ask.pair)?.name ?? ask.pair) : "";
+            return (
+              <div key={rowKey(a)} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-bold text-white/90">
+                      {a.server || "Account"} · #{a.accNum ?? a.accountId}
+                      <span className={`ml-2 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${a.environment === "live" ? "bg-amber-400/15 text-amber-300" : "bg-white/10 text-white/50"}`}>{a.environment === "live" ? "Live" : "Demo"}</span>
+                    </p>
+                    <p className="mt-0.5 text-[10.5px] text-white/40">
+                      Risk per trade: {a.riskPct != null ? `${a.riskPct}%` : "your FLOW default (1% if none)"}
+                      {a.killed ? " · kill switch is ON — no new trades" : ""}{!a.connected ? " · broker needs reconnecting" : ""}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    {pairs.map((p) => (
+                      <label key={p.key} className="flex items-center gap-2 text-[11.5px] font-semibold text-white/70">
+                        {p.name}
+                        <Switch label={`${p.name} auto-trade on account ${a.accNum ?? a.accountId}`} on={a[p.key]} disabled={busy != null || (!a.inScope && !a[p.key])}
+                          onChange={(v) => { if (v) { setNote(""); setAsking({ key: rowKey(a), accountId: a.accountId, connectionId: a.connectionId, pair: p.key }); } else void arm(a, p.key, false); }} />
+                      </label>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  {pairs.map((p) => (
-                    <label key={p.key} className="flex items-center gap-2 text-[11.5px] font-semibold text-white/70">
-                      {p.name}
-                      <Switch label={`${p.name} auto-trade on account ${a.accNum ?? a.accountId}`} on={a[p.key]} disabled={busy != null || (!a.inScope && !a[p.key])} onChange={(v) => void arm(a.accountId, p.key, v)} />
-                    </label>
-                  ))}
-                </div>
+                {ask && (
+                  <div className="mt-2 rounded-lg border border-sky-400/30 bg-sky-400/[0.07] px-3 py-2.5">
+                    <p className="text-[12.5px] leading-relaxed text-sky-50/90">
+                      Turn on <b>{askName}</b> for #{a.accNum ?? a.accountId} ({a.environment === "live" ? "live" : "demo"})? GEN FX will then place {askName} trades on this account by itself — {a.riskPct != null ? `${a.riskPct}%` : "your FLOW default"} of the account at risk on each, a stop and a target on every one. You can switch it off here at any time; a trade already open stays managed until it closes.
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <button disabled={busy != null} onClick={() => void arm(ask, ask.pair, true)} className="rounded-lg bg-sky-400 px-3 py-1.5 text-[12px] font-bold text-[#04121c] disabled:opacity-50">Turn it on</button>
+                      <button disabled={busy != null} onClick={() => setAsking(null)} className="rounded-lg border border-white/15 px-3 py-1.5 text-[12px] font-semibold text-white/70 disabled:opacity-50">Not now</button>
+                    </div>
+                  </div>
+                )}
+                {!a.inScope && <p className="mt-1.5 text-[10.5px] text-white/35">Not open for this account yet{sw?.scope === "demo" ? " — GEN FX is on demo accounts first." : "."}</p>}
               </div>
-              {!a.inScope && <p className="mt-1.5 text-[10.5px] text-white/35">Not open for this account yet{sw?.scope === "demo" ? " — GEN FX is on demo accounts first." : "."}</p>}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       {note && <p className="mt-2 text-[12px] text-amber-300">{note}</p>}
@@ -365,7 +390,8 @@ function AutoTrade({ desk, reload }: { desk: Desk; reload: () => Promise<void> }
       <ul className="mt-3 space-y-1 text-[11.5px] leading-relaxed text-white/45">
         {pairs.length > 0 && <li>• A setup whose stop is tighter than {pairs.map((p) => `${p.minStopPips} pips on ${p.name}`).join(" or ")} is shown here but not auto-traded — on a stop that tight the spread is too much of the risk.</li>}
         <li>• If the smallest order your broker allows would risk more than {desk.limits?.maxMinLotRiskPct ?? 5}% of an account on a stop, that account sits the trade out.</li>
-        <li>• With both pairs on, both can be open at once, each at your risk %.</li>
+        <li>• With both pairs on, both can be open at once — and a buy and a sell on the same pair can be too — each at your risk %.</li>
+        <li>• The risk %, the kill switch and the trade-management setting are the same ones your gold trades use on that account. Only the on/off switch is GEN FX&apos;s own.</li>
       </ul>
 
       {(desk.activity?.length ?? 0) > 0 && (
@@ -374,7 +400,7 @@ function AutoTrade({ desk, reload }: { desk: Desk; reload: () => Promise<void> }
           <ul className="mt-1.5 space-y-1">
             {desk.activity!.slice(0, 6).map((e, i) => (
               <li key={i} className="flex gap-2 text-[11.5px] text-white/55">
-                <span className={`flex-shrink-0 font-bold ${e.status === "placed" ? "text-emerald-300" : e.status === "error" || e.status === "uncertain" ? "text-red-300" : "text-white/40"}`}>{e.status === "placed" ? "PLACED" : e.status.toUpperCase()}</span>
+                <span className={`flex-shrink-0 font-bold ${e.status === "placed" ? "text-emerald-300" : e.status === "error" || e.status === "uncertain" ? "text-red-300" : "text-white/40"}`}>{e.status === "placed" ? "PLACED" : e.status === "uncertain" ? "CHECKING" : e.status === "cancelled" ? "WITHDRAWN" : e.status.toUpperCase()}</span>
                 <span className="min-w-0">{nameOf(e.symbol)}{e.side ? ` ${e.side.toUpperCase()}` : ""} — {String(e.reason ?? "").replace(/^genfx:?\s*/, "") || "order placed"} <span className="text-white/30">· {agoShort(Date.parse(e.created_at))}</span></span>
               </li>
             ))}
@@ -413,7 +439,7 @@ function Watching({ desk }: { desk: Desk }) {
         <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-sky-300/80">What GEN FX is watching</h2>
         <span className="text-[10px] text-white/35">{desk.switches?.scan === false ? "Scanner is off" : scanAt ? `Scanned ${agoShort(scanAt)}${desk.lastScan?.quiet ? " · market quiet window" : ""}` : "Scanner has not run yet"}</span>
       </div>
-      <p className="mt-2 text-[12px] leading-relaxed text-white/50">The scanner runs this same engine on both pairs and all three horizons every five minutes. A setup at a level is entered the moment price touches it; a developing one waits for its candle to close right.</p>
+      <p className="mt-2 text-[12px] leading-relaxed text-white/50">The scanner runs this same engine on both pairs and all three horizons every five minutes. A setup at a level is entered when price touches it; a developing one waits for its candle to close right.</p>
       {live.length === 0 ? <p className="mt-3 text-[12px] text-white/35">Nothing lined up right now.</p> : <ul className="mt-3 space-y-1.5">{live.map(row)}</ul>}
       {called.length > 0 && (
         <>
@@ -432,7 +458,8 @@ function Record({ desk }: { desk: Desk }) {
   return (
     <section className="mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
       <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-sky-300/80">The record so far</h2>
-      <p className="mt-2 text-[12px] leading-relaxed text-white/50">GEN FX is new: the engine&apos;s track record is on gold, not on these pairs. Two separate counts, both starting from zero — the scanner&apos;s calls graded on paper, and trades actually placed on accounts.</p>
+      <p className="mt-2 text-[12px] leading-relaxed text-white/50">GEN FX is new: the engine&apos;s track record is on gold, not on these pairs. Two separate counts, both starting from zero — GEN FX&apos;s calls graded on paper, and trades actually placed on accounts.</p>
+      {desk.recordComplete === false && <p className="mt-1.5 text-[11.5px] text-amber-200/80">Some of the record could not be loaded just now — the numbers below are from part of it. Reload to try again.</p>}
 
       <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
         {pairs.map((p) => {
@@ -441,11 +468,12 @@ function Record({ desk }: { desk: Desk }) {
           return (
             <div key={p.key} className="rounded-xl border border-white/10 bg-black/20 px-3.5 py-3">
               <p className="text-[13px] font-bold text-white/90">{p.name}</p>
-              <p className="mt-2 text-[10px] uppercase tracking-wide text-white/40">Scanner calls, on paper</p>
+              <p className="mt-2 text-[10px] uppercase tracking-wide text-white/40">Calls, on paper</p>
               <p className="text-[12.5px] tabular-nums text-white/70">
                 7 days: <b className="text-emerald-300">{rec?.d7.win ?? 0}W</b> · <b className="text-red-300">{rec?.d7.loss ?? 0}L</b>
                 <span className="text-white/35"> · </span>30 days: <b className="text-emerald-300">{rec?.d30.win ?? 0}W</b> · <b className="text-red-300">{rec?.d30.loss ?? 0}L</b> ({pct(rec?.d30.win ?? 0, rec?.d30.loss ?? 0)}) · {rec && rec.d30.pips > 0 ? "+" : ""}{Math.round(rec?.d30.pips ?? 0)} pips
               </p>
+              {!!rec?.repeats && <p className="text-[10.5px] text-white/35">{rec.repeats} more call{rec.repeats === 1 ? "" : "s"} repeated an idea that was already running, and {rec.repeats === 1 ? "is" : "are"} not counted twice.</p>}
               <p className="mt-2 text-[10px] uppercase tracking-wide text-white/40">Trades on accounts · last 30 days</p>
               {(["demo", "live"] as const).map((env) => {
                 const x = r?.[env];
@@ -460,7 +488,7 @@ function Record({ desk }: { desk: Desk }) {
         })}
       </div>
       {!anyReal && <p className="mt-2 text-[11px] text-white/35">No GEN FX trade has been placed on an account yet.</p>}
-      <p className="mt-2 text-[10.5px] leading-relaxed text-white/30">A paper call counts a win when price reached its first target before its stop — nobody had to be in it, and it pays no spread. A trade on an account is a real order, graded by the broker&apos;s own close, after break-even and trailing.</p>
+      <p className="mt-2 text-[10.5px] leading-relaxed text-white/30">A paper call — a page setup touched, or a scanner setup confirmed — counts a win when price reached its first target before its stop: nobody had to be in it, and it pays no spread. One idea is counted once, however it was called. A trade on an account is a real order, graded by the broker&apos;s own close, after break-even and trailing.</p>
     </section>
   );
 }
@@ -469,6 +497,8 @@ function Record({ desk }: { desk: Desk }) {
 function OwnerPanel({ desk, reload }: { desk: Desk; reload: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [ask, setAsk] = useState<"auto" | "billing" | "telegram" | "scan" | null>(null);
+  const [askScope, setAskScope] = useState<Switches["scope"] | null>(null);
   const sw = desk.switches;
   const ov = desk.ownerView;
   if (!desk.owner || !sw || !ov) return null;
@@ -484,19 +514,47 @@ function OwnerPanel({ desk, reload }: { desk: Desk; reload: () => Promise<void> 
     finally { setBusy(false); }
   }
   const scopes: { id: Switches["scope"]; label: string }[] = [{ id: "owner", label: "My accounts" }, { id: "demo", label: "Demo accounts" }, { id: "all", label: "All members" }];
+  const SCOPE_RANK: Record<Switches["scope"], number> = { owner: 0, demo: 1, all: 2 };
+  // The three switches that cost or risk something are asked twice when they are turned ON.
+  const CONFIRM: Partial<Record<"auto" | "billing" | "telegram" | "scan", string>> = {
+    auto: `GEN FX will place real orders, by itself, on every account in scope that has a pair switched on (${ov.armed.inScope ?? "?"} in scope right now, of ${ov.armed.accounts} armed).`,
+    billing: "Members will be charged credits for GEN FX reads, forming setups and placed trades, exactly as GENX charges.",
+    telegram: "GEN FX calls will be posted to the Telegram channel.",
+  };
   const row = (label: string, desc: string, on: boolean, key: "auto" | "billing" | "telegram" | "scan") => (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-      <div className="min-w-0"><p className="text-[12.5px] font-bold text-white/85">{label}</p><p className="text-[11px] leading-snug text-white/45">{desc}</p></div>
-      <Switch label={label} on={on} disabled={busy} onChange={(v) => void post({ action: "control", [key]: v }, `${label}: ${v ? "on" : "off"}`)} />
+    <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0"><p className="text-[12.5px] font-bold text-white/85">{label}</p><p className="text-[11px] leading-snug text-white/45">{desc}</p></div>
+        <Switch label={label} on={on} disabled={busy} onChange={(v) => { if (v && CONFIRM[key]) { setMsg(""); setAsk(key); } else void post({ action: "control", [key]: v }, `${label}: ${v ? "on" : "off"}`); }} />
+      </div>
+      {ask === key && (
+        <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/[0.07] px-3 py-2">
+          <p className="text-[12px] leading-relaxed text-amber-50/90">Turn <b>{label}</b> on? {CONFIRM[key]}</p>
+          <div className="mt-2 flex gap-2">
+            <button disabled={busy} onClick={() => { setAsk(null); void post({ action: "control", [key]: true }, `${label}: on`); }} className="rounded-lg bg-amber-300 px-3 py-1.5 text-[12px] font-bold text-[#1c1404] disabled:opacity-50">Turn it on</button>
+            <button disabled={busy} onClick={() => setAsk(null)} className="rounded-lg border border-white/15 px-3 py-1.5 text-[12px] font-semibold text-white/70 disabled:opacity-50">Not now</button>
+          </div>
+        </div>
+      )}
     </div>
   );
   const rp = ov.replay;
-  // A replay is run by the worker. If the worker restarts mid-run (every deploy restarts it) the result
-  // would say "running" forever, so a run older than 90 minutes is treated as one that did not finish.
+  // A replay runs in a process of its own on the worker and reports in every few seconds. One that
+  // says "running" but has not reported for three minutes is one that died (a deploy restarts the worker).
+  const beatMs = rp?.heartbeatAt ? Date.parse(rp.heartbeatAt) : rp?.startedAt ? Date.parse(rp.startedAt) : NaN;
   const startedMs = rp?.startedAt ? Date.parse(rp.startedAt) : NaN;
-  const running = rp?.status === "running" && Number.isFinite(startedMs) && Date.now() - startedMs < 90 * 60_000;
+  const running = rp?.status === "running" && Number.isFinite(beatMs) && Date.now() - beatMs < 3 * 60_000;
   const stalled = rp?.status === "running" && !running;
+  const pg = rp?.progress;
+  const pct = pg?.done != null && pg?.total ? Math.round((pg.done / pg.total) * 100) : null;
   const decisions = desk.lastScan?.decisions ?? null;
+  const unsettled = ov.books?.unsettled ?? [];
+  const trendLine = (t: Tallies | undefined) => {
+    const b = t?.byTrend; if (!b) return null;
+    const part = (k: string, label: string) => (b[k] ? `${label} ${b[k].n} trades ${b[k].r}R (${b[k].avgR}R each)` : null);
+    const parts = [part("with", "with the 1-hour trend"), part("against", "against it"), part("mixed", "no clear trend")].filter(Boolean);
+    return parts.length ? parts.join(" · ") : null;
+  };
   return (
     <section className="mt-4 rounded-2xl border border-amber-400/25 bg-amber-400/[0.04] p-4">
       <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-300/90">Owner controls · only you see this</h2>
@@ -507,11 +565,26 @@ function OwnerPanel({ desk, reload }: { desk: Desk; reload: () => Promise<void> 
           <p className="text-[12.5px] font-bold text-white/85">Who auto-trade reaches</p>
           <div className="mt-1.5 grid grid-cols-3 gap-1.5">
             {scopes.map((s) => (
-              <button key={s.id} disabled={busy} onClick={() => void post({ action: "control", scope: s.id }, `Reaches: ${s.label}`)}
+              <button key={s.id} disabled={busy} onClick={() => {
+                // Narrowing who it reaches is done at once. Widening it is asked twice, like the switches.
+                const widens = SCOPE_RANK[s.id] > SCOPE_RANK[sw.scope];
+                if (widens) { setMsg(""); setAskScope(s.id); } else { setAskScope(null); if (s.id !== sw.scope) void post({ action: "control", scope: s.id }, `Reaches: ${s.label}`); }
+              }}
                 className={`rounded-lg border px-2 py-1.5 text-[11.5px] font-bold transition disabled:opacity-50 ${sw.scope === s.id ? "border-amber-400/60 bg-amber-400/15 text-amber-200" : "border-white/10 text-white/55 hover:border-white/25"}`}>{s.label}</button>
             ))}
           </div>
-          <p className="mt-1.5 text-[11px] text-white/45">Armed now: {ov.armed.accounts} account{ov.armed.accounts === 1 ? "" : "s"} across {ov.armed.members} member{ov.armed.members === 1 ? "" : "s"} · EUR/USD {ov.armed.EURUSD} · GBP/JPY {ov.armed.GBPJPY}. A member still has to switch a pair on for each account.</p>
+          {askScope && (
+            <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/[0.07] px-3 py-2">
+              <p className="text-[12px] leading-relaxed text-amber-50/90">
+                Open auto-trade to <b>{scopes.find((x) => x.id === askScope)?.label}</b>? It would reach {ov.armed.byScope?.[askScope] ?? "?"} armed account{ov.armed.byScope?.[askScope] === 1 ? "" : "s"} (now {ov.armed.inScope ?? "?"}){askScope === "all" ? " — live accounts included" : ""}.{sw.auto ? " Auto-trade is ON: the next call goes to them." : " Auto-trade is off, so nothing is placed until that is switched on too."}
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button disabled={busy} onClick={() => { const to = askScope; setAskScope(null); void post({ action: "control", scope: to }, `Reaches: ${scopes.find((x) => x.id === to)?.label ?? to}`); }} className="rounded-lg bg-amber-300 px-3 py-1.5 text-[12px] font-bold text-[#1c1404] disabled:opacity-50">Open it</button>
+                <button disabled={busy} onClick={() => setAskScope(null)} className="rounded-lg border border-white/15 px-3 py-1.5 text-[12px] font-semibold text-white/70 disabled:opacity-50">Not now</button>
+              </div>
+            </div>
+          )}
+          <p className="mt-1.5 text-[11px] text-white/45">Armed now: {ov.armed.accounts} account{ov.armed.accounts === 1 ? "" : "s"} across {ov.armed.members} member{ov.armed.members === 1 ? "" : "s"} · EUR/USD {ov.armed.EURUSD} · GBP/JPY {ov.armed.GBPJPY}{ov.armed.inScope != null ? ` · ${ov.armed.inScope} of them in scope` : ""}. A member still has to switch a pair on for each account.{ov.armed.complete === false ? " (The list could not be read in full just now — these counts are of part of it.)" : ""}</p>
         </div>
         {row("Bill it like GENX", "5 credits a read (free on the Pass), 1 when a setup forms, 5 when a trade is placed. Off = GEN FX costs nothing.", sw.billing, "billing")}
         {row("Post to Telegram", "GEN FX heads-ups, ENTER NOW calls and wins go to the channel, labelled GEN FX.", sw.telegram, "telegram")}
@@ -519,33 +592,74 @@ function OwnerPanel({ desk, reload }: { desk: Desk; reload: () => Promise<void> 
       </div>
 
       <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2.5">
+        <p className="text-[12.5px] font-bold text-white/85">Orders being confirmed</p>
+        {ov.books && !ov.books.readable ? <p className="mt-1 text-[11px] text-red-300">Could not read the order book.</p>
+          : unsettled.length === 0 ? <p className="mt-1 text-[11px] text-white/45">None. Every GEN FX order is either a managed position or written off.</p>
+          : (
+            <>
+              <p className="mt-1 text-[11px] leading-snug text-white/45">Each of these keeps its account from taking another trade the same way on that pair until the broker settles what happened to it. They normally clear inside a minute.</p>
+              <ul className="mt-1.5 space-y-0.5 text-[11px] tabular-nums text-white/60">
+                {unsettled.slice(0, 8).map((u, i) => (
+                  <li key={i}><b className="text-white/75">#{u.acc_num ?? u.account_id}</b> · {nameOf(u.pair)} {String(u.side).toUpperCase()} · {u.status} · {agoShort(Date.parse(u.created_at))}{u.note ? ` — ${u.note}` : ""}</li>
+                ))}
+              </ul>
+              {unsettled.length > 8 && <p className="mt-1 text-[10.5px] text-white/35">and {unsettled.length - 8} more</p>}
+            </>
+          )}
+      </div>
+
+      <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[12.5px] font-bold text-white/85">History replay</p>
-          <button disabled={busy || ov.replayPending || running} onClick={() => void post({ action: "replay", weeks: 52 }, "Replay asked for — the worker picks it up within a minute. A year of history takes it about half an hour.")}
+          <button disabled={busy || ov.replayPending || running} onClick={() => void post({ action: "replay", weeks: 52 }, "Replay asked for — the worker picks it up within a minute.")}
             className="rounded-lg border border-amber-400/40 px-2.5 py-1 text-[11.5px] font-bold text-amber-200 disabled:opacity-40">
             {ov.replayPending ? "Queued…" : running ? "Running…" : "Run a year"}
           </button>
         </div>
         <p className="mt-1 text-[11px] leading-snug text-white/45">Runs the whole GEN FX pipeline over real 5-minute history — engine, setups, guards, break-even and trail — with the spread charged on every trade. Places nothing.</p>
-        {running && <p className="mt-1.5 text-[11px] text-amber-200/80">Running since {agoShort(startedMs)} — each pair appears below as it finishes.</p>}
+        {running && <p className="mt-1.5 text-[11px] text-amber-200/80">Running since {agoShort(startedMs)}{pg?.pair ? ` — ${nameOf(pg.pair)}: ${pg.stage ?? "working"}${pct != null ? ` ${pct}%` : ""}` : ""}. Each pair appears below as it finishes.</p>}
         {stalled && <p className="mt-1.5 text-[11px] text-red-300">The last replay did not finish (the worker restarted while it was running). Run it again.</p>}
+        {rp?.status === "failed" && <p className="mt-1.5 text-[11px] text-red-300">The last replay failed{rp.error ? `: ${rp.error}` : ""}. Run it again.</p>}
         {rp?.pairs && Object.keys(rp.pairs).length > 0 && (
           <div className="mt-2 space-y-2">
-            {Object.entries(rp.pairs).map(([k, v]) => (
-              <div key={k} className="rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-[11.5px] tabular-nums text-white/70">
-                <p className="font-bold text-white/85">{nameOf(k)} <span className="font-normal text-white/40">{v.from ? `${v.from.slice(0, 10)} → ${(v.to ?? "").slice(0, 10)}` : ""}</span></p>
-                {v.error ? <p className="text-red-300">{v.error}</p> : (
-                  <>
-                    <p>Managed like live: {v.managed?.all.n ?? 0} trades · {v.managed?.all.winRate ?? 0}% wins · {v.managed?.all.r ?? 0}R total ({v.managed?.all.avgR ?? 0}R each) · {v.managed?.all.pips ?? 0} pips · worst run −{v.managed?.all.maxDrawdownR ?? 0}R</p>
-                    <p>Left on stop and target: {v.raw?.all.n ?? 0} trades · {v.raw?.all.winRate ?? 0}% wins · {v.raw?.all.r ?? 0}R total · {v.raw?.all.pips ?? 0} pips</p>
-                    {v.managed?.byMode && <p className="text-white/50">By horizon: {Object.entries(v.managed.byMode).map(([m, t]) => `${m} ${t.n} trades ${t.r}R`).join(" · ")}</p>}
-                    {v.placement && <p className="text-white/50">{v.placement.calls} calls → {v.placement.placed} placed. Not placed: {Object.entries(v.placement.skipped).map(([c, n]) => `${c.replace(/_/g, " ")} ${n}`).join(", ") || "none"}.</p>}
-                    <p className="text-white/40">Cost charged: {v.costPips} pip{v.costPips === 1 ? "" : "s"} a trade · minimum stop {v.minStopPips} pips.</p>
-                  </>
-                )}
-              </div>
-            ))}
-            <p className="text-[10.5px] leading-snug text-white/35">A replay fills at the price of the moment and cannot see inside a 5-minute candle; live fills are worse.{rp.finishedAt ? ` Finished ${agoShort(Date.parse(rp.finishedAt))}.` : ""}</p>
+            {Object.entries(rp.pairs).map(([k, v]) => {
+              const hi = v.managed?.all, lo = v.managedLow?.all ?? v.managed?.all;
+              // Two estimates, shown low-to-high whichever run produced which (neither is a guaranteed bound).
+              // An older result with only one run shows the one number.
+              const two = !!v.managedLow;
+              const span = (pick: (t: Tally) => number): [number, number] => { const a = lo ? pick(lo) : 0, b = hi ? pick(hi) : 0; return [Math.min(a, b), Math.max(a, b)]; };
+              const [rA, rB] = span((t) => t.r), [eA, eB] = span((t) => t.avgR), [wA, wB] = span((t) => t.winRate);
+              const trend = trendLine(v.managedLow ?? v.managed);
+              const lowRun = v.managedLow ?? v.managed;
+              const touch = lowRun?.byTouch;
+              const each = (t: Record<string, Tally> | undefined, labels: [string, string][]) => labels.map(([k, label]) => (t?.[k] ? `${label} ${t[k].n} trades, ${t[k].r}R (${t[k].avgR}R each)` : null)).filter(Boolean).join(" · ");
+              const via = each(lowRun?.byVia, [["touch", "a page setup touched"], ["ready", "the engine said trade-ready"], ["confirm", "a candle confirmed it"], ["pullback", "an armed setup pulled back"]]);
+              const shown = each(lowRun?.byShown, [["fresh", "the page was still showing the level"], ["stale", "it had stopped showing it"]]);
+              const after = each(lowRun?.byAfter, [["first", "first go at the level"], ["win", "within an hour of a win there"], ["loss", "within an hour of a loss there"]]);
+              const placedBy = v.placements ? (["managed", "managedLow", "raw"] as const).map((k) => v.placements?.[k]?.placed).filter((n) => n != null) : [];
+              return (
+                <div key={k} className="rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-[11.5px] tabular-nums text-white/70">
+                  <p className="font-bold text-white/85">{nameOf(k)} <span className="font-normal text-white/40">{v.from ? `${v.from.slice(0, 10)} → ${(v.to ?? "").slice(0, 10)}` : ""}</span></p>
+                  {v.error ? <p className="text-red-300">{v.error}</p> : (
+                    <>
+                      {two
+                        ? <p>Managed like live: {hi?.n ?? 0} trades · between <b className="text-white/90">{rA}R</b> and <b className="text-white/90">{rB}R</b> in total ({eA}R to {eB}R a trade) · {wA}–{wB}% wins · worst run −{Math.max(lo?.maxDrawdownR ?? 0, hi?.maxDrawdownR ?? 0)}R</p>
+                        : <p>Managed like live: {hi?.n ?? 0} trades · <b className="text-white/90">{hi?.r ?? 0}R</b> in total ({hi?.avgR ?? 0}R a trade) · {hi?.winRate ?? 0}% wins · worst run −{hi?.maxDrawdownR ?? 0}R</p>}
+                      <p>Left on stop and target: {v.raw?.all.n ?? 0} trades · {v.raw?.all.winRate ?? 0}% wins · {v.raw?.all.r ?? 0}R total ({v.raw?.all.avgR ?? 0}R a trade) · {v.raw?.all.pips ?? 0} pips</p>
+                      {(v.managedLow ?? v.managed)?.byMode && <p className="text-white/50">By horizon (the lower figure): {Object.entries((v.managedLow ?? v.managed)!.byMode).map(([m, t]) => `${m} ${t.n} trades ${t.r}R`).join(" · ")}</p>}
+                      {trend && <p className="text-white/50">By trend (reported, not applied): {trend}</p>}
+                      {via && <p className="text-white/50">What made it a trade (the lower figure): {via}.</p>}
+                      {touch && (touch.through || touch.bare) && <p className="text-white/50">Entries on a touch (the lower figure): {touch.bare?.n ?? 0} on a bare touch, {touch.bare?.r ?? 0}R · {touch.through?.n ?? 0} where the candle went on through the level, {touch.through?.r ?? 0}R. Live needs to see a touch twice, a second apart, so it takes fewer of the bare ones. (&ldquo;Went on through&rdquo; trades start a full unit against them by definition — that split says how many rest on a bare touch, not which kind is better.)</p>}
+                      {shown && <p className="text-white/50">Page setups, by whether the page still showed the level (the lower figure): {shown}. A level stays watched for up to twelve hours after the page last showed it — GENX&apos;s rule.</p>}
+                      {after && <p className="text-white/50">Page setups, by what had just happened at the level (the lower figure): {after}. A level can be entered again straight after a call on it ends — GENX&apos;s rule.</p>}
+                      {v.placement && <p className="text-white/50">{v.placement.calls} calls → {v.placement.placed} placed{placedBy.length === 3 && new Set(placedBy).size > 1 ? ` (${placedBy[1]} in the lower run, ${placedBy[2]} left on stop and target — a trade that ends sooner frees its side sooner)` : ""}. Not placed: {Object.entries(v.placement.skipped).map(([c, n]) => `${c.replace(/_/g, " ")} ${n}`).join(", ") || "none"}.</p>}
+                      <p className="text-white/40">Cost charged: {v.costPips} pip{v.costPips === 1 ? "" : "s"} a trade · minimum stop {v.minStopPips} pips{v.clock ? ` · 4-hour, daily and weekly candles cut on ${v.clock.zone === "NY17" ? "the 5pm New York day" : v.clock.zone.replace(/^Etc\/GMT([+-])(\d+)$/, (_m, sg: string, h: string) => `a fixed UTC${sg === "-" ? "+" : "−"}${h}`)} time (${v.clock.note ?? (v.clock.verified ? "matches the feed" : v.clock.forced ? "set by hand" : "closest fit — not an exact match")})` : ""}.{v.clock && !v.clock.verified && !v.clock.forced ? " The Intraday and Swing numbers depend on this clock (both read daily candles; Quick does not) — treat them as rough until it is confirmed." : ""}</p>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+            <p className="text-[10.5px] leading-snug text-white/35">Two figures, because a 5-minute candle cannot say whether its low came before or after its high: the higher gives a stop the manager moved inside a candle the benefit of the doubt; the lower takes the worst order of events the candle allows, in every candle. The lower one is a floor for the manager&apos;s rules, not a forecast: run tick by tick on a random walk, the same rules land a little under the higher figure (0.01–0.03R a trade) and well above the lower. Neither is a promise. A replay also fills at the price of the moment, and enters on any touch; live fills are worse and live wants the touch seen twice.{rp.finishedAt ? ` Finished ${agoShort(Date.parse(rp.finishedAt))}.` : ""}</p>
           </div>
         )}
       </div>
@@ -640,6 +754,10 @@ export function GenFxDesk() {
 
   const g = res?.genfx;
   const shown: PairKey = res?.pair ?? pair;             // the pair the read on screen is for
+  // One object per read, not one per render. The live confirmation re-checks whenever the setup it is
+  // handed changes; a fresh object on every render (the desk reloads once a minute) made it re-check
+  // then too, and a banner that had said CONFIRMED could be overwritten by the next look.
+  const shownSetup = useMemo(() => (g ? setupFrom(shown, g) : null), [shown, g]);
   const dec = decOf(shown);
   const side = g ? sideOf(g.action) : "wait";
   const hasPlan = g ? num(g.entry) != null && num(g.stop_loss) != null : false;
@@ -647,7 +765,7 @@ export function GenFxDesk() {
   const actTone = side === "buy" ? "text-emerald-400" : side === "sell" ? "text-red-400" : "text-sky-300";
 
   const trackKey = (s: { pair: string; side: string; entryLow: number | null; entryHigh: number | null }) => `${s.pair}|${s.side}|${s.entryLow}|${s.entryHigh}`;
-  const isTracked = !!g && tracked.some((t) => trackKey(t) === trackKey(setupFrom(shown, g)));
+  const isTracked = !!shownSetup && tracked.some((t) => trackKey(t) === trackKey(shownSetup));
   function trackCurrent() {
     if (!g) return;
     const base = setupFrom(shown, g);
@@ -759,7 +877,7 @@ export function GenFxDesk() {
               Bias: {g.directional_bias === "bullish" ? "Bullish" : g.directional_bias === "bearish" ? "Bearish" : "Neutral"} · {g.market_structure} · {g.session}
             </p>
 
-            <LiveConfirm setup={setupFrom(shown, g)} />
+            {shownSetup && <LiveConfirm key={`${shownSetup.pair}:${shownSetup.mode}:${shownSetup.side}:${shownSetup.entry}:${shownSetup.stop}`} setup={shownSetup} />}
 
             {hasPlan && (g.action.includes("WAIT") || g.action.includes("LIMIT")) && (
               <button onClick={() => trackCurrent()} className="mt-2 w-full rounded-lg border border-white/15 bg-white/[0.03] px-3 py-2 text-[12px] font-semibold text-white/70 transition hover:bg-white/[0.07]">

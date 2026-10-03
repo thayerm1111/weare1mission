@@ -103,13 +103,13 @@ function posIdOf(p: unknown): string {
  * pre-order snapshot and poll briefly for the new one. This is what lets the
  * trade-manager track the fill for break-even + partials.
  */
-async function resolveNewPositionId(a: { env: TLEnv; token: string; accNum: string; accountId: string }, orderId: string): Promise<string | null> {
+async function resolveNewPositionId(a: { env: TLEnv; token: string; accNum: string; accountId: string }, orderId: string, executedOnly = false): Promise<string | null> {
   const cfg = await brokerConfig(a.env, a.token, a.accNum, a.accountId);
   for (const delay of [0, 250, 500]) {
     if (delay) await sleep(delay);
     const history = await listOrdersHistory(a.env, a.token, a.accNum, a.accountId);
     if (!history.ok) continue;
-    const id = positionForOrder(history.data, columnMap(cfg, 'ordersHistoryConfig'), orderId);
+    const id = positionForOrder(history.data, columnMap(cfg, 'ordersHistoryConfig'), orderId, executedOnly);
     if (id) return id;
   }
   return null;
@@ -129,6 +129,12 @@ export async function warmInstruments(a: { env: TLEnv; token: string; accNum: st
 export async function instrumentIdFor(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string): Promise<string | number | null> {
   const r = await instrumentsFor(a);
   return r.ok ? (matchInstrument(canonical, r.data)?.tradableInstrumentId ?? null) : null;
+}
+/** Units in one lot of `canonical` on this account, when the broker's instrument list carries a contract size. Null: it does not say. Uses the shared cache. */
+export async function contractSizeFor(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string): Promise<number | null> {
+  const r = await instrumentsFor(a);
+  const size = r.ok ? matchInstrument(canonical, r.data)?.contractSize : undefined;
+  return typeof size === "number" && Number.isFinite(size) && size > 0 ? size : null;
 }
 /**
  * The price an ENTRY on `side` would fill at on this account right now — the ask for a buy, the bid
@@ -243,7 +249,22 @@ export function brokerRefusalMessage(detail: unknown): string {
   return `instrument_list_failed: ${text}`.slice(0, 160);
 }
 
-async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null, ensureBrackets?: boolean, risk?: { equity: number; riskPct: number }, maxEntry?: number | null): Promise<{ ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean }> {
+type PlacedOnAccount = { ok: true; qty: number; orderId: string | null; positionId: string | null; note: string } | { ok: false; error: string; deferred?: boolean };
+/**
+ * placeOnAccountInner with one thing added for callers that need to know it: an error thrown BEFORE
+ * any order was attempted carries `noOrderSent: true` (a quote that timed out, say). An error without
+ * that mark may have left an order behind. Nothing else about the call or its errors changes.
+ */
+async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null, ensureBrackets?: boolean, risk?: { equity: number; riskPct: number }, maxEntry?: number | null, tag?: string | null, notAfterMs?: number | null): Promise<PlacedOnAccount> {
+  let attempted = false;
+  try {
+    return await placeOnAccountInner(a, canonical, side, qty, stop, tp, ensureBrackets, risk, maxEntry, tag, notAfterMs, () => { attempted = true; });
+  } catch (e) {
+    if (!attempted && e && typeof e === "object") { try { (e as { noOrderSent?: boolean }).noOrderSent = true; } catch { /* a frozen error stays unmarked: treated as "may have been sent" */ } }
+    throw e;
+  }
+}
+async function placeOnAccountInner(a: { env: TLEnv; token: string; accNum: string; accountId: string; connId?: string }, canonical: string, side: "buy" | "sell", qty: number, stop?: number | null, tp?: number | null, ensureBrackets?: boolean, risk?: { equity: number; riskPct: number }, maxEntry?: number | null, tag?: string | null, notAfterMs?: number | null, attempted?: () => void): Promise<PlacedOnAccount> {
   const instRes = await instrumentsFor(a);
   if (!instRes.ok) return { ok: false, error: brokerRefusalMessage(instRes.error) };
   const tl = matchInstrument(canonical, instRes.data);
@@ -317,9 +338,19 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
     // better than the cap — it fills immediately, exactly as the IOC version intended. It only
     // rests when the market has already run past the cap, i.e. the case we mean to refuse.
     side, type: "limit" as const, price: limitPx, qty: norm.qty, validity: "GTC" as const,
+    // A caller that labels its orders (GEN FX) finds them again by that label, so its order is sent at most
+    // once — and, when it set a deadline, not after it. No label: nothing is added and nothing changes.
+    ...(tag ? { strategyId: tag, exactlyOnce: true } : {}),
+    ...(notAfterMs != null ? { notAfterMs } : {}),
   };
   const hasBracket = stop != null || tp != null;
   const hasStop = stop != null;
+  // A caller that set a deadline (GEN FX) wants the order to leave by then or not at all: it has written
+  // down "an order is on its way", and a later pass will treat a long silence as an order that never left.
+  // (Checked here, and again inside the broker client when the request's turn in the queue comes.)
+  if (notAfterMs != null && Date.now() > notAfterMs) return { ok: false, error: "entry_deadline_passed" };
+  // From here on an order may exist. Anything thrown before this point is marked "no order was sent".
+  attempted?.();
   const submitAt = Date.now();
   let ord = await createOrder(a.env, a.token, { ...base, stopLoss: stop ?? null, takeProfit: brokerTp ?? null });
   const ackAt = Date.now();
@@ -349,10 +380,13 @@ async function placeOnAccount(a: { env: TLEnv; token: string; accNum: string; ac
   if (!ord.ok) { telem(false, null, null, String(ord.error).slice(0, 200)); return { ok: false, error: ord.error, deferred: isSessionClosedReject(ord.error) }; }
   // Resolve the position id for the trade-manager when the broker didn't hand one
   // back (the usual case for market orders).
-  let positionId = ord.data.positionId ?? null;
+  // (A labelled order — GEN FX's — takes no position from the reply itself: its caller remembers a
+  //  position id as proof the order EXECUTED, and only the order's own history row can say that.)
+  let positionId = tag ? null : (ord.data.positionId ?? null);
   if (!positionId && hasStop && ord.data.orderId) {
     // after the order is in: position lookup yields to other members' orders (the manager also adopts it)
-    try { const oid = ord.data.orderId; positionId = await withBrokerPriority("normal", () => resolveNewPositionId(a, oid)); } catch { note += " (position correlation pending)"; }
+    // (A labelled order's caller — GEN FX — is told a position only when the order's row says it executed.)
+    try { const oid = ord.data.orderId; positionId = await withBrokerPriority("normal", () => resolveNewPositionId(a, oid, !!tag)); } catch { note += " (position correlation pending)"; }
   }
 
   // BELT AND BRACES (member play executes): some TradeLocker routes accept a
@@ -422,12 +456,16 @@ export async function placeFixedLotFollower(opts: {
   userId: string; env: TLEnv; token: string; connId: string; accountId: string; accNum: string;
   symbol: string; side: "buy" | "sell"; qty: number; stop?: number | null; tp?: number | null; source: string;
   maxEntry?: number | null;
+  /** The caller's own label for the order (see CreateOrderInput.strategyId). Unset for GENX. */
+  tag?: string | null;
+  /** Do not send the order after this moment (ms). Unset for GENX. */
+  notAfterMs?: number | null;
 }): Promise<{ ok: true; orderId: string | null; positionId: string | null; qty: number } | { ok: false; reason: string; deferred: boolean }> {
   const canonical = normSym(opts.symbol) || "XAUUSD";
   const r = await withBrokerPriority("critical", () => placeOnAccount(
     { env: opts.env, token: opts.token, accNum: opts.accNum, accountId: opts.accountId, connId: opts.connId },
     canonical, opts.side, opts.qty, opts.stop ?? null, opts.tp ?? null, true, // verify brackets on followers too — brokers can silently drop a leg
-    undefined, opts.maxEntry ?? null,
+    undefined, opts.maxEntry ?? null, opts.tag ?? null, opts.notAfterMs ?? null,
   ));
   if (!r.ok) {
     const st = r.deferred ? "deferred" : "error";

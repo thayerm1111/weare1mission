@@ -358,7 +358,12 @@ export function classifyOutcome(
   // into post-win pause + protect-profits mode and held every account out of the real move.
   // The best-touched-TP inference survives ONLY when we have no broker exit at all.
   const exitKnown = exitPrice != null && exitPrice > 0;
-  const tpTol = 5 * pip;
+  // "Landed at the target" allows for slippage on the take-profit fill: five gold pips (50 cents).
+  // Five PIPS on a currency pair is another matter — a sixth of a typical target — and it booked a
+  // trail exit a few pips short of the target as the full target, at the target's price rather than
+  // the exit's (GEN FX review, 10-02). A take-profit is a limit: it fills at its price or better, so
+  // currency pairs get half a pip. Gold and every other instrument are exactly as they were.
+  const tpTol = (getInstrument(sym).assetClass === "forex" ? 0.5 : 5) * pip;
   const exitConfirmsTarget = tp1 != null && (
     reason === "target" ||
     (exitKnown && (long ? exitPrice! >= tp1 - tpTol : exitPrice! <= tp1 + tpTol))

@@ -1,6 +1,7 @@
-import { series, livePrice } from "@/lib/marketData";
+import { series, livePrice, livePriceSane } from "@/lib/marketData";
 import { CONFIRM_IV, MOMENTUM_MAX_EXT, type ConfirmState } from "@/lib/genxConfirm";
 import { type FxPair, U, units, fmtPx, px } from "@/lib/genfx/pairs";
+import { fxSeries, pairPrice, candleFloorMs } from "@/lib/genfx/market";
 
 /**
  * GEN FX LIVE ENTRY CONFIRMATION — "is it time to enter yet?" for a setup that is waiting.
@@ -122,11 +123,20 @@ export function confirmFromCandles(pair: FxPair, o: {
 
 const numOk = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 
-/** Fetch the trigger frame and decide. Same contract as GENX's confirmEntry, plus the pair. */
+/**
+ * Fetch the trigger frame and decide. Same contract as GENX's confirmEntry, plus the pair.
+ *
+ * `desk: true` is how the scanner and the watch call it: the candles come through market.fxSeries, so
+ * every pending setup on the same pair and frame shares one request and a hung request cannot hold
+ * the pass, and the price is the streamed tick when there is one. The page's own polling leaves it
+ * off and goes through the community cache, as every member read does.
+ */
 export async function confirmFxEntry(opts: {
   pair: FxPair; side: "buy" | "sell";
   entryLow: number; entryHigh: number; watch: number; invalidation: number;
-  mode: string; mdKey: string; fresh: boolean; interval?: string; noMomentum?: boolean;
+  mode: string; mdKey: string; fresh: boolean; interval?: string; noMomentum?: boolean; desk?: boolean;
+  /** The caller's own price, read with instead of asking the feed for one. Null: there is none — the forming candle's close stands in. Left out: the feed is asked. */
+  live?: number | null;
 }): Promise<FxConfirm> {
   const { pair, side } = opts;
   const inv = Number(opts.invalidation);
@@ -139,12 +149,17 @@ export async function confirmFxEntry(opts: {
   const base = { side, zoneLow: zoneLo, zoneHigh: zoneHi, invalidation: inv, interval };
   if (!numOk(inv) || (!numOk(zoneLo) && !numOk(watch))) return { state: "NO_DATA", detail: "Missing setup levels.", price: null, enter: null, ...base };
 
-  const rowsRaw = await series(pair.td, interval, 24, opts.mdKey, opts.fresh);
+  const rowsRaw = opts.desk ? await fxSeries(pair.td, interval, 24, { maxAgeMs: 5_000, notBeforeMs: candleFloorMs(), timeoutMs: 8_000 }) : await series(pair.td, interval, 24, opts.mdKey, opts.fresh);
   if (rowsRaw === "ratelimit") return { state: "BUSY", detail: "Feed busy — retrying shortly.", price: null, enter: null, ...base };
   const rows = Array.isArray(rowsRaw) ? rowsRaw : [];
   if (rows.length < 4) return { state: "NO_DATA", detail: "Not enough candles right now.", price: null, enter: null, ...base };
 
-  const live = await livePrice(pair.td, opts.mdKey, opts.fresh);
+  const quoted = opts.live !== undefined ? opts.live : opts.desk ? await pairPrice(pair) : await livePrice(pair.td, opts.mdKey, opts.fresh);
+  // THE DESK DOES NOT ACT ON A PRICE THE CANDLES IN HAND CONTRADICT. A setup can be entered — and orders
+  // sent — on this one number; a print more than 1.5% from the recent closes is a bad print, and the
+  // forming candle's close stands in for it (the same fallback as having no quote at all). The page's
+  // own polling shows the quote as it came: nothing is placed from there.
+  const live = opts.desk && numOk(quoted) && !livePriceSane(quoted, rows).ok ? null : quoted;
   const candles: Candle[] = rows.map((r) => ({ o: +r.open, h: +r.high, l: +r.low, c: +r.close }));
   const d = confirmFromCandles(pair, { side, zoneLo, zoneHi, inv, candles, live: numOk(live) ? live : null, noMomentum: opts.noMomentum });
   return { ...d, ...base };

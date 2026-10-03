@@ -59,6 +59,12 @@ function valuePerPrice(symbol: string, entry: number): { pip: number; vpp: numbe
   if (s === "XAUUSD" || s === "GOLD") return { pip: 0.1, vpp: 100 };
   if (s === "USDJPY") return { pip: 0.01, vpp: entry > 0 ? 100000 / entry : 100000 };
   if (s === "USDCAD") return { pip: 0.0001, vpp: entry > 0 ? 100000 / entry : 100000 };
+  // A yen CROSS (GBP/JPY, added with GEN FX 10-02): a lot moves ¥100,000 per 1.00 of price, and the
+  // pair's own price cannot turn yen into dollars. Without this it fell through to the majors' line
+  // below and a normal half-lot GBP/JPY trade read as risking 150% of the account. This is a sanity
+  // alarm with wide limits (0.25% and 8%), so a round ¥150 to the dollar is close enough here; the
+  // order itself is sized from the live USD/JPY rate (genfx/sizing.ts).
+  if (s.endsWith("JPY")) return { pip: 0.01, vpp: 100000 / 150 };
   if (s === "NAS100" || s === "US30") return { pip: 1, vpp: 10 };
   // EURUSD / GBPUSD / AUDUSD and other majors
   return { pip: 0.0001, vpp: 100000 };

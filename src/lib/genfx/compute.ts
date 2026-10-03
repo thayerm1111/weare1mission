@@ -67,8 +67,20 @@ export function readFromSeries(pair: FxPair, mode: Mode, s: { d1: Row[] | null; 
   return { read, session, volatility: vol.label, atr: vol.atr };
 }
 
-/** Fetch the horizon's candles, read a live price, run the engine. Mirrors computeGenxRead. */
-export async function computeGenfxRead(opts: { pair: FxPair; mode: Mode; mdKey: string; fresh: boolean }): Promise<GenfxReadOk | GenfxReadErr> {
+type SeriesResult = Awaited<ReturnType<typeof series>>;
+
+/**
+ * Fetch the horizon's candles, read a live price, run the engine. Mirrors computeGenxRead.
+ *
+ * `source` lets the scanner hand in its own readers (market.fxSeries / pairPrice): shared between the
+ * three horizons and the two halves of a pass, and bounded by a timeout. The page leaves it out and
+ * reads through the community cache. Either way the engine is given the same candles at the same
+ * lengths, so the scanner's read and the page's are the same read.
+ */
+export async function computeGenfxRead(opts: {
+  pair: FxPair; mode: Mode; mdKey: string; fresh: boolean;
+  source?: { series: (interval: string, size: number) => Promise<SeriesResult>; price: () => Promise<number | null> };
+}): Promise<GenfxReadOk | GenfxReadErr> {
   const { pair, mode, mdKey, fresh } = opts;
   const m = MODES[mode];
   const TD = pair.td;
@@ -81,7 +93,7 @@ export async function computeGenfxRead(opts: { pair: FxPair; mode: Mode; mdKey: 
   const get = (interval: string, size: number) => {
     const k = `${interval}:${size}`;
     let p = asked.get(k);
-    if (!p) { p = series(TD, interval, size, mdKey, fresh); asked.set(k, p); }
+    if (!p) { p = opts.source ? opts.source.series(interval, size) : series(TD, interval, size, mdKey, fresh); asked.set(k, p); }
     return p;
   };
   const [d1, h1, m30, m15, m5] = await Promise.all([
@@ -90,7 +102,7 @@ export async function computeGenfxRead(opts: { pair: FxPair; mode: Mode; mdKey: 
   if ([d1, h1, m30, m15, m5].some((x) => x === "ratelimit")) return { ok: false, error: "ratelimit", status: 429 };
   if (!arr(m15) || arr(m15)!.length < 20) return { ok: false, error: "insufficient_data", status: 200 };
 
-  const live = await livePrice(TD, mdKey, fresh);
+  const live = opts.source ? await opts.source.price() : await livePrice(TD, mdKey, fresh);
   const refRows = arr(m5) && arr(m5)!.length >= 3 ? arr(m5) : arr(m15);
   const liveOk = livePriceSane(live, refRows as never);
   const fallback = arr(m5)?.length ? +arr(m5)![arr(m5)!.length - 1].close : arr(m15)?.length ? +arr(m15)![arr(m15)!.length - 1].close : null;

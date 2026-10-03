@@ -166,8 +166,26 @@ function routeFor(key: string | undefined): string {
   return idx === 0 ? "" : RELAYS[idx - 1];
 }
 
-/** One request through a relay. Returns null when the relay itself is unreachable (caller falls back to direct). */
-async function viaRelay(relay: string, host: string, path: string, method: string, headers: Record<string, string>, body?: string, signal?: AbortSignal): Promise<{ status: number; text: string } | null> {
+/**
+ * What a relay made of one request: the broker's reply, or one of two kinds of failure.
+ *   "unreachable"  the relay never forwarded it (it refused the call, or no connection to it was ever made);
+ *   "ambiguous"    the relay may have forwarded it — its own call to the broker failed part-way, its reply
+ *                  was lost, or it answered without the broker's status.
+ * Every caller falls back to a direct request on either, exactly as before, EXCEPT a request marked
+ * `noResend` (see tlFetch): a non-GET that may already have reached the broker is not sent a second time.
+ */
+type RelayOut = { status: number; text: string } | "unreachable" | "ambiguous";
+const NEVER_CONNECTED = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT"]);
+/** The relay's OWN refusals (relay/server.ts), each sent before it forwards anything. The same status from something in front of the relay proves nothing. */
+const RELAY_REFUSALS = new Set(["unauthorized", "not_found", "relay_not_configured", "bad_json", "host_not_allowed", "bad_path"]);
+
+/**
+ * One request through a relay. `strict` is set only for a no-resend request: it alone needs to know WHICH
+ * kind of failure it was, and so it alone reads a refusal's body. Every other request is handled exactly
+ * as it always was — a 401/404/503 goes direct at once, body unread; anything else is the broker's reply
+ * if the relay's JSON carries a status, and goes direct if it does not.
+ */
+async function viaRelay(relay: string, host: string, path: string, method: string, headers: Record<string, string>, body?: string, signal?: AbortSignal, strict = false): Promise<RelayOut> {
   try {
     const r = await fetch(`${relay}/tl`, {
       method: "POST",
@@ -176,11 +194,22 @@ async function viaRelay(relay: string, host: string, path: string, method: strin
       cache: "no-store",
       signal,
     });
-    if (r.status === 401 || r.status === 404 || r.status === 503) return null;   // misconfigured relay → direct
+    if (!strict) {
+      if (r.status === 401 || r.status === 404 || r.status === 503) return "unreachable";   // misconfigured relay → direct
+    } else if (r.status === 400 || r.status === 401 || r.status === 404 || r.status === 503) {
+      // "Never forwarded" only when the refusal is the relay's OWN, by its body: the same status from
+      // something in front of the relay proves nothing about what the relay did.
+      let err = "";
+      try { err = String(((await r.json()) as { error?: unknown }).error ?? ""); } catch { /* not the relay's JSON */ }
+      return RELAY_REFUSALS.has(err) ? "unreachable" : "ambiguous";
+    }
     const j = (await r.json()) as { status?: number; text?: string; error?: string };
-    if (typeof j.status !== "number") return null;                                // relay couldn't reach the broker
+    if (typeof j.status !== "number") return "ambiguous";                         // relay couldn't say what the broker did
     return { status: j.status, text: String(j.text ?? "") };
-  } catch { return null; }
+  } catch (e) {
+    const code = String(((e as { cause?: { code?: unknown } } | null)?.cause?.code) ?? "");
+    return NEVER_CONNECTED.has(code) ? "unreachable" : "ambiguous";
+  }
 }
 
 /** Relay pool state (for logs/health). */
@@ -192,7 +221,19 @@ function isCloudflare1015(status: number, text: string): boolean {
   return status === 429 && /1015|error-1015|being rate limited/i.test(text);
 }
 
-async function tlFetch(env: TLEnv, path: string, init: RequestInit & { accessToken?: string; accNum?: string } = {}): Promise<{ status: number; json: unknown; text: string }> {
+/**
+ * `noResend` — for a request that must reach the broker AT MOST once (an order whose caller can tell its own
+ * orders apart afterwards). When a relay fails in a way that may already have delivered the request, the
+ * default is to send it again directly "rather than dropping a member's order"; with `noResend` it throws
+ * instead, and the caller asks the broker what happened. Unset, nothing changes.
+ *
+ * `notAfterMs` — do not START an attempt after this moment. A request waits in the scheduler's queue, and
+ * a rate-limited one is queued again up to six times; with a deadline, an attempt whose turn comes too
+ * late throws SendDeadline instead of going out (nothing of it has reached the broker: every earlier
+ * attempt was turned away at the edge). Unset, nothing changes.
+ */
+export class SendDeadline extends Error { constructor() { super("send_deadline_passed"); this.name = "SendDeadline"; } }
+async function tlFetch(env: TLEnv, path: string, init: RequestInit & { accessToken?: string; accNum?: string; noResend?: boolean; notAfterMs?: number | null } = {}): Promise<{ status: number; json: unknown; text: string }> {
   const host = TL_HOSTS[env];
   const method = String(init.method || "GET").toUpperCase();
   const isGet = method === "GET";
@@ -207,16 +248,18 @@ async function tlFetch(env: TLEnv, path: string, init: RequestInit & { accessTok
   const budgetKey = relay ? `${relay} → ${host}` : host;
 
   const once = async (): Promise<{ status: number; json: unknown; text: string }> => {
+    if (init.notAfterMs != null && Date.now() > init.notAfterMs) throw new SendDeadline();
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
     const allHeaders = { ...headers, ...(init.headers as Record<string, string> || {}) };
     try {
       if (relay) {
-        const viaR = await viaRelay(relay, host, path, method, allHeaders, typeof init.body === "string" ? init.body : undefined, ctrl.signal);
-        if (viaR) {
+        const viaR = await viaRelay(relay, host, path, method, allHeaders, typeof init.body === "string" ? init.body : undefined, ctrl.signal, !!init.noResend && !isGet);
+        if (typeof viaR === "object") {
           let json: unknown = null; try { json = viaR.text ? JSON.parse(viaR.text) : null; } catch { /* non-json */ }
           return { status: viaR.status, json, text: viaR.text };
         }
+        if (viaR === "ambiguous" && init.noResend && !isGet) throw new Error("relay_outcome_unknown");
         // relay unreachable → fall through and send it directly rather than dropping a member's order
       }
       const r = await fetch(`${host}${path}`, { ...init, headers: allHeaders, signal: ctrl.signal, cache: "no-store" });
@@ -349,6 +392,13 @@ export type CreateOrderInput = {
   qty: number; price?: number | null;
   stopLoss?: number | null; takeProfit?: number | null;
   validity?: "IOC" | "GTC";
+  /** The caller's own label for this order (TradeLocker's strategyId, at most 31 characters). It comes back on
+   *  the order's rows — working and history — and on the position it opens. Unset: no label is sent. */
+  strategyId?: string | null;
+  /** Never send this order a second time when a relay's failure leaves it unknown whether the first arrived. */
+  exactlyOnce?: boolean;
+  /** Do not send this order after this moment (ms): it is refused ("entry_deadline_passed") instead. */
+  notAfterMs?: number | null;
 };
 
 /**
@@ -369,7 +419,16 @@ export async function createOrder(env: TLEnv, accessToken: string, inp: CreateOr
   if (inp.type !== "market" && inp.price != null) body.price = inp.price;
   if (inp.stopLoss != null) { body.stopLoss = inp.stopLoss; body.stopLossType = "absolute"; }
   if (inp.takeProfit != null) { body.takeProfit = inp.takeProfit; body.takeProfitType = "absolute"; }
-  const { status, json, text } = await tlFetch(env, `/trade/accounts/${encodeURIComponent(inp.accountId)}/orders`, { method: "POST", accessToken, accNum: inp.accNum, body: JSON.stringify(body) });
+  if (inp.strategyId) body.strategyId = String(inp.strategyId).slice(0, 31);
+  let sent: { status: number; json: unknown; text: string };
+  try {
+    sent = await tlFetch(env, `/trade/accounts/${encodeURIComponent(inp.accountId)}/orders`, { method: "POST", accessToken, accNum: inp.accNum, body: JSON.stringify(body), ...(inp.exactlyOnce ? { noResend: true } : {}), ...(inp.notAfterMs != null ? { notAfterMs: inp.notAfterMs } : {}) });
+  } catch (e) {
+    // Its turn came after the caller's deadline: it was not sent. A refusal, not an unknown.
+    if (e instanceof SendDeadline) return { ok: false, status: 0, error: "entry_deadline_passed" };
+    throw e;
+  }
+  const { status, json, text } = sent;
   if (status < 200 || status >= 300) return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text, uncertain: status >= 500 || status === 408 };
   // TradeLocker wraps every response in { s: "ok"|"error", d, errmsg } and can
   // return HTTP 200 with s:"error" (market closed, bad field, throttled, etc.).

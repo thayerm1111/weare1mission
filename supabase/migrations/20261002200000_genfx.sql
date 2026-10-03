@@ -124,7 +124,7 @@ create table if not exists public.genfx_fills (
   mode text,
   setup text,
   alert_id uuid,
-  status text not null default 'reserved',          -- reserved → placed → managed | cancelled | uncertain
+  status text not null default 'reserved',          -- reserved → sending → placed → managed | void (see 20261003010000 and src/lib/genfx/fills.ts)
   qty numeric, entry numeric, stop numeric, tp numeric,
   risk_pct numeric, est_loss numeric,
   order_id text, position_id text,

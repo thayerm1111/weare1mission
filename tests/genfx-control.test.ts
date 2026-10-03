@@ -84,7 +84,7 @@ test("placement checks its switches before anything else, and only reaches accou
   const body = src.slice(src.indexOf("export async function placeGenfx"));
   const iCtl = body.indexOf("if (!ctl.readable || !ctl.auto) return report(");
   assert.ok(iCtl > 0, "the master switch is checked");
-  for (const later of ["marketFor(", "judgeSignal(", "armedAccounts(", "placeFixedLotFollower(", "connectionToken("]) {
+  for (const later of ["marketFor(", "judgeSignal(", "armedAccounts(", "io.send(", "io.login(", "io.quiet()"]) {
     const i = body.indexOf(later);
     assert.ok(i > iCtl, `${later} comes after the switch check`);
   }
@@ -92,14 +92,40 @@ test("placement checks its switches before anything else, and only reaches accou
   assert.match(src, /\.eq\(pair\.column, true\)/);
   assert.match(src, /\.filter\(\(r\) => inScope\(ctl\.scope, \{ userId: String\(r\.user_id\), environment: r\.env \}, OWNER_USER_ID\)\)/);
   assert.ok(!/genx_follower|autotrade_enabled\s*:\s*a\./.test(src), "nobody's gold or FLOW switch arms GEN FX");
-  // The claim is written before the order, the yen rate before the fan-out, and a thrown order is held, not retried.
-  assert.ok(body.indexOf('from("genfx_fills").insert(') < body.indexOf("placeFixedLotFollower("));
+  // GEN FX's lock and its "is it the same side?" rule are its own: nothing gold can switch off reaches them.
+  assert.ok(!/genx2\/reservation|genx\/hedge|reserveGold|goldResvKey|blocksEntry/.test(src), "placement does not go through gold's fail-open lock or its hedge switch");
+  assert.match(src, /import \{ reserveFx, markFx, releaseFxIfHeldBy, fxResvKey \} from "@\/lib\/genfx\/reserve";/);
+  const reserve = readFileSync("src/lib/genfx/reserve.ts", "utf8");
+  assert.ok(!/genx2ReservationEnabled|hedgeEnabled|reserved: true/.test(reserve), "the lock has no switch and no fail-open answer");
+  assert.match(reserve, /if \(error\) return \{ ok: false, reason: "reservation_unavailable" \};/);
+  assert.match(reserve, /catch \{ return \{ ok: false, reason: "reservation_unavailable" \}; \}/);
+  // The yen rate is settled before the fan-out; the lock, then the claim, then the written size, then the order.
   assert.ok(body.indexOf("no_usdjpy_rate") < body.indexOf("armedAccounts(admin, pair, ctl)"));
-  assert.match(body, /markReservation\(admin, aid, resvKey, "unknown"\)/);
-  assert.match(body, /status: "uncertain"/);
+  const order = ["reserveFx(admin, aid, pair.key, sig.side, signalKey, 60)", "claimAt = Date.now();", 'status: "reserved",', 'await remember(qty, "reserved")', "r = await send(qty);", 'const took = await record({ status: "placed", order_id: orderId'];
+  for (let i = 1; i < order.length; i++) assert.ok(body.indexOf(order[i - 1]) > 0 && body.indexOf(order[i - 1]) < body.indexOf(order[i]), `${order[i - 1]} comes before ${order[i]}`);
+  // A thrown order is held as unknown and said to be uncertain; the order is capped a quarter of the stop past the quote.
+  assert.match(body, /await markFx\(admin, aid, resvKey, "unknown"\);\s+const doubt = await record\(\{ status: "uncertain", clean: 0, next_check_at: new Date\(\)\.toISOString\(\), updated_at: new Date\(\)\.toISOString\(\) \}\);/);
+  // …unless the order function says nothing was attempted: then the claim is simply handed back.
+  assert.match(body, /if \(\(e as \{ noOrderSent\?: boolean \} \| null\)\?\.noOrderSent === true\) \{\s+await undo\(\);/);
+  // Placement never writes "managed", and never writes the ledger: the books pass does both, from the broker's own record.
+  assert.ok(!/status: "managed"/.test(body), "placement does not call a call finished");
+  assert.ok(!/ensureLedgerRow|from\("flow_managed_positions"\)\.insert/.test(src), "placement writes no ledger row");
+  // The final write only lands on a row still as this pass left it; a row written off in the meantime is an alarm.
+  assert.match(body, /let wrote = await write\(\["sending", "uncertain"\]\);/);
+  assert.match(body, /WAS ACCEPTED AFTER ITS RECORD HAD BEEN CLOSED/);
+  // …and so does the write after a send that threw: neither way out of a send writes over a row it has not looked at.
+  assert.match(body, /WAS SENT AFTER ITS RECORD HAD BEEN CLOSED/);
+  assert.ok(!/setFill\(/.test(body), "no unconditional write to the call's row");
+  // The switches are read again a moment before each order, and the order carries its label and a deadline.
+  assert.ok(body.indexOf("const still = await stillOn(a);") > 0 && body.indexOf("const still = await stillOn(a);") < body.indexOf('await remember(qty, "reserved")'));
+  // ONE deadline for the call, counted from its claim — the retry at the smallest size does not get a fresh one.
+  assert.match(body, /const notAfterMs = claimAt \+ SEND_DEADLINE_MS;\s+const send = \(qty: number\) => io\.send\(\{ userId: uid, ref, pair: pair\.key, side: sig\.side, qty, stop, tp, maxEntry, tag, notAfterMs \}\);/);
+  assert.match(body, /created_at: new Date\(claimAt\)\.toISOString\(\), next_check_at: new Date\(claimAt \+ CLAIM_DEAD_MS\)\.toISOString\(\)/);
+  assert.match(body, /const maxEntry = maxEntryFor\(pair, sig\.side, fillRef, stop\);/);
+  assert.match(src, /symbol: o\.pair, side: o\.side, qty: o\.qty, stop: o\.stop, tp: o\.tp, source: "genfx", maxEntry: o\.maxEntry,/);
   // The size is cut from this account's own broker price, read before the order, and that price is
   // re-checked against the stop, the minimum stop and the 0.8-to-1 floor.
-  const iQuote = body.indexOf("entryQuoteFor(ref, pair.key, sig.side)"), iSize = body.indexOf("sizeFx(pair, { entry: fillRef, stop, equity, riskPct, usdJpy, limits: ctl.config })"), iSend = body.indexOf("placeFixedLotFollower({");
+  const iQuote = body.indexOf("io.quote(ref, pair.key, sig.side)"), iSize = body.indexOf("sizeFx(pair, { entry: fillRef, stop, equity, riskPct, usdJpy, limits: ctl.config })"), iSend = body.indexOf("r = await send(qty);");
   assert.ok(iQuote > 0 && iQuote < iSize && iSize < iSend);
   const between = body.slice(iQuote, iSize);
   assert.match(between, /if \(sig\.side === "buy" \? fillRef <= stop : fillRef >= stop\) \{ await undo\(\); return skip\("through_stop"/);
@@ -107,8 +133,10 @@ test("placement checks its switches before anything else, and only reaches accou
   assert.match(between, /if \(chasedAt\(sig\.side, stop, tp, fillRef\)\) \{ await undo\(\); return skip\("chased"/);
   // No broker price → the feed's, moved AWAY from the stop by the pair's cost, so the size can only come out smaller.
   assert.match(between, /sig\.side === "buy" \? sizeEntry \+ pair\.costPips \* pair\.pip : sizeEntry - pair\.costPips \* pair\.pip/);
-  // Every ledger row GEN FX opens carries its stamp.
-  assert.match(body, /strategy_version: GENFX_VERSION, mode: sig\.mode, signal_id: signalKey, setup_family: sig\.setup/);
+  // An account whose currency cannot be read is not assumed to be in dollars.
+  assert.match(body, /if \(ccy !== "USD"\) \{ await undo\(\);/);
+  // Every ledger row GEN FX opens carries its stamp, whoever writes it.
+  assert.match(readFileSync("src/lib/genfx/ledger.ts", "utf8"), /\(\{ strategy_version: GENFX_VERSION, mode: x\.mode, signal_id: x\.signalKey, setup_family: x\.setup \}\)/);
   assert.equal(GENFX_VERSION, "genfx-1.0");
 });
 
@@ -129,9 +157,9 @@ test("the scanner and the watch do nothing when scanning is off or the row is un
   assert.match(watch, /if \(!ctl\.readable \|\| !ctl\.scan\) return \{ zones: 0, forming: 0, sent \};/);
   assert.match(watch, /const LOCK_ID = 6;/);
   // A call is written and won before it is announced or placed, in both.
-  assert.ok(scan.indexOf('state: "entered", enter_price: rr.price') < scan.indexOf("out.placed = await placeGenfx("));
+  assert.ok(scan.indexOf('state: "entered", enter_price: price') > 0 && scan.indexOf('state: "entered", enter_price: price') < scan.indexOf("out.placed = await place({"));
   const zone = watch.slice(watch.indexOf("// Move the row forward FIRST"));
-  assert.ok(zone.indexOf('.eq("id", r.id).eq("state", "zone").select("id")') < zone.indexOf("placeGenfx("));
+  assert.ok(zone.indexOf('.eq("id", r.id).eq("state", "zone").select("id")') > 0 && zone.indexOf('.eq("id", r.id).eq("state", "zone").select("id")') < zone.indexOf("await place({"));
   assert.match(zone, /if \(!won\?\.length\) continue;/);
   // Nothing is posted unless the owner switched GEN FX's Telegram on.
   assert.match(scan, /const say = async \(ctl: GenfxControl, html: string\) => \{ if \(ctl\.telegram && tgEnv\(\)\)/);
@@ -143,13 +171,16 @@ test("credits are untouched unless billing is switched on", () => {
   assert.match(place, /const gate: FxFireGate = ctl\.billing \? await fxFireGate\(/);
   assert.match(place, /if \(ctl\.billing\) \{ try \{ await chargeFxFire\(/);
   const scan = readFileSync("src/lib/genfx/scan.ts", "utf8");
-  assert.match(scan, /if \(ctl\.billing\) \{ try \{ out\.billed = await billFxSetup\(/);
+  assert.match(scan, /if \(ctl\.billing\) \{\n\s+\/\/ Only a setup auto-trade would actually place is billed/);
+  // …under the setup's fee key: its own, or — for a setup that was let go and came straight back — the first one's.
+  assert.match(scan, /const feeKey = recall \? \(recall\.fee_key \?\? recall\.dedupe_key\) : dedupeKey;/);
+  assert.match(scan, /try \{ out\.billed = await billFxSetup\(admin, feeKey, tradeable\.ok \? await armedUserIds\(admin, pair, ctl\) : \[\], tradeable\); \}/);
   const route = readFileSync("src/app/api/genfx/route.ts", "utf8");
   assert.match(route, /if \(ctl\.billing\) \{\s+const gate = await gateCredits\("genx"\);/);
   assert.match(route, /if \(ctl\.billing && chargeable\) await chargeCredit\("genx"\);/);
   // The fee for a trade is taken after the order is on the account, never before.
   const body = place.slice(place.indexOf("export async function placeGenfx"));
-  assert.ok(body.indexOf("placeFixedLotFollower(") < body.indexOf("chargeFxFire(admin, uid, signalKey, gate)"));
+  assert.ok(body.indexOf("r = await send(qty);") > 0 && body.indexOf("r = await send(qty);") < body.indexOf("chargeFxFire(admin, uid, signalKey, gate)"));
 });
 
 test("GEN FX cannot change who pays for gold: its rows are invisible to the gold setup-fee rule", () => {
@@ -159,11 +190,30 @@ test("GEN FX cannot change who pays for gold: its rows are invisible to the gold
   assert.match(fn, /\.in\("status", \["placed", "uncertain"\]\)[\s\S]*?\.or\("reason\.is\.null,reason\.not\.like\.genfx\*"\)\.limit\(20000\)/);
   // …which only works because every row GEN FX writes to that table says so at the start of its reason.
   const place = readFileSync("src/lib/genfx/place.ts", "utf8");
-  const inserts = place.match(/from\("flow_auto_events"\)\.insert\(\{[^\n]*/g) ?? [];
-  assert.ok(inserts.length >= 4);
-  for (const line of inserts) assert.match(line, /reason: (`genfx: |"genfx: )/, line.slice(0, 160));
-  assert.match(place, /symbol: pair\.key, side: sig\.side, qty, stop, tp, source: "genfx", maxEntry: null,/);
+  // Two writers in place.ts: the desk-wide breadcrumb, and the per-account one every skip, uncertain and placed row goes through.
+  assert.match(place, /from\("flow_auto_events"\)\.insert\(\{ user_id: OWNER_USER_ID, symbol: pair\.key, side: sig\.side, status, reason: `genfx: \$\{reason\}`/);
+  assert.equal((place.match(/from\("flow_auto_events"\)\.insert\(/g) ?? []).length, 2);
+  const rows = place.match(/await event\(\{[^\n]*/g) ?? [];
+  assert.ok(rows.length >= 3);
+  for (const line of rows) assert.match(line, /reason: (`genfx: |[a-zA-Z ?:]*"genfx: )/, line.slice(0, 200));
+  assert.match(place, /source: "genfx", maxEntry: o\.maxEntry,/);
+  // The books pass writes two kinds of row there — a note on one order, and "GEN FX switched itself off on
+  // this account" — and both say GEN FX at the start too.
+  const settle = readFileSync("src/lib/genfx/settle.ts", "utf8");
+  assert.equal((settle.match(/from\("flow_auto_events"\)\.insert\(/g) ?? []).length, 2);
+  assert.match(settle, /from\("flow_auto_events"\)\.insert\(\{[^\n]*reason: `genfx: \$\{reason\}`/);
+  assert.match(settle, /const reason = `genfx: SWITCHED OFF on this account — \$\{why\}`/);
+  // Nothing else in GEN FX inserts into that table.
   for (const f of ["src/lib/genfx/scan.ts", "src/lib/genfx/watch.ts", "worker/genfx.ts"]) assert.ok(!/from\("flow_auto_events"\)\.insert/.test(readFileSync(f, "utf8")), f);
+  // And the gold orphan recovery, which recognises a fill by its size, leaves every GEN FX row alone.
+  const recover = readFileSync("src/lib/flow/recover.ts", "utf8");
+  assert.match(recover, /return !r\.startsWith\("play"\) && !r\.startsWith\("genfx"\);/);
+  // …and leaves them out of its read as well, so a GEN FX fan-out cannot crowd gold's own events out of the
+  // hundred rows it looks at. If that filter is ever refused, it reads exactly what it read before.
+  assert.match(recover, /await recent\(\)\.or\("reason\.is\.null,reason\.not\.like\.genfx\*"\)\.order\("created_at", \{ ascending: false \}\)\.limit\(100\);\s+if \(evErr\) \(\{ data: ev, error: evErr \} = await recent\(\)\.order\("created_at", \{ ascending: false \}\)\.limit\(100\)\);/);
+  // GEN FX's own setup-fee rule reads only the rows GEN FX wrote — the mirror image.
+  const fxBilling = readFileSync("src/lib/genfx/billing.ts", "utf8");
+  assert.equal((fxBilling.match(/\.like\("reason", "genfx%"\)/g) ?? []).length, 2);
 });
 
 test("the shared desk knows GBP/JPY (it used to fall back to gold's numbers)", () => {
@@ -200,7 +250,27 @@ test("GEN FX is wired in beside GENX, not into it", () => {
   assert.ok(crons.some((c) => c.path === "/api/cron/genfx-scan?watch=1" && c.schedule === "* * * * *"));
   assert.ok(crons.some((c) => c.path.startsWith("/api/cron/genx-scan")), "gold's scanner is still scheduled");
   const cron = readFileSync("src/app/api/cron/genfx-scan/route.ts", "utf8");
-  assert.match(cron, /if \(!\(await acquireFxLock\(admin, holder, LOCK_TTL_MS\)\)\) return json\(\{ ok: true, skipped: "locked \(worker active\)" \}\);/);
+  assert.match(cron, /let got = await acquireFxLock\(admin, holder, LOCK_TTL_MS\);/);
+  assert.match(cron, /if \(!got\) return json\(\{ ok: true, skipped: "locked \(worker active\)" \}\);/);
+  // The minute run waits only for the scan-only run, never for the worker, and scans when the candle has not been scanned.
+  assert.match(cron, /for \(let i = 0; !got && watch && i < 6 && \(await holderKind\(admin\)\) === "cron"; i\+\+\)/);
+  assert.match(cron, /if \(await scanDue\(admin, Date\.now\(\)\)\) \{\n\s+scanned = true;\n\s+await untilFeedHasIt\(\);\n\s+const scan = await runGenfxScan\(admin, mdKey\);/);
+  // The books need no market data: the minute run does them before it asks for the key, and again after anything that placed.
+  assert.ok(cron.indexOf("let books = (await genfxSweep(admin)).settle;") > 0 && cron.indexOf("let books = (await genfxSweep(admin)).settle;") < cron.indexOf('skipped: "no_market_data_key (books only)"'));
+  assert.match(cron, /if \(pass\.sent\.some\(\(x\) => \/ENTER\/\.test\(x\)\) \|\| \(booksDueAt && Date\.now\(\) >= booksDueAt\)\) \{\s+books = \(await genfxSweep\(admin\)\)\.settle;/);
+  // …and the run's FIRST books pass counts: if it left something waiting on the broker, the books are looked at again ten seconds on.
+  assert.match(cron, /let booksDueAt = books\.waiting \|\| books\.cancelled \? Date\.now\(\) \+ 10_000 : 0;/);
+  // A history replay never runs on the trade manager's thread.
+  const loop = readFileSync("worker/genfx.ts", "utf8");
+  // Switched on: the scan runs before the watch looks at anything left on record from before.
+  // "Switched on" is judged between two reads that both succeeded: a failed read answers "everything off", and is not the switch being turned.
+  assert.match(loop, /let scanWas: boolean \| null = ctl\.readable \? ctl\.scan : null;/);
+  const flip = "if (ctl.readable) { if (ctl.scan && scanWas === false) lastScanSlot = 0; scanWas = ctl.scan; }";
+  assert.ok(loop.includes(flip));
+  assert.ok(loop.indexOf(flip) < loop.indexOf("const r = await runGenfxScan(admin, mdKey, { worker: true });") && loop.indexOf("const r = await runGenfxScan(admin, mdKey, { worker: true });") < loop.indexOf("const w = await genfxWatchPass(admin, mdKey, ctl);"));
+  assert.match(loop, /fork\(path\.join\(process\.cwd\(\), "worker", "genfxReplay\.ts"\), \[\], \{ stdio: "inherit" \}\)/);
+  assert.ok(!/runRequestedReplay/.test(loop));
+  assert.match(readFileSync("worker/genfxReplay.ts", "utf8"), /await runRequestedReplay\(admin, log, /);
   const nav = readFileSync("src/components/portal/PortalNav.tsx", "utf8");
   assert.match(nav, /genfx: \{ href: "\/portal\/genfx", label: "GEN FX"/);
   assert.match(nav, /\{ kind: "page", key: "genx" \},\n  \{ kind: "page", key: "genfx" \},/);

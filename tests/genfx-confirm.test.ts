@@ -100,7 +100,8 @@ test("too little data is said, not guessed; a swapped zone is put right", () => 
 
 test("the page, the scanner and the replay all use this one rule", () => {
   assert.match(readFileSync("src/app/api/genfx/confirm/route.ts", "utf8"), /confirmFxEntry\(/);
-  assert.match(readFileSync("src/lib/genfx/scan.ts", "utf8"), /confirmFxEntry\(/);
+  assert.match(readFileSync("src/lib/genfx/scan.ts", "utf8"), /const confirm = o\.confirm \?\? confirmFxEntry,/);
+  assert.match(readFileSync("src/lib/genfx/watch.ts", "utf8"), /const confirm = deps\.confirm \?\? confirmFxEntry;/);
   assert.match(readFileSync("src/lib/genfx/replay.ts", "utf8"), /confirmFromCandles\(/);
   const src = readFileSync("src/lib/genfx/confirm.ts", "utf8");
   assert.match(src, /const d = confirmFromCandles\(pair,/);      // the fetching version decides with the pure one

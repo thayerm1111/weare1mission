@@ -130,14 +130,20 @@ export function managedRowCovers(rowAt: string, eventAt: string): boolean {
 
 export async function recoverOrphans(admin: Admin): Promise<{ adopted: number; checked: number }> {
   const sinceIso = new Date(Date.now() - 15 * 60_000).toISOString();
-  const { data: ev } = await admin.from("flow_auto_events")
+  const recent = () => admin.from("flow_auto_events")
     .select("id,user_id,account_id,symbol,side,qty,entry,stop,tp,status,reason,created_at")
     .in("status", ["placed", "uncertain"])
-    .gte("created_at", sinceIso)
-    .order("created_at", { ascending: false }).limit(100);
+    .gte("created_at", sinceIso);
+  // GEN FX's own events are left out IN THE QUERY, so a GEN FX fan-out cannot fill the hundred rows
+  // read here and crowd a gold fill out of its fifteen minutes. If that filter is ever refused, the
+  // read falls back to exactly what it was before; the same events are dropped again just below.
+  let { data: ev, error: evErr } = await recent().or("reason.is.null,reason.not.like.genfx*").order("created_at", { ascending: false }).limit(100);
+  if (evErr) ({ data: ev, error: evErr } = await recent().order("created_at", { ascending: false }).limit(100));
   // OM AI PLAYS are member-managed (owner directive 09-01) — never adopt them into the
   // manager, or the recovery loop would undo the executor's play exclusion minutes later.
-  const events = ((ev ?? []) as EvRow[]).filter((e) => !String(e.reason ?? "").startsWith("play"));
+  // GEN FX settles its own orders (genfx/settle.ts): each carries a label and is found again by it, never
+  // by size. Its events are left alone here, so a member's own same-size position is not taken for its fill.
+  const events = ((ev ?? []) as EvRow[]).filter((e) => { const r = String(e.reason ?? ""); return !r.startsWith("play") && !r.startsWith("genfx"); });
   if (!events.length) return { adopted: 0, checked: 0 };
 
   const acctIds = [...new Set(events.map((e) => String(e.account_id)).filter(Boolean))];

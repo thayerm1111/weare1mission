@@ -20,13 +20,37 @@ export function rewardRisk(entry: number | null, stop: number | null, tp: number
 export const ENTRY_FLOOR_RR = 0.8;        // take the trade at 0.8:1 or better; below it, wait for a pullback
 export const ARM_MAX_MS = 5 * 60_000;     // wait five minutes for that pullback, then let it go
 
-/** Enter now, arm and wait for a pullback, abandon, or keep waiting. `armed` = already announced once. */
+/** Is `lp` at or beyond the stop for a trade this way? The side is read from where the target sits. */
+export function throughStop(lp: number | null, stop: number | null, tp1: number | null, entryLow: number | null, entryHigh: number | null): boolean {
+  if (lp == null || stop == null) return false;
+  const ref = tp1 ?? (entryLow != null && entryHigh != null ? (Number(entryLow) + Number(entryHigh)) / 2 : entryLow ?? entryHigh);
+  if (ref == null || ref === stop) return false;
+  return ref > stop ? lp <= stop : lp >= stop;          // a buy's stop is below it, a sell's above
+}
+
+/**
+ * Enter now, arm and wait for a pullback, abandon, or keep waiting. `armed` = already announced once.
+ *
+ * TWO DIFFERENCES FROM GENX, on purpose.
+ *   • Reward ÷ risk is measured with absolute distances, so a price that has gone THROUGH the stop
+ *     reads as a tiny risk and a huge reward — "10 to 1, take it" — and GENX's rule enters. Gold's
+ *     placement refuses that order a step later, so no trade is lost there, but the call itself is
+ *     recorded as entered at a price beyond its own stop. Here a price at or through the stop is never
+ *     an entry: the setup waits (a candle closing beyond its invalidation ends it).
+ *   • An armed setup's five minutes are five minutes. GENX asks "is the price worth taking?" before it
+ *     asks "has the time run out?", which is the same thing while a watch looks every second — and is
+ *     not after a gap: a setup armed at 4:12pm New York, frozen through the daily close, would be
+ *     entered at 7pm on the first price that qualified. Here the clock is asked first.
+ */
 export function decideFxEntry(pair: FxPair, o: {
   armed: boolean; confState: string; lp: number | null;
   entryLow: number | null; entryHigh: number | null; stop: number | null; tp1: number | null;
   armedAtMs: number; nowMs: number;
 }): { do: "enter" | "arm" | "invalidate" | "wait"; reason: string } {
   if (o.confState === "INVALIDATED") return { do: "invalidate", reason: "invalidated" };
+  // (Written so that an arming time nobody can read — NaN — counts as expired, not as "never expires".)
+  if (o.armed && !(o.nowMs - o.armedAtMs <= ARM_MAX_MS)) return { do: "invalidate", reason: "arm_expired_5min" };
+  if (throughStop(o.lp, o.stop, o.tp1, o.entryLow, o.entryHigh)) return { do: "wait", reason: "through_stop" };
   const rr = rewardRisk(o.lp, o.stop, o.tp1);
   const zLo = Math.min(Number(o.entryLow), Number(o.entryHigh));
   const zHi = Math.max(Number(o.entryLow), Number(o.entryHigh));
@@ -40,11 +64,11 @@ export function decideFxEntry(pair: FxPair, o: {
     return { do: "arm", reason: "chased_below_floor" };
   }
   if (takeable) return { do: "enter", reason: "pullback_to_entry" };
-  if (o.nowMs - o.armedAtMs > ARM_MAX_MS) return { do: "invalidate", reason: "arm_expired_5min" };
   return { do: "wait", reason: "armed_waiting" };
 }
 
 // ── watchTick.sameSetupZone ──────────────────────────────────────────────────────────────────────
+/** GENX's window for calling a drifted Quick zone the same setup. Kept as the number; see scan.findSameSetup for how GEN FX applies the rule. */
 export const SAME_SETUP_WINDOW_MS = 4 * 3600_000;
 type ZoneLike = { side: "buy" | "sell"; entry_low: number | null; entry_high: number | null };
 
@@ -54,6 +78,32 @@ export function sameSetupZone(pair: FxPair, a: ZoneLike, b: ZoneLike): boolean {
   const mid = (z: ZoneLike) => (Number(z.entry_low) + Number(z.entry_high)) / 2;
   const width = Math.max(Math.abs(Number(a.entry_high) - Number(a.entry_low)), Math.abs(Number(b.entry_high) - Number(b.entry_low)));
   return Math.abs(mid(a) - mid(b)) <= Math.max(units(pair, U.sameSetup), 1.5 * width);
+}
+
+/**
+ * ONE IDEA, COUNTED ONCE. A page setup and a scanner setup are two routes to the same trade: the page
+ * shows a level and it is entered on touch, and the scanner confirms the same zone a few minutes later.
+ * Both are recorded — each is a call members could have acted on — and both are graded against the same
+ * stop and target, so a record that adds them up counts one move twice. A call entered WHILE an earlier
+ * call on the same pair, horizon, side and setup was still running is that idea again: the earlier one
+ * is the one counted. A call made after the earlier one had finished is a new trade, and is counted.
+ * (The same-setup rules in the scanner already keep two page calls, or two scanner calls, from running
+ * together; this is the pair of them.) Returns the calls to count, and how many were repeats. Pure.
+ */
+export function oneCallPerIdea<T extends { mode: string; side: "buy" | "sell"; entry_low: number | null; entry_high: number | null; enter_sent_at: string | null; resolved_at: string | null }>(pair: FxPair, calls: T[]): { counted: T[]; repeats: number } {
+  const at = (s: string | null) => (s ? Date.parse(s) : NaN);
+  const sorted = [...calls].sort((a, b) => (at(a.enter_sent_at) || 0) - (at(b.enter_sent_at) || 0));
+  const counted: T[] = [];
+  let repeats = 0;
+  for (const c of sorted) {
+    const t = at(c.enter_sent_at);
+    const twin = Number.isFinite(t) && counted.some((k) => {
+      const from = at(k.enter_sent_at), to = at(k.resolved_at);
+      return k.mode === c.mode && Number.isFinite(from) && Number.isFinite(to) && from <= t && t < to && sameSetupZone(pair, k, c);
+    });
+    if (twin) repeats++; else counted.push(c);
+  }
+  return { counted, repeats };
 }
 
 // ── keys ─────────────────────────────────────────────────────────────────────────────────────────
@@ -107,5 +157,68 @@ export function zoneBand(pair: FxPair, entry: number): { low: number; high: numb
   return { low: px(pair, entry - touch), high: px(pair, entry + touch) };
 }
 export const ZONE_TTL_MS = 12 * 3600_000;
+
+// ── the life of a call on paper ──────────────────────────────────────────────────────────────────
+/** A pending scanner setup that has not confirmed in this long is let go (gold's windows). */
+export const FORMING_TTL_MS: Record<Mode, number> = { quick: 8 * 3600_000, intraday: 8 * 3600_000, swing: 48 * 3600_000 };
+/**
+ * An entered call that has reached neither its target nor its stop in this long is closed as
+ * "expired" — no result. GENX uses eight hours for every horizon, which fits a trade meant to last
+ * twenty minutes and cuts off one meant to last two days before it has done anything; here each
+ * horizon gets a window that fits how long it is meant to be held.
+ */
+export const GRADE_EXPIRY_MS: Record<Mode, number> = { quick: 8 * 3600_000, intraday: 24 * 3600_000, swing: 96 * 3600_000 };
+
+export type GradeCandle = { t: number; h: number; l: number };   // t = the candle's START, ms UTC
+
+/**
+ * One candle past an entered call: "loss", "win", or null (nothing yet). The live grading and the
+ * replay both grade with this, so the two records are kept by one rule. Two things a candle cannot
+ * show are settled against the call:
+ *   • a candle that holds both the stop and the target is a loss;
+ *   • the candle the entry happened INSIDE can stop the call but cannot pay it — its range includes
+ *     whatever price did before the entry.
+ * A candle that had closed by the entry says nothing. Pure.
+ */
+export function gradeCandle(a: { side: "buy" | "sell"; stop: number; tp1: number | null; enterMs: number }, c: GradeCandle, ivMs: number): "win" | "loss" | null {
+  if (!(c.t + ivMs > a.enterMs)) return null;           // closed at or before the entry
+  const sell = a.side === "sell";
+  if (sell ? c.h >= a.stop : c.l <= a.stop) return "loss";
+  const entryCandle = c.t <= a.enterMs;
+  if (!entryCandle && a.tp1 != null && (sell ? c.l <= a.tp1 : c.h >= a.tp1)) return "win";
+  return null;
+}
+
+/**
+ * Grade an entered call against the candles since, in time order whatever order they arrive in.
+ *   `closedByMs`  only candles that had CLOSED by then are read. The feed's newest candle is still
+ *                 forming, and a forming candle that has touched the target can still go on to touch
+ *                 the stop — which, in one candle, is a loss.
+ *   `untilMs`     candles that START at or after this say nothing: the call had run out of time. It
+ *                 is how a call nobody graded for a while is graded as it would have been on time.
+ * Pure.
+ */
+export function gradeCall(a: { side: "buy" | "sell"; stop: number; tp1: number; enterMs: number }, candles: GradeCandle[], ivMs: number, o: { closedByMs?: number; untilMs?: number } = {}): { result: "win" | "loss"; at: number } | null {
+  for (const c of [...candles].sort((x, y) => x.t - y.t)) {
+    if (o.untilMs != null && c.t >= o.untilMs) break;
+    if (o.closedByMs != null && c.t + ivMs > o.closedByMs) break;
+    const result = gradeCandle(a, c, ivMs);
+    if (result) return { result, at: c.t + ivMs };
+  }
+  return null;
+}
+
+/**
+ * When entries last reopened: the end of the most recent quiet window (the daily close, the weekend),
+ * to five minutes. A page setup registered before it describes a market that has since been shut and
+ * reopened — on a Sunday, with a gap — so the watch does not act on one until a scan has shown it
+ * again. Pure, given the desk's own "is it quiet?" rule.
+ */
+export function lastReopenMs(nowMs: number, quiet: (d: Date) => boolean): number {
+  const STEP = 5 * 60_000;
+  let t = Math.floor(nowMs / STEP) * STEP;
+  for (let i = 0; i < 12 * 24 * 5; i++, t -= STEP) if (quiet(new Date(t))) return t + STEP;
+  return 0;
+}
 
 // ── genxConservativeGate is imported where it is used; it has no gold numbers in it. ──
