@@ -37,6 +37,7 @@ export async function GET() {
         automationEnabled: a.automation_enabled === true, managementEnabled: a.management_enabled === true,
         selectedRisk: Number(a.risk_pct), equity: a.equity, allowSharedAccount: a.allow_shared_account === true,
         sharedWith: [], resolvedSymbol: (a.instrument_spec as { brokerSymbol?: string } | null)?.brokerSymbol ?? null,
+        ownershipCheckedAt: (a.ownership_check as { checkedAt?: string } | null)?.checkedAt ?? null,
         blockers: ["no analysis has been produced yet"],
       })),
     });
@@ -77,6 +78,8 @@ export async function GET() {
       allowSharedAccount: a.allow_shared_account === true,
       sharedWith: (ownership as { sharedWith?: string[] } | null)?.sharedWith ?? [],
       resolvedSymbol: (a.instrument_spec as { brokerSymbol?: string } | null)?.brokerSymbol ?? null,
+      // When the worker last looked. The panel uses it to tell "being re-checked now" from "has not been looked at".
+      ownershipCheckedAt: (ownership as { checkedAt?: string } | null)?.checkedAt ?? null,
       blockers,
     };
   });

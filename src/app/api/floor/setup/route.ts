@@ -3,6 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { series, livePrice } from "@/lib/marketData";
 import { computeGenxRead, buildGenx, GOLD, MODES, type Mode } from "@/lib/genxCompute";
+import { computeGenfxRead, genfxOf } from "@/lib/genfx/compute";
+import { PAIRS, type FxPair } from "@/lib/genfx/pairs";
+import { floorInstrument, fxPairKey, setupCacheKey } from "@/lib/floor/setupInstruments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +27,13 @@ export const maxDuration = 20;
  * floor_setup_history, so the panel can show the map exactly as it looked earlier in the day.
  *   ?history=1   -> the last snapshots for this mode (one line each)
  *   ?id=<uuid>   -> that snapshot's full map (frozen: its own read, candles and price)
+ *
+ * THE OTHER TWO INSTRUMENTS (owner 10-04: "page through here to GBPJPY, and EURUSD as well … just like
+ * the GENX"). `?symbol=EURUSD` or `?symbol=GBPJPY` returns the same payload from the GEN FX engine for
+ * that pair: the same pure read (computeGenfxRead + genfxOf, no AI narrative, no credits — as gold's
+ * is here), its own cache entry and its own history rows (floor_setup_history.instrument). No symbol,
+ * or anything else, is gold, served exactly as before: a request without `symbol` cannot tell this
+ * change happened.
  */
 
 // Short cache so the Floor chart stays live. The underlying series/price come
@@ -40,43 +50,23 @@ function json(o: unknown, s = 200) {
 
 const CHART_TF: Record<Mode, string> = { quick: "5min", intraday: "15min", swing: "1h" };
 
-export async function GET(req: NextRequest) {
-  const supabase = createClient();
-  if (supabase) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return json({ error: "unauthorized" }, 401);
-  }
+type Candle = { t: string; o: number; h: number; l: number; c: number };
+/** The read as the card receives it. Only two of its fields are read here, for the history row. */
+type Read = { action?: unknown; confidence_score?: unknown } & Record<string, unknown>;
+type Built =
+  | { ok: true; g: Read; candles: Candle[]; price: number; session: string; asOf: string }
+  | { ok: false; error: string };
 
-  const url = new URL(req.url);
-  const admin = createAdminClient();
+const toCandles = (raw: unknown): Candle[] =>
+  Array.isArray(raw)
+    ? (raw as { datetime: string; open: string; high: string; low: string; close: string }[])
+        .map((r) => ({ t: r.datetime, o: +r.open, h: +r.high, l: +r.low, c: +r.close })).filter((k) => Number.isFinite(k.c))
+    : [];
 
-  // ── Previous analyses (list / replay) ──
-  const histId = url.searchParams.get("id");
-  const wantHistory = url.searchParams.get("history");
-  if (histId || wantHistory) {
-    if (!admin) return json({ past: [] });
-    if (histId) {
-      const { data } = await admin.from("floor_setup_history").select("id,at,mode,price,payload").eq("id", histId).maybeSingle();
-      const row = data as { id: string; at: string; mode: string; price: number | null; payload: { g?: unknown; candles?: unknown[] } } | null;
-      if (!row) return json({ error: "not_found" }, 404);
-      return json({ past: true, id: row.id, at: row.at, mode: row.mode, price: row.price, g: row.payload?.g ?? null, candles: row.payload?.candles ?? [], frozen: true });
-    }
-    const hm = url.searchParams.get("mode");
-    const listMode: Mode = hm === "quick" || hm === "swing" ? hm : "intraday";
-    const { data } = await admin.from("floor_setup_history").select("id,at,mode,price,action,confidence").eq("mode", listMode).order("at", { ascending: false }).limit(24);
-    return json({ past: data ?? [] });
-  }
-
-  const modeParam = url.searchParams.get("mode");
-  const mode: Mode = modeParam === "quick" || modeParam === "swing" ? modeParam : "intraday";
-
-  if (CACHE[mode] && Date.now() - CACHE[mode].at < TTL_MS) return json({ ...CACHE[mode].body, cached: true });
-
-  const mdKey = process.env.TWELVEDATA_API_KEY;
-  if (!mdKey) return json({ g: null, candles: [], price: null, mode, error: "marketdata_not_configured" });
-
+/** Gold — the GENX read. Unchanged from before the card could show anything else. */
+async function goldSetup(mode: Mode, mdKey: string): Promise<Built> {
   const rr = await computeGenxRead({ mode, mdKey, fresh: false });
-  if (!rr.ok) return json({ g: null, candles: [], price: null, mode, error: rr.error });
+  if (!rr.ok) return { ok: false, error: rr.error };
 
   const m = MODES[mode];
   const g = buildGenx(rr.read, {
@@ -86,24 +76,96 @@ export async function GET(req: NextRequest) {
   });
 
   // Clean candle series for the chart, matched to the mode's chart timeframe.
-  let candles: { t: string; o: number; h: number; l: number; c: number }[] = [];
-  const raw = await series("XAU/USD", CHART_TF[mode], 60, mdKey, false);
-  if (Array.isArray(raw)) candles = raw.map((r) => ({ t: r.datetime, o: +r.open, h: +r.high, l: +r.low, c: +r.close })).filter((k) => Number.isFinite(k.c));
+  const candles = toCandles(await series("XAU/USD", CHART_TF[mode], 60, mdKey, false));
   const lp = await livePrice("XAU/USD", mdKey, false);
   const price = typeof lp === "number" ? lp : (candles.length ? candles[candles.length - 1].c : rr.price);
+  return { ok: true, g: g as unknown as Read, candles, price, session: rr.session, asOf: rr.nowIso };
+}
 
-  const body = { g, candles, price, session: rr.session, mode, asOf: rr.nowIso };
-  CACHE[mode] = { at: Date.now(), body };
+/**
+ * A currency pair — the GEN FX read, built the way the GEN FX page builds it, minus the story.
+ * The price on the map is the read's own: computeGenfxRead has already checked the live quote against
+ * the recent closes and fallen back to them when it was off, and the levels were drawn from that price.
+ */
+async function fxSetup(pair: FxPair, mode: Mode, mdKey: string): Promise<Built> {
+  const rr = await computeGenfxRead({ pair, mode, mdKey, fresh: false });
+  if (!rr.ok) return { ok: false, error: rr.error };
 
-  // Snapshot for "previous analysis" — at most one row per mode per SNAPSHOT_MS, best-effort.
+  const m = MODES[mode];
+  const g = genfxOf(pair, rr.read, {
+    mode, price: rr.price, session: rr.session, dataStatus: rr.dataStatus,
+    hold: m.hold, triggerTf: m.triggerTf, contextTf: m.contextTf,
+    marketStory: [], volatility: rr.volatility, atr: rr.atr,
+  });
+  // The chart is drawn from the candles the read was made on: the engine hands back its trigger
+  // timeframe's last 48, which is this horizon's chart timeframe (MODES[mode].tf.m15 === CHART_TF[mode])
+  // and more than the 44 the card draws. Asked for again only if the engine returned too few.
+  const own = (Array.isArray(rr.candles) ? (rr.candles as Candle[]) : []).filter((k) => k && typeof k.t === "string" && [k.o, k.h, k.l, k.c].every((n) => Number.isFinite(n)));
+  const candles = own.length >= 44 ? own : toCandles(await series(pair.td, CHART_TF[mode], 60, mdKey, false));
+  return { ok: true, g: g as unknown as Read, candles, price: rr.price, session: rr.session, asOf: rr.nowIso };
+}
+
+export async function GET(req: NextRequest) {
+  const supabase = createClient();
+  if (supabase) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return json({ error: "unauthorized" }, 401);
+  }
+
+  const url = new URL(req.url);
+  const admin = createAdminClient();
+  const inst = floorInstrument(url.searchParams.get("symbol"));
+  const pairKey = fxPairKey(inst.key);
+  const pair = pairKey ? PAIRS[pairKey] : null;
+
+  // ── Previous analyses (list / replay) ──
+  const histId = url.searchParams.get("id");
+  const wantHistory = url.searchParams.get("history");
+  if (histId || wantHistory) {
+    if (!admin) return json({ past: [] });
+    if (histId) {
+      const { data } = await admin.from("floor_setup_history").select("id,at,mode,price,payload,instrument").eq("id", histId).maybeSingle();
+      const row = data as { id: string; at: string; mode: string; price: number | null; instrument: string | null; payload: { g?: unknown; candles?: unknown[] } } | null;
+      if (!row) return json({ error: "not_found" }, 404);
+      return json({ past: true, id: row.id, at: row.at, mode: row.mode, price: row.price, symbol: row.instrument ?? "XAUUSD", g: row.payload?.g ?? null, candles: row.payload?.candles ?? [], frozen: true });
+    }
+    const hm = url.searchParams.get("mode");
+    const listMode: Mode = hm === "quick" || hm === "swing" ? hm : "intraday";
+    // Gold's rows have no instrument; a pair's carry its key. Each lists only its own.
+    const list = admin.from("floor_setup_history").select("id,at,mode,price,action,confidence").eq("mode", listMode);
+    const { data } = await (pair ? list.eq("instrument", pair.key) : list.is("instrument", null)).order("at", { ascending: false }).limit(24);
+    return json({ past: data ?? [] });
+  }
+
+  const modeParam = url.searchParams.get("mode");
+  const mode: Mode = modeParam === "quick" || modeParam === "swing" ? modeParam : "intraday";
+
+  const ck = setupCacheKey(inst.key, mode);
+  if (CACHE[ck] && Date.now() - CACHE[ck].at < TTL_MS) return json({ ...CACHE[ck].body, cached: true });
+
+  const mdKey = process.env.TWELVEDATA_API_KEY;
+  if (!mdKey) return json({ g: null, candles: [], price: null, mode, symbol: inst.key, error: "marketdata_not_configured" });
+
+  const built = pair ? await fxSetup(pair, mode, mdKey) : await goldSetup(mode, mdKey);
+  if (!built.ok) return json({ g: null, candles: [], price: null, mode, symbol: inst.key, error: built.error });
+  const { g, candles, price, session, asOf } = built;
+
+  const body = { g, candles, price, session, mode, asOf, symbol: inst.key };
+  CACHE[ck] = { at: Date.now(), body };
+
+  // Snapshot for "previous analysis" — at most one row per instrument per mode per SNAPSHOT_MS, best-effort.
   if (admin) {
     try {
-      const { data: last } = await admin.from("floor_setup_history").select("at").eq("mode", mode).order("at", { ascending: false }).limit(1).maybeSingle();
+      const latest = admin.from("floor_setup_history").select("at").eq("mode", mode);
+      const { data: last, error: lastErr } = await (pair ? latest.eq("instrument", pair.key) : latest.is("instrument", null)).order("at", { ascending: false }).limit(1).maybeSingle();
       const lastAt = last ? Date.parse((last as { at: string }).at) : 0;
-      if (!lastAt || Date.now() - lastAt > SNAPSHOT_MS) {
+      // "When was the last one?" could not be read: that is not "there has never been one". Without
+      // this, a read that keeps failing would store a snapshot on every recompute instead of every ten minutes.
+      if (!lastErr && (!lastAt || Date.now() - lastAt > SNAPSHOT_MS)) {
         await admin.from("floor_setup_history").insert({
           mode, price, action: g.action ?? null, confidence: g.confidence_score ?? null,
-          payload: { g, candles: candles.slice(-60), session: rr.session, asOf: rr.nowIso },
+          payload: { g, candles: candles.slice(-60), session, asOf },
+          ...(pair ? { instrument: pair.key } : {}),
         });
       }
     } catch { /* history is best-effort; never block the panel */ }

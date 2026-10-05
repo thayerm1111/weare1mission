@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, AlertTriangle, CheckCircle2, Clock, Eye, EyeOff, Link2, Loader2, Lock, RefreshCw, Shield, Unplug, Zap } from "lucide-react";
+import { armBlockers, shownBlockers } from "@/lib/rapidPanel";
 
 const C = {
   base: "#0A0E13", panel: "#0E141C", raised: "#131A24", line: "rgba(255,255,255,0.07)",
@@ -39,6 +40,8 @@ type Eligibility = {
   automationEnabled: boolean; managementEnabled: boolean; selectedRisk: number;
   equity: number | null; blockers: string[];
   allowSharedAccount?: boolean; sharedWith?: string[]; resolvedSymbol?: string | null;
+  /** When the worker last wrote its shared-account verdict for this account. */
+  ownershipCheckedAt?: string | null;
 };
 
 type BrokerAccount = { accountId: string; accNum: string; name: string | null; currency: string | null; balance: number | null };
@@ -397,7 +400,11 @@ function AccountPanel(p: {
   onAllowShared?: (on: boolean) => void; onDisconnect?: () => void;
 }) {
   const a = p.account;
-  const armBlocked = a.blockers.filter((b) => !/automation is off/.test(b));
+  const armBlocked = armBlockers(a.blockers);
+  // What is printed: a shared-account refusal still on record after the owner has allowed sharing is
+  // the worker's previous verdict. It is said as "re-checking" while the worker is looking, and the
+  // switch stays locked until its next pass (about a minute) has answered.
+  const blockerLines = shownBlockers(a.blockers, a.allowSharedAccount === true, a.ownershipCheckedAt);
   const shared = (a.sharedWith ?? []).length > 0;
   return (
     <Panel
@@ -477,7 +484,7 @@ function AccountPanel(p: {
 
       {armBlocked.length > 0 && (
         <ul className="mt-2 space-y-0.5 text-[11px]" style={{ color: C.amber }}>
-          {armBlocked.map((b, i) => <li key={i}>• {b}</li>)}
+          {blockerLines.map((b, i) => <li key={i}>• {b}</li>)}
         </ul>
       )}
       {armBlocked.length === 0 && a.automationEnabled && (

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { ArrowLeftRight, Loader2, ChevronDown } from "lucide-react";
 import { ConfirmHelp } from "./GenxFlow";
 import { GenFxFlow } from "./GenFxFlow";
+import { GENFX_OPEN_PAIR } from "@/lib/floor/setupInstruments";
 
 /**
  * GEN FX — the GENX decision engine on EUR/USD and GBP/JPY (owner 10-02: "an exact system, just like
@@ -691,6 +692,16 @@ export function GenFxDesk() {
   const [showPlays, setShowPlays] = useState(false);
   const [replay, setReplay] = useState<{ at: string } | null>(null);
   const [desk, setDesk] = useState<Desk | null>(null);
+
+  // Opened from a pair's card on The Floor: start on that pair. The note is read once and removed.
+  useEffect(() => {
+    try {
+      const v = window.sessionStorage.getItem(GENFX_OPEN_PAIR);
+      if (!v) return;
+      window.sessionStorage.removeItem(GENFX_OPEN_PAIR);
+      if (v === "EURUSD" || v === "GBPJPY") setPair(v);
+    } catch { /* no session storage: the default pair */ }
+  }, []);
 
   const loadDesk = useCallback(async () => {
     try { const r = await fetch("/api/genfx/desk", { cache: "no-store" }); const d = await r.json(); if (d?.ok) setDesk(d as Desk); } catch { /* the read still works without it */ }

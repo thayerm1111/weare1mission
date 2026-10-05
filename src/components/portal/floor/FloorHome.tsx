@@ -5,12 +5,14 @@ import { Radio, Filter, Zap, Clock, ChevronRight, Maximize2, X, TrendingUp, Tren
 import { LIVE_URL, CALLS } from "@/lib/liveCalls";
 import { LiveTradeCard } from "@/components/portal/LiveTradeCard";
 import { CommandCenter } from "@/components/portal/CommandCenter";
+import { FLOOR_INSTRUMENTS, GENFX_OPEN_PAIR, floorInstrument, floorFmt, setupQuery, type FloorInstrument, type FloorSymbol } from "@/lib/floor/setupInstruments";
 
 /* ============================================================================
    THE FLOOR — live trading command center (desktop portal).
    Every number is real:
      • Stat strip     → /api/flow/stats (net pips, win rate, plays, today counts)
-     • Setup Forming  → /api/floor/setup (current GENX gold setup + XAUUSD candles)
+     • Setup Forming  → /api/floor/setup (current GENX gold setup + XAUUSD candles; with ?symbol=,
+                        the GEN FX setup for EUR/USD or GBP/JPY — the toggle on the card)
      • Market Intel   → /api/floor/intel (economic calendar) + live desk activity
      • GENX Results / FLOW Performance / Recent Trades → /api/flow/stats
    The bottom market ticker is provided by the FloorWorkspace shell.
@@ -51,7 +53,7 @@ type GenxRead = {
   expected_hold_minutes?: [number, number]; projected_path?: { label: string; price: number | null; kind: string }[];
   trade_reasoning?: string[];
 };
-type SetupPayload = { g: GenxRead | null; candles: Candle[]; price: number | null; session: string; mode: string; asOf?: string; error?: string; frozen?: boolean; at?: string };
+type SetupPayload = { g: GenxRead | null; candles: Candle[]; price: number | null; session: string; mode: string; asOf?: string; error?: string; frozen?: boolean; at?: string; symbol?: string };
 // One earlier snapshot of the gold map (owner 09-17: "add a previous analysis to the Floor").
 type PastSetup = { id: string; at: string; mode: string; price: number | null; action: string | null; confidence: number | null };
 type IntelEvent = { time: string; ts: number; headline: string; impact: "HIGH" | "MED" | "LOW"; assets: string[]; when: string; ccy: string; forecast: string; previous: string };
@@ -112,6 +114,8 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
   const [setup, setSetup] = useState<SetupPayload | null>(null);
   const [intel, setIntel] = useState<IntelPayload | null>(null);
   const [setupMode, setSetupMode] = useState<"quick" | "intraday" | "swing">("intraday");
+  // WHICH MARKET THE CARD SHOWS (owner 10-04): gold, or one of the two GEN FX pairs. Gold is where it opens.
+  const [setupSym, setSetupSym] = useState<FloorSymbol>("XAUUSD");
   // PREVIOUS ANALYSIS: the map as it looked earlier. `frozen` holds a replayed snapshot; while it is
   // set the live poll stops writing over the panel.
   const [past, setPast] = useState<PastSetup[]>([]);
@@ -133,8 +137,8 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
   useEffect(() => {
     let alive = true;
     const load = async () => {
-      try { const r = await fetch(`/api/floor/setup?mode=${setupMode}`, { cache: "no-store" }); if (r.ok && alive) setSetup((await r.json()) as SetupPayload); } catch { /* degrades */ }
-      try { const h = await fetch(`/api/floor/setup?history=1&mode=${setupMode}`, { cache: "no-store" }); if (h.ok && alive) { const d = await h.json(); if (Array.isArray(d.past)) setPast(d.past as PastSetup[]); } } catch { /* degrades */ }
+      try { const r = await fetch(`/api/floor/setup?${setupQuery(setupMode, setupSym)}`, { cache: "no-store" }); if (r.ok && alive) setSetup((await r.json()) as SetupPayload); } catch { /* degrades */ }
+      try { const h = await fetch(`/api/floor/setup?history=1&${setupQuery(setupMode, setupSym)}`, { cache: "no-store" }); if (h.ok && alive) { const d = await h.json(); if (Array.isArray(d.past)) setPast(d.past as PastSetup[]); } } catch { /* degrades */ }
     };
     void load();
     // Live-ish: poll every 15s. The shared market-data cache (MD_CACHE_TTL 30s)
@@ -142,7 +146,7 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
     // price/candles as soon as they refresh.
     const iv = setInterval(() => void load(), 15000);
     return () => { alive = false; clearInterval(iv); };
-  }, [setupMode]);
+  }, [setupMode, setupSym]);
 
   const ss = sessions(now);
 
@@ -201,6 +205,15 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
     return { isToday, trades, wins, losses, net, best, winRate, streak, streakWin, recent, has: trades > 0 };
   }, [allRecent]);
 
+  // A map is only ever drawn for the market it was read on: the answer to a request made before the
+  // toggle was pressed is not shown under the new heading at the new precision. (A payload that names
+  // no market is gold's — that is every payload from before the card could show anything else.)
+  const forMarket = (d: SetupPayload | null) => (d && floorInstrument(d.symbol).key === setupSym ? d : null);
+  // An earlier map that was asked for on one market and arrived after the toggle moved on is not this
+  // market's either: it is passed over, and the live map shows.
+  const shownFrozen = forMarket(frozen);
+  const shownSetup = shownFrozen ?? forMarket(setup);
+
   const netPips = flow?.pipsNet ?? flow?.pips ?? 0;
   const winRate = flow?.winRate ?? null;
   const plays7d = flow?.plays7d ?? 0;
@@ -250,10 +263,17 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
         <div className="grid gap-3 xl:grid-cols-3">
           <section className="xl:col-span-2 overflow-hidden rounded-xl border" style={{ borderColor: C.line, background: C.panel }}>
             <SetupForming
-              data={frozen ?? setup} mode={setupMode}
+              data={shownSetup} mode={setupMode}
+              inst={floorInstrument(setupSym)}
+              onSymbol={(s) => { if (s === setupSym) return; setFrozen(null); setSetup(null); setPast([]); setSetupSym(s); }}
               onMode={(m) => { setFrozen(null); setSetupMode(m); }}
-              onExpand={() => onGo("plays")}
-              past={past} frozen={frozen}
+              onExpand={() => {
+                const i = floorInstrument(setupSym);
+                // Expanding a pair's card opens the GEN FX tool on that pair, not on its default one.
+                if (i.key !== "XAUUSD") { try { window.sessionStorage.setItem(GENFX_OPEN_PAIR, i.key); } catch { /* the tool opens on its default pair */ } }
+                onGo(i.view);
+              }}
+              past={past} frozen={shownFrozen}
               onPick={async (id) => {
                 try {
                   const r = await fetch(`/api/floor/setup?id=${encodeURIComponent(id)}`, { cache: "no-store" });
@@ -359,7 +379,8 @@ function Donut({ pct, color }: { pct: number; color: string }) {
 /* ── GOLD SETUP · Market Flow (ported from the app's live GENX view) ── */
 const gnum = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : v != null && Number.isFinite(Number(v)) ? Number(v) : null);
 const garr = <T,>(x: unknown): T[] => (Array.isArray(x) ? (x as T[]) : []);
-const gfmt = (n: number | null | undefined) => { const v = gnum(n); return v == null ? "—" : Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+// Prices are printed by floorFmt (lib/floor/setupInstruments): gold as it always was here — two decimals,
+// a dollar sign — and a currency pair at its own precision.
 const gxShort = (s: string) => (s && s.length > 40 ? s.slice(0, 38).replace(/\s+$/, "") + "…" : s);
 function sideOf(action?: string): "buy" | "sell" | null { const a = String(action || ""); if (/SELL/.test(a)) return "sell"; if (/BUY/.test(a)) return "buy"; return null; }
 const toneCol = (t: string) => (t === "now" ? "#fff" : t === "buy" ? "#7be8b4" : t === "sell" ? "#ff8a94" : t === "wait" ? "#ffc24b" : "rgba(255,255,255,.45)");
@@ -377,15 +398,16 @@ function declutter(ys: number[], gap: number, top: number, bottom: number): numb
   return out;
 }
 type Step = { t: string; s?: string | null; tone: string };
-function gxSteps(g: GenxRead, price: number | null): Step[] {
+type Fmt = ReturnType<typeof floorFmt>;
+function gxSteps(g: GenxRead, price: number | null, fmt: Fmt): Step[] {
   const side = sideOf(g.action);
-  const pd = (v: number | null | undefined) => { const n = gnum(v); return n != null ? "$" + gfmt(n) : null; };
-  const now: Step = { t: "NOW", s: price != null ? "$" + gfmt(price) : null, tone: "now" };
+  const pd = (v: number | null | undefined) => { const n = gnum(v); return n != null ? fmt.money(n) : null; };
+  const now: Step = { t: "NOW", s: price != null ? fmt.money(price) : null, tone: "now" };
   const t1: Step | null = gnum(g.tp1) != null ? { t: "TP1", s: pd(g.tp1), tone: side === "sell" ? "sell" : "buy" } : null;
   const t2: Step | null = gnum(g.tp2) != null ? { t: "TP2", s: pd(g.tp2), tone: side === "sell" ? "sell" : "buy" } : null;
   const watch = gnum(g.closest_support) != null ? gnum(g.closest_support) : gnum(g.entry);
   const watchR = gnum(g.closest_resistance) != null ? gnum(g.closest_resistance) : gnum(g.entry);
-  const enter: Step = { t: "ENTER", s: gnum(g.entry_low) != null && gnum(g.entry_high) != null ? "$" + gfmt(g.entry_low) : pd(g.entry), tone: side === "sell" ? "sell" : "buy" };
+  const enter: Step = { t: "ENTER", s: gnum(g.entry_low) != null && gnum(g.entry_high) != null ? fmt.money(g.entry_low) : pd(g.entry), tone: side === "sell" ? "sell" : "buy" };
   const tail = [t1, t2].filter((x): x is Step => !!x);
   if (g.action === "WAIT_FOR_BUY_TRIGGER") return [now, { t: "PULLBACK", tone: "muted" }, { t: "WATCH", s: pd(watch), tone: "wait" }, { t: "CONFIRM BUYERS", s: "price bounces ↑", tone: "wait" }, enter, ...tail];
   if (g.action === "WAIT_FOR_SELL_TRIGGER") return [now, { t: "RALLY", tone: "muted" }, { t: "WATCH", s: pd(watchR), tone: "wait" }, { t: "CONFIRM SELLERS", s: "price drops ↓", tone: "wait" }, enter, ...tail];
@@ -393,11 +415,14 @@ function gxSteps(g: GenxRead, price: number | null): Step[] {
   return [now, { t: g.market_regime ? String(g.market_regime).toUpperCase() : "RANGE", tone: "muted" }, { t: "WAIT FOR BREAK", tone: "wait" }];
 }
 
-function SetupForming({ data, mode, onMode, onExpand, past = [], frozen = null, onPick, onLive }: {
+function SetupForming({ data, mode, inst, onSymbol, onMode, onExpand, past = [], frozen = null, onPick, onLive }: {
   data: SetupPayload | null; mode: "quick" | "intraday" | "swing"; onMode: (m: "quick" | "intraday" | "swing") => void; onExpand: () => void;
+  /** The market on the card, and how the toggle asks for another. */
+  inst: FloorInstrument; onSymbol: (s: FloorSymbol) => void;
   past?: PastSetup[]; frozen?: SetupPayload | null; onPick?: (id: string) => void; onLive?: () => void;
 }) {
   const [showPast, setShowPast] = useState(false);
+  const fmt = useMemo(() => floorFmt(inst), [inst]);
   const g = data?.g ?? null;
   const candles = data?.candles ?? [];
   const price = data?.price ?? (candles.length ? candles[candles.length - 1].c : null);
@@ -413,7 +438,17 @@ function SetupForming({ data, mode, onMode, onExpand, past = [], frozen = null, 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
-        <p className="inline-flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider"><Zap className="h-3.5 w-3.5" style={{ color: C.cyan }} /> Gold Setup · XAUUSD</p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <p className="inline-flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider"><Zap className="h-3.5 w-3.5" style={{ color: C.cyan }} /> {inst.title}</p>
+          {/* THE TOGGLE: gold, or either GEN FX pair, on the same card. */}
+          <div className="flex items-center gap-0.5 rounded-lg border p-0.5" style={{ borderColor: C.line }} role="group" aria-label="Market shown on this card">
+            {FLOOR_INSTRUMENTS.map((i) => (
+              <button key={i.key} type="button" onClick={() => onSymbol(i.key)} aria-pressed={i.key === inst.key}
+                className="rounded-md px-2.5 py-1 text-[11px] font-bold leading-none transition"
+                style={i.key === inst.key ? { background: "rgba(34,211,238,0.14)", color: C.cyan } : { color: C.mut }}>{i.chip}</button>
+            ))}
+          </div>
+        </div>
         <div className="flex items-center gap-1.5">
           {rr && <span className="rounded-full border px-2 py-0.5 text-[11px] font-bold" style={{ borderColor: "rgba(255,194,75,0.3)", background: "rgba(255,194,75,0.1)", color: "#ffd47a" }}>R:R 1:{rr}</span>}
           <div className="flex items-center gap-0.5">
@@ -455,17 +490,17 @@ function SetupForming({ data, mode, onMode, onExpand, past = [], frozen = null, 
       )}
 
       {!g ? (
-        <div className="flex h-[360px] items-center justify-center px-6 text-center text-[12px]" style={{ color: C.mut2 }}>{data?.error ? "Live gold read unavailable for a moment — retrying." : "Loading the live gold read…"}</div>
+        <div className="flex h-[360px] items-center justify-center px-6 text-center text-[12px]" style={{ color: C.mut2 }}>{data?.error ? `Live ${inst.name} read unavailable for a moment — retrying.` : `Loading the live ${inst.name} read…`}</div>
       ) : (
         <div className="p-3.5">
           {hold && hold.length === 2 && <p className="mb-2 text-[11px]" style={{ color: C.mut2 }}>Expected hold ≈ {hold[0]}–{hold[1]} min · {mode} mode</p>}
-          <StageStepper g={g} price={price} />
-          {isWait && <ConfirmHelp g={g} side={side} />}
+          <StageStepper g={g} price={price} fmt={fmt} />
+          {isWait && <ConfirmHelp g={g} side={side} fmt={fmt} />}
           <div className="mt-3 flex flex-col gap-3 lg:flex-row">
-            <div className="min-w-0 flex-1"><FlowChart g={g} candles={candles} price={price} /></div>
+            <div className="min-w-0 flex-1"><FlowChart g={g} candles={candles} price={price} inst={inst} fmt={fmt} /></div>
             <div className="w-full flex-shrink-0 lg:w-64">
               <Pressure g={g} />
-              <InfoTiles g={g} />
+              <InfoTiles g={g} inst={inst} fmt={fmt} />
             </div>
           </div>
         </div>
@@ -474,8 +509,8 @@ function SetupForming({ data, mode, onMode, onExpand, past = [], frozen = null, 
   );
 }
 
-function StageStepper({ g, price }: { g: GenxRead; price: number | null }) {
-  const steps = gxSteps(g, price);
+function StageStepper({ g, price, fmt }: { g: GenxRead; price: number | null; fmt: Fmt }) {
+  const steps = gxSteps(g, price, fmt);
   return (
     <div className="flex items-stretch gap-1.5 overflow-x-auto pb-1">
       {steps.map((s, i) => (
@@ -491,9 +526,9 @@ function StageStepper({ g, price }: { g: GenxRead; price: number | null }) {
   );
 }
 
-function ConfirmHelp({ g, side }: { g: GenxRead; side: "buy" | "sell" | null }) {
+function ConfirmHelp({ g, side, fmt }: { g: GenxRead; side: "buy" | "sell" | null; fmt: Fmt }) {
   const sell = side === "sell";
-  const level = gnum(g.entry_low) != null ? gfmt(g.entry_low) : gnum(g.entry) != null ? gfmt(g.entry) : null;
+  const level = gnum(g.entry_low) != null ? fmt.px(g.entry_low) : gnum(g.entry) != null ? fmt.px(g.entry) : null;
   const c = sell ? "#ff5d6c" : "#2ee88f";
   const soft = sell ? "rgba(255,93,108,0.3)" : "rgba(46,232,143,0.3)";
   const tint = sell ? "rgba(255,93,108,0.06)" : "rgba(46,232,143,0.06)";
@@ -519,13 +554,13 @@ function ConfirmHelp({ g, side }: { g: GenxRead; side: "buy" | "sell" | null }) 
   );
 }
 
-function FlowChart({ g, candles, price }: { g: GenxRead; candles: Candle[]; price: number | null }) {
+function FlowChart({ g, candles, price, inst, fmt }: { g: GenxRead; candles: Candle[]; price: number | null; inst: FloorInstrument; fmt: Fmt }) {
   const [why, setWhy] = useState(false);
   const reasons = garr<string>(g.trade_reasoning).slice(0, 5);
   return (
     <div>
       <div className="mb-1.5 flex items-center gap-2">
-        <span className="rounded-md px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider" style={{ background: "rgba(255,255,255,0.06)", color: C.mut }}>GENX projected path</span>
+        <span className="rounded-md px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider" style={{ background: "rgba(255,255,255,0.06)", color: C.mut }}>{inst.engine} projected path</span>
         {reasons.length > 0 && <button onClick={() => setWhy((w) => !w)} className="rounded-md border px-2 py-0.5 text-[9.5px] font-bold" style={{ borderColor: "rgba(255,194,75,0.28)", background: "rgba(255,194,75,0.1)", color: "#ffd47a" }}>? WHY</button>}
       </div>
       {why && reasons.length > 0 && (
@@ -533,12 +568,12 @@ function FlowChart({ g, candles, price }: { g: GenxRead; candles: Candle[]; pric
           <ul className="ml-4 list-disc text-[12px] leading-relaxed" style={{ color: "rgba(255,255,255,.8)" }}>{reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
         </div>
       )}
-      <FlowMap g={g} candles={candles} price={price} />
+      <FlowMap g={g} candles={candles} price={price} fmt={fmt} />
     </div>
   );
 }
 
-function FlowMap({ g, candles, price }: { g: GenxRead; candles: Candle[]; price: number | null }) {
+function FlowMap({ g, candles, price, fmt }: { g: GenxRead; candles: Candle[]; price: number | null; fmt: Fmt }) {
   const cs = candles.slice(-44);
   if (cs.length < 4) return <div className="flex h-[340px] items-center justify-center text-[12px]" style={{ color: C.mut2 }}>Loading live candles…</div>;
   const side = sideOf(g.action);
@@ -563,13 +598,13 @@ function FlowMap({ g, candles, price }: { g: GenxRead; candles: Candle[]; price:
 
   type Git = { y: number; t: string; c: string };
   const gitems: Git[] = [];
-  if (px != null) gitems.push({ y: y(px), t: "$" + gfmt(px), c: "#ffc24b" });
+  if (px != null) gitems.push({ y: y(px), t: fmt.money(px), c: "#ffc24b" });
   const eMid = gnum(g.entry), eLow = gnum(g.entry_low), eHigh = gnum(g.entry_high);
   const entryShow = eMid != null ? eMid : eLow != null && eHigh != null ? (eLow + eHigh) / 2 : null;
-  if (entryShow != null) gitems.push({ y: y(entryShow), t: "ENT " + gfmt(entryShow), c: dir });
+  if (entryShow != null) gitems.push({ y: y(entryShow), t: "ENT " + fmt.px(entryShow), c: dir });
   const stop = gnum(g.stop_loss) != null ? gnum(g.stop_loss) : gnum(g.invalidation_price);
-  if (stop != null) gitems.push({ y: y(stop), t: "SL " + gfmt(stop), c: "#ff5d6c" });
-  ([["TP1", gnum(g.tp1)], ["TP2", gnum(g.tp2)], ["TP3", gnum(g.tp3)]] as [string, number | null][]).forEach(([lab, v]) => { if (v != null) gitems.push({ y: y(v), t: lab + " " + gfmt(v), c: "#2ee88f" }); });
+  if (stop != null) gitems.push({ y: y(stop), t: "SL " + fmt.px(stop), c: "#ff5d6c" });
+  ([["TP1", gnum(g.tp1)], ["TP2", gnum(g.tp2)], ["TP3", gnum(g.tp3)]] as [string, number | null][]).forEach(([lab, v]) => { if (v != null) gitems.push({ y: y(v), t: lab + " " + fmt.px(v), c: "#2ee88f" }); });
   const railY = declutter(gitems.map((it) => it.y), 15, padT + 8, H - padB - 8);
 
   const entryTop = eHigh != null ? eHigh : eMid != null ? eMid + (hi - lo) * 0.01 : null;
@@ -592,7 +627,7 @@ function FlowMap({ g, candles, price }: { g: GenxRead; candles: Candle[]; price:
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" preserveAspectRatio="xMidYMid meet" style={{ display: "block", maxHeight: 420 }}>
       <rect x={splitX} y={padT} width={plotR - splitX} height={H - padT - padB} fill={dir} opacity="0.05" />
       {gitems.map((it, i) => <line key={`l${i}`} x1={padL} x2={plotR} y1={it.y} y2={it.y} stroke={it.c} strokeWidth="1" strokeDasharray="1 6" opacity="0.22" />)}
-      {stop != null && <g><rect x={splitX} y={Math.min(y(stop), H - padB - 14)} width={plotR - splitX} height="14" fill="#ff5d6c" opacity="0.12" /><text x={splitX + 4} y={y(stop) + 10} fill="#ff5d6c" fontSize="7.5" fontWeight="700">INVALIDATION {gfmt(stop)}</text></g>}
+      {stop != null && <g><rect x={splitX} y={Math.min(y(stop), H - padB - 14)} width={plotR - splitX} height="14" fill="#ff5d6c" opacity="0.12" /><text x={splitX + 4} y={y(stop) + 10} fill="#ff5d6c" fontSize="7.5" fontWeight="700">INVALIDATION {fmt.px(stop)}</text></g>}
       {entryTop != null && entryBot != null && (
         <g>
           <rect x={splitX} y={y(entryTop)} width={plotR - splitX} height={Math.max(5, y(entryBot) - y(entryTop))} fill={dir} opacity={isWait ? 0.1 : 0.16} />
@@ -638,12 +673,12 @@ function Pressure({ g }: { g: GenxRead }) {
   );
 }
 
-function InfoTiles({ g }: { g: GenxRead }) {
+function InfoTiles({ g, inst, fmt }: { g: GenxRead; inst: FloorInstrument; fmt: Fmt }) {
   const side = sideOf(g.action);
   const tiles = [
-    { k: "GENX wants", v: g.trigger_condition ? gxShort(g.trigger_condition) : side === "buy" ? "Enter now" : "Setup forming", sub: "Trigger", col: "#ffc24b" },
-    { k: "Invalidation", v: gnum(g.stop_loss) != null ? gfmt(g.stop_loss) : "—", sub: g.invalidation_reason ? gxShort(g.invalidation_reason) : "Setup is off", col: "#ff8a94" },
-    { k: "Targets", v: [gnum(g.tp1), gnum(g.tp2)].filter((x) => x != null).map((x) => gfmt(x)).join(" · ") || "—", sub: [gnum(g.tp1_pips), gnum(g.tp2_pips)].filter((x) => x != null).map((x) => "+" + x + "p").join(" · "), col: "#7be8b4" },
+    { k: `${inst.engine} wants`, v: g.trigger_condition ? gxShort(g.trigger_condition) : side === "buy" ? "Enter now" : "Setup forming", sub: "Trigger", col: "#ffc24b" },
+    { k: "Invalidation", v: gnum(g.stop_loss) != null ? fmt.px(g.stop_loss) : "—", sub: g.invalidation_reason ? gxShort(g.invalidation_reason) : "Setup is off", col: "#ff8a94" },
+    { k: "Targets", v: [gnum(g.tp1), gnum(g.tp2)].filter((x) => x != null).map((x) => fmt.px(x)).join(" · ") || "—", sub: [gnum(g.tp1_pips), gnum(g.tp2_pips)].filter((x) => x != null).map((x) => "+" + x + "p").join(" · "), col: "#7be8b4" },
   ];
   return (
     <div className="mt-2.5 grid grid-cols-1 gap-2">
