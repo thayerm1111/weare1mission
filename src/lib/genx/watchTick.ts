@@ -188,6 +188,42 @@ export async function calledSince(admin: Admin, dedupeKey: string): Promise<bool
   } catch { return false; }
 }
 
+// ── BORN DEAD (10-05) ──
+// The watch ends a forming setup the moment its confirmation reads INVALIDATED — a recent candle on
+// the horizon's own timeframe closed beyond its invalidation. The scanner never asked that question
+// before recording a NEW setup, so a setup that was already invalid when the engine proposed it was
+// recorded, billed to every member armed for it, announced ("setup forming"), had every member's
+// broker login warmed for it — and was ended by the watch one to three seconds later ("invalidated").
+// Then the next scan, finding nothing open, did it again with the zone a dollar away.
+//
+// Measured Monday 10-05 at 06:45 UTC, under seven hours into the billing week: 26 gold setups had been
+// billed and 15 of them were ended within three seconds. Those fifteen took 489 credits from 155 members
+// — for 50 of them their last credit, which paused their FLOW — and each put a "forming" note and an
+// "invalidated" note in the channel. Between 09-23 and 10-02 the same thing happened 19 times, for 669.
+//
+// A setup whose own confirmation already says it is over is not a setup. The scanner asks, once, before
+// it records one; on INVALIDATED nothing is recorded, billed, announced or warmed, and the scan says so
+// in its decision ("not_yet:invalidated"). Nothing else changes: this is the watch's own question,
+// asked with the watch's own inputs, a second earlier. A confirmation that cannot be read (feed busy,
+// no data, an error, no answer in BORN_DEAD_WAIT_MS) is NOT a verdict — the setup is recorded as before
+// and the watch decides. (One difference from before, and a better one: a setup the watch ended used to
+// leave its exact zone key used up for good; one that is never recorded can be read again later.)
+export const BORN_DEAD_WAIT_MS = 8_000;
+/** `p`, or null if it has not answered in `waitMs`. A question asked before a setup is recorded must not be able to hold the recording up. */
+export function within<T>(p: Promise<T>, waitMs: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), waitMs); });
+  return Promise.race([p, late]).finally(() => { if (timer) clearTimeout(timer); });
+}
+export async function bornDead(o: {
+  side: "buy" | "sell"; entryLow: number; entryHigh: number; watch: number; invalidation: number; mode: Mode; mdKey: string;
+}, confirm: typeof confirmEntry = confirmEntry, waitMs = BORN_DEAD_WAIT_MS): Promise<boolean> {
+  try {
+    const c = await within(confirm({ side: o.side, entryLow: o.entryLow, entryHigh: o.entryHigh, watch: o.watch, invalidation: o.invalidation, mode: o.mode, mdKey: o.mdKey, fresh: true }), waitMs);
+    return c?.state === "INVALIDATED";
+  } catch { return false; }
+}
+
 // ── THE WATCH LOCK — row id=2 of flow_manage_lock (id=1 is the trade-manager's).
 // Same acquire-if-expired UPDATE pattern: exactly one watcher at a time, a crashed
 // holder's lock simply expires.

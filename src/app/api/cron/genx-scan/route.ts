@@ -12,7 +12,7 @@ import { sendTelegram, esc } from "@/lib/telegram";
 import { placeGenxGold, placeGenxFollower, rewardRisk, inWeekendCloseWindow, inScanQuietWindow, inDailyReopenWindow, goldDeskBreaker } from "@/lib/flow/autoExec";
 import { checkOwnerLevels } from "@/lib/flow/ownerLevels";
 import { billSetupForming } from "@/lib/flow/flowBilling";
-import { watchPass, findSameSetup, calledSince, decideGoldEntry, beatKeepDecision, headsUpMsg, enterMsg, invalidMsg, MODE_LABEL, r1, fmt, acquireWatchLock, extendWatchLock, releaseWatchLock, type AlertRow } from "@/lib/genx/watchTick";
+import { watchPass, findSameSetup, calledSince, bornDead, decideGoldEntry, beatKeepDecision, headsUpMsg, enterMsg, invalidMsg, MODE_LABEL, r1, fmt, acquireWatchLock, extendWatchLock, releaseWatchLock, type AlertRow } from "@/lib/genx/watchTick";
 
 // decideGoldEntry + the gold entry preference rules now live in @/lib/genx/watchTick
 // (shared with the always-on worker).
@@ -234,6 +234,9 @@ async function run(): Promise<Response> {
           try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: genx.entry_low, entryHigh: genx.entry_high, stop: genx.stop_loss, tp: genx.tp1, conservativeOk: qOk, confidence: genx.confidence_score, mode }); } catch { /* follower is best-effort */ }
           sent.push(`${mode}:ENTER(immediate)`); modeOut.result = "enter_immediate";
         } else {
+          // BORN DEAD (10-05, watchTick.bornDead): its own confirmation already reads INVALIDATED — the watch
+          // would end it within seconds. Not a setup: nothing is recorded, billed, announced or warmed.
+          if (await bornDead({ side, entryLow: genx.entry_low, entryHigh: genx.entry_high, watch: (watch ?? genx.entry_low) as number, invalidation: (invalidation ?? genx.stop_loss) as number, mode, mdKey })) { modeOut.result = "not_yet:invalidated"; continue; }
           // Developing → heads-up now, watch for the entry on future ticks.
           const { error: insErr } = await admin.from("genx_alerts").insert({
             dedupe_key: dedupeKey, mode, side, action: genx.action,
