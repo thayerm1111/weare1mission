@@ -98,7 +98,7 @@ test('the scanner asks before it records, bills, announces or warms — and only
   const at = scan.indexOf(call);
   const immediate = scan.indexOf('state: "entered", enter_price: rr.price, heads_up_sent_at: nowIso, enter_sent_at: nowIso, last_checked_at: nowIso,');
   const forming = scan.indexOf('state: "forming", heads_up_sent_at: nowIso, last_checked_at: nowIso,');
-  const bill = scan.indexOf('await billSetupForming(admin, dedupeKey, mode)');
+  const bill = scan.indexOf('await billSetupForming(admin, fee.key, mode)');
   const note = scan.indexOf('await sendTelegram(headsUpMsg(side, mode,');
   const twinAsk = scan.indexOf('const twin = await findSameSetup(admin, { side, entry_low: genx.entry_low, entry_high: genx.entry_high');
   const gate = scan.indexOf('const tg = await genxTrendGate(side, mdKey');

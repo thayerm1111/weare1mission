@@ -12,6 +12,7 @@ import { sendTelegram, esc } from "@/lib/telegram";
 import { placeGenxGold, placeGenxFollower, rewardRisk, inWeekendCloseWindow, inScanQuietWindow, inDailyReopenWindow, goldDeskBreaker } from "@/lib/flow/autoExec";
 import { checkOwnerLevels } from "@/lib/flow/ownerLevels";
 import { billSetupForming } from "@/lib/flow/flowBilling";
+import { setupFeeKey } from "@/lib/genx/setupFee";
 import { watchPass, findSameSetup, calledSince, bornDead, decideGoldEntry, beatKeepDecision, headsUpMsg, enterMsg, invalidMsg, MODE_LABEL, r1, fmt, acquireWatchLock, extendWatchLock, releaseWatchLock, type AlertRow } from "@/lib/genx/watchTick";
 
 // decideGoldEntry + the gold entry preference rules now live in @/lib/genx/watchTick
@@ -237,21 +238,32 @@ async function run(): Promise<Response> {
           // BORN DEAD (10-05, watchTick.bornDead): its own confirmation already reads INVALIDATED — the watch
           // would end it within seconds. Not a setup: nothing is recorded, billed, announced or warmed.
           if (await bornDead({ side, entryLow: genx.entry_low, entryHigh: genx.entry_high, watch: (watch ?? genx.entry_low) as number, invalidation: (invalidation ?? genx.stop_loss) as number, mode, mdKey })) { modeOut.result = "not_yet:invalidated"; continue; }
+          // ONE IDEA, ONE FEE (10-05, genx/setupFee.ts): which key this setup's fee is charged under — its own,
+          // unless it is a setup already on the desk with its zone drifted (then that setup's key, so a member
+          // who has paid for the idea is not charged for it again). Asked BEFORE it is on record.
+          const fee = await setupFeeKey(admin, mode, { side, entry_low: genx.entry_low, entry_high: genx.entry_high }, dedupeKey);
+          if (fee.key !== dedupeKey) modeOut.fee_key = fee.key;
+          if (!fee.read) modeOut.fee_key_unread = true;
           // Developing → heads-up now, watch for the entry on future ticks.
-          const { error: insErr } = await admin.from("genx_alerts").insert({
+          const forming = {
             dedupe_key: dedupeKey, mode, side, action: genx.action,
             entry: genx.entry, entry_low: genx.entry_low, entry_high: genx.entry_high,
             stop: genx.stop_loss, tp1: genx.tp1, tp2: genx.tp2, tp3: genx.tp3,
             invalidation, watch, confidence: genx.confidence_score, trigger_tf: genx.trigger_tf,
             state: "forming", heads_up_sent_at: nowIso, last_checked_at: nowIso,
             quality_ok: qOk,
-          });
+          };
+          let { error: insErr } = await admin.from("genx_alerts").insert({ ...forming, fee_key: fee.key });
+          // The fee_key column was added before this code shipped. Were it ever missing, the setup is still
+          // recorded — recording a setup does not depend on how its fee is kept.
+          if (insErr && /fee_key/.test(String((insErr as { message?: unknown }).message ?? ""))) ({ error: insErr } = await admin.from("genx_alerts").insert(forming));
           if (insErr) { modeOut.result = "already_recorded"; continue; }
           // CREDITS (owner 09-18: "1 when the trade is forming"): every member armed for this setup pays
           // one credit, once — charged on the insert, so a re-scan of the same setup never charges twice.
           // Only members who could take THIS setup pay for it (owner 09-29): a swing forming does not bill
           // accounts under the swing floor, and a member whose broker is not usable is not billed at all.
-          try { const b = await billSetupForming(admin, dedupeKey, mode); modeOut.billed = b; } catch { /* billing is best-effort; it never blocks an alert */ }
+          // Charged under the idea's key (above): its own for a new idea, or whenever the desk could not be read.
+          try { const b = await billSetupForming(admin, fee.key, mode); modeOut.billed = b; } catch { /* billing is best-effort; it never blocks an alert */ }
           // THE HEADS-UP IS NOT SENT ONCE THE SETUP HAS BEEN CALLED. Charging the fees above takes the
           // better part of a minute, and the fast watch confirms about half of all setups inside it — so
           // the channel was reading "ENTER NOW" and then, a minute later, "setup forming … you'll get an

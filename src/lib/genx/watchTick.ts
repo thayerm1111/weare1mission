@@ -158,6 +158,8 @@ export async function beatKeepDecision(admin: Admin, extra: Record<string, unkno
 export const SAME_SETUP_USD = 6;
 export const SAME_SETUP_WINDOW_MS = 4 * 3600_000;
 type ZoneLike = { side: "buy" | "sell"; entry_low: number | null; entry_high: number | null };
+/** A scanner setup's key: "<horizon>:<side>:<zone low>:<zone high>". Other modules' rows ("zone:…", "…:rng:…", "…:brk:…") are not scanner setups. */
+export const isScannerKey = (k: string): boolean => /^(quick|intraday|swing):(buy|sell):\d/.test(k);
 export function sameSetupZone(a: ZoneLike, b: ZoneLike): boolean {
   if (a.side !== b.side || a.entry_low == null || a.entry_high == null || b.entry_low == null || b.entry_high == null) return false;
   const mid = (z: ZoneLike) => (Number(z.entry_low) + Number(z.entry_high)) / 2;

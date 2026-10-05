@@ -42,7 +42,8 @@ test('owner 09-18: every placement path charges the TRADE event; watching is fre
   const worker = readFileSync('worker/index.ts', 'utf8');
   assert.ok(!/billFlowAccounts\(/.test(worker), 'the worker no longer bills by the clock');
   const scan = readFileSync('src/app/api/cron/genx-scan/route.ts', 'utf8');
-  assert.ok(/billSetupForming\(admin, dedupeKey, mode\)/.test(scan), 'a forming setup charges its one credit — to members who could take that horizon');
+  // (10-05: under the key of the idea — its own, unless it is a setup already on the desk with its zone drifted. tests/genx-setup-fee.test.ts)
+  assert.ok(/billSetupForming\(admin, fee\.key, mode\)/.test(scan), 'a forming setup charges its one credit — to members who could take that horizon');
 });
 
 test('owner 09-18: the event charge is idempotent per member per event', () => {
