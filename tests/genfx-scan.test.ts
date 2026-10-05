@@ -459,6 +459,34 @@ test("an ARMED setup is the watch's: the scan can end it — a candle through it
   assert.equal(placed.length, 1);
 });
 
+test("a setup called off tells the channel why: a candle closed beyond it, or its five minutes ran out", async () => {
+  // The first one to go out live (10-04, GBP/JPY quick sell) had run out of time, and the channel was
+  // told price had "closed beyond 208.785". Nothing had closed beyond anything.
+  const key = scanKey(J, "quick", "sell", 208.623, 208.647, NOON);
+  const armedRow = (armedAgoMs: number): Row => ({ pair: "GBPJPY", mode: "quick", side: "sell", dedupe_key: key, state: "forming", outcome: null, entry: 208.623, entry_low: 208.623, entry_high: 208.647, stop: 208.785, tp1: 208.38, invalidation: 208.785, watch: 208.647, enter_sent_at: new Date(NOON - armedAgoMs).toISOString(), created_at: new Date(NOON - 600_000).toISOString() });
+  const read = forming(208.623, { action: "SELL_LIMIT", entry: 208.623, entry_low: 208.623, entry_high: 208.647, stop_loss: 208.785, tp1: 208.38, invalidation_price: 208.785, closest_resistance: 208.647 });
+  const place = (async () => { throw new Error("nothing is placed from a setup being called off"); }) as never;
+  const ch = channel();
+  try {
+    // Its five minutes are up.
+    const d = db([armedRow(5 * 60_000 + 3_000)]);
+    assert.equal((await scannerStep(A(d), CTL, J, "quick", read, 208.525, "key", { nowMs: NOON, confirm: confirms("CONFIRMED", 208.525), place })).result, "invalid:arm_expired_5min");
+    assert.equal(ch.posts.length, 1);
+    const late = ch.posts[0];
+    assert.ok(late.includes("GEN FX QUICK — GBP/JPY setup expired · SELL"), late);
+    assert.ok(late.includes("The 208.623–208.647 sell is off — price did not come back to the entry within 5 minutes. Don't chase it."), late);
+    assert.ok(!/closed beyond|invalidated|208\.785/.test(late), "it does not say the stop was broken");
+    // A candle closed beyond its invalidation: the message it has always been.
+    const d2 = db([armedRow(120_000)]);
+    assert.equal((await scannerStep(A(d2), CTL, J, "quick", read, 208.8, "key", { nowMs: NOON, confirm: confirms("INVALIDATED"), place })).result, "invalid:invalidated");
+    assert.equal(ch.posts.length, 2);
+    const broken = ch.posts[1];
+    assert.ok(broken.includes("GEN FX QUICK — GBP/JPY setup invalidated · SELL"), broken);
+    assert.ok(broken.includes("The 208.623–208.647 sell is off — price closed beyond 208.785. Don't take it."), broken);
+    assert.ok(!/expired|did not come back/.test(broken));
+  } finally { ch.close(); }
+});
+
 test("a call on paper runs out of time only when the last candle of its window has closed and been read — and one that can never be graded is closed, not left open", async () => {
   const QUIET = controlOf({ scan_enabled: true });
   const enterMs = Date.UTC(2026, 9, 6, 12, 0, 8);                                  // entered eight seconds into the 12:00 candle

@@ -224,7 +224,8 @@ export async function actOnForming(admin: Admin, ctl: GenfxControl, pair: FxPair
     const { data: won } = await admin.from("genfx_alerts").update({ state: "invalidated", last_checked_at: nowIso, updated_at: nowIso })
       .eq("id", row.id).eq("state", "forming").select("id");
     if (!won?.length) return null;
-    await say(ctl, invalidMsg(pair, row.side, row.mode, lv));
+    // Its five minutes ran out, or a candle closed beyond it: the channel is told which (messages.invalidMsg).
+    await say(ctl, invalidMsg(pair, row.side, row.mode, lv, act.reason === "arm_expired_5min"));
     return `invalid:${act.reason}`;
   }
   return act.reason;

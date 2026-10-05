@@ -1,6 +1,7 @@
 import { type Mode } from "@/lib/genxCompute";
 import { esc } from "@/lib/telegram";
 import { type FxPair, fmtPx } from "@/lib/genfx/pairs";
+import { ARM_MAX_MS } from "@/lib/genfx/decide";
 
 /**
  * GEN FX — WHAT IT SAYS IN THE CHANNEL. The same three messages GENX sends (a setup is forming, enter
@@ -45,8 +46,24 @@ export function enterMsg(p: FxPair, side: "buy" | "sell", mode: Mode, a: Lv, atP
   ].filter(Boolean).join("\n");
 }
 
-export function invalidMsg(p: FxPair, side: "buy" | "sell", mode: Mode, a: Lv): string {
+/**
+ * A setup called off. Two different things end one, and the channel is told which.
+ *   • A candle closed beyond its invalidation — the default, and what the second line has always said.
+ *   • `timedOut`: it was announced on a confirmation with price already past the entry, given five
+ *     minutes for the pullback (decide.ARM_MAX_MS), and the pullback did not come. Nothing closed
+ *     beyond anything. Until 10-04 this case was sent the first sentence too — as GENX's line is — and
+ *     the first one that went out live told the channel GBP/JPY had "closed beyond 208.785" when the
+ *     setup had been let go by the clock.
+ */
+export function invalidMsg(p: FxPair, side: "buy" | "sell", mode: Mode, a: Lv, timedOut = false): string {
   const dir = side === "sell" ? "SELL" : "BUY";
+  if (timedOut) {
+    const mins = Math.round(ARM_MAX_MS / 60_000);
+    return [
+      `❌ <b>${genfxTyped(mode)} — ${p.name} setup expired · ${dir}</b>`,
+      `The ${esc(a.entry_low != null && a.entry_high != null ? zoneOf(p, a) : "the zone")} ${dir.toLowerCase()} is off — price did not come back to the entry within ${mins} minutes. Don't chase it.`,
+    ].join("\n");
+  }
   return [
     `❌ <b>${genfxTyped(mode)} — ${p.name} setup invalidated · ${dir}</b>`,
     `The ${esc(a.entry_low != null && a.entry_high != null ? zoneOf(p, a) : "the zone")} ${dir.toLowerCase()} is off — price closed beyond ${fmtPx(p, a.invalidation ?? a.stop)}. Don't take it.`,
