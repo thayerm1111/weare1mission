@@ -13,7 +13,7 @@ import { placeGenxGold, placeGenxFollower, rewardRisk, inWeekendCloseWindow, inS
 import { checkOwnerLevels } from "@/lib/flow/ownerLevels";
 import { billSetupForming } from "@/lib/flow/flowBilling";
 import { setupFeeKey } from "@/lib/genx/setupFee";
-import { watchPass, findSameSetup, calledSince, bornDead, decideGoldEntry, beatKeepDecision, headsUpMsg, enterMsg, invalidMsg, MODE_LABEL, r1, fmt, acquireWatchLock, extendWatchLock, releaseWatchLock, type AlertRow } from "@/lib/genx/watchTick";
+import { watchPass, findSameSetup, calledSince, retiredBy, bornDead, decideGoldEntry, beatKeepDecision, headsUpMsg, enterMsg, invalidMsg, MODE_LABEL, r1, fmt, acquireWatchLock, extendWatchLock, releaseWatchLock, type AlertRow } from "@/lib/genx/watchTick";
 
 // decideGoldEntry + the gold entry preference rules now live in @/lib/genx/watchTick
 // (shared with the always-on worker).
@@ -201,8 +201,9 @@ async function run(): Promise<Response> {
       const immediate = engineState === "TRADE_READY"; // BUY_NOW / SELL_NOW
 
       // SAME SETUP, DRIFTED ZONE (owner 09-16): not a new setup — the open alert keeps being watched; nothing is posted.
+      // (Since 10-05 an Intraday or Swing setup is checked against the open setups of its own horizon as well as Quick's.)
       if (!row) {
-        const twin = await findSameSetup(admin, { side, entry_low: genx.entry_low, entry_high: genx.entry_high });
+        const twin = await findSameSetup(admin, { side, entry_low: genx.entry_low, entry_high: genx.entry_high, mode });
         if (twin) { modeOut.result = `same_setup:${twin.dedupe_key}:${twin.state}`; continue; }
         // TREND GATE (owner 09-21, see src/lib/genx/trendGate.ts): a NEW call needs the 1h EMA 20/50/200
         // stacked its way and a core-grade setup. Setups already being watched are not affected.
@@ -280,7 +281,7 @@ async function run(): Promise<Response> {
       // open alert (zone drift) is retired silently instead (same-setup dedupe).
       if (row.state === "forming") {
         const twin = await findSameSetup(admin, row, row.id);
-        if (twin && Date.parse(twin.created_at) <= Date.parse(row.created_at)) {
+        if (twin && retiredBy(row, twin)) {
           await admin.from("genx_alerts").update({ state: "invalidated", last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id).eq("state", "forming");
           modeOut.result = `merged_into:${twin.dedupe_key}`;
           continue;

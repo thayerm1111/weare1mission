@@ -157,7 +157,7 @@ export async function beatKeepDecision(admin: Admin, extra: Record<string, unkno
 // zone width) of a still-open alert (forming/entered, not yet graded, last 4h) IS that setup.
 export const SAME_SETUP_USD = 6;
 export const SAME_SETUP_WINDOW_MS = 4 * 3600_000;
-type ZoneLike = { side: "buy" | "sell"; entry_low: number | null; entry_high: number | null };
+type ZoneLike = { side: "buy" | "sell"; entry_low: number | null; entry_high: number | null; mode?: Mode | null; created_at?: string | null };
 /** A scanner setup's key: "<horizon>:<side>:<zone low>:<zone high>". Other modules' rows ("zone:…", "…:rng:…", "…:brk:…") are not scanner setups. */
 export const isScannerKey = (k: string): boolean => /^(quick|intraday|swing):(buy|sell):\d/.test(k);
 export function sameSetupZone(a: ZoneLike, b: ZoneLike): boolean {
@@ -166,13 +166,52 @@ export function sameSetupZone(a: ZoneLike, b: ZoneLike): boolean {
   const width = Math.max(Math.abs(Number(a.entry_high) - Number(a.entry_low)), Math.abs(Number(b.entry_high) - Number(b.entry_low)));
   return Math.abs(mid(a) - mid(b)) <= Math.max(SAME_SETUP_USD, 1.5 * width);
 }
+// ── THE OTHER TWO HORIZONS (10-05) ──
+// The rule above was written when every scanner setup was a Quick one, and it looks only at Quick rows.
+// Intraday and Swing came back on 09-21 and were never under it: every drift of an Intraday or Swing
+// zone has been a new setup — its own heads-up, its own ENTER NOW, its own line in the record — while
+// the first one was still open. Of the setups recorded from 09-18 to 10-05 that were not dead on
+// arrival, 122 of 156 Intraday and 93 of 107 Swing were a re-reading of one still open (Quick: 0 of
+// 75). On 10-05 one intraday buy was recorded eight times in twenty-one minutes, each announced, each
+// one entered.
+//
+// A new Intraday or Swing setup is now also checked against the open scanner setups of ITS OWN horizon,
+// for as long as the earlier one is open (pending — up to 8h, Swing 48h — or entered and not yet
+// graded). The Quick check is exactly the query it was and is asked first; a Quick setup is checked
+// against nothing new. When the earlier call has been graded, the same zone forming again is a new
+// setup, as with Quick.
+//
+// One consequence, on purpose: a repeat no longer re-sends the entry. The desk takes an idea once, when
+// it is first called — a member who was skipped then (a halt, a busy claim, a broker error) is not put
+// in by a re-reading of it minutes later at a worse price, and Send It and follower accounts get one
+// fill per idea rather than one per re-reading.
+export const SAME_SETUP_OPEN_MS = 3 * 86_400_000;
 /** Open GENX 1.0 scanner alerts (not the PDH/PDL module's) that are the same setup as this zone. */
 export async function findSameSetup(admin: Admin, z: ZoneLike, excludeId?: string): Promise<AlertRow | null> {
   const since = new Date(Date.now() - SAME_SETUP_WINDOW_MS).toISOString();
+  const own = z.mode === "intraday" || z.mode === "swing" ? z.mode : null;
+  // Asked about a ROW (a pending Intraday or Swing setup, not a fresh read), only a setup recorded before it
+  // can be the one it is a re-reading of. (Quick rows are answered as they always were.)
+  const rowAt = own && z.created_at ? Date.parse(z.created_at) : NaN;
+  const earlier = (r: AlertRow) => !Number.isFinite(rowAt) || Date.parse(r.created_at) <= rowAt;
   const { data } = await admin.from("genx_alerts").select("*").eq("side", z.side).in("state", ["forming", "entered"]).is("outcome", null)
     .like("dedupe_key", "quick:%").gte("created_at", since).order("created_at", { ascending: true }).limit(50);
-  for (const r of (data ?? []) as AlertRow[]) if (r.id !== excludeId && sameSetupZone(r, z)) return r;
+  for (const r of (data ?? []) as AlertRow[]) if (r.id !== excludeId && sameSetupZone(r, z) && earlier(r)) return r;
+  if (!own) return null;
+  const { data: mine } = await admin.from("genx_alerts").select("*").eq("side", z.side).in("state", ["forming", "entered"]).is("outcome", null)
+    .like("dedupe_key", `${own}:%`).gte("created_at", new Date(Date.now() - SAME_SETUP_OPEN_MS).toISOString()).order("created_at", { ascending: true }).limit(200);
+  for (const r of (mine ?? []) as AlertRow[]) if (r.id !== excludeId && isScannerKey(r.dedupe_key) && sameSetupZone(r, z) && earlier(r)) return r;
   return null;
+}
+/**
+ * Is the pending `row` a later re-reading of `twin`, to be retired without a word? Only when the twin
+ * was recorded first. A Quick row is retired whether or not it has been armed, as it always was. An
+ * Intraday or Swing row that is ARMED is left to run: its ENTER NOW is already in the channel and its
+ * five minutes for the pullback are running — it is not taken away mid-count. Pure.
+ */
+export function retiredBy(row: Pick<AlertRow, "dedupe_key" | "created_at" | "enter_sent_at">, twin: Pick<AlertRow, "created_at"> | null): boolean {
+  if (!twin || !(Date.parse(twin.created_at) <= Date.parse(row.created_at))) return false;
+  return row.dedupe_key.startsWith("quick:") || !row.enter_sent_at;
 }
 
 /**
@@ -268,9 +307,10 @@ export async function watchPass(admin: Admin, mdKey: string, tgReady: boolean): 
       const side = row.side;
       // SAME-SETUP DEDUPE: a later forming alert that duplicates an earlier open alert (zone drift) is
       // retired SILENTLY — no second ENTER NOW, no extra "invalidated" note.
-      if (row.dedupe_key.startsWith("quick:")) {
+      // (Intraday and Swing rows too since 10-05: findSameSetup checks a row against its own horizon.)
+      if (row.dedupe_key.startsWith("quick:") || isScannerKey(row.dedupe_key)) {
         const twin = await findSameSetup(admin, row, row.id);
-        if (twin && Date.parse(twin.created_at) <= Date.parse(row.created_at)) {
+        if (retiredBy(row, twin)) {
           await admin.from("genx_alerts").update({ state: "invalidated", last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id).eq("state", "forming");
           sent.push(`${row.mode}:MERGED`);
           continue;
