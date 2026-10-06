@@ -10,11 +10,8 @@ export const dynamic = "force-dynamic";
  * last scan time (heartbeat), the setups currently being tracked (forming), and recently
  * triggered/invalidated calls. genx_alerts is service-role only, so this reads via the admin client.
  *
- * ADMIN ONLY (owner 10-05). It used to answer any signed-in member, on the reasoning that it showed
- * nothing the Telegram channel had not already posted. The channel no longer posts the play — no
- * side, no zone, no stop, no targets (publicSignal.ts) — so that reasoning is gone, and this would
- * have been the free way round it: every live call's side and levels, for the asking. Its only
- * reader is the GENX Lab, which is itself admin-only (portal/genx-lab), so no member page changes.
+ * ADMIN ONLY. It used to answer any signed-in member, with every live call's side and levels. Its
+ * only reader is the GENX Lab, which is itself admin-only (portal/genx-lab), so no member page needs it.
  */
 function json(obj: unknown, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });

@@ -2,7 +2,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { liveTick } from "@/lib/flow/liveTicks";
 import { placeGenxGold, placeGenxFollower } from "@/lib/flow/autoExec";
 import { sendTelegram, esc } from "@/lib/telegram";
-import { deskPost, GOLD_MARKET } from "@/lib/publicSignal";
 import { analyze, type Decision } from "./engine";
 import type { Bar } from "./candles";
 import { CONFIG, STRATEGY_VERSION, validateConfig } from "./config";
@@ -103,9 +102,17 @@ async function upsertSetups(admin: Admin, d: Decision): Promise<void> {
   }
 }
 
-/** The channel is told that a GENX 3.0 call fired — never which way, where or why (owner 10-05; publicSignal.ts). */
-function signalMessage(): string {
-  return deskPost("✅", "GENX 3.0 — ENTER NOW", GOLD_MARKET);
+function signalMessage(s: Genx3Signal): string {
+  const dir = s.side === "BUY" ? "BUY" : "SELL";
+  return [
+    `🧠 <b>GENX 3.0 — ${dir} XAUUSD · ${esc(s.setup_type.replace(/_/g, " "))}</b>`,
+    `Regime: ${esc(s.regime.replace(/_/g, " "))} · Score ${s.confidence}/100`,
+    `Entry ${s.entry_zone_low.toFixed(2)}–${s.entry_zone_high.toFixed(2)} · Stop ${s.stop_price.toFixed(2)} · Target ${s.target_price.toFixed(2)}`,
+    `Move $${s.target_price_distance.toFixed(2)} vs risk $${s.risk_price_distance.toFixed(2)} (R:R ${s.gross_reward_risk.toFixed(2)})`,
+    ...s.evidence.slice(0, 3).map((e) => `• ${esc(e)}`),
+    `Cancels if: ${esc(s.invalidation_conditions[0] ?? "structure breaks")}`,
+    `<i>Educational, not financial advice.</i>`,
+  ].join("\n");
 }
 
 export async function deliver(admin: Admin, s: Genx3Signal, ctl: Control, exec?: ExecContext): Promise<void> {
@@ -220,7 +227,7 @@ export async function genx3Tick(admin: Admin, holder: string): Promise<TickResul
     if (error) return { ran: true, signal: null, noTrade: [/duplicate|unique/i.test(error.message) ? "signal_already_published" : `signal_write_failed: ${error.message}`] };
     await admin.from("genx3_setups").update({ state: "PUBLISHED", detail: { transition_reason: live ? "published LIVE" : "published MONITOR" } }).eq("setup_id", signal.setup_id).eq("state", "TRIGGERED");
     if (live) {
-      try { await sendTelegram(signalMessage()); } catch { /* best-effort */ }
+      try { await sendTelegram(signalMessage(signal)); } catch { /* best-effort */ }
       await deliver(admin, signal, ctl);
     }
   }

@@ -2,8 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { genx2Active } from "@/lib/genx3/engineSelect";
 import { type Mode } from "@/lib/genxCompute";
 import { confirmEntry } from "@/lib/genxConfirm";
-import { sendTelegram } from "@/lib/telegram";
-import { formingPost, enterPost, cancelledPost, GENX_TOOL, GOLD_MARKET } from "@/lib/publicSignal";
+import { sendTelegram, esc } from "@/lib/telegram";
 import { genxLabel } from "@/lib/genx/brand";
 import { warmGoldFleet } from "@/lib/flow/warmFleet";
 import { placeGenxGold, placeGenxFollower, rewardRisk } from "@/lib/flow/autoExec";
@@ -94,15 +93,46 @@ export type AlertRow = {
   quality_ok: boolean | null; enter_sent_at: string | null;
 };
 
-/*
- * WHAT GENX SAYS IN THE CHANNEL (owner 10-05: free subscribers were getting the whole trade). These
- * take the horizon and nothing else — no side, no zone, no stop, no target, no price — so a call can
- * no longer be traded from the channel. The play is read on the GENX page, for credits. The wording
- * and the reasons are in publicSignal.ts.
- */
-export const headsUpMsg = (mode: Mode): string => formingPost(genxTyped(mode), GOLD_MARKET, GENX_TOOL);
-export const enterMsg = (mode: Mode): string => enterPost(genxTyped(mode), GOLD_MARKET, GENX_TOOL);
-export const invalidMsg = (mode: Mode): string => cancelledPost(genxTyped(mode), GOLD_MARKET);
+export function headsUpMsg(side: "buy" | "sell", mode: Mode, a: { entry_low: number | null; entry_high: number | null; stop: number | null; tp1: number | null; tp2: number | null; confidence: number | null }): string {
+  const dir = side === "sell" ? "SELL" : "BUY";
+  const zone = a.entry_low != null && a.entry_high != null ? `${fmt(a.entry_low)}–${fmt(a.entry_high)}` : "—";
+  const tps = [a.tp1 != null ? `TP1 ${fmt(a.tp1)}` : null, a.tp2 != null ? `TP2 ${fmt(a.tp2)}` : null].filter(Boolean).join(" · ");
+  return [
+    `⏳ <b>${genxTyped(mode)} — ${dir} setup forming</b>`,
+    `Gold (XAU/USD)`,
+    `Zone: <b>${esc(zone)}</b>`,
+    `Stop: ${fmt(a.stop)}${tps ? " · " + esc(tps) : ""}`,
+    a.confidence != null ? `Confidence ${a.confidence}/100` : "",
+    `Waiting for price to reach the zone and confirm. You'll get an <b>ENTER NOW</b> the moment it triggers.`,
+    `<i>Educational, not financial advice.</i>`,
+  ].filter(Boolean).join("\n");
+}
+
+export function enterMsg(side: "buy" | "sell", mode: Mode, a: { entry_low: number | null; entry_high: number | null; stop: number | null; tp1: number | null; tp2: number | null; tp3: number | null }, atPrice: number | null, immediate: boolean): string {
+  const dir = side === "sell" ? "SELL" : "BUY";
+  const zone = a.entry_low != null && a.entry_high != null ? `${fmt(a.entry_low)}–${fmt(a.entry_high)}` : "—";
+  const tps = [a.tp1 != null ? `TP1 ${fmt(a.tp1)}` : null, a.tp2 != null ? `TP2 ${fmt(a.tp2)}` : null, a.tp3 != null ? `TP3 ${fmt(a.tp3)}` : null].filter(Boolean).join(" · ");
+  const confirmLine = immediate
+    ? `Live setup — Gold is at the zone now.`
+    : `${side === "sell" ? "Sellers" : "Buyers"} confirmed on the ${MODE_LABEL[mode] === "Quick" ? "5-minute" : MODE_LABEL[mode] === "Intraday" ? "15-minute" : "1-hour"} close.`;
+  return [
+    `✅ <b>${genxTyped(mode)} — ENTER NOW · ${dir}</b>`,
+    `Gold @ ~${fmt(atPrice)}`,
+    `Entry ${esc(zone)} · Stop ${fmt(a.stop)}`,
+    tps ? esc(tps) : "",
+    confirmLine,
+    `<i>Educational, not financial advice.</i>`,
+  ].filter(Boolean).join("\n");
+}
+
+export function invalidMsg(side: "buy" | "sell", mode: Mode, a: { entry_low: number | null; entry_high: number | null; invalidation: number | null }): string {
+  const dir = side === "sell" ? "SELL" : "BUY";
+  const zone = a.entry_low != null && a.entry_high != null ? `${fmt(a.entry_low)}–${fmt(a.entry_high)}` : "the zone";
+  return [
+    `❌ <b>${genxTyped(mode)} — Setup invalidated · ${dir}</b>`,
+    `The ${esc(zone)} ${dir.toLowerCase()} is off — price closed beyond ${fmt(a.invalidation)}. Don't take it.`,
+  ].join("\n");
+}
 
 /** Heartbeat that PRESERVES the last recorded decision detail (watchdog reads it).
  *  Also stamps the LIVE GENX 2.0 flag state. The flags are read from env at call time
@@ -219,9 +249,10 @@ export async function watchPass(admin: Admin, mdKey: string, tgReady: boolean): 
       const armedNow = !!row.enter_sent_at;
       const lp = conf.price ?? conf.enter;
       const armedAtMs = row.enter_sent_at ? new Date(row.enter_sent_at).getTime() : Date.now();
+      const tgMsg = { entry_low: row.entry_low, entry_high: row.entry_high, stop: row.stop, tp1: row.tp1, tp2: row.tp2, tp3: row.tp3 };
       const act = decideGoldEntry({ armed: armedNow, confState: conf.state, lp, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp1: row.tp1, armedAtMs, nowMs: Date.now() });
       if (act.do === "arm") {
-        if (tgReady) await sendTelegram(enterMsg(row.mode));
+        if (tgReady) await sendTelegram(enterMsg(side, row.mode, tgMsg, lp, false));
         await admin.from("genx_alerts").update({ enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
         // 🚀 SEND IT (owner 09-04): chased signal arms for everyone else — Send It accounts fill at market now.
         try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, sendItOnly: true, mode: row.mode }); } catch { /* best-effort */ }
@@ -231,7 +262,7 @@ export async function watchPass(admin: Admin, mdKey: string, tgReady: boolean): 
         } catch { /* best-effort */ }
         sent.push(`${row.mode}:ARM`);
       } else if (act.do === "enter") {
-        if (!armedNow && tgReady) await sendTelegram(enterMsg(row.mode));
+        if (!armedNow && tgReady) await sendTelegram(enterMsg(side, row.mode, tgMsg, lp, false));
         await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
         try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, mode: row.mode }); } catch { /* placement is best-effort */ }
         try {
@@ -240,7 +271,7 @@ export async function watchPass(admin: Admin, mdKey: string, tgReady: boolean): 
         } catch { /* follower is best-effort */ }
         sent.push(`${row.mode}:ENTER`);
       } else if (act.do === "invalidate") {
-        if (tgReady) await sendTelegram(invalidMsg(row.mode));
+        if (tgReady) await sendTelegram(invalidMsg(side, row.mode, { entry_low: row.entry_low, entry_high: row.entry_high, invalidation: row.invalidation }));
         await admin.from("genx_alerts").update({ state: "invalidated", last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
         sent.push(`${row.mode}:INVALID`);
       } else {

@@ -123,11 +123,6 @@ async function bigAccountDigest(admin: Admin): Promise<{ sent: boolean; note: st
     }
   } catch { /* balances optional */ }
 
-  // WHERE THIS DIGEST GOES decides what it may say. With a private admin chat set it goes there; with
-  // none it falls back to the members' channel — and that channel is never told which way an open
-  // trade is (owner 10-05, publicSignal.ts). So the side is named only for the private chat.
-  const adminChat = process.env.TELEGRAM_ADMIN_CHAT_ID;
-
   // Open positions across the desk (sizing sanity + BE-at-loss) — small set.
   const openByAcct = new Map<string, PosRow[]>();
   const anomalies: string[] = [];
@@ -141,7 +136,7 @@ async function bigAccountDigest(admin: Admin): Promise<{ sent: boolean; note: st
       // BE-at-loss check (all accounts).
       if (p.be_done && p.entry != null && p.cur_stop != null) {
         const atLoss = (p.side === "buy" && p.cur_stop < p.entry) || (p.side === "sell" && p.cur_stop > p.entry);
-        if (atLoss) anomalies.push(`BE stop parked at a LOSS: ${esc(p.symbol)}${adminChat ? ` ${esc(p.side)}` : ""} on ${esc(BIG_ACCOUNTS[aid] || aid)}`);
+        if (atLoss) anomalies.push(`BE stop parked at a LOSS: ${esc(p.symbol)} ${esc(p.side)} on ${esc(BIG_ACCOUNTS[aid] || aid)}`);
       }
       // Sizing sanity for the big accounts only (where we have a balance).
       const bal = balById.get(aid);
@@ -182,6 +177,7 @@ async function bigAccountDigest(admin: Admin): Promise<{ sent: boolean; note: st
   if (anomalies.length) { lines.push(""); for (const a of anomalies.slice(0, 8)) lines.push("• " + a); }
   else lines.push("Sizing sane, no break-even-at-loss, scanner + manager alive.");
 
+  const adminChat = process.env.TELEGRAM_ADMIN_CHAT_ID;
   try {
     await sendTelegram(lines.join("\n"), adminChat ? { chatId: adminChat } : undefined);
     await admin.from("flow_incidents").insert({ component: "monitor", kind: "account_digest", detail: { anomalies: anomalies.length } });

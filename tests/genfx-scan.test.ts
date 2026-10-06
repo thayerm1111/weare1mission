@@ -9,7 +9,6 @@ import { type FxSignal } from "../src/lib/genfx/place";
 import { fxUnreachableUserIds, billFxSetup, fxPassUserIds, fxFireGate } from "../src/lib/genfx/billing";
 import { PLAN_FLOW_PASS } from "../src/lib/subscription";
 import { withTimeout, utcMs } from "../src/lib/genfx/market";
-import { givesPlayAway } from "../src/lib/publicSignal";
 import { fakeDb, type Row, type FakeOpts } from "./_genfx_fakedb";
 
 /*
@@ -333,10 +332,7 @@ test("a new scanner setup is a heads-up — once. The same setup let go and read
     assert.equal(first.result, "headsup");
     const k1 = String(rows(d)[0].dedupe_key);
     assert.deepEqual([rows(d).length, rows(d)[0].state, rows(d)[0].fee_key, ch.posts.length], [1, "forming", k1, 1]);
-    // The channel is told a Quick setup is forming on EUR/USD and where to read it — not which way or where.
-    assert.match(ch.posts[0], /GEN FX QUICK — setup forming<\/b>\nEUR\/USD\n/);
-    assert.match(ch.posts[0], /Run GEN FX to see the play/);
-    assert.equal(givesPlayAway(ch.posts[0]), false);
+    assert.match(ch.posts[0], /EUR\/USD SELL setup forming/);
     // Still pending, read again a pip away: it is the call already open. Nothing is written.
     assert.match(String((await step(1.0841, NOON + 300_000)).result), /^same_setup:/);
     // Its five minutes ran out (or a candle closed through it): let go. Fifteen minutes later the engine
@@ -417,8 +413,7 @@ test("a setup that confirms the moment it is recorded is entered on that same re
     assert.equal(out.result, "headsup+enter:confirmed_rr_ok");
     assert.deepEqual([rows(d)[0].state, rows(d)[0].enter_price, placed.length, placed[0].signalKey, placed[0].setup], ["entered", 1.0841, 1, rows(d)[0].dedupe_key, "scanner"]);
     assert.equal(ch.posts.length, 1);
-    assert.match(ch.posts[0], /GEN FX QUICK — ENTER NOW<\/b>\nEUR\/USD\n/);
-    assert.equal(givesPlayAway(ch.posts[0]), false);
+    assert.match(ch.posts[0], /ENTER NOW · EUR\/USD SELL/);
     // Confirmed but already far gone (0.4 to 1 left): armed, announced once, nothing placed.
     const d2 = db();
     const armed = await scannerStep(A(d2), CTL, E, "quick", forming(), 1.0823, "key", { nowMs: NOON, confirm: confirms("CONFIRMED", 1.0823), place });
