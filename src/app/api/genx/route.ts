@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { gateCredits, chargeCredit } from "@/lib/credits";
+import { chargedRead } from "@/lib/readCharge";
 import { isPriorityEmail } from "@/lib/marketData";
 import { computeGenxRead, buildGenx, GOLD, MODES, type Mode } from "@/lib/genxCompute";
 
@@ -89,8 +90,9 @@ export async function POST(req: NextRequest) {
   // ── Decision mapping → GENX result (all numbers from the engine) ──
   const genx = buildGenx(read, { mode, price: rr.price, session: rr.session, dataStatus: rr.dataStatus, hold: m.hold, triggerTf: m.triggerTf, contextTf: m.contextTf, pip: GOLD.pip, dec: GOLD.dec, marketStory, volatility: rr.volatility, atr: rr.atr, m15: rr.m15 });
 
-  // Charge only when GENX produces an actionable read.
-  const chargeable = read.state === "TRADE_READY" || read.state === "DEVELOPING_SETUP" || read.state === "WATCHLIST";
+  // Charge when GENX found a setup — or hands over a plan at all: the range plan it draws on a
+  // "no trade" read is one the desk trades, and it takes credits to view everywhere else (readCharge.ts).
+  const chargeable = chargedRead(read.state, genx);
   if (chargeable) await chargeCredit("genx");
 
   // ── Immutable signal recording (spec §27). Non-blocking. ──

@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { gateCredits, chargeCredit } from "@/lib/credits";
+import { chargedGhostRead } from "@/lib/readCharge";
 import { series, livePrice, isPriorityEmail, livePriceSane } from "@/lib/marketData";
 import { runEngine, type EngineCfg, type Row } from "@/lib/omEngine";
 import { fetchCalendar, symbolCurrencies } from "@/lib/news/calendar";
@@ -130,10 +131,14 @@ export async function POST(req: NextRequest) {
   const news = await ghostNews(TD);
   (read as Record<string, unknown>).news = news;
 
-  // Charge only when we actually deliver something actionable (a trade or a
-  // developing setup with a trigger). Watchlist / no-trade / data errors are free.
-  const chargeable = read.state === "TRADE_READY" || read.state === "DEVELOPING_SETUP";
-  if (chargeable) await chargeCredit("ghost");
+  // Charged when we deliver a trade or a developing setup — or a read that carries a plan at all:
+  // a watchlist or no-trade read still hands over the provisional trade, the setup zone or the two
+  // levels of the range plan, which takes credits to view everywhere else on the site
+  // (readCharge.ts). A read with nothing in it to trade from, and a data error, are free.
+  // DECIDED HERE, from the engine's own read, before the pass below rewrites its direction for the
+  // old app — and TAKEN AT THE END, once the read is whole: the story is written by another service,
+  // and a member is not charged for a read that never reached them because that service stalled.
+  const chargeable = chargedGhostRead(read.state, read);
 
   // ── Layer 2: the AI writes the DESK NARRATIVE only (numbers are locked) ──
   if (aiKey && read.state !== "INSUFFICIENT_DATA" && read.state !== "DATA_UNAVAILABLE") {
@@ -145,6 +150,9 @@ export async function POST(req: NextRequest) {
       const r = await fetch(ANTHROPIC_URL, {
         method: "POST", headers: { "content-type": "application/json", "x-api-key": aiKey, "anthropic-version": "2023-06-01" },
         body: JSON.stringify({ model: MODEL, max_tokens: 500, system: sys, messages: [{ role: "user", content: `LOCKED ANALYSIS JSON:\n${JSON.stringify(read)}\n\nReturn the JSON array of desk-read sentences now.` }] }),
+        // The story is a garnish: if it has not come in 20 seconds the engine's own words are used
+        // (below), rather than the whole read being lost to the function's time limit.
+        signal: AbortSignal.timeout(20_000),
       });
       const j = await r.json();
       const raw = Array.isArray(j?.content) ? j.content.filter((b: { type?: string }) => b?.type === "text").map((b: { text?: string }) => b.text ?? "").join("") : "";
@@ -167,6 +175,15 @@ export async function POST(req: NextRequest) {
   // are simply omitted. ──
   legacyOverlay(read);
 
+  if (chargeable && !(await chargeCredit("ghost"))) {
+    // The spend did not go through. If that is because the credits are no longer there — another
+    // read of this member's took them while this one was being written — the read is refused as it
+    // would have been at the door, not handed over for nothing. (Taking the credits last means the
+    // door and the spend are a story's wait apart, where they used to be a moment apart.) A credit
+    // system that cannot be reached still fails open, as it does everywhere.
+    const again = await gateCredits("ghost");
+    if (!again.ok && again.reason === "insufficient") return json({ error: "insufficient_credits", balance: again.balance }, 402);
+  }
   return json({ ok: true, price, asOf: now.toISOString(), session, symbol: TD, read, candles: read.candles ?? [], strategy_version: "ghost-v3-deterministic" }, 200);
 }
 

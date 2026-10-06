@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { gateCredits, chargeCredit } from "@/lib/credits";
+import { chargedRead } from "@/lib/readCharge";
 import { CREDIT_COST } from "@/lib/creditConfig";
 import { isPriorityEmail } from "@/lib/marketData";
 import { MODES, type Mode } from "@/lib/genxCompute";
@@ -110,8 +111,9 @@ export async function POST(req: NextRequest) {
 
   const genfx = genfxOf(pair, read, { mode, price: rr.price, session: rr.session, dataStatus: rr.dataStatus, hold: m.hold, triggerTf: m.triggerTf, contextTf: m.contextTf, marketStory, volatility: rr.volatility, atr: rr.atr });
 
-  // Charge only when the read is actionable, and only with billing on.
-  const chargeable = read.state === "TRADE_READY" || read.state === "DEVELOPING_SETUP" || read.state === "WATCHLIST";
+  // Charge when the engine found a setup — or the read hands over a plan at all (readCharge.ts) —
+  // and only with billing on.
+  const chargeable = chargedRead(read.state, genfx);
   if (ctl.billing && chargeable) await chargeCredit("genx");
 
   // Would auto-trade take this stop? Said on the card, enforced at placement.
