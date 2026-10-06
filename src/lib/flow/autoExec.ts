@@ -23,6 +23,7 @@ import { goldChangeOfCharacter } from "@/lib/genx/choch";
 import { rangePosition, blockedByRange, deskBreaker, BREAKER_WINDOW_MS } from "@/lib/genx/rangeGuard";
 import { trendOfCloses, closedBars } from "@/lib/mtf";
 import { sendTelegram } from "@/lib/telegram";
+import { publicHoldReason } from "@/lib/publicSignal";
 import { BE_DISPLAY_PIPS } from "@/lib/genx/goldRecord";
 import { ENTRY_TUNING } from "@/lib/entryEngine";
 import type { Mode } from "@/lib/genxCompute";
@@ -1553,7 +1554,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     const q = await genxGoldQualityGate(admin, { side: sig.side, entryLow: sig.entryLow, entryHigh: sig.entryHigh, stop: sig.stop, tp: sig.tp, setup: sig.setup ?? null });
     if (!q.ok) {
       try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: quality_gate ${q.reason}`.slice(0, 200) }); } catch { /* breadcrumb best-effort */ }
-      if (shouldNote("quality", sig.side)) { try { await sendTelegram(`🧭 <b>${genxLabel()}${genxTypeOf(sig.mode)} gold — skipping this ${sig.side.toUpperCase()}</b>\nIt doesn't pass the quality check: ${q.reason}. Waiting for a setup with the trend and at least 1:1 reward.`); } catch { /* note best-effort */ } }
+      if (shouldNote("quality", sig.side)) { try { await sendTelegram(`🧭 <b>${genxLabel()}${genxTypeOf(sig.mode)} gold — FLOW is skipping this one</b>\nIt doesn't pass the quality check. Waiting for a setup with the trend and at least 1:1 reward.`); } catch { /* note best-effort */ } }
       return { members: 0, placed: 0 };
     }
   }
@@ -1618,10 +1619,10 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     const gate = await goldEntryHold(admin, sig.side, entry);
     if (gate.hold && gate.scope === "conservative") {
       conservativeHold = true;
-      try { await sendTelegram(`⏸️ <b>${genxLabel()}${genxTypeOf(sig.mode)} gold — conservative accounts held</b>\n${gate.reason}`); } catch { /* note best-effort */ }
+      try { await sendTelegram(`⏸️ <b>${genxLabel()}${genxTypeOf(sig.mode)} gold — conservative accounts held</b>\n${publicHoldReason(gate.reason)}`); } catch { /* note best-effort */ }
       try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: choch_conservative_hold ${sig.side} (aggressive proceeding)` }); } catch { /* breadcrumb best-effort */ }
     } else if (gate.hold) {
-      try { await sendTelegram(`⏸️ <b>${genxLabel()}${genxTypeOf(sig.mode)} gold — entry paused</b> (🚀 Send It accounts still take it)\n${gate.reason}`); } catch { /* note best-effort */ }
+      try { await sendTelegram(`⏸️ <b>${genxLabel()}${genxTypeOf(sig.mode)} gold — entry paused</b> (🚀 Send It accounts still take it)\n${publicHoldReason(gate.reason)}`); } catch { /* note best-effort */ }
       await deskDrop(`gold_halt ${sig.side} (send-it only)`);
       sendItOnly = true;
     }
@@ -1687,7 +1688,7 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
     // TELL THE ROOM (owner 09-09: an ENTER NOW went out on Telegram while the desk quietly
     // took nobody — "why didn't my account take this last trade?"). A silent skip reads as
     // a broken system; a one-line note reads as discipline.
-    if (shouldNote("chase", sig.side)) { try { await sendTelegram(`⏸️ <b>${genxLabel()}${genxTypeOf(sig.mode)} gold — not chasing this fill</b>\nPrice ran past the ${sig.side.toUpperCase()} zone${goldLp != null ? ` (now ~${goldLp.toFixed(2)})` : ""}${rr != null ? ` — live R:R ${rr.toFixed(2)}` : ""}. Watching for a pullback into the zone to enter properly. 🚀 Send It accounts still take it at market.`); } catch { /* note best-effort */ } }
+    if (shouldNote("chase", sig.side)) { try { await sendTelegram(`⏸️ <b>${genxLabel()}${genxTypeOf(sig.mode)} gold — not chasing this fill</b>\nPrice ran past the entry zone. Watching for it to come back into the zone to enter properly. 🚀 Send It accounts still take it at market.`); } catch { /* note best-effort */ } }
   }
 
   // SELECTIVITY GATES REMOVED (owner 09-16): the same-zone break-even escalation and the

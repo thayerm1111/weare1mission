@@ -1,59 +1,31 @@
 import { type Mode } from "@/lib/genxCompute";
 import { esc } from "@/lib/telegram";
 import { type FxPair, fmtPx } from "@/lib/genfx/pairs";
+import { formingPost, enterPost, cancelledPost, GENFX_TOOL } from "@/lib/publicSignal";
 
 /**
  * GEN FX — WHAT IT SAYS IN THE CHANNEL. The same three messages GENX sends (a setup is forming, enter
- * now, the setup is off) plus the win recap, worded the same way, with two differences a reader needs:
- * every line says GEN FX and names the pair, and prices print at the pair's own precision. Nothing is
+ * now, the setup is off) plus the win recap. Every line says GEN FX and names the pair. Nothing is
  * sent unless the owner has switched GEN FX's Telegram on (control.ts).
+ *
+ * THE THREE LIVE MESSAGES CARRY NO PLAY (owner 10-05: free subscribers were getting the whole trade).
+ * They take the pair and the horizon and nothing else — no side, no zone, no stop, no target, no
+ * price — so a call cannot be traded from the channel; the play is read on the GEN FX page, for
+ * credits. The wording and the reasons are in publicSignal.ts. The win recap is posted after the
+ * trade is over, when its levels are a result and not a signal, and still says what was called.
  */
 export const TYPE_LABEL: Record<Mode, string> = { quick: "QUICK", intraday: "INTRADAY", swing: "SWING" };
 export const MODE_LABEL: Record<Mode, string> = { quick: "Quick", intraday: "Intraday", swing: "Swing" };
-const TRIGGER: Record<Mode, string> = { quick: "5-minute", intraday: "15-minute", swing: "1-hour" };
 export const genfxTyped = (mode: Mode): string => `GEN FX ${TYPE_LABEL[mode] ?? ""}`.trim();
 
-type Lv = { entry_low: number | null; entry_high: number | null; stop: number | null; tp1: number | null; tp2?: number | null; tp3?: number | null; confidence?: number | null; invalidation?: number | null };
-const zoneOf = (p: FxPair, a: Lv) => (a.entry_low != null && a.entry_high != null ? `${fmtPx(p, a.entry_low)}–${fmtPx(p, a.entry_high)}` : "—");
+export const headsUpMsg = (p: FxPair, mode: Mode): string => formingPost(genfxTyped(mode), p.name, GENFX_TOOL);
+export const enterMsg = (p: FxPair, mode: Mode): string => enterPost(genfxTyped(mode), p.name, GENFX_TOOL);
+export const invalidMsg = (p: FxPair, mode: Mode): string => cancelledPost(genfxTyped(mode), p.name);
 
-export function headsUpMsg(p: FxPair, side: "buy" | "sell", mode: Mode, a: Lv): string {
-  const dir = side === "sell" ? "SELL" : "BUY";
-  const tps = [a.tp1 != null ? `TP1 ${fmtPx(p, a.tp1)}` : null, a.tp2 != null ? `TP2 ${fmtPx(p, a.tp2)}` : null].filter(Boolean).join(" · ");
-  return [
-    `⏳ <b>${genfxTyped(mode)} — ${p.name} ${dir} setup forming</b>`,
-    `Zone: <b>${esc(zoneOf(p, a))}</b>`,
-    `Stop: ${fmtPx(p, a.stop)}${tps ? " · " + esc(tps) : ""}`,
-    a.confidence != null ? `Confidence ${a.confidence}/100` : "",
-    `Waiting for price to reach the zone and confirm. You'll get an <b>ENTER NOW</b> the moment it triggers.`,
-    `<i>Educational, not financial advice.</i>`,
-  ].filter(Boolean).join("\n");
-}
+type Called = { entry_low: number | null; entry_high: number | null; tp1: number | null };
+const zoneOf = (p: FxPair, a: Called) => (a.entry_low != null && a.entry_high != null ? `${fmtPx(p, a.entry_low)}–${fmtPx(p, a.entry_high)}` : "—");
 
-export function enterMsg(p: FxPair, side: "buy" | "sell", mode: Mode, a: Lv, atPrice: number | null, immediate: boolean): string {
-  const dir = side === "sell" ? "SELL" : "BUY";
-  const tps = [a.tp1 != null ? `TP1 ${fmtPx(p, a.tp1)}` : null, a.tp2 != null ? `TP2 ${fmtPx(p, a.tp2)}` : null, a.tp3 != null ? `TP3 ${fmtPx(p, a.tp3)}` : null].filter(Boolean).join(" · ");
-  const confirmLine = immediate
-    ? `Live setup — ${p.name} is at the zone now.`
-    : `${side === "sell" ? "Sellers" : "Buyers"} confirmed on the ${TRIGGER[mode] ?? "trigger"} close.`;
-  return [
-    `✅ <b>${genfxTyped(mode)} — ENTER NOW · ${p.name} ${dir}</b>`,
-    `${p.name} @ ~${fmtPx(p, atPrice)}`,
-    `Entry ${esc(zoneOf(p, a))} · Stop ${fmtPx(p, a.stop)}`,
-    tps ? esc(tps) : "",
-    confirmLine,
-    `<i>Educational, not financial advice.</i>`,
-  ].filter(Boolean).join("\n");
-}
-
-export function invalidMsg(p: FxPair, side: "buy" | "sell", mode: Mode, a: Lv): string {
-  const dir = side === "sell" ? "SELL" : "BUY";
-  return [
-    `❌ <b>${genfxTyped(mode)} — ${p.name} setup invalidated · ${dir}</b>`,
-    `The ${esc(a.entry_low != null && a.entry_high != null ? zoneOf(p, a) : "the zone")} ${dir.toLowerCase()} is off — price closed beyond ${fmtPx(p, a.invalidation ?? a.stop)}. Don't take it.`,
-  ].join("\n");
-}
-
-export function winMsg(p: FxPair, side: "buy" | "sell", mode: Mode, a: Lv, pips: number): string {
+export function winMsg(p: FxPair, side: "buy" | "sell", mode: Mode, a: Called, pips: number): string {
   return [
     `🏆 <b>GEN FX WIN · ${p.name} ${side === "sell" ? "SELL" : "BUY"} · ${MODE_LABEL[mode] ?? mode}</b>`,
     `${p.name} hit its target for <b>+${pips} pips</b>.`,

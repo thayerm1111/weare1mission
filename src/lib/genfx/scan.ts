@@ -202,21 +202,20 @@ export async function actOnForming(admin: Admin, ctl: GenfxControl, pair: FxPair
   const armedNow = !!row.enter_sent_at;
   const armedAtMs = row.enter_sent_at ? new Date(row.enter_sent_at).getTime() : nowMs;
   const act = decideFxEntry(pair, { armed: armedNow, confState, lp, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp1: row.tp1, armedAtMs, nowMs });
-  const lv = { entry_low: row.entry_low, entry_high: row.entry_high, stop: row.stop, tp1: row.tp1, tp2: row.tp2, tp3: row.tp3, invalidation: row.invalidation };
 
   if (act.do === "arm") {
     // Chased on the first confirmation: announce once, stay pending, wait five minutes for the pullback.
     const { data: won } = await admin.from("genfx_alerts").update({ enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso })
       .eq("id", row.id).eq("state", "forming").is("enter_sent_at", null).select("id");
     if (!won?.length) return null;
-    await say(ctl, enterMsg(pair, row.side, row.mode, lv, lp, false));
+    await say(ctl, enterMsg(pair, row.mode));
     return `arm:${act.reason}`;
   }
   if (act.do === "enter") {
     const { data: won } = await admin.from("genfx_alerts").update({ state: "entered", enter_price: enterPx ?? lp, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso })
       .eq("id", row.id).eq("state", "forming").select("id");
     if (!won?.length) return null;
-    if (!armedNow) await say(ctl, enterMsg(pair, row.side, row.mode, lv, lp, false));
+    if (!armedNow) await say(ctl, enterMsg(pair, row.mode));
     try { await (deps.place ?? placeGenfx)({ pair: pair.key, signalKey: row.dedupe_key, side: row.side, mode: row.mode, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, setup: "scanner", confidence: row.confidence, alertId: row.id }); } catch { /* placement is best-effort */ }
     return `enter:${act.reason}`;
   }
@@ -224,7 +223,7 @@ export async function actOnForming(admin: Admin, ctl: GenfxControl, pair: FxPair
     const { data: won } = await admin.from("genfx_alerts").update({ state: "invalidated", last_checked_at: nowIso, updated_at: nowIso })
       .eq("id", row.id).eq("state", "forming").select("id");
     if (!won?.length) return null;
-    await say(ctl, invalidMsg(pair, row.side, row.mode, lv));
+    await say(ctl, invalidMsg(pair, row.mode));
     return `invalid:${act.reason}`;
   }
   return act.reason;
@@ -308,7 +307,7 @@ export async function gradeEntered(admin: Admin, ctl: GenfxControl, deps: { nowM
         .eq("id", a.id).is("outcome", null).select("id");
       if (!won?.length) continue;
       graded += 1;
-      if (g.result === "win") await say(ctl, winMsg(pair, a.side, a.mode, { entry_low: a.entry_low, entry_high: a.entry_high, stop: a.stop, tp1: a.tp1 }, pips));
+      if (g.result === "win") await say(ctl, winMsg(pair, a.side, a.mode, { entry_low: a.entry_low, entry_high: a.entry_high, tp1: a.tp1 }, pips));
     }
   }
   return graded;
@@ -360,7 +359,7 @@ export async function scannerStep(admin: Admin, ctl: GenfxControl, pair: FxPair,
         state: "entered", enter_price: price, heads_up_sent_at: nowIso, enter_sent_at: nowIso, last_checked_at: nowIso, quality_ok: q.ok,
       }).select("id").single();
       if (error) return done("already_recorded");
-      await say(ctl, enterMsg(pair, side, mode, levels, price, true));
+      await say(ctl, enterMsg(pair, mode));
       try { out.placed = await place({ pair: pair.key, signalKey: dedupeKey, side, mode, entryLow: g.entry_low, entryHigh: g.entry_high, stop: g.stop_loss, tp: g.tp1, setup: "scanner", confidence: g.confidence_score, alertId: (ins as { id: string } | null)?.id ?? null }); } catch { /* placement is best-effort */ }
       out.result = "enter_immediate";
     } else {
@@ -396,7 +395,7 @@ export async function scannerStep(admin: Admin, ctl: GenfxControl, pair: FxPair,
         try { out.billed = await billFxSetup(admin, feeKey, tradeable.ok ? await armedUserIds(admin, pair, ctl) : [], tradeable); } catch { /* billing never blocks a call */ }
       }
       // A setup that entered or armed on the spot has announced itself; one that came back was announced the first time.
-      if (!recall && !(res && /^(enter|arm)/.test(res))) await say(ctl, headsUpMsg(pair, side, mode, levels));
+      if (!recall && !(res && /^(enter|arm)/.test(res))) await say(ctl, headsUpMsg(pair, mode));
     }
     return out;
   }

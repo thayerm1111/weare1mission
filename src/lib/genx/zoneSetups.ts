@@ -72,7 +72,7 @@ export async function registerZone(admin: Admin, mode: Mode, g: Read, price: num
 type ZoneRow = { id: string; dedupe_key: string; mode: Mode; side: "buy" | "sell"; entry: number; entry_low: number | null; entry_high: number | null; stop: number; tp1: number; tp2: number | null; tp3: number | null; confidence: number | null; created_at: string };
 
 /** One pass of the fast watch. Enters a registered setup the moment price touches its entry. */
-export async function zonePass(admin: Admin, mdKey: string, tgReady: boolean, enterMsg: (side: "buy" | "sell", mode: Mode, a: { entry_low: number | null; entry_high: number | null; stop: number | null; tp1: number | null; tp2: number | null; tp3: number | null }, atPrice: number | null, immediate: boolean) => string): Promise<string[]> {
+export async function zonePass(admin: Admin, mdKey: string, tgReady: boolean, enterMsg: (mode: Mode) => string): Promise<string[]> {
   const sent: string[] = [];
   if (!zoneSetupsOn()) return sent;
   const { data } = await admin.from("genx_alerts").select("id,dedupe_key,mode,side,entry,entry_low,entry_high,stop,tp1,tp2,tp3,confidence,created_at").eq("state", "zone");
@@ -99,8 +99,7 @@ export async function zonePass(admin: Admin, mdKey: string, tgReady: boolean, en
         .update({ state: "entered", enter_price: lp, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso })
         .eq("id", r.id).eq("state", "zone").select("id");
       if (!won || !(won as unknown[]).length) continue;
-      const lvl = { entry_low: r.entry_low, entry_high: r.entry_high, stop: r.stop, tp1: r.tp1, tp2: r.tp2, tp3: r.tp3 };
-      if (tgReady) { try { await sendTelegram(enterMsg(r.side, r.mode, lvl, lp, true)); } catch { /* note best-effort */ } }
+      if (tgReady) { try { await sendTelegram(enterMsg(r.mode)); } catch { /* note best-effort */ } }
       try { await placeGenxGold({ side: r.side, entryLow: r.entry_low, entryHigh: r.entry_high, stop: r.stop, tp: r.tp1, conservativeOk: true, confidence: r.confidence, mode: r.mode, setup: "genx_zone" }); } catch { /* placement best-effort */ }
       try { await placeGenxFollower({ signalKey: r.dedupe_key, side: r.side, entryLow: r.entry_low, entryHigh: r.entry_high, stop: r.stop, tp: r.tp1, conservativeOk: true, confidence: r.confidence, mode: r.mode, setup: "genx_zone" }); } catch { /* follower best-effort */ }
       sent.push(`${r.mode}:ZONE_ENTER`);

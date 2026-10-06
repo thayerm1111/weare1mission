@@ -231,7 +231,7 @@ export async function genfxWatchPass(admin: Admin, mdKey: string, ctlIn?: GenfxC
         .eq("id", r.id).eq("state", "zone").select("id");
       if (!won?.length) continue;
       // The note is not waited on for long: the order is next, and a messaging service that hangs must not hold it.
-      if (tg) { try { await withTimeout(sendTelegram(enterMsg(pair, r.side, r.mode, { entry_low: r.entry_low, entry_high: r.entry_high, stop: r.stop, tp1: r.tp1, tp2: r.tp2, tp3: r.tp3 }, lp, true)), NOTE_WAIT_MS); } catch { /* note best-effort */ } }
+      if (tg) { try { await withTimeout(sendTelegram(enterMsg(pair, r.mode)), NOTE_WAIT_MS); } catch { /* note best-effort */ } }
       try { await place({ pair: r.pair, signalKey: r.dedupe_key, side: r.side, mode: r.mode, entryLow: r.entry_low, entryHigh: r.entry_high, stop: r.stop, tp: r.tp1, setup: "zone", confidence: r.confidence, alertId: r.id }); } catch { /* placement best-effort */ }
       sent.push(`${r.pair}:${r.mode}:ZONE_ENTER`);
     } catch { /* per-row best effort */ }

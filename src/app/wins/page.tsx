@@ -112,7 +112,7 @@ export default function WinsPage() {
         {/* CTA */}
         <div className="mt-14 rounded-3xl border border-amber-400/20 bg-gradient-to-b from-amber-400/[0.06] to-transparent p-8 text-center">
           <h2 className="font-serif text-2xl font-bold sm:text-3xl">Get these calls the moment they fire</h2>
-          <p className="mx-auto mt-2 max-w-xl text-[14px] text-white/55">GENX watches Gold around the clock and sends the exact entry, stop and targets to members — heads-up, then ENTER NOW — the instant a setup confirms.</p>
+          <p className="mx-auto mt-2 max-w-xl text-[14px] text-white/55">GENX watches Gold around the clock and alerts members — heads-up, then ENTER NOW — the instant a setup confirms. The exact entry, stop and targets are waiting in GENX.</p>
           <a href="/get-started" className="mt-5 inline-block rounded-full bg-gradient-to-r from-amber-300 to-amber-500 px-7 py-3 text-[15px] font-bold text-black transition hover:brightness-110">
             Join & get the alerts →
           </a>

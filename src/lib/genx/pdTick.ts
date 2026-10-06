@@ -16,7 +16,8 @@
 import { trendGateFrom1m } from "@/lib/genx/trendGate";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { liveTick, tickBar } from "@/lib/flow/liveTicks";
-import { sendTelegram, esc } from "@/lib/telegram";
+import { sendTelegram } from "@/lib/telegram";
+import { deskPost, GOLD_MARKET } from "@/lib/publicSignal";
 import { genxLabel } from "@/lib/genx/brand";
 import { placeGenxGold, placeGenxFollower, inScanQuietWindow } from "@/lib/flow/autoExec";
 import { genx2Active } from "@/lib/genx3/engineSelect";
@@ -137,17 +138,9 @@ export async function genx1PdTick(admin: Admin): Promise<PdTickResult> {
   });
   if (error) { await persist(admin, out.machines, { anchor: c.anchor, status: "DUPLICATE", reasons: [error.message.slice(0, 120)], cand: c, confidence: conf }).catch(() => {}); return { ran: true, fired: null, reasons: ["duplicate_alert"] }; }
   await persist(admin, out.machines, { anchor: c.anchor, status: "PUBLISHED", reasons: [], cand: c, confidence: conf }).catch(() => {});
-  const dir = side === "buy" ? "BUY" : "SELL";
-  try {
-    await sendTelegram([
-      `✅ <b>${genxLabel()} SCALP — ENTER NOW · ${dir} · ${m.level} Break → Retest</b>`,
-      `Gold @ ~${c.entry.toFixed(2)}`,
-      `Entry ${entryLow.toFixed(2)}–${entryHigh.toFixed(2)} · Stop ${c.stop.toFixed(2)}`,
-      `TP1 ${c.target.toFixed(2)}`,
-      esc(`${m.level === "PDH" ? "Previous-day high" : "Previous-day low"} ${m.px.toFixed(2)} broke, held, was retested and defended — continuation starting.`),
-      `<i>Educational, not financial advice.</i>`,
-    ].join("\n"));
-  } catch { /* note best-effort */ }
+  // The channel hears that a call fired — not which way, which level or where (owner 10-05, publicSignal.ts).
+  // This play is not a read on the GENX page, so the post does not send anyone there to find it.
+  try { await sendTelegram(deskPost("✅", `${genxLabel()} SCALP — ENTER NOW`, GOLD_MARKET)); } catch { /* note best-effort */ }
   try { await placeGenxGold({ side, entryLow, entryHigh, stop: c.stop, tp: c.target, conservativeOk: true, confidence: conf, tag: "genx-pd", mode: "intraday" }); } catch { /* placement best-effort, same as GENX 1.0 */ }
   try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow, entryHigh, stop: c.stop, tp: c.target, conservativeOk: true, confidence: conf, tag: "genx-pd", mode: "intraday" }); } catch { /* best-effort */ }
   return { ran: true, fired: dedupeKey };

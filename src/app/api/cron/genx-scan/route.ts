@@ -12,7 +12,8 @@ import { sendTelegram, esc } from "@/lib/telegram";
 import { placeGenxGold, placeGenxFollower, rewardRisk, inWeekendCloseWindow, inScanQuietWindow, inDailyReopenWindow, goldDeskBreaker } from "@/lib/flow/autoExec";
 import { checkOwnerLevels } from "@/lib/flow/ownerLevels";
 import { billSetupForming } from "@/lib/flow/flowBilling";
-import { watchPass, findSameSetup, decideGoldEntry, beatKeepDecision, headsUpMsg, enterMsg, invalidMsg, MODE_LABEL, r1, fmt, acquireWatchLock, extendWatchLock, releaseWatchLock, type AlertRow } from "@/lib/genx/watchTick";
+import { watchPass, findSameSetup, calledSince, decideGoldEntry, beatKeepDecision, headsUpMsg, enterMsg, invalidMsg, genxTyped, MODE_LABEL, r1, fmt, acquireWatchLock, extendWatchLock, releaseWatchLock, type AlertRow } from "@/lib/genx/watchTick";
+import { deskPost, GOLD_MARKET } from "@/lib/publicSignal";
 
 // decideGoldEntry + the gold entry preference rules now live in @/lib/genx/watchTick
 // (shared with the always-on worker).
@@ -226,7 +227,7 @@ async function run(): Promise<Response> {
             quality_ok: qOk,
           });
           if (insErr) { modeOut.result = "already_recorded"; continue; }
-          if (tgReady) await sendTelegram(enterMsg(side, mode, { entry_low: genx.entry_low, entry_high: genx.entry_high, stop: genx.stop_loss, tp1: genx.tp1, tp2: genx.tp2, tp3: genx.tp3 }, rr.price, true));
+          if (tgReady) await sendTelegram(enterMsg(mode));
           // FLOW copies this gold ENTER NOW to every credited member (once per move).
           // conservativeOk gates ONLY conservative accounts; aggressive take it regardless.
           try { await placeGenxGold({ side, entryLow: genx.entry_low, entryHigh: genx.entry_high, stop: genx.stop_loss, tp: genx.tp1, conservativeOk: qOk, confidence: genx.confidence_score, mode }); } catch { /* placement is best-effort */ }
@@ -249,8 +250,14 @@ async function run(): Promise<Response> {
           // Only members who could take THIS setup pay for it (owner 09-29): a swing forming does not bill
           // accounts under the swing floor, and a member whose broker is not usable is not billed at all.
           try { const b = await billSetupForming(admin, dedupeKey, mode); modeOut.billed = b; } catch { /* billing is best-effort; it never blocks an alert */ }
-          if (tgReady) await sendTelegram(headsUpMsg(side, mode, { entry_low: genx.entry_low, entry_high: genx.entry_high, stop: genx.stop_loss, tp1: genx.tp1, tp2: genx.tp2, confidence: genx.confidence_score }));
-          sent.push(`${mode}:HEADSUP`); modeOut.result = "headsup";
+          // THE HEADS-UP IS NOT SENT ONCE THE SETUP HAS BEEN CALLED. Charging the fees above takes the
+          // better part of a minute, and the fast watch confirms about half of all setups inside it — so
+          // the channel was reading "ENTER NOW" and then, a minute later, "setup forming … you'll get an
+          // ENTER NOW the moment it triggers" for the same setup. GEN FX already leaves it out (scan.ts).
+          const called = tgReady && await calledSince(admin, dedupeKey);
+          if (tgReady && !called) await sendTelegram(headsUpMsg(mode));
+          if (called) modeOut.result = "headsup_not_sent:already_called";
+          else { sent.push(`${mode}:HEADSUP`); modeOut.result = "headsup"; }
         }
         continue;
       }
@@ -275,12 +282,11 @@ async function run(): Promise<Response> {
         const armedNow = !!row.enter_sent_at;
         const lp = conf.price ?? conf.enter;
         const armedAtMs = row.enter_sent_at ? new Date(row.enter_sent_at).getTime() : Date.now();
-        const tgMsg = { entry_low: row.entry_low, entry_high: row.entry_high, stop: row.stop, tp1: row.tp1, tp2: row.tp2, tp3: row.tp3 };
         const act = decideGoldEntry({ armed: armedNow, confState: conf.state, lp, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp1: row.tp1, armedAtMs, nowMs: Date.now() });
         if (act.do === "arm") {
           // Chased on first confirmation → announce ENTER NOW once, then hold (stay 'forming') and
           // wait for price to pull back into the entry zone for the full R:R.
-          if (tgReady) await sendTelegram(enterMsg(side, mode, tgMsg, lp, false));
+          if (tgReady) await sendTelegram(enterMsg(mode));
           await admin.from("genx_alerts").update({ enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
           // 🚀 SEND IT (owner 09-04): the desk waits for the pullback, but Send It accounts take
           // EVERY call — fire a send-it-only placement at market right now. Fires once (the arm
@@ -289,13 +295,13 @@ async function run(): Promise<Response> {
           try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, sendItOnly: true, mode: row.mode }); } catch { /* best-effort */ }
           sent.push(`${mode}:ARM`); modeOut.result = `arm:${act.reason}`;
         } else if (act.do === "enter") {
-          if (!armedNow && tgReady) await sendTelegram(enterMsg(side, mode, tgMsg, lp, false));
+          if (!armedNow && tgReady) await sendTelegram(enterMsg(mode));
           await admin.from("genx_alerts").update({ state: "entered", enter_price: conf.enter ?? conf.price, enter_sent_at: nowIso, last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
           try { await placeGenxGold({ side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, mode: row.mode }); } catch { /* placement is best-effort */ }
           try { await placeGenxFollower({ signalKey: dedupeKey, side, entryLow: row.entry_low, entryHigh: row.entry_high, stop: row.stop, tp: row.tp1, conservativeOk: cOk, confidence: row.confidence, mode: row.mode }); } catch { /* follower is best-effort */ }
           sent.push(`${mode}:ENTER`); modeOut.result = `enter:${act.reason}`;
         } else if (act.do === "invalidate") {
-          if (tgReady) await sendTelegram(invalidMsg(side, mode, { entry_low: row.entry_low, entry_high: row.entry_high, invalidation: row.invalidation }));
+          if (tgReady) await sendTelegram(invalidMsg(mode));
           await admin.from("genx_alerts").update({ state: "invalidated", last_checked_at: nowIso, updated_at: nowIso }).eq("id", row.id);
           sent.push(`${mode}:INVALID`); modeOut.result = `invalid:${act.reason}`;
         } else {
@@ -478,12 +484,9 @@ async function breakdownRetestPass(
     quality_ok: false, // conservative accounts never take a breakdown-retest
   });
   if (insErr) return { skip: "already_called_this_level", setup: s };
-  if (tgReady) {
-    await sendTelegram([
-      `📉 <b>Breakdown retest</b> — support ${fmt(s.level)} broke, and its first retest just rejected. Aggressive accounts only.`,
-      enterMsg("sell", "quick", { ...zone, stop: s.stop, tp1: s.tp1, tp2: s.tp2, tp3: null }, bias.price, true),
-    ].join("\n"));
-  }
+  // The channel hears that a Quick call fired, and nothing about which way or where (owner 10-05). This
+  // play is its own strategy, not a read on the GENX page, so the post does not send anyone there for it.
+  if (tgReady) await sendTelegram(deskPost("✅", `${genxTyped("quick")} — ENTER NOW`, GOLD_MARKET));
   try { await placeGenxGold({ side: "sell", ...{ entryLow: zone.entry_low, entryHigh: zone.entry_high }, stop: s.stop, tp: s.tp1, conservativeOk: false, confidence: null, mode: "quick" }); } catch { /* best-effort */ }
   try { await placeGenxFollower({ signalKey: dedupeKey, side: "sell", entryLow: zone.entry_low, entryHigh: zone.entry_high, stop: s.stop, tp: s.tp1, conservativeOk: false, confidence: null, mode: "quick" }); } catch { /* best-effort */ }
   sent.push("quick:BREAKDOWN_RETEST");
@@ -544,15 +547,8 @@ async function rangeFadePass(
     quality_ok: false, // new strategy: aggressive accounts only until it has a live record
   });
   if (insErr) return { ...base, skip: "already_called_this_bar", setup: s };
-  if (tgReady) {
-    const edge = s.side === "sell" ? "top" : "bottom";
-    await sendTelegram([
-      `↔️ <b>Sideways market — range ${s.side === "sell" ? "SELL" : "BUY"}</b>`,
-      `Gold has been ranging ${fmt(s.low)}–${fmt(s.high)} for 24h with no hourly trend. Price just rejected the ${edge} of it.`,
-      enterMsg(s.side, "intraday", { ...zone, stop: s.stop, tp1: s.tp1, tp2: s.tp2, tp3: null }, px, true),
-      `TP1 is the middle of the range, TP2 the far side. The idea is wrong if gold closes beyond ${fmt(s.side === "sell" ? s.high : s.low)} and keeps going — the stop sits past it. Aggressive accounts only.`,
-    ].join("\n"));
-  }
+  // As above: the channel hears that an Intraday call fired — not the range, the side or the levels.
+  if (tgReady) await sendTelegram(deskPost("✅", `${genxTyped("intraday")} — ENTER NOW`, GOLD_MARKET));
   try { await placeGenxGold({ side: s.side, entryLow: zone.entry_low, entryHigh: zone.entry_high, stop: s.stop, tp: s.tp1, conservativeOk: false, confidence: null, mode: "intraday", setup: "range_fade" }); } catch { /* best-effort */ }
   try { await placeGenxFollower({ signalKey: dedupeKey, side: s.side, entryLow: zone.entry_low, entryHigh: zone.entry_high, stop: s.stop, tp: s.tp1, conservativeOk: false, confidence: null, mode: "intraday", setup: "range_fade" }); } catch { /* best-effort */ }
   sent.push(`intraday:RANGE_FADE_${s.side.toUpperCase()}`);
