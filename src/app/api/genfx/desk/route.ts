@@ -6,6 +6,8 @@ import { readControl, inScope, minStopPips, OWNER_USER_ID, GENFX_VERSION } from 
 import { isZoneKey, oneCallPerIdea } from "@/lib/genfx/decide";
 import { UNSETTLED } from "@/lib/genfx/fills";
 import { byIds } from "@/lib/genfx/db";
+import { lockAlerts, lockActivity } from "@/lib/setupLock";
+import { setupAccess, forgetGenfxFree, OPEN_FREE } from "@/lib/setupAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,12 +70,17 @@ async function myAccounts(admin: Admin, userId: string) {
   return ((accts ?? []) as unknown as AcctRow[]).filter((a) => byId.has(String(a.connection_id))).map((a) => ({ ...a, conn: byId.get(String(a.connection_id))! }));
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const user = await me();
   if (!user) return json({ error: "unauthorized" }, 401);
   const admin = createAdminClient();
   if (!admin) return json({ error: "not_configured" }, 200);
   const owner = user.id === OWNER_USER_ID;
+  // `v=2` is a page that knows a call can arrive locked (no side, no levels) and draws it so. A page
+  // loaded before that existed — a tab left open across the release — printed every call's side
+  // without looking, and would fall over on the first one that had none. It is sent only the calls
+  // that are whole (the graded ones) until it is reloaded.
+  const knowsLocked = new URL(req.url).searchParams.get("v") === "2";
   const ctl = await readControl(admin);
   const d30 = new Date(Date.now() - 30 * 24 * 3600_000).toISOString();
   const d7ms = Date.now() - 7 * 24 * 3600_000;
@@ -81,7 +88,7 @@ export async function GET() {
   const alertCols = "id, pair, dedupe_key, mode, side, state, entry, entry_low, entry_high, stop, tp1, confidence, created_at, enter_price, enter_sent_at, outcome, result_pips";
   type Graded = { pair: PairKey; mode: string; side: "buy" | "sell"; entry_low: number | null; entry_high: number | null; enter_sent_at: string | null; outcome: "win" | "loss"; result_pips: number | null; resolved_at: string };
   type DeskRow = { symbol: string; signal_id: string | null; outcome: string | null; result_pips: number | null; status: string; environment: string | null };
-  const [accts, watching, called, graded, mine, deskRows, events, hb] = await Promise.all([
+  const [accts, watching, called, graded, mine, deskRows, events, hb, gate] = await Promise.all([
     myAccounts(admin, user.id),
     // What is lined up now, and the latest calls — asked for separately, so a busy day of calls can
     // never push a setup that is still being watched off the bottom of one shared list.
@@ -91,8 +98,13 @@ export async function GET() {
     admin.from("flow_managed_positions").select("symbol, side, mode, entry, init_stop, tp1, qty, status, outcome, result_pips, created_at, resolved_at, account_id, environment")
       .eq("user_id", user.id).eq("strategy_version", GENFX_VERSION).order("created_at", { ascending: false }).limit(20),
     allRows<DeskRow>(() => admin.from("flow_managed_positions").select("symbol, signal_id, outcome, result_pips, status, environment").eq("strategy_version", GENFX_VERSION).gte("created_at", d30).order("created_at", { ascending: true }).order("id", { ascending: true })),
-    admin.from("flow_auto_events").select("symbol, side, status, reason, created_at, account_id").eq("user_id", user.id).like("reason", "genfx%").order("created_at", { ascending: false }).limit(12),
+    // order_id says whether a line is about an order of the member's own (setupLock.lockActivity).
+    admin.from("flow_auto_events").select("symbol, side, status, reason, created_at, account_id, order_id").eq("user_id", user.id).like("reason", "genfx%").order("created_at", { ascending: false }).limit(12),
     admin.from("flow_heartbeat").select("last_run, detail").eq("component", "genfx").maybeSingle(),
+    // Is this member's window open (owner 10-05: "Make them use credits to view")? Asked afresh on
+    // every load of the page: a read they have just paid for opens these lists at once. With the
+    // owner's GEN FX billing switch off a read here costs nothing, and neither does looking.
+    ctl.readable && !ctl.billing ? Promise.resolve(OPEN_FREE) : setupAccess(admin, user.id, { fresh: true }),
   ]);
 
   const accounts = accts.map((a) => ({
@@ -151,11 +163,14 @@ export async function GET() {
     switches: { readable: ctl.readable, scan: ctl.scan, auto: ctl.auto, scope: ctl.scope, billing: ctl.billing, telegram: ctl.telegram },
     pairs: PAIR_KEYS.map((k) => ({ key: k, name: PAIRS[k].name, minStopPips: minStopPips(ctl, PAIRS[k]), costPips: PAIRS[k].costPips, dec: PAIRS[k].dec })),
     limits: { maxMinLotRiskPct: ctl.config.maxMinLotRiskPct, maxLots: ctl.config.maxLots },
-    accounts, alerts, record, real,
+    // What is being watched and what has been called is the play: which way, where, the stop, the
+    // target. It is sent whole while the member's window is open; otherwise each open call keeps its
+    // pair, horizon and stage and nothing else (setupLock.ts). Graded calls are results and stay.
+    accounts, alerts: gate.open ? alerts : lockAlerts(alerts).filter((a) => knowsLocked || a.locked !== true), record, real, setups: gate,
     // False when a page of the record could not be read: the numbers above are then from part of the rows.
     recordComplete: graded.complete && deskRows.complete,
     myTrades: mine.data ?? [],
-    activity: events.data ?? [],
+    activity: gate.open ? (events.data ?? []) : lockActivity((events.data ?? []) as Record<string, unknown>[]),
     // When it last scanned is for everyone; what each read decided is the owner's (it names every skip).
     lastScan: hbRow ? { at: hbRow.detail?.at ?? null, beat: hbRow.last_run ?? null, quiet: hbRow.detail?.quiet ?? null, decisions: owner ? (hbRow.detail?.decisions ?? null) : null } : null,
   };
@@ -243,6 +258,7 @@ export async function POST(req: NextRequest) {
     if (body.scope === "owner" || body.scope === "demo" || body.scope === "all") patch.auto_scope = body.scope;
     const { error } = await admin.from("genfx_control").update(patch).eq("id", 1);
     if (error) return json({ ok: false, detail: error.message }, 200);
+    forgetGenfxFree();   // the billing switch may have moved: what this server remembered of it is dropped
     const ctl = await readControl(admin);
     return json({ ok: true, switches: { readable: ctl.readable, scan: ctl.scan, auto: ctl.auto, scope: ctl.scope, billing: ctl.billing, telegram: ctl.telegram } });
   }

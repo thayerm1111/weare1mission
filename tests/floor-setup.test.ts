@@ -93,7 +93,7 @@ test("every market and horizon has its own cached payload", () => {
   assert.equal(new Set(keys).size, 9);
 });
 
-test("the route: gold is the GENX read as before; a pair is the GEN FX read; nothing here costs credits", () => {
+test("the route: gold is the GENX read as before; a pair is the GEN FX read; the route itself charges nothing", () => {
   // Gold, unchanged: the same engine call, the same builder inputs, the same chart and price reads.
   assert.ok(/computeGenxRead\(\{ mode, mdKey, fresh: false \}\)/.test(route));
   assert.ok(/buildGenx\(rr\.read, \{[\s\S]*?pip: GOLD\.pip, dec: GOLD\.dec, marketStory: \[\], volatility: rr\.volatility, atr: rr\.atr, m15: rr\.m15,\s*\}\)/.test(route));
@@ -103,11 +103,12 @@ test("the route: gold is the GENX read as before; a pair is the GEN FX read; not
   assert.ok(/genfxOf\(pair, rr\.read, \{[\s\S]*?marketStory: \[\], volatility: rr\.volatility, atr: rr\.atr,\s*\}\)/.test(route));
   assert.ok(/series\(pair\.td, CHART_TF\[mode\], 60, mdKey, false\)/.test(route));
   assert.ok(/const built = pair \? await fxSetup\(pair, mode, mdKey\) : await goldSetup\(mode, mdKey\)/.test(route));
-  // The card is free for every market, as gold's always was: the route cannot charge.
+  // The route cannot charge, for any market. (Since 10-05 the play takes credits to VIEW — who is sent
+  // the map is decided by the member's window, and opening one is another route's work: setup-lock.test.ts.)
   assert.ok(!/credits|chargeCredit|gateCredits|billEvent|flow_bill/.test(route.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "")), "no credit call in the route's code");
   // One cache entry per market per horizon — written under that key and read back under it.
   assert.ok(/const ck = setupCacheKey\(inst\.key, mode\)/.test(route) && /CACHE\[ck\] = \{ at: Date\.now\(\), body \}/.test(route));
-  assert.ok(/if \(CACHE\[ck\] && Date\.now\(\) - CACHE\[ck\]\.at < TTL_MS\) return json\(\{ \.\.\.CACHE\[ck\]\.body, cached: true \}\)/.test(route));
+  assert.ok(/if \(CACHE\[ck\] && Date\.now\(\) - CACHE\[ck\]\.at < TTL_MS\) return json\(await shown\(\{ \.\.\.CACHE\[ck\]\.body, cached: true \}\)\)/.test(route));
   assert.ok(!/CACHE\[mode\]/.test(route), "the cache is no longer keyed by horizon alone");
   // The market is read from `symbol`, and every answer says which market it is of: the live map and
   // both "could not read" answers. (The card draws a map only under the market it names.)
@@ -134,9 +135,10 @@ test("the route: each market lists and stores only its own earlier maps", () => 
 
 test("the card: the toggle, one request per market, and no gold left in what it prints", () => {
   assert.ok(/FLOOR_INSTRUMENTS\.map\(\(i\) => \(\s*<button key=\{i\.key\} type="button" onClick=\{\(\) => onSymbol\(i\.key\)\} aria-pressed=\{i\.key === inst\.key\}/.test(card), "three buttons, the current one pressed");
-  assert.ok(/fetch\(`\/api\/floor\/setup\?\$\{setupQuery\(setupMode, setupSym\)\}`/.test(card));
-  assert.ok(/fetch\(`\/api\/floor\/setup\?history=1&\$\{setupQuery\(setupMode, setupSym\)\}`/.test(card));
-  assert.ok(/\}, \[setupMode, setupSym\]\);/.test(card), "pressing the toggle reloads the card");
+  // (`fresh` is "&fresh=1" on the first look after arriving, switching or paying, and "" on every poll after.)
+  assert.ok(/fetch\(`\/api\/floor\/setup\?\$\{setupQuery\(setupMode, setupSym, fresh\)\}`/.test(card));
+  assert.ok(/fetch\(`\/api\/floor\/setup\?history=1&\$\{setupQuery\(setupMode, setupSym, fresh\)\}`/.test(card));
+  assert.ok(/\}, \[setupMode, setupSym, setupTick\]\);/.test(card), "pressing the toggle reloads the card");
   // Opens on gold.
   assert.ok(/useState<FloorSymbol>\("XAUUSD"\)/.test(card));
   // A map is drawn only under the market it was read on — the live one and a replayed one alike —
@@ -146,7 +148,7 @@ test("the card: the toggle, one request per market, and no gold left in what it 
   assert.ok(/data=\{shownSetup\} mode=\{setupMode\}\s*inst=\{floorInstrument\(setupSym\)\}/.test(card), "the guarded map is the one drawn");
   assert.ok(/past=\{past\} frozen=\{shownFrozen\}/.test(card), "and the 'frozen' banner is this market's or absent");
   assert.ok(/const fmt = useMemo\(\(\) => floorFmt\(inst\), \[inst\]\);/.test(card), "the card prints with the shown market's formatter");
-  assert.ok(/onSymbol=\{\(s\) => \{ if \(s === setupSym\) return; setFrozen\(null\); setSetup\(null\); setPast\(\[\]\); setSetupSym\(s\); \}\}/.test(card));
+  assert.ok(/onSymbol=\{\(s\) => \{ if \(s === setupSym\) return; setFrozen\(null\); setSetup\(null\); setPast\(\[\]\); setPastLocked\(false\); setSetupSym\(s\); \}\}/.test(card));
   // The setup card's own code: no dollar sign glued to a price, no two-decimal formatter, no engine or market named in a label.
   const from = card.indexOf("/* ── GOLD SETUP · Market Flow"), to = card.indexOf("function MarketIntel(");
   assert.ok(from > 0 && to > from);

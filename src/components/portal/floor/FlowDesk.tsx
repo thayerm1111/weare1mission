@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { Loader2, Search, TrendingUp, TrendingDown, Zap, Link2, Gauge } from "lucide-react";
 import { FlowConnect } from "./FlowConnect";
 import { FlowTrackRecord } from "./FlowTrackRecord";
+import { SetupLock, SetupTimer } from "@/components/portal/SetupLock";
+import { STAGE_TEXT, type LockedSetup, type SetupGate, readFits } from "@/lib/setupLock";
 
 /* FLOW trade desk (desktop portal). Pick a pair + horizon, read the live setup on
  * the shared engine, and take it on TradeLocker at your risk % with one button.
@@ -13,10 +15,15 @@ type Instrument = { canonical: string; label: string; assetClass?: string };
 type Levels = { entry_low: number | null; entry_high: number | null; stop_loss: number | null; tp1: number | null };
 type ReadResult = {
   ok?: boolean;
+  /** The market and horizon this read was made for: it is drawn only under those. */
+  symbol?: string; mode?: string;
   price?: number;
   data_status?: string;
   entry_engine?: { entryState?: string; actionable?: boolean; headline?: string };
-  g?: { directional_bias?: string } & Levels;
+  g?: ({ directional_bias?: string } & Levels) | null;
+  // The setup takes credits to view (owner 10-05). With this member's window closed the server sends
+  // the market, its price and how far along the setup is — `locked` — and no `g`, no entry engine.
+  locked?: LockedSetup | null; setups?: SetupGate | null;
   instrument?: { label?: string };
   detail?: string;
   error?: string;
@@ -56,25 +63,38 @@ export function FlowDesk() {
       .catch(() => {});
   }, []);
 
+  // The read that counts is the last one asked for: an older one that comes back later is dropped,
+  // not drawn over it (switching market while a read is out used to be able to leave the old
+  // market's levels under the new market's name).
+  const seq = useRef(0);
   const run = useCallback(() => {
+    const mine = ++seq.current;
     setLoading(true); setErr("");
     fetch("/api/flow/read", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ symbol, mode }) })
       .then((r) => r.json())
       .then((d) => {
+        if (mine !== seq.current) return;
         if (!d || d.error) {
           setErr(d?.detail || "Market data isn't available for this pair right now — try again shortly.");
           setRes(null);
         } else { setRes(d); }
       })
-      .catch(() => setErr("Something went wrong — try again."))
-      .finally(() => setLoading(false));
+      .catch(() => { if (mine === seq.current) setErr("Something went wrong — try again."); })
+      .finally(() => { if (mine === seq.current) setLoading(false); });
   }, [symbol, mode]);
+  // What to read once "See the play" has opened the window: the market on the screen NOW, which need
+  // not be the one that was there when the button was tapped.
+  const runNow = useRef(run);
+  runNow.current = run;
 
   useEffect(() => { run(); }, [run]);
 
-  const g = res?.g;
+  // A read is drawn — and can be traded — only under the market and horizon it was made for.
+  const fits = readFits(res, symbol, mode);
+  const g = fits ? res?.g : null;
+  const locked = fits ? (res?.locked ?? null) : null;
   const side: "buy" | "sell" = g?.directional_bias === "bearish" ? "sell" : "buy";
-  const state = res?.entry_engine?.entryState || (g ? "WAIT" : "");
+  const state = (fits ? res?.entry_engine?.entryState : "") || (g ? "WAIT" : "");
   const hasLevels = !!g && g.entry_low != null && g.entry_high != null && g.stop_loss != null && g.tp1 != null;
 
   return (
@@ -138,7 +158,20 @@ export function FlowDesk() {
 
       {err && <p className="rounded-xl border border-red-500/30 bg-red-500/[0.06] px-3 py-2 text-xs font-semibold text-red-500">{err}</p>}
 
-      {res && g && (
+      {res && locked && (
+        <div className="rounded-2xl border border-ice bg-white p-5">
+          {/* The market and its price, and nothing of the trade: no side, no entry-engine state (its
+              verdict is half of which way), no levels. The lock below says how far along it is. */}
+          <div>
+            <p className="text-sm font-bold text-navy">{res.instrument?.label || symbol}</p>
+            <p className="text-2xl font-black tabular-nums text-navy">{res.price ?? "—"}</p>
+          </div>
+          <SetupLock key={`${symbol}:${mode}`} tone="light" className="mt-4" gate={res.setups} onOpened={() => runNow.current()}
+            what={`${symbol} · ${mode.toUpperCase()} — ${STAGE_TEXT[locked.stage] ?? STAGE_TEXT.watching}`} />
+        </div>
+      )}
+
+      {res && g && !locked && (
         <div className="rounded-2xl border border-ice bg-white p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -146,6 +179,7 @@ export function FlowDesk() {
               <p className="text-2xl font-black tabular-nums text-navy">{res.price ?? "—"}</p>
             </div>
             <div className="flex items-center gap-2">
+              <SetupTimer gate={res.setups} tone="light" />
               <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-bold ${side === "sell" ? "bg-gold/15 text-gold-deep" : "bg-navy/[0.06] text-navy"}`}>
                 {side === "sell" ? <TrendingDown className="h-3.5 w-3.5" /> : <TrendingUp className="h-3.5 w-3.5" />} {side.toUpperCase()}
               </span>

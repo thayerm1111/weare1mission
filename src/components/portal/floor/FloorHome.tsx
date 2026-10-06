@@ -6,6 +6,8 @@ import { LIVE_URL, CALLS } from "@/lib/liveCalls";
 import { LiveTradeCard } from "@/components/portal/LiveTradeCard";
 import { CommandCenter } from "@/components/portal/CommandCenter";
 import { FLOOR_INSTRUMENTS, GENFX_OPEN_PAIR, floorInstrument, floorFmt, setupQuery, type FloorInstrument, type FloorSymbol } from "@/lib/floor/setupInstruments";
+import { LockedSetupCard, SetupTimer } from "@/components/portal/SetupLock";
+import { STAGE_TEXT, type LockedSetup, type SetupGate } from "@/lib/setupLock";
 
 /* ============================================================================
    THE FLOOR — live trading command center (desktop portal).
@@ -53,7 +55,13 @@ type GenxRead = {
   expected_hold_minutes?: [number, number]; projected_path?: { label: string; price: number | null; kind: string }[];
   trade_reasoning?: string[];
 };
-type SetupPayload = { g: GenxRead | null; candles: Candle[]; price: number | null; session: string; mode: string; asOf?: string; error?: string; frozen?: boolean; at?: string; symbol?: string };
+type SetupPayload = {
+  g: GenxRead | null; candles: Candle[]; price: number | null; session: string; mode: string; asOf?: string; error?: string; frozen?: boolean; at?: string; symbol?: string;
+  // The play takes credits to view (owner 10-05). `locked` is set when this member's window is not
+  // open: the server sent the chart and how far along the setup is, and no read. `setups` is the
+  // window itself — whether it is open, until when, and what opening it costs.
+  locked?: LockedSetup | null; setups?: SetupGate | null;
+};
 // One earlier snapshot of the gold map (owner 09-17: "add a previous analysis to the Floor").
 type PastSetup = { id: string; at: string; mode: string; price: number | null; action: string | null; confidence: number | null };
 type IntelEvent = { time: string; ts: number; headline: string; impact: "HIGH" | "MED" | "LOW"; assets: string[]; when: string; ccy: string; forecast: string; previous: string };
@@ -120,6 +128,10 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
   // set the live poll stops writing over the panel.
   const [past, setPast] = useState<PastSetup[]>([]);
   const [frozen, setFrozen] = useState<SetupPayload | null>(null);
+  // The earlier maps open with the play: true when the server kept them back.
+  const [pastLocked, setPastLocked] = useState(false);
+  // Bumped when the member opens their window, so the card asks again at once.
+  const [setupTick, setSetupTick] = useState(0);
   const now = useClock();
   const nowIso = now ? now.toISOString() : "";
 
@@ -136,9 +148,17 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
 
   useEffect(() => {
     let alive = true;
+    // The first look after arriving, switching or paying asks the server to check this member's
+    // window afresh; the polls after it may be answered from what it found a few seconds ago.
+    let first = "&fresh=1";
     const load = async () => {
-      try { const r = await fetch(`/api/floor/setup?${setupQuery(setupMode, setupSym)}`, { cache: "no-store" }); if (r.ok && alive) setSetup((await r.json()) as SetupPayload); } catch { /* degrades */ }
-      try { const h = await fetch(`/api/floor/setup?history=1&${setupQuery(setupMode, setupSym)}`, { cache: "no-store" }); if (h.ok && alive) { const d = await h.json(); if (Array.isArray(d.past)) setPast(d.past as PastSetup[]); } } catch { /* degrades */ }
+      const fresh = first; first = "";
+      let lockedNow = false;
+      try { const r = await fetch(`/api/floor/setup?${setupQuery(setupMode, setupSym, fresh)}`, { cache: "no-store" }); if (r.ok && alive) { const d = (await r.json()) as SetupPayload; setSetup(d); lockedNow = !!d.locked; } } catch { /* degrades */ }
+      if (!alive) return;               // the card has moved on: nothing more to ask for on its behalf
+      // A locked card has no earlier maps to ask for: the server keeps them back with the play.
+      if (lockedNow) { setPast([]); setPastLocked(true); return; }
+      try { const h = await fetch(`/api/floor/setup?history=1&${setupQuery(setupMode, setupSym, fresh)}`, { cache: "no-store" }); if (h.ok && alive) { const d = await h.json(); if (Array.isArray(d.past)) setPast(d.past as PastSetup[]); setPastLocked(d.setups?.open === false); } } catch { /* degrades */ }
     };
     void load();
     // Live-ish: poll every 15s. The shared market-data cache (MD_CACHE_TTL 30s)
@@ -146,7 +166,7 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
     // price/candles as soon as they refresh.
     const iv = setInterval(() => void load(), 15000);
     return () => { alive = false; clearInterval(iv); };
-  }, [setupMode, setupSym]);
+  }, [setupMode, setupSym, setupTick]);
 
   const ss = sessions(now);
 
@@ -265,7 +285,7 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
             <SetupForming
               data={shownSetup} mode={setupMode}
               inst={floorInstrument(setupSym)}
-              onSymbol={(s) => { if (s === setupSym) return; setFrozen(null); setSetup(null); setPast([]); setSetupSym(s); }}
+              onSymbol={(s) => { if (s === setupSym) return; setFrozen(null); setSetup(null); setPast([]); setPastLocked(false); setSetupSym(s); }}
               onMode={(m) => { setFrozen(null); setSetupMode(m); }}
               onExpand={() => {
                 const i = floorInstrument(setupSym);
@@ -273,11 +293,14 @@ export function FloorHome({ onGo }: { onGo: (view: string) => void }) {
                 if (i.key !== "XAUUSD") { try { window.sessionStorage.setItem(GENFX_OPEN_PAIR, i.key); } catch { /* the tool opens on its default pair */ } }
                 onGo(i.view);
               }}
-              past={past} frozen={shownFrozen}
+              past={past} frozen={shownFrozen} pastLocked={pastLocked}
+              onOpened={() => setSetupTick((n) => n + 1)}
               onPick={async (id) => {
                 try {
                   const r = await fetch(`/api/floor/setup?id=${encodeURIComponent(id)}`, { cache: "no-store" });
                   if (r.ok) setFrozen((await r.json()) as SetupPayload);
+                  // The window closed since the list was drawn: ask again, and the card says so.
+                  else if (r.status === 402) setSetupTick((n) => n + 1);
                 } catch { /* ignore */ }
               }}
               onLive={() => setFrozen(null)}
@@ -415,15 +438,20 @@ function gxSteps(g: GenxRead, price: number | null, fmt: Fmt): Step[] {
   return [now, { t: g.market_regime ? String(g.market_regime).toUpperCase() : "RANGE", tone: "muted" }, { t: "WAIT FOR BREAK", tone: "wait" }];
 }
 
-function SetupForming({ data, mode, inst, onSymbol, onMode, onExpand, past = [], frozen = null, onPick, onLive }: {
+// Exported for its tests (tests/setup-lock-pages.test.ts draw it locked and open); used only here.
+export function SetupForming({ data, mode, inst, onSymbol, onMode, onExpand, past = [], frozen = null, onPick, onLive, pastLocked = false, onOpened }: {
   data: SetupPayload | null; mode: "quick" | "intraday" | "swing"; onMode: (m: "quick" | "intraday" | "swing") => void; onExpand: () => void;
   /** The market on the card, and how the toggle asks for another. */
   inst: FloorInstrument; onSymbol: (s: FloorSymbol) => void;
   past?: PastSetup[]; frozen?: SetupPayload | null; onPick?: (id: string) => void; onLive?: () => void;
+  /** The earlier maps were kept back, and what to do once the member has opened their window. */
+  pastLocked?: boolean; onOpened?: () => void;
 }) {
   const [showPast, setShowPast] = useState(false);
   const fmt = useMemo(() => floorFmt(inst), [inst]);
   const g = data?.g ?? null;
+  // The play takes credits to view: with the window closed there is no read here, only its outline.
+  const locked = data?.locked ?? null;
   const candles = data?.candles ?? [];
   const price = data?.price ?? (candles.length ? candles[candles.length - 1].c : null);
   const side = g ? sideOf(g.action) : null;
@@ -450,6 +478,7 @@ function SetupForming({ data, mode, inst, onSymbol, onMode, onExpand, past = [],
           </div>
         </div>
         <div className="flex items-center gap-1.5">
+          {!frozen && <SetupTimer gate={data?.setups} />}
           {rr && <span className="rounded-full border px-2 py-0.5 text-[11px] font-bold" style={{ borderColor: "rgba(255,194,75,0.3)", background: "rgba(255,194,75,0.1)", color: "#ffd47a" }}>R:R 1:{rr}</span>}
           <div className="flex items-center gap-0.5">
             {TABS.map((t) => (
@@ -466,7 +495,9 @@ function SetupForming({ data, mode, inst, onSymbol, onMode, onExpand, past = [],
       {showPast && (
         <div className="border-b px-3.5 py-2.5" style={{ borderColor: C.line, background: "rgba(255,255,255,0.02)" }}>
           <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: C.mut2 }}>Previous analysis · {activeLabel}</p>
-          {past.length === 0 ? (
+          {pastLocked ? (
+            <p className="text-[11px]" style={{ color: C.mut2 }}>Earlier maps open with the play.</p>
+          ) : past.length === 0 ? (
             <p className="text-[11px]" style={{ color: C.mut2 }}>No earlier reads stored for this timeframe yet — the map is saved every 10 minutes from now on.</p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
@@ -489,7 +520,9 @@ function SetupForming({ data, mode, inst, onSymbol, onMode, onExpand, past = [],
         </div>
       )}
 
-      {!g ? (
+      {locked ? (
+        <LockedSetupCard key={`${inst.key}:${mode}`} what={`${inst.engine} · ${mode.toUpperCase()} — ${STAGE_TEXT[locked.stage] ?? STAGE_TEXT.watching}`} gate={data?.setups} candles={candles} onOpened={() => onOpened?.()} />
+      ) : !g ? (
         <div className="flex h-[360px] items-center justify-center px-6 text-center text-[12px]" style={{ color: C.mut2 }}>{data?.error ? `Live ${inst.name} read unavailable for a moment — retrying.` : `Loading the live ${inst.name} read…`}</div>
       ) : (
         <div className="p-3.5">

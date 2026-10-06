@@ -3190,8 +3190,94 @@ input{font:inherit}
     </div>`;
   }
 
+  /* ── THE LOCKED SETUP (owner 10-05: live setups take credits to view) ──────────────────────────
+     Shown where a setup would be when this member's window is not open. The play is not in the app
+     to be uncovered: the server sent the market and how far along the setup is, and nothing of the
+     trade (src/lib/setupLock.ts). One button spends one read's credits and opens every live setup
+     for 30 minutes (/api/setups/pass); the screen that drew this then asks for its data again. */
+  var SETUP_STAGE = { live: "entry is live now", forming: "setup forming", watching: "watching for the trigger" };
+  function setupStage(locked) { return SETUP_STAGE[locked && locked.stage] || SETUP_STAGE.watching; }
+  // Minutes left on a PAID window, rounded up. Null when there is no clock to show (closed, a Pass, an admin).
+  function setupMinsLeft(gate) {
+    if (!gate || !gate.open || gate.via !== "credits" || !gate.until) return null;
+    var ms = Date.parse(gate.until) - Date.now();
+    return isFinite(ms) && ms > 0 ? Math.ceil(ms / 60000) : null;
+  }
+  // ONE PAYMENT AT A TIME, APP-WIDE. The lock is drawn afresh when the member changes market or
+  // horizon, and a fresh lock's button was not mid-payment: a second tap there, while the first payment
+  // was still out, sent a second one — and two payments that land on different servers are two spends
+  // for one window. Every button shares the one request that is out, and a lock drawn while one is out
+  // starts down. Resolves (never rejects) to { r: the answer } or { e: the failure }.
+  // Is this read for the market and horizon on the screen? Spelling is not compared (the server
+  // upper-cases the symbol it echoes); a read that does not say what it is for is taken as fitting.
+  function flowReadFits(d, symbol, mode) {
+    function same(said, shown) { return said == null || said === "" || String(said).toUpperCase() === String(shown).toUpperCase(); }
+    return !!d && same(d.symbol, symbol) && same(d.mode, mode);
+  }
+  var seePlayOut = null;
+  function seeThePlayOnce() {
+    if (seePlayOut) return seePlayOut;
+    var mine = apiPost("/api/setups/pass", {}).then(function (r) { return { r: r, e: null }; }, function (e) { return { r: null, e: e || {} }; });
+    seePlayOut = mine;
+    mine.then(function () { if (seePlayOut === mine) seePlayOut = null; });
+    return mine;
+  }
+  function SeeThePlay(props) {
+    // The payment that was out when this lock was drawn, if one was (held: it may land before the effect below runs).
+    var joined = useState(function () { return seePlayOut; })[0];
+    // idle → busy (the request is out) → opened (it came back open; the play is on its way).
+    var phase = useState(joined ? "busy" : "idle"), msg = useState("");
+    var gate = props.gate || {}, cost = gate.cost || 5, minutes = gate.minutes || 30;
+    // If the play never replaces this card, the button comes back rather than staying down for good.
+    useEffect(function () {
+      if (phase[0] !== "opened") return;
+      var t = setTimeout(function () { phase[1]("idle"); }, 8000);
+      return function () { clearTimeout(t); };
+    }, [phase[0]]);
+    function fail(text) { msg[1](text); phase[1]("idle"); }
+    // The caller's newest props: what to read again can change while the payment is out.
+    var latest = useRef(props); latest.current = props;
+    function settle(o) {
+      var r = o.r, e = o.e, now = latest.current;
+      if (e) {
+        if (e.code === 401) { phase[1]("idle"); if (now.onLogout) now.onLogout(); else killSession(); return; }
+        return fail(e.code === 402
+          ? "Not enough credits" + (e.j && typeof e.j.balance === "number" ? " — you have " + e.j.balance : "") + ". Top up from Account, then tap again."
+          : "That didn't go through. Tap again — you won't be charged twice.");
+      }
+      if (r && r.open) { phase[1]("opened"); if (now.onOpened) now.onOpened(); return; }
+      // "This tap took no credits" is said only where that is known. A window that is open is
+      // never charged again, so "tap again" cannot cost them twice.
+      fail(r && r.error === "unavailable" ? "Couldn't check your access just now, so this tap took no credits. Try again in a moment."
+        : r && r.error === "busy" ? "Already opening — one moment."
+        : r && r.error === "charge_failed" && r.charged === false ? "That didn't go through, and this tap took no credits. Try again."
+        : "That didn't go through. Tap again — you won't be charged twice.");
+    }
+    // Drawn while a payment was already out (the member changed market or horizon mid-payment): wait for that one.
+    useEffect(function () {
+      if (!joined) return;
+      var here = true;
+      joined.then(function (o) { if (here) settle(o); });
+      return function () { here = false; };
+    }, []);
+    function open() {
+      if (phase[0] !== "idle") return;                       // one tap, one request
+      phase[1]("busy"); msg[1]("");
+      seeThePlayOnce().then(settle);
+    }
+    return html`<div class="stp" style="margin-top:14px;border-radius:14px;border:1px solid rgba(255,194,75,.35);background:rgba(255,194,75,.06);padding:14px;text-align:center">
+      <div style="font-size:11.5px;font-weight:800;color:#ffc24b;text-transform:uppercase;letter-spacing:.08em">🔒 ${props.what}</div>
+      <div style="font-size:12.5px;line-height:1.5;color:rgba(255,255,255,.72);margin-top:6px">Which way, the entry, the stop and the targets open with credits.</div>
+      <button class="gx-analyze" style="margin-top:12px;padding:13px;font-size:14.5px" disabled=${phase[0] !== "idle"} onClick=${open}>${phase[0] === "busy" ? "Opening…" : phase[0] === "opened" ? "Open — loading the play…" : "See the play · " + cost + " credits"}</button>
+      <div style="font-size:10.5px;line-height:1.5;color:rgba(255,255,255,.42);margin-top:8px">Opens every live setup for ${minutes} minutes. So does a paid GENX or MFX Ghost read.</div>
+      ${msg[0] ? html`<div class="err" style="margin-top:10px">${msg[0]}</div>` : null}
+    </div>`;
+  }
+
   function FlowScreen(props) {
     var mode = useState("quick"), loading = useState(false), err = useState(""), res = useState(null), broker = useState(false);
+    var runSeq = useRef(0);   // the read that counts is the last one asked for
+    var picked = useRef({});  // …and it is asked for the market and horizon on the screen at that moment
     var testBusy = useState(false), testMsg = useState(""), testErr = useState("");
     function placeTest(side) {
       if (testBusy[0]) return; testBusy[1](true); testMsg[1](""); testErr[1]("");
@@ -3207,24 +3293,36 @@ input{font:inherit}
     var lot = useState((function () { try { return localStorage.getItem("FLOW_LOT") || "0.50"; } catch (e) { return "0.50"; } })());
     function setLot(v) { lot[1](v); try { localStorage.setItem("FLOW_LOT", v); } catch (e) {} }
     function pickSym(s) { symbol[1](s); try { localStorage.setItem("FLOW_SYM", s); } catch (e) {} }
-    function run() {
-      if (loading[0]) return; loading[1](true); err[1]("");
-      apiPost("/api/flow/read", { mode: mode[0], symbol: symbol[0] }).then(function (d) {
+    picked.current = { mode: mode[0], symbol: symbol[0] };
+    // `force` is the read after "See the play": it goes out even if another read is on its way,
+    // because that one was asked for before the window opened and will come back locked.
+    function run(force) {
+      if (loading[0] && force !== true) return; loading[1](true); err[1]("");
+      var mine = ++runSeq.current;   // an older read that comes back later is dropped, not drawn over this one
+      // (`picked`, not this function's own mode and symbol: the read after "See the play" is started
+      // by the button as it was when it was tapped, and the member may have changed market since.)
+      apiPost("/api/flow/read", { mode: picked.current.mode || mode[0], symbol: picked.current.symbol || symbol[0] }).then(function (d) {
+        if (mine !== runSeq.current) return;
         if (!d || d.error) {
           if (d && (d.notConfigured || d.error === "marketdata_error")) return err[1]("Market data isn't available for this pair right now — try again shortly.");
           if (d && d.error === "ratelimit") return err[1](d.detail || "Market-data limit hit — give it a minute.");
           if (d && d.error === "insufficient_data") return err[1](d.detail || "Not enough recent candles for this pair yet — try again shortly.");
           return err[1]((d && d.detail) || "FLOW couldn't read this pair right now — try again.");
         }
-        res[1](d); replay[1](null); loadPlays();
-      }).catch(function (e) { if (e && e.code === 401) props.onLogout(); else err[1]("Something went wrong — try again."); })
-        .then(function () { loading[1](false); });
+        // (This line used to go on to clear the GENX screen's replay and reload its plays. Neither
+        // exists on this screen, so every good read also printed "Something went wrong".)
+        res[1](d);
+      }).catch(function (e) { if (mine !== runSeq.current) return; if (e && e.code === 401) props.onLogout(); else err[1]("Something went wrong — try again."); })
+        .then(function () { if (mine === runSeq.current) loading[1](false); });
     }
     useEffect(function () { apiGet("/api/flow/read").then(function (d) { if (d && Array.isArray(d.instruments) && d.instruments.length) instruments[1](d.instruments); }).catch(function () {}); }, []);
-    useEffect(function () { run(); }, [mode[0], symbol[0]]);
+    // A change of market or horizon always asks for its own read, even while another is on its way:
+    // that one is for the market just left, and is dropped when it lands (it is not drawn here).
+    useEffect(function () { run(true); }, [mode[0], symbol[0]]);
     useEffect(function () { if (props.initConnect) { broker[1](true); props.onConnectHandled && props.onConnectHandled(); } }, [props.initConnect]);
     if (broker[0]) return html`<${GxBrokerConnect} onClose=${function () { broker[1](false); }} onLogout=${props.onLogout} />`;
-    var d = res[0];
+    // A read is drawn only under the market and horizon it was made for.
+    var d = flowReadFits(res[0], symbol[0], mode[0]) ? res[0] : null;
     return html`<div class="scr gx">
       <div class="gx-head">
         <div>
@@ -3243,7 +3341,7 @@ input{font:inherit}
         ${GENX_MODES.map(function (mo) { return html`<button class=${"gx-mode " + (mode[0] === mo.k ? "on" : "")} onClick=${function () { if (!loading[0]) mode[1](mo.k); }}><b>${mo.label}</b><span>${mo.sub}</span></button>`; })}
       </div>
 
-      <button class="gx-analyze" disabled=${loading[0]} onClick=${run}>${loading[0] ? "Finding your trade…" : "Find my trade"}</button>
+      <button class="gx-analyze" disabled=${loading[0]} onClick=${function () { run(); }}>${loading[0] ? "Finding your trade…" : "Find my trade"}</button>
 
       <${FlowAutoRun} onConnect=${function () { broker[1](true); }} onLogout=${props.onLogout} />
 
@@ -3261,7 +3359,9 @@ input{font:inherit}
       ${err[0] ? html`<div class="err" style="margin-top:10px">${err[0]}</div>` : null}
       ${loading[0] && !d ? html`<div class="gx-analyzing">◆ Reading live Gold — checking whether NOW is a clean entry…</div>` : null}
 
+      ${d && d.locked ? html`<${SeeThePlay} what=${symbol[0] + " · " + String(mode[0]).toUpperCase() + " — " + setupStage(d.locked)} gate=${d.setups} onOpened=${function () { run(true); }} onLogout=${props.onLogout} />` : null}
       ${d && d.entry_engine ? html`<${GxEntry} ee=${d.entry_engine} g=${d.g} lot=${lot[0]} setLot=${setLot} onTrade=${function () { broker[1](true); }} />` : null}
+      ${d && d.g && setupMinsLeft(d.setups) != null ? html`<div style="text-align:center;font-size:11px;font-weight:700;color:#7be8b4;margin-top:8px">Setups open · ${setupMinsLeft(d.setups)} min left</div>` : null}
 
       <${FlowTrackCard} />
 
@@ -4948,7 +5048,7 @@ input{font:inherit}
       <text x=${W - padR / 2} y=${lpy + 3.5} text-anchor="middle" font-size="8.5" font-weight="800" fill="#9feef7">${(+lp).toFixed(1)}</text>
     </svg>`;
   }
-  function GoldFlowTile() {
+  function GoldFlowTile(props) {
     var st = useState(null), busy = useState(false);
     function load() {
       if (busy[0]) return; busy[1](true);
@@ -4956,6 +5056,10 @@ input{font:inherit}
     }
     useEffect(load, []);
     var d = st[0], g = (d && d.g) || null;
+    // The read takes credits to view: with the window closed the server sends the chart and the
+    // price and no read, so there is no trend here to name. This tile never drew the play itself —
+    // only the trend — so it does not sell it: it says a setup is there and where the play is shown.
+    var locked = (d && d.locked) || null;
     var struct = String((g && g.market_structure) || "").toLowerCase();
     var tr = /bull/.test(struct) ? { cls: "up", icon: "↗", label: "UPTREND" }
       : /bear/.test(struct) ? { cls: "dn", icon: "↘", label: "DOWNTREND" }
@@ -4965,7 +5069,8 @@ input{font:inherit}
       ${d == null ? html`<div class="hx-empty">Reading the gold market…</div>` : (d.candles && d.candles.length ? html`<div style="position:relative">
         <div class="hx-price">${d.price != null ? (+d.price).toFixed(2) : "—"}<small>XAU/USD · 15M</small></div>
         <div class="hx-chart"><${GoldCandles} candles=${d.candles} price=${d.price} /></div>
-        <div class="hx-note">${tr.cls === "up" ? "Buyers are in control — the market is putting in higher highs." : tr.cls === "dn" ? "Sellers are in control — the market is putting in lower lows." : "No side is in control — price is moving sideways in a range."}${g && g.momentum ? " Momentum: " + g.momentum + "." : ""}</div>
+        ${locked ? html`<div class="hx-note">🔒 GENX · Intraday — ${setupStage(locked)}. Which way, the entry, the stop and the targets open with credits.${props && props.goFlow ? html` <a href="#" style="color:#ffc24b;font-weight:800" onClick=${function (e) { e.preventDefault(); props.goFlow(); }}>See the play in FLOW ›</a>` : null}</div>`
+          : html`<div class="hx-note">${tr.cls === "up" ? "Buyers are in control — the market is putting in higher highs." : tr.cls === "dn" ? "Sellers are in control — the market is putting in lower lows." : "No side is in control — price is moving sideways in a range."}${g && g.momentum ? " Momentum: " + g.momentum + "." : ""}</div>`}
       </div>` : html`<div class="hx-empty">Couldn't load the gold read right now — tap refresh to try again.</div>`)}
       <button class="hx-refresh" disabled=${busy[0]} onClick=${load}>${busy[0] ? "Scanning the market…" : "⟳ Refresh — re-look at gold"}</button>
     </div>`;
@@ -6989,7 +7094,7 @@ input{font:inherit}
         </div>` : html`<div class="hx-empty">The desk record will appear once GENX has resolved calls to show.</div>`)}
       </div>
 
-      <${GoldFlowTile} />
+      <${GoldFlowTile} goFlow=${props.goFlow} />
     </div>`;
   }
   // ── SIGNALS — every saved play, synced across devices ─────────────────────

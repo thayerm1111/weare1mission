@@ -5,6 +5,8 @@ import { ArrowLeftRight, Loader2, ChevronDown } from "lucide-react";
 import { ConfirmHelp } from "./GenxFlow";
 import { GenFxFlow } from "./GenFxFlow";
 import { GENFX_OPEN_PAIR } from "@/lib/floor/setupInstruments";
+import { SetupLock, SetupTimer } from "@/components/portal/SetupLock";
+import { type SetupGate } from "@/lib/setupLock";
 
 /**
  * GEN FX — the GENX decision engine on EUR/USD and GBP/JPY (owner 10-02: "an exact system, just like
@@ -39,7 +41,9 @@ type AutoNote = { minStopPips: number; stopPips: number | null; stopOk: boolean;
 type Resp = { ok?: boolean; pair?: PairKey; signal_id?: string | null; price?: number; data_status?: string; asOf?: string; genfx?: Genfx; candles?: Candle[]; auto?: AutoNote; error?: string; detail?: string; notConfigured?: string; balance?: number };
 
 type DeskAccount = { accountId: string; connectionId: string; accNum: string | null; name: string | null; environment: string | null; server: string | null; connected: boolean; riskPct: number | null; killed: boolean; EURUSD: boolean; GBPJPY: boolean; inScope: boolean };
-type DeskAlert = { id: string; pair: PairKey; mode: string; side: "buy" | "sell"; state: string; kind: "zone" | "scanner"; entry: number | null; entry_low: number | null; entry_high: number | null; stop: number | null; tp1: number | null; created_at: string; enter_price: number | null; enter_sent_at: string | null; outcome: string | null; result_pips: number | null };
+// A call whose play this member's window does not cover arrives `locked`: its pair, horizon and stage,
+// and no side or levels (the server keeps them back — src/lib/setupLock.ts).
+type DeskAlert = { id: string; pair: PairKey; mode: string; side: "buy" | "sell" | null; state: string; kind: "zone" | "scanner"; entry: number | null; entry_low: number | null; entry_high: number | null; stop: number | null; tp1: number | null; created_at: string; enter_price: number | null; enter_sent_at: string | null; outcome: string | null; result_pips: number | null; locked?: boolean };
 type Rec = { calls: number; win: number; loss: number; flat: number; pips: number; open: number };
 type Switches = { readable: boolean; scan: boolean; auto: boolean; scope: "owner" | "demo" | "all"; billing: boolean; telegram: boolean };
 type Tally = { n: number; wins: number; losses: number; pips: number; r: number; avgStopPips: number; avgR: number; winRate: number; maxDrawdownR: number };
@@ -53,6 +57,8 @@ type Desk = {
   pairs?: { key: PairKey; name: string; minStopPips: number; costPips: number; dec: number }[];
   limits?: { maxMinLotRiskPct: number; maxLots: number };
   accounts?: DeskAccount[]; alerts?: DeskAlert[];
+  /** This member's window on the live setups: open or not, until when, what opening it costs. */
+  setups?: SetupGate | null;
   record?: Record<string, { d7: { win: number; loss: number }; d30: { win: number; loss: number; pips: number }; repeats?: number }>;
   real?: Record<string, { demo: Rec; live: Rec }>;
   activity?: { symbol: string; side: string | null; status: string; reason: string | null; created_at: string; account_id: string | null }[];
@@ -413,19 +419,25 @@ function AutoTrade({ desk, reload }: { desk: Desk; reload: () => Promise<void> }
 }
 
 /* ---------- what the scanner is watching, and the record ---------- */
-function Watching({ desk }: { desk: Desk }) {
+// Exported for its tests (tests/setup-lock-pages.test.ts draw it locked and open); used only here.
+export function Watching({ desk, reload }: { desk: Desk; reload: () => void }) {
   const alerts = desk.alerts ?? [];
   const live = alerts.filter((a) => a.state === "zone" || a.state === "forming");
   const called = alerts.filter((a) => a.state === "entered").slice(0, 8);
+  // The play takes credits to view (owner 10-05): with the window closed, an open call is its pair,
+  // its horizon and how far along it is. One button for the whole list.
+  const anyLocked = [...live, ...called].some((a) => a.locked);
   const row = (a: DeskAlert) => {
     const dec = decOf(a.pair);
     const zone = a.kind === "zone" ? fx(a.entry, dec) : `${fx(a.entry_low, dec)}–${fx(a.entry_high, dec)}`;
     return (
       <li key={a.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-        <span className="text-[12px] font-bold" style={{ color: a.side === "sell" ? "#ff5d6c" : "#2ee88f" }}>
-          {nameOf(a.pair)} {a.side.toUpperCase()} <span className="font-semibold text-white/40">· {a.mode}</span>
+        <span className="text-[12px] font-bold" style={{ color: a.locked || !a.side ? "#ffd47a" : a.side === "sell" ? "#ff5d6c" : "#2ee88f" }}>
+          {nameOf(a.pair)}{a.locked || !a.side ? "" : ` ${a.side.toUpperCase()}`} <span className="font-semibold text-white/40">· {a.mode}</span>
         </span>
-        <span className="text-[11px] tabular-nums text-white/55">{a.state === "entered" ? `in @ ${fx(a.enter_price, dec)}` : `entry ${zone}`} · stop {fx(a.stop, dec)} · TP1 {fx(a.tp1, dec)}</span>
+        {a.locked
+          ? <span className="text-[11px] text-white/40">side, entry, stop and target open with credits</span>
+          : <span className="text-[11px] tabular-nums text-white/55">{a.state === "entered" ? `in @ ${fx(a.enter_price, dec)}` : `entry ${zone}`} · stop {fx(a.stop, dec)} · TP1 {fx(a.tp1, dec)}</span>}
         <span className="text-[10px] text-white/35">
           {a.state === "zone" ? "enters on touch" : a.state === "forming" ? (a.enter_sent_at ? "armed — waiting for a pullback" : "waiting to confirm") : a.outcome === "win" ? `WIN ${a.result_pips != null ? `+${a.result_pips}p` : ""}` : a.outcome === "loss" ? `LOSS ${a.result_pips ?? ""}p` : a.outcome === "expired" ? "expired" : "running"}
           {" · "}{agoShort(Date.parse(a.enter_sent_at ?? a.created_at))}
@@ -437,10 +449,11 @@ function Watching({ desk }: { desk: Desk }) {
   return (
     <section className="mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-sky-300/80">What GEN FX is watching</h2>
+        <h2 className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-sky-300/80">What GEN FX is watching <SetupTimer gate={desk.setups} /></h2>
         <span className="text-[10px] text-white/35">{desk.switches?.scan === false ? "Scanner is off" : scanAt ? `Scanned ${agoShort(scanAt)}${desk.lastScan?.quiet ? " · market quiet window" : ""}` : "Scanner has not run yet"}</span>
       </div>
       <p className="mt-2 text-[12px] leading-relaxed text-white/50">The scanner runs this same engine on both pairs and all three horizons every five minutes. A setup at a level is entered when price touches it; a developing one waits for its candle to close right.</p>
+      {anyLocked && <SetupLock what={`GEN FX — ${live.some((a) => a.locked) ? "setups lined up" : called.some((a) => a.locked && !a.outcome) ? "calls running" : "earlier calls"}`} gate={desk.setups} onOpened={reload} className="mt-3" />}
       {live.length === 0 ? <p className="mt-3 text-[12px] text-white/35">Nothing lined up right now.</p> : <ul className="mt-3 space-y-1.5">{live.map(row)}</ul>}
       {called.length > 0 && (
         <>
@@ -704,7 +717,7 @@ export function GenFxDesk() {
   }, []);
 
   const loadDesk = useCallback(async () => {
-    try { const r = await fetch("/api/genfx/desk", { cache: "no-store" }); const d = await r.json(); if (d?.ok) setDesk(d as Desk); } catch { /* the read still works without it */ }
+    try { const r = await fetch("/api/genfx/desk?v=2", { cache: "no-store" }); const d = await r.json(); if (d?.ok) setDesk(d as Desk); } catch { /* the read still works without it */ }
   }, []);
   const loadPlays = useCallback(async () => {
     try { const r = await fetch("/api/genfx/history", { cache: "no-store" }); const d = await r.json(); if (Array.isArray(d.plays)) setPlays(d.plays as PlayRow[]); } catch { /* ignore */ }
@@ -758,7 +771,7 @@ export function GenFxDesk() {
       if (d.notConfigured) { setErr("Market data isn’t configured on the server yet."); setRes(null); }
       else if (d.error === "insufficient_credits") { setErr(`Not enough credits to run GEN FX${typeof d.balance === "number" ? ` (balance ${d.balance})` : ""}.`); setRes(null); try { window.dispatchEvent(new Event("open-credits-flyer")); } catch { /* ignore */ } }
       else if (!r.ok || !d.ok) { setErr(d.detail || d.error || `GEN FX couldn’t read ${pairName} right now — try again shortly.`); setRes(null); }
-      else { setRes(d); setReplay(null); void loadPlays(); }
+      else { setRes(d); setReplay(null); void loadPlays(); void loadDesk(); }   // a read opens the lists below, too
     } catch { setErr("Couldn’t reach the server."); }
     finally { setLoading(false); }
   }
@@ -975,7 +988,7 @@ export function GenFxDesk() {
       {desk && (
         <>
           <AutoTrade desk={desk} reload={loadDesk} />
-          <Watching desk={desk} />
+          <Watching desk={desk} reload={loadDesk} />
           <Record desk={desk} />
           <OwnerPanel desk={desk} reload={loadDesk} />
         </>

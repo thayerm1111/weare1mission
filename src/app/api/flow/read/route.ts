@@ -6,6 +6,8 @@ import { decideEntry, type ConfirmSignal } from "@/lib/entryEngine";
 import { flowRead, flowConfirm, type FlowConfirmState } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { isPriorityEmail } from "@/lib/marketData";
+import { hasPlay, lockFlowRead } from "@/lib/setupLock";
+import { setupAccess } from "@/lib/setupAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +18,11 @@ export const maxDuration = 60;
  * GET  → the pairs FLOW currently trades (from flow_instruments where enabled).
  * POST { symbol, mode } → the setup + FLOW Entry Engine decision for that pair.
  * Reuses the shared deterministic engine as a read; never modifies GENX.
+ *
+ * THE SETUP TAKES CREDITS TO VIEW (owner 10-05). This read charges nothing itself, and it is the same
+ * engine's play: side, entry zone, stop, target. It is sent whole while the member's window is open
+ * (setupAccess.ts) and otherwise as the market, its price and how far along the setup is — no side,
+ * no levels, no entry-engine verdict (setupLock.ts).
  */
 
 const json = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -91,7 +98,7 @@ export async function POST(req: NextRequest) {
     regime: String(g.market_regime ?? ""), structure: String(g.market_structure ?? ""), momentum: String(g.momentum ?? ""),
   });
 
-  return json({
+  const payload = {
     ok: true,
     symbol: canonical,
     instrument: { canonical, label: inst.displayName, assetClass: inst.assetClass, pipSize: inst.pipSize, pricePrecision: inst.pricePrecision },
@@ -108,5 +115,8 @@ export async function POST(req: NextRequest) {
       stop_pips: g.stop_pips, tp1_pips: g.tp1_pips, tp2_pips: g.tp2_pips, tp3_pips: g.tp3_pips,
       market_regime: g.market_regime, session: g.session,
     },
-  });
+  };
+  if (!hasPlay(payload.g)) return json(payload);
+  const gate = await setupAccess(createAdminClient(), user.id, { fresh: true });
+  return json({ ...(gate.open ? payload : lockFlowRead(payload)), setups: gate });
 }

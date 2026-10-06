@@ -6,6 +6,8 @@ import { computeGenxRead, buildGenx, GOLD, MODES, type Mode } from "@/lib/genxCo
 import { computeGenfxRead, genfxOf } from "@/lib/genfx/compute";
 import { PAIRS, type FxPair } from "@/lib/genfx/pairs";
 import { floorInstrument, fxPairKey, setupCacheKey } from "@/lib/floor/setupInstruments";
+import { hasPlay, lockSetup, type SetupBody } from "@/lib/setupLock";
+import { setupAccess, genfxIsFree, OPEN_UNMETERED, OPEN_FREE } from "@/lib/setupAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,9 +21,15 @@ export const maxDuration = 20;
  * bias, trigger condition, expected hold) — plus a candle series for the chart.
  *
  * It runs computeGenxRead + buildGenx directly (the pure engine, NO AI narrative)
- * and does NOT charge credits. An in-memory per-mode cache means many members with
+ * and charges nothing itself. An in-memory per-mode cache means many members with
  * The Floor open never multiply market-data usage: one compute per mode per cache
  * window, and the underlying series/price come from the shared community cache.
+ *
+ * WHO IS SENT THE PLAY (owner 10-05: "Make them use credits to view"). The read is computed once and
+ * cached for everyone, as before; what differs per member is what leaves here. A member whose window
+ * is open (setupAccess.ts) gets the map. Anyone else gets the chart, the price and how far along the
+ * setup is — and no read at all (setupLock.ts). The same goes for the earlier maps: a map from ten
+ * minutes ago is the same trade. Opening the window is not done here (/api/setups/pass).
  *
  * PREVIOUS ANALYSIS (owner 09-17): every ~10 minutes the read + its candles are snapshotted to
  * floor_setup_history, so the panel can show the map exactly as it looked earlier in the day.
@@ -30,8 +38,8 @@ export const maxDuration = 20;
  *
  * THE OTHER TWO INSTRUMENTS (owner 10-04: "page through here to GBPJPY, and EURUSD as well … just like
  * the GENX"). `?symbol=EURUSD` or `?symbol=GBPJPY` returns the same payload from the GEN FX engine for
- * that pair: the same pure read (computeGenfxRead + genfxOf, no AI narrative, no credits — as gold's
- * is here), its own cache entry and its own history rows (floor_setup_history.instrument). No symbol,
+ * that pair: the same pure read (computeGenfxRead + genfxOf, no AI narrative, nothing charged here —
+ * as gold's is), its own cache entry and its own history rows (floor_setup_history.instrument). No symbol,
  * or anything else, is gold, served exactly as before: a request without `symbol` cannot tell this
  * change happened.
  */
@@ -42,7 +50,7 @@ export const maxDuration = 20;
 const TTL_MS = 15_000;
 // One stored snapshot per mode per 10 minutes — enough to walk back through the day without bloat.
 const SNAPSHOT_MS = 10 * 60_000;
-const CACHE: Record<string, { at: number; body: Record<string, unknown> }> = {};
+const CACHE: Record<string, { at: number; body: SetupBody }> = {};
 
 function json(o: unknown, s = 200) {
   return new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -107,9 +115,11 @@ async function fxSetup(pair: FxPair, mode: Mode, mdKey: string): Promise<Built> 
 
 export async function GET(req: NextRequest) {
   const supabase = createClient();
+  let userId: string | null = null;
   if (supabase) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return json({ error: "unauthorized" }, 401);
+    userId = user.id;
   }
 
   const url = new URL(req.url);
@@ -118,17 +128,42 @@ export async function GET(req: NextRequest) {
   const pairKey = fxPairKey(inst.key);
   const pair = pairKey ? PAIRS[pairKey] : null;
 
+  // Is this member's window open? Asked at most once per request, and not at all for a live map
+  // that carries no play. `fresh=1` is the card's first look after arriving, switching or paying:
+  // that one is never answered from memory (setupAccess.ts).
+  const fresh = url.searchParams.get("fresh") === "1";
+  let asked: ReturnType<typeof setupAccess> | null = null;
+  // A pair's map is GEN FX's: while the owner has GEN FX billing switched off it costs nothing to
+  // read, so it is not kept back here either. Gold's is never free this way. `fx` says whose map is
+  // being asked for — the market on the request, or, for a stored map, the market it was stored under.
+  const windowFor = async (fx: boolean) => (!userId ? OPEN_UNMETERED : fx && await genfxIsFree(admin) ? OPEN_FREE : setupAccess(admin, userId, { fresh }));
+  const myWindow = () => (asked ??= windowFor(!!pair));
+  /** What this member is sent: the map, or — when it carries a play their window does not cover — its outline. */
+  const shown = async (body: SetupBody) => {
+    if (!hasPlay(body.g)) return body;
+    const gate = await myWindow();
+    return { ...(gate.open ? body : lockSetup(body)), setups: gate };
+  };
+
   // ── Previous analyses (list / replay) ──
   const histId = url.searchParams.get("id");
   const wantHistory = url.searchParams.get("history");
   if (histId || wantHistory) {
     if (!admin) return json({ past: [] });
+    // An earlier map is the same trade a few minutes younger: it opens with the window, like the live one.
     if (histId) {
+      // Whose window decides is the STORED map's market, not whatever market the request names: a
+      // gold map asked for "as EUR/USD" is still gold's. So the row is found first, and nothing of it
+      // is sent unless the window for its own market is open.
       const { data } = await admin.from("floor_setup_history").select("id,at,mode,price,payload,instrument").eq("id", histId).maybeSingle();
       const row = data as { id: string; at: string; mode: string; price: number | null; instrument: string | null; payload: { g?: unknown; candles?: unknown[] } } | null;
+      const gate = await windowFor(!!row?.instrument);
+      if (!gate.open) return json({ error: "locked", setups: gate }, 402);
       if (!row) return json({ error: "not_found" }, 404);
       return json({ past: true, id: row.id, at: row.at, mode: row.mode, price: row.price, symbol: row.instrument ?? "XAUUSD", g: row.payload?.g ?? null, candles: row.payload?.candles ?? [], frozen: true });
     }
+    const gate = await myWindow();
+    if (!gate.open) return json({ past: [], setups: gate });
     const hm = url.searchParams.get("mode");
     const listMode: Mode = hm === "quick" || hm === "swing" ? hm : "intraday";
     // Gold's rows have no instrument; a pair's carry its key. Each lists only its own.
@@ -141,7 +176,7 @@ export async function GET(req: NextRequest) {
   const mode: Mode = modeParam === "quick" || modeParam === "swing" ? modeParam : "intraday";
 
   const ck = setupCacheKey(inst.key, mode);
-  if (CACHE[ck] && Date.now() - CACHE[ck].at < TTL_MS) return json({ ...CACHE[ck].body, cached: true });
+  if (CACHE[ck] && Date.now() - CACHE[ck].at < TTL_MS) return json(await shown({ ...CACHE[ck].body, cached: true }));
 
   const mdKey = process.env.TWELVEDATA_API_KEY;
   if (!mdKey) return json({ g: null, candles: [], price: null, mode, symbol: inst.key, error: "marketdata_not_configured" });
@@ -170,5 +205,5 @@ export async function GET(req: NextRequest) {
       }
     } catch { /* history is best-effort; never block the panel */ }
   }
-  return json(body);
+  return json(await shown(body));
 }
