@@ -25,7 +25,8 @@ export const maxDuration = 60;
  * being an open tap on the AI, each member gets a small daily allowance of AI stories
  * (config.freeStoriesPerDay, 10 by default); past it the read still works and the story is the
  * engine's own summary. With billing on it is priced exactly as GENX is: the "genx" credit feature,
- * gated before the work and charged after it succeeds, free on the FLOW Pass.
+ * gated before the work and charged after it succeeds, free on the FLOW Pass — every read; past the
+ * Pass's fair-use count the story is the engine's own summary here too (credits.ts).
  */
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = process.env.OM_AI_MODEL || "claude-sonnet-4-6";
@@ -67,10 +68,13 @@ export async function POST(req: NextRequest) {
   const ctl = await readControl(admin);
 
   // Credits — only when the owner has switched GEN FX billing on.
+  // A FLOW Pass covers every read; past its fair-use count the read is still free, without the AI story.
+  let pastFairUse = false;
   if (ctl.billing) {
     const gate = await gateCredits("genx");
     if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
     if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
+    pastFairUse = gate.ok && gate.overFairUse === true;
   }
 
   const rr = await computeGenfxRead({ pair, mode, mdKey, fresh });
@@ -83,7 +87,7 @@ export async function POST(req: NextRequest) {
   const read = rr.read;
 
   // The AI story. Free reads are capped per member per day; past the cap the engine's own words stand in.
-  let storyAllowed = !!aiKey && read.state !== "INSUFFICIENT_DATA" && read.state !== "DATA_UNAVAILABLE";
+  let storyAllowed = !!aiKey && !pastFairUse && read.state !== "INSUFFICIENT_DATA" && read.state !== "DATA_UNAVAILABLE";
   if (storyAllowed && !ctl.billing && admin && userId) {
     try {
       const { count } = await admin.from("genfx_signals").select("id", { count: "exact", head: true })

@@ -76,9 +76,17 @@ export const SUITE = {
  * `monthlyCredits` each billing period — topped UP TO, never stacked, no rollover, exactly like the
  * old Suite allowance. ATLAS voice minutes are a separate product and are untouched.
  *
- * FAIR USE. `genx` is a real AI call, so unmetered is capped at GENX_FAIR_USE_PER_DAY analyses a day
- * per member — high enough that no honest member will ever see it, low enough that a stuck re-analyze
- * loop cannot run up a bill. Past the cap the member falls back to paying credits, they are not blocked.
+ * FAIR USE. `genx` is a real AI call, so the AI's part of it is capped: it is asked to write the
+ * story for GENX_FAIR_USE_PER_DAY reads per member in any 24 hours — low enough that a stuck
+ * re-analyze loop cannot run up a bill. Past that the Pass STILL COVERS THE READ: it is never charged
+ * and never refused, every number in it is the engine's as always, and the engine's own summary
+ * stands where the story would be (as on a free GEN FX read past its allowance).
+ *   It did not work that way at first — past the cap the member "fell back to paying credits" — and
+ *   the cap was meant to be one no honest member would ever see. One did within a day of buying
+ *   (10-07: 100 reads in 23 hours, 46 of them in an hour of watching Gold for an entry). His next
+ *   nine reads took 45 of his 50 credits, a play took 3 more, and with 2 left GENX told him he was
+ *   out — on a Pass. The owner: "this person bought the flow pass, but it's saying he needs more
+ *   credits." Hence the rule above.
  */
 export const FLOW_PASS = {
   key: "flow_pass",
@@ -95,7 +103,7 @@ export const FLOW_PASS = {
 export const PASS_COVERED: ReadonlyArray<Feature> = ["flow_autorun", "genx"];
 export const isPassCovered = (f: Feature): boolean => PASS_COVERED.includes(f);
 
-/** Fair-use ceiling on the one covered feature that is an on-demand AI call. */
+/** Fair use on the one covered feature that is an on-demand AI call: the reads per member per 24 hours the AI is asked to write up. It limits the story, never the read (credits.ts). */
 export const GENX_FAIR_USE_PER_DAY = Number(process.env.GENX_FAIR_USE_PER_DAY ?? 100);
 
 // Auto-refill — card on file, off-session top-ups (replaces the subscription as the

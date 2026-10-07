@@ -3543,7 +3543,7 @@ input{font:inherit}
       </div>
 
       <button class="gx-analyze" disabled=${loading[0]} onClick=${run}>${loading[0] ? "Analyzing Gold…" : (d ? "Re-analyze Gold" : "Analyze Gold Now")}</button>
-      <div style="text-align:center;margin-top:6px;font-size:11px;opacity:.5">5 credits per read</div>
+      <div style="text-align:center;margin-top:6px;font-size:11px;opacity:.5">5 credits per read · free on the FLOW Pass</div>
       ${err[0] ? html`<div class="err" style="margin-top:10px">${err[0]}${needCr[0] ? html` <a href="#" onClick=${function (e) { e.preventDefault(); try { window.open("/portal/credits", "_blank"); } catch (x) {} }} style="color:var(--sky);font-weight:700"> Get credits</a>` : null}</div>` : null}
       ${loading[0] ? html`<div class="gx-analyzing">◆ Reading live Gold — structure, momentum, levels, liquidity…</div>` : null}
 

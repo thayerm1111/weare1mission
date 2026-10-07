@@ -16,7 +16,8 @@
  *
  * Triggers:
  *  • On mount, if the live balance is below the threshold (unless snoozed this
- *    browser session).
+ *    browser session) — but never for a FLOW Pass holder, whose GENX, GEN FX
+ *    and FLOW need no credits (lib/lowBalance.ts).
  *  • Whenever a tool is blocked for insufficient credits and dispatches the
  *    `open-credits-flyer` window event (this overrides the session snooze).
  *  • Manually with `?flyer=1` in the URL (owner/preview — ignores balance).
@@ -27,8 +28,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, Zap, TrendingUp, ArrowUp, ArrowDown, Loader2, ShieldCheck, Flame } from "lucide-react";
+import { LOW_BALANCE_THRESHOLD, opensOnItsOwn, whatSpendsCredits } from "@/lib/lowBalance";
 
-const THRESHOLD = 5; // show when total credits are BELOW this many (early "you're getting low" warning)
+const THRESHOLD = LOW_BALANCE_THRESHOLD; // show when total credits are BELOW this many (early "you're getting low" warning)
 const MIN_CONFIDENT = 10; // below this many decided GENX calls, show a count, not a headline %
 const SNOOZE_KEY = "om-lowbal-snooze"; // session-scoped: don't re-pop on every nav after a manual dismiss
 
@@ -61,6 +63,7 @@ export function LowBalanceFlyer() {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [total, setTotal] = useState<number | null>(null);
+  const [pass, setPass] = useState(false);   // an active FLOW Pass, as /api/credits reports it
   const [packs, setPacks] = useState<Pack[]>([]);
   const [genx, setGenx] = useState<GenxStats | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
@@ -74,18 +77,21 @@ export function LowBalanceFlyer() {
   }, []);
 
   // Balance — recomputed on demand and on every credits-updated event.
-  const loadBalance = useCallback(async (): Promise<number | null> => {
+  const loadBalance = useCallback(async (): Promise<{ total: number | null; pass: boolean }> => {
     try {
       const r = await fetch("/api/credits", { cache: "no-store" });
       const d = await r.json();
       if (Array.isArray(d.packs)) setPacks(d.packs);
+      const holds = d.pass === true;
+      setPass(holds);
       if (d.balance) {
         const t = (d.balance.dailyLeft || 0) + (d.balance.purchased || 0);
         setTotal(t);
-        return t;
+        return { total: t, pass: holds };
       }
+      return { total: null, pass: holds };
     } catch { /* ignore */ }
-    return null;
+    return { total: null, pass: false };
   }, []);
 
   // Real GENX track record (member-safe, anonymized aggregate).
@@ -101,10 +107,10 @@ export function LowBalanceFlyer() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const t = await loadBalance();
+      const { total: t, pass: holds } = await loadBalance();
       if (cancelled) return;
       const snoozed = (() => { try { return sessionStorage.getItem(SNOOZE_KEY) === "1"; } catch { return false; } })();
-      if (forced || (t != null && t < THRESHOLD && !snoozed)) {
+      if (opensOnItsOwn({ total: t, pass: holds, snoozed, forced })) {
         setOpen(true);
         void loadStats();
       }
@@ -119,7 +125,7 @@ export function LowBalanceFlyer() {
     };
     // Balance changed somewhere → refresh; auto-close if they're topped up.
     const onUpdated = async () => {
-      const t = await loadBalance();
+      const { total: t } = await loadBalance();
       if (t != null && t >= THRESHOLD) setOpen(false);
     };
     window.addEventListener("open-credits-flyer", onForce);
@@ -206,7 +212,7 @@ export function LowBalanceFlyer() {
             You&apos;re down to <span style={{ color: GOLD }}>{balText}</span>.
           </h2>
           <p className="mt-2 text-[14px] leading-relaxed text-white/60">
-            Every play, chart read and GENX call spends credits. Top up now so you don&apos;t miss the next setup the desk calls.
+            {whatSpendsCredits(pass)}
           </p>
         </div>
 

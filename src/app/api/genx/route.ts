@@ -56,6 +56,9 @@ export async function POST(req: NextRequest) {
   const gate = await gateCredits("genx");
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
+  // A FLOW Pass covers every read. Past its fair-use count the read is still free and every number in
+  // it is still the engine's; only the AI is left out, and the engine's own summary is the story.
+  const pastFairUse = gate.ok && gate.overFairUse === true;
 
   // ── Layers 1+2+4: deterministic read ──
   const rr = await computeGenxRead({ mode, mdKey, fresh });
@@ -69,7 +72,7 @@ export async function POST(req: NextRequest) {
 
   // ── Layer 3: AI writes the MARKET STORY only (numbers locked) ──
   let marketStory: string[] = [];
-  if (aiKey && read.state !== "INSUFFICIENT_DATA" && read.state !== "DATA_UNAVAILABLE") {
+  if (aiKey && !pastFairUse && read.state !== "INSUFFICIENT_DATA" && read.state !== "DATA_UNAVAILABLE") {
     try {
       const sys = `You are GENX, an elite XAUUSD (Gold) desk narrator. You are handed a FINAL, LOCKED analysis object a deterministic engine already produced. Your ONLY job: write "WHAT GOLD IS DOING RIGHT NOW" as 3–6 short, plain-English sentences a beginner understands. You MUST NOT change, recompute, invent or add any number, price, level, score, direction or target. Never claim to have checked news. Describe: what Gold has been doing, what it is doing now, whether buyers or sellers have the edge, how much room there is before the next level, and the most likely next move. Gold character: ${GOLD_PERSONALITY}. Educational only — no guarantees. Return ONLY a JSON array of strings.`;
       const r = await fetch(ANTHROPIC_URL, {
