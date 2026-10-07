@@ -92,4 +92,11 @@ export const config = {
     // Skip Next internals and static files; run on everything else.
     "/((?!_next/static|_next/image|favicon.ico|images/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
+  // RUN WHERE THE SITE RUNS (10-07). By default this runs at whichever edge location is nearest the
+  // visitor, and its sign-in check then reaches the sign-in service by that location's own network
+  // route. One of those routes (the one serving the Midwest) failed for several minutes while the
+  // site's own region was untouched — so members there could not get in although the site itself was
+  // healthy. Pinned to the site's region, the check takes the same route every page and API call
+  // already takes, and it is the short one: about 30 ms from here against 150–190 ms from the west coast.
+  regions: ["iad1"],
 };
