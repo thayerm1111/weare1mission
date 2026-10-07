@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { ArrowLeftRight, Loader2, ChevronDown } from "lucide-react";
 import { ConfirmHelp } from "./GenxFlow";
 import { GenFxFlow } from "./GenFxFlow";
 import { GENFX_OPEN_PAIR } from "@/lib/floor/setupInstruments";
 import { SetupLock, SetupTimer } from "@/components/portal/SetupLock";
 import { type SetupGate } from "@/lib/setupLock";
+import { clearlyInView } from "@/lib/inView";
 
 /**
  * GEN FX — the GENX decision engine on EUR/USD and GBP/JPY (owner 10-02: "an exact system, just like
@@ -289,10 +290,11 @@ function LTile({ label, value, sub, tone }: { label: string; value: string; sub?
   );
 }
 
-function Switch({ on, onChange, disabled, label }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string }) {
+// `waiting`: this switch has been tapped and its question is open — it is ringed, so the tap is seen to have landed.
+function Switch({ on, onChange, disabled, label, waiting }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string; waiting?: boolean }) {
   return (
     <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={() => onChange(!on)}
-      className="relative h-6 w-11 flex-shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-35"
+      className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${waiting ? "ring-2 ring-sky-300 ring-offset-2 ring-offset-[#0b0d12]" : ""}`}
       style={{ background: on ? "#38bdf8" : "rgba(255,255,255,0.16)" }}>
       <span className="absolute top-0.5 h-5 w-5 rounded-full transition-all" style={{ left: on ? 22 : 2, background: "#ffffff" }} />
     </button>
@@ -306,25 +308,64 @@ const SCOPE_TEXT: Record<Switches["scope"], string> = {
 };
 
 /* ---------- auto-trade: the member's accounts and their per-pair switches ---------- */
-function AutoTrade({ desk, reload }: { desk: Desk; reload: () => Promise<void> }) {
+/*
+ * EVERYTHING A SWITCH SAYS, IT SAYS WHERE THE MEMBER IS LOOKING (owner 10-07: "I'm getting reports
+ * that people can't set up the auto feature for Gen FX"). Nothing was failing: every switch anyone
+ * reached had saved. But turning a pair ON asks a question first, and the question opened under the
+ * account's row — on a phone, 210 pixels below the switch and usually under the bottom of the screen.
+ * The member tapped, the switch did not move, and nothing else they could see changed. So:
+ *   • the question is brought into view when it opens, and the switch it belongs to is ringed;
+ *   • while a change is being saved the switch already shows where it is going, with a line saying so;
+ *   • what happened — on, off, or not saved and why — is said in that account's own card, not under
+ *     the whole list where it could be a screen away.
+ */
+// What became of the last change: the server said yes, said no (and why), or did not answer at all.
+type RowSaid = { key: string; pair: PairKey; wanted: boolean; outcome: "saved" | "refused" | "lost"; detail?: string };
+export function AutoTrade({ desk, reload }: { desk: Desk; reload: () => Promise<void> }) {
   const [busy, setBusy] = useState<string | null>(null);
-  const [note, setNote] = useState("");
+  const [said, setSaid] = useState<RowSaid | null>(null);
   // Turning a pair ON hands GEN FX the right to place orders on that account, so it is asked twice.
   const [asking, setAsking] = useState<{ key: string; accountId: string; connectionId: string; pair: PairKey } | null>(null);
+  // A change on its way to the server: the switch shows the state it was asked for until the answer is in.
+  const [going, setGoing] = useState<{ key: string; pair: PairKey; enabled: boolean } | null>(null);
+  const question = useRef<HTMLDivElement | null>(null);
   const sw = desk.switches;
   const accounts = desk.accounts ?? [];
   const pairs = desk.pairs ?? [];
-  const rowKey = (a: DeskAccount) => `${a.connectionId}:${a.accountId}`;
+  const rowKey = (a: { accountId: string; connectionId: string }) => `${a.connectionId}:${a.accountId}`;
+  const pairName = (k: PairKey) => pairs.find((p) => p.key === k)?.name ?? k;
+
+  useEffect(() => {
+    if (!asking) return;
+    const box = question.current;
+    if (!box || clearlyInView(box.getBoundingClientRect(), window.innerHeight)) return;
+    try { box.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { box.scrollIntoView(); }
+  }, [asking]);
 
   async function arm(a: { accountId: string; connectionId: string }, pair: PairKey, enabled: boolean) {
-    setBusy(`${a.connectionId}:${a.accountId}:${pair}`); setNote(""); setAsking(null);
+    const key = rowKey(a);
+    setBusy(`${key}:${pair}`); setSaid(null); setAsking(null); setGoing({ key, pair, enabled });
+    let outcome: RowSaid["outcome"] = "lost", detail: string | undefined;
     try {
       const r = await fetch("/api/genfx/desk", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "arm", accountId: a.accountId, connectionId: a.connectionId, pair, enabled }) });
       const d = await r.json();
-      if (!d.ok) setNote(d.detail || "Couldn't save that switch — try again.");
-      await reload();
-    } catch { setNote("Couldn't reach the server."); }
-    finally { setBusy(null); }
+      outcome = d?.ok ? "saved" : "refused";
+      if (typeof d?.detail === "string") detail = d.detail;
+    } catch { /* no answer. The switch may or may not have moved: the reload below shows which. */ }
+    try { await reload(); } catch { /* the page keeps what it had */ }
+    setSaid({ key, pair, wanted: enabled, outcome, detail });
+    setBusy(null); setGoing(null);
+  }
+  /**
+   * The line under an account's switches about its last change. It never says a switch is somewhere the
+   * switch itself is not: "on"/"off" is read off the switch as it now stands — so a change whose answer
+   * was lost but which went through is said to have gone through, and a line about a switch that has
+   * since been moved (another tab, another device) is dropped rather than left standing.
+   */
+  function saidOf(t: RowSaid, a: DeskAccount): { tone: "ok" | "warn"; text: string } | null {
+    if (t.outcome === "refused") return { tone: "warn", text: t.detail || "Couldn't save that switch — try again." };
+    if (a[t.pair] === t.wanted) return { tone: "ok", text: `${pairName(t.pair)} auto-trade is ${t.wanted ? "ON" : "OFF"} for #${a.accNum ?? a.accountId}.` };
+    return t.outcome === "lost" ? { tone: "warn", text: "Couldn't reach the server, so that switch may not have changed. Check it, and try again." } : null;
   }
 
   const placing = !!sw?.auto;
@@ -346,12 +387,14 @@ function AutoTrade({ desk, reload }: { desk: Desk; reload: () => Promise<void> }
       )}
 
       {accounts.length === 0 ? (
-        <p className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3 text-[12.5px] text-white/55">No broker account connected yet. Connect one under FLOW, then come back and switch a pair on.</p>
+        <p className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3 text-[12.5px] text-white/55">No broker account connected yet. <a href="/portal/trading?view=flow" className="font-semibold text-sky-300 underline underline-offset-2">Connect one under FLOW</a>, then come back and switch a pair on.</p>
       ) : (
         <div className="mt-3 space-y-2">
           {accounts.map((a) => {
             const ask = asking && asking.key === rowKey(a) ? asking : null;
-            const askName = ask ? (pairs.find((p) => p.key === ask.pair)?.name ?? ask.pair) : "";
+            const askName = ask ? pairName(ask.pair) : "";
+            const moving = going && going.key === rowKey(a) ? going : null;
+            const told = said && said.key === rowKey(a) ? saidOf(said, a) : null;
             return (
               <div key={rowKey(a)} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -369,36 +412,40 @@ function AutoTrade({ desk, reload }: { desk: Desk; reload: () => Promise<void> }
                     {pairs.map((p) => (
                       <label key={p.key} className="flex items-center gap-2 text-[11.5px] font-semibold text-white/70">
                         {p.name}
-                        <Switch label={`${p.name} auto-trade on account ${a.accNum ?? a.accountId}`} on={a[p.key]} disabled={busy != null || (!a.inScope && !a[p.key])}
-                          onChange={(v) => { if (v) { setNote(""); setAsking({ key: rowKey(a), accountId: a.accountId, connectionId: a.connectionId, pair: p.key }); } else void arm(a, p.key, false); }} />
+                        <Switch label={`${p.name} auto-trade on account ${a.accNum ?? a.accountId}`} on={moving && moving.pair === p.key ? moving.enabled : a[p.key]} waiting={!!ask && ask.pair === p.key}
+                          disabled={busy != null || (!a.inScope && !a[p.key])}
+                          onChange={(v) => { if (v) { setSaid(null); setAsking({ key: rowKey(a), accountId: a.accountId, connectionId: a.connectionId, pair: p.key }); } else void arm(a, p.key, false); }} />
                       </label>
                     ))}
                   </div>
                 </div>
                 {ask && (
-                  <div className="mt-2 rounded-lg border border-sky-400/30 bg-sky-400/[0.07] px-3 py-2.5">
+                  <div ref={question} className="mt-2 rounded-lg border border-sky-400/30 bg-sky-400/[0.07] px-3 py-2.5">
                     <p className="text-[12.5px] leading-relaxed text-sky-50/90">
                       Turn on <b>{askName}</b> for #{a.accNum ?? a.accountId} ({a.environment === "live" ? "live" : "demo"})? GEN FX will then place {askName} trades on this account by itself — {a.riskPct != null ? `${a.riskPct}%` : "your FLOW default"} of the account at risk on each, a stop and a target on every one. You can switch it off here at any time; a trade already open stays managed until it closes.
                     </p>
                     <div className="mt-2 flex gap-2">
-                      <button disabled={busy != null} onClick={() => void arm(ask, ask.pair, true)} className="rounded-lg bg-sky-400 px-3 py-1.5 text-[12px] font-bold text-[#04121c] disabled:opacity-50">Turn it on</button>
-                      <button disabled={busy != null} onClick={() => setAsking(null)} className="rounded-lg border border-white/15 px-3 py-1.5 text-[12px] font-semibold text-white/70 disabled:opacity-50">Not now</button>
+                      <button disabled={busy != null} onClick={() => void arm(ask, ask.pair, true)} className="rounded-lg bg-sky-400 px-4 py-2 text-[13px] font-bold text-[#04121c] disabled:opacity-50">Turn it on</button>
+                      <button disabled={busy != null} onClick={() => setAsking(null)} className="rounded-lg border border-white/15 px-4 py-2 text-[13px] font-semibold text-white/70 disabled:opacity-50">Not now</button>
                     </div>
                   </div>
                 )}
+                {moving && <p role="status" className="mt-2 text-[12px] font-semibold text-sky-200/90">Turning {pairName(moving.pair)} {moving.enabled ? "on" : "off"}…</p>}
+                {told && !moving && <p role="status" className={`mt-2 text-[12px] font-semibold leading-relaxed ${told.tone === "ok" ? "text-emerald-300" : "text-amber-300"}`}>{told.tone === "ok" ? "✓ " : ""}{told.text}</p>}
                 {!a.inScope && <p className="mt-1.5 text-[10.5px] text-white/35">Not open for this account yet{sw?.scope === "demo" ? " — GEN FX is on demo accounts first." : "."}</p>}
               </div>
             );
           })}
         </div>
       )}
-      {note && <p className="mt-2 text-[12px] text-amber-300">{note}</p>}
 
       <ul className="mt-3 space-y-1 text-[11.5px] leading-relaxed text-white/45">
         {pairs.length > 0 && <li>• A setup whose stop is tighter than {pairs.map((p) => `${p.minStopPips} pips on ${p.name}`).join(" or ")} is shown here but not auto-traded — on a stop that tight the spread is too much of the risk.</li>}
         <li>• If the smallest order your broker allows would risk more than {desk.limits?.maxMinLotRiskPct ?? 5}% of an account on a stop, that account sits the trade out.</li>
         <li>• With both pairs on, both can be open at once — and a buy and a sell on the same pair can be too — each at your risk %.</li>
         <li>• The risk %, the kill switch and the trade-management setting are the same ones your gold trades use on that account. Only the on/off switch is GEN FX&apos;s own.</li>
+        {/* What switching on costs, said where it is switched on. Only while the owner's GEN FX billing is on. */}
+        {sw?.billing && <li>• Credits: 1 when a setup you are switched on for starts forming, 5 when a trade is placed — once per call, however many of your accounts take it. Nothing on the FLOW Pass. With fewer than 5 credits the trade is skipped.</li>}
       </ul>
 
       {(desk.activity?.length ?? 0) > 0 && (
