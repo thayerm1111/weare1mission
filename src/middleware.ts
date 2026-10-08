@@ -92,11 +92,11 @@ export const config = {
     // Skip Next internals and static files; run on everything else.
     "/((?!_next/static|_next/image|favicon.ico|images/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
-  // RUN WHERE THE SITE RUNS (10-07). By default this runs at whichever edge location is nearest the
-  // visitor, and its sign-in check then reaches the sign-in service by that location's own network
-  // route. One of those routes (the one serving the Midwest) failed for several minutes while the
-  // site's own region was untouched — so members there could not get in although the site itself was
-  // healthy. Pinned to the site's region, the check takes the same route every page and API call
-  // already takes, and it is the short one: about 30 ms from here against 150–190 ms from the west coast.
-  regions: ["iad1"],
+  // WHERE THIS RUNS (10-07, corrected 10-08). This runs at whichever edge location is nearest the visitor,
+  // and its sign-in check reaches the sign-in service by that location's own network route; one of those
+  // routes (the Midwest's) failed for several minutes on 10-07 while the site itself was healthy. A
+  // `regions: ["iad1"]` setting was added here to pin it to the site's region — and the request logs
+  // after the deploy showed Vercel does not honour it for middleware: the checks still ran from the
+  // visitor's nearest location. So it is gone. What protects members from a bad route is the check
+  // itself (lib/supabase/middleware.ts, 2c8f066): "could not tell" is no longer read as "signed out".
 };

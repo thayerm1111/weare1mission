@@ -19,6 +19,7 @@ import { beat } from "@/lib/flow/health";
 import { liveTickExtremes, liveTick } from "@/lib/flow/liveTicks";
 import { profitGuardPlan } from "@/lib/flow/profitGuard";
 import { goldChangeOfCharacter } from "@/lib/genx/choch";
+import { mergeMgmt, followGivebackR, targetInForce, partialTriggerPrice, missingColumn, type Mgmt, type MgmtRow } from "./manageSettings";
 
 // Recent intra-minute EXTREMES from the market-data feed. The manager runs once a minute
 // off the instantaneous bid/ask, so a spike that reverses inside the minute (common on
@@ -84,16 +85,19 @@ async function feedExtremes(symbol: string, sinceMs?: number | null): Promise<{ 
  * THE RULES (simple, and anchored to the broker's OWN numbers so it can never act on a
  * phantom profit):
  *   0. Start with the entry, stop and take-profit exactly as placed — untouched.
- *   1. BREAK-EVEN: when price reaches the break-even point (the halfway mark to take-profit,
- *      or an earlier per-account gold-pips setting if one is configured), move the STOP to
- *      the ENTRY. The trade can no longer lose.
- *   2. PARTIAL: only on a 1:2 (or wider) target — bank a 25% partial at that same halfway
- *      point. On a ~1:1 there is no partial; the stop just moves to entry.
- *   3. TRAIL (runner only): once break-even is set (and, on a 1:2, the partial is banked),
- *      ratchet the remaining runner's stop up behind the best price it reaches — anchored to
+ *   1. BREAK-EVEN: when price reaches the break-even point (gold: the account's chosen pips;
+ *      currency pairs: the halfway mark to take-profit), move the STOP just into profit. The
+ *      trade can no longer lose.
+ *   2. PARTIAL (when the member picked 25% or 50%): bank that share halfway to the target the
+ *      trade will actually close at; the rest rides on.
+ *   3. FOLLOW PRICE (when the member picked Tight, Normal or Loose, and break-even is on): once
+ *      break-even is set, ratchet the stop up behind the best price it reaches — anchored to
  *      the REAL fill and the true favorable excursion — so a winner that reverses keeps most
  *      of its gain. Ratchet only (a long's stop never drops), never below break-even, and
  *      never through the current market.
+ * Each account's three choices are read from manageSettings.ts (owner 10-08); an account that
+ * had "AI Pips" on runs exactly as before — break-even at its own pips, follow price Normal,
+ * no partials — and one that had it off is left alone.
  *
  * HARD SAFETY: every stop-to-entry and every partial is gated on the broker itself showing
  * the position IN PROFIT (its unrealized P&L, or price beyond the real fill). We NEVER close
@@ -113,6 +117,10 @@ export type ManagedRow = {
   cur_stop: number | null; best_price: number | null; worst_price: number | null; be_done: boolean | null; partial_done: boolean | null; status: string;
   last_error?: string | null;
   created_at?: string | null;
+  /** Where the manager banked a partial, and what share of the position it was (10-08). Null on a
+   *  position from before, or when the reduction was the member's own — those grade as they always did. */
+  partial_px?: number | null;
+  partial_frac?: number | null;
 };
 
 export type ManageAction = { positionId: string; symbol: string; account: string; action: string; detail?: string };
@@ -160,17 +168,26 @@ const _connTokCache = new Map<string, { at: number; v: { token: string; env: TLE
 const CONN_TOKEN_TTL_MS = 5 * 60 * 1000;
 export function _invalidateConnToken(connId: string) { _connTokCache.delete(connId); }
 
+// A partial whose close was sent but whose smaller size the broker has not shown yet is asked about
+// again after this long, not on every pass (see STEP 2). Module scope, like the caches above.
+const PARTIAL_RECHECK_MS = 60_000;
+const partialRecheckAt = new Map<string, number>();
+
+// Each account's trade settings as last read, standing in when a read fails (see "A READ THAT FAILS"). Kept
+// for as long as reads keep failing — only a read that succeeds replaces them.
+const lastMgmt = new Map<string, { at: number; rows: MgmtRow[] }>();
+/** An account whose settings could not be read: nothing is done to its trade this pass. */
+const SETTINGS_UNREAD: Mgmt = { manage: false, breakEven: false, goldBePips: 30, follow: "off", followChoice: "off", partialPct: 0 };
+
 // CROSS-PASS COLUMN-CONFIG CACHE — the broker's positionsConfig column layout is static
 // per connection; refetching it every pass for 54 connections was pure waste.
 const _colsCacheMod = new Map<string, { at: number; v: { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number; tpIdx: number } }>();
 const COLS_TTL_MS = 6 * 60 * 60 * 1000;
 
-// A target counts as "1:2 or wider" (→ take the partial) at this reward:risk or above.
-// Below it the trade is treated as ~1:1 (→ break-even only, no partial).
-const DOUBLE_RR = 1.8;
-// Fraction of the position banked at the partial-profit milestone (de-risk, let the
-// runner run). Used for BOTH the close size AND the outcome-pips weighting so the two
-// always agree. 0.25 = take 25% off, 75% runs.
+// The share a partial banked before 10-08, when every partial was 25% at the halfway point of a
+// 1:2. Grading still uses it for a reduction the manager did not record itself (a position from
+// before, or a member closing part by hand); a partial the manager takes now records its own
+// share and price (partial_frac / partial_px) and is graded from those.
 const PARTIAL_FRACTION = 0.25;
 // Never move the break-even stop on a scratch smaller than this (pips) — avoids nudging the
 // stop for a spread-width blip on an ultra-tight stop.
@@ -181,17 +198,14 @@ const BE_MIN_PIPS = 8;
 // trade closes green.
 const BE_PROFIT_PIPS = 5;
 
-// GOLD default break-even trigger (pips) when an account has no per-account gold_be_pips
-// override set. Gold moves the stop to entry once it's this many pips in profit — so every
-// account protects a gold winner early, not only ones with the override configured.
-const DEFAULT_GOLD_BE_PIPS = 30; // owner 09-07: "move when the market goes 30-35 pips into profit" — low end so a spike to 32 still gets locked
+// GOLD break-even trigger: the account's own pips, 30 when it never picked (owner 09-07: "move
+// when the market goes 30-35 pips into profit"). Lives in manageSettings.ts with the choices.
 
-// PROTECTIVE TRAIL (after break-even). The runner's stop rides GIVEBACK_R behind the best
-// price (loose enough to breathe toward target); once the move gets CLOSE — within NEAR_TP_R
-// of take-profit, or NEAR_PARTIAL_R below the halfway/partial level — it tightens to
-// GIVEBACK_NEAR_R so a run that gets "super close" and reverses locks in most of the gain.
-const GIVEBACK_R = 0.6;
-const GIVEBACK_NEAR_R = 0.25;
+// FOLLOW PRICE (after break-even). The stop rides a share of R behind the best price, set by the
+// member's choice (manageSettings.ts: Normal is 0.6R, tightening to 0.25R; Tight and Loose are
+// closer and wider). "Near" — within NEAR_TP_R of take-profit, or NEAR_PARTIAL_R below the
+// halfway level — is decided here exactly as it always was, so a run that gets "super close"
+// and reverses locks in most of the gain.
 const NEAR_TP_R = 0.4;
 const NEAR_PARTIAL_R = 0.2;
 
@@ -327,7 +341,7 @@ export type CloseReason = "stop" | "target" | "manual" | "unknown";
  * the only negative outcome; a trade that reached break-even can at worst scratch.
  */
 export function classifyOutcome(
-  row: Pick<ManagedRow, "symbol" | "side" | "entry" | "init_stop" | "tp1" | "best_price" | "cur_stop" | "be_done" | "partial_done">,
+  row: Pick<ManagedRow, "symbol" | "side" | "entry" | "init_stop" | "tp1" | "best_price" | "cur_stop" | "be_done" | "partial_done"> & Partial<Pick<ManagedRow, "partial_px" | "partial_frac">>,
   exitPrice?: number | null,
   reason?: CloseReason,
 ): FlowOutcome {
@@ -335,12 +349,20 @@ export function classifyOutcome(
   const pip = getInstrument(sym).pipSize || 0.0001;
   const long = row.side === "buy";
   const rPips = Math.round(Math.abs(row.entry - row.init_stop) / pip);
-  const bankPips = Math.round(partialTriggerR(row.entry, row.init_stop, row.tp1) * rPips);
+  const signed = (px: number) => Math.round((long ? px - row.entry : row.entry - px) / pip);
   const banked = !!row.partial_done;
+  // A partial the manager took and recorded (10-08 on) is graded at its own price and share, in every
+  // branch below — with break-even off, a trade can bank half and then stop out, and the half it banked
+  // is part of its result. Any other reduction keeps the old reckoning exactly: 25% at the halfway mark
+  // of the plan, counted only where it always was.
+  const ownPx = row.partial_px != null ? Number(row.partial_px) : NaN, ownFrac = row.partial_frac != null ? Number(row.partial_frac) : NaN;
+  const own = banked && ownPx > 0 && ownFrac > 0 && ownFrac < 1;
+  const frac = own ? ownFrac : PARTIAL_FRACTION;
+  const bankPips = own ? signed(ownPx) : Math.round(partialTriggerR(row.entry, row.init_stop, row.tp1) * rPips);
+  const blend = (p: number) => (banked ? Math.round(frac * bankPips + (1 - frac) * p) : p);
   const tp1 = row.tp1;
   const best = row.best_price;
   const hitTarget = tp1 != null && best != null && (long ? best >= tp1 : best <= tp1);
-  const signed = (px: number) => Math.round((long ? px - row.entry : row.entry - px) / pip);
 
   // MANUAL user close (broker order history says the position was closed by a market
   // order the user placed). It is neither a win nor a loss for streak purposes — it is
@@ -348,7 +370,7 @@ export function classifyOutcome(
   // at the real close fill when known, else at entry (0 pips) rather than a guessed level.
   if (reason === "manual") {
     const px = exitPrice != null && exitPrice > 0 ? exitPrice : row.entry;
-    return { outcome: "manual", result_pips: signed(px), exit_price: px, partial_taken: banked };
+    return { outcome: "manual", result_pips: own ? blend(signed(px)) : signed(px), exit_price: px, partial_taken: banked };
   }
 
   // A TARGET is only booked when the EXIT itself says so (owner 09-07): the broker closed it
@@ -370,8 +392,7 @@ export function classifyOutcome(
   );
   const targetHit = exitKnown || reason === "target" ? exitConfirmsTarget : hitTarget;
   if (row.be_done && targetHit && tp1 != null) {
-    const pips = banked ? Math.round(PARTIAL_FRACTION * bankPips + (1 - PARTIAL_FRACTION) * signed(tp1)) : signed(tp1);
-    return { outcome: "target", result_pips: pips, exit_price: tp1, partial_taken: banked };
+    return { outcome: "target", result_pips: blend(signed(tp1)), exit_price: tp1, partial_taken: banked };
   }
 
   const exit = (exitPrice != null && exitPrice > 0)
@@ -380,9 +401,14 @@ export function classifyOutcome(
   const exitPips = signed(exit);
 
   if (row.be_done) {
-    const total = banked ? Math.round(PARTIAL_FRACTION * bankPips + (1 - PARTIAL_FRACTION) * exitPips) : exitPips;
+    const total = blend(exitPips);
     const isBE = Math.abs(exitPips) <= Math.max(1, 0.2 * rPips);
     return { outcome: isBE ? "breakeven" : (exitPips > 0 ? "trail" : "breakeven"), result_pips: total, exit_price: exit, partial_taken: banked };
+  }
+  if (own) {
+    // Never protected, but part of it was banked: a loss only if the whole trade lost.
+    const total = blend(exitPips);
+    return { outcome: total > 0 ? "trail" : "stop", result_pips: total, exit_price: exit, partial_taken: true };
   }
   if (exitPips > 0) return { outcome: "trail", result_pips: exitPips, exit_price: exit, partial_taken: false };
   return { outcome: "stop", result_pips: exitPips, exit_price: exit, partial_taken: false };
@@ -504,80 +530,14 @@ export async function repairPhantomTargets(admin: Admin): Promise<number> {
   }
 }
 
-// ── GOLD "CHOP / LEFT-MONEY-ON-THE-TABLE" REGIME ──────────────────────────────
-// The reality the owner flagged: in chop, a gold trade often runs 15-30 pips into
-// profit and then reverses. With the 35-pip break-even trigger, that green move never
-// locks anything in — the stop never moves, price returns, and the trade takes the FULL
-// stop. So a directionally-correct entry books as a real loss even though there was
-// profit to take. When we SEE that pattern repeating on a side (recent trades that went
-// green but ended flat/lost, and NO clean target win among them), we shift that side into
-// "bank-early" mode: take the normal partial EARLY — at roughly the distance those trades
-// were actually reaching — so some profit is banked instead of round-tripping. PARTIAL ONLY
-// (owner 09-07): chop mode never touches the break-even trigger — the stop moves at the full
-// gold-pips distance and nowhere earlier. Self-resets the moment a full target hits (that
-// clears the regime — the full TP is reachable again).
-const GOLD_CHOP_LOOKBACK_MS = 8 * 60 * 60 * 1000; // recent trades window
-const GOLD_CHOP_WINDOW = 4;          // among the last N distinct trades on the side
-const GOLD_CHOP_MIN_HITS = 2;        // ≥ this many "went green then didn't hold it"
-const GOLD_CHOP_MIN_GREEN_PIPS = 15; // "there was profit to take" bar (best excursion)
-const GOLD_EARLY_PARTIAL_MIN = 12;   // clamp for the early bank point (pips)
-const GOLD_EARLY_PARTIAL_MAX = 22;
+// The gold symbols the ledger repair above sweeps.
+//
+// (Until 10-08 this block also held a "chop" regime that pulled the gold PARTIAL in early — 12-22
+// pips — when recent trades on a side had gone green and given it back. Partials were off for every
+// account from 09-22, so it had stopped doing anything, and now that a member picks a partial it
+// banks where they picked it — halfway to the target — not wherever the regime decided. Break-even
+// never used it.)
 const GOLD_CHOP_SYMS = ["XAUUSD", "GOLD"];
-
-export type ChopSide = { active: boolean; earlyPips: number };
-/** Pure regime test on a side's recent DISTINCT trades. Exported for unit testing. */
-export function computeChopSide(reps: { fav: number; outcome: string }[]): ChopSide {
-  if (reps.length < GOLD_CHOP_MIN_HITS) return { active: false, earlyPips: 0 };
-  const window = reps.slice(0, GOLD_CHOP_WINDOW);
-  const cleanWin = window.some((x) => x.outcome === "target"); // full TP reachable → don't shrink
-  const leftMoney = window.filter((x) => (x.outcome === "stop" || x.outcome === "breakeven") && x.fav >= GOLD_CHOP_MIN_GREEN_PIPS);
-  if (cleanWin || leftMoney.length < GOLD_CHOP_MIN_HITS) return { active: false, earlyPips: 0 };
-  const avgFav = leftMoney.reduce((s, x) => s + x.fav, 0) / leftMoney.length;
-  // Bank at ~60% of how far they were actually reaching, clamped — comfortably BEFORE the
-  // typical reversal point, and always below the 35-pip BE trigger so it fires first.
-  const earlyPips = Math.min(GOLD_EARLY_PARTIAL_MAX, Math.max(GOLD_EARLY_PARTIAL_MIN, Math.round(avgFav * 0.6)));
-  return { active: true, earlyPips };
-}
-
-/** Per-side gold chop regime from the ledger. Fan-out legs are collapsed by resolve-minute
- *  + entry so one signal counts once. Fails to an empty (all-off) map on any read error. */
-async function goldChopRegime(admin: Admin): Promise<Map<"buy" | "sell", ChopSide>> {
-  const out = new Map<"buy" | "sell", ChopSide>();
-  try {
-    const pip = getInstrument("XAUUSD").pipSize || 0.1;
-    const sinceIso = new Date(Date.now() - GOLD_CHOP_LOOKBACK_MS).toISOString();
-    const { data } = await admin
-      .from("flow_managed_positions")
-      .select("side, entry, best_price, outcome, resolved_at")
-      .in("symbol", GOLD_CHOP_SYMS)
-      .eq("status", "closed")
-      .not("outcome", "is", null)
-      .gte("resolved_at", sinceIso)
-      .order("resolved_at", { ascending: false })
-      .limit(80);
-    const rows = (data ?? []) as { side: string; entry: number | null; best_price: number | null; outcome: string; resolved_at: string | null }[];
-    for (const side of ["buy", "sell"] as const) {
-      const seen = new Set<string>();
-      const reps: { fav: number; outcome: string }[] = [];
-      for (const r of rows) {
-        if (r.side !== side) continue;
-        const minute = r.resolved_at ? new Date(r.resolved_at).toISOString().slice(0, 16) : "";
-        const key = `${minute}|${r.entry != null ? Math.round(r.entry) : ""}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const long = side === "buy";
-        const fav = (r.entry != null && r.best_price != null)
-          ? Math.max(0, Math.round((long ? r.best_price - r.entry : r.entry - r.best_price) / pip))
-          : 0;
-        if (fav > 500) continue; // bad-tick-polluted best_price (e.g. the 1038.67 rows) — not market data
-        reps.push({ fav, outcome: r.outcome });
-        if (reps.length >= GOLD_CHOP_WINDOW) break;
-      }
-      out.set(side, computeChopSide(reps));
-    }
-  } catch { /* read error → empty map = regime off everywhere */ }
-  return out;
-}
 
 /**
  * Manage every OPEN position FLOW is tracking, per THE RULES in the file header.
@@ -589,7 +549,7 @@ async function goldChopRegime(admin: Admin): Promise<Map<"buy" | "sell", ChopSid
 const ORPHAN_SCAN_EVERY_MS = 20_000;
 let lastOrphanScanMs = 0;
 
-export async function manageOpenPositions(): Promise<{ managed: number; actions: ManageAction[]; note?: string }> {
+export async function manageOpenPositions(): Promise<{ managed: number; actions: ManageAction[]; note?: string; settingsUnread?: number }> {
   const admin = createAdminClient();
   if (!admin) return { managed: 0, actions: [], note: "no_admin_client" };
 
@@ -634,61 +594,58 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   // genuine outage still alarms, a long pass never does.
   try { await admin.from("flow_managed_positions").update({ updated_at: new Date().toISOString() }).in("id", rows.map((r) => r.id)); } catch { /* liveness stamp best-effort */ }
 
-  // Per-account MANAGEMENT switch + optional GOLD break-even-pips override (moves BE earlier
-  // than the halfway-to-target point, gold only). Loaded once for every account this tick.
-  const manageOff = new Set<string>();
-  const beOffAccts = new Set<string>();      // accounts with the Break-even toggle OFF
-  const partialOffAccts = new Set<string>(); // accounts with the Partials toggle OFF
-  const guardAccts = new Set<string>();      // accounts that OPTED IN to Profit Guard (default off)
-  const goldBePips = new Map<string, number>();
+  // EACH ACCOUNT'S THREE CHOICES — break-even, follow price, partials (manageSettings.ts, owner 10-08) —
+  // loaded once for every account this pass. They replaced the one "AI Pips" switch (09-22), and an
+  // account that had it on reads as break-even at its own pips + follow price Normal + no partials,
+  // which is exactly what AI Pips ran; off reads as all three off. Rows for one broker account combine
+  // the way they always did: off on any row wins (mergeMgmt).
+  //
+  // A READ THAT FAILS IS NOT "AI PIPS ON" (review, 10-08). Only a database that lacks the new columns is
+  // read with fewer of them. A timeout or a server error is something else: the account's settings as
+  // last read stand in (for as long as the reads keep failing), and an account never read since this
+  // process started is left alone until one succeeds — counted in the manager's health beat. A member
+  // who switched break-even off must never have a stop moved by a blip.
+  const acctIds = [...new Set(rows.map((r) => String(r.account_id)))];
+  const mgmtRows = new Map<string, MgmtRow[]>();
+  let mgmtRead = false;
   try {
-    const acctIds = [...new Set(rows.map((r) => String(r.account_id)))];
     if (acctIds.length) {
-      type AcctCfg = { account_id: string; manage_trades?: boolean | null; gold_be_pips?: number | null; send_it?: boolean | null; be_enabled?: boolean | null; partials_enabled?: boolean | null; profit_guard?: boolean | null };
-      let cfg: AcctCfg[] = [];
-      const withGold = await admin.from("flow_broker_accounts").select("account_id, manage_trades, gold_be_pips, send_it, be_enabled, partials_enabled, profit_guard").in("account_id", acctIds);
-      if (!withGold.error) cfg = (withGold.data ?? []) as unknown as AcctCfg[];
-      else {
-        const fb = await admin.from("flow_broker_accounts").select("account_id, manage_trades").in("account_id", acctIds);
-        cfg = (fb.data ?? []) as unknown as AcctCfg[];
-      }
-      /*
-       * ONE SWITCH — "AI PIPS" (owner 09-22: "I just want the toggle for Gen X and for the break-even
-       * profit guard AI Pips").
-       *
-       * There used to be four per-account switches here — manage_trades, be_enabled, partials_enabled
-       * and profit_guard — and a member had to understand all four to get the behaviour they expected.
-       * Now manage_trades is the single switch, and it means exactly this:
-       *
-       *   ON  — break-even when the trade earns it, profit guard on a reversal, and the trail. Every
-       *         account gets the guard now; it is no longer a separate opt-in.
-       *   OFF — nothing is touched: the trade rides the stop and target it was placed with.
-       *
-       * Partials are off for everyone, by the same instruction. The old columns are left in place and
-       * simply not read, so nothing is lost if a future owner wants them back.
-       */
-      for (const a of cfg) {
-        const aiPips = a.manage_trades !== false;   // null/undefined = ON (back-compat)
-        const id = String(a.account_id);
-        if (!aiPips) { manageOff.add(id); beOffAccts.add(id); }
-        else guardAccts.add(id);
-        partialOffAccts.add(id);
-        if (typeof a.gold_be_pips === "number" && a.gold_be_pips > 0) goldBePips.set(id, a.gold_be_pips);
+      for (const cols of [
+        "account_id, manage_trades, gold_be_pips, be_enabled, trail_mode, partial_pct",
+        "account_id, manage_trades, gold_be_pips",
+        "account_id, manage_trades",
+      ]) {
+        const got = await admin.from("flow_broker_accounts").select(cols).in("account_id", acctIds);
+        if (got.error) { if (missingColumn(got.error)) continue; break; }
+        for (const a of (got.data ?? []) as unknown as Array<MgmtRow & { account_id: string }>) {
+          const id = String(a.account_id);
+          if (!mgmtRows.has(id)) mgmtRows.set(id, []);
+          mgmtRows.get(id)!.push(a);
+        }
+        mgmtRead = true;
+        break;
       }
     }
-  } catch { /* column missing / read blip → treat all as managed */ }
+  } catch { /* unread — see mgmtOf */ }
+  if (mgmtRead) {
+    if (lastMgmt.size > 20_000) lastMgmt.clear();
+    for (const id of acctIds) lastMgmt.set(id, { at: Date.now(), rows: mgmtRows.get(id) ?? [] });
+  }
+  const mgmtCache = new Map<string, Mgmt | null>();
+  /** This account's settings, or null when they could not be read and none were read recently. */
+  const mgmtOf = (accountId: string): Mgmt | null => {
+    if (mgmtCache.has(accountId)) return mgmtCache.get(accountId)!;
+    let m: Mgmt | null = null;
+    if (mgmtRead) m = mergeMgmt(mgmtRows.get(accountId) ?? []);
+    else { const last = lastMgmt.get(accountId); if (last) m = mergeMgmt(last.rows); }
+    mgmtCache.set(accountId, m);
+    return m;
+  };
 
-  // GOLD CHOP REGIME per side, computed ONCE for this tick (not per-position). When a side is
-  // in "bank-early" mode, gold trades on that side take their partial early and move to
-  // break-even early — so a 15-30 pip green run that keeps reversing books SOME profit instead
-  // of giving the whole move back to the stop. Empty map when nothing qualifies.
-  let goldChop = new Map<"buy" | "sell", ChopSide>();
-  try { goldChop = await goldChopRegime(admin); } catch { /* regime off on read error */ }
-
-  // PROFIT GUARD: gold's structure flip, read ONCE per pass (and only when an account opted in, so the
-  // feed call costs nothing for a book that isn't using it).
+  // PROFIT GUARD — the reversal snap that is part of follow price. Gold's structure flip, read ONCE per
+  // pass, and only when an account in it has follow price on, so the feed call costs nothing otherwise.
   let guardChoch: "bullish" | "bearish" | null = null;
-  if (guardAccts.size) { try { guardChoch = await goldChangeOfCharacter(); } catch { /* no flip on read error */ } }
+  if (rows.some((r) => (mgmtOf(String(r.account_id))?.follow ?? "off") !== "off")) { try { guardChoch = await goldChangeOfCharacter(); } catch { /* no flip on read error */ } }
 
   const tokenCache = new Map<string, { token: string; env: TLEnv } | null>();
   const colCache = new Map<string, { avgIdx: number; uplIdx: number; slIdx: number; qtyIdx: number; tpIdx: number }>();
@@ -883,6 +840,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
   // The connection lanes below fetch their own state. Avoid a book-wide
   // prefetch barrier that makes ready accounts wait for the slowest broker.
   let managed = 0;
+  let settingsUnread = 0;   // positions left alone this pass because their account's settings could not be read
   let lastBeatMs = Date.now();
   const processRow = async (row: ManagedRow): Promise<void> => {
     if (Date.now() - lastBeatMs > 15_000) {
@@ -995,7 +953,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       const recon = reconcilePartialQty(row.qty, !!row.partial_done, brokerQty);
       if (recon.reconciled !== "none") {
         update.qty = recon.qty; row.qty = recon.qty;
-        if (recon.partialDone && !row.partial_done) { update.partial_done = true; row.partial_done = true; }
+        if (recon.partialDone && !row.partial_done) { update.partial_done = true; row.partial_done = true; partialRecheckAt.delete(`${tok.env}|${row.account_id}|${row.position_id}`); }
         if (recon.reconciled === "partial_detected") { actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_reconciled", detail: `broker qty ${recon.qty}` }); await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "partial_reconciled", reason: "broker_qty_reduced", qty: recon.qty }); }
       }
 
@@ -1039,30 +997,27 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       const worstPrev = row.worst_price ?? entry;
       update.worst_price = long ? Math.min(worstPrev, advRaw) : Math.max(worstPrev, advRaw);
 
-      const manageOn = !manageOff.has(String(row.account_id));
-      const beOn = manageOn && !beOffAccts.has(String(row.account_id));
-      const partialOn = manageOn && !partialOffAccts.has(String(row.account_id));
+      // This account's choices (manageSettings.ts). `follow` is already "off" when break-even is off.
+      const m = mgmtOf(String(row.account_id)) ?? SETTINGS_UNREAD;
+      if (m === SETTINGS_UNREAD) { update.last_error = "settings_unread"; settingsUnread += 1; }
+      const manageOn = m.manage;
+      const beOn = m.breakEven;
+      const follow = m.follow;
+      const partialFrac = m.partialPct / 100;
+      const partialOn = partialFrac > 0;
 
       // ── THE LEVELS ──────────────────────────────────────────────────────────────────────
       const tp = row.tp1 != null && row.tp1 > 0 ? row.tp1 : null;
       const towardTp = tp != null && (long ? tp > entry : tp < entry);
-      const rr = towardTp ? Math.abs(tp! - entry) / R : 1;
-      const isDouble = rr >= DOUBLE_RR;                       // 1:2 or wider → take a partial
-      const halfway = towardTp ? (entry + tp!) / 2 : null;    // the "break-even point"
+      const halfway = towardTp ? (entry + tp!) / 2 : null;    // halfway to the plan's own target
 
       // GOLD BREAK-EVEN RULE (owner 09-07, after the 03:07-03:18 batch): the trigger is the
-      // gold-pips distance FROM THE REAL FILL — the account's override if set, else the 35-pip
-      // default — and NOTHING ELSE. No halfway-to-TP shortcut, no +1R shortcut, and chop mode
-      // does NOT pull it in ("it NEVER went 30+ pips in profit so why are you closing it").
-      // That batch fired BE at 14-22 pips because chop had shrunk the trigger; every one of
-      // those locks then filled slightly negative in the thin market. Chop mode still banks
-      // its early PARTIAL (that takes profit — it never moves the stop).
-      const chop = contractKey(row.symbol) === "XAUUSD" ? goldChop.get(row.side as "buy" | "sell") : undefined;
-      const chopOn = !!(chop && chop.active && chop.earlyPips > 0);
-
-      const goldPips = contractKey(row.symbol) === "XAUUSD"
-        ? (goldBePips.get(String(row.account_id)) ?? DEFAULT_GOLD_BE_PIPS)
-        : undefined;
+      // gold-pips distance FROM THE REAL FILL — the pips the account picked (20/30/40/50, or an
+      // older number of its own), 30 if it never picked — and NOTHING ELSE. No halfway-to-TP
+      // shortcut, no +1R shortcut, nothing that pulls it in ("it NEVER went 30+ pips in profit so
+      // why are you closing it"). That batch fired BE at 14-22 pips because a regime had shrunk the
+      // trigger; every one of those locks then filled slightly negative in the thin market.
+      const goldPips = contractKey(row.symbol) === "XAUUSD" ? m.goldBePips : undefined;
       const beByPips = typeof goldPips === "number" && goldPips > 0
         ? (long ? entry + goldPips * pip : entry - goldPips * pip)
         : null;
@@ -1074,14 +1029,14 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         : [halfway, long ? entry + R : entry - R].filter((x): x is number => x != null);
       let beTriggerPx = long ? Math.min(...beCandidates) : Math.max(...beCandidates);
       beTriggerPx = long ? Math.max(beTriggerPx, beFloor) : Math.min(beTriggerPx, beFloor);
-      // Early bank point in chop mode (pips from entry). Normal partial is the halfway point.
-      const earlyPartialPx = chopOn ? (long ? entry + chop!.earlyPips * pip : entry - chop!.earlyPips * pip) : null;
-      // Effective partial trigger = the CLOSER of {halfway, early} when chop is on; else halfway.
-      const partialTriggerPx = earlyPartialPx != null
-        ? (halfway != null ? (long ? Math.min(halfway, earlyPartialPx) : Math.max(halfway, earlyPartialPx)) : earlyPartialPx)
-        : halfway;
-      // Chop mode qualifies a partial even on a ~1:1 setup (which normally banks nothing).
-      const partialAllowed = isDouble || chopOn;
+
+      // THE PARTIAL POINT (owner 10-08: "bank 25% or 50% halfway to target"): halfway to the target
+      // the trade will actually close at — the broker's own take-profit when the account shows it,
+      // else the near target FLOW parks for gold (nearTarget.ts), else the plan's target. Halfway to
+      // GENX's far 1.9R plan would sit past the gold take-profit, and the partial would never come.
+      const nearPx = nearTargetApplies(row.symbol) ? nearTargetPrice(row.side as "buy" | "sell", entry, row.init_stop, pip, tp) : null;
+      const targetPx = targetInForce(row.side, entry, [st.tp.get(String(row.position_id)) ?? null, nearPx, tp]);
+      const partialTriggerPx = partialTriggerPrice(entry, targetPx);
 
       // BREAK-EVEN TRIGGERS ON THE LIVE MARKET, NOT ON HISTORY (owner 09-07): "I want it to
       // move when the market goes 30-35 pips into profit and move immediately." The manage
@@ -1101,7 +1056,11 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // bug: a spike that fully reversed fails beSafe and locks nothing, so a working trade
       // can never be scratched out by a dead wick.
       const wickReachedBE = long ? best >= beTriggerPx : best <= beTriggerPx;
-      const favReachedPartial = partialTriggerPx != null && (long ? best >= partialTriggerPx : best <= partialTriggerPx);
+      // A PARTIAL banks on the LIVE price only (10-08). It closes part of the trade at the market, so a
+      // wick that touched the halfway mark and came back would bank that share wherever price has fallen
+      // to — "halfway to target" would quietly become "a few pips up". Until 09-22 this read the wick,
+      // when the manager ran once a minute and could miss the touch; it now samples several times a second.
+      const partialReached = partialTriggerPx != null && (long ? price >= partialTriggerPx : price <= partialTriggerPx);
 
       // HARD PROFIT GUARD — broker's own truth. Prefer the position's unrealized P&L; else fall
       // back to price beyond the real fill. We NEVER move to break-even or bank a partial unless
@@ -1263,22 +1222,26 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         else { update.last_error = `be_err: ${mvErr}`.slice(0, 120); actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "be_err", detail: mvErr.slice(0, 60) }); }
       }
 
-      // ── STEP 2: PARTIAL — bank PARTIAL_FRACTION (25%) and let the runner run. Normally 1:2+
-      //    only, at the halfway-to-target point. In GOLD chop mode it ALSO fires on ~1:1 setups,
-      //    early (~earlyPips), so a repeatedly-reversing green run banks some profit instead of
-      //    round-tripping to the stop. Gated on the same in-profit guard → only ever banks a WIN.
-      const chopPartial = chopOn && !isDouble;
-      const part = normalizeQuantity(contractKey(row.symbol), row.qty * PARTIAL_FRACTION, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity });
-      const canSplit = part.ok && part.qty > 0 && part.qty < row.qty;
-      if (partialOn && partialAllowed && !row.partial_done && favReachedPartial && inProfit && priceInProfit && canSplit && part.ok) {
+      // ── STEP 2: PARTIAL — when the member picked one (25% or 50%), bank that share halfway to the
+      //    target in force and let the rest ride. Gated on the same in-profit guard → only ever banks a
+      //    WIN. One close per position, ever (partialOperation.ts). If the broker has not shown the
+      //    smaller size yet, the quantity check at the top of every pass picks it up when it does, and
+      //    the broker is asked again at most once a minute — not on every pass, each of which would
+      //    otherwise spend a positions read and half a second on a close that was already sent.
+      const part = partialOn ? normalizeQuantity(contractKey(row.symbol), row.qty * partialFrac, { quantityStep: inst.quantityStep, minQuantity: inst.minQuantity }) : null;
+      const canSplit = !!part && part.ok && part.qty > 0 && part.qty < row.qty;
+      const partialKey = `${tok.env}|${row.account_id}|${row.position_id}`;
+      if (partialOn && part && canSplit && !row.partial_done && partialReached && inProfit && priceInProfit && Date.now() >= (partialRecheckAt.get(partialKey) ?? 0)) {
         if (brokerQty == null) {
           update.last_error = "partial_waiting_for_broker_quantity";
         } else {
           const identity = { environment: tok.env, account_id: String(row.account_id), position_id: String(row.position_id) };
+          let sentNow = false;
+          const before = row.qty;
           const result = await partialOnce({
             async reserve(intent) {
               const inserted = await admin.from("flow_partial_operations").insert({ ...identity, ...intent });
-              if (!inserted.error) return { created: true, intent };
+              if (!inserted.error) { sentNow = true; return { created: true, intent }; }
               if (inserted.error.code !== "23505") throw new Error("partial_reservation_unavailable");
               const existing = await admin.from("flow_partial_operations").select("before_qty,requested_qty")
                 .match(identity).single();
@@ -1286,25 +1249,35 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
               return { created: false, intent: { before_qty: Number(existing.data.before_qty), requested_qty: Number(existing.data.requested_qty) } };
             },
           }, { before_qty: brokerQty, requested_qty: part.qty },
-          () => closePosition(tok.env, tok.token, row.acc_num, row.position_id, part.qty),
+          // A close the broker may or may not have carried out (a timeout, a 5xx) is an unknown outcome, not a refusal.
+          async () => { const c = await closePosition(tok.env, tok.token, row.acc_num, row.position_id, part.qty); if (!c.ok && c.uncertain) throw new Error("partial_outcome_unknown"); return c; },
           () => readBrokerQty(tok, row.acc_num, row.account_id, row.position_id, cols.qtyIdx));
+          // Where, and how much: recorded the moment the close goes out, so the trade is graded on what
+          // it banked even when the broker shows the smaller size a pass later.
+          // (Not when the broker said no: that close never happened, and a later hand-close must not be graded on it.)
+          const refused = result.state === "pending" && !!result.error && result.error !== "partial_outcome_unknown";
+          if (sentNow && !refused) { update.partial_px = price; update.partial_frac = +(part.qty / brokerQty).toFixed(4); }
           if (result.state === "confirmed") {
-            const closedAmt = +(row.qty - result.remaining).toFixed(6);
+            partialRecheckAt.delete(partialKey);
+            const closedAmt = +(before - result.remaining).toFixed(6);
+            if (before > 0 && closedAmt > 0) update.partial_frac = +(closedAmt / before).toFixed(4);
             update.partial_done = true; row.partial_done = true;
             update.qty = result.remaining; row.qty = result.remaining; didAction = true;
-            actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `broker remaining ${result.remaining} ✓` });
-            await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "partial", reason: "broker_confirmed", qty: closedAmt, detail: { remaining: result.remaining, chop: chopPartial } });
+            actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial", detail: `${m.partialPct}% · broker remaining ${result.remaining} ✓` });
+            await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "partial", reason: "broker_confirmed", qty: closedAmt, price, detail: { remaining: result.remaining, pct: m.partialPct, trigger: partialTriggerPx, target: targetPx } });
           } else {
+            if (partialRecheckAt.size > 5000) partialRecheckAt.clear();
+            partialRecheckAt.set(partialKey, Date.now() + PARTIAL_RECHECK_MS);
             update.last_error = result.error ?? "partial_pending_reconciliation";
             actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "partial_pending", detail: "reserved; waiting for broker reconciliation" });
           }
         }
       }
 
-      // ── STEP 2.5: PROFIT GUARD (opt-in) — the market just flipped against a trade that is already
-      //    a real winner: snap the stop to just behind the market so most of the move is banked if the
-      //    reversal is real, and the runner still runs if it isn't. Only ever tightens. ──
-      if (manageOn && guardAccts.has(String(row.account_id)) && contractKey(row.symbol) === "XAUUSD") {
+      // ── STEP 2.5: PROFIT GUARD (part of follow price; gold) — the market just flipped against a trade
+      //    that is already a real winner: snap the stop to just behind the market so most of the move is
+      //    banked if the reversal is real, and the runner still runs if it isn't. Only ever tightens. ──
+      if (manageOn && follow !== "off" && contractKey(row.symbol) === "XAUUSD") {
         const plan = profitGuardPlan({
           side: row.side, entry, price, R, pip, curStop: row.cur_stop ?? null, bePx, best,
           choch: guardChoch, spread: spreadCache.get(`${tok.env}|${row.account_id}|${row.symbol}`) ?? null,
@@ -1324,16 +1297,18 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         }
       }
 
-      // ── STEP 3: TRAIL — runner only. After break-even (and, on a 1:2, after the partial),
-      //    ratchet the stop up behind the best price the trade has reached. Anchored to the
-      //    real fill + the favorable excursion; tightens near the target; never below break-
-      //    even and never through the current market. ──
-      if (beOn && row.be_done && (!isDouble || row.partial_done || !partialOn || !canSplit)) {
+      // ── STEP 3: FOLLOW PRICE — after break-even, ratchet the stop up behind the best price the
+      //    trade has reached, as close as the member chose (Tight / Normal / Loose). Anchored to the
+      //    real fill + the favorable excursion; tightens near the target; never below break-even and
+      //    never through the current market. It no longer waits for a partial: a partial that the
+      //    broker refused is never sent again, and the stop must not stay parked behind it. ──
+      if (follow !== "off" && row.be_done) {
         const peakR = (long ? best - entry : entry - best) / R;
         const toTargetR = tp != null ? (long ? tp - best : best - tp) / R : 99;
         const partialR = halfway != null ? (long ? halfway - entry : entry - halfway) / R : 1;
         const near = toTargetR <= NEAR_TP_R || peakR >= partialR - NEAR_PARTIAL_R;
-        const givebackR = near ? GIVEBACK_NEAR_R : GIVEBACK_R;
+        // Normal: 0.6R, 0.25R near — as it always was. "Off" has no distance, and an infinite one never moves a stop.
+        const givebackR = followGivebackR(follow, near) ?? Infinity;
         let candidate = roundPx(row.symbol, long ? best - givebackR * R : best + givebackR * R);
         // Never through the current market (broker rejects it, and `best` may be a spike the
         // price has pulled back from) — cap a small buffer inside the current price.
@@ -1369,7 +1344,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
 
       if (!didAction) {
         const profit = long ? price - entry : entry - price;
-        actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: manageOn ? "watching" : "unmanaged", detail: `${(profit / R).toFixed(2)}R` });
+        actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: manageOn ? "watching" : m === SETTINGS_UNREAD ? "settings_unread" : "unmanaged", detail: `${(profit / R).toFixed(2)}R` });
       }
 
       // ── WRITE THINNING (owner 09-10 "how do i cut usage on supabase" → approved): at
@@ -1421,7 +1396,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     }
   }));
 
-  return { managed, actions };
+  return { managed, actions, ...(settingsUnread ? { settingsUnread } : {}) };
 }
 
 // ── CONTINUOUS-MANAGER LOCK ──────────────────────────────────────────────────

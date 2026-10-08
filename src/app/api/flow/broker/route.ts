@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { syncMasterFromAccounts } from "@/lib/flow/armState";
 import { sanitisePermissions, resolveAll, PERMISSION_KEYS } from "@/lib/flow/permissions";
+import { parseMgmtPatch, applyMgmtPatch, mgmtView, mgmtViewMerged, missingColumn, BE_PIPS_CHOICES, type MgmtRow, type MgmtPatch } from "@/lib/flow/manageSettings";
 import { authenticate, listAccounts, type TLEnv } from "@/lib/flow/tradelocker";
 import { encryptSecret, encryptionReady } from "@/lib/flow/crypto";
 import { getConnection, getAllConnections, safeConnView } from "@/lib/flow/connection";
@@ -20,6 +21,43 @@ async function authUser() {
   return user ?? null;
 }
 
+/**
+ * One account's trade settings change (manageSettings.ts).
+ *
+ * It is written to EVERY row this member has for the broker account, not only the card that was tapped:
+ * the same login connected twice puts one account on two rows, and the trade manager runs the two rows
+ * combined (off on either wins — mergeMgmt). Changing one card would change nothing that runs.
+ *
+ * manage_trades is then the database's to work out (trigger flow_accounts_derive_manage, migration
+ * 20261008010000) from the row as it stands after the write — so two changes saved at the same moment
+ * from two devices cannot leave it saying "off" over a partial that is on.
+ *
+ * `extra` adds columns per row (the older screens' AI Pips switch keeps each row's own follow choice).
+ * Answers with the settings as they now stand — read back, combined the way the manager combines them.
+ */
+type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
+const MGMT_COLS = "id, manage_trades, gold_be_pips, be_enabled, trail_mode, partial_pct";
+async function saveMgmt(admin: Admin, userId: string, accountId: string, patch: MgmtPatch, extra: (row: MgmtRow) => Record<string, unknown> = () => ({})) {
+  const read = await admin.from("flow_broker_accounts").select(MGMT_COLS).eq("user_id", userId).eq("account_id", accountId);
+  if (read.error) return missingColumn(read.error)
+    ? { ok: false as const, error: "needs_setup", detail: "Trade settings aren't ready yet — try again in a minute." }
+    : { ok: false as const, error: "save_failed", detail: "Couldn't save that — try again." };
+  const rows = (read.data ?? []) as unknown as Array<MgmtRow & { id: string }>;
+  if (!rows.length) return { ok: false as const, error: "not_found", detail: "That account isn't connected any more — tap Re-check." };
+  const now = new Date().toISOString();
+  for (const row of rows) {
+    const { error } = await admin.from("flow_broker_accounts").update({ ...applyMgmtPatch(row, patch), ...extra(row), updated_at: now }).eq("id", row.id).eq("user_id", userId);
+    if (error) return { ok: false as const, error: "save_failed", detail: "Couldn't save that — try again." };
+  }
+  const after = await admin.from("flow_broker_accounts").select(MGMT_COLS).eq("user_id", userId).eq("account_id", accountId);
+  const final = (after.error ? rows.map((r) => ({ ...r, ...applyMgmtPatch(r, patch), ...extra(r) })) : (after.data ?? [])) as unknown as MgmtRow[];
+  return { ok: true as const, view: mgmtViewMerged(final) };
+}
+
+/** For AI Pips switched back on from an older screen: each row keeps the follow choice the member gave it,
+ *  unless it has none or it is off — then Normal, which is what AI Pips meant. */
+const keepOrNormal = (row: MgmtRow): Record<string, unknown> => (row.trail_mode == null || row.trail_mode === "off" ? { trail_mode: "normal" } : {});
+
 /** GET /api/flow/broker — ALL connections + ALL accounts (no secrets). Each
  *  account carries autotradeEnabled so the UI can show a per-account on/off. */
 export async function GET() {
@@ -30,31 +68,54 @@ export async function GET() {
   const admin = createAdminClient();
 
   const baseCols = "account_id, acc_num, name, currency, balance, equity, open_positions, is_selected, autotrade_enabled, genx_follower";
-  const accounts: Record<string, unknown>[] = [];
+  const settingCols = ", risk_pct, manage_trades, gold_be_pips, risk_mode, send_it, send_it_stack, send_it_guards, be_enabled, partials_enabled, profit_guard, permissions, kill_switch_at, style_quick, style_hold, style_swing";
+  const perConn: Array<{ c: (typeof conns)[number]; accts: Record<string, unknown>[]; unread: boolean }> = [];
   for (const c of conns) {
     let accts: Record<string, unknown>[] = [];
+    let unread = false;
     if (admin) {
-      // Include per-account risk_pct + manage_trades + gold_be_pips when those columns
-      // exist; fall back if they haven't been added yet so the accounts list never breaks.
-      const withCols = await admin.from("flow_broker_accounts").select(baseCols + ", risk_pct, manage_trades, gold_be_pips, risk_mode, send_it, send_it_stack, send_it_guards, be_enabled, partials_enabled, profit_guard, permissions, kill_switch_at, style_quick, style_hold, style_swing").eq("connection_id", c.id).order("created_at", { ascending: true });
-      if (!withCols.error) accts = (withCols.data ?? []) as unknown as Record<string, unknown>[];
-      else { const fb = await admin.from("flow_broker_accounts").select(baseCols).eq("connection_id", c.id).order("created_at", { ascending: true }); accts = (fb.data ?? []) as unknown as Record<string, unknown>[]; }
+      // The settings columns, newest first. A database that lacks a column (code ahead of its migration) is
+      // read with the columns it has. Any other failure is tried once more, and if it fails again the
+      // accounts are still listed but marked: their settings could not be read — never shown as defaults.
+      const sel = (cols: string) => admin.from("flow_broker_accounts").select(cols).eq("connection_id", c.id).order("created_at", { ascending: true });
+      const lists = [baseCols + settingCols + ", trail_mode, partial_pct", baseCols + settingCols, baseCols];
+      for (let i = 0; i < lists.length; i++) {
+        let got = await sel(lists[i]);
+        if (got.error && !missingColumn(got.error)) got = await sel(lists[i]);
+        if (!got.error) { accts = (got.data ?? []) as unknown as Record<string, unknown>[]; break; }
+        if (missingColumn(got.error) && i < lists.length - 1) continue;
+        if (i < lists.length - 1) { const b = await sel(baseCols); if (!b.error) accts = (b.data ?? []) as unknown as Record<string, unknown>[]; unread = true; }
+        break;
+      }
     }
+    perConn.push({ c, accts, unread });
+  }
+  // One broker account on several rows (the same login connected twice) runs as those rows combined
+  // (the trade manager's mergeMgmt), so every one of its cards shows that — what actually runs.
+  const byAcct = new Map<string, MgmtRow[]>();
+  for (const pc of perConn) if (!pc.unread) for (const a of pc.accts) {
+    const id = String(a.account_id);
+    if (!byAcct.has(id)) byAcct.set(id, []);
+    byAcct.get(id)!.push(a as MgmtRow);
+  }
+  const accounts: Record<string, unknown>[] = [];
+  for (const { c, accts, unread } of perConn) {
     for (const a of accts) {
+      const same = byAcct.get(String(a.account_id)) ?? [];
       accounts.push({
         accountId: a.account_id, accNum: a.acc_num, name: a.name, currency: a.currency,
         balance: a.balance, equity: a.equity, openPositions: a.open_positions,
         selected: a.is_selected, autotradeEnabled: a.autotrade_enabled !== false,
         genxFollower: a.genx_follower === true,
         riskPct: typeof a.risk_pct === "number" && (a.risk_pct as number) > 0 ? a.risk_pct : null,
-        manageTrades: a.manage_trades !== false, // default ON (breakeven + partials)
+        // How an open trade is looked after (manageSettings.ts, owner 10-08): break-even, follow price and
+        // partials, plus the older names (manageTrades, beEnabled, partialsEnabled, profitGuard, goldBePips)
+        // that screens from before still read.
+        ...(unread ? { settingsUnread: true } : same.length > 1 ? mgmtViewMerged(same) : mgmtView(a as MgmtRow)),
         riskMode: a.risk_mode === "aggressive" ? "aggressive" : "conservative", // per-account safety mode; default conservative
         sendIt: a.send_it === true, // 🚀 Send It v2: every setup — behavior configured per account below
         sendItStack: a.send_it_stack !== false,  // true = every entry (classic); false = one at a time
         sendItGuards: a.send_it_guards === true, // true = safeguards respected; false = bypassed (classic)
-        beEnabled: a.manage_trades !== false && a.be_enabled !== false,          // split toggle (default ON; legacy master off = off)
-        partialsEnabled: a.manage_trades !== false && a.partials_enabled !== false, // split toggle (default ON; legacy master off = off)
-        profitGuard: a.profit_guard === true, // Profit Guard: opt-in reversal protection (default OFF)
         // Horizons. A row written before these columns existed reads as the previous behaviour —
         // the two shorter ones on — rather than as nothing switched on.
         styleQuick: a.style_quick !== false,
@@ -62,7 +123,6 @@ export async function GET() {
         styleSwing: a.style_swing === true,
         permissions: resolveAll(a as never), // resolved granular permissions (defaults applied)
         killSwitchAt: a.kill_switch_at ?? null,
-        goldBePips: typeof a.gold_be_pips === "number" && (a.gold_be_pips as number) > 0 ? a.gold_be_pips : null, // gold-only BE/partial pips; null = AI
         connectionId: c.id, environment: c.environment, server: c.server,
       });
     }
@@ -147,16 +207,42 @@ export async function POST(req: NextRequest) {
     return json({ ok: true, accountId, riskPct: risk });
   }
 
+  if (action === "management") {
+    /*
+     * HOW THE AI LOOKS AFTER AN OPEN TRADE (owner 10-08) — one account's break-even, follow price and
+     * partials. Any of the three can be sent alone:
+     *   breakEven    "off" | 20 | 30 | 40 | 50   (gold pips; currency pairs break even halfway to target)
+     *   followPrice  "off" | "tight" | "normal" | "loose"
+     *   partials     0 | 25 | 50
+     * Anything else is refused with a line the screen shows. Applies to the account's FLOW, GENX and
+     * GEN FX trades alike, from the next price tick — including trades already open.
+     */
+    const accountId = String(body.accountId || "");
+    if (!accountId) return json({ error: "missing_account" }, 200);
+    const parsed = parseMgmtPatch(body);
+    if (!parsed.ok) return json({ error: "bad_value", detail: parsed.detail }, 200);
+    const saved = await saveMgmt(admin, user.id, accountId, parsed.patch);
+    if (!saved.ok) return json({ error: saved.error, detail: saved.detail }, 200);
+    return json({ ok: true, accountId, ...saved.view });
+  }
+
   if (action === "manage") {
-    // Turn breakeven + partials (the trade-manager) ON/OFF for a single account.
-    // Applies to that account's FLOW and GENX trades alike. Default ON.
+    // AI PIPS — the one switch the screens had from 09-22 to 10-08, still sent by a phone that has the
+    // older app open. On = break-even at the account's own pips + follow price (Normal unless the member
+    // has already picked one); off = everything off. A database without the 10-08 columns gets the one
+    // switch, as before.
     const accountId = String(body.accountId || "");
     if (!accountId) return json({ error: "missing_account" }, 200);
     const enabled = body.enabled !== false; // default ON
-    let q = admin.from("flow_broker_accounts").update({ manage_trades: enabled, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
-    if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
-    const { error } = await q;
-    if (error) return json({ error: "needs_setup", detail: "Trade management isn't set up yet — the manage_trades column is missing." }, 200);
+    const saved = await saveMgmt(admin, user.id, accountId, enabled ? { breakEven: "on" } : { breakEven: "off", partials: 0 },
+      enabled ? keepOrNormal : undefined);
+    if (!saved.ok && saved.error !== "needs_setup") return json({ error: saved.error, detail: saved.detail }, 200);
+    if (!saved.ok) {
+      let q = admin.from("flow_broker_accounts").update({ manage_trades: enabled, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
+      if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
+      const { error } = await q;
+      if (error) return json({ error: "needs_setup", detail: "Trade management isn't set up yet — the manage_trades column is missing." }, 200);
+    }
     return json({ ok: true, accountId, manageTrades: enabled });
   }
 
@@ -175,29 +261,24 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "betoggle") {
-    // Break-even toggle (split from the old combined "manage" switch, owner 09-03): moves the
-    // stop to entry +5 pips profit once price runs the trigger. Default ON.
+    // Break-even on/off from an older screen. On keeps the account's own pips. (The settings screen
+    // sends action "management".)
     const accountId = String(body.accountId || "");
     if (!accountId) return json({ error: "missing_account" }, 200);
     const enabled = body.enabled !== false; // default ON
-    let q = admin.from("flow_broker_accounts").update({ be_enabled: enabled, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
-    if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
-    const { error } = await q;
-    if (error) return json({ error: "needs_setup", detail: "Break-even toggle isn't set up yet — the be_enabled column is missing." }, 200);
-    return json({ ok: true, accountId, beEnabled: enabled });
+    const saved = await saveMgmt(admin, user.id, accountId, { breakEven: enabled ? "on" : "off" });
+    if (!saved.ok) return json({ error: saved.error, detail: saved.detail }, 200);
+    return json({ ok: true, accountId, beEnabled: saved.view.beEnabled });
   }
 
   if (action === "partialtoggle") {
-    // Partials toggle (split from the old combined "manage" switch, owner 09-03): banks 25%
-    // at the halfway point on 1:2+ setups. Default ON.
+    // Partials on/off from an older screen: on is a quarter, halfway to the target.
     const accountId = String(body.accountId || "");
     if (!accountId) return json({ error: "missing_account" }, 200);
     const enabled = body.enabled !== false; // default ON
-    let q = admin.from("flow_broker_accounts").update({ partials_enabled: enabled, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
-    if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
-    const { error } = await q;
-    if (error) return json({ error: "needs_setup", detail: "Partials toggle isn't set up yet — the partials_enabled column is missing." }, 200);
-    return json({ ok: true, accountId, partialsEnabled: enabled });
+    const saved = await saveMgmt(admin, user.id, accountId, { partials: enabled ? 25 : 0 });
+    if (!saved.ok) return json({ error: saved.error, detail: saved.detail }, 200);
+    return json({ ok: true, accountId, partialsEnabled: saved.view.partialsEnabled });
   }
 
   if (action === "permissions") {
@@ -297,14 +378,17 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "goldbe") {
-    // Set (or clear) the GOLD-only breakeven/partial pip trigger for one account.
-    // A number → gold trades break even + take the partial at that many pips. Empty/null
-    // → the AI chooses (its R-based trigger). GOLD ONLY; forex is never affected.
+    // The gold break-even distance on its own (older screens). Only the distances a member can pick on
+    // the settings screen are taken — 20, 30, 40 or 50 pips — or nothing, for the 30-pip default.
     const accountId = String(body.accountId || "");
     if (!accountId) return json({ error: "missing_account" }, 200);
-    let pips: number | null = null;
     const raw = body.goldBePips;
-    if (raw != null && raw !== "") { const n = Number(raw); if (Number.isFinite(n) && n > 0) pips = Math.min(100000, Math.round(n)); }
+    let pips: number | null = null;
+    if (raw != null && raw !== "") {
+      const n = Number(raw);
+      if (!BE_PIPS_CHOICES.includes(n)) return json({ error: "bad_value", detail: "Break-even is 20, 30, 40 or 50 pips." }, 200);
+      pips = n;
+    }
     let q = admin.from("flow_broker_accounts").update({ gold_be_pips: pips, updated_at: new Date().toISOString() }).eq("user_id", user.id).eq("account_id", accountId);
     if (body.connectionId) q = q.eq("connection_id", String(body.connectionId));
     const { error } = await q;
@@ -379,9 +463,11 @@ export async function POST(req: NextRequest) {
       });
     }
   }
-  // Remove only accounts that no longer exist at the broker — never the ones we still see.
+  // Remove only accounts that no longer exist at the broker — never the ones we still see. And only when the
+  // broker's list was actually read: a failed read lists nothing, and used to delete every account here —
+  // its switches and trade settings with it (review, 10-08).
   const staleIds = [...existingIds].filter((id) => !incomingIds.has(id));
-  if (staleIds.length) {
+  if (accountsRes.ok && staleIds.length) {
     await admin.from("flow_broker_accounts").delete().eq("connection_id", connRow.id).in("account_id", staleIds);
   }
 

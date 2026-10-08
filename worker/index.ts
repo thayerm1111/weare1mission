@@ -102,7 +102,7 @@ async function manageLoop(): Promise<never> {
       try {
         const r = await manageOpenPositions();
         ticks += 1;
-        await beat(admin, "manager", { worker: true, ticks, lastManaged: r?.managed ?? null, passMs: Date.now() - t0 }).catch(() => {});
+        await beat(admin, "manager", { worker: true, ticks, lastManaged: r?.managed ?? null, passMs: Date.now() - t0, ...(r?.settingsUnread ? { settingsUnread: r.settingsUnread } : {}) }).catch(() => {});
       } catch (e) {
         log("manage: tick error (loop continues)", e instanceof Error ? e.message.slice(0, 200) : e);
       } finally { clearInterval(keepAlive); }

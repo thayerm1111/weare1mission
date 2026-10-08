@@ -160,8 +160,10 @@ test("the desk breaker counts TRADES, at the pair's precision", () => {
   assert.equal(fxLossEvents(E, [row("buy", 1.08321, 50), row("buy", 1.08321, 49), row("buy", 1.08321, 48), row("buy", 1.08321, 47), row("buy", 1.08321, 46)]).length, 1);
   // Two different stops four pips apart are two trades. (Keyed to gold's two decimals they would both be "1.08".)
   assert.equal(fxLossEvents(E, [row("buy", 1.08321, 50), row("buy", 1.08361, 20)]).length, 2);
-  // A scratch (under half a pip) and a trade that banked a partial are not losses.
-  assert.equal(fxLossEvents(E, [row("buy", 1.0832, 50, -0.3), { ...row("sell", 1.0861, 40), partial_taken: true }]).length, 0);
+  // A scratch (under half a pip) is not a loss — nor a stop-out a banked partial pulled above that line.
+  assert.equal(fxLossEvents(E, [row("buy", 1.0832, 50, -0.3), { ...row("sell", 1.0861, 40, 6), partial_taken: true }]).length, 0);
+  // But one that banked a partial and still lost real money is (10-08: a partial can come without break-even).
+  assert.equal(fxLossEvents(E, [{ ...row("sell", 1.0861, 40, -14), partial_taken: true }]).length, 1);
   assert.equal(fxLossEvents(J, [row("buy", 201.31, 50, -1.0)]).length, 0);     // GBP/JPY: under 1.25 pips is a scratch
   assert.equal(fxLossEvents(J, [row("buy", 201.31, 50, -1.5)]).length, 1);
   // Three inside six hours pause the pair for four hours from the last one.

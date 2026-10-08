@@ -23,6 +23,8 @@ import { WinsWall } from "../WinsWall";
 import { DeskResults } from "../DeskResults";
 import { TIERS, TIER_XP } from "@/lib/gameData";
 import { fmtDateTime } from "@/lib/format";
+import { mgmtSummary } from "@/lib/flow/manageCopy";
+import type { FollowMode } from "@/lib/flow/manageSettings";
 import {
   ArrowRight, LineChart, Zap, Sparkles, Ghost, Activity, Gem, Users2,
   CalendarClock, Megaphone, GraduationCap, FolderOpen, Medal, Hammer,
@@ -102,6 +104,7 @@ type BrokerAcct = {
   name?: string | null; accNum?: string | number | null; environment?: string | null;
   riskPct?: number | null; riskMode?: string | null; autotradeEnabled?: boolean;
   beEnabled?: boolean; partialsEnabled?: boolean; manageTrades?: boolean;
+  breakEvenPips?: number; followPrice?: FollowMode; followActive?: boolean; partialPct?: number; settingsUnread?: boolean;
 };
 
 function FlowCard() {
@@ -117,7 +120,7 @@ function FlowCard() {
 
   const a = state.accts.find((x) => x.autotradeEnabled !== false) ?? state.accts[0];
   const last4 = a?.accNum != null ? String(a.accNum).slice(-4) : null;
-  const mgmt = a ? (a.manageTrades !== false && (a.beEnabled !== false || a.partialsEnabled !== false)) : false;
+  const mgmt = a ? (!a.settingsUnread && a.manageTrades !== false && (a.beEnabled !== false || a.partialsEnabled !== false)) : false;
   const activeN = state.accts.filter((x) => x.autotradeEnabled !== false).length;
 
   return (
@@ -150,7 +153,7 @@ function FlowCard() {
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-[#6B7D9B]">Trade management</dt>
-                <dd className={`font-semibold ${mgmt ? "text-emerald-300" : "text-[#DCE6F5]"}`}>{mgmt ? "Active" : "Off"}</dd>
+                <dd className={`text-right font-semibold ${mgmt ? "text-emerald-300" : "text-[#DCE6F5]"}`}>{a?.settingsUnread ? mgmtSummary(a) : mgmt && a ? mgmtSummary(a) : "Off"}</dd>
               </div>
               {state.accts.length > 1 && (
                 <div className="flex items-center justify-between gap-3">

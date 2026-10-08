@@ -1054,9 +1054,11 @@ async function goldRealLossOnSide(admin: Admin, side: "buy" | "sell"): Promise<{
     // clipped at 02:32 froze all sells for the whole desk while the GENX trades never came
     // near their stops). Origin is resolved from the placement event, same as the one-open cap.
     const manuals = await manualGoldPlacements(admin);
-    // Genuine AUTOMATED stop-outs that lost real money (no partial banked + meaningful negative).
+    // Genuine AUTOMATED stop-outs that lost real money: a meaningful negative RESULT. (Until 10-08 a row
+    // with a partial banked was skipped too — but a stop-out never carried one then. Since members can bank
+    // a partial with break-even off, a trade can bank part and still lose real money on the rest, and its
+    // result_pips — which counts the banked part — is what says whether it did.)
     const reals = rows.filter((r) =>
-      !r.partial_taken &&
       Number(r.result_pips) <= -GOLD_REAL_LOSS_MIN_PIPS &&
       !isManualGoldRow(manuals, String(r.account_id ?? ""), r.created_at),
     );
@@ -1386,7 +1388,7 @@ export async function goldDeskBreaker(admin: Admin): Promise<{ hold: boolean; re
    * a paper result could pause a desk that had lost nothing. On 09-23 that is exactly what happened:
    * four "stop-outs" were reported and three GENX trades blocked, when the broker record showed ONE
    * real losing trade in the window. A loss now has to be money that actually left a real account:
-   * a live (never demo) position, closed by its stop, with no partial banked to soften it.
+   * a live (never demo) position, closed by its stop, for a net loss (any partial banked on the way counted in).
    */
   let rows: StopRow[];
   try {
@@ -1396,7 +1398,9 @@ export async function goldDeskBreaker(admin: Admin): Promise<{ hold: boolean; re
       .gte("resolved_at", sinceIso).order("resolved_at", { ascending: false }).limit(500);
     if (error) throw error;
     rows = ((data ?? []) as (StopRow & { result_pips: number | null; partial_taken: boolean | null })[])
-      .filter((r) => !r.partial_taken && Number(r.result_pips) <= -GOLD_REAL_LOSS_MIN_PIPS);
+      // A real loss is a real net result (10-08: it now counts any partial banked on the way, so a partial
+      // that softened the stop-out below the line keeps it out, and one that did not, does not).
+      .filter((r) => Number(r.result_pips) <= -GOLD_REAL_LOSS_MIN_PIPS);
   } catch {
     // FAILS CLOSED, unchanged: not knowing whether the desk is on a losing streak is not permission
     // to trade. This is the one read that must succeed.

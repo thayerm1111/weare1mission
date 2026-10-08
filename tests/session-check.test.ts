@@ -96,7 +96,7 @@ test("the middleware itself: a member is sent to /login only when the sign-in se
   } finally { (globalThis as { fetch: unknown }).fetch = realFetch; }
 });
 
-test("every guarded page checks the sign-in itself, so 'could not tell' opens nothing; and the middleware runs where the site runs", () => {
+test("every guarded page checks the sign-in itself, so 'could not tell' opens nothing; and the middleware claims no region it does not run in", () => {
   // The two places the middleware guards — /portal/* and the Floor's own site — each redirect to /login without a user, on the server.
   const portal = code("src/app/portal/layout.tsx");
   assert.ok(portal.includes("const profile = configured ? await getProfile() : null;") && portal.includes('if (configured && !profile) redirect("/login");'));
@@ -106,7 +106,9 @@ test("every guarded page checks the sign-in itself, so 'could not tell' opens no
   assert.ok(lib.includes('const guarded = path.startsWith("/portal") || opts?.protect === true;'));
   assert.ok(lib.includes('if (guarded && check === "signed-out") return toLogin();'));
   assert.ok(!/if \(guarded && !user\)/.test(lib), "the old rule — empty means signed out — is gone");
-  // Pinned to the site's own region: its sign-in check takes the route every page and API call already takes.
-  const mw = code("src/middleware.ts");
-  assert.match(mw, /export const config = \{[\s\S]*matcher: \[[\s\S]*\],\s*regions: \["iad1"\],\s*\};/);
+  // A `regions` pin was tried on 10-07 and Vercel ran the middleware at the visitor's nearest location
+  // regardless (request logs after the deploy). The setting is gone rather than left to claim otherwise.
+  const mw = code("src/middleware.ts").replace(/\/\/.*$/gm, "");
+  assert.match(mw, /export const config = \{\s*matcher: \[[\s\S]*?\],\s*\};/);
+  assert.ok(!/regions\s*:/.test(mw));
 });

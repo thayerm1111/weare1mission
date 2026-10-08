@@ -144,7 +144,8 @@ export function fxLossEvents(pair: FxPair, rows: StopRow[]): number[] {
   const minPips = units(pair, U.realLoss) / pair.pip;
   const byTrade = new Map<string, number>();
   for (const r of rows) {
-    if (r.partial_taken) continue;
+    // A real loss is a real net result. result_pips counts any partial banked on the way (10-08), so a
+    // partial that pulled the stop-out above the line keeps it out, and one that did not, does not.
     if (!(Number(r.result_pips) <= -minPips)) continue;
     const t = r.resolved_at ? Date.parse(r.resolved_at) : NaN;
     if (!Number.isFinite(t)) continue;

@@ -2884,12 +2884,42 @@ input{font:inherit}
     </div>`;
   }
   function fmtMoney(n) { n = num(n); if (n == null) return "—"; return "$" + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  // HOW THE AI LOOKS AFTER A TRADE (owner 10-08) — the words are the site's, line for line
+  // (src/lib/flow/manageCopy.ts; tests/flow-trade-settings-screens.test.ts keeps the two the same).
+  var MG_BE = [20, 30, 40, 50];
+  var MG_FOLLOW_NAMES = { off: "Off", tight: "Tight", normal: "Normal", loose: "Loose" };
+  var MG_COPY = {
+    title: "How the AI looks after a trade",
+    applies: "Applies to trades already open too.",
+    beOff: "Off — the stop stays where the trade was placed.",
+    follow: {
+      off: "Off — once break-even is set, the stop stays there until the target or the stop.",
+      tight: "Tight — the stop stays close behind the best price. Keeps more of a move; a normal pullback can close the trade.",
+      normal: "Normal — the stop follows with room to breathe and tightens near the target.",
+      loose: "Loose — the most room: rides out pullbacks, gives back more if the move turns."
+    },
+    snap: "On gold it also snaps in when the market turns against a trade that's run 50+ pips.",
+    needsBe: "Needs break-even on — the stop only follows a trade that's already protected.",
+    partials: { 0: "Off — the whole trade rides to its target or stop.", 25: "Banks 25% of the trade halfway to its target; the rest rides on. A trade under 0.04 lots can't be split and rides whole.", 50: "Banks half the trade halfway to its target; the rest rides on. A trade under 0.02 lots can't be split and rides whole." },
+    unread: "Couldn't read this account's trade settings just now — tap Re-check."
+  };
+  function mgBeLine(on, pips) { return on ? "Gold: once a trade is " + pips + " pips up, the stop moves into profit so it can't turn into a loss. EUR/USD and GBP/JPY: halfway to the target." : MG_COPY.beOff; }
+  function mgFollowLine(mode, beOn) { if (!beOn) return MG_COPY.needsBe; return mode === "off" ? MG_COPY.follow.off : MG_COPY.follow[mode] + " " + MG_COPY.snap; }
+  function mgSummary(a) {
+    if (a.settingsUnread) return "Trade settings unavailable";
+    var parts = [a.beEnabled === false ? "Break-even off" : "Break-even " + (a.breakEvenPips != null ? a.breakEvenPips : 30)];
+    if (a.followActive !== false && a.beEnabled !== false && a.followPrice && a.followPrice !== "off" && MG_FOLLOW_NAMES[a.followPrice]) parts.push("Follow " + MG_FOLLOW_NAMES[a.followPrice].toLowerCase());
+    if (a.partialPct === 25 || a.partialPct === 50) parts.push("Bank " + a.partialPct + "%");
+    return parts.join(" · ");
+  }
   // FLOW ↔ TradeLocker connect screen (spec §9,10,11). Credentials are entered
   // here and posted straight to the server; the browser never stores a token.
   function GxBrokerConnect(props) {
     var st = useState(null), loading = useState(true), busy = useState(false), err = useState(""), okmsg = useState("");
     var env = useState("demo"), server = useState(""), email = useState(""), pw = useState(""), adding = useState(false);
     var adminSw = useState(null), swBusy = useState(""); // owner-only global kill switch (hidden for non-owners)
+    var mgBusy = useState({}), mgErr = useState({});     // trade settings being saved / why one could not be, per account
+    var mgInflight = useRef({});                          // the same, read at once: a double tap lands before the redraw
     function load() { loading[1](true); apiGet("/api/flow/broker").then(function (d) { st[1](d || {}); loading[1](false); }).catch(function () { loading[1](false); }); }
     function loadAdmin() { apiGet("/api/admin/switches").then(function (d) { if (d && d.ok) adminSw[1]({ flow: d.flow !== false, genx: d.genx !== false }); }).catch(function () { adminSw[1](null); }); }
     function setSwitch(which, next) {
@@ -2925,41 +2955,32 @@ input{font:inherit}
       st[1](Object.assign({}, cur, { accounts: accts }));
       apiPost("/api/flow/broker", { action: "risk", accountId: a.accountId, connectionId: a.connectionId, riskPct: pct }).catch(function () { load(); });
     }
-    function setAiPips(a, onv) {
+    function setMgmt(a, change) {
       /*
-       * AI PIPS — ONE SWITCH (owner 09-22: "I just want the toggle for Gen X and for the break-even
-       * profit guard AI Pips"). On: break-even when the trade earns it, profit guard on a reversal, and
-       * the trail. Off: the trade rides the stop and target it was placed with. It writes manage_trades,
-       * which is what the manager reads, and lines the old split toggles up behind it so a half-migrated
-       * account can never end up managed-but-nothing-allowed.
+       * HOW THE AI LOOKS AFTER A TRADE (owner 10-08: "change from AI PIPs to picking breakeven, AI management
+       * (follow price and taking partials)"). One change at a time per account; shown at once, and put back
+       * with the reason if it can't be saved. The rules are the site's (lib/flow/manageSettings.ts).
        */
-      var cur = st[0] || {}; var accts = (cur.accounts || []).map(function (x) { return (x.accountId === a.accountId && x.connectionId === a.connectionId) ? Object.assign({}, x, { manageTrades: onv, beEnabled: onv, profitGuard: onv }) : x; });
-      st[1](Object.assign({}, cur, { accounts: accts }));
-      apiPost("/api/flow/broker", { action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: onv }).catch(function () { load(); });
-      apiPost("/api/flow/broker", { action: "betoggle", accountId: a.accountId, connectionId: a.connectionId, enabled: onv }).catch(function () {});
-      apiPost("/api/flow/broker", { action: "guardtoggle", accountId: a.accountId, connectionId: a.connectionId, enabled: onv }).catch(function () {});
-    }
-    function setBe(a, onv) {
-      // Break-even toggle: once price runs the trigger, the stop moves to entry +5 pips PROFIT
-      // (covers fees — a scratched trade closes green, never red).
-      var cur = st[0] || {}; var accts = (cur.accounts || []).map(function (x) { return (x.accountId === a.accountId && x.connectionId === a.connectionId) ? Object.assign({}, x, { beEnabled: onv, manageTrades: true }) : x; });
-      st[1](Object.assign({}, cur, { accounts: accts }));
-      apiPost("/api/flow/broker", { action: "betoggle", accountId: a.accountId, connectionId: a.connectionId, enabled: onv }).catch(function () { load(); });
-      if (a.manageTrades === false) apiPost("/api/flow/broker", { action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: true }).catch(function () {});
-    }
-    function setPartials(a, onv) {
-      // Partials toggle: bank 25% at the halfway point on 1:2+ setups; the runner keeps going.
-      var cur = st[0] || {}; var accts = (cur.accounts || []).map(function (x) { return (x.accountId === a.accountId && x.connectionId === a.connectionId) ? Object.assign({}, x, { partialsEnabled: onv, manageTrades: true }) : x; });
-      st[1](Object.assign({}, cur, { accounts: accts }));
-      apiPost("/api/flow/broker", { action: "partialtoggle", accountId: a.accountId, connectionId: a.connectionId, enabled: onv }).catch(function () { load(); });
-      if (a.manageTrades === false) apiPost("/api/flow/broker", { action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled: true }).catch(function () {});
-    }
-    function setGuard(a, onv) {
-      // 🛡 PROFIT GUARD (owner 09-17): opt-in. Gold only — when the market flips against a trade that is
-      // already 1R / 50+ pips up, the stop snaps in behind price so most of the move is kept.
-      var cur = st[0] || {}; var accts = (cur.accounts || []).map(function (x) { return (x.accountId === a.accountId && x.connectionId === a.connectionId) ? Object.assign({}, x, { profitGuard: onv }) : x; });
-      st[1](Object.assign({}, cur, { accounts: accts }));
-      apiPost("/api/flow/broker", { action: "guardtoggle", accountId: a.accountId, connectionId: a.connectionId, enabled: onv }).catch(function () { load(); });
+      var key = (a.connectionId || "") + ":" + a.accountId;
+      if (a.settingsUnread || mgInflight.current[key]) return;
+      mgInflight.current[key] = true;
+      function same(x) { return x.accountId === a.accountId && x.connectionId === a.connectionId; }
+      var before = ((st[0] || {}).accounts || []).filter(same)[0] || a;
+      function put(next) { st[1](function (cur) { cur = cur || {}; return Object.assign({}, cur, { accounts: (cur.accounts || []).map(function (x) { return same(x) ? next : x; }) }); }); }
+      function busyOn(v) { mgBusy[1](function (b) { var n = Object.assign({}, b); n[key] = v; return n; }); }
+      function errSet(v) { mgErr[1](function (e) { var n = Object.assign({}, e); n[key] = v; return n; }); }
+      var be = change.breakEven === undefined ? before.beEnabled !== false : change.breakEven !== "off";
+      var fol = change.followPrice || before.followPrice || "normal";
+      var part = change.partials !== undefined ? change.partials : ((before.partialPct === 25 || before.partialPct === 50) ? before.partialPct : 0);
+      put(Object.assign({}, before, { beEnabled: be, breakEvenPips: typeof change.breakEven === "number" ? change.breakEven : before.breakEvenPips, followPrice: fol, followActive: be && fol !== "off", partialPct: part, partialsEnabled: part > 0, manageTrades: be || part > 0 }));
+      busyOn(true); errSet("");
+      apiPost("/api/flow/broker", Object.assign({ action: "management", accountId: a.accountId, connectionId: a.connectionId }, change)).then(function (d) {
+        mgInflight.current[key] = false; busyOn(false);
+        if (!d || d.error || !d.ok) { put(before); errSet((d && d.detail) || "Couldn't save that — try again."); return; }
+        // saved to every row of this broker account: every card for it shows what now runs
+        var view = { manageTrades: d.manageTrades, beEnabled: d.beEnabled, breakEvenPips: d.breakEvenPips, goldBePips: d.goldBePips, followPrice: d.followPrice, followActive: d.followActive, partialPct: d.partialPct, partialsEnabled: d.partialsEnabled, profitGuard: d.profitGuard, settingsUnread: false };
+        st[1](function (cur) { cur = cur || {}; return Object.assign({}, cur, { accounts: (cur.accounts || []).map(function (x) { return x.accountId === a.accountId ? Object.assign({}, x, view) : x; }) }); });
+      }).catch(function (e) { mgInflight.current[key] = false; busyOn(false); put(before); if (e && e.code === 401) props.onLogout && props.onLogout(); else errSet("Couldn't reach the server — check your connection and try again."); });
     }
     function setMode(a, mode) {
       // per-account safety mode: conservative auto-pauses THIS account 4h after 2 losses in a
@@ -2975,13 +2996,6 @@ input{font:inherit}
       var cur = st[0] || {}; var accts = (cur.accounts || []).map(function (x) { return (x.accountId === a.accountId && x.connectionId === a.connectionId) ? Object.assign({}, x, { sendIt: on }) : x; });
       st[1](Object.assign({}, cur, { accounts: accts }));
       apiPost("/api/flow/broker", { action: "sendit", accountId: a.accountId, connectionId: a.connectionId, enabled: on }).catch(function () { load(); });
-    }
-    function setGoldBe(a, pips) {
-      // gold-only breakeven/partial pip trigger. null/"" → AI chooses. Forex unaffected.
-      var v = (pips === "" || pips == null) ? null : Number(pips); if (!(v > 0)) v = null;
-      var cur = st[0] || {}; var accts = (cur.accounts || []).map(function (x) { return (x.accountId === a.accountId && x.connectionId === a.connectionId) ? Object.assign({}, x, { goldBePips: v }) : x; });
-      st[1](Object.assign({}, cur, { accounts: accts }));
-      apiPost("/api/flow/broker", { action: "goldbe", accountId: a.accountId, connectionId: a.connectionId, goldBePips: v }).catch(function () { load(); });
     }
     function disconnect() { busy[1](true); apiPost("/api/flow/broker", { action: "disconnect" }).then(function () { busy[1](false); okmsg[1](""); err[1](""); load(); }).catch(function () { busy[1](false); }); }
     var s = st[0], connected = s && s.connected, accounts = (s && s.accounts) || [];
@@ -3002,7 +3016,7 @@ input{font:inherit}
       ${loading[0] ? html`<div class="gx-analyzing">◆ Checking your broker connection…</div>` : ((connected && !adding[0]) ? html`<div>
         <div class="bk-h">TradeLocker connected</div>
         <div class="bk-sub">${accounts.length} account${accounts.length === 1 ? "" : "s"} · <b style="color:#2ee88f">${activeN} trading</b>. FLOW takes every trade on all accounts switched on.</div>
-        ${accounts.map(function (a) { var on = a.autotradeEnabled !== false; var fol = a.genxFollower === true; var mng = a.manageTrades !== false; var rp = (a.riskPct != null ? a.riskPct : null); var chipOn = "font-size:11px;font-weight:800;padding:5px 9px;border-radius:9px;cursor:pointer;border:1px solid rgba(46,232,143,.55);background:rgba(46,232,143,.13);color:#2ee88f"; var chipOff = "font-size:11px;font-weight:800;padding:5px 9px;border-radius:9px;cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#fff"; var subRow = "display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-top:0;padding:8px 12px;background:rgba(0,0,0,.18)"; return html`<div>
+        ${accounts.map(function (a) { var on = a.autotradeEnabled !== false; var fol = a.genxFollower === true; var rp = (a.riskPct != null ? a.riskPct : null); var chipOn = "font-size:11px;font-weight:800;padding:5px 9px;border-radius:9px;cursor:pointer;border:1px solid rgba(46,232,143,.55);background:rgba(46,232,143,.13);color:#2ee88f"; var chipOff = "font-size:11px;font-weight:800;padding:5px 9px;border-radius:9px;cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#fff"; var subRow = "display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-top:0;padding:8px 12px;background:rgba(0,0,0,.18)"; return html`<div>
           <div class=${"bk-acct " + (on ? "on" : "")}>
           <div><div class="bk-cv">${a.name || ("Account " + a.accountId)} ${a.environment ? html`<span class=${"bk-badge " + (a.environment === "live" ? "live" : "demo")} style="font-size:9px;padding:1px 5px">${(a.environment || "").toUpperCase()}</span>` : null}</div><div class="bk-ck" style="margin-top:3px">#${a.accNum || a.accountId}${a.currency ? " · " + a.currency : ""} · ${fmtMoney(a.equity != null ? a.equity : a.balance)}</div></div>
           <div style="display:flex;align-items:center;gap:8px">
@@ -3022,15 +3036,41 @@ input{font:inherit}
             <button onClick=${function () { setRisk(a, null); }} style=${rp == null ? chipOn : chipOff}>Default</button>
             ${[0.25, 0.5, 1, 1.5, 2, 3, 5].map(function (v) { return html`<button onClick=${function () { setRisk(a, v); }} style=${rp === v ? chipOn : chipOff}>${v}%</button>`; })}
           </div>
-          <div style=${subRow}>
-            <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:700;color:#fff">🎯 AI Pips</div><div class="bk-ck" style="margin-top:2px">${mng ? "On — the AI moves the stop to break even once the trade earns it, snaps it in to keep the move when the market turns, and trails behind the best price." : "Off — the trade runs to the stop and target it was placed with. Nothing is moved."}</div></div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <span style=${"font-size:11px;font-weight:700;color:" + (mng ? "#2ee88f" : "rgba(255,255,255,.4)")}>${mng ? "On" : "Off"}</span>
-              <button onClick=${function () { setAiPips(a, !mng); }} style=${"position:relative;width:46px;height:26px;border:0;border-radius:999px;cursor:pointer;background:" + (mng ? "#2ee88f" : "rgba(255,255,255,.18)")}><span style=${"position:absolute;top:3px;left:" + (mng ? "23px" : "3px") + ";width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s"}></span></button>
-            </div>
-          </div>
+          ${(function () {
+            // HOW THE AI LOOKS AFTER A TRADE (owner 10-08) — replaces the one "AI Pips" switch with its three parts.
+            if (a.settingsUnread) return html`<div style=${subRow + ";display:block"}><div style="font-size:12px;font-weight:700;color:#fff">🎯 ${MG_COPY.title}</div><div class="bk-ck" role="status" style="margin-top:6px;color:#f5c451">${MG_COPY.unread}</div></div>`;
+            var key = (a.connectionId || "") + ":" + a.accountId, mb = !!mgBusy[0][key], me = mgErr[0][key] || "";
+            var beOn = a.beEnabled !== false, pips = a.breakEvenPips != null ? a.breakEvenPips : 30;
+            var own = beOn && MG_BE.indexOf(pips) < 0 ? pips : null;
+            var fp = MG_FOLLOW_NAMES[a.followPrice] ? a.followPrice : "normal";
+            var part = (a.partialPct === 25 || a.partialPct === 50) ? a.partialPct : 0;
+            var lab = "font-size:11px;font-weight:700;color:var(--faint);min-width:78px";
+            function chip(on, text, label, onClick, disabled) { return html`<button aria-pressed=${on} aria-label=${label} disabled=${disabled} onClick=${onClick} style=${(on ? chipOn : chipOff) + (disabled && !on ? ";opacity:.4;cursor:not-allowed" : "")}>${text}</button>`; }
+            return html`<div style=${subRow + ";display:block"}>
+              <div style="font-size:12px;font-weight:700;color:#fff">🎯 ${MG_COPY.title}${mb ? html`<span style="font-size:10px;font-weight:700;color:var(--faint);margin-left:6px">saving…</span>` : null}</div>
+              <div style="margin-top:9px">
+                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px"><span style=${lab}>Break-even</span>
+                  ${chip(!beOn, "Off", "Break-even off", function () { if (beOn) setMgmt(a, { breakEven: "off" }); }, mb)}
+                  ${own != null ? chip(true, String(own), "Break-even " + own + " pips (your current setting)", function () {}, mb) : null}
+                  ${MG_BE.map(function (p) { var on = beOn && pips === p; return chip(on, String(p), "Break-even " + p + " pips", function () { if (!on) setMgmt(a, { breakEven: p }); }, mb); })}
+                  <span style="font-size:10px;font-weight:700;color:var(--faint)">pips</span></div>
+                <div class="bk-ck" style="margin-top:4px">${mgBeLine(beOn, pips)}</div>
+              </div>
+              <div style="margin-top:9px">
+                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px"><span style=${lab}>Follow price</span>
+                  ${["off", "tight", "normal", "loose"].map(function (m) { var on = fp === m; return chip(on, MG_FOLLOW_NAMES[m], "Follow price " + MG_FOLLOW_NAMES[m], function () { if (!on) setMgmt(a, { followPrice: m }); }, mb || !beOn); })}</div>
+                <div class="bk-ck" style=${"margin-top:4px" + (beOn ? "" : ";color:#f5c451")}>${mgFollowLine(fp, beOn)}</div>
+              </div>
+              <div style="margin-top:9px">
+                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px"><span style=${lab}>Partials</span>
+                  ${[0, 25, 50].map(function (p) { var on = part === p; return chip(on, p === 0 ? "Off" : p + "%", p === 0 ? "Partials off" : "Bank " + p + "% halfway to target", function () { if (!on) setMgmt(a, { partials: p }); }, mb); })}</div>
+                <div class="bk-ck" style="margin-top:4px">${MG_COPY.partials[part]}</div>
+              </div>
+              <div class="bk-ck" role="status" style=${"margin-top:8px" + (me ? ";color:var(--red);font-weight:700" : "")}>${me || MG_COPY.applies}</div>
+            </div>`;
+          })()}
           ${(function () { var md = a.riskMode === "aggressive" ? "aggressive" : "conservative"; var mOn = "font-size:11px;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1px solid rgba(46,232,143,.55);background:rgba(46,232,143,.13);color:#2ee88f"; var mAg = "font-size:11px;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1px solid rgba(245,180,60,.55);background:rgba(245,180,60,.13);color:#f5c451"; var mOff = "font-size:11px;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,.04);color:rgba(255,255,255,.5)"; return html`<div style=${subRow + ";border-radius:0 0 11px 11px"}>
-            <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:700;color:#fff">🛡 Safety mode</div><div class="bk-ck" style="margin-top:2px">The only difference: conservative sits this account out for 2 hours after 2 losses in a row (gold &amp; forex counted separately). Aggressive has no cap. Both take exactly the same calls.</div></div>
+            <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:700;color:#fff">🛡 Safety mode</div><div class="bk-ck" style="margin-top:2px">The only difference: conservative sits this account out for 2 hours after 2 losses in a row (gold and forex counted separately). Aggressive has no cap. Both take exactly the same calls.</div></div>
             <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
               <button onClick=${function () { setMode(a, "conservative"); }} style=${md === "conservative" ? mOn : mOff}>Cons.</button>
               <button onClick=${function () { setMode(a, "aggressive"); }} style=${md === "aggressive" ? mAg : mOff}>Aggr.</button>
@@ -7066,8 +7106,8 @@ input{font:inherit}
                 <button class=${"hx-tg" + (on ? " on" : "")} aria-label="Auto-trading" onClick=${function () { setAcct(a, { autotradeEnabled: !on }, "toggle", { enabled: !on }); }}><span></span></button>
               </div>
               <div class="hx-minis">
-                <!-- 09-22: one switch instead of three. AI Pips = break-even + profit guard + trail. -->
-                <button class=${"hx-mini" + (mng ? " on" : "")} onClick=${function () { setAcct(a, { manageTrades: !mng, beEnabled: !mng, profitGuard: !mng }, "manage", { enabled: !mng }); apiPost("/api/flow/broker", { action: "betoggle", accountId: a.accountId, connectionId: a.connectionId, enabled: !mng }).catch(function () {}); apiPost("/api/flow/broker", { action: "guardtoggle", accountId: a.accountId, connectionId: a.connectionId, enabled: !mng }).catch(function () {}); }}><span class="dot"></span>AI Pips</button>
+                <!-- 10-08: the account's three trade settings (break-even, follow price, partials) at a glance; a tap opens them. -->
+                <button class=${"hx-mini" + (mng && !a.settingsUnread ? " on" : "")} aria-label="Trade settings for this account — tap to change" onClick=${function () { if (window.__omGoConnect) window.__omGoConnect(); }}><span class="dot"></span>${a.settingsUnread || mng ? mgSummary(a) : "Trade management off"}</button>
               </div>
             </div>`;
           })}

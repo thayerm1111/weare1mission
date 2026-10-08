@@ -84,23 +84,23 @@ const CONTROL_STEPS: Step[] = [
   },
   {
     sel: "ft-be",
-    title: "🎯 Break even",
-    body: "ON = when a trade moves your trigger distance into profit, FLOW moves the stop to entry +5 pips PROFIT — so a trade that comes back closes green (fees covered), never red. OFF = the trade rides its original stop. We recommend ON.",
+    title: "🎯 Break-even",
+    body: "Pick when a gold trade's stop moves into profit: once the trade is 20, 30, 40 or 50 pips up (every account started at its own setting — 30 unless you'd picked one). From then on the trade can't turn into a loss. EUR/USD and GBP/JPY move it halfway to their target. Off = the stop stays where the trade was placed.",
+  },
+  {
+    sel: "ft-follow",
+    title: "📈 Follow price",
+    body: "Once break-even is set, the stop follows the best price, so a winner that turns keeps most of its gain. Tight keeps more of a move, but a normal pullback can close the trade; Loose gives it the most room. On gold it also snaps in when the market turns against a trade that's run 50+ pips. Needs break-even on.",
   },
   {
     sel: "ft-partials",
     title: "💰 Partials",
-    body: "ON = on setups with a 1:2 or wider target, FLOW banks 25% of the position at the halfway point and lets the rest run. OFF = the full position rides to the stop or target. Break-even and partials are now separate switches — run either one alone.",
+    body: "Bank 25% — or half — of the trade halfway to its target and let the rest ride. Off = the whole trade rides to its target or stop. All three settings apply to trades already open, too.",
   },
   {
     sel: "ft-safety",
     title: "Safety mode",
     body: "🛡 Conservative pauses THIS account for 4 hours after 2 losses in a row — a built-in cooldown on rough days. ⚡ Aggressive has no cap and keeps trading through losses. New to this? Stay Conservative.",
-  },
-  {
-    sel: "ft-bepips",
-    title: "Break-even trigger pips",
-    body: "Gold only: how many pips into profit before the stop protects (at entry +5). Leave it blank and the AI picks the moment for you — that's the recommended setting. Forex trades are always AI-managed.",
   },
   {
     sel: "ft-sendit",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Link2,
   ShieldCheck,
@@ -15,6 +15,8 @@ import {
   Zap,
 } from "lucide-react";
 import { FlowTour } from "./FlowTour";
+import { TradeManagement, optimisticMgmt, type MgmtChange } from "./TradeManagement";
+import type { FollowMode } from "@/lib/flow/manageSettings";
 
 // RETIRED ENGINES (owner 09-13: "Turn off Matty pips and send it... Hide Matty pips and
 // send it as options to turn on. Nobody can have that turned on"). Only FLOW/GENX auto
@@ -51,6 +53,12 @@ type Account = {
   sendItGuards?: boolean; // true = safeguards respected · false = bypassed (classic)
   riskMode?: string | null;
   goldBePips?: number | null;
+  // How the AI looks after a trade (owner 10-08) — see TradeManagement.tsx.
+  breakEvenPips?: number;
+  followPrice?: FollowMode;
+  followActive?: boolean;
+  partialPct?: number;
+  settingsUnread?: boolean;
   connectionId?: string;
   environment?: string;
   server?: string;
@@ -140,6 +148,11 @@ export function FlowConnect() {
   // Owner-only global kill switch. GET returns 404 for non-owners → stays null → hidden.
   const [adminSw, setAdminSw] = useState<{ flow: boolean; genx: boolean } | null>(null);
   const [swBusy, setSwBusy] = useState<string | null>(null);
+  // Trade settings being saved, and why one could not be, per account (connectionId:accountId).
+  const [mgmtBusy, setMgmtBusy] = useState<Record<string, boolean>>({});
+  const [mgmtErr, setMgmtErr] = useState<Record<string, string>>({});
+  // The same, read synchronously: a double tap lands before the "saving" state has re-drawn the buttons.
+  const mgmtInflight = useRef(new Set<string>());
 
   const loadAdmin = useCallback(async () => {
     try {
@@ -308,47 +321,43 @@ export function FlowConnect() {
     }
   }
 
-  async function setAccountGoldBePips(a: Account, pips: number | null) {
-    // Optimistic: set locally, then persist. GOLD-only breakeven/partial pip trigger;
-    // null → the AI chooses. Does not affect forex.
-    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, goldBePips: pips } : x) } : prev);
-    try {
-      await fetch("/api/flow/broker", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "goldbe", accountId: a.accountId, connectionId: a.connectionId, goldBePips: pips }),
-      });
-    } catch {
-      void load();
-    }
-  }
-
-  /**
-   * AI PIPS — the one management switch (owner 09-22). It writes manage_trades (what the trade manager
-   * actually reads) and lines the retired split toggles up behind it, so an account can never end up
-   * "managed" with break-even and the guard switched off underneath.
+  /*
+   * HOW THE AI LOOKS AFTER A TRADE (owner 10-08) — break-even, follow price, partials, one change at a
+   * time per account. Shown at once; put back, with the reason, if the server refuses or cannot be reached.
    */
-  async function setAccountAiPips(a: Account, enabled: boolean) {
-    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, manageTrades: enabled, beEnabled: enabled, profitGuard: enabled } : x) } : prev);
-    const post = (action: string) => fetch("/api/flow/broker", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action, accountId: a.accountId, connectionId: a.connectionId, enabled }),
-    });
-    try { await post("manage"); void post("betoggle"); void post("guardtoggle"); } catch { void load(); }
-  }
-
-  async function setAccountManage(a: Account, enabled: boolean) {
-    // Optimistic: flip locally, then persist. Controls breakeven + partials (the
-    // trade-manager) for this account's FLOW and GENX trades alike.
-    setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId && x.connectionId === a.connectionId ? { ...x, manageTrades: enabled } : x) } : prev);
+  async function setManagement(a: Account, change: MgmtChange) {
+    const key = `${a.connectionId || ""}:${a.accountId}`;
+    if (a.settingsUnread || mgmtInflight.current.has(key)) return;
+    mgmtInflight.current.add(key);
+    const same = (x: Account) => x.accountId === a.accountId && x.connectionId === a.connectionId;
+    const before = (state?.accounts || []).find(same) ?? a;
+    const put = (next: Account) => setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => same(x) ? next : x) } : prev);
+    put(optimisticMgmt(before, change));
+    setMgmtBusy((b) => ({ ...b, [key]: true }));
+    setMgmtErr((e) => ({ ...e, [key]: "" }));
     try {
-      await fetch("/api/flow/broker", {
+      const r = await fetch("/api/flow/broker", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "manage", accountId: a.accountId, connectionId: a.connectionId, enabled }),
+        body: JSON.stringify({ action: "management", accountId: a.accountId, connectionId: a.connectionId, ...change }),
       });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d || d.error || !d.ok) {
+        put(before);
+        setMgmtErr((e) => ({ ...e, [key]: (d && typeof d.detail === "string" && d.detail) || "Couldn't save that — try again." }));
+      } else {
+        // The server saved it to every row of this broker account (the same login can sit on two cards):
+        // both cards show what now runs.
+        const { manageTrades, beEnabled, breakEvenPips, goldBePips, followPrice, followActive, partialPct, partialsEnabled, profitGuard } = d;
+        const view = { manageTrades, beEnabled, breakEvenPips, goldBePips, followPrice, followActive, partialPct, partialsEnabled, profitGuard, settingsUnread: false };
+        setState((prev) => prev ? { ...prev, accounts: (prev.accounts || []).map((x) => x.accountId === a.accountId ? { ...x, ...view } : x) } : prev);
+      }
     } catch {
-      void load();
+      put(before);
+      setMgmtErr((e) => ({ ...e, [key]: "Couldn't reach the server — check your connection and try again." }));
+    } finally {
+      mgmtInflight.current.delete(key);
+      setMgmtBusy((b) => ({ ...b, [key]: false }));
     }
   }
 
@@ -436,7 +445,7 @@ export function FlowConnect() {
         </h2>
         <p className="text-sm text-charcoal/50">
           {connected
-            ? "Risk and AI Pips are set per account below. Nothing here changes until you change it."
+            ? "Risk and how the AI looks after a trade are set per account below. Nothing here changes until you change it."
             : "Link your TradeLocker account so FLOW can show your balance and prepare your trades. Your login is sent straight to the broker and stored encrypted — it never sits in your browser."}
         </p>
       </div>
@@ -630,37 +639,19 @@ export function FlowConnect() {
                       })()}
                     </div>
                     {/*
-                      * ONE SWITCH — "AI PIPS" (owner 09-22: "I don't want any other settings anymore …
-                      * I just want the toggle for Gen X and for the break-even profit guard AI Pips").
-                      *
-                      * What used to live here: three horizon buttons, break-even, partials, profit guard,
-                      * Send It and its setup prompt. Seven controls on one card, each of which could
-                      * silently stop an account from taking a call. What is left is the switch that says
-                      * whether the AI manages an open trade, and safety mode — and safety mode now changes
-                      * exactly one thing: a conservative account sits out for 2 hours after 2 losses in a
-                      * row. Both modes take the same calls.
+                      * HOW THE AI LOOKS AFTER A TRADE (owner 10-08: "change from AI PIPs to picking
+                      * breakeven, AI management (follow price and taking partials), giving the customer the
+                      * opportunity to tweak how they want the AI to trade"). It replaces the one AI Pips
+                      * switch of 09-22 with its three parts, each the member's to pick — and every account
+                      * starts exactly where AI Pips left it. Then safety mode, which changes exactly one
+                      * thing: a conservative account sits out for 2 hours after 2 losses in a row.
                       */}
                     {(() => {
-                      const managed = a.manageTrades !== false;
                       const mode = a.riskMode === "aggressive" ? "aggressive" : "conservative";
+                      const key = `${a.connectionId || ""}:${a.accountId}`;
                       return (
                         <>
-                          <div className="mt-2 flex items-start justify-between gap-3 border-t border-ice/70 pt-2.5">
-                            <div className="min-w-0">
-                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55"><ShieldCheck className="h-3.5 w-3.5" /> 🎯 AI Pips</span>
-                              <p className="mt-0.5 text-[10px] leading-tight text-charcoal/40">
-                                {managed
-                                  ? "On — the stop moves to break even once the trade has earned it, snaps in to keep the move when the market turns against it, and trails behind the best price."
-                                  : "Off — the trade runs to the stop and target it was placed with. Nothing is moved."}
-                              </p>
-                            </div>
-                            <button
-                              onClick={() => void setAccountAiPips(a, !managed)}
-                              aria-pressed={managed}
-                              className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${managed ? "bg-emerald-500" : "bg-charcoal/20"}`}>
-                              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${managed ? "left-[22px]" : "left-0.5"}`} />
-                            </button>
-                          </div>
+                          <TradeManagement a={a} busy={!!mgmtBusy[key]} error={mgmtErr[key] || ""} onChange={(c) => void setManagement(a, c)} tour={tour} />
                           <div className="mt-2 flex items-start justify-between gap-3 border-t border-ice/70 pt-2.5">
                             <div className="min-w-0">
                               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-charcoal/55"><ShieldCheck className="h-3.5 w-3.5" /> Safety mode</span>
