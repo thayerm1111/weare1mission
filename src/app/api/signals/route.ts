@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { statsSince } from "@/lib/statsClock";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +16,7 @@ export const maxDuration = 15;
  */
 
 type Incoming = { id?: unknown; status?: unknown; hitTp?: unknown; [k: string]: unknown };
-type Row = { client_id: string; payload: Incoming; status: string; hit_tp: number | null };
+type Row = { client_id: string; payload: Incoming; status: string; hit_tp: number | null; created_at?: string | null };
 
 function json(obj: unknown, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -41,9 +42,12 @@ export async function GET() {
       id: Number.isFinite(idNum) ? idNum : r.client_id,
       status: r.status,
       hitTp: r.hit_tp == null ? undefined : r.hit_tp,
+      // When it was saved: the clock for a play whose id is not a timestamp (the phone app's "I took this trade").
+      createdAt: r.created_at ?? undefined,
     };
   });
-  return json({ signals });
+  // `since`: the record reset the page counts its win rate from (owner 10-11). The list itself is untouched.
+  return json({ signals, since: statsSince() });
 }
 
 export async function POST(req: NextRequest) {

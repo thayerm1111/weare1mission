@@ -25,6 +25,7 @@
  */
 import { db } from "../adapters/db";
 import { PIP } from "../core/types";
+import { windowStart } from "@/lib/statsClock";
 
 export type Direction = "up" | "down" | "none";
 
@@ -168,6 +169,8 @@ export function asksAboutRecord(q: string): boolean {
 }
 
 export type TrackRecord = {
+  /** Where the record starts: 30 days back, or the platform's record reset if that is later. */
+  since?: string; fromReset?: boolean;
   scored: number; right: number; wrong: number; flat: number; noCall: number;
   hitRate: number | null;
   byHorizon: { horizon: number; right: number; wrong: number }[];
@@ -183,7 +186,11 @@ export type TrackRecord = {
 export async function trackRecord(days = 30): Promise<TrackRecord | null> {
   const c = db();
   if (!c) return null;
-  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  // Never further back than the platform's record reset (owner 10-11: "please reset all the stats on the
+  // platform"): ATLAS's own record starts over with everyone else's.
+  const back = Date.now() - days * 86_400_000;
+  const startMs = windowStart(back);
+  const since = new Date(startMs).toISOString();
 
   const { data } = await c.from("cc_brain_calls")
     .select("at, direction, horizon_min, verdict, moved_pips, answer")
@@ -200,6 +207,7 @@ export async function trackRecord(days = 30): Promise<TrackRecord | null> {
 
   const horizons = [...new Set(rows.filter((r) => r.direction !== "none").map((r) => r.horizon_min))].sort((a, b) => a - b);
   return {
+    since, fromReset: startMs > back,
     scored: rows.length, right, wrong, flat, noCall,
     hitRate: right + wrong > 0 ? right / (right + wrong) : null,
     byHorizon: horizons.map((h) => ({
@@ -226,7 +234,9 @@ const ago = (ms: number) => {
  * not a hit rate, and presenting it as one would be the same false precision this file exists to stop.
  */
 export function trackRecordLines(t: TrackRecord): string[] {
-  const L = [`=== YOUR OWN RECENT RECORD (measured, last 30 days) ===`];
+  const L = [t.fromReset && t.since
+    ? `=== YOUR OWN RECENT RECORD (measured since ${t.since.slice(0, 10)}, when the platform's record was reset) ===`
+    : `=== YOUR OWN RECENT RECORD (measured, last 30 days) ===`];
   const decided = t.right + t.wrong;
   L.push(`${t.scored} answers scored: ${t.right} right, ${t.wrong} wrong, ${t.flat} where the market did not move enough to judge, ${t.noCall} where you gave no directional view.`);
   if (decided >= 10 && t.hitRate != null) {

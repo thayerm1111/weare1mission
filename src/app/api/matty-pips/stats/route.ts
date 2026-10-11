@@ -1,5 +1,6 @@
 import { getProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { windowStart } from "@/lib/statsClock";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,7 +55,8 @@ export async function GET() {
   const admin = createAdminClient();
   if (!admin) return json({ ok: false, error: "not_configured" }, 500);
 
-  const sinceIso = new Date(Date.now() - 30 * 86400_000).toISOString();
+  // The last 30 days, never back past the record reset (owner 10-11: "reset all the stats on the platform").
+  const sinceIso = new Date(windowStart(Date.now() - 30 * 86400_000)).toISOString();
   const { data, error } = await admin.from("matty_pips_outcomes")
     .select("status, direction, conviction, execution_state, setup_family, regime, session, volatility, mfe, mae, plus3_before_minus3, call_at")
     .gte("call_at", sinceIso).limit(2000);

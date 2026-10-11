@@ -10,6 +10,8 @@
  */
 import { mock } from "node:test";
 import path from "node:path";
+// A constant and nothing else: loading it reads no environment.
+import { DEFAULT_STATS_SINCE } from "../src/lib/statsClock";
 
 process.env.NEXT_PUBLIC_SUPABASE_URL = "http://supabase.invalid";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
@@ -22,8 +24,13 @@ delete process.env.ANTHROPIC_API_KEY;                 // no story is ever asked 
 const ROOT = path.resolve(__dirname, "..");
 
 /* ── the clock: fixed, and moved only when a test moves it ────────────────────────────────────── */
-/** Tuesday 6 October 2026, 13:30 UTC — London and New York both open. */
-export const T0 = Date.UTC(2026, 9, 6, 13, 30, 0);
+/**
+ * Tuesday 13 October 2026, 13:30 UTC — London and New York both open. It sits after the platform's
+ * record reset (src/lib/statsClock.ts, 2026-10-11T21:00Z): the results the handlers count are those made
+ * at or after it, and a test's calls are made "now". (It was Tuesday 6 October until the 10-11 reset.)
+ */
+export const T0 = Date.UTC(2026, 9, 13, 13, 30, 0);
+if (T0 < Date.parse(DEFAULT_STATS_SINCE)) throw new Error("harness: T0 must come after the record reset in src/lib/statsClock.ts — move it to a later Tuesday 13:30 UTC");
 mock.timers.enable({ apis: ["Date"], now: T0 });
 export const setNow = (ms: number): void => { mock.timers.setTime(ms); };
 export const iso = (ms: number): string => new Date(ms).toISOString();

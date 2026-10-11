@@ -2,7 +2,7 @@
 
 /**
  * Community Results — a member-facing, platform-wide view of how the OM AI tools
- * are performing. Reads the anonymized `community_signal_stats` RPC (aggregates
+ * are performing. Reads /api/community-stats, counted from the record reset (aggregates
  * only, no per-member data). Built to be HONEST: every rate is shown with its
  * sample size and a Wilson 95% confidence interval, headline outcomes stay in a
  * "building" state until enough trades have resolved, and nothing here is a
@@ -14,7 +14,6 @@ import {
   RefreshCw, TrendingUp, Activity, Users, Gauge, Trophy, Info, ArrowUp, ArrowDown,
   Radar, Ghost, Crosshair, Zap, Target, AlertCircle,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 
 type Recent = { engine: string; instrument: string; direction: string; status: string; hit_tp: number | null; realized_r: number | null; at: string };
 type EngineRow = { engine: string; generated: number; resolved: number; wins: number; losses: number };
@@ -66,12 +65,14 @@ export default function CommunityResults() {
   const [err, setErr] = useState("");
 
   const load = useCallback(async () => {
-    const supabase = createClient();
-    if (!supabase) { setErr("Live stats aren't configured yet."); setLoading(false); return; }
     setErr("");
-    const { data: d, error } = await supabase.rpc("community_signal_stats");
-    if (error) { setErr(error.message || "Couldn't load community results."); setLoading(false); return; }
-    setData(d as Stats);
+    // Counted from the record reset, server-side (/api/community-stats; owner 10-11).
+    try {
+      const r = await fetch("/api/community-stats", { cache: "no-store" });
+      const d = (await r.json().catch(() => null)) as (Stats & { error?: string }) | null;
+      if (!r.ok || !d || d.error || !d.live) { setErr(d?.error === "not_configured" ? "Live stats aren't configured yet." : "Couldn't load community results."); setLoading(false); return; }
+      setData(d);
+    } catch { setErr("Couldn't load community results."); }
     setLoading(false);
   }, []);
 
@@ -90,10 +91,10 @@ export default function CommunityResults() {
   if (!data) return null;
 
   const L = data.live;
-  // Combined recorded outcomes = earlier saved plays (launch) + live ledger as it resolves.
-  const resolved = L.resolved + data.launch.resolved;
-  const wins = L.wins + data.launch.wins;
-  const losses = L.losses + data.launch.losses;
+  // The live ledger alone. `launch` repeated the same resolved plays, and adding it doubled every count (10-11).
+  const resolved = L.resolved;
+  const wins = L.wins;
+  const losses = L.losses;
   const ci = wilson(wins, wins + losses);
   const confident = resolved >= MIN_CONFIDENT;
 
@@ -149,9 +150,6 @@ export default function CommunityResults() {
                 <p className="mt-2 text-[13px] font-medium text-charcoal/70">So far: {wins}W / {losses}L</p>
               )}
             </div>
-          )}
-          {data.launch.resolved > 0 && (
-            <p className="mt-3 text-[11px] text-charcoal/45">Includes {data.launch.resolved} earlier saved plays plus every live signal as it closes. Sample is still small — treat as directional, not a guarantee.</p>
           )}
         </div>
       </section>

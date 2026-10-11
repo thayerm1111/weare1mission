@@ -9,6 +9,7 @@ import {
 import { MARKETS, findAsset, type Market, type Asset } from "@/data/signalAssets";
 import { earnMission } from "@/lib/earnMission";
 import { CREDIT_COST } from "@/lib/creditConfig";
+import { statsSince } from "@/lib/statsClock";
 import { DeepDiveModal } from "./floor/DeepDive";
 import { CopyAllBtn, buildTradeText } from "./copykit";
 import { TradeChat } from "./TradeChat";
@@ -76,9 +77,18 @@ type Result = {
   orderType: string; style?: string; method?: string; price: number; asOf: string; as_of?: string; live_price?: number; marketClosed?: boolean;
   signal: Signal; candles?: Candle[]; status: Status;
   hitTp?: number; hitAt?: string;   // which take-profit filled (1|2|3) on a win
+  createdAt?: string;               // when the server saved it (sent by /api/signals)
 };
 
 const numOk = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
+/** When a play was made: its id is that moment for one made on this page; a play saved another way (the
+ *  phone app's "I took this trade" keys it by symbol and price) goes by when the server saved it. */
+const madeAt = (r: Result): number => {
+  const n = Number(r.id);
+  if (Number.isFinite(n) && n > 1e12) return n;
+  const saved = Date.parse(r.createdAt ?? "");
+  return Number.isFinite(saved) ? saved : Date.parse(r.asOf ?? "");
+};
 const fmt = (n: number | null | undefined) => {
   if (n === null || n === undefined) return "—";
   const x = Number(n);
@@ -127,6 +137,9 @@ export function SignalGenerator() {
   const [updating, setUpdating] = useState<number | null>(null);
   const [updates, setUpdates] = useState<Record<number, TradeUpdate>>({});
   const [needCredits, setNeedCredits] = useState(false);
+  // The header's win rate counts plays made since the record reset (owner 10-11: "please reset all the
+  // stats on the platform"). The server sends the clock it runs on; until then, the one built into the page.
+  const [sinceMs, setSinceMs] = useState(() => Date.parse(statsSince()));
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const backfilled = useRef<Set<number>>(new Set());
 
@@ -190,6 +203,7 @@ export function SignalGenerator() {
         const res = await fetch("/api/signals", { cache: "no-store" });
         if (!res.ok || cancelled) return;
         const d = await res.json().catch(() => ({}));
+        if (typeof d.since === "string" && Number.isFinite(Date.parse(d.since))) setSinceMs(Date.parse(d.since));
         const cloud: Result[] = Array.isArray(d.signals) ? d.signals : [];
         let local: Result[] = [];
         try { const raw = localStorage.getItem("om_signals"); if (raw) local = JSON.parse(raw); } catch { /* ignore */ }
@@ -287,10 +301,11 @@ export function SignalGenerator() {
     void cloudDelete(id);
   }
 
-  const wins = recent.filter((r) => r.status === "win").length;
-  const losses = recent.filter((r) => r.status === "loss").length;
+  const counted = recent.filter((r) => madeAt(r) >= sinceMs);
+  const wins = counted.filter((r) => r.status === "win").length;
+  const losses = counted.filter((r) => r.status === "loss").length;
   const rate = wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : null;
-  const totalPips = Math.round(recent.filter((r) => r.status === "win").reduce((sum, r) => sum + winPips(r), 0));
+  const totalPips = Math.round(counted.filter((r) => r.status === "win").reduce((sum, r) => sum + winPips(r), 0));
 
   return (
     <div className="relative overflow-hidden rounded-3xl bg-[#0a0b10] text-white ring-1 ring-white/10">

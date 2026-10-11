@@ -8,6 +8,7 @@ import { UNSETTLED } from "@/lib/genfx/fills";
 import { byIds } from "@/lib/genfx/db";
 import { lockAlerts, lockActivity } from "@/lib/setupLock";
 import { setupAccess, forgetGenfxFree, OPEN_FREE } from "@/lib/setupAccess";
+import { statsSince, windowStart } from "@/lib/statsClock";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,8 +83,11 @@ export async function GET(req: NextRequest) {
   // that are whole (the graded ones) until it is reloaded.
   const knowsLocked = new URL(req.url).searchParams.get("v") === "2";
   const ctl = await readControl(admin);
-  const d30 = new Date(Date.now() - 30 * 24 * 3600_000).toISOString();
-  const d7ms = Date.now() - 7 * 24 * 3600_000;
+  // The record's 30- and 7-day windows never reach back past the record reset (owner 10-11: "please reset
+  // all the stats on the platform"); a call made before it is not counted, wherever it resolved.
+  const since = statsSince();
+  const d30 = new Date(windowStart(Date.now() - 30 * 24 * 3600_000)).toISOString();
+  const d7ms = windowStart(Date.now() - 7 * 24 * 3600_000);
 
   const alertCols = "id, pair, dedupe_key, mode, side, state, entry, entry_low, entry_high, stop, tp1, confidence, created_at, enter_price, enter_sent_at, outcome, result_pips";
   type Graded = { pair: PairKey; mode: string; side: "buy" | "sell"; entry_low: number | null; entry_high: number | null; enter_sent_at: string | null; outcome: "win" | "loss"; result_pips: number | null; resolved_at: string };
@@ -93,8 +97,9 @@ export async function GET(req: NextRequest) {
     // What is lined up now, and the latest calls — asked for separately, so a busy day of calls can
     // never push a setup that is still being watched off the bottom of one shared list.
     admin.from("genfx_alerts").select(alertCols).in("state", ["zone", "forming"]).order("created_at", { ascending: false }).limit(60),
-    admin.from("genfx_alerts").select(alertCols).eq("state", "entered").order("enter_sent_at", { ascending: false }).limit(12),
-    allRows<Graded>(() => admin.from("genfx_alerts").select("pair, mode, side, entry_low, entry_high, enter_sent_at, outcome, result_pips, resolved_at").in("outcome", ["win", "loss"]).gte("resolved_at", d30).order("resolved_at", { ascending: true }).order("id", { ascending: true })),
+    // The latest calls: those made since the reset, and any made before it that are still running.
+    admin.from("genfx_alerts").select(alertCols).eq("state", "entered").or(`enter_sent_at.gte.${since},outcome.is.null`).order("enter_sent_at", { ascending: false }).limit(12),
+    allRows<Graded>(() => admin.from("genfx_alerts").select("pair, mode, side, entry_low, entry_high, enter_sent_at, outcome, result_pips, resolved_at").in("outcome", ["win", "loss"]).gte("resolved_at", d30).gte("enter_sent_at", since).order("resolved_at", { ascending: true }).order("id", { ascending: true })),
     admin.from("flow_managed_positions").select("symbol, side, mode, entry, init_stop, tp1, qty, status, outcome, result_pips, created_at, resolved_at, account_id, environment")
       .eq("user_id", user.id).eq("strategy_version", GENFX_VERSION).order("created_at", { ascending: false }).limit(20),
     allRows<DeskRow>(() => admin.from("flow_managed_positions").select("symbol, signal_id, outcome, result_pips, status, environment").eq("strategy_version", GENFX_VERSION).gte("created_at", d30).order("created_at", { ascending: true }).order("id", { ascending: true })),

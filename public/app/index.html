@@ -4159,7 +4159,8 @@ input{font:inherit}
     var me = useState(null), stats = useState(undefined), nextCall = useState(undefined);
     useEffect(function () {
       apiGet("/api/me").then(function (d) { me[1](d || {}); }).catch(function () { me[1]({}); });
-      sbRpc("community_signal_stats").then(function (raw) { stats[1](raw ? (Array.isArray(raw) ? raw[0] : raw) : null); });
+      // Counted from the record reset, server-side (owner 10-11: "reset all the stats on the platform").
+      apiGet("/api/community-stats").then(function (d) { stats[1](d && d.live ? d : null); });
       var nowIso = new Date().toISOString();
       sbSelect("live_sessions?select=title,starts_at,join_url,host&published=eq.true&starts_at=gte." + encodeURIComponent(nowIso) + "&order=starts_at.asc&limit=1")
         .then(function (rows) { nextCall[1](rows && rows[0] ? rows[0] : null); });
@@ -4168,9 +4169,10 @@ input{font:inherit}
     var name = (m.name || m.email || "");
     name = name ? (name.indexOf("@") >= 0 ? name.split("@")[0] : name.split(" ")[0]) : "";
     var d = stats[0];
-    var live = d && d.live, launch = d && d.launch;
-    var resolved = ((live && live.resolved) || 0) + ((launch && launch.resolved) || 0);
-    var wins = ((live && live.wins) || 0) + ((launch && launch.wins) || 0);
+    var live = d && d.live;
+    // The live ledger alone: `launch` repeated the same resolved plays, and adding it doubled the counts (10-11).
+    var resolved = (live && live.resolved) || 0;
+    var wins = (live && live.wins) || 0;
     var wk = (live && live.generated_7d) || 0;
     var openNow = (live && live.open) || 0;
     var members = (d && d.members_using) || 0;
