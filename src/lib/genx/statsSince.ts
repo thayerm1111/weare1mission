@@ -2,8 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * THE RECORD RESET POINT lives in ../statsClock.ts (owner 10-11: "please reset all the stats on the
- * platform"), where every product — AURIC and the Command Center included — can read it. Every
- * member-facing results number counts only activity at or after it; data before it stays in the database.
+ * platform"), where the Command Center can read it too. Every member-facing results number counts only
+ * activity at or after it; data before it stays in the database.
  */
 export { DEFAULT_STATS_SINCE, statsSince, statsSinceMs, windowStart } from "../statsClock";
 

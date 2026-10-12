@@ -12,8 +12,8 @@ import { trackRecordLines, type TrackRecord } from "../command-center/engines/re
  */
 const code = (f: string) => readFileSync(f, "utf8");
 
-test("the record restarts at 5pm New York on Sunday 10-11, before the forex and gold reopen", () => {
-  assert.equal(DEFAULT_STATS_SINCE, "2026-10-11T21:00:00Z");
+test("the record restarts at 9pm Central on Sunday 10-11 (the owner's second reset that evening)", () => {
+  assert.equal(DEFAULT_STATS_SINCE, "2026-10-12T02:00:00Z");
   assert.equal(viaGenxDefault, DEFAULT_STATS_SINCE, "lib/genx re-exports the one clock");
 });
 

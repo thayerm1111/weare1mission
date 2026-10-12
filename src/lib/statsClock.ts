@@ -3,6 +3,8 @@
  * counts from. Activity before it stays in the database; it is just not counted.
  *
  * Resets so far (each one asked for by the owner):
+ *   2026-10-12T02:00:00Z  owner 10-11, 9pm Central: "i need you to reset again the stats" — an hour after
+ *                         the reopen, so the evening's first trades are not counted either.
  *   2026-10-11T21:00:00Z  owner 10-11: "please reset all the stats on the platform". 5pm New York on
  *                         the Sunday, before the forex and gold reopen, so the record starts with the
  *                         first trade of the week. This one also brought every remaining results number
@@ -22,7 +24,7 @@
  * Its own file, apart from lib/genx, so the Command Center — which may not import GENX code
  * (tests/cc-core.test.ts) — reads the same clock as everything else.
  */
-export const DEFAULT_STATS_SINCE = "2026-10-11T21:00:00Z";
+export const DEFAULT_STATS_SINCE = "2026-10-12T02:00:00Z";
 
 /** The reset point as an ISO time. */
 export function statsSince(env: string | undefined = process.env.FLOOR_STATS_SINCE): string {
