@@ -394,8 +394,9 @@ export function classifyOutcome(
   // BOOKED WHERE IT CLOSED (owner 10-14: "fix whatever you gotta fix"). FLOW parks gold's take-profit at
   // the near target (nearTarget.ts: half the risk, 30–80 pips) while `tp1` stays GENX's published plan.
   // A trade the broker closed at that take-profit was booked at tp1 — on gold since the 10-11 reset, 41
-  // trades at +92 pips on average where they banked about half that. A target is booked at the broker's
-  // own exit; without one, at the take-profit that was parked (the near target on gold, else the plan's).
+  // trades at +92 pips on average, when the furthest price they reached averaged +60. A target is booked
+  // at the broker's own exit; without one, at the take-profit that was parked (the near target on gold,
+  // measured from the fill, else the plan's).
   const parkedTp = tp1 == null ? null
     : nearTargetApplies(row.symbol) ? (nearTargetPrice(long ? "buy" : "sell", row.entry, row.init_stop, pip, tp1) ?? tp1)
     : tp1;

@@ -37,7 +37,9 @@ test("a recorded partial blends with where the rest actually closed", () => {
   assert.deepEqual([r.outcome, r.result_pips], ["target", 44]);   // 25% at +25, 75% at +50
 });
 
-test("the trade from the record: 10-14 08:27 sell, booked +120 at the plan, closed at the near target", () => {
+test("a 10-14 08:27 sell booked +120 at the plan: with no broker exit, at the near target from its fill", () => {
+  // The broker's own exit is used whenever its history gives one (about 96% of closes since the reset);
+  // this is only the fallback. The plan's 4138.42 was never reached: the furthest price seen was 4142.35.
   const r = classifyOutcome(gold({ side: "sell", entry: 4150.45, init_stop: 4161.62, tp1: 4138.42, best_price: 4142.35, cur_stop: 4150.0 }), null, "target");
   assert.equal(r.outcome, "target");
   assert.equal(r.result_pips, 56);
