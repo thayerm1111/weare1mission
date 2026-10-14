@@ -115,7 +115,9 @@ seedModule("src/lib/flow/tradelocker", {
   },
   listOrdersHistory: async (_e: string, _t: string, _n: string, accountId: string) => ok(broker.history.get(String(accountId)) ?? []),
 });
-seedModule("src/lib/flow/connection", { connectionToken: async () => ({ ok: true, token: "tok", env: "demo" }) });
+/** Connections that no longer exist (a member reconnected and the old row was deleted): no token for them. */
+export const conns = { gone: new Set<string>() };
+seedModule("src/lib/flow/connection", { connectionToken: async (id: string) => (conns.gone.has(String(id)) ? { ok: false, error: "Connection not found." } : { ok: true, token: "tok", env: "demo" }) });
 seedModule("src/lib/flow/brokerEvidence", { readProtectiveStop: async (_e: string, _t: string, _n: string, _a: string, id: string) => broker.positions.get(String(id))?.sl ?? null });
 seedModule("src/lib/flow/feedPrice", { feedPrice: async () => null });
 seedModule("src/lib/genx/choch", { goldChangeOfCharacter: async () => choch.now });
@@ -155,7 +157,8 @@ export function loadManager(rel = "src/lib/flow/flowManage"): { manageOpenPositi
 /* ── a scenario ───────────────────────────────────────────────────────────────────────────────── */
 let clock = T0, posSeq = 9000;
 export function reset(): void {
-  for (const t of ["flow_managed_positions", "flow_broker_accounts", "flow_partial_operations", "flow_trade_log"]) db[t] = [];
+  for (const t of ["flow_managed_positions", "flow_broker_accounts", "flow_broker_connections", "flow_partial_operations", "flow_trade_log"]) db[t] = [];
+  conns.gone.clear();
   broker.positions.clear(); broker.quotes.clear(); broker.history.clear(); broker.calls.length = 0; broker.pricesOnRow = false; broker.reads = 0; broker.qtyLag = false; broker.closeUncertain = null;
   broker.refuse.modify = null; broker.refuse.close = null; logs.length = 0; choch.now = null; posSeq = 9000;
   schema.noNewColumns = false; schema.flaky = false; fail.tables.clear();

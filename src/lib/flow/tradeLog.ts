@@ -17,6 +17,7 @@ export type TradePhase =
   | "entry_confirmed"      // broker filled + position id resolved (carries latencyMs)
   | "entry_uncertain"      // order request threw (timeout) — recovery will reconcile
   | "adopted"              // orphan position adopted into management
+  | "reattached"           // its connection was replaced (the member reconnected): moved to the account's new one (10-14)
   | "fill_reconciled"      // re-anchored to the real broker fill (carries slippage)
   | "break_even"           // stop moved to entry, broker-confirmed
   | "be_unconfirmed"       // BE modify acked but broker read-back didn't confirm

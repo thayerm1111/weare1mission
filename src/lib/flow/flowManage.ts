@@ -680,6 +680,45 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     return v;
   }
 
+  // A TRADE MOVES WITH ITS ACCOUNT (10-14). Reconnecting a broker writes a new connection and deletes the
+  // old one, and every open trade on it kept pointing at the old one: the manager could not get a token
+  // for it, marked it "token" on every pass and stopped looking after it — no break-even, no trail, no stop
+  // put back. Four live and demo trades on two members' accounts were in that state on 10-14, one for nine
+  // days. When a trade's connection no longer EXISTS, the same account (same member, same account id, same
+  // demo/live) under a connection that does is the same account: the trade is moved there and managed. A
+  // connection that exists but cannot sign in right now is left alone — that is a broker or credential
+  // problem, not a reconnect — and so is a read that fails.
+  const reattachTo = new Map<string, { connection_id: string; acc_num: string } | null>();
+  async function reattach(row: ManagedRow): Promise<boolean> {
+    const k = `${row.connection_id}|${row.user_id}|${row.account_id}|${row.environment}`;
+    let to = reattachTo.get(k);
+    if (to === undefined) {
+      to = null;
+      try {
+        const old = await admin!.from("flow_broker_connections").select("id").eq("id", row.connection_id).maybeSingle();
+        if (!old.error && !old.data) {
+          const accts = await admin!.from("flow_broker_accounts").select("connection_id, acc_num, created_at").eq("user_id", row.user_id).eq("account_id", row.account_id).order("created_at", { ascending: false });
+          for (const a of (accts.error ? [] : (accts.data ?? [])) as Array<{ connection_id: string | null; acc_num: string | number | null }>) {
+            if (!a.connection_id || a.connection_id === row.connection_id || a.acc_num == null) continue;
+            const c = await admin!.from("flow_broker_connections").select("id, environment").eq("id", a.connection_id).maybeSingle();
+            const env = (c.data as { environment?: string | null } | null)?.environment;
+            if (!c.error && c.data && String(env ?? "").toLowerCase() === String(row.environment ?? "").toLowerCase()) { to = { connection_id: a.connection_id, acc_num: String(a.acc_num) }; break; }
+          }
+        }
+      } catch { to = null; }
+      reattachTo.set(k, to);
+    }
+    if (!to) return false;
+    const from = row.connection_id;
+    const { data: moved, error } = await admin!.from("flow_managed_positions")
+      .update({ connection_id: to.connection_id, acc_num: to.acc_num, updated_at: new Date().toISOString() })
+      .eq("id", row.id).eq("connection_id", from).select("id");
+    if (error || !moved?.length) return false;
+    row.connection_id = to.connection_id; row.acc_num = to.acc_num;
+    await logTrade(admin!, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "reattached", reason: "reconnected", detail: { from, to: to.connection_id } });
+    return true;
+  }
+
   // The broker returns positions as columnar arrays; the column ORDER comes from the account
   // config's positionsConfig. Read it once per connection to find the avgPrice (real fill)
   // and unrealizedPl columns — so we never hardcode a fragile index. Falls back to the
@@ -859,7 +898,8 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       lastBeatMs = Date.now();
     }
     try {
-      const tok = await tokenFor(row.connection_id);
+      let tok = await tokenFor(row.connection_id);
+      if (!tok && await reattach(row)) tok = await tokenFor(row.connection_id);
       if (!tok) { await admin.from("flow_managed_positions").update({ last_error: "token", updated_at: new Date().toISOString() }).eq("id", row.id); return; }
 
       const cols = await colsFor(row.connection_id, tok, row.acc_num);
