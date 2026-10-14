@@ -25,9 +25,9 @@ test("gold: a heads-up is not sent for a setup the channel has already been told
   assert.equal(await calledSince(admin(null), k), false);
   assert.equal(await calledSince(admin(null, { message: "timeout" }), k), false);
   assert.equal(await calledSince(admin(null, null, true), k), false);
-  // And the scan asks after the fees are charged, immediately before it would post — the full heads-up, as it was.
+  // And the scan asks after the fees are charged (under the idea's key, genx/setupFee.ts), immediately before it would post — the full heads-up, as it was.
   const scan = src("src/app/api/cron/genx-scan/route.ts");
-  const bill = scan.indexOf("await billSetupForming(admin, dedupeKey, mode)"), ask = scan.indexOf("const called = tgReady && await calledSince(admin, dedupeKey);");
+  const bill = scan.indexOf("await billSetupForming(admin, fee.key, mode)"), ask = scan.indexOf("const called = tgReady && await calledSince(admin, dedupeKey);");
   const post = scan.indexOf("if (tgReady && !called) await sendTelegram(headsUpMsg(side, mode, { entry_low: genx.entry_low, entry_high: genx.entry_high, stop: genx.stop_loss, tp1: genx.tp1, tp2: genx.tp2, confidence: genx.confidence_score }));");
   assert.ok(bill > 0 && ask > bill && post > ask, "bill, then ask, then post");
   assert.equal((scan.match(/sendTelegram\(headsUpMsg\(/g) ?? []).length, 1, "the one place a gold heads-up is posted from");
