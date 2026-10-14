@@ -17,8 +17,8 @@ test("a trail exit a few pips short of the target is not booked as the target â€
   assert.deepEqual(classifyOutcome(row({}), 1.087, "unknown").outcome, "target");
   assert.deepEqual(classifyOutcome(row({}), 1.08696, "unknown").outcome, "target");
   assert.deepEqual(classifyOutcome(row({}), 1.0869, "unknown").outcome, "trail");
-  // The broker saying "take-profit" is always a target.
-  assert.deepEqual([classifyOutcome(row({}), 1.0866, "target").outcome, classifyOutcome(row({}), 1.0866, "target").result_pips], ["target", 30]);
+  // The broker saying "take-profit" is always a target â€” booked where the broker closed it (10-14), not at tp1.
+  assert.deepEqual([classifyOutcome(row({}), 1.0866, "target").outcome, classifyOutcome(row({}), 1.0866, "target").result_pips], ["target", 26]);
   // A sell, and GBP/JPY (pips of 0.01).
   const s = classifyOutcome(row({ side: "sell", entry: 1.084, init_stop: 1.0855, tp1: 1.081, cur_stop: 1.0814 }), 1.0814, "stop");
   assert.deepEqual([s.outcome, s.result_pips], ["trail", 26]);
@@ -27,9 +27,10 @@ test("a trail exit a few pips short of the target is not booked as the target â€
   assert.equal(classifyOutcome(row({ symbol: "GBPJPY", entry: 201.4, init_stop: 201.0, tp1: 202.2 }), 202.196, "unknown").outcome, "target");
 });
 
-test("gold is graded exactly as it was: five gold pips of tolerance", () => {
+test("gold: five gold pips of tolerance call a target â€” booked at its own exit", () => {
   const g = (exit: number) => classifyOutcome(row({ symbol: "XAUUSD", entry: 4300, init_stop: 4292, tp1: 4316, cur_stop: 4315 }), exit, "unknown");
-  assert.deepEqual([g(4315.6).outcome, g(4315.6).result_pips], ["target", 160]);       // 40 cents short: inside the 50-cent tolerance
+  // 40 cents short: inside the 50-cent tolerance, so a target â€” at the +156 it made, not the +160 of the plan (10-14).
+  assert.deepEqual([g(4315.6).outcome, g(4315.6).result_pips, g(4315.6).exit_price], ["target", 156, 4315.6]);
   assert.equal(g(4315.5).outcome, "target");
   assert.equal(g(4315.4).outcome, "trail");
   const src = readFileSync("src/lib/flow/flowManage.ts", "utf8");

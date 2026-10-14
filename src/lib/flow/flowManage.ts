@@ -391,12 +391,23 @@ export function classifyOutcome(
     (exitKnown && (long ? exitPrice! >= tp1 - tpTol : exitPrice! <= tp1 + tpTol))
   );
   const targetHit = exitKnown || reason === "target" ? exitConfirmsTarget : hitTarget;
-  if (row.be_done && targetHit && tp1 != null) {
-    return { outcome: "target", result_pips: blend(signed(tp1)), exit_price: tp1, partial_taken: banked };
+  // BOOKED WHERE IT CLOSED (owner 10-14: "fix whatever you gotta fix"). FLOW parks gold's take-profit at
+  // the near target (nearTarget.ts: half the risk, 30–80 pips) while `tp1` stays GENX's published plan.
+  // A trade the broker closed at that take-profit was booked at tp1 — on gold since the 10-11 reset, 41
+  // trades at +92 pips on average where they banked about half that. A target is booked at the broker's
+  // own exit; without one, at the take-profit that was parked (the near target on gold, else the plan's).
+  const parkedTp = tp1 == null ? null
+    : nearTargetApplies(row.symbol) ? (nearTargetPrice(long ? "buy" : "sell", row.entry, row.init_stop, pip, tp1) ?? tp1)
+    : tp1;
+  const targetPx = exitKnown ? exitPrice! : parkedTp;
+  if (row.be_done && targetHit && targetPx != null) {
+    return { outcome: "target", result_pips: blend(signed(targetPx)), exit_price: targetPx, partial_taken: banked };
   }
 
-  const exit = (exitPrice != null && exitPrice > 0)
-    ? exitPrice
+  // No exit price: a trade the broker says closed at its take-profit closed there, not at its stop.
+  const exit = exitKnown
+    ? exitPrice!
+    : reason === "target" && parkedTp != null ? parkedTp
     : (row.be_done ? (row.cur_stop ?? row.entry) : row.init_stop);
   const exitPips = signed(exit);
 
