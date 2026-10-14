@@ -323,7 +323,7 @@ test("a wick that touched halfway and came back banks nothing", async () => {
   assert.deepEqual(broker.calls, []);
 });
 
-test("a partial the broker refuses is not sent again, the broker is asked about it once a minute, and the stop still follows", async () => {
+test("a partial the broker refuses is not sent again inside the minute, and the stop still follows", async () => {
   reset();
   account("RF", set({ partial_pct: 25, trail_mode: "tight" }));
   const id = trade({ account: "RF", symbol: "XAUUSD", side: "buy", entry: 4000, stop: 3991, tp1: 4017.1, tpAtBroker: 4004.5, qty: 1 });
@@ -332,12 +332,37 @@ test("a partial the broker refuses is not sent again, the broker is asked about 
   assert.deepEqual(closesOf(id), [`close ${id} qty=0.25`]);
   const readsAfterRefusal = broker.reads;
   await walk(M, "XAUUSD", [4003.2, 4003.8, 4004.3]);
-  assert.deepEqual(closesOf(id), [`close ${id} qty=0.25`], "one attempt, ever");
+  assert.deepEqual(closesOf(id), [`close ${id} qty=0.25`], "no second attempt inside the minute");
   assert.equal(broker.reads - readsAfterRefusal, 3, "one positions read per pass — no extra read-back of the refused close");
   assert.deepEqual(modifiesOf(id), [`modify ${id} sl=4001.7`, `modify ${id} sl=4002.3`, `modify ${id} sl=4002.8`], "break-even and Tight carry on");
   assert.equal(ledger(id).partial_done, false);
   assert.equal(ledger(id).partial_px, null, "a close the broker refused is not on record as banked");
   assert.equal(ledger(id).partial_frac, null);
+});
+
+test("a refused partial lets its reservation go: tried again after the minute, and never 'already taken' (10-14)", async () => {
+  reset();
+  account("RF2", set({ partial_pct: 25 }));
+  const id = trade({ account: "RF2", symbol: "XAUUSD", side: "buy", entry: 4000, stop: 3991, tp1: 4017.1, tpAtBroker: 4004.5, qty: 1 });
+  let refusals = 1;
+  broker.refuse.close = () => (refusals-- > 0 ? "Market is closed for this instrument" : null);
+  await pass(M, "XAUUSD", 4002.6);
+  assert.deepEqual(closesOf(id), [`close ${id} qty=0.25`]);
+  assert.deepEqual(T("flow_partial_operations"), [], "nothing was closed, so nothing stays reserved — the member's card can take it");
+  await pass(M, "XAUUSD", 4002.7, 3, 61_000);                       // past the minute: asked again, and banked
+  assert.deepEqual(closesOf(id), [`close ${id} qty=0.25`, `close ${id} qty=0.25`]);
+  assert.equal(ledger(id).partial_done, true);
+  assert.equal(T("flow_partial_operations").length, 1, "the close that happened is reserved for good");
+});
+
+test("a close whose outcome is unknown keeps its reservation: never sent twice", async () => {
+  reset(); broker.closeUncertain = "not_done";
+  account("UNK", set({ partial_pct: 25 }));
+  const id = trade({ account: "UNK", symbol: "XAUUSD", side: "buy", entry: 4000, stop: 3991, tp1: 4017.1, tpAtBroker: 4004.5, qty: 1 });
+  await pass(M, "XAUUSD", 4002.6);
+  await pass(M, "XAUUSD", 4002.7, 3, 61_000);
+  assert.deepEqual(closesOf(id), [`close ${id} qty=0.25`]);
+  assert.equal(T("flow_partial_operations").length, 1);
 });
 
 test("a partial the broker shows a pass late is picked up from the account, graded on what it banked", async () => {

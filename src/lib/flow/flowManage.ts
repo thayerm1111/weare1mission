@@ -1308,6 +1308,11 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
           // (Not when the broker said no: that close never happened, and a later hand-close must not be graded on it.)
           const refused = result.state === "pending" && !!result.error && result.error !== "partial_outcome_unknown";
           if (sentNow && !refused) { update.partial_px = price; update.partial_frac = +(part.qty / brokerQty).toFixed(4); }
+          // THE BROKER SAID NO, SO NOTHING WAS CLOSED (10-14). The reservation is let go: it stood for a close
+          // that never happened, and it told the member's own card "Partial already taken on this trade" and
+          // kept this partial from ever being tried again. It is tried again after the minute's wait below.
+          // A close whose outcome is unknown (a timeout, a 5xx) keeps its reservation, as it always did.
+          if (refused && sentNow) { try { await admin.from("flow_partial_operations").delete().match(identity); } catch { /* kept: not retried, as before */ } }
           if (result.state === "confirmed") {
             partialRecheckAt.delete(partialKey);
             const closedAmt = +(before - result.remaining).toFixed(6);

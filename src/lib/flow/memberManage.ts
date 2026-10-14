@@ -141,6 +141,9 @@ export async function runMemberAction(userId: string, action: MemberAction): Pro
       if (ins.error) { results.push({ account: label(r), ok: false, message: ins.error.code === "23505" ? "Partial already taken on this trade" : "Couldn't reserve the partial — try again" }); continue; }
       const c = await closePosition(tok.env, tok.token, r.acc_num, r.position_id, plan.close);
       if (c.ok) await admin.from("flow_managed_positions").update({ partial_done: true, qty: +((qty as number) - plan.close).toFixed(2), updated_at: new Date().toISOString() }).eq("id", r.id);
+      // Refused by the broker, so nothing was closed: the reservation goes, or the next tap (and the manager's
+      // own partial) would be told "Partial already taken" (10-14). An unknown outcome keeps it.
+      else if (!c.uncertain) { try { await admin.from("flow_partial_operations").delete().match(identity); } catch { /* kept */ } }
       results.push({ account: label(r), ok: c.ok, message: c.ok ? `Closed ${plan.close} lots` : c.error });
       await logTrade(admin, { ...base, phase: c.ok ? "member_partial" : "member_partial_err", reason: c.ok ? "card" : c.error.slice(0, 80), qty: plan.close });
     }
