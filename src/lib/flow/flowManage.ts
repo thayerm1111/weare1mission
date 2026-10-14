@@ -900,7 +900,8 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
     }
     try {
       let tok = await tokenFor(row.connection_id);
-      if (!tok && await reattach(row)) tok = await tokenFor(row.connection_id);
+      let reattached = false;
+      if (!tok && await reattach(row)) { reattached = true; tok = await tokenFor(row.connection_id); }
       if (!tok) { await admin.from("flow_managed_positions").update({ last_error: "token", updated_at: new Date().toISOString() }).eq("id", row.id); return; }
 
       const cols = await colsFor(row.connection_id, tok, row.acc_num);
@@ -962,6 +963,18 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         actions.push({ positionId: row.position_id, symbol: row.symbol, account: row.acc_num, action: "closed", detail: `${oc.outcome}[${rec.reason}] ${oc.result_pips>0?"+":""}${oc.result_pips}p` });
         await logTrade(admin, { position_id: row.position_id, account_id: row.account_id, user_id: row.user_id, symbol: row.symbol, phase: "closed", reason: `${oc.outcome}/${rec.reason}`, price: oc.exit_price, detail: { result_pips: oc.result_pips, partial_taken: oc.partial_taken } });
         return;
+      }
+
+      // PICKED UP WHERE THE MEMBER LEFT IT (10-14 review). A trade just moved to its account's new connection
+      // went unmanaged while the old one was gone, and its member may have moved the stop by hand in that time.
+      // TradeLocker's position rows carry no stop price, so the stop order itself is read, once: break-even
+      // below then adopts a stop already at or past entry instead of pulling it back to entry, and a
+      // take-profit repair sends that stop along rather than the ledger's. Unreadable: managed as before.
+      if (reattached && !st.sl.has(String(row.position_id))) {
+        try {
+          const held = await readProtectiveStop(tok.env, tok.token, row.acc_num, row.account_id, String(row.position_id));
+          if (held != null && held > 0) st.sl.set(String(row.position_id), held);
+        } catch { /* unreadable: nothing adopted */ }
       }
 
       const inst = matchInstrument(contractKey(row.symbol), st.instruments) ?? matchInstrument(row.symbol, st.instruments);

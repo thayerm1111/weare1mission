@@ -47,6 +47,18 @@ test("after a reconnect the trade is moved to the new connection and looked afte
   assert.deepEqual(logs.filter((l) => l.phase === "reattached").map((l) => [l.reason, l.position_id]), [["reconnected", id]]);
 });
 
+test("a stop the member moved past entry while the trade was left alone is kept, not pulled back to break-even", async () => {
+  const id = reconnected({ newConn: "conn-new", accNum: "3" });
+  broker.positions.get(id)!.sl = 4002.5;                           // moved by hand, 25 pips into profit, while unmanaged
+  await walk(M, "XAUUSD", [4004, 4005]);                           // break-even is due, and would sit lower (~4001.7)
+  const r = ledger(id);
+  assert.deepEqual([r.connection_id, r.be_done, Number(r.cur_stop)], ["conn-new", true, 4002.5], "the broker's stop is adopted as break-even");
+  assert.equal(broker.positions.get(id)!.sl, 4002.5, "the member's stop is where they left it");
+  const lowered = broker.calls.filter((c) => c.startsWith(`modify ${id}`) && / sl=/.test(c) && Number(/ sl=([\d.]+)/.exec(c)![1]) < 4002.5);
+  assert.deepEqual(lowered, []);
+  assert.ok(logs.some((l) => l.phase === "break_even" && l.reason === "adopted_from_broker" && l.position_id === id));
+});
+
 test("a connection that still exists but cannot sign in is not a reconnect: nothing is moved", async () => {
   const id = reconnected({ newConn: "conn-new", oldStillThere: true });
   await walk(M, "XAUUSD", [4001, 4003.4]);
