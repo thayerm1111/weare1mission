@@ -47,10 +47,14 @@ test("no browser code reads either table", () => {
 test("every server read goes through the service-role client, which row security does not limit", () => {
   const server = walk("src").filter((f) => /\.tsx?$/.test(f) && TABLES.test(readFileSync(f, "utf8")));
   assert.ok(server.length >= 5);
+  let calls = 0;
   for (const f of server) {
-    const src = readFileSync(f, "utf8");
-    assert.ok(/createAdminClient|admin\b/.test(src), `${f} uses the admin client`);
-    // A user-scoped client (the member's own session) would now read nothing from these tables.
-    assert.doesNotMatch(src, /\b(supabase|sb|client)\s*\.from\(\s*["'](flow_auto_events|genfx_fills)["']/, f);
+    // Every query on either table is made on `admin` — the service-role client these files are handed or
+    // create. A user-scoped client (the member's own session) would now read nothing from them.
+    for (const m of readFileSync(f, "utf8").matchAll(/(\w+)\s*\.\s*from\(\s*["'`](flow_auto_events|genfx_fills)["'`]/g)) {
+      calls += 1;
+      assert.equal(m[1], "admin", `${f}: ${m[0].replace(/\s+/g, " ")}`);
+    }
   }
+  assert.ok(calls >= 20, `found the queries (${calls})`);
 });
