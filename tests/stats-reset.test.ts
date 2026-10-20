@@ -12,8 +12,9 @@ import { trackRecordLines, type TrackRecord } from "../command-center/engines/re
  */
 const code = (f: string) => readFileSync(f, "utf8");
 
-test("the record restarts at 9pm Central on Sunday 10-11 (the owner's second reset that evening)", () => {
-  assert.equal(DEFAULT_STATS_SINCE, "2026-10-12T02:00:00Z");
+test("the record restarts at 12:15pm Central on Tuesday 10-20 (owner: \"complete start from scratch\")", () => {
+  // Before it: 9pm Central on Sunday 10-11 (2026-10-12T02:00Z), the second reset that evening.
+  assert.equal(DEFAULT_STATS_SINCE, "2026-10-20T17:15:00Z");
   assert.equal(viaGenxDefault, DEFAULT_STATS_SINCE, "lib/genx re-exports the one clock");
 });
 
@@ -23,9 +24,11 @@ test("the clock is the later of the code and the env — the env's older reset c
   assert.equal(statsSince(undefined), DEFAULT_STATS_SINCE);
   assert.equal(statsSince(""), DEFAULT_STATS_SINCE);
   assert.equal(statsSince("not a date"), DEFAULT_STATS_SINCE);
-  assert.equal(statsSince(" 2026-10-20T00:00:00Z\n"), "2026-10-20T00:00:00.000Z", "a stray space or newline in the env is not a reason to ignore it");
+  assert.equal(statsSince(" 2026-10-27T00:00:00Z\n"), "2026-10-27T00:00:00.000Z", "a stray space or newline in the env is not a reason to ignore it");
   // A later env still moves the record forward without a deploy.
-  assert.equal(statsSince("2026-10-20T00:00:00Z"), "2026-10-20T00:00:00.000Z");
+  assert.equal(statsSince("2026-10-27T00:00:00Z"), "2026-10-27T00:00:00.000Z");
+  // The previous reset in the env cannot hold the new one back either.
+  assert.equal(statsSince("2026-10-12T02:00:00Z"), DEFAULT_STATS_SINCE);
   const prev = process.env.FLOOR_STATS_SINCE;
   process.env.FLOOR_STATS_SINCE = "2026-09-26T01:45:00Z";
   try { assert.equal(viaGenx(), DEFAULT_STATS_SINCE); } finally { if (prev === undefined) delete process.env.FLOOR_STATS_SINCE; else process.env.FLOOR_STATS_SINCE = prev; }

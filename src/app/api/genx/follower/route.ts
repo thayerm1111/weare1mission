@@ -25,7 +25,7 @@ export async function GET() {
   const admin = createAdminClient();
   if (!admin) return json({ ok: false, record: empty, takenCount: 0, recent: [] });
 
-  const since = statsSince(); // record reset (owner 09-16, 10-11)
+  const since = statsSince(); // record reset (owner 09-16, 10-11, 10-20)
   const [{ data: sigRaw }, { data: fillsRaw }] = await Promise.all([
     admin.from("genx_signals")
       .select("created_at,resolved_at,direction,outcome,entry,stop_loss,tp1,tp2,tp3,stop_pips,tp1_pips,tp2_pips,tp3_pips,tp1_hit,tp2_hit,tp3_hit,mfe_pips")

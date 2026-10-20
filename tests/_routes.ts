@@ -25,11 +25,12 @@ const ROOT = path.resolve(__dirname, "..");
 
 /* ── the clock: fixed, and moved only when a test moves it ────────────────────────────────────── */
 /**
- * Tuesday 13 October 2026, 13:30 UTC — London and New York both open. It sits after the platform's
- * record reset (src/lib/statsClock.ts, 2026-10-11T21:00Z): the results the handlers count are those made
- * at or after it, and a test's calls are made "now". (It was Tuesday 6 October until the 10-11 reset.)
+ * Tuesday 27 October 2026, 13:30 UTC — London and New York both open. It sits after the platform's
+ * record reset (src/lib/statsClock.ts, 2026-10-20T17:15Z): the results the handlers count are those made
+ * at or after it, and a test's calls are made "now". (It was Tuesday 6 October until the 10-11 reset, and
+ * Tuesday 13 October until the 10-20 one.)
  */
-export const T0 = Date.UTC(2026, 9, 13, 13, 30, 0);
+export const T0 = Date.UTC(2026, 9, 27, 13, 30, 0);
 if (T0 < Date.parse(DEFAULT_STATS_SINCE)) throw new Error("harness: T0 must come after the record reset in src/lib/statsClock.ts — move it to a later Tuesday 13:30 UTC");
 mock.timers.enable({ apis: ["Date"], now: T0 });
 export const setNow = (ms: number): void => { mock.timers.setTime(ms); };
