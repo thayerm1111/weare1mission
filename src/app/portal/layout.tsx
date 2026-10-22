@@ -11,6 +11,7 @@ import RiskConsentGate from "@/components/command-center/RiskConsentGate";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getProfile } from "@/lib/auth";
 import { TIER_LABELS } from "@/lib/access";
+import { cashtrapOpenToMembers } from "@/lib/cashtrap/visibility";
 
 export const metadata = { title: "Member Portal", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
@@ -34,6 +35,8 @@ export default async function PortalLayout({ children }: { children: React.React
   const isAdmin = profile?.role === "admin";
   const isOwner = (profile?.email ?? "").toLowerCase() === "thayerm1111@gmail.com";
   const needsApproval = profile != null && !isAdmin && profile.status !== "active";
+  // Cashtrap's menu link: admins always; active members only once it is opened to members.
+  const showCashtrap = isAdmin || (configured && profile?.status === "active" ? await cashtrapOpenToMembers() : false);
 
   return (
     <div className="bg-cream">
@@ -72,7 +75,7 @@ export default async function PortalLayout({ children }: { children: React.React
           </div>
         ) : (
           <div className="portal-shell mt-8 grid gap-5 lg:grid-cols-[188px_1fr] xl:gap-7">
-            <div className="portal-nav">{configured && profile && <PortalNav isAdmin={isAdmin} isOwner={isOwner} />}</div>
+            <div className="portal-nav">{configured && profile && <PortalNav isAdmin={isAdmin} isOwner={isOwner} showCashtrap={showCashtrap} />}</div>
             <div className="min-w-0">{children}</div>
           </div>
         )}

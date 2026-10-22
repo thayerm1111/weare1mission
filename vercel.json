@@ -13,6 +13,8 @@
     { "path": "/api/cron/flow-monitor", "schedule": "*/5 * * * *" },
     { "path": "/api/matty-pips/cron/scan", "schedule": "* * * * *" },
     { "path": "/api/matty-pips/cron/manage", "schedule": "* * * * *" },
-    { "path": "/api/matty-pips/cron/outcomes", "schedule": "*/15 * * * *" }
+    { "path": "/api/matty-pips/cron/outcomes", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/cashtrap", "schedule": "* * * * *" },
+    { "path": "/api/cron/cashtrap?jobs=1", "schedule": "*/5 * * * *" }
   ]
 }

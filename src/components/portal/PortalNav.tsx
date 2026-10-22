@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard, GraduationCap, LineChart, CalendarClock,
   FolderOpen, Users2, Megaphone, UserCircle, ShieldCheck, Network, Video,
-  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair, Radar, LifeBuoy, BarChart3, Smartphone, Gauge, Link2, Timer, ArrowLeftRight,
+  ShoppingBag, Palmtree, Radio, Zap, Activity, ChevronDown, Gem, Hammer, Rocket, Building2, Compass, Trophy, Sparkles, Medal, CreditCard, Ghost, CandlestickChart, Crosshair, Radar, LifeBuoy, BarChart3, Smartphone, Gauge, Link2, Timer, ArrowLeftRight, Target,
 } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof LineChart; exact?: boolean };
@@ -88,7 +88,7 @@ const FLOOR_PAGE_KEYS = FLOOR_CHILDREN.filter((c): c is Extract<FloorChild, { ki
 
 type Side = "ones" | "builders";
 
-export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: boolean; isOwner?: boolean }) {
+export function PortalNav({ isAdmin = false, isOwner = false, showCashtrap = false }: { isAdmin?: boolean; isOwner?: boolean; showCashtrap?: boolean }) {
   const pathname = usePathname();
   const params = useSearchParams();
   const [open, setOpen] = useState(false);
@@ -319,6 +319,15 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
         <NavLink
           item={{ href: "/portal/genx-lab", label: "GENX Lab", icon: Gem }}
           active={pathname.startsWith("/portal/genx-lab")}
+          onNav={() => setOpen(false)}
+        />
+      )}
+
+      {/* Cashtrap — binary CALL/PUT signal provider (admin until the owner opens it to members) */}
+      {(isAdmin || showCashtrap) && (
+        <NavLink
+          item={{ href: "/portal/cashtrap", label: "Cashtrap", icon: Target }}
+          active={pathname.startsWith("/portal/cashtrap")}
           onNav={() => setOpen(false)}
         />
       )}
