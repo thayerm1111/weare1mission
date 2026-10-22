@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { checkHistory, liveFreshness, M5, normalizeRows, splitCompleted, type Candle } from "../src/lib/cashtrap/candles";
 import { isOpen, tolerated } from "../src/lib/cashtrap/marketHours";
-import { configVersion, DEFAULT_ASSUMPTIONS, resolveAssumptions } from "../src/lib/cashtrap/config";
+import { assumptionOverrides, configVersion, DEFAULT_ASSUMPTIONS, resolveAssumptions } from "../src/lib/cashtrap/config";
 import { normalizeSymbol, parseDmiEvent, secretMatches } from "../src/lib/cashtrap/dmiIngest";
 import { cardStatus } from "../src/lib/cashtrap/snapshot";
 import { parseReplayParams } from "../src/lib/cashtrap/jobs";
@@ -98,4 +98,14 @@ test("card status precedence: the signal's own state, then data, then armed/deve
   assert.equal(cardStatus({ ...base, signal: { ...sig, status: "settled", expiryAt: now - 900_000, settlementAt: now - 900_000 } }).status, "WAIT", "an old result no longer shows");
   assert.equal(cardStatus({ ...base, feed: { ...feed, ok: false, reason: "feed is behind" }, signal: null }).status, "DATA_UNAVAILABLE");
   assert.equal(cardStatus({ ...base, feed: { ...feed, open: false, ok: false }, signal: null }).reason, "Market closed.");
+});
+
+test("settings store only what differs from the defaults, so an improved default still reaches untouched settings", () => {
+  assert.deepEqual(assumptionOverrides(DEFAULT_ASSUMPTIONS), {});
+  const r = resolveAssumptions({ tieRule: "loss", payoutRate: 0.85, zones: { halfWidthAtrMult: 0.2 } });
+  assert.ok(r.ok);
+  const o = assumptionOverrides(r.value);
+  assert.deepEqual(o, { tieRule: "loss", payoutRate: 0.85, zones: { halfWidthAtrMult: 0.2 } }, "data timings are not frozen into the stored settings");
+  const back = resolveAssumptions(o);
+  assert.ok(back.ok && JSON.stringify(back.value) === JSON.stringify(r.value), "the overrides resolve to the same configuration");
 });

@@ -156,7 +156,11 @@ Record types are kept apart everywhere: **reference-feed** (live, against Twelve
 * Auth: `Authorization: Bearer <CRON_SECRET>` (Vercel) or `<CASHTRAP_CRON_KEY>`.
 * Restarts: engine state, decisions, setups, signals and alerts are all stored; a new process continues
   where the last stopped. A candle is decided once (state + unique key); a setup publishes at most one
-  signal (unique key); an alert is raised once per key.
+  signal (unique key); a signal is entered, missed or settled only from the status it is in (compare-and-
+  set), so it is settled once even if two runners overlap; an alert is raised once per key. A run whose
+  lock lapsed stops at once, and a run that cannot read its settings never asks for the hand-over.
+* Settings store only what differs from the defaults, so an improved default still applies to every
+  setting the owner has not changed.
 * After downtime: the runner asks the feed for enough candles to fill the gap; up to 24 missed candles
   are decided in order (older ones are skipped, and a setup armed across the outage is recorded as
   cancelled); a confirmation decided more than 60 s after its candle closed is recorded but **not

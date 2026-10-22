@@ -5,7 +5,7 @@ import { DEFAULT_ASSUMPTIONS, effectiveConfig } from "../src/lib/cashtrap/config
 import { cfgWith } from "./_cashtrap";
 import type { CandleFetch, MarketData } from "../src/lib/cashtrap/data";
 import { replay } from "../src/lib/cashtrap/replay";
-import { clearToHandOver, processSymbol, runLoop, settleDue, type ServiceDeps } from "../src/lib/cashtrap/service";
+import { clearToHandOver, processSymbol, runLoop, settleDue, settleOne, type ServiceDeps } from "../src/lib/cashtrap/service";
 import type { SignalRecord as Sig } from "../src/lib/cashtrap/signals";
 import type { Quote } from "../src/lib/cashtrap/signals";
 import { DEFAULT_SETTINGS, MemoryStore } from "../src/lib/cashtrap/store";
@@ -353,4 +353,52 @@ test("candles from a closed market (weekend bars, gold's daily break) never reac
   assert.ok(r.decisions.every((d) => traded.some((k) => k.t === d.candleT)));
   assert.equal(r.decisions.length, traded.length - (cfg.assumptions.data.minWarmupCandles - 1));
   assert.ok(r.decisions.some((d) => d.candleT === Date.UTC(2026, 9, 25, 21, 0)), "Sunday's reopening candle is decided");
+});
+
+/* ── final review: one settlement per signal, a runner that loses its lock stops ──────────────── */
+function openSignal(expiry: number, symbol: CashtrapSymbol = "EURUSD"): Sig {
+  return { dedupeKey: `k-${expiry}`, setupId: `s-${expiry}`, symbol, direction: "CALL", setupCandleT: expiry - 3 * M5, confirmationT: expiry - 2 * M5, confirmedAt: expiry - M5, publishedAt: expiry - 300_000, entryWindowStart: expiry - 300_000, entryDeadline: expiry - 290_000,
+    expiryMode: "duration", expiryDurationSec: 300, expiryAt: expiry, referencePrice: 1.1, referenceAt: expiry - 300_000, referenceSource: "x", settlementPrice: null, settlementAt: null, settlementSource: null,
+    status: "active", result: "pending", recordType: "reference-feed", payoutRate: null, payout: null, exhaustionValues: {} as Sig["exhaustionValues"], confirmationValues: {} as Sig["confirmationValues"], zone: null, strategyVersion: "v", configVersion: "c", notes: [] } as Sig;
+}
+
+test("a signal is settled once: a second runner holding an old copy cannot overwrite the result or alert again", async () => {
+  const all = series(650);
+  const expiry = Date.UTC(2026, 9, 21, 14, 0, 10);                              // Wednesday: open
+  const h = harness(all, expiry + 300);
+  const sig = openSignal(expiry);
+  await h.store.insertSignal(sig);
+  h.feed.quotePx = () => 1.1003;                                                // the first runner sees a win
+  const first = await settleOne(h.deps, sig, cfg);
+  h.feed.quotePx = () => 1.0997;                                                // the second (stale copy) would see a loss
+  const second = await settleOne(h.deps, sig, cfg);
+  assert.equal(first?.result, "win");
+  assert.equal(second, null, "refused: the signal is no longer active");
+  assert.equal([...h.store.signals.values()][0].result, "win");
+  assert.equal(h.store.alerts.filter((a) => a.kind === "outcome").length, 1);
+});
+
+test("a runner whose lock lapses (another run took it) stops at once instead of carrying on beside it", async () => {
+  const all = series(700);
+  const h = harness(all, closeOf(all[640].t) + 9_000);
+  for (const s of ["USDJPY", "EURUSD", "GBPJPY"] as const) h.store.candles.set(s, new Map());
+  const t0 = h.now();
+  let now = t0;
+  const deps: ServiceDeps = { ...h.deps, now: () => now, sleep: async (ms) => { now += ms; if (now - t0 > 15_000) h.store.lock = { holder: "thief", expiresAt: Number.MAX_SAFE_INTEGER }; } };
+  h.feed.now = () => now;
+  const r = await runLoop(deps, { holder: "me", budgetMs: 55_000 });
+  assert.equal(r.lostLock, true);
+  assert.ok(now - t0 < 30_000, `stopped after ${now - t0} ms`);
+  assert.equal(h.store.lock.holder, "thief", "it does not release a lock that is no longer its own");
+});
+
+test("a run that cannot read its settings never asks the current runner to hand over", async () => {
+  const all = series(650);
+  const h = harness(all, closeOf(all[640].t) + 8_000);
+  await h.store.acquireLock("holder", 60_000, h.now());
+  h.store.getSettings = async () => { throw new Error("database blip"); };
+  const r = await runLoop(h.deps, { holder: "next", budgetMs: 30_000, lockWaitMs: 5_000 });
+  assert.equal(r.ran, false);
+  assert.match(String(r.reason), /settings unavailable/);
+  assert.equal(h.store.waiting, null, "no waiting mark, so the holder keeps running");
 });

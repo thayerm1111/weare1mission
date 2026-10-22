@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 import { cashtrapAccess, json } from "@/lib/cashtrap/access";
-import { ASSUMPTION_NOTES, effectiveConfig, resolveAssumptions, SCREENSHOT_SETTINGS } from "@/lib/cashtrap/config";
+import { ASSUMPTION_NOTES, assumptionOverrides, effectiveConfig, resolveAssumptions, SCREENSHOT_SETTINGS } from "@/lib/cashtrap/config";
 import { CHANNELS } from "@/lib/cashtrap/alerts";
 import { revalidateTag } from "next/cache";
 import { CASHTRAP_VISIBILITY_TAG } from "@/lib/cashtrap/visibility";
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   if (b.assumptions !== undefined) {
     const r = resolveAssumptions({ ...a.settings.assumptions, ...(b.assumptions as object) });
     if (!r.ok) return json({ error: "invalid assumptions", details: r.errors }, 400);
-    patch.assumptions = r.value;
+    patch.assumptions = assumptionOverrides(r.value);          // only what differs from the defaults is stored
   }
   if (b.visibility !== undefined) {
     if (b.visibility !== "admin" && b.visibility !== "members") return json({ error: "visibility: admin or members" }, 400);

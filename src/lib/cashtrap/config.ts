@@ -198,6 +198,22 @@ export function resolveAssumptions(input: unknown): { ok: true; value: Assumptio
   return e.length ? { ok: false, errors: e } : { ok: true, value: v };
 }
 
+/**
+ * What to store: only the assumptions that differ from the defaults (nested `zones` / `data` key by key),
+ * so a default improved later still reaches every setting the owner has not changed himself.
+ */
+export function assumptionOverrides(a: Assumptions, d: Assumptions = DEFAULT_ASSUMPTIONS): Partial<Assumptions> {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(a) as Array<keyof Assumptions>) {
+    if (k === "zones" || k === "data") {
+      const sub: Record<string, unknown> = {};
+      for (const [kk, vv] of Object.entries(a[k])) if (JSON.stringify(vv) !== JSON.stringify((d[k] as Record<string, unknown>)[kk])) sub[kk] = vv;
+      if (Object.keys(sub).length) out[k] = sub;
+    } else if (canonical(a[k]) !== canonical(d[k])) out[k] = a[k];
+  }
+  return out as Partial<Assumptions>;
+}
+
 /** Canonical JSON (keys sorted) so the same configuration always hashes the same. */
 function canonical(x: unknown): string {
   if (Array.isArray(x)) return `[${x.map(canonical).join(",")}]`;

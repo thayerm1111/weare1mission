@@ -162,6 +162,10 @@ export class SupabaseStore implements CashtrapStore {
   async updateSignal(s: SignalRecord) {
     must(await this.db.from("cashtrap_signals").update(signalToRow(s)).eq("dedupe_key", s.dedupeKey), "signal update");
   }
+  async transitionSignal(s: SignalRecord, fromStatus: SignalRecord["status"]) {
+    const r = must(await this.db.from("cashtrap_signals").update(signalToRow(s)).eq("dedupe_key", s.dedupeKey).eq("status", fromStatus).select("dedupe_key"), "signal transition");
+    return (r.data ?? []).length > 0;
+  }
   async openSignals() {
     const r = must(await this.db.from("cashtrap_signals").select("*").in("status", ["published", "active"]).limit(200), "open signals");
     return ((r.data ?? []) as SignalRow[]).map(signalFromRow);

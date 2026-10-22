@@ -128,9 +128,9 @@ export async function processSymbol(deps: ServiceDeps, symbol: CashtrapSymbol, s
         // delivery can delay it; then the alerts.
         const q = await data.quote(symbol);
         const entered = acceptEntry(sig, q, cfg);
-        await store.updateSignal(entered);
+        const took = await store.transitionSignal(entered, "published");
         await raise(store, signalAlert(sig), deps.now());
-        await raise(store, entryAlert(entered), deps.now());
+        if (took) await raise(store, entryAlert(entered), deps.now());
       }
     }
     state = res.state;
@@ -185,7 +185,7 @@ export async function settleOne(deps: ServiceDeps, s: SignalRecord, cfg: Effecti
   if (s.status === "published" && now > s.entryDeadline) {
     const missed = acceptEntry(s, null, cfg);
     missed.notes.push("the runner did not take the reference entry inside the window");
-    await deps.store.updateSignal(missed);
+    if (!(await deps.store.transitionSignal(missed, "published"))) return null;   // another runner finished it
     await raise(deps.store, entryAlert(missed), now);
     return missed;
   }
@@ -195,7 +195,8 @@ export async function settleOne(deps: ServiceDeps, s: SignalRecord, cfg: Effecti
     const q = closed ? null : await deps.data.quote(s.symbol);
     const settled = settle(s, q, cfg);
     if (closed) settled.notes = [...settled.notes.filter((n) => n !== "no settlement quote"), "the market was closed at expiry — no settlement price"];
-    await deps.store.updateSignal(settled);
+    // Compare-and-set: a signal is settled once, by whichever runner gets there first — never overwritten.
+    if (!(await deps.store.transitionSignal(settled, "active"))) return null;
     await raise(deps.store, outcomeAlert(settled), deps.now());
     return settled;
   }
@@ -213,7 +214,7 @@ export async function settleDue(deps: ServiceDeps, cfg: EffectiveConfig, busy: S
   return done;
 }
 
-export type LoopResult = { ran: boolean; reason?: string; passes: number; decided: number; published: number; settled: number; notes: string[]; handedOver?: boolean };
+export type LoopResult = { ran: boolean; reason?: string; passes: number; decided: number; published: number; settled: number; notes: string[]; handedOver?: boolean; lostLock?: boolean };
 
 /** How soon a market whose newest candle is not decided yet (feed late, failed or rate-limited) is tried again. */
 export const RETRY_MS = 5_000;
@@ -243,6 +244,11 @@ export async function runLoop(deps: ServiceDeps, opts: { holder: string; budgetM
   const start = deps.now();
   const end = start + opts.budgetMs;
   const minEnd = start + Math.min(opts.minRunMs ?? opts.budgetMs, opts.budgetMs);
+  // Settings first: a run that cannot (or must not) run never asks the current runner to hand over.
+  let settings: CashtrapSettings;
+  try { settings = await store.getSettings(); }
+  catch (e) { return { ...res, reason: `settings unavailable — nothing run: ${e instanceof Error ? e.message : String(e)}` }; }
+  if (!settings.liveEnabled) return { ...res, reason: "Cashtrap live runner is switched off" };
   let got = await store.acquireLock(opts.holder, LOCK_TTL_MS, deps.now());
   while (!got && deps.now() - start < (opts.lockWaitMs ?? 0)) {
     await store.markWaiting(opts.holder, deps.now());
@@ -256,9 +262,8 @@ export async function runLoop(deps: ServiceDeps, opts: { holder: string; budgetM
   const timerAt = new Map<string, number>();
   let stopping = false;
   try {
-    let settings: CashtrapSettings;
-    try { settings = await store.getSettings(); }
-    catch (e) { return { ...res, reason: `settings unavailable — nothing run: ${e instanceof Error ? e.message : String(e)}` }; }
+    // Now holding the lock: take the latest settings if they can be read (else keep the copy above).
+    try { settings = await store.getSettings(); } catch { /* keep the earlier read */ }
     if (!settings.liveEnabled) return { ...res, reason: "Cashtrap live runner is switched off" };
     const cfg = effectiveConfig(settings.assumptions);
     const quotes = new Map<CashtrapSymbol, Quote>();
@@ -281,6 +286,8 @@ export async function runLoop(deps: ServiceDeps, opts: { holder: string; budgetM
             const wait = at - deps.now();
             if (wait > 0) await deps.sleep(wait);
             if (stopping || busy.has(s.dedupeKey)) return;      // handed over: the next runner settles it
+            // Still the runner? (A run whose lock lapsed must not settle what the new runner settles.)
+            if (!(await store.acquireLock(opts.holder, LOCK_TTL_MS, deps.now()))) { stopping = true; res.lostLock = true; return; }
             busy.add(s.dedupeKey);
             try {
               const fresh = (await store.openSignals()).find((x) => x.dedupeKey === s.dedupeKey);
@@ -292,7 +299,7 @@ export async function runLoop(deps: ServiceDeps, opts: { holder: string; budgetM
         })());
       }
     };
-    while (deps.now() < end) {
+    while (deps.now() < end && !stopping) {
       await finished(await settleDue(deps, cfg, busy));
       await schedule();
       if (deps.now() - lastQuotes >= quoteEvery) {
@@ -318,7 +325,7 @@ export async function runLoop(deps: ServiceDeps, opts: { holder: string; budgetM
       } else if (deps.now() - lastQuotes < 1_000) {
         for (const s of CASHTRAP_SYMBOLS) await refreshCard(deps, s, settings, cfg, quotes.get(s) ?? null);
       }
-      await store.acquireLock(opts.holder, LOCK_TTL_MS, deps.now());          // renew
+      if (!(await store.acquireLock(opts.holder, LOCK_TTL_MS, deps.now()))) { res.lostLock = true; break; }   // renew; lost → stop at once
       // Hand over to a waiting runner once this run's minimum is over and nothing of ours is about to settle.
       if (deps.now() >= minEnd && (await store.successorWaiting(opts.holder, deps.now()))) {
         if (clearToHandOver(timerAt.values(), deps.now())) { res.handedOver = true; break; }
@@ -328,7 +335,7 @@ export async function runLoop(deps: ServiceDeps, opts: { holder: string; budgetM
       const wait = Math.max(50, next - deps.now());
       await deps.sleep(Math.min(wait, Math.max(0, end - deps.now())));
     }
-    if (res.handedOver) stopping = true;                 // its later timers are the next runner's to settle
+    if (res.handedOver || res.lostLock) stopping = true;  // its later timers are the next runner's to settle
     else await Promise.all(timers.values());
   } finally {
     await store.releaseLock(opts.holder, deps.now());

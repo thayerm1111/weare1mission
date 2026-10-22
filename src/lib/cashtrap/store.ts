@@ -65,6 +65,8 @@ export interface CashtrapStore {
   /** False when a signal for the same setup already exists (published at most once). */
   insertSignal(s: SignalRecord): Promise<boolean>;
   updateSignal(s: SignalRecord): Promise<void>;
+  /** Move a signal on from `fromStatus` (entry taken, missed, settled) — only if it is still in that status. False when another runner got there first. */
+  transitionSignal(s: SignalRecord, fromStatus: SignalRecord["status"]): Promise<boolean>;
   /** Signals not yet finished (published or active). */
   openSignals(): Promise<SignalRecord[]>;
   latestSignal(symbol: CashtrapSymbol): Promise<SignalRecord | null>;
@@ -138,6 +140,12 @@ export class MemoryStore implements CashtrapStore {
     return true;
   }
   async updateSignal(s: SignalRecord) { this.signals.set(s.dedupeKey, JSON.parse(JSON.stringify(s))); }
+  async transitionSignal(s: SignalRecord, fromStatus: SignalRecord["status"]) {
+    const cur = this.signals.get(s.dedupeKey);
+    if (!cur || cur.status !== fromStatus) return false;
+    this.signals.set(s.dedupeKey, JSON.parse(JSON.stringify(s)));
+    return true;
+  }
   async openSignals() { return [...this.signals.values()].filter((s) => s.status === "published" || s.status === "active").map((s) => JSON.parse(JSON.stringify(s))); }
   async latestSignal(symbol: CashtrapSymbol) { return [...this.signals.values()].filter((s) => s.symbol === symbol).sort((a, b) => b.publishedAt - a.publishedAt)[0] ?? null; }
   async manualZones(symbol: CashtrapSymbol) { return this.manual.filter((z) => z.symbol === symbol).map((z) => ({ ...z })); }
