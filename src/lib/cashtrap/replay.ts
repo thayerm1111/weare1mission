@@ -46,6 +46,8 @@ export type ReplayOptions = {
   /** First candle index to decide; earlier candles are warmup. Default: the configured warmup. */
   startIndex?: number;
   initialState?: EngineState;
+  /** Give the event loop a turn every this many candles (so a long replay never holds up live timers). Results are unchanged. */
+  yieldEvery?: number;
 };
 
 export type ReplayResult = { decisions: Decision[]; setups: SetupRecord[]; signals: SignalRecord[]; state: EngineState };
@@ -80,6 +82,7 @@ export async function replay(o: ReplayOptions): Promise<ReplayResult> {
   const ledger = new Map<string, SetupRecord>();
   const signals: SignalRecord[] = [];
   for (let i = start; i < o.candles.length; i++) {
+    if (o.yieldEvery && (i - start) % o.yieldEvery === 0 && i > start) await new Promise((r) => setTimeout(r, 0));
     if (state.lastT != null && o.candles[i].t <= state.lastT) continue;
     const from = Math.max(0, i + 1 - A.data.windowCandles - A.data.contiguityCandles - 2);
     const decidedAt = closeOf(o.candles[i].t) + o.decisionLatencyMs;

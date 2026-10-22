@@ -36,6 +36,9 @@ export function parseReplayParams(x: unknown): { ok: true; value: ReplayParams }
 }
 
 export async function runNextReplay(db: Admin, key: string, nowMs = Date.now()): Promise<{ id: string; status: string } | null> {
+  // A run that has been "running" for 10 minutes died with its function: mark it failed so it does not hang.
+  await db.from("cashtrap_replay_runs").update({ status: "failed", error: "the replay did not finish (its run was stopped)", finished_at: new Date(nowMs).toISOString() })
+    .eq("status", "running").lt("started_at", new Date(nowMs - 10 * 60_000).toISOString());
   const q = await db.from("cashtrap_replay_runs").select("id, params").eq("status", "queued").order("created_at", { ascending: true }).limit(1);
   const job = ((q.data ?? []) as Array<{ id: string; params: unknown }>)[0];
   if (!job) return null;
@@ -59,6 +62,7 @@ export async function runNextReplay(db: Admin, key: string, nowMs = Date.now()):
         symbol, candles: h.candles, config: cfg, dmiMode: mode, dmiAvailable: mode === "calculation" && dmi.available,
         manualZones: await store.manualZones(symbol),                 // each applies only from when it was marked
         decisionLatencyMs: 0, publishLatencyMs: 0, quotes: new BarOpenProxyQuoteSource({ [symbol]: h.candles.map((k) => ({ t: k.t, o: k.o })) }),
+        yieldEvery: 25,                                             // never holds up the live runner's timers
       });
       bySymbol[symbol] = {
         candles: h.candles.length, feedIssues: h.issues.slice(0, 20),

@@ -150,7 +150,9 @@ Record types are kept apart everywhere: **reference-feed** (live, against Twelve
   immediately; settles each signal at its exact expiry (timers); refreshes prices every 10 s; writes
   the market cards (`cashtrap_snapshots`). If the settings cannot be read, the run does nothing (the
   defaults are never used in their place).
-* `GET /api/cron/cashtrap-jobs` — every 5 minutes: runs the next queued replay.
+* Replays: after its live work, a runner with time left runs the next queued replay (also
+  `GET /api/cron/cashtrap-jobs`, every 5 minutes). A replay gives the event loop a turn every 25 candles,
+  so it never delays a live settlement timer.
 * Auth: `Authorization: Bearer <CRON_SECRET>` (Vercel) or `<CASHTRAP_CRON_KEY>`.
 * Restarts: engine state, decisions, setups, signals and alerts are all stored; a new process continues
   where the last stopped. A candle is decided once (state + unique key); a setup publishes at most one

@@ -323,3 +323,13 @@ test("by default a candle is decided 90 s after its close — the feed finishes 
   assert.equal(due.decided, 1);
   assert.equal([...h.store.decisions.values()].find((d) => d.candleT === all[641].t)?.decidedAt, closeOf(all[641].t) + 90_000);
 });
+
+test("a replay that yields to the event loop as it goes gives exactly the same result", async () => {
+  const all = series(1200, 21);
+  const base = { symbol: "XAUUSD" as const, candles: all, config: cfg, dmiMode: "calculation" as const, dmiAvailable: true, decisionLatencyMs: 0, publishLatencyMs: 0, quotes: null };
+  const a = await replay(base);
+  const b = await replay({ ...base, yieldEvery: 25 });
+  assert.deepEqual(b.decisions, a.decisions);
+  assert.deepEqual(b.setups, a.setups);
+  assert.ok(a.decisions.some((d) => d.status !== "WAIT"));
+});

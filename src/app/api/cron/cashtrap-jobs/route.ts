@@ -26,6 +26,6 @@ export async function GET(req: NextRequest) {
   const key = process.env.TWELVEDATA_API_KEY;
   if (!db || !key) return json({ error: "not_configured" }, 503);
   const r = await runNextReplay(db, key);
-  if (r) console.log(`[cashtrap-jobs] replay ${r.id}: ${r.status}`);
+  console.log(`[cashtrap-jobs] ${r ? `replay ${r.id}: ${r.status}` : "no replay queued"}`);
   return json({ ok: true, replay: r });
 }
