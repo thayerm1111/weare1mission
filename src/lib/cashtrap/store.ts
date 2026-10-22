@@ -1,4 +1,4 @@
-import type { Candle } from "./candles";
+import { tradingCandles, type Candle } from "./candles";
 import { DEFAULT_ASSUMPTIONS, resolveAssumptions, type Assumptions } from "./config";
 import type { DmiEvent, DmiMode } from "./dmi";
 import type { Decision, EngineState } from "./engine";
@@ -112,7 +112,7 @@ export class MemoryStore implements CashtrapStore {
   async successorWaiting(holder: string, nowMs: number) { return !!this.waiting && this.waiting.holder !== holder && this.waiting.expiresAt > nowMs; }
   async getSettings() { return this.settings; }
   async loadCandles(symbol: CashtrapSymbol, limit: number) {
-    const all = [...(this.candles.get(symbol)?.values() ?? [])].sort((a, b) => a.t - b.t);
+    const all = tradingCandles(symbol, [...(this.candles.get(symbol)?.values() ?? [])].sort((a, b) => a.t - b.t));
     return all.slice(Math.max(0, all.length - limit)).map((k) => ({ ...k }));
   }
   async upsertCandles(symbol: CashtrapSymbol, candles: Candle[], _source: string, nowMs: number) {

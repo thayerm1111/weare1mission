@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { closeOf, M5, slotOf, type Candle } from "../src/lib/cashtrap/candles";
+import { closeOf, M5, slotOf, tradingCandles, type Candle } from "../src/lib/cashtrap/candles";
 import { DEFAULT_ASSUMPTIONS, effectiveConfig } from "../src/lib/cashtrap/config";
 import { cfgWith } from "./_cashtrap";
 import type { CandleFetch, MarketData } from "../src/lib/cashtrap/data";
@@ -79,8 +79,10 @@ test("live and replay make identical decisions on the same candles", async () =>
   for (let i = 600; i < 900; i++) { h.at(closeOf(all[i].t) + 8_000); await processSymbol(h.deps, "XAUUSD", h.store.settings, cfg, null); }
   const live = [...h.store.decisions.values()].filter((d) => d.symbol === "XAUUSD").sort((a, b) => a.candleT - b.candleT);
   const r = await replay({ symbol: "XAUUSD", candles: all, config: cfg, dmiMode: "calculation", dmiAvailable: true, decisionLatencyMs: 8_000, publishLatencyMs: 0, quotes: null, startIndex: 599, initialState: { v: 1, symbol: "XAUUSD", lastT: all[598].t, armed: null, needsReset: { BUY: false, SELL: false }, activeSignal: null } });
-  assert.equal(live.length, 301);
-  assert.equal(r.decisions.length, 301);
+  const expected = tradingCandles("XAUUSD", all.slice(599)).length;          // gold's daily-break candles are never decided
+  assert.ok(expected < 301 && expected > 280, `the stretch crosses gold's daily break (${expected} trading candles)`);
+  assert.equal(live.length, expected);
+  assert.equal(r.decisions.length, expected);
   const key = (d: (typeof live)[number]) => JSON.stringify([d.candleT, d.status, d.direction, d.reasonCode, d.setupId, d.zoneId, d.checklist, d.values]);
   for (let i = 0; i < live.length; i++) assert.equal(key(live[i]), key(r.decisions[i]), `candle ${new Date(live[i].candleT).toISOString()}`);
   assert.ok(live.some((d) => d.status !== "WAIT"), "the stretch has setups in it");
@@ -332,4 +334,23 @@ test("a replay that yields to the event loop as it goes gives exactly the same r
   assert.deepEqual(b.decisions, a.decisions);
   assert.deepEqual(b.setups, a.setups);
   assert.ok(a.decisions.some((d) => d.status !== "WAIT"));
+});
+
+test("candles from a closed market (weekend bars, gold's daily break) never reach the engine — not stored, not loaded, not replayed", async () => {
+  const fri = Date.UTC(2026, 9, 23, 20, 30);                                   // Friday 16:30 New York
+  const mk = (t: number, px: number): Candle => ({ t, o: px, h: px + 0.0002, l: px - 0.0002, c: px + 0.0001 });
+  const raw: Candle[] = [];
+  for (let t = fri - 400 * M5; t <= Date.UTC(2026, 9, 25, 21, 30); t += M5) raw.push(mk(t, 1.1 + ((t / M5) % 7) * 0.0001));   // every slot, weekend included
+  const traded = tradingCandles("EURUSD", raw);
+  assert.ok(traded.every((k) => !(k.t > Date.UTC(2026, 9, 23, 21, 0) - 1 && k.t < Date.UTC(2026, 9, 25, 21, 0))), "no weekend candle survives");
+  // the in-memory store loads only trading candles even if closed-market ones were stored
+  const store = new MemoryStore();
+  await store.upsertCandles("EURUSD", raw, "test", Date.now());
+  const loaded = await store.loadCandles("EURUSD", 100_000);
+  assert.deepEqual(loaded.map((k) => k.t), traded.map((k) => k.t));
+  // replay on the raw list decides exactly the trading candles
+  const r = await replay({ symbol: "EURUSD", candles: raw, config: cfg, dmiMode: "off", dmiAvailable: false, decisionLatencyMs: 8_000, publishLatencyMs: 0, quotes: null });
+  assert.ok(r.decisions.every((d) => traded.some((k) => k.t === d.candleT)));
+  assert.equal(r.decisions.length, traded.length - (cfg.assumptions.data.minWarmupCandles - 1));
+  assert.ok(r.decisions.some((d) => d.candleT === Date.UTC(2026, 9, 25, 21, 0)), "Sunday's reopening candle is decided");
 });

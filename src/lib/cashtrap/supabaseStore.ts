@@ -1,5 +1,5 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
-import type { Candle } from "./candles";
+import { tradingCandles, type Candle } from "./candles";
 import type { DmiEvent } from "./dmi";
 import type { Decision, EngineState } from "./engine";
 import type { SetupRecord } from "./replay";
@@ -93,14 +93,16 @@ export class SupabaseStore implements CashtrapStore {
     if (!r.data) throw new Error("cashtrap settings row is missing");
     return settingsFrom(r.data as Record<string, unknown>).settings;
   }
+  /** The newest `limit` trading-hours candles (a stored candle from a closed market is skipped, and reading goes on past it). */
   async loadCandles(symbol: CashtrapSymbol, limit: number): Promise<Candle[]> {
     const out: Candle[] = [];
     const page = 1000;
-    for (let from = 0; from < limit; from += page) {
-      const r = must(await this.db.from("cashtrap_candles").select("t,o,h,l,c").eq("symbol", symbol).order("t", { ascending: false }).range(from, Math.min(limit, from + page) - 1), "candles");
+    for (let from = 0; out.length < limit && from < limit * 4 + 2000; from += page) {
+      const r = must(await this.db.from("cashtrap_candles").select("t,o,h,l,c").eq("symbol", symbol).order("t", { ascending: false }).range(from, from + page - 1), "candles");
       const rows = (r.data ?? []) as Array<{ t: string; o: unknown; h: unknown; l: unknown; c: unknown }>;
-      for (const x of rows) out.push({ t: Date.parse(x.t), o: Number(x.o), h: Number(x.h), l: Number(x.l), c: Number(x.c) });
-      if (rows.length < Math.min(page, limit - from)) break;
+      const got = tradingCandles(symbol, rows.map((x) => ({ t: Date.parse(x.t), o: Number(x.o), h: Number(x.h), l: Number(x.l), c: Number(x.c) })));
+      out.push(...got.slice(0, limit - out.length));
+      if (rows.length < page) break;
     }
     return out.reverse();
   }

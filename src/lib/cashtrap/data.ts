@@ -1,5 +1,5 @@
 import { livePrice, series } from "@/lib/marketData";
-import { normalizeRows, type Candle, type FeedRow } from "./candles";
+import { normalizeRows, tradingCandles, type Candle, type FeedRow } from "./candles";
 import type { Quote } from "./signals";
 import { FEED_NAME, SYMBOL_SPECS, type CashtrapSymbol } from "./symbols";
 
@@ -45,7 +45,7 @@ export class TwelveDataMarketData implements MarketData {
     if (rows === "ratelimit") return { ok: false, reason: "market-data rate limit", fetchedAt };
     if (!Array.isArray(rows) || rows.length === 0) return { ok: false, reason: `no ${td} candles from the feed`, fetchedAt };
     const n = normalizeRows(rows as FeedRow[]);
-    return { ok: true, candles: n.candles, issues: n.issues, fetchedAt };
+    return { ok: true, candles: tradingCandles(symbol, n.candles), issues: n.issues, fetchedAt };
   }
 
   async quote(symbol: CashtrapSymbol): Promise<Quote | null> {
@@ -79,16 +79,16 @@ export async function fetchHistory(symbol: CashtrapSymbol, weeks: number, key: s
         j = await r.json();
       } finally { clearTimeout(timer); }
     } catch (e) { return { ok: false, reason: `history fetch failed: ${e instanceof Error ? e.message : String(e)}` }; }
-    if (j.status === "error" || !Array.isArray(j.values)) return rows.length ? { ...finish(rows, from, nowMs) } : { ok: false, reason: j.message || "the feed refused the history request" };
+    if (j.status === "error" || !Array.isArray(j.values)) return rows.length ? { ...finish(symbol, rows, from, nowMs) } : { ok: false, reason: j.message || "the feed refused the history request" };
     rows.push(...j.values);
     const oldest = Math.min(...j.values.map((v) => Date.parse(String(v.datetime ?? "").replace(" ", "T") + "Z")).filter(Number.isFinite));
     if (!Number.isFinite(oldest) || j.values.length < 5000 || oldest <= from || rows.length >= want * 1.2) break;
     end = new Date(oldest - 1000).toISOString().slice(0, 19).replace("T", " ");
   }
-  return finish(rows, from, nowMs);
+  return finish(symbol, rows, from, nowMs);
 }
-function finish(rows: FeedRow[], from: number, nowMs: number): { ok: true; candles: Candle[]; issues: string[] } {
+function finish(symbol: CashtrapSymbol, rows: FeedRow[], from: number, nowMs: number): { ok: true; candles: Candle[]; issues: string[] } {
   const n = normalizeRows(rows);
   // Only candles closed at least two minutes ago: the feed finishes a 5-minute candle ~60–80 s after it closes.
-  return { ok: true, candles: n.candles.filter((k) => k.t >= from && k.t + 5 * 60_000 + 120_000 <= nowMs), issues: n.issues };
+  return { ok: true, candles: tradingCandles(symbol, n.candles).filter((k) => k.t >= from && k.t + 5 * 60_000 + 120_000 <= nowMs), issues: n.issues };
 }

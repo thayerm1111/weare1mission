@@ -135,6 +135,7 @@ export const ASSUMPTION_NOTES: Array<{ key: string; label: string; origin: "owne
   { key: "tieRule", label: "Equal settlement: recorded as a tie; paid as a refund until the broker's rule is set", origin: "broker-required" },
   { key: "payoutRate", label: "Net payout per win: not set — payouts are not computed until the broker's payout is entered", origin: "broker-required" },
   { key: "data", label: "Data: 250-candle warmup, 500-candle calculation window, no unexpected gaps in the last 12 candles; each candle is decided 90 s after it closes, because the feed's 5-minute candle is final only ~60–80 s after the close; a confirmation decided more than 150 s after its candle closed is recorded but not published", origin: "implementation" },
+  { key: "marketHours", label: "Trading hours (New York time): FX Sunday 17:00 to Friday 17:00; gold from Sunday 18:00 with a daily 17:00–18:00 break. Candles the feed sends outside these hours (it sends weekend bars) are ignored — a normal chart has none", origin: "implementation" },
   { key: "closedMarket", label: "A confirmation is not published when the market is closed at publication or would be closed at expiry (it could not be entered or settled); a settlement time inside a closure is unresolved", origin: "implementation" },
   { key: "dmiEventTiming", label: "Outside DMI events count only if received after their candle closed (an alert fired mid-candle is ignored) and by the time the candle is decided", origin: "implementation" },
 ];

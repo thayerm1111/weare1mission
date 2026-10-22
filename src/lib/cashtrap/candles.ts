@@ -11,6 +11,16 @@ import { SYMBOL_SPECS, type CashtrapSymbol } from "./symbols";
 export const M5 = 5 * 60_000;
 export type Candle = { t: number; o: number; h: number; l: number; c: number };
 
+/**
+ * Only candles from trading hours. TwelveData also sends candles while the market is closed (weekend
+ * bars with small moves, gold's 17:00–18:00 New York break — seen in its history 10-22); a normal
+ * chart has none, so the engine never sees them: they are dropped before storing, when loading, and in replay.
+ */
+export function tradingCandles<T extends { t: number }>(symbol: CashtrapSymbol, candles: T[]): T[] {
+  const hours = SYMBOL_SPECS[symbol].hours;
+  return candles.filter((k) => isOpen(hours, k.t));
+}
+
 /** The candle slot (open time) containing an instant. */
 export const slotOf = (ms: number): number => Math.floor(ms / M5) * M5;
 /** When the candle that opens at `t` closes. */

@@ -1,4 +1,4 @@
-import { closeOf, type Candle } from "./candles";
+import { closeOf, tradingCandles, type Candle } from "./candles";
 import type { EffectiveConfig } from "./config";
 import type { DmiEvent, DmiMode } from "./dmi";
 import { initialState, step, type Decision, type EngineEvent, type EngineState, type ArmedSetup, type Confirmation } from "./engine";
@@ -52,6 +52,13 @@ export type ReplayOptions = {
 
 export type ReplayResult = { decisions: Decision[]; setups: SetupRecord[]; signals: SignalRecord[]; state: EngineState };
 
+/** Where a raw-list index lands in the trading-hours list (the first trading candle at or after it). */
+function tradingIndex(raw: Candle[], trading: Candle[], i: number): number {
+  const t = raw[Math.min(i, raw.length - 1)]?.t ?? Infinity;
+  const j = trading.findIndex((k) => k.t >= t);
+  return j < 0 ? trading.length : j;
+}
+
 /** Apply one step's events to the setup ledger (shared by replay and the live service). */
 export function applyEvents(ledger: Map<string, SetupRecord>, events: EngineEvent[]): Confirmation[] {
   const toPublish: Confirmation[] = [];
@@ -74,7 +81,10 @@ export function applyEvents(ledger: Map<string, SetupRecord>, events: EngineEven
   return toPublish;
 }
 
-export async function replay(o: ReplayOptions): Promise<ReplayResult> {
+export async function replay(input: ReplayOptions): Promise<ReplayResult> {
+  // The engine only ever sees trading-hours candles (as live); indexes below refer to this list.
+  const tc = tradingCandles(input.symbol, input.candles);
+  const o: ReplayOptions = tc.length === input.candles.length ? input : { ...input, candles: tc, startIndex: input.startIndex == null ? undefined : tradingIndex(input.candles, tc, input.startIndex) };
   const A = o.config.assumptions;
   const start = Math.max(o.startIndex ?? A.data.minWarmupCandles - 1, 0);
   let state = o.initialState ?? initialState(o.symbol);

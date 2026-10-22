@@ -188,6 +188,12 @@ A stored candle that later comes back different is updated and **logged** in `ca
 decisions already made are not rewritten. DATA UNAVAILABLE when: market closed, feed behind or not
 answering, rate-limited, warmup too short, or an unexpected gap in the last 12 candles.
 
+**Closed-market candles.** TwelveData also sends candles while the markets are closed — its 8-week
+history (10-22) had a candle for every Saturday slot, with small real moves, and for gold's daily
+17:00–18:00 New York break. A normal chart (e.g. TradingView with an OANDA or FX feed) has none, and
+they would distort every indicator for hours after each weekend, so Cashtrap drops them before storing,
+when loading, and in replay (`tradingCandles`), using the trading hours below.
+
 Quotes: TwelveData `price` has **no timestamp**, so a quote is timestamped when it is **received**.
 
 **Feed timing (measured live 10-22).** TwelveData builds its 5-minute candles from 1-minute bars that
