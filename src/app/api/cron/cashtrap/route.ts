@@ -4,7 +4,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { runLoop } from "@/lib/cashtrap/service";
 import { SupabaseStore } from "@/lib/cashtrap/supabaseStore";
 import { TwelveDataMarketData } from "@/lib/cashtrap/data";
-import { runNextReplay } from "@/lib/cashtrap/jobs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +19,7 @@ export const maxDuration = 300;
  *                               5-minute candle once the feed has finished it (90 s after the close),
  *                               publishes and enters confirmed signals, settles them at their expiry,
  *                               and keeps the market cards fresh.
- *   /api/cron/cashtrap?jobs=1   every 5 minutes — runs the next queued replay/backtest.
+ *   (Replay/backtest runs have their own cron: /api/cron/cashtrap-jobs.)
  * Auth: Authorization: Bearer <CRON_SECRET> (sent by Vercel cron) or <CASHTRAP_CRON_KEY>.
  * Touches only Cashtrap's tables; places no orders.
  */
@@ -37,10 +36,8 @@ export async function GET(req: NextRequest) {
   const db = createAdminClient();
   const key = process.env.TWELVEDATA_API_KEY;
   if (!db || !key) return json({ error: "not_configured", missing: [!db && "SUPABASE_SERVICE_ROLE_KEY", !key && "TWELVEDATA_API_KEY"].filter(Boolean) }, 503);
-  if (new URL(req.url).searchParams.get("jobs") === "1") {
-    const r = await runNextReplay(db, key);
-    return json({ ok: true, replay: r });
-  }
+  // An old "?jobs=1" call (replay jobs now have their own route) must not start a second runner.
+  if (new URL(req.url).searchParams.has("jobs")) return json({ ok: true, moved: "/api/cron/cashtrap-jobs" });
   const store = new SupabaseStore(db);
   const start = Date.now();
   const nextMinute = (Math.floor(start / 60_000) + 1) * 60_000;
@@ -48,5 +45,6 @@ export async function GET(req: NextRequest) {
     { store, data: new TwelveDataMarketData(key), now: () => Date.now(), sleep: (ms) => new Promise((r) => setTimeout(r, ms)), log: (m) => console.log(`[cashtrap] ${m}`) },
     { holder: `cron-${randomUUID()}`, minRunMs: Math.max(10_000, nextMinute + 4_000 - start), budgetMs: Math.max(30_000, nextMinute + 56_000 - start), lockWaitMs: 60_000 },
   );
+  console.log(`[cashtrap] run: ${result.ran ? `${result.passes} pass(es), ${result.decided} decided, ${result.published} published, ${result.settled} settled${result.handedOver ? ", handed over" : ""}` : result.reason}${result.notes.length ? ` · ${result.notes.slice(0, 4).join(" | ")}` : ""}`);
   return json({ ok: true, ...result });
 }
