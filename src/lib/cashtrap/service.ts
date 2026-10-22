@@ -212,27 +212,48 @@ export async function settleDue(deps: ServiceDeps, cfg: EffectiveConfig, busy: S
   return done;
 }
 
-export type LoopResult = { ran: boolean; reason?: string; passes: number; decided: number; published: number; settled: number; notes: string[] };
+export type LoopResult = { ran: boolean; reason?: string; passes: number; decided: number; published: number; settled: number; notes: string[]; handedOver?: boolean };
 
 /** How soon a market whose newest candle is not decided yet (feed late, failed or rate-limited) is tried again. */
 export const RETRY_MS = 5_000;
+/** The lock lapses this long after its last renewal, so a runner that died is replaced quickly. */
+export const LOCK_TTL_MS = 30_000;
+/** A runner hands over only when none of its own settlements is due within this window. */
+export const HANDOVER_CLEAR_MS = 15_000;
+/** May a runner hand over now, given when its pending settlements are due? */
+export function clearToHandOver(dueAts: Iterable<number>, nowMs: number): boolean {
+  for (const at of dueAts) if (at <= nowMs + HANDOVER_CLEAR_MS) return false;
+  return true;
+}
 
 /**
- * The runner: holds the lock for `budgetMs`, decides each 5-minute candle `feedSettleMs` after it
- * closes (trying a market again every RETRY_MS until its candle is decided), keeps prices fresh every
- * `quoteEveryMs`, and wakes exactly at each signal's expiry.
+ * The runner: holds the lock, decides each 5-minute candle `feedSettleMs` after it closes (trying a
+ * market again every RETRY_MS until its candle is decided), keeps prices fresh every `quoteEveryMs`,
+ * and wakes exactly at each signal's expiry.
+ *
+ * HAND-OVER: cron runs start late and at uneven times, so a run does not stop at a fixed moment.
+ * From `minRunMs` on it hands over as soon as the next run is waiting for the lock (and none of its
+ * own settlements is due within HANDOVER_CLEAR_MS); otherwise it carries on until `budgetMs`. A run
+ * waiting for the lock marks itself every second, so there is no gap with nobody running.
  */
-export async function runLoop(deps: ServiceDeps, opts: { holder: string; budgetMs: number; quoteEveryMs?: number; lockWaitMs?: number }): Promise<LoopResult> {
+export async function runLoop(deps: ServiceDeps, opts: { holder: string; budgetMs: number; minRunMs?: number; quoteEveryMs?: number; lockWaitMs?: number }): Promise<LoopResult> {
   const { store } = deps;
   const res: LoopResult = { ran: false, passes: 0, decided: 0, published: 0, settled: 0, notes: [] };
   const start = deps.now();
   const end = start + opts.budgetMs;
-  let got = await store.acquireLock(opts.holder, opts.budgetMs + 15_000, deps.now());
-  while (!got && deps.now() - start < (opts.lockWaitMs ?? 0)) { await deps.sleep(1_000); got = await store.acquireLock(opts.holder, opts.budgetMs + 15_000, deps.now()); }
+  const minEnd = start + Math.min(opts.minRunMs ?? opts.budgetMs, opts.budgetMs);
+  let got = await store.acquireLock(opts.holder, LOCK_TTL_MS, deps.now());
+  while (!got && deps.now() - start < (opts.lockWaitMs ?? 0)) {
+    await store.markWaiting(opts.holder, deps.now());
+    await deps.sleep(1_000);
+    got = await store.acquireLock(opts.holder, LOCK_TTL_MS, deps.now());
+  }
   if (!got) return { ...res, reason: "another runner holds the lock" };
   res.ran = true;
   const busy = new Set<string>();
   const timers = new Map<string, Promise<void>>();
+  const timerAt = new Map<string, number>();
+  let stopping = false;
   try {
     let settings: CashtrapSettings;
     try { settings = await store.getSettings(); }
@@ -253,17 +274,20 @@ export async function runLoop(deps: ServiceDeps, opts: { holder: string; budgetM
       for (const s of await store.openSignals()) {
         const at = s.status === "active" && s.expiryAt != null ? s.expiryAt : s.entryDeadline + 1;
         if (timers.has(s.dedupeKey) || at > end) continue;
+        timerAt.set(s.dedupeKey, at);
         timers.set(s.dedupeKey, (async () => {
-          const wait = at - deps.now();
-          if (wait > 0) await deps.sleep(wait);
-          if (busy.has(s.dedupeKey)) return;
-          busy.add(s.dedupeKey);
           try {
-            const fresh = (await store.openSignals()).find((x) => x.dedupeKey === s.dedupeKey);
-            const r = fresh ? await settleOne(deps, fresh, cfg) : null;
-            if (r) await finished([r]);
-          } catch (e) { res.notes.push(`settle ${s.dedupeKey}: ${e instanceof Error ? e.message : String(e)}`); }
-          finally { busy.delete(s.dedupeKey); }
+            const wait = at - deps.now();
+            if (wait > 0) await deps.sleep(wait);
+            if (stopping || busy.has(s.dedupeKey)) return;      // handed over: the next runner settles it
+            busy.add(s.dedupeKey);
+            try {
+              const fresh = (await store.openSignals()).find((x) => x.dedupeKey === s.dedupeKey);
+              const r = fresh ? await settleOne(deps, fresh, cfg) : null;
+              if (r) await finished([r]);
+            } catch (e) { res.notes.push(`settle ${s.dedupeKey}: ${e instanceof Error ? e.message : String(e)}`); }
+            finally { busy.delete(s.dedupeKey); }
+          } finally { timerAt.delete(s.dedupeKey); }
         })());
       }
     };
@@ -293,13 +317,18 @@ export async function runLoop(deps: ServiceDeps, opts: { holder: string; budgetM
       } else if (deps.now() - lastQuotes < 1_000) {
         for (const s of CASHTRAP_SYMBOLS) await refreshCard(deps, s, settings, cfg, quotes.get(s) ?? null);
       }
-      await store.acquireLock(opts.holder, Math.max(0, end - deps.now()) + 15_000, deps.now());   // renew: lapses 15 s after this run's end
+      await store.acquireLock(opts.holder, LOCK_TTL_MS, deps.now());          // renew
+      // Hand over to a waiting runner once this run's minimum is over and nothing of ours is about to settle.
+      if (deps.now() >= minEnd && (await store.successorWaiting(opts.holder, deps.now()))) {
+        if (clearToHandOver(timerAt.values(), deps.now())) { res.handedOver = true; break; }
+      }
       const retryAt = Math.min(...CASHTRAP_SYMBOLS.filter((s) => (doneSlot.get(s) ?? -Infinity) < slot).map((s) => (lastTry.get(s) ?? -Infinity) + RETRY_MS));
-      const next = Math.min(slotOf(deps.now() - delay) + M5 + delay, lastQuotes + quoteEvery, retryAt, end);
+      const next = Math.min(slotOf(deps.now() - delay) + M5 + delay, lastQuotes + quoteEvery, retryAt, end, deps.now() >= minEnd ? deps.now() + 1_000 : Infinity);
       const wait = Math.max(50, next - deps.now());
       await deps.sleep(Math.min(wait, Math.max(0, end - deps.now())));
     }
-    await Promise.all(timers.values());
+    if (res.handedOver) stopping = true;                 // its later timers are the next runner's to settle
+    else await Promise.all(timers.values());
   } finally {
     await store.releaseLock(opts.holder, deps.now());
   }

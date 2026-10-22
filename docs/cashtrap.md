@@ -139,9 +139,12 @@ Record types are kept apart everywhere: **reference-feed** (live, against Twelve
 
 ## 4. Live runner
 
-* `GET /api/cron/cashtrap` — Vercel cron every minute. Each run holds `cashtrap_lock` until 4 s past
-  the next minute (so an expiry on a minute boundary is settled on time); the next run waits for the
-  lock and takes over — one runner is always alive. It decides each closed candle **8 s after it
+* `GET /api/cron/cashtrap` — Vercel cron every minute (the crons start 10–30 s late and unevenly).
+  One runner at a time holds `cashtrap_lock`. A run lasts at least until 4 s past the next minute (so
+  an expiry on a minute boundary is settled on time), then hands over as soon as the next run is
+  waiting — never while one of its own settlements is due within 15 s — and at the latest 56 s past
+  the next minute. The waiting run marks itself every second, so there is no moment with nobody
+  running; a runner that dies loses the lock within 30 s. It decides each closed candle **8 s after it
   closes**, in order, once; a market whose newest candle could not be decided (feed late, failing or
   rate-limited) is tried again every 5 s; publishes confirmed signals and takes the reference entry
   immediately; settles each signal at its exact expiry (timers); refreshes prices every 10 s; writes
@@ -263,7 +266,7 @@ twice, failures recorded and not retried, old alerts never re-sent late. Credent
 * `cashtrap-service` — **live and replay identical to the bit**, restart continuity, duplicate passes,
   corrections logged, developing candles never decided, late confirmations not published, the lock,
   the DMI grace period, a failed feed retried in time, gaps filled after downtime, an expiry in a
-  closed market unresolved, setups armed across an outage closed on record.
+  closed market unresolved, setups armed across an outage closed on record, the hand-over between runs.
 * `cashtrap-adapters` — feed parsing/duplicates/order, market hours vs gaps, freshness, DMI ingest, config validation.
 * `cashtrap-alerts` — one alert per event, one delivery per channel, failures not retried.
 

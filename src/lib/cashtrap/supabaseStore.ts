@@ -78,6 +78,15 @@ export class SupabaseStore implements CashtrapStore {
   async releaseLock(holder: string, nowMs: number) {
     await this.db.from("cashtrap_lock").update({ holder: null, expires_at: iso(nowMs) }).eq("id", 1).eq("holder", holder);
   }
+  /** Row 2 of cashtrap_lock is the "a run is waiting" mark. */
+  async markWaiting(holder: string, nowMs: number) {
+    await this.db.from("cashtrap_lock").upsert({ id: 2, holder, expires_at: iso(nowMs + 3_000) }, { onConflict: "id" });
+  }
+  async successorWaiting(holder: string, nowMs: number) {
+    const r = await this.db.from("cashtrap_lock").select("holder, expires_at").eq("id", 2).maybeSingle();
+    const w = r.data as { holder: string | null; expires_at: string } | null;
+    return !!w && !!w.holder && w.holder !== holder && Date.parse(w.expires_at) > nowMs;
+  }
   /** Throws when the settings cannot be read — the defaults are never used in their place (they would switch a stopped runner back on). */
   async getSettings(): Promise<CashtrapSettings> {
     const r = must(await this.db.from("cashtrap_settings").select("*").eq("id", 1).maybeSingle(), "settings read");

@@ -4,7 +4,7 @@ import { closeOf, M5, slotOf, type Candle } from "../src/lib/cashtrap/candles";
 import { effectiveConfig } from "../src/lib/cashtrap/config";
 import type { CandleFetch, MarketData } from "../src/lib/cashtrap/data";
 import { replay } from "../src/lib/cashtrap/replay";
-import { processSymbol, runLoop, settleDue, type ServiceDeps } from "../src/lib/cashtrap/service";
+import { clearToHandOver, processSymbol, runLoop, settleDue, type ServiceDeps } from "../src/lib/cashtrap/service";
 import type { SignalRecord as Sig } from "../src/lib/cashtrap/signals";
 import type { Quote } from "../src/lib/cashtrap/signals";
 import { DEFAULT_SETTINGS, MemoryStore } from "../src/lib/cashtrap/store";
@@ -270,4 +270,37 @@ test("candles skipped after a long outage end the armed setup on record (it is n
   const rec = h.store.setups.get(armedLong!.id);
   assert.equal(rec?.status, "cancelled");
   assert.match(String(rec?.reason), /runner was down/);
+});
+
+/* ── hand-over between cron runs ──────────────────────────────────────────────────────────────── */
+test("hand-over: after its minimum run, a runner gives way as soon as the next run is waiting — not before", async () => {
+  const all = series(700);
+  const h = harness(all, closeOf(all[640].t) + 9_000);
+  for (const s of ["USDJPY", "EURUSD", "GBPJPY"] as const) h.store.candles.set(s, new Map());
+  h.store.waiting = { holder: "next", expiresAt: Number.MAX_SAFE_INTEGER };
+  const t0 = h.now();
+  const r = await runLoop(h.deps, { holder: "me", minRunMs: 10_000, budgetMs: 55_000 });
+  assert.equal(r.handedOver, true);
+  assert.ok(h.now() - t0 >= 10_000 && h.now() - t0 < 13_000, `handed over after ${h.now() - t0} ms`);
+  assert.equal(h.store.lock.holder, null, "released for the next run");
+  // With nobody waiting it carries on to the end of its budget.
+  h.store.waiting = null;
+  const t1 = h.now();
+  const r2 = await runLoop(h.deps, { holder: "me", minRunMs: 10_000, budgetMs: 40_000 });
+  assert.equal(r2.handedOver, undefined);
+  assert.ok(h.now() - t1 >= 40_000);
+});
+
+test("a run waiting for the lock marks itself so the holder can hand over; the holder never hands over with a settlement about to fall due", async () => {
+  const all = series(650);
+  const h = harness(all, closeOf(all[640].t) + 8_000);
+  await h.store.acquireLock("holder", 60_000, h.now());
+  const r = await runLoop(h.deps, { holder: "next", budgetMs: 30_000, lockWaitMs: 3_000 });
+  assert.equal(r.ran, false);
+  assert.equal(await h.store.successorWaiting("holder", h.now() - 1_000), true);
+  assert.equal(await h.store.successorWaiting("next", h.now() - 1_000), false, "a run is not its own successor");
+  const now = 1_000_000;
+  assert.equal(clearToHandOver([now + 14_000], now), false, "a settlement due in 14 s keeps it");
+  assert.equal(clearToHandOver([now + 16_000, now + 300_000], now), true);
+  assert.equal(clearToHandOver([], now), true);
 });

@@ -48,6 +48,10 @@ export type AlertRow = AlertInput & { id: number; createdAt: number };
 export interface CashtrapStore {
   acquireLock(holder: string, ttlMs: number, nowMs: number): Promise<boolean>;
   releaseLock(holder: string, nowMs: number): Promise<void>;
+  /** A run waiting for the lock says so (the mark lapses after a few seconds unless renewed). */
+  markWaiting(holder: string, nowMs: number): Promise<void>;
+  /** Is another run waiting for the lock right now? */
+  successorWaiting(holder: string, nowMs: number): Promise<boolean>;
   getSettings(): Promise<CashtrapSettings>;
   /** The most recent `limit` completed candles, oldest → newest. */
   loadCandles(symbol: CashtrapSymbol, limit: number): Promise<Candle[]>;
@@ -103,6 +107,9 @@ export class MemoryStore implements CashtrapStore {
     return true;
   }
   async releaseLock(holder: string, nowMs: number) { if (this.lock.holder === holder) this.lock = { holder: null, expiresAt: nowMs }; }
+  waiting: { holder: string; expiresAt: number } | null = null;
+  async markWaiting(holder: string, nowMs: number) { this.waiting = { holder, expiresAt: nowMs + 3_000 }; }
+  async successorWaiting(holder: string, nowMs: number) { return !!this.waiting && this.waiting.holder !== holder && this.waiting.expiresAt > nowMs; }
   async getSettings() { return this.settings; }
   async loadCandles(symbol: CashtrapSymbol, limit: number) {
     const all = [...(this.candles.get(symbol)?.values() ?? [])].sort((a, b) => a.t - b.t);

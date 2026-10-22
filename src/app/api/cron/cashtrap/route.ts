@@ -12,12 +12,13 @@ export const maxDuration = 300;
 
 /**
  * CASHTRAP RUNNER (Vercel cron).
- *   /api/cron/cashtrap          every minute — holds Cashtrap's own lock until 4 s past the next minute
- *                               (so an expiry on a minute boundary is settled on time), then hands over
- *                               to the next run, which waits for the lock: one runner is always alive.
- *                               It decides each closed 5-minute candle 8 s after it closes, publishes
- *                               and enters confirmed signals, settles them at their expiry, and keeps
- *                               the market cards fresh.
+ *   /api/cron/cashtrap          every minute — one runner at a time on Cashtrap's own lock. A run lasts
+ *                               at least until 4 s past the next minute (so an expiry on a minute
+ *                               boundary is settled on time), then hands over as soon as the next run
+ *                               is waiting (at most until 56 s past the next minute): one runner is
+ *                               always alive, whenever the crons actually start. It decides each closed
+ *                               5-minute candle 8 s after it closes, publishes and enters confirmed
+ *                               signals, settles them at their expiry, and keeps the market cards fresh.
  *   /api/cron/cashtrap?jobs=1   every 5 minutes — runs the next queued replay/backtest.
  * Auth: Authorization: Bearer <CRON_SECRET> (sent by Vercel cron) or <CASHTRAP_CRON_KEY>.
  * Touches only Cashtrap's tables; places no orders.
@@ -41,10 +42,10 @@ export async function GET(req: NextRequest) {
   }
   const store = new SupabaseStore(db);
   const start = Date.now();
-  const budgetMs = Math.max(20_000, (Math.floor(start / 60_000) + 1) * 60_000 + 4_000 - start);
+  const nextMinute = (Math.floor(start / 60_000) + 1) * 60_000;
   const result = await runLoop(
     { store, data: new TwelveDataMarketData(key), now: () => Date.now(), sleep: (ms) => new Promise((r) => setTimeout(r, ms)), log: (m) => console.log(`[cashtrap] ${m}`) },
-    { holder: `cron-${randomUUID()}`, budgetMs, lockWaitMs: 20_000 },
+    { holder: `cron-${randomUUID()}`, minRunMs: Math.max(10_000, nextMinute + 4_000 - start), budgetMs: Math.max(30_000, nextMinute + 56_000 - start), lockWaitMs: 60_000 },
   );
   return json({ ok: true, ...result });
 }
