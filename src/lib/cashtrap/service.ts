@@ -151,7 +151,8 @@ export async function processSymbol(deps: ServiceDeps, symbol: CashtrapSymbol, s
   // The candle still forming: provisional only.
   let dev: Snapshot["developing"] = null;
   const win = trailingWindow(history, A.data.windowCandles);
-  if (developing && fresh.ok && !state.armed && win.length >= A.data.minWarmupCandles) {
+  // (Only when the forming candle directly follows the last completed one — while a closed candle is still settling, there is none.)
+  if (developing && fresh.ok && !state.armed && win.length >= A.data.minWarmupCandles && developing.t === win[win.length - 1].t + M5) {
     const ev = evaluateLast(symbol, [...win.slice(1), developing], cfg, withBreaks(manual, state), { mode: "off", available: false, knownBy: now });
     const dir = ev.buy.exhaustion && !ev.sell.exhaustion ? "BUY" : ev.sell.exhaustion && !ev.buy.exhaustion ? "SELL" : null;
     if (dir) dev = { direction: dir, checklist: (dir === "BUY" ? ev.buy : ev.sell).checklist, values: ev.values, candleT: developing.t };

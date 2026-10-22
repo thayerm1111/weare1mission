@@ -69,7 +69,7 @@ confluence, **not** a probability, and is never turned into one.
 | Settlement quote tolerance | within 5 s after expiry, else UNRESOLVED | implementation |
 | Tie rule | recorded as a tie, paid as a refund | **broker setting needed** |
 | Payout rate | not set → payouts not computed | **broker setting needed** |
-| Data | 250-candle warmup, 500-candle calculation window, no unexpected gap in the last 12 candles, decided 8 s after each close (20 s with an outside DMI feed), published only if decided within 60 s of the close | implementation |
+| Data | 250-candle warmup, 500-candle calculation window, no unexpected gap in the last 12 candles, each candle decided 90 s after it closes (the feed finishes a 5-minute candle ~60–80 s after the close — see section 5), published only if decided within 150 s of the close | implementation |
 | Closed market | no publication when the market is closed at publication or would be at expiry; an expiry inside a closure is unresolved | implementation |
 | Outside DMI events | count only if received after their candle closed and by the time it is decided | implementation |
 
@@ -111,8 +111,8 @@ TradingView alert message: `{"symbol":"{{ticker}}","signal":"B","time":"{{time}}
 (`{{time}}` is the bar's open time, UTC). Creating such alerts needs a version of the script with
 `alertcondition()` for B and S — the pasted version has none. Only the four symbols are accepted — never
 a substitute. An event is used only for the candle it names and only if it arrived by the time that
-candle is decided — in event-feed mode candles are decided 20 s after their close (`data.dmiGraceMs`)
-to give the alert time to arrive; a later event does not count.
+candle is decided (90 s after its close, or `data.dmiGraceMs` if that were longer); a later event does
+not count.
 
 ---
 
@@ -122,7 +122,7 @@ to give the alert time to arrive; a later event does not count.
 |---|---|
 | `setup_candle_t` | open time of the exhaustion candle |
 | `confirmation_t` / `confirmed_at` | open / close time of the candle carrying the DMI event — the confirmation exists at its close |
-| `published_at` | when the runner recorded the signal (always ≥ `confirmed_at`, ~8 s after the close) |
+| `published_at` | when the runner recorded the signal (always ≥ `confirmed_at`; ~90 s after the close, once the feed's candle is final) |
 | `entry_window_start` → `entry_deadline` | publication → publication + 10 s |
 | `reference_price`, `reference_at` | **first quote received at or after publication**, inside the window; never the candle's close, never backdated. None in time → **MISSED** (never a late entry) |
 | `expiry_at` | duration mode: reference entry + 300 s. Fixed mode: the first contract boundary at least N s after entry |
@@ -144,8 +144,8 @@ Record types are kept apart everywhere: **reference-feed** (live, against Twelve
   an expiry on a minute boundary is settled on time), then hands over as soon as the next run is
   waiting — never while one of its own settlements is due within 15 s — and at the latest 56 s past
   the next minute. The waiting run marks itself every second, so there is no moment with nobody
-  running; a runner that dies loses the lock within 30 s. It decides each closed candle **8 s after it
-  closes**, in order, once; a market whose newest candle could not be decided (feed late, failing or
+  running; a runner that dies loses the lock within 30 s. It decides each closed candle **90 s after it
+  closes** (when the feed's candle is final — section 5), in order, once; a market whose newest candle could not be decided (feed late, failing or
   rate-limited) is tried again every 5 s; publishes confirmed signals and takes the reference entry
   immediately; settles each signal at its exact expiry (timers); refreshes prices every 10 s; writes
   the market cards (`cashtrap_snapshots`). If the settings cannot be read, the run does nothing (the
@@ -187,6 +187,15 @@ decisions already made are not rewritten. DATA UNAVAILABLE when: market closed, 
 answering, rate-limited, warmup too short, or an unexpected gap in the last 12 candles.
 
 Quotes: TwelveData `price` has **no timestamp**, so a quote is timestamped when it is **received**.
+
+**Feed timing (measured live 10-22).** TwelveData builds its 5-minute candles from 1-minute bars that
+arrive about a minute late: at 01:42:12 UTC the forming gold candle held only the 01:40 minute. A candle
+read 8–20 s after its close was therefore unfinished — every one was revised ~80 s after the close
+(never later), and one revision moved GBP/JPY's close from 211.732 to 211.740, which had cancelled a
+live setup. So Cashtrap decides each candle 90 s after its close (`data.feedSettleMs`) and publishes
+then. The `price` quote is current (a gold quote at 01:43:52 sat outside the whole 01:42 minute's range),
+so entries and settlements are not delayed. A real-time candle source (the broker's, or a tick stream)
+would let signals go out within seconds of the close; none is connected.
 
 **Limitation:** TwelveData is a general spot feed. It is **not** any binary broker's price stream; a
 broker's quotes — especially synthetic/"OTC" instruments — can differ. Nothing is silently substituted.
@@ -241,7 +250,9 @@ twice, failures recorded and not retried, old alerts never re-sent late. Credent
    minimum time to expiry; what a tie pays; payout per instrument; whether its instruments are real
    market or OTC/synthetic. Until then: expiry 300 s duration (provisional), tie = refund (assumed),
    payout not set, nothing labelled broker-compatible.
-3. *(Optional)* TradingView parity — see below.
+3. **A faster candle source** *(optional)* — with TwelveData, signals go out ~90 s after the candle
+   closes (section 5). Your broker's own price/candle stream, or a tick stream, would cut that to seconds.
+4. *(Optional)* TradingView parity — see below.
 
 ---
 

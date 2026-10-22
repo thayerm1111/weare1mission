@@ -8,6 +8,9 @@ import { FEED_NAME, SYMBOL_SPECS, type CashtrapSymbol } from "./symbols";
  *
  * Feed: TwelveData, through the platform's shared integration (src/lib/marketData.ts — its per-minute
  * credit governor and community cache). Cashtrap always asks for FRESH data (no cached copy).
+ * TIMING (measured live 10-22): the 5-minute candles are built from 1-minute bars that arrive about a
+ * minute late, so the newest candles trail the market by ~60–75 s and a closed candle is final only
+ * ~60–80 s after its close (data.feedSettleMs). The `price` quote is current (it is not built from bars).
  *   • Candles: `time_series`, interval 5min, timezone UTC. Each row's datetime is the candle's OPEN
  *     time in UTC; candles are checked (5-minute boundary, possible prices, no conflicting duplicates)
  *     and sorted, so duplicate or out-of-order rows cannot slip through. The newest row is the candle
@@ -86,6 +89,6 @@ export async function fetchHistory(symbol: CashtrapSymbol, weeks: number, key: s
 }
 function finish(rows: FeedRow[], from: number, nowMs: number): { ok: true; candles: Candle[]; issues: string[] } {
   const n = normalizeRows(rows);
-  // Only candles closed at least a minute ago: a candle that has only just closed may not be final in the feed yet.
-  return { ok: true, candles: n.candles.filter((k) => k.t >= from && k.t + 5 * 60_000 + 60_000 <= nowMs), issues: n.issues };
+  // Only candles closed at least two minutes ago: the feed finishes a 5-minute candle ~60–80 s after it closes.
+  return { ok: true, candles: n.candles.filter((k) => k.t >= from && k.t + 5 * 60_000 + 120_000 <= nowMs), issues: n.issues };
 }

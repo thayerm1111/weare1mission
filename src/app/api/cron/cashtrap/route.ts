@@ -17,8 +17,9 @@ export const maxDuration = 300;
  *                               boundary is settled on time), then hands over as soon as the next run
  *                               is waiting (at most until 56 s past the next minute): one runner is
  *                               always alive, whenever the crons actually start. It decides each closed
- *                               5-minute candle 8 s after it closes, publishes and enters confirmed
- *                               signals, settles them at their expiry, and keeps the market cards fresh.
+ *                               5-minute candle once the feed has finished it (90 s after the close),
+ *                               publishes and enters confirmed signals, settles them at their expiry,
+ *                               and keeps the market cards fresh.
  *   /api/cron/cashtrap?jobs=1   every 5 minutes — runs the next queued replay/backtest.
  * Auth: Authorization: Bearer <CRON_SECRET> (sent by Vercel cron) or <CASHTRAP_CRON_KEY>.
  * Touches only Cashtrap's tables; places no orders.

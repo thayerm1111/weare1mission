@@ -69,7 +69,7 @@ export async function runNextReplay(db: Admin, key: string, nowMs = Date.now()):
     const report = {
       generatedAt: new Date().toISOString(), strategyVersion: cfg.strategyVersion, configVersion: cfg.configVersion, params: p.value,
       dmi: { mode: settings.dmiMode, label: dmi.label },
-      outcomeBasis: "bar-open proxy on TwelveData 5-minute history: entry at the open of the candle after confirmation, settlement at the open of the candle at expiry. Assumes zero publication delay (optimistic); general feed, not broker prices. Simulated records, not broker-verified.",
+      outcomeBasis: "bar-open proxy on TwelveData 5-minute history: entry at the open of the candle after confirmation, settlement at the open of the candle at expiry. Assumes publication at the candle's close — optimistic: live signals are published ~90 s after the close, once the feed's candle is final. General feed, not broker prices. Simulated records, not broker-verified.",
       bySymbol,
     };
     await db.from("cashtrap_replay_runs").update({ status: "done", report, signals: signalsOut, finished_at: new Date().toISOString() }).eq("id", job.id);

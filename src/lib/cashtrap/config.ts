@@ -86,11 +86,16 @@ export type Assumptions = {
     windowCandles: number;
     /** The last this-many completed candles must have no unexpected gaps. */
     contiguityCandles: number;
-    /** Wait this long after a 5-minute boundary before reading the closed candle (the feed needs a few seconds). */
+    /**
+     * Wait this long after a 5-minute candle closes before deciding on it. TwelveData builds its 5-minute
+     * candles from 1-minute bars that arrive about a minute late, so a just-closed candle is final only
+     * ~60–80 s after its close (measured live 10-22: every candle read 8–20 s after its close was revised
+     * by ~80 s, never later).
+     */
     feedSettleMs: number;
     /** When DMI events come from an external feed, wait this long after the close for that candle's event. */
     dmiGraceMs: number;
-    /** A confirmation decided later than this after its candle closed (service lag) is recorded but not published. */
+    /** A confirmation decided later than this after its candle closed (runner down, feed late) is recorded but not published. */
     maxPublishLagMs: number;
   };
 };
@@ -108,7 +113,7 @@ export const DEFAULT_ASSUMPTIONS: Assumptions = Object.freeze({
   settlementToleranceSec: 5,
   tieRule: "refund",
   payoutRate: null,
-  data: { minWarmupCandles: 250, windowCandles: 500, contiguityCandles: 12, feedSettleMs: 8_000, dmiGraceMs: 20_000, maxPublishLagMs: 60_000 },
+  data: { minWarmupCandles: 250, windowCandles: 500, contiguityCandles: 12, feedSettleMs: 90_000, dmiGraceMs: 20_000, maxPublishLagMs: 150_000 },
 }) as Assumptions;
 
 /** What each assumption is, for the dashboard's "rules vs assumptions" panel. */
@@ -129,7 +134,7 @@ export const ASSUMPTION_NOTES: Array<{ key: string; label: string; origin: "owne
   { key: "settlementToleranceSec", label: "Settlement quote must arrive within 5 seconds after expiry, or the result is unresolved", origin: "implementation" },
   { key: "tieRule", label: "Equal settlement: recorded as a tie; paid as a refund until the broker's rule is set", origin: "broker-required" },
   { key: "payoutRate", label: "Net payout per win: not set — payouts are not computed until the broker's payout is entered", origin: "broker-required" },
-  { key: "data", label: "Data: 250-candle warmup, 500-candle calculation window, no unexpected gaps in the last 12 candles, decided 8 s after each close (20 s with an outside DMI event feed); a confirmation decided more than 60 s after its candle closed is recorded but not published", origin: "implementation" },
+  { key: "data", label: "Data: 250-candle warmup, 500-candle calculation window, no unexpected gaps in the last 12 candles; each candle is decided 90 s after it closes, because the feed's 5-minute candle is final only ~60–80 s after the close; a confirmation decided more than 150 s after its candle closed is recorded but not published", origin: "implementation" },
   { key: "closedMarket", label: "A confirmation is not published when the market is closed at publication or would be closed at expiry (it could not be entered or settled); a settlement time inside a closure is unresolved", origin: "implementation" },
   { key: "dmiEventTiming", label: "Outside DMI events count only if received after their candle closed (an alert fired mid-candle is ignored) and by the time the candle is decided", origin: "implementation" },
 ];
@@ -184,9 +189,10 @@ export function resolveAssumptions(input: unknown): { ok: true; value: Assumptio
   if (!isInt(dt.windowCandles, 260, 2000)) e.push("data.windowCandles: 260–2000");
   if (!isInt(dt.minWarmupCandles, 50, dt.windowCandles)) e.push("data.minWarmupCandles: 50 up to data.windowCandles");
   if (!isInt(dt.contiguityCandles, 1, 100)) e.push("data.contiguityCandles: 1–100");
-  if (!isInt(dt.feedSettleMs, 0, 60_000)) e.push("data.feedSettleMs: 0–60000");
+  if (!isInt(dt.feedSettleMs, 0, 180_000)) e.push("data.feedSettleMs: 0–180000");
   if (!isInt(dt.dmiGraceMs, 0, 120_000)) e.push("data.dmiGraceMs: 0–120000");
   if (!isInt(dt.maxPublishLagMs, 5_000, 600_000)) e.push("data.maxPublishLagMs: 5000–600000");
+  else if (isInt(dt.feedSettleMs, 0, 180_000) && dt.maxPublishLagMs < Math.max(dt.feedSettleMs, dt.dmiGraceMs) + 10_000) e.push("data.maxPublishLagMs must be at least 10 s more than the decision delay, or nothing could be published");
   if (z.lookbackCandles + z.pivotLeft + z.pivotRight + z.atrLength > dt.windowCandles) e.push("data.windowCandles must cover the zone lookback plus the ATR warmup");
   return e.length ? { ok: false, errors: e } : { ok: true, value: v };
 }

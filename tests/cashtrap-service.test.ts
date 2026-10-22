@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { closeOf, M5, slotOf, type Candle } from "../src/lib/cashtrap/candles";
-import { effectiveConfig } from "../src/lib/cashtrap/config";
+import { DEFAULT_ASSUMPTIONS, effectiveConfig } from "../src/lib/cashtrap/config";
+import { cfgWith } from "./_cashtrap";
 import type { CandleFetch, MarketData } from "../src/lib/cashtrap/data";
 import { replay } from "../src/lib/cashtrap/replay";
 import { clearToHandOver, processSymbol, runLoop, settleDue, type ServiceDeps } from "../src/lib/cashtrap/service";
@@ -14,7 +15,8 @@ import type { CashtrapSymbol } from "../src/lib/cashtrap/symbols";
  * The live service on an in-memory store and a scripted feed: restarts, duplicates, corrections,
  * publication timing, and — the property everything rests on — the same decisions as replay.
  */
-const cfg = effectiveConfig();
+// The mechanics below run on an 8 s settle time (the default, 90 s, is tested on its own at the end).
+const cfg = cfgWith({ data: { ...DEFAULT_ASSUMPTIONS.data, feedSettleMs: 8_000, maxPublishLagMs: 60_000 } });
 
 /** A deterministic gold-like series on weekdays only (so closures are not gaps). */
 function series(n: number, seed = 5, start = Date.UTC(2026, 9, 5, 0, 0)): Candle[] {
@@ -64,7 +66,7 @@ class ScriptedFeed implements MarketData {
 function harness(all: Candle[], startAt: number) {
   let now = startAt;
   const store = new MemoryStore();
-  store.settings = { ...DEFAULT_SETTINGS };
+  store.settings = { ...DEFAULT_SETTINGS, assumptions: cfg.assumptions };
   const feed = new ScriptedFeed(all, () => now);
   const deps: ServiceDeps = { store, data: feed, now: () => now, sleep: async (ms) => { now += ms; } };
   return { store, feed, deps, at: (t: number) => { now = t; }, now: () => now };
@@ -206,7 +208,7 @@ test("the runner decides the closed candle, keeps the cards fresh, and releases 
 test("with an outside DMI event feed, a candle is decided only after the grace period, so its event can arrive", async () => {
   const all = series(700);
   const h = harness(all, closeOf(all[640].t) + 8_000);
-  h.store.settings = { ...DEFAULT_SETTINGS, dmiMode: "event-feed", dmiFeedVerified: true };
+  h.store.settings = { ...DEFAULT_SETTINGS, assumptions: cfg.assumptions, dmiMode: "event-feed", dmiFeedVerified: true };
   const p1 = await processSymbol(h.deps, "XAUUSD", h.store.settings, cfg, null);
   assert.equal(p1.decided, 0, "8 s after the close: still inside the 20 s grace");
   h.at(closeOf(all[640].t) + 20_000);
@@ -303,4 +305,21 @@ test("a run waiting for the lock marks itself so the holder can hand over; the h
   assert.equal(clearToHandOver([now + 14_000], now), false, "a settlement due in 14 s keeps it");
   assert.equal(clearToHandOver([now + 16_000, now + 300_000], now), true);
   assert.equal(clearToHandOver([], now), true);
+});
+
+test("by default a candle is decided 90 s after its close — the feed finishes a 5-minute candle only ~60–80 s after it closes", async () => {
+  const def = effectiveConfig();
+  assert.equal(def.assumptions.data.feedSettleMs, 90_000);
+  const all = series(700);
+  const h = harness(all, closeOf(all[640].t) + 90_000);
+  h.store.settings = { ...DEFAULT_SETTINGS };
+  await processSymbol(h.deps, "XAUUSD", h.store.settings, def, null);           // first start: candle 640
+  h.at(closeOf(all[641].t) + 60_000);                                              // a minute after 641 closed: not yet
+  const early = await processSymbol(h.deps, "XAUUSD", h.store.settings, def, null);
+  assert.equal(early.decided, 0);
+  assert.equal(early.upToDate, true, "nothing is due before the settle time, so nothing is retried");
+  h.at(closeOf(all[641].t) + 90_000);
+  const due = await processSymbol(h.deps, "XAUUSD", h.store.settings, def, null);
+  assert.equal(due.decided, 1);
+  assert.equal([...h.store.decisions.values()].find((d) => d.candleT === all[641].t)?.decidedAt, closeOf(all[641].t) + 90_000);
 });

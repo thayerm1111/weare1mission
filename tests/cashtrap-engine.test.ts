@@ -221,7 +221,7 @@ test("no repainting: every decision is the same whether or not later candles exi
 
 /* ── review fixes ─────────────────────────────────────────────────────────────────────────────── */
 test("a confirmation decided too late (the runner was down) is recorded, not published — and holds nothing up", () => {
-  const late = stepAt(fresh(), exCandles, [ev(exT, "B")], closeOf(exT) + 75_000);
+  const late = stepAt(fresh(), exCandles, [ev(exT, "B")], closeOf(exT) + cfg.assumptions.data.maxPublishLagMs + 15_000);
   const c = late.events.find((e) => e.type === "confirmed");
   assert.ok(c && c.type === "confirmed" && c.publish === false && /too late to publish/.test(String(c.suppressedReason)));
   assert.equal(late.state.activeSignal, null, "a signal that was never sent does not block the next one");
