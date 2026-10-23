@@ -324,6 +324,15 @@ export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: bool
         />
       )}
 
+      {/* FX Scalper — live automation on the owner's own TradeLocker account (owner only) */}
+      {isOwner && (
+        <NavLink
+          item={{ href: "/portal/fx-scalper", label: "FX Scalper", icon: Timer }}
+          active={pathname.startsWith("/portal/fx-scalper")}
+          onNav={() => setOpen(false)}
+        />
+      )}
+
       {/* My Results — private, honest record of the owner's own live accounts.
           Lives at /admin/results (outside the portal layout, admin-gated by the
           API which 404s non-admins), so a plain full-load <a> like the other

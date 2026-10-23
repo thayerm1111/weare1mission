@@ -16,7 +16,8 @@
     "auric-research": "tsx auric/research/run.ts",
     "auric-bench": "tsx auric/research/bench.ts",
     "rapid-worker": "tsx rapid/worker/index.ts",
-    "rapid-replay": "tsx rapid/research/run.ts"
+    "rapid-replay": "tsx rapid/research/run.ts",
+    "fx-scalper": "tsx fxscalper/worker/index.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
