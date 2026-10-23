@@ -1,4 +1,5 @@
-import { cashtrapAccess, json } from "@/lib/cashtrap/access";
+import { cashtrapAccess, cashtrapGate, json } from "@/lib/cashtrap/access";
+import { lockSnapshot } from "@/lib/cashtrap/lock";
 import { ASSUMPTION_NOTES, effectiveConfig, SCREENSHOT_SETTINGS } from "@/lib/cashtrap/config";
 import { DMI_SOURCE, dmiStatus } from "@/lib/cashtrap/dmi";
 import { CASHTRAP_SYMBOLS, FEED_NAME, SYMBOL_SPECS } from "@/lib/cashtrap/symbols";
@@ -17,7 +18,8 @@ export async function GET() {
   const bySym = new Map(((r.data ?? []) as Array<{ symbol: string; snapshot: Snapshot }>).map((x) => [x.symbol, x.snapshot]));
   const now = Date.now();
   const cfg = effectiveConfig(a.settings.assumptions);
-  const cards = CASHTRAP_SYMBOLS.map((s) => bySym.get(s) ?? null).map((snap, i) => ({
+  const gate = await cashtrapGate(a);
+  const cards = CASHTRAP_SYMBOLS.map((s) => bySym.get(s) ?? null).map((snap) => (gate.open ? snap : lockSnapshot(snap))).map((snap, i) => ({
     symbol: CASHTRAP_SYMBOLS[i], spec: SYMBOL_SPECS[CASHTRAP_SYMBOLS[i]], snapshot: snap,
     stale: snap ? now - snap.updatedAt > 3 * 60_000 : true,
   }));
@@ -33,6 +35,6 @@ export async function GET() {
     dmi: { ...dmiStatus(a.settings.dmiMode, a.settings.dmiFeedVerified), source: DMI_SOURCE },
     config: { strategyVersion: cfg.strategyVersion, configVersion: cfg.configVersion, screenshot: SCREENSHOT_SETTINGS, assumptions: cfg.assumptions, notes: ASSUMPTION_NOTES },
     settings: { visibility: a.settings.visibility, dmiMode: a.settings.dmiMode, liveEnabled: a.settings.liveEnabled },
-    isAdmin: a.isAdmin, unreadAlerts: unread.count ?? 0,
+    isAdmin: a.isAdmin, unreadAlerts: unread.count ?? 0, gate,
   });
 }

@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
-import { cashtrapAccess, json } from "@/lib/cashtrap/access";
+import { cashtrapAccess, cashtrapGate, json } from "@/lib/cashtrap/access";
+import { lockMarket } from "@/lib/cashtrap/lock";
 import { effectiveConfig } from "@/lib/cashtrap/config";
 import { dmiStatus } from "@/lib/cashtrap/dmi";
 import { chartPoints, currentZones } from "@/lib/cashtrap/chart";
@@ -32,10 +33,12 @@ export async function GET(req: NextRequest) {
     a.db.from("cashtrap_decisions").select("*").eq("symbol", symbol).order("candle_t", { ascending: false }).limit(1),
     a.store.snapshot(symbol),
   ]);
-  return json({
+  const gate = await cashtrapGate(a);
+  const full = {
     symbol, spec: SYMBOL_SPECS[symbol], points, zones,
-    setups: setups.data ?? [], signals: ((signals.data ?? []) as Array<Record<string, unknown>>).map(signalFromRow),
+    setups: (setups.data ?? []) as Array<{ id: string; status: string } & Record<string, unknown>>, signals: ((signals.data ?? []) as Array<Record<string, unknown>>).map(signalFromRow),
     decision: ((decision.data ?? []) as Array<Record<string, unknown>>).map(decisionFromRow)[0] ?? null,
-    snapshot: snap, dmi, serverNow: Date.now(),
-  });
+    snapshot: snap, dmi, serverNow: Date.now(), gate,
+  };
+  return json(gate.open ? full : lockMarket(full));
 }

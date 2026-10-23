@@ -10,18 +10,21 @@ import type { SymbolSpec } from "@/lib/cashtrap/symbols";
 import { MarketChart } from "./MarketChart";
 import { CheckIcon, checklistRows, StatusBadge } from "./MarketCard";
 import { usePoll } from "./useCashtrap";
+import { SetupLock } from "@/components/portal/SetupLock";
+import type { SetupGate } from "@/lib/setupLock";
 import { C, countdown, fmt1, fmtPx, localDateTime, localTime, type Status } from "./theme";
 
 type MarketPayload = {
   symbol: string; spec: SymbolSpec; points: ChartPoint[]; zones: Zone[];
   setups: Array<{ id: string; direction: "BUY" | "SELL"; exhaustion_t: string; status: string; reason: string | null; confirm_t: string | null; published: boolean | null; zone: Zone | null }>;
   signals: SignalRecord[]; decision: Decision | null; snapshot: Snapshot | null; dmi: DmiStatus; serverNow: number;
+  gate?: SetupGate;
 };
 
-export function MarketDetail({ symbol, now }: { symbol: string; now: number }) {
+export function MarketDetail({ symbol, now, refresh = 0, onOpened }: { symbol: string; now: number; refresh?: number; onOpened?: () => void }) {
   const [n, setN] = useState(120);
   useEffect(() => { if (typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches) setN(60); }, []);
-  const { data, error } = usePoll<MarketPayload>(`/api/cashtrap/market?symbol=${symbol}&n=${n}`, 20_000, [symbol, n]);
+  const { data, error, reload } = usePoll<MarketPayload>(`/api/cashtrap/market?symbol=${symbol}&n=${n}`, 20_000, [symbol, n, refresh]);
   if (!data) return <div className="rounded-2xl border p-6 text-sm" style={{ borderColor: C.line, background: C.card, color: C.muted }}>{error ? `Could not load ${symbol}: ${error}` : `Loading ${symbol}…`}</div>;
   const spec = data.spec;
   const snap = data.snapshot;
@@ -50,6 +53,9 @@ export function MarketDetail({ symbol, now }: { symbol: string; now: number }) {
           <p className="mt-2 text-[11px]" style={{ color: C.faint }}>Times in your local time zone. Candles: {spec.feedSymbol} 5-minute OHLC from the reference feed (not a broker&apos;s prices). Hollow triangles: armed setups (not signals). Solid: published signals.</p>
         </div>
         <aside className="space-y-3 text-[13px]" style={{ color: C.ink }}>
+          {snap?.status === "LOCKED" && data.gate && !data.gate.open && (
+            <SetupLock tone="light" gate={data.gate} what={`Cashtrap · ${spec.label} — ${snap.reason.includes("forming") ? "setup forming" : "live signal"}`} detail="Which way (CALL or PUT), the timing and the reference entry open with credits." onOpened={() => { onOpened?.(); reload(); }} />
+          )}
           {sig && (sig.status === "published" || sig.status === "active") && (
             <div className="rounded-xl p-3" style={{ background: sig.direction === "CALL" ? C.greenSoft : C.redSoft }}>
               <p className="text-sm font-semibold">{sig.direction} · {sig.status === "active" ? "active" : "entry window open"}</p>
@@ -62,11 +68,11 @@ export function MarketDetail({ symbol, now }: { symbol: string; now: number }) {
             <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.faint }}>Why this status</p>
             <p className="mt-1 leading-snug">{snap?.reason ?? d?.reason ?? "—"}</p>
           </div>
-          <div>
+          {snap?.status !== "LOCKED" && <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.faint }}>Conditions {snap?.direction ? `(${snap.direction === "BUY" ? "CALL" : "PUT"} side)` : ""}</p>
             <ul className="mt-1 space-y-1">{rows.map((r) => <li key={r.label} className="flex items-center gap-2"><CheckIcon state={r.state} />{r.label}</li>)}</ul>
             <p className="mt-1 text-[11px]" style={{ color: C.purple }}>{snap?.checklist ? `${snap.met}/5 met — confluence of related indicators, not a probability.` : ""}</p>
-          </div>
+          </div>}
           {v && (
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.faint }}>Last completed candle ({localTime(v.t)})</p>

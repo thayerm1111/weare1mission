@@ -2,6 +2,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SupabaseStore, type Admin } from "./supabaseStore";
 import type { CashtrapSettings } from "./store";
+import { lookAtSetupAccess } from "@/lib/setupAccess";
+import { SETUP_MINUTES, type SetupGate } from "@/lib/setupLock";
+import { CREDIT_COST } from "@/lib/creditConfig";
 
 /**
  * WHO MAY SEE CASHTRAP. Visibility is a Cashtrap setting: "admin" (default — until the owner opens it)
@@ -27,6 +30,15 @@ export async function cashtrapAccess(opts: { admin?: boolean } = {}): Promise<Ac
   if (opts.admin && !isAdmin) return { ok: false, status: 403, error: "forbidden" };
   if (!isAdmin && !(settings.visibility === "members" && active)) return { ok: false, status: 403, error: "forbidden" };
   return { ok: true, userId: user.id, isAdmin, db, store, settings };
+}
+
+/**
+ * This viewer's window on the live setups (the site's rule — lock.ts): an admin always; a member while a
+ * 5-credit spend, a FLOW Pass or a FLOW fee has it open. Closed when it cannot be read (fails closed).
+ */
+export async function cashtrapGate(a: Extract<Access, { ok: true }>): Promise<SetupGate> {
+  if (a.isAdmin) return { open: true, via: "admin", until: null, cost: CREDIT_COST.genx, minutes: SETUP_MINUTES };
+  return (await lookAtSetupAccess(a.db, a.userId)).gate;
 }
 
 export function json(obj: unknown, status = 200): Response {

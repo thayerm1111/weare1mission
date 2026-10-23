@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
-import { cashtrapAccess, json } from "@/lib/cashtrap/access";
+import { cashtrapAccess, cashtrapGate, json } from "@/lib/cashtrap/access";
+import { lockHistory } from "@/lib/cashtrap/lock";
 import { signalFromRow } from "@/lib/cashtrap/supabaseStore";
 import { isCashtrapSymbol } from "@/lib/cashtrap/symbols";
 
@@ -24,11 +25,14 @@ export async function GET(req: NextRequest) {
   if (symbol && isCashtrapSymbol(symbol)) { sq = sq.eq("symbol", symbol); tq = tq.eq("symbol", symbol); }
   const [sig, set, runs] = await Promise.all([sq, tq, a.db.from("cashtrap_replay_runs").select("id, status, params, report, signals, created_at, finished_at").eq("status", "done").order("created_at", { ascending: false }).limit(1)]);
   const signals = ((sig.data ?? []) as Array<Record<string, unknown>>).map(signalFromRow);
-  return json({
+  const gate = await cashtrapGate(a);
+  const full = {
     referenceFeed: signals.filter((s) => s.recordType === "reference-feed"),
     brokerVerified: signals.filter((s) => s.recordType === "broker-verified"),
     brokerNote: "Broker-verified records need the broker's own entry and settlement data. No broker is connected, so there are none.",
     simulated: ((runs.data ?? []) as Array<Record<string, unknown>>)[0] ?? null,
-    setups: set.data ?? [],
-  });
+    setups: (set.data ?? []) as Array<{ id: string; status: string } & Record<string, unknown>>,
+    gate,
+  };
+  return json(gate.open ? full : lockHistory(full));
 }

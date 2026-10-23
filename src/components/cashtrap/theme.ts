@@ -22,7 +22,7 @@ export const C = {
   amberSoft: "#FBF4E3",
 } as const;
 
-export type Status = "WAIT" | "DEVELOPING" | "ARMED" | "CALL" | "PUT" | "ACTIVE" | "EXPIRED" | "DATA_UNAVAILABLE";
+export type Status = "WAIT" | "DEVELOPING" | "ARMED" | "CALL" | "PUT" | "ACTIVE" | "EXPIRED" | "DATA_UNAVAILABLE" | "LOCKED";
 
 export const STATUS_STYLE: Record<Status, { label: string; fg: string; bg: string; border: string }> = {
   WAIT: { label: "WAIT", fg: C.muted, bg: "#F1F2F6", border: C.line },
@@ -33,6 +33,7 @@ export const STATUS_STYLE: Record<Status, { label: string; fg: string; bg: strin
   ACTIVE: { label: "ACTIVE", fg: C.blue, bg: C.blueSoft, border: C.blue },
   EXPIRED: { label: "EXPIRED", fg: C.muted, bg: "#F1F2F6", border: C.line },
   DATA_UNAVAILABLE: { label: "DATA UNAVAILABLE", fg: C.red, bg: "#FFFFFF", border: "#F0C9C6" },
+  LOCKED: { label: "LIVE · LOCKED", fg: C.amber, bg: C.amberSoft, border: "#EBD7A3" },
 };
 
 export const fmtPx = (px: number | null | undefined, precision: number) => (px == null || !Number.isFinite(px) ? "—" : px.toFixed(precision));

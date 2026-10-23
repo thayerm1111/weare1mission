@@ -2,8 +2,6 @@ import { type NextRequest } from "next/server";
 import { cashtrapAccess, json } from "@/lib/cashtrap/access";
 import { ASSUMPTION_NOTES, assumptionOverrides, effectiveConfig, resolveAssumptions, SCREENSHOT_SETTINGS } from "@/lib/cashtrap/config";
 import { CHANNELS } from "@/lib/cashtrap/alerts";
-import { revalidateTag } from "next/cache";
-import { CASHTRAP_VISIBILITY_TAG } from "@/lib/cashtrap/visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +43,5 @@ export async function POST(req: NextRequest) {
   const up = await a.db.from("cashtrap_settings").update({ ...patch, updated_at: new Date().toISOString(), updated_by: a.userId }).eq("id", 1).select("*");
   if (up.error) return json({ error: up.error.message }, 500);
   await a.db.from("cashtrap_settings_log").insert({ changed_by: a.userId, before_value: before.data ?? null, after_value: (up.data ?? [])[0] ?? null });
-  if (patch.visibility !== undefined) { try { revalidateTag(CASHTRAP_VISIBILITY_TAG); } catch { /* the menu link catches up within a minute */ } }
   return json({ ok: true, settings: (up.data ?? [])[0] });
 }

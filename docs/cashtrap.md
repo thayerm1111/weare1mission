@@ -6,8 +6,18 @@ price feed. **It places no orders and talks to no broker.** It is a separate mod
 (`src/lib/cashtrap`, `src/components/cashtrap`, `src/app/api/cashtrap`, `src/app/api/cron/cashtrap`),
 its own tables (`cashtrap_*`), its own lock. No other tool's logic or tables are touched.
 
-Page: `/portal/cashtrap`. Admins always; active members only after visibility is switched to "members"
-in the admin panel (the menu link then appears for them within a minute).
+Page: **The Floor → Cashtrap tab** (`/portal/trading?view=cashtrap`, also in the Floor menu; the old
+`/portal/cashtrap` redirects there). Admins always; active members while visibility is "members"
+(admin panel).
+
+**Live plays are locked like the site's other live setups (owner 10-23).** One window opens every live
+setup for 30 minutes: a 5-credit spend, a FLOW Pass, or being an admin (`src/lib/setupLock.ts`,
+`setupAccess.ts`; `cashtrapGate()` in `access.ts`). Without a window the server withholds — the page
+is never sent it — which way a live signal or forming setup goes and its reference entry: the card
+says "LIVE · LOCKED", the setups and signals behind the play, an arming/confirming decision, the
+indicator values and DMI events since the setup began, and fresh (under 15 min) armed/signal/entry
+alerts are redacted (`lock.ts`). Prices, the chart's candles, zones, a market that is only waiting,
+settled and missed signals (results) and the replay stay open to every member.
 
 ---
 

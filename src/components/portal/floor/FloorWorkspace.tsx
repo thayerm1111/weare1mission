@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { LayoutGrid, Sparkles, Zap, Activity, TrendingUp, Gem, Link2, Volume2, VolumeX, Maximize2, Minimize2, Brain, Timer, ArrowLeftRight } from "lucide-react";
+import { LayoutGrid, Sparkles, Zap, Activity, TrendingUp, Gem, Link2, Volume2, VolumeX, Maximize2, Minimize2, Brain, Timer, ArrowLeftRight, Target } from "lucide-react";
 import MattyPips from "@/components/matty-pips/MattyPips";
 import { FloorHome } from "./FloorHome";
 import { LivePlays } from "./LivePlays";
@@ -15,6 +15,7 @@ import { OmAiChat } from "../OmAiChat";
 import { SignalGenerator } from "../SignalGenerator";
 import { FlowIntro } from "./FlowTour";
 import RapidDesk from "../rapid/RapidDesk";
+import { CashtrapDashboard } from "@/components/cashtrap/CashtrapDashboard";
 
 /* The Floor workspace — a dark trading-desk shell around the launcher (home) and
    the in-desk tools. Adds: a premium entry transition (with a tasteful WebAudio
@@ -37,6 +38,7 @@ const VIEW_TABS = [
   { id: "matty", label: "Matty Pips" },
   { id: "genx", label: "GENX" },
   { id: "genfx", label: "GEN FX" },
+  { id: "cashtrap", label: "Cashtrap" },   // binary CALL/PUT signals (owner 10-23: on The Floor for members, live plays locked)
   { id: "omai", label: "OM AI" },
   { id: "signals", label: "OM AI Plays" },
   { id: "pulse", label: "Market Pulse" },
@@ -52,6 +54,7 @@ const SWITCHER: SwitchItem[] = [
   { key: "matty", label: "Matty Pips", icon: Brain, view: "matty" },
   { key: "genx", label: "GENX", icon: Gem, view: "genx" },
   { key: "genfx", label: "GEN FX", icon: ArrowLeftRight, view: "genfx" },
+  { key: "cashtrap", label: "Cashtrap", icon: Target, view: "cashtrap" },
   { key: "omai", label: "OM AI", icon: Sparkles, view: "omai" },
   { key: "signals", label: "OM AI Plays", icon: Zap, view: "signals" },
   { key: "pulse", label: "Market Pulse", icon: Activity, view: "pulse" },
@@ -174,6 +177,7 @@ export function FloorWorkspace({ isCaller = false, followerCount = 0 }: { isCall
             {tab === "flow" && <FlowDesk />}
             {tab === "genx" && <GenxDesk />}
             {tab === "genfx" && <GenFxDesk />}
+            {tab === "cashtrap" && <CashtrapDashboard embedded />}
             {tab === "omai" && <OmAiChat />}
             {tab === "signals" && <SignalGenerator />}
             {tab === "plays" && <LivePlays isCaller={isCaller} followerCount={followerCount} />}

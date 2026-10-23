@@ -77,6 +77,7 @@ const FLOOR_CHILDREN: FloorChild[] = [
   { kind: "view", view: "rapid", label: "Rapid", icon: Timer },
   { kind: "page", key: "genx" },
   { kind: "page", key: "genfx" },   // GEN FX — the GENX engine on EUR/USD and GBP/JPY (owner 10-02)
+  { kind: "view", view: "cashtrap", label: "Cashtrap", icon: Target },   // binary CALL/PUT signals — a Floor tab (owner 10-23)
   { kind: "page", key: "xaughost" },
   { kind: "page", key: "omai" },
   { kind: "page", key: "signals" },
@@ -88,7 +89,7 @@ const FLOOR_PAGE_KEYS = FLOOR_CHILDREN.filter((c): c is Extract<FloorChild, { ki
 
 type Side = "ones" | "builders";
 
-export function PortalNav({ isAdmin = false, isOwner = false, showCashtrap = false }: { isAdmin?: boolean; isOwner?: boolean; showCashtrap?: boolean }) {
+export function PortalNav({ isAdmin = false, isOwner = false }: { isAdmin?: boolean; isOwner?: boolean }) {
   const pathname = usePathname();
   const params = useSearchParams();
   const [open, setOpen] = useState(false);
@@ -319,15 +320,6 @@ export function PortalNav({ isAdmin = false, isOwner = false, showCashtrap = fal
         <NavLink
           item={{ href: "/portal/genx-lab", label: "GENX Lab", icon: Gem }}
           active={pathname.startsWith("/portal/genx-lab")}
-          onNav={() => setOpen(false)}
-        />
-      )}
-
-      {/* Cashtrap — binary CALL/PUT signal provider (admin until the owner opens it to members) */}
-      {(isAdmin || showCashtrap) && (
-        <NavLink
-          item={{ href: "/portal/cashtrap", label: "Cashtrap", icon: Target }}
-          active={pathname.startsWith("/portal/cashtrap")}
           onNav={() => setOpen(false)}
         />
       )}

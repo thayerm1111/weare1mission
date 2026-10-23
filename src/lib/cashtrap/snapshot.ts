@@ -18,7 +18,8 @@ import type { CashtrapSymbol } from "./symbols";
  *   WAIT              nothing qualifies
  * "x/5 conditions met" is confluence of related indicators, not a probability of winning.
  */
-export type CardStatus = "WAIT" | "DEVELOPING" | "ARMED" | "CALL" | "PUT" | "ACTIVE" | "EXPIRED" | "DATA_UNAVAILABLE";
+/** LOCKED is never produced by the runner: it is what a member without a window is sent instead of a live play (lock.ts). */
+export type CardStatus = "WAIT" | "DEVELOPING" | "ARMED" | "CALL" | "PUT" | "ACTIVE" | "EXPIRED" | "DATA_UNAVAILABLE" | "LOCKED";
 
 export type Snapshot = {
   symbol: CashtrapSymbol;

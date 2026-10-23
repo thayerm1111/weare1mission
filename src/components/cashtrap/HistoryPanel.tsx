@@ -6,13 +6,13 @@ import { usePoll } from "./useCashtrap";
 import { C, fmtPx, localDateTime, localTime } from "./theme";
 
 type SimRun = { id: string; params: { symbols: string[]; weeks: number; payouts: number[] }; report: { outcomeBasis?: string; bySymbol?: Record<string, unknown>; configVersion?: string; strategyVersion?: string } | null; signals: Record<string, Array<{ d: string; setup: number; conf: number; pub: number; entry: number | null; entryAt: number | null; exp: number | null; settle: number | null; result: string }>> | null; finished_at: string | null };
-type HistoryPayload = { referenceFeed: SignalRecord[]; brokerVerified: SignalRecord[]; brokerNote: string; simulated: SimRun | null; setups: Array<{ id: string; symbol: string; direction: string; exhaustion_t: string; status: string; reason: string | null; published: boolean | null }> };
+type HistoryPayload = { referenceFeed: SignalRecord[]; brokerVerified: SignalRecord[]; brokerNote: string; simulated: SimRun | null; setups: Array<{ id: string; symbol: string; direction: string; exhaustion_t: string; status: string; reason: string | null; published: boolean | null }>; gate?: { open: boolean } };
 
 const RESULT_COLOR: Record<string, string> = { win: C.green, loss: C.red, tie: C.muted, unresolved: C.amber, missed: C.amber, pending: C.blue };
 
-export function HistoryPanel() {
+export function HistoryPanel({ refresh = 0 }: { refresh?: number }) {
   const [tab, setTab] = useState<"reference" | "simulated" | "broker" | "setups">("reference");
-  const { data, error } = usePoll<HistoryPayload>("/api/cashtrap/history?limit=150", 60_000);
+  const { data, error } = usePoll<HistoryPayload>("/api/cashtrap/history?limit=150", 60_000, [refresh]);
   const tabs: Array<[typeof tab, string]> = [["reference", "Reference feed (live)"], ["simulated", "Simulated (replay)"], ["broker", "Broker-verified"], ["setups", "Setups"]];
   return (
     <section className="rounded-2xl border" style={{ borderColor: C.line, background: C.card }}>
@@ -24,6 +24,7 @@ export function HistoryPanel() {
           ))}
         </div>
       </div>
+      {data?.gate && !data.gate.open && <p className="px-4 pt-3 text-[12px]" style={{ color: C.amber }}>A signal or setup still in play is left out until your window on the live setups is open. Results stay here for everyone.</p>}
       <div className="overflow-x-auto p-4">
         {!data ? <p className="text-sm" style={{ color: C.muted }}>{error ? `Could not load history: ${error}` : "Loading…"}</p>
           : tab === "reference" ? <SignalTable rows={data.referenceFeed} empty="No live signals yet." note="Reference-feed records: the entry and settlement are prices from the market-data feed, not a broker. Your own entry and your broker's settlement may differ." />

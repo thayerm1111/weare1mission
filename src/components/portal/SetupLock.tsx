@@ -107,9 +107,11 @@ const TONE = {
   },
 };
 
-export function SetupLock({ what, gate, tone = "dark", onOpened, className = "" }: {
+export function SetupLock({ what, gate, tone = "dark", onOpened, className = "", detail = "Which way, the entry, the stop and the targets open with credits." }: {
   /** What is behind it, as a heading with no direction in it: "GENX · INTRADAY — setup forming". */
   what: string;
+  /** What opens, in words that fit the tool (binary signals have no stop or targets). */
+  detail?: string;
   gate?: SetupGate | null;
   tone?: "dark" | "light";
   /** The window is open: ask for the data again. */
@@ -124,7 +126,7 @@ export function SetupLock({ what, gate, tone = "dark", onOpened, className = "" 
       <p className="inline-flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em]" style={t.what}>
         <Lock className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" /> {what}
       </p>
-      <p className="mt-1.5 text-[12.5px] leading-relaxed" style={t.body}>Which way, the entry, the stop and the targets open with credits.</p>
+      <p className="mt-1.5 text-[12.5px] leading-relaxed" style={t.body}>{detail}</p>
       <button type="button" onClick={() => void open()} disabled={phase !== "idle"} aria-busy={phase !== "idle"}
         className={`mt-3 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[13px] font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${t.btn}`}>
         {phase !== "idle" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}

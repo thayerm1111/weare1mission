@@ -1,5 +1,7 @@
 import { type NextRequest } from "next/server";
-import { cashtrapAccess, json } from "@/lib/cashtrap/access";
+import { cashtrapAccess, cashtrapGate, json } from "@/lib/cashtrap/access";
+import { lockAlerts } from "@/lib/cashtrap/lock";
+import { isCashtrapSymbol, SYMBOL_SPECS } from "@/lib/cashtrap/symbols";
 import { CHANNELS, DEFAULT_ALERT_PREFS } from "@/lib/cashtrap/alerts";
 
 export const runtime = "nodejs";
@@ -18,7 +20,9 @@ export async function GET() {
   const row = (p.data as { prefs?: typeof DEFAULT_PREFS; last_seen_alert_at?: string } | null) ?? null;
   const prefs = { ...DEFAULT_PREFS, ...(row?.prefs ?? {}), kinds: { ...DEFAULT_PREFS.kinds, ...(row?.prefs?.kinds ?? {}) } };
   const r = await a.db.from("cashtrap_alerts").select("id, kind, symbol, title, body, created_at").order("created_at", { ascending: false }).limit(60);
-  const all = (r.data ?? []) as Array<{ id: number; kind: keyof typeof DEFAULT_PREFS.kinds; created_at: string }>;
+  const gate = await cashtrapGate(a);
+  const raw = (r.data ?? []) as Array<{ id: number; kind: keyof typeof DEFAULT_PREFS.kinds; symbol: string | null; title: string; body: string; created_at: string }>;
+  const all = gate.open ? raw : lockAlerts(raw, Date.now(), (s) => (s && isCashtrapSymbol(s) ? SYMBOL_SPECS[s].label : "Cashtrap"));
   const seen = row?.last_seen_alert_at ? Date.parse(row.last_seen_alert_at) : 0;
   const shown = all.filter((x) => prefs.kinds[x.kind] !== false);
   return json({

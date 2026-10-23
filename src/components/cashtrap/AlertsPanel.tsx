@@ -13,9 +13,9 @@ type AlertsPayload = {
 const KIND_LABEL: Record<string, string> = { armed: "Setup armed", signal: "CALL/PUT published", entry: "Reference entry", missed: "Missed entry", outcome: "Outcome", data: "Data problems" };
 
 /** In-app alerts (created once per event by the runner) and this member's choices. */
-export function AlertsPanel() {
+export function AlertsPanel({ refresh = 0 }: { refresh?: number }) {
   const [open, setOpen] = useState(false);
-  const { data, reload } = usePoll<AlertsPayload>("/api/cashtrap/alerts", 15_000);
+  const { data, reload } = usePoll<AlertsPayload>("/api/cashtrap/alerts", 15_000, [refresh]);
   const lastTop = useRef<number | null>(null);
   useEffect(() => {
     const top = data?.alerts[0]?.id ?? null;

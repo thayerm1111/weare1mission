@@ -65,13 +65,18 @@ export function MarketCard({ spec, snap, now, nextCloseAt, selected, onSelect, s
             : <span>{sig.direction} · reference entry window closes in <b className="font-mono">{countdown(sig.entryDeadline - now)}</b></span>}
         </div>
       )}
-      <ul className="space-y-1">
+      {status === "LOCKED" && (
+        <div className="rounded-xl px-3 py-2 text-[12px]" style={{ background: C.amberSoft, color: C.ink }}>
+          Live play on this market — open it with credits above.
+        </div>
+      )}
+      {status !== "LOCKED" && <ul className="space-y-1">
         {rows.map((r) => (
           <li key={r.label} className="flex items-center gap-2 text-[12px]" style={{ color: r.state ? C.ink : C.muted }}>
             <CheckIcon state={r.state} /> {r.label}
           </li>
         ))}
-      </ul>
+      </ul>}
       <p className="text-[11px] font-semibold" style={{ color: C.purple }}>
         {snap?.checklist ? `${snap.met}/5 conditions met` : "—"} <span className="font-normal" style={{ color: C.faint }}>· confluence, not a win probability</span>
       </p>
