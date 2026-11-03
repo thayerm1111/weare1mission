@@ -35,7 +35,9 @@ test('a Pass cancelled at period end still counts until the period actually ends
 });
 
 test('a lapsed Pass is not a Pass', () => {
-  assert.equal(isFlowPass(row({ current_period_end: new Date(Date.now() - 864e5).toISOString() })), false);
+  // Lapsed: past its date by more than the renewal grace (owner 11-02 — a plan an hour or a day past its
+  // date with Stripe still saying active is a renewal on its way, and stays a Pass until the re-sync).
+  assert.equal(isFlowPass(row({ current_period_end: new Date(Date.now() - 2 * 864e5).toISOString() })), false);
 });
 
 test('an unpaid or past_due Pass is not a Pass', () => {

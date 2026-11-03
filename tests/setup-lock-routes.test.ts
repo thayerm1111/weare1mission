@@ -73,7 +73,7 @@ test("who has a window: a read they paid for, a FLOW fee, a Pass, an admin — a
   add(no, "a FLOW fee that cost nothing", (t) => flowFee(t, MIN, { cost: 0 }));
   add(no, "a FLOW fee from 31 minutes ago", (t) => flowFee(t, 31 * MIN));
   add(no, "a Pass that was cancelled", (t) => flowPass(t, { status: "canceled" }));
-  add(no, "a Pass whose period is over", (t) => flowPass(t, { current_period_end: iso(clock - 3600_000) }));
+  add(no, "a Pass whose period is over", (t) => flowPass(t, { current_period_end: iso(clock - 48 * 3600_000) }));
   add(no, "another plan", (t) => flowPass(t, { plan: "trading_suite" }));
   for (const [what, t] of yes) { const r = await floor(t); assert.ok(r.json.g && r.json.setups.open === true && !r.json.locked, what); }
   for (const [what, t] of no) { const r = await floor(t); assert.deepEqual([r.json.g, r.json.setups, typeof r.json.locked?.stage], [null, CLOSED, "string"], what); }

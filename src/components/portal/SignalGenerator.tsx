@@ -527,6 +527,7 @@ export function SignalGenerator() {
           context="signal"
           dir={dive.signal.direction === "LONG" || dive.signal.direction === "SHORT" ? dive.signal.direction : undefined}
           style={dive.style}
+          source="plays"
           onClose={() => setDive(null)}
         />
       )}

@@ -287,7 +287,8 @@ export async function POST(req: NextRequest) {
   if (!found) return json({ error: "unknown_asset" }, 400);
 
   // Credit gate — reject before doing any paid work if the member is out.
-  const gate = await gateCredits("signal", supabase);
+  // OM AI Plays is on the FLOW Pass (owner 11-02); `signal` itself also bills the scalp tool and the scanner.
+  const gate = await gateCredits("signal", supabase, { pass: true });
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
 
@@ -741,7 +742,7 @@ Return the JSON signal now.`;
   signal.strategy_version = "v2-mtf-closedbar";
 
   // Work succeeded — now charge the credit (best-effort; never charged on failure above).
-  const credits = await chargeCredit("signal", supabase);
+  const credits = await chargeCredit("signal", supabase, { pass: true });
 
   // Universal outcome logging (fire-and-safe: never blocks or breaks the signal).
   // Only log ACTUAL trades — a NO_TRADE (gate said "wait") is not a position and

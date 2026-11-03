@@ -1987,6 +1987,79 @@ input{font:inherit}
     </div>`;
   }
 
+  // ── FLOW Pass card (Account screen) ───────────────────────────────────────────
+  // Owner 11-02: "add a cancel button or a pause button for customers. Also add the date they will get
+  // charged... make sure that this is advertised to the customers so they know." The same states and
+  // actions as the site's card (src/components/portal/FlowPassCard.tsx), each confirmed before it is sent.
+  function PassCard() {
+    var sub = useState(null), busy = useState(false), msg = useState(""), confirm = useState(null);
+    function load() { apiGet("/api/subscription").then(function (d) { if (d && d.ok) sub[1](d); }).catch(function () {}); }
+    useEffect(load, []);
+    var s = sub[0];
+    if (!s || !s.pass) return null;
+    var p = s.pass, price = p.price, credits = p.credits;
+    var mine = !!p.mine, paused = mine && !!s.paused, stillPaid = paused && !!p.active;
+    var ending = mine && !!p.active && !paused && !!s.cancelAtPeriodEnd;
+    var running = !!p.active && !paused && !ending;
+    var issue = mine && !p.active && !!s.paymentIssue;
+    function fmt(v) { if (!v) return "—"; var d = new Date(v); return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); }
+    function act(action) {
+      if (busy[0]) return; busy[1](true); msg[1](""); confirm[1](null);
+      apiPost("/api/subscription", { action: action }).then(function (d) {
+        busy[1](false);
+        if (d && d.url) { window.location.href = d.url; return; }
+        if (d && d.error && d.error !== "already_active") msg[1](d.error === "update_failed" || d.error === "checkout_failed" || !d.detail ? "Couldn't update your Pass — try again." : d.detail);
+        load();
+      }).catch(function (e) {
+        busy[1](false);
+        msg[1](e && e.j && e.j.error === "card_declined" ? (e.j.detail || "Your card was declined — nothing was changed.") : "Couldn't update your Pass — try again.");
+        load();
+      });
+    }
+    var tone = running ? "#2ee88f" : ending ? "#ffc24b" : paused ? "#7cc8ff" : issue ? "#ff8a93" : "#ffc24b";
+    var badge = running ? "Active" : ending ? "Ends " + fmt(s.endsAt || s.currentPeriodEnd) : paused ? "Paused" : issue ? "Payment issue" : "$" + price + "/mo";
+    var line = running ? html`Next charge: <b>$${s.nextChargeAmount != null ? s.nextChargeAmount : price}</b> on <b>${fmt(s.nextChargeAt || s.currentPeriodEnd)}</b>. Cancel or pause any time before then.`
+      : ending ? html`Your Pass ends on <b>${fmt(s.endsAt || s.currentPeriodEnd)}</b> — you won't be charged again.`
+      : stillPaid ? html`Billing is paused. Your Pass keeps working until <b>${fmt(s.paidThrough || s.endsAt)}</b>; then no charges and no Pass until you resume.`
+      : paused ? html`Your Pass is paused — no charges. Resume to start a new month today ($${price}).`
+      : issue ? html`Your last Pass payment didn't go through, so the Pass is on hold. Stripe retries the card automatically.`
+      : null;
+    var btn = "flex:1;min-width:0;padding:11px;border-radius:11px;font-size:12.5px;font-weight:800;cursor:pointer";
+    var solid = btn + ";border:0;background:linear-gradient(135deg,#ffd27a,#ffb52e);color:#20160a";
+    var ghost = btn + ";border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.05);color:#fff";
+    var showManage = running || ending || paused;
+    return html`<div style=${"margin-top:12px;border-radius:16px;border:1px solid " + tone + "66;background:linear-gradient(150deg,rgba(255,194,75,.08),rgba(8,16,32,.35));padding:15px"}>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div style="font-size:14px;font-weight:900;color:#fff">∞ FLOW Pass</div>
+        <span style=${"font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;color:" + tone + ";background:" + tone + "22"}>${badge}</span>
+      </div>
+      ${line ? html`<div style="margin-top:10px;font-size:12px;line-height:1.5;color:rgba(255,255,255,.85);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:9px 11px">📅 ${line}</div>` : null}
+      <div style="margin-top:10px;font-size:11.5px;line-height:1.6;color:rgba(255,255,255,.7)">
+        <div>✓ <b style="color:#fff">Unlimited GENX and GEN FX</b> — every read and setup, no credits</div>
+        <div>✓ <b style="color:#fff">Unlimited OM AI Plays</b> — plays and their full breakdown, no credits</div>
+        <div>✓ <b style="color:#fff">FLOW runs all month</b> — every trade, never paused for credits</div>
+        <div>✓ <b style="color:#fff">${credits} credits a month</b> for everything else — ATLAS and the other tools still use credits</div>
+      </div>
+      ${confirm[0] === "cancel" ? html`<div style="margin-top:10px;font-size:12px;line-height:1.5;color:#fff;background:rgba(255,194,75,.1);border:1px solid rgba(255,194,75,.3);border-radius:10px;padding:10px 11px">
+          Cancel your FLOW Pass? ${running || stillPaid ? html`It keeps working until <b>${fmt(s.paidThrough || s.currentPeriodEnd)}</b> and won't renew.` : "It ends now; you won't be charged."}
+          <div style="margin-top:8px;display:flex;gap:8px"><button style=${solid} disabled=${busy[0]} onClick=${function () { act("cancel"); }}>${busy[0] ? "…" : "Yes, cancel"}</button><button style=${ghost} onClick=${function () { confirm[1](null); }}>Keep it</button></div>
+        </div>`
+      : confirm[0] === "pause" ? html`<div style="margin-top:10px;font-size:12px;line-height:1.5;color:#fff;background:rgba(124,200,255,.1);border:1px solid rgba(124,200,255,.3);border-radius:10px;padding:10px 11px">
+          Pause billing? Your Pass keeps working until <b>${fmt(s.currentPeriodEnd)}</b>. After that there are no charges and no Pass until you tap Resume.
+          <div style="margin-top:8px;display:flex;gap:8px"><button style=${solid} disabled=${busy[0]} onClick=${function () { act("pause"); }}>${busy[0] ? "…" : "Pause billing"}</button><button style=${ghost} onClick=${function () { confirm[1](null); }}>Never mind</button></div>
+        </div>`
+      : showManage ? html`<div style="margin-top:11px;display:flex;gap:8px">
+          ${running ? html`<button style=${ghost} onClick=${function () { confirm[1]("pause"); }}>⏸ Pause billing</button><button style=${ghost} onClick=${function () { confirm[1]("cancel"); }}>Cancel Pass</button>` : null}
+          ${ending ? html`<button style=${solid} disabled=${busy[0]} onClick=${function () { act("resume"); }}>${busy[0] ? "…" : "Keep my Pass"}</button>` : null}
+          ${paused ? html`<button style=${solid} disabled=${busy[0]} onClick=${function () { act("unpause"); }}>${busy[0] ? "…" : (stillPaid ? "▶ Resume billing" : "▶ Resume — $" + price + " today")}</button><button style=${ghost} onClick=${function () { confirm[1]("cancel"); }}>Cancel instead</button>` : null}
+        </div>`
+      : issue ? null
+      : html`<button style=${solid + ";margin-top:11px;width:100%"} disabled=${busy[0]} onClick=${function () { act("subscribe_pass"); }}>${busy[0] ? "…" : (p.canUpgrade ? "Upgrade to the Pass — $" + price + "/mo" : "Get the Pass — $" + price + "/mo")}</button>
+             <div style="margin-top:7px;font-size:9.5px;color:rgba(255,255,255,.35);text-align:center">Secure checkout by Stripe · cancel or pause anytime</div>`}
+      ${msg[0] ? html`<div style="margin-top:9px;font-size:11px;font-weight:700;color:#ffb4b4">${msg[0]}</div>` : null}
+    </div>`;
+  }
+
   // ── Trading Suite subscribe card (Account screen) ───────────────────────────
   function SuiteCard() {
     var sub = useState(null);
@@ -1994,6 +2067,8 @@ input{font:inherit}
     useEffect(load, []);
     var s = sub[0];
     if (!s) return null;
+    // The FLOW Pass has its own card (PassCard): this one is only ever the legacy $39 Suite.
+    if (s.plan && s.plan !== "trading_suite") return null;
     function act(action) { apiPost("/api/subscription", { action: action }).then(function (d) { if (d && d.url) { window.location.href = d.url; return; } load(); }).catch(function () {}); }
     var price = s.price != null ? s.price : 39, credits = s.credits != null ? s.credits : 250;
     if (s.active) {
@@ -2173,6 +2248,7 @@ input{font:inherit}
         </div>
       </div>
       <${AutoRefillCard} />
+      <${PassCard} />
       <${SuiteCard} />
       <button class="ac-open" onClick=${props.onOpenSupport}><span>✉ Message support</span><em>Something wrong with your account? Talk to a person here.</em></button>
       <button class="ac-open" onClick=${props.onOpenAcademy}><span>🎓 Affiliate Academy</span><em>Your step-by-step roadmap to build One Mission</em></button>

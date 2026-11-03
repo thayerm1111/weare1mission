@@ -1,42 +1,10 @@
 import { type NextRequest } from "next/server";
 import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { SUITE, FLOW_PASS } from "@/lib/creditConfig";
+import { syncSubscription, grantSuiteMonth, subscriptionIdOfInvoice } from "@/lib/subscriptionSync";
 import { planById, VOICE_PRODUCT_TAG } from "@/lib/voicePlan";
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
-
-/** Mirror a Stripe subscription into user_subscriptions. Returns the resolved
- *  member id + whether it's currently active, so the caller can grant credits. */
-async function syncSubscription(admin: Admin, stripe: Stripe, subscriptionId: string, userIdHint?: string | null) {
-  const s = await stripe.subscriptions.retrieve(subscriptionId) as unknown as {
-    id: string; status: string; customer: string | { id: string };
-    current_period_end?: number; cancel_at_period_end?: boolean; canceled_at?: number | null;
-    metadata?: Record<string, string>;
-  };
-  const userId = userIdHint || s.metadata?.user_id || null;
-  if (!userId) return null;
-  const periodEndIso = s.current_period_end ? new Date(s.current_period_end * 1000).toISOString() : null;
-  /*
-   * WHICH PLAN. This used to hardcode "trading_suite" for any subscription handed to it, which was
-   * safe while the Suite was the only one. It is not safe now: a FLOW Pass renewal would rewrite the
-   * row as a Suite and grant 250 credits instead of 50, and the member would quietly lose unmetered
-   * FLOW mid-month. The marker rides on the SUBSCRIPTION's own metadata (not just the checkout
-   * session) precisely so a renewal invoice can still read it.
-   */
-  const plan = s.metadata?.plan === FLOW_PASS.tag ? FLOW_PASS.key : "trading_suite";
-  const monthly = plan === FLOW_PASS.key ? FLOW_PASS.monthlyCredits : SUITE.monthlyCredits;
-  await admin.from("user_subscriptions").upsert({
-    user_id: userId, plan, status: s.status,
-    stripe_customer_id: typeof s.customer === "string" ? s.customer : s.customer?.id ?? null,
-    stripe_subscription_id: s.id,
-    current_period_end: periodEndIso,
-    cancel_at_period_end: !!s.cancel_at_period_end,
-    canceled_at: s.canceled_at ? new Date(s.canceled_at * 1000).toISOString() : null,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "user_id" });
-  return { userId, status: s.status, periodKey: String(s.current_period_end ?? ""), plan, monthly };
-}
 
 /** The Stripe subscription id currently on file for this member, read BEFORE it gets overwritten. */
 async function priorSubscriptionId(admin: Admin, userId: string): Promise<string | null> {
@@ -45,21 +13,6 @@ async function priorSubscriptionId(admin: Admin, userId: string): Promise<string
     return (data as { stripe_subscription_id?: string | null } | null)?.stripe_subscription_id ?? null;
   } catch { return null; }
 }
-
-/** Grant the monthly Suite allowance: top the balance UP TO the floor for this
- *  billing period (no rollover, no stacking). Idempotent per period. */
-async function grantSuiteMonth(admin: Admin, userId: string, periodKey: string, amount: number = SUITE.monthlyCredits) {
-  const { data: cur } = await admin.from("user_credits").select("balance, suite_period").eq("user_id", userId).maybeSingle();
-  if (cur && (cur as { suite_period?: string }).suite_period === periodKey) return; // already granted
-  const bal = Number((cur as { balance?: number } | null)?.balance ?? 0);
-  const newBal = Math.max(bal, amount);
-  await admin.from("user_credits").upsert(
-    { user_id: userId, balance: newBal, suite_period: periodKey, updated_at: new Date().toISOString() },
-    { onConflict: "user_id" },
-  );
-  try { await admin.from("credit_transactions").insert({ user_id: userId, amount: Math.max(0, newBal - bal), feature: amount === SUITE.monthlyCredits ? "suite_monthly" : "flow_pass_monthly", kind: "grant" }); } catch { /* ledger is best-effort */ }
-}
-
 
 /**
  * COMMAND CENTER VOICE — a second subscription, and it must never be mistaken for the first.
@@ -290,9 +243,10 @@ export async function POST(req: NextRequest) {
   }
 
   // Renewal payment → refresh the monthly credit allowance for the new period.
+  // The subscription id is read from wherever this API version puts it (subscriptionSync: renewals were being
+  // dropped because newer invoices carry it under parent.subscription_details, not invoice.subscription).
   if (event.type === "invoice.paid") {
-    const inv = event.data.object as unknown as { subscription?: string | { id: string } };
-    const subId = typeof inv.subscription === "string" ? inv.subscription : inv.subscription?.id;
+    const subId = subscriptionIdOfInvoice(event.data.object);
     if (subId) {
       const admin = createAdminClient();
       if (admin) {
@@ -307,7 +261,7 @@ export async function POST(req: NextRequest) {
           await syncVoiceSubscription(admin, stripe, subId, (sub.metadata as Record<string, string>)?.user_id);
         } else {
           const res = await syncSubscription(admin, stripe, subId);
-          if (res && (res.status === "active" || res.status === "trialing")) await grantSuiteMonth(admin, res.userId, res.periodKey, res.monthly);
+          if (res && !res.paused && (res.status === "active" || res.status === "trialing")) await grantSuiteMonth(admin, res.userId, res.periodKey, res.monthly);
         }
       }
     }

@@ -40,9 +40,16 @@ export type Balance = { dailyLeft: number; purchased: number; dailyAllowance: nu
  */
 type PassCheck = { covered: false } | { covered: true; overFairUse: boolean };
 const NO_PASS: PassCheck = { covered: false };
-async function passCovers(feature: Feature, userId: string): Promise<PassCheck> {
+/**
+ * `opts.pass` — the CALLER says this use is covered even though its feature name is shared with tools the
+ * Pass does not cover. OM AI Plays (owner 11-02: "unlimited use of GENX and GEN FX and OM AI Plays with
+ * FLOW") charges under `signal`, and so do the scalp tool and the strategy scanner, which stay on credits;
+ * the plays route passes `{ pass: true }`, the others do not. The ledger keeps the feature's own name.
+ */
+export type CreditOpts = { pass?: boolean };
+async function passCovers(feature: Feature, userId: string, opts?: CreditOpts): Promise<PassCheck> {
   try {
-    if (!isPassCovered(feature)) return NO_PASS;
+    if (!isPassCovered(feature) && opts?.pass !== true) return NO_PASS;
     const admin = createAdminClient();
     if (!admin) return NO_PASS;
     if (!(await hasFlowPass(userId, admin))) return NO_PASS;
@@ -85,7 +92,7 @@ type Gate =
   | { ok: false; reason: "unauthorized" }
   | { ok: false; reason: "insufficient"; balance: Balance };
 
-export async function gateCredits(feature: Feature, client?: ReturnType<typeof createClient>): Promise<Gate> {
+export async function gateCredits(feature: Feature, client?: ReturnType<typeof createClient>, opts?: CreditOpts): Promise<Gate> {
   const supabase = client ?? createClient();
   const fallback: Balance = { dailyLeft: DAILY_FREE, purchased: 0, dailyAllowance: DAILY_FREE };
   if (!supabase) return { ok: true, balance: fallback };
@@ -96,7 +103,7 @@ export async function gateCredits(feature: Feature, client?: ReturnType<typeof c
   if (error || !data) return { ok: true, balance: fallback }; // fail open (not migrated / transient)
   // FLOW Pass: a covered feature opens regardless of balance — that is what the member is paying for.
   // Past fair use it still opens; the caller is told, so it can leave the AI out of the read.
-  const pass = await passCovers(feature, user.id);
+  const pass = await passCovers(feature, user.id, opts);
   if (pass.covered) {
     const d0 = data as { daily_left?: number; purchased?: number; daily_allowance?: number };
     const covered: Balance = { dailyLeft: d0.daily_left ?? DAILY_FREE, purchased: d0.purchased ?? 0, dailyAllowance: d0.daily_allowance ?? DAILY_FREE };
@@ -113,7 +120,7 @@ export async function gateCredits(feature: Feature, client?: ReturnType<typeof c
 }
 
 /** Spend the credit after the work succeeded. Best-effort: never throws. */
-export async function chargeCredit(feature: Feature, client?: ReturnType<typeof createClient>): Promise<Balance | null> {
+export async function chargeCredit(feature: Feature, client?: ReturnType<typeof createClient>, opts?: CreditOpts): Promise<Balance | null> {
   try {
     const supabase = client ?? createClient();
     if (!supabase) return null;
@@ -123,7 +130,7 @@ export async function chargeCredit(feature: Feature, client?: ReturnType<typeof 
     // A read past fair use went out without the AI and is not logged, so it is not counted: the count
     // is of the reads the AI was there for, it comes back down as those age out of the 24 hours, and
     // the story comes back with it.
-    const pass = await passCovers(feature, user.id);
+    const pass = await passCovers(feature, user.id, opts);
     if (pass.covered) {
       if (!pass.overFairUse) await logPassUse(feature, user.id);
       return await readBalance();

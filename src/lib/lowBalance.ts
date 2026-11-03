@@ -22,6 +22,6 @@ export function opensOnItsOwn(o: { total: number | null; pass: boolean; snoozed:
 /** The line under "You're down to N credits". */
 export function whatSpendsCredits(pass: boolean): string {
   return pass
-    ? "Your FLOW Pass covers GENX, GEN FX and FLOW — those never take credits. Plays, chart reads, MFX Ghost and the other tools do: top up to keep using them."
+    ? "Your FLOW Pass covers GENX, GEN FX, OM AI Plays and FLOW — those never take credits. ATLAS, chart reads, MFX Ghost and the other tools do: top up to keep using them."
     : "Every play, chart read and GENX call spends credits. Top up now so you don't miss the next setup the desk calls.";
 }

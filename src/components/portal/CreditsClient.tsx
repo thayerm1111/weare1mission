@@ -86,7 +86,7 @@ export function CreditsClient() {
       )}
       {banner === "pass" && (
         <div className="flex items-center gap-2 rounded-xl border border-navy/15 bg-navy/[0.04] px-4 py-3 text-sm text-navy">
-          <Check className="h-4 w-4" /> Your FLOW Pass is live — FLOW and GENX are unmetered from now on.
+          <Check className="h-4 w-4" /> Your FLOW Pass is live — GENX, GEN FX, OM AI Plays and FLOW are unlimited from now on.
         </div>
       )}
       {banner === "canceled" && (
@@ -139,7 +139,7 @@ export function CreditsClient() {
             );
           })}
         </ul>
-        <p className="mt-3 text-[11px] text-charcoal/45">FLOW and GENX are included free with the FLOW Pass. Plays of the Week and the Daily Market Brief are free for everyone — they’re shared across the whole community.</p>
+        <p className="mt-3 text-[11px] text-charcoal/45">GENX, GEN FX, OM AI Plays and FLOW are included free with the FLOW Pass; ATLAS and the other tools use credits. Plays of the Week and the Daily Market Brief are free for everyone — they’re shared across the whole community.</p>
       </div>
 
       {/* Packs */}

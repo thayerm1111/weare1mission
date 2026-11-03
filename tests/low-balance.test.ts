@@ -32,14 +32,15 @@ test("what it says spends credits is true of the member reading it", () => {
   assert.equal(metered, "Every play, chart read and GENX call spends credits. Top up now so you don't miss the next setup the desk calls.");
   // A Pass holder is not told that GENX takes credits — and is told what does.
   assert.ok(!/GENX call spends|every play/i.test(pass), pass);
-  assert.match(pass, /FLOW Pass covers GENX, GEN FX and FLOW/);
-  assert.match(pass, /Plays, chart reads, MFX Ghost and the other tools do/);
+  assert.match(pass, /FLOW Pass covers GENX, GEN FX, OM AI Plays and FLOW/);
+  assert.match(pass, /ATLAS, chart reads, MFX Ghost and the other tools do/);
 });
 
 test("the page is told who holds a Pass: active only, and 'no' when it cannot be confirmed", async () => {
   const none = member("lb-none", { credits: 2 });
   const pass = member("lb-pass", { credits: 2 }); flowPass(pass);
-  const ended = member("lb-ended", { credits: 2 }); flowPass(ended, { current_period_end: iso(T0 - 3600_000) });
+  // Ended: past its date by more than the renewal grace (an active plan a few hours past its date is a renewal on its way).
+  const ended = member("lb-ended", { credits: 2 }); flowPass(ended, { current_period_end: iso(T0 - 48 * 3600_000) });
   const cancelled = member("lb-cancelled", { credits: 2 }); flowPass(cancelled, { status: "canceled" });
   const suite = member("lb-suite", { credits: 2 }); flowPass(suite, { plan: "trading_suite" });
   const got = async (t: string) => { const r = await credits(t); assert.equal(r.status, 200, r.text.slice(0, 200)); return [r.json.pass, r.json.balance.dailyLeft + r.json.balance.purchased]; };

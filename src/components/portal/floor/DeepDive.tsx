@@ -32,10 +32,12 @@ const stanceStyle = (s = "") =>
     : "bg-ice text-charcoal/70";
 
 export function DeepDiveModal({
-  ticker, name, type, thesis, td, context, dir, style, onClose,
+  ticker, name, type, thesis, td, context, dir, style, source, onClose,
 }: {
   ticker: string; name: string; type: string; thesis?: string;
   td?: string; context?: "signal" | "buyhold"; dir?: "LONG" | "SHORT"; style?: string;
+  /** "plays" — opened from OM AI Plays, which the FLOW Pass covers (owner 11-02). */
+  source?: "plays";
   onClose: () => void;
 }) {
   const [data, setData] = useState<Dive | null>(null);
@@ -48,7 +50,7 @@ export function DeepDiveModal({
       const r = await fetch("/api/om-deepdive", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ticker, name, type, thesis, td, context, dir, style }),
+        body: JSON.stringify({ ticker, name, type, thesis, td, context, dir, style, source }),
       });
       const d = await r.json();
       if (d.notConfigured) { setErr("OM AI isn't switched on yet."); return; }
@@ -59,7 +61,7 @@ export function DeepDiveModal({
       if (typeof window !== "undefined") window.dispatchEvent(new Event("credits-updated"));
     } catch { setErr("Couldn't build the deep dive right now — try again shortly."); }
     finally { setLoading(false); }
-  }, [ticker, name, type, thesis, td, context, dir, style]);
+  }, [ticker, name, type, thesis, td, context, dir, style, source]);
 
   useEffect(() => { void load(); }, [load]);
 

@@ -145,7 +145,8 @@ test("without an active Pass a member is on the meter exactly as before — a Pa
   const ai = service();
   try {
     const ended: [string, Row | null][] = [
-      ["the period has run out", { current_period_end: iso(clock - HOUR) }],
+      ["the period has run out (past the renewal grace)", { current_period_end: iso(clock - 48 * HOUR) }],
+      ["the period has run out on a Pass set to cancel", { current_period_end: iso(clock - HOUR), cancel_at_period_end: true }],
       ["cancelled", { status: "canceled" }],
       ["payment failed", { status: "past_due" }],
       ["the old Suite plan", { plan: "trading_suite" }],

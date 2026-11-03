@@ -9,7 +9,7 @@ import { isFlowPass } from '../src/lib/subscription';
  * untouched — but the FLOW panel told every member "1 credit per setup, 5 per trade".
  */
 const future = new Date(Date.now() + 20 * 86_400_000).toISOString();
-const past = new Date(Date.now() - 86_400_000).toISOString();
+const past = new Date(Date.now() - 2 * 86_400_000).toISOString(); // past the 36-hour renewal grace (owner 11-02)
 
 test('an active, unexpired FLOW Pass is a Pass; a lapsed one or another plan is not', () => {
   const row = (over: Record<string, unknown>) => ({ user_id: 'u', plan: 'flow_pass', status: 'active', current_period_end: future, ...over }) as never;

@@ -435,7 +435,7 @@ test("a FLOW Pass or an admin: open, with no clock; a Pass that has gone is not 
   const id = member();
   assert.deepEqual(await look({ profiles: [{ id, role: "admin" }] }, id), { gate: { cost: 5, minutes: 30, open: true, via: "admin", until: null }, complete: true });
   assert.deepEqual(await look({ profiles: [{ id, role: "member" }], user_subscriptions: [pass(id)] }, id), { gate: { cost: 5, minutes: 30, open: true, via: "pass", until: null }, complete: true });
-  for (const sub of [pass(id, { status: "canceled" }), pass(id, { current_period_end: iso(Date.now() - 3600_000) }), pass(id, { plan: "trading_suite" }), pass("someone-else")]) {
+  for (const sub of [pass(id, { status: "canceled" }), pass(id, { current_period_end: iso(Date.now() - 48 * 3600_000) }), pass(id, { plan: "trading_suite" }), pass("someone-else")]) {
     assert.deepEqual(await look({ profiles: [{ id, role: "member" }], user_subscriptions: [sub] }, id), { gate: CLOSED, complete: true }, JSON.stringify(sub));
   }
   assert.deepEqual(await look({ profiles: [{ id: "someone-else", role: "admin" }] }, id), { gate: CLOSED, complete: true });

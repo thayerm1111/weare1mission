@@ -71,8 +71,10 @@ export const SUITE = {
  * the FLOW/GENX automation (flow_autorun) and the GENX Gold decision engine (genx). A Pass holder
  * still TRADES normally — they are simply never charged for it, and never credit-paused.
  *
- * WHAT IT DOES NOT COVER. Everything else on the site (OM AI chat and plays, Market Pulse, MFXGHOST,
- * chart reads, Command Center) still costs credits, and the Pass tops the member up to
+ * Since 11-02 it also covers GEN FX reads and OM AI Plays (generating plays and opening their breakdown).
+ *
+ * WHAT IT DOES NOT COVER. Everything else on the site (ATLAS / Command Center, OM AI chat, Market Pulse,
+ * MFXGHOST, chart reads, the scalp tool, the strategy scanner) still costs credits, and the Pass tops the member up to
  * `monthlyCredits` each billing period — topped UP TO, never stacked, no rollover, exactly like the
  * old Suite allowance. ATLAS voice minutes are a separate product and are untouched.
  *
@@ -99,7 +101,14 @@ export const FLOW_PASS = {
   tag: "flow_pass",
 } as const;
 
-/** Features the Pass makes free. Everything not listed still costs credits. */
+/**
+ * Features the Pass makes free. Everything not listed still costs credits.
+ * Owner 11-02: "unlimited use of GENX and GEN FX and OM AI Plays with FLOW... Only [what] still would cost
+ * credits would be ATLAS and the other products." GENX and GEN FX reads both charge `genx`; FLOW is
+ * `flow_autorun` (and its trade fees, flowBilling); OM AI Plays charges `signal`, a name it shares with the
+ * scalp tool and the strategy scanner, so its routes opt in per call (credits.ts CreditOpts) rather than
+ * the feature being listed here. ATLAS (`command_center`, voice minutes) and the rest stay on credits.
+ */
 export const PASS_COVERED: ReadonlyArray<Feature> = ["flow_autorun", "genx"];
 export const isPassCovered = (f: Feature): boolean => PASS_COVERED.includes(f);
 

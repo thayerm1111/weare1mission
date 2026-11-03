@@ -92,12 +92,15 @@ export async function POST(req: NextRequest) {
   const mdKey = process.env.TWELVEDATA_API_KEY;
   if (!aiKey) return json({ notConfigured: "ai" }, 200);
 
-  let body: { ticker?: string; name?: string; type?: string; thesis?: string; td?: string; context?: string; dir?: string; style?: string } = {};
+  let body: { ticker?: string; name?: string; type?: string; thesis?: string; td?: string; context?: string; dir?: string; style?: string; source?: string } = {};
   try { body = await req.json(); } catch { /* empty */ }
   const ticker = String(body.ticker || "").toUpperCase().trim();
   if (!ticker) return json({ error: "no_ticker" }, 400);
 
-  const gate = await gateCredits("deepdive");
+  // The full breakdown of an OM AI play is part of OM AI Plays, which the FLOW Pass covers (owner 11-02);
+  // a deep dive from Market Pulse or Plays of the Week stays on credits.
+  const passOpts = { pass: body.source === "plays" };
+  const gate = await gateCredits("deepdive", undefined, passOpts);
   if (!gate.ok && gate.reason === "unauthorized") return json({ error: "unauthorized" }, 401);
   if (!gate.ok && gate.reason === "insufficient") return json({ error: "insufficient_credits", balance: gate.balance }, 402);
 
@@ -181,7 +184,7 @@ For the heat array, use the computed factor scores above as your anchor (you may
     });
   }
 
-  const credits = await chargeCredit("deepdive");
+  const credits = await chargeCredit("deepdive", undefined, passOpts);
   return json({ ticker, name, type, tech, credits, ...parsed }, 200);
 }
 

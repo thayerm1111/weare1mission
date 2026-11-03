@@ -15,6 +15,7 @@
     { "path": "/api/matty-pips/cron/manage", "schedule": "* * * * *" },
     { "path": "/api/matty-pips/cron/outcomes", "schedule": "*/15 * * * *" },
     { "path": "/api/cron/cashtrap", "schedule": "* * * * *" },
-    { "path": "/api/cron/cashtrap-jobs", "schedule": "*/5 * * * *" }
+    { "path": "/api/cron/cashtrap-jobs", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/subscriptions-sync", "schedule": "17 * * * *" }
   ]
 }
