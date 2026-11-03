@@ -7,6 +7,7 @@ import { ThemeToggle } from "@/components/portal/ThemeToggle";
 import { PendingNotice } from "@/components/portal/PendingNotice";
 import { LowBalanceFlyer } from "@/components/portal/LowBalanceFlyer";
 import { AtlasAnnouncement } from "@/components/portal/AtlasAnnouncement";
+import { PassNewsBanner } from "@/components/portal/PassNewsBanner";
 import RiskConsentGate from "@/components/command-center/RiskConsentGate";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getProfile } from "@/lib/auth";
@@ -22,6 +23,7 @@ export const dynamic = "force-dynamic";
 const EMBED_CSS =
   ".om-embed .portal-topbar{display:none!important}" +
   ".om-embed .portal-nav{display:none!important}" +
+  ".om-embed .portal-news{display:none!important}" +
   ".om-embed .portal-container{padding:6px 12px 28px!important;max-width:none!important}" +
   ".om-embed .portal-shell{grid-template-columns:1fr!important;margin-top:0!important;gap:0!important}" +
   "html.om-embed{background:#0a0b10}";
@@ -71,10 +73,13 @@ export default async function PortalLayout({ children }: { children: React.React
             <PendingNotice status={profile!.status === "suspended" ? "suspended" : "pending"} name={profile!.full_name} />
           </div>
         ) : (
+          <>
+          {profile && <div className="portal-news"><PassNewsBanner /></div>}
           <div className="portal-shell mt-8 grid gap-5 lg:grid-cols-[188px_1fr] xl:gap-7">
             <div className="portal-nav">{configured && profile && <PortalNav isAdmin={isAdmin} isOwner={isOwner} />}</div>
             <div className="min-w-0">{children}</div>
           </div>
+          </>
         )}
       </div>
       {profile && !needsApproval && <LowBalanceFlyer />}

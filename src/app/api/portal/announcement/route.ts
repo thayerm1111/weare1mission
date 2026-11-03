@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** Announcement keys that exist. Adding one here is how a new pop-up is introduced. */
-const KEYS = new Set(["atlas_command_center_2026_09"]);
+const KEYS = new Set(["atlas_command_center_2026_09", "flow_pass_2026_11"]);
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "content-type": "application/json" } });
 
 /** GET ?key= → { seen } · POST { key } → marks it seen for this member (once per member, any device). */

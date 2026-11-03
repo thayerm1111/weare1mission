@@ -7123,6 +7123,34 @@ input{font:inherit}
       <${TradeControls} />
       ${last}${ladder}</div>`;
   }
+  // ── One-time FLOW Pass news (owner 11-02: "make sure that this is advertised to the customers so they know").
+  // Same server-remembered key as the website's banner (PassNewsBanner.tsx): closed or followed once, on any
+  // device, it never shows again. Inline on Home — never a pop-up over the tour or another sheet.
+  function PassNews(props) {
+    var st = useState(null);
+    var KEY = "flow_pass_2026_11";
+    useEffect(function () {
+      apiGet("/api/portal/announcement?key=" + KEY).then(function (f) {
+        if (!f || f.seen !== false) return;
+        return apiGet("/api/subscription").then(function (d) { if (d && d.ok && d.pass) st[1](d.pass); });
+      }).catch(function () {});
+    }, []);
+    function seen() { st[1](null); apiPost("/api/portal/announcement", { key: KEY }).catch(function () {}); }
+    var p = st[0];
+    if (!p) return null;
+    var holder = !!p.active, credits = p.credits != null ? p.credits : 50, price = p.price != null ? p.price : 99;
+    return html`<div style="margin:12px 0 0;border-radius:16px;border:1px solid rgba(255,194,75,.45);background:linear-gradient(150deg,rgba(255,194,75,.12),rgba(8,16,32,.4));padding:13px 14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div style="font-size:13.5px;font-weight:900;color:#ffd27a">∞ FLOW Pass${holder ? " · now covers OM AI Plays" : ""}</div>
+        <button onClick=${seen} aria-label="Close" style="flex:0 0 auto;border:0;background:none;color:rgba(255,255,255,.5);font-size:16px;cursor:pointer;padding:0 2px">✕</button>
+      </div>
+      <div style="margin-top:6px;font-size:12px;line-height:1.55;color:rgba(255,255,255,.82)">${holder
+        ? html`GENX, GEN FX, OM AI Plays and FLOW never take credits on your Pass. ATLAS and the other tools still use your ${credits} monthly credits. Your next charge date, Pause and Cancel are in Account.`
+        : html`<b style="color:#fff">Unlimited GENX, GEN FX, OM AI Plays and FLOW</b> for $${price}/mo, plus ${credits} credits a month for ATLAS and the other tools. Cancel or pause anytime.`}</div>
+      <button onClick=${function () { seen(); props.go("account"); }} style="margin-top:10px;width:100%;padding:11px;border:0;border-radius:11px;background:linear-gradient(135deg,#ffd27a,#ffb52e);color:#20160a;font-size:13px;font-weight:800;cursor:pointer">${holder ? "Manage my Pass" : "See the FLOW Pass"}</button>
+    </div>`;
+  }
+
   function HomeScreen(props) {
     var me = useState(null), bk = useState(null), gx = useState(null);
     function loadBroker() { apiGet("/api/flow/broker").then(function (d) { bk[1](d || {}); }).catch(function () { bk[1]({}); }); }
@@ -7149,6 +7177,7 @@ input{font:inherit}
         <button class="hx-ava" onClick=${function () { props.go("account"); }}>${initials}</button>
       </div>
 
+      <${PassNews} go=${props.go} />
       <${LiveTradeCard} />
       <${CommandCenterCard} />
 
