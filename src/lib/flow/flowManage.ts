@@ -2,6 +2,11 @@ import { executablePrice } from "./executionQuote";
 import { readProtectiveStop } from "./brokerEvidence";
 import { partialOnce } from "./partialOperation";
 import { nearTargetPrice, nearTargetApplies } from "@/lib/flow/nearTarget";
+/** When a managed trade opened (its row's creation), for the take-profit rule it was placed under. */
+const openedMs = (row: { created_at?: string | null }): number | null => {
+  const t = row.created_at ? Date.parse(row.created_at) : NaN;
+  return Number.isFinite(t) ? t : null;
+};
 import { feedPrice } from "./feedPrice";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { connectionToken } from "@/lib/flow/connection";
@@ -341,7 +346,7 @@ export type CloseReason = "stop" | "target" | "manual" | "unknown";
  * the only negative outcome; a trade that reached break-even can at worst scratch.
  */
 export function classifyOutcome(
-  row: Pick<ManagedRow, "symbol" | "side" | "entry" | "init_stop" | "tp1" | "best_price" | "cur_stop" | "be_done" | "partial_done"> & Partial<Pick<ManagedRow, "partial_px" | "partial_frac">>,
+  row: Pick<ManagedRow, "symbol" | "side" | "entry" | "init_stop" | "tp1" | "best_price" | "cur_stop" | "be_done" | "partial_done"> & Partial<Pick<ManagedRow, "partial_px" | "partial_frac">> & { created_at?: string | null },
   exitPrice?: number | null,
   reason?: CloseReason,
 ): FlowOutcome {
@@ -398,7 +403,7 @@ export function classifyOutcome(
   // at the broker's own exit; without one, at the take-profit that was parked (the near target on gold,
   // measured from the fill, else the plan's).
   const parkedTp = tp1 == null ? null
-    : nearTargetApplies(row.symbol) ? (nearTargetPrice(long ? "buy" : "sell", row.entry, row.init_stop, pip, tp1) ?? tp1)
+    : nearTargetApplies(row.symbol) ? (nearTargetPrice(long ? "buy" : "sell", row.entry, row.init_stop, pip, tp1, openedMs(row)) ?? tp1)
     : tp1;
   const targetPx = exitKnown ? exitPrice! : parkedTp;
   if (row.be_done && targetHit && targetPx != null) {
@@ -1099,7 +1104,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       // the trade will actually close at — the broker's own take-profit when the account shows it,
       // else the near target FLOW parks for gold (nearTarget.ts), else the plan's target. Halfway to
       // GENX's far 1.9R plan would sit past the gold take-profit, and the partial would never come.
-      const nearPx = nearTargetApplies(row.symbol) ? nearTargetPrice(row.side as "buy" | "sell", entry, row.init_stop, pip, tp) : null;
+      const nearPx = nearTargetApplies(row.symbol) ? nearTargetPrice(row.side as "buy" | "sell", entry, row.init_stop, pip, tp, openedMs(row)) : null;
       const targetPx = targetInForce(row.side, entry, [st.tp.get(String(row.position_id)) ?? null, nearPx, tp]);
       const partialTriggerPx = partialTriggerPrice(entry, targetPx);
 
@@ -1238,7 +1243,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
          * undo the change on any position whose bracket the broker dropped.
          */
         const nearPx = nearTargetApplies(row.symbol)
-          ? nearTargetPrice(row.side as "buy" | "sell", entry, row.init_stop, pip, tp)
+          ? nearTargetPrice(row.side as "buy" | "sell", entry, row.init_stop, pip, tp, openedMs(row))
           : null;
         const tpPx = roundPx(row.symbol, nearPx ?? tp);
         const notPassed = long ? price < tpPx - 2 * pip : price > tpPx + 2 * pip;

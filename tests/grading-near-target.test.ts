@@ -8,8 +8,10 @@ import { classifyOutcome } from "../src/lib/flow/flowManage";
  * and a take-profit fill used to be booked at tp1: 41 gold trades since the 10-11 reset at +92 on average.
  */
 type Row = Parameters<typeof classifyOutcome>[0];
+// Opened before 11-02, under the half-the-stop target these cases were written for.
 const gold = (o: Partial<Row> = {}): Row => ({
-  symbol: "XAUUSD", side: "buy", entry: 4000, init_stop: 3990, tp1: 4020, best_price: 4006, cur_stop: 4001.7, be_done: true, partial_done: false, ...o,
+  symbol: "XAUUSD", side: "buy", entry: 4000, init_stop: 3990, tp1: 4020, best_price: 4006, cur_stop: 4001.7, be_done: true, partial_done: false,
+  created_at: "2026-10-20T12:00:00Z", ...o,
 }) as Row;
 
 test("gold: a take-profit fill is booked at the broker's exit — the near target — not at the plan's tp1", () => {
@@ -57,4 +59,12 @@ test("stops, trails and hand closes are booked exactly as before", () => {
   assert.deepEqual([classifyOutcome(gold(), 4003, "stop").outcome, classifyOutcome(gold(), 4003, "stop").result_pips], ["trail", 30]);
   assert.deepEqual([classifyOutcome(gold(), 4001.7, "stop").outcome, classifyOutcome(gold(), 4001.7, "stop").result_pips], ["breakeven", 17]);
   assert.deepEqual([classifyOutcome(gold(), 4004, "manual").outcome, classifyOutcome(gold(), 4004, "manual").result_pips], ["manual", 40]);
+});
+
+test("a gold trade opened under the 1:1 rule (11-02) is booked at its 1:1 take-profit when the broker gives no exit", () => {
+  const r = classifyOutcome(gold({ created_at: "2026-11-04T12:00:00Z" }), null, "target");
+  assert.deepEqual([r.outcome, r.result_pips, r.exit_price], ["target", 100, 4010]);
+  // and the rule never puts a take-profit past the plan's own target
+  const tight = classifyOutcome(gold({ created_at: "2026-11-04T12:00:00Z", tp1: 4008 }), null, "target");
+  assert.deepEqual([tight.result_pips, tight.exit_price], [80, 4008]);
 });

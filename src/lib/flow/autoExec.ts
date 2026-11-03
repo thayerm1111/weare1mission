@@ -5,6 +5,7 @@ import { placeOnActiveAccounts, placeFixedLotFollower } from "@/lib/flow/executo
 import { activeAccounts, connectionToken, type ActiveAccount } from "@/lib/flow/connection";
 import { listAccounts, listPositions, type TLEnv } from "@/lib/flow/tradelocker";
 import { sizeFromRisk, floorStop, structuralStop, maxStopDistance, capGoldStop } from "@/lib/flow/sizing";
+import { goldTradeShape, GOLD_MIN_TARGET_R } from "@/lib/flow/goldRules";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
@@ -809,7 +810,8 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T, index: num
 // the floor after the window is skipped. Combined with sizing off the live entry, the dollar
 // risk is still capped at the member's risk %.
 // Owner 09-21: "take the trade as long as it's a .8 to 1" — raised from 0.75.
-const GOLD_MIN_PLACEMENT_RR = 0.8;
+// Owner 11-02: the take-profit is never nearer than the stop — a full 1:1 (goldRules.ts).
+const GOLD_MIN_PLACEMENT_RR = GOLD_MIN_TARGET_R;
 // STRUCTURE-FIRST STOP (owner 09-07): pad-only noise floor. When a fill sits nearly ON the
 // structural invalidation, the stop extends BEYOND the level to give at least this much
 // room - it is never tightened and never re-derived from the live print.
@@ -1680,6 +1682,15 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // size shrinks with it so account risk % is unchanged (owner 09-21: "this exact strategy").
   if (sig.origin !== "genx3" && (sig.mode == null || sig.mode === "quick")) gstop = capGoldStop(sig.side, gRef, gstop) ?? gstop;
 
+  // THE SHAPE OF A GOLD TRADE (owner 11-02, goldRules.ts): "I do not want trades like this — such a massive
+  // stop loss and small take profit." A stop more than $15 from where the trade would fill is not taken by
+  // anyone — Send It included, and on every horizon. It is skipped, never resized or re-drawn: the stop
+  // is the setup's own invalidation. (The target side is the chase guard's below, now at a full 1:1.)
+  {
+    const shape = goldTradeShape(sig.side, gRef, gstop, null);
+    if (!shape.ok) { await deskDrop(`${shape.reason} ${sig.mode ?? "quick"} ${sig.side} (dropped for everyone)`); return { members: 0, placed: 0 }; }
+  }
+
   // CHASE GUARD (desk-wide): if price has already run toward TP so the live-price R:R is below
   // the floor, this ENTER NOW is chased — skip it for everyone rather than fill a tiny-TP /
   // huge-SL trade. (Owner rule 2: a sub-floor fill is never chased; the scanner arms it for a
@@ -1926,6 +1937,11 @@ export async function placeGenxFollower(sig: {
   // GOLD STOP CAP (owner 09-15) — same cap as the copy path, from the live price (zone mid
   // if the feed is down), before the chase guard, R:R gates and sizing. Never widens.
   if (sig.origin !== "genx3") fstop = capGoldStop(sig.side, goldLp ?? entry, fstop); // GENX 3.x: strategy stop, no cap
+  // THE SHAPE OF A GOLD TRADE (owner 11-02) — the same $15 stop limit as the copy path, for every follower.
+  {
+    const shape = goldTradeShape(sig.side, goldLp ?? entry, fstop, null);
+    if (!shape.ok) { await followDrop(`${shape.reason} ${sig.mode ?? "quick"} ${sig.side} (dropped for everyone)`); return { accounts: 0, placed: 0 }; }
+  }
 
   // CHASE GUARD (desk-wide): same reward:risk floor as the copy path — if price has run
   // toward TP so the live-price R:R is below the floor, this ENTER NOW is chased; no

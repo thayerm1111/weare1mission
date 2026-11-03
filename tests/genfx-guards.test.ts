@@ -77,7 +77,9 @@ test("chased: gold's rule", () => {
   // rule is a ratio — and this pins the three lines GEN FX's copy is a copy of.
   const gold = readFileSync("src/lib/flow/autoExec.ts", "utf8");
   assert.match(gold, /function goldChasedAt\(side: "buy" \| "sell", stop: number \| null, tp: number \| null, lp: number \| null\): boolean \{\s+if \(stop == null \|\| tp == null \|\| lp == null\) return false;[^\n]*\n\s+if \(side === "buy" && lp >= tp\) return true;[^\n]*\n\s+if \(side === "sell" && lp <= tp\) return true;\s+const rr = rewardRisk\(lp, stop, tp\);\s+return rr != null && rr < GOLD_MIN_PLACEMENT_RR;/);
-  assert.match(gold, /const GOLD_MIN_PLACEMENT_RR = 0\.8;/);
+  // Gold's floor became a full 1:1 on 11-02 (goldRules.ts — "the take-profit is never smaller than the stop");
+  // GEN FX's copy keeps its own 0.8, which the cases below pin.
+  assert.match(gold, /const GOLD_MIN_PLACEMENT_RR = GOLD_MIN_TARGET_R;/);
   assert.equal(chasedAt("buy", 4290, 4310, 4300), false);            // 1:1 left
   assert.equal(chasedAt("buy", 4290, 4310, 4302), true);             // 8 of reward on 12 of risk
   assert.equal(chasedAt("buy", 4290, 4310, 4310), true);

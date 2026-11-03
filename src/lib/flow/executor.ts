@@ -13,6 +13,7 @@ import { recordExec, execContext } from "@/lib/flow/execTelemetry";
 import { chargePlacedFire, fireEligibleAccountIds, isManualSource, type FireGate } from "@/lib/flow/flowBilling";
 import { workingEntrySides, workingBlocks } from "@/lib/flow/workingOrders";
 import { nearTargetPrice, nearTargetApplies } from "@/lib/flow/nearTarget";
+import { goldTradeShape, GOLD_MIN_TARGET_R, isGold, expectedFill } from "@/lib/flow/goldRules";
 
 /**
  * FLOW order placement (server-only). Places a single market order on the
@@ -192,6 +193,7 @@ export const ENTRY_FLOOR_RR = 0.8;
  *  With no target there is no ratio to enforce, so the limit is the executable price. */
 export function entryLimitPrice(
   side: "buy" | "sell", price: number, stop?: number | null, tp?: number | null, prec = 2, maxEntry?: number | null,
+  floorRR: number = ENTRY_FLOOR_RR,
 ): number {
   // Round toward the SAFE side, never with toFixed: a buy rounds DOWN and a sell rounds UP,
   // so snapping to the instrument's grid can only tighten the limit. Rounding to nearest
@@ -204,7 +206,7 @@ export function entryLimitPrice(
   const hasMax = maxEntry != null && Number.isFinite(maxEntry) && maxEntry > 0;
   const tighter = (px: number) => !hasMax ? px : side === "buy" ? Math.min(px, maxEntry as number) : Math.max(px, maxEntry as number);
   if (stop == null || tp == null || !Number.isFinite(stop) || !Number.isFinite(tp)) return snap(tighter(price));
-  const cap = (tp + ENTRY_FLOOR_RR * stop) / (1 + ENTRY_FLOOR_RR);
+  const cap = (tp + floorRR * stop) / (1 + floorRR);
   if (!Number.isFinite(cap)) return snap(tighter(price));
   return snap(tighter(cap));
 }
@@ -306,7 +308,17 @@ async function placeOnAccountInner(a: { env: TLEnv; token: string; accNum: strin
   // reward:risk floor, so a fill below the floor is unrepresentable rather than merely
   // unlikely. IOC keeps the old semantics: fill now at this price or better, else cancel —
   // nothing rests on the book.
-  const limitPx = entryLimitPrice(side, price, stop, tp, prec, maxEntry);
+  // Gold enters at 1:1 or better against GENX's own target (owner 11-02); everything else keeps 0.8.
+  const limitPx = entryLimitPrice(side, price, stop, tp, prec, maxEntry, isGold(canonical) ? GOLD_MIN_TARGET_R : ENTRY_FLOOR_RR);
+  /*
+   * THE SHAPE OF A GOLD TRADE (owner 11-02, goldRules.ts): a stop more than $15 from the entry, or a
+   * GENX target nearer than the stop, is not placed — on any path (copy, follower, a member's play).
+   * Judged at the price the order would actually fill at, before anything is sent.
+   */
+  if (isGold(canonical) && stop != null) {
+    const shape = goldTradeShape(side, expectedFill(side, price, limitPx), stop, tp ?? null);
+    if (!shape.ok) return { ok: false, error: shape.reason };
+  }
   /*
    * THE NEAR TARGET (owner 09-25) — see nearTarget.ts for the measurement behind it. GENX's own
    * target sits at ~1.9R and only 8% of gold trades ever reach it; the take-profit ORDER parked at
@@ -321,7 +333,8 @@ async function placeOnAccountInner(a: { env: TLEnv; token: string; accNum: strin
    */
   const brokerTp = (() => {
     if (tp == null || stop == null || !nearTargetApplies(canonical)) return tp;
-    const entryRef = limitPx ?? price;
+    // Measured from where the order will fill (owner 11-02: the take-profit is at least the stop, from the entry).
+    const entryRef = expectedFill(side, price, limitPx);
     if (entryRef == null || !(entryRef > 0)) return tp;
     const px = nearTargetPrice(side, entryRef, stop, getInstrument(canonical).pipSize, tp);
     return px == null ? tp : +px.toFixed(prec);

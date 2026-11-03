@@ -46,6 +46,8 @@
  * what makes the measured result the delivered one.
  */
 
+import { GOLD_MIN_TARGET_R } from "@/lib/flow/goldRules";
+
 /** Fraction of the trade's own stop distance. */
 export const NEAR_TP_R = Number(process.env.GENX_NEAR_TP_R || 0.5);
 /** Never nearer than this — below it the spread and a normal wobble dominate the edge. */
@@ -60,14 +62,31 @@ export const nearTargetApplies = (symbol: string | null | undefined) =>
   NEAR_TP_ON && String(symbol || "").toUpperCase().replace(/[^A-Z]/g, "") === "XAUUSD";
 
 /**
+ * When the take-profit became at least 1:1 (owner 11-02). A trade opened before this keeps the target it
+ * was given — half the stop, 30–80 pips — so the manager books and repairs it exactly as before; a trade
+ * opened after it gets the 1:1 floor. Placement itself always uses the current rule.
+ */
+export const TARGET_1R_SINCE_DEFAULT = "2026-11-03T02:07:00Z";
+export const target1RSinceMs = (): number => Date.parse(process.env.GOLD_TARGET_1R_SINCE || TARGET_1R_SINCE_DEFAULT);
+
+/**
  * How far from entry the target sits, in pips. Returns null when the stop distance is unusable —
  * callers then leave GENX's own target alone rather than inventing a level.
+ *
+ * NEVER NEARER THAN THE STOP (owner 11-02: "such a massive stop loss and small take profit"). Half the
+ * stop clamped to 30–80 pips put an 80-pip target on a 630-pip stop. The target is now at least the
+ * stop distance (GOLD_MIN_TARGET_R, 1:1), and still never under 30 pips; the 80-pip ceiling only ever
+ * applies below that floor. Gold stops are capped at $15 (goldRules.ts), so this stays within 150 pips.
+ * `openedAtMs` (a trade's open time) selects the rule that trade was placed under.
  */
-export function nearTargetPips(riskPips: number | null | undefined): number | null {
+export function nearTargetPips(riskPips: number | null | undefined, openedAtMs?: number | null): number | null {
   if (riskPips == null) return null;          // Number(null) is 0, not NaN — reject before coercing
   const r = Number(riskPips);
   if (!Number.isFinite(r) || r <= 0) return null;
-  return Math.min(NEAR_TP_MAX_PIPS, Math.max(NEAR_TP_MIN_PIPS, r * NEAR_TP_R));
+  const near = Math.min(NEAR_TP_MAX_PIPS, Math.max(NEAR_TP_MIN_PIPS, r * NEAR_TP_R));
+  const since = target1RSinceMs();
+  const placedBefore = openedAtMs != null && Number.isFinite(openedAtMs) && Number.isFinite(since) && openedAtMs < since;
+  return placedBefore ? near : Math.max(near, r * GOLD_MIN_TARGET_R);
 }
 
 /**
@@ -84,6 +103,7 @@ export function nearTargetPrice(
   initStop: number | null | undefined,
   pip: number,
   genxTp?: number | null,
+  openedAtMs?: number | null,
 ): number | null {
   // Reject nulls BEFORE coercing: Number(null) is 0, and a "0" entry silently produced a target
   // 8 pips above zero instead of no target at all.
@@ -92,7 +112,7 @@ export function nearTargetPrice(
   if (!Number.isFinite(e) || !Number.isFinite(s) || !Number.isFinite(p) || p <= 0) return null;
   if (e <= 0 || s <= 0) return null;
   const riskPips = Math.abs(e - s) / p;
-  const pips = nearTargetPips(riskPips);
+  const pips = nearTargetPips(riskPips, openedAtMs);
   if (pips == null) return null;
   const px = side === "buy" ? e + pips * p : e - pips * p;
   if (genxTp != null && Number.isFinite(Number(genxTp))) {

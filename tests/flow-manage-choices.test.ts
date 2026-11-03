@@ -508,3 +508,18 @@ test("a part-close that times out is an unknown outcome: when it did go through,
   assert.equal(ledger(b).outcome, "stop");
   assert.equal(ledger(b).result_pips, -100, "graded as the whole trade it was");
 });
+
+/* ── Owner 11-02: the take-profit is never nearer than the stop ─────────────────────────────────────── */
+test("a gold trade opened under the 1:1 rule gets its dropped take-profit back at 1:1, not at half the stop", async () => {
+  const pinned = process.env.GOLD_TARGET_1R_SINCE;
+  process.env.GOLD_TARGET_1R_SINCE = "2000-01-01T00:00:00Z";   // every trade in this scenario opened under the rule
+  try {
+    reset(); broker.pricesOnRow = true; account("N1", AIPIPS_ON);
+    const id = trade({ account: "N1", symbol: "XAUUSD", side: "buy", entry: 4000, stop: 3990, tp1: 4020, tpAtBroker: null, qty: 1 });
+    await pass(M, "XAUUSD", 4000.5);
+    const tpSent = broker.calls.filter((c) => c.startsWith(`modify ${id}`) && c.includes("tp="));
+    assert.deepEqual(tpSent, [`modify ${id} sl=3990 tp=4010`], "a 100-pip stop gets a 100-pip take-profit");
+  } finally {
+    process.env.GOLD_TARGET_1R_SINCE = pinned;
+  }
+});
