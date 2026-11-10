@@ -23,6 +23,7 @@ import { logTrade } from "@/lib/flow/tradeLog";
 import { beat } from "@/lib/flow/health";
 import { liveTickExtremes, liveTick } from "@/lib/flow/liveTicks";
 import { profitGuardPlan } from "@/lib/flow/profitGuard";
+import { goldProtectFromPx } from "@/lib/flow/goldRules";
 import { goldChangeOfCharacter } from "@/lib/genx/choch";
 import { mergeMgmt, followGivebackR, targetInForce, partialTriggerPrice, missingColumn, type Mgmt, type MgmtRow } from "./manageSettings";
 
@@ -1108,6 +1109,15 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
       const targetPx = targetInForce(row.side, entry, [st.tp.get(String(row.position_id)) ?? null, nearPx, tp]);
       const partialTriggerPx = partialTriggerPrice(entry, targetPx);
 
+      // PROTECT AT 80% OF THE TARGET (owner 11-10, goldRules.ts). Break-even at 30 pips closed winners near the
+      // entry while losers paid the whole stop. On gold, nothing moves the stop — break-even, the follow-price
+      // trail (it only runs after break-even) or the reversal snap — until the trade has covered 80% of the way
+      // to the take-profit in force. The account's own pips still apply when they are further out.
+      const protectFromPx = contractKey(row.symbol) === "XAUUSD"
+        ? goldProtectFromPx(row.side, entry, targetPx, row.init_stop, openedMs(row))
+        : null;
+      if (protectFromPx != null) beTriggerPx = long ? Math.max(beTriggerPx, protectFromPx) : Math.min(beTriggerPx, protectFromPx);
+
       // BREAK-EVEN TRIGGERS ON THE LIVE MARKET, NOT ON HISTORY (owner 09-07): "I want it to
       // move when the market goes 30-35 pips into profit and move immediately." The manage
       // loop samples the live price every ~2.5s — when a sample sees the market AT the
@@ -1356,6 +1366,7 @@ export async function manageOpenPositions(): Promise<{ managed: number; actions:
         const plan = profitGuardPlan({
           side: row.side, entry, price, R, pip, curStop: row.cur_stop ?? null, bePx, best,
           choch: guardChoch, spread: spreadCache.get(`${tok.env}|${row.account_id}|${row.symbol}`) ?? null,
+          protectFromPx,
         });
         if (plan) {
           const mv = await modifyPosition(tok.env, tok.token, row.acc_num, row.position_id, { stopLoss: plan.stop });

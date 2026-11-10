@@ -85,12 +85,12 @@ const CONTROL_STEPS: Step[] = [
   {
     sel: "ft-be",
     title: "🎯 Break-even",
-    body: "Pick when a gold trade's stop moves into profit: once the trade is 20, 30, 40 or 50 pips up (every account started at its own setting — 30 unless you'd picked one). From then on the trade can't turn into a loss. EUR/USD and GBP/JPY move it halfway to their target. Off = the stop stays where the trade was placed.",
+    body: "Pick when a gold trade's stop moves into profit: once the trade is 20, 30, 40 or 50 pips up (every account started at its own setting — 30 unless you'd picked one), and never before it's 80% of the way to its target. From then on the trade can't turn into a loss. EUR/USD and GBP/JPY move it halfway to their target. Off = the stop stays where the trade was placed.",
   },
   {
     sel: "ft-follow",
     title: "📈 Follow price",
-    body: "Once break-even is set, the stop follows the best price, so a winner that turns keeps most of its gain. Tight keeps more of a move, but a normal pullback can close the trade; Loose gives it the most room. On gold it also snaps in when the market turns against a trade that's run 50+ pips. Needs break-even on.",
+    body: "Once break-even is set, the stop follows the best price, so a winner that turns keeps most of its gain. Tight keeps more of a move, but a normal pullback can close the trade; Loose gives it the most room. On gold it also snaps in when the market turns against a trade that's run 50+ pips and 80% of the way to its target. Needs break-even on.",
   },
   {
     sel: "ft-partials",

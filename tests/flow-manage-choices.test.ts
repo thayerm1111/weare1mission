@@ -523,3 +523,67 @@ test("a gold trade opened under the 1:1 rule gets its dropped take-profit back a
     process.env.GOLD_TARGET_1R_SINCE = pinned;
   }
 });
+
+/* ── Owner 11-10: protect a gold trade only once it is 80% of the way to its take-profit ───────────── */
+async function underProtectRule(fn: () => Promise<void>): Promise<void> {
+  const p1 = process.env.GOLD_TARGET_1R_SINCE, p2 = process.env.GOLD_PROTECT_AT_SINCE;
+  process.env.GOLD_TARGET_1R_SINCE = "2000-01-01T00:00:00Z";   // opened under the 1:1 target…
+  process.env.GOLD_PROTECT_AT_SINCE = "2000-01-01T00:00:00Z";  // …and under the 80% rule
+  try { await fn(); } finally { process.env.GOLD_TARGET_1R_SINCE = p1; process.env.GOLD_PROTECT_AT_SINCE = p2; }
+}
+
+test("11-10: break-even waits until the trade is 80% of the way to its take-profit, whatever pips the account picked", async () => {
+  await underProtectRule(async () => {
+    reset();
+    const ids: Record<string, string> = {};
+    for (const [acct, be] of [["P20", 20], ["P30", 30], ["P50", 50]] as const) {
+      account(acct, set({ gold_be_pips: be, trail_mode: "off" }));
+      // 100-pip stop, take-profit at 1:1 (100 pips): 80% of the way is 80 pips up.
+      ids[acct] = trade({ account: acct, symbol: "XAUUSD", side: "buy", entry: 4000, stop: 3990, tp1: 4020, tpAtBroker: 4010, qty: 1 });
+    }
+    const at: Record<string, number> = {};
+    const path = [4002.2, 4003.2, 4005.2, 4007.0, 4008.2];   // bid 20.5, 30.5, 50.5, 68.5, 80.5 pips up
+    for (let i = 0; i < path.length; i++) {
+      await pass(M, "XAUUSD", path[i]);
+      for (const a of Object.keys(ids)) if (at[a] == null && modifiesOf(ids[a]).length) at[a] = i;
+    }
+    assert.deepEqual(at, { P20: 4, P30: 4, P50: 4 }, "no stop moves before 80 pips — then every account breaks even");
+    for (const a of Object.keys(ids)) assert.deepEqual(modifiesOf(ids[a]), [`modify ${ids[a]} sl=4001.7`], `${a}: one move, to the usual lock`);
+  });
+});
+
+test("11-10: an account that picked break-even further out than 80% keeps its own pips", async () => {
+  await underProtectRule(async () => {
+    reset();
+    account("P90", set({ gold_be_pips: 90, trail_mode: "off" }));
+    const id = trade({ account: "P90", symbol: "XAUUSD", side: "buy", entry: 4000, stop: 3990, tp1: 4020, tpAtBroker: 4010, qty: 1 });
+    await walk(M, "XAUUSD", [4005, 4008.2, 4008.6]);
+    assert.deepEqual(modifiesOf(id), [], "80.5 and 84.5 pips up: short of its own 90");
+    await pass(M, "XAUUSD", 4009.2);
+    assert.deepEqual(modifiesOf(id), [`modify ${id} sl=4001.7`]);
+  });
+});
+
+test("11-10: the reversal snap waits for 80% of the way too", async () => {
+  await underProtectRule(async () => {
+    reset();
+    account("PS", set({ trail_mode: "normal" }));
+    const a = trade({ account: "PS", symbol: "XAUUSD", side: "buy", entry: 4000, stop: 3990, tp1: 4020, tpAtBroker: 4010, qty: 1 });
+    await walk(M, "XAUUSD", [4001, 4003.5, 4006.2]);      // peak 60.5 pips: past the snap's 50, short of 80
+    choch.now = "bearish";
+    await pass(M, "XAUUSD", 4005.5);
+    assert.deepEqual(modifiesOf(a), [], "no break-even and no snap at 60 pips");
+    assert.ok(!logs.some((l) => l.phase === "profit_guard" && l.position_id === a));
+    choch.now = null;
+    await pass(M, "XAUUSD", 4008.3);                      // 81.5 pips: protected now
+    assert.deepEqual(modifiesOf(a), [`modify ${a} sl=4001.7`, `modify ${a} sl=4005.65`], "break-even, then Normal follows 0.25R behind the best price near the target");
+  });
+});
+
+test("11-10: a trade opened before the change keeps break-even at its own pips", async () => {
+  reset();   // _manager pins the rule's start to 2099: every trade here opened before it
+  account("OLD", set({ trail_mode: "off" }));
+  const id = trade({ account: "OLD", symbol: "XAUUSD", side: "buy", entry: 4000, stop: 3990, tp1: 4020, tpAtBroker: 4010, qty: 1 });
+  await walk(M, "XAUUSD", [4002.2, 4003.2]);
+  assert.deepEqual(modifiesOf(id), [`modify ${id} sl=4001.7`], "30 pips, as before");
+});

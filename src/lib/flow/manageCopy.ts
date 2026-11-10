@@ -11,7 +11,7 @@ export const MGMT_APPLIES = "Applies to trades already open too.";
 export const BE_LABEL = "Break-even";
 export function beLine(on: boolean, pips: number): string {
   return on
-    ? `Gold: once a trade is ${pips} pips up, the stop moves into profit so it can't turn into a loss. EUR/USD and GBP/JPY: halfway to the target.`
+    ? `Gold: once a trade is ${pips} pips up and 80% of the way to its target, the stop moves into profit so it can't turn into a loss. EUR/USD and GBP/JPY: halfway to the target.`
     : "Off — the stop stays where the trade was placed.";
 }
 
@@ -23,7 +23,7 @@ export const FOLLOW_LINES: Record<FollowMode, string> = {
   normal: "Normal — the stop follows with room to breathe and tightens near the target.",
   loose: "Loose — the most room: rides out pullbacks, gives back more if the move turns.",
 };
-export const FOLLOW_SNAP = "On gold it also snaps in when the market turns against a trade that's run 50+ pips.";
+export const FOLLOW_SNAP = "On gold it also snaps in when the market turns against a trade that's run 50+ pips and 80% of the way to its target.";
 export const FOLLOW_NEEDS_BE = "Needs break-even on — the stop only follows a trade that's already protected.";
 export function followLine(mode: FollowMode, breakEvenOn: boolean): string {
   if (!breakEvenOn) return FOLLOW_NEEDS_BE;

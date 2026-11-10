@@ -35,6 +35,11 @@ export type GuardInput = {
   spread?: number | null;
   /** Best price the trade has reached (defaults to the current price). */
   best?: number | null;
+  /**
+   * Owner 11-10 (goldRules.ts): the stop is not touched until the trade has reached this price — 80% of the
+   * way to its take-profit. null/absent = no floor (trades from before the change).
+   */
+  protectFromPx?: number | null;
 };
 
 /** The tightened stop, or null when the guard shouldn't act. Pure (unit-tested). */
@@ -46,6 +51,10 @@ export function profitGuardPlan(i: GuardInput): { stop: number; profitPips: numb
   const bestPx = i.best != null && i.best > 0 ? (long ? Math.max(i.best, i.price) : Math.min(i.best, i.price)) : i.price;
   const peakPips = Math.round((long ? bestPx - i.entry : i.entry - bestPx) / i.pip);
   if (peakPips < GUARD_MIN_PIPS) return null;
+  if (i.protectFromPx != null && Number.isFinite(i.protectFromPx)) {
+    const reached = long ? bestPx >= i.protectFromPx : bestPx <= i.protectFromPx;
+    if (!reached) return null;                                           // not yet 80% of the way to target
+  }
 
   const pad = Math.max(GUARD_BEHIND_PIPS * i.pip, (i.spread ?? 0) * 2);  // keep clear of the spread
   const ceiling = long ? i.price - pad : i.price + pad;                  // tightest a stop can legally sit

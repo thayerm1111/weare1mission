@@ -17,6 +17,9 @@ import { T, db, setNow, T0, fail } from "./_routes";
    simulated clock runs a day per scenario and would cross that date, so they pin the rule's start to the far
    future; tests of the 1:1 rule set it back themselves. */
 process.env.GOLD_TARGET_1R_SINCE = process.env.GOLD_TARGET_1R_SINCE || "2099-01-01T00:00:00Z";
+/* The same for the 80%-of-target protection (owner 11-10): these scenarios record break-even at the account's
+   own pips; tests of the new rule set it back themselves. */
+process.env.GOLD_PROTECT_AT_SINCE = process.env.GOLD_PROTECT_AT_SINCE || "2099-01-01T00:00:00Z";
 export { T, db, fail };
 import Module from "node:module";
 import path from "node:path";

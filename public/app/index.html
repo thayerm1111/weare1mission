@@ -2974,12 +2974,12 @@ input{font:inherit}
       normal: "Normal — the stop follows with room to breathe and tightens near the target.",
       loose: "Loose — the most room: rides out pullbacks, gives back more if the move turns."
     },
-    snap: "On gold it also snaps in when the market turns against a trade that's run 50+ pips.",
+    snap: "On gold it also snaps in when the market turns against a trade that's run 50+ pips and 80% of the way to its target.",
     needsBe: "Needs break-even on — the stop only follows a trade that's already protected.",
     partials: { 0: "Off — the whole trade rides to its target or stop.", 25: "Banks 25% of the trade halfway to its target; the rest rides on. A trade under 0.04 lots can't be split and rides whole.", 50: "Banks half the trade halfway to its target; the rest rides on. A trade under 0.02 lots can't be split and rides whole." },
     unread: "Couldn't read this account's trade settings just now — tap Re-check."
   };
-  function mgBeLine(on, pips) { return on ? "Gold: once a trade is " + pips + " pips up, the stop moves into profit so it can't turn into a loss. EUR/USD and GBP/JPY: halfway to the target." : MG_COPY.beOff; }
+  function mgBeLine(on, pips) { return on ? "Gold: once a trade is " + pips + " pips up and 80% of the way to its target, the stop moves into profit so it can't turn into a loss. EUR/USD and GBP/JPY: halfway to the target." : MG_COPY.beOff; }
   function mgFollowLine(mode, beOn) { if (!beOn) return MG_COPY.needsBe; return mode === "off" ? MG_COPY.follow.off : MG_COPY.follow[mode] + " " + MG_COPY.snap; }
   function mgSummary(a) {
     if (a.settingsUnread) return "Trade settings unavailable";

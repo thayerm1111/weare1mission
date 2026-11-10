@@ -5,7 +5,7 @@ import { placeOnActiveAccounts, placeFixedLotFollower } from "@/lib/flow/executo
 import { activeAccounts, connectionToken, type ActiveAccount } from "@/lib/flow/connection";
 import { listAccounts, listPositions, type TLEnv } from "@/lib/flow/tradelocker";
 import { sizeFromRisk, floorStop, structuralStop, maxStopDistance, capGoldStop } from "@/lib/flow/sizing";
-import { goldTradeShape, GOLD_MIN_TARGET_R } from "@/lib/flow/goldRules";
+import { goldTradeShape, GOLD_MIN_TARGET_R, quickCallAllowed } from "@/lib/flow/goldRules";
 import { flowConfirm } from "@/lib/flowEngine";
 import { getInstrument } from "@/lib/flow/instruments";
 import { newsHold } from "@/lib/news/calendar";
@@ -1553,6 +1553,15 @@ export async function placeGenxGold(sig: { side: "buy" | "sell"; entryLow: numbe
   // ENGINE SELECTION (owner 09-16): only the active brain may place. GENX 2.0 callers pass no
   // origin, so with GENX_ENGINE=genx3 every GENX 2.0 entry is refused here.
   if (!originAllowed(sig.origin)) return { members: 0, placed: 0 };
+  // QUICK CALLS IN LONDON HOURS ONLY (owner 11-10, goldRules.ts): every other session lost money on them in
+  // both halves of the last 60 days. Every account, Send It included; GENX itself still shows the call.
+  {
+    const qh = quickCallAllowed(sig.mode, Date.now(), sig.origin);
+    if (!qh.ok) {
+      try { await admin.from("flow_auto_events").insert({ user_id: GOLD_HALT_MARKER_UID, symbol: "XAUUSD", side: sig.side, status: "skipped", reason: `genx: ${qh.reason} ${sig.side} (dropped for everyone)`.slice(0, 200) }); } catch { /* breadcrumb best-effort */ }
+      return { members: 0, placed: 0 };
+    }
+  }
   // QUALITY GATE (GENX 2.0 only, owner 09-16): 20h trend slope must agree and reward at the worst
   // allowed fill must be >= 1.5R. GENX 3.0 applies its own versioned setup rules instead.
   if (sig.origin !== "genx3") {
@@ -1913,6 +1922,11 @@ export async function placeGenxFollower(sig: {
   };
   if (!(await systemSwitches(admin)).genx) { await followDrop("genx_switch_off (admin kill switch)"); return { accounts: 0, placed: 0 }; } // admin GENX kill switch — hard, even for send-it
   if (!originAllowed(sig.origin)) { await followDrop(`engine_off (${sig.origin ?? "genx2"} is not the selected engine)`); return { accounts: 0, placed: 0 }; } // engine selection (owner 09-16)
+  // QUICK CALLS IN LONDON HOURS ONLY (owner 11-10) — the same rule as the copy path, Send It included.
+  {
+    const qh = quickCallAllowed(sig.mode, Date.now(), sig.origin);
+    if (!qh.ok) { await followDrop(`${qh.reason} ${sig.side} (dropped for everyone)`); return { accounts: 0, placed: 0 }; }
+  }
   // QUALITY GATE (GENX 2.0 only) — same hard gate as the copy path (the copy path posts the note).
   if (sig.origin !== "genx3") {
     const q = await genxGoldQualityGate(admin, { side: sig.side, entryLow: sig.entryLow ?? null, entryHigh: sig.entryHigh ?? null, stop: sig.stop, tp: sig.tp, setup: sig.setup ?? null });
