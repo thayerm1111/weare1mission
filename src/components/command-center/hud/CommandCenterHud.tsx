@@ -31,6 +31,8 @@ import { ScenarioCards } from "./ScenarioCards";
 import { IndicatorsPanel } from "./IndicatorsPanel";
 import { ContextPanel, LiquidityPanel, StructurePanel, type CtxState } from "./DeeperPanels";
 import { Timeline, type TimelineRow } from "./Timeline";
+import { IdeaPanel, type IdeaPrefill } from "./IdeaPanel";
+import type { AtlasIdea } from "../../../../command-center/engines/idea";
 import {
   FEED_TONE, LEAN_TONE, ageShort, automationOf, leanLabel, orbLabelOf, orbVoiceOf, rangeFromArg, talkStateOf, tfFromArg,
 } from "./hudModel";
@@ -59,7 +61,7 @@ const TF_MIN: Record<ChartTf, number> = { "5m": 5, "15m": 15, "1h": 60, "4h": 24
 const NAV = ["OVERVIEW", "ANALYSIS", "SCANNERS", "STRATEGY", "BACKTEST", "ALERTS", "JOURNAL"] as const;
 type Nav = typeof NAV[number];
 type TalkTab = "CHAT" | "VOICE" | "ANALYSIS" | "SETTINGS";
-type Drawer = null | "trade" | "analysis" | "alerts" | "journal";
+type Drawer = null | "trade" | "analysis" | "alerts" | "journal" | "idea";
 type AnalysisTab = "journal" | "liquidity" | "structure" | "context";
 /** The chat's timed written read — the part of its mode that does something in the HUD console. */
 const BRIEFING_CHOICES: { id: VoiceMode; label: string }[] = [
@@ -202,6 +204,14 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   /** ATLAS drew on the chart while the sheet covered it: offer to show it. */
   const [chartPing, setChartPing] = useState<number | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
+  /* GENERATE WITH ATLAS (owner 11-11). The panel mounts the first time it is asked for and then stays, so the
+     last idea is still there when the drawer is reopened. `ideaRun` changes on every press of GENERATE. */
+  const [ideaMounted, setIdeaMounted] = useState(false);
+  const [ideaRun, setIdeaRun] = useState(0);
+  /** The idea drawn on the chart (its entry, stop and targets), until hidden or replaced. */
+  const [shownIdea, setShownIdea] = useState<AtlasIdea | null>(null);
+  /** ATLAS's numbers for the order ticket, when an idea is the member's own call. */
+  const [ticket, setTicket] = useState<IdeaPrefill | null>(null);
   const chartRef = useRef<HTMLDivElement | null>(null);
   const chartPanelRef = useRef<HTMLDivElement | null>(null);
   const lastPrice = useRef<number | null>(null);
@@ -366,6 +376,20 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
     voiceBus.start();     // inside the tap: Safari only lets audio begin from the gesture that asked for it
   }, [isReplay, openTalk]);
   const ask = useCallback((q: string) => { openTalk("CHAT"); setAskSignal({ n: Date.now(), q }); }, [openTalk]);
+  /** One press: open the idea drawer and have ATLAS's engine generate. */
+  const generate = useCallback(() => {
+    setIdeaMounted(true); setIdeaRun(Date.now()); setDrawer("idea"); setNav("OVERVIEW"); setSheetOpen(false); setMenuOpen(false);
+  }, []);
+  /** Reopen the drawer on the idea that is already there. */
+  const openIdea = useCallback(() => { setIdeaMounted(true); setDrawer("idea"); setSheetOpen(false); setMenuOpen(false); }, []);
+  const showIdea = useCallback((i: AtlasIdea | null) => setShownIdea(i), []);
+  // /command-center?generate=1 (the portal's "Generate with ATLAS"): generate once the first read is in.
+  const deepLinked = useRef(false);
+  useEffect(() => {
+    if (deepLinked.current || !d) return;
+    deepLinked.current = true;
+    try { if (new URLSearchParams(window.location.search).get("generate") === "1") generate(); } catch { /* no URL */ }
+  }, [d, generate]);
   const onActivity = useCallback((a: { busy: boolean; speaking: boolean; listening: boolean }) => setActivity(a), []);
 
   /* ── ATLAS's hands on the chart ───────────────────────────────────────── */
@@ -579,6 +603,15 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
     lines.push({ price: setup.stop, label: "Proposed stop", color: H.red, tag: false });
   }
 
+  // The idea the member asked to see (GENERATE): its own levels, exactly as the engine returned them.
+  if (shownIdea?.entry && shownIdea.stop && shownIdea.side) {
+    const e = shownIdea.entry, buy = shownIdea.side === "buy";
+    if (e.high - e.low > 0.005) zones.push({ from: e.low, to: e.high, tone: buy ? "demand" : "supply", label: `ATLAS idea · ${buy ? "buy" : "sell"} zone ${fmt2(e.low)} – ${fmt2(e.high)}` });
+    lines.push({ price: e.price, label: `Idea entry ${buy ? "BUY" : "SELL"}`, color: H.blue, dashed: e.type !== "market" });
+    lines.push({ price: shownIdea.stop.price, label: "Idea stop", color: H.red, dashed: false });
+    for (const t of shownIdea.targets) lines.push({ price: t.price, label: `Idea ${t.label}`, color: H.green, dashed: t.basis === "measured" });
+  }
+
   // Every blip is computed server-side in the read-only present layer, so the meaning shown is the same
   // sentence everywhere and nothing is invented in the browser.
   const blips: RadarBlip[] = (intel?.radar ?? []).map((b) => ({
@@ -650,11 +683,17 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           {/* Broker connect at every width: one instance, its modal rendered into <body> (BrokerBar). */}
           {!isReplay && <BrokerBar size="auto" />}
           {!isReplay && (
-            <button onClick={() => setTourOpen(true)} className="hidden rounded-[7px] px-2.5 py-1.5 text-[9.5px] font-bold tracking-[0.14em] sm:block" title="A guided walk through every part of the Command Center"
+            <button onClick={() => setTourOpen(true)} className="hidden rounded-[7px] px-2.5 py-1.5 text-[9.5px] font-bold tracking-[0.14em] lg:block" title="A guided walk through every part of the Command Center"
               style={{ color: H.cyan2, border: "1px solid rgba(0,199,232,0.35)", background: "rgba(0,199,232,0.06)" }}>GUIDE</button>
           )}
+          {/* GENERATE WITH ATLAS: one press, the engine's trade idea and where to enter. */}
+          <button onClick={generate} data-tour="generate" data-generate-open="" title="ATLAS's engine gives you its trade idea and where to enter"
+            className="hidden items-center gap-1.5 rounded-[7px] px-2.5 py-1.5 text-[9.5px] font-black tracking-[0.14em] transition hover:brightness-110 sm:inline-flex"
+            style={{ color: "#1A1305", background: "linear-gradient(180deg, #FFD875, #D5A93D)", boxShadow: "0 0 14px rgba(213,169,61,0.35)" }}>
+            <Sparkles className="h-3 w-3" />GENERATE
+          </button>
           {!isReplay && (
-            <button onClick={() => setCallOpen(true)} className="hidden rounded-[7px] px-2.5 py-1.5 text-[9.5px] font-bold tracking-[0.14em] md:block"
+            <button onClick={() => { setTicket(null); setCallOpen(true); }} className="hidden rounded-[7px] px-2.5 py-1.5 text-[9.5px] font-bold tracking-[0.14em] lg:block"
               style={{ color: H.gold2, border: "1px solid rgba(231,196,103,0.4)", background: "rgba(213,169,61,0.08)" }}>MANUAL</button>
           )}
           {/* The feed's own status: green LIVE only when a streamed tick arrived within seconds (core/feed.ts). */}
@@ -680,8 +719,9 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
               <button key={n} onClick={() => goNav(n)} className="block w-full rounded-[6px] px-3 py-2 text-left text-[11px] font-semibold tracking-[0.14em]"
                 style={{ color: nav === n ? H.gold3 : H.text }}>{n}</button>
             ))}
+            <button onClick={generate} className="block w-full rounded-[6px] px-3 py-2 text-left text-[11px] font-black tracking-[0.14em]" style={{ color: H.gold3 }}>✦ GENERATE WITH ATLAS</button>
             {!isReplay && <button onClick={() => { setMenuOpen(false); setTourOpen(true); }} className="block w-full rounded-[6px] px-3 py-2 text-left text-[11px] font-semibold tracking-[0.14em]" style={{ color: H.cyan2 }}>GUIDE</button>}
-            {!isReplay && <button onClick={() => { setMenuOpen(false); setCallOpen(true); }} className="block w-full rounded-[6px] px-3 py-2 text-left text-[11px] font-semibold tracking-[0.14em]" style={{ color: H.gold2 }}>MANUAL TRADE</button>}
+            {!isReplay && <button onClick={() => { setMenuOpen(false); setTicket(null); setCallOpen(true); }} className="block w-full rounded-[6px] px-3 py-2 text-left text-[11px] font-semibold tracking-[0.14em]" style={{ color: H.gold2 }}>MANUAL TRADE</button>}
           </div>
         )}
       </header>
@@ -833,6 +873,17 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                         style={{ color: tf === b.id ? H.gold3 : H.mut, border: tf === b.id ? "1px solid rgba(231,196,103,0.55)" : "1px solid transparent", background: tf === b.id ? "rgba(213,169,61,0.1)" : "transparent" }}>{b.label}</button>
                     ))}
                   </div>
+                  <button onClick={generate} data-generate-chart="" title="ATLAS's engine gives you its trade idea and where to enter"
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-[6px] px-2.5 py-1 text-[10px] font-black tracking-[0.12em] transition hover:brightness-110"
+                    style={{ color: H.gold3, border: "1px solid rgba(255,216,117,0.7)", background: "linear-gradient(180deg, rgba(213,169,61,0.22), rgba(213,169,61,0.06))", boxShadow: "0 0 12px rgba(213,169,61,0.25)" }}>
+                    <Sparkles className="h-3.5 w-3.5" />GENERATE
+                  </button>
+                  {shownIdea && (
+                    <button onClick={openIdea} data-idea-pill="" className="inline-flex shrink-0 items-center gap-1.5 rounded-[6px] px-2 py-1 text-[9.5px] font-bold tracking-[0.08em]"
+                      style={{ color: shownIdea.side === "buy" ? H.green : H.red, border: `1px solid ${shownIdea.side === "buy" ? H.green : H.red}88`, background: "rgba(0,0,0,0.3)" }}>
+                      IDEA · {shownIdea.side === "buy" ? "BUY" : "SELL"} {shownIdea.entry ? fmt2(shownIdea.entry.price) : ""} ▸
+                    </button>
+                  )}
                   <ToolBtn icon={<BarChart3 className="h-3.5 w-3.5" />} label="Watch lines" title="ATLAS's watched levels and the price its thesis fails at" on={watchLines} onClick={() => setWatchLines((x) => !x)} />
                   <ToolBtn icon={<Sparkles className="h-3.5 w-3.5" style={{ color: H.gold2 }} />} label="ATLAS overlays" title="Structure events and ATLAS's conditional path" on={overlays} onClick={() => setOverlays((x) => !x)} />
                   <ToolBtn icon={<Layers className="h-3.5 w-3.5" />} label="Liquidity zones" title="Candidate liquidity zones — inferred from structure, not an order book" on={liquidity} onClick={() => setLiquidity((x) => !x)} />
@@ -1025,6 +1076,11 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
               </span>
             </span>
           </button>
+          <button onClick={generate} aria-label="Generate a trade idea with ATLAS" data-generate-dock=""
+            className="flex h-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-[10px] px-3"
+            style={{ color: "#1A1305", background: "linear-gradient(180deg, #FFD875, #D5A93D)", boxShadow: "0 0 14px rgba(213,169,61,0.35)" }}>
+            <Sparkles className="h-4 w-4" /><span className="text-[8.5px] font-black tracking-[0.12em]">GENERATE</span>
+          </button>
           <button onClick={tapCore} aria-label={onCall ? "End the voice line" : "Talk to ATLAS by voice"}
             className="relative grid h-12 w-12 shrink-0 place-items-center rounded-full"
             style={{ background: "radial-gradient(circle at 40% 35%, #3A2C0C, #120D04)", border: `2px solid ${onCall ? "#FFD875" : "#D5A93D"}`, color: "#FFD875", boxShadow: onCall ? "0 0 0 5px rgba(255,216,117,0.12), 0 0 22px rgba(255,216,117,0.5)" : "0 0 14px rgba(213,169,61,0.35)" }}>
@@ -1035,7 +1091,28 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       </div>
 
       {/* ── DRAWERS (trade / analysis / alerts / journal) ─────────────── */}
-      {drawer && (
+      {/* GENERATE WITH ATLAS — its own drawer, kept mounted so the idea survives closing it. */}
+      {ideaMounted && (
+        <div className={drawer === "idea" ? "fixed inset-0 z-[55] flex justify-end" : "hidden"} style={{ background: "rgba(0,0,0,0.45)" }} onClick={closeDrawer} data-idea-drawer={drawer === "idea" ? "open" : "closed"}>
+          <aside className="hud-scroll h-full w-full max-w-[620px] overflow-y-auto p-3" style={{ background: H.bg1, borderLeft: `1px solid ${H.lineHi}` }} onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <p className="inline-flex items-center gap-2 text-[12px] font-bold tracking-[0.16em]" style={{ color: H.gold2 }}><Sparkles className="h-3.5 w-3.5" />GENERATE WITH ATLAS</p>
+              <button onClick={closeDrawer} aria-label="Close" style={{ color: H.mut }}><X className="h-5 w-5" /></button>
+            </div>
+            <IdeaPanel endpoint={isReplay ? endpoint : "/api/command-center/idea"} replay={isReplay} runSignal={ideaRun}
+              shown={shownIdea ? shownIdea.id ?? "unsaved" : null}
+              onShow={(i, byUser) => { showIdea(i); if (i && byUser && stackedRef.current) { setDrawer(null); window.setTimeout(scrollToChart, 60); } }}
+              onTake={() => setDrawer("trade")}
+              onManual={(p) => { setTicket(p); setCallOpen(true); }}
+              onAsk={(q) => { setDrawer(null); ask(q); }}
+              canTrade={!consent || consent.signed}
+              riskPct={profile?.riskPct ?? null}
+              account={desk.account ? { equity: desk.account.equity, currency: desk.account.currency, isLive: desk.account.isLive } : null} />
+          </aside>
+        </div>
+      )}
+
+      {drawer && drawer !== "idea" && (
         <div className="fixed inset-0 z-[55] flex justify-end" style={{ background: "rgba(0,0,0,0.45)" }} onClick={closeDrawer}>
           <aside className="hud-scroll hud-in h-full w-full max-w-[620px] overflow-y-auto p-3" style={{ background: H.bg1, borderLeft: `1px solid ${H.lineHi}` }} onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
@@ -1048,7 +1125,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                 {trade?.active ? <TradePanel trade={trade} onChanged={() => setReloadAt(Date.now())} /> : (
                   <BrainTradeCard setup={setup} profile={profile} account={desk.account} idempotencyKey={desk.idempotencyKey}
                     marketOpen={d?.marketOpen ?? true} onChanged={() => setReloadAt(Date.now())}
-                    onOpenManual={() => setCallOpen(true)} onOpenProfile={() => setProfileOpen(true)} />
+                    onOpenManual={() => { setTicket(null); setCallOpen(true); }} onOpenProfile={() => setProfileOpen(true)} />
                 )}
                 {d?.experience?.completed && !trade?.active && <TradeCompleteCard c={d.experience.completed} />}
               </div>
@@ -1118,7 +1195,8 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           <ProfileSheet open={profileOpen} profile={profile} onClose={() => { setProfileOpen(false); setNav("OVERVIEW"); }}
             onSaved={(p) => { setDesk((x) => ({ ...x, profile: p })); setReloadAt(Date.now()); }} />
           <CallTradeSheet price={d?.price ?? null} levels={(d?.levels ?? []).map((l) => ({ price: l.price, label: l.label }))}
-            open={callOpen} onClose={() => setCallOpen(false)} onDone={() => setReloadAt(Date.now())} />
+            open={callOpen} onClose={() => { setCallOpen(false); setTicket(null); }} onDone={() => setReloadAt(Date.now())}
+            prefill={ticket} defaultRisk={profile?.riskPct ?? null} />
         </>
       )}
     </div>

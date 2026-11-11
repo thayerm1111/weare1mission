@@ -58,12 +58,22 @@ const tone = (n: number | null | undefined) => (n == null ? C.mut : n > 0 ? C.up
 
 /* ══════════════════════════ CALL TRADE ══════════════════════════ */
 
-export function CallTradeSheet({ price, levels, open, onClose, onDone }: {
+/** ATLAS's numbers from a generated idea (hud/IdeaPanel.tsx). Everything on the ticket stays editable. */
+export type TicketPrefill = {
+  side: "buy" | "sell"; style: StyleId; stop: number; takeProfit: number | null;
+  headline: string; reason: string; invalidation: string | null; evidence: string[]; ideaId: string | null;
+};
+
+export function CallTradeSheet({ price, levels, open, onClose, onDone, prefill = null, defaultRisk = null }: {
   price: number | null;
   levels: { price: number; label: string }[];
   open: boolean;
   onClose: () => void;
   onDone: () => void;
+  /** Set when the ticket was opened from an ATLAS idea: the side, style, stop and first target start as ATLAS's. */
+  prefill?: TicketPrefill | null;
+  /** The member's profile risk — used for a ticket opened from an idea, which says it is sized from it. */
+  defaultRisk?: number | null;
 }) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [style, setStyle] = useState<StyleId>("hold");
@@ -92,18 +102,39 @@ export function CallTradeSheet({ price, levels, open, onClose, onDone }: {
 
   const reset = () => { setPrep(null); setErr(null); setResult(null); };
 
+  // Opened from an ATLAS idea: start from ATLAS's numbers. (Declared after the default-stop effect above so
+  // that, on the render the ticket opens, this is the stop that stands.)
+  useEffect(() => {
+    if (!open || !prefill) return;
+    setSide(prefill.side); setStyle(prefill.style);
+    setStop(prefill.stop.toFixed(2));
+    setTarget(prefill.takeProfit != null ? prefill.takeProfit.toFixed(2) : "");
+    if (defaultRisk != null && [0.25, 0.5, 0.75, 1].includes(defaultRisk)) setRisk(defaultRisk);
+    setPrep(null); setErr(null); setResult(null);
+  }, [open, prefill, defaultRisk]);
+  // The idea's reasoning travels with the order only while the ticket is still that idea's trade.
+  const fromIdea = prefill && side === prefill.side && Number(stop) === Number(prefill.stop.toFixed(2)) ? prefill : null;
+
   const doPrepare = useCallback(async () => {
     setBusy(true); setErr(null); setPrep(null);
     try {
       const r = await fetch("/api/command-center/trade", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "prepare", side, style, stop: Number(stop), takeProfit: target ? Number(target) : null, riskPct: risk }),
+        body: JSON.stringify({
+          action: "prepare", side, style, stop: Number(stop), takeProfit: target ? Number(target) : null, riskPct: risk,
+          // Why this trade exists, so ATLAS can explain the position it is managing. No invalidation PRICE is
+          // sent: a called trade is managed on its stop, exactly as every other called trade is.
+          ...(fromIdea ? {
+            thesis: { reason: fromIdea.reason, invalidation: fromIdea.invalidation, strategy: "atlas_idea", idea: fromIdea.headline, ideaId: fromIdea.ideaId },
+            evidence: fromIdea.evidence,
+          } : {}),
+        }),
       });
       const j = await r.json();
       if (j.ok) setPrep(j); else setErr(j.reason ?? "That trade could not be prepared.");
     } catch { setErr("Could not reach the Command Center."); }
     finally { setBusy(false); }
-  }, [side, style, stop, target, risk]);
+  }, [side, style, stop, target, risk, fromIdea]);
 
   const doExecute = useCallback(async () => {
     if (!prep) return;
@@ -134,6 +165,17 @@ export function CallTradeSheet({ price, levels, open, onClose, onDone }: {
         </div>
 
         <div className="space-y-3.5 px-4 py-3.5">
+          {prefill && (
+            <div className="rounded-xl px-3 py-2.5" data-ticket-idea="" style={{ background: "rgba(240,196,117,0.06)", border: "1px solid rgba(240,196,117,0.28)" }}>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: C.gold }}>From ATLAS&apos;s idea</p>
+              <p className="mt-0.5 text-[12.5px] font-semibold">{prefill.headline}</p>
+              <p className="mt-1 text-[11px] leading-relaxed" style={{ color: C.mut }}>
+                {fromIdea
+                  ? "The side, style, stop and first target are ATLAS's. The order goes at market, so send it only while gold is at the entry — and ATLAS manages it once it is on."
+                  : "You have changed the side or the stop, so this is no longer ATLAS's idea — it is your own trade."}
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2">
             {(["buy", "sell"] as const).map((sd) => (
               <button key={sd} onClick={() => { setSide(sd); setStop(""); reset(); }}

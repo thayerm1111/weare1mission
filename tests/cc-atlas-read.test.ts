@@ -666,6 +666,10 @@ test('the read never reaches a trading path', () => {
   const allowed = new Set([
     'command-center/core/scenarios.ts', 'command-center/engines/atlasRead.ts', 'command-center/engines/live.ts',
     'command-center/engines/replay.ts', 'command-center/adapters/db.ts', 'command-center/worker/index.ts',
+    // GENERATE WITH ATLAS (11-11): the idea engine describes a plan at the read's own two levels. It cannot
+    // trade — tests/cc-atlas-idea.test.ts proves it imports no execution module and that nothing on a trading
+    // path imports it — so the read still never reaches an order.
+    'command-center/engines/idea.ts', 'command-center/engines/ideaDesk.ts',
   ]);
   const files = [...walk('command-center'), ...walk('src/lib')];
   const offenders = files.filter((f) => !allowed.has(f) && importsOf(f).some((i) => READ_MODULES.includes(i.target)));

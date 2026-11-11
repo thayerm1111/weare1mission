@@ -149,11 +149,19 @@ export function CommandCenter({ className = "" }: { className?: string }) {
         <span className="text-[10px]" style={{ color: C.mut2 }}>
           ATLAS reads the market here. Trading lives in the full Command Center, on accounts you connect and authorise.
         </span>
-        <a href="/command-center"
-          className="shrink-0 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em]"
-          style={{ background: `${C.gold}1a`, color: C.gold, border: `1px solid ${C.gold}44`, textDecoration: "none" }}>
-          Open ATLAS →
-        </a>
+        <span className="flex shrink-0 flex-wrap items-center gap-2">
+          {/* One press inside the Command Center: ATLAS's engine gives its trade idea and where to enter. */}
+          <a href="/command-center?generate=1"
+            className="rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em]"
+            style={{ background: `linear-gradient(180deg, #FFD875, ${C.gold})`, color: "#1A1305", textDecoration: "none" }}>
+            ✦ Generate with ATLAS
+          </a>
+          <a href="/command-center"
+            className="rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em]"
+            style={{ background: `${C.gold}1a`, color: C.gold, border: `1px solid ${C.gold}44`, textDecoration: "none" }}>
+            Open ATLAS →
+          </a>
+        </span>
       </div>
     </section>
   );
