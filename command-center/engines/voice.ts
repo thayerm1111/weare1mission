@@ -354,7 +354,25 @@ const TTS_TUNING = { stability: 0.4, similarity_boost: 0.8, speed: 1.0 };
  * and a change here re-applies the whole configuration on the next session instead of waiting for
  * somebody to remember.
  */
-const AGENT_CONFIG_VERSION = 8;   // 3: ATLAS · 4: idle hang-up · 5: greeting · 6: spoken welcome may set the first message · 7: real voice
+const AGENT_CONFIG_VERSION = 9;   // 3: ATLAS · 4: idle hang-up · 5: greeting · 6: spoken welcome may set the first message · 7: real voice · 9: live partial transcript
+
+/** The longest a single call may run. The provider enforces it; the browser counts down to it. */
+export const MAX_CALL_SECONDS = 900;
+
+/**
+ * WHAT THE PROVIDER SENDS THE BROWSER (`client_events`).
+ *
+ * The set every agent ran on through version 8 is the known-good one. Version 9 adds
+ * `tentative_user_transcript` — the member's words while they are still speaking — so the live transcript shows
+ * them as they talk rather than only once the turn is over. Named exactly as the provider's own AsyncAPI types
+ * spell it (@elevenlabs/types ConversationConfigOverrideConversationClientEventsItem). If the provider ever
+ * refuses it, provisioning falls back to the known-good set (agentBodyCandidates) and the browser simply never
+ * receives partials — it handles their absence.
+ */
+export const LEGACY_CLIENT_EVENTS = ["audio", "interruption", "user_transcript", "agent_response", "agent_response_correction"] as const;
+export const AGENT_CLIENT_EVENTS = [...LEGACY_CLIENT_EVENTS, "tentative_user_transcript"] as const;
+/** The stock voice a refused voice falls back to. */
+const SAFE_TTS = { model_id: "eleven_flash_v2", agent_output_audio_format: "pcm_16000" };
 
 const AGENT_PROMPT = [
   "You are a relay. Do not answer from your own knowledge.",
@@ -364,6 +382,82 @@ const AGENT_PROMPT = [
 ].join(" ");
 
 export type Provisioned = { ok: true; agentId: string; created: boolean } | { ok: false; reason: string };
+
+export type AgentBody = ReturnType<typeof agentBody>;
+
+/** The agent's whole configuration. Pure, so what is sent to the provider can be tested without sending it. */
+export function agentBody(url: string, secretId: string | null) {
+  return {
+    name: "COMMAND CENTER XAUUSD — ATLAS",
+    conversation_config: {
+      agent: {
+        // A fixed greeting is spoken by the provider's voice directly — no model call, no market claim,
+        // so it can never say a stale price. It tells you the line is live the instant it is.
+        first_message: "ATLAS online. What do you need?",
+        language: "en",
+        prompt: {
+          prompt: AGENT_PROMPT,
+          llm: "custom-llm",
+          temperature: 0.3,
+          max_tokens: -1,
+          tools: [] as unknown[],
+          custom_llm: {
+            url,
+            model_id: "command-center-xauusd",
+            api_key: { secret_id: secretId },
+          },
+        },
+      },
+      asr: { quality: "high", user_input_audio_format: "pcm_16000" },
+      tts: { model_id: TTS_MODEL, voice_id: TTS_VOICE_ID, ...TTS_TUNING, agent_output_audio_format: "pcm_16000" } as Record<string, unknown>,
+      /*
+       * COST (owner 09-21). The provider bills for every minute the line is OPEN, spoken into or not:
+       * 48 billed minutes had used 12,100 credits, and 24 of the last 54 sessions never had a single
+       * exchange. So an open line with nobody talking hangs itself up after 40 seconds, and no single
+       * call runs past 15 minutes. Press Talk again and it is back in a quarter of a second.
+       */
+      // The provider counts silence from the last thing YOU said, so a long ATLAS answer could trip 40 s on its
+      // side mid-sentence. The real 40-second rule now lives in the browser (it waits until ATLAS finishes
+      // speaking); this is only the backstop for a tab that died.
+      turn: { turn_timeout: 10, silence_end_call_timeout: 120 },
+      conversation: {
+        max_duration_seconds: MAX_CALL_SECONDS,
+        client_events: [...AGENT_CLIENT_EVENTS] as string[],
+      },
+    },
+    /*
+     * PERMISSION TO BE TOLD WHO IS TALKING.
+     *
+     * The session token is the only thing about the member that leaves our infrastructure, and it
+     * travels as `custom_llm_extra_body` — the single field the provider forwards to our reasoning
+     * endpoint. An agent refuses that field unless it has been configured to accept it, and the
+     * refusal is not a message on the socket: it is a close frame mid-sentence. Everything else here
+     * stays off. This is permission to carry one opaque token, not permission to rewrite the agent
+     * from a browser. (So no per-conversation voice speed either: the provider supports a `tts.speed`
+     * override, but only for an agent that grants it, and this one deliberately grants nothing else.)
+     */
+    platform_settings: {
+      overrides: {
+        custom_llm_extra_body: true,
+        // The entrance welcome (name, accounts, gold update) is spoken as the first message of a
+        // one-off line. Only the first message may be overridden — never the prompt or the model.
+        conversation_config_override: { agent: { first_message: true } },
+      },
+    },
+  };
+}
+
+/**
+ * What to send, in order, when the provider refuses (400/422): as configured; with the known-good client events;
+ * with the stock voice; and finally both — the exact configuration every agent ran on through version 8.
+ */
+export function agentBodyCandidates(body: AgentBody): AgentBody[] {
+  const legacyEvents = (b: AgentBody): AgentBody => ({
+    ...b, conversation_config: { ...b.conversation_config, conversation: { ...b.conversation_config.conversation, client_events: [...LEGACY_CLIENT_EVENTS] } },
+  });
+  const stockVoice = (b: AgentBody): AgentBody => ({ ...b, conversation_config: { ...b.conversation_config, tts: { ...SAFE_TTS } } });
+  return [body, legacyEvents(body), stockVoice(body), stockVoice(legacyEvents(body))];
+}
 
 /**
  * Find the agent, or make one.
@@ -443,63 +537,7 @@ export async function provisionAgent(): Promise<Provisioned> {
     }
 
     // 2 — the agent itself, pointed at ATLAS.
-    const body = {
-      name: "COMMAND CENTER XAUUSD — ATLAS",
-      conversation_config: {
-        agent: {
-          // A fixed greeting is spoken by the provider's voice directly — no model call, no market claim,
-          // so it can never say a stale price. It tells you the line is live the instant it is.
-          first_message: "ATLAS online. What do you need?",
-          language: "en",
-          prompt: {
-            prompt: AGENT_PROMPT,
-            llm: "custom-llm",
-            temperature: 0.3,
-            max_tokens: -1,
-            tools: [],
-            custom_llm: {
-              url,
-              model_id: "command-center-xauusd",
-              api_key: { secret_id: secretId },
-            },
-          },
-        },
-        asr: { quality: "high", user_input_audio_format: "pcm_16000" },
-        tts: { model_id: TTS_MODEL, voice_id: TTS_VOICE_ID, ...TTS_TUNING, agent_output_audio_format: "pcm_16000" },
-        /*
-         * COST (owner 09-21). The provider bills for every minute the line is OPEN, spoken into or not:
-         * 48 billed minutes had used 12,100 credits, and 24 of the last 54 sessions never had a single
-         * exchange. So an open line with nobody talking hangs itself up after 40 seconds, and no single
-         * call runs past 15 minutes. Press Talk again and it is back in a quarter of a second.
-         */
-        // The provider counts silence from the last thing YOU said, so a long ATLAS answer could trip 40 s on its
-        // side mid-sentence. The real 40-second rule now lives in the browser (it waits until ATLAS finishes
-        // speaking); this is only the backstop for a tab that died.
-        turn: { turn_timeout: 10, silence_end_call_timeout: 120 },
-        conversation: {
-          max_duration_seconds: 900,
-          client_events: ["audio", "interruption", "user_transcript", "agent_response", "agent_response_correction"],
-        },
-      },
-      /*
-       * PERMISSION TO BE TOLD WHO IS TALKING.
-       *
-       * The session token is the only thing about the member that leaves our infrastructure, and it
-       * travels as `custom_llm_extra_body` — the single field the provider forwards to our reasoning
-       * endpoint. An agent refuses that field unless it has been configured to accept it, and the
-       * refusal is not a message on the socket: it is a close frame mid-sentence. Everything else here
-       * stays off. This is permission to carry one opaque token, not permission to rewrite the agent
-       * from a browser.
-       */
-      platform_settings: {
-        overrides: {
-          custom_llm_extra_body: true,
-          // The entrance welcome (name, accounts, gold update) is spoken as the first message of a
-          // one-off line. Only the first message may be overridden — never the prompt or the model.
-          conversation_config_override: { agent: { first_message: true } },
-        },
-      },
-    };
+    const body = agentBody(url, secretId);
 
     /*
      * UPDATE IN PLACE WHEN WE ALREADY HAVE ONE.
@@ -516,12 +554,13 @@ export async function provisionAgent(): Promise<Provisioned> {
     const send = (b: unknown) => existing
       ? fetch(`${API}/convai/agents/${existing}`, { method: "PATCH", headers, body: JSON.stringify(b) })
       : fetch(`${API}/convai/agents/create`, { method: "POST", headers, body: JSON.stringify(b) });
-    let res = await send(body);
-    if (!res.ok && (res.status === 400 || res.status === 422)) {
-      // A refused voice must never cost the member their voice line: retry on the known-good stock voice.
-      const safe = JSON.parse(JSON.stringify(body)) as { conversation_config: { tts: Record<string, unknown> } };
-      safe.conversation_config.tts = { model_id: "eleven_flash_v2", agent_output_audio_format: "pcm_16000" };
-      res = await send(safe);
+    // A refused setting must never cost the member their voice line: on a 400/422 the next candidate is
+    // tried, ending on the exact configuration every agent ran on before version 9 (stock voice, known-good
+    // client events).
+    let res!: Response;
+    for (const candidate of agentBodyCandidates(body)) {
+      res = await send(candidate);
+      if (res.ok || !(res.status === 400 || res.status === 422)) break;
     }
     if (!res.ok) {
       const text = await res.text().catch(() => "");

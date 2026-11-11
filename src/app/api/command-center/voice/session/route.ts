@@ -5,7 +5,7 @@ import { selectedAccount } from "../../../../../../command-center/engines/broker
 import { callbackUrl } from "../../../../../../command-center/engines/voice";
 import {
   availability, budgetFor, closeSession, ensureAgent, openSession, signedUrl, touch,
-  MONTHLY_MINUTE_BUDGET,
+  MONTHLY_MINUTE_BUDGET, MAX_CALL_SECONDS,
 } from "../../../../../../command-center/engines/voice";
 
 export const runtime = "nodejs";
@@ -156,5 +156,7 @@ export async function POST(req: Request) {
     sessionId: session.id,
     expiresAt: session.expiresAt,
     budget,
+    // The provider's per-call cap, so the browser can count down to it instead of being cut off cold.
+    maxCallSeconds: MAX_CALL_SECONDS,
   });
 }

@@ -23,10 +23,31 @@ import { emptyTrade } from "./tradeLive";
 import { findSetup } from "./setup";
 import { DEFAULT_PROFILE, asSetupProfile } from "./profile";
 import { experienceOf } from "./experience";
+import { feedOfSnapshot, analysisMeta } from "../core/feed";   // ATLAS FEED (atlas/feed)
 import { metrics, character, protection, health, tradeFocus, tradeQuestion, tradeRead, tradeThesisState, type LivePosition } from "../brain/trade";
+// ATLAS READ — the directional read and scenarios, stepped on every replayed candle exactly as the worker steps them.
+import { atlasStep, readHistoryOf, rowOfRead, type AtlasMemory } from "./atlasRead";
+import { withSetupStage } from "../core/read";
+import type { AtlasRead, Scenario } from "../core/atlasContract";
 
 type Row = [number, number, number, number, number];
 const toBars = (rows: Row[]): Bar[] => rows.map(([t, o, h, l, c]) => ({ t: t * 1000, o, h, l, c }));
+
+/**
+ * The hourly candles as the live worker would have held them at `at`: every hour that had CLOSED, plus the
+ * hour still forming, folded from the 5-minute candles closed so far.
+ *
+ * The recording's own bar for the current hour is the FINISHED hour. Handing it to anything mid-hour is
+ * handing it the future — up to 55 minutes of it. The replay snapshot above has always done that for its
+ * 1h state; ATLAS's read is given this instead, so a replayed read is one that could have been made live.
+ */
+export function hourlyAsOf(m5: Bar[], h1: Bar[], at: number): Bar[] {
+  const H = 3_600_000;
+  const closed = h1.filter((b) => b.t + H <= at);
+  const hourStart = Math.floor(at / H) * H;
+  const forming = resample(m5.filter((b) => b.t >= hourStart && b.t + 5 * 60_000 <= at), "5m", "1h", { keepForming: true });
+  return [...closed, ...forming];
+}
 
 export type ReplayResult = {
   state: LiveState;
@@ -35,6 +56,12 @@ export type ReplayResult = {
   /** The raw snapshot the replay arrived at. Exposed so tests can drive the engines on real bars. */
   snapshot: MarketSnapshot;
   diffs: ReturnType<typeof perceive>["diffs"];
+  /**
+   * ATLAS's read and scenarios at every replayed step, oldest first. Each step sees only candles closed by
+   * its own time, so the entry for step k is the same whether the recording ends there or carries on.
+   * (Per-step reads carry no setup stage; the final `state.read` has the replayed setup's stage.)
+   */
+  atlas: { at: number; read: AtlasRead; scenarios: Scenario[] }[];
 };
 
 /**
@@ -50,6 +77,8 @@ export function replay(steps = 40, withTrade = false, endOffset = 0): ReplayResu
   let rolling: Rolling = emptyRolling();
   let last: ReturnType<typeof perceive> | null = null;
   let snap: MarketSnapshot | null = null;
+  let atlasMemory: AtlasMemory = { read: null, scenarios: [] };
+  const atlasSteps: ReplayResult["atlas"] = [];
 
   const first = Math.max(70, m5All.length - steps);
   for (let i = first; i < m5All.length; i++) {
@@ -68,6 +97,19 @@ export function replay(steps = 40, withTrade = false, endOffset = 0): ReplayResu
     });
     last = perceive({ rolling, snapshot: snap });
     rolling = last.rolling;
+
+    // ATLAS READ: the same step the worker runs, on the hourly candles the worker would have held at `at`
+    // (see hourlyAsOf). Its snapshot differs from the one above only in what is derived from the hour;
+    // pressure is reproduced exactly (net − acceleration is the previous net it was measured against).
+    const h1Live = hourlyAsOf(m5, h1All, at);
+    const readBars = { "5m": m5, "15m": m15, "1h": h1Live, "4h": h1Live.length >= 4 ? resample(h1Live, "1h", "4h") : [] };
+    const readSnap = buildSnapshot({
+      now: at, bars: readBars, price: snap.price, feeds: snap.feeds,
+      prevPressureNet: snap.pressure.net - snap.pressure.acceleration,
+    });
+    const step = atlasStep({ snapshot: readSnap, bars: readBars, previous: atlasMemory, now: at });
+    atlasMemory = { read: step.read, scenarios: step.scenarios };
+    atlasSteps.push({ at, read: step.read, scenarios: step.scenarios });
   }
 
   if (!last || !snap) throw new Error("replay produced nothing — the fixture is too short");
@@ -91,6 +133,10 @@ export function replay(steps = 40, withTrade = false, endOffset = 0): ReplayResu
     ageSeconds: 0,
     marketOpen: true,
     price: s.price, bid: s.bid, ask: s.ask, spread: s.spread,
+    // ATLAS FEED (atlas/feed): recorded prices are DEMO, always. Ages run on the replay's own clock; there is
+    // no persisted snapshot row behind a replay, so no snapshot id.
+    feed: feedOfSnapshot(s, { now: s.at, marketOpen: true, replay: true }),
+    analysis: analysisMeta(s, null, s.at),
     session: s.session, regime: s.regime,
     pressure: { bullish: Math.round(s.pressure.bullish), bearish: Math.round(s.pressure.bearish), net: Math.round(s.pressure.net) },
     weather: weather(s), velocity: velocityBand(s), intensity: intensity(s),
@@ -131,9 +177,13 @@ export function replay(steps = 40, withTrade = false, endOffset = 0): ReplayResu
       s, thesis: openThesis, events: rolling.events.slice(-60), bars: m5All, diffs: last.diffs,
       velocityBand: velocityBand(s), weather: weather(s),
     }),
+    // ATLAS READ — replayed, labelled as a replay by the banner like everything else on this screen.
+    read: atlasMemory.read ? withSetupStage(atlasMemory.read, replaySetup.state, withTrade) : null,
+    scenarios: atlasMemory.scenarios,
+    readHistory: readHistoryOf(atlasSteps.map((x) => rowOfRead(x.read))),
   };
 
-  return { state, steps: m5All.length - first, endedAt: s.at, snapshot: s, diffs: last.diffs };
+  return { state, steps: m5All.length - first, endedAt: s.at, snapshot: s, diffs: last.diffs, atlas: atlasSteps };
 }
 
 

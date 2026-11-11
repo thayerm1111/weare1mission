@@ -260,9 +260,11 @@ function speakWelcome(url: string, text: string, on: { level: (v: number) => voi
   return () => { window.clearInterval(iv); window.clearTimeout(cap); finish(); };
 }
 
-export function EntrySequence({ onDone, speak = false, awaitTap = false, replay = false, preview = false, onArm }: {
+export function EntrySequence({ onDone, onSkip, speak = false, awaitTap = false, replay = false, preview = false, onArm }: {
   /** The one free look (owner 09-21): ends with an invitation instead of the desk. */
   preview?: boolean;
+  /** Skipped before it began (on the TAP TO ENTER screen). Defaults to onDone. */
+  onSkip?: () => void;
   /** Called inside the tap before the room opens (claims the free preview). False = don't open. */
   onArm?: () => Promise<boolean>;
   onDone: () => void; speak?: boolean;
@@ -388,6 +390,14 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
     startVoice();
   });
   useEffect(() => () => { stopVoice.current?.(); stopHum.current?.(); }, []);
+  // Escape skips, whichever screen is up: the entrance is never something a member has to sit through.
+  const leaveRef = useRef<() => void>(() => {});
+  leaveRef.current = armed ? leave : () => (onSkip ?? onDone)();
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); leaveRef.current(); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   // the hum steps aside for the voice
   useEffect(() => { if (voice === "speaking") { stopHum.current?.(); stopHum.current = null; } }, [voice]);
   useEffect(() => { if (doneAt.current != null && t - doneAt.current > 2600) leave(); });
@@ -433,6 +443,8 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
         <style>{ENTRY_CSS + FX_CSS}</style>
         <div className="es-grid" style={{ opacity: 0.5 }} /><div className="es-hex" /><div className="es-vignette" /><div className="es-scan" />
         {["tl", "tr", "bl", "br"].map((c) => <span key={c} className={`es-corner es-${c}`} />)}
+        <button onClick={() => (onSkip ?? onDone)()} className="absolute right-7 top-7 z-20 rounded-md px-3 py-1.5 text-[11px] tracking-[0.18em] sm:right-10 sm:top-10"
+          style={{ color: H.mut, border: `1px solid ${H.line}`, background: "rgba(3,7,11,0.6)" }} title="Skip the entrance (Esc)">SKIP ›</button>
         <button onClick={() => {
           primeAudio(); // must run inside the tap itself
           if (!onArm) { setArmed(true); return; }
@@ -479,7 +491,7 @@ export function EntrySequence({ onDone, speak = false, awaitTap = false, replay 
         {bootLines.slice(0, bootShown).map((l, i) => <div key={i} className="es-type">{">"} {l}</div>)}
       </div>
       <button onClick={leave} className="absolute right-7 top-7 z-20 rounded-md px-3 py-1.5 text-[11px] tracking-[0.18em] sm:right-10 sm:top-10"
-        style={{ color: H.mut, border: `1px solid ${H.line}`, background: "rgba(3,7,11,0.6)" }}>SKIP ›</button>
+        style={{ color: H.mut, border: `1px solid ${H.line}`, background: "rgba(3,7,11,0.6)" }} title="Skip the entrance (Esc)">SKIP ›</button>
 
       {/* ATLAS's holographic briefing: panels pulled forward one at a time as it talks about them */}
       {holoShown && <HoloBriefing d={d as unknown as BriefData} active={holoActive} caption={holoSegs[holoActive]?.show ?? ""} phone={phone} level={voice === "speaking" ? vLevel : 0.2} />}

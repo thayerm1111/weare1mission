@@ -1,7 +1,11 @@
 import { SpokenStream, speakNumbers } from "@/lib/spokenNumbers";
 import { liveMemory } from "../engines/live";
 import { tradeState } from "../engines/tradeLive";
-import { BRAIN_SYSTEM, contextPacket, setupSummaryLines, tradeSummaryLines } from "./context";
+import { contextPacket, setupSummaryLines, tradeSummaryLines } from "./context";
+// ONE set of rules for the typed console and the voice line (owner 11-11); only the output section differs.
+import { buildAtlasSystemPrompt } from "./prompt";
+import { conversationFeed, readFromThesis } from "./conversation";
+import { loadAskContext } from "./askAtlas";
 import { findSetup } from "../engines/setup";
 import { getProfile, asSetupProfile } from "../engines/profile";
 import { marketOpen } from "../core/sessions";
@@ -18,7 +22,8 @@ import { accountLines, asksAboutAccount, type AccountFacts } from "./account";
 import { selectedAccount } from "../engines/broker";
 import { aboveBelow } from "../core/levelMap";
 import { priceNow } from "../core/priceNow";
-import { statedTradeFrom, tradeGuidanceLines, ledgerPositions, TRADE_COACH_RULES } from "./statedTrade";
+import { statedTradeFrom, tradeGuidanceLines, ledgerPositions } from "./statedTrade";
+import { isVolunteeredTurn, parseVolunteeredTurn, VOLUNTEERED_NOTE } from "../core/commentary";
 
 
 /**
@@ -105,16 +110,9 @@ const textOf = (c: unknown): string =>
 
 /*
  * SPOKEN ANSWERS ARE SHORT. A written answer can afford a list; a spoken one that reads a dashboard
- * aloud is unbearable, and a member will stop the session rather than sit through it.
+ * aloud is unbearable, and a member will stop the session rather than sit through it. Those rules now
+ * live in the shared prompt builder (prompt.ts, mode "voice"), beside every rule the typed console uses.
  */
-const VOICE_RULES = `
-You are speaking OUT LOUD to a trader who can see the screen. Rules for this channel:
-- Two or three sentences by default. Expand only when asked to.
-- Never read a dashboard aloud. Never list more than three things.
-- Say numbers the way a person says them: "forty-two eighty-three", not "4283.00".
-- No markdown, no bullet points, no UI markers — every character is spoken.
-- If they interrupt, answer the new question and drop the old one.
-- Sound like a composed, quick AI aide at the trader's side: confident, efficient, lead with the answer, then the one reason. A dry, light touch is fine; never theatrical, never hype.`;
 
 /**
  * Answer from a context packet, streaming.
@@ -136,7 +134,8 @@ function streamAnswer(packet: string, question: string, fallback: string): Respo
       headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({
         model: MODEL, max_tokens: 400, stream: true,
-        system: `${BRAIN_SYSTEM}\n${VOICE_RULES}`,
+        // Record, account, how-to and closed-market answers: the shared rules, spoken, without the own-trade coaching.
+        system: buildAtlasSystemPrompt({ mode: "voice", tradeCoach: false }),
         messages: [{ role: "user", content: `CONTEXT — everything you can see right now:\n\n${packet}\n\n----\nThe trader says: ${question}` }],
       }),
     });
@@ -223,7 +222,18 @@ async function handleVoiceLlmInner(req: Request): Promise<Response> {
   let body: ChatRequest;
   try { body = (await req.json()) as ChatRequest; } catch { body = {}; }
 
-  const messages = (body.messages ?? []).filter((m) => m && (m.role === "user" || m.role === "assistant"));
+  const raw = (body.messages ?? []).filter((m) => m && (m.role === "user" || m.role === "assistant"));
+  /*
+   * A LINE ATLAS VOLUNTEERED IS NOT SOMETHING THE TRADER SAID (core/commentary.ts).
+   *
+   * Proactive commentary reaches the provider as a marked user_message — the documented way for the browser to
+   * make the agent take a turn — so it arrives here looking like a user turn. It is not one. As the newest
+   * message it is spoken verbatim; anywhere in the history it is replaced by a note saying the trader said
+   * nothing there, so it can never become the question, a stated trade, or words put in the member's mouth.
+   */
+  const tail = raw[raw.length - 1];
+  const volunteered = tail && tail.role === "user" ? parseVolunteeredTurn(textOf(tail.content)) : null;
+  const messages: ChatMessage[] = raw.map((m) => (m.role === "user" && isVolunteeredTurn(textOf(m.content)) ? { role: "user", content: VOLUNTEERED_NOTE } : m));
   const last = [...messages].reverse().find((m) => m.role === "user");
   const question = speakable(textOf(last?.content)).slice(0, 2000);
 
@@ -246,6 +256,22 @@ async function handleVoiceLlmInner(req: Request): Promise<Response> {
     return sse(async function* () {
       yield `data: ${JSON.stringify(delta("I can't tell which account this session belongs to, so I'm not going to answer questions about a position. Start the session again from the Command Center."))}\n\n`;
     });
+  }
+
+  /*
+   * THE VOLUNTEERED LINE IS SAID AS WRITTEN. It was composed from the same live read the screen shows; asking a
+   * model to restate it would cost a call, add latency, and risk saying something the screen does not. No
+   * journal entry either — a volunteered observation is not a call ATLAS is graded on — and it does not count
+   * as one of the member's turns.
+   */
+  if (volunteered) {
+    void touch(session.sessionId, 0);
+    return sse(async function* () { yield `data: ${JSON.stringify(delta(speakNumbers(volunteered)))}\n\n`; });
+  }
+  // A volunteered line already spoken and nothing said since (the provider re-engaging after a silence): there is
+  // no question here, and repeating the line would be noise.
+  if (textOf(last?.content) === VOLUNTEERED_NOTE) {
+    return sse(async function* () { yield `data: ${JSON.stringify(delta("I'm here."))}\n\n`; });
   }
 
   void touch(session.sessionId, 1);
@@ -468,7 +494,8 @@ async function handleVoiceLlmInner(req: Request): Promise<Response> {
   const now = memory.now;
   const saidPrice = priceNow(now);   // the member's own trade is worked out at the price ATLAS is about to say
   const lv = aboveBelow(saidPrice, [now.levels, now.map ?? []], 6);
-  const userTexts = messages.filter((m) => m.role === "user").map((m) => speakable(textOf(m.content)));
+  // The member's own words only: a volunteered line quoting a price is not a trade they told us about.
+  const userTexts = messages.filter((m) => m.role === "user" && textOf(m.content) !== VOLUNTEERED_NOTE).map((m) => speakable(textOf(m.content)));
   const stated = statedTradeFrom(userTexts, saidPrice);
   const ledger = await ledgerPositions(session.userId);
   const ownBlocks: string[] = [];
@@ -505,6 +532,29 @@ async function handleVoiceLlmInner(req: Request): Promise<Response> {
    */
   const recordBlock = record ? `\n\n${trackRecordLines(record).join("\n")}` : "";
 
+  /*
+   * THE SYSTEM PROMPT the typed console uses, spoken (prompt.ts). The feed is judged at this moment and the
+   * read is the one the screen shows, so the voice opens a stale or closed answer the same way chat does
+   * and reports the same lean.
+   */
+  const nowMs = Date.now();
+  // The read and the feed the screen and the typed console use (askAtlas.loadAskContext → engines/live.ts and
+  // core/feed.ts), so a spoken answer reports the same lean and the same freshness as everything else.
+  let shared: { read: Awaited<ReturnType<typeof loadAskContext>>["read"]; feed: Awaited<ReturnType<typeof loadAskContext>>["feed"] } | null = null;
+  try {
+    const c = await loadAskContext(memory, { nowMs, setup, tradeActive: trade.active });
+    shared = { read: c.read, feed: c.feed };
+  } catch { /* fall back to the thesis-derived read below */ }
+  const system = buildAtlasSystemPrompt({
+    mode: "voice",
+    nowMs,
+    feed: shared?.feed ?? conversationFeed(memory.now, nowMs, marketOpen(nowMs)),
+    read: shared?.read ?? readFromThesis({
+      snapshot: memory.now, snapshotId: null, thesis: memory.thesis, previousThesis: memory.previousThesis,
+      events: memory.recentEvents, setup, tradeActive: trade.active, nowMs,
+    }),
+  });
+
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) {
     // The deterministic narrator is real, grounded output — not a stub pretending to be a model.
@@ -523,7 +573,7 @@ async function handleVoiceLlmInner(req: Request): Promise<Response> {
         model: MODEL,
         max_tokens: 400,
         stream: true,
-        system: `${BRAIN_SYSTEM}\n${VOICE_RULES}\n${TRADE_COACH_RULES}`,
+        system,
         messages: [
           ...messages.slice(-6).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: speakable(textOf(m.content)).slice(0, 1200) || "..." })),
           { role: "user", content: `CONTEXT — everything you can see right now:\n\n${packet}${ownTradeLines}${accountBlock}${watchLines}${calendarBlock}${pastLines}${recordBlock}${backgroundLines}${howToLines}\n\n----\nThe trader says: ${question}` },

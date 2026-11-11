@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic, Send, Square } from "lucide-react";
+import { Crosshair, Mic, Send, Square } from "lucide-react";
+import { CHART_ACTION_EVENT, type ChartAction, type FeedStatus, type Lean } from "../../../command-center/core/atlasContract";
+import { FEED_WORD, refToAction, type AnswerItem, type AtlasAnswer } from "../../../command-center/brain/answer";
 
 /**
  * TALKING TO ATLAS.
@@ -42,7 +44,31 @@ export const VOICE_MODES: { id: VoiceMode; label: string; hint: string }[] = [
 
 const TEXT_ONLY = true;
 
-export type Turn = { role: "user" | "assistant"; content: string; source?: string; at: number };
+/** What the console shows for an answer: the contract (lean, evidence, next, wrong-if, freshness, actions). */
+export type Turn = {
+  role: "user" | "assistant";
+  content: string;
+  source?: string;
+  at: number;
+  /** A structured answer from /api/command-center/brain. Absent on announcements and older replies. */
+  answer?: AtlasAnswer | null;
+  /** `answeredAt` is the SERVER's clock, sent back so "since your last update" is measured on one clock. */
+  meta?: { snapshotId: number | null; analysisAt: number | null; answeredAt: number | null; feed: FeedStatus | null } | null;
+};
+
+/** The read the screen is showing, so "what changed since…" is measured from what the trader actually saw. */
+export type SeenRead = { snapshotId?: number | null; at?: number | null; lean?: Lean | string | null } | null;
+
+/** Said once, plainly, when the server answers 401/402 — never "something went wrong". */
+export const PASS_ENDED = "Your Command Center window has ended.";
+/** The page (PassGate) listens for this and offers the renewal. */
+export const PASS_RENEW_EVENT = "cc:pass-renew";
+
+/** Put a validated chart action on the chart. The chart listens for CHART_ACTION_EVENT. */
+export function dispatchChartAction(a: ChartAction | null | undefined) {
+  if (!a || typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(CHART_ACTION_EVENT, { detail: a }));
+}
 
 export type BrainConsoleProps = {
   /** A proactive line ATLAS wants to say. A new `key` means a new thing to announce. */
@@ -61,7 +87,29 @@ export type BrainConsoleProps = {
   askSignal?: { n: number; q: string } | null;
   /** Lets the page show Atlas as thinking / speaking / listening. */
   onActivity?: (a: { busy: boolean; speaking: boolean; listening: boolean }) => void;
+  /** The timeframe the chart is showing. Sent with each question: a view, never the analysis horizon. */
+  chartTf?: string | null;
+  /** The read the screen is showing (snapshot id, time, lean). Sent with each question. */
+  seen?: SeenRead;
 };
+
+const LEAN_TONE: Record<Lean, string> = {
+  bullish_lean: "#2BD48F",
+  bearish_lean: "#FF5364",
+  balanced: "#27D7F2",
+  transitioning: "#E7C467",
+  insufficient_data: "#81909E",
+};
+
+/** The turns sent back with a question: what was asked, what was answered, and the read it was answered against. */
+function wireHistory(turns: Turn[]) {
+  return turns.filter((t) => t.source !== "system").slice(-8).map((t) => ({
+    role: t.role,
+    content: t.content,
+    at: t.meta?.answeredAt ?? t.at,
+    ...(t.answer?.read ? { read: { lean: t.answer.read.lean, snapshotId: t.meta?.snapshotId ?? t.answer.read.snapshotId ?? null, at: t.answer.read.at ?? null } } : {}),
+  }));
+}
 
 const QUICK = [
   { label: "Talk to me", q: "ATLAS, talk to me." },
@@ -71,7 +119,7 @@ const QUICK = [
   { label: "Show me the math", q: "Show me the math." },
 ];
 
-export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = false, className = "", variant = "classic", quick, askSignal, onActivity }: BrainConsoleProps) {
+export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = false, className = "", variant = "classic", quick, askSignal, onActivity, chartTf = null, seen = null }: BrainConsoleProps) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -79,12 +127,42 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
   const [speaking, setSpeaking] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** The server said 401/402: the Command Center window is over until it is renewed. */
+  const [ended, setEnded] = useState<null | "pass" | "auth">(null);
 
   const recognition = useRef<SpeechRecognitionLike | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
   const spokenKeys = useRef<Set<string>>(new Set());
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  // Read inside `ask` without re-creating it on every turn.
+  const turnsRef = useRef<Turn[]>([]);
+  turnsRef.current = turns;
+  const chartTfRef = useRef(chartTf);
+  chartTfRef.current = chartTf;
+  const seenRef = useRef(seen);
+  seenRef.current = seen;
+  const busyRef = useRef(false);
+  const endedRef = useRef(ended);
+  endedRef.current = ended;
+  /*
+   * STALE-RESPONSE GUARD. Every question gets a sequence number; a newer question aborts the one in
+   * flight, and an answer that arrives for anything but the newest question is dropped — so "what about
+   * now?" can never be answered by the reply to the question before it.
+   */
+  const seqRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+  /** The level the chart last highlighted for the trader: "watch this level" means this one. */
+  const focusRef = useRef<string | null>(null);
+
+  const pointAt = useCallback((a: ChartAction | null | undefined) => {
+    if (!a) return;
+    if (a.type === "highlight_level") focusRef.current = a.levelId;
+    dispatchChartAction(a);
+  }, []);
+  const renew = useCallback(() => {
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(PASS_RENEW_EVENT));
+  }, []);
 
   // Capability checks must not run during render: the server has no speechSynthesis and the browser does,
   // so branching on it inline makes the first client paint disagree with the server and React bails out
@@ -113,33 +191,81 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
   }, [canSpeak]);
 
   /* ── ask ────────────────────────────────────────────────────────────────── */
-  const ask = useCallback(async (question: string) => {
+  /**
+   * Ask ATLAS. A question typed or spoken while another is in flight supersedes it (the older request is
+   * aborted and its answer ignored); a scheduled briefing never interrupts a question — it just skips.
+   * Each question carries the recent turns and what the trader last saw, so "why?" and "what about
+   * now?" are answered about the right statement.
+   */
+  const ask = useCallback(async (question: string, opts: { auto?: boolean } = {}) => {
     const q = question.trim();
-    if (!q || busy) return;
+    if (!q) return;
+    if (opts.auto && (busyRef.current || endedRef.current)) return;
     stopSpeaking();
     setInput("");
     setNotice(null);
-    const history = turns.slice(-8).map((t) => ({ role: t.role, content: t.content }));
+    const prior = turnsRef.current;
+    const history = wireHistory(prior);
+    const lastAnswer = [...prior].reverse().find((t) => t.role === "assistant" && t.answer);
+    const s = seenRef.current;
+    const lastSeen = {
+      snapshotId: s?.snapshotId ?? lastAnswer?.meta?.snapshotId ?? null,
+      readAt: s?.at ?? lastAnswer?.answer?.read?.at ?? null,
+      lean: s?.lean ?? lastAnswer?.answer?.read?.lean ?? null,
+      answerAt: lastAnswer?.meta?.answeredAt ?? lastAnswer?.at ?? null,
+      focusLevelId: focusRef.current,
+    };
     setTurns((t) => [...t, { role: "user", content: q, at: Date.now() }]);
+
+    const mySeq = ++seqRef.current;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    const requestId = `${Date.now().toString(36)}-${mySeq}`;
+    busyRef.current = true;
     setBusy(true);
+    const current = () => mySeq === seqRef.current;
     try {
       const r = await fetch("/api/command-center/brain", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: q, history }),
+        body: JSON.stringify({ message: q, history, lastSeen, chartTf: chartTfRef.current ?? null, requestId }),
+        signal: ac.signal,
       });
-      const j = await r.json();
-      const text: string = j?.spokenText ?? "Something went wrong reaching ATLAS.";
-      setTurns((t) => [...t, { role: "assistant", content: text, source: j?.source, at: Date.now() }]);
-      if (j?.notice) setNotice(String(j.notice));
-      for (const a of (j?.uiActions ?? []) as { name: string; arg: string | number | null }[]) onUiAction?.(a.name, a.arg);
+      if (!current()) return;
+      // The window is over: say so plainly and offer the renewal, rather than "something went wrong".
+      if (r.status === 401 || r.status === 402) {
+        setEnded(r.status === 402 ? "pass" : "auth");
+        return;
+      }
+      const j = await r.json().catch(() => null);
+      if (!current() || (j?.requestId && j.requestId !== requestId)) return;
+      if (!r.ok || !j) {
+        setTurns((t) => [...t, { role: "assistant", content: "ATLAS couldn't answer that just then. Try again in a moment.", source: "system", at: Date.now() }]);
+        return;
+      }
+      setEnded(null);
+      const answer: AtlasAnswer | null = j.answer && typeof j.answer.say === "string" ? (j.answer as AtlasAnswer) : null;
+      const text: string = answer?.say ?? (typeof j.spokenText === "string" ? j.spokenText : "ATLAS couldn't answer that just then.");
+      setTurns((t) => [...t, {
+        role: "assistant", content: text, source: j.source, at: Date.now(), answer,
+        meta: {
+          snapshotId: j.snapshotId ?? null, analysisAt: j.analysisAt ?? null,
+          answeredAt: typeof j.answeredAt === "number" ? j.answeredAt : null, feed: (j.feed?.status as FeedStatus) ?? null,
+        },
+      }]);
+      if (j.notice) setNotice(String(j.notice));
+      // Validated on the server: the answer's evidence goes on the chart as it arrives.
+      for (const a of answer?.actions ?? []) pointAt(a);
+      for (const a of (j.uiActions ?? []) as { name: string; arg: string | number | null }[]) onUiAction?.(a.name, a.arg);
       if (modeRef.current !== "off") speak(text);
     } catch {
-      setTurns((t) => [...t, { role: "assistant", content: "I couldn't reach the command center just then.", at: Date.now() }]);
+      if (ac.signal.aborted || !current()) return;   // superseded by a newer question
+      setTurns((t) => [...t, { role: "assistant", content: "I couldn't reach the command center just then.", source: "system", at: Date.now() }]);
     } finally {
-      setBusy(false);
+      if (current()) { busyRef.current = false; setBusy(false); }
     }
-  }, [busy, turns, speak, stopSpeaking, onUiAction]);
+  }, [speak, stopSpeaking, onUiAction, pointAt]);
 
   /* ── speech in ──────────────────────────────────────────────────────────── */
   const startListening = useCallback(() => {
@@ -216,10 +342,12 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
     const everyMs = mode === "briefing_1m" ? 60_000 : mode === "briefing_5m" ? 300_000 : 0;
     if (!everyMs || !live) return;
     const id = setInterval(() => {
+      // auto: a scheduled update never interrupts a question in flight, and stops once the window has ended.
       void askRef.current(
         mode === "briefing_1m"
           ? "Minute update. What has changed in the last minute, and what does it mean? Keep it to two or three sentences."
           : "Five minute update. What has changed, and has your read moved?",
+        { auto: true },
       );
     }, everyMs);
     return () => clearInterval(id);
@@ -230,7 +358,11 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
     if (el) el.scrollTop = el.scrollHeight;
   }, [turns, busy]);
 
-  useEffect(() => () => { try { recognition.current?.abort(); } catch { /* noop */ } window.speechSynthesis?.cancel(); }, []);
+  useEffect(() => () => {
+    try { recognition.current?.abort(); } catch { /* noop */ }
+    window.speechSynthesis?.cancel();
+    abortRef.current?.abort();
+  }, []);
 
   // Outside asks (EXPLAIN FURTHER, HUD chips elsewhere on the page).
   const lastSignal = useRef<number | null>(null);
@@ -282,11 +414,14 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
               <BrainAvatar />
               <div className="min-w-0 flex-1">
                 <p className="mb-1 text-[9.5px]" style={{ color: "#81909E" }}><span className="font-bold uppercase tracking-[0.12em]" style={{ color: "#E7C467" }}>Atlas</span> &nbsp;{t12(t.at)}</p>
-                <div className="whitespace-pre-line rounded-[8px] px-3 py-2.5 text-[12.5px] leading-relaxed" style={{ background: "rgba(9,19,29,0.9)", border: "1px solid rgba(89,175,255,0.13)", color: "#DCE6EE" }}>{t.content}</div>
+                <div className="whitespace-pre-line rounded-[8px] px-3 py-2.5 text-[12.5px] leading-relaxed" style={{ background: "rgba(9,19,29,0.9)", border: "1px solid rgba(89,175,255,0.13)", color: "#DCE6EE" }}>
+                  {t.answer ? <AnswerView answer={t.answer} feed={t.meta?.feed ?? null} onPoint={pointAt} palette={HUD_PALETTE} /> : t.content}
+                </div>
               </div>
             </div>
           ))}
           {busy && <p className="pl-10 text-[11.5px]" style={{ color: "#27D7F2" }}>ATLAS is thinking…</p>}
+          {ended && <PassEnded kind={ended} onRenew={renew} palette={HUD_PALETTE} />}
           {notice && <p className="text-[11px]" style={{ color: "#E7C467" }}>{notice}</p>}
           {micError && <p className="text-[11px]" style={{ color: "#FF5364" }}>{micError}</p>}
         </div>
@@ -310,7 +445,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
             className="min-w-0 flex-1 rounded-[6px] px-2.5 py-1.5 text-[12px] outline-none"
             style={{ background: "rgba(3,7,11,0.8)", border: "1px solid rgba(89,175,255,0.14)", color: "#F0F4F7" }}
           />
-          <button onClick={() => void ask(input)} disabled={busy || !input.trim()} aria-label="Send"
+          <button onClick={() => void ask(input)} disabled={!input.trim()} aria-label="Send"
             className="grid h-8 w-8 shrink-0 place-items-center rounded-full disabled:opacity-35"
             style={{ border: "1px solid rgba(89,175,255,0.25)", color: "#59AFFF" }}>
             <Send className="h-3.5 w-3.5" />
@@ -392,7 +527,9 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
                   : { background: "rgba(255,255,255,0.035)", color: "#E8EFF7", border: "1px solid rgba(255,255,255,0.07)" }
               }
             >
-              {t.content}
+              {t.role === "assistant" && t.answer
+                ? <AnswerView answer={t.answer} feed={t.meta?.feed ?? null} onPoint={pointAt} palette={CLASSIC_PALETTE} />
+                : t.content}
               {t.role === "assistant" && t.source === "narrator" && (
                 <span className="mt-1 block text-[10px]" style={{ color: "rgba(232,239,247,0.32)" }}>deterministic voice</span>
               )}
@@ -400,6 +537,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
           </div>
         ))}
         {busy && <div className="text-[12px]" style={{ color: "rgba(232,239,247,0.4)" }}>ATLAS is thinking…</div>}
+        {ended && <PassEnded kind={ended} onRenew={renew} palette={CLASSIC_PALETTE} />}
         {notice && <div className="text-[11px]" style={{ color: "#F0C475" }}>{notice}</div>}
         {micError && <div className="text-[11px]" style={{ color: "#F4737B" }}>{micError}</div>}
       </div>
@@ -438,12 +576,106 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
           className="min-w-0 flex-1 rounded-xl px-3 py-2 text-[13px] outline-none"
           style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#E8EFF7" }}
         />
-        <button onClick={() => void ask(input)} disabled={busy || !input.trim()} aria-label="Send"
+        <button onClick={() => void ask(input)} disabled={!input.trim()} aria-label="Send"
           className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition disabled:opacity-35"
           style={{ background: "rgba(111,168,220,0.14)", border: "1px solid rgba(111,168,220,0.28)", color: "#6FA8DC" }}>
           <Send className="h-4 w-4" />
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ── a structured answer ─────────────────────────────────────────────────── */
+
+type Palette = { muted: string; text: string; cyan: string; red: string; green: string; gold: string; chip: string };
+const HUD_PALETTE: Palette = { muted: "#81909E", text: "#DCE6EE", cyan: "#27D7F2", red: "#FF5364", green: "#2BD48F", gold: "#E7C467", chip: "rgba(89,175,255,0.18)" };
+const CLASSIC_PALETTE: Palette = { muted: "rgba(232,239,247,0.45)", text: "#E8EFF7", cyan: "#6FA8DC", red: "#F4737B", green: "#5FD3A0", gold: "#F0C475", chip: "rgba(255,255,255,0.1)" };
+
+/**
+ * The read first (lean + horizon, and the feed when it is not live), then what ATLAS said, then the
+ * evidence for and against — each line that points at something on the chart is a button that shows it —
+ * then what it is waiting for, what would make it wrong, and how fresh all of it is.
+ */
+function AnswerView({ answer, feed, onPoint, palette: P }: { answer: AtlasAnswer; feed: FeedStatus | null; onPoint: (a: ChartAction | null) => void; palette: Palette }) {
+  const r = answer.read;
+  const tone = r ? LEAN_TONE[r.lean] ?? P.muted : P.muted;
+  return (
+    <div className="whitespace-normal">
+      {(r || (feed && feed !== "live")) && (
+        <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+          {r && (
+            <span className="rounded-[4px] px-1.5 py-[1px] text-[9.5px] font-bold uppercase tracking-[0.1em]"
+              style={{ color: tone, border: `1px solid ${tone}66`, background: `${tone}17` }}>
+              {r.label}{r.strength ? ` · ${r.strength}` : ""}
+            </span>
+          )}
+          {r && <span className="text-[10px]" style={{ color: P.muted }}>{r.horizon === "intraday" ? "Intraday" : r.horizon} · {r.horizonTf} horizon</span>}
+          {feed && feed !== "live" && (
+            <span className="rounded-[4px] px-1.5 py-[1px] text-[9.5px] font-bold uppercase tracking-[0.1em]"
+              style={{ color: P.gold, border: `1px solid ${P.gold}66` }}>{FEED_WORD[feed]}</span>
+          )}
+        </div>
+      )}
+      <p className="whitespace-pre-line">{answer.say}</p>
+      {(answer.evidence.length > 0 || answer.against.length > 0) && (
+        <ul className="mt-2 space-y-1">
+          {answer.evidence.map((e, i) => <EvidenceRow key={`f${i}`} item={e} kind="for" onPoint={onPoint} palette={P} />)}
+          {answer.against.map((e, i) => <EvidenceRow key={`a${i}`} item={e} kind="against" onPoint={onPoint} palette={P} />)}
+        </ul>
+      )}
+      {answer.next && (
+        <p className="mt-2 text-[11.5px] leading-snug"><span className="mr-1 text-[9.5px] font-bold uppercase tracking-[0.1em]" style={{ color: P.cyan }}>Next</span>{answer.next}</p>
+      )}
+      {answer.invalidation && (
+        <p className="mt-0.5 text-[11.5px] leading-snug"><span className="mr-1 text-[9.5px] font-bold uppercase tracking-[0.1em]" style={{ color: P.red }}>Wrong if</span>{answer.invalidation}</p>
+      )}
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <span className="text-[9.5px] tabular-nums" style={{ color: P.muted }}>{answer.freshness}</span>
+        {answer.actions.length > 0 && (
+          <button onClick={() => answer.actions.forEach((a) => onPoint(a))}
+            className="inline-flex shrink-0 items-center gap-1 rounded-[5px] px-1.5 py-[2px] text-[9.5px] font-semibold uppercase tracking-[0.08em] hover:brightness-125"
+            style={{ color: P.cyan, border: `1px solid ${P.chip}` }}>
+            <Crosshair className="h-3 w-3" /> Show on chart
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EvidenceRow({ item, kind, onPoint, palette: P }: { item: AnswerItem; kind: "for" | "against"; onPoint: (a: ChartAction | null) => void; palette: Palette }) {
+  const action = item.action ?? (item.ref ? refToAction(item.ref) : null);
+  const mark = <span className="mt-[1px] w-3 shrink-0 text-center font-bold" style={{ color: kind === "for" ? P.green : P.red }} aria-hidden>{kind === "for" ? "+" : "−"}</span>;
+  return (
+    <li className="flex gap-1.5 text-[11.5px] leading-snug">
+      {mark}
+      {action ? (
+        <button onClick={() => onPoint(action)} title="Show this on the chart"
+          className="text-left underline decoration-dotted underline-offset-2 hover:brightness-125" style={{ color: P.text }}>
+          <span className="sr-only">{kind === "for" ? "Evidence for: " : "Evidence against: "}</span>
+          {item.text}
+          <Crosshair className="ml-1 inline h-3 w-3 align-[-2px]" style={{ color: P.cyan }} />
+        </button>
+      ) : (
+        <span style={{ color: P.text }}><span className="sr-only">{kind === "for" ? "Evidence for: " : "Evidence against: "}</span>{item.text}</span>
+      )}
+    </li>
+  );
+}
+
+/** 401/402: the window is over. Said once, plainly, with the way back. */
+function PassEnded({ kind, onRenew, palette: P }: { kind: "pass" | "auth"; onRenew: () => void; palette: Palette }) {
+  return (
+    <div role="status" className="rounded-[8px] px-3 py-2.5 text-[12px] leading-snug" style={{ border: `1px solid ${P.gold}73`, background: "rgba(213,169,61,0.08)", color: P.text }}>
+      <p className="font-semibold" style={{ color: P.gold }}>{PASS_ENDED}</p>
+      <p className="mt-0.5" style={{ color: P.muted }}>
+        {kind === "auth" ? "You've also been signed out — sign in again, then renew to keep talking to ATLAS." : "Renew it to keep talking to ATLAS. Nothing renews without you."}
+      </p>
+      <button onClick={onRenew} className="mt-2 rounded-[6px] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.1em] hover:brightness-110"
+        style={{ background: "#D5A93D", color: "#10131A" }}>
+        Renew
+      </button>
     </div>
   );
 }

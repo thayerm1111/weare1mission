@@ -109,11 +109,11 @@ const pip = (n: number) => `${n >= 0 ? "+" : ""}${Math.round(n)}`;
 
 /** §12 — the line's own state, in the companion's vocabulary. */
 const VOICE_WORD: Record<string, string> = {
-  connecting: "CONNECTING", awaiting_mic: "WAITING FOR MIC", listening: "LISTENING",
+  connecting: "CONNECTING", awaiting_mic: "WAITING FOR MIC", listening: "LISTENING", thinking: "THINKING",
   speaking: "SPEAKING", muted: "MUTED", disconnected: "DISCONNECTED", error: "VOICE ERROR",
 };
 const VOICE_TONE: Record<string, string> = {
-  connecting: C.mut2, awaiting_mic: C.amber, listening: C.up,
+  connecting: C.mut2, awaiting_mic: C.amber, listening: C.up, thinking: C.cold,
   speaking: C.gold, muted: C.amber, disconnected: C.down, error: C.down,
 };
 
@@ -305,7 +305,7 @@ export default function BrainCompanion() {
 
         {/* ── the voice, which is the point of the companion ── */}
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {open ? <VoiceSession onStatus={setVoice} /> : null}
+          {open ? <VoiceSession onStatus={setVoice} live={d} /> : null}
         </div>
 
         <button onClick={() => setOpen((o) => !o)}

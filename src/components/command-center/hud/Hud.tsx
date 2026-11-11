@@ -1,6 +1,79 @@
 "use client";
-import type { ReactNode, CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import { Info } from "lucide-react";
 import { H, LABEL } from "./theme";
+
+/**
+ * A metric's explanation, on tap or click — what it measures, from what, and how fresh it is. Rendered into
+ * document.body at a fixed position, so a panel's overflow can never clip it, and closed by Escape or a tap
+ * anywhere else. Keyboard and touch work the same as a mouse: there is no hover-only information.
+ */
+export function InfoPop({ title, children, className = "", size = 12 }: {
+  title: string; children: ReactNode; className?: string; size?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number; up: boolean; w: number } | null>(null);
+  const btn = useRef<HTMLButtonElement | null>(null);
+  const pop = useRef<HTMLDivElement | null>(null);
+
+  const place = useCallback(() => {
+    const b = btn.current;
+    if (!b) return;
+    const r = b.getBoundingClientRect();
+    const w = Math.min(310, window.innerWidth - 16);
+    const left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+    const up = r.bottom + 260 > window.innerHeight && r.top > 260;
+    setPos({ top: up ? r.top - 6 : r.bottom + 6, left, up, w });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    place();
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (pop.current?.contains(t) || btn.current?.contains(t)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open, place]);
+
+  return (
+    <>
+      <button ref={btn} type="button" aria-label={`About: ${title}`} aria-expanded={open}
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        onPointerDown={(e) => e.stopPropagation()}
+        className={`inline-grid shrink-0 place-items-center rounded-full align-middle transition hover:brightness-150 ${className}`}
+        style={{ color: open ? H.cyan2 : H.mut, width: size + 4, height: size + 4 }}>
+        <Info style={{ width: size, height: size }} />
+      </button>
+      {open && pos && typeof document !== "undefined" && createPortal(
+        <div ref={pop} role="dialog" aria-label={title} className="hud-in" data-infopop=""
+          style={{
+            position: "fixed", left: pos.left, width: pos.w, zIndex: 95,
+            ...(pos.up ? { bottom: window.innerHeight - pos.top } : { top: pos.top }),
+            background: `linear-gradient(180deg, ${H.panel2}, ${H.panel})`, border: `1px solid ${H.lineHi}`,
+            borderRadius: 10, padding: "10px 12px", boxShadow: "0 16px 40px rgba(0,0,0,0.6)", color: H.text,
+            fontFamily: "Inter, var(--font-inter), system-ui, sans-serif", textAlign: "left",
+          }}>
+          <p className="text-[9.5px] font-bold uppercase tracking-[0.16em]" style={{ color: H.gold3 }}>{title}</p>
+          <div className="mt-1.5 space-y-1.5 text-[11.5px] leading-snug" style={{ color: "#C9D3DB" }}>{children}</div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
 
 /** A HUD panel: near-black navy, 1px blue-steel edge, a faint inner light. `hi` lifts the edge to cyan. */
 export function HudPanel({ children, className = "", style, hi = false, title, icon, right, bodyClass = "", tour }: {
@@ -33,6 +106,18 @@ export function HudPanel({ children, className = "", style, hi = false, title, i
       )}
       <div className={`relative min-h-0 flex-1 ${bodyClass}`}>{children}</div>
     </section>
+  );
+}
+
+/** A tiny line of real values (never decoration: with fewer than two values it draws nothing). */
+export function Sparkline({ values, color, w = 130, h = 34 }: { values: number[]; color: string; w?: number; h?: number }) {
+  if (values.length < 2) return <span style={{ width: w, height: h }} className="shrink-0" />;
+  const lo = Math.min(...values), hi = Math.max(...values);
+  const pts = values.map((v, i) => `${(i / (values.length - 1)) * w},${h - 2 - ((v - lo) / (hi - lo || 1)) * (h - 4)}`).join(" ");
+  return (
+    <svg width={w} height={h} className="shrink-0" aria-hidden>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth={1.3} style={{ filter: `drop-shadow(0 0 3px ${color})` }} />
+    </svg>
   );
 }
 

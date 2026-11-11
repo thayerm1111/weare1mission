@@ -13,29 +13,28 @@ import { H } from "./theme";
  * It opens once per browser (localStorage) and any time from the GUIDE button in the header.
  */
 
-const KEY = "cc-tour-done-v1";
+// v2: the ATLAS layout (read, scenarios, folded indicators, copilot dock) — shown once more to everyone.
+const KEY = "cc-tour-done-v2";
 export const tourSeen = () => { try { return localStorage.getItem(KEY) === "1"; } catch { return true; } };
 const markSeen = () => { try { localStorage.setItem(KEY, "1"); } catch { /* private mode */ } };
 
 type Step = { id: string; title: string; body: string; tip?: string };
 
 const STEPS: Step[] = [
-  { id: "price", title: "Gold, right now", body: "The live XAUUSD price from the feed ATLAS reads, with the move against today's open, a sparkline of the last stretch, and the day's high, low, range and spread. Everything else on the desk is built from this number.", tip: "Green and red flashes are ticks up and down — not signals." },
-  { id: "mode", title: "Market mode, session, confidence", body: "ATLAS's one-line read of what kind of market this is (trending, ranging, breaking out…), which trading session is active, and how confident ATLAS is in its own current thesis. When the border turns green or red, ATLAS has a side.", tip: "Low confidence is information too: it means ATLAS is standing aside on purpose." },
-  { id: "thesis", title: "The thesis", body: "ATLAS's working story for the session: what it thinks price is trying to do and what would prove it wrong. Read this before anything else — every panel below is evidence for or against it." },
-  { id: "core", title: "The ATLAS core", body: "This is ATLAS itself. It glows and speaks when something matters, and you can tap it to open a voice line. It is the same engine that produces every read on this screen — there is no separate 'chat bot'." },
-  { id: "pulse", title: "Market pulse", body: "The last few minutes measured: what changed, how fast, and whether the feed is live. If the pill says STALE or CLOSED, treat everything on the desk as a snapshot, not a live read." },
-  { id: "tf", title: "Timeframe alignment", body: "Whether the 1-hour, 4-hour and daily charts agree with the 15-minute one. Trades taken with the timeframes lined up have room to run; trades taken against them are fighting the bigger picture.", tip: "Ask ATLAS 'where do the timeframes disagree?' — that is usually the risk." },
-  { id: "levels", title: "Key levels", body: "The prices ATLAS is actually watching: support, resistance, invalidation points and the next level it expects price to reach. Tap one to pin it on the chart; ATLAS will tell you when price gets there.", tip: "The → marks where price is now." },
-  { id: "chart", title: "The chart", body: "Candles on the timeframe you pick, with key levels and liquidity zones drawn over them so you can see ATLAS's read on the price itself. Switch timeframes with the buttons at the top of the panel." },
-  { id: "gauges", title: "Pressure, volatility, momentum, conviction", body: "Five dials: how hard sellers and buyers are pushing, how big the swings are (15-minute ATR), which way momentum is leaning, and ATLAS's conviction in its current side. When conviction is high and pressure agrees with the thesis, ATLAS is closest to acting." },
-  { id: "scenarios", title: "Scenario analysis", body: "The primary scenario, the alternative, and what would flip ATLAS from one to the other — ranked, not given percentages, because ATLAS has no probability model and won't pretend to." },
-  { id: "liquidity", title: "Liquidity radar", body: "Where stops and resting orders are most likely sitting above and below price, estimated from structure (gold is over-the-counter, so no feed shows real orders). Price is often pulled toward these zones before it turns. 'Show on chart' draws them." },
-  { id: "structure", title: "Market structure", body: "Higher highs and higher lows, or lower highs and lower lows — the skeleton of the trend. A break of structure is one of the first things that changes ATLAS's thesis." },
-  { id: "context", title: "Global context", body: "The dollar, yields, equities and other markets that move gold, refreshed every 15 minutes. Display only: ATLAS and GENX do not trade off these — they are here so you understand the weather." },
-  { id: "talk", title: "Talk with ATLAS", body: "Two ways in. Chat: type, or hold space to speak, and get a written answer with the same read the engine trades on. Voice: an open line where ATLAS listens and talks back in real time. The quick buttons ask the questions that matter most.", tip: "Try: 'What would make you take a trade right now?'" },
-  { id: "stream", title: "Intelligence stream", body: "ATLAS's running log: every read, level touch, thesis change and alert as it happens. If you step away, this is where you catch up." },
-  { id: "nav", title: "Strategy, backtest, alerts, journal", body: "STRATEGY shows the rules ATLAS trades by. BACKTEST replays past sessions so you can watch how it read them. ALERTS lets you set price and level alerts. JOURNAL keeps your notes next to the trades." },
+  { id: "price", title: "Gold, right now — and how fresh it is", body: "The XAUUSD price, whose it is (Twelve Data's composite mid, not a broker's bid or ask), when the quote arrived, how old the analysis is, the session, and how the price is reaching you. The quote and the analysis carry their own times: a price moves faster than a conclusion.", tip: "The status pill is green LIVE only while streamed ticks are arriving. DELAYED, RECONNECTING, STALE, MARKET CLOSED and DEMO mean exactly that." },
+  { id: "automation", title: "Automation", body: "What you've asked ATLAS to do on its own. The server's autopilot setting isn't reported to this screen, so a request for auto-entry is labelled as a request — never as ARMED." },
+  { id: "read", title: "ATLAS's read", body: "Which way ATLAS leans and why: the evidence for and against (tap any underlined line to see it on the chart), what it's watching next and what would prove it wrong. The evidence balance measures agreement — it is not a probability.", tip: "A lean is not an entry. Setup stage and entry sit in their own box, and only the setup engine can confirm an entry." },
+  { id: "tf", title: "Timeframe alignment", body: "Whether the daily, 4-hour, 1-hour, 15-minute and 5-minute charts agree. Disagreement is shown, not hidden — it is usually the risk." },
+  { id: "levels", title: "Key levels", body: "The prices ATLAS is actually watching: support, resistance and invalidation points. Tap one to pin it on the chart.", tip: "The → marks the price at the last analysis." },
+  { id: "chart", title: "The chart", body: "Live candles on the timeframe you pick — the forming candle moves with each streamed tick. When ATLAS talks about a level, a zone, a candle or a scenario, it marks it here; ‘ATLAS marks ✕’ clears them." },
+  { id: "indicators", title: "Indicators (folded)", body: "Pressure, volatility, momentum and conviction, folded into one line. Open it for the gauges; each ⓘ says what the number measures, from what, and how fresh it is.", tip: "Pressure is derived from price action — a proxy, not order flow. Conviction is not a win probability." },
+  { id: "scenarios", title: "Scenarios", body: "The base case, the alternative, and what would change ATLAS's view — each with its trigger, its invalidation and a status (watching → developing → confirmed, or invalidated / expired). ‘Show on chart’ draws one as a conditional projection." },
+  { id: "core", title: "The ATLAS core", body: "Tap it to open a voice line; tap again to end it. Its ring shows what the line is really doing — listening, hearing you, thinking, speaking, or muted." },
+  { id: "talk", title: "Talk with ATLAS", body: "Chat (type, or press space to speak) or Voice. ATLAS answers from the same read and feed the screen shows, and points at the chart as it explains. SETTINGS sets how much it volunteers: Quiet, Watch or Session copilot." },
+  { id: "dock", title: "Talk to ATLAS from anywhere", body: "On a phone the copilot lives behind this dock: tap ‘Talk to ATLAS’ to chat, or the microphone to open a voice line — no scrolling." },
+  { id: "stream", title: "Intelligence timeline", body: "One timestamped line per thing worth knowing: structure, price, news, trade events, and what ATLAS volunteered (🔊 when it was spoken). Tap a line to read all of it." },
+  { id: "deeper", title: "Deeper analysis", body: "The lean journal (every change of lean and why), candidate liquidity zones (inferred from structure — there is no order book), market structure, and global context." },
+  { id: "nav", title: "Strategy, backtest, alerts, journal", body: "STRATEGY shows the rules ATLAS trades by. BACKTEST replays recorded sessions. ALERTS lists the levels you've asked ATLAS to watch. JOURNAL keeps the day's engine theses." },
 ];
 
 type Rect = { top: number; left: number; width: number; height: number } | null;

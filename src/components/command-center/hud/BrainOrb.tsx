@@ -19,10 +19,14 @@ const STATE_RGB: Record<OrbState, [number, number, number]> = {
 /**
  * `voice`: while you are talking to ATLAS the core becomes the conversation. Listening, a cyan ring of
  * bars moves with YOUR voice; speaking, a gold ring moves with ATLAS's; connecting, the rings spin up.
+ * Muted (your microphone is off, or push-to-talk is not held), a still dashed amber ring and no bars at
+ * all — the core is not hearing you, so nothing moves as though it were. Every bar is a measured level:
+ * at level 0 they lie flat. Only "thinking" animates by itself, and VoiceSession sends it only while the
+ * provider actually owes a reply (voiceLine.ts).
  */
 export function BrainOrb({ state, intensity, alive, pulseKey, size = 240, voice }: {
   state: OrbState; intensity: number; alive: boolean; pulseKey?: string | number | null; size?: number;
-  voice?: { mode: "connecting" | "listening" | "speaking" | "thinking" | null; level: number } | null;
+  voice?: { mode: "connecting" | "listening" | "speaking" | "thinking" | "muted" | null; level: number } | null;
 }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   const live = useRef({ state, intensity, alive, voice });
@@ -55,10 +59,11 @@ export function BrainOrb({ state, intensity, alive, pulseKey, size = 240, voice 
       const vm = vc?.mode ?? null;
       // On a call the core is awake whether or not the market is.
       const al = live.current.alive || vm != null;
-      lvl += ((vc?.level ?? 0) - lvl) * 0.35;
+      // Muted: nothing is being heard, so no level is allowed to move anything.
+      lvl += ((vm === "muted" ? 0 : vc?.level ?? 0) - lvl) * 0.35;
       const speed = (al ? 0.35 + Math.min(1, it / 100) * 1.1 : 0.06)
         * (st === "analyzing" || st === "speaking" ? 1.6 : 1)
-        * (vm === "connecting" ? 3.2 : vm === "thinking" ? 2.2 : vm ? 1.4 + lvl * 2 : 1);
+        * (vm === "connecting" ? 3.2 : vm === "thinking" ? 2.2 : vm === "muted" ? 1 : vm ? 1.4 + lvl * 2 : 1);
       phase += (reduce ? 0 : dt / 1000) * speed;
       const [R, G, B] = STATE_RGB[al ? st : "idle"];
       const W = size, cx = W / 2, cy = W / 2, rad = W * 0.5;
@@ -142,6 +147,9 @@ export function BrainOrb({ state, intensity, alive, pulseKey, size = 240, voice 
           g.strokeStyle = `rgba(${col},${0.35 + bars[k] * 0.6})`; g.lineWidth = 2; g.lineCap = "round";
           g.beginPath(); g.moveTo(Math.cos(a) * base, Math.sin(a) * base); g.lineTo(Math.cos(a) * (base + len), Math.sin(a) * (base + len)); g.stroke();
         }
+      } else if (vm === "muted") {
+        g.beginPath(); g.setLineDash([2, 5]); g.lineWidth = 1.5; g.strokeStyle = "rgba(233,185,73,0.55)";
+        g.arc(0, 0, rad * 0.4, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
       }
 
       // the core sphere
@@ -152,7 +160,7 @@ export function BrainOrb({ state, intensity, alive, pulseKey, size = 240, voice 
       core.addColorStop(0.25, al ? "rgba(255,216,117,0.98)" : "rgba(150,150,150,0.7)");
       core.addColorStop(0.7, al ? "rgba(196,137,32,0.95)" : "rgba(90,90,90,0.6)");
       core.addColorStop(1, al ? "rgba(80,50,10,0.9)" : "rgba(40,40,40,0.6)");
-      g.shadowColor = al ? (vm === "listening" ? "rgba(39,215,242,0.85)" : "rgba(255,196,80,0.8)") : "transparent"; g.shadowBlur = al ? 26 + (vm ? lvl * 40 : 0) : 0;
+      g.shadowColor = al ? (vm === "listening" ? "rgba(39,215,242,0.85)" : vm === "muted" ? "rgba(233,185,73,0.6)" : "rgba(255,196,80,0.8)") : "transparent"; g.shadowBlur = al ? 26 + (vm ? lvl * 40 : 0) : 0;
       g.fillStyle = core; g.beginPath(); g.arc(0, 0, cr, 0, Math.PI * 2); g.fill(); g.shadowBlur = 0;
       // circuitry on the sphere
       g.save(); g.beginPath(); g.arc(0, 0, cr, 0, Math.PI * 2); g.clip();

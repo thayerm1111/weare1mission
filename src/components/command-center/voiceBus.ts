@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
+import type { CommentaryKind, CommentaryMode, CommentarySettings } from "../../../command-center/core/commentary";
+import type { InputMode, LineActivity, PttStyle } from "./voiceLine";
 
 /**
  * THE VOICE LINE, SHARED.
@@ -11,12 +13,19 @@ import { useEffect, useState } from "react";
  *
  * start() must be callable synchronously inside the tap: Safari only lets audio begin inside the user
  * gesture that asked for it, so the orb calls straight through to VoiceSession's own start.
+ *
+ * TWO WAYS TO READ THE STATE. `status` is the field the HUD has always read, and keeps exactly the values and
+ * meaning it maps (thinking is published as "speaking" at outLevel 0, which the HUD shows as THINKING).
+ * `activity` is the precise state — listening, hearing you, thinking, speaking, mic muted, push-to-talk —
+ * for any surface that wants to say it directly.
  */
+export type CommentaryNote = { id: string; at: number; kind: CommentaryKind; text: string; spoken: boolean };
+
 export type VoiceBusState = {
   status: "idle" | "connecting" | "awaiting_mic" | "listening" | "speaking" | "muted" | "disconnected" | "error" | "locked";
-  /** 0–1: how loud you are right now. */
+  /** 0–1: how loud you are right now — only what is actually being sent (0 while muted). */
   inLevel: number;
-  /** 0–1: how loud ATLAS is right now. */
+  /** 0–1: how loud ATLAS is right now, measured from the audio playing. */
   outLevel: number;
   /** The last thing you said, and the last thing ATLAS said. */
   you: string | null;
@@ -24,11 +33,56 @@ export type VoiceBusState = {
   error: string | null;
   /** Voice needs the subscription before it can open. */
   needsSubscription: boolean;
+
+  /** The precise state of the line (voiceLine.ts). */
+  activity: LineActivity;
+  micMuted: boolean;
+  speakerMuted: boolean;
+  inputMode: InputMode;
+  pttStyle: PttStyle;
+  /** Push-to-talk is held (or toggled on). */
+  pttOpen: boolean;
+  /** Your words as you say them (the provider's live partial transcript), until the turn is final. */
+  partial: string | null;
+  /** Proactive commentary: the mode, the copilot cooldown, and the latest volunteered lines (newest last). */
+  commentaryMode: CommentaryMode;
+  copilotCooldownMs: number;
+  commentary: CommentaryNote[];
 };
 
-let state: VoiceBusState = { status: "idle", inLevel: 0, outLevel: 0, you: null, atlas: null, error: null, needsSubscription: false };
+let state: VoiceBusState = {
+  status: "idle", inLevel: 0, outLevel: 0, you: null, atlas: null, error: null, needsSubscription: false,
+  activity: "off", micMuted: false, speakerMuted: false, inputMode: "hands_free", pttStyle: "hold", pttOpen: false,
+  partial: null, commentaryMode: "watch", copilotCooldownMs: 90_000, commentary: [],
+};
 const subs = new Set<(s: VoiceBusState) => void>();
-const commands: { start?: () => void; end?: () => void } = {};
+
+export type VoiceCommands = {
+  start: () => void;
+  end: () => void;
+  /** Stop ATLAS mid-word. The line stays open. */
+  stopSpeaking?: () => void;
+  setMicMuted?: (muted: boolean) => void;
+  setSpeakerMuted?: (muted: boolean) => void;
+  setInputMode?: (mode: InputMode) => void;
+  setPttStyle?: (style: PttStyle) => void;
+  /** Push-to-talk from another surface: true while held. */
+  pushToTalk?: (down: boolean) => void;
+  /** The text fallback: send a typed turn on the open line. */
+  sendText?: (text: string) => void;
+  setCommentary?: (s: Partial<CommentarySettings>) => void;
+};
+let commands: VoiceCommands | null = null;
+
+/*
+ * THE LIVE PAYLOAD, FOR THE COMMENTARY ENGINE.
+ *
+ * Whoever already polls /api/command-center/live hands each payload to `feedLive`, and VoiceSession's
+ * commentary engine reads it from here — one poll, not two. Kept off the state above so a payload arriving
+ * every few seconds does not re-render every subscriber of the line.
+ */
+const liveSubs = new Set<(p: unknown) => void>();
+let lastLive: { payload: unknown; at: number } | null = null;
 
 export const voiceBus = {
   get: () => state,
@@ -40,10 +94,30 @@ export const voiceBus = {
     subs.forEach((f) => f(state));
   },
   subscribe(f: (s: VoiceBusState) => void) { subs.add(f); return () => { subs.delete(f); }; },
-  register(c: { start: () => void; end: () => void }) { commands.start = c.start; commands.end = c.end; return () => { if (commands.start === c.start) { commands.start = undefined; commands.end = undefined; } }; },
-  start: () => commands.start?.(),
-  end: () => commands.end?.(),
-  ready: () => !!commands.start,
+  register(c: VoiceCommands) {
+    commands = c;
+    return () => { if (commands === c) commands = null; };
+  },
+  start: () => commands?.start(),
+  end: () => commands?.end(),
+  stopSpeaking: () => commands?.stopSpeaking?.(),
+  setMicMuted: (m: boolean) => commands?.setMicMuted?.(m),
+  setSpeakerMuted: (m: boolean) => commands?.setSpeakerMuted?.(m),
+  setInputMode: (m: InputMode) => commands?.setInputMode?.(m),
+  setPttStyle: (s: PttStyle) => commands?.setPttStyle?.(s),
+  pushToTalk: (down: boolean) => commands?.pushToTalk?.(down),
+  sendText: (t: string) => commands?.sendText?.(t),
+  setCommentary: (s: Partial<CommentarySettings>) => commands?.setCommentary?.(s),
+  ready: () => !!commands?.start,
+
+  /** Hand the commentary engine the live payload you already have (e.g. in the HUD's /live poll). */
+  feedLive(payload: unknown) {
+    if (!payload || typeof payload !== "object") return;
+    lastLive = { payload, at: Date.now() };
+    liveSubs.forEach((f) => f(payload));
+  },
+  onLive(f: (p: unknown) => void) { liveSubs.add(f); return () => { liveSubs.delete(f); }; },
+  lastLive: () => lastLive,
 };
 
 export function useVoiceBus(): VoiceBusState {

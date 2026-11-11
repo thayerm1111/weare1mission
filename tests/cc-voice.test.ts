@@ -291,10 +291,22 @@ test("the presence moves on real audio, not on a timer", async () => {
   assert.ok(/outLevel\.current = 0/.test(stop), "an interruption closes the mouth immediately");
 });
 
-test("the pause before an answer is shown as thinking, not as nothing", async () => {
+/*
+ * THINKING IS REAL WORK, SO IT IS SHOWN ONLY WHILE IT IS HAPPENING.
+ *
+ * It used to be inferred from "speaking, but quiet" — which was also true for every second after ATLAS had
+ * finished an answer, so the presence (and the HUD core) showed THINKING until the member spoke again. It is
+ * now a fact about the line: the provider owes a reply (voiceLine.ts; tests/cc-atlas-voice-line.test.ts).
+ */
+test("the pause before an answer is shown as thinking, not as nothing — and only while an answer is owed", async () => {
   const fs = await import('node:fs/promises');
   const v = await fs.readFile("src/components/command-center/VoiceSession.tsx", "utf8");
-  assert.ok(/presenceOut > 0\.004 \? "speaking" : "thinking"/.test(v),
-    "audio flowing is speaking; the gap before it is thinking");
+  assert.ok(/activity === "speaking" \? "speaking"/.test(v) && /activity === "thinking" \? "thinking"/.test(v),
+    "the presence says what the line is doing");
   assert.ok(/"dead"/.test(v), "and a dropped line looks dropped");
+  const { lineActivity } = await import('../src/components/command-center/voiceLine');
+  const line = { connection: 'open', micReady: true, micMuted: false, inputMode: 'hands_free', pttOpen: false, userSpeaking: false } as const;
+  assert.equal(lineActivity({ ...line, playing: false, awaitingReply: true }), 'thinking', "the gap before the answer is thinking");
+  assert.equal(lineActivity({ ...line, playing: true, awaitingReply: false }), 'speaking', "audio flowing is speaking");
+  assert.equal(lineActivity({ ...line, playing: false, awaitingReply: false }), 'listening', "and an answer that has ended is not still thinking");
 });

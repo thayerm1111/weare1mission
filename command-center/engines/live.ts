@@ -21,7 +21,19 @@ import { armedFor, type Watch } from "./watch";
 import { presentExtras, type Intel } from "../present/intel";
 import { marketOpen } from "../core/sessions";
 import { priceNow, priceReadAt, shownSnapshot } from "../core/priceNow";
+/* ── ATLAS FEED (atlas/feed) — imports ── */
+import { feedOfSnapshot, analysisMeta } from "../core/feed";
+import type { AnalysisMeta, FeedState } from "../core/atlasContract";
+/* ── end ATLAS FEED ── */
 import { withLivePrice, liveGoldPrice } from "./livePrice";
+// ATLAS READ (atlas/read) — see the block at the end of this file.
+import type { AtlasRead, Scenario } from "../core/atlasContract";
+import { withSetupStage } from "../core/read";
+import { atlasStep, readHistoryOf, READ_FRESH_MS, type ReadHistoryItem } from "./atlasRead";
+import { chartBarsFor, latestAtlasRead, recentAtlasReads } from "../adapters/db";
+import type { SetupState } from "./setup";
+import type { Timeframe } from "../core/types";
+import { resample } from "../core/bars";
 
 /** Beyond this, the read is history rather than the market, and the UI must say so. */
 export const STALE_MS = 5 * 60_000;
@@ -47,6 +59,16 @@ export type LiveState = {
    */
   priceReadAt?: number | null;
   priceSource?: "stream" | "quote" | "snapshot" | null;
+
+  /* ── ATLAS FEED (atlas/feed) ────────────────────────────────────────────────────────────────────────
+   * `feed`: where the headline price came from, the provider's timestamp and when we received it, its age,
+   * and an honest status — LIVE / DELAYED / RECONNECTING / STALE / MARKET CLOSED / DEMO (core/feed.ts).
+   * `analysis`: which snapshot and engine version everything else on this read was computed from, and how
+   * old it is. A quote moves faster than a conclusion, so the two carry their own timestamps.
+   * The screen's own push feed (hud/useLiveFeed.ts) recomputes `feed` every second with the same function. */
+  feed: FeedState;
+  analysis: AnalysisMeta;
+  /* ── end ATLAS FEED ── */
 
   session: string | null;
   regime: string | null;
@@ -90,11 +112,32 @@ export type LiveState = {
   intel: Intel | null;
   /** Per-timeframe feature readings the screen gauges use. Display only. */
   features: Record<string, { atr: number; atrPct: number; volRatio: number; velocity: number; acceleration: number; returns5: number; rangeExpansion: number }>;
-};
+} & LiveReadFields;
+
+/* ── ATLAS FEED (atlas/feed) ──────────────────────────────────────────────────────────────────────────
+ * The headline price's honest feed state, and which analysis this read is — the two `LiveState` fields
+ * above, built in one place. The price is the same number as `price` (core/priceNow.ts: the attached streamed
+ * tick or quote, else the snapshot's own); the analysis is the persisted snapshot row everything else on the
+ * read was computed from. `providerTs` is the streamed tick's provider timestamp (coarse for gold: shown,
+ * never used for freshness). */
+function atlasFeed(
+  s: MarketSnapshot | null,
+  latest: { id: number; snapshot: MarketSnapshot } | null,
+  marketIsOpen: boolean,
+  providerTs: number | null,
+): Pick<LiveState, "feed" | "analysis"> {
+  const now = Date.now();
+  return {
+    feed: feedOfSnapshot(s, { now, marketOpen: marketIsOpen, providerTs: s?.live?.source === "stream" ? providerTs : null }),
+    analysis: analysisMeta(latest?.snapshot ?? null, latest?.id ?? null, now),
+  };
+}
+/* ── end ATLAS FEED ── */
 
 const empty = (reason: string, marketIsOpen: boolean): LiveState => ({
   ok: true, live: false, connected: false, reason, at: null, ageSeconds: null, marketOpen: marketIsOpen,
   price: null, bid: null, ask: null, spread: null,
+  ...atlasFeed(null, null, marketIsOpen, null),   // ATLAS FEED (atlas/feed): no snapshot — no price, no analysis
   session: null, regime: null, pressure: null, weather: null, velocity: null, intensity: 0,
   timeframes: {}, levels: [], bars: [],
   brain: null, thesis: null, previousThesis: null, journal: [], events: [], statements: [], changes: [],
@@ -113,6 +156,7 @@ const empty = (reason: string, marketIsOpen: boolean): LiveState => ({
   watches: [],
   intel: null,
   features: {},
+  ...emptyReadFields(),
 });
 
 export async function liveState(marketIsOpen: boolean, journalSince: Date, userId?: string | null): Promise<LiveState> {
@@ -205,6 +249,12 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
     completed,
   });
 
+  // ATLAS READ (atlas/read): started here so it runs alongside the reads below. Never throws.
+  const readFieldsP = liveReadFields({
+    snapshot: latest.snapshot, snapshotId: latest.id, bars5m: latest.bars, marketIsOpen,
+    setupState: setup.state, tradeActive: preTrade.active, historySince: journalSince.getTime(),
+  });
+
   const [journalRows, statementRows, trade] = await Promise.all([
     thesisJournal(journalSince.toISOString()),
     recentStatements(12),
@@ -212,6 +262,7 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
     // the position read can never disagree about the price of gold they were measured at.
     Promise.resolve(preTrade),
   ]);
+  const readFields = await readFieldsP;
 
   return {
     ok: true,
@@ -227,6 +278,7 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
     // The headline price is the fresher quote when there is one; bid/ask described the measured quote.
     price: priceNow(s), bid: s.live ? null : s.bid, ask: s.live ? null : s.ask, spread: s.live ? null : s.spread,
     priceReadAt: priceReadAt(s), priceSource: s.live?.source ?? "snapshot",
+    ...atlasFeed(s, latest, marketIsOpen, livePx?.providerAt ?? null),   // ATLAS FEED (atlas/feed)
     session: s.session, regime: s.regime,
     pressure: { bullish: Math.round(s.pressure.bullish), bearish: Math.round(s.pressure.bearish), net: Math.round(s.pressure.net) },
     weather: weather(s), velocity: velocityBand(s),
@@ -277,6 +329,7 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
       id: w.id, said: w.said, kind: w.kind, label: w.levelLabel,
       price: w.levelPrice, progress: w.progress, expiresAt: w.expiresAt,
     })),
+    ...readFields,
   };
 }
 
@@ -303,4 +356,75 @@ export async function liveMemory(opts: { livePrice?: boolean } = {}): Promise<Br
   const openThesis = [...rolling.theses].reverse().find((t) => !t.endedAt) ?? null;
   const state = brainState({ snapshot: s, thesis: openThesis, events: rolling.events.slice(-8) });
   return memoryOf(rolling, s, diffs, state);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   ATLAS READ (atlas/read) — the directional read, its scenarios and the lean's history.
+
+   Display and conversation only: nothing here feeds a setup, an order or a position. `read.setupStage`
+   and `read.entry` are this member's own setup, mapped read-only; a lean never produces an entry.
+
+   The read comes from cc_atlas_reads when the worker has written one for (about) this snapshot.
+   Otherwise — the worker not writing reads yet, or a stale snapshot — it is computed here from the same
+   snapshot with the same pure function (core/read.ts), with no previous read: a cold start, which needs
+   stronger evidence to call a lean and says so. A stale snapshot on an open market reads as
+   "insufficient_data", never as a lean.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+export type LiveReadFields = {
+  /** ATLAS's directional read. Null only when there is no snapshot at all. */
+  read: AtlasRead | null;
+  /** Live scenarios first (base, alternative, view change), then the recently finished ones. */
+  scenarios: Scenario[];
+  /** One entry per lean, newest first, stamped when that lean began, with the reason it began. */
+  readHistory: ReadHistoryItem[];
+};
+
+export const emptyReadFields = (): LiveReadFields => ({ read: null, scenarios: [], readHistory: [] });
+
+export async function liveReadFields(a: {
+  snapshot: MarketSnapshot;
+  snapshotId: number;
+  bars5m: Bar[];
+  marketIsOpen: boolean;
+  setupState: SetupState | null;
+  tradeActive: boolean;
+  /** Start of the history window (the trading day, or the last week while gold is shut). */
+  historySince: number;
+  now?: number;
+}): Promise<LiveReadFields> {
+  try {
+    const now = a.now ?? Date.now();
+    const [stored, rows] = await Promise.all([
+      latestAtlasRead(),
+      recentAtlasReads({ sinceMs: a.historySince, limit: 400 }),
+    ]);
+    const snapshotFresh = now - a.snapshot.at <= STALE_MS;
+    const forThisSnapshot = !!stored && (
+      stored.snapshotId === a.snapshotId
+      || (stored.read.at <= a.snapshot.at && a.snapshot.at - stored.read.at <= READ_FRESH_MS)
+    );
+    let read: AtlasRead;
+    let scenarios: Scenario[];
+    if (stored && forThisSnapshot && (snapshotFresh || !a.marketIsOpen)) {
+      read = stored.read;
+      scenarios = stored.scenarios;
+    } else {
+      const chart = await chartBarsFor(["5m", "15m", "1h", "4h"]);
+      const own5m = !chart.bars["5m"]?.length;
+      const bars: Partial<Record<Timeframe, Bar[]>> = own5m ? { ...chart.bars, "5m": a.bars5m } : { ...chart.bars };
+      const asOf: Partial<Record<Timeframe, number>> = own5m ? { ...chart.asOf, "5m": a.snapshot.at } : { ...chart.asOf };
+      // Without the chart table, the 15-minute and 1-hour candles are folded from the snapshot's own
+      // 5-minute candles (complete buckets only), so the fallback still reads real closed structure.
+      for (const tf of ["15m", "1h"] as const) {
+        if (!bars[tf]?.length && bars["5m"]?.length) { bars[tf] = resample(bars["5m"], "5m", tf); asOf[tf] = asOf["5m"]; }
+      }
+      const step = atlasStep({ snapshot: a.snapshot, snapshotId: a.snapshotId, bars, barsAsOf: asOf, previous: null, now });
+      read = step.read;
+      scenarios = step.scenarios;
+    }
+    return { read: withSetupStage(read, a.setupState, a.tradeActive), scenarios, readHistory: readHistoryOf(rows) };
+  } catch {
+    return emptyReadFields();
+  }
 }

@@ -11,6 +11,7 @@ import { BrainTradeCard, ProfileSheet, TradeCompleteCard, type CompletedView, ty
 import VoiceSession from "./VoiceSession";
 import TradeAlert from "./TradeAlert";
 import RiskConsent, { type ConsentView } from "./RiskConsent";
+import type { AnalysisMeta, AtlasRead, FeedState, Lean, Scenario } from "../../../command-center/core/atlasContract";
 
 /**
  * COMMAND CENTER XAUUSD.
@@ -74,6 +75,22 @@ export type Live = {
   /** Display-only intelligence (command-center/present/intel.ts). */
   intel?: import("../../../command-center/present/intel").Intel | null;
   features?: Record<string, { atr: number; atrPct: number; volRatio: number; velocity: number; acceleration: number; returns5: number; rangeExpansion: number }>;
+  /* ── ATLAS (core/atlasContract.ts) — added by the feed and read workstreams ── */
+  /** The headline price's honest feed state: provider, timestamps, age, LIVE / DELAYED / … / DEMO. */
+  feed?: FeedState;
+  /** Which snapshot and engine version everything else on this read came from, and how old it is. */
+  analysis?: AnalysisMeta;
+  /** ATLAS's directional read. A lean is never an entry: setupStage and entry are separate fields. */
+  read?: AtlasRead | null;
+  /** Live scenarios first (base, alternative, view change), then the recently finished ones. */
+  scenarios?: Scenario[];
+  /** The lean's history: when it changed and why, newest first. */
+  readHistory?: { at: number; lean: Lean; reason: string; summary: string }[];
+  /**
+   * The server's autopilot mode (CC_AUTOPILOT), if a route ever reports it. /live does not send it today, so
+   * the screen cannot say auto-entry is ARMED — only that it was requested.
+   */
+  autopilotMode?: "off" | "shadow" | "live" | null;
 };
 
 const TF_ORDER = ["1d", "4h", "1h", "15m", "5m", "1m"];
@@ -734,7 +751,7 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
             is the point of the product, and it should not be six screens down. */}
         <div className="order-3 space-y-3 lg:order-3">
           {/* Admin-gated server-side; this renders nothing at all for anybody else. */}
-          {!d?.replay && <VoiceSession onUiAction={onUiAction} />}
+          {!d?.replay && <VoiceSession onUiAction={onUiAction} live={d} />}
           <Panel title="Talk to ATLAS" icon={<Radio className="h-3.5 w-3.5" />} className="flex h-[520px] flex-col">
             <BrainConsole announce={announce} onUiAction={onUiAction} mode={mode} onModeChange={setMode} live={!!d?.live} className="min-h-0 flex-1" />
           </Panel>

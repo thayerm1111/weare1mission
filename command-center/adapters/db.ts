@@ -8,6 +8,11 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Bar, MarketSnapshot } from "../core/types";
 import type { BrainState, BrainStatement, BrainThesis, PerceptionEvent } from "../brain/types";
 import { emptyRolling, type Rolling } from "../brain/memory";
+// ATLAS READ (cc_atlas_reads) — see the block at the end of this file.
+import type { Timeframe } from "../core/types";
+import type { AtlasRead, Lean, Scenario } from "../core/atlasContract";
+import { readFromStored } from "../core/read";
+import { scenarioLooksValid } from "../core/scenarios";
 
 let _db: SupabaseClient | null = null;
 
@@ -173,15 +178,18 @@ export async function latestWithBars(): Promise<{ id: number; snapshot: MarketSn
  * only: this adapter never writes that table. Null when there is no row or the read fails — the
  * caller decides what to fall back to.
  */
-export async function latestTick(symbol: string): Promise<{ price: number; tickAt: number; receivedAt: number } | null> {
+export async function latestTick(symbol: string): Promise<{ price: number; tickAt: number; receivedAt: number; updatedAt: number | null } | null> {
   const c = db();
   if (!c) return null;
   try {
-    const { data, error } = await c.from("market_live_ticks").select("price, tick_at, received_at").eq("symbol", symbol).maybeSingle();
+    const { data, error } = await c.from("market_live_ticks").select("price, tick_at, received_at, updated_at").eq("symbol", symbol).maybeSingle();
     if (error || !data) return null;
-    const r = data as { price: number | string; tick_at: string; received_at: string };
+    const r = data as { price: number | string; tick_at: string; received_at: string; updated_at?: string | null };
     const price = Number(r.price), tickAt = Date.parse(r.tick_at), receivedAt = Date.parse(r.received_at);
-    return Number.isFinite(price) && price > 0 && Number.isFinite(receivedAt) ? { price, tickAt, receivedAt } : null;
+    const updatedAt = r.updated_at ? Date.parse(r.updated_at) : NaN;
+    return Number.isFinite(price) && price > 0 && Number.isFinite(receivedAt)
+      ? { price, tickAt, receivedAt, updatedAt: Number.isFinite(updatedAt) ? updatedAt : null }
+      : null;
   } catch { return null; }
 }
 
@@ -278,4 +286,108 @@ export async function saveChartBars(bars: Partial<Record<string, Bar[]>>): Promi
     .map(([tf, b]) => ({ tf, bars: (b as Bar[]).slice(-240), updated_at: new Date().toISOString() }));
   if (!rows.length) return;
   try { await c.from("cc_chart_bars").upsert(rows, { onConflict: "tf" }); } catch { /* the screen can wait; the engine cannot */ }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   ATLAS READ — the directional read and its scenarios (cc_atlas_reads, migration 20261111010000).
+   Display and conversation only: nothing on a trading path reads this table. Every function here
+   fails soft (null / []) — including when the migration has not been applied yet.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+export type AtlasReadRow = { id: number; at: number; snapshotId: number | null; read: AtlasRead; scenarios: Scenario[]; reason: string | null };
+/** One row, reduced to what the lean's history needs (no evidence, no scenarios). */
+export type AtlasReadLite = { at: number; lean: Lean; since: number | null; summary: string | null; why: string | null; reason: string | null };
+
+/** Append one read. Rows are never updated: the history of what ATLAS thought is the point. */
+export async function saveAtlasRead(e: { read: AtlasRead; scenarios: Scenario[]; reason: string; snapshotId: number | null }): Promise<number | null> {
+  const c = db();
+  if (!c) return null;
+  try {
+    const { data, error } = await c.from("cc_atlas_reads").insert({
+      at: new Date(e.read.at).toISOString(),
+      snapshot_id: e.snapshotId,
+      version: e.read.version,
+      lean: e.read.lean,
+      score: Math.round(e.read.score),
+      read: e.read,
+      scenarios: e.scenarios,
+      reason: e.reason.slice(0, 1000),
+    }).select("id").single();
+    if (error || !data) return null;
+    return (data as { id: number }).id;
+  } catch { return null; }
+}
+
+/** The newest read, checked before it is trusted (a malformed or other-version row is treated as absent). */
+export async function latestAtlasRead(): Promise<AtlasReadRow | null> {
+  const c = db();
+  if (!c) return null;
+  try {
+    const { data, error } = await c.from("cc_atlas_reads")
+      .select("id, at, snapshot_id, read, scenarios, reason")
+      .order("at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
+    if (error || !data) return null;
+    const r = data as { id: number; at: string; snapshot_id: number | string | null; read: unknown; scenarios: unknown; reason: string | null };
+    const read = readFromStored(r.read);
+    if (!read) return null;
+    return {
+      id: Number(r.id), at: Date.parse(r.at),
+      snapshotId: r.snapshot_id == null ? null : Number(r.snapshot_id),
+      read,
+      scenarios: (Array.isArray(r.scenarios) ? r.scenarios : []).filter(scenarioLooksValid),
+      reason: r.reason ?? null,
+    };
+  } catch { return null; }
+}
+
+/** Recent reads, newest first, light: enough to rebuild the lean's history without loading every evidence list. */
+export async function recentAtlasReads(opts: { sinceMs?: number; limit?: number } = {}): Promise<AtlasReadLite[]> {
+  const c = db();
+  if (!c) return [];
+  try {
+    let q = c.from("cc_atlas_reads").select("at, lean, reason, since:read->>since, summary:read->>summary, why:read->previous->>reason");
+    if (opts.sinceMs != null) q = q.gte("at", new Date(opts.sinceMs).toISOString());
+    const { data, error } = await q.order("at", { ascending: false }).limit(Math.max(1, Math.min(1000, opts.limit ?? 300)));
+    if (error || !data) return [];
+    const leans: Lean[] = ["bullish_lean", "bearish_lean", "balanced", "transitioning", "insufficient_data"];
+    return (data as Record<string, unknown>[])
+      .map((r) => ({
+        at: Date.parse(String(r.at)),
+        lean: String(r.lean) as Lean,
+        since: r.since == null || !Number.isFinite(Number(r.since)) ? null : Number(r.since),
+        summary: r.summary == null ? null : String(r.summary),
+        why: r.why == null ? null : String(r.why),
+        reason: r.reason == null ? null : String(r.reason),
+      }))
+      .filter((r) => Number.isFinite(r.at) && leans.includes(r.lean));
+  } catch { return []; }
+}
+
+/** Reads are appended every few minutes; keep a rolling window rather than growing forever. */
+export async function pruneAtlasReads(keepDays = 30): Promise<void> {
+  const c = db();
+  if (!c) return;
+  try { await c.from("cc_atlas_reads").delete().lt("at", new Date(Date.now() - keepDays * 86_400_000).toISOString()); } catch { /* best effort */ }
+}
+
+/**
+ * The chart candles the worker last left in cc_chart_bars, per timeframe, with when each set was written.
+ * Read-only. Used only when a read has to be computed outside the worker (the live route's fallback).
+ */
+export async function chartBarsFor(tfs: Timeframe[]): Promise<{ bars: Partial<Record<Timeframe, Bar[]>>; asOf: Partial<Record<Timeframe, number>> }> {
+  const out: { bars: Partial<Record<Timeframe, Bar[]>>; asOf: Partial<Record<Timeframe, number>> } = { bars: {}, asOf: {} };
+  const c = db();
+  if (!c || !tfs.length) return out;
+  try {
+    const { data, error } = await c.from("cc_chart_bars").select("tf, bars, updated_at").in("tf", tfs);
+    if (error || !data) return out;
+    for (const r of data as { tf: string; bars: unknown; updated_at: string }[]) {
+      const tf = r.tf as Timeframe;
+      if (!tfs.includes(tf) || !Array.isArray(r.bars)) continue;
+      out.bars[tf] = (r.bars as Bar[]).filter((b) => b && [b.t, b.o, b.h, b.l, b.c].every((x) => typeof x === "number" && Number.isFinite(x)));
+      const at = Date.parse(r.updated_at);
+      if (Number.isFinite(at)) out.asOf[tf] = at;
+    }
+    return out;
+  } catch { return out; }
 }

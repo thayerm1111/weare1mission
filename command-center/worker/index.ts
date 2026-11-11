@@ -27,6 +27,11 @@ import { reconcilePending } from "../engines/executor";
 import { preflight } from "../engines/preflight";
 import { heartbeat, booted, switchChanged } from "../engines/notify";
 import { brainEnabled } from "../engines/killSwitch";
+// ATLAS READ — display and conversation only; see "ATLAS READ" below.
+import { saveAtlasRead, latestAtlasRead, pruneAtlasReads } from "../adapters/db";
+import { atlasStep, shouldPersistRead, type AtlasMemory } from "../engines/atlasRead";
+import { findSetup, DEFAULT_SETUP_PROFILE } from "../engines/setup";
+import type { Bias } from "../brain/types";
 
 const KEY = process.env.TWELVEDATA_API_KEY ?? "";
 const TICK_MS = Number(process.env.CC_TICK_MS || 20_000);
@@ -275,8 +280,12 @@ async function pass(lastPersistAt: number): Promise<number> {
     const tfs = Object.entries(snap.timeframes).map(([tf, v]) => `${tf}:${v!.state}`).join(" ");
     log(`snapshot#${id ?? "?"} ${snap.price.toFixed(2)} ${snap.session} ${snap.regime} pressure ${snap.pressure.net > 0 ? "+" : ""}${snap.pressure.net} | ${tfs} | ${gate.ok ? "tradeable" : `blocked: ${gate.code}`} | brain:${pc.state.presence} i${pc.state.intensity} | ${pc.thesis.label}`);
     if (errors.length) log("feed notes", errors);
+    // ATLAS READ, last: after trading and after the snapshot it will name. Never throws.
+    await atlasReadPass(snap, bars, id ?? null, true, { bias: pc.thesis.bias ?? null, confidence: pc.thesis.confidence ?? null });
     return now;
   }
+  // ATLAS READ on the passes between snapshot writes: computed (hysteresis sees every candle), not written.
+  await atlasReadPass(snap, bars, null, false, { bias: pc.thesis.bias ?? null, confidence: pc.thesis.confidence ?? null });
   return lastPersistAt;
 }
 
@@ -343,6 +352,99 @@ async function keepPromises(snap: MarketSnapshot, previous: MarketSnapshot | nul
   }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+   ATLAS READ — the directional read and its scenarios, computed on EVERY pass.
+
+   Display and conversation only. It reads the snapshot and the bars this pass already has, and its only
+   outputs are an in-memory read and a row in cc_atlas_reads. Nothing here is handed to the autopilot, the
+   position manager or the executor, and it runs after them. Every failure is caught inside this block,
+   and every database call is bounded in time, so it can never cost another job its turn.
+
+   The read is computed every pass (so hysteresis sees every closed candle), but it is WRITTEN only on
+   passes that also persist the snapshot, so a stored read always names the snapshot it came from:
+   immediately when the lean or a scenario's status changed, otherwise at most every READ_PERSIST_MS.
+   ══════════════════════════════════════════════════════════════════════════════ */
+let atlasMemory: AtlasMemory = { read: null, scenarios: [] };
+let atlasPersistedAt = 0;
+/** Change reasons not yet written (a failed write keeps them for the next attempt). */
+let atlasUnwritten: string[] = [];
+let atlasWriteFailures = 0;
+let atlasLastAttemptAt = 0;
+let atlasPrunedAt = 0;
+const ATLAS_DB_TIMEOUT_MS = 8_000;
+
+/** A database call that cannot hold the loop: after `ms` the pass moves on with `fallback`. */
+const within = <T,>(p: Promise<T>, ms: number, fallback: T): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((resolve) => { timer = setTimeout(() => resolve(fallback), ms); });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+};
+
+/** Wake up remembering the last read, so a restart does not reset the lean's hysteresis or its scenarios. */
+async function restoreAtlasRead(): Promise<void> {
+  try {
+    const last = await within(latestAtlasRead(), ATLAS_DB_TIMEOUT_MS, null);
+    if (!last) { log("atlas read · no stored read — starting fresh"); return; }
+    atlasMemory = { read: last.read, scenarios: last.scenarios };
+    atlasPersistedAt = last.at;
+    log(`atlas read restored · ${last.read.lean} (${last.read.score}) from ${new Date(last.at).toISOString()} · ${last.scenarios.length} scenarios`);
+  } catch (e) {
+    log("atlas read restore failed (starting fresh)", e instanceof Error ? e.message.slice(0, 160) : e);
+  }
+}
+
+async function atlasReadPass(
+  snap: MarketSnapshot, bars: Partial<Record<Timeframe, Bar[]>>, snapshotId: number | null, mayWrite: boolean,
+  thesis: { bias: Bias | null; confidence: number | null },
+): Promise<void> {
+  try {
+    // The setup engine's own state, read-only, so the read can say where a setup stands. A lean never
+    // feeds this, and this never reaches anything that trades.
+    let setupState: ReturnType<typeof findSetup>["state"] | null = null;
+    try {
+      setupState = findSetup({
+        snapshot: snap, profile: DEFAULT_SETUP_PROFILE, marketOpen: marketOpen(snap.at), now: snap.at,
+        thesisBias: thesis.bias, thesisConfidence: thesis.confidence,
+      }).state;
+    } catch { setupState = null; }
+
+    // A candle counts as closed only if it had closed when its series was fetched.
+    const barsAsOf: Partial<Record<Timeframe, number>> = {};
+    for (const [tf, c] of cache.entries()) barsAsOf[tf] = c.at;
+
+    const step = atlasStep({
+      snapshot: snap, snapshotId, bars, barsAsOf,
+      setup: setupState ? { state: setupState } : null,
+      previous: atlasMemory, now: snap.at,
+    });
+    atlasMemory = { read: step.read, scenarios: step.scenarios };
+    if (step.leanChanged || step.scenarioChanges.length) atlasUnwritten = [...atlasUnwritten, step.reason].slice(-5);
+    if (step.leanChanged) log(`atlas read · ${step.read.lean} (${step.read.score > 0 ? "+" : ""}${step.read.score}) — ${step.read.summary}`);
+
+    if (!mayWrite) return;
+    if (!shouldPersistRead(step, { lastPersistAt: atlasPersistedAt, now: snap.at, unwrittenChange: atlasUnwritten.length > 0 })) return;
+    // After repeated failures (e.g. the table is not there yet) try every ten minutes, not every minute.
+    if (atlasWriteFailures >= 3 && Date.now() - atlasLastAttemptAt < 10 * 60_000) return;
+    atlasLastAttemptAt = Date.now();
+    const reason = (atlasUnwritten.length ? atlasUnwritten.join(" ") : step.reason).slice(0, 1000);
+    const id = await within(saveAtlasRead({ read: step.read, scenarios: step.scenarios, reason, snapshotId }), ATLAS_DB_TIMEOUT_MS, null);
+    if (id != null) {
+      atlasPersistedAt = snap.at;
+      atlasUnwritten = [];
+      atlasWriteFailures = 0;
+    } else {
+      atlasWriteFailures += 1;
+      if (atlasWriteFailures === 3) log("atlas read · writes are failing (is migration 20261111010000 applied?) — retrying every 10 minutes");
+    }
+    if (Date.now() - atlasPrunedAt > 6 * 3600_000) {
+      atlasPrunedAt = Date.now();
+      void within(pruneAtlasReads(), ATLAS_DB_TIMEOUT_MS, undefined).catch(() => {});
+    }
+  } catch (e) {
+    log("atlas read error (loop continues)", e instanceof Error ? e.message.slice(0, 160) : e);
+  }
+}
+
 async function main(): Promise<void> {
   if (!KEY) { log("no TWELVEDATA_API_KEY — the Command Center cannot see the market; exiting"); process.exit(1); }
   log(`starting · tick ${TICK_MS}ms · persist ${PERSIST_MS}ms · symbol ${GOLD}`);
@@ -351,6 +453,7 @@ async function main(): Promise<void> {
   // Wake up remembering. The market kept moving while this process was not running.
   brain = await loadRolling();
   log(`memory restored · ${brain.snapshots.length} snapshots · ${brain.events.length} events · ${brain.theses.length} theses`);
+  await restoreAtlasRead();      // never throws
 
   /*
    * THE PRE-FLIGHT, ONCE, BEFORE THE FIRST TICK.

@@ -30,7 +30,12 @@ import type { MarketSnapshot } from "../core/types";
 import { latestTick } from "../adapters/db";
 import { price as tdPrice, GOLD } from "../adapters/twelvedata";
 
-export type LivePrice = { price: number; at: number; source: "stream" | "quote" };
+export type LivePrice = {
+  price: number; at: number; source: "stream" | "quote";
+  /** The provider's own timestamp for a streamed tick, when the row carries one. Coarse for gold (to the
+   *  minute), so it is SHOWN beside the price (core/feed.ts) and never used to judge freshness. */
+  providerAt?: number;
+};
 
 /** A streamed tick older than this is not "now". The screen falls back to the snapshot's price. */
 export const TICK_FRESH_MS = 20_000;
@@ -46,12 +51,14 @@ export const MAX_LIVE_DEVIATION = 0.01;
 export const QUOTE_TIMEOUT_MS = 2_500;
 
 /** Pure: is this published tick fresh enough to say? */
-export function freshTick(row: { price: number; receivedAt: number } | null, nowMs: number, maxAgeMs = TICK_FRESH_MS): LivePrice | null {
+export function freshTick(row: { price: number; receivedAt: number; tickAt?: number } | null, nowMs: number, maxAgeMs = TICK_FRESH_MS): LivePrice | null {
   if (!row || !(row.price > 0) || !Number.isFinite(row.receivedAt)) return null;
   const age = nowMs - row.receivedAt;
   // A tick "from the future" by more than a few seconds is a clock problem, not a fresh price.
   if (age > maxAgeMs || age < -5_000) return null;
-  return { price: row.price, at: Math.min(row.receivedAt, nowMs), source: "stream" };
+  const out: LivePrice = { price: row.price, at: Math.min(row.receivedAt, nowMs), source: "stream" };
+  if (typeof row.tickAt === "number" && Number.isFinite(row.tickAt)) out.providerAt = row.tickAt;
+  return out;
 }
 
 /**
@@ -68,7 +75,7 @@ export function withLivePrice(s: MarketSnapshot, live: LivePrice | null): Market
 
 /** Where the two quotes come from. Swappable so the choice between them can be tested without a network. */
 export type LivePriceSources = {
-  tick: () => Promise<{ price: number; receivedAt: number } | null>;
+  tick: () => Promise<{ price: number; receivedAt: number; tickAt?: number } | null>;
   quote: () => Promise<number | null>;
 };
 

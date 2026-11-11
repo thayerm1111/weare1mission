@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, ChevronLeft, Link2, ShieldCheck, X } from "lucide-react";
 
 /**
@@ -47,7 +48,15 @@ const money = (n: number | null | undefined, ccy?: string | null) =>
 type KnownServer = { server: string; email: string; env: string };
 type Step = "environment" | "credentials" | "connecting" | "accounts";
 
-export function BrokerBar({ onAccountChange }: { onAccountChange?: (a: BrokerAccount | null) => void }) {
+/**
+ * `size`: "full" (default) is the chip with server, account number and balance. "auto" is for a crowded header:
+ * a compact BROKER chip below 1800 px and the full chip from there up — one instance either way, so ATLAS's
+ * "I opened it for you" (the cc:open-broker event) always has exactly one panel to open.
+ *
+ * The panel itself is rendered into document.body, so a header that hides or clips the chip on a small screen
+ * can never hide the panel with it.
+ */
+export function BrokerBar({ onAccountChange, size = "full" }: { onAccountChange?: (a: BrokerAccount | null) => void; size?: "full" | "auto" }) {
   const [accounts, setAccounts] = useState<BrokerAccount[]>([]);
   const [known, setKnown] = useState<KnownServer[]>([]);
   const [ready, setReady] = useState(true);
@@ -61,6 +70,9 @@ export function BrokerBar({ onAccountChange }: { onAccountChange?: (a: BrokerAcc
     window.addEventListener("cc:open-broker", onOpen);
     return () => window.removeEventListener("cc:open-broker", onOpen);
   }, []);
+  // Portals need document.body, which only exists once mounted in the browser.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("environment");
@@ -110,29 +122,18 @@ export function BrokerBar({ onAccountChange }: { onAccountChange?: (a: BrokerAcc
     else setStep("credentials");
   }, [post, env, server, email, password]);
 
-  return (
+  const full = active ? (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] transition"
-        style={{
-          background: active ? (active.isLive ? "rgba(244,115,123,0.10)" : "rgba(111,168,220,0.10)") : "rgba(240,196,117,0.10)",
-          border: `1px solid ${active ? (active.isLive ? "rgba(244,115,123,0.30)" : "rgba(111,168,220,0.26)") : "rgba(240,196,117,0.30)"}`,
-          color: active ? (active.isLive ? C.down : C.cold) : C.gold,
-        }}
-      >
-        <Link2 className="h-3 w-3" />
-        {active ? (
-          <>
-            <span>{active.server || (active.isLive ? "LIVE" : "DEMO")}</span>
-            <span style={{ color: C.mut }}>· #{active.accNum}</span>
-            <span style={{ color: C.text }}>{money(active.equity ?? active.balance, active.currency) ?? "—"}</span>
-          </>
-        ) : "Connect broker"}
-      </button>
+      <span>{active.server || (active.isLive ? "LIVE" : "DEMO")}</span>
+      <span style={{ color: C.mut }}>· #{active.accNum}</span>
+      <span style={{ color: C.text }}>{money(active.equity ?? active.balance, active.currency) ?? "—"}</span>
+    </>
+  ) : "Connect broker";
+  const compact = active ? (active.isLive ? "LIVE" : "DEMO") : "Broker";
 
-      {open && (
-        <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto p-4 sm:p-8" style={{ background: "rgba(3,5,9,0.72)", backdropFilter: "blur(6px)" }}>
+  const panel = open ? (
+        <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto p-4 sm:p-8" data-broker-panel=""
+          style={{ background: "rgba(3,5,9,0.72)", backdropFilter: "blur(6px)", fontFamily: "Inter, var(--font-inter), system-ui, sans-serif" }}>
           <div className="w-full max-w-lg rounded-2xl border" style={{ borderColor: C.line, background: C.panel, color: C.text }}>
             <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: C.line }}>
               <div className="flex items-center gap-2">
@@ -273,7 +274,31 @@ export function BrokerBar({ onAccountChange }: { onAccountChange?: (a: BrokerAcc
             )}
           </div>
         </div>
-      )}
+  ) : null;
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        title={active ? `${active.server || (active.isLive ? "Live" : "Demo")} · #${active.accNum} — open the broker panel` : "Connect your TradeLocker broker"}
+        aria-label={active ? `Broker: ${active.isLive ? "live" : "demo"} account ${active.accNum}` : "Connect broker"}
+        className={`inline-flex items-center gap-2 whitespace-nowrap rounded-full ${size === "auto" ? "px-2.5 min-[1800px]:px-3" : "px-3"} py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] transition`}
+        style={{
+          background: active ? (active.isLive ? "rgba(244,115,123,0.10)" : "rgba(111,168,220,0.10)") : "rgba(240,196,117,0.10)",
+          border: `1px solid ${active ? (active.isLive ? "rgba(244,115,123,0.30)" : "rgba(111,168,220,0.26)") : "rgba(240,196,117,0.30)"}`,
+          color: active ? (active.isLive ? C.down : C.cold) : C.gold,
+        }}
+      >
+        <Link2 className="h-3 w-3" />
+        {size === "auto" ? (
+          <>
+            <span className="min-[1800px]:hidden">{compact}</span>
+            <span className="hidden items-center gap-2 min-[1800px]:inline-flex">{full}</span>
+          </>
+        ) : full}
+      </button>
+
+      {panel && mounted ? createPortal(panel, document.body) : null}
     </>
   );
 }
