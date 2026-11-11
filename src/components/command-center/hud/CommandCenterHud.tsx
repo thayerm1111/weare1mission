@@ -2,14 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  AlertTriangle, BarChart3, Bell, BookOpen, Globe2, Layers, LineChart, Maximize2, Menu, Mic, Radar, RefreshCw,
-  Settings, Sparkles, Target, X, Zap,
+  AlertTriangle, BarChart3, Bell, BookOpen, ChevronDown, ChevronUp, Globe2, Layers, LineChart, Maximize2, Menu, Mic, PenLine, Radar, RefreshCw,
+  Settings, Sparkles, Square, Target, X, Zap,
 } from "lucide-react";
 import { H, fmt2, LABEL } from "./theme";
 import { HudPanel, LiveDot, Chip, HUD_CSS, Sparkline } from "./Hud";
 import { BrainOrb, type OrbState } from "./BrainOrb";
 import { voiceBus, useVoiceBus, lineOpen } from "../voiceBus";
-import { GoldChart, type ChartBar, type ChartLine, type ChartMarker, type ChartZone } from "./GoldChart";
+import { GoldChart, CHART_CMD_EVENT, type ChartBar, type ChartCmd, type ChartLine, type ChartMarker, type ChartZone } from "./GoldChart";
+import { explainBus, useExplain, useUserDrawings, userDrawings } from "./explainBus";
 import type { RadarBlip } from "./LiquidityRadar";
 import type { Live } from "../CommandCenterLive";
 import BrainConsole, { VOICE_MODES, dispatchChartAction, type VoiceMode } from "../BrainConsole";
@@ -133,7 +134,8 @@ const DESK = `
   .hud-left > .hud-read { flex:1 1 60%; min-height:240px; }
   .hud-left > .hud-tf { flex:0 0 auto; }
   .hud-left > .hud-levels { flex:1 1 28%; min-height:128px; }
-  .hud-center > .hud-chart { flex:1 1 auto; min-height:300px; }
+  /* CHART FIRST (owner 11-11): the chart keeps a real height on a short window; the desk scrolls a little rather than squeeze it. */
+  .hud-center > .hud-chart { flex:1 1 auto; min-height:384px; }
   .hud-center > .hud-ind { flex:0 0 auto; }
   .hud-center > .hud-scen { flex:0 0 auto; height:clamp(188px, 22vh, 210px); }
   .hud-right > .hud-talk { flex:1 1 auto; min-height:0; }
@@ -151,10 +153,15 @@ const DESK = `
   .hud-levels { order:4; max-height:340px; }
   .hud-tf { order:5; }
   .hud-ind { order:6; }
-  .hud-root .hud-talk { position:fixed; left:0; right:0; bottom:0; top:auto; height:min(86dvh, 780px); z-index:50;
+  .hud-root { --talk-h: min(46dvh, 430px); }
+  .hud-root .hud-talk { position:fixed; left:0; right:0; bottom:0; top:auto; height:var(--talk-h); z-index:50;
     border-radius:14px 14px 0 0; transform:translateY(104%); visibility:hidden;
     transition: transform .28s cubic-bezier(.22,.9,.24,1), visibility 0s linear .28s; box-shadow: 0 -18px 50px rgba(0,0,0,0.6); }
-  .hud-root .hud-talk.is-open { transform:none; visibility:visible; transition: transform .28s cubic-bezier(.22,.9,.24,1), visibility 0s; }
+  .hud-root .hud-talk.is-open { transform:none; visibility:visible; transition: transform .28s cubic-bezier(.22,.9,.24,1), visibility 0s, height .2s ease; }
+  .hud-root .hud-talk.is-tall { height:min(86dvh, 780px); }
+  /* CHART FIRST (owner 11-11): with the transcript open at its compact height the chart takes exactly the room
+     above it, so the current candle, the price scale and what ATLAS is pointing at all stay in view. */
+  .hud-root.talk-compact .hud-chart { height:calc(100dvh - var(--talk-h) - 8px); min-height:240px; scroll-margin-top:4px; }
   .hud-bottom .hud-timeline { max-height:320px; }
 }
 @media (min-width:768px) and (max-width:1279px) { .hud-root .hud-talk { left:auto; width:min(560px, 100vw); border-radius:14px 0 0 0; } }
@@ -198,7 +205,13 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   const [indicatorsOpen, setIndicatorsOpen] = useState(false);
   /** Below 1280 px: the copilot sheet, and the header menu. */
   const [sheetOpen, setSheetOpen] = useState(false);
+  /** The sheet at full height. It opens COMPACT, so the chart stays in view above it. */
+  const [sheetTall, setSheetTall] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  /** The member is placing one of their own lines on the chart. */
+  const [drawMode, setDrawMode] = useState(false);
+  const ex = useExplain();
+  const myLines = useUserDrawings();
   /** The scenario drawn on the chart (from a card, or from ATLAS). */
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
   /** ATLAS drew on the chart while the sheet covered it: offer to show it. */
@@ -371,8 +384,12 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   const tapCore = useCallback(() => {
     if (isReplay) { openTalk("CHAT"); return; }
     if (lineOpen(voiceBus.get().status)) { voiceBus.end(); return; }
-    openTalk("VOICE");
-    if (voiceBus.get().status === "locked" || !voiceBus.ready()) return;
+    const blocked = voiceBus.get().status === "locked" || !voiceBus.ready();
+    /* CHART FIRST: on a phone the line opens under the chart, in the dock — the market stays on screen. The
+       transcript is one tap away. Only something that needs reading (voice not unlocked yet) opens the sheet. */
+    setTalkTab("VOICE");
+    if (!stackedRef.current || blocked) openTalk("VOICE");
+    if (blocked) return;
     voiceBus.start();     // inside the tap: Safari only lets audio begin from the gesture that asked for it
   }, [isReplay, openTalk]);
   const ask = useCallback((q: string) => { openTalk("CHAT"); setAskSignal({ n: Date.now(), q }); }, [openTalk]);
@@ -391,6 +408,87 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
     try { if (new URLSearchParams(window.location.search).get("generate") === "1") generate(); } catch { /* no URL */ }
   }, [d, generate]);
   const onActivity = useCallback((a: { busy: boolean; speaking: boolean; listening: boolean }) => setActivity(a), []);
+
+  /* ── ATLAS explains on the chart ──────────────────────────────────────── */
+  // What is REAL for this snapshot: an answer is explained against this and nothing else (core/explain.ts).
+  useEffect(() => {
+    if (!d) { explainBus.setContext(null); return; }
+    const m5 = (d.bars ?? []) as ChartBar[];
+    const named: { price: number; label: string; role?: "entry" | "stop" | "target" }[] = [];
+    if (shownIdea?.entry && shownIdea.stop) {
+      named.push({ price: shownIdea.entry.price, label: "Idea entry", role: "entry" }, { price: shownIdea.stop.price, label: "Idea stop", role: "stop" });
+      for (const t of shownIdea.targets) named.push({ price: t.price, label: `Idea ${t.label}`, role: "target" });
+    }
+    if (d.trade?.active && d.trade.entry != null) {
+      named.push({ price: d.trade.entry, label: "Your entry", role: "entry" });
+      if (d.trade.stop != null) named.push({ price: d.trade.stop, label: "Your stop", role: "stop" });
+      if (d.trade.takeProfit != null) named.push({ price: d.trade.takeProfit, label: "Your target", role: "target" });
+    }
+    explainBus.setContext({
+      levels: (d.levelsAll ?? d.levels ?? []).map((l) => ({ kind: l.kind, price: l.price, label: l.label })),
+      read: d.read ?? null,
+      scenarios: d.scenarios ?? [],
+      // The candles a spoken candle may resolve to: the 5-minute series, the series on screen, and the 15-minute
+      // and 1-hour candles folded from the 5-minute ones (the first, possibly incomplete, bucket left out) — so a
+      // candle ATLAS names on another timeframe is a real one, and the chart offers the switch instead of guessing.
+      bars: {
+        "15m": aggregate(m5, 15).slice(1), "1h": aggregate(m5, 60).slice(1),
+        "5m": m5, ...(tf !== "5m" ? { [tf]: chartBars } : {}),
+      },
+      price: headPrice,
+      snapshotId: d.analysis?.snapshotId ?? null,
+      analysisAt: d.analysis?.analysisAt ?? d.at ?? null,
+      named,
+      now: Date.now(),
+    });
+  }, [d, tf, chartBars, headPrice, shownIdea]);
+  // Deterministic, on every price: has gold traded through something the current explanation stands on?
+  useEffect(() => { if (headPrice != null) explainBus.onPrice(headPrice); }, [headPrice]);
+  // If it happens WHILE ATLAS is still saying it, the obsolete audio stops and ATLAS says the correction.
+  useEffect(() => explainBus.onCorrection((text, during) => {
+    if (during && lineOpen(voiceBus.get().status)) voiceBus.correct(text);
+  }), []);
+  // The chart's own stop button on the caption.
+  useEffect(() => {
+    const on = () => voiceBus.stopSpeaking();
+    window.addEventListener("cc:stop-speaking", on);
+    return () => window.removeEventListener("cc:stop-speaking", on);
+  }, []);
+  /* MEASURED, NOT CLAIMED: how long a quote takes from our server receiving it to this screen having it (on the
+     server's clock, so a browser clock that is off does not flatter it). The middle of the last 40 ticks. */
+  const [quoteDelay, setQuoteDelay] = useState<{ ms: number; n: number } | null>(null);
+  const delays = useRef<number[]>([]);
+  const offsetRef = useRef(0);
+  offsetRef.current = lf.clockOffsetMs;
+  const onTickLf = lf.onTick;
+  useEffect(() => onTickLf((t) => {
+    const ms = Date.now() + offsetRef.current - t.receivedTs;
+    if (!Number.isFinite(ms) || ms < -2000 || ms > 120_000) return;
+    delays.current = [...delays.current.slice(-39), Math.max(0, ms)];
+    if (delays.current.length % 5 === 0 || delays.current.length < 5) {
+      const sorted = [...delays.current].sort((a, b) => a - b);
+      setQuoteDelay({ ms: Math.round(sorted[Math.floor(sorted.length / 2)]), n: sorted.length });
+    }
+  }), [onTickLf]);
+  // CHART FIRST: when the transcript opens at its compact height on a phone, the chart is brought to the top so
+  // it sits exactly in the room above it.
+  useEffect(() => {
+    if (!stacked || !sheetOpen || sheetTall) return;
+    const t = window.setTimeout(() => chartPanelRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }), 120);
+    return () => window.clearTimeout(t);
+  }, [stacked, sheetOpen, sheetTall]);
+  useEffect(() => { if (!sheetOpen) setSheetTall(false); }, [sheetOpen]);
+  const chartCmd = useCallback((c: ChartCmd) => window.dispatchEvent(new CustomEvent(CHART_CMD_EVENT, { detail: c })), []);
+  /** Ask ATLAS something: out loud when a line is open, otherwise in the chat. */
+  const askAtlas = useCallback((q: string) => {
+    if (lineOpen(voiceBus.get().status) && voiceBus.sendText(q)) return;
+    ask(q);
+  }, [ask]);
+  /** "Show me": step through what the last answer pointed at; with nothing to show yet, ask for it. */
+  const showMe = useCallback(() => {
+    if (!explainBus.showNext()) askAtlas("Show me on the chart what you're seeing in gold right now.");
+    scrollToChart();
+  }, [askAtlas]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── ATLAS's hands on the chart ───────────────────────────────────────── */
   const scrollToChart = useCallback(() => {
@@ -644,7 +742,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
   /* ── render ───────────────────────────────────────────────────────────── */
   return (
-    <div className="hud-root w-full px-[10px] pb-[92px] pt-[8px] xl:pb-[10px]" style={{ background: `radial-gradient(1200px 500px at 12% -10%, rgba(0,199,232,0.06), transparent), radial-gradient(900px 500px at 100% 0%, rgba(213,169,61,0.05), transparent), ${H.bg0}`, color: H.text, fontFamily: "Inter, var(--font-inter), system-ui, sans-serif" }}>
+    <div className={`hud-root w-full px-[10px] pt-[8px] xl:pb-[10px] ${onCall ? "pb-[164px]" : "pb-[92px]"} ${stacked && sheetOpen && !sheetTall ? "talk-compact" : ""}`} style={{ background: `radial-gradient(1200px 500px at 12% -10%, rgba(0,199,232,0.06), transparent), radial-gradient(900px 500px at 100% 0%, rgba(213,169,61,0.05), transparent), ${H.bg0}`, color: H.text, fontFamily: "Inter, var(--font-inter), system-ui, sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: HUD_CSS + DESK }} />
       {tourOpen && <HudTour onClose={() => setTourOpen(false)} />}
 
@@ -898,6 +996,18 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                     <button aria-label="Fullscreen" title="Fullscreen chart" onClick={() => { const el = chartRef.current; if (el) void (document.fullscreenElement ? document.exitFullscreen() : el.requestFullscreen()); }} className="p-1" style={{ color: H.mut }}><Maximize2 className="h-4 w-4" /></button>
                   </div>
                 </div>
+                {/* ATLAS ON THE CHART: show what it said, ask about a candle, your own line, clear its drawings. */}
+                <div className="hud-scroll flex shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap border-b px-2 py-1" style={{ borderColor: H.lineSoft }} data-atlas-controls="">
+                  <span className="mr-0.5 shrink-0 text-[8.5px] font-bold tracking-[0.16em]" style={{ color: H.cyan2 }}>ATLAS</span>
+                  <CtlBtn onClick={showMe} title="Step through what ATLAS's last answer pointed at, on the chart" data-ctl="show">Show me{ex.status === "showing" && ex.explanation ? ` ${ex.segment + 1}/${ex.explanation.segments.length}` : ""}</CtlBtn>
+                  <CtlBtn onClick={() => chartCmd({ type: "explain_candle" })} title="Ask about the candle you tapped — or the one forming now" data-ctl="candle">Explain this candle</CtlBtn>
+                  <CtlBtn onClick={() => askAtlas("What would change your view right now? Show me the level on the chart.")} title="What would make ATLAS change its mind" data-ctl="view">What changes your view?</CtlBtn>
+                  <CtlBtn onClick={() => { chartCmd({ type: "clear_atlas" }); setSelectedScenario(null); }} title="Remove everything ATLAS drew. Your own lines stay." data-ctl="clear-atlas">Clear Atlas drawings</CtlBtn>
+                  <CtlBtn onClick={() => chartCmd({ type: "to_live" })} title="Back to the newest candle" data-ctl="live">Return to live</CtlBtn>
+                  <span className="mx-0.5 h-3 w-px shrink-0" style={{ background: H.line }} aria-hidden />
+                  <CtlBtn onClick={() => setDrawMode((x) => !x)} active={drawMode} tone="violet" title="Place a line of your own. ATLAS never moves or clears it." data-ctl="draw"><PenLine className="h-3 w-3" />{drawMode ? "Tap the chart…" : "Draw a line"}</CtlBtn>
+                  {myLines.length > 0 && <CtlBtn onClick={() => userDrawings.clear()} tone="violet" title="Remove your own lines" data-ctl="clear-mine">Clear my lines ({myLines.length})</CtlBtn>}
+                </div>
                 <div className="min-h-0 flex-1 px-1 pt-1">
                   <GoldChart
                     bars={chartBars} price={d?.price ?? null} markers={markers} zones={zones} lines={lines}
@@ -907,7 +1017,8 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                     activityLabel={chartBars.some((b) => b.v && b.v > 0) ? "Activity · tick volume" : "Activity · bar range (spot gold has no traded volume)"}
                     tf={tf} ticks={lf.recentTicks} feed={lf.feed}
                     barsAsOf={tf === "5m" || isReplay ? d?.at ?? null : tfBarsAt}
-                    levels={d?.levels} scenarios={d?.scenarios}
+                    levels={d?.levelsAll ?? d?.levels} scenarios={d?.scenarios}
+                    drawMode={drawMode} onDrew={() => setDrawMode(false)} onAsk={askAtlas} ownClear={false}
                   />
                 </div>
               </div>
@@ -922,19 +1033,21 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
         {/* RIGHT — the copilot (a sheet below 1280 px) */}
         <div className="hud-col hud-right">
-          <HudPanel className={`hud-talk ${sheetOpen ? "is-open" : ""}`} tour={stacked && !sheetOpen ? undefined : "talk"} title="TALK WITH ATLAS" icon={<Mic className="h-3.5 w-3.5" />}
+          <HudPanel className={`hud-talk ${sheetOpen ? "is-open" : ""} ${sheetTall ? "is-tall" : ""}`} tour={stacked && !sheetOpen ? undefined : "talk"} title="TALK WITH ATLAS" icon={<Mic className="h-3.5 w-3.5" />}
             right={
               <span className="flex items-center gap-2">
                 <span data-talk-state={talk.tone} className="inline-flex items-center gap-1.5 text-[10px]" style={{ color: talk.tone === "live" ? H.green : talk.tone === "busy" ? H.cyan2 : talk.tone === "warn" ? H.gold2 : H.mut }}>
                   {talk.tone === "live" ? <LiveDot size={5} /> : <span className="h-[5px] w-[5px] rounded-full" style={{ background: talk.tone === "busy" ? H.cyan2 : talk.tone === "warn" ? H.gold2 : H.mut2 }} />}
                   {talk.label}
                 </span>
+                <button onClick={() => setSheetTall((x) => !x)} aria-label={sheetTall ? "Shrink the transcript so the chart shows" : "Expand the transcript"} data-sheet-size={sheetTall ? "tall" : "compact"}
+                  className="grid h-7 w-7 place-items-center rounded-[6px] xl:hidden" style={{ color: H.cyan2, border: "1px solid rgba(39,215,242,0.4)" }}>{sheetTall ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}</button>
                 <button onClick={() => setSheetOpen(false)} aria-label="Close" className="grid h-7 w-7 place-items-center rounded-[6px] xl:hidden" style={{ color: H.mut, border: `1px solid ${H.line}` }}><X className="h-4 w-4" /></button>
               </span>
             }
             bodyClass="flex h-full flex-col">
-            {/* the ATLAS core: tap to talk */}
-            <div className="flex shrink-0 items-center gap-3 px-3 pb-2">
+            {/* the ATLAS core: tap to talk (the compact sheet on a phone leaves it to the dock, to keep the room for words) */}
+            <div className={`shrink-0 items-center gap-3 px-3 pb-2 ${stacked && !sheetTall ? "hidden" : "flex"}`}>
               <button type="button" onClick={tapCore} aria-label={onCall ? "End the conversation with ATLAS" : "Talk to ATLAS"} title={onCall ? "Tap to end" : "Tap to talk to ATLAS"}
                 data-tour={stacked && !sheetOpen ? undefined : "core"} className="group relative grid shrink-0 cursor-pointer place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60">
                 <BrainOrb state={voiceMode === "listening" || voiceMode === "muted" ? "listening" : voiceMode ? "speaking" : orbState}
@@ -1033,6 +1146,17 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                       {mode === "briefing_1m" || mode === "briefing_5m" ? `${VOICE_MODES.find((m) => m.id === mode)?.hint} Live market only.` : "Off — ATLAS writes when you ask, and posts its own alerts."}
                     </p>
                   </div>
+                  <div data-measured="">
+                    <p className={LABEL} style={{ color: H.mut }}>Measured on this screen</p>
+                    <div className="mt-1.5 space-y-1 text-[11px] tabular-nums" style={{ color: H.text }}>
+                      <p><span style={{ color: H.mut }}>Quote → screen</span> {isReplay ? "replay — nothing streamed" : quoteDelay ? `${quoteDelay.ms} ms (median of the last ${quoteDelay.n} quotes, ${lf.polling ? `polled every ${FEED_POLL_MS / 1000} s` : lf.channel === "subscribed" ? "streamed" : "snapshot"})` : "no quote received yet"}</p>
+                      <p><span style={{ color: H.mut }}>Quote gaps</span> {lf.stats.lastGapMs != null ? `last ${lf.stats.lastGapMs} ms · longest ${lf.stats.maxGapMs ?? "—"} ms · ${lf.stats.disconnects} reconnect${lf.stats.disconnects === 1 ? "" : "s"}` : "—"}</p>
+                      <p><span style={{ color: H.mut }}>Analysis age</span> {isReplay ? "recorded" : analysisAgeMs != null ? ageShort(analysisAgeMs) : "—"}</p>
+                      <p><span style={{ color: H.mut }}>Question heard → first audio</span> {vb.firstAudioMs != null ? `${(vb.firstAudioMs / 1000).toFixed(2)} s (last reply; from your question's transcript arriving)` : "no voice reply yet"}</p>
+                      {vb.echoesDropped > 0 && <p><span style={{ color: H.mut }}>Own voice ignored</span> {vb.echoesDropped}×</p>}
+                    </div>
+                    <p className="mt-1 text-[10px] leading-snug" style={{ color: H.mut2 }}>Quote delay is our server&apos;s receipt to this browser, on the server&apos;s clock. The provider&apos;s own timestamp for gold is to the minute, so it cannot measure sub-second lag before that.</p>
+                  </div>
                   {!isReplay && <button onClick={() => setProfileOpen(true)} className="rounded-[6px] px-3 py-1.5 text-[10px] font-bold tracking-[0.12em]" style={{ color: H.gold2, border: "1px solid rgba(231,196,103,0.45)" }}>RISK, STYLES & AUTOMATION ▸</button>}
                 </div>
               )}
@@ -1060,9 +1184,31 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       </div>
 
       {/* ── below 1280 px: the dock that opens the copilot ── */}
-      {sheetOpen && <div className="fixed inset-0 z-[49] xl:hidden" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setSheetOpen(false)} aria-hidden />}
+      {sheetOpen && sheetTall && <div className="fixed inset-0 z-[49] xl:hidden" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setSheetTall(false)} aria-hidden />}
       <div data-dock="" data-tour={stacked ? "dock" : undefined} className="fixed inset-x-0 bottom-0 z-[45] xl:hidden"
         style={{ background: "linear-gradient(180deg, rgba(5,11,17,0.92), rgba(3,7,11,0.98))", borderTop: `1px solid ${H.lineHi}`, paddingBottom: "env(safe-area-inset-bottom)", backdropFilter: "blur(8px)" }}>
+        {onCall && !sheetOpen && (
+          <div className="mx-auto max-w-[760px] px-3 pt-2" data-voice-dock={vb.activity} aria-live="polite">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 text-[9px] font-bold tracking-[0.18em]" style={{ color: voiceMode === "listening" ? H.cyan2 : voiceMode === "muted" ? H.gold2 : H.gold3 }}>
+                <LiveDot color={voiceMode === "listening" ? H.cyan2 : H.gold3} size={5} />{orbLabelOf(vb.activity)}
+              </span>
+              {vb.firstAudioMs != null && <span className="text-[9px] tabular-nums" style={{ color: H.mut2 }} title="Measured on the last reply: from your question's transcript arriving to ATLAS's first audio">first audio {(vb.firstAudioMs / 1000).toFixed(1)} s</span>}
+              <span className="ml-auto flex items-center gap-1.5">
+                {voiceMode === "speaking" && (
+                  <button onClick={() => voiceBus.stopSpeaking()} className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 text-[9.5px] font-bold tracking-[0.1em]" style={{ color: H.red, border: `1px solid ${H.red}66` }}><Square className="h-2.5 w-2.5" />STOP</button>
+                )}
+                <button onClick={() => openTalk("VOICE")} data-dock-transcript="" className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 text-[9.5px] font-bold tracking-[0.1em]" style={{ color: H.cyan2, border: "1px solid rgba(39,215,242,0.4)" }}>TRANSCRIPT<ChevronUp className="h-3 w-3" /></button>
+              </span>
+            </div>
+            {vb.error ? <p className="mt-1 line-clamp-2 text-[11px]" style={{ color: H.red }}>{vb.error}</p> : (
+              <>
+                {(vb.partial || vb.you) && <p className="mt-1 line-clamp-1 text-[10.5px]" style={{ color: H.mut }}>You: &ldquo;{vb.partial || vb.you}&rdquo;</p>}
+                <p className="mt-0.5 line-clamp-2 min-h-[30px] text-[11.5px] leading-snug" style={{ color: H.text }}>{vb.atlas || (voiceMode === "listening" ? "Listening — ask about gold." : "…")}</p>
+              </>
+            )}
+          </div>
+        )}
         <div className="mx-auto flex max-w-[760px] items-center gap-2 px-3 py-2">
           <button onClick={() => openTalk("CHAT")} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] px-3 py-2 text-left"
             style={{ border: `1px solid ${H.line}`, background: "rgba(9,19,29,0.9)" }} aria-label="Talk to ATLAS">
@@ -1298,6 +1444,18 @@ function ToolBtn({ icon, label, on, onClick, title }: { icon: ReactNode; label: 
       className="inline-flex shrink-0 items-center gap-1.5 rounded-[6px] px-2 py-1 text-[11px] transition"
       style={{ color: on ? H.text : H.mut, border: `1px solid ${on ? H.line : "transparent"}`, background: on ? "rgba(89,175,255,0.06)" : "transparent" }}>
       {icon}<span className="hidden min-[1600px]:inline">{label}</span>
+    </button>
+  );
+}
+
+/** One of ATLAS's chart controls: a quiet chip, cyan for ATLAS's and violet for the member's own. */
+function CtlBtn({ children, onClick, title, active = false, disabled = false, tone = "cyan", ...rest }: { children: ReactNode; onClick: () => void; title?: string; active?: boolean; disabled?: boolean; tone?: "cyan" | "violet" } & Record<`data-${string}`, string>) {
+  const c = tone === "violet" ? "#B69CFF" : H.cyan2;
+  return (
+    <button onClick={onClick} title={title} disabled={disabled} aria-pressed={active} {...rest}
+      className="inline-flex shrink-0 items-center gap-1 rounded-[6px] px-2 py-[3px] text-[10px] font-semibold transition hover:brightness-125 disabled:opacity-40"
+      style={{ color: active ? "#06090D" : c, border: `1px solid ${c}55`, background: active ? c : `${c}0D` }}>
+      {children}
     </button>
   );
 }

@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VOICE_TOPUPS } from "@/lib/voicePlan";
+import { explainBus } from "./hud/explainBus";
+import { explainText } from "../../../command-center/core/explain";
+import { CHART_ACTION_EVENT } from "../../../command-center/core/atlasContract";
 import { voiceBus, type CommentaryNote } from "./voiceBus";
 import { Hand, Mic, MicOff, PhoneOff, Radio, Send, Square, Volume2, VolumeX } from "lucide-react";
 import { VoicePresence, type PresenceMode } from "./VoicePresence";
@@ -9,6 +12,7 @@ import {
   ACTIVITY_LABEL, NO_WATERMARKS, audioPlayable, busInLevel, busOutLevel, cleanTypedText, commentaryRoute,
   legacyStatus, lineActivity, spaceBelongsToLine, voiceStatus,
   type AudioWatermarks, type Connection, type InputMode, type LineActivity, type PttStyle, type VoiceStatus,
+  NO_TURN_MEMORY, asksTimeframe, asksToShow, judgeUserTurn, spokenCharsEstimate, turnKey, type TurnMemory,
 } from "./voiceLine";
 import {
   COMMENTARY_MODES, COPILOT_COOLDOWNS_MS, DEFAULT_COMMENTARY_SETTINGS, clampCooldown, initialCommentaryState,
@@ -161,6 +165,16 @@ function downsample(input: Float32Array, from: number, to: number): Float32Array
 
 const mmss = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.max(0, sec % 60)).padStart(2, "0")}`;
 
+/**
+ * One reply, as the chart follows it: the text known so far (`text` once the provider has sent all of it,
+ * `heard` while its words are still arriving with its audio), when its audio began on the audio clock, how
+ * much audio has been scheduled, and whether its explanation has begun / ended.
+ */
+type ReplyTrack = { text: string; heard: string; final: boolean; firstAt: number | null; scheduled: number; begun: boolean; ended: boolean; built: number };
+const newReplyTrack = (): ReplyTrack => ({ text: "", heard: "", final: false, firstAt: null, scheduled: 0, begun: false, ended: false, built: 0 });
+/** After a reply's last audio, this much quiet means it has finished (not an underrun between two chunks). */
+const EXPLAIN_END_QUIET_MS = 700;
+
 export function VoiceSession({ onUiAction, onStatus, live }: {
   onUiAction?: (name: string, arg: string | number | null) => void;
   /** Reported outward so a host surface can show the line's state without owning it. */
@@ -274,6 +288,17 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
   /** Character timing per response: when each character starts on our audio clock. */
   const turnAudio = useRef(new Map<number, { chars: { c: string; t: number }[]; stoppedAt: number | null }>());
   const lastSpokenLen = useRef(-1);
+  /* ATLAS EXPLAINS ON THE CHART (hud/explainBus.ts). Per reply: its full text once known, when its audio began
+     and how much has been scheduled — so the chart follows the words on the AUDIO clock, never on a timer. */
+  const replyText = useRef(new Map<number, ReplyTrack>());
+  /** One question, one turn: what was just typed and just heard (voiceLine.ts judgeUserTurn). */
+  const turnMemory = useRef<TurnMemory>(NO_TURN_MEMORY);
+  /** What ATLAS has most recently been saying, for recognising its own voice coming back. */
+  const atlasSaid = useRef<{ text: string; at: number } | null>(null);
+  /** Measured: how long the last reply took from the end of the question to its first audio. */
+  const [firstAudioMs, setFirstAudioMs] = useState<number | null>(null);
+  /** How many times ATLAS's own voice came back through the microphone and was not treated as a question. */
+  const [echoes, setEchoes] = useState(0);
   /** Local ids (negative) for a reply whose audio carries no provider event id — never expected, handled anyway. */
   const localSeq = useRef(0);
   /** The member's last activity (the idle hang-up clock), and the last time anyone's voice was on the line. */
@@ -355,6 +380,8 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
     playHead.current = now;
     const id = replyEventId.current;
     if (id == null) return;
+    // Interrupted: nothing further from this reply reaches the chart, and its conditional path comes off.
+    explainBus.cancel(`voice-${id}`);
     // Whatever is still to come from this response is refused: the next response (a higher id) plays. So it is
     // over as far as this line is concerned — nothing more of it is owed, and nothing is "thinking" about it.
     marks.current = { ...marks.current, stoppedThrough: Math.max(marks.current.stoppedThrough, id) };
@@ -394,6 +421,26 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
     const startAt = Math.max(ctx.currentTime + 0.02, playHead.current);
     src.start(startAt);
     playHead.current = startAt + buf.duration;
+    if (eventId != null) {
+      const rt = replyText.current.get(eventId) ?? newReplyTrack();
+      if (rt.firstAt == null) rt.firstAt = startAt;
+      rt.scheduled += buf.duration;
+      /* THE WORDS ARRIVE WITH THE AUDIO, a little ahead of being heard. The explanation is built from them as
+         they come, so the chart can mark a level on the phrase that names it without waiting for the reply's
+         complete text (which the provider sends later). The last few words are held back until more arrive:
+         a price is several words long, and half of one is not yet a price. */
+      if (!rt.final && alignment?.chars?.length) {
+        rt.heard += alignment.chars.join("");
+        const known = explainText(rt.heard).split(" ").slice(0, -3).join(" ");
+        if (known.length > rt.built + 8) {
+          rt.built = known.length;
+          if (!rt.begun) rt.begun = !!explainBus.begin(`voice-${eventId}`, known);
+          else explainBus.update(`voice-${eventId}`, known);
+        }
+      }
+      replyText.current.set(eventId, rt);
+      if (replyText.current.size > 8) replyText.current.delete(replyText.current.keys().next().value as number);
+    }
     scheduled.current.push(src);
     src.onended = () => { scheduled.current = scheduled.current.filter((s) => s !== src); };
     if (!outAnalyser.current) {
@@ -544,6 +591,27 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
           lastSpokenLen.current = said.length;
           setTurns((t) => t.map((x) => (x.who === "brain" && x.eventId === rid && !x.cut ? { ...x, spoken: said } : x)));
         }
+        /* THE CHART FOLLOWS THE VOICE. With the provider's character timing, the position is exact; without it,
+           it is the share of this reply's audio that has actually played (voiceLine.ts spokenCharsEstimate).
+           Either way it is read off the audio clock. */
+        const rt = replyText.current.get(rid);
+        if (rt?.begun && !rt.ended) {
+          // Without character timing the complete text is needed before a share of it can be estimated.
+          const chars = said != null ? explainText(said).length
+            : rt.final && rt.firstAt != null ? spokenCharsEstimate(rt.text.length, ctx.currentTime - rt.firstAt, rt.scheduled, replyComplete.current) : 0;
+          if (chars > 0) explainBus.progress(`voice-${rid}`, chars);
+        }
+        // What ATLAS is audibly saying right now, stamped while it plays: the only audio that can come back
+        // through the microphone (voiceLine.ts looksLikeEcho).
+        const recent = said ? said.slice(-600) : rt?.final ? rt.text.slice(0, 900) : rt?.heard ? rt.heard.slice(-600) : null;
+        if (recent) atlasSaid.current = { text: recent, at: now };
+      }
+      /* The reply has finished playing (not been cut off): what it referred to comes to rest on the chart. It
+         has finished when its complete text is in, nothing is playing, and no audio has arrived for a moment —
+         a gap between two chunks is not the end of the answer. */
+      if (!playing && rid != null && replyComplete.current && lastAudioAt.current > 0 && now - lastAudioAt.current > EXPLAIN_END_QUIET_MS) {
+        const rt = replyText.current.get(rid);
+        if (rt?.begun && rt.final && !rt.ended && audioPlayable(rid, marks.current)) { rt.ended = true; explainBus.end(`voice-${rid}`); }
       }
       setFrame((f) => (f.out === out && f.inl === inl && f.playing === playing && f.awaiting === awaiting && f.speech === speech && f.callSec === callSec
         ? f : { out, inl, playing, awaiting, speech, callSec }));
@@ -691,7 +759,12 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
         let peak = 0;
         for (let i = 0; i < input.length; i += 16) { const v = Math.abs(input[i]); if (v > peak) peak = v; }
         // WHAT IS SENT is decided here, frame by frame: the member's mute, and push-to-talk.
-        const sending = !mutedRef.current && (inputModeRef.current === "hands_free" || pttOpenRef.current);
+        /* WITH ECHO CANCELLATION OFF (the raw-microphone retry), nothing subtracts ATLAS's own voice from what the
+           microphone hears — hands-free would transcribe it as the member speaking. So in that one case the open
+           microphone closes while ATLAS is audibly speaking; push-to-talk and STOP still interrupt. */
+        const selfHeard = rawRetry.current && inputModeRef.current === "hands_free" && !pttOpenRef.current
+          && scheduled.current.length > 0 && !speakerMutedRef.current;
+        const sending = !mutedRef.current && !selfHeard && (inputModeRef.current === "hands_free" || pttOpenRef.current);
         if (sending) {
           if (peak > loudest.current) loudest.current = peak;
           if (peak > SPEECH_LEVEL) lastSpeechAt.current = Date.now();
@@ -936,10 +1009,38 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
           // Our own volunteered line, echoed back as a turn, is not something the member said either.
           if (isVolunteeredTurn(text)) return;
           const now = Date.now();
+          /* ONE QUESTION, ONE TURN (voiceLine.ts judgeUserTurn). The provider's transcript is not always a new
+             thing the member said: it echoes typed turns back, can deliver the same final twice, re-finalises an
+             utterance with a few more words, and — with no echo cancellation — can transcribe ATLAS itself. */
+          const verdict = judgeUserTurn(text, turnMemory.current, now, atlasSaid.current);
+          if (verdict === "typed_echo") { turnMemory.current = { ...turnMemory.current, typed: null }; return; }
+          if (verdict === "duplicate") return;
+          if (verdict === "atlas_echo") {
+            // Not a question: the reply the provider is about to make to it is not played.
+            skipNext.current = true;
+            setEchoes((n) => n + 1);
+            return;
+          }
           lastActive.current = now;
           lastVoiceAt.current = now;
+          turnMemory.current = { ...turnMemory.current, heard: { key: turnKey(text), at: now } };
+          if (verdict === "extends") {
+            // The same utterance, a few words longer: the turn on screen is corrected, not repeated.
+            setTurns((t) => {
+              const i = t.map((x) => x.who).lastIndexOf("you");
+              return i >= 0 ? t.map((x, k) => (k === i ? { ...x, text, at: now } : x)) : [...t.slice(-40), { id: `u${now}`, who: "you", text, heard: true, at: now, source: "voice" }];
+            });
+            pendingTurnAt.current = now;
+            return;
+          }
           // The member spoke, so whatever ATLAS was saying is no longer what matters.
           stopPlayback();
+          // "Show me that": the evidence from the last answer is pointed at straight away, before the reply.
+          if (asksToShow(text)) explainBus.showNext();
+          // "Switch to the fifteen-minute": the member's own instruction, so the chart does it — a validated
+          // timeframe action, the same one the typed console's answers use.
+          const wantTf = asksTimeframe(text);
+          if (wantTf) window.dispatchEvent(new CustomEvent(CHART_ACTION_EVENT, { detail: { type: "timeframe", tf: wantTf } }));
           replyOwner.current = "member";
           skipNext.current = false;
           pendingTurnAt.current = now;
@@ -983,6 +1084,8 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
           }
           const now = Date.now();
           if (isNew) {
+            // Measured, not claimed: from the end of the question to the first audio of the answer.
+            if (pendingTurnAt.current != null && replyOwner.current === "member") setFirstAudioMs(Math.max(0, now - pendingTurnAt.current));
             replyEventId.current = id;
             replyComplete.current = false;
             pendingTurnAt.current = null;
@@ -1009,6 +1112,23 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
           const id = typeof e.event_id === "number" ? e.event_id : replyEventId.current;
           if (id != null && id === replyEventId.current) replyComplete.current = true;
           const refused = id != null && !audioPlayable(id, marks.current);
+          /* THE EXPLANATION SEQUENCE for this reply: built against what the screen really holds (levels, the
+             read, scenarios, candles), started now, and advanced by the audio clock as the words are spoken. A
+             reply that will never be heard explains nothing. */
+          if (id != null && !refused && id !== skippedId.current) {
+            const rt = replyText.current.get(id) ?? newReplyTrack();
+            const full = explainText(text);
+            if (!rt.ended && (!rt.final || rt.text !== full)) {
+              rt.text = full;
+              rt.final = true;
+              rt.built = full.length;
+              // Already begun from the words that came with the audio: completed in place. Otherwise begun now.
+              if (!rt.begun) rt.begun = !!explainBus.begin(`voice-${id}`, text);
+              else explainBus.update(`voice-${id}`, text);
+            }
+            replyText.current.set(id, rt);
+            atlasSaid.current = { text: text.slice(0, 600), at: Date.now() };
+          }
           setTurns((t) => {
             const i = t.findIndex((x) => x.who === "brain" && x.eventId === id);
             if (i >= 0) return t.map((x, k) => (k === i ? { ...x, text } : x));
@@ -1192,8 +1312,26 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
     pendingTurnAt.current = now;
     lastActive.current = now;
     lastVoiceAt.current = now;
+    turnMemory.current = { ...turnMemory.current, typed: { key: turnKey(text), at: now } };
     setTurns((t) => [...t.slice(-40), { id: `t${now}`, who: "you", text, heard: true, at: now, source: "typed" }]);
     return true;
+  }, [stopPlayback]);
+
+  /**
+   * THE MARKET OVERTOOK THE ANSWER (hud/explainBus.ts onCorrection): what ATLAS was saying stops on this tick
+   * and it says one short correction instead — the same marked turn a volunteered line uses, which the
+   * reasoning endpoint speaks verbatim. Decided by a price crossing a real level, never by a model.
+   */
+  const correct = useCallback((text: string) => {
+    const socket = ws.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN || speakerMutedRef.current) return;
+    stopPlayback();
+    const now = Date.now();
+    try { socket.send(JSON.stringify({ type: "user_message", text: volunteeredTurn(text) })); } catch { return; }
+    replyOwner.current = "volunteered";
+    skipNext.current = false;
+    pendingTurnAt.current = now;
+    setNotes((n) => [...n.slice(-19), { id: `corr-${now}`, at: now, kind: "level", text, spoken: true }]);
   }, [stopPlayback]);
 
   const setCommentary = useCallback((patch: Partial<CommentarySettings>) => {
@@ -1335,8 +1473,8 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
   /* ── the shared line: the ATLAS core can open it, end it, and react to it ── */
   useEffect(() => voiceBus.register({
     start: () => { void start(); }, end: endSession, stopSpeaking, setMicMuted, setSpeakerMuted,
-    setInputMode, setPttStyle, pushToTalk: setPtt, sendText: (t) => { sendText(t); }, setCommentary,
-  }), [start, endSession, stopSpeaking, setMicMuted, setSpeakerMuted, setInputMode, setPttStyle, setPtt, sendText, setCommentary]);
+    setInputMode, setPttStyle, pushToTalk: setPtt, sendText, setCommentary, correct,
+  }), [start, endSession, stopSpeaking, setMicMuted, setSpeakerMuted, setInputMode, setPttStyle, setPtt, sendText, setCommentary, correct]);
   useEffect(() => {
     const lastYou = [...turns].reverse().find((t) => t.who === "you")?.text ?? null;
     const lastBrain = [...turns].reverse().find((t) => t.who === "brain");
@@ -1349,10 +1487,11 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
       needsSubscription: !!(info && info.enabled === false && info.needsSubscription),
       activity, micMuted, speakerMuted, inputMode, pttStyle, pttOpen, partial,
       commentaryMode: settings.mode, copilotCooldownMs: settings.copilotCooldownMs, commentary: notes,
+      firstAudioMs, echoesDropped: echoes,
     });
     // `facts` is rebuilt every render from the values listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activity, frame.inl, frame.out, turns, partial, error, info, micMuted, speakerMuted, inputMode, pttStyle, pttOpen, settings, notes, micReady, conn]);
+  }, [activity, frame.inl, frame.out, turns, partial, error, info, micMuted, speakerMuted, inputMode, pttStyle, pttOpen, settings, notes, micReady, conn, firstAudioMs, echoes]);
 
   // Keep the newest words in view — inside the transcript box only, never by scrolling the page around it, and
   // only while the member is at the bottom (scrolling up to re-read something is not undone under them).

@@ -197,3 +197,152 @@ export function spaceBelongsToLine(onCall: boolean, target: { tagName?: string; 
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return false;
   return true;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   ONE QUESTION, ONE TURN (owner 11-11: "The screenshot repeats my question twice … Ensure one spoken
+   question produces one user turn and one response. Prevent Atlas's speaker audio from being transcribed
+   as another user request.")
+
+   The provider sends a final transcript for everything it decided was a turn. Four of those are not a new
+   thing the member said, and each is recognised here, purely, so the rule is tested rather than hoped for:
+
+     • typed_echo  the provider echoing back a turn the member TYPED (it was already shown when it was sent);
+     • duplicate   the same final transcript delivered twice;
+     • extends     the same utterance re-finalised with a few more words — the turn on screen is updated;
+     • atlas_echo  ATLAS's own voice coming back through the microphone: the words are what it just said.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/** A turn reduced to its words: case, punctuation and spacing do not make a new question. */
+export const turnKey = (text: string): string =>
+  String(text ?? "").toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+
+export const TYPED_ECHO_MS = 15_000;
+export const DUPLICATE_MS = 8_000;
+export const EXTENDS_MS = 5_000;
+/**
+ * ATLAS's words can only come back through the microphone while they are being played, so a transcript is
+ * compared with them only if it arrives while ATLAS is audible or just after. A member repeating a level back
+ * as a question ("forty-three ninety-two?") does so after ATLAS has finished, and is a question.
+ */
+export const ECHO_WINDOW_MS = 2_500;
+
+/**
+ * Is this transcript ATLAS hearing itself? True when at least four words of it run, in order and unbroken,
+ * through what ATLAS has just been saying, and those words are most of the transcript. A member repeating
+ * one phrase back ("the London low?") is too short to match; a member reading a whole sentence back would
+ * be dropped — which is the right way to be wrong for audio that arrived while ATLAS was speaking.
+ */
+export function looksLikeEcho(heard: string, atlasRecent: string): boolean {
+  const h = turnKey(heard).split(" ").filter(Boolean);
+  const a = turnKey(atlasRecent);
+  if (h.length < 4 || a.length < 12) return false;
+  let best = 0;
+  for (let i = 0; i < h.length; i++) {
+    let j = i;
+    while (j < h.length && ` ${a} `.includes(` ${h.slice(i, j + 1).join(" ")} `)) j++;
+    best = Math.max(best, j - i);
+    if (best >= h.length - i) break;
+  }
+  return best >= 4 && best / h.length >= 0.7;
+}
+
+export type TurnMemory = {
+  /** The last turn the member typed on the line. */
+  typed: { key: string; at: number } | null;
+  /** The last voice turn that was shown. */
+  heard: { key: string; at: number } | null;
+};
+export const NO_TURN_MEMORY: TurnMemory = { typed: null, heard: null };
+
+export type TurnVerdict = "new" | "typed_echo" | "duplicate" | "extends" | "atlas_echo";
+
+/** What a final transcript is, given what was just typed, just heard, and just said by ATLAS. */
+export function judgeUserTurn(text: string, mem: TurnMemory, now: number, atlas: { text: string; at: number } | null): TurnVerdict {
+  const key = turnKey(text);
+  if (!key) return "duplicate";
+  if (mem.typed && now - mem.typed.at <= TYPED_ECHO_MS && (mem.typed.key === key || mem.typed.key.includes(key) || key.includes(mem.typed.key))) return "typed_echo";
+  if (mem.heard && now - mem.heard.at <= DUPLICATE_MS && mem.heard.key === key) return "duplicate";
+  if (atlas && now - atlas.at <= ECHO_WINDOW_MS && looksLikeEcho(text, atlas.text)) return "atlas_echo";
+  if (mem.heard && now - mem.heard.at <= EXTENDS_MS && key.length > mem.heard.key.length && key.startsWith(mem.heard.key)) return "extends";
+  return "new";
+}
+
+/**
+ * The browser's speech recognition, read safely. Some browsers (Chrome on Android) deliver the SAME words
+ * again as a later "final" result — each one the whole utterance so far — so adding finals together says the
+ * question twice. This rebuilds the transcript from every result each time and drops a final that only
+ * repeats, or restarts, what is already there.
+ */
+export function transcriptOf(results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }>): { final: string; interim: string } {
+  let final = "", interim = "";
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const t = String(r?.[0]?.transcript ?? "").trim();
+    if (!t) continue;
+    if (!r.isFinal) { interim = interim ? `${interim} ${t}` : t; continue; }
+    const have = turnKey(final), add = turnKey(t);
+    if (!add || have === add || have.endsWith(add)) continue;      // the same words again
+    if (have && add.startsWith(have)) { final = t; continue; }       // the whole utterance so far, re-sent
+    final = final ? `${final} ${t}` : t;
+  }
+  // An interim that only repeats the final adds nothing.
+  if (interim && turnKey(final).endsWith(turnKey(interim))) interim = "";
+  return { final: final.trim(), interim: interim.trim() };
+}
+
+/**
+ * How many characters of a reply have been spoken, when the provider sent no character timing: the share of
+ * its audio that has PLAYED, on the audio clock, applied to its text. `scheduledSec` is the audio received so
+ * far; until the reply is complete the total is assumed to be at least what speech at a normal pace needs, so
+ * an early chunk cannot make the estimate run ahead. An estimate — exact timing is used whenever it exists.
+ */
+export function spokenCharsEstimate(textLength: number, playedSec: number, scheduledSec: number, complete: boolean): number {
+  if (!(textLength > 0) || !(playedSec > 0)) return 0;
+  const assumed = textLength / 15.5;                               // seconds, at about 15 characters a second
+  const total = complete ? Math.max(scheduledSec, 0.2) : Math.max(scheduledSec, assumed);
+  return Math.min(textLength, Math.floor((playedSec / total) * textLength));
+}
+
+/**
+ * "Show me that." — the member wants the evidence ATLAS just gave pointed at, not a new briefing. Recognised
+ * here so the chart can re-emphasise the last answer's evidence at once, before any reply arrives. Only the
+ * bare request counts: "show me the scenarios" is a question and is answered as one.
+ */
+export function asksToShow(text: string): boolean {
+  const k = turnKey(text).replace(/^(atlas|hey atlas|ok atlas|okay atlas|please|can you|could you|now)\s+/g, "").replace(/\s+please$/, "");
+  return /^(show|point)( me| us)?( that| it| this| them| those| where| again| to (that|it)| at (that|it)| on (the|my) chart)*$/.test(k)
+    || /^where( is| s| was)?( that| it| this)( on (the|my) chart)?$/.test(k)
+    || /^(show|point)( me| us)? what you mean$/.test(k);
+}
+
+/** The same question again inside this window is the same press, tap or utterance arriving twice. */
+export const REPEAT_ASK_MS = 2_500;
+
+/**
+ * REQUEST DE-DUPLICATION for the typed console. A double press of Enter, a double tap on a suggestion, or a
+ * recogniser that ends twice all submit the same words twice within a moment; that is one question. Asking the
+ * same thing again later is the member's choice and goes through.
+ */
+export function isRepeatAsk(question: string, last: { key: string; at: number } | null, now: number): boolean {
+  const key = turnKey(question);
+  return !!key && !!last && last.key === key && now - last.at >= 0 && now - last.at < REPEAT_ASK_MS;
+}
+
+/**
+ * "Switch to the fifteen-minute." — the MEMBER's own instruction to change the chart's timeframe, read from
+ * their words (never from a model's). Only an explicit instruction counts: "what does the 15-minute say?" is a
+ * question about the market and changes nothing on the screen.
+ */
+export function asksTimeframe(text: string): "5m" | "15m" | "1h" | "4h" | "1d" | null {
+  const k = turnKey(text).replace(/^(atlas|hey atlas|ok atlas|okay atlas|please|can you|could you|now)\s+/g, "");
+  const m = /^(?:switch|go|change|move|flip|jump|take me|zoom(?: in| out)?|put (?:me|it|the chart)|show(?: me)?|pull up|bring up|open)(?: (?:it|me|the chart|the view))?(?: (?:to|into|onto|on))?(?: the)? (5|five|15|fifteen|1|one|an|4|four|daily|day) ?(minute|minutes|min|m|hour|hours|hr|h)?(?: (?:chart|charts|timeframe|time frame|candles|view))?(?: please)?$/.exec(k);
+  if (!m) return null;
+  const n = m[1], u = m[2] ?? "";
+  if (n === "daily" || n === "day") return u ? null : "1d";
+  const minute = /^m/.test(u), hour = /^h/.test(u);
+  if (minute && (n === "5" || n === "five")) return "5m";
+  if (minute && (n === "15" || n === "fifteen")) return "15m";
+  if (hour && (n === "1" || n === "one" || n === "an")) return "1h";
+  if (hour && (n === "4" || n === "four")) return "4h";
+  return null;
+}

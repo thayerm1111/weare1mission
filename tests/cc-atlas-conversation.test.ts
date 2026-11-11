@@ -140,7 +140,7 @@ const det = (message: string, o: Partial<DeterministicInput> = {}): Deterministi
 /* ── 1. the prompt ─────────────────────────────────────────────────────────────────────────────────── */
 
 test("one versioned prompt for chat and voice, with the rules that keep answers grounded", () => {
-  assert.equal(ATLAS_PROMPT_VERSION, "atlas-prompt-2");
+  assert.equal(ATLAS_PROMPT_VERSION, "atlas-prompt-3");
   const chat = buildAtlasSystemPrompt({ mode: "chat" });
   const voice = buildAtlasSystemPrompt({ mode: "voice" });
 
@@ -161,6 +161,16 @@ test("one versioned prompt for chat and voice, with the rules that keep answers 
     assert.match(p, /answer from LEVELS ABOVE \/ LEVELS BELOW/, `${name}: the next level after a break comes from the multi-day lists`);
     assert.match(p, /Be decisive about what the evidence supports/, name);
     assert.match(p, /THEIR OWN TRADE/, `${name}: the own-trade coaching rides along`);
+    // atlas-prompt-3 — precise market language (owner 11-11).
+    assert.match(p, /PRECISE MARKET LANGUAGE/, name);
+    assert.match(p, /observed\), which way that leans \(your directional interpretation\), what you expect only if something happens \(conditional\), and whether there is an entry \(entry readiness\)/, `${name}: four kinds of statement`);
+    assert.match(p, /A candle that is still forming has confirmed nothing/, `${name}: forming is not closed`);
+    assert.match(p, /Pressure here is a proxy worked out from price/, `${name}: pressure is a proxy`);
+    assert.match(p, /It is not order flow and not traded volume/, name);
+    assert.match(p, /only when the CONTEXT gives that count/, `${name}: no invented rejection counts`);
+    assert.match(p, /Say which timeframe favours which side/, `${name}: mixed evidence by timeframe`);
+    assert.match(p, /it can only mark what you name/, `${name}: the chart follows what is named`);
+    assert.match(p, /One question gets one answer/, name);
   }
   // Everything before the output section is the same text in both modes: one set of rules.
   assert.equal(chat.slice(0, chat.indexOf("OUTPUT —")), voice.slice(0, voice.indexOf("OUTPUT —")));
@@ -747,7 +757,7 @@ test("the response carries the contract, its provenance, and every field older c
   assert.equal(r.answeredAt, NOW, "stamped on the server's clock; the console sends it back with the turn");
   assert.equal(r.spokenText, c.answer.say, "the installed app reads spokenText");
   assert.equal(r.source, "narrator");
-  assert.equal(r.promptVersion, "atlas-prompt-2");
+  assert.equal(r.promptVersion, "atlas-prompt-3");
   assert.equal(r.snapshotId, 88123);
   assert.equal(r.analysisAt, SNAP.at);
   assert.equal(r.feed.status, "delayed");

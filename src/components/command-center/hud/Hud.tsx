@@ -171,7 +171,14 @@ export const HUD_CSS = `
 .hud-scroll::-webkit-scrollbar { width: 4px; height: 4px }
 .hud-scroll::-webkit-scrollbar-thumb { background: rgba(89,175,255,.18); border-radius: 4px }
 .hud-scroll { scrollbar-width: thin; scrollbar-color: rgba(89,175,255,.18) transparent; }
+/* ATLAS's annotations: one slow pulse on what is being discussed, a fade when it comes to rest. */
+@keyframes atlasPulse { 0%,100% { opacity: 1 } 50% { opacity: .5 } }
+.atlas-ann { transition: opacity .4s ease; }
+.atlas-emph .atlas-line { animation: atlasPulse 1.9s ease-in-out infinite; }
+@keyframes atlasEq { 0%,100% { transform: scaleY(.4) } 50% { transform: scaleY(1) } }
+.atlas-eq { transform-origin: 50% 100%; animation: atlasEq .9s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
-  .hud-ping, .hud-in, .hud-flash-up, .hud-flash-dn { animation: none !important; }
+  .hud-ping, .hud-in, .hud-flash-up, .hud-flash-dn, .atlas-emph .atlas-line, .atlas-eq { animation: none !important; }
+  .atlas-ann, .hud-root .hud-talk { transition: none !important; }
 }
 `;

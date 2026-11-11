@@ -513,7 +513,7 @@ test("the chart: the forming candle follows the ticks, and the basis label says 
   const overlay = renderToStaticMarkup(React.createElement("svg", null, React.createElement(ScenarioOverlay, {
     scenario: sc, x0: 700, x1: 840, fromX: 690, fromY: 200, y: (p: number) => 400 - (p - 4000), priceH: 380, compact: false,
   })));
-  assert.ok(overlay.includes("Conditional scenario"), "labelled as conditional, never as a forecast");
+  assert.ok(overlay.includes("CONDITIONAL SCENARIO"), "labelled as conditional, never as a forecast");
   assert.ok(/stroke-dasharray="6 4"/.test(overlay), "the path is dashed — visually distinct from price history");
   assert.ok(overlay.includes("Trigger 4,055.00") && overlay.includes("Invalidation 4,031.75"));
 });

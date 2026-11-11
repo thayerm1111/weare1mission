@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { explainBus } from "./hud/explainBus";
+import { asksToShow, isRepeatAsk, transcriptOf, turnKey } from "./voiceLine";
 import { Crosshair, Mic, Send, Square } from "lucide-react";
 import { CHART_ACTION_EVENT, type ChartAction, type FeedStatus, type Lean } from "../../../command-center/core/atlasContract";
 import { FEED_WORD, refToAction, type AnswerItem, type AtlasAnswer } from "../../../command-center/brain/answer";
@@ -151,6 +153,8 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
    * now?" can never be answered by the reply to the question before it.
    */
   const seqRef = useRef(0);
+  /** The last question the member asked, and when: the same words again within a moment are one question. */
+  const lastAskRef = useRef<{ key: string; at: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   /** The level the chart last highlighted for the trader: "watch this level" means this one. */
   const focusRef = useRef<string | null>(null);
@@ -201,6 +205,11 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
     const q = question.trim();
     if (!q) return;
     if (opts.auto && (busyRef.current || endedRef.current)) return;
+    /* ONE QUESTION, ONE TURN (owner 11-11: "repeats my question twice"): the same words submitted again within a
+       moment — a double Enter, a double tap, a recogniser ending twice — are the same question, not a second. */
+    const askedAt = Date.now();
+    if (!opts.auto && isRepeatAsk(q, lastAskRef.current, askedAt)) return;
+    if (!opts.auto) lastAskRef.current = { key: turnKey(q), at: askedAt };
     stopSpeaking();
     setInput("");
     setNotice(null);
@@ -221,6 +230,8 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
+    // "Show me that": the evidence from the last answer is pointed at straight away, before the reply.
+    if (asksToShow(q)) explainBus.showNext();
     const requestId = `${Date.now().toString(36)}-${mySeq}`;
     busyRef.current = true;
     setBusy(true);
@@ -255,8 +266,16 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
         },
       }]);
       if (j.notice) setNotice(String(j.notice));
-      // Validated on the server: the answer's evidence goes on the chart as it arrives.
-      for (const a of answer?.actions ?? []) pointAt(a);
+      /* THE ANSWER, EXPLAINED ON THE CHART (hud/explainBus.ts). Its text is turned into an explanation sequence
+         against what the screen really holds; the server's own validated actions ride along. A typed answer has
+         no audio to follow, so its whole sequence is shown at once and "Show me" steps through it. Without a
+         desk to explain on (the classic console) the validated actions are applied as before. */
+      const explained = explainBus.begin(`chat-${requestId}`, text, {
+        actions: answer?.actions ?? [], typed: true,
+        // The price this answer was built from: the screen re-checks it against the live price before showing it.
+        priceAt: typeof j.feed?.price === "number" ? j.feed.price : null,
+      });
+      if (!explained) for (const a of answer?.actions ?? []) pointAt(a);
       for (const a of (j.uiActions ?? []) as { name: string; arg: string | number | null }[]) onUiAction?.(a.name, a.arg);
       if (modeRef.current !== "off") speak(text);
     } catch {
@@ -284,22 +303,24 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
       rec.interimResults = true;
       let finalText = "";
       rec.onresult = (e) => {
-        let interim = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          const res = e.results[i];
-          if (res.isFinal) finalText += res[0].transcript;
-          else interim += res[0].transcript;
-        }
-        setInput((finalText + interim).trim());
+        /* ONE QUESTION, ONCE (owner 11-11: "repeats my question twice"). This used to ADD every final result to
+           what it already had. Chrome on Android re-delivers the utterance so far as a new final result, so the
+           question was sent with its own words repeated. The transcript is now rebuilt from all the results each
+           time, and a final that only repeats or restarts what is there is dropped (voiceLine.ts transcriptOf). */
+        const t = transcriptOf(e.results);
+        finalText = t.final;
+        setInput(`${t.final} ${t.interim}`.trim());
       };
       rec.onerror = (e) => {
         setMicError(e?.error === "not-allowed" ? "Microphone permission was declined." : "The microphone stopped unexpectedly.");
         setListening(false);
       };
+      let sent = false;
       rec.onend = () => {
         setListening(false);
         const said = finalText.trim();
-        if (said) void ask(said);
+        // `onend` can fire twice on some browsers (once for stop(), once for the session): one question, one ask.
+        if (said && !sent) { sent = true; void ask(said); }
       };
       recognition.current = rec;
       setMicError(null);

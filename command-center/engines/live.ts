@@ -34,6 +34,8 @@ import { chartBarsFor, latestAtlasRead, recentAtlasReads } from "../adapters/db"
 import type { SetupState } from "./setup";
 import type { Timeframe } from "../core/types";
 import { resample } from "../core/bars";
+// Every real level the screen may point at (today's levels, then the wider map) — pure, shared with the replay.
+import { allLevels } from "../core/levelMap";
 
 /** Beyond this, the read is history rather than the market, and the UI must say so. */
 export const STALE_MS = 5 * 60_000;
@@ -79,6 +81,12 @@ export type LiveState = {
 
   timeframes: Record<string, { state: string; efficiency: number | null; rsi: number | null; sequence: string | null; positionInRange: number | null }>;
   levels: { price: number; kind: string; label: string; distanceAtr?: number }[];
+  /**
+   * Every real level this snapshot holds: today's levels and the wider level map, duplicates collapsed.
+   * `levels` is the nearest ten for the panels; this is the full set a chart annotation may resolve to — the
+   * same set the conversation validates a level against on the server. Display only.
+   */
+  levelsAll: { price: number; kind: string; label: string }[];
   bars: Bar[];
 
   brain: BrainState | null;
@@ -139,7 +147,7 @@ const empty = (reason: string, marketIsOpen: boolean): LiveState => ({
   price: null, bid: null, ask: null, spread: null,
   ...atlasFeed(null, null, marketIsOpen, null),   // ATLAS FEED (atlas/feed): no snapshot — no price, no analysis
   session: null, regime: null, pressure: null, weather: null, velocity: null, intensity: 0,
-  timeframes: {}, levels: [], bars: [],
+  timeframes: {}, levels: [], levelsAll: [], bars: [],
   brain: null, thesis: null, previousThesis: null, journal: [], events: [], statements: [], changes: [],
   scenario: null, summary: reason, warnings: [], blockers: [], trade: emptyTrade(),
   setup: noSetup(
@@ -292,6 +300,7 @@ export async function liveState(marketIsOpen: boolean, journalSince: Date, userI
       positionInRange: v!.structure.positionInRange ?? null,
     }])),
     levels: s.levels.slice(0, 10),
+    levelsAll: allLevels(s),
     bars: latest.bars.slice(-140),
     // Display only (present/intel.ts): "Current price", the day's change and the above/below split
     // follow the headline price, so the screen never shows two different prices for now.

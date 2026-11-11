@@ -48,12 +48,17 @@ export type VoiceBusState = {
   commentaryMode: CommentaryMode;
   copilotCooldownMs: number;
   commentary: CommentaryNote[];
+  /** Measured on the last reply: milliseconds from the end of the question to the first audio. Null until one. */
+  firstAudioMs: number | null;
+  /** Times ATLAS's own voice came back through the microphone and was not treated as a question. */
+  echoesDropped: number;
 };
 
 let state: VoiceBusState = {
   status: "idle", inLevel: 0, outLevel: 0, you: null, atlas: null, error: null, needsSubscription: false,
   activity: "off", micMuted: false, speakerMuted: false, inputMode: "hands_free", pttStyle: "hold", pttOpen: false,
   partial: null, commentaryMode: "watch", copilotCooldownMs: 90_000, commentary: [],
+  firstAudioMs: null, echoesDropped: 0,
 };
 const subs = new Set<(s: VoiceBusState) => void>();
 
@@ -68,8 +73,10 @@ export type VoiceCommands = {
   setPttStyle?: (style: PttStyle) => void;
   /** Push-to-talk from another surface: true while held. */
   pushToTalk?: (down: boolean) => void;
-  /** The text fallback: send a typed turn on the open line. */
-  sendText?: (text: string) => void;
+  /** The text fallback: send a typed turn on the open line. True when it was sent. */
+  sendText?: (text: string) => boolean;
+  /** The market overtook what ATLAS was saying: stop that reply and say this one line instead. */
+  correct?: (text: string) => void;
   setCommentary?: (s: Partial<CommentarySettings>) => void;
 };
 let commands: VoiceCommands | null = null;
@@ -106,7 +113,8 @@ export const voiceBus = {
   setInputMode: (m: InputMode) => commands?.setInputMode?.(m),
   setPttStyle: (s: PttStyle) => commands?.setPttStyle?.(s),
   pushToTalk: (down: boolean) => commands?.pushToTalk?.(down),
-  sendText: (t: string) => commands?.sendText?.(t),
+  sendText: (t: string): boolean => commands?.sendText?.(t) ?? false,
+  correct: (t: string) => commands?.correct?.(t),
   setCommentary: (s: Partial<CommentarySettings>) => commands?.setCommentary?.(s),
   ready: () => !!commands?.start,
 

@@ -127,3 +127,19 @@ export function aboveBelow(price: number, lists: Level[][], n = 8): { above: Lev
   const below = all.filter((l) => l.price <= price).sort((a, b) => b.price - a.price).slice(0, n);
   return { above, below };
 }
+
+/**
+ * Every real level a screen may point at for one snapshot: today's levels first, then the wider map. Anything
+ * within ten cents of one already listed is the same level, and the list is capped so a payload stays small.
+ * This is what ATLAS's chart explanations resolve a spoken price against — a price that is not in here (or in
+ * the read) draws nothing.
+ */
+export function allLevels(s: { levels: Level[]; map?: Level[] | null }, cap = 60): { price: number; kind: string; label: string }[] {
+  const out: { price: number; kind: string; label: string }[] = [];
+  for (const l of [...s.levels, ...(s.map ?? [])]) {
+    if (!Number.isFinite(l.price) || l.price <= 0 || out.some((x) => Math.abs(x.price - l.price) < 0.1)) continue;
+    out.push({ price: l.price, kind: l.kind, label: l.label });
+    if (out.length >= cap) break;
+  }
+  return out;
+}

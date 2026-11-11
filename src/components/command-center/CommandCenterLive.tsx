@@ -48,6 +48,8 @@ export type Live = {
   pressure: { bullish: number; bearish: number; net: number } | null;
   weather: string | null; velocity: string | null; intensity: number;
   timeframes: Record<string, Tf>; levels: MapLevel[]; bars: MapBar[];
+  /** Every real level of this snapshot (today's and the wider map) — what a chart annotation may resolve to. */
+  levelsAll?: { price: number; kind: string; label: string }[];
   brain: { presence: string; headline: string; focus: string[]; question: string; intensity: number; lean: number } | null;
   thesis: Thesis | null;
   previousThesis: (Thesis & { endedAt: number | null; reasonEnded: string | null }) | null;

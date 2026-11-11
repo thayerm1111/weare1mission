@@ -19,6 +19,7 @@ import { scenarioOf } from "../brain/language";
 import { intensity, velocityBand, weather } from "../brain/presence";
 import type { Bar, MarketSnapshot } from "../core/types";
 import type { LiveState } from "./live";
+import { allLevels } from "../core/levelMap";
 import { emptyTrade } from "./tradeLive";
 import { findSetup } from "./setup";
 import { DEFAULT_PROFILE, asSetupProfile } from "./profile";
@@ -145,6 +146,7 @@ export function replay(steps = 40, withTrade = false, endOffset = 0): ReplayResu
       sequence: v!.structure.sequence ?? null, positionInRange: v!.structure.positionInRange ?? null,
     }])),
     levels: s.levels.slice(0, 10),
+    levelsAll: allLevels(s),
     bars: m5All.slice(-140),
     brain: last.state,
     thesis: openThesis,

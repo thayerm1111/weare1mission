@@ -9,6 +9,12 @@ import { TF_MS, withLiveCandles, type LiveTick } from "../../../../command-cente
 import { FEED_STATUS_WORD, feedAgeShort, feedAgeWords, feedBasisLabel } from "../../../../command-center/core/feed";
 import { marketOpen } from "../../../../command-center/core/sessions";
 import { NO_CHART_ACTIONS, markNotes, receiveChartAction, settleChartActions, type ChartActionOverlay } from "./chartActions";
+import { explainBus, useExplain, useUserDrawings, userDrawings } from "./explainBus";
+import { AnnotationLayer, AnnotationMenu, ExplainCaption, UserLineLayer, annotationNotes, annotationPrices, focusIndex } from "./AtlasAnnotations";
+
+/** Commands the desk sends the chart (window CustomEvent): its own view, and the candle the member means. */
+export const CHART_CMD_EVENT = "cc:chart-cmd";
+export type ChartCmd = { type: "to_live" } | { type: "explain_candle" } | { type: "clear_atlas" };
 
 export type ChartBar = {
   t: number; o: number; h: number; l: number; c: number; v?: number;
@@ -118,7 +124,8 @@ function missingWhileOpen(prevT: number, nextT: number, step: number): boolean {
 /**
  * ATLAS's scenario, drawn to the right of the last candle in a hatched projection area: a dashed path from the
  * last close toward its trigger, the trigger and invalidation lines, and a label that says what it is —
- * "Conditional scenario" — so it can never be mistaken for price history.
+ * "CONDITIONAL SCENARIO" — so it can never be mistaken for price history. It is a path and two levels, never
+ * candles: a projected candle would read as market history that has not happened.
  */
 export function ScenarioOverlay({ scenario, x0, x1, fromX, fromY, y, priceH, compact, top = 4 }: {
   scenario: Scenario; x0: number; x1: number; fromX: number; fromY: number;
@@ -131,7 +138,6 @@ export function ScenarioOverlay({ scenario, x0, x1, fromX, fromY, y, priceH, com
   const tp = scenario.trigger.price, ip = scenario.invalidation.price;
   const xm = x0 + (x1 - x0) * 0.62;
   const title = `${scenario.title}${faded ? ` (${scenario.status})` : ""}`;
-  const maxChars = Math.max(6, Math.floor((x1 - x0 - 10) / 5.2));
   return (
     <g opacity={faded ? 0.45 : 1} pointerEvents="none" className="hud-in" data-overlay="scenario">
       <rect x={x0} y={0} width={x1 - x0} height={priceH} fill="url(#hudHatch)" />
@@ -151,18 +157,26 @@ export function ScenarioOverlay({ scenario, x0, x1, fromX, fromY, y, priceH, com
           <text x={x1 - 2} y={y(ip) + 11} textAnchor="end" fontSize={compact ? 8.5 : 9.5} fill={H.red} stroke="rgba(3,7,11,0.85)" strokeWidth={3} paintOrder="stroke">Invalidation {fmt2(ip)}</text>
         </g>
       )}
-      <g>
-        <rect x={x0 + 3} y={top} width={Math.min(x1 - x0 - 6, 150)} height={compact ? 14 : 26} rx={3} fill="rgba(3,7,11,0.88)" stroke="rgba(39,215,242,0.55)" />
-        <text x={x0 + 8} y={top + (compact ? 10 : 11)} fontSize={compact ? 8.5 : 9} fontWeight={700} fill={H.cyan2}>{x1 - x0 >= 112 ? "Conditional scenario" : "Conditional"}</text>
-        {!compact && <text x={x0 + 8} y={top + 22} fontSize="8.5" fill={H.text}>{title.length > maxChars ? `${title.slice(0, maxChars - 1)}…` : title}</text>}
-      </g>
+      {/* Always the whole label, right-aligned in the projection area and allowed to reach left of it: a path
+          that is not clearly labelled could be read as a forecast. */}
+      {(() => {
+        const bw = compact ? 118 : 134, bx = Math.max(4, x1 - 3 - bw);
+        const chars = Math.max(6, Math.floor((bw - 10) / 5.2));
+        return (
+          <g data-scenario-label="">
+            <rect x={bx} y={top} width={bw} height={compact ? 14 : 26} rx={3} fill="rgba(3,7,11,0.9)" stroke="rgba(39,215,242,0.55)" />
+            <text x={bx + 5} y={top + (compact ? 10 : 11)} fontSize={compact ? 8.5 : 9} fontWeight={700} letterSpacing="0.04em" fill={H.cyan2}>CONDITIONAL SCENARIO</text>
+            {!compact && <text x={bx + 5} y={top + 22} fontSize="8.5" fill={H.text}>{title.length > chars ? `${title.slice(0, chars - 1)}…` : title}</text>}
+          </g>
+        );
+      })()}
     </g>
   );
 }
 
 export function GoldChart({
   bars: serverBars, price, markers, zones, lines, path, pathLabel, showOverlays, showLiquidity, tfLabel, activityLabel,
-  tf: tfProp, ticks, barsAsOf, feed, levels, scenarios,
+  tf: tfProp, ticks, barsAsOf, feed, levels, scenarios, drawMode = false, onDrew, onAsk, ownClear = true,
 }: {
   bars: ChartBar[]; price: number | null; markers: ChartMarker[]; zones: ChartZone[]; lines: ChartLine[];
   path: number[] | null; pathLabel: string; showOverlays: boolean; showLiquidity: boolean; tfLabel: string; activityLabel: string;
@@ -178,6 +192,13 @@ export function GoldChart({
   levels?: readonly ChartLevel[];
   /** ATLAS's scenarios, for the scenario overlay action. */
   scenarios?: readonly Scenario[];
+  /** The member is placing a line of their own: the next tap on the plot drops one at that price. */
+  drawMode?: boolean;
+  onDrew?: () => void;
+  /** Ask ATLAS something about what is on the chart (an annotation, a candle). */
+  onAsk?: (question: string) => void;
+  /** The chart's own "clear" button. Off where the screen has its own control for it (the desk's ATLAS row). */
+  ownClear?: boolean;
 }) {
   /** Only a timeframe the chart knows the length of; anything else (the screen's disabled 1m) folds no ticks. */
   const tf: ChartTf | undefined = tfProp && Object.prototype.hasOwnProperty.call(TF_MS, tfProp) ? tfProp : undefined;
@@ -188,6 +209,14 @@ export function GoldChart({
   const [hoverY, setHoverY] = useState<number | null>(null);
   const [vp, setVp] = useState<Viewport>(AUTO);
   const [actions, setActions] = useState<ChartActionOverlay>(NO_CHART_ACTIONS);
+  /* ATLAS's explanation (what it is pointing at as it speaks) and the member's own lines — two separate layers. */
+  const ex = useExplain();
+  const userLines = useUserDrawings();
+  const [picked, setPicked] = useState<{ id: string; x: number; y: number } | null>(null);
+  /** The candle the member last tapped, by open time: what "Explain this candle" means. */
+  const [selT, setSelT] = useState<number | null>(null);
+  /** The view was moved by ATLAS (to show a candle it is discussing), not by the member. */
+  const autoFocused = useRef(false);
 
   /* The candles drawn: the server's bars, with the live ticks moving the newest (core/formingCandle.ts). */
   const bars: ChartBar[] = useMemo(
@@ -237,8 +266,12 @@ export function GoldChart({
   const highlights = actions.highlights.filter((h) => !liveLevelIds || liveLevelIds.has(h.levelId));
   const marks = actions.marks.filter((m) => m.tf === tf);
   const notes = markNotes(actions, tf, (t) => new Date(t).toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }));
-  const scenario = actions.scenarioId ? (scenarios ?? []).find((s) => s.id === actions.scenarioId) ?? null : null;
-  const hasActions = highlights.length > 0 || actions.zones.length > 0 || marks.length > 0 || notes.length > 0 || !!scenario;
+  // A conditional path is only ever a real scenario, by its ID: from a card, or from the answer being explained.
+  const explainedScenario = ex.shown.find((x) => x.ann.kind === "scenario")?.ann;
+  const scenarioId = actions.scenarioId ?? (explainedScenario?.kind === "scenario" ? explainedScenario.scenarioId : null);
+  const scenario = scenarioId ? (scenarios ?? []).find((s) => s.id === scenarioId) ?? null : null;
+  const exNotes = annotationNotes(ex.shown, tf);
+  const hasActions = highlights.length > 0 || actions.zones.length > 0 || marks.length > 0 || notes.length > 0 || !!scenario || ex.shown.length > 0;
 
   const compact = sz.w < 560;               // phones: fewer words, same information
   const AXIS = compact ? 50 : 58, TIME_H = 18, VOL_FR = compact ? 0.13 : 0.17, FUTURE = 0.16;
@@ -252,6 +285,8 @@ export function GoldChart({
   const actionPrices = [
     ...highlights.map((h) => h.price), ...actions.zones.flatMap((z) => [z.from, z.to]),
     ...(scenario ? [scenario.trigger.price, scenario.invalidation.price].filter((p): p is number => p != null) : []),
+    // What ATLAS is discussing right now stays inside the price scale.
+    ...annotationPrices(ex.shown),
   ];
 
   const view = useMemo(() => {
@@ -398,10 +433,81 @@ export function GoldChart({
   }, [view, plotW, priceH, anchorOf]);
 
   const onUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    // A tap, not a drag: in draw mode it drops the member's own line at that price; otherwise it selects the
+    // candle under it (what "Explain this candle" then means).
+    if (d && !d.moved && !d.axis && pts.current.size === 1 && view) {
+      const r = e.currentTarget.getBoundingClientRect();
+      const px = e.clientX - r.left, py = e.clientY - r.top;
+      if (px >= 0 && px <= plotW && py >= 0 && py <= priceH) {
+        if (drawMode) {
+          userDrawings.add(view.pHi - (py / Math.max(1, priceH)) * (view.pHi - view.pLo));
+          onDrew?.();
+        } else {
+          const i = Math.round(view.iL + px / view.bw - 0.5);
+          const b = barsRef.current;
+          setSelT((cur) => (i >= 0 && i < b.length ? (cur === b[i].t ? null : b[i].t) : null));
+        }
+        setPicked(null);
+      }
+    }
+    if (d?.moved) autoFocused.current = false;                 // the member took the view over
     pts.current.delete(e.pointerId);
     if (pts.current.size < 2) pinch.current = null;
     if (pts.current.size === 0) drag.current = null;
+  }, [view, plotW, priceH, drawMode, onDrew]);
+
+  /* ATLAS FOCUSES THE VIEW on the candle it is discussing when that candle is off screen — and hands the view
+     back (to live) when it has finished, unless the member moved it in the meantime. */
+  const focusI = focusIndex(ex.shown, bars, tf);
+  useEffect(() => {
+    const s = st.current;
+    if (focusI == null || !s.n) return;
+    if (focusI >= s.iL + 0.5 && focusI <= s.end + 0.25) return;       // already on screen
+    autoFocused.current = true;
+    const span = s.span || s.n;
+    setVp((v) => ({ ...v, span: v.span > 0 ? v.span : span, ...anchorOf(Math.min(s.n - 1, focusI + Math.max(2, span * 0.3))), follow: false }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusI]);
+  useEffect(() => {
+    if (ex.status === "explaining" || ex.status === "showing" || !autoFocused.current) return;
+    autoFocused.current = false;
+    setVp((v) => ({ ...v, follow: true, endOff: 0, pOff: 0 }));
+  }, [ex.status]);
+
+  /* Commands from the desk: back to live, clear ATLAS's drawings, and "explain this candle". */
+  const onAskRef = useRef(onAsk);
+  onAskRef.current = onAsk;
+  const selRef = useRef(selT);
+  selRef.current = selT;
+  useEffect(() => {
+    const on = (e: Event) => {
+      const c = (e as CustomEvent<ChartCmd>).detail;
+      if (!c) return;
+      if (c.type === "to_live") { autoFocused.current = false; setVp((v) => ({ ...v, follow: true, endOff: 0, pOff: 0 })); }
+      if (c.type === "clear_atlas") { setActions(NO_CHART_ACTIONS); explainBus.clear(); setPicked(null); }
+      if (c.type === "explain_candle") {
+        const b = barsRef.current, t = tfRef.current;
+        if (!b.length || !t) return;
+        const i = selRef.current != null ? indexOfT(b, selRef.current) : -1;
+        const bar = i >= 0 ? b[i] : b[b.length - 1];
+        const forming = bar.t + TF_MS[t] > Date.now() || i < 0 && !!bar.live;
+        const tfWords = t === "1d" ? "daily" : t === "1h" ? "1-hour" : t === "4h" ? "4-hour" : `${t.replace("m", "")}-minute`;
+        const close = new Date(bar.t + TF_MS[t]).toISOString().slice(11, 16);
+        // The candle is the member's own choice and a real one on this chart: the answer starts with it marked.
+        explainBus.pointNextAt([forming
+          ? { id: "now", kind: "current", label: "The candle forming now" }
+          : { id: `cd:${t}:${bar.t}`, kind: "candle", tf: t, t: bar.t, label: `${tfWords[0].toUpperCase()}${tfWords.slice(1)} candle · closed ${close} UTC` }]);
+        onAskRef.current?.(forming
+          ? `Explain the ${tfWords} candle that is forming right now: what is it doing so far, and what would it need to close as to matter? Remember it has not closed.`
+          : `Explain the ${tfWords} candle that closed at ${close} UTC (open ${bar.o.toFixed(2)}, high ${bar.h.toFixed(2)}, low ${bar.l.toFixed(2)}, close ${bar.c.toFixed(2)}): what did it do and why does it matter?`);
+      }
+    };
+    window.addEventListener(CHART_CMD_EVENT, on);
+    return () => window.removeEventListener(CHART_CMD_EVENT, on);
   }, []);
+  // Evidence at rest does not stay for ever.
+  useEffect(() => { const id = window.setInterval(() => explainBus.prune(), 30_000); return () => window.clearInterval(id); }, []);
 
   /** Buttons on the chart must not start a pan (which would capture the pointer and swallow the click). */
   const noPan = (e: React.PointerEvent) => e.stopPropagation();
@@ -470,7 +576,7 @@ export function GoldChart({
 
   return (
     <div ref={wrap} className="relative h-full w-full select-none"
-      style={{ touchAction: "none", cursor: drag.current?.moved ? "grabbing" : "crosshair" }}
+      style={{ touchAction: "none", cursor: drag.current?.moved ? "grabbing" : drawMode ? "copy" : "crosshair" }}
       onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
       onPointerLeave={() => { setHoverT(null); setHoverY(null); }}
       onDoubleClick={reset}>
@@ -502,23 +608,55 @@ export function GoldChart({
       )}
 
       {/* ATLAS's marks are on — one tap clears them */}
-      {hasActions && (
+      {hasActions && ownClear && (
         // Cleared through the same event ATLAS uses, so the screen (the open scenario card) hears it too.
-        <button onClick={() => { setActions(NO_CHART_ACTIONS); window.dispatchEvent(new CustomEvent(CHART_ACTION_EVENT, { detail: { type: "clear" } })); }} onPointerDown={noPan}
+        <button onClick={() => { setActions(NO_CHART_ACTIONS); explainBus.clear(); setPicked(null); window.dispatchEvent(new CustomEvent(CHART_ACTION_EVENT, { detail: { type: "clear" } })); }} onPointerDown={noPan} data-clear-atlas=""
           className="absolute z-20 rounded-[5px] px-1.5 py-[2px] text-[10px] transition hover:opacity-80"
           style={{ right: AXIS + 6 + (atLive ? 0 : 112), top: Math.max(TOP_BAND + 2, priceH - 26), color: H.cyan2, border: "1px solid rgba(39,215,242,0.45)", background: "rgba(3,7,11,0.8)" }}
-          title="Clear what ATLAS marked on the chart">ATLAS marks ✕</button>
+          title="Clear what ATLAS drew on the chart. Your own lines stay.">Clear Atlas drawings ✕</button>
       )}
 
       {/* a candle ATLAS named on another timeframe: said, not guessed at */}
-      {notes.length > 0 && (
-        <div className="pointer-events-none absolute left-1.5 z-10 flex max-w-[calc(100%-80px)] flex-col gap-0.5" style={{ top: TOP_BAND + 2 }}>
+      {(notes.length > 0 || exNotes.length > 0) && (
+        <div className="pointer-events-none absolute left-1.5 z-10 flex max-w-[calc(100%-80px)] flex-col gap-0.5" style={{ top: TOP_BAND + 22 }}>
           {notes.map((m) => (
             <span key={`${m.tf}${m.t}`} className="truncate rounded-[4px] px-1.5 py-[1px]" data-note="mark-elsewhere"
               style={{ color: H.gold3, background: "rgba(3,7,11,0.78)", border: "1px solid rgba(231,196,103,0.35)", fontSize: compact ? 8.5 : 9.5 }}>{m.text}</span>
           ))}
+          {exNotes.map((m) => (
+            // Tap it to go to that timeframe: the chart never draws a candle on a timeframe it is not showing.
+            <button key={m.id} data-note="annotation-elsewhere" onPointerDown={noPan}
+              onClick={() => window.dispatchEvent(new CustomEvent(CHART_ACTION_EVENT, { detail: { type: "timeframe", tf: m.tf } }))}
+              className="pointer-events-auto truncate rounded-[4px] px-1.5 py-[1px] text-left"
+              style={{ color: H.gold3, background: "rgba(3,7,11,0.78)", border: "1px solid rgba(231,196,103,0.35)", fontSize: compact ? 8.5 : 9.5 }}>{m.text} ▸</button>
+          ))}
         </div>
       )}
+
+      {/* what ATLAS is saying about the chart right now, and when that briefing was true */}
+      <ExplainCaption ex={ex} price={lastPx} top={priceH + 3} compact={compact}
+        onStop={() => {
+          // While ATLAS is speaking this is STOP; afterwards it only puts the chart at rest (the evidence stays).
+          if (ex.status === "explaining") { window.dispatchEvent(new CustomEvent("cc:stop-speaking")); explainBus.cancelCurrent(); }
+          else explainBus.rest();
+        }} />
+
+      {/* the member is placing their own line */}
+      {drawMode && (
+        <div className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2 rounded-[6px] px-2 py-[3px] text-[10px] font-semibold" data-draw-hint=""
+          style={{ bottom: TIME_H + 30, color: "#B69CFF", background: "rgba(3,7,11,0.9)", border: "1px solid rgba(182,156,255,0.5)" }}>
+          Tap the chart to place your line
+        </div>
+      )}
+
+      {/* tap an ATLAS annotation: ask about it, or remove it */}
+      {picked && (() => {
+        const hit = ex.shown.find((x) => x.ann.id === picked.id);
+        return hit ? (
+          <AnnotationMenu ann={hit.ann} at={picked} plotW={plotW} priceH={priceH}
+            onAsk={(q) => onAsk?.(q)} onRemove={() => explainBus.remove(hit.ann.id)} onClose={() => setPicked(null)} />
+        ) : null;
+      })()}
 
       {/* back to the newest candle, keeping the zoom */}
       {!atLive && (
@@ -726,6 +864,22 @@ export function GoldChart({
             </g>
           );
         })}
+
+        {/* the candle the member tapped — what "Explain this candle" means */}
+        {selT != null && (() => {
+          const i = indexOfT(bars, selT);
+          if (i < 0 || x(i) < 0 || x(i) > plotW) return null;
+          return <rect data-selected-candle="" x={x(i) - bw / 2 - 2} y={Math.max(1, y(bars[i].h) - 3)} width={bw + 4} height={Math.max(8, y(bars[i].l) - y(bars[i].h) + 6)} rx={2}
+            fill="none" stroke="rgba(240,244,247,0.55)" strokeDasharray="2 2" pointerEvents="none" />;
+        })()}
+
+        {/* the member's own lines: their layer, their colour, never cleared with ATLAS's */}
+        <UserLineLayer lines={userLines} y={y} plotW={plotW} priceH={priceH} axis={AXIS} compact={compact} noPan={noPan} onRemove={(id) => userDrawings.remove(id)} />
+
+        {/* ATLAS: what it is pointing at as it explains — real levels, zones, candles and swings only */}
+        <AnnotationLayer shown={ex.shown} bars={bars} tf={tf} x={x} y={y} plotW={plotW} priceH={priceH} axis={AXIS} bw={bw} lastPx={lastPx}
+          compact={compact} top={TOP_BAND} picked={picked?.id ?? null} noPan={noPan} onPick={(id, at) => setPicked((p) => (p?.id === id ? null : { id, ...at }))}
+          scenario={scenario ? { trigger: scenario.trigger.price, invalidation: scenario.invalidation.price } : null} />
 
         {/* last price */}
         {lastPx != null && y(lastPx) >= -10 && y(lastPx) <= priceH + 10 && (
