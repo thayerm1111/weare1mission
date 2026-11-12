@@ -5,7 +5,7 @@ import fixture from '../command-center/fixtures/replay-bars.json';
 import { replay } from '../command-center/engines/replay';
 import { replayIdea, replayFollow, replayEndOf } from '../command-center/engines/ideaReplay';
 import {
-  buildIdea, followIdea, ideaLevels, ideaOptionsOf, ideaRecord, ideaText, IDEA_RULES, ATLAS_IDEA_VERSION,
+  buildIdea, followIdea, forcedSide, ideaLevels, ideaOptionsOf, ideaRecord, ideaText, IDEA_RULES, IDEA_VERSIONS, ATLAS_IDEA_VERSION,
   type AtlasIdea, type BuildIdeaInput,
 } from '../command-center/engines/idea';
 import { updateVerdict } from '../command-center/engines/ideaDesk';
@@ -40,12 +40,21 @@ const base = (r: ReturnType<typeof replay>, over: Partial<BuildIdeaInput> = {}):
   snapshot: r.snapshot, setup: r.state.setup, takeable: true, read: r.state.read, scenarios: r.state.scenarios, marketOpen: true, now: r.endedAt, ...over,
 });
 
-test('the recording produces all three answers: the engine\'s trade, a plan from the read, and standing aside', () => {
+test('the recording produces all three answers — the engine\'s trade, a plan from the read, a forced read — and never stands aside', () => {
+  // Owner 11-11: "I don't want it ever to stand down. I want it forced to read the market and come up with
+  // a direction and a trade."
   const kinds = new Set(MOMENTS.map((m) => `${m.idea.kind}/${m.idea.source ?? '-'}`));
-  assert.ok(kinds.has('stand_aside/-'), 'never stood aside');
+  assert.ok(![...kinds].some((k) => k.startsWith('stand_aside')), 'it stood aside');
   assert.ok(kinds.has('enter_now/setup_engine'), 'never returned the setup engine\'s ready trade');
   assert.ok([...kinds].some((k) => k.endsWith('/read_plan')), 'never returned a plan from the read');
-  for (const m of MOMENTS) assert.equal(m.idea.version, ATLAS_IDEA_VERSION);
+  assert.ok([...kinds].some((k) => k.endsWith('/forced_read')), 'never returned a forced read');
+  for (const m of MOMENTS) {
+    assert.equal(m.idea.version, ATLAS_IDEA_VERSION);
+    assert.ok(m.idea.side && m.idea.entry && m.idea.stop && m.idea.targets.length >= 1, `no trade at ${m.off}: ${m.idea.headline}`);
+  }
+  assert.equal(ATLAS_IDEA_VERSION, 'idea-2');
+  assert.deepEqual([...IDEA_VERSIONS], ['idea-1', 'idea-2'], 'ideas stored before the change are still a member\'s record');
+  assert.match(readFileSync('command-center/engines/ideaDesk.ts', 'utf8'), /IDEA_VERSIONS\.includes\(i\.version\)/);
 });
 
 test('the same market always produces the same idea', () => {
@@ -93,9 +102,11 @@ test('every target is a real level ATLAS already knows — or says plainly that 
   for (const { idea, r } of MOMENTS) {
     if (idea.kind === 'stand_aside') continue;
     const e = edgesOfRead(r.state.read);
-    const real = [...ideaLevels(r.snapshot).map((l) => l.price), e.support?.price, e.resistance?.price].filter((x): x is number => x != null);
+    // A forced read may also stand on the swings the snapshot itself measured.
+    const swings = (['15m', '5m', '1h'] as const).flatMap((tf) => [r.snapshot.timeframes[tf]?.structure.swingHigh, r.snapshot.timeframes[tf]?.structure.swingLow]);
+    const real = [...ideaLevels(r.snapshot).map((l) => l.price), e.support?.price, e.resistance?.price, ...(idea.source === 'forced_read' ? swings : [])].filter((x): x is number => x != null);
     const isReal = (p: number) => real.some((x) => Math.abs(x - p) < 0.06);
-    if (idea.source === 'read_plan') {
+    if (idea.source === 'read_plan' || idea.source === 'forced_read') {
       const bases = new Set(idea.targets.map((t) => t.basis));
       assert.equal(bases.size, 1, `real and measured targets mixed on ${idea.headline}`);
       // An objective closer than one R is not an objective; each further one is at least 0.6 R beyond.
@@ -113,12 +124,8 @@ test('a plan from the read needs a clear or strong lean, trades with it, and ent
   let plans = 0;
   for (const { idea, r } of MOMENTS) {
     const read = r.state.read!;
-    if (idea.source !== 'read_plan') {
-      // No plan is ever made from a neutral, turning or faint read, or through a blocker.
-      if (idea.kind === 'stand_aside') continue;
-      assert.equal(idea.source, 'setup_engine');
-      continue;
-    }
+    // Everything that is not a plan is the engine's own trade or a forced read — which says it is one.
+    if (idea.source !== 'read_plan') { assert.ok(idea.source === 'setup_engine' || idea.source === 'forced_read'); continue; }
     plans += 1;
     assert.ok(read.lean === 'bullish_lean' || read.lean === 'bearish_lean', `a plan from a ${read.lean} read`);
     assert.ok(read.strength === 'clear' || read.strength === 'strong', `a plan from a ${read.strength} lean`);
@@ -147,7 +154,8 @@ test('a plan from the read needs a clear or strong lean, trades with it, and ent
     const read = r.state.read!;
     const weak = read.lean === 'balanced' || read.lean === 'transitioning' || read.lean === 'insufficient_data' || (read.strength !== 'clear' && read.strength !== 'strong');
     if (weak) assert.notEqual(idea.source, 'read_plan', `a plan from a ${read.lean}/${read.strength} read`);
-    if (r.snapshot.blockers.length) assert.equal(idea.kind, 'stand_aside', 'an idea was priced through a blocker');
+    // Through a blocker the idea is only ever a forced read: never dressed as the engine's trade or as a plan.
+    if (r.snapshot.blockers.length) assert.equal(idea.source, 'forced_read', 'an idea through a blocker was not labelled forced');
   }
 });
 
@@ -176,47 +184,219 @@ test('when the setup engine has a trade ready, the idea is that trade number for
   }
 });
 
-test('nothing is priced from missing, closed, stale or blocked data', () => {
-  const r = MOMENTS.find((m) => m.idea.kind !== 'stand_aside')!.r;
+test('the only answer with no trade is NO MARKET DATA; closed, stale, doubtful and blocked markets get a forced read that says so', () => {
+  const r = MOMENTS.find((m) => m.idea.source === 'read_plan')!.r;
+  const trade = (x: AtlasIdea) => { assert.ok(x.side && x.entry && x.stop && x.targets.length >= 1, x.headline); assert.equal(x.source, 'forced_read'); assert.equal(x.execute.approved, null); };
+
+  // Nothing to read at all: no number is invented.
   const none = buildIdea(base(r, { snapshot: null }));
-  assert.equal(none.kind, 'stand_aside'); assert.equal(none.price, null);
+  assert.equal(none.kind, 'stand_aside'); assert.equal(none.badge, 'NO MARKET DATA'); assert.equal(none.price, null);
+  assert.equal(none.entry, null); assert.equal(none.execute.via, null); assert.match(none.reasoning, /won't invent a price/);
+  const noRange = buildIdea(base(r, { snapshot: { ...r.snapshot, timeframes: {} } }));
+  assert.equal(noRange.kind, 'stand_aside'); assert.match(noRange.reasoning, /nothing to size a stop from/);
+
+  // Gold closed: the side and the levels from the last session, as a plan for the reopen. Nothing can be sent.
   const closed = buildIdea(base(r, { marketOpen: false }));
-  assert.equal(closed.kind, 'stand_aside'); assert.match(closed.reasoning, /closed/i);
+  trade(closed);
+  assert.match(closed.badge, /GOLD IS CLOSED/); assert.match(closed.reasoning, /Gold is closed/);
+  assert.equal(closed.execute.via, null); assert.equal(closed.execute.now, false); assert.equal(closed.watch, null);
+  assert.ok(!closed.enterNow, 'nothing can be entered now while gold is closed');
+  assert.notEqual(closed.kind, 'enter_now', 'a closed market is never an entry now');
+  assert.equal(closed.expiresAt, r.endedAt + IDEA_RULES.FORCED_CLOSED_TTL_MS, 'it waits for the reopen');
+  const closedBlocker = buildIdea(base(r, { snapshot: { ...r.snapshot, blockers: [{ code: 'market_closed', detail: 'Gold is closed' }] } }));
+  trade(closedBlocker); assert.equal(closedBlocker.execute.via, null);
+
+  // A market read too old to enter from.
   const stale = buildIdea(base(r, { stale: true, now: r.endedAt + 9 * 60_000 }));
-  assert.equal(stale.kind, 'stand_aside'); assert.match(stale.reasoning, /9 minutes old/);
-  const blockedSnap: MarketSnapshot = { ...r.snapshot, blockers: [{ code: 'feed_stale', detail: 'The price feed is stale' }] };
-  const blocked = buildIdea(base(r, { snapshot: blockedSnap }));
-  assert.equal(blocked.kind, 'stand_aside'); assert.match(blocked.reasoning, /price feed is stale/);
+  trade(stale);
+  assert.match(stale.reasoning, /9 minutes old/); assert.match(stale.badge, /LAST CLEAN MARKET READ/);
+  assert.equal(stale.execute.via, null); assert.notEqual(stale.kind, 'enter_now');
+
+  // The data itself in doubt.
+  const doubt = buildIdea(base(r, { snapshot: { ...r.snapshot, blockers: [{ code: 'feed_stale', detail: 'The price feed is stale' }] } }));
+  trade(doubt);
+  assert.match(doubt.reasoning, /the price feed is stale/); assert.match(doubt.reasoning, /approximate/);
+  assert.equal(doubt.execute.via, null);
+  assert.ok(doubt.warnings.some((w) => /automatic engine is not trading right now: the price feed is stale/.test(w)));
+
+  // The market is hard to read (the owner's screenshot: "Market is chaotic — no strategy is eligible"): a
+  // forced read the member may take on their own call — and it says the engine would not.
+  const chaotic = buildIdea(base(r, { snapshot: { ...r.snapshot, blockers: [{ code: 'chaotic', detail: 'Market is chaotic — no strategy is eligible' }] }, setup: noSetup("I'm standing down: Market is chaotic — no strategy is eligible.", [], 'blocked', r.endedAt) }));
+  trade(chaotic);
+  assert.match(chaotic.badge, /^FORCED READ · (LOW|MEDIUM|HIGH) CONVICTION · NOT AN ENGINE-CONFIRMED TRADE$/);
+  assert.match(chaotic.reasoning, /^My setup engine is standing down \(market is chaotic — no strategy is eligible\), so this is a forced read — not a trade it would take on its own\./);
+  assert.ok(chaotic.warnings.some((w) => /automatic engine is not trading right now: market is chaotic/.test(w)));
+  assert.equal(chaotic.engine.state, 'blocked', 'the engine\'s own verdict is shown beside it, unchanged');
+  assert.notEqual(chaotic.execute.via, 'take_setup');
+  assert.ok(!/that to clear/.test(JSON.stringify(chaotic)), 'the old empty "waiting for — that to clear" line is gone');
+
+  // The engine blocked for its own reason (no market blocker).
+  const blocked = buildIdea(base(r, { setup: noSetup('The daily loss limit has been reached.', [], 'blocked', r.endedAt) }));
+  trade(blocked); assert.match(blocked.reasoning, /standing down \(the daily loss limit has been reached\)/);
+
+  // No read at all: the side comes from the structure the snapshot measured, and says so.
   const noRead = buildIdea(base(r, { read: null, setup: noSetup('Nothing has set up.', ['a level to break']) }));
-  assert.equal(noRead.kind, 'stand_aside'); assert.deepEqual(noRead.waitingFor, ['a level to break']);
-  for (const x of [none, closed, stale, blocked, noRead]) { assert.equal(x.execute.via, null); assert.equal(x.watch, null); }
+  trade(noRead);
+  assert.match(noRead.reasoning, /no directional read to lean on, so I counted the structure I can measure/);
+  assert.match(noRead.confidence!.basis, /no directional read behind it/);
+  assert.ok(noRead.confidence!.score < 30, 'a count of structure is never called a lean');
 });
 
-test('standing aside still says where a trade would be', () => {
-  const quiet = MOMENTS.filter((m) => m.idea.kind === 'stand_aside' && m.r.snapshot.blockers.length === 0 && edgesOfRead(m.r.state.read).support);
-  assert.ok(quiet.length >= 3);
-  for (const { idea, r } of quiet) {
-    const e = edgesOfRead(r.state.read);
-    assert.equal(idea.paths.length, 2);
-    const up = idea.paths.find((p) => p.side === 'buy')!, down = idea.paths.find((p) => p.side === 'sell')!;
-    assert.equal(up.price, +e.resistance!.price.toFixed(2)); assert.equal(up.direction, 'above');
-    assert.equal(down.price, +e.support!.price.toFixed(2)); assert.equal(down.direction, 'below');
-    assert.match(up.text, /15-minute close above/);
+test('a forced read picks its side from the evidence, with the threshold it abstains at removed — deterministically', () => {
+  const r = MOMENTS[0].r;
+  const read = (over: Partial<AtlasRead>): AtlasRead => ({ ...(r.state.read as AtlasRead), ...over });
+  // 1 — a lean, however faint.
+  assert.equal(forcedSide(read({ lean: 'bearish_lean', strength: 'slight', score: -17 }), r.snapshot).side, 'sell');
+  const lean = forcedSide(read({ lean: 'bullish_lean', strength: 'slight', score: 19 }), r.snapshot);
+  assert.deepEqual([lean.side, lean.from, lean.score], ['buy', 'lean', 19]);
+  assert.match(lean.basis, /lean is up \(slight, evidence \+19 of 100\)/);
+  // 2 — no lean: the sign of the evidence balance.
+  const tilt = forcedSide(read({ lean: 'balanced', strength: null, score: -12 }), r.snapshot);
+  assert.deepEqual([tilt.side, tilt.from, tilt.score], ['sell', 'evidence', 12]);
+  assert.match(tilt.basis, /the evidence is -12 of 100, short of what I need to call a lean\. Made to pick a side, that balance tilts down/);
+  assert.equal(forcedSide(read({ lean: 'transitioning', strength: null, score: 8 }), r.snapshot).side, 'buy');
+  // 3 — no usable read, or a dead-even one: the structure the snapshot measured.
+  const tf = (sequence: 'HH_HL' | 'LH_LL' | 'mixed', slope = 0) => ({ ...r.snapshot.timeframes['15m']!, features: { ...r.snapshot.timeframes['15m']!.features, slope, rsi: 50 }, structure: { ...r.snapshot.timeframes['15m']!.structure, sequence } });
+  const snap = (over: Partial<MarketSnapshot>): MarketSnapshot => ({ ...r.snapshot, live: undefined, pressure: { ...r.snapshot.pressure, net: 0 }, timeframes: { '15m': tf('mixed'), '1h': tf('mixed') }, levels: [], map: [], ...over });
+  const down = forcedSide(null, snap({ timeframes: { '15m': tf('mixed'), '1h': tf('LH_LL') } }));
+  assert.deepEqual([down.side, down.from], ['sell', 'structure']); assert.match(down.basis, /the 1-hour is making lower highs and lower lows/);
+  assert.ok(down.score < 30);
+  assert.equal(forcedSide(null, snap({ timeframes: { '15m': tf('HH_HL'), '1h': tf('mixed') } })).side, 'buy');
+  assert.equal(forcedSide(null, snap({ timeframes: { '15m': tf('mixed', -0.4), '1h': tf('mixed') } })).side, 'sell', 'a slope when there is no swing sequence');
+  assert.equal(forcedSide(null, snap({ pressure: { ...r.snapshot.pressure, net: 22 } })).side, 'buy', 'then the pressure proxy');
+  // A dead heat: the daily open, then the 15-minute RSI, then a stated default — never a coin.
+  const P = r.snapshot.price;
+  const openBelow = forcedSide(null, snap({ levels: [{ kind: 'daily_open', price: P - 5, label: 'daily open' } as MarketSnapshot['levels'][number]] }));
+  assert.equal(openBelow.side, 'buy'); assert.match(openBelow.basis, /price is above the daily open/);
+  assert.equal(forcedSide(null, snap({ levels: [{ kind: 'daily_open', price: P + 5, label: 'daily open' } as MarketSnapshot['levels'][number]] })).side, 'sell');
+  const rsi = (v: number) => ({ ...tf('mixed'), features: { ...tf('mixed').features, rsi: v } });
+  assert.equal(forcedSide(null, snap({ timeframes: { '15m': rsi(41), '1h': tf('mixed') } })).side, 'sell');
+  const dead = forcedSide(null, snap({}));
+  assert.equal(dead.side, 'buy'); assert.match(dead.basis, /nothing I can measure separates the two sides, and I default to the long side/);
+  assert.match(forcedSide(read({ lean: 'balanced', strength: null, score: 0.2 }), snap({})).basis, /^My read is dead even/);
+  // The same inputs, the same side.
+  for (const m of MOMENTS) assert.deepEqual(forcedSide(m.r.state.read, m.r.snapshot), forcedSide(m.r.state.read, m.r.snapshot));
+  // And on the recording a forced read always trades the side its evidence names.
+  for (const { idea, r: rr } of MOMENTS) {
+    if (idea.source !== 'forced_read') continue;
+    assert.equal(idea.side, forcedSide(rr.state.read, rr.snapshot).side);
   }
+});
+
+test('a forced read is labelled as one, never the engine\'s own trade, and its stop stays inside the style\'s limits', () => {
+  const forced = MOMENTS.filter((m) => m.idea.source === 'forced_read');
+  assert.ok(forced.length >= 10, `only ${forced.length} forced reads on the recording`);
+  let level = 0;
+  for (const { idea, r } of forced) {
+    assert.match(idea.badge, /^FORCED READ · /);
+    assert.match(idea.reasoning, /^My setup engine (is standing down \(.+\)|has no trade here), so this is a forced read/);
+    assert.match(idea.say, /It's a forced read — (low|medium|high) conviction, and my setup engine hasn't confirmed it\./);
+    assert.match(idea.confidence!.basis, /^Forced read/); assert.match(idea.confidence!.basis, /not a win probability/);
+    // Its conviction is the evidence, not a promotion: a balance under 30 is LOW and says so.
+    const sc = idea.confidence!.score;
+    assert.equal(idea.confidence!.label, sc >= 55 ? 'High' : sc >= 30 ? 'Medium' : 'Low');
+    if (sc < 30) assert.ok(idea.warnings.some((w) => /^Low conviction: the evidence is only \d+ of 100 one way\. That is a tilt, not an edge\.$/.test(w)));
+    // Never taken as ATLAS's own trade; executing is the member's call through the manual ticket.
+    assert.notEqual(idea.execute.via, 'take_setup'); assert.equal(idea.execute.approved, null);
+    assert.equal(idea.execute.manual!.stop, idea.stop!.price); assert.equal(idea.execute.manual!.takeProfit, idea.targets[0].price);
+    assert.equal(idea.engine.state, r.state.setup.state, 'the engine\'s own verdict rides along unchanged');
+    assert.equal(idea.style, 'hold', 'intraday unless asked otherwise');
+    assert.ok(idea.stop!.pips >= STYLE.hold.noiseFloorPips * 0.5 && idea.stop!.pips <= STYLE.hold.maxStopPips, `stop ${idea.stop!.pips} pips`);
+    assert.ok(idea.targets[0].r >= IDEA_RULES.MIN_R - 0.06, 'a first target closer than one R');
+    assert.equal(idea.expiresAt, r.endedAt + IDEA_RULES.FORCED_TTL_MS);
+    if (r.snapshot.blockers.length) assert.ok(idea.warnings.some((w) => /automatic engine is not trading right now/.test(w)));
+    // A level first: the entry is at a real level whenever one prices, with the at-market version beside it.
+    if (idea.kind !== 'enter_now') {
+      level += 1;
+      assert.ok(idea.entry!.level, 'a level entry with no level');
+      if (!idea.execute.now) {
+        assert.ok(idea.watch);
+        // …and there is always something that can be taken NOW: the same side at the price, priced the same way.
+        const n = idea.enterNow;
+        assert.ok(n, `no enter-now version beside "${idea.headline}"`);
+        const d = idea.side === 'buy' ? 1 : -1, P = r.snapshot.price;
+        assert.ok(Math.abs(n.entry - P) < 0.011, 'entered at the price gold is at');
+        assert.ok(d * (n.entry - n.stop.price) > 0, 'its stop is on the right side');
+        assert.ok(n.stop.pips >= STYLE.hold.noiseFloorPips && n.stop.pips <= STYLE.hold.maxStopPips, `enter-now stop ${n.stop.pips} pips`);
+        assert.ok(n.targets.length >= 1 && n.targets[0].r >= IDEA_RULES.MIN_R - 0.06 && d * (n.targets[0].price - n.entry) > 0);
+        assert.deepEqual(n.manual, { side: idea.side, style: 'hold', stop: n.stop.price, takeProfit: n.targets[0].price });
+        assert.match(n.note, /Same side, entered at the price instead of at the level: you are in now, at a worse location\.$/);
+      } else assert.equal(idea.enterNow, null, 'already at its entry: nothing else to offer');
+    } else {
+      assert.equal(idea.entry!.type, 'market'); assert.equal(idea.execute.now, true); assert.equal(idea.execute.via, 'manual');
+      assert.equal(idea.enterNow, null);
+    }
+    // The evidence it lists as "for" is for ITS side.
+    const read = r.state.read!;
+    const forDir = read.lean === 'bullish_lean' ? 1 : read.lean === 'bearish_lean' ? -1 : read.score >= 0 ? 1 : -1;
+    const mine = (idea.side === 'buy' ? 1 : -1) === forDir ? read.evidenceFor : read.evidenceAgainst;
+    assert.deepEqual(idea.confirmations.filter((c) => c.ok).map((c) => c.label), mine.slice(0, 5).map((x) => x.text));
+    // The read's own two levels still say where a confirmed trade would start.
+    const e = edgesOfRead(read);
+    if (e.support && e.resistance && e.support.price < e.resistance.price) {
+      assert.equal(idea.paths.length, 2);
+      assert.equal(idea.paths.find((p) => p.side === 'buy')!.price, +e.resistance.price.toFixed(2));
+      assert.equal(idea.paths.find((p) => p.side === 'sell')!.price, +e.support.price.toFixed(2));
+    }
+  }
+  assert.ok(level >= forced.length / 2, 'forced reads should mostly be entered at a level');
+
+  // With nothing real anywhere near — no levels, no measured swings — the entry is the price, the stop is a
+  // stated multiple of the range, the targets are measured, and every one of those is said.
+  const r = forced[0].r;
+  const bare: MarketSnapshot = {
+    ...r.snapshot, live: undefined, levels: [], map: [], blockers: [],
+    timeframes: Object.fromEntries(Object.entries(r.snapshot.timeframes).map(([k, v]) => [k, { ...v!, structure: { ...v!.structure, swingHigh: null, swingLow: null } }])),
+  };
+  const open = buildIdea(base(r, { snapshot: bare, read: null, setup: noSetup('Nothing has set up.') }));
+  assert.equal(open.source, 'forced_read'); assert.equal(open.kind, 'enter_now'); assert.equal(open.entry!.type, 'market');
+  const atr15 = bare.timeframes['15m']!.features.atr;
+  assert.ok(Math.abs(open.stop!.pips - Math.min(STYLE.hold.maxStopPips, Math.max(STYLE.hold.noiseFloorPips, (IDEA_RULES.FORCED_STOP_ATR * atr15 + (bare.spread ?? 0)) / 0.1))) <= 1);
+  assert.match(open.stop!.what, /^Measured: 1\.5 × the 15-minute range/);
+  assert.ok(open.targets.every((t) => t.basis === 'measured'));
+  assert.deepEqual(open.targets.map((t) => t.r), [...IDEA_RULES.FALLBACK_R]);
+  assert.ok(open.warnings.some((w) => /no real level to aim at/.test(w)));
+  assert.equal(open.execute.via, 'manual'); assert.equal(open.execute.now, true);
+});
+
+test('it never stands aside in any style, and a forced read is graded as a trade — not cancelled when the lean changes', () => {
+  for (const style of ['quick', 'hold', 'swing'] as const) {
+    for (const { r, off } of MOMENTS.filter((_, k) => k % 3 === 0)) {
+      const idea = buildIdea(base(r, { options: { style }, setup: noSetup(`No ${style} setup.`), takeable: false }));
+      assert.ok(idea.side && idea.entry && idea.stop && idea.targets.length >= 1, `${style} at ${off}: no trade`);
+      assert.equal(idea.style, style, 'the style asked for');
+      assert.ok(idea.stop!.pips <= STYLE[style].maxStopPips && idea.stop!.pips >= STYLE[style].noiseFloorPips * 0.5, `${style} stop ${idea.stop!.pips} pips at ${off}`);
+      const d = idea.side === 'buy' ? 1 : -1;
+      assert.ok(d * (idea.entry!.price - idea.stop!.price) > 0);
+      assert.ok(idea.targets[0].r >= IDEA_RULES.MIN_R - 0.06);
+    }
+  }
+  // A forced level entry, followed on hand-built candles while ATLAS's lean reads "balanced" throughout.
+  const m = MOMENTS.find((x) => x.idea.source === 'forced_read' && x.idea.kind === 'at_level' && !x.idea.execute.now)!;
+  const idea = m.idea, up = idea.side === 'buy', E = idea.entry!.price, tp = idea.targets[0].price, t0 = Math.ceil(idea.at / M5) * M5;
+  const bar = (k: number, a: number, b: number): Bar => ({ t: t0 + k * M5, o: a, h: Math.max(a, b) + 0.05, l: Math.min(a, b) - 0.05, c: b });
+  const touch = up ? E - 0.3 : E + 0.3, away = up ? E + 0.5 : E - 0.5;
+  const bars = [bar(0, m.r.snapshot.price, away), bar(1, away, touch), bar(2, touch, away), bar(3, away, tp + (up ? 0.4 : -0.4))];
+  const f = followIdea(idea, { price: tp, bars, tf: '5m', now: t0 + 4 * M5, leans: [{ at: idea.at - M5, lean: 'balanced' }, { at: t0 + M5, lean: up ? 'bearish_lean' : 'bullish_lean' }] });
+  assert.equal(f.state, 'tp1', `graded as a trade (${f.text})`);
+  assert.equal(f.entered!.price, E);
+  // …and it runs out on its own clock.
+  const late = followIdea(idea, { price: m.r.snapshot.price, bars: [], tf: '5m', now: idea.expiresAt! + 1 });
+  assert.equal(late.state, 'expired');
 });
 
 test('the style choice is honoured honestly', () => {
   const plan = MOMENTS.find((m) => m.idea.source === 'read_plan')!;
-  // Swing: the read is an intraday read, and ATLAS will not dress it up as a swing thesis.
+  // Swing: the read is an intraday read, so a swing idea is a forced read that says exactly that.
   const swing = buildIdea(base(plan.r, { options: { style: 'swing' }, setup: noSetup('No swing setup.') }));
-  assert.equal(swing.kind, 'stand_aside'); assert.match(swing.reasoning, /swing/);
+  assert.equal(swing.source, 'forced_read'); assert.equal(swing.style, 'swing');
+  assert.ok(swing.stop!.pips >= STYLE.swing.noiseFloorPips * 0.5 && swing.stop!.pips <= STYLE.swing.maxStopPips);
+  assert.ok(swing.warnings.some((w) => /my read of gold is an intraday one.*not a swing thesis of its own/.test(w)));
   // Quick is priced only when asked for, on the five-minute range, and says what that means.
   const quick = buildIdea(base(plan.r, { options: { style: 'quick' }, setup: noSetup('No quick setup.') }));
-  if (quick.kind !== 'stand_aside') {
-    assert.equal(quick.style, 'quick');
-    assert.ok(quick.stop!.pips <= STYLE.quick.maxStopPips);
-    assert.ok(quick.warnings.some((w) => /five-minute range/.test(w)));
-  }
+  assert.equal(quick.style, 'quick');
+  assert.ok(quick.stop!.pips <= STYLE.quick.maxStopPips);
+  assert.ok(quick.warnings.some((w) => /five-minute range/.test(w)));
   assert.deepEqual(ideaOptionsOf({ style: 'hold' }), { style: 'hold' });
   assert.deepEqual(ideaOptionsOf({ style: 'everything' }), { style: 'auto' });
   assert.deepEqual(ideaOptionsOf(null), { style: 'auto' });
@@ -404,6 +584,12 @@ test('the update says whether ATLAS still agrees with its own plan', () => {
   assert.match(updateVerdict(idea, f, read('balanced', 6, null), null), /no longer this plan's read/);
   const ready = { state: 'trade_ready', side: 'sell', style: 'quick', headline: 'TRADE READY', say: 'I want to SELL gold.' } as BrainSetup;
   assert.match(updateVerdict(idea, f, read('bullish_lean', 44, 'clear'), ready), /now has its own trade ready \(sell\)/);
+  // A forced read stood on a tilt, not a lean: the update says where the tilt is now.
+  const forcedIdea = { ...idea, source: 'forced_read' as const };
+  assert.match(updateVerdict(forcedIdea, f, read('balanced', 9, null), null), /The evidence still tilts up: balanced[^,]*, \+9 of 100\./);
+  assert.match(updateVerdict(forcedIdea, f, read('balanced', -14, null), null), /now tilts the other way: .* -14 of 100\. This forced read no longer has even that behind it/);
+  assert.match(updateVerdict(forcedIdea, f, read('bearish_lean', -40, 'clear'), null), /now tilts the other way/);
+  assert.match(updateVerdict(forcedIdea, f, read('balanced', 0, null), null), /dead even/);
   const done = followIdea(idea, { price: 3990, bars: [], tf: '5m', now: at(1) });
   assert.equal(updateVerdict(idea, done, read('bullish_lean', 44, 'clear'), null), done.text);
 });
@@ -419,7 +605,12 @@ test('the replay generates and follows an idea on the recording, and is addresse
   assert.ok((f.follow.pips ?? 0) > 0);
   assert.equal(replayFollow('replay:x:auto'), null);
   assert.match(ideaText(idea), /^ATLAS · XAUUSD BUY/);
-  assert.match(ideaText(replayIdea({ style: 'auto' }, 0)), /no trade right now/);
+  // The end of the recording used to be "no trade right now": it is a forced read with a side and levels.
+  const end = replayIdea({ style: 'auto' }, 0);
+  assert.equal(end.source, 'forced_read');
+  assert.match(ideaText(end), /^ATLAS · XAUUSD (BUY|SELL) · Intraday · forced read, low conviction\nEntry: /, 'a pasted forced read says it is one');
+  assert.doesNotMatch(ideaText(idea), /forced read/, 'and a plan or an engine trade is not called one');
+  assert.match(ideaText(buildIdea(base(MOMENTS[0].r, { snapshot: null }))), /^ATLAS · XAUUSD — I can't read gold right now\. /);
 });
 
 test('the idea engine cannot trade: it never touches the executor, a broker or FLOW/GENX', () => {

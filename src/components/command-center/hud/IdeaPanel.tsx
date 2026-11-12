@@ -181,6 +181,12 @@ export function IdeaPanel({
   const isShown = !!idea && shown === (idea.id ?? "unsaved");
   const canFollow = !!idea?.id && !!trade;
   const execNow = update ? update.follow.canExecute : !!trade?.execute.now;
+  /** The at-market version of a forced read whose own entry is a level price has not reached yet. */
+  const nowAlt = trade?.enterNow && !execNow ? trade.enterNow : null;
+  const prefillNow = (): IdeaPrefill | null => trade && nowAlt ? {
+    ...nowAlt.manual, headline: `${up ? "BUY" : "SELL"} XAUUSD — at market (forced read)`, reason: trade.reasoning, invalidation: `The stop at ${fmt2(nowAlt.stop.price)}.`,
+    evidence: trade.confirmations.filter((c) => c.ok).map((c) => c.label).slice(0, 6), ideaId: trade.id,
+  } : null;
   const prefill = (): IdeaPrefill | null => trade?.execute.manual ? {
     ...trade.execute.manual, headline: trade.headline, reason: trade.reasoning, invalidation: trade.invalidation?.text ?? null,
     evidence: trade.confirmations.filter((c) => c.ok).map((c) => c.label).slice(0, 6), ideaId: trade.id,
@@ -192,7 +198,7 @@ export function IdeaPanel({
       <div className="rounded-[10px] p-3" style={{ border: `1px solid ${H.lineHi}`, background: `linear-gradient(180deg, ${H.panel2}, ${H.panel})` }}>
         <p className={LABEL} style={{ color: H.gold2 }}>ATLAS · XAUUSD · trade idea from the engine</p>
         <p className="mt-1 text-[11.5px] leading-snug" style={{ color: H.mut }}>
-          ATLAS&apos;s own setup engine and read — no chat model. It gives the trade it has, the entry it is waiting for, or the reason there is none.
+          ATLAS&apos;s own setup engine and read — no chat model. It always names a side and a trade: the engine&apos;s own when it has one, a plan from its read, or — when neither exists — a forced read, labelled as one.
         </p>
         <p className="mt-2.5 text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: H.mut }}>Trade style</p>
         <div className="mt-1 flex flex-wrap gap-1.5" role="group" aria-label="Trade style">
@@ -232,7 +238,9 @@ export function IdeaPanel({
         <div className="hud-in overflow-hidden rounded-[10px]" style={{ border: `1px solid ${trade ? `${sideCol}66` : H.line}`, background: H.panel }} data-idea-kind={idea.kind} data-idea-source={idea.source ?? ""}>
           <div className="px-3 pb-2 pt-3" style={{ background: trade ? `linear-gradient(180deg, ${sideCol}12, transparent)` : "transparent" }}>
             <p className="inline-block rounded-[5px] px-2 py-[3px] text-[8.5px] font-bold uppercase tracking-[0.14em]" data-idea-badge=""
-              style={idea.source === "setup_engine" ? { color: H.gold3, border: "1px solid rgba(231,196,103,0.6)", background: "rgba(213,169,61,0.12)" } : { color: H.cyan2, border: "1px solid rgba(39,215,242,0.4)", background: "rgba(0,199,232,0.06)" }}>
+              style={idea.source === "setup_engine" ? { color: H.gold3, border: "1px solid rgba(231,196,103,0.6)", background: "rgba(213,169,61,0.12)" }
+                : idea.source === "forced_read" ? { color: "#FFB067", border: "1px solid rgba(255,176,103,0.55)", background: "rgba(255,150,60,0.08)" }
+                : { color: H.cyan2, border: "1px solid rgba(39,215,242,0.4)", background: "rgba(0,199,232,0.06)" }}>
               {idea.badge}
             </p>
             <p className="mt-2 flex flex-wrap items-center gap-2 text-[17px] font-semibold leading-tight" data-idea-headline="">
@@ -318,6 +326,23 @@ export function IdeaPanel({
                   )}
                 </div>
                 {watch && <p className="mt-1.5 text-[11px]" style={{ color: watch.ok ? H.green : H.red }}>{watch.message}</p>}
+                {/* a forced read always has something that can be taken now: the same side, at the price */}
+                {nowAlt && (
+                  <div className="mt-2.5 rounded-[8px] p-2.5" style={{ border: "1px dashed rgba(255,176,103,0.5)", background: "rgba(255,150,60,0.05)" }} data-idea-enter-now="">
+                    <p className="text-[9px] font-bold uppercase tracking-[0.14em]" style={{ color: "#FFB067" }}>Enter now instead · same side, at the price</p>
+                    <p className="mt-1 text-[12px] tabular-nums" style={{ color: H.text }}>
+                      {up ? "Buy" : "Sell"} at market ~<b>{fmt2(nowAlt.entry)}</b> · stop <b style={{ color: H.red }}>{fmt2(nowAlt.stop.price)}</b> ({nowAlt.stop.pips} pips)
+                      {nowAlt.targets[0] && <> · TP1 <b style={{ color: H.green }}>{fmt2(nowAlt.targets[0].price)}</b> (1 : {nowAlt.targets[0].r}{nowAlt.targets[0].basis === "measured" ? ", measured" : ""})</>}
+                    </p>
+                    <p className="mt-1 text-[10.5px] leading-snug" style={{ color: H.mut }} title={nowAlt.stop.what}>{nowAlt.note}</p>
+                    {!replay && canTrade && prefillNow() && (
+                      <button onClick={() => { const p = prefillNow(); if (p) onManual(p); }} data-idea-ticket-now="" className="mt-2 w-full rounded-[8px] px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em]"
+                        style={{ color: sideCol, border: `1px solid ${sideCol}`, background: `${sideCol}14` }}>
+                        Open the {up ? "buy" : "sell"} ticket at market, prefilled ▸
+                      </button>
+                    )}
+                  </div>
+                )}
                 <p className="mt-2 text-[10px] leading-snug" style={{ color: H.mut2 }}>
                   Orders are market orders, confirmed on the next screen. The stop and the first target are attached, and ATLAS manages the position by your profile.
                 </p>
@@ -379,7 +404,7 @@ export function IdeaPanel({
               )}
               {idea.waitingFor.length > 0 && (
                 <div className="mt-2.5">
-                  <p className="text-[9px] font-semibold uppercase tracking-[0.14em]" style={{ color: H.mut }}>What ATLAS is waiting for</p>
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.14em]" style={{ color: H.mut }}>What ATLAS needs</p>
                   <ul className="mt-1 space-y-0.5 text-[11.5px]" style={{ color: H.text }}>{idea.waitingFor.map((w, k) => <li key={k}>— {w}</li>)}</ul>
                 </div>
               )}

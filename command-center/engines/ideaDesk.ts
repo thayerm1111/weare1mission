@@ -32,7 +32,7 @@ import { liveReadFields, STALE_MS } from "./live";
 import { selectedAccount } from "./broker";
 import { parseWatch, arm } from "./watch";
 import {
-  ATLAS_IDEA_VERSION, buildIdea, followIdea, ideaOptionsOf, ideaRecord,
+  IDEA_VERSIONS, buildIdea, followIdea, ideaOptionsOf, ideaRecord,
   type AtlasIdea, type IdeaFollow, type IdeaOptions, type IdeaState,
 } from "./idea";
 
@@ -162,7 +162,8 @@ export type IdeaRow = { id: string; at: number; idea: AtlasIdea; status: IdeaSta
 const looksLikeIdea = (x: unknown): x is AtlasIdea => {
   if (!x || typeof x !== "object") return false;
   const i = x as Partial<AtlasIdea>;
-  return i.version === ATLAS_IDEA_VERSION && typeof i.at === "number" && typeof i.kind === "string" && Array.isArray(i.targets) && typeof i.headline === "string";
+  // Ideas stored under an earlier version are still a member's record: every version whose shape this reads.
+  return typeof i.version === "string" && IDEA_VERSIONS.includes(i.version) && typeof i.at === "number" && typeof i.kind === "string" && Array.isArray(i.targets) && typeof i.headline === "string";
 };
 
 function rowOf(r: Record<string, unknown>): IdeaRow | null {
@@ -238,6 +239,15 @@ export function updateVerdict(idea: AtlasIdea, follow: IdeaFollow, read: AtlasRe
     parts.push(read.lean === want
       ? `ATLAS's read still agrees: ${LEAN_LABEL[read.lean].toLowerCase()}${read.strength ? `, ${read.strength}` : ""} (evidence ${signed(read.score)}).`
       : `ATLAS's read is now ${LEAN_LABEL[read.lean].toLowerCase()} (evidence ${signed(read.score)}) — that is no longer this plan's read. Generate a fresh idea.`);
+  }
+  if (idea.source === "forced_read" && read && read.lean !== "insufficient_data") {
+    // A forced read stood on a tilt of the evidence, not on a lean: say where that tilt is now.
+    const tilt = read.lean === "bullish_lean" ? 1 : read.lean === "bearish_lean" ? -1 : Math.sign(read.score);
+    const mine = idea.side === "buy" ? 1 : -1;
+    parts.push(tilt === mine
+      ? `The evidence still tilts ${mine > 0 ? "up" : "down"}: ${LEAN_LABEL[read.lean].toLowerCase()}, ${signed(read.score)} of 100.`
+      : tilt === 0 ? `The evidence is now dead even (${LEAN_LABEL[read.lean].toLowerCase()}) — this forced read has nothing behind it but its stop.`
+      : `The evidence now tilts the other way: ${LEAN_LABEL[read.lean].toLowerCase()}, ${signed(read.score)} of 100. This forced read no longer has even that behind it — generate a fresh one.`);
   }
   if (idea.source === "setup_engine" && engine) {
     const same = engine.side === idea.side && engine.style === idea.style;
