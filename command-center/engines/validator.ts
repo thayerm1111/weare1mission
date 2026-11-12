@@ -12,7 +12,7 @@ import type { MarketSnapshot, Side } from "../core/types";
 import { checkAccountLimits, sizePosition, FLOW_GOLD_LIMITS, COOLDOWN_BY_STYLE, type AccountState, type Instrument, type RiskLimits } from "../core/risk";
 import { STYLE, type Style } from "../core/style";
 import { toPips } from "../core/instrument";
-import { tradeable } from "./snapshot";
+import { tradeableFor } from "./snapshot";
 import { inWeekendCloseWindow } from "../core/sessions";
 import type { AccountRow } from "./broker";
 import { dayPnlPct, weekPnlPct, type TradingHistory } from "./accountHistory";
@@ -41,6 +41,13 @@ export type ValidateInput = {
   history?: TradingHistory;
   /** Is this a member pressing the button, or automation acting on its own? */
   origin: "member" | "brain" | "auto";
+  /**
+   * Who DECIDED this trade — for the market gate only. Defaults to `origin`. The executor validates every
+   * confirmed order as a member's click (`origin: "member"`), so it passes the stored intent's own origin
+   * here: one of ATLAS's own trades, or an automated one, stays refused by a chaotic market at that last
+   * step exactly as it is when it is prepared.
+   */
+  placedBy?: "member" | "brain" | "auto";
 };
 
 export type Sizing = { qty: number; riskAmount: number; stopPips: number; riskPctUsed: number; rMultipleToTp: number | null };
@@ -78,10 +85,24 @@ export function validate(i: ValidateInput): Validation {
     return no("The week closes within the half hour — no new automated entries until gold reopens.");
   }
 
-  /* 2 — can we see the market well enough to act on it? */
+  /*
+   * 2 — can we see the market well enough to act on it?
+   *
+   * A closed market, a stale or divergent feed, missing execution data: refused for everyone. A market
+   * ATLAS has flagged CHAOTIC is refused for ATLAS's own trades and for automation, and — since 11-12, on
+   * the owner's word ("I want member placed orders to be pushed through") — no longer for a member's own
+   * order: that flag says none of ATLAS's strategies is eligible, not that the price cannot be trusted. The
+   * order goes on to every check below (stop, risk, limits, cooldown, size) and carries a warning the
+   * member reads on the confirm screen.
+   */
   if (!i.snapshot) return no("There is no market read — ATLAS cannot see gold right now.");
-  const gate = tradeable(i.snapshot);
+  const gate = tradeableFor(i.snapshot, i.placedBy ?? i.origin);
   if (!gate.ok) return no(gate.reason);
+  if (gate.passed) {
+    warnings.push(gate.passed.code === "chaotic"
+      ? "ATLAS has the market flagged as chaotic and is not trading it. It would not take this trade itself — this order is your call."
+      : `${gate.passed.detail}. ATLAS would not take this trade itself — this order is your call.`);
+  }
 
   /* 3 — is the instruction itself coherent? */
   const price = i.entry ?? i.snapshot.price;
@@ -190,7 +211,9 @@ export function validate(i: ValidateInput): Validation {
   if (rToTp != null && rToTp < 0.8) {
     warnings.push(`That target is only ${rToTp}R away — you would be risking more than you stand to make.`);
   }
-  for (const w of i.snapshot.warnings.slice(0, 2)) warnings.push(w);
+  // The flag a member's order went through has already been said above, in words about THEIR order.
+  const said = gate.passed?.detail ?? null;
+  for (const w of i.snapshot.warnings.filter((x) => x !== said).slice(0, 2)) warnings.push(w);
   if (i.snapshot.news.nextEvent && (i.snapshot.news.minutesToNext ?? 999) <= 15) {
     warnings.push(`${i.snapshot.news.nextEvent.name} is ${Math.round(i.snapshot.news.minutesToNext ?? 0)} minutes away.`);
   }

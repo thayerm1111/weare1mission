@@ -242,6 +242,7 @@ export async function execute(userId: string, intentId: string, idempotencyKey: 
   const intent = intentRow as {
     id: string; account_row_id: string; side: Side; style: Style; entry: number | null; stop: number;
     targets: number[]; risk_pct: number; status: string; thesis: Record<string, unknown> | null;
+    origin?: string | null;
   };
   if (intent.status === "executed") return fail("That intent has already been executed.");
 
@@ -260,6 +261,10 @@ export async function execute(userId: string, intentId: string, idempotencyKey: 
     entry: null, stop: intent.stop, takeProfit: intent.targets?.[0] ?? null,
     riskPct: intent.risk_pct, equity, instrument: inst.resolved.instrument, pipSize: inst.resolved.pipSize,
     spread: snapshot?.spread ?? null, openPositions: countAgainstLimit(open, intent.side), openRiskPct: 0, history, origin: "member",
+    // Who decided this trade, for the market gate: only an intent a member placed themselves goes through a
+    // chaotic market (owner 11-12). ATLAS's own trade or an automated one — or a row that does not say —
+    // is refused there, exactly as it was when it was prepared.
+    placedBy: intent.origin === "member" ? "member" : intent.origin === "auto" ? "auto" : "brain",
     limits: limitsForMode(await getProfile(userId)),   // 09-22: safety mode, same as prepare()
   });
   if (!v.ok) return fail(v.reason);

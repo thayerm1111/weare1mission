@@ -158,3 +158,31 @@ export function tradeable(s: MarketSnapshot): { ok: boolean; reason: string; cod
   const first = s.blockers[0];
   return first ? { ok: false, reason: first.detail, code: first.code } : { ok: true, reason: "", code: null };
 }
+
+/**
+ * THE ONE BLOCKER A MEMBER'S OWN ORDER PASSES (owner 11-12: "I want member placed orders to be pushed
+ * through").
+ *
+ * "Chaotic" is ATLAS's judgement that none of ITS strategies is eligible — a reason for ATLAS and for
+ * automation to stand down, not a doubt about the price. A member acting on their own call is no longer
+ * refused for it. Every other blocker is about whether the market can be seen at all (closed, a stale or
+ * divergent feed, missing execution data) and still stops everyone: no order is sent on a price that
+ * cannot be trusted, whoever placed it.
+ */
+export const MEMBER_PASSABLE: readonly BlockerCode[] = ["chaotic"];
+
+/**
+ * May an order DECIDED BY `who` be sent on this snapshot?
+ *
+ * For ATLAS's own trades ("brain") and automation ("auto") this is `tradeable()`, unchanged: any blocker
+ * refuses. For a member's own order the first blocker that is not member-passable decides, and `passed`
+ * names the one the order went through, so it can carry a warning the member reads before confirming.
+ */
+export function tradeableFor(
+  s: MarketSnapshot, who: "member" | "brain" | "auto",
+): { ok: boolean; reason: string; code: BlockerCode | null; passed: { code: BlockerCode; detail: string } | null } {
+  if (who !== "member") return { ...tradeable(s), passed: null };
+  const stop = s.blockers.find((b) => !MEMBER_PASSABLE.includes(b.code));
+  if (stop) return { ok: false, reason: stop.detail, code: stop.code, passed: null };
+  return { ok: true, reason: "", code: null, passed: s.blockers.find((b) => MEMBER_PASSABLE.includes(b.code)) ?? null };
+}

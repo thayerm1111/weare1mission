@@ -10,7 +10,7 @@ import {
 } from '../command-center/engines/idea';
 import { updateVerdict } from '../command-center/engines/ideaDesk';
 import { noSetup, type BrainSetup } from '../command-center/engines/setup';
-import { tradeable } from '../command-center/engines/snapshot';
+import { tradeable, tradeableFor } from '../command-center/engines/snapshot';
 import { STYLE } from '../command-center/core/style';
 import { edgesOfRead } from '../command-center/core/read';
 import { resample } from '../command-center/core/bars';
@@ -353,7 +353,7 @@ test('it reads as ATLAS speaking: what it sees, the trade, how sure — and it n
     assert.doesNotMatch(words, /\b(Quick|Intraday|QUICK|HOLD|SWING|INTRADAY)\b/, `a style name on the call at ${off}`);
     assert.doesNotMatch(idea.reasoning, /ATLAS('s)? (thinks|sees|would|is|has)/, 'it talks about itself in the third person');
     // It says, in the same breath, that this is its read and not a confirmed setup — or exactly why nothing can be opened.
-    assert.match(paras[2], /It isn't one of my confirmed setups( yet)?, so I'm not taking it myself — taking it is your call\.|my order checks won't open a trade — mine or yours\. So this is my read for you to weigh, not something I can put on\.|so I'm not taking this one myself — it's my read, and taking it is your call\./);
+    assert.match(paras[2], /It isn't one of my confirmed setups( yet)?, so I'm not taking it myself — taking it is your call\.|so I'm standing down myself — no automatic trades, and I wouldn't take this one\. It's my read, and taking it is your call\.|so I'm not taking this one myself — it's my read, and taking it is your call\./);
     // Conviction is the evidence, not a promotion.
     const sc = idea.confidence!.score;
     assert.equal(idea.confidence!.label, sc >= 55 ? 'High' : sc >= 30 ? 'Medium' : 'Low');
@@ -399,7 +399,7 @@ test('it reads as ATLAS speaking: what it sees, the trade, how sure — and it n
   assert.equal(sayLevel('resistance'), "the resistance I'm watching");
 });
 
-test('a call\'s stop and target would pass ATLAS\'s own order checks — nothing about those checks changed', () => {
+test('a call\'s stop and target would pass ATLAS\'s own order checks', () => {
   for (const { idea, off } of CALLS) {
     const st = STYLE[idea.execute.manual!.style];
     // engines/validator.ts: a stop under half the style's noise floor is refused; over its ceiling is refused.
@@ -407,7 +407,7 @@ test('a call\'s stop and target would pass ATLAS\'s own order checks — nothing
     assert.ok(idea.stop!.pips <= st.maxStopPips, `the ${idea.stop!.pips}-pip stop at ${off} is wider than ${st.label} allows`);
   }
   const validator = readFileSync('command-center/engines/validator.ts', 'utf8');
-  assert.match(validator, /const gate = tradeable\(i\.snapshot\);\s*\n\s*if \(!gate\.ok\) return no\(gate\.reason\);/, 'the market gate is still the first thing the order checks ask');
+  assert.match(validator, /const gate = tradeableFor\(i\.snapshot, i\.placedBy \?\? i\.origin\);\s*\n\s*if \(!gate\.ok\) return no\(gate\.reason\);/, 'the market gate is still asked before anything is sized');
   assert.match(validator, /if \(stopPips < floor \* 0\.5\)/);
 });
 
@@ -556,24 +556,28 @@ test('the only answer with no trade is NO MARKET DATA; closed, stale, doubtful a
   assert.match(doubt.execute.note, /My market data is in doubt, so nothing is sent from it/);
 
   // The market flagged chaotic (the owner's screenshot: "Market is chaotic — no strategy is eligible"): it
-  // still names a side and a trade — and says plainly that the order checks will not open one while the flag is up.
+  // still names a side and a trade, says plainly that ATLAS itself is standing down — and the ticket is the
+  // member's to open, because their own order goes through that flag (owner 11-12: "I want member placed
+  // orders to be pushed through").
   const chaoticSnap: MarketSnapshot = { ...r.snapshot, blockers: [{ code: 'chaotic', detail: 'Market is chaotic — no strategy is eligible' }], warnings: ['Market is chaotic — no strategy is eligible'] };
   const chaotic = buildIdea(base(r, { snapshot: chaoticSnap, setup: noSetup("I'm standing down: Market is chaotic — no strategy is eligible.", [], 'blocked', r.endedAt) }));
   trade(chaotic);
   assert.equal(chaotic.kind, 'enter_now');
   assert.match(chaotic.badge, /^ATLAS'S CALL · (LOW|MEDIUM|HIGH) CONVICTION$/);
-  assert.match(chaotic.reasoning, /I have the market flagged as chaotic right now, and while that flag is up my order checks won't open a trade — mine or yours\. So this is my read for you to weigh, not something I can put on\./);
-  assert.equal(tradeable(chaoticSnap).ok, false, 'the order checks really do refuse on this snapshot — the call must not offer a ticket they would turn down');
-  assert.equal(chaotic.execute.via, null); assert.equal(chaotic.execute.now, false);
-  assert.match(chaotic.execute.note, /^No ticket for this one: while I have the market flagged as chaotic, my order checks don't open trades\. Generate again when it clears\.$/);
+  assert.match(chaotic.reasoning, /I have the market flagged as chaotic right now, so I'm standing down myself — no automatic trades, and I wouldn't take this one\. It's my read, and taking it is your call\./);
+  assert.equal(tradeable(chaoticSnap).ok, false, 'ATLAS and automation are still refused on this snapshot');
+  assert.equal(tradeableFor(chaoticSnap, 'member').ok, true, 'a member\'s own order is not — so the call offers the ticket');
+  assert.equal(chaotic.execute.via, 'manual'); assert.equal(chaotic.execute.now, true); assert.equal(chaotic.execute.approved, null);
+  assert.match(chaotic.execute.note, /^Taking it is your call — I have the market flagged as chaotic, so I wouldn't open this one myself\. Your order still goes through my order checks, sized from your risk, with the stop and the first target attached, and I manage it once it's on\.$/);
   assert.ok(!chaotic.warnings.includes('Market is chaotic — no strategy is eligible'), 'the flag is said once, in the call, not repeated as a warning');
   assert.equal(chaotic.engine.state, 'blocked', 'the setup engine\'s own verdict rides along, unchanged');
-  assert.ok(!/that to clear|standing aside|STANDING ASIDE/i.test(JSON.stringify({ ...chaotic, engine: null })), 'the old stand-aside wording is gone');
-  // …and on the recording, every flagged moment behaves the same way.
+  assert.ok(!/that to clear|standing aside|STANDING ASIDE|No ticket/i.test(JSON.stringify({ ...chaotic, engine: null })), 'the old stand-aside wording is gone');
+  // …and on the recording, every flagged moment behaves the same way; the ticket is offered exactly when the
+  // order checks would take a member's order.
   const flagged = MOMENTS.filter((m) => m.r.snapshot.blockers.some((b) => b.code === 'chaotic'));
   assert.ok(flagged.length >= 3);
-  for (const m of flagged) { assert.ok(m.idea.side && m.idea.stop); assert.equal(m.idea.execute.via, null); assert.equal(tradeable(m.r.snapshot).ok, false); }
-  for (const m of CALLS.filter((x) => !x.r.snapshot.blockers.length)) { assert.equal(m.idea.execute.via, 'manual'); assert.equal(m.idea.execute.now, true); assert.equal(tradeable(m.r.snapshot).ok, true); }
+  for (const m of flagged) { assert.ok(m.idea.side && m.idea.stop); assert.equal(m.idea.execute.via, 'manual'); assert.equal(m.idea.source, 'forced_read'); assert.equal(tradeable(m.r.snapshot).ok, false); }
+  for (const m of CALLS) { assert.equal(m.idea.execute.via === 'manual' && m.idea.execute.now, tradeableFor(m.r.snapshot, 'member').ok); }
 
   // The setup engine blocked for its own reason (no market blocker): the ticket is still the member's to open.
   const blocked = buildIdea(base(r, { setup: noSetup('The daily loss limit has been reached.', [], 'blocked', r.endedAt) }));

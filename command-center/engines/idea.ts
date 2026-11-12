@@ -33,9 +33,11 @@
  *     multiples of the risk and every one of them says so.
  *   • IT NEVER CLAIMS MORE THAN IT HAS. A call says it is ATLAS's read and not one of its confirmed setups,
  *     shows its conviction (usually low when the read is faint), and executing it is always the member's
- *     decision through the order ticket and its existing checks — never ATLAS's own take-setup trade. Where
- *     those checks would refuse (the market is flagged chaotic), it says so instead of offering a ticket.
- *     Nothing about the setup engine or the order checks changes.
+ *     decision through the order ticket and its checks — never ATLAS's own take-setup trade. It offers a
+ *     ticket exactly when those checks would take a member's own order (engines/snapshot.ts tradeableFor):
+ *     through a market flagged chaotic it does, saying that ATLAS itself is standing down (owner 11-12: "I
+ *     want member placed orders to be pushed through"); with gold closed or the data in doubt it does not,
+ *     and says why. The setup engine and automatic trading are untouched.
  *     The one thing that cannot be produced is a number from nothing: with no market read at all there is
  *     no price to build on, and the answer says exactly that.
  *   • CONVICTION IS NOT A WIN RATE. The score is the setup engine's confidence or the read's evidence
@@ -53,6 +55,7 @@ import { priceNow } from "../core/priceNow";
 import { swings } from "../core/levelMap";
 import { resample } from "../core/bars";
 import { STRATEGY_LABEL, type BrainSetup, type SetupState } from "./setup";
+import { MEMBER_PASSABLE } from "./snapshot";
 
 export const ATLAS_IDEA_VERSION = "idea-2";
 /** Versions a stored idea may carry and still be read back: idea-2 only added the forced read. */
@@ -884,7 +887,12 @@ function priceEntry(s: MarketSnapshot, side: Side, entry: number, majors: Lv[], 
 type CallContext = {
   /** The setup engine's own reason for not trading (its blocked state). Null: it simply has no confirmed setup. */
   standDown: string | null;
-  /** A market blocker the order checks refuse on (the market is flagged chaotic): no ticket can open while it stands. */
+  /**
+   * A market blocker a member's own order passes (the market is flagged chaotic): ATLAS and automation stand
+   * down, the order ticket stays open and warns.
+   */
+  flagged: { code: string; detail: string } | null;
+  /** A market blocker the order checks refuse on for everyone: no ticket can open while it stands. */
   refused: { code: string; detail: string } | null;
   closed: boolean;
   /** Minutes old, when the market read is too old to enter from. */
@@ -910,8 +918,9 @@ const DATA_BLOCKERS: readonly string[] = ["no_exec_read", "feed_stale", "feed_di
  *
  * It never claims more than it has. The conviction is the evidence balance and is shown; it says in the same
  * breath that this is its read and not one of its confirmed setups; and taking the call is always the
- * member's own decision through the order ticket and its existing checks — it is never ATLAS's take-setup
- * trade, and while the market carries a blocker those checks refuse on (chaotic), it says no ticket can open.
+ * member's own decision through the order ticket and its checks — it is never ATLAS's take-setup trade.
+ * Through a market flagged chaotic the ticket stays open (a member's own order passes that flag) and the call
+ * says ATLAS itself is standing down; on a blocker those checks refuse for everyone it says no ticket can open.
  * A call made from a clear or strong lean is source "read_plan"; anything fainter is "forced_read". With gold
  * closed, or a market read too old or too doubtful to enter from, it still names the side and the levels as
  * a plan around the last price, for when price is real again.
@@ -943,7 +952,7 @@ function fromRead(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null, 
   const st = m.st;
 
   const conviction: "Low" | "Medium" | "High" = f.score >= 55 ? "High" : f.score >= 30 ? "Medium" : "Low";
-  const planned = !!read && f.from === "lean" && (read.strength === "clear" || read.strength === "strong") && canEnter && !ctx.standDown && !ctx.refused;
+  const planned = !!read && f.from === "lean" && (read.strength === "clear" || read.strength === "strong") && canEnter && !ctx.standDown && !ctx.flagged && !ctx.refused;
   const source: IdeaSource = planned ? "read_plan" : "forced_read";
   // Mid-sentence: an ordinary capitalised word loses its capital; "I", "I'm" and acronyms (RSI, ATR) keep theirs.
   const lower = (x: string) => (/^[A-Z][a-z]/.test(x) ? x.charAt(0).toLowerCase() + x.slice(1) : x);
@@ -989,7 +998,8 @@ function fromRead(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null, 
   const yours = ctx.closed ? "Gold is closed, so this is my plan for the reopen, built on the last session's prices — there's nothing to enter yet."
     : ctx.staleMin != null ? `My last look at the market was ${ctx.staleMin} minutes ago, so check the price before you act on any of this.`
     : ctx.dataProblem ? `My price data has a problem right now (${strip(ctx.dataProblem)}), so treat these levels as approximate.`
-    : ctx.refused ? `${ctx.refused.code === "chaotic" ? "I have the market flagged as chaotic right now, and while that flag is up my order checks won't open a trade" : `My order checks are refusing new trades right now (${strip(ctx.refused.detail)})`} — mine or yours. So this is my read for you to weigh, not something I can put on.`
+    : ctx.refused ? `My order checks are refusing new trades right now (${strip(ctx.refused.detail)}) — mine or yours. So this is my read for you to weigh, not something I can put on.`
+    : ctx.flagged ? `${ctx.flagged.code === "chaotic" ? "I have the market flagged as chaotic right now, so I'm standing down myself — no automatic trades, and I wouldn't take this one" : `My own trading is standing down right now (${strip(ctx.flagged.detail)}), so I'm not taking this one myself`}. It's my read, and taking it is your call.`
     : ctx.standDown ? `My own trading is standing down right now (${strip(ctx.standDown)}), so I'm not taking this one myself — it's my read, and taking it is your call.`
     : planned ? "It isn't one of my confirmed setups yet, so I'm not taking it myself — taking it is your call."
     : "It isn't one of my confirmed setups, so I'm not taking it myself — taking it is your call.";
@@ -1007,7 +1017,7 @@ function fromRead(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null, 
   const cantSend = ctx.closed ? "Gold is closed — nothing can be sent. Generate again when it reopens."
     : ctx.staleMin != null ? "My market read is too old to send an order from. Generate again when the feed is back."
     : ctx.dataProblem ? "My market data is in doubt, so nothing is sent from it. Generate again when the feed is clean."
-    : ctx.refused ? `No ticket for this one: ${ctx.refused.code === "chaotic" ? "while I have the market flagged as chaotic, my order checks don't open trades" : `my order checks are refusing new trades (${strip(ctx.refused.detail)})`}. Generate again when it clears.` : null;
+    : ctx.refused ? `No ticket for this one: my order checks are refusing new trades (${strip(ctx.refused.detail)}). Generate again when it clears.` : null;
 
   const stopWhat = st.basis === "measured" || !st.point
     ? `Measured: ${R.MEASURED_STOP_ATR} × the 15-minute range — no swing or level stands at a usable distance behind the entry.`
@@ -1065,7 +1075,9 @@ function fromRead(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null, 
       waitingFor: [],
       execute: {
         via: cantSend ? null : "manual", now: !cantSend,
-        note: cantSend ?? "Taking it is your call. It opens through my order checks, sized from your risk, with the stop and the first target attached — and I manage it once it's on.",
+        note: cantSend ?? (ctx.flagged
+          ? `Taking it is your call — ${ctx.flagged.code === "chaotic" ? "I have the market flagged as chaotic" : "my own trading is standing down"}, so I wouldn't open this one myself. Your order still goes through my order checks, sized from your risk, with the stop and the first target attached, and I manage it once it's on.`
+          : "Taking it is your call. It opens through my order checks, sized from your risk, with the stop and the first target attached — and I manage it once it's on."),
         approved: null, manual: { side, style: m.style, stop: st.stop, takeProfit: t0.price },
       },
       watch: null,
@@ -1124,12 +1136,15 @@ export function buildIdea(i: BuildIdeaInput): AtlasIdea {
     if (engine) return engine;
   }
 
-  // Otherwise ATLAS's own call from what it sees. A blocker that is neither the calendar nor the data (the
-  // market flagged chaotic) is one the order checks refuse on (engines/validator.ts → tradeable).
+  // Otherwise ATLAS's own call from what it sees. A blocker that is neither the calendar nor the data is
+  // ATLAS's own reason for standing down. The order checks let a member's own order through the ones in
+  // MEMBER_PASSABLE (the market flagged chaotic) and refuse on any other — the call offers a ticket to match.
   const hard = s.blockers.find((b) => b.code !== "market_closed" && !DATA_BLOCKERS.includes(b.code)) ?? null;
+  const passable = !!hard && (MEMBER_PASSABLE as readonly string[]).includes(hard.code);
   const call = fromRead(i, s, read, {
     standDown: hard ? null : su.state === "blocked" ? su.say : null,
-    refused: hard ? { code: hard.code, detail: hard.detail } : null,
+    flagged: hard && passable ? { code: hard.code, detail: hard.detail } : null,
+    refused: hard && !passable ? { code: hard.code, detail: hard.detail } : null,
     closed, staleMin, dataProblem: dataProblem?.detail ?? null,
   });
   return call ?? noData(i, "I can't measure gold's range on any timeframe right now, so there is nothing to size an entry or a stop from — and I won't invent one.", ["a range reading"]);
