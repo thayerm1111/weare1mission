@@ -3,15 +3,17 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Activity, Bell, Check, Copy, Crosshair, Eye, EyeOff, RefreshCw, Sparkles, X } from "lucide-react";
 import { H, fmt2, LABEL } from "./theme";
-import { Chip } from "./Hud";
-import type { AtlasIdea, IdeaFollow, IdeaState, IdeaStyleChoice } from "../../../../command-center/engines/idea";
+import type { AtlasIdea, IdeaFollow, IdeaState } from "../../../../command-center/engines/idea";
 
 /**
  * GENERATE WITH ATLAS (owner 11-11: "When I click generate I want atlas to give me the trade idea and where
  * I should enter. I want the engine of atlas though to run the trade.")
  *
- * One press, one answer from ATLAS's own engine (command-center/engines/idea.ts): which way, where to enter,
- * the stop, the targets, why, and what would make it wrong.
+ * One press, one answer from ATLAS (command-center/engines/idea.ts): which way, where to enter, the stop,
+ * the targets, why, and what would make it wrong. There is nothing to choose first and one answer to read
+ * (owner 11-12: "not so many options just want an atlas option that goes off what atlas sees. Needs to feel
+ * like it's come right from the AI. I don't want the quick, intraday, or swing versions") — so the card
+ * leads with ATLAS's own words, in the first person, and the numbers sit under them.
  *
  * NOTHING HERE COMPUTES A NUMBER OR SENDS AN ORDER. Every figure on the card came from the server. Taking an
  * idea hands off to the two execution surfaces that already exist — ATLAS's own trade card when the idea is
@@ -29,15 +31,33 @@ type Record_ = { graded: number; wins: number; losses: number; pips: number; ope
 
 export type IdeaPrefill = { side: "buy" | "sell"; style: "quick" | "hold" | "swing"; stop: number; takeProfit: number | null; headline: string; reason: string; invalidation: string | null; evidence: string[]; ideaId: string | null };
 
-const STYLES: { id: IdeaStyleChoice; label: string; hint: string }[] = [
-  { id: "auto", label: "ATLAS decides", hint: "Whatever ATLAS's engine sees — the style is its call." },
-  { id: "quick", label: "Quick", hint: "1m · 5m decide. 30–100 pips, minutes." },
-  { id: "hold", label: "Intraday", hint: "15m · 1h decide. Held for the session's move, hours." },
-  { id: "swing", label: "Swing", hint: "1h · 4h · daily decide. Sessions to days." },
-];
-const STYLE_WORD: Record<string, string> = { quick: "Quick · 1m·5m", hold: "Intraday · 15m·1h", swing: "Swing · 1h·4h·D" };
-/** The real stages of one request, in the order the server does them. */
-const STAGES = ["Reading the live feed…", "Loading ATLAS's analysis…", "Running the setup engine…", "Pricing entry, stop and targets…", "Writing it up…"];
+/** The real stages of one request, in the order the server does them — in ATLAS's words. */
+const STAGES = ["Reading the live feed…", "Pulling up my read of the market…", "Checking for a confirmed setup…", "Finding the structure for the stop…", "Writing my call…"];
+
+/**
+ * ATLAS's words arrive the way it says them: typed out once, for a call that was just generated. An idea
+ * opened from the list, or re-rendered by an update, is simply shown. Nothing here changes the text — the
+ * whole call is already on the card for a screen reader, and one tap finishes it.
+ */
+function useTyped(text: string, run: boolean): { shown: string; typing: boolean; finish: () => void } {
+  const [n, setN] = useState(run ? 0 : text.length);
+  useEffect(() => {
+    const reduce = typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (!run || reduce || !text) { setN(text.length); return; }
+    setN(0);
+    const started = performance.now();
+    const total = Math.min(2600, Math.max(900, text.length * 4));
+    let raf = 0;
+    const step = (now: number) => {
+      const k = Math.min(text.length, Math.ceil(((now - started) / total) * text.length));
+      setN((cur) => Math.max(cur, k));
+      if (k < text.length) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [text, run]);
+  return { shown: text.slice(0, n), typing: n < text.length, finish: () => setN(text.length) };
+}
 const STATE_WORD: Record<string, { word: string; tone: "up" | "down" | "gold" | "cold" | "mut" }> = {
   new: { word: "Not followed yet", tone: "mut" }, ready: { word: "Entry valid now", tone: "gold" }, waiting: { word: "Waiting for the entry", tone: "cold" },
   in_zone: { word: "Price is in the zone", tone: "gold" }, open: { word: "Entered · undecided", tone: "cold" },
@@ -71,7 +91,6 @@ export function IdeaPanel({
   riskPct: number | null;
   account: { equity: number | null; currency: string | null; isLive: boolean } | null;
 }) {
-  const [style, setStyle] = useState<IdeaStyleChoice>("auto");
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState(0);
   const [idea, setIdea] = useState<AtlasIdea | null>(null);
@@ -85,8 +104,8 @@ export function IdeaPanel({
   const [copied, setCopied] = useState<string | null>(null);
   const [list, setList] = useState<{ ideas: ListRow[]; record: Record_ | null; kept: boolean } | null>(null);
   const seq = useRef(0);
-  const styleRef = useRef(style);
-  styleRef.current = style;
+  /** The idea whose words are typed out: the one this press of GENERATE just produced. */
+  const [fresh, setFresh] = useState<number | null>(null);
   // The desk re-renders every second, so its callbacks are read through a ref: a new function identity
   // must never look like a new press of GENERATE.
   const onShowRef = useRef(onShow);
@@ -109,7 +128,7 @@ export function IdeaPanel({
     } catch { /* the list is a convenience */ }
   }, [endpoint, replay]);
 
-  const generate = useCallback(async (st: IdeaStyleChoice) => {
+  const generate = useCallback(async () => {
     const my = ++seq.current;
     setBusy(true); setErr(null); setUpdate(null); setWatch(null); setStage(0);
     const started = Date.now();
@@ -117,7 +136,7 @@ export function IdeaPanel({
     // time is printed under the idea.
     const tick = window.setInterval(() => setStage((n) => Math.min(STAGES.length - 2, n + 1)), 190);
     try {
-      const { ok, status, j } = await post({ action: "generate", options: { style: st } });
+      const { ok, status, j } = await post({ action: "generate" });
       const wait = Math.max(0, 700 - (Date.now() - started));
       await new Promise((res) => window.setTimeout(res, wait));
       if (my !== seq.current) return;
@@ -127,7 +146,7 @@ export function IdeaPanel({
       }
       setStage(STAGES.length - 1);
       const g = j as unknown as { idea: AtlasIdea; saved?: boolean; copy?: string; timings?: { totalMs: number }; analysis?: { analysisAt: number | null }; feed?: { provider: string } };
-      setIdea(g.idea); setCopyText(g.copy ?? "");
+      setIdea(g.idea); setCopyText(g.copy ?? ""); setFresh(g.idea.at);
       setMeta({ saved: !!g.saved, totalMs: g.timings?.totalMs ?? null, analysisAt: g.analysis?.analysisAt ?? g.idea.snapshotAt ?? null, provider: g.feed?.provider ?? null });
       onShowRef.current(g.idea.kind === "stand_aside" ? null : g.idea, false);
       void loadList();
@@ -143,7 +162,7 @@ export function IdeaPanel({
   useEffect(() => {
     if (runSignal <= 0 || handled.current === runSignal) return;
     handled.current = runSignal;
-    void generate(styleRef.current);
+    void generate();
   }, [runSignal, generate]);
   useEffect(() => { void loadList(); }, [loadList]);
 
@@ -181,34 +200,27 @@ export function IdeaPanel({
   const isShown = !!idea && shown === (idea.id ?? "unsaved");
   const canFollow = !!idea?.id && !!trade;
   const execNow = update ? update.follow.canExecute : !!trade?.execute.now;
-  /** The at-market version of a forced read whose own entry is a level price has not reached yet. */
-  const nowAlt = trade?.enterNow && !execNow ? trade.enterNow : null;
-  const prefillNow = (): IdeaPrefill | null => trade && nowAlt ? {
-    ...nowAlt.manual, headline: `${up ? "BUY" : "SELL"} XAUUSD — at market (forced read)`, reason: trade.reasoning, invalidation: `The stop at ${fmt2(nowAlt.stop.price)}.`,
-    evidence: trade.confirmations.filter((c) => c.ok).map((c) => c.label).slice(0, 6), ideaId: trade.id,
-  } : null;
   const prefill = (): IdeaPrefill | null => trade?.execute.manual ? {
-    ...trade.execute.manual, headline: trade.headline, reason: trade.reasoning, invalidation: trade.invalidation?.text ?? null,
+    // The ticket stores the call as one line of text; the paragraph breaks are for this card.
+    ...trade.execute.manual, headline: trade.headline, reason: trade.reasoning.replace(/\s*\n+\s*/g, " "), invalidation: trade.invalidation?.text ?? null,
     evidence: trade.confirmations.filter((c) => c.ok).map((c) => c.label).slice(0, 6), ideaId: trade.id,
   } : null;
+  const confirmed = idea?.source === "setup_engine";
+  const words = useTyped(idea?.reasoning ?? "", !!idea && fresh === idea.at && !busy);
+  const paragraphs = words.shown.split("\n\n");
 
   return (
     <div className="space-y-3" data-idea-panel="">
-      {/* what to generate */}
+      {/* ask */}
       <div className="rounded-[10px] p-3" style={{ border: `1px solid ${H.lineHi}`, background: `linear-gradient(180deg, ${H.panel2}, ${H.panel})` }}>
-        <p className={LABEL} style={{ color: H.gold2 }}>ATLAS · XAUUSD · trade idea from the engine</p>
-        <p className="mt-1 text-[11.5px] leading-snug" style={{ color: H.mut }}>
-          ATLAS&apos;s own setup engine and read — no chat model. It always names a side and a trade: the engine&apos;s own when it has one, a plan from its read, or — when neither exists — a forced read, labelled as one.
+        <p className={LABEL} style={{ color: H.gold2 }}>ATLAS · XAUUSD</p>
+        <p className="mt-1 text-[12px] leading-snug" style={{ color: H.mut }}>
+          Ask ATLAS what it would do with gold right now. It reads the market and answers with one call: the side, the entry, a stop behind market structure, and its targets.
         </p>
-        <p className="mt-2.5 text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: H.mut }}>Trade style</p>
-        <div className="mt-1 flex flex-wrap gap-1.5" role="group" aria-label="Trade style">
-          {STYLES.map((s) => <Chip key={s.id} active={style === s.id} onClick={() => setStyle(s.id)} title={s.hint}>{s.label}</Chip>)}
-        </div>
-        <p className="mt-1 text-[10.5px]" style={{ color: H.mut2 }}>{STYLES.find((s) => s.id === style)?.hint}</p>
-        <button onClick={() => void generate(style)} disabled={busy} data-generate=""
+        <button onClick={() => void generate()} disabled={busy} data-generate=""
           className="mt-3 flex w-full items-center justify-center gap-2 rounded-[9px] px-3 py-3 text-[12.5px] font-black uppercase tracking-[0.2em] transition hover:brightness-110 disabled:opacity-60"
           style={{ color: "#1A1305", background: "linear-gradient(180deg, #FFD875, #D5A93D)", boxShadow: "0 0 22px rgba(213,169,61,0.35)" }}>
-          <Sparkles className="h-4 w-4" />{busy ? "Generating…" : idea ? "Generate again" : "Generate"}
+          <Sparkles className="h-4 w-4" />{busy ? "ATLAS is reading gold…" : idea ? "Generate again" : "Generate"}
         </button>
         <p className="mt-1.5 text-center text-[10px]" style={{ color: H.mut2 }}>{replay ? "Replay — recorded gold, nothing can be executed." : "Included in your Command Center window — no extra credits."}</p>
       </div>
@@ -216,8 +228,8 @@ export function IdeaPanel({
       {/* generating */}
       {busy && (
         <div className="rounded-[10px] p-4" role="status" aria-live="polite" style={{ border: `1px solid ${H.line}`, background: H.panel }} data-idea-busy="">
-          <p className={LABEL} style={{ color: H.cyan2 }}>Generating…</p>
-          <p className="mt-1 text-[15px] font-semibold">Analyzing XAU/USD</p>
+          <p className={LABEL} style={{ color: H.cyan2 }}>ATLAS</p>
+          <p className="mt-1 text-[15px] font-semibold">Reading gold…</p>
           <ul className="mt-3 space-y-2">
             {STAGES.map((s, k) => (
               <li key={s} className="flex items-center gap-2.5 text-[12px]" style={{ color: k < stage ? H.text : k === stage ? H.gold3 : H.mut2 }}>
@@ -238,17 +250,32 @@ export function IdeaPanel({
         <div className="hud-in overflow-hidden rounded-[10px]" style={{ border: `1px solid ${trade ? `${sideCol}66` : H.line}`, background: H.panel }} data-idea-kind={idea.kind} data-idea-source={idea.source ?? ""}>
           <div className="px-3 pb-2 pt-3" style={{ background: trade ? `linear-gradient(180deg, ${sideCol}12, transparent)` : "transparent" }}>
             <p className="inline-block rounded-[5px] px-2 py-[3px] text-[8.5px] font-bold uppercase tracking-[0.14em]" data-idea-badge=""
-              style={idea.source === "setup_engine" ? { color: H.gold3, border: "1px solid rgba(231,196,103,0.6)", background: "rgba(213,169,61,0.12)" }
-                : idea.source === "forced_read" ? { color: "#FFB067", border: "1px solid rgba(255,176,103,0.55)", background: "rgba(255,150,60,0.08)" }
-                : { color: H.cyan2, border: "1px solid rgba(39,215,242,0.4)", background: "rgba(0,199,232,0.06)" }}>
+              style={confirmed ? { color: "#1A1305", border: "1px solid rgba(231,196,103,0.9)", background: "linear-gradient(180deg, #FFD875, #D5A93D)" }
+                : { color: H.gold3, border: "1px solid rgba(231,196,103,0.6)", background: "rgba(213,169,61,0.12)" }}>
               {idea.badge}
             </p>
             <p className="mt-2 flex flex-wrap items-center gap-2 text-[17px] font-semibold leading-tight" data-idea-headline="">
               {trade && <span className="rounded-[5px] px-2 py-[2px] text-[11px] font-black tracking-[0.12em]" style={{ color: sideCol, border: `1px solid ${sideCol}`, background: `${sideCol}14` }}>{up ? "LONG" : "SHORT"}</span>}
               {idea.headline}
             </p>
-            {trade && <p className="mt-2 text-[12.5px] leading-snug" style={{ color: "#D6DEE6" }} data-idea-entry-text="">{trade.entry!.text}</p>}
-            {!trade && <p className="mt-2 text-[12.5px] leading-relaxed" style={{ color: "#D6DEE6" }}>{idea.reasoning}</p>}
+            {/* ATLAS, in its own words */}
+            <div className="mt-2.5 rounded-[9px] p-3" onClick={words.typing ? words.finish : undefined}
+              style={{ border: `1px solid ${H.line}`, borderLeft: `2px solid ${H.gold2}`, background: "rgba(3,7,11,0.55)", cursor: words.typing ? "pointer" : "auto" }}
+              data-idea-reasoning="" data-typing={words.typing ? "1" : "0"}>
+              <p className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[0.16em]" style={{ color: H.gold2 }}>
+                <Sparkles className="h-3 w-3" />ATLAS<span className="font-semibold normal-case tracking-normal" style={{ color: H.mut2 }}>· {hhmm(idea.at)}</span>
+              </p>
+              <p className="sr-only">{idea.reasoning}</p>
+              <div aria-hidden="true" className="mt-1.5 space-y-2 text-[13px] leading-relaxed" style={{ color: "#E4EAF0" }}>
+                {paragraphs.map((para, k) => (
+                  <p key={k}>
+                    {para}
+                    {words.typing && k === paragraphs.length - 1 && <span className="ml-[1px] inline-block h-[13px] w-[6px] translate-y-[2px] animate-pulse" style={{ background: H.gold3 }} />}
+                  </p>
+                ))}
+              </div>
+            </div>
+            {trade && <p className="mt-2 text-[12px] leading-snug" style={{ color: H.mut }} data-idea-entry-text="">{trade.entry!.text}</p>}
           </div>
 
           {trade && (
@@ -289,7 +316,7 @@ export function IdeaPanel({
 
               {/* execute — through ATLAS's own trade flow, never from here */}
               <div className="mt-3 rounded-[9px] p-3" style={{ border: "1px solid rgba(231,196,103,0.3)", background: "rgba(213,169,61,0.04)" }} data-idea-execute={trade.execute.via ?? "none"}>
-                <p className={LABEL} style={{ color: H.gold2 }}>Execute · run by ATLAS</p>
+                <p className={LABEL} style={{ color: H.gold2 }}>Take it · through ATLAS</p>
                 <p className="mt-1 text-[11px] leading-snug" style={{ color: H.mut }}>{trade.execute.note}</p>
                 {!replay && (riskPct != null || account) && (
                   <p className="mt-1.5 text-[11px] tabular-nums" style={{ color: H.mut }}>
@@ -313,6 +340,11 @@ export function IdeaPanel({
                       style={{ color: sideCol, border: `1px solid ${sideCol}`, background: `${sideCol}1A` }}>
                       Open the {up ? "buy" : "sell"} ticket, prefilled ▸
                     </button>
+                  ) : trade.kind === "enter_now" && !update ? (
+                    // An entry at the price with no ticket: the note above says why (gold closed, or the order checks refusing).
+                    <span className="inline-flex items-center gap-1.5 rounded-[8px] px-3 py-2 text-[11px] font-semibold" style={{ color: H.mut, border: `1px dashed ${H.line}` }}>
+                      <Crosshair className="h-3.5 w-3.5" />No ticket for this one right now
+                    </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 rounded-[8px] px-3 py-2 text-[11px] font-semibold" style={{ color: H.mut, border: `1px dashed ${H.line}` }}>
                       <Crosshair className="h-3.5 w-3.5" />Not executable yet — the entry is not here
@@ -326,48 +358,27 @@ export function IdeaPanel({
                   )}
                 </div>
                 {watch && <p className="mt-1.5 text-[11px]" style={{ color: watch.ok ? H.green : H.red }}>{watch.message}</p>}
-                {/* a forced read always has something that can be taken now: the same side, at the price */}
-                {nowAlt && (
-                  <div className="mt-2.5 rounded-[8px] p-2.5" style={{ border: "1px dashed rgba(255,176,103,0.5)", background: "rgba(255,150,60,0.05)" }} data-idea-enter-now="">
-                    <p className="text-[9px] font-bold uppercase tracking-[0.14em]" style={{ color: "#FFB067" }}>Enter now instead · same side, at the price</p>
-                    <p className="mt-1 text-[12px] tabular-nums" style={{ color: H.text }}>
-                      {up ? "Buy" : "Sell"} at market ~<b>{fmt2(nowAlt.entry)}</b> · stop <b style={{ color: H.red }}>{fmt2(nowAlt.stop.price)}</b> ({nowAlt.stop.pips} pips)
-                      {nowAlt.targets[0] && <> · TP1 <b style={{ color: H.green }}>{fmt2(nowAlt.targets[0].price)}</b> (1 : {nowAlt.targets[0].r}{nowAlt.targets[0].basis === "measured" ? ", measured" : ""})</>}
-                    </p>
-                    <p className="mt-1 text-[10.5px] leading-snug" style={{ color: H.mut }} title={nowAlt.stop.what}>{nowAlt.note}</p>
-                    {!replay && canTrade && prefillNow() && (
-                      <button onClick={() => { const p = prefillNow(); if (p) onManual(p); }} data-idea-ticket-now="" className="mt-2 w-full rounded-[8px] px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em]"
-                        style={{ color: sideCol, border: `1px solid ${sideCol}`, background: `${sideCol}14` }}>
-                        Open the {up ? "buy" : "sell"} ticket at market, prefilled ▸
-                      </button>
-                    )}
-                  </div>
-                )}
                 <p className="mt-2 text-[10px] leading-snug" style={{ color: H.mut2 }}>
                   Orders are market orders, confirmed on the next screen. The stop and the first target are attached, and ATLAS manages the position by your profile.
                 </p>
               </div>
 
-              {/* why */}
+              {/* how sure, where it is aiming, what makes it wrong */}
               <p className="mt-3 text-[11px]" style={{ color: H.mut }} title={trade.confidence?.basis}>
-                Conviction <b style={{ color: H.text }}>{trade.confidence?.label}</b>
-                <span style={{ color: H.mut2 }}> · {trade.confidence?.score}/100 — not a win probability</span>
-                {trade.style && <> · <b style={{ color: H.text }}>{STYLE_WORD[trade.style] ?? trade.style}</b></>}
-                {trade.strategy && <> · {trade.strategy}</>}
+                {confirmed ? "Confidence" : "Conviction"} <b style={{ color: H.text }}>{trade.confidence?.label}</b>
+                <span style={{ color: H.mut2 }}> · {trade.confidence?.score}/100 — {confirmed ? "from the evidence and the reward on offer" : "how one-sided the evidence is"}, not a win probability</span>
               </p>
-              <p className="mt-2 text-[12.5px] leading-relaxed" style={{ color: "#D6DEE6" }} data-idea-reasoning="">{trade.reasoning}</p>
               <div className="mt-2 space-y-1 text-[11.5px]" style={{ color: H.mut }}>
-                {trade.bias && <p><span style={{ color: H.mut2 }}>HTF bias:</span> {trade.bias}</p>}
-                {trade.poi && <p><span style={{ color: H.mut2 }}>POI:</span> {trade.poi}</p>}
-                {trade.targeting && <p><span style={{ color: H.mut2 }}>Targeting:</span> {trade.targeting}</p>}
-                {trade.invalidation && <p><span style={{ color: H.mut2 }}>Invalidation:</span> {trade.invalidation.text}</p>}
+                <p title={trade.stop!.what}><span style={{ color: H.mut2 }}>Stop:</span> {trade.stop!.what}</p>
+                {trade.targeting && <p><span style={{ color: H.mut2 }}>Targets:</span> {trade.targeting}</p>}
+                {trade.invalidation && <p><span style={{ color: H.mut2 }}>Wrong if:</span> {trade.invalidation.text}</p>}
               </div>
 
               {trade.confirmations.length > 0 && (
                 <div className="mt-3 rounded-[8px] p-2.5" style={{ border: `1px solid ${H.line}` }}>
                   <p className="flex items-center justify-between text-[9px] font-semibold uppercase tracking-[0.14em]" style={{ color: H.mut }}>
-                    <span>{trade.source === "setup_engine" ? "The engine's conditions" : "The evidence"}</span>
-                    <span style={{ color: H.text }}>{trade.confirmations.filter((c) => c.ok).length} {trade.source === "setup_engine" ? `of ${trade.confirmations.length} met` : `for · ${trade.confirmations.filter((c) => !c.ok).length} against`}</span>
+                    <span>{confirmed ? "What I needed to see" : "What I'm weighing"}</span>
+                    <span style={{ color: H.text }}>{trade.confirmations.filter((c) => c.ok).length} {confirmed ? `of ${trade.confirmations.length} met` : `for · ${trade.confirmations.filter((c) => !c.ok).length} against`}</span>
                   </p>
                   <ul className="mt-1.5 space-y-1">
                     {trade.confirmations.map((c, k) => (
@@ -381,7 +392,6 @@ export function IdeaPanel({
                   </ul>
                 </div>
               )}
-              {trade.alternative && <p className="mt-2.5 text-[11.5px] leading-snug" style={{ color: H.mut }}><span style={{ color: H.mut2 }}>The other way in:</span> {trade.alternative}</p>}
             </div>
           )}
 
@@ -412,17 +422,16 @@ export function IdeaPanel({
             </div>
           )}
 
-          {(idea.warnings.length > 0 || idea.engine) && (
-            <div className="space-y-1 border-t px-3 py-2.5" style={{ borderColor: H.lineSoft }}>
+          {idea.warnings.length > 0 && (
+            <div className="space-y-1 border-t px-3 py-2.5" style={{ borderColor: H.lineSoft }} data-idea-warnings="">
               {idea.warnings.map((w, k) => <p key={k} className="text-[11px] leading-snug" style={{ color: H.gold2 }}>⚠ {w}</p>)}
-              <p className="text-[11px] leading-snug" style={{ color: H.mut }} data-idea-engine=""><span style={{ color: H.mut2 }}>Setup engine · {idea.engine.headline.toLowerCase()}:</span> {idea.engine.say}</p>
             </div>
           )}
           <p className="border-t px-3 py-2 text-[10px] leading-snug" style={{ borderColor: H.lineSoft, color: H.mut2 }}>
             {replay ? "REPLAY · recorded gold · " : ""}Gold {idea.price != null ? fmt2(idea.price) : "—"}{meta?.analysisAt ? ` · analysis ${hhmmss(meta.analysisAt)}` : idea.snapshotAt ? ` · analysis ${hhmmss(idea.snapshotAt)}` : ""}
             {meta?.provider ? ` · ${meta.provider} XAU/USD` : ""}{meta?.totalMs != null ? ` · generated in ${meta.totalMs} ms` : ""}
             {idea.expiresAt ? ` · on offer until ${hhmm(idea.expiresAt)}` : ""}{meta && !meta.saved && !replay ? " · not saved, so it can't be followed later" : ""}
-            . ATLAS&apos;s engine output — analysis, not financial advice.
+            . ATLAS&apos;s analysis — not financial advice.
           </p>
         </div>
       )}
@@ -430,7 +439,7 @@ export function IdeaPanel({
       {/* the record */}
       {!replay && list && list.kept && (list.ideas.length > 0) && (
         <div className="rounded-[10px] p-3" style={{ border: `1px solid ${H.line}`, background: H.panel }} data-idea-list="">
-          <p className={LABEL} style={{ color: H.gold2 }}>Your ATLAS ideas</p>
+          <p className={LABEL} style={{ color: H.gold2 }}>ATLAS&apos;s calls for you</p>
           {list.record && list.record.graded > 0 ? (
             <p className="mt-1 text-[12px]" data-idea-record="">
               <b className="tabular-nums" style={{ color: H.text }}>{list.record.wins}W · {list.record.losses}L</b>
@@ -438,9 +447,9 @@ export function IdeaPanel({
               <span style={{ color: H.mut2 }}> · {list.record.open} still open · {list.record.untriggered} never entered</span>
             </p>
           ) : (
-            <p className="mt-1 text-[11.5px]" style={{ color: H.mut }}>No graded results yet — the record builds as your ideas reach a target or a stop.</p>
+            <p className="mt-1 text-[11.5px]" style={{ color: H.mut }}>No graded results yet — the record builds as these calls reach a target or a stop.</p>
           )}
-          <p className="mt-0.5 text-[10px]" style={{ color: H.mut2 }}>Graded on real candles — a target before the stop is a win. It is the idea&apos;s levels against price, not your fills.</p>
+          <p className="mt-0.5 text-[10px]" style={{ color: H.mut2 }}>Graded on real candles — a target before the stop is a win. It is the call&apos;s levels against price, not your fills.</p>
           <ul className="mt-2 divide-y" style={{ borderColor: H.lineSoft }}>
             {list.ideas.map((r) => {
               const sw = STATE_WORD[r.state] ?? STATE_WORD.new;

@@ -14,7 +14,7 @@ export const maxDuration = 30;
  * would make it wrong — from ATLAS's own engine (command-center/engines/idea.ts), never from a model.
  *
  *   GET                         the member's recent ideas and their record
- *   POST { action: "generate", options? }   a new idea from the market as it stands
+ *   POST { action: "generate" }             ATLAS's call from the market as it stands (one answer — nothing to choose)
  *   POST { action: "follow", id }           where a stored idea stands now, and how it has done on real candles
  *   POST { action: "watch", id }            have ATLAS tell the member when that idea's entry is reached
  *

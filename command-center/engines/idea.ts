@@ -2,45 +2,42 @@
  * ATLAS TRADE IDEA — "GENERATE" (owner 11-11: "When I click generate I want atlas to give me the trade idea
  * and where I should enter. I want the engine of atlas though to run the trade.")
  *
- * One function turns what ATLAS already measured into a single answer a member can act on: which way, where
- * to enter, where the stop goes, where it is aiming, why, and what would make it wrong. Nothing here is a
- * second opinion — it is the setup engine's trade when there is one, and otherwise a plan built from the
- * read's own two levels with the setup engine's own pricing rules.
+ * One function turns what ATLAS already measured into ONE answer in its own voice: which way, where to
+ * enter, where the stop goes, where it is aiming, why, and what would make it wrong. There is nothing to
+ * choose first (owner 11-12: "not so many options just want an atlas option that goes off what atlas sees.
+ * Needs to feel like it's come right from the AI. I don't want the quick, intraday, or swing versions").
  *
- * TWO SOURCES, NEVER BLURRED.
+ * WHERE THE ANSWER COMES FROM.
  *
- *   • SETUP ENGINE (source "setup_engine"). When engines/setup.ts has a trade READY, the idea IS that trade,
- *     number for number: the same entry band, stop and objectives the member is shown on the trade card and
- *     the server recomputes before an order is sent. When the engine has everything but its trigger, the
- *     idea is that trade with the entry it is waiting for.
+ *   • A CONFIRMED SETUP (source "setup_engine"). When engines/setup.ts has a trade READY, the idea IS that
+ *     trade, number for number: the same entry band, stop and objectives the member is shown on the trade
+ *     card and the server recomputes before an order is sent. When the engine has everything but its
+ *     trigger, the idea is that trade with the entry it is waiting for. Nothing about that engine changes
+ *     here — its stop is its own.
  *
- *   • THE READ (source "read_plan"). When the engine has no trade, ATLAS still knows which way it leans and
- *     the two prices that lean stands on (core/read.ts — the same support and resistance the scenario cards
- *     show). With a clear or strong lean the idea is a PLAN at one of those two levels: the pullback to the
- *     level the lean stands on, or the break through the far one. It is labelled a plan, it says the setup
- *     engine has not confirmed a trade, it is off the moment the lean changes, and it is never an entry at
- *     the price gold happens to be at: a directional lean alone does not become an entry. A neutral, turning
- *     or faint read produces no plan — only where a trade would be.
+ *   • ATLAS'S CALL (sources "read_plan" and "forced_read"). Otherwise ATLAS still names a side and a trade
+ *     (owner 11-11: "I don't want it ever to stand down. I want it forced to read the market and come up
+ *     with a direction and a trade."): the side its read leans to — or, when it holds no lean, the side the
+ *     evidence tilts to with the abstention threshold removed — entered at the price, with the stop behind
+ *     market structure. "read_plan" means a clear or strong lean stood behind it; "forced_read" means
+ *     anything fainter. The member is shown one thing either way: ATLAS's call, and how convinced it is.
  *
- * THE RULES (the setup engine's, applied to a level instead of to the current price).
+ * THE RULES OF A CALL.
  *
- *   • EVERY NUMBER IS REAL. The entry is a level ATLAS already names. The stop is that level plus the
- *     engine's own ATR pad, spread and slippage allowance. A target is a real level at least one R away;
- *     when price is in open space and no real level exists, the targets are the engine's own fallback
- *     multiples and every one of them says so.
- *   • A STYLE IS NOT STRETCHED TO FIT. The stop has to sit inside the style's own noise floor and ceiling,
- *     and the room has to belong to that style's band, or that pairing is refused — exactly as the engine
- *     refuses it.
- *   • IT ALWAYS ANSWERS (owner 11-11: "I don't want it ever to stand down. I want it forced to read the
- *     market and come up with a direction and a trade."). When the setup engine has no trade and the read
- *     has no plan — a chaotic market, a range, a turning or faint read, a level that does not survive the
- *     arithmetic — the idea is a FORCED READ (source "forced_read"): the side the evidence tilts to with the
- *     abstention threshold removed, an entry, a stop inside the style's own limits and targets. It is
- *     labelled as forced, it carries the engine's own reason for standing down, its conviction is whatever
- *     the evidence is (usually low), and executing it is always the member's call. Nothing about the setup
- *     engine or the order checks changes: the engine still stands down on its own account.
- *     The one thing that cannot be forced is a number from nothing: with no market read at all there is no
- *     price to build on, and the answer says exactly that.
+ *   • THE STOP FOLLOWS MARKET STRUCTURE (owner 11-12: "needs to go with market structure for the stop loss.
+ *     It can be less then 30 pips stop"). It goes behind the last confirmed swing still standing on the
+ *     losing side — the last higher low under a buy, the last lower high over a sell — read from the closed
+ *     5- and 15-minute candles. No fixed pad and no style floor: only a stop inside the noise is passed over.
+ *   • EVERY NUMBER IS REAL. The entry is the price. The stop is a real candle's low or high plus the spread.
+ *     A target is a real level or a standing swing at least one R away; in open space the targets are
+ *     multiples of the risk and every one of them says so.
+ *   • IT NEVER CLAIMS MORE THAN IT HAS. A call says it is ATLAS's read and not one of its confirmed setups,
+ *     shows its conviction (usually low when the read is faint), and executing it is always the member's
+ *     decision through the order ticket and its existing checks — never ATLAS's own take-setup trade. Where
+ *     those checks would refuse (the market is flagged chaotic), it says so instead of offering a ticket.
+ *     Nothing about the setup engine or the order checks changes.
+ *     The one thing that cannot be produced is a number from nothing: with no market read at all there is
+ *     no price to build on, and the answer says exactly that.
  *   • CONVICTION IS NOT A WIN RATE. The score is the setup engine's confidence or the read's evidence
  *     balance, named as such. Nothing here claims a probability.
  *
@@ -49,10 +46,12 @@
  */
 import type { Bar, Level, MarketSnapshot, Side, Timeframe } from "../core/types";
 import { PIP, TF_MINUTES } from "../core/types";
-import { STYLE, shortfall, type Style } from "../core/style";
-import { LEAN_LABEL, levelIdOf, type AtlasRead, type EvidenceRef, type Scenario } from "../core/atlasContract";
-import { edgesOfRead, fmtPx, signed } from "../core/read";
+import { STYLE, type Style } from "../core/style";
+import { levelIdOf, type AtlasRead, type EvidenceRef, type Scenario } from "../core/atlasContract";
+import { READ_RULES, edgesOfRead, fmtPx, signed } from "../core/read";
 import { priceNow } from "../core/priceNow";
+import { swings } from "../core/levelMap";
+import { resample } from "../core/bars";
 import { STRATEGY_LABEL, type BrainSetup, type SetupState } from "./setup";
 
 export const ATLAS_IDEA_VERSION = "idea-2";
@@ -60,11 +59,7 @@ export const ATLAS_IDEA_VERSION = "idea-2";
 export const IDEA_VERSIONS: readonly string[] = ["idea-1", "idea-2"];
 
 export const IDEA_RULES = {
-  /** The stop's pad behind a level, in ATR of the style's own timeframe — setup.ts priceTheTrade's multipliers. */
-  PAD_ATR: { quick: 0.35, hold: 0.5, swing: 0.75 } as Record<Style, number>,
-  /** Plus what it costs to be in the trade: the live spread and a quarter of that ATR for slippage (setup.ts 09-21). */
-  FRICTION_ATR: 0.25,
-  /** How deep the entry zone runs on the trade side of its level, in ATR. */
+  /** A zone around the last price, in 15-minute ATR, when nothing can be entered yet (gold closed, a stale read). */
   ZONE_ATR: 0.25,
   /** An objective closer than one R is not an objective (setup.ts). */
   MIN_R: 1.0,
@@ -74,59 +69,67 @@ export const IDEA_RULES = {
   OBSTRUCTION_R: 0.6,
   /** In open space, with no real level at a sensible distance: the setup engine's fallback multiples. */
   FALLBACK_R: [1.8, 3.0] as const,
-  /** The room must be within this of the style's own band, or the style is refused (setup.ts shortfall rule). */
-  MAX_SHORTFALL: 0.45,
-  /** A zone may gather neighbouring levels, but never grow wider than this, in ATR. */
-  MAX_ZONE_ATR: 1.2,
-  /** A level further from price than this, in ATR of the plan's timeframe, is not a plan yet. */
-  MAX_DISTANCE_ATR: 6,
-  /** How long a plan from the read stays on offer — the scenarios' own horizon (core/scenarios.ts). */
+  /** How long a call made from a clear lean stays on offer — the scenarios' own horizon (core/scenarios.ts). */
   PLAN_TTL_MS: 4 * 3600_000,
   /** The engine's own rule for a market entry that is still the same trade (setup.ts stillValid). */
   DRIFT_R: 0.6,
   /** Minutes to a high-impact release inside which the idea carries a warning (setup.ts uses 20). */
   NEWS_WARN_MIN: 20,
-  /** A forced read's stop when no real structure sits at a usable distance behind the price, in ATR of the style's timeframe. */
-  FORCED_STOP_ATR: 1.5,
+  /*
+   * STOPS FOLLOW MARKET STRUCTURE (owner 11-12: "needs to go with market structure for the stop loss. It can
+   * be less then 30 pips stop"). On ATLAS's own calls the stop goes behind the last swing still standing on
+   * the losing side — not a fixed pad, and with no style floor under it.
+   */
+  /** A swing is a candle with this many lower highs (higher lows) on each side. */
+  SWING_K: 2,
+  /** How far back the 5-minute swings are read: eight hours of candles. */
+  SWING_BARS_5M: 96,
+  /** What the stop gives the swing it hides behind: the spread plus this much of the 5-minute ATR … */
+  STOP_BUFFER_ATR: 0.1,
+  /** … and never less than this, in price (three pips). */
+  STOP_BUFFER_MIN: 0.3,
+  /** Swings and levels packed within this much of the 5-minute ATR beyond the chosen one are cleared together. */
+  STOP_CLUSTER_ATR: 0.25,
+  /** The tightest stop a call may carry, in pips … */
+  MIN_STOP_PIPS: 10,
+  /** … and never closer than this much of the 5-minute ATR: half an average candle is noise, not structure. */
+  MIN_STOP_ATR: 0.5,
+  /** A swing further than this from the entry is not what the entry leans on. */
+  MAX_STOP_PIPS: 200,
+  /** With no structure at a usable distance: this much of the 15-minute ATR, said to be measured. */
+  MEASURED_STOP_ATR: 1.2,
+  /** Under this a stop is called tight where the member reads the call. */
+  TIGHT_STOP_PIPS: 25,
   /** A market entry's band around the price, in ATR — the setup engine's own entry band (setup.ts). */
   FORCED_BAND_ATR: 0.12,
-  /** How long a forced read stays on offer: half a plan's life — it has less behind it. */
+  /** How long a call from a tilt of the evidence stays on offer: half a clear lean's — it has less behind it. */
   FORCED_TTL_MS: 2 * 3600_000,
   /** …and one made while gold is closed, which waits for the reopen. */
   FORCED_CLOSED_TTL_MS: 72 * 3600_000,
 } as const;
 
-/** Which timeframe's ATR sizes a style's stop pad and entry zone. */
-const STYLE_TF: Record<Style, Timeframe> = { quick: "5m", hold: "15m", swing: "1h" };
-/** When that timeframe has no reading: the nearest one that has, scaled by the square root of time. */
-const ATR_FALLBACK: Record<Style, [Timeframe, number][]> = {
-  quick: [["1m", 2.2], ["15m", 0.58]],
-  hold: [["5m", 1.7], ["1h", 0.5]],
-  swing: [["4h", 0.5], ["15m", 2.0]],
-};
-
-export const IDEA_STYLE_LABEL: Record<Style, string> = { quick: "Quick", hold: "Intraday", swing: "Swing" };
-export const IDEA_STYLE_HINT: Record<Style, string> = {
-  quick: "1m · 5m decide. 30–100 pips, minutes.",
-  hold: "15m · 1h decide. Held for the session's move, hours.",
-  swing: "1h · 4h · daily decide. Sessions to days.",
-};
+/** The 15-minute ATR sizes a call's entry band; when it has no reading, the nearest timeframe that has, scaled by the square root of time. */
+const ATR_FALLBACK: [Timeframe, number][] = [["5m", 1.7], ["1h", 0.5]];
 
 export type IdeaStyleChoice = "auto" | Style;
 export type IdeaOptions = { style: IdeaStyleChoice };
 export const DEFAULT_IDEA_OPTIONS: IdeaOptions = { style: "auto" };
 
-/** What the request may ask for. Anything else is "ATLAS decides". */
-export function ideaOptionsOf(raw: unknown): IdeaOptions {
-  const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const st = String(o.style ?? "auto");
-  return { style: st === "quick" || st === "hold" || st === "swing" ? st : "auto" };
+/**
+ * What a request may ask for. Since 11-12 that is nothing: the Quick / Intraday / Swing choice is gone (owner:
+ * "I don't want the quick, intraday, or swing versions … just want an atlas option that goes off what atlas
+ * sees"), so whatever arrives — including a style from a page that has not refreshed — is ATLAS's own call.
+ * The field stays on stored ideas, which were generated with one.
+ */
+export function ideaOptionsOf(_raw?: unknown): IdeaOptions {
+  return { style: "auto" };
 }
 
 export type IdeaKind = "enter_now" | "on_confirmation" | "at_level" | "on_break" | "stand_aside";
 /**
- * setup_engine: the setup engine's own trade. read_plan: a plan at the levels a clear lean stands on.
- * forced_read: neither exists — the side the evidence tilts to, priced anyway because the member asked.
+ * setup_engine: the setup engine's own confirmed trade. read_plan: ATLAS's call with a clear or strong lean
+ * behind it (and, on ideas stored before 11-12, a plan at one of that lean's two levels). forced_read: its
+ * call from anything fainter — the side the evidence tilts to. The member is shown the last two as one thing.
  */
 export type IdeaSource = "setup_engine" | "read_plan" | "forced_read";
 
@@ -209,21 +212,6 @@ export type AtlasIdea = {
     approved: { side: Side; style: Style; stop: number; invalidationPrice: number | null } | null;
     manual: { side: Side; style: Style; stop: number; takeProfit: number | null } | null;
   };
-  /**
-   * ENTER NOW INSTEAD. A forced read whose own entry is a level price has not reached yet also carries the
-   * same side entered at the price gold is at — priced by the same rules, the member's call like the rest of
-   * it — so there is always something that can be taken now. Absent on every other kind of idea, and when
-   * nothing can be entered at all (gold closed, a stale or doubtful read). It is not what gets graded.
-   */
-  enterNow?: {
-    entry: number; low: number; high: number;
-    stop: { price: number; pips: number; what: string };
-    targets: IdeaTarget[];
-    rr: { first: number; best: number };
-    /** What the member should know about taking this version (a level in the way, a measured stop). */
-    note: string;
-    manual: { side: Side; style: Style; stop: number; takeProfit: number | null };
-  } | null;
   /** What ATLAS would watch to say "the entry is here". `say` is the instruction the watch engine parses,
    *  so its price is written plainly (4371.77, no thousands separator). */
   watch: { price: number; direction: "above" | "below"; say: string } | null;
@@ -234,12 +222,11 @@ export type AtlasIdea = {
 export type BuildIdeaInput = {
   snapshot: MarketSnapshot | null;
   snapshotId?: number | null;
-  /** What the setup engine wants under the member's options (their style choice applied as a filter). */
+  /** What the setup engine wants right now — exactly what the trade card shows. */
   setup: BrainSetup;
   /**
-   * True when `setup` is exactly what the trade card shows and the server's take-setup path recomputes (the
-   * style filter was off, or it did not change the engine's answer). Only then can the idea be taken as
-   * ATLAS's own trade; otherwise executing it is the member's call.
+   * True when `setup` is what the server's take-setup path recomputes before an order is sent. Only then can
+   * a confirmed setup be taken as ATLAS's own trade; otherwise executing it is the member's call.
    */
   takeable: boolean;
   read: AtlasRead | null;
@@ -252,8 +239,12 @@ export type BuildIdeaInput = {
   tradeActive?: boolean;
   /** The member's minimum confidence, to explain a trade that is waiting on it. */
   minConfidence?: number;
-  /** What the setup engine wants with NO style filter, when the member's style choice changed the answer. */
-  enginePick?: BrainSetup | null;
+  /**
+   * The 5-minute candles on hand, oldest first. Swings are read from the closed ones; the one still forming
+   * only tells whether a swing has been traded through. Without candles only each timeframe's last swing is
+   * known.
+   */
+  bars5m?: Bar[] | null;
   pipSize?: number;
   now: number;
 };
@@ -279,11 +270,11 @@ export function ideaLevels(s: MarketSnapshot): Lv[] {
   return out;
 }
 
-/** The ATR that sizes this style's pad, and whether it had to be estimated from another timeframe. */
-function atrFor(s: MarketSnapshot, style: Style): { atr: number; tf: Timeframe; estimated: boolean } | null {
-  const own = s.timeframes[STYLE_TF[style]]?.features.atr;
-  if (own != null && own > 0) return { atr: own, tf: STYLE_TF[style], estimated: false };
-  for (const [tf, k] of ATR_FALLBACK[style]) {
+/** The 15-minute ATR, and whether it had to be estimated from another timeframe. */
+function atr15Of(s: MarketSnapshot): { atr: number; tf: Timeframe; estimated: boolean } | null {
+  const own = s.timeframes["15m"]?.features.atr;
+  if (own != null && own > 0) return { atr: own, tf: "15m", estimated: false };
+  for (const [tf, k] of ATR_FALLBACK) {
     const a = s.timeframes[tf]?.features.atr;
     if (a != null && a > 0) return { atr: a * k, tf, estimated: true };
   }
@@ -344,6 +335,8 @@ function newsWarning(s: MarketSnapshot): string | null {
 }
 
 const engineOf = (su: BrainSetup) => ({ state: su.state, headline: su.headline, say: su.say });
+/** A call is read as short paragraphs (the card shows them one under another); an empty one is dropped. */
+const paragraphs = (...parts: (string | null | undefined)[]) => parts.map((x) => (x ?? "").trim()).filter(Boolean).join("\n\n");
 
 /* ── the one answer that is not a trade: there is nothing to read ─────────────────────────────────── */
 
@@ -392,7 +385,6 @@ function fromSetup(i: BuildIdeaInput, s: MarketSnapshot, su: BrainSetup): AtlasI
   const strategy = su.strategy ? STRATEGY_LABEL[su.strategy] : null;
   const pivot = su.invalidationPrice;
   const read = i.read;
-  const lab = STYLE[style].label;
   const warnings = [newsWarning(s), ...s.warnings.slice(0, 2)].filter((x): x is string => !!x);
   if (i.tradeActive) warnings.push("You already have an ATLAS position open — the position limit is checked before another order is sent.");
   if (su.blockedBy) warnings.push(su.blockedBy);
@@ -403,7 +395,7 @@ function fromSetup(i: BuildIdeaInput, s: MarketSnapshot, su: BrainSetup): AtlasI
     price: r2(priceNow(s)),
     confidence: {
       score: su.confidence, label: confLabel(su.confidence),
-      basis: `Setup engine confidence ${su.confidence} of 100, from the evidence and the reward on offer — not a win probability.`,
+      basis: `My confidence in this setup is ${su.confidence} of 100, from the evidence and the reward on offer — not a win probability.`,
     },
     bias: read && read.lean !== "insufficient_data" ? `${read.htfTrend.text} ${read.momentum.text}`.trim() : null,
     poi: pivot != null ? `${fmtPx(pivot)} — ${levels.find((l) => Math.abs(l.price - pivot) < 0.06)?.label ?? "the level this trade is built on"}.` : null,
@@ -445,27 +437,27 @@ function fromSetup(i: BuildIdeaInput, s: MarketSnapshot, su: BrainSetup): AtlasI
       ...base,
       kind: "enter_now",
       headline: `${up ? "BUY" : "SELL"} XAUUSD — enter now`,
-      badge: "SETUP ENGINE · TRADE READY",
+      badge: "ATLAS'S CALL · CONFIRMED SETUP",
       entry: {
         type: "market", price: entry, low: su.entryLow, high: su.entryHigh, level: null, trigger: null, confirm: "none",
         text: `Enter at market now, around ${zone}.`, distancePips: 0,
       },
       stop: { price: su.stop, pips: pipsOf(risk, pipSize), what: `Behind the structure this trade depends on, with room for the spread and slippage.` },
       targets, rr: rrOf(targets),
-      reasoning: [su.thesis, su.styleWhy].filter(Boolean).join(" "),
+      reasoning: paragraphs(su.thesis, `This is one of my confirmed setups — every condition I need is met — so it's a trade I'd take myself. I'd ${up ? "buy" : "sell"} here, around ${zone}, with the stop at ${fmtPx(su.stop)} (${pipsOf(risk, pipSize)} pips), behind the structure the trade depends on. First target ${fmtPx(targets[0].price)}, ${targets[0].r} times the risk.`),
       targeting: targetingOf(targets),
       waitingFor: [],
       expiresAt: su.expiresAt,
       execute: {
         via, now: true,
         note: via === "take_setup"
-          ? "This is ATLAS's own trade. The server recomputes it from the live market before anything is sent, sizes it from your profile's risk, attaches the stop and the first target, and ATLAS manages it."
-          : `ATLAS's own pick right now is a different style, so this one is your call: it opens through the same checks and ATLAS manages it once it is on.`,
+          ? "This is my own trade. I recompute it from the live market before anything is sent, size it from your profile's risk, attach the stop and the first target, and manage it once it's on."
+          : "Taking it is your call. It opens through my order checks, sized from your risk, and I manage it once it's on.",
         approved: via === "take_setup" ? approved : null,
         manual: { side, style, stop: su.stop, takeProfit: su.initialObjective },
       },
       watch: null,
-      say: `${up ? "Buy" : "Sell"} gold now, around ${fmtPx(entry)}. Stop ${fmtPx(su.stop)}, ${pipsOf(risk, pipSize)} pips. First target ${fmtPx(targets[0].price)}, ${targets[0].r} to one. It's ${lab === "HOLD" ? "an intraday" : `a ${lab.toLowerCase()}`} trade and my setup engine has it ready.`,
+      say: `${up ? "Buy" : "Sell"} gold now, around ${fmtPx(entry)}. Stop ${fmtPx(su.stop)}, ${pipsOf(risk, pipSize)} pips. First target ${fmtPx(targets[0].price)}, ${targets[0].r} to one. It's one of my confirmed setups — I'd take this one myself.`,
     };
   }
 
@@ -479,30 +471,30 @@ function fromSetup(i: BuildIdeaInput, s: MarketSnapshot, su: BrainSetup): AtlasI
     const risk = Math.abs(trig - su.stop);
     if (!(risk > 0) || d * (trig - su.stop) <= 0) return null;
     const stopPips = pipsOf(risk, pipSize);
-    if (stopPips > STYLE[style].maxStopPips) warnings.push(`From the trigger the stop is ${stopPips} pips — wider than ${lab} allows, so ATLAS would want tighter structure by the time it breaks.`);
+    if (stopPips > STYLE[style].maxStopPips) warnings.push(`From the trigger the stop is ${stopPips} pips — wider than I allow on this kind of trade, so I'd want tighter structure by the time it breaks.`);
     const targets = targetsFrom(trig, risk, side, levels, pipSize);
     const distance = pipsOf(Math.max(0, d * (trig - priceNow(s))), pipSize);
     return {
       ...base,
       kind: "on_break",
       headline: `${up ? "BUY" : "SELL"} the break of ${fmtPx(trig)}`,
-      badge: "SETUP ENGINE · WAITING FOR TRIGGER",
+      badge: "ATLAS'S CALL · WAITING ON THE BREAK",
       entry: {
         type: "stop", price: r2(trig), low: r2(trig), high: r2(trig),
         level: { price: r2(trig), label: levels.find((l) => Math.abs(l.price - trig) < 0.06)?.label ?? "the engine's trigger" },
         trigger: `Gold trading ${up ? "above" : "below"} ${fmtPx(trig)}`, confirm: "touch",
-        text: `Not yet. The entry is when gold trades ${up ? "above" : "below"} ${fmtPx(trig)} — ${distance} pips from here. ATLAS re-prices the trade at that moment and flags it TRADE READY.`,
+        text: `Not yet. The entry is when gold trades ${up ? "above" : "below"} ${fmtPx(trig)} — ${distance} pips from here. I re-price the trade at that moment and flag it TRADE READY.`,
         distancePips: distance,
       },
-      stop: { price: su.stop, pips: stopPips, what: "The engine's structural stop, measured from the trigger." },
+      stop: { price: su.stop, pips: stopPips, what: "Behind the structure this trade depends on, measured from the trigger." },
       targets, rr: rrOf(targets),
-      reasoning: [su.thesis, `Everything is in place except the trigger: ${missing.map((m) => m.text.toLowerCase()).join(", ")}.`].filter(Boolean).join(" "),
+      reasoning: paragraphs(su.thesis, `Everything I need is in place except the trigger: ${missing.map((m) => m.text.toLowerCase()).join(", ")}. So I'm not ${up ? "buying" : "selling"} yet — the entry is the break of ${fmtPx(trig)}, ${distance} pips from here, with the stop at ${fmtPx(su.stop)}.`),
       targeting: targetingOf(targets),
       waitingFor: missing.map((m) => m.text),
       expiresAt: su.expiresAt,
-      execute: { via: null, now: false, note: "Nothing to execute until the trigger breaks. When it does, ATLAS's trade card turns TRADE READY and you take it there.", approved: null, manual: { side, style, stop: su.stop, takeProfit: targets[0]?.price ?? null } },
+      execute: { via: null, now: false, note: "Nothing to execute until the trigger breaks. When it does, my trade card turns TRADE READY and you take it there.", approved: null, manual: { side, style, stop: su.stop, takeProfit: targets[0]?.price ?? null } },
       watch: { price: r2(trig), direction: up ? "above" : "below", say: `Watch ${trig.toFixed(2)} and tell me if it breaks ${up ? "above" : "below"}.` },
-      say: `${up ? "Buy" : "Sell"} the break of ${fmtPx(trig)}, not before — that's ${distance} pips from here. Stop ${fmtPx(su.stop)}${targets[0] ? `, first target ${fmtPx(targets[0].price)}` : ""}. My setup engine has everything but that trigger.`,
+      say: `${up ? "Buy" : "Sell"} the break of ${fmtPx(trig)}, not before — that's ${distance} pips from here. Stop ${fmtPx(su.stop)}${targets[0] ? `, first target ${fmtPx(targets[0].price)}` : ""}. Everything else I need is in place — I'm only waiting on that break.`,
     };
   }
 
@@ -520,7 +512,7 @@ function fromSetup(i: BuildIdeaInput, s: MarketSnapshot, su: BrainSetup): AtlasI
         ...base,
         kind: "at_level",
         headline: `${up ? "BUY" : "SELL"} back near ${fmtPx(pivot)}`,
-        badge: "SETUP ENGINE · WAITING FOR A BETTER PRICE",
+        badge: "ATLAS'S CALL · WAITING FOR A BETTER PRICE",
         entry: {
           type: "limit", price: far, low: r2(Math.min(pivot, far)), high: r2(Math.max(pivot, far)),
           level: { price: r2(pivot), label: levels.find((l) => Math.abs(l.price - pivot) < 0.06)?.label ?? "the level this trade is built on" },
@@ -528,13 +520,13 @@ function fromSetup(i: BuildIdeaInput, s: MarketSnapshot, su: BrainSetup): AtlasI
           text: `Not here — gold has run ${distance} pips past the zone. The entry is back between ${fmtPx(Math.min(pivot, far))} and ${fmtPx(Math.max(pivot, far))}.`,
           distancePips: distance,
         },
-        stop: { price: su.stop, pips: pipsOf(risk, pipSize), what: "The engine's structural stop, measured from the far edge of the zone." },
+        stop: { price: su.stop, pips: pipsOf(risk, pipSize), what: "Behind the structure this trade depends on, measured from the far edge of the zone." },
         targets, rr: rrOf(targets),
-        reasoning: [su.thesis, stretched.detail].filter(Boolean).join(" "),
+        reasoning: paragraphs([su.thesis, stretched.detail].filter(Boolean).join(" "), `I want this ${up ? "buy" : "sell"}, but not at this price — gold has run ${distance} pips past where the trade makes sense. The entry is back between ${fmtPx(Math.min(pivot, far))} and ${fmtPx(Math.max(pivot, far))}, with the stop at ${fmtPx(su.stop)}.`),
         targeting: targetingOf(targets),
         waitingFor: [`Price back inside ${fmtPx(Math.min(pivot, far))}–${fmtPx(Math.max(pivot, far))}`],
         expiresAt: su.expiresAt,
-        execute: { via: null, now: false, note: "Nothing to execute until price comes back to the zone. ATLAS flags it TRADE READY when it does.", approved: null, manual: { side, style, stop: su.stop, takeProfit: targets[0]?.price ?? null } },
+        execute: { via: null, now: false, note: "Nothing to execute until price comes back to the zone. I flag it TRADE READY when it does.", approved: null, manual: { side, style, stop: su.stop, takeProfit: targets[0]?.price ?? null } },
         watch: { price: far, direction: up ? "below" : "above", say: `Watch ${far.toFixed(2)} and tell me when price reaches it.` },
         say: `I want to ${up ? "buy" : "sell"}, but not up here. The entry is back between ${fmtPx(Math.min(pivot, far))} and ${fmtPx(Math.max(pivot, far))}, stop ${fmtPx(su.stop)}.`,
       };
@@ -552,22 +544,22 @@ function fromSetup(i: BuildIdeaInput, s: MarketSnapshot, su: BrainSetup): AtlasI
       ...base,
       kind: "on_confirmation",
       headline: `${up ? "BUY" : "SELL"} — not confirmed yet`,
-      badge: "SETUP ENGINE · NOT CONFIDENT ENOUGH",
+      badge: "ATLAS'S CALL · NOT CONFIRMED YET",
       entry: {
         type: "market", price: entry, low: su.entryLow, high: su.entryHigh, level: null,
-        trigger: `ATLAS's confidence reaching ${min}`, confirm: "none",
-        text: `The conditions are met, but ATLAS's confidence is ${su.confidence} and it calls a trade ready from ${min}. If it firms up, the entry is at market around ${fmtPx(su.entryLow)}–${fmtPx(su.entryHigh)}.`,
+        trigger: `My confidence reaching ${min}`, confirm: "none",
+        text: `The conditions are met, but my confidence is ${su.confidence} and I call a trade ready from ${min}. If it firms up, the entry is at market around ${fmtPx(su.entryLow)}–${fmtPx(su.entryHigh)}.`,
         distancePips: 0,
       },
-      stop: { price: su.stop, pips: pipsOf(risk, pipSize), what: "The engine's structural stop." },
+      stop: { price: su.stop, pips: pipsOf(risk, pipSize), what: "Behind the structure this trade depends on." },
       targets, rr: rrOf(targets),
-      reasoning: [su.thesis, su.say].filter(Boolean).join(" "),
+      reasoning: paragraphs([su.thesis, su.say].filter(Boolean).join(" "), `So this is a lean, not a confirmed setup: I'd be a ${up ? "buyer" : "seller"} around ${fmtPx(entry)} with the stop at ${fmtPx(su.stop)}, and I'm not taking it myself until my confidence reaches ${min}.`),
       targeting: targetingOf(targets),
       waitingFor: [`Confidence of at least ${min} (now ${su.confidence})`],
       expiresAt: su.expiresAt,
       execute: {
         via: "manual", now: true,
-        note: "ATLAS has not confirmed this one, so taking it is your call: it opens through the same checks and ATLAS manages it once it is on.",
+        note: "I haven't confirmed this one, so taking it is your call. It opens through my order checks, and I manage it once it's on.",
         approved: null, manual: { side, style, stop: su.stop, takeProfit: targets[0]?.price ?? su.initialObjective },
       },
       watch: null,
@@ -577,102 +569,188 @@ function fromSetup(i: BuildIdeaInput, s: MarketSnapshot, su: BrainSetup): AtlasI
   return null;
 }
 
-/* ── tier B: a plan at one of the read's two levels ────────────────────────────────────────────────── */
+/* ── market structure: where a stop belongs ────────────────────────────────────────────────────────── */
 
-type PlanMode = "pullback" | "break";
-type PlanSpec = { side: Side; mode: PlanMode; level: Lv; invalidation: { text: string; price: number | null } };
-type Plan = {
-  ok: true; spec: PlanSpec; style: Style; level: Lv; zoneLow: number; zoneHigh: number; entry: number; stop: number; risk: number;
-  stopPips: number; targets: IdeaTarget[]; distance: number; inZone: boolean; atr: { atr: number; tf: Timeframe; estimated: boolean }; gathered: string[];
+export type StructurePoint = {
+  price: number; type: "high" | "low"; tf: Timeframe;
+  /** The 5-minute candle that made it (its open time), when it came from the candles. */
+  t: number | null;
+  label: string;
 };
-type PlanMiss = { ok: false; why: string };
 
-const an = (label: string) => (/^[aeiou]/i.test(label) ? "an" : "a");
+const M5_MS = 5 * 60_000;
 
 /**
- * Price one plan on one style, or say why it cannot be one.
+ * THE SWINGS THE MARKET IS STANDING ON (owner 11-12: "needs to go with market structure for the stop loss").
  *
- * The zone starts at the level and runs a quarter of an ATR to the trade side; the stop hides behind the
- * level by the engine's pad; every figure is measured from the WORST price in the zone. Neighbouring levels
- * are gathered into the zone (a pullback) or stepped through (a break) rather than traded straight into.
+ * Confirmed swing highs and lows — a high with two lower highs on each side, and the mirror for lows — read
+ * from the CLOSED 5-minute candles and from the 15-minute candles folded from them; and of those, only the
+ * ones price has NOT traded through since. A swing low that was taken out later is not structure any more,
+ * it is a price where structure used to be. What is left under the price is therefore a staircase: the
+ * nearest swing low is the last one made, and each older one is lower. (The mirror above the price.)
+ *
+ * Every point is a real candle's high or low; nothing is estimated. A swing the 15-minute chart shows is
+ * named as that, the rest are 5-minute swings. Newest first. With no candles on hand, each timeframe's last
+ * swing from the snapshot's own structure read stands in.
  */
-function pricePlan(s: MarketSnapshot, spec: PlanSpec, style: Style, levels: Lv[], pipSize: number): Plan | PlanMiss {
-  const R = IDEA_RULES, pol = STYLE[style], lab = IDEA_STYLE_LABEL[style].toLowerCase();
-  const d = sgn(spec.side), up = spec.side === "buy";
-  const a = atrFor(s, style);
-  if (!a) return { ok: false, why: `I can't measure the ${TF_WORD[STYLE_TF[style]]} range right now, so I can't size a stop for it` };
-  const P = priceNow(s);
-  const w = R.ZONE_ATR * a.atr;
-  const spread = s.spread != null && s.spread > 0 ? s.spread : 0;
-  const pad = R.PAD_ATR[style] * a.atr + spread + R.FRICTION_ATR * a.atr;
-  const others = levels.filter((l) => Math.abs(l.price - spec.level.price) >= 0.1);
+export function structureOf(s: MarketSnapshot, bars5m: Bar[] | null | undefined, now: number): StructurePoint[] {
+  const K = IDEA_RULES.SWING_K;
+  const all = (bars5m ?? [])
+    .filter((b) => b && Number.isFinite(b.t) && Number.isFinite(b.h) && Number.isFinite(b.l) && b.h > 0 && b.l > 0)
+    .sort((a, b) => a.t - b.t);
+  const closed = all.filter((b) => b.t + M5_MS <= now);
 
-  let anchor = spec.level;          // the level the stop hides behind
-  let entry = anchor.price + d * w; // the reference entry: the far edge of the zone from the stop
-  const gathered: string[] = [];
-
-  if (spec.mode === "break") {
-    // Levels stacked just beyond the trigger are part of the same ceiling: the break is the last of them.
-    for (let hop = 0; hop < 3; hop++) {
-      const risk = Math.abs(entry - (anchor.price - d * pad));
-      const stack = others.filter((l) => d * (l.price - anchor.price) > 0.05 && d * (l.price - entry) < R.OBSTRUCTION_R * risk);
-      if (!stack.length) break;
-      const last = stack.sort((x, y) => d * (y.price - x.price))[0];
-      gathered.push(anchor.label);
-      anchor = last;
-      entry = anchor.price + d * w;
+  if (closed.length < 2 * K + 1) {
+    const out: StructurePoint[] = [];
+    const add = (p: StructurePoint) => {
+      if (!Number.isFinite(p.price) || p.price <= 0) return;
+      if (!out.some((x) => x.type === p.type && Math.abs(x.price - p.price) < 0.05)) out.push({ ...p, price: r2(p.price) });
+    };
+    for (const tf of ["15m", "5m", "1h"] as Timeframe[]) {
+      const st = s.timeframes[tf]?.structure;
+      if (!st) continue;
+      if (st.swingHigh != null) add({ price: st.swingHigh, type: "high", tf, t: null, label: `the last ${TF_WORD[tf]} swing high` });
+      if (st.swingLow != null) add({ price: st.swingLow, type: "low", tf, t: null, label: `the last ${TF_WORD[tf]} swing low` });
     }
-    if (d * (P - entry) > 0) return { ok: false, why: `gold is already ${up ? "above" : "below"} ${fmtPx(anchor.price)}` };
-  } else {
-    if (d * (P - anchor.price) < 0) return { ok: false, why: `gold is already ${up ? "below" : "above"} ${fmtPx(anchor.price)} (${anchor.label})` };
-    // A level sitting just beyond the entry is not something to trade into — it is part of the zone.
-    for (let hop = 0; hop < 3; hop++) {
-      const risk = Math.abs(entry - (anchor.price - d * pad));
-      const near = others
-        .filter((l) => d * (l.price - entry) > 0.005 && d * (l.price - entry) < R.OBSTRUCTION_R * risk && d * (P - l.price) >= 0)
-        .sort((x, y) => d * (x.price - y.price))[0];
-      if (!near) break;
-      if (Math.abs(near.price - anchor.price) > R.MAX_ZONE_ATR * a.atr) {
-        return { ok: false, why: `${near.label} at ${fmtPx(near.price)} sits ${pipsOf(near.price - entry, pipSize)} pips beyond the entry — that would be trading straight into it` };
-      }
-      gathered.push(near.label);
-      entry = near.price;
-    }
+    return out;
   }
 
-  const stop = anchor.price - d * pad;
-  const risk = Math.abs(entry - stop);
-  const stopPips = risk / pipSize;
-  if (stopPips < pol.noiseFloorPips * 0.5) return { ok: false, why: `the stop it needs is ${Math.round(stopPips)} pips — inside the noise of ${an(lab)} ${lab} trade` };
-  if (stopPips > pol.maxStopPips) return { ok: false, why: `the stop it needs is ${Math.round(stopPips)} pips — wider than ${an(lab)} ${lab} trade allows` };
-
-  // Anything real still in the way after gathering?
-  const blocker = others
-    .filter((l) => d * (l.price - entry) > 0.005 && d * (l.price - entry) < R.OBSTRUCTION_R * risk)
-    .sort((x, y) => d * (x.price - y.price))[0];
-  if (blocker) {
-    return { ok: false, why: `${blocker.label} at ${fmtPx(blocker.price)} is only ${pipsOf(blocker.price - entry, pipSize)} pips beyond the entry and the stop is ${Math.round(stopPips)} — that is trading straight into it` };
-  }
-
-  const targets = targetsFrom(entry, risk, spec.side, others, pipSize);
-  const room = targets[targets.length - 1].pips;
-  if (shortfall(style, room) > R.MAX_SHORTFALL) {
-    return { ok: false, why: `there is only about ${room} pips of room before the next real level, against a ${Math.round(stopPips)}-pip stop — that is not ${an(lab)} ${lab} trade` };
-  }
-
-  const zoneLow = Math.min(anchor.price, entry), zoneHigh = Math.max(anchor.price, entry);
-  const inZone = spec.mode !== "break" && P >= zoneLow - 0.005 && P <= zoneHigh + 0.005;
-  const distance = inZone ? 0 : spec.mode === "break" ? Math.max(0, d * (anchor.price - P)) : Math.max(0, d * (P - entry));
-  if (distance > R.MAX_DISTANCE_ATR * a.atr) {
-    return { ok: false, why: `${fmtPx(anchor.price)} is ${pipsOf(distance, pipSize)} pips away — too far to plan around yet` };
-  }
-  return {
-    ok: true, spec, style, level: anchor, zoneLow: r2(zoneLow), zoneHigh: r2(zoneHigh), entry: r2(entry), stop: r2(stop), risk,
-    stopPips: Math.round(stopPips), targets, distance, inZone, atr: a, gathered,
+  type Raw = { price: number; type: "high" | "low"; tf: Timeframe; t: number; end: number };
+  const raw: Raw[] = [];
+  const m15 = 15 * 60_000;
+  const sw15 = swings(resample(closed, "5m", "15m"), K);
+  // A 15-minute swing is timed by the 5-minute candle inside it that made the extreme.
+  const within = (t15: number, pick: (b: Bar) => number, best: (a: number, b: number) => boolean) => {
+    let hit: Bar | null = null;
+    for (const b of closed) if (b.t >= t15 && b.t < t15 + m15 && (!hit || best(pick(b), pick(hit)))) hit = b;
+    return hit;
   };
+  for (const b of sw15.highs) raw.push({ price: b.h, type: "high", tf: "15m", t: within(b.t, (x) => x.h, (a, c) => a > c)?.t ?? b.t, end: b.t + m15 });
+  for (const b of sw15.lows) raw.push({ price: b.l, type: "low", tf: "15m", t: within(b.t, (x) => x.l, (a, c) => a < c)?.t ?? b.t, end: b.t + m15 });
+  const sw5 = swings(closed.slice(-IDEA_RULES.SWING_BARS_5M), K);
+  for (const b of sw5.highs) raw.push({ price: b.h, type: "high", tf: "5m", t: b.t, end: b.t + M5_MS });
+  for (const b of sw5.lows) raw.push({ price: b.l, type: "low", tf: "5m", t: b.t, end: b.t + M5_MS });
+
+  // Still standing: nothing since — the candle still forming included — has traded through it.
+  const standing = raw.filter((p) => !all.some((b) => b.t >= p.end && (p.type === "high" ? b.h > p.price : b.l < p.price)));
+  // Where both charts mark the same price, the 15-minute chart names it.
+  const kept: Raw[] = [];
+  for (const p of standing) if (!kept.some((x) => x.type === p.type && Math.abs(x.price - p.price) < 0.05)) kept.push(p);
+  kept.sort((a, b) => b.t - a.t);
+
+  const hhmm = (t: number) => new Date(t).toISOString().slice(11, 16);
+  const seen = { high: 0, low: 0 };
+  return kept.map((p) => ({
+    price: r2(p.price), type: p.type, tf: p.tf, t: p.t,
+    label: seen[p.type]++ === 0 ? `the last ${TF_WORD[p.tf]} swing ${p.type}` : `the ${TF_WORD[p.tf]} swing ${p.type} from ${hhmm(p.t)} UTC`,
+  }));
 }
 
-/** The read's two levels, named, and the two things that would have to happen for there to be a trade. */
+/** A level's name as it reads in a sentence: "the London low", "today's low", "the 4-hour swing high from Thu 09/17". */
+export function sayLevel(label: string): string {
+  let x = (label.split(" · ")[0] ?? label).trim();
+  const sw = /^(\d+)\s*([hd]) swing (high|low) \(([^)]+)\)$/i.exec(x);
+  if (sw) return `the ${sw[1]}-${sw[2].toLowerCase() === "h" ? "hour" : "day"} swing ${sw[3].toLowerCase()} from ${sw[4].replace(",", "")}`;
+  if (/^(support|resistance)$/i.test(x)) return `the ${x.toLowerCase()} I'm watching`;
+  x = x.replace(/\bnew york\b/gi, "New York").replace(/\blondon\b/gi, "London").replace(/\basia\b/gi, "Asia").replace(/\btokyo\b/gi, "Tokyo");
+  return /^(the|today's|yesterday's|this|last)\b/i.test(x) ? x : `the ${x}`;
+}
+
+const atr5Of = (s: MarketSnapshot): number => {
+  const a5 = s.timeframes["5m"]?.features.atr;
+  if (a5 != null && a5 > 0) return a5;
+  const a15 = s.timeframes["15m"]?.features.atr;
+  return a15 != null && a15 > 0 ? a15 * 0.58 : 0;
+};
+
+/** What a stop gives the swing it hides behind: the spread, and a tenth of the 5-minute range (never under three pips). */
+function stopBuffer(s: MarketSnapshot): number {
+  const R = IDEA_RULES;
+  const spread = s.spread != null && s.spread > 0 ? s.spread : 0;
+  return spread + Math.max(R.STOP_BUFFER_MIN, R.STOP_BUFFER_ATR * atr5Of(s));
+}
+
+type StopPlan = {
+  stop: number; risk: number; pips: number;
+  /** swing: behind a swing still standing. level: behind a real level. measured: no structure at a usable distance. */
+  basis: "swing" | "level" | "measured";
+  /** The swing or level the stop sits just beyond. */
+  point: { price: number; label: string } | null;
+  /** The nearer swing or level the stop also clears, when others were packed right behind the first one. */
+  cleared: { price: number; label: string } | null;
+  /** A nearer swing that was passed over because a stop behind it would sit inside the noise. */
+  tooTight: { price: number; label: string; pips: number } | null;
+  /** Why the stop is not behind a swing, as a clause in ATLAS's voice ("there's no swing low under the price …"). */
+  noSwing: string | null;
+};
+
+/**
+ * THE STOP FOR AN ENTRY: BEHIND THE LAST SWING.
+ *
+ * Under a buy, the nearest swing low still standing (the last higher low); over a sell, the nearest swing
+ * high — plus the spread and a small buffer, so the stop is beyond the swing rather than on it. There is no
+ * style floor under it and it may be tight (owner 11-12: "It can be less then 30 pips stop"); the only floor
+ * is noise: a stop closer than MIN_STOP_PIPS, or than half an average 5-minute candle, is passed over for the
+ * swing before it. Swings or levels packed right behind the chosen one are cleared with it — the stop goes
+ * beyond the last of them — so it never sits between two.
+ *
+ * When no swing stands at a usable distance — gold is at the extreme of its move, or the last swing is
+ * further than MAX_STOP_PIPS — the stop goes behind the nearest real level instead, and failing that it is a
+ * stated multiple of the 15-minute range, called measured. The reason is carried in `noSwing` and said.
+ */
+function structureStop(side: Side, entry: number, struct: StructurePoint[], levels: Lv[], s: MarketSnapshot, pipSize: number): StopPlan {
+  const R = IDEA_RULES, d = sgn(side);
+  const a5 = atr5Of(s);
+  const buffer = stopBuffer(s);
+  const min = Math.max(R.MIN_STOP_PIPS * pipSize, R.MIN_STOP_ATR * a5), max = R.MAX_STOP_PIPS * pipSize;
+  const riskAt = (price: number) => d * (entry - price) + buffer;
+  const behind = <T extends { price: number }>(xs: T[]) => xs.filter((x) => d * (entry - x.price) > 0).sort((a, b) => riskAt(a.price) - riskAt(b.price));
+  const fits = (x: { price: number }) => riskAt(x.price) >= min && riskAt(x.price) <= max;
+  const word = side === "buy" ? "low" : "high", where = side === "buy" ? "under" : "over";
+  const sw = behind(struct.filter((x) => x.type === word));
+  const lv = behind(levels);
+  const swing = sw.find(fits) ?? null;
+  const level = swing ? null : lv.find(fits) ?? null;
+  const near = sw[0] ?? null;
+  const tooTight = swing && near && near !== swing && riskAt(near.price) < min
+    ? { price: near.price, label: near.label, pips: pipsOf(entry - near.price, pipSize) } : null;
+  const noSwing = swing ? null
+    : !near ? `there's no swing ${word} ${where} the price to lean on, because gold is at the ${word} of this move`
+    : riskAt(near.price) > max ? `the last swing ${word} is ${pipsOf(entry - near.price, pipSize)} pips away, too far to be the stop for this trade`
+    : `the last swing ${word} is only ${pipsOf(entry - near.price, pipSize)} pips ${where} the price, inside the noise, and the one before it is too far away`;
+
+  const first = swing ? { p: swing as { price: number; label: string }, basis: "swing" as const } : level ? { p: level as { price: number; label: string }, basis: "level" as const } : null;
+  if (first) {
+    const cluster = Math.max(R.STOP_BUFFER_MIN, R.STOP_CLUSTER_ATR * a5);
+    let far: { price: number; label: string } = first.p;
+    for (const x of [...sw, ...lv].sort((a, b) => riskAt(a.price) - riskAt(b.price))) {
+      const gap = d * (far.price - x.price);
+      if (gap > 0.005 && gap <= cluster && riskAt(x.price) <= max) far = x;
+    }
+    const stop = r2(entry - d * riskAt(far.price)), risk = Math.abs(entry - stop);
+    return {
+      stop, risk, pips: Math.round(risk / pipSize), basis: first.basis,
+      point: { price: far.price, label: far.label }, cleared: far === first.p ? null : { price: first.p.price, label: first.p.label }, tooTight, noSwing,
+    };
+  }
+  const a15 = s.timeframes["15m"]?.features.atr ?? (a5 > 0 ? a5 * 1.7 : 0);
+  const stop = r2(entry - d * Math.min(max, Math.max(min, R.MEASURED_STOP_ATR * a15 + buffer))), risk = Math.abs(entry - stop);
+  return { stop, risk, pips: Math.round(risk / pipSize), basis: "measured", point: null, cleared: null, tooTight: null, noSwing };
+}
+
+/**
+ * How ATLAS would manage a trade with this stop, for the order ticket — never a choice the member is shown.
+ * A stop the order checks would call "inside the noise" of an intraday trade is a quick one by definition.
+ */
+function styleFor(stopPips: number, firstTargetPips: number): Style {
+  if (stopPips < STYLE.hold.noiseFloorPips * 0.5) return "quick";
+  if (stopPips <= STYLE.quick.maxStopPips && firstTargetPips <= (STYLE.quick.opportunityPips[1] ?? 100)) return "quick";
+  return stopPips <= STYLE.hold.maxStopPips ? "hold" : "swing";
+}
+
+/* ── ATLAS's call ──────────────────────────────────────────────────────────────────────────────────── */
+
+/** The read's two levels, named, and the two things that would have to happen for the picture to be decided. */
 function edgesAndPaths(read: AtlasRead, levels: Lv[]): { S: Lv; Rz: Lv; paths: AtlasIdea["paths"] } | null {
   const e = edgesOfRead(read);
   if (!e.support || !e.resistance || !(e.support.price < e.resistance.price)) return null;
@@ -687,213 +765,60 @@ function edgesAndPaths(read: AtlasRead, levels: Lv[]): { S: Lv; Rz: Lv; paths: A
   };
 }
 
-/**
- * The plans a lean implies, at its own two levels: the pullback to the level the lean stands on, and the
- * break through the far one (or, once price is already through it, the retest of it).
- */
-function specsFor(read: AtlasRead, S: Lv, Rz: Lv, P: number): PlanSpec[] {
-  const below = (l: Lv) => `A 15-minute close below ${fmtPx(l.price)} (${l.label})`;
-  const above = (l: Lv) => `A 15-minute close above ${fmtPx(l.price)} (${l.label})`;
-  if (read.lean === "bullish_lean") {
-    return [
-      { side: "buy", mode: "pullback", level: S, invalidation: { text: `${below(S)} ends the bullish lean.`, price: S.price } },
-      P > Rz.price
-        ? { side: "buy", mode: "pullback", level: { ...Rz, label: `${Rz.label}, now support` }, invalidation: { text: `${below(Rz)} puts gold back under the level it broke.`, price: Rz.price } }
-        : { side: "buy", mode: "break", level: Rz, invalidation: { text: `${below(S)} ends the bullish lean.`, price: S.price } },
-    ];
-  }
-  if (read.lean === "bearish_lean") {
-    return [
-      { side: "sell", mode: "pullback", level: Rz, invalidation: { text: `${above(Rz)} ends the bearish lean.`, price: Rz.price } },
-      P < S.price
-        ? { side: "sell", mode: "pullback", level: { ...S, label: `${S.label}, now resistance` }, invalidation: { text: `${above(S)} puts gold back over the level it broke.`, price: S.price } }
-        : { side: "sell", mode: "break", level: S, invalidation: { text: `${above(Rz)} ends the bearish lean.`, price: Rz.price } },
-    ];
-  }
-  return [];
-}
-
-const PLAN_NAME: Record<PlanMode, string> = { pullback: "Pullback into the lean", break: "Break with the lean" };
-
-function fromRead(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead): AtlasIdea | null {
-  const pipSize = i.pipSize ?? PIP;
-  const options: IdeaOptions = { ...DEFAULT_IDEA_OPTIONS, ...(i.options ?? {}) };
-  const levels = ideaLevels(s);
-  const P = priceNow(s);
-  const su = i.setup;
-  const engineWaits = su.waitingFor.slice(0, 2);
-  const edges = edgesAndPaths(read, levels);
-  const paths = edges?.paths ?? [];
-
-  /*
-   * WHEN THE READ IS NOT A PLAN. A plan needs a lean, and a lean with the evidence that would open it today —
-   * not one that merely has not faded far enough to close (core/read.ts holds a lean down to 15 that it would
-   * only open at 30). A swing request, a neutral, turning or faint read, or a read with no pair of levels is
-   * not this tier's to answer: it returns null and the FORCED READ (below) prices the side the evidence tilts
-   * to, labelled as what it is.
-   */
-  if (options.style === "swing") return null;
-  if (!edges) return null;
-  const { S, Rz } = edges;
-  if (read.lean !== "bullish_lean" && read.lean !== "bearish_lean") return null;
-  if (read.strength !== "clear" && read.strength !== "strong") return null;
-
-  // The read's own two levels are real prices too: a plan at one of them may aim at the other.
-  for (const e of [S, Rz]) if (!levels.some((l) => Math.abs(l.price - e.price) < 0.1)) levels.push(e);
-
-  /*
-   * INTRADAY FIRST, AND NOTHING SMALLER BY DEFAULT. The read is built on 15-minute and 1-hour structure, so
-   * its levels get an intraday stop. A five-minute pad behind a fifteen-minute level is a stop inside the
-   * noise of the level it is hiding behind; that pairing is priced only when the member asks for Quick.
-   */
-  const style: Style = options.style === "quick" ? "quick" : "hold";
-  const good: Plan[] = [];
-  const misses: string[] = [];
-  for (const spec of specsFor(read, S, Rz, P)) {
-    const p = pricePlan(s, spec, style, levels, pipSize);
-    if (p.ok) good.push(p);
-    else misses.push(`${spec.side === "buy" ? "Buying" : "Selling"} ${spec.mode === "break" ? "the break of" : "at"} ${fmtPx(spec.level.price)}: ${p.why}`);
-  }
-  if (!good.length) return null;          // neither level survives the arithmetic: the forced read answers
-
-  // The nearer entry is the idea; the other is the alternative.
-  good.sort((a, b) => a.distance - b.distance);
-  const p = good[0], other = good[1] ?? null;
-  const { spec } = p;
-  const side = spec.side, up = side === "buy";
-  const zone = `${fmtPx(p.zoneLow)}–${fmtPx(p.zoneHigh)}`;
-  const distancePips = pipsOf(p.distance, pipSize);
-  const conviction: "Low" | "Medium" | "High" = read.strength === "strong" ? "High" : "Medium";
-  const lab = IDEA_STYLE_LABEL[p.style].toLowerCase();
-
-  // The read lists evidence for and against its own lean, and a plan here always trades with the lean.
-  const evFor = read.evidenceFor, evAgainst = read.evidenceAgainst;
-  const confirmations = [
-    ...evFor.slice(0, 5).map((x) => ({ label: x.text, ok: true, detail: null as string | null })),
-    ...evAgainst.slice(0, 3).map((x) => ({ label: x.text, ok: false, detail: null as string | null })),
-  ];
-  const lower = (x: string) => x.charAt(0).toLowerCase() + x.slice(1);
-
-  const triggerText = spec.mode === "break" ? `A 15-minute close ${up ? "above" : "below"} ${fmtPx(p.level.price)}` : null;
-  const entryText = spec.mode === "break"
-    ? `Not yet. Enter after a 15-minute candle closes ${up ? "above" : "below"} ${fmtPx(p.level.price)} (${p.level.label}) — ${distancePips} pips from here — and only inside ${zone}. If it closes further out than that, wait for the retest.`
-    : p.inZone
-      ? `Gold is inside the entry zone now: ${zone} (${p.level.label}).`
-      : `Not here. The entry is ${zone} (${p.level.label}) — ${distancePips} pips ${up ? "below" : "above"} the price now.`;
-
-  const why = evFor.slice(0, 2).map((x) => lower(x.text)).join("; ");
-  const whereWords = spec.mode === "break"
-    ? `Gold is pressing ${fmtPx(p.level.price)}${p.gathered.length ? ` (with ${p.gathered.join(" and ")} stacked just under it)` : ""}, so the trade is the break: a 15-minute close ${up ? "above" : "below"} it, with the stop back behind the level at ${fmtPx(p.stop)}.`
-    : p.inZone
-      ? `Gold is at the level that lean stands on — the entry is here, ${zone}, with the stop behind it at ${fmtPx(p.stop)}.`
-      : `Gold is ${distancePips} pips ${up ? "above" : "below"} the level that lean stands on, so I'm not ${up ? "buying" : "selling"} here — the entry is ${zone}, with the stop behind it at ${fmtPx(p.stop)}.`;
-  const against = evAgainst[0] ? ` Against it: ${lower(evAgainst[0].text)}.` : "";
-  const reasoning = `My intraday lean is ${up ? "up" : "down"} (${read.strength}, evidence ${signed(read.score)} of 100)${why ? `: ${why}` : ""}. ${whereWords}${against}`;
-
-  const altLine = other
-    ? `${other.spec.side === "buy" ? "Buy" : "Sell"} ${other.spec.mode === "break" ? `a 15-minute close ${other.spec.side === "buy" ? "above" : "below"} ${fmtPx(other.level.price)}` : `${fmtPx(other.zoneLow)}–${fmtPx(other.zoneHigh)}`} (${other.level.label}), stop ${fmtPx(other.stop)}, first target ${fmtPx(other.targets[0].price)} — ${pipsOf(other.distance, pipSize)} pips from here.`
-    : misses[0] ? `${misses[0]}.` : null;
-
-  const warnings = [newsWarning(s), ...s.warnings.slice(0, 2)].filter((x): x is string => !!x);
-  if (p.atr.estimated) warnings.push(`The ${TF_WORD[STYLE_TF[p.style]]} range could not be read, so the stop's pad is estimated from the ${TF_WORD[p.atr.tf]} range.`);
-  if (p.style === "quick") warnings.push("You asked for Quick: this stop is sized on the five-minute range behind a fifteen-minute level, so ordinary movement around that level can reach it.");
-  if (i.tradeActive) warnings.push("You already have an ATLAS position open — the position limit is checked before another order is sent.");
-  if (su.state === "watching" || su.state === "setup_developing") warnings.push(`Setup engine: ${su.say}`);
-
-  const sideWord = up ? "BUY" : "SELL";
-  const headline = spec.mode === "break" ? `${sideWord} a 15-minute close ${up ? "above" : "below"} ${fmtPx(p.level.price)}` : `${sideWord} the pullback to ${fmtPx(p.level.price)}`;
-
-  return {
-    version: ATLAS_IDEA_VERSION, id: null, at: i.now, snapshotAt: s.at, snapshotId: i.snapshotId ?? null, options,
-    kind: spec.mode === "break" ? "on_break" : "at_level",
-    source: "read_plan", side, style: p.style, strategy: PLAN_NAME[spec.mode],
-    headline, badge: "PLAN FROM ATLAS'S READ · NOT AN ENGINE-CONFIRMED TRADE",
-    price: r2(P),
-    entry: {
-      type: spec.mode === "break" ? "stop" : "limit", price: p.entry, low: p.zoneLow, high: p.zoneHigh,
-      level: { price: p.level.price, label: p.level.label }, trigger: triggerText, confirm: spec.mode === "break" ? "close_15m" : "none", text: entryText, distancePips,
-    },
-    stop: {
-      price: p.stop, pips: p.stopPips,
-      what: `Behind ${fmtPx(p.level.price)} by ${r2(IDEA_RULES.PAD_ATR[p.style] + IDEA_RULES.FRICTION_ATR)} × the ${TF_WORD[p.atr.tf]} ATR${s.spread ? " plus the spread" : ""} — the setup engine's own pad.`,
-    },
-    targets: p.targets, rr: rrOf(p.targets),
-    confidence: {
-      score: Math.min(100, Math.abs(Math.round(read.score))), label: conviction,
-      basis: `ATLAS's read: ${LEAN_LABEL[read.lean].toLowerCase()}, ${read.strength}, evidence balance ${signed(read.score)} of 100 — how much the evidence agrees, not a win probability.`,
-    },
-    reasoning,
-    bias: `${read.htfTrend.text} ${read.momentum.text}`.trim(),
-    poi: `${fmtPx(p.level.price)} — ${p.level.label}${p.gathered.length ? `, with ${p.gathered.join(" and ")} beside it` : ""}.`,
-    targeting: `${p.targets.map((x) => `${fmtPx(x.price)} (${x.basis === "level" ? x.what : `${x.r}R, measured`})`).join(", then ")}.`,
-    invalidation: { text: `${spec.invalidation.text} The stop is ${fmtPx(p.stop)}.`, price: spec.invalidation.price },
-    confirmations,
-    waitingFor: [spec.mode === "break" ? `${triggerText}` : p.inZone ? "" : `Price to reach ${zone}`, ...engineWaits].filter(Boolean),
-    engine: engineOf(su),
-    alternative: altLine,
-    paths,
-    warnings,
-    expiresAt: i.now + IDEA_RULES.PLAN_TTL_MS,
-    execute: {
-      via: "manual", now: p.inZone,
-      note: p.inZone
-        ? "Price is in the zone. This is a plan from ATLAS's read, not a trade its setup engine has confirmed, so taking it is your call: it opens through ATLAS's own checks, sized from your risk, and ATLAS manages it once it is on."
-        : `Nothing to execute until price is ${spec.mode === "break" ? "through the level on a closed 15-minute candle" : "in the zone"}. Have ATLAS watch it, then press Get update when it gets there.`,
-      approved: null,
-      manual: { side, style: p.style, stop: p.stop, takeProfit: p.targets[0].price },
-    },
-    watch: p.inZone ? null : {
-      price: spec.mode === "break" ? p.level.price : p.entry,
-      direction: spec.mode === "break" ? (up ? "above" : "below") : (up ? "below" : "above"),
-      say: spec.mode === "break"
-        ? `Watch ${p.level.price.toFixed(2)} and tell me if it breaks ${up ? "above" : "below"}.`
-        : `Watch ${p.entry.toFixed(2)} and tell me when price reaches it.`,
-    },
-    say: spec.mode === "break"
-      ? `My plan is to ${up ? "buy" : "sell"} a 15-minute close ${up ? "above" : "below"} ${fmtPx(p.level.price)}, stop ${fmtPx(p.stop)}, first target ${fmtPx(p.targets[0].price)}. It's ${an(lab)} ${lab} plan from my read — my setup engine hasn't confirmed a trade.`
-      : `My plan is to ${up ? "buy" : "sell"} ${p.inZone ? "here in" : "the move back to"} ${zone}, stop ${fmtPx(p.stop)}, first target ${fmtPx(p.targets[0].price)}${p.inZone ? "" : ` — that's ${distancePips} pips from here`}. It's ${an(lab)} ${lab} plan from my read — my setup engine hasn't confirmed a trade.`,
-  };
-}
-
-/* ── tier C: the forced read ───────────────────────────────────────────────────────────────────────── */
-
-/** Blockers that say the DATA cannot be trusted (as opposed to the market being hard to read). */
-const DATA_BLOCKERS: readonly string[] = ["no_exec_read", "feed_stale", "feed_divergence", "exec_data_behind", "exec_data_gaps"];
-
 export type ForcedSide = {
   side: Side;
-  /** How one-sided the evidence is, 0–100: the read's own balance, or the structure vote when there is no read. */
+  /** How much of the evidence is on this side, 0–100: the read's own balance, or the structure vote when there is no read. */
   score: number;
-  /** lean: the read holds a lean. evidence: it holds none, and the balance still tilts. structure: no usable read. */
-  from: "lean" | "evidence" | "structure";
-  /** The sentence that says why this side, in ATLAS's voice (no full stop). */
+  /**
+   * lean: the read holds a lean. setup: it holds none, and the setup engine is already building a trade on
+   * one side. evidence: neither, and the balance still tilts. structure: no usable read.
+   */
+  from: "lean" | "setup" | "evidence" | "structure";
+  /** Why this side, in ATLAS's voice (a sentence without its full stop). */
   basis: string;
 };
 
 /**
- * WHICH SIDE, WHEN A SIDE MUST BE NAMED. The same evidence the read weighs, with the threshold it uses to
- * abstain removed:
+ * WHICH SIDE, WHEN A SIDE MUST BE NAMED. What ATLAS already sees, with the thresholds it uses to abstain
+ * removed:
  *   1. the read's lean, when it holds one (however faint);
- *   2. otherwise the sign of its evidence balance (core/read.ts `score`) — a range or a turning market still
- *      has more on one side than the other;
- *   3. with no usable read (or a balance of exactly zero), a vote on the structure the snapshot measured:
+ *   2. otherwise the side its setup engine is already building or watching a trade on — one ATLAS, one
+ *      side: a call that sold while its own trade card was building a long would be two answers;
+ *   3. otherwise the sign of the read's evidence balance (core/read.ts `score`) — a range or a turning
+ *      market still has more on one side than the other;
+ *   4. with no usable read (or a balance of exactly zero), a vote on the structure the snapshot measured:
  *      each timeframe's swing sequence (or its slope), then the pressure proxy; a dead heat is settled by
  *      which side of the daily open price is on, then by the 15-minute RSI.
- * Deterministic, and it says which of the three it used.
+ * Deterministic, and it says which of the four it used.
  */
-export function forcedSide(read: AtlasRead | null, s: MarketSnapshot): ForcedSide {
+export function forcedSide(read: AtlasRead | null, s: MarketSnapshot, engine?: { side: Side | null; state: SetupState } | null): ForcedSide {
   if (read && (read.lean === "bullish_lean" || read.lean === "bearish_lean")) {
     const up = read.lean === "bullish_lean";
+    const faint = read.strength !== "clear" && read.strength !== "strong";
     return {
       side: up ? "buy" : "sell", score: Math.min(100, Math.abs(Math.round(read.score))), from: "lean",
-      basis: `My intraday lean is ${up ? "up" : "down"} (${read.strength ?? "slight"}, evidence ${signed(read.score)} of 100)`,
+      basis: faint
+        ? `It's only a slight lean — ${signed(read.score)} of 100 on my evidence balance — but it's ${up ? "up" : "down"}, so I'm a ${up ? "buyer" : "seller"}`
+        : `That's a ${read.strength} lean — ${signed(read.score)} of 100 on my evidence balance — so I'm a ${up ? "buyer" : "seller"}`,
+    };
+  }
+  if (engine?.side && (engine.state === "setup_developing" || engine.state === "watching" || engine.state === "waiting_for_trigger" || engine.state === "trade_ready")) {
+    const up = engine.side === "buy";
+    const mine = read && read.lean !== "insufficient_data" ? Math.round((up ? 1 : -1) * read.score) : 0;
+    return {
+      side: engine.side, score: Math.min(100, Math.max(0, mine)), from: "setup",
+      basis: `I don't hold a lean right now, but I'm already ${engine.state === "watching" ? "watching" : "building"} a ${up ? "long" : "short"} here — it isn't confirmed yet — so that's my side: I'm a ${up ? "buyer" : "seller"}`,
     };
   }
   if (read && read.lean !== "insufficient_data" && Math.abs(read.score) >= 1) {
     const up = read.score > 0;
+    // Big enough to be a lean, but not yet held over a second closed candle (core/read.ts): said as exactly that.
+    const fresh = Math.abs(read.score) >= READ_RULES.ENTER;
     return {
       side: up ? "buy" : "sell", score: Math.min(100, Math.abs(Math.round(read.score))), from: "evidence",
-      basis: `My read is ${LEAN_LABEL[read.lean].toLowerCase()} — the evidence is ${signed(read.score)} of 100, short of what I need to call a lean. Made to pick a side, that balance tilts ${up ? "up" : "down"}`,
+      basis: fresh
+        ? `The balance of what I see has just tilted ${up ? "up" : "down"} — ${signed(read.score)} of 100 — and I'd normally want one more closed candle before I call that a lean, but right now I'm a ${up ? "buyer" : "seller"}`
+        : `The balance of what I see tilts ${up ? "up" : "down"} — ${signed(read.score)} of 100, short of what I'd call a lean — so right now I'm a ${up ? "buyer" : "seller"}`,
     };
   }
   const votes: { pts: number; text: string }[] = [];
@@ -923,35 +848,13 @@ export function forcedSide(read: AtlasRead | null, s: MarketSnapshot): ForcedSid
   const agree = votes.filter((v) => Math.sign(v.pts) === Math.sign(sum)).sort((a, b) => Math.abs(b.pts) - Math.abs(a.pts)).slice(0, 2).map((v) => v.text);
   return {
     side: up ? "buy" : "sell", score: Math.min(29, Math.round(Math.abs(sum) * 3)), from: "structure",
-    basis: `${read && read.lean !== "insufficient_data" ? "My read is dead even" : "I have no directional read to lean on"}, so I counted the structure I can measure: ${tie ?? agree.join(" and ")}. That tilts ${up ? "up" : "down"}`,
+    basis: `${read && read.lean !== "insufficient_data" ? "My read is dead even" : "I don't have a clean directional read right now"}, so I'm going off the structure I can measure: ${tie ?? agree.join(" and ")}. That tilts ${up ? "up" : "down"}, so I'm a ${up ? "buyer" : "seller"}`,
   };
-}
-
-/** The timeframes whose measured swings count as structure for a style: a five-minute swing is noise to an intraday stop. */
-const SWING_TFS: Record<Style, Timeframe[]> = { quick: ["5m", "15m"], hold: ["15m", "1h"], swing: ["1h", "4h"] };
-
-/** Every real price a forced read may stand on: the levels, the read's own two edges, and the swings measured on the style's own timeframes. */
-function forcedLevels(s: MarketSnapshot, edges: { S: Lv; Rz: Lv } | null, base: Lv[], style: Style): Lv[] {
-  const out = [...base];
-  const add = (price: number | null | undefined, label: string, kind: string) => {
-    if (price == null || !Number.isFinite(price) || price <= 0) return;
-    if (!out.some((l) => Math.abs(l.price - price) < 0.1)) out.push({ price: r2(price), label, kind });
-  };
-  if (edges) { add(edges.S.price, edges.S.label, "support"); add(edges.Rz.price, edges.Rz.label, "resistance"); }
-  for (const tf of SWING_TFS[style]) {
-    const st = s.timeframes[tf]?.structure;
-    if (!st) continue;
-    add(st.swingHigh, `the last ${TF_WORD[tf]} swing high`, "swing_high");
-    add(st.swingLow, `the last ${TF_WORD[tf]} swing low`, "swing_low");
-  }
-  return out;
 }
 
 type MarketPlan = {
-  entry: number; stop: number; risk: number; stopPips: number;
-  /** structure: behind a real level. measured: a multiple of the range, because no real level sits at a usable distance. */
-  stopBasis: "structure" | "measured";
-  anchor: Lv | null;
+  entry: number; stop: number; risk: number; stopPips: number; st: StopPlan;
+  style: Style;
   targets: IdeaTarget[];
   /** A real level close enough ahead that the entry is trading into it. */
   obstruction: Lv | null;
@@ -959,36 +862,30 @@ type MarketPlan = {
 };
 
 /**
- * Price an entry AT THE PRICE GOLD IS AT, for one style. The stop goes behind the nearest real level that
- * leaves it inside the style's own limits (never tighter than its noise floor, never wider than its ceiling —
- * the same limits the order checks enforce); when no real level does, it is a stated multiple of the range.
- * Targets are real levels at least one R out, or the engine's fallback multiples, labelled as measured.
+ * Price an entry at one price: the stop behind the last swing (`structureStop`), targets at the real levels
+ * and standing swings at least one R out. `majors` are the session, daily and higher-timeframe levels: one of
+ * those close ahead of the entry is something the trade is trading into; a five-minute swing is not.
  */
-function priceMarket(s: MarketSnapshot, side: Side, style: Style, levels: Lv[], pipSize: number): MarketPlan | null {
-  const R = IDEA_RULES, pol = STYLE[style], d = sgn(side);
-  const a = atrFor(s, style);
+function priceEntry(s: MarketSnapshot, side: Side, entry: number, majors: Lv[], struct: StructurePoint[], pipSize: number): MarketPlan | null {
+  const R = IDEA_RULES, d = sgn(side);
+  const a = atr15Of(s);
   if (!a) return null;
-  const P = priceNow(s);
-  const spread = s.spread != null && s.spread > 0 ? s.spread : 0;
-  const pad = R.PAD_ATR[style] * a.atr + spread + R.FRICTION_ATR * a.atr;
-  const floor = pol.noiseFloorPips * pipSize, ceil = pol.maxStopPips * pipSize;
-  const behind = levels
-    .map((l) => ({ l, risk: d * (P - l.price) + pad }))
-    .filter((x) => d * (P - x.l.price) > 0.005 && x.risk >= floor && x.risk <= ceil)
-    .sort((x, y) => x.risk - y.risk)[0] ?? null;
-  const risk = behind ? behind.risk : Math.min(ceil, Math.max(floor, R.FORCED_STOP_ATR * a.atr + spread));
-  const stop = P - d * risk;
-  const ahead = levels.filter((l) => d * (l.price - P) > 0.005);
-  const obstruction = ahead.filter((l) => d * (l.price - P) < R.OBSTRUCTION_R * risk).sort((x, y) => d * (x.price - y.price))[0] ?? null;
-  return {
-    entry: r2(P), stop: r2(stop), risk, stopPips: Math.round(risk / pipSize), stopBasis: behind ? "structure" : "measured", anchor: behind?.l ?? null,
-    targets: targetsFrom(P, risk, side, ahead, pipSize), obstruction, atr: a,
-  };
+  const st = structureStop(side, entry, struct, majors, s, pipSize);
+  const aims: Lv[] = [...majors];
+  for (const p of struct) {
+    if (p.type !== (side === "buy" ? "high" : "low")) continue;
+    if (!aims.some((l) => Math.abs(l.price - p.price) < 0.1)) aims.push({ price: p.price, label: p.label, kind: p.type === "high" ? "swing_high" : "swing_low" });
+  }
+  const obstruction = majors.filter((l) => d * (l.price - entry) > 0.005 && d * (l.price - entry) < R.OBSTRUCTION_R * st.risk).sort((x, y) => d * (x.price - y.price))[0] ?? null;
+  const targets = targetsFrom(entry, st.risk, side, aims, pipSize);
+  return { entry: r2(entry), stop: st.stop, risk: st.risk, stopPips: st.pips, st, style: styleFor(st.pips, targets[0].pips), targets, obstruction, atr: a };
 }
 
-type ForcedContext = {
-  /** Why the setup engine is standing down (a blocker, or its own blocked state). Null: it simply has no trade. */
+type CallContext = {
+  /** The setup engine's own reason for not trading (its blocked state). Null: it simply has no confirmed setup. */
   standDown: string | null;
+  /** A market blocker the order checks refuse on (the market is flagged chaotic): no ticket can open while it stands. */
+  refused: { code: string; detail: string } | null;
   closed: boolean;
   /** Minutes old, when the market read is too old to enter from. */
   staleMin: number | null;
@@ -996,88 +893,62 @@ type ForcedContext = {
   dataProblem: string | null;
 };
 
+/** Blockers that say the DATA cannot be trusted (as opposed to the market being hard to read). */
+const DATA_BLOCKERS: readonly string[] = ["no_exec_read", "feed_stale", "feed_divergence", "exec_data_behind", "exec_data_gaps"];
+
 /**
- * THE FORCED READ. The setup engine has no trade and the read has no plan, and the member asked for a
- * direction and a trade anyway — so this prices one, in the open:
+ * ATLAS'S CALL — what it would do with gold right now, when its setup engine has no confirmed trade.
  *
- *   • the side is `forcedSide` — the evidence balance with the abstention threshold removed;
- *   • the entry is the soundest one on offer, in this order: price already sitting in the zone of a real
- *     level on the right side (enter now, at the level); otherwise the nearest level-based entry that prices —
- *     the pullback to the real level behind the price, or a 15-minute close through the one ahead — with the
- *     at-market version given beside it; otherwise, when no level prices at all, the price gold is at;
- *   • the stop and targets follow the same arithmetic every other idea uses, inside the style's limits.
+ * One answer, in its own voice (owner 11-12: "just want an atlas option that goes off what atlas sees. Needs
+ * to feel like it's come right from the AI"):
  *
- * It never claims more than it has: the badge says FORCED READ, the reasoning opens with why the engine is
- * not trading, the conviction is the evidence balance (usually low), and executing it is the member's call
- * through the manual ticket and its existing checks. With gold closed, or a market read too old or too
- * doubtful to enter from, it still names the side and the levels — from the last clean read, as a plan for
- * when price is real again — and nothing can be sent from it.
+ *   • the side is `forcedSide` — its lean, or the way the evidence tilts with the abstention threshold removed;
+ *   • the entry is the price gold is at, now. (Entries at a level were tried against the recorded session
+ *     and did far worse: a level entry only fills when price is moving against it.)
+ *   • the STOP IS BEHIND THE LAST SWING — `structureStop` — and may be tight; targets are real levels and
+ *     standing swings at least one R out, or labelled as measured.
  *
- * Null only when no timeframe has a range reading: nothing can size a stop.
+ * It never claims more than it has. The conviction is the evidence balance and is shown; it says in the same
+ * breath that this is its read and not one of its confirmed setups; and taking the call is always the
+ * member's own decision through the order ticket and its existing checks — it is never ATLAS's take-setup
+ * trade, and while the market carries a blocker those checks refuse on (chaotic), it says no ticket can open.
+ * A call made from a clear or strong lean is source "read_plan"; anything fainter is "forced_read". With gold
+ * closed, or a market read too old or too doubtful to enter from, it still names the side and the levels as
+ * a plan around the last price, for when price is real again.
+ *
+ * Null only when no timeframe has a range reading: nothing can size an entry.
  */
-function fromForced(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null, ctx: ForcedContext): AtlasIdea | null {
+function fromRead(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null, ctx: CallContext): AtlasIdea | null {
   const R = IDEA_RULES;
   const pipSize = i.pipSize ?? PIP;
   const options: IdeaOptions = { ...DEFAULT_IDEA_OPTIONS, ...(i.options ?? {}) };
   const su = i.setup;
   const P = priceNow(s);
-  const f = forcedSide(read, s);
+  const f = forcedSide(read, s, su);
   const side = f.side, d = sgn(side), up = side === "buy";
-  // Intraday unless the member asked for something else: the read and its levels are 15-minute and 1-hour.
-  const style: Style = options.style === "auto" ? "hold" : options.style;
-  const lab = IDEA_STYLE_LABEL[style].toLowerCase();
   const base = ideaLevels(s);
   const edges = read ? edgesAndPaths(read, base) : null;
-  const levels = forcedLevels(s, edges, base, style);
+  const struct = structureOf(s, i.bars5m, i.now);
+  // The session, daily and higher-timeframe levels, and the read's own two edges.
+  const majors = [...base];
+  if (edges) for (const e of [edges.S, edges.Rz]) if (!majors.some((l) => Math.abs(l.price - e.price) < 0.1)) majors.push(e);
   const canEnter = !ctx.closed && ctx.staleMin == null && !ctx.dataProblem;
 
-  const m = priceMarket(s, side, style, levels, pipSize);
+  const a = atr15Of(s);
+  if (!a) return null;
+  // Enterable: at the price. Otherwise: the same call from the worst price of a zone around the last price.
+  const zLow = r2(P - R.ZONE_ATR * a.atr), zHigh = r2(P + R.ZONE_ATR * a.atr);
+  const m = priceEntry(s, side, canEnter ? P : (up ? zHigh : zLow), majors, struct, pipSize);
   if (!m) return null;
+  const st = m.st;
 
-  /* The conditional entries on this side: the pullback to the nearest real level behind the price (and to the
-     read's own edge), and the break through the nearest one ahead (and through the far edge). */
-  const behindLv = levels.filter((l) => d * (P - l.price) >= 0).sort((x, y) => d * (y.price - x.price));
-  const aheadLv = levels.filter((l) => d * (l.price - P) > 0.005).sort((x, y) => d * (x.price - y.price));
-  const edgeBehind = edges ? (up ? edges.S : edges.Rz) : null;
-  const edgeAhead = edges ? (up ? edges.Rz : edges.S) : null;
-  const closeWord = (l: Lv, dir: "above" | "below") => `A 15-minute close ${dir} ${fmtPx(l.price)} (${l.label})`;
-  const specs: PlanSpec[] = [];
-  const pushSpec = (mode: PlanMode, level: Lv | null | undefined) => {
-    if (!level || specs.some((x) => x.mode === mode && Math.abs(x.level.price - level.price) < 0.1)) return;
-    if (mode === "pullback" && d * (P - level.price) < 0) return;
-    if (mode === "break" && d * (level.price - P) <= 0.005) return;
-    // What undoes it: for a pullback, a close back through the level it leans on; for a break, a close back through the level behind the price.
-    const against = mode === "pullback" ? level : (behindLv[0] ?? null);
-    specs.push({
-      side, mode, level,
-      invalidation: against
-        ? { text: `${closeWord(against, up ? "below" : "above")} takes away what this ${mode === "break" ? "break" : "entry"} leans on.`, price: against.price }
-        : { text: "The stop is the only thing behind this one.", price: null },
-    });
-  };
-  pushSpec("pullback", behindLv[0]); pushSpec("pullback", edgeBehind);
-  pushSpec("break", m.obstruction ?? aheadLv[0]); pushSpec("break", edgeAhead);
-  const plans = specs.map((sp) => pricePlan(s, sp, style, levels, pipSize)).filter((x): x is Plan => x.ok).sort((a, b) => a.distance - b.distance);
-  const inZone = plans.find((x) => x.spec.mode === "pullback" && x.inZone) ?? null;
-
-  /*
-   * WHICH ENTRY. A level first. A forced read has little evidence behind its side, so where it is entered is
-   * most of what it has: on the one recorded session, the same sides entered at a real level (the zone behind
-   * the price, or the close through the one ahead) reached a target before the stop 23 times to 20, and
-   * entered at whatever price gold was at, 19 times to 26 — one day, a description and not a track record.
-   * So the idea is the nearest level-based entry that prices, and the at-market version is given beside it
-   * (`enterNow`) so there is always something that can be taken now. Only when no level prices at all is the
-   * entry the price itself.
-   */
-  type Pick = { type: "plan"; p: Plan } | { type: "market" } | { type: "reference" };
-  const pick: Pick = !canEnter ? (plans.length ? { type: "plan", p: plans[0] } : { type: "reference" })
-    : inZone ? { type: "plan", p: inZone }
-    : plans.length ? { type: "plan", p: plans[0] }
-    : { type: "market" };
-
-  /* What every shape shares. */
   const conviction: "Low" | "Medium" | "High" = f.score >= 55 ? "High" : f.score >= 30 ? "Medium" : "Low";
-  const lower = (x: string) => x.charAt(0).toLowerCase() + x.slice(1);
+  const planned = !!read && f.from === "lean" && (read.strength === "clear" || read.strength === "strong") && canEnter && !ctx.standDown && !ctx.refused;
+  const source: IdeaSource = planned ? "read_plan" : "forced_read";
+  // Mid-sentence: an ordinary capitalised word loses its capital; "I", "I'm" and acronyms (RSI, ATR) keep theirs.
+  const lower = (x: string) => (/^[A-Z][a-z]/.test(x) ? x.charAt(0).toLowerCase() + x.slice(1) : x);
+  const strip = (x: string) => lower(x).replace(/^i'm standing down:\s*/, "").replace(/\.$/, "");
+  // Which way the read's "evidence for" list points: its lean, or with no lean the sign of its balance.
   const forDir = read ? (read.lean === "bullish_lean" ? 1 : read.lean === "bearish_lean" ? -1 : read.score >= 0 ? 1 : -1) : 0;
   const evFor = !read ? [] : forDir === d ? read.evidenceFor : read.evidenceAgainst;
   const evAgainst = !read ? [] : forDir === d ? read.evidenceAgainst : read.evidenceFor;
@@ -1085,190 +956,142 @@ function fromForced(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null
     ...evFor.slice(0, 5).map((x) => ({ label: x.text, ok: true, detail: null as string | null })),
     ...evAgainst.slice(0, 3).map((x) => ({ label: x.text, ok: false, detail: null as string | null })),
   ];
-  const standDownLine = ctx.closed ? "Gold is closed, so this is a forced read from the last session's prices — a plan for the reopen, not a live entry."
-    : ctx.staleMin != null ? `My last market read is ${ctx.staleMin} minutes old, so this is a forced read from that picture — check the price before acting on any of it.`
-    : ctx.dataProblem ? `My market data has a problem (${lower(ctx.dataProblem)}), so this is a forced read from the last clean prices — treat every level as approximate.`
-    : ctx.standDown ? `My setup engine is standing down (${lower(ctx.standDown).replace(/^i'm standing down:\s*/, "").replace(/\.$/, "")}), so this is a forced read — not a trade it would take on its own.`
-    : "My setup engine has no trade here, so this is a forced read — a side and a trade because you asked for one, not one it has confirmed.";
-  const against = evAgainst[0] ? ` Against it: ${lower(evAgainst[0].text)}.` : "";
+  const sideWord = up ? "BUY" : "SELL", verb = up ? "buy" : "sell";
+  const below = up ? "below" : "above", lowWord = up ? "low" : "high";
+
+  /* 1 — what I see, and which side that puts me on. */
+  const summary = read ? read.summary.trim().replace(/\s+/g, " ") : "";
+  const picture = summary.split(/(?<=[.!?])\s+(?=[A-Z])/)[0] ?? "";
+  const boxed = edges && P > edges.S.price && P < edges.Rz.price;
+  const seeing = !read || f.from === "structure" ? `${f.basis}.`
+    : f.from === "lean" ? `${summary} ${f.basis}.`
+    : read.lean === "transitioning" ? `${summary} Until that happens: ${lower(f.basis)}.`
+    : `${picture} ${boxed ? `Price is boxed between ${fmtPx(edges!.S.price)} and ${fmtPx(edges!.Rz.price)}, so it isn't a clean trend.` : "It isn't a clean trend right now."} ${f.from === "setup" ? f.basis : `Still, ${lower(f.basis)}`}.`;
+
+  /* 2 — the trade: entry, the stop behind structure, the first target. */
+  const behindSays = st.point ? `just ${below} ${sayLevel(st.point.label)} at ${fmtPx(st.point.price)}${st.cleared ? `, which also clears ${sayLevel(st.cleared.label)} at ${fmtPx(st.cleared.price)}` : ""}` : "";
+  const stopSays = st.basis === "swing" && st.point
+    ? `${st.tooTight
+      ? `${cap(st.tooTight.label)} is only ${st.tooTight.pips} pips ${up ? "under" : "over"} the price — inside the noise — so I'm using the one before it: my stop is ${fmtPx(st.stop)}, ${st.pips} pips away, ${behindSays}.`
+      : `My stop is ${fmtPx(st.stop)}, ${st.pips} pips away — ${behindSays}.`} If that ${lowWord} breaks, the structure I'm leaning on is gone and I'm wrong.`
+    : st.basis === "level" && st.point
+      ? `${cap(st.noSwing ?? `no swing ${lowWord} stands behind the entry`)}, so I'm using the nearest real level instead: my stop is ${fmtPx(st.stop)}, ${st.pips} pips away, ${behindSays}.`
+      : `${cap(st.noSwing ?? `no swing ${lowWord} stands behind the entry`)}, and there's no real level at a usable distance either, so my stop is measured from the range: ${fmtPx(st.stop)}, ${st.pips} pips away.`;
+  const t0 = m.targets[0], t1 = m.targets[1];
+  const aimOf = (t: IdeaTarget) => (/^the (last )?\d/.test(t.what) ? t.what : sayLevel(t.what));
+  const rSays = (r: number) => (r === 1 ? "the same distance as the risk" : `${r} times the risk`);
+  const tpSays = t0.basis === "level"
+    ? `First target is ${aimOf(t0)} at ${fmtPx(t0.price)}, ${rSays(t0.r)}${t1 ? `; after that, ${aimOf(t1)} at ${fmtPx(t1.price)}` : ""}.`
+    : `There's no real level to aim at on this side, so my targets are multiples of the risk: the first is ${fmtPx(t0.price)}, ${rSays(t0.r)}.`;
+  const obstructed = m.obstruction ? ` ${cap(sayLevel(m.obstruction.label))} at ${fmtPx(m.obstruction.price)} is only ${pipsOf(m.obstruction.price - m.entry, pipSize)} pips ${up ? "above" : "below"}, so expect a reaction there first.` : "";
+
+  /* 3 — how sure, whose decision, and what argues against it. Said in the same breath as the call. */
+  const yours = ctx.closed ? "Gold is closed, so this is my plan for the reopen, built on the last session's prices — there's nothing to enter yet."
+    : ctx.staleMin != null ? `My last look at the market was ${ctx.staleMin} minutes ago, so check the price before you act on any of this.`
+    : ctx.dataProblem ? `My price data has a problem right now (${strip(ctx.dataProblem)}), so treat these levels as approximate.`
+    : ctx.refused ? `${ctx.refused.code === "chaotic" ? "I have the market flagged as chaotic right now, and while that flag is up my order checks won't open a trade" : `My order checks are refusing new trades right now (${strip(ctx.refused.detail)})`} — mine or yours. So this is my read for you to weigh, not something I can put on.`
+    : ctx.standDown ? `My own trading is standing down right now (${strip(ctx.standDown)}), so I'm not taking this one myself — it's my read, and taking it is your call.`
+    : planned ? "It isn't one of my confirmed setups yet, so I'm not taking it myself — taking it is your call."
+    : "It isn't one of my confirmed setups, so I'm not taking it myself — taking it is your call.";
+  const engineOther = su.side && su.side !== side && (su.state === "setup_developing" || su.state === "watching" || su.state === "waiting_for_trigger" || su.state === "trade_ready");
+  const against = `${evAgainst[0] ? ` What argues against it: ${lower(evAgainst[0].text)}.` : ""}${engineOther ? ` And on the five-minute chart I'm ${su.state === "watching" ? "watching" : "building"} a ${up ? "short" : "long"} at the same time, so the short-term picture disagrees with this lean.` : ""}`;
+  const closing = `Conviction is ${conviction.toLowerCase()} — that's how one-sided my evidence is, not a win rate. ${yours}${against}`;
+
   const warnings: string[] = [];
-  const blockerLine = ctx.dataProblem ?? ctx.standDown;
-  if (blockerLine && !ctx.closed) warnings.push(`ATLAS's automatic engine is not trading right now: ${lower(blockerLine).replace(/^i'm standing down:\s*/, "").replace(/\.$/, "")}. This idea is forced past that.`);
-  for (const w of [newsWarning(s), ...s.warnings.slice(0, 2)]) if (w) warnings.push(w);
-  if (conviction === "Low") warnings.push(`Low conviction: the evidence is only ${f.score} of 100 one way. That is a tilt, not an edge.`);
-  if (m.atr.estimated) warnings.push(`The ${TF_WORD[STYLE_TF[style]]} range could not be read, so distances are estimated from the ${TF_WORD[m.atr.tf]} range.`);
-  if (style === "swing") warnings.push("You asked for Swing: my read of gold is an intraday one, so this is its side with a swing-sized stop — not a swing thesis of its own.");
-  if (style === "quick") warnings.push("You asked for Quick: this stop is sized on the five-minute range, so ordinary movement can reach it.");
+  const spoken = new Set(s.blockers.map((b) => b.detail));     // already said in the call's own words
+  for (const w of [newsWarning(s), ...s.warnings.filter((x) => !spoken.has(x)).slice(0, 2)]) if (w && !warnings.includes(w)) warnings.push(w);
   if (i.tradeActive) warnings.push("You already have an ATLAS position open — the position limit is checked before another order is sent.");
+  if (m.obstruction) warnings.push(`${cap(sayLevel(m.obstruction.label))} at ${fmtPx(m.obstruction.price)} sits between the entry and the first target.`);
+  if (m.targets.every((t) => t.basis === "measured")) warnings.push("There is no real level to aim at on this side, so the targets are multiples of the risk.");
+  if (st.pips < R.TIGHT_STOP_PIPS) warnings.push(`That's a tight stop — ${st.pips} pips. A spread spike or one quick wick can reach it, so size it that way.`);
   const cantSend = ctx.closed ? "Gold is closed — nothing can be sent. Generate again when it reopens."
-    : ctx.staleMin != null ? "The market read is too old to send an order from. Generate again when the feed is back."
-    : ctx.dataProblem ? "The market data is in doubt, so nothing is sent from it. Generate again when the feed is clean." : null;
+    : ctx.staleMin != null ? "My market read is too old to send an order from. Generate again when the feed is back."
+    : ctx.dataProblem ? "My market data is in doubt, so nothing is sent from it. Generate again when the feed is clean."
+    : ctx.refused ? `No ticket for this one: ${ctx.refused.code === "chaotic" ? "while I have the market flagged as chaotic, my order checks don't open trades" : `my order checks are refusing new trades (${strip(ctx.refused.detail)})`}. Generate again when it clears.` : null;
+
+  const stopWhat = st.basis === "measured" || !st.point
+    ? `Measured: ${R.MEASURED_STOP_ATR} × the 15-minute range — no swing or level stands at a usable distance behind the entry.`
+    : `${cap(below)} ${sayLevel(st.point.label)} (${fmtPx(st.point.price)})${st.cleared ? `, clearing ${sayLevel(st.cleared.label)} (${fmtPx(st.cleared.price)})` : ""}, plus the spread — ${st.basis === "swing" ? "market structure, not a fixed distance" : `no swing ${lowWord} stands at a usable distance behind the entry`}.`;
+  const targetingOf = (t: IdeaTarget[]) => `${t.map((x) => `${fmtPx(x.price)} (${x.basis === "level" ? aimOf(x) : `${x.r}R, measured`})`).join(", then ")}.`;
+  const band = R.FORCED_BAND_ATR * a.atr;
+  const stopTail = `Stop ${fmtPx(st.stop)}, ${st.pips} pips${st.point ? `, ${below} ${sayLevel(st.point.label)}` : ""}.`;
+
   const common = {
     version: ATLAS_IDEA_VERSION, id: null, at: i.now, snapshotAt: s.at, snapshotId: i.snapshotId ?? null, options,
-    source: "forced_read" as const, side, style,
-    badge: ctx.closed ? "FORCED READ · GOLD IS CLOSED · A PLAN FOR THE REOPEN"
-      : !canEnter ? "FORCED READ · FROM THE LAST CLEAN MARKET READ"
-      : `FORCED READ · ${conviction.toUpperCase()} CONVICTION · NOT AN ENGINE-CONFIRMED TRADE`,
+    source, side, style: m.style,
+    badge: ctx.closed ? "ATLAS'S CALL · GOLD IS CLOSED · FOR THE REOPEN"
+      : !canEnter ? "ATLAS'S CALL · FROM MY LAST CLEAN READ"
+      : `ATLAS'S CALL · ${conviction.toUpperCase()} CONVICTION`,
     price: r2(P),
+    stop: { price: st.stop, pips: st.pips, what: stopWhat },
+    targets: m.targets, rr: rrOf(m.targets),
     confidence: {
       score: f.score, label: conviction,
       basis: f.from === "structure"
-        ? `Forced read with no directional read behind it: a count of the structure ATLAS can measure, ${f.score} of 100 one way — how much it agrees, not a win probability.`
-        : `Forced read: ATLAS's evidence balance is ${read ? signed(read.score) : f.score} of 100${f.from === "evidence" ? " — below what it needs to call a lean" : ""}. How much the evidence agrees, not a win probability.`,
+        ? `No directional read behind this one: a count of the structure I can measure, ${f.score} of 100 one way — how much it agrees, not a win probability.`
+        : f.from === "setup"
+          ? `This call rests on the setup I'm building, which isn't confirmed. My evidence balance is ${read ? signed(read.score) : 0} of 100 — ${f.score} of it on this side. How much the evidence agrees, not a win probability.`
+          : `My evidence balance is ${read ? signed(read.score) : f.score} of 100${f.from !== "evidence" ? "" : f.score >= READ_RULES.ENTER ? " — not yet held for a second candle, so I don't call it a lean" : " — below what I need to call a lean"}. How much the evidence agrees, not a win probability.`,
     },
     bias: read ? `${read.htfTrend.text} ${read.momentum.text}`.trim() : null,
+    poi: st.point ? `${fmtPx(st.point.price)} — ${sayLevel(st.point.label)}, the structure the stop is behind.` : null,
+    targeting: targetingOf(m.targets),
     confirmations,
     engine: engineOf(su),
+    alternative: null as string | null,
     paths: edges?.paths ?? [],
-    expiresAt: i.now + (ctx.closed ? R.FORCED_CLOSED_TTL_MS : R.FORCED_TTL_MS),
+    warnings,
+    expiresAt: i.now + (ctx.closed ? R.FORCED_CLOSED_TTL_MS : planned ? R.PLAN_TTL_MS : R.FORCED_TTL_MS),
   };
-  const sideWord = up ? "BUY" : "SELL", verb = up ? "buy" : "sell";
-  const targetingOf = (t: IdeaTarget[]) => `${t.map((x) => `${fmtPx(x.price)} (${x.basis === "level" ? x.what : `${x.r}R, measured`})`).join(", then ")}.`;
-  /* The same side entered at the price gold is at: the idea itself when no level prices, and otherwise the
-     "enter now instead" beside a level entry that has not been reached. */
-  const band = R.FORCED_BAND_ATR * m.atr.atr;
-  const stopWhat = m.stopBasis === "structure" && m.anchor
-    ? `Behind ${m.anchor.label} at ${fmtPx(m.anchor.price)}, by the setup engine's own pad${s.spread ? " plus the spread" : ""}.`
-    : `Measured: ${R.FORCED_STOP_ATR} × the ${TF_WORD[m.atr.tf]} range, held inside what ${an(lab)} ${lab} trade allows — no real level sits at a usable distance behind the price.`;
-  const enterNow: NonNullable<AtlasIdea["enterNow"]> | null = canEnter ? {
-    entry: m.entry, low: r2(P - band), high: r2(P + band),
-    stop: { price: m.stop, pips: m.stopPips, what: stopWhat },
-    targets: m.targets, rr: rrOf(m.targets) ?? { first: 0, best: 0 },
-    note: `${m.obstruction ? `${cap(m.obstruction.label)} at ${fmtPx(m.obstruction.price)} is only ${pipsOf(m.obstruction.price - P, pipSize)} pips ${up ? "above" : "below"} the price — expect a reaction there. ` : ""}${m.stopBasis === "measured" ? "The stop is a measured distance, not behind a real level. " : ""}Same side, entered at the price instead of at the level: you are in now, at a worse location.`,
-    manual: { side, style, stop: m.stop, takeProfit: m.targets[0].price },
-  } : null;
-  const otherLevel = (x: Plan | null) => (x
-    ? `${cap(verb)} ${x.spec.mode === "break" ? `a 15-minute close ${up ? "above" : "below"} ${fmtPx(x.level.price)}` : `${fmtPx(x.zoneLow)}–${fmtPx(x.zoneHigh)}`} (${x.level.label}), stop ${fmtPx(x.stop)}, first target ${fmtPx(x.targets[0].price)} — ${pipsOf(x.distance, pipSize)} pips from here.`
-    : null);
 
-  /* ── a level-based entry: in the zone now, the pullback, or the break ── */
-  if (pick.type === "plan") {
-    const p = pick.p, spec = p.spec;
-    const zone = `${fmtPx(p.zoneLow)}–${fmtPx(p.zoneHigh)}`;
-    const distancePips = pipsOf(p.distance, pipSize);
-    const isBreak = spec.mode === "break";
-    const live = canEnter && p.inZone;
-    const triggerText = isBreak ? `A 15-minute close ${up ? "above" : "below"} ${fmtPx(p.level.price)}` : null;
-    const entryText = isBreak
-      ? `${cap(verb)} after a 15-minute candle closes ${up ? "above" : "below"} ${fmtPx(p.level.price)} (${p.level.label}) — ${distancePips} pips from here — and only inside ${zone}. If it closes further out than that, wait for the retest.`
-      : live ? `Gold is inside the entry zone now: ${zone} (${p.level.label}).`
-      : p.inZone ? `The entry zone is ${zone} (${p.level.label}).`
-      : `${cap(verb)} at ${zone} (${p.level.label}) — ${distancePips} pips ${up ? "below" : "above"} the price now.`;
-    const where = isBreak
-      ? `${cap(p.level.label)} at ${fmtPx(p.level.price)} is the level in front of the price, ${distancePips} pips ${up ? "above" : "below"}, so the trade is the break: a 15-minute close ${up ? "above" : "below"} it, with the stop back behind the level at ${fmtPx(p.stop)}.`
-      : p.inZone ? `Gold is at ${p.level.label} (${fmtPx(p.level.price)}), the nearest real level on that side — the entry is ${zone}, with the stop behind it at ${fmtPx(p.stop)}.`
-      : `The nearest real level to lean on is ${p.level.label} at ${fmtPx(p.level.price)}, ${distancePips} pips ${up ? "below" : "above"} — the entry is ${zone}, with the stop behind it at ${fmtPx(p.stop)}.`;
-    const waits = isBreak ? `${triggerText}` : live ? "" : cantSend ? (ctx.closed ? "The market to reopen" : "A clean, current market read") : `Price to reach ${zone}`;
-    return {
-      ...common,
-      kind: isBreak ? "on_break" : "at_level",
-      strategy: isBreak ? "Forced read — the break" : "Forced read — at the level",
-      headline: isBreak ? `${sideWord} a 15-minute close ${up ? "above" : "below"} ${fmtPx(p.level.price)}` : live ? `${sideWord} XAUUSD — at ${fmtPx(p.level.price)} now` : `${sideWord} the pullback to ${fmtPx(p.level.price)}`,
-      entry: {
-        type: isBreak ? "stop" : "limit", price: p.entry, low: p.zoneLow, high: p.zoneHigh, level: { price: p.level.price, label: p.level.label },
-        trigger: triggerText, confirm: isBreak ? "close_15m" : "none", text: entryText, distancePips,
-      },
-      stop: { price: p.stop, pips: p.stopPips, what: `Behind ${fmtPx(p.level.price)} by ${r2(R.PAD_ATR[p.style] + R.FRICTION_ATR)} × the ${TF_WORD[p.atr.tf]} ATR${s.spread ? " plus the spread" : ""} — the setup engine's own pad.` },
-      targets: p.targets, rr: rrOf(p.targets),
-      reasoning: `${standDownLine} ${f.basis}. ${where}${against}`,
-      poi: `${fmtPx(p.level.price)} — ${p.level.label}${p.gathered.length ? `, with ${p.gathered.join(" and ")} beside it` : ""}.`,
-      targeting: targetingOf(p.targets),
-      invalidation: { text: `${spec.invalidation.text} The stop is ${fmtPx(p.stop)}.`, price: spec.invalidation.price },
-      waitingFor: [waits].filter(Boolean),
-      alternative: otherLevel(plans.find((x) => x !== p) ?? null),
-      enterNow: live ? null : enterNow,
-      warnings,
-      execute: {
-        via: cantSend ? null : "manual", now: live,
-        note: cantSend ?? (live
-          ? "Price is in the zone. This is a forced read, not a trade ATLAS's setup engine has confirmed, so taking it is your call: it opens through ATLAS's own order checks, sized from your risk, and ATLAS manages it once it is on."
-          : `Nothing to execute until price is ${isBreak ? "through the level on a closed 15-minute candle" : "in the zone"}. Have ATLAS watch it, then press Get update when it gets there.`),
-        approved: null, manual: { side, style: p.style, stop: p.stop, takeProfit: p.targets[0].price },
-      },
-      watch: live || cantSend ? null : {
-        price: isBreak ? p.level.price : p.entry,
-        direction: isBreak ? (up ? "above" : "below") : (up ? "below" : "above"),
-        say: isBreak ? `Watch ${p.level.price.toFixed(2)} and tell me if it breaks ${up ? "above" : "below"}.` : `Watch ${p.entry.toFixed(2)} and tell me when price reaches it.`,
-      },
-      say: isBreak
-        ? `Made to pick, I'd ${verb} a 15-minute close ${up ? "above" : "below"} ${fmtPx(p.level.price)}, stop ${fmtPx(p.stop)}, first target ${fmtPx(p.targets[0].price)}. It's a forced read — ${conviction.toLowerCase()} conviction, and my setup engine hasn't confirmed it.`
-        : `Made to pick, I'd ${verb} ${live ? "here in" : "the move back to"} ${zone}, stop ${fmtPx(p.stop)}, first target ${fmtPx(p.targets[0].price)}. It's a forced read — ${conviction.toLowerCase()} conviction, and my setup engine hasn't confirmed it.`,
-    };
-  }
-
-  /* ── at the price gold is at (or, when nothing can be entered, the same numbers as a plan for later) ── */
-  const whereStop = m.stopBasis === "structure" && m.anchor
-    ? `with the stop behind ${m.anchor.label} at ${fmtPx(m.stop)} (${m.stopPips} pips)`
-    : `with a measured stop at ${fmtPx(m.stop)} (${m.stopPips} pips) — there is no real level at a usable distance behind the price to hide it behind`;
-  const obstructed = m.obstruction ? ` ${cap(m.obstruction.label)} at ${fmtPx(m.obstruction.price)} is only ${pipsOf(m.obstruction.price - P, pipSize)} pips ${up ? "above" : "below"} — expect a reaction there before the first target.` : "";
-  if (m.obstruction) warnings.push(`${cap(m.obstruction.label)} at ${fmtPx(m.obstruction.price)} sits between the entry and the first target.`);
-  const measuredTargets = m.targets.every((t) => t.basis === "measured");
-  if (measuredTargets) warnings.push("There is no real level to aim at on this side, so the targets are multiples of the risk.");
-  const manual = { side, style, stop: m.stop, takeProfit: m.targets[0].price };
-
-  if (pick.type === "market") {
+  /* ── at the price gold is at ── */
+  if (canEnter) {
     return {
       ...common,
       kind: "enter_now",
-      strategy: "Forced read — at market",
+      strategy: "At the price, stop behind the last swing",
       headline: `${sideWord} XAUUSD — enter now`,
       entry: {
         type: "market", price: m.entry, low: r2(P - band), high: r2(P + band), level: null, trigger: null, confirm: "none",
         text: `Enter at market now, around ${fmtPx(P - band)}–${fmtPx(P + band)}.`, distancePips: 0,
       },
-      stop: { price: m.stop, pips: m.stopPips, what: stopWhat },
-      targets: m.targets, rr: rrOf(m.targets),
-      reasoning: `${standDownLine} ${f.basis}. The entry is at market around ${fmtPx(P)}, ${whereStop}.${obstructed}${against}`,
-      poi: m.anchor ? `${fmtPx(m.anchor.price)} — ${m.anchor.label}, the level the stop hides behind.` : null,
-      targeting: targetingOf(m.targets),
+      reasoning: paragraphs(seeing, `I'd ${verb} here, around ${fmtPx(P)}. ${stopSays} ${tpSays}${obstructed}`, closing),
       invalidation: {
-        text: `The stop at ${fmtPx(m.stop)}.${edges ? ` ${closeWord(up ? edges.S : edges.Rz, up ? "below" : "above")} would put the evidence on the other side.` : " There is no confirmed structure behind a forced read — only the stop."}`,
-        price: m.stop,
+        text: st.point
+          ? `Price through ${sayLevel(st.point.label)} at ${fmtPx(st.point.price)} — the stop is ${fmtPx(st.stop)}.`
+          : `The stop at ${fmtPx(st.stop)}. No structure stands close behind this entry — only the stop.`,
+        price: st.stop,
       },
       waitingFor: [],
-      alternative: plans[0] ? `For a better price: ${lower(otherLevel(plans[0]) ?? "")}` : null,
-      enterNow: null,
-      warnings,
       execute: {
-        via: "manual", now: true,
-        note: "This is a forced read, not a trade ATLAS's setup engine has confirmed, so taking it is your call: it opens through ATLAS's own order checks, sized from your risk, and ATLAS manages it once it is on.",
-        approved: null, manual,
+        via: cantSend ? null : "manual", now: !cantSend,
+        note: cantSend ?? "Taking it is your call. It opens through my order checks, sized from your risk, with the stop and the first target attached — and I manage it once it's on.",
+        approved: null, manual: { side, style: m.style, stop: st.stop, takeProfit: t0.price },
       },
       watch: null,
-      say: `Made to pick, I'd ${verb} gold here, around ${fmtPx(m.entry)}. Stop ${fmtPx(m.stop)}, ${m.stopPips} pips. First target ${fmtPx(m.targets[0].price)}, ${m.targets[0].r} to one. It's a forced read — ${conviction.toLowerCase()} conviction, and my setup engine hasn't confirmed it.`,
+      say: `I'd ${verb} gold here, around ${fmtPx(m.entry)}. ${stopTail} First target ${fmtPx(t0.price)}, ${t0.r} to one. ${conviction} conviction — my read, your call.`,
     };
   }
 
-  // Nothing can be entered (closed, stale or doubtful data) and no level-based plan priced: the same numbers,
-  // as a zone around the last price, for when price is real again.
-  const zLow = r2(P - R.ZONE_ATR * m.atr.atr), zHigh = r2(P + R.ZONE_ATR * m.atr.atr);
-  const ref = up ? zHigh : zLow;                       // the worst price in the zone
-  const refRisk = Math.abs(ref - m.stop);
-  const refTargets = targetsFrom(ref, refRisk, side, levels.filter((l) => d * (l.price - ref) > 0.005), pipSize);
+  /* ── nothing can be entered (closed, stale or doubtful data): the same call, around the last price ── */
   return {
     ...common,
     kind: "at_level",
-    strategy: "Forced read — from the last price",
-    headline: ctx.closed ? `${sideWord} XAUUSD — when gold reopens near ${fmtPx(P)}` : `${sideWord} XAUUSD — near ${fmtPx(P)}, once the read is current`,
+    strategy: "From the last price",
+    headline: ctx.closed ? `${sideWord} XAUUSD — when gold reopens near ${fmtPx(P)}` : `${sideWord} XAUUSD — near ${fmtPx(P)}, once my read is current`,
     entry: {
-      type: "limit", price: ref, low: zLow, high: zHigh, level: null, trigger: ctx.closed ? "Gold reopening inside the zone" : "A current market read with price inside the zone", confirm: "none",
+      type: "limit", price: m.entry, low: zLow, high: zHigh, level: null, trigger: ctx.closed ? "Gold reopening inside the zone" : "A current market read with price inside the zone", confirm: "none",
       text: ctx.closed
         ? `Gold is closed. If it reopens inside ${fmtPx(zLow)}–${fmtPx(zHigh)}, that is the entry; a gap beyond it changes the picture — generate again.`
         : `These levels are from my last clean read. If price is still inside ${fmtPx(zLow)}–${fmtPx(zHigh)} once the read is current, that is the entry — generate again to confirm it.`,
       distancePips: 0,
     },
-    stop: { price: m.stop, pips: pipsOf(refRisk, pipSize), what: stopWhat },
-    targets: refTargets, rr: rrOf(refTargets),
-    reasoning: `${standDownLine} ${f.basis}. From the last price, ${fmtPx(P)}, the entry zone is ${fmtPx(zLow)}–${fmtPx(zHigh)}, ${whereStop}.${against}`,
-    poi: m.anchor ? `${fmtPx(m.anchor.price)} — ${m.anchor.label}, the level the stop hides behind.` : null,
-    targeting: targetingOf(refTargets),
-    invalidation: { text: `The stop at ${fmtPx(m.stop)}. ${ctx.closed ? "A reopen beyond the zone" : "A current price beyond the zone"} means this was priced for a market that is no longer there.`, price: m.stop },
+    reasoning: paragraphs(seeing, `From the last price, ${fmtPx(P)}, I'd ${verb} inside ${fmtPx(zLow)}–${fmtPx(zHigh)}. ${stopSays} ${tpSays}${obstructed}`, closing),
+    invalidation: { text: `The stop at ${fmtPx(st.stop)}. ${ctx.closed ? "A reopen beyond the zone" : "A current price beyond the zone"} means this was priced for a market that is no longer there.`, price: st.stop },
     waitingFor: [ctx.closed ? "The market to reopen" : "A clean, current market read"],
-    alternative: null,
-    warnings,
-    execute: { via: null, now: false, note: cantSend ?? "Nothing can be sent from this read.", approved: null, manual: { ...manual, takeProfit: refTargets[0].price } },
+    execute: { via: null, now: false, note: cantSend ?? "Nothing can be sent from this read.", approved: null, manual: { side, style: m.style, stop: st.stop, takeProfit: t0.price } },
     watch: null,
-    say: `Made to pick, I'd be a ${up ? "buyer" : "seller"} around ${fmtPx(P)} with the stop at ${fmtPx(m.stop)} and a first target of ${fmtPx(refTargets[0].price)} — but ${ctx.closed ? "gold is closed, so that is a plan for the reopen" : "that is from my last clean read, so check the price first"}.`,
+    say: `I'd be a ${up ? "buyer" : "seller"} around ${fmtPx(P)} with the stop at ${fmtPx(st.stop)} and a first target of ${fmtPx(t0.price)} — but ${ctx.closed ? "gold is closed, so that is my plan for the reopen" : "that is from my last clean read, so check the price first"}.`,
   };
 }
 
@@ -1278,22 +1101,13 @@ function fromForced(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null
  * Generate ATLAS's trade idea from one market state. It ALWAYS names a side and a trade when there is a
  * market read to build on (owner 11-11).
  *
- * Order: the setup engine's trade when it has one ready or waiting only on its trigger; otherwise a plan at
- * one of the levels a clear lean stands on; otherwise — the engine blocked or standing down, a range, a
- * turning or faint read, gold closed, a stale or doubtful read — the FORCED READ, labelled as one. Only a
- * missing market read (or no range reading at all) produces no trade.
+ * Order: the setup engine's trade when it has one ready or waiting only on its trigger; otherwise ATLAS'S
+ * CALL — its lean or the tilt of its evidence, entered at the price with the stop behind the last swing. The
+ * engine blocked or standing down, a range, a turning or faint read, gold closed, a stale or doubtful read:
+ * all of them get a call that says where it stands. Only a missing market read (or no range reading at all)
+ * produces no trade.
  */
 export function buildIdea(i: BuildIdeaInput): AtlasIdea {
-  const idea = buildIdeaInner(i);
-  const pick = i.enginePick;
-  if (pick?.side && pick.style && (pick.state === "trade_ready" || pick.state === "waiting_for_trigger") && pick.style !== idea.style) {
-    const lab = IDEA_STYLE_LABEL[pick.style].toLowerCase();
-    idea.warnings = [...idea.warnings, `With no style filter, ATLAS's setup engine is on ${/^[aeiou]/.test(lab) ? "an" : "a"} ${lab} ${pick.side} (${pick.headline.toLowerCase()}). Choose "ATLAS decides" to see it.`];
-  }
-  return idea;
-}
-
-function buildIdeaInner(i: BuildIdeaInput): AtlasIdea {
   const s = i.snapshot;
   const su = i.setup;
   if (!s) return noData(i, "I can't see gold right now — there is no market read to build a trade on, and I won't invent a price.", ["a market read"]);
@@ -1303,21 +1117,22 @@ function buildIdeaInner(i: BuildIdeaInput): AtlasIdea {
   const staleMin = i.stale ? Math.max(1, Math.round((i.now - s.at) / 60_000)) : null;
   const read = i.read && i.read.lean !== "insufficient_data" ? i.read : null;
 
-  // The engine's own trade, then a plan from a clear lean — only from a market that can be entered and that
-  // the engine itself is willing to trade.
+  // A confirmed setup comes first — only from a market that can be entered and that the engine itself is
+  // willing to trade.
   if (!closed && staleMin == null && !s.blockers.length && su.state !== "blocked") {
     const engine = fromSetup(i, s, su);
     if (engine) return engine;
-    const plan = read ? fromRead(i, s, read) : null;
-    if (plan) return plan;
   }
 
+  // Otherwise ATLAS's own call from what it sees. A blocker that is neither the calendar nor the data (the
+  // market flagged chaotic) is one the order checks refuse on (engines/validator.ts → tradeable).
   const hard = s.blockers.find((b) => b.code !== "market_closed" && !DATA_BLOCKERS.includes(b.code)) ?? null;
-  const forced = fromForced(i, s, read, {
-    standDown: hard?.detail ?? (su.state === "blocked" ? su.say : null),
+  const call = fromRead(i, s, read, {
+    standDown: hard ? null : su.state === "blocked" ? su.say : null,
+    refused: hard ? { code: hard.code, detail: hard.detail } : null,
     closed, staleMin, dataProblem: dataProblem?.detail ?? null,
   });
-  return forced ?? noData(i, "I can't measure gold's range on any timeframe right now, so there is nothing to size a stop from — and I won't invent one.", ["a range reading"]);
+  return call ?? noData(i, "I can't measure gold's range on any timeframe right now, so there is nothing to size an entry or a stop from — and I won't invent one.", ["a range reading"]);
 }
 
 /* ── following an idea: where it stands now, and how it turned out ─────────────────────────────────── */
@@ -1549,8 +1364,8 @@ export function ideaRecord(rows: { state: IdeaState; pips: number | null }[]): {
 export function ideaText(idea: AtlasIdea): string {
   if (idea.kind === "stand_aside" || !idea.entry || !idea.stop) return `ATLAS · XAUUSD — ${idea.headline}. ${idea.reasoning}`;
   const lines = [
-    // A forced read says so wherever it is pasted: it is not a trade the engine confirmed.
-    `ATLAS · XAUUSD ${idea.side === "buy" ? "BUY" : "SELL"} · ${idea.style ? IDEA_STYLE_LABEL[idea.style] : ""}${idea.source === "forced_read" ? ` · forced read, ${(idea.confidence?.label ?? "low").toLowerCase()} conviction` : ""}`.trim(),
+    // Where it is pasted, it still says what it is: a confirmed setup, or ATLAS's read and how convinced it is.
+    `ATLAS · XAUUSD ${idea.side === "buy" ? "BUY" : "SELL"} · ${idea.source === "setup_engine" ? "confirmed setup" : `ATLAS's call, ${(idea.confidence?.label ?? "low").toLowerCase()} conviction — a read, not a confirmed setup`}`,
     idea.entry.type === "market" ? `Entry: ${fmtPx(idea.entry.price)} (market)` : `Entry: ${fmtPx(idea.entry.low)}–${fmtPx(idea.entry.high)}${idea.entry.trigger ? ` after ${idea.entry.trigger.charAt(0).toLowerCase()}${idea.entry.trigger.slice(1)}` : ""}`,
     `Stop: ${fmtPx(idea.stop.price)} (${idea.stop.pips} pips)`,
     ...idea.targets.map((t) => `${t.label}: ${fmtPx(t.price)} (${t.pips} pips, ${t.r}R)`),

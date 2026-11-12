@@ -12,8 +12,7 @@ import fixture from "../fixtures/replay-bars.json";
 import type { Bar } from "../core/types";
 import { PIP } from "../core/types";
 import { replay } from "./replay";
-import { findSetup } from "./setup";
-import { DEFAULT_PROFILE, asSetupProfile } from "./profile";
+import { DEFAULT_PROFILE } from "./profile";
 import { buildIdea, followIdea, ideaOptionsOf, type AtlasIdea, type IdeaFollow } from "./idea";
 
 type Row = [number, number, number, number, number];
@@ -29,20 +28,10 @@ export const replayEndOf = (raw: unknown): number => {
 export function replayIdea(rawOptions: unknown, end = 0): AtlasIdea {
   const options = ideaOptionsOf(rawOptions);
   const r = replay(46, false, end);
-  const thesis = r.state.thesis;
-  const own = asSetupProfile(DEFAULT_PROFILE);
-  const pick = r.state.setup;
-  const setup = options.style === "auto" ? pick : findSetup({
-    snapshot: r.snapshot, diffs: r.diffs, marketOpen: true, now: r.snapshot.at,
-    thesisBias: thesis?.bias ?? null, thesisConfidence: thesis?.confidence ?? null,
-    profile: { ...own, allowQuick: options.style === "quick", allowHold: options.style === "hold", allowSwing: options.style === "swing" },
-  });
-  const takeable = options.style === "auto"
-    || (setup.state === pick.state && setup.side === pick.side && setup.style === pick.style && setup.stop === pick.stop);
   const idea = buildIdea({
-    snapshot: r.snapshot, snapshotId: null, setup, takeable, read: r.state.read, scenarios: r.state.scenarios, options,
+    snapshot: r.snapshot, snapshotId: null, setup: r.state.setup, takeable: true, read: r.state.read, scenarios: r.state.scenarios, options,
     marketOpen: true, stale: false, tradeActive: false, minConfidence: DEFAULT_PROFILE.minConfidence,
-    enginePick: takeable ? null : pick, pipSize: PIP, now: r.endedAt,
+    pipSize: PIP, now: r.endedAt, bars5m: r.state.bars,
   });
   // A replayed idea is addressed by where it stands and how it was asked for; nothing is stored.
   return { ...idea, id: `replay:${end}:${options.style}` };

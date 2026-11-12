@@ -33,7 +33,7 @@ import { selectedAccount } from "./broker";
 import { parseWatch, arm } from "./watch";
 import {
   IDEA_VERSIONS, buildIdea, followIdea, ideaOptionsOf, ideaRecord,
-  type AtlasIdea, type IdeaFollow, type IdeaOptions, type IdeaState,
+  type AtlasIdea, type IdeaFollow, type IdeaState,
 } from "./idea";
 
 export type Generated = {
@@ -46,12 +46,8 @@ export type Generated = {
   timings: { loadMs: number; engineMs: number; readMs: number; totalMs: number };
 };
 
-/** Is the style-filtered setup the very trade the trade card shows and the server would recompute? */
-const sameTrade = (a: BrainSetup, b: BrainSetup): boolean =>
-  a.state === b.state && a.side === b.side && a.style === b.style && a.stop === b.stop && a.invalidationPrice === b.invalidationPrice;
-
 /** The engine's own inputs, assembled exactly as engines/live.ts assembles them for the screen. */
-async function marketNow(userId: string, options: IdeaOptions, now: number) {
+async function marketNow(userId: string, now: number) {
   const open = marketOpen(now);
   const latest = await latestWithBars();
   if (!latest) return { open, latest: null as null };
@@ -68,14 +64,10 @@ async function marketNow(userId: string, options: IdeaOptions, now: number) {
     snapshot: s, diffs, marketOpen: open && !stale,
     thesisBias: openThesis?.bias ?? null, thesisConfidence: openThesis?.confidence ?? null,
   };
-  const own = asSetupProfile(profile);
-  // What the trade card shows and take-setup recomputes: no style filter.
-  const pick = findSetup({ ...base, profile: own });
-  const setup = options.style === "auto" ? pick : findSetup({
-    ...base,
-    profile: { ...own, allowQuick: options.style === "quick", allowHold: options.style === "hold", allowSwing: options.style === "swing" },
-  });
-  return { open, latest, stale, s, diffs, profile, pick, setup, providerAt: livePx?.providerAt ?? null };
+  // Exactly what the trade card shows and take-setup recomputes. (The Quick / Intraday / Swing filter that
+  // used to be applied here is gone — owner 11-12: one ATLAS option.)
+  const setup = findSetup({ ...base, profile: asSetupProfile(profile) });
+  return { open, latest, stale, s, diffs, profile, pick: setup, setup, providerAt: livePx?.providerAt ?? null };
 }
 
 /**
@@ -84,7 +76,7 @@ async function marketNow(userId: string, options: IdeaOptions, now: number) {
 export async function generateIdea(userId: string, rawOptions: unknown): Promise<Generated> {
   const t0 = Date.now();
   const options = ideaOptionsOf(rawOptions);
-  const m = await marketNow(userId, options, t0);
+  const m = await marketNow(userId, t0);
   const t1 = Date.now();
 
   if (!m.latest) {
@@ -110,11 +102,13 @@ export async function generateIdea(userId: string, rawOptions: unknown): Promise
   });
   const t3 = Date.now();
 
-  const takeable = options.style === "auto" || sameTrade(setup, pick);
   const idea = buildIdea({
-    snapshot: s, snapshotId: latest.id, setup, takeable, read: fields.read, scenarios: fields.scenarios, options,
+    // `setup` is the trade card's own setup, which take-setup recomputes: a confirmed one can be taken as ATLAS's trade.
+    snapshot: s, snapshotId: latest.id, setup, takeable: true, read: fields.read, scenarios: fields.scenarios, options,
     marketOpen: open, stale, tradeActive: trade.active, minConfidence: profile.minConfidence,
-    enginePick: takeable ? null : pick, pipSize: PIP, now: t0,
+    pipSize: PIP, now: t0,
+    // The candles the swings are read from: a stop goes behind market structure (engines/idea.ts structureOf).
+    bars5m: latest.bars,
   });
 
   const id = await saveIdea(userId, idea);
@@ -237,25 +231,25 @@ export function updateVerdict(idea: AtlasIdea, follow: IdeaFollow, read: AtlasRe
   const parts: string[] = [follow.text];
   if (idea.source === "read_plan" && read && read.lean !== "insufficient_data") {
     parts.push(read.lean === want
-      ? `ATLAS's read still agrees: ${LEAN_LABEL[read.lean].toLowerCase()}${read.strength ? `, ${read.strength}` : ""} (evidence ${signed(read.score)}).`
-      : `ATLAS's read is now ${LEAN_LABEL[read.lean].toLowerCase()} (evidence ${signed(read.score)}) — that is no longer this plan's read. Generate a fresh idea.`);
+      ? `My read still agrees: ${LEAN_LABEL[read.lean].toLowerCase()}${read.strength ? `, ${read.strength}` : ""} (evidence ${signed(read.score)}).`
+      : `My read is now ${LEAN_LABEL[read.lean].toLowerCase()} (evidence ${signed(read.score)}) — that is no longer the read this call was made on. Generate a fresh one.`);
   }
   if (idea.source === "forced_read" && read && read.lean !== "insufficient_data") {
-    // A forced read stood on a tilt of the evidence, not on a lean: say where that tilt is now.
+    // This call stood on a tilt of the evidence, not on a clear lean: say where that tilt is now.
     const tilt = read.lean === "bullish_lean" ? 1 : read.lean === "bearish_lean" ? -1 : Math.sign(read.score);
     const mine = idea.side === "buy" ? 1 : -1;
     parts.push(tilt === mine
-      ? `The evidence still tilts ${mine > 0 ? "up" : "down"}: ${LEAN_LABEL[read.lean].toLowerCase()}, ${signed(read.score)} of 100.`
-      : tilt === 0 ? `The evidence is now dead even (${LEAN_LABEL[read.lean].toLowerCase()}) — this forced read has nothing behind it but its stop.`
-      : `The evidence now tilts the other way: ${LEAN_LABEL[read.lean].toLowerCase()}, ${signed(read.score)} of 100. This forced read no longer has even that behind it — generate a fresh one.`);
+      ? `What I see still tilts ${mine > 0 ? "up" : "down"}: ${LEAN_LABEL[read.lean].toLowerCase()}, ${signed(read.score)} of 100.`
+      : tilt === 0 ? `My evidence is now dead even (${LEAN_LABEL[read.lean].toLowerCase()}) — this call has nothing behind it but its stop.`
+      : `My evidence now tilts the other way: ${LEAN_LABEL[read.lean].toLowerCase()}, ${signed(read.score)} of 100. This call no longer has that behind it — generate a fresh one.`);
   }
   if (idea.source === "setup_engine" && engine) {
     const same = engine.side === idea.side && engine.style === idea.style;
-    parts.push(same && engine.state === "trade_ready" ? "The setup engine has this trade ready right now."
-      : same ? `The setup engine still has this side: ${engine.headline.toLowerCase()}.`
-      : `The setup engine has moved on: ${engine.say}`);
+    parts.push(same && engine.state === "trade_ready" ? "I have this trade ready right now."
+      : same ? `I still have this side: ${engine.headline.toLowerCase()}.`
+      : `I've moved on: ${engine.say}`);
   } else if (engine?.state === "trade_ready" && engine.side) {
-    parts.push(`The setup engine now has its own trade ready (${engine.side}). Generate again to see it.`);
+    parts.push(`I now have a confirmed setup ready (${engine.side}). Generate again to see it.`);
   }
   return parts.join(" ");
 }
@@ -268,9 +262,8 @@ export async function followStoredIdea(userId: string, id: string): Promise<{ ro
   const row = await loadIdea(userId, id);
   if (!row) return null;
   const now = Date.now();
-  const options = row.idea.options ?? { style: "auto" as const };
   const [m, chart, leans] = await Promise.all([
-    marketNow(userId, options, now),
+    marketNow(userId, now),
     chartBarsFor(["5m", "15m", "1h"]),
     row.idea.source === "read_plan" ? leansSince(row.idea.at) : Promise.resolve([]),
   ]);
