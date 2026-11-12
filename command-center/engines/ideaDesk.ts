@@ -32,8 +32,8 @@ import { liveReadFields, STALE_MS } from "./live";
 import { selectedAccount } from "./broker";
 import { parseWatch, arm } from "./watch";
 import {
-  IDEA_VERSIONS, buildIdea, followIdea, ideaOptionsOf, ideaRecord,
-  type AtlasIdea, type IdeaFollow, type IdeaState,
+  IDEA_VERSIONS, buildIdea, followIdea, forcedSide, ideaOptionsOf, ideaRecord,
+  type AtlasIdea, type ForcedSide, type IdeaFollow, type IdeaState,
 } from "./idea";
 
 export type Generated = {
@@ -225,17 +225,29 @@ export type IdeaUpdate = {
 };
 
 /** The sentence under "Get update": the candles' verdict, then whether ATLAS still agrees with itself. */
-export function updateVerdict(idea: AtlasIdea, follow: IdeaFollow, read: AtlasRead | null, engine: BrainSetup | null): string {
+export function updateVerdict(idea: AtlasIdea, follow: IdeaFollow, read: AtlasRead | null, engine: BrainSetup | null, fresh?: ForcedSide | null): string {
   if (["tp1", "tp2", "tp3", "stopped", "invalidated", "expired", "none"].includes(follow.state)) return follow.text;
   const want = idea.side === "buy" ? "bullish_lean" : "bearish_lean";
   const parts: string[] = [follow.text];
-  if (idea.source === "read_plan" && read && read.lean !== "insufficient_data") {
+  // The side a call takes is the direction gold has been travelling (engines/idea.ts forcedSide), so that is
+  // what an update compares against: would I name the same side if you generated again right now?
+  const direction = fresh?.trend ?? null;
+  const low = (x: string) => (/^[A-Z][a-z]/.test(x) ? x.charAt(0).toLowerCase() + x.slice(1) : x);
+  if (idea.source !== "setup_engine" && fresh && direction) {
+    const who = fresh.side === "buy" ? "buyer" : "seller";
+    const mine = read && read.lean !== "insufficient_data" ? ` My read: ${LEAN_LABEL[read.lean].toLowerCase()}, ${signed(read.score)} of 100.` : "";
+    // With the direction: the direction is the reason. Against it: a clear lean of the read is.
+    const why = (fresh.side === "buy") === (direction.dir > 0) ? low(direction.text) : "my read leans that way clearly, against the direction of the last few hours";
+    parts.push(fresh.side === idea.side
+      ? `I'd still be a ${who} here — ${why}.${mine}`
+      : `I'd be a ${who} now — ${why}.${mine} This call no longer has that behind it — generate a fresh one.`);
+  } else if (idea.source === "read_plan" && read && read.lean !== "insufficient_data") {
     parts.push(read.lean === want
       ? `My read still agrees: ${LEAN_LABEL[read.lean].toLowerCase()}${read.strength ? `, ${read.strength}` : ""} (evidence ${signed(read.score)}).`
       : `My read is now ${LEAN_LABEL[read.lean].toLowerCase()} (evidence ${signed(read.score)}) — that is no longer the read this call was made on. Generate a fresh one.`);
   }
-  if (idea.source === "forced_read" && read && read.lean !== "insufficient_data") {
-    // This call stood on a tilt of the evidence, not on a clear lean: say where that tilt is now.
+  if (!(fresh && direction) && idea.source === "forced_read" && read && read.lean !== "insufficient_data") {
+    // No candles to read a direction from: this call stood on a tilt of the evidence — say where that tilt is now.
     const tilt = read.lean === "bullish_lean" ? 1 : read.lean === "bearish_lean" ? -1 : Math.sign(read.score);
     const mine = idea.side === "buy" ? 1 : -1;
     parts.push(tilt === mine
@@ -248,7 +260,8 @@ export function updateVerdict(idea: AtlasIdea, follow: IdeaFollow, read: AtlasRe
     parts.push(same && engine.state === "trade_ready" ? "I have this trade ready right now."
       : same ? `I still have this side: ${engine.headline.toLowerCase()}.`
       : `I've moved on: ${engine.say}`);
-  } else if (engine?.state === "trade_ready" && engine.side) {
+  } else if (engine?.state === "trade_ready" && engine.side && (!direction || engine.side === fresh?.side)) {
+    // Only a setup on the side gold is travelling is what Generate would show (engines/idea.ts buildIdea).
     parts.push(`I now have a confirmed setup ready (${engine.side}). Generate again to see it.`);
   }
   return parts.join(" ");
@@ -282,6 +295,8 @@ export async function followStoredIdea(userId: string, id: string): Promise<{ ro
     } catch { /* the verdict simply says less */ }
   }
   const engine = m.latest ? m.pick : null;
+  // The side a fresh call would take right now, from the same candles Generate reads.
+  const fresh = m.latest && read ? forcedSide(read.lean !== "insufficient_data" ? read : null, m.s, engine, { bars5m: m.latest.bars, now }) : null;
   await storeFollow(userId, id, follow);
   return {
     row: { ...row, status: follow.state, follow, gradedAt: now },
@@ -292,7 +307,7 @@ export async function followStoredIdea(userId: string, id: string): Promise<{ ro
         lean: read?.lean ?? null, leanLabel: read ? LEAN_LABEL[read.lean] : null, score: read ? Math.round(read.score) : null,
         engine: engine ? { state: engine.state, headline: engine.headline, side: engine.side, style: engine.style } : null,
       },
-      verdict: updateVerdict(row.idea, follow, read, engine),
+      verdict: updateVerdict(row.idea, follow, read, engine, fresh),
     },
   };
 }

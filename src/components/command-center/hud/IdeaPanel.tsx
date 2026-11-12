@@ -366,7 +366,7 @@ export function IdeaPanel({
               {/* how sure, where it is aiming, what makes it wrong */}
               <p className="mt-3 text-[11px]" style={{ color: H.mut }} title={trade.confidence?.basis}>
                 {confirmed ? "Confidence" : "Conviction"} <b style={{ color: H.text }}>{trade.confidence?.label}</b>
-                <span style={{ color: H.mut2 }}> · {trade.confidence?.score}/100 — {confirmed ? "from the evidence and the reward on offer" : "how one-sided the evidence is"}, not a win probability</span>
+                <span style={{ color: H.mut2 }}> · {trade.confidence?.score}/100 — {confirmed ? "from the evidence and the reward on offer" : "how much of what I measure agrees"}, not a win probability</span>
               </p>
               <div className="mt-2 space-y-1 text-[11.5px]" style={{ color: H.mut }}>
                 <p title={trade.stop!.what}><span style={{ color: H.mut2 }}>Stop:</span> {trade.stop!.what}</p>

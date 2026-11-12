@@ -9,25 +9,31 @@
  *
  * WHERE THE ANSWER COMES FROM.
  *
- *   • A CONFIRMED SETUP (source "setup_engine"). When engines/setup.ts has a trade READY, the idea IS that
- *     trade, number for number: the same entry band, stop and objectives the member is shown on the trade
- *     card and the server recomputes before an order is sent. When the engine has everything but its
- *     trigger, the idea is that trade with the entry it is waiting for. Nothing about that engine changes
- *     here — its stop is its own.
+ *   • A CONFIRMED SETUP (source "setup_engine"). When engines/setup.ts has a trade READY — on the side gold
+ *     has been travelling — the idea IS that trade, number for number: the same entry band, stop and
+ *     objectives the member is shown on the trade card and the server recomputes before an order is sent.
+ *     When the engine has everything but its trigger, the idea is that trade with the entry it is waiting
+ *     for. Nothing about that engine changes here — its stop is its own, and a setup against the direction
+ *     (with the call on the other side) is still its to trade; Generate just does not call it (`buildIdea`).
  *
  *   • ATLAS'S CALL (sources "read_plan" and "forced_read"). Otherwise ATLAS still names a side and a trade
  *     (owner 11-11: "I don't want it ever to stand down. I want it forced to read the market and come up
- *     with a direction and a trade."): the side its read leans to — or, when it holds no lean, the side the
- *     evidence tilts to with the abstention threshold removed — entered at the price, with the stop behind
- *     market structure. "read_plan" means a clear or strong lean stood behind it; "forced_read" means
- *     anything fainter. The member is shown one thing either way: ATLAS's call, and how convinced it is.
+ *     with a direction and a trade."), entered at the price, with the stop behind market structure. THE SIDE
+ *     is its read's lean when that lean is clear; otherwise it is THE DIRECTION GOLD HAS BEEN TRAVELLING
+ *     (owner 11-12: "The call outs need to be better"): three slow checks on the closed 5-minute candles,
+ *     majority rules (`trendOf`). A slight lean, the tilt of the evidence and a setup still being built no
+ *     longer pick the side — that is what made a call change sides every half hour — they are said, and
+ *     they set the conviction. "read_plan" means a clear or strong lean stood behind it; "forced_read" is
+ *     everything else. The member is shown one thing either way: ATLAS's call, and how convinced it is.
  *
  * THE RULES OF A CALL.
  *
  *   • THE STOP FOLLOWS MARKET STRUCTURE (owner 11-12: "needs to go with market structure for the stop loss.
  *     It can be less then 30 pips stop"). It goes behind the last confirmed swing still standing on the
  *     losing side — the last higher low under a buy, the last lower high over a sell — read from the closed
- *     5- and 15-minute candles. No fixed pad and no style floor: only a stop inside the noise is passed over.
+ *     5- and 15-minute candles. No fixed pad and no style floor: only a stop inside the noise (closer than
+ *     one and a half average 5-minute candles) is passed over, and it sits a quarter of a candle beyond the
+ *     swing so a wick through the swing does not take it.
  *   • EVERY NUMBER IS REAL. The entry is the price. The stop is a real candle's low or high plus the spread.
  *     A target is a real level or a standing swing at least one R away; in open space the targets are
  *     multiples of the risk and every one of them says so.
@@ -40,8 +46,9 @@
  *     and says why. The setup engine and automatic trading are untouched.
  *     The one thing that cannot be produced is a number from nothing: with no market read at all there is
  *     no price to build on, and the answer says exactly that.
- *   • CONVICTION IS NOT A WIN RATE. The score is the setup engine's confidence or the read's evidence
- *     balance, named as such. Nothing here claims a probability.
+ *   • CONVICTION IS NOT A WIN RATE. The score is the setup engine's confidence, or how much of what ATLAS
+ *     measures is on the call's side (the direction checks and the read's evidence balance — `convictionOf`),
+ *     named as such. Nothing here claims a probability.
  *
  * Pure: no I/O and no clock except `now`. The same inputs always produce the same idea, which is what lets
  * the replay prove what ATLAS would have said at any moment of a recorded session.
@@ -57,9 +64,9 @@ import { resample } from "../core/bars";
 import { STRATEGY_LABEL, type BrainSetup, type SetupState } from "./setup";
 import { MEMBER_PASSABLE } from "./snapshot";
 
-export const ATLAS_IDEA_VERSION = "idea-2";
-/** Versions a stored idea may carry and still be read back: idea-2 only added the forced read. */
-export const IDEA_VERSIONS: readonly string[] = ["idea-1", "idea-2"];
+export const ATLAS_IDEA_VERSION = "idea-3";
+/** Versions a stored idea may carry and still be read back: idea-2 added the forced read, idea-3 the direction checks. */
+export const IDEA_VERSIONS: readonly string[] = ["idea-1", "idea-2", "idea-3"];
 
 export const IDEA_RULES = {
   /** A zone around the last price, in 15-minute ATR, when nothing can be entered yet (gold closed, a stale read). */
@@ -72,6 +79,13 @@ export const IDEA_RULES = {
   OBSTRUCTION_R: 0.6,
   /** In open space, with no real level at a sensible distance: the setup engine's fallback multiples. */
   FALLBACK_R: [1.8, 3.0] as const,
+  /*
+   * THE FIRST TARGET OF ATLAS'S OWN CALLS IS ONE IT CAN REACH. A real level further out than this many R is
+   * not a first target (on the thirteen days measured, first targets past 2.5 R were reached about one time
+   * in five): the first target is then the measured FALLBACK_R[0], said to be measured, and the real level
+   * follows it.
+   */
+  CALL_MAX_R: 3.0,
   /** How long a call made from a clear lean stays on offer — the scenarios' own horizon (core/scenarios.ts). */
   PLAN_TTL_MS: 4 * 3600_000,
   /** The engine's own rule for a market entry that is still the same trade (setup.ts stillValid). */
@@ -87,16 +101,22 @@ export const IDEA_RULES = {
   SWING_K: 2,
   /** How far back the 5-minute swings are read: eight hours of candles. */
   SWING_BARS_5M: 96,
-  /** What the stop gives the swing it hides behind: the spread plus this much of the 5-minute ATR … */
-  STOP_BUFFER_ATR: 0.1,
+  /** What the stop gives the swing it hides behind: the spread plus this much of the 5-minute ATR … (A tenth
+   *  until 11-12: a wick that swept the swing by a pip or two took the stop with it.) */
+  STOP_BUFFER_ATR: 0.25,
   /** … and never less than this, in price (three pips). */
   STOP_BUFFER_MIN: 0.3,
   /** Swings and levels packed within this much of the 5-minute ATR beyond the chosen one are cleared together. */
   STOP_CLUSTER_ATR: 0.25,
   /** The tightest stop a call may carry, in pips … */
   MIN_STOP_PIPS: 10,
-  /** … and never closer than this much of the 5-minute ATR: half an average candle is noise, not structure. */
-  MIN_STOP_ATR: 0.5,
+  /**
+   * … and never closer than this much of the 5-minute ATR. A stop inside one and a half average candles is
+   * inside the noise: on the thirteen days measured (26 Oct – 11 Nov 2026) the tighter stops were the ones
+   * taken out before price went on to the target. Half a candle until 11-12. In a quiet market this is still
+   * well under 30 pips; when candles are averaging 40 pips it is not.
+   */
+  MIN_STOP_ATR: 1.5,
   /** A swing further than this from the entry is not what the entry leans on. */
   MAX_STOP_PIPS: 200,
   /** With no structure at a usable distance: this much of the 15-minute ATR, said to be measured. */
@@ -105,7 +125,24 @@ export const IDEA_RULES = {
   TIGHT_STOP_PIPS: 25,
   /** A market entry's band around the price, in ATR — the setup engine's own entry band (setup.ts). */
   FORCED_BAND_ATR: 0.12,
-  /** How long a call from a tilt of the evidence stays on offer: half a clear lean's — it has less behind it. */
+  /*
+   * THE SIDE COMES FROM THE DIRECTION GOLD HAS BEEN TRAVELLING (owner 11-12: "The call outs need to be better").
+   * Three slow checks on the closed 5-minute candles, majority rules — see `trendOf`.
+   */
+  /** The two averages compared, in 5-minute candles: 100 minutes against about four hours. */
+  TREND_FAST: 20,
+  TREND_SLOW: 50,
+  /** The averages must be this far apart, in the 5-minute ATR, to count as apart; inside it the last answer stands. */
+  TREND_BAND_ATR: 0.15,
+  /** The two windows whose newest extreme is read, in 5-minute candles: four hours and eight. */
+  TREND_WINDOWS: [48, 96] as const,
+  /** Closed candles needed before the averages are read at all. */
+  TREND_MIN_BARS: 60,
+  /** Conviction, from how much of what ATLAS measures agrees (0–100): High from here … */
+  CONVICTION_HIGH: 65,
+  /** … Medium from here, Low below. */
+  CONVICTION_MEDIUM: 45,
+  /** How long a call without a clear lean behind it stays on offer: half a clear lean's. */
   FORCED_TTL_MS: 2 * 3600_000,
   /** …and one made while gold is closed, which waits for the reopen. */
   FORCED_CLOSED_TTL_MS: 72 * 3600_000,
@@ -258,6 +295,8 @@ const sgn = (side: Side) => (side === "buy" ? 1 : -1);
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const r1 = (n: number) => Math.round(n * 10) / 10;
 const cap = (x: string) => (x ? x[0].toUpperCase() + x.slice(1) : x);
+/** Mid-sentence: an ordinary capitalised word loses its capital; "I", "I'm" and acronyms (RSI, ATR) keep theirs. */
+const lowerFirst = (x: string) => (/^[A-Z][a-z]/.test(x) ? x.charAt(0).toLowerCase() + x.slice(1) : x);
 const TF_WORD: Record<Timeframe, string> = { "1m": "1-minute", "5m": "5-minute", "15m": "15-minute", "1h": "1-hour", "4h": "4-hour", "1d": "daily" };
 const pipsOf = (distance: number, pipSize: number) => Math.round(Math.abs(distance) / pipSize);
 
@@ -298,10 +337,10 @@ const confLabel = (n: number): "Low" | "Medium" | "High" => (n >= 75 ? "High" : 
 
 /**
  * Targets from a reference entry: real levels at least one R out, each at least 0.6 R beyond the last. When
- * there is no real level at all, the engine's fallback multiples — every one labelled as measured, never
- * mixed with real ones.
+ * there is no real level at all, the engine's fallback multiples — every one labelled as measured. On ATLAS's
+ * own calls (`call`), a first real level too far out to be a first target is preceded by one measured target.
  */
-function targetsFrom(entry: number, risk: number, side: Side, levels: Lv[], pipSize: number): IdeaTarget[] {
+function targetsFrom(entry: number, risk: number, side: Side, levels: Lv[], pipSize: number, call?: { maxR: number }): IdeaTarget[] {
   const d = sgn(side);
   const R = IDEA_RULES;
   const ahead = levels
@@ -317,6 +356,19 @@ function targetsFrom(entry: number, risk: number, side: Side, levels: Lv[], pipS
     floor = l.dist + R.NEXT_R * risk;
   }
   const label = (i: number) => (["TP1", "TP2", "TP3"] as const)[i];
+  // ATLAS's own call: the nearest real level is too far out to be a first target. The first target is measured
+  // and says so; the real levels beyond it follow.
+  if (call && picked.length && picked[0].dist > call.maxR * risk + 1e-9) {
+    const k = R.FALLBACK_R[0];
+    const far = picked.filter((l) => l.dist + 1e-9 >= (k + R.NEXT_R) * risk).slice(0, 2);
+    return [
+      {
+        label: label(0), price: r2(entry + d * risk * k), pips: pipsOf(risk * k, pipSize), r: k, basis: "measured" as const,
+        what: `${k} × the risk — the nearest real level on this side is ${r1(picked[0].dist / risk)} times the risk away, too far to be a first target`,
+      },
+      ...far.map((l, i) => ({ label: label(i + 1), price: r2(l.price), pips: pipsOf(l.dist, pipSize), r: r1(l.dist / risk), basis: "level" as const, what: l.label })),
+    ];
+  }
   if (picked.length) {
     return picked.map((l, i) => ({
       label: label(i), price: r2(l.price), pips: pipsOf(l.dist, pipSize), r: r1(l.dist / risk), basis: "level" as const, what: l.label,
@@ -666,7 +718,7 @@ const atr5Of = (s: MarketSnapshot): number => {
   return a15 != null && a15 > 0 ? a15 * 0.58 : 0;
 };
 
-/** What a stop gives the swing it hides behind: the spread, and a tenth of the 5-minute range (never under three pips). */
+/** What a stop gives the swing it hides behind: the spread, and a quarter of the 5-minute range (never under three pips). */
 function stopBuffer(s: MarketSnapshot): number {
   const R = IDEA_RULES;
   const spread = s.spread != null && s.spread > 0 ? s.spread : 0;
@@ -693,8 +745,8 @@ type StopPlan = {
  * Under a buy, the nearest swing low still standing (the last higher low); over a sell, the nearest swing
  * high — plus the spread and a small buffer, so the stop is beyond the swing rather than on it. There is no
  * style floor under it and it may be tight (owner 11-12: "It can be less then 30 pips stop"); the only floor
- * is noise: a stop closer than MIN_STOP_PIPS, or than half an average 5-minute candle, is passed over for the
- * swing before it. Swings or levels packed right behind the chosen one are cleared with it — the stop goes
+ * is noise: a stop closer than MIN_STOP_PIPS, or than one and a half average 5-minute candles, is passed over
+ * for the swing before it. Swings or levels packed right behind the chosen one are cleared with it — the stop goes
  * beyond the last of them — so it never sits between two.
  *
  * When no swing stands at a usable distance — gold is at the extreme of its move, or the last swing is
@@ -768,48 +820,236 @@ function edgesAndPaths(read: AtlasRead, levels: Lv[]): { S: Lv; Rz: Lv; paths: A
   };
 }
 
-export type ForcedSide = {
-  side: Side;
-  /** How much of the evidence is on this side, 0–100: the read's own balance, or the structure vote when there is no read. */
-  score: number;
-  /**
-   * lean: the read holds a lean. setup: it holds none, and the setup engine is already building a trade on
-   * one side. evidence: neither, and the balance still tilts. structure: no usable read.
-   */
-  from: "lean" | "setup" | "evidence" | "structure";
-  /** Why this side, in ATLAS's voice (a sentence without its full stop). */
-  basis: string;
+export type TrendVote = {
+  key: "averages" | "four_hours" | "eight_hours";
+  dir: 1 | -1 | 0;
+  /** The check as a clause in ATLAS's voice; empty when it had no reading. */
+  text: string;
+  /** The candle that made the extreme (its open time), for the two range checks. */
+  at: number | null;
+};
+
+export type TrendRead = {
+  dir: 1 | -1;
+  /** How many of the checks point that way, of how many had a reading. */
+  agree: number;
+  of: number;
+  /** All three checks had a reading and all three agree. */
+  unanimous: boolean;
+  votes: TrendVote[];
+  /** The checks as they are said and listed: one clause each, the two windows as one when the same candle is the extreme of both. */
+  clauses: { text: string; dir: 1 | -1 }[];
+  /** The direction as a sentence in ATLAS's voice, without its full stop. */
+  text: string;
 };
 
 /**
- * WHICH SIDE, WHEN A SIDE MUST BE NAMED. What ATLAS already sees, with the thresholds it uses to abstain
- * removed:
- *   1. the read's lean, when it holds one (however faint);
- *   2. otherwise the side its setup engine is already building or watching a trade on — one ATLAS, one
- *      side: a call that sold while its own trade card was building a long would be two answers;
- *   3. otherwise the sign of the read's evidence balance (core/read.ts `score`) — a range or a turning
- *      market still has more on one side than the other;
- *   4. with no usable read (or a balance of exactly zero), a vote on the structure the snapshot measured:
- *      each timeframe's swing sequence (or its slope), then the pressure proxy; a dead heat is settled by
- *      which side of the daily open price is on, then by the 15-minute RSI.
- * Deterministic, and it says which of the four it used.
+ * THE DIRECTION GOLD HAS BEEN TRAVELLING — the side of a call when ATLAS holds no clear lean (owner 11-12:
+ * "The call outs need to be better").
+ *
+ * The side used to come from whichever faint input was on hand: a slight lean, else the side the setup engine
+ * happened to be building, else the sign of the evidence balance. Measured on thirteen real trading days
+ * (26 Oct – 11 Nov 2026, every five minutes), that answer changed sides about once every 26 minutes — a
+ * member who generated twice in ten minutes could be told BUY and then SELL with nothing having happened in
+ * between — and a faint tilt against the direction of the last few hours lost.
+ *
+ * So the side is now three slow checks on the CLOSED 5-minute candles, majority rules:
+ *   • the averages — the 100-minute average against the four-hour one, with a dead band: while the two lie
+ *     on top of each other the last clear answer stands, so they cannot flicker;
+ *   • the newest extreme of the last four hours — a high or a low;
+ *   • the newest extreme of the last eight hours.
+ * None of them can change inside a candle, and one of them changing is not enough to change the side. On the
+ * same thirteen days this changed sides about once every five hours, and when all three agreed the calls did
+ * clearly better than when they split two to one — which is what the conviction label now reports.
+ *
+ * Every number said is a candle's own high, low or close; nothing is estimated. Null when there are too few
+ * candles to read, or the checks that have a reading cancel out.
  */
-export function forcedSide(read: AtlasRead | null, s: MarketSnapshot, engine?: { side: Side | null; state: SetupState } | null): ForcedSide {
-  if (read && (read.lean === "bullish_lean" || read.lean === "bearish_lean")) {
-    const up = read.lean === "bullish_lean";
-    const faint = read.strength !== "clear" && read.strength !== "strong";
+export function trendOf(bars5m: Bar[] | null | undefined, now: number): TrendRead | null {
+  const R = IDEA_RULES;
+  const closed = (bars5m ?? [])
+    .filter((b) => b && [b.t, b.h, b.l, b.c].every((x) => Number.isFinite(x)) && b.h > 0 && b.l > 0 && b.t + M5_MS <= now)
+    .sort((a, b) => a.t - b.t);
+  const n = closed.length;
+  const hhmm = (t: number) => new Date(t).toISOString().slice(11, 16);
+  const votes: TrendVote[] = [];
+
+  // The averages. Inside the dead band the last clear answer stands.
+  let avg: 1 | -1 | 0 = 0, inside = false;
+  if (n >= R.TREND_MIN_BARS) {
+    const kf = 2 / (R.TREND_FAST + 1), ks = 2 / (R.TREND_SLOW + 1);
+    let fast = closed[0].c, slow = closed[0].c;
+    const tr: number[] = [];
+    for (let j = 0; j < n; j++) {
+      const b = closed[j], pc = j ? closed[j - 1].c : b.c;
+      tr.push(Math.max(b.h - b.l, Math.abs(b.h - pc), Math.abs(b.l - pc)));
+      fast += kf * (b.c - fast);
+      slow += ks * (b.c - slow);
+      if (j < R.TREND_SLOW) continue;
+      const from = Math.max(0, tr.length - 14);
+      let sum = 0;
+      for (let k = from; k < tr.length; k++) sum += tr[k];
+      const band = R.TREND_BAND_ATR * (sum / (tr.length - from));
+      const gap = fast - slow;
+      inside = Math.abs(gap) <= band;
+      if (gap > band) avg = 1; else if (gap < -band) avg = -1;
+    }
+  }
+  votes.push({
+    key: "averages", dir: avg, at: null,
+    text: avg === 0 ? ""
+      : inside ? `the 100-minute average was last clearly ${avg > 0 ? "above" : "below"} the four-hour one and hasn't crossed back`
+      : `the 100-minute average is ${avg > 0 ? "above" : "below"} the four-hour one`,
+  });
+
+  // The newest extreme of a window: whichever came later, its highest high or its lowest low.
+  const extreme = (bars: number, key: TrendVote["key"], words: string) => {
+    if (n < bars) { votes.push({ key, dir: 0, at: null, text: "" }); return; }
+    const w = closed.slice(-bars);
+    let hi = 0, lo = 0;
+    for (let j = 1; j < w.length; j++) { if (w[j].h > w[hi].h) hi = j; if (w[j].l < w[lo].l) lo = j; }
+    const dir: 1 | -1 | 0 = hi > lo ? 1 : lo > hi ? -1 : 0;
+    const b = dir > 0 ? w[hi] : w[lo];
+    votes.push({
+      key, dir, at: dir ? b.t : null,
+      text: dir ? `the newest extreme of the last ${words} is a ${dir > 0 ? "high" : "low"} — ${fmtPx(dir > 0 ? b.h : b.l)} at ${hhmm(b.t)} UTC` : "",
+    });
+  };
+  extreme(R.TREND_WINDOWS[0], "four_hours", "four hours");
+  extreme(R.TREND_WINDOWS[1], "eight_hours", "eight hours");
+
+  const live = votes.filter((v) => v.dir !== 0);
+  const sum = live.reduce((a, v) => a + v.dir, 0);
+  if (!live.length || sum === 0) return null;
+  const dir: 1 | -1 = sum > 0 ? 1 : -1;
+  const agree = live.filter((v) => v.dir === dir).length;
+  const unanimous = live.length === 3 && agree === 3;
+
+  // Said once: when the four- and eight-hour extremes are the same candle, one clause covers both windows.
+  const four = votes[1], eight = votes[2];
+  const same = four.dir !== 0 && eight.dir === four.dir && eight.at === four.at;
+  const clause = (v: TrendVote) => (same && v.key === "eight_hours" ? v.text.replace("of the last eight hours is", "of both the last four hours and the last eight is") : v.text);
+  const said = live.filter((v) => !(same && v.key === "four_hours"));
+  const join = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")}, and ${xs[xs.length - 1]}`);
+  const yes = said.filter((v) => v.dir === dir).map(clause);
+  const no = said.filter((v) => v.dir !== dir).map(clause);
+  const way = dir > 0 ? "up" : "down";
+  const text = unanimous ? `${dir > 0 ? "Buyers" : "Sellers"} have had the last few hours: ${join(yes)}`
+    : live.length === 3 ? `The last few hours lean ${way}, but not cleanly — two of my three direction checks to one: ${join(yes)}; against that, ${no[0]}`
+    : `From the candles I have, the last few hours lean ${way}: ${join(yes)}${no.length ? `; against that, ${no[0]}` : ""}`;
+  return { dir, agree, of: live.length, unanimous, votes, clauses: said.map((v) => ({ text: clause(v), dir: v.dir as 1 | -1 })), text };
+}
+
+export type ForcedSide = {
+  side: Side;
+  /** How much of what ATLAS measures is on this side, 0–100 — see `convictionOf`. Never a probability. */
+  score: number;
+  conviction: "Low" | "Medium" | "High";
+  /**
+   * lean: the read holds a clear or strong lean (or, with no candles to read a direction from, any lean).
+   * trend: it holds none — the direction gold has been travelling (`trendOf`). Only without candles:
+   * setup: the side the setup engine is building. evidence: the tilt of the balance. structure: no usable read.
+   */
+  from: "lean" | "trend" | "setup" | "evidence" | "structure";
+  /** Why this side, in ATLAS's voice (ends without a full stop). */
+  basis: string;
+  /** The direction check behind the call, when there were candles to make it from. */
+  trend: TrendRead | null;
+};
+
+/**
+ * HOW SURE — how much of what ATLAS measures is on the call's side, 0–100. Half of it is the direction checks
+ * (all three agreeing is the whole half; two to one is a third of it; a call against them gets none), half is
+ * the read's own evidence balance on that side. With no candles to check a direction from, it is the evidence
+ * balance alone, on the read's own thresholds. It says how much agrees — it is not a chance of anything.
+ */
+function convictionOf(mine: number, trend: TrendRead | null, d: number): { score: number; label: "Low" | "Medium" | "High" } {
+  const R = IDEA_RULES;
+  const ev = Math.min(100, Math.max(0, Math.round(mine)));
+  if (!trend) return { score: ev, label: ev >= 55 ? "High" : ev >= READ_RULES.ENTER ? "Medium" : "Low" };
+  const t = trend.dir !== d ? 0 : Math.round((100 * (2 * trend.agree - trend.of)) / 3);
+  const score = Math.round(0.5 * t + 0.5 * ev);
+  return { score, label: score >= R.CONVICTION_HIGH ? "High" : score >= R.CONVICTION_MEDIUM ? "Medium" : "Low" };
+}
+
+/**
+ * WHICH SIDE, WHEN A SIDE MUST BE NAMED.
+ *
+ *   1. A CLEAR OR STRONG LEAN of the read — ATLAS's own evidence, held over two closed candles. With the
+ *      direction of the last hours it is the strongest call there is short of a confirmed setup; against it,
+ *      it is said to be a turn ATLAS is calling, and `convictionOf` gives it none of the direction's weight.
+ *      (Thirteen days could not tell the two apart: about forty such moments, a coin toss either way — so
+ *      the read keeps the say it had.)
+ *   2. Otherwise THE DIRECTION GOLD HAS BEEN TRAVELLING (`trendOf`): three slow checks on the closed candles,
+ *      majority rules. A slight lean, a tilt of the balance and a setup still being built no longer pick the
+ *      side — that is what made a call change sides every half hour, and a faint tilt against the direction
+ *      lost. They are said, as what agrees with the call or argues against it.
+ *
+ * Only with no candles to read a direction from (an old stored read, a bare snapshot), what ATLAS sees with
+ * its abstention thresholds removed, as before: any lean; else the side its setup engine is building; else the
+ * sign of the evidence balance; else a vote on the structure the snapshot measured, a dead heat settled by the
+ * daily open and then the 15-minute RSI. Deterministic, and it says which it used.
+ */
+export function forcedSide(
+  read: AtlasRead | null, s: MarketSnapshot, engine?: { side: Side | null; state: SetupState } | null,
+  candles?: { bars5m: Bar[] | null | undefined; now: number } | null,
+): ForcedSide {
+  const trend = candles ? trendOf(candles.bars5m, candles.now) : null;
+  const leaning = !!read && (read.lean === "bullish_lean" || read.lean === "bearish_lean");
+  const clear = leaning && (read!.strength === "clear" || read!.strength === "strong");
+  const building = !!engine?.side && (engine.state === "setup_developing" || engine.state === "watching" || engine.state === "waiting_for_trigger" || engine.state === "trade_ready");
+
+  const engineAlso = (up: boolean) => (building && engine!.side === (up ? "buy" : "sell")
+    ? ` I'm also ${engine!.state === "watching" ? "watching" : engine!.state === "trade_ready" ? "holding" : "building"} a ${up ? "long" : "short"} on the five-minute chart${engine!.state === "trade_ready" ? "" : " — not confirmed yet"}.` : "");
+
+  // 1 — my own lean, when it is clear. With the direction it is the strongest call I make without a confirmed
+  //     setup; against it, it is a turn I am calling, and the conviction says the last hours disagree.
+  if (trend && read && clear) {
+    const up = read.lean === "bullish_lean", d = up ? 1 : -1;
+    const c = convictionOf(Math.abs(read.score), trend, d);
+    const who = `I'm a ${up ? "buyer" : "seller"}`;
     return {
-      side: up ? "buy" : "sell", score: Math.min(100, Math.abs(Math.round(read.score))), from: "lean",
-      basis: faint
+      side: up ? "buy" : "sell", score: c.score, conviction: c.label, from: "lean", trend,
+      basis: trend.dir === d
+        ? `That's a ${read.strength} lean — ${signed(read.score)} of 100 on my evidence balance — and price agrees. ${trend.text}.${engineAlso(up)} So ${who}`
+        : `That's a ${read.strength} lean — ${signed(read.score)} of 100 on my evidence balance — but it's against the direction gold has been travelling. ${trend.text}.${engineAlso(up)} So this is a turn I'm calling, not a move I'm following: ${who}`,
+    };
+  }
+
+  // 2 — otherwise the direction gold has been travelling.
+  if (trend) {
+    const up = trend.dir > 0, d = trend.dir;
+    const mine = read ? Math.round(d * read.score) : 0;
+    const c = convictionOf(mine, trend, d);
+    const rel = !read ? " I don't have a clean read of my own evidence right now, so that direction is what I'm going on"
+      : leaning && (read.lean === "bullish_lean") === up ? ` My read leans the same way, slightly (${signed(read.score)} of 100)`
+      : leaning ? ` My read leans the other way, but only slightly (${signed(read.score)} of 100), and a slight lean doesn't overrule the direction price is actually travelling`
+      : Math.abs(read.score) < 10 ? ` My own evidence is close to even (${signed(read.score)} of 100), so the direction decides it`
+      : mine > 0 ? ` My evidence balance tilts the same way (${signed(read.score)} of 100), short of what I'd call a lean`
+      : ` My evidence balance tilts the other way (${signed(read.score)} of 100), but that's short of a lean and doesn't overrule the direction price is actually travelling`;
+    return {
+      side: up ? "buy" : "sell", score: c.score, conviction: c.label, from: "trend", trend,
+      basis: `${trend.text}.${rel}.${engineAlso(up)} So I'm a ${up ? "buyer" : "seller"}`,
+    };
+  }
+
+  if (read && leaning) {
+    const up = read.lean === "bullish_lean";
+    const c = convictionOf(Math.abs(read.score), null, up ? 1 : -1);
+    return {
+      side: up ? "buy" : "sell", score: c.score, conviction: c.label, from: "lean", trend: null,
+      basis: !clear
         ? `It's only a slight lean — ${signed(read.score)} of 100 on my evidence balance — but it's ${up ? "up" : "down"}, so I'm a ${up ? "buyer" : "seller"}`
         : `That's a ${read.strength} lean — ${signed(read.score)} of 100 on my evidence balance — so I'm a ${up ? "buyer" : "seller"}`,
     };
   }
-  if (engine?.side && (engine.state === "setup_developing" || engine.state === "watching" || engine.state === "waiting_for_trigger" || engine.state === "trade_ready")) {
+
+  if (engine?.side && building) {
     const up = engine.side === "buy";
     const mine = read && read.lean !== "insufficient_data" ? Math.round((up ? 1 : -1) * read.score) : 0;
+    const c = convictionOf(mine, null, up ? 1 : -1);
     return {
-      side: engine.side, score: Math.min(100, Math.max(0, mine)), from: "setup",
+      side: engine.side, score: c.score, conviction: c.label, from: "setup", trend: null,
       basis: `I don't hold a lean right now, but I'm already ${engine.state === "watching" ? "watching" : "building"} a ${up ? "long" : "short"} here — it isn't confirmed yet — so that's my side: I'm a ${up ? "buyer" : "seller"}`,
     };
   }
@@ -817,8 +1057,9 @@ export function forcedSide(read: AtlasRead | null, s: MarketSnapshot, engine?: {
     const up = read.score > 0;
     // Big enough to be a lean, but not yet held over a second closed candle (core/read.ts): said as exactly that.
     const fresh = Math.abs(read.score) >= READ_RULES.ENTER;
+    const c = convictionOf(Math.abs(read.score), null, up ? 1 : -1);
     return {
-      side: up ? "buy" : "sell", score: Math.min(100, Math.abs(Math.round(read.score))), from: "evidence",
+      side: up ? "buy" : "sell", score: c.score, conviction: c.label, from: "evidence", trend: null,
       basis: fresh
         ? `The balance of what I see has just tilted ${up ? "up" : "down"} — ${signed(read.score)} of 100 — and I'd normally want one more closed candle before I call that a lean, but right now I'm a ${up ? "buyer" : "seller"}`
         : `The balance of what I see tilts ${up ? "up" : "down"} — ${signed(read.score)} of 100, short of what I'd call a lean — so right now I'm a ${up ? "buyer" : "seller"}`,
@@ -850,7 +1091,7 @@ export function forcedSide(read: AtlasRead | null, s: MarketSnapshot, engine?: {
   const up = sum > 0;
   const agree = votes.filter((v) => Math.sign(v.pts) === Math.sign(sum)).sort((a, b) => Math.abs(b.pts) - Math.abs(a.pts)).slice(0, 2).map((v) => v.text);
   return {
-    side: up ? "buy" : "sell", score: Math.min(29, Math.round(Math.abs(sum) * 3)), from: "structure",
+    side: up ? "buy" : "sell", score: Math.min(29, Math.round(Math.abs(sum) * 3)), conviction: "Low", from: "structure", trend: null,
     basis: `${read && read.lean !== "insufficient_data" ? "My read is dead even" : "I don't have a clean directional read right now"}, so I'm going off the structure I can measure: ${tie ?? agree.join(" and ")}. That tilts ${up ? "up" : "down"}, so I'm a ${up ? "buyer" : "seller"}`,
   };
 }
@@ -880,7 +1121,7 @@ function priceEntry(s: MarketSnapshot, side: Side, entry: number, majors: Lv[], 
     if (!aims.some((l) => Math.abs(l.price - p.price) < 0.1)) aims.push({ price: p.price, label: p.label, kind: p.type === "high" ? "swing_high" : "swing_low" });
   }
   const obstruction = majors.filter((l) => d * (l.price - entry) > 0.005 && d * (l.price - entry) < R.OBSTRUCTION_R * st.risk).sort((x, y) => d * (x.price - y.price))[0] ?? null;
-  const targets = targetsFrom(entry, st.risk, side, aims, pipSize);
+  const targets = targetsFrom(entry, st.risk, side, aims, pipSize, { maxR: R.CALL_MAX_R });
   return { entry: r2(entry), stop: st.stop, risk: st.risk, stopPips: st.pips, st, style: styleFor(st.pips, targets[0].pips), targets, obstruction, atr: a };
 }
 
@@ -910,7 +1151,8 @@ const DATA_BLOCKERS: readonly string[] = ["no_exec_read", "feed_stale", "feed_di
  * One answer, in its own voice (owner 11-12: "just want an atlas option that goes off what atlas sees. Needs
  * to feel like it's come right from the AI"):
  *
- *   • the side is `forcedSide` — its lean, or the way the evidence tilts with the abstention threshold removed;
+ *   • the side is `forcedSide` — its lean when that is clear, otherwise the direction gold has been
+ *     travelling: three slow checks on the candles;
  *   • the entry is the price gold is at, now. (Entries at a level were tried against the recorded session
  *     and did far worse: a level entry only fills when price is moving against it.)
  *   • the STOP IS BEHIND THE LAST SWING — `structureStop` — and may be tight; targets are real levels and
@@ -921,7 +1163,7 @@ const DATA_BLOCKERS: readonly string[] = ["no_exec_read", "feed_stale", "feed_di
  * member's own decision through the order ticket and its checks — it is never ATLAS's take-setup trade.
  * Through a market flagged chaotic the ticket stays open (a member's own order passes that flag) and the call
  * says ATLAS itself is standing down; on a blocker those checks refuse for everyone it says no ticket can open.
- * A call made from a clear or strong lean is source "read_plan"; anything fainter is "forced_read". With gold
+ * A call made from a clear or strong lean is source "read_plan"; anything else is "forced_read". With gold
  * closed, or a market read too old or too doubtful to enter from, it still names the side and the levels as
  * a plan around the last price, for when price is real again.
  *
@@ -933,7 +1175,7 @@ function fromRead(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null, 
   const options: IdeaOptions = { ...DEFAULT_IDEA_OPTIONS, ...(i.options ?? {}) };
   const su = i.setup;
   const P = priceNow(s);
-  const f = forcedSide(read, s, su);
+  const f = forcedSide(read, s, su, { bars5m: i.bars5m, now: i.now });
   const side = f.side, d = sgn(side), up = side === "buy";
   const base = ideaLevels(s);
   const edges = read ? edgesAndPaths(read, base) : null;
@@ -951,18 +1193,18 @@ function fromRead(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null, 
   if (!m) return null;
   const st = m.st;
 
-  const conviction: "Low" | "Medium" | "High" = f.score >= 55 ? "High" : f.score >= 30 ? "Medium" : "Low";
+  const conviction = f.conviction;
   const planned = !!read && f.from === "lean" && (read.strength === "clear" || read.strength === "strong") && canEnter && !ctx.standDown && !ctx.flagged && !ctx.refused;
   const source: IdeaSource = planned ? "read_plan" : "forced_read";
-  // Mid-sentence: an ordinary capitalised word loses its capital; "I", "I'm" and acronyms (RSI, ATR) keep theirs.
-  const lower = (x: string) => (/^[A-Z][a-z]/.test(x) ? x.charAt(0).toLowerCase() + x.slice(1) : x);
+  const lower = lowerFirst;
   const strip = (x: string) => lower(x).replace(/^i'm standing down:\s*/, "").replace(/\.$/, "");
   // Which way the read's "evidence for" list points: its lean, or with no lean the sign of its balance.
   const forDir = read ? (read.lean === "bullish_lean" ? 1 : read.lean === "bearish_lean" ? -1 : read.score >= 0 ? 1 : -1) : 0;
   const evFor = !read ? [] : forDir === d ? read.evidenceFor : read.evidenceAgainst;
   const evAgainst = !read ? [] : forDir === d ? read.evidenceAgainst : read.evidenceFor;
   const confirmations = [
-    ...evFor.slice(0, 5).map((x) => ({ label: x.text, ok: true, detail: null as string | null })),
+    ...(f.trend?.clauses ?? []).map((v) => ({ label: cap(v.text), ok: v.dir === d, detail: null as string | null })),
+    ...evFor.slice(0, f.trend ? 4 : 5).map((x) => ({ label: x.text, ok: true, detail: null as string | null })),
     ...evAgainst.slice(0, 3).map((x) => ({ label: x.text, ok: false, detail: null as string | null })),
   ];
   const sideWord = up ? "BUY" : "SELL", verb = up ? "buy" : "sell";
@@ -972,16 +1214,21 @@ function fromRead(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null, 
   const summary = read ? read.summary.trim().replace(/\s+/g, " ") : "";
   const picture = summary.split(/(?<=[.!?])\s+(?=[A-Z])/)[0] ?? "";
   const boxed = edges && P > edges.S.price && P < edges.Rz.price;
+  // A lean or a turning market is the read's own sentence in full; a range gets its first line and the box.
+  const opening = !read ? "" : read.lean === "bullish_lean" || read.lean === "bearish_lean" || read.lean === "transitioning" ? summary
+    : `${picture}${boxed ? ` Price is boxed between ${fmtPx(edges!.S.price)} and ${fmtPx(edges!.Rz.price)}.` : ""}`;
   const seeing = !read || f.from === "structure" ? `${f.basis}.`
+    : f.from === "trend" ? `${opening} ${f.basis}.`.trim()
     : f.from === "lean" ? `${summary} ${f.basis}.`
     : read.lean === "transitioning" ? `${summary} Until that happens: ${lower(f.basis)}.`
     : `${picture} ${boxed ? `Price is boxed between ${fmtPx(edges!.S.price)} and ${fmtPx(edges!.Rz.price)}, so it isn't a clean trend.` : "It isn't a clean trend right now."} ${f.from === "setup" ? f.basis : `Still, ${lower(f.basis)}`}.`;
 
   /* 2 — the trade: entry, the stop behind structure, the first target. */
+  const candlePips = pipsOf(atr5Of(s), pipSize);
   const behindSays = st.point ? `just ${below} ${sayLevel(st.point.label)} at ${fmtPx(st.point.price)}${st.cleared ? `, which also clears ${sayLevel(st.cleared.label)} at ${fmtPx(st.cleared.price)}` : ""}` : "";
   const stopSays = st.basis === "swing" && st.point
     ? `${st.tooTight
-      ? `${cap(st.tooTight.label)} is only ${st.tooTight.pips} pips ${up ? "under" : "over"} the price — inside the noise — so I'm using the one before it: my stop is ${fmtPx(st.stop)}, ${st.pips} pips away, ${behindSays}.`
+      ? `${cap(st.tooTight.label)} is only ${st.tooTight.pips} pips ${up ? "under" : "over"} the price${candlePips > 0 ? `, and five-minute candles are averaging ${candlePips} pips right now, so a stop there is inside the noise` : " — inside the noise"}. I'm using the one before it: my stop is ${fmtPx(st.stop)}, ${st.pips} pips away, ${behindSays}.`
       : `My stop is ${fmtPx(st.stop)}, ${st.pips} pips away — ${behindSays}.`} If that ${lowWord} breaks, the structure I'm leaning on is gone and I'm wrong.`
     : st.basis === "level" && st.point
       ? `${cap(st.noSwing ?? `no swing ${lowWord} stands behind the entry`)}, so I'm using the nearest real level instead: my stop is ${fmtPx(st.stop)}, ${st.pips} pips away, ${behindSays}.`
@@ -991,7 +1238,9 @@ function fromRead(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null, 
   const rSays = (r: number) => (r === 1 ? "the same distance as the risk" : `${r} times the risk`);
   const tpSays = t0.basis === "level"
     ? `First target is ${aimOf(t0)} at ${fmtPx(t0.price)}, ${rSays(t0.r)}${t1 ? `; after that, ${aimOf(t1)} at ${fmtPx(t1.price)}` : ""}.`
-    : `There's no real level to aim at on this side, so my targets are multiples of the risk: the first is ${fmtPx(t0.price)}, ${rSays(t0.r)}.`;
+    : t1 && t1.basis === "level"
+      ? `The nearest real level on this side is ${aimOf(t1)} at ${fmtPx(t1.price)}, ${rSays(t1.r)} — too far to be a first target. So my first target is measured: ${fmtPx(t0.price)}, ${rSays(t0.r)}. ${cap(aimOf(t1))} comes after it.`
+      : `There's no real level to aim at on this side, so my targets are multiples of the risk: the first is ${fmtPx(t0.price)}, ${rSays(t0.r)}.`;
   const obstructed = m.obstruction ? ` ${cap(sayLevel(m.obstruction.label))} at ${fmtPx(m.obstruction.price)} is only ${pipsOf(m.obstruction.price - m.entry, pipSize)} pips ${up ? "above" : "below"}, so expect a reaction there first.` : "";
 
   /* 3 — how sure, whose decision, and what argues against it. Said in the same breath as the call. */
@@ -1004,8 +1253,19 @@ function fromRead(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null, 
     : planned ? "It isn't one of my confirmed setups yet, so I'm not taking it myself — taking it is your call."
     : "It isn't one of my confirmed setups, so I'm not taking it myself — taking it is your call.";
   const engineOther = su.side && su.side !== side && (su.state === "setup_developing" || su.state === "watching" || su.state === "waiting_for_trigger" || su.state === "trade_ready");
-  const against = `${evAgainst[0] ? ` What argues against it: ${lower(evAgainst[0].text)}.` : ""}${engineOther ? ` And on the five-minute chart I'm ${su.state === "watching" ? "watching" : "building"} a ${up ? "short" : "long"} at the same time, so the short-term picture disagrees with this lean.` : ""}`;
-  const closing = `Conviction is ${conviction.toLowerCase()} — that's how one-sided my evidence is, not a win rate. ${yours}${against}`;
+  const against = `${evAgainst[0] ? ` What argues against it: ${lower(evAgainst[0].text)}.` : ""}${!engineOther ? ""
+    : su.state === "trade_ready" && f.trend && f.trend.dir === d ? ` On the five-minute chart I have a ${up ? "short" : "long"} armed at the same time. That one is against the direction gold has been travelling — the harder side to take — so it isn't the trade I'm calling.`
+    : ` And on the five-minute chart I'm ${su.state === "watching" ? "watching" : "building"} a ${up ? "short" : "long"} at the same time, so the short-term picture disagrees with this call.`}`;
+  const agrees = "that's how much of what I measure agrees, not a win rate";
+  const mine = read ? Math.round(d * read.score) : 0;
+  const sure = !f.trend ? "that's how one-sided my evidence is, not a win rate"
+    : f.trend.dir !== d ? `the last few hours point the other way, so this rests on my read alone — ${agrees}`
+    : f.trend.of < 3 ? `only ${f.trend.of} of my three direction checks ${f.trend.of === 1 ? "has" : "have"} a reading — ${agrees}`
+    : !f.trend.unanimous ? `my direction checks are split ${f.trend.agree} to ${f.trend.of - f.trend.agree} — ${agrees}`
+    : f.score >= R.CONVICTION_HIGH ? `all three of my direction checks agree and my own evidence is on the same side — ${agrees}`
+    : mine <= -10 ? `all three of my direction checks agree, but my own evidence tilts the other way — ${agrees}`
+    : `all three of my direction checks agree, but my own evidence isn't clearly on that side — ${agrees}`;
+  const closing = `Conviction is ${conviction.toLowerCase()} — ${sure}. ${yours}${against}`;
 
   const warnings: string[] = [];
   const spoken = new Set(s.blockers.map((b) => b.detail));     // already said in the call's own words
@@ -1037,7 +1297,9 @@ function fromRead(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null, 
     targets: m.targets, rr: rrOf(m.targets),
     confidence: {
       score: f.score, label: conviction,
-      basis: f.from === "structure"
+      basis: f.trend
+        ? `${f.trend.dir === d ? `${f.trend.agree} of my ${f.trend.of} direction checks on the last few hours point ${up ? "up" : "down"}` : `The last few hours point the other way (${f.trend.agree} of ${f.trend.of} direction checks)`}, and my evidence balance is ${read ? signed(read.score) : 0} of 100. Together ${f.score} of 100 on this side — how much agrees, not a win probability.`
+        : f.from === "structure"
         ? `No directional read behind this one: a count of the structure I can measure, ${f.score} of 100 one way — how much it agrees, not a win probability.`
         : f.from === "setup"
           ? `This call rests on the setup I'm building, which isn't confirmed. My evidence balance is ${read ? signed(read.score) : 0} of 100 — ${f.score} of it on this side. How much the evidence agrees, not a win probability.`
@@ -1113,10 +1375,10 @@ function fromRead(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null, 
  * Generate ATLAS's trade idea from one market state. It ALWAYS names a side and a trade when there is a
  * market read to build on (owner 11-11).
  *
- * Order: the setup engine's trade when it has one ready or waiting only on its trigger; otherwise ATLAS'S
- * CALL — its lean or the tilt of its evidence, entered at the price with the stop behind the last swing. The
- * engine blocked or standing down, a range, a turning or faint read, gold closed, a stale or doubtful read:
- * all of them get a call that says where it stands. Only a missing market read (or no range reading at all)
+ * Order: the setup engine's trade when it has one ready or waiting only on its trigger, on the side gold has
+ * been travelling; otherwise ATLAS'S CALL — that direction, entered at the price with the stop behind the last
+ * swing. The engine blocked or standing down, a range, a turning or faint read, gold closed, a stale or
+ * doubtful read: all of them get a call that says where it stands. Only a missing market read (or no range reading at all)
  * produces no trade.
  */
 export function buildIdea(i: BuildIdeaInput): AtlasIdea {
@@ -1131,8 +1393,15 @@ export function buildIdea(i: BuildIdeaInput): AtlasIdea {
 
   // A confirmed setup comes first — only from a market that can be entered and that the engine itself is
   // willing to trade.
+  // … and that is on the side gold has been travelling, or on the side ATLAS would call anyway. A setup
+  // AGAINST the direction, with the call on the other side, is still the setup engine's to trade — nothing
+  // about it changes — but it is not what Generate calls: on the thirteen days measured, setups against the
+  // direction were stopped three times in four, and showing one made the call change sides and back within
+  // minutes. The call says the engine has it armed.
   if (!closed && staleMin == null && !s.blockers.length && su.state !== "blocked") {
-    const engine = fromSetup(i, s, su);
+    const f = forcedSide(read, s, su, { bars5m: i.bars5m, now: i.now });
+    const againstDirection = !!f.trend && !!su.side && (f.trend.dir > 0) !== (su.side === "buy") && f.side !== su.side;
+    const engine = againstDirection ? null : fromSetup(i, s, su);
     if (engine) return engine;
   }
 

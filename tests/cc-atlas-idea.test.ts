@@ -5,7 +5,7 @@ import fixture from '../command-center/fixtures/replay-bars.json';
 import { replay } from '../command-center/engines/replay';
 import { replayIdea, replayFollow, replayEndOf } from '../command-center/engines/ideaReplay';
 import {
-  buildIdea, followIdea, forcedSide, ideaLevels, ideaOptionsOf, ideaRecord, ideaText, sayLevel, structureOf, IDEA_RULES, IDEA_VERSIONS, ATLAS_IDEA_VERSION,
+  buildIdea, followIdea, forcedSide, ideaLevels, ideaOptionsOf, ideaRecord, ideaText, sayLevel, structureOf, trendOf, IDEA_RULES, IDEA_VERSIONS, ATLAS_IDEA_VERSION,
   type AtlasIdea, type BuildIdeaInput,
 } from '../command-center/engines/idea';
 import { updateVerdict } from '../command-center/engines/ideaDesk';
@@ -19,7 +19,8 @@ import type { Bar, MarketSnapshot } from '../command-center/core/types';
 
 /*
  * GENERATE WITH ATLAS — the trade idea (owner 11-11), as ONE call in ATLAS's own voice with the stop behind
- * market structure (owner 11-12).
+ * market structure (owner 11-12), on the side gold has been travelling (owner 11-12: "The call outs need to
+ * be better").
  *
  * Everything here runs the REAL engine over the recorded gold session in command-center/fixtures (a
  * labelled replay fixture, 18 September) or over small hand-built cases. Nothing reaches a network.
@@ -58,14 +59,14 @@ test('it always names a side and a trade: a confirmed setup, or ATLAS\'s own cal
   assert.ok(![...kinds].some((k) => k.startsWith('stand_aside')), 'it stood aside');
   assert.ok(kinds.has('enter_now/setup_engine'), 'never returned the setup engine\'s ready trade');
   assert.ok(kinds.has('enter_now/read_plan'), 'never made a call from a clear lean');
-  assert.ok(kinds.has('enter_now/forced_read'), 'never made a call from a tilt of the evidence');
+  assert.ok(kinds.has('enter_now/forced_read'), 'never made a call from the direction alone');
   for (const m of MOMENTS) {
     assert.equal(m.idea.version, ATLAS_IDEA_VERSION);
     assert.ok(m.idea.side && m.idea.entry && m.idea.stop && m.idea.targets.length >= 1, `no trade at ${m.off}: ${m.idea.headline}`);
   }
   assert.ok(CALLS.length >= 25, `only ${CALLS.length} calls on the recording`);
-  assert.equal(ATLAS_IDEA_VERSION, 'idea-2');
-  assert.deepEqual([...IDEA_VERSIONS], ['idea-1', 'idea-2'], 'ideas stored before the change are still a member\'s record');
+  assert.equal(ATLAS_IDEA_VERSION, 'idea-3');
+  assert.deepEqual([...IDEA_VERSIONS], ['idea-1', 'idea-2', 'idea-3'], 'ideas stored before the change are still a member\'s record');
   assert.match(readFileSync('command-center/engines/ideaDesk.ts', 'utf8'), /IDEA_VERSIONS\.includes\(i\.version\)/);
 });
 
@@ -180,8 +181,11 @@ test('the structure it reads is real and still standing: confirmed swings off cl
   assert.ok(!structureOf(r.snapshot, [...bars, forming], r.endedAt + 60_000).some((p) => p.type === 'low' && Math.abs(p.price - lowNow.price) < 0.006), 'a swing the forming candle swept is still called standing');
 });
 
-test('the stop follows market structure: behind the last swing still standing — tight when the swing is close, with no style floor', () => {
+test('the stop follows market structure: behind the last swing still standing, outside the noise — with no style floor', () => {
   // Owner 11-12: "needs to go with market structure for the stop loss. It can be less then 30 pips stop."
+  // And 11-12, "The call outs need to be better": a stop inside one and a half average candles is noise, and
+  // it sits a quarter of a candle beyond the swing, so a wick through the swing does not take it.
+  assert.equal(IDEA_RULES.MIN_STOP_ATR, 1.5); assert.equal(IDEA_RULES.STOP_BUFFER_ATR, 0.25); assert.equal(IDEA_RULES.MIN_STOP_PIPS, 10);
   let swing = 0, level = 0, passedOver = 0;
   for (const { idea, r, off } of CALLS) {
     const d = dirOf(idea), E = idea.entry!.price, stop = idea.stop!.price, s = r.snapshot;
@@ -200,14 +204,14 @@ test('the stop follows market structure: behind the last swing still standing �
       if (beyond > buffer + 0.011) assert.match(idea.reasoning, /which also clears/, `the stop is ${beyond.toFixed(2)} beyond ${first!.label} without saying what else it clears`);
       else assert.ok(Math.abs(beyond - buffer) < 0.011);
       assert.ok(cluster > 0);
-      assert.match(idea.reasoning, new RegExp(`My stop is [\\d,.]+, ${idea.stop!.pips} pips away — just (below|above) |so I'm using the one before it: my stop is [\\d,.]+, ${idea.stop!.pips} pips away, just (below|above) `));
+      assert.match(idea.reasoning, new RegExp(`My stop is [\\d,.]+, ${idea.stop!.pips} pips away — just (below|above) |I'm using the one before it: my stop is [\\d,.]+, ${idea.stop!.pips} pips away, just (below|above) `));
       assert.match(idea.reasoning, new RegExp(`If that ${idea.side === 'buy' ? 'low' : 'high'} breaks, the structure I'm leaning on is gone and I'm wrong\\.`));
       // Any swing nearer than the one used was passed over only because a stop there would be inside the noise.
       for (const p of struct) {
         if (p === first) break;
         passedOver += 1;
         assert.ok(d * (E - p.price) + buffer < floor, `${p.label} was skipped though a stop fits behind it`);
-        assert.match(idea.reasoning, /inside the noise — so I'm using the one before it/);
+        assert.match(idea.reasoning, /and five-minute candles are averaging \d+ pips right now, so a stop there is inside the noise\. I'm using the one before it/);
       }
     } else {
       // No swing at a usable distance: said, and a real level takes its place (or the range, called measured).
@@ -267,8 +271,16 @@ test('hand-built structure: a tight stop under a close swing, a swept swing igno
   // The last swing low only 4 pips under the price: a stop there would be inside the noise, so the one before it — and it says so.
   const nearBars = stair.map(([h, l], k) => [h, k === 10 ? 3999.75 : k === 11 ? 3999.8 : k === 12 ? 3999.6 : k === 13 ? 3999.75 : k === 14 ? 3999.7 : l] as [number, number]);
   const near = ask(handBars(now, nearBars));
-  assert.match(near.reasoning, /The last 5-minute swing low is only 4 pips under the price — inside the noise — so I'm using the one before it: my stop is 3,995\.10, 49 pips away, just below the 5-minute swing low from \d\d:\d\d UTC at 3,995\.60\. If that low breaks/);
+  assert.match(near.reasoning, /The last 5-minute swing low is only 4 pips under the price, and five-minute candles are averaging 12 pips right now, so a stop there is inside the noise\. I'm using the one before it: my stop is 3,995\.10, 49 pips away, just below the 5-minute swing low from \d\d:\d\d UTC at 3,995\.60\. If that low breaks/);
   assert.equal(near.stop!.price, 3995.1);
+
+  // The same staircase in a busy market — candles averaging 40 pips. The 18-pip and the 44-pip swing are both
+  // inside one and a half candles, so the stop goes behind the first swing that is not, a quarter of a candle
+  // beyond it. (This is the stop that used to be clipped by a wick and then watch the trade go to target.)
+  const busy = ask(handBars(now, stair), quiet(r, P, 4));
+  assert.equal(busy.stop!.price, 3988.8); assert.equal(busy.stop!.pips, 112);
+  assert.match(busy.reasoning, /The last 5-minute swing low is only 18 pips under the price, and five-minute candles are averaging 40 pips right now, so a stop there is inside the noise\. I'm using the one before it: my stop is 3,988\.80, 112 pips away, just below the 5-minute swing low from \d\d:\d\d UTC at 3,990\.00\./);
+  assert.ok(!busy.warnings.some((w) => /tight stop/.test(w)));
 
   // The last higher low gets swept by a later candle: it is a confirmed swing, but not structure any more.
   const sweptBars = handBars(now, [...stair, [4001, 3997.9], [4001.4, 3999.3], [4001.8, 3999.5], [4001.9, 3999.4]]);
@@ -310,15 +322,26 @@ test('hand-built structure: a tight stop under a close swing, a swept swing igno
   assert.match(packed.stop!.what, /^Below the 5-minute swing low from \d\d:\d\d UTC \(3,997\.95\), clearing the last 5-minute swing low \(3,998\.20\), plus the spread — market structure, not a fixed distance\.$/);
 });
 
-test('every target is a real level or a swing still standing — or says plainly that it is measured, never a mix', () => {
+test('every target is a real level or a swing still standing — or says plainly that it is measured — and the first one is within reach', () => {
+  let mixed = 0;
   for (const { idea, r } of MOMENTS) {
     const e = edgesOfRead(r.state.read);
     const standing = structureOf(r.snapshot, r.state.bars, r.endedAt).map((p) => p.price);
     const real = [...ideaLevels(r.snapshot).map((l) => l.price), e.support?.price, e.resistance?.price, ...(idea.source === 'setup_engine' ? [] : standing)].filter((x): x is number => x != null);
     const isReal = (p: number) => real.some((x) => Math.abs(x - p) < 0.06);
     if (idea.source !== 'setup_engine') {
-      const bases = new Set(idea.targets.map((t) => t.basis));
-      assert.equal(bases.size, 1, `real and measured targets mixed on ${idea.headline}`);
+      const bases = idea.targets.map((t) => t.basis);
+      if (new Set(bases).size > 1) {
+        // The one mix there is: the nearest real level is too far out to be a first target, so one measured
+        // target comes first, says so, and the real levels follow it.
+        mixed += 1;
+        assert.equal(bases[0], 'measured'); assert.ok(bases.slice(1).every((b) => b === 'level'), `targets out of order on ${idea.headline}`);
+        assert.equal(idea.targets[0].r, IDEA_RULES.FALLBACK_R[0]);
+        assert.match(idea.targets[0].what, /the nearest real level on this side is [\d.]+ times the risk away, too far to be a first target/);
+        assert.match(idea.reasoning, /too far to be a first target\. So my first target is measured: [\d,.]+, 1\.8 times the risk\. /);
+      }
+      // A first target is one it can reach: never a real level more than CALL_MAX_R out.
+      if (idea.targets[0].basis === 'level') assert.ok(idea.targets[0].r <= IDEA_RULES.CALL_MAX_R + 0.06, `a first target ${idea.targets[0].r}R out on ${idea.headline}`);
       // An objective closer than one R is not an objective; each further one is at least 0.6 R beyond.
       assert.ok(idea.targets[0].r >= IDEA_RULES.MIN_R - 0.06);
       for (let k = 1; k < idea.targets.length; k++) assert.ok(idea.targets[k].r - idea.targets[k - 1].r >= IDEA_RULES.NEXT_R - 0.11);
@@ -328,6 +351,8 @@ test('every target is a real level or a swing still standing — or says plainly
       else assert.match(t.what, /risk|multiple/);
     }
   }
+  assert.ok(mixed >= 1, 'the recording should exercise a first real level that is too far out');
+  assert.equal(IDEA_RULES.CALL_MAX_R, 3);
 });
 
 /* ── the voice ──────────────────────────────────────────────────────────────────────────────────── */
@@ -343,9 +368,9 @@ test('it reads as ATLAS speaking: what it sees, the trade, how sure — and it n
     assert.equal(paras.length, 3, `the call at ${off} is not three paragraphs`);
     assert.match(paras[0], new RegExp(`I'm a ${verb}er\\.$`), `the first paragraph does not end on the side at ${off}: ${paras[0]}`);
     assert.match(paras[1], new RegExp(`^I'd ${verb} here, around [\\d,.]+\\. `));
-    assert.match(paras[1], /(First target is .+ at [\d,.]+, (\d+(\.\d)? times the risk|the same distance as the risk)|my targets are multiples of the risk)/);
+    assert.match(paras[1], /(First target is .+ at [\d,.]+, (\d+(\.\d)? times the risk|the same distance as the risk)|my targets are multiples of the risk|So my first target is measured: [\d,.]+, 1\.8 times the risk)/);
     const conv = idea.confidence!.label.toLowerCase();
-    assert.match(paras[2], new RegExp(`^Conviction is ${conv} — that's how one-sided my evidence is, not a win rate\\. `));
+    assert.match(paras[2], new RegExp(`^Conviction is ${conv} — .+ — that's how much of what I measure agrees, not a win rate\\. `));
     assert.match(idea.say, new RegExp(`^I'd ${verb} gold here, around [\\d,.]+\\. Stop [\\d,.]+, \\d+ pips.*\\. First target [\\d,.]+, [\\d.]+ to one\\. (Low|Medium|High) conviction — my read, your call\\.$`));
     // First person throughout, and none of the old labels: one ATLAS, not an engine report.
     const words = wordsOf(idea);
@@ -354,9 +379,10 @@ test('it reads as ATLAS speaking: what it sees, the trade, how sure — and it n
     assert.doesNotMatch(idea.reasoning, /ATLAS('s)? (thinks|sees|would|is|has)/, 'it talks about itself in the third person');
     // It says, in the same breath, that this is its read and not a confirmed setup — or exactly why nothing can be opened.
     assert.match(paras[2], /It isn't one of my confirmed setups( yet)?, so I'm not taking it myself — taking it is your call\.|so I'm standing down myself — no automatic trades, and I wouldn't take this one\. It's my read, and taking it is your call\.|so I'm not taking this one myself — it's my read, and taking it is your call\./);
-    // Conviction is the evidence, not a promotion.
+    // Conviction is how much of what it measures agrees — the direction checks and its own evidence — not a promotion.
     const sc = idea.confidence!.score;
-    assert.equal(idea.confidence!.label, sc >= 55 ? 'High' : sc >= 30 ? 'Medium' : 'Low');
+    assert.equal(idea.confidence!.label, sc >= IDEA_RULES.CONVICTION_HIGH ? 'High' : sc >= IDEA_RULES.CONVICTION_MEDIUM ? 'Medium' : 'Low');
+    assert.match(idea.confidence!.basis, /direction checks.+my evidence balance is [+-]?\d+ of 100\. Together \d+ of 100 on this side — how much agrees, not a win probability\.$/);
     // Never taken as ATLAS's own trade: executing is the member's decision through the order ticket.
     assert.notEqual(idea.execute.via, 'take_setup'); assert.equal(idea.execute.approved, null);
     assert.equal(idea.execute.manual!.stop, idea.stop!.price); assert.equal(idea.execute.manual!.takeProfit, idea.targets[0].price);
@@ -369,7 +395,11 @@ test('it reads as ATLAS speaking: what it sees, the trade, how sure — and it n
     const read = r.state.read!;
     const forDir = read.lean === 'bullish_lean' ? 1 : read.lean === 'bearish_lean' ? -1 : read.score >= 0 ? 1 : -1;
     const mine = dirOf(idea) === forDir ? read.evidenceFor : read.evidenceAgainst;
-    assert.deepEqual(idea.confirmations.filter((c) => c.ok).map((c) => c.label), mine.slice(0, 5).map((x) => x.text));
+    // …after the direction checks, each said once and marked for or against the side it took.
+    const checks = trendOf(r.state.bars, r.endedAt)!.clauses;
+    const capd = (x: string) => x[0].toUpperCase() + x.slice(1);
+    assert.deepEqual(idea.confirmations.slice(0, checks.length).map((c) => [c.label, c.ok]), checks.map((c) => [capd(c.text), c.dir === dirOf(idea)]));
+    assert.deepEqual(idea.confirmations.slice(checks.length).filter((c) => c.ok).map((c) => c.label), mine.slice(0, 4).map((x) => x.text));
     // The read's own two levels still say where the picture would be decided.
     const e = edgesOfRead(read);
     if (e.support && e.resistance && e.support.price < e.resistance.price) {
@@ -378,7 +408,7 @@ test('it reads as ATLAS speaking: what it sees, the trade, how sure — and it n
       assert.equal(idea.paths.find((p) => p.side === 'sell')!.price, +e.support.price.toFixed(2));
     }
   }
-  // A clear or strong lean is what makes it a "read_plan"; anything fainter is a "forced_read". One badge for both.
+  // A clear or strong lean is what makes it a "read_plan"; anything else is a "forced_read". One badge for both.
   for (const { idea, r } of CALLS) {
     const read = r.state.read!;
     const clear = (read.lean === 'bullish_lean' || read.lean === 'bearish_lean') && (read.strength === 'clear' || read.strength === 'strong');
@@ -389,7 +419,12 @@ test('it reads as ATLAS speaking: what it sees, the trade, how sure — and it n
   const rr = CALLS[0].r, rd = rr.state.read as AtlasRead;
   const rsi = buildIdea(base(rr, { read: { ...rd, lean: 'transitioning', strength: null, score: 9, evidenceFor: rd.evidenceFor, evidenceAgainst: [{ ...(rd.evidenceAgainst[0] ?? rd.evidenceFor[0]), text: 'RSI 15m 75, 5m 29' }] }, setup: { ...noSetup('Building a long.', [], 'setup_developing', rr.endedAt), side: 'buy' } }));
   assert.match(rsi.reasoning, /What argues against it: RSI 15m 75, 5m 29\./);
-  assert.match(rsi.reasoning, /Until that happens: I don't hold a lean right now, but I'm already building a long here/);
+  assert.equal(rsi.side, 'buy');
+  assert.match(rsi.reasoning, /My own evidence is close to even \(\+9 of 100\), so the direction decides it\. I'm also building a long on the five-minute chart — not confirmed yet\. So I'm a buyer\./);
+  // With no candles to read a direction from, the side it is building is still its side — said as before.
+  const bare = buildIdea(base(rr, { bars5m: [], read: { ...rd, lean: 'transitioning', strength: null, score: 9 }, setup: { ...noSetup('Building a long.', [], 'setup_developing', rr.endedAt), side: 'buy' } }));
+  assert.match(bare.reasoning, /Until that happens: I don't hold a lean right now, but I'm already building a long here/);
+  assert.match(bare.reasoning, /Conviction is low — that's how one-sided my evidence is, not a win rate\. /);
   assert.equal(sayLevel('new york high'), 'the New York high');
   assert.equal(sayLevel('london low'), 'the London low');
   assert.equal(sayLevel("yesterday's low"), "yesterday's low");
@@ -411,14 +446,108 @@ test('a call\'s stop and target would pass ATLAS\'s own order checks', () => {
   assert.match(validator, /if \(stopPips < floor \* 0\.5\)/);
 });
 
-test('which side: its lean, then the trade it is already building, then the tilt of the evidence, then structure — deterministically', () => {
+/** Closed 5-minute candles ending just before `now`, one per close (oldest first), each 12 pips tall. */
+const closeBars = (now: number, closes: number[]): Bar[] => closes.map((c, k) => ({ t: now - (closes.length - k) * M5, o: c, h: c + 0.6, l: c - 0.6, c }));
+const ramp = (n: number, from: number, step: number) => Array.from({ length: n }, (_, k) => from + k * step);
+const NOW = Date.UTC(2026, 10, 12, 4, 0, 0);
+/** Ten hours of gold stepping up; the mirror stepping down; and a climb that has just dropped through its four-hour low. */
+const RISING = closeBars(NOW, ramp(120, 4000, 0.5));
+const FALLING = closeBars(NOW, ramp(120, 4060, -0.5));
+const DIPPED = closeBars(NOW, [...ramp(110, 4000, 0.5), ...ramp(10, 4051.5, -3)]);
+
+test('the side holds: it is the direction gold has been travelling, read off closed candles — three slow checks, majority rules', () => {
+  // Owner 11-12: "The call outs need to be better." Two calls six minutes apart had said BUY and then SELL.
+  const up = trendOf(RISING, NOW)!;
+  assert.deepEqual([up.dir, up.agree, up.of, up.unanimous], [1, 3, 3, true]);
+  assert.deepEqual(up.votes.map((v) => [v.key, v.dir]), [['averages', 1], ['four_hours', 1], ['eight_hours', 1]]);
+  // The same candle is the newest extreme of both windows: said once.
+  assert.equal(up.text, 'Buyers have had the last few hours: the 100-minute average is above the four-hour one, and the newest extreme of both the last four hours and the last eight is a high — 4,060.10 at 03:55 UTC');
+  assert.equal(up.clauses.length, 2);
+  const down = trendOf(FALLING, NOW)!;
+  assert.deepEqual([down.dir, down.unanimous], [-1, true]);
+  assert.equal(down.text, 'Sellers have had the last few hours: the 100-minute average is below the four-hour one, and the newest extreme of both the last four hours and the last eight is a low — 3,999.90 at 03:55 UTC');
+
+  // A sharp dip inside a climb: the four-hour check turns, the eight-hour one has not, and the averages are too
+  // close to call — so their last clear answer stands. Two to one, and it says which one disagrees.
+  const dip = trendOf(DIPPED, NOW)!;
+  assert.deepEqual([dip.dir, dip.agree, dip.of, dip.unanimous], [1, 2, 3, false]);
+  assert.deepEqual(dip.votes.map((v) => v.dir), [1, -1, 1]);
+  assert.equal(dip.text, "The last few hours lean up, but not cleanly — two of my three direction checks to one: the 100-minute average was last clearly above the four-hour one and hasn't crossed back, and the newest extreme of the last eight hours is a high — 4,055.10 at 03:05 UTC; against that, the newest extreme of the last four hours is a low — 4,023.90 at 03:55 UTC");
+
+  // Only closed candles are read: whatever the forming one is doing, the direction does not move inside it.
+  const forming: Bar = { t: NOW - 60_000, o: 4059, h: 9999, l: 1, c: 3000 };
+  assert.deepEqual(trendOf([...RISING, forming], NOW), up);
+  // Every number said is a real candle's high or low.
+  assert.ok(RISING.some((b) => b.h === 4060.1) && FALLING.some((b) => b.l === 3999.9) && DIPPED.some((b) => b.l === 4023.9));
+  // Too few candles to read: no direction is invented (the side then comes from the read alone, as before).
+  assert.equal(trendOf(RISING.slice(-30), NOW), null);
+  assert.equal(trendOf([], NOW), null); assert.equal(trendOf(null, NOW), null);
+  // Seventy candles: the averages and the four-hour window have a reading, the eight-hour one does not — and it says so.
+  const short = trendOf(RISING.slice(-70), NOW)!;
+  assert.deepEqual([short.dir, short.agree, short.of, short.unanimous], [1, 2, 2, false]);
+  assert.match(short.text, /^From the candles I have, the last few hours lean up: /);
+
+  // On the recording the call does not flip from one press to the next. (The rule it replaces changed sides
+  // seven times across these same moments.)
+  let changes = 0;
+  for (let k = 1; k < MOMENTS.length; k++) if (MOMENTS[k].idea.side !== MOMENTS[k - 1].idea.side) changes += 1;
+  assert.ok(changes <= 2, `the side changed ${changes} times across the recording`);
+  // …and candle to candle, it only changes when the direction or a clear lean did.
+  let pairs = 0;
+  for (let off = 60; off > 20; off--) {
+    const a = replay(40, false, off), b = replay(40, false, off - 1);
+    const ia = buildIdea(base(a)), ib = buildIdea(base(b));
+    if (ia.source === 'setup_engine' || ib.source === 'setup_engine') continue;
+    pairs += 1;
+    if (ia.side === ib.side) continue;
+    const ta = trendOf(a.state.bars, a.endedAt), tb = trendOf(b.state.bars, b.endedAt);
+    const clear = (x: typeof a) => { const rd = x.state.read; return rd && (rd.lean === 'bullish_lean' || rd.lean === 'bearish_lean') && (rd.strength === 'clear' || rd.strength === 'strong') ? rd.lean : null; };
+    assert.ok(ta?.dir !== tb?.dir || clear(a) !== clear(b), `the side changed at ${off} with nothing behind it`);
+  }
+  assert.ok(pairs >= 30);
+});
+
+test('which side: a clear lean of its own read, otherwise the direction — and only without candles the old order', () => {
   const r = MOMENTS[0].r;
   const read = (over: Partial<AtlasRead>): AtlasRead => ({ ...(r.state.read as AtlasRead), ...over });
+  const cand = { bars5m: RISING, now: NOW };
+  // No clear lean: the direction decides. Not the tilt of the evidence, and not the side the trade card is building.
+  const a = forcedSide(read({ lean: 'balanced', strength: null, score: -15 }), r.snapshot, { side: 'sell', state: 'setup_developing' }, cand);
+  assert.deepEqual([a.side, a.from, a.score, a.conviction], ['buy', 'trend', 50, 'Medium']);
+  assert.match(a.basis, /^Buyers have had the last few hours: .+ UTC\. My evidence balance tilts the other way \(-15 of 100\), but that's short of a lean and doesn't overrule the direction price is actually travelling\. So I'm a buyer$/);
+  const slight = forcedSide(read({ lean: 'bearish_lean', strength: 'slight', score: -17 }), r.snapshot, null, cand);
+  assert.deepEqual([slight.side, slight.from], ['buy', 'trend']);
+  assert.match(slight.basis, /My read leans the other way, but only slightly \(-17 of 100\), and a slight lean doesn't overrule the direction price is actually travelling\. So I'm a buyer$/);
+  assert.match(forcedSide(read({ lean: 'bullish_lean', strength: 'slight', score: 19 }), r.snapshot, null, cand).basis, /My read leans the same way, slightly \(\+19 of 100\)\. So I'm a buyer$/);
+  const same = forcedSide(read({ lean: 'balanced', strength: null, score: 17 }), r.snapshot, { side: 'buy', state: 'setup_developing' }, cand);
+  assert.deepEqual([same.side, same.from, same.score, same.conviction], ['buy', 'trend', 59, 'Medium']);
+  assert.match(same.basis, /My evidence balance tilts the same way \(\+17 of 100\), short of what I'd call a lean\. I'm also building a long on the five-minute chart — not confirmed yet\. So I'm a buyer$/);
+  assert.match(forcedSide(read({ lean: 'transitioning', strength: null, score: 3 }), r.snapshot, null, cand).basis, /My own evidence is close to even \(\+3 of 100\), so the direction decides it\. So I'm a buyer$/);
+  const blind = forcedSide(null, r.snapshot, null, cand);
+  assert.deepEqual([blind.side, blind.from, blind.conviction], ['buy', 'trend', 'Medium']);
+  assert.match(blind.basis, /I don't have a clean read of my own evidence right now, so that direction is what I'm going on\. So I'm a buyer$/);
+  assert.equal(forcedSide(read({ lean: 'balanced', strength: null, score: 15 }), r.snapshot, null, { bars5m: FALLING, now: NOW }).side, 'sell');
+  // The direction split two to one: said, and never more than low conviction on its own.
+  const split = forcedSide(read({ lean: 'balanced', strength: null, score: 0 }), r.snapshot, null, { bars5m: DIPPED, now: NOW });
+  assert.deepEqual([split.side, split.from, split.score, split.conviction], ['buy', 'trend', 17, 'Low']);
+
+  // A clear lean of its own read keeps its say. With the direction: the strongest call short of a confirmed setup.
+  const lean = forcedSide(read({ lean: 'bullish_lean', strength: 'clear', score: 44 }), r.snapshot, { side: 'buy', state: 'watching' }, cand);
+  assert.deepEqual([lean.side, lean.from, lean.score, lean.conviction], ['buy', 'lean', 72, 'High']);
+  assert.match(lean.basis, /^That's a clear lean — \+44 of 100 on my evidence balance — and price agrees\. Buyers have had the last few hours: .+ UTC\. I'm also watching a long on the five-minute chart — not confirmed yet\. So I'm a buyer$/);
+  // Against the direction: it is a turn it is calling, it says so, and the direction lends it no conviction.
+  const turn = forcedSide(read({ lean: 'bearish_lean', strength: 'clear', score: -41 }), r.snapshot, { side: 'buy', state: 'watching' }, cand);
+  assert.deepEqual([turn.side, turn.from, turn.score, turn.conviction], ['sell', 'lean', 21, 'Low']);
+  assert.match(turn.basis, /^That's a clear lean — -41 of 100 on my evidence balance — but it's against the direction gold has been travelling\. Buyers have had the last few hours: .+ UTC\. So this is a turn I'm calling, not a move I'm following: I'm a seller$/);
+  assert.equal(forcedSide(read({ lean: 'bearish_lean', strength: 'strong', score: -96 }), r.snapshot, null, cand).conviction, 'Medium', 'even a strong lean is not high conviction against the direction');
+  for (const f of [a, slight, same, blind, split, lean, turn]) assert.equal(f.trend!.dir, 1, 'the direction check rides along with the side');
+
+  // WITHOUT CANDLES (an old stored read, a bare snapshot) there is no direction to read, and the order is what it was:
   // 1 — a lean, however faint.
   assert.equal(forcedSide(read({ lean: 'bearish_lean', strength: 'slight', score: -17 }), r.snapshot).side, 'sell');
-  const lean = forcedSide(read({ lean: 'bullish_lean', strength: 'slight', score: 19 }), r.snapshot);
-  assert.deepEqual([lean.side, lean.from, lean.score], ['buy', 'lean', 19]);
-  assert.equal(lean.basis, "It's only a slight lean — +19 of 100 on my evidence balance — but it's up, so I'm a buyer");
+  const faint = forcedSide(read({ lean: 'bullish_lean', strength: 'slight', score: 19 }), r.snapshot);
+  assert.deepEqual([faint.side, faint.from, faint.score, faint.conviction], ['buy', 'lean', 19, 'Low']);
+  assert.equal(faint.basis, "It's only a slight lean — +19 of 100 on my evidence balance — but it's up, so I'm a buyer");
   assert.equal(forcedSide(read({ lean: 'bearish_lean', strength: 'clear', score: -41 }), r.snapshot).basis, "That's a clear lean — -41 of 100 on my evidence balance — so I'm a seller");
   // …and a lean outranks the setup engine's side: the read is what ATLAS sees.
   assert.equal(forcedSide(read({ lean: 'bearish_lean', strength: 'clear', score: -41 }), r.snapshot, { side: 'buy', state: 'watching' }).side, 'sell');
@@ -460,24 +589,33 @@ test('which side: its lean, then the trade it is already building, then the tilt
   const dead = forcedSide(null, snap({}));
   assert.equal(dead.side, 'buy'); assert.match(dead.basis, /nothing I can measure separates the two sides, and I default to the long side/);
   assert.match(forcedSide(read({ lean: 'balanced', strength: null, score: 0.2 }), snap({})).basis, /^My read is dead even/);
+  for (const f of [faint, building, watching, tilt, justTilted, down, dead]) assert.equal(f.trend, null);
   // The same inputs, the same side — and on the recording every call trades the side this names.
-  for (const m of MOMENTS) assert.deepEqual(forcedSide(m.r.state.read, m.r.snapshot, m.r.state.setup), forcedSide(m.r.state.read, m.r.snapshot, m.r.state.setup));
-  let fromSetup = 0;
-  for (const { idea, r: rr } of CALLS) {
-    const f = forcedSide(rr.state.read, rr.snapshot, rr.state.setup);
+  const sideOf = (m: (typeof MOMENTS)[number]) => forcedSide(m.r.state.read, m.r.snapshot, m.r.state.setup, { bars5m: m.r.state.bars, now: m.r.endedAt });
+  for (const m of MOMENTS) assert.deepEqual(sideOf(m), sideOf(m));
+  let fromLean = 0, fromTrend = 0, otherSide = 0;
+  for (const m of CALLS) {
+    const f = sideOf(m), idea = m.idea, read = m.r.state.read!, su = m.r.state.setup;
     assert.equal(idea.side, f.side);
-    if (f.from === 'setup') { fromSetup += 1; assert.equal(idea.side, rr.state.setup.side, 'the call and the trade card disagree'); assert.match(idea.reasoning, /I'm already (watching|building) a (long|short) here/); }
-    // Where the read holds no lean, the call never sells while the trade card is building a long (or the reverse).
-    const su = rr.state.setup, read = rr.state.read!;
-    if (su.side && ['setup_developing', 'watching'].includes(su.state) && read.lean !== 'bullish_lean' && read.lean !== 'bearish_lean') assert.equal(idea.side, su.side);
+    assert.ok(f.trend, 'the recording always has the candles to read a direction from');
+    const clear = (read.lean === 'bullish_lean' || read.lean === 'bearish_lean') && (read.strength === 'clear' || read.strength === 'strong');
+    // A clear lean is the side; anything else is the direction — never the setup being built, never a faint tilt.
+    if (clear) { fromLean += 1; assert.equal(f.from, 'lean'); assert.equal(f.side, read.lean === 'bullish_lean' ? 'buy' : 'sell'); }
+    else { fromTrend += 1; assert.equal(f.from, 'trend'); assert.equal(f.side, f.trend!.dir > 0 ? 'buy' : 'sell'); }
+    assert.equal(idea.confidence!.score, f.score); assert.equal(idea.confidence!.label, f.conviction);
+    // When the trade card is building the other side, the call says so rather than following it.
+    if (su.side && su.side !== idea.side && ['setup_developing', 'watching'].includes(su.state)) {
+      otherSide += 1;
+      assert.match(idea.reasoning, new RegExp(`And on the five-minute chart I'm (watching|building) a ${su.side === 'buy' ? 'long' : 'short'} at the same time, so the short-term picture disagrees with this call\\.$`));
+    }
   }
-  assert.ok(fromSetup >= 1, 'the recording should exercise a call that follows the setup engine\'s side');
+  assert.ok(fromLean >= 3 && fromTrend >= 10 && otherSide >= 1, `the recording should exercise all three (${fromLean}, ${fromTrend}, ${otherSide})`);
   // A lean against the setup it is watching is said, not hidden.
   const m = MOMENTS.find((x) => x.r.state.setup.side && x.r.state.read && (x.r.state.read.lean === 'bullish_lean' || x.r.state.read.lean === 'bearish_lean'))?.r ?? r;
   const leanDown = { ...(m.state.read as AtlasRead), lean: 'bearish_lean' as const, strength: 'clear' as const, score: -40 };
   const against = buildIdea(base(m, { read: leanDown, setup: { ...noSetup('Watching a long.', [], 'watching', m.endedAt), side: 'buy' } }));
   assert.equal(against.side, 'sell');
-  assert.match(against.reasoning, /And on the five-minute chart I'm watching a long at the same time, so the short-term picture disagrees with this lean\.$/);
+  assert.match(against.reasoning, /And on the five-minute chart I'm watching a long at the same time, so the short-term picture disagrees with this call\.$/);
 });
 
 test('when the setup engine has a trade ready, the idea is that trade number for number — its own stop, unchanged', () => {
@@ -514,6 +652,35 @@ test('when the setup engine has a trade ready, the idea is that trade number for
   // The setup engine itself is untouched by any of this.
   const setupSrc = readFileSync('command-center/engines/setup.ts', 'utf8');
   assert.doesNotMatch(setupSrc, /from\s+["']\.\/idea/);
+});
+
+test('a ready setup AGAINST the direction is not what Generate calls: it stays the trade card\'s, and the call says it is armed', () => {
+  // Thirteen real days (26 Oct – 11 Nov 2026): setups with the direction made money, setups against it were
+  // stopped three times in four — and showing one made the call change sides and back within minutes.
+  const { r, idea } = MOMENTS.find((m) => m.r.state.setup.state === 'trade_ready')!;
+  const su = r.state.setup, dir = trendOf(r.state.bars, r.endedAt)!;
+  assert.equal(dir.dir > 0 ? 'buy' : 'sell', su.side, 'on the recording the ready setup is with the direction');
+  assert.equal(idea.source, 'setup_engine');
+  // The same moment with the setup on the other side.
+  const other = su.side === 'buy' ? 'sell' : 'buy';
+  const call = buildIdea(base(r, { setup: { ...su, side: other } }));
+  assert.notEqual(call.source, 'setup_engine'); assert.equal(call.kind, 'enter_now');
+  assert.equal(call.side, su.side, 'the call stays on the side gold is travelling');
+  assert.match(call.badge, /^ATLAS'S CALL · (LOW|MEDIUM|HIGH) CONVICTION$/);
+  assert.match(call.reasoning, new RegExp(`On the five-minute chart I have a ${other === 'buy' ? 'long' : 'short'} armed at the same time\\. That one is against the direction gold has been travelling — the harder side to take — so it isn't the trade I'm calling\\.$`));
+  assert.equal(call.execute.via, 'manual'); assert.equal(call.execute.approved, null);
+  assert.equal(call.engine.state, 'trade_ready', 'the trade card\'s own verdict rides along unchanged');
+  assert.doesNotMatch(wordsOf(call), /setup engine/i);
+  // A setup WITH the direction is the idea even while the read's clear lean points the other way…
+  const turned = { ...(r.state.read as AtlasRead), lean: su.side === 'buy' ? 'bearish_lean' as const : 'bullish_lean' as const, strength: 'clear' as const, score: su.side === 'buy' ? -45 : 45 };
+  assert.equal(buildIdea(base(r, { read: turned })).source, 'setup_engine');
+  // …and with no candles there is no direction to hold it against: the ready setup is the idea, as before.
+  assert.equal(buildIdea(base(r, { bars5m: [] })).source, 'setup_engine');
+  assert.match(readFileSync('command-center/engines/idea.ts', 'utf8'), /const againstDirection = !!f\.trend && !!su\.side && \(f\.trend\.dir > 0\) !== \(su\.side === "buy"\) && f\.side !== su\.side;/, 'a setup against the direction is still shown when the call is on its side');
+  // Nothing about what ATLAS trades changed: the setup engine and the automatic path never read the idea engine.
+  for (const f of ['command-center/engines/setup.ts', 'command-center/engines/executor.ts', 'command-center/engines/validator.ts']) {
+    assert.doesNotMatch(readFileSync(f, 'utf8'), /trendOf|from\s+["']\.\/idea["']/, `${f} reads the idea engine`);
+  }
 });
 
 test('the only answer with no trade is NO MARKET DATA; closed, stale, doubtful and flagged markets still get a call that says where it stands', () => {
@@ -585,8 +752,12 @@ test('the only answer with no trade is NO MARKET DATA; closed, stale, doubtful a
   assert.match(blocked.reasoning, /My own trading is standing down right now \(the daily loss limit has been reached\), so I'm not taking this one myself — it's my read, and taking it is your call\./);
   assert.equal(blocked.execute.via, 'manual');
 
-  // No read at all: the side comes from the structure the snapshot measured, and says so.
-  const noRead = buildIdea(base(r, { read: null, setup: noSetup('Nothing has set up.', ['a level to break']) }));
+  // No read at all: the direction gold has been travelling still names the side, and says that is all it has.
+  const dirOnly = buildIdea(base(r, { read: null, setup: noSetup('Nothing has set up.', ['a level to break']) }));
+  trade(dirOnly);
+  assert.match(dirOnly.reasoning, /I don't have a clean read of my own evidence right now, so that direction is what I'm going on\. So I'm a (buyer|seller)\./);
+  // …and with no candles either, the side comes from the structure the snapshot measured, and says so.
+  const noRead = buildIdea(base(r, { read: null, bars5m: [], setup: noSetup('Nothing has set up.', ['a level to break']) }));
   trade(noRead);
   assert.match(noRead.reasoning, /^I don't have a clean directional read right now, so I'm going off the structure I can measure: /);
   assert.match(noRead.confidence!.basis, /^No directional read behind this one/);
@@ -798,8 +969,22 @@ test('the update says whether ATLAS still agrees with its own plan', () => {
   assert.doesNotMatch(updateVerdict(forcedIdea, f, read('balanced', -14, null), ready), /forced read|setup engine|ATLAS's read/i);
   assert.match(updateVerdict(forcedIdea, f, read('bearish_lean', -40, 'clear'), null), /now tilts the other way/);
   assert.match(updateVerdict(forcedIdea, f, read('balanced', 0, null), null), /dead even/);
+  // With candles to read, the update compares against the side a fresh call would take right now.
+  const snap = MOMENTS[0].r.snapshot;
+  const buyNow = forcedSide(read('balanced', 9, null), snap, null, { bars5m: RISING, now: NOW });
+  const sellNow = forcedSide(read('balanced', 9, null), snap, null, { bars5m: FALLING, now: NOW });
+  assert.match(updateVerdict(forcedIdea, f, read('balanced', 9, null), null, buyNow), /I'd still be a buyer here — buyers have had the last few hours: .+ UTC\. My read: balanced[^,]*, \+9 of 100\.$/);
+  assert.match(updateVerdict(forcedIdea, f, read('balanced', 9, null), null, sellNow), /I'd be a seller now — sellers have had the last few hours: .+ UTC\. My read: balanced[^,]*, \+9 of 100\. This call no longer has that behind it — generate a fresh one\.$/);
+  assert.doesNotMatch(updateVerdict(forcedIdea, f, read('balanced', -14, null), null, buyNow), /tilts the other way/, 'a faint tilt against the direction no longer condemns the call');
+  // A clear lean against the direction is its own reason.
+  const turnNow = forcedSide(read('bearish_lean', -45, 'clear'), snap, null, { bars5m: RISING, now: NOW });
+  assert.match(updateVerdict(forcedIdea, f, read('bearish_lean', -45, 'clear'), null, turnNow), /I'd be a seller now — my read leans that way clearly, against the direction of the last few hours\./);
+  // A ready setup is only announced when Generate would actually show it: on the side gold is travelling.
+  assert.doesNotMatch(updateVerdict(forcedIdea, f, read('balanced', 9, null), ready, buyNow), /Generate again to see it/);
+  assert.match(updateVerdict(forcedIdea, f, read('balanced', 9, null), ready, sellNow), /I now have a confirmed setup ready \(sell\)\. Generate again to see it\./);
   const done = followIdea(idea, { price: 3990, bars: [], tf: '5m', now: at(1) });
   assert.equal(updateVerdict(idea, done, read('bullish_lean', 44, 'clear'), null), done.text);
+  assert.equal(updateVerdict(idea, done, read('bullish_lean', 44, 'clear'), null, buyNow), done.text);
 });
 
 test('the replay generates and follows an idea on the recording, and is addressed without storing anything', () => {
@@ -818,7 +1003,7 @@ test('the replay generates and follows an idea on the recording, and is addresse
   // The end of the recording used to be "no trade right now": it is a call with a side and levels.
   const end = replayIdea({ style: 'auto' }, 0);
   assert.equal(end.source, 'forced_read'); assert.equal(end.kind, 'enter_now');
-  assert.match(ideaText(end), /^ATLAS · XAUUSD (BUY|SELL) · ATLAS's call, low conviction — a read, not a confirmed setup\nEntry: /, 'pasted anywhere, it still says it is a read');
+  assert.match(ideaText(end), /^ATLAS · XAUUSD (BUY|SELL) · ATLAS's call, (low|medium|high) conviction — a read, not a confirmed setup\nEntry: /, 'pasted anywhere, it still says it is a read');
   const confirmed = replayIdea({ style: 'auto' }, 57);
   assert.equal(confirmed.source, 'setup_engine');
   assert.match(ideaText(confirmed), /^ATLAS · XAUUSD SELL · confirmed setup\nEntry: /);
