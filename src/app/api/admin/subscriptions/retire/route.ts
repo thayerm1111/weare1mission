@@ -2,6 +2,8 @@ import { type NextRequest } from "next/server";
 import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { gateAdmin } from "@/lib/sports/gate";
+import { FLOW_PASS } from "@/lib/creditConfig";
+import { PLAN_SUITE } from "@/lib/subscription";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,10 +27,16 @@ export const dynamic = "force-dynamic";
  *
  * It never refunds and never deletes. Cancelling a subscription in Stripe is reversible by resubscribing;
  * nothing here removes credits already granted.
+ *
+ * ONLY THE TRADING SUITE (11-13). When this was written the Suite was the only plan in user_subscriptions,
+ * so "every live row" and "every live Suite" were the same thing. The FLOW Pass ($99/mo, 11-02) lives in
+ * the same table: unfiltered, this would have cancelled every Pass too, under a button that says Trading
+ * Suite. It now reads Suite rows only, skips anything that is not one, and asks Stripe itself before each
+ * cancellation — a subscription Stripe has tagged as a Pass is never touched, whatever the row says.
  */
 const json = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
-type Row = { user_id: string; stripe_subscription_id: string | null; status: string | null; cancel_at_period_end: boolean | null; current_period_end: string | null };
+type Row = { user_id: string; plan: string | null; stripe_subscription_id: string | null; status: string | null; cancel_at_period_end: boolean | null; current_period_end: string | null };
 
 async function authorised(req: NextRequest): Promise<boolean> {
   const key = (process.env.ADMIN_TASK_KEY ?? "").trim();
@@ -41,10 +49,12 @@ async function live(): Promise<{ rows: Row[]; error?: string }> {
   const admin = createAdminClient();
   if (!admin) return { rows: [], error: "server_not_configured" };
   const { data, error } = await admin.from("user_subscriptions")
-    .select("user_id, stripe_subscription_id, status, cancel_at_period_end, current_period_end")
+    .select("user_id, plan, stripe_subscription_id, status, cancel_at_period_end, current_period_end")
+    .eq("plan", PLAN_SUITE)
     .in("status", ["active", "trialing", "past_due"]);
   if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as Row[] };
+  // Belt and braces: whatever the query returned, only Suite rows leave this function.
+  return { rows: ((data ?? []) as Row[]).filter((r) => r.plan === PLAN_SUITE) };
 }
 
 export async function GET(req: NextRequest) {
@@ -80,6 +90,9 @@ export async function POST(req: NextRequest) {
     if (!r.stripe_subscription_id) { skipped.push(r.user_id); continue; }
     if (r.cancel_at_period_end && !body.immediate) { skipped.push(r.stripe_subscription_id); continue; }
     try {
+      // Stripe has the last word on what this subscription is: a Pass is never cancelled from here.
+      const sub = await stripe.subscriptions.retrieve(r.stripe_subscription_id);
+      if (sub.metadata?.plan === FLOW_PASS.tag) { skipped.push(r.stripe_subscription_id); continue; }
       if (body.immediate) await stripe.subscriptions.cancel(r.stripe_subscription_id);
       else await stripe.subscriptions.update(r.stripe_subscription_id, { cancel_at_period_end: true });
       if (admin) {
