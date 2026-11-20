@@ -12,7 +12,7 @@ import { minutesLeft, type SetupGate } from "@/lib/setupLock";
 import { realCandles, priceText } from "@/lib/floor/chart";
 import {
   FLOOR_PERIODS, STAGE_LABEL, stageSentence, setupView, ageText, money, pipsText, toneOf, periodOf,
-  type FloorOverview, type FloorPeriod, type FloorAccount, type AccountFigures,
+  type FloorOverview, type FloorPeriod, type FloorAccount, type AccountFigures, type GenxResults, type FlowResults,
 } from "@/lib/floor/overview";
 
 /**
@@ -45,7 +45,18 @@ export type SetupAnswer = {
 };
 export type Tick = { label: string; price: number; percent: number | null; dp: number };
 /** Fixed, labelled sample content for the review route. Never mixed with a member's data. */
-export type FloorSample = { overview: FloorOverview; setup: SetupAnswer; ticks: Tick[]; nowMs: number };
+export type FloorSample = {
+  overview: FloorOverview; setup: SetupAnswer; ticks: Tick[]; nowMs: number;
+  /**
+   * What the screen's own choices lead to on the review route, so a click there answers the way the product
+   * does: the other timeframes, the other periods, the other account. All of it is the same labelled sample.
+   */
+  setups?: Partial<Record<FloorMode, SetupAnswer>>;
+  /** What "See the play" shows there, where the sample starts with the play withheld. Nothing is charged: there is no member. */
+  opened?: Partial<Record<FloorMode, SetupAnswer>>;
+  genx?: Partial<Record<FloorPeriod, GenxResults>>;
+  accounts?: Record<string, { figures: AccountFigures | null; flow: Partial<Record<FloorPeriod, FlowResults>> }>;
+};
 
 const GOLD = FLOOR_INSTRUMENTS[0];
 const TFS: { mode: FloorMode; tf: string; name: string }[] = [
@@ -183,9 +194,11 @@ function AccountSummary({ ov, state, switching, hide, onHide, onPick, now }: {
 
 /* ── gold, with GENX's state ──────────────────────────────────────────────────────────────────── */
 
-function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample }: {
+function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample, onSamplePlay }: {
   setup: SetupAnswer | null; failed: boolean; tf: FloorMode; onTf: (m: FloorMode) => void; change: number | null;
   onOpened: () => void; now: number; sample: boolean;
+  /** The review route only: shows the sample's opened play. It asks the server for nothing and charges nothing. */
+  onSamplePlay?: () => void;
 }) {
   const view = useMemo(() => setupView(setup), [setup]);
   const candles = useMemo(() => realCandles(setup?.candles), [setup]);
@@ -241,7 +254,7 @@ function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample }: {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {locked && (
-            <button type="button" className="om-btn-quiet" onClick={() => void play.open()} disabled={play.phase !== "idle" || sample} aria-busy={play.phase !== "idle"}
+            <button type="button" className="om-btn-quiet" onClick={() => { if (sample) onSamplePlay?.(); else void play.open(); }} disabled={play.phase !== "idle" || (sample && !onSamplePlay)} aria-busy={play.phase !== "idle"}
               title={gate ? `Opens every live setup on the site for ${gate.minutes} minutes` : undefined}>
               {play.phase === "busy" ? "Opening…" : play.phase === "opened" ? "Open — loading the play…" : gate ? `See the play · ${gate.cost} credits` : "See the play"}
             </button>
@@ -477,7 +490,16 @@ export function Floor({ sample }: { sample?: FloorSample }) {
     return () => { clearInterval(iv); document.removeEventListener("visibilitychange", onVis); };
   }, [isSample, prefs, loadOverview]);
 
+  const acctKey = (a: { id: string; environment: string }) => `${a.environment}:${a.id}`;
+  const sampleSince = (o: FloorOverview) => o.flow?.since ?? sample?.overview.flow?.since ?? o.asOf;
   const choose = (a: FloorAccount) => {
+    if (sample) {
+      // The review route has no member to ask about: it shows that account's own sample figures.
+      const other = sample.accounts?.[acctKey(a)];
+      const res = other?.flow[fp];
+      if (other) setOv((o) => (o ? { ...o, account: a, figures: other.figures, flow: res ? { period: fp, since: sampleSince(o), results: res } : null } : o));
+      return;
+    }
     // The old account's money leaves the screen now, before the new account's is asked for.
     setSwitching(true); setOvFailed(false);
     setOv((o) => (o ? { ...o, account: a, figures: null, flow: null } : o));
@@ -522,6 +544,32 @@ export function Floor({ sample }: { sample?: FloorSample }) {
     return () => { alive = false; clearInterval(iv); };
   }, [isSample]);
 
+  // ── the screen's own choices ──
+  // On the review route each choice shows the sample prepared for it (or stays put where there is none);
+  // for a member it is remembered and the real answer is asked for.
+  const [samplePlay, setSamplePlay] = useState(false);
+  const pickTf = (m: FloorMode) => {
+    if (sample) { const su = (samplePlay ? sample.opened?.[m] : undefined) ?? sample.setups?.[m]; if (su) { setTf(m); setSetup(su); } return; }
+    setTf(m); store.set("om:floor:tf", m);
+  };
+  const openSamplePlay = () => { const su = sample?.opened?.[tf]; if (su) { setSamplePlay(true); setSetup(su); } };
+  const pickGenx = (p: FloorPeriod) => {
+    if (sample) {
+      const r = sample.genx?.[p];
+      if (r) { setGp(p); setOv((o) => (o && o.genx ? { ...o, genx: { ...o.genx, period: p, results: r } } : o)); }
+      return;
+    }
+    setOvFailed(false); setGp(p); store.set("om:floor:genx", p);
+  };
+  const pickFlow = (p: FloorPeriod) => {
+    if (sample) {
+      const r = ov?.account ? sample.accounts?.[acctKey(ov.account)]?.flow[p] : undefined;
+      if (r) { setFp(p); setOv((o) => (o ? { ...o, flow: { period: p, since: sampleSince(o), results: r } } : o)); }
+      return;
+    }
+    setOvFailed(false); setFp(p); store.set("om:floor:flow", p);
+  };
+
   const stage = useMemo(() => setupView(setup).stage, [setup]);
   const gold = ticks.find((t) => t.label === "XAUUSD");
   const others = ticks.filter((t) => t.label !== "XAUUSD").slice(0, 4);
@@ -540,13 +588,13 @@ export function Floor({ sample }: { sample?: FloorSample }) {
       </header>
 
       <div className="om-stage">
-        <ChartCard setup={setup} failed={setupFailed} tf={tf} onTf={(m) => { setTf(m); store.set("om:floor:tf", m); }} change={gold?.percent ?? null} onOpened={() => void loadSetup(true)} now={now} sample={isSample} />
+        <ChartCard setup={setup} failed={setupFailed} tf={tf} onTf={pickTf} change={gold?.percent ?? null} onOpened={() => void loadSetup(true)} now={now} sample={isSample} onSamplePlay={sample?.opened ? openSamplePlay : undefined} />
         <AtlasPanel atlas={ov?.atlas ?? null} stage={stage} sample={isSample} now={now} />
       </div>
 
       <div className="om-results">
-        <GenxCard ov={ov} state={ovState} failed={ovFailed} period={gp} onPeriod={(p) => { setOvFailed(false); setGp(p); store.set("om:floor:genx", p); }} />
-        <FlowCard ov={ov} state={ovState} failed={ovFailed} switching={switching} period={fp} onPeriod={(p) => { setOvFailed(false); setFp(p); store.set("om:floor:flow", p); }} hide={hide} />
+        <GenxCard ov={ov} state={ovState} failed={ovFailed} period={gp} onPeriod={pickGenx} />
+        <FlowCard ov={ov} state={ovState} failed={ovFailed} switching={switching} period={fp} onPeriod={pickFlow} hide={hide} />
       </div>
 
       <div>
