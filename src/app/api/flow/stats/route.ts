@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildRealResults, type RealRow } from "@/lib/genx/realResults";
 import { statsSince } from "@/lib/genx/statsSince";
+import { allRows, type Paged } from "@/lib/floor/rows";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +24,19 @@ export const dynamic = "force-dynamic";
  *
  * The response keeps the field names older panels read (forex, perPair, recent …); the
  * forex fields are always empty.
+ *
+ * THE WHOLE RECORD (11-20). Two things were keeping trades out of it:
+ *   1. One request returns at most 1,000 rows, whatever `limit` asks for, and says nothing when it cuts
+ *      the rest off. With more than three thousand account-trades since the reset, the record was being
+ *      folded from the newest thousand — it counted from early November, not from the reset it names.
+ *      The rows are now read a thousand at a time until there are no more (src/lib/floor/rows.ts), and
+ *      a read that cannot be finished is reported as a failure rather than shown as the record.
+ *   2. A row retired without a result (outcome 'excluded': the broker stopped listing the position
+ *      before its close was booked) was folded as a trade still open, so the WHOLE GENX trade it belonged
+ *      to — every other account's real result with it — was never graded. Those rows are dropped before
+ *      the fold, as the Live Trade card has done since 09-29; the trade is graded on the accounts that
+ *      have a result. `liveOpen` already counted only rows whose status is open.
+ * Neither changes what a trade is, how it is graded, or the reset point.
  */
 function json(obj: unknown, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -40,16 +54,18 @@ export async function GET() {
   const since = statsSince();
   const since7d = new Date(Math.max(Date.parse(since), Date.now() - 7 * 24 * 3600e3)).toISOString();
 
-  const { data, error } = await admin
+  const read = await allRows<RealRow>(() => admin
     .from("flow_managed_positions")
     .select("side,outcome,result_pips,created_at,resolved_at,manage_style,status")
     .eq("symbol", "XAUUSD")
     .gte("created_at", since)
-    .order("created_at", { ascending: false })
-    .limit(20000);
-  if (error) return json({ error: "load_failed", detail: error.message }, 200);
+    // Oldest first, so a trade opened while the pages are being read lands after the last page instead of
+    // pushing every row down one and being read twice. The fold sorts for itself.
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true }) as unknown as Paged);
+  if (!read.complete) return json({ error: "load_failed", detail: "the record could not be read in full" }, 200);
 
-  const rows = (data || []) as RealRow[];
+  const rows = read.rows.filter((r) => r.outcome !== "excluded");
   const real = buildRealResults(rows);
   const s = real.summary;
   const liveOpen = rows.filter((r) => r.status === "open").length;
