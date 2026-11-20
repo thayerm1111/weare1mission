@@ -1,5 +1,8 @@
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
+import { SHELL_COOKIE, wantsNextShell } from "@/lib/floor/nav";
 import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
 import { DashboardTradingIntro } from "@/components/portal/DashboardTradingIntro";
 import { DeskDashboard } from "@/components/portal/desk/DeskDashboard";
@@ -14,6 +17,10 @@ export default async function PortalDashboard() {
   const supabase = createClient();
   if (!supabase) return <PortalNotConfigured />;
   const profile = await getProfile();
+
+  // In the redesign preview (owner 11-20: "When customers log in, they immediately enter The Floor"), this
+  // dashboard is not a destination: signing in lands on The Floor. Everyone else gets it as it was.
+  if (wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile?.role === "admin")) redirect("/portal/trading");
 
   const { data: updates } = await supabase
     .from("team_updates").select("id,title,body,category,pinned,created_at").eq("published", true)

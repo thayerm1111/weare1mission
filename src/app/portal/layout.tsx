@@ -1,5 +1,8 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { AppShell } from "@/components/om/AppShell";
+import { SHELL_COOKIE, SHELL_CSS, SHELL_SCRIPT, wantsNextShell } from "@/lib/floor/nav";
 import { PortalNav } from "@/components/portal/PortalNav";
 import { SignOutButton } from "@/components/portal/SignOutButton";
 import { NotificationsBell } from "@/components/portal/NotificationsBell";
@@ -36,6 +39,26 @@ export default async function PortalLayout({ children }: { children: React.React
   const isAdmin = profile?.role === "admin";
   const isOwner = (profile?.email ?? "").toLowerCase() === "thayerm1111@gmail.com";
   const needsApproval = profile != null && !isAdmin && profile.status !== "active";
+
+  /*
+   * THE REDESIGN PREVIEW (owner 11-20: "Work in an isolated branch or preview. Keep the current
+   * application functional"). An admin who has switched the preview on (/api/floor/preview?on=1) gets the
+   * new shell around every portal page: one floating bar — The Floor, OM AI Plays, GENX, Market Pulse,
+   * FLOW, Atlas — and a short account menu, with no sidebar and no community destinations. The role is
+   * read here, on the server, so a cookie alone never puts a member into it. Everyone else gets the
+   * portal below, unchanged. The risk disclosure and the low-balance prompt still apply inside it.
+   */
+  if (profile && !needsApproval && wantsNextShell(cookies().get(SHELL_COOKIE)?.value, isAdmin)) {
+    return (
+      <>
+        <style dangerouslySetInnerHTML={{ __html: SHELL_CSS }} />
+        <script dangerouslySetInnerHTML={{ __html: SHELL_SCRIPT }} />
+        <AppShell member={{ name: profile.full_name, email: profile.email, admin: isAdmin }} preview>{children}</AppShell>
+        <LowBalanceFlyer />
+        <RiskConsentGate />
+      </>
+    );
+  }
 
   return (
     <div className="bg-cream">

@@ -19,6 +19,7 @@ import TradePanel, { CallTradeSheet, UnmanagedNotice } from "../TradePanel";
 import { BrainTradeCard, ProfileSheet, TradeCompleteCard, type ProfileView } from "../BrainTrade";
 import VoiceSession from "../VoiceSession";
 import { HudTour, tourSeen } from "./HudTour";
+import { ATLAS_ENTERED_EVENT, takeFloorQuestion } from "./floorAsk";
 import TradeAlert from "../TradeAlert";
 import RiskConsent, { type ConsentView } from "../RiskConsent";
 import { useLiveFeed } from "./useLiveFeed";
@@ -393,6 +394,18 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
     voiceBus.start();     // inside the tap: Safari only lets audio begin from the gesture that asked for it
   }, [isReplay, openTalk]);
   const ask = useCallback((q: string) => { openTalk("CHAT"); setAskSignal({ n: Date.now(), q }); }, [openTalk]);
+  // A question typed on The Floor (owner 11-20) is asked here once the member is inside and the entrance has
+  // finished — through the same `ask` the chips on this screen use, and only once (floorAsk.ts).
+  useEffect(() => {
+    if (isReplay) return;
+    const onEntered = () => {
+      let q: string | null = null;
+      try { q = takeFloorQuestion(window.sessionStorage, Date.now()); } catch { /* no storage: nothing to ask */ }
+      if (q) ask(q);
+    };
+    window.addEventListener(ATLAS_ENTERED_EVENT, onEntered);
+    return () => window.removeEventListener(ATLAS_ENTERED_EVENT, onEntered);
+  }, [ask, isReplay]);
   /** One press: open the idea drawer and have ATLAS's engine generate. */
   const generate = useCallback(() => {
     setIdeaMounted(true); setIdeaRun(Date.now()); setDrawer("idea"); setNav("OVERVIEW"); setSheetOpen(false); setMenuOpen(false);

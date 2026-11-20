@@ -230,6 +230,14 @@ export function I18nProvider() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang, startObserver, process, restoreEnglish]);
 
+  // The redesigned shell keeps language in its account menu rather than as a floating button (owner
+  // 11-20). The menu asks with this event; the switch itself is the one above, unchanged.
+  useEffect(() => {
+    const h = () => toggle();
+    window.addEventListener("om-lang-toggle", h);
+    return () => window.removeEventListener("om-lang-toggle", h);
+  }, [toggle]);
+
   return (
     <div data-no-i18n translate="no" className="notranslate fixed bottom-4 left-4 z-[90]">
       <button

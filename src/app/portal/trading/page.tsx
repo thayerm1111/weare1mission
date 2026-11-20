@@ -1,14 +1,30 @@
 import { Suspense } from "react";
+import { cookies } from "next/headers";
 import { LineChart, AlertTriangle } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
 import { FloorWorkspace } from "@/components/portal/floor/FloorWorkspace";
+import { Floor } from "@/components/om/floor/Floor";
+import { SHELL_COOKIE, wantsNextShell } from "@/lib/floor/nav";
 
-export default async function FloorPage() {
+export default async function FloorPage({ searchParams }: { searchParams?: { view?: string | string[] } }) {
   const supabase = createClient();
   if (!supabase) return <PortalNotConfigured />;
   const profile = await getProfile();
+
+  // THE REDESIGN PREVIEW (owner 11-20) — an admin who has switched it on gets the new Floor here, and the
+  // tools open without the classic workspace's own row of tabs (the new shell is the navigation). Everyone
+  // else gets this page exactly as it was.
+  if (wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile?.role === "admin")) {
+    const view = typeof searchParams?.view === "string" ? searchParams.view : "";
+    if (!view || view === "home") return <Floor />;
+    return (
+      <Suspense fallback={<div className="h-[80vh] rounded-2xl bg-[#17130d]" />}>
+        <FloorWorkspace isCaller={profile?.role === "admin"} followerCount={128} bare />
+      </Suspense>
+    );
+  }
 
   // "Callers" (traders who can post alerts / be copied) are admins for now.
   // Phase 2 adds a dedicated caller permission.

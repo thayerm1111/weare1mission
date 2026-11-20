@@ -82,7 +82,12 @@ function playDing() {
   } catch { /* autoplay blocked — stay silent */ }
 }
 
-export function FloorWorkspace({ isCaller = false, followerCount = 0 }: { isCaller?: boolean; followerCount?: number }) {
+export function FloorWorkspace({ isCaller = false, followerCount = 0, bare = false }: {
+  isCaller?: boolean; followerCount?: number;
+  /** Inside the redesigned shell (owner 11-20): that shell is the navigation, so this workspace shows only
+   *  the tool — no second row of tabs, no entry animation, no ticker. Everything else is unchanged. */
+  bare?: boolean;
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const raw = params.get("view");
@@ -111,7 +116,7 @@ export function FloorWorkspace({ isCaller = false, followerCount = 0 }: { isCall
   useEffect(() => {
     let seen = false;
     try { seen = sessionStorage.getItem("floorEntrySeen") === "1"; } catch { /* noop */ }
-    if (seen) return;
+    if (seen || bare) return;
     setShowEntry(true);
     const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     let playSound = false;
@@ -123,7 +128,7 @@ export function FloorWorkspace({ isCaller = false, followerCount = 0 }: { isCall
       try { sessionStorage.setItem("floorEntrySeen", "1"); } catch { /* noop */ }
     }, dur);
     return () => clearTimeout(id);
-  }, []);
+  }, [bare]);
 
   // desk mode via the Fullscreen API on the shell
   const toggleDesk = () => {
@@ -147,7 +152,7 @@ export function FloorWorkspace({ isCaller = false, followerCount = 0 }: { isCall
       {showEntry && <FloorEntryOverlay />}
 
       {/* slim terminal control bar */}
-      <div className="flex items-center gap-2 border-b px-2.5 py-2" style={{ borderColor: C.line }}>
+      <div className="flex items-center gap-2 border-b px-2.5 py-2" style={{ borderColor: C.line, display: bare ? "none" : undefined }}>
         <span className="hidden flex-shrink-0 items-center gap-1.5 pl-1 pr-2 text-[11px] font-black uppercase tracking-[0.15em] sm:inline-flex" style={{ color: C.cyan }}>◢ Floor</span>
         <div className="flex flex-1 gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {SWITCHER.filter((s) => SHOW_MATTY_TAB || s.key !== "matty").map((s) => {
@@ -187,7 +192,7 @@ export function FloorWorkspace({ isCaller = false, followerCount = 0 }: { isCall
       </div>
 
       {/* live market ticker */}
-      <MarketTicker />
+      {!bare && <MarketTicker />}
     </div>
   );
 }

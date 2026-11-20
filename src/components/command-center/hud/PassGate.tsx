@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { H } from "./theme";
 import { EntrySequence, primeAudio } from "./EntrySequence";
 import { PASS_RENEW_EVENT } from "../BrainConsole";
+import { ATLAS_ENTERED_EVENT } from "./floorAsk";
 
 /**
  * COMMAND CENTER ACCESS — 5 credits opens it for 30 minutes, the clock starting when you open it.
@@ -56,11 +57,14 @@ export function PassGate({ children }: { children: React.ReactNode }) {
    */
   const checked = useRef(false);
   const paidNow = useRef(false); // this window was opened by a tap here, so sound is allowed
+  // The member is inside and no entrance is on screen. The desk waits for this before it asks a question
+  // handed over from The Floor (floorAsk.ts), so the entrance is never talked over. It changes nothing here.
+  const entered = () => { try { window.dispatchEvent(new Event(ATLAS_ENTERED_EVENT)); } catch { /* nothing was waiting on it */ } };
   useEffect(() => {
     if (!open || checked.current) return;
     checked.current = true;
     fetch(`/api/command-center/greet${replayWanted() ? "?replay=1" : ""}`, { cache: "no-store" }).then((r) => r.json())
-      .then((j) => { if (j?.eligible) setIntro(true); }).catch(() => {});
+      .then((j) => { if (j?.eligible) setIntro(true); else entered(); }).catch(() => entered());
   }, [open]);
   // A window that expires and is renewed re-checks (it will usually be inside the two hours).
   useEffect(() => { if (!open) checked.current = false; }, [open]);
@@ -131,7 +135,7 @@ export function PassGate({ children }: { children: React.ReactNode }) {
   return (
     <>
       {children}
-      {intro && <EntrySequence speak awaitTap={!!pass.admin && !paidNow.current} replay={replayWanted()} onDone={() => setIntro(false)} />}
+      {intro && <EntrySequence speak awaitTap={!!pass.admin && !paidNow.current} replay={replayWanted()} onDone={() => { setIntro(false); entered(); }} />}
       {!pass.admin && left != null && (
         <div className="pointer-events-none fixed bottom-[76px] left-3 z-50 rounded-full px-3 py-1 text-[11px] tabular-nums xl:bottom-3"
           style={{ background: "rgba(7,16,26,0.9)", border: `1px solid ${left < 5 * 60_000 ? H.gold2 : H.line}`, color: left < 5 * 60_000 ? H.gold3 : H.mut }}>

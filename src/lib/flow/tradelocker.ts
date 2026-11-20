@@ -335,6 +335,18 @@ export async function getConfig(env: TLEnv, accessToken: string, accNum: string)
   return { ok: true, data: json };
 }
 
+/**
+ * GET /trade/accounts/{accountId}/state — the account's balance, projected balance (equity), open P&L and
+ * position count, as one positional row whose columns /trade/config names (accountDetailsConfig).
+ * Read-only, and used for DISPLAY (The Floor's account summary): callers run it at "background" priority so
+ * it never takes the request budget from an order or a stop.
+ */
+export async function getAccountState(env: TLEnv, accessToken: string, accNum: string, accountId: string): Promise<TLResult<unknown>> {
+  const { status, json, text } = await tlFetch(env, `/trade/accounts/${encodeURIComponent(accountId)}/state`, { method: "GET", accessToken, accNum });
+  if (status < 200 || status >= 300) return { ok: false, status, error: "Couldn't load the account's state.", raw: json ?? text };
+  return { ok: true, data: json };
+}
+
 /** GET /trade/accounts/{accountId}/instruments — resolve tradable instrument + route. */
 export async function listInstruments(env: TLEnv, accessToken: string, accNum: string, accountId: string): Promise<TLResult<TLInstrument[]>> {
   const { status, json, text } = await tlFetch(env, `/trade/accounts/${encodeURIComponent(accountId)}/instruments`, { method: "GET", accessToken, accNum });
