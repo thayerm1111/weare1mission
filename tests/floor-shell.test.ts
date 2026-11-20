@@ -233,6 +233,39 @@ test('no member-facing page or route uses the sample figures', () => {
   assert.ok(!/3550|10000|10125/.test(route));
 });
 
+/* ── the bar with everything in it ── */
+// A signed-in member's bar holds the brand, six destinations, credits, notifications and the profile.
+// The first build of the shell was only ever looked at without the last three, and at a phone's width
+// the profile slid off the edge. The widths themselves are checked in a browser; this keeps the tiers.
+test('the bar steps down in tiers, so a signed-in bar always holds what is in it', () => {
+  const css = read('src/components/om/om.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const at = (px: number) => { const i = css.indexOf(`@media (max-width: ${px}px)`); assert.ok(i >= 0, `there is a ${px}px tier`); return i; };
+  const tiers = [1240, 980, 520, 380, 340].map(at);
+  assert.deepEqual([...tiers].sort((a, b) => a - b), tiers, 'wider tiers come first, so the narrower one wins');
+  const compact = css.slice(tiers[0], tiers[1]), thumb = css.slice(tiers[1], tiers[2]), mark = css.slice(tiers[2], tiers[3]), word = css.slice(tiers[4], tiers[4] + 400);
+  assert.match(compact, /\.om-brand span \{ display: none; \}/, 'the wordmark steps aside before the destinations crowd');
+  assert.match(thumb, /\.om-links \{ display: none; \}/);
+  assert.match(thumb, /\.om-tabbar \{\s*position: fixed/, 'the destinations move to the tab bar at the same width they leave the bar');
+  assert.match(thumb, /\.om-brand span \{ display: inline; \}/);
+  assert.match(mark, /\.om-brand span \{ display: none; \}/, 'a phone shows the mark alone');
+  assert.match(word, /\.om-credits-word \{[^}]*clip-path/, 'on the narrowest screens the credits pill keeps its number');
+  assert.ok(!/\.om-credits-word \{[^}]*display: none/.test(css), 'the word is still read out, never removed');
+  assert.match(read('src/components/om/AppShell.tsx'), /<span className="om-credits-word">credits<\/span>/);
+  // Nothing in the bar is allowed to shrink under its neighbour.
+  assert.match(css, /\.om-brand \{[^}]*flex: 0 0 auto/);
+  assert.match(css, /\.om-nav-right \{[^}]*flex: 0 0 auto/);
+});
+
+test('Market Pulse never cuts a quote through the middle', () => {
+  const css = read('src/components/om/om.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const list = css.match(/\.om-pulse-list \{([^}]*)\}/)?.[1] ?? '';
+  assert.match(list, /flex-wrap: wrap/);
+  assert.match(list, /height: 26px/);
+  assert.match(list, /overflow: hidden/);
+  assert.ok(!/mask-image/.test(list), 'the fade belongs to the phone row, which scrolls');
+  assert.match(css, /\.om-pulse-item \{[^}]*line-height: 26px/);
+});
+
 /* ── design rules that are easy to break by accident ── */
 test('the surface rules: scoped styles, opaque fallbacks, no decorative motion, no gold', () => {
   const css = read('src/components/om/om.css').replace(/\/\*[\s\S]*?\*\//g, '');

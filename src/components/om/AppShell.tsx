@@ -54,7 +54,7 @@ function Credits() {
   }, [load]);
   return (
     <Link href="/portal/credits" className="om-credits om-num" title="Your credits">
-      <b>{total == null ? "—" : total.toLocaleString("en-US")}</b> credits
+      <b>{total == null ? "—" : total.toLocaleString("en-US")}</b><span className="om-credits-word">credits</span>
     </Link>
   );
 }
