@@ -14,6 +14,8 @@ import {
 import { DeepDiveModal } from "./DeepDive";
 import { TradeChat } from "../TradeChat";
 import { CREDIT_COST } from "@/lib/creditConfig";
+import { useNextShell } from "@/components/om/shell";
+import { PulseHome } from "@/components/om/pulse/PulseHome";
 
 // Friendly asset category for the deep-dive header badge.
 const catOf = (td: string) =>
@@ -37,6 +39,7 @@ const fmt = (n: number) => {
 };
 
 export function MarketPulse() {
+  const next = useNextShell();
   const [setups, setSetups] = useState<Setup[]>([]);
   const [loading, setLoading] = useState(false);
   const [asOf, setAsOf] = useState("");
@@ -75,6 +78,21 @@ export function MarketPulse() {
     } catch { setMsg("Couldn't scan right now — try again shortly."); }
     finally { setLoading(false); }
   }, []);
+
+  const diveModal = dive && (
+    <DeepDiveModal ticker={dive.symbol} name={dive.name} type={catOf(dive.td)} td={dive.td} context="signal" dir={dive.dir} style="intraday" onClose={() => setDive(null)} />
+  );
+
+  // THE NEW SHELL (owner 11-20 brief §13): the same state, the same scan and the same paid actions, drawn as a
+  // ranked list with the selected market beside it. Opening it still shows the last scan and never scans.
+  if (next) {
+    return (
+      <>
+        <PulseHome setups={setups} loading={loading} asOf={asOf} msg={msg} hydrated={hydrated} scan={() => void scan()} onDeepDive={setDive} />
+        {diveModal}
+      </>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -199,18 +217,7 @@ export function MarketPulse() {
         <p className="text-center text-[11px] text-charcoal/40">Objective read from live candles · not financial advice. Tap a setup for the confirmation breakdown.</p>
       )}
 
-      {dive && (
-        <DeepDiveModal
-          ticker={dive.symbol}
-          name={dive.name}
-          type={catOf(dive.td)}
-          td={dive.td}
-          context="signal"
-          dir={dive.dir}
-          style="intraday"
-          onClose={() => setDive(null)}
-        />
-      )}
+      {diveModal}
     </div>
   );
 }
