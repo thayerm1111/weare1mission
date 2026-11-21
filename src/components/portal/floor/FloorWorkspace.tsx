@@ -144,6 +144,10 @@ export function FloorWorkspace({ isCaller = false, followerCount = 0, bare = fal
     return () => document.removeEventListener("fullscreenchange", onFs);
   }, []);
 
+  // A tool that has its own design in the new shell draws on the shell's page itself, not inside this
+  // workspace's dark frame and cream sheet (owner 11-20 brief). For now that is FLOW.
+  if (bare && tab === "flow") return <FlowDesk />;
+
   const pillCls = "inline-flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors hover:bg-white/5";
   const pillStyle = (active: boolean) => (active ? { background: "rgba(34,211,238,0.14)", color: C.cyan } : { color: C.mut });
 

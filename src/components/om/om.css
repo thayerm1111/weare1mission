@@ -374,6 +374,199 @@
   .om-plays-detail { padding: 16px 14px 18px; }
 }
 
+/* ── more shared parts: an input, a switch, label/value rows, text tabs, a table, steps ───────────── */
+.om-input {
+  height: 44px; width: 100%; padding: 0 14px; border-radius: var(--om-r-input); border: 1px solid var(--om-edge-2);
+  background: rgba(255, 255, 255, 0.04); color: var(--om-text); font: inherit; font-size: 15px; outline: none;
+}
+.om-input::placeholder { color: var(--om-text-3); }
+.om-input:focus { border-color: var(--om-ai); }
+/* A switch says on or off and saves the moment it is changed. On is the AI accent, never the colour of a gain. */
+.om-switch {
+  position: relative; flex: 0 0 auto; width: 46px; height: 28px; padding: 0; border: 0; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16); cursor: pointer; transition: background-color 160ms ease;
+}
+.om-switch span { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 999px; background: #f4f5f7; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45); transition: transform 160ms ease; }
+.om-switch[aria-checked="true"] { background: rgba(182, 196, 255, 0.62); }
+.om-switch[aria-checked="true"] span { transform: translateX(18px); }
+.om-switch[disabled] { opacity: 0.5; cursor: default; }
+.om-toggles button[disabled], .om-seg button[disabled] { opacity: 0.45; cursor: default; }
+.om-btn-quiet.om-danger { color: var(--om-neg); border-color: rgba(224, 153, 161, 0.35); }
+.om-kv { display: grid; gap: 10px; margin: 0; min-width: 0; }
+.om-kv > div { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; min-width: 0; }
+.om-kv dt { color: var(--om-text-2); font-size: 13.5px; flex: 0 0 auto; white-space: nowrap; }
+.om-kv dd { margin: 0; text-align: right; font-size: 14px; min-width: 0; display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+.om-kv dd small { color: var(--om-text-3); font-size: 12.5px; }
+.om-kv-quiet dd { color: var(--om-text-2); font-size: 13px; word-break: break-all; }
+/* Tabs change what is looked at; like the chart's timeframes they are quiet text with a line under the one shown. */
+.om-tabs { display: flex; gap: 2px; margin-top: 18px; border-bottom: 1px solid var(--om-hair); overflow-x: auto; scrollbar-width: none; }
+.om-tabs::-webkit-scrollbar { display: none; }
+.om-tabs button {
+  position: relative; flex: 0 0 auto; height: 42px; padding: 0 14px; border: 0; background: none; color: var(--om-text-3);
+  font: inherit; font-size: 14.5px; cursor: pointer; transition: color 140ms ease;
+}
+.om-tabs button:hover { color: var(--om-text); }
+.om-tabs button[aria-selected="true"] { color: var(--om-text); font-weight: 500; }
+.om-tabs button[aria-selected="true"]::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 1.5px; border-radius: 2px; background: var(--om-text); }
+.om-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.om-table th { padding: 10px 10px 8px; border-bottom: 1px solid var(--om-hair); color: var(--om-text-3); font-size: 12.5px; font-weight: 400; text-align: left; white-space: nowrap; }
+.om-table td { padding: 11px 10px; border-bottom: 1px solid var(--om-hair); white-space: nowrap; vertical-align: top; }
+.om-table tr:last-child td { border-bottom: 0; }
+.om-table th:first-child, .om-table td:first-child { padding-left: 4px; }
+.om-table th:last-child, .om-table td:last-child { padding-right: 4px; }
+.om-table b { font-weight: 500; }
+.om-table small { font-size: 12px; }
+.om-table .om-r { text-align: right; }
+.om-side { color: var(--om-text-2); font-size: 13.5px; }
+.om-steps { list-style: none; margin: 18px 0 2px; padding: 0; display: grid; gap: 14px; counter-reset: om-step; }
+.om-steps li { display: grid; grid-template-columns: 30px minmax(0, 1fr); column-gap: 12px; row-gap: 2px; counter-increment: om-step; }
+.om-steps li::before {
+  content: counter(om-step); grid-row: 1 / span 2; width: 26px; height: 26px; border-radius: 999px; border: 1px solid var(--om-edge-2);
+  display: inline-flex; align-items: center; justify-content: center; color: var(--om-text-2); font-size: 12.5px;
+}
+.om-steps b { font-weight: 500; font-size: 14.5px; }
+.om-bars { margin: 18px 0 6px; }
+.om-bars svg { display: block; width: 100%; height: 72px; }
+.om-bars-up { fill: var(--om-pos); }
+.om-bars-down { fill: var(--om-neg); }
+.om-bars-flat { fill: var(--om-text-3); }
+.om-bars-zero { stroke: var(--om-edge-2); stroke-width: 1; }
+.om-bars figcaption { margin-top: 6px; font-size: 12.5px; }
+
+/* ── a panel over the page, from the right edge ───────────────────────────────────────────────── */
+.om-drawer { position: fixed; inset: 0; z-index: 70; pointer-events: none; }
+.om-drawer[data-open="true"] { pointer-events: auto; }
+.om-drawer-veil { position: absolute; inset: 0; background: rgba(4, 5, 9, 0.55); opacity: 0; transition: opacity 200ms ease; }
+.om-drawer[data-open="true"] .om-drawer-veil { opacity: 1; }
+.om-drawer-panel {
+  position: absolute; top: 0; right: 0; height: 100%; width: 540px; max-width: 100vw; outline: none;
+  display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 160px), var(--om-surface);
+  border-left: 1px solid var(--om-edge-2); box-shadow: -30px 0 70px -30px rgba(0, 0, 0, 0.9);
+  transform: translateX(100%); visibility: hidden; transition: transform 240ms ease, visibility 0s linear 240ms;
+}
+.om-drawer[data-open="true"] .om-drawer-panel { transform: none; visibility: visible; transition-delay: 0s; }
+.om-drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 16px 14px 28px; border-bottom: 1px solid var(--om-hair); }
+.om-drawer-head h2 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: -0.01em; }
+.om-drawer-head p { margin: 3px 0 0; }
+.om-drawer-head .om-icon-btn { width: 36px; height: 36px; color: var(--om-text-2); flex: 0 0 auto; }
+.om-drawer-head .om-icon-btn svg { width: 18px; height: 18px; }
+.om-drawer-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 28px calc(30px + env(safe-area-inset-bottom, 0px)); }
+
+/* ── FLOW ─────────────────────────────────────────────────────────────────────────────────────── */
+/*
+ * The account first: its figures across the top (the Floor's own bar), then what FLOW did on it beside what
+ * it takes, then finding a trade, then the desk's record. Settings open over the page, grouped.
+ */
+.om-flow-acts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.om-flow-acts svg { color: var(--om-text-2); }
+.om-flow-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 370px); gap: var(--om-gap); align-items: start; }
+.om-flow-main { padding: 16px 20px 18px 26px; min-width: 0; }
+.om-flow-tabpanel { padding-top: 4px; min-width: 0; overflow-x: auto; }
+.om-flow-foot { margin: 10px 4px 0; line-height: 1.5; }
+.om-flow-skel-rows { display: grid; gap: 12px; margin-top: 26px; }
+.om-flow-exec { padding: 20px 22px 22px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
+.om-flow-exec-head h2 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: -0.008em; }
+.om-flow-exec-head p { margin: 3px 0 0; }
+.om-flow-exec-skel { display: grid; gap: 14px; }
+.om-flow-auto { display: grid; gap: 6px; }
+.om-flow-auto p { margin: 0; line-height: 1.5; }
+.om-flow-auto > p:first-child { display: flex; align-items: center; gap: 8px; font-size: 14.5px; }
+.om-flow-auto b { font-weight: 500; }
+.om-flow-manage { width: 100%; }
+.om-flow-admin { font-size: 13px; color: var(--om-text-2); white-space: normal; }
+.om-flow-connect { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.om-flow-back { justify-self: start; font-size: 14px; color: var(--om-text-2); }
+.om-flow-err { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 10px 12px; border-radius: var(--om-r-input); border: 1px solid rgba(224, 153, 161, 0.35); background: rgba(224, 153, 161, 0.08); color: var(--om-neg); font-size: 13.5px; line-height: 1.45; }
+.om-flow-err svg { width: 15px; height: 15px; flex: 0 0 auto; margin-top: 2px; }
+.om-flow-ok { margin: 0; color: var(--om-pos); font-size: 13.5px; line-height: 1.45; }
+.om-flow-warn { margin: 0; padding: 9px 12px; border-radius: var(--om-r-input); border: 1px solid var(--om-edge-2); background: rgba(255, 255, 255, 0.05); color: var(--om-text); font-size: 13px; line-height: 1.45; }
+.om-flow-note { margin: 0; line-height: 1.5; }
+.om-flow-note b { font-weight: 500; color: var(--om-text); }
+.om-flow-small { margin: 0; font-size: 12.5px; line-height: 1.5; }
+.om-sets { display: grid; grid-template-columns: minmax(0, 1fr); }
+.om-set { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 20px 0; border-top: 1px solid var(--om-hair); }
+.om-set:first-child { border-top: 0; }
+.om-set-head { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 12px; flex-wrap: wrap; }
+.om-set-head h3 { margin: 0; font-size: 16px; font-weight: 500; letter-spacing: -0.005em; }
+.om-set-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.om-set-acts svg { color: var(--om-text-2); }
+.om-confirm { display: grid; gap: 10px; padding: 14px; border-radius: var(--om-r-input); border: 1px solid rgba(224, 153, 161, 0.35); background: rgba(224, 153, 161, 0.06); }
+.om-confirm p { margin: 0; font-size: 13.5px; line-height: 1.5; }
+.om-src-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.om-src-row b { font-size: 14.5px; font-weight: 500; }
+.om-src-row p { margin: 3px 0 0; line-height: 1.45; }
+.om-src-master { padding: 14px; border-radius: var(--om-r-input); border: 1px solid var(--om-hair); background: rgba(255, 255, 255, 0.035); }
+.om-flow-find { padding: 16px 22px 22px 26px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
+.om-flow-find .om-res-head p, .om-desk .om-res-head p { white-space: normal; }
+.om-flow-find-form { display: grid; grid-template-columns: minmax(200px, 300px) minmax(240px, 330px) auto; gap: 14px 18px; align-items: end; justify-content: start; }
+.om-flow-find .om-select, .om-flow-find .om-select select { width: 100%; }
+.om-flow-find .om-select select { height: 44px; border-radius: var(--om-r-input); font-size: 15px; }
+.om-flow-find-form .om-btn { height: 44px; }
+.om-flow-find .om-empty { margin: 0; }
+.om-flow-read { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-content: start; padding-top: 18px; border-top: 1px solid var(--om-hair); min-width: 0; }
+/* With a ticket, the reading and the ticket sit side by side where there is room. */
+.om-flow-read-ticket { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); column-gap: 28px; }
+.om-flow-read-ticket > :not(.om-ticket) { grid-column: 1; }
+.om-flow-read-ticket > .om-ticket { grid-column: 2; grid-row: 1 / span 4; align-self: start; }
+.om-flow-read-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; }
+.om-flow-read-top p { margin: 0; }
+.om-flow-read-state { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.om-flow-read > .om-label { margin: 0; }
+.om-levels { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin: 0; }
+.om-levels > div { padding: 12px 14px; border-radius: var(--om-r-input); border: 1px solid var(--om-hair); background: rgba(255, 255, 255, 0.035); min-width: 0; }
+.om-levels dt { color: var(--om-text-2); font-size: 12.5px; }
+.om-levels dd { margin: 3px 0 0; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.om-flow-lock { display: grid; justify-items: start; gap: 10px; padding: 18px; border-radius: var(--om-r-input); border: 1px dashed var(--om-edge-2); }
+.om-flow-lock p { margin: 0; }
+.om-flow-lock-what { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.om-flow-lock-what svg { width: 15px; height: 15px; color: var(--om-text-2); }
+.om-ticket { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 18px 18px 16px; border-radius: 18px; border: 1px solid var(--om-edge-2); background: rgba(255, 255, 255, 0.03); min-width: 0; }
+.om-ticket-head { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 16px; flex-wrap: wrap; }
+.om-ticket-head h3 { margin: 0; font-size: 16px; font-weight: 500; }
+.om-ticket-accts { font-size: 13.5px; }
+.om-ticket-fill { display: block; margin-top: 3px; font-size: 12.5px; white-space: normal; }
+.om-ticket-go { justify-self: start; }
+.om-desk { padding: 16px 20px 18px 26px; min-width: 0; }
+.om-desk-list { list-style: none; margin: 16px 0 8px; padding: 0; max-width: 640px; }
+.om-desk-list li { display: grid; grid-template-columns: 84px 52px minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 9px 4px; border-top: 1px solid var(--om-hair); font-size: 14px; }
+.om-desk-list li:first-child { border-top: 0; }
+.om-desk > .om-label:last-child { margin: 8px 4px 0; }
+@media (max-width: 1080px) {
+  .om-flow-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 1180px) {
+  .om-flow-read-ticket { grid-template-columns: minmax(0, 1fr); }
+  .om-flow-read-ticket > .om-ticket { grid-column: 1; grid-row: auto; }
+}
+@media (max-width: 900px) {
+  .om-flow-find-form { grid-template-columns: minmax(0, 1fr); }
+  .om-flow-find-form .om-btn { width: 100%; }
+}
+@media (max-width: 640px) {
+  .om-flow-main, .om-flow-find, .om-desk { padding: 16px 16px 18px 18px; }
+  .om-flow-exec { padding: 18px 18px 20px; }
+  .om-drawer-head { padding: 16px 12px 12px 20px; }
+  .om-drawer-body { padding: 2px 20px calc(26px + env(safe-area-inset-bottom, 0px)); }
+  .om-ticket { padding: 16px 14px 14px; }
+  .om-ticket-go { width: 100%; justify-self: stretch; }
+  /* A table becomes one card per row: the market leads, every other value carries its own label. */
+  .om-table thead { display: none; }
+  .om-table, .om-table tbody, .om-table td { display: block; }
+  .om-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 5px 14px; padding: 12px 0; border-top: 1px solid var(--om-hair); }
+  .om-table tr:first-child { border-top: 0; }
+  .om-table td, .om-table td:first-child, .om-table td:last-child { padding: 0; border: 0; text-align: left; white-space: normal; }
+  .om-table .om-r { text-align: left; }
+  .om-table td.om-lead { grid-column: 1 / -1; font-size: 15px; }
+  .om-table td[data-label]::before { content: attr(data-label) "  "; color: var(--om-text-3); font-size: 12.5px; }
+  .om-flow-tabpanel { overflow-x: visible; }
+  .om-desk-list li { grid-template-columns: 76px 44px minmax(0, 1fr) auto; gap: 8px; }
+}
+@media (max-width: 420px) {
+  .om-levels { grid-template-columns: minmax(0, 1fr); }
+  .om-src-row { gap: 12px; }
+}
+
 /* ── a tool's earlier markup, shown inside a new workspace ────────────────────────────────────── */
 /*
  * Until a detail view is rebuilt, its earlier markup is shown inside the new surface and brought to the

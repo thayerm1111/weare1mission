@@ -11,6 +11,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Trophy, Target, TrendingUp, Shield, Scissors, XCircle, RefreshCw, Info } from "lucide-react";
+import { useNextShell } from "@/components/om/shell";
+import { pipsText } from "@/lib/floor/overview";
 
 type PerPair = {
   symbol: string; trades: number; wins: number; stops: number;
@@ -19,6 +21,7 @@ type PerPair = {
 };
 type Recent = { symbol: string; side: string; outcome: string; win: boolean; pips: number | null; at: string };
 type Stats = {
+  since?: string;
   open: number;
   trades: number; wins: number; stops: number;
   breakeven: number; trailed: number; fullTarget: number; partialsTaken: number;
@@ -41,6 +44,7 @@ function ago(iso: string): string {
 const signed = (n: number | null | undefined) => (typeof n === "number" ? `${n > 0 ? "+" : ""}${n}` : "—");
 
 export function FlowTrackRecord() {
+  const next = useNextShell();
   const [data, setData] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -61,6 +65,8 @@ export function FlowTrackRecord() {
     const t = setInterval(() => void load(), 60000);
     return () => clearInterval(t);
   }, [load]);
+
+  if (next) return <DeskRecord data={data} loading={loading} err={err} onRefresh={() => void load()} />;
 
   if (loading && !data) {
     return <div className="grid place-items-center rounded-2xl border border-ice bg-white/60 py-12 text-charcoal/40"><Loader2 className="h-5 w-5 animate-spin" /></div>;
@@ -198,5 +204,60 @@ function OutcomeTile({ icon, label, value, tone }: { icon: React.ReactNode; labe
       <p className="mt-2 font-serif text-2xl font-extrabold tabular-nums text-navy">{value}</p>
       <p className="text-[11px] text-charcoal/55">{label}</p>
     </div>
+  );
+}
+
+/*
+ * THE DESK RECORD, IN THE PLATFORM'S SHELL (owner 11-20 brief §9: "Full FLOW engine track record remains
+ * accessible and distinctly labeled; it is not the same as My FLOW account results").
+ *
+ * /api/flow/stats is GENX's real record since the reset — every GENX trade placed on members' accounts, each
+ * counted once at the average result of the accounts that took it. Only what that answer actually counts is
+ * shown: it carries no trailed, full-target or partials counts (those fields are always 0 there), so none is
+ * drawn as though it were one.
+ */
+function DeskRecord({ data, loading, err, onRefresh }: { data: Stats | null; loading: boolean; err: string; onRefresh: () => void }) {
+  const since = data?.since ? new Date(data.since).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : null;
+  const decided = data ? data.wins + data.stops : 0;
+  return (
+    <section className="om-panel om-desk" aria-labelledby="om-desk-title">
+      <div className="om-res-head">
+        <div style={{ minWidth: 0 }}>
+          <h2 id="om-desk-title">Desk record</h2>
+          <p className="om-label">GENX across every member&rsquo;s account{since ? ` since ${since}` : ""} — each trade counted once, at the average result of the accounts that took it. Not your account: yours is My FLOW, above.</p>
+        </div>
+        <button type="button" className="om-icon-btn" onClick={onRefresh} disabled={loading} aria-label="Refresh the desk record" title="Refresh"><RefreshCw aria-hidden="true" className={loading ? "animate-spin" : undefined} /></button>
+      </div>
+      {loading && !data ? (
+        <div className="om-stats" aria-busy="true"><div className="om-stat"><span className="om-skel" style={{ width: 90, height: 26 }} /><span className="om-label">Win rate</span></div></div>
+      ) : err && !data ? (
+        <p className="om-empty">{err}</p>
+      ) : !data ? null : data.trades === 0 ? (
+        <p className="om-empty">No GENX trade has closed since the record started.{data.open > 0 ? ` ${data.open} open on members' accounts.` : ""}</p>
+      ) : (
+        <>
+          <div className="om-stats">
+            <div className="om-stat"><span className={`om-figure om-num ${data.winRate != null && data.winRate >= 50 ? "om-pos" : ""}`}>{data.winRate != null ? `${data.winRate}%` : "—"}</span><span className="om-label">Win rate{decided ? ` · ${data.wins} of ${decided}` : ""}</span></div>
+            <div className="om-stat"><span className={`om-figure om-num ${data.pips > 0 ? "om-pos" : data.pips < 0 ? "om-neg" : ""}`}>{pipsText(data.pips)}</span><span className="om-label">Net</span></div>
+            <div className="om-stat"><span className="om-figure om-num">{data.trades}</span><span className="om-label">Closed trades</span></div>
+            <div className="om-stat"><span className="om-figure om-num">{data.breakeven}</span><span className="om-label">Break-even</span></div>
+            {data.open > 0 && <div className="om-stat"><span className="om-figure om-num">{data.open}</span><span className="om-label">Open on members&rsquo; accounts</span></div>}
+          </div>
+          {data.recent.length > 0 && (
+            <ul className="om-desk-list">
+              {data.recent.slice(0, 6).map((r, i) => (
+                <li key={i}>
+                  <span data-no-i18n translate="no">XAU/USD</span>
+                  <span className="om-side" data-side={String(r.side).toLowerCase() === "sell" ? "sell" : "buy"}>{String(r.side).toLowerCase() === "sell" ? "Sell" : "Buy"}</span>
+                  <span className={`om-num ${r.pips != null && r.pips > 0 ? "om-pos" : r.pips != null && r.pips < 0 ? "om-neg" : ""}`}>{pipsText(r.pips)}</span>
+                  <span className="om-faint">{ago(r.at)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="om-label">Past results never promise future ones. A small sample is a direction, not a guarantee.</p>
+        </>
+      )}
+    </section>
   );
 }

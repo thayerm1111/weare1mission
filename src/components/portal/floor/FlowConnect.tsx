@@ -17,6 +17,11 @@ import {
 import { FlowTour } from "./FlowTour";
 import { TradeManagement, optimisticMgmt, type MgmtChange } from "./TradeManagement";
 import type { FollowMode } from "@/lib/flow/manageSettings";
+import { useNextShell } from "@/components/om/shell";
+import { FlowExecution, type ExecAccount, type ManageView } from "@/components/om/flow/FlowExecution";
+
+/** The account FLOW's page is looking at (shared with The Floor), when the new shell shows it. */
+export type FlowViewing = { id: string; environment: "live" | "demo"; name: string; health?: "connected" | "attention" };
 
 // RETIRED ENGINES (owner 09-13: "Turn off Matty pips and send it... Hide Matty pips and
 // send it as options to turn on. Nobody can have that turned on"). Only FLOW/GENX auto
@@ -25,8 +30,8 @@ const SHOW_LEGACY_ENGINES = false;
 
 /* FLOW ↔ TradeLocker connect (desktop portal parity with the app's GxBrokerConnect).
  * Credentials are POSTed straight to /api/flow/broker; the browser never stores a
- * token. FLOW shows balances and prepares trades — it never places a live-money
- * order without an explicit per-trade confirmation. */
+ * token. A ticket placed with Execute waits for the member's tap; an account with Trading or
+ * Follow GENX on takes the automated trades without asking each time (lib/flow/armState.ts). */
 
 type Account = {
   accountId: string;
@@ -62,6 +67,8 @@ type Account = {
   connectionId?: string;
   environment?: string;
   server?: string;
+  /** GEN FX's per-pair switches (set on the GEN FX desk); absent when they could not be read. */
+  genfx?: { eurusd: boolean; gbpjpy: boolean };
 };
 
 type ConnView = {
@@ -79,6 +86,8 @@ type BrokerState = {
 
 type AutoRun = {
   enabled?: boolean;
+  /** The member has set the switch at least once. Never set is not the same as off (see /api/flow/autorun). */
+  set?: boolean;
   paused?: boolean;
   connected?: boolean;
   riskPct?: number | null;
@@ -90,6 +99,7 @@ type AutoRun = {
 };
 
 const RISK_CHIPS = [0.5, 1, 2, 3];
+const noop = () => {};
 // Per-account risk options — conservative → aggressive. "" clears the override.
 const ACCT_RISK_OPTS = [0.25, 0.5, 1, 1.5, 2, 3, 5];
 
@@ -109,7 +119,15 @@ function money(n: number | null | undefined) {
   return "$" + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function FlowConnect() {
+export function FlowConnect({ viewing = null, manage = null, onManage, onAccountsChanged }: {
+  /** New shell only: the account the page is looking at, its settings shown beside its results. */
+  viewing?: FlowViewing | null;
+  manage?: ManageView;
+  onManage?: (v: ManageView) => void;
+  /** A login was connected or disconnected: the page's account list is out of date. */
+  onAccountsChanged?: () => void;
+} = {}) {
+  const next = useNextShell();
   const [state, setState] = useState<BrokerState | null>(null);
   const [loading, setLoading] = useState(true);
   // 🧠 Matty Pips per-account copy state (lives in matty_pips_* tables, read via the
@@ -285,6 +303,7 @@ export function FlowConnect() {
         setAddingAccount(false);
         setOk(`Connected — ${d.accountsFound || 0} account(s) loaded.`);
         await load();
+        onAccountsChanged?.();
       }
     } catch {
       setErr("Something went wrong — try again.");
@@ -422,6 +441,7 @@ export function FlowConnect() {
         body: JSON.stringify({ action: "disconnect" }),
       });
       await load();
+      onAccountsChanged?.();
     } catch {
       /* noop */
     } finally {
@@ -432,6 +452,43 @@ export function FlowConnect() {
   const connected = !!state?.connected;
   const accounts = state?.accounts ?? [];
   const conn = state?.connection ?? null;
+
+  /*
+   * THE NEW SHELL (owner 11-20 brief §9): the same state and the same handlers, drawn as FLOW's execution
+   * summary and its settings panel. Nothing is saved differently — each handler is the one above, called
+   * with the same account. The walkthrough's spotlight is not mounted here: its targets are this file's
+   * classic cards, and the connect form says its own steps.
+   */
+  if (next) {
+    const envOf = (x: Account) => (String(x.environment ?? "").toLowerCase() === "live" ? "live" : "demo");
+    const hit = viewing ? accounts.find((x) => x.accountId === viewing.id && envOf(x) === viewing.environment) ?? accounts.find((x) => x.accountId === viewing.id) ?? null : null;
+    const view = hit ?? accounts.find((x) => x.selected) ?? accounts[0] ?? null;
+    const key = view ? `${view.connectionId || ""}:${view.accountId}` : "";
+    const as = (a: ExecAccount) => a as Account;
+    return (
+      <FlowExecution
+        loading={loading} connected={connected} conn={conn} accounts={accounts} view={view}
+        viewName={hit && viewing ? viewing.name : null} health={hit && viewing ? viewing.health ?? null : null}
+        auto={auto} defaultRisk={risk} riskLocked={riskLocked} autoBusy={autoBusy} autoMsg={autoMsg}
+        owner={!!adminSw} busy={busy} err={err} ok={ok}
+        mgmtBusy={!!mgmtBusy[key]} mgmtErr={mgmtErr[key] || ""}
+        form={{
+          env, server, email, password, adding: addingAccount, setEnv, setServer, setEmail, setPassword,
+          setAdding: setAddingAccount, connect: () => { setOk(""); void connect(); },
+        }}
+        onTrading={(a, on) => void toggleAccount(as(a), on)}
+        onFollow={(a, on) => void setAccountFollow(as(a), on)}
+        onRisk={(a, v) => void setAccountRisk(as(a), v)}
+        onMgmt={(a, c) => void setManagement(as(a), c)}
+        onMode={(a, m) => void setAccountMode(as(a), m)}
+        onDefaultRisk={(v) => void lockRisk(v)}
+        onAuto={(on) => void toggleAuto(on)}
+        onRecheck={() => void load()}
+        onDisconnect={() => void disconnect()}
+        manage={manage} onManage={onManage ?? noop}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -778,8 +835,8 @@ export function FlowConnect() {
               >
                 {auto?.paused
                   ? "⏸ Paused — out of credits. Top up and it resumes automatically."
-                  : `● Auto-run active${
-                      marketOpenNow() ? " — markets open, watching now." : " — markets closed, resumes at the open."
+                  : `● Auto-run is on${
+                      marketOpenNow() ? " — markets are open." : " — markets are closed; nothing is placed until they open."
                     }`}
               </p>
             )}
@@ -788,10 +845,12 @@ export function FlowConnect() {
 
           <div className="flex items-start gap-2 rounded-2xl border border-ice bg-offwhite/60 p-4 text-xs text-charcoal/55">
             <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-navy" />
+            {/* What the service actually does (owner 11-20 brief: this said FLOW "never trades on its own"
+                while Auto-run was on). Trading and Follow GENX place real orders without asking each time. */}
             <p>
-              FLOW uses this account only to show balances and prepare the trades you approve. It never
-              trades on its own, and never places a live-money order without your explicit per-trade
-              confirmation.
+              An account with Trading or Follow every GENX signal on takes FLOW&rsquo;s automated trades —
+              real orders, placed without asking each time. Switch both off on any account you only want to
+              trade by hand. A trade you place yourself with Execute always waits for your tap.
             </p>
           </div>
         </div>
@@ -891,8 +950,9 @@ export function FlowConnect() {
             {env === "live" && (
               <p className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-[11px] text-amber-600">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
-                You&apos;ve selected a LIVE account. FLOW will show balances and prepare trades, but will
-                never place a live-money order without your explicit per-trade confirmation.
+                You&apos;ve selected a LIVE account — real money. A new account starts with Trading on, so it
+                can take GENX trades as soon as it&apos;s connected. Switch Trading off on it below if you only
+                want to trade by hand.
               </p>
             )}
           </div>

@@ -1,11 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState, useRef } from "react";
-import { Loader2, Search, TrendingUp, TrendingDown, Zap, Link2, Gauge } from "lucide-react";
+import { Loader2, Search, TrendingUp, TrendingDown, Zap, Link2, Gauge, ChevronDown, Lock } from "lucide-react";
 import { FlowConnect } from "./FlowConnect";
 import { FlowTrackRecord } from "./FlowTrackRecord";
-import { SetupLock, SetupTimer } from "@/components/portal/SetupLock";
-import { STAGE_TEXT, type LockedSetup, type SetupGate, readFits } from "@/lib/setupLock";
+import { SetupLock, SetupTimer, useSeeThePlay } from "@/components/portal/SetupLock";
+import { STAGE_TEXT, SETUP_MINUTES, minutesLeft, type LockedSetup, type SetupGate, readFits } from "@/lib/setupLock";
+import { CREDIT_COST } from "@/lib/creditConfig";
+import { useNextShell } from "@/components/om/shell";
+import { FlowHome } from "@/components/om/flow/FlowHome";
+import { entryWords, lotsText, pairName, priceFor } from "@/lib/flow/display";
+import { accountName, maskAccount, money as cash } from "@/lib/floor/overview";
+import type { PlacementSize } from "@/lib/flow/ticketSizing";
 
 /* FLOW trade desk (desktop portal). Pick a pair + horizon, read the live setup on
  * the shared engine, and take it on TradeLocker at your risk % with one button.
@@ -49,6 +55,7 @@ function money(n: number | null | undefined) {
 }
 
 export function FlowDesk() {
+  const next = useNextShell();
   const [instruments, setInstruments] = useState<Instrument[]>([{ canonical: "XAUUSD", label: "Gold (XAU/USD)" }]);
   const [symbol, setSymbol] = useState("XAUUSD");
   const [mode, setMode] = useState("quick");
@@ -87,7 +94,10 @@ export function FlowDesk() {
   const runNow = useRef(run);
   runNow.current = run;
 
-  useEffect(() => { run(); }, [run]);
+  // The classic desk reads as soon as it opens and on every change of market or horizon. In the new shell a
+  // reading is only made when the member asks for one (owner 11-20 brief §9: opening FLOW must not run an
+  // analysis): Find my trade, or the play being opened.
+  useEffect(() => { if (!next) run(); }, [run, next]);
 
   // A read is drawn — and can be traded — only under the market and horizon it was made for.
   const fits = readFits(res, symbol, mode);
@@ -96,6 +106,82 @@ export function FlowDesk() {
   const side: "buy" | "sell" = g?.directional_bias === "bearish" ? "sell" : "buy";
   const state = (fits ? res?.entry_engine?.entryState : "") || (g ? "WAIT" : "");
   const hasLevels = !!g && g.entry_low != null && g.entry_high != null && g.stop_loss != null && g.tp1 != null;
+
+  if (next) {
+    const horizon = MODES.find((m) => m.k === mode) ?? MODES[0];
+    const label = instruments.find((i) => i.canonical === symbol)?.label || pairName(symbol);
+    const w = entryWords(state);
+    const shown = !!res && (!!g || !!locked);
+    const find = (
+      <section id="flow-find" className="om-panel om-flow-find" aria-labelledby="flow-find-title">
+        <div className="om-res-head">
+          <div style={{ minWidth: 0 }}>
+            <h2 id="flow-find-title">Find a trade</h2>
+            <p className="om-label">FLOW&rsquo;s live reading on one market, for you to take yourself. Nothing is read until you ask.</p>
+          </div>
+        </div>
+        <div className="om-flow-find-form">
+          <label className="om-field">
+            <span className="om-label">Market</span>
+            <span className="om-select">
+              <select value={symbol} onChange={(e) => setSymbol(e.target.value)} data-no-i18n translate="no">
+                {instruments.map((it) => <option key={it.canonical} value={it.canonical}>{it.label || pairName(it.canonical)}</option>)}
+              </select>
+              <ChevronDown aria-hidden="true" />
+            </span>
+          </label>
+          <div className="om-field">
+            <span className="om-label">Horizon · <span className="om-faint">{horizon.sub}</span></span>
+            <div className="om-seg" role="group" aria-label="Horizon">
+              {MODES.map((mo) => <button key={mo.k} type="button" aria-pressed={mode === mo.k} onClick={() => setMode(mo.k)}>{mo.label}</button>)}
+            </div>
+          </div>
+          <button type="button" className="om-btn" onClick={run} disabled={loading}>
+            {loading ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Search aria-hidden="true" />}
+            {loading ? "Reading the setup…" : "Find my trade"}
+          </button>
+        </div>
+        {err && <p className="om-flow-err" role="alert">{err}</p>}
+        {res && locked && (
+          <div className="om-flow-read">
+            <div className="om-flow-read-top">
+              <div><p className="om-label" data-no-i18n translate="no">{label} · {horizon.label}</p><p className="om-px om-num" data-no-i18n translate="no">{priceFor(symbol, res.price ?? null)}</p></div>
+            </div>
+            <FlowLock key={`${symbol}:${mode}`} what={`${pairName(symbol)} · ${horizon.label} — ${STAGE_TEXT[locked.stage] ?? STAGE_TEXT.watching}`} gate={res.setups} onOpened={() => runNow.current()} />
+          </div>
+        )}
+        {res && g && !locked && (
+          <div className={hasLevels ? "om-flow-read om-flow-read-ticket" : "om-flow-read"}>
+            <div className="om-flow-read-top">
+              <div><p className="om-label" data-no-i18n translate="no">{label} · {horizon.label}</p><p className="om-px om-num" data-no-i18n translate="no">{priceFor(symbol, res.price ?? null)}</p></div>
+              <div className="om-flow-read-state">
+                <span className="om-chip">{w.label}</span>
+                {hasLevels && <span className="om-side" data-side={side}>{side === "sell" ? "Sell" : "Buy"}</span>}
+                <OpenLeft gate={res.setups ?? null} />
+              </div>
+            </div>
+            <p className="om-label">{w.line}</p>
+            {hasLevels ? (
+              <>
+                <dl className="om-levels" data-no-i18n translate="no">
+                  <div><dt>Entry zone</dt><dd className="om-num">{priceFor(symbol, g.entry_low)} – {priceFor(symbol, g.entry_high)}</dd></div>
+                  <div><dt>Stop</dt><dd className="om-num om-neg">{priceFor(symbol, g.stop_loss)}</dd></div>
+                  <div><dt>Target 1</dt><dd className="om-num om-pos">{priceFor(symbol, g.tp1)}</dd></div>
+                </dl>
+                <ExecuteFlow symbol={symbol} side={side} entry={(g.entry_low! + g.entry_high!) / 2} stop={g.stop_loss!} tp={g.tp1} actionable={!!res.entry_engine?.actionable} state={state} />
+              </>
+            ) : (
+              <p className="om-empty">FLOW is standing aside on {pairName(symbol)} right now — no clean {horizon.label.toLowerCase()} setup. Try another market or horizon.</p>
+            )}
+          </div>
+        )}
+        {!shown && !loading && !err && (
+          <p className="om-empty">{res ? `Find my trade reads ${pairName(symbol)} on the ${horizon.label.toLowerCase()} horizon.` : "Choose a market and a horizon, then Find my trade."}</p>
+        )}
+      </section>
+    );
+    return <FlowHome find={find} />;
+  }
 
   return (
     <div className="space-y-4">
@@ -226,6 +312,34 @@ export function FlowDesk() {
   );
 }
 
+/* ── the new shell's lock and window clock ── */
+
+/** The setup with this member's window closed: how far along it is, and the one paid action that opens it. */
+function FlowLock({ what, gate, onOpened }: { what: string; gate?: SetupGate | null; onOpened: () => void }) {
+  const { open, phase, err } = useSeeThePlay(onOpened);
+  const cost = gate?.cost ?? CREDIT_COST.genx, minutes = gate?.minutes ?? SETUP_MINUTES;
+  return (
+    <div className="om-flow-lock">
+      <p className="om-flow-lock-what"><Lock aria-hidden="true" /> {what}</p>
+      <p className="om-label">Which way, the entry, the stop and the target open with credits.</p>
+      <button type="button" className="om-btn" onClick={() => void open()} disabled={phase !== "idle"} aria-busy={phase !== "idle"}>
+        {phase !== "idle" && <Loader2 className="animate-spin" aria-hidden="true" />}
+        {phase === "busy" ? "Opening…" : phase === "opened" ? "Open — loading the play…" : `See the play · ${cost} credits`}
+      </button>
+      <p className="om-faint om-flow-small">Opens every live setup on the site for {minutes} minutes.</p>
+      {err && <p className="om-flow-err" role="alert">{err}</p>}
+    </div>
+  );
+}
+
+/** While a paid window is open: how long is left. */
+function OpenLeft({ gate }: { gate: SetupGate | null }) {
+  const [now, setNow] = useState(0);
+  useEffect(() => { setNow(Date.now()); const t = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(t); }, []);
+  const left = now ? minutesLeft(gate, now) : null;
+  return left == null ? null : <span className="om-chip om-num">Open · {left} min left</span>;
+}
+
 function LevelCell({ label, value, good, bad }: { label: string; value: string; good?: boolean; bad?: boolean }) {
   return (
     <div className="rounded-xl border border-ice bg-offwhite/60 px-3 py-2.5">
@@ -237,6 +351,13 @@ function LevelCell({ label, value, good, bad }: { label: string; value: string; 
 
 /* ---------- risk-sized execute for a FLOW setup ---------- */
 type SizingInfo = { estLossAtStop?: number } | null;
+/** One account in the ticket's preview (/api/flow/execute), as the ticket service sized it. */
+type TicketAcct = {
+  accountId: string; accNum?: string | null; name?: string | null; environment?: string; equity?: number | null; currency?: string | null;
+  lots?: number | null; estLossAtStop?: number | null; reason?: string; placement?: PlacementSize | null;
+};
+/** One account's result once the ticket was placed. */
+type TicketFill = { accountId: string; status: "placed" | "error" | "skipped"; qty?: number; lots?: number; orderId?: string | null; reason?: string };
 
 function ExecuteFlow({ symbol, side, entry, stop, tp, actionable, state }: { symbol: string; side: "buy" | "sell"; entry: number; stop: number; tp: number | null; actionable: boolean; state: string }) {
   const [risk, setRisk] = useState(1);
@@ -250,6 +371,10 @@ function ExecuteFlow({ symbol, side, entry, stop, tp, actionable, state }: { sym
   const [err, setErr] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [acctCount, setAcctCount] = useState(0);
+  // The new shell shows every account the ticket goes to, as the service sized it, and each account's result.
+  const next = useNextShell();
+  const [per, setPer] = useState<TicketAcct[] | null>(null);
+  const [fills, setFills] = useState<TicketFill[] | null>(null);
 
   useEffect(() => {
     fetch("/api/flow/prefs", { cache: "no-store" }).then((r) => r.json()).then((d) => {
@@ -272,8 +397,8 @@ function ExecuteFlow({ symbol, side, entry, stop, tp, actionable, state }: { sym
     fetch("/api/flow/execute", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(bodyFor({ preview: true })) })
       .then((r) => r.json())
       .then((d) => {
-        if (d && d.preview) { setLots(d.lots); setSizing(d.sizing ?? null); if (d.equity != null) setEquity(d.equity); setAcctCount(d.accountCount ?? 0); setErr(""); }
-        else if (d && d.detail) { setLots(null); setErr(d.detail); }
+        if (d && d.preview) { setLots(d.lots); setSizing(d.sizing ?? null); if (d.equity != null) setEquity(d.equity); setAcctCount(d.accountCount ?? 0); setErr(""); setPer(Array.isArray(d.accounts) ? d.accounts : null); }
+        else if (d && d.detail) { setLots(null); setErr(d.detail); setPer(null); }
       }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [risk, acct, connected, entry, stop]);
@@ -286,6 +411,7 @@ function ExecuteFlow({ symbol, side, entry, stop, tp, actionable, state }: { sym
     fetch("/api/flow/execute", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(bodyFor()) })
       .then((r) => r.json())
       .then((d) => {
+        if (d && Array.isArray(d.accounts) && d.accounts.some((x: { status?: string }) => typeof x?.status === "string")) setFills(d.accounts);
         if (d && d.ok && d.outcome && d.outcome.status === "placed") setDone({ ...d.outcome, placed: d.placed });
         else setErr((d && (d.detail || (d.outcome && d.outcome.reason))) || "Couldn't place the order.");
       }).catch(() => setErr("Network error — try again.")).finally(() => setBusy(false));
@@ -296,6 +422,80 @@ function ExecuteFlow({ symbol, side, entry, stop, tp, actionable, state }: { sym
 
   const RISKS = [0.5, 1, 2, 3];
   const sym = symbol.replace("/", "");
+
+  if (next) {
+    const sideW = side === "sell" ? "Sell" : "Buy";
+    const ready = actionable || state === "ENTER_NOW";
+    const w = entryWords(state);
+    const many = acctCount > 1;
+    const env = (e?: string) => (String(e ?? "").toLowerCase() === "live" ? "live" : "demo");
+    const nameFor = (p: TicketAcct) => accountName(p.name, env(p.environment), maskAccount(p.accountId, p.accNum));
+    const fillFor = (id: string) => fills?.find((f) => String(f.accountId) === String(id)) ?? null;
+    const why = (r?: string) => (!r ? "" : r === "no_equity" ? "no equity reading from the broker" : r.replace(/_/g, " "));
+    return (
+      <div className="om-ticket">
+        <div className="om-ticket-head">
+          <h3>Ticket</h3>
+          <span className="om-label" data-no-i18n translate="no">{sideW} {pairName(symbol)} at market · stop {priceFor(symbol, stop)}{tp != null ? ` · target ${priceFor(symbol, tp)}` : ""}</span>
+        </div>
+        <div className="om-field">
+          <span className="om-label">Risk for this ticket · an account with its own risk uses its own</span>
+          <div className="om-toggles" role="group" aria-label="Risk for this ticket">
+            {RISKS.map((rp) => <button key={rp} type="button" aria-pressed={risk === rp} onClick={() => setRisk(rp)}>{rp}%</button>)}
+          </div>
+        </div>
+        {connected ? (
+          per && per.length ? (
+            <table className="om-table om-ticket-accts">
+              <thead><tr><th scope="col">Account</th><th scope="col" className="om-r">Equity</th><th scope="col" className="om-r">Risk</th><th scope="col" className="om-r">Size</th><th scope="col" className="om-r">At the stop</th></tr></thead>
+              <tbody>
+                {per.map((p) => {
+                  const pl = p.placement ?? null, f = fillFor(p.accountId);
+                  return (
+                    <tr key={p.accountId}>
+                      <td className="om-lead" data-no-i18n translate="no"><b>{nameFor(p)}</b> <span className="om-faint">· {env(p.environment) === "live" ? "Live" : "Demo"}</span>
+                        {f && <span className={`om-ticket-fill ${f.status === "placed" ? "om-pos" : "om-neg"}`}>{f.status === "placed" ? `Placed ${lotsText(f.qty ?? f.lots ?? null)}${f.orderId ? ` · #${f.orderId}` : ""}` : `Not placed · ${why(f.reason)}`}</span>}
+                      </td>
+                      <td data-label="Equity" className="om-r om-num" data-no-i18n translate="no">{cash(p.equity ?? null, p.currency ?? "USD")}</td>
+                      <td data-label="Risk" className="om-r om-num">{pl ? `${pl.riskPct}%` : "—"}{pl && (pl.own || pl.capped) ? <small className="om-faint">{pl.capped ? " · capped" : " · its own"}</small> : null}</td>
+                      <td data-label="Size" className="om-r om-num">{pl?.lots != null ? lotsText(pl.lots) : p.reason ? <span className="om-faint">{why(p.reason)}</span> : "—"}</td>
+                      <td data-label="At the stop" className="om-r om-num" data-no-i18n translate="no">{pl?.estLossAtStop != null ? cash(-pl.estLossAtStop, p.currency ?? "USD") : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : <p className="om-label">{err || "Sizing it for each account with Trading on…"}</p>
+        ) : (
+          <div className="om-field">
+            <span className="om-label">No broker connected · an account size, to see the size</span>
+            <input className="om-input om-num" type="number" inputMode="decimal" value={acct} placeholder="e.g. 5000" onChange={(e) => setAcct(e.target.value)} onBlur={saveAcct} />
+            <span className="om-label">{lots != null ? `${lotsText(lots)} · about ${cash(-(sizing?.estLossAtStop ?? 0), "USD")} at the stop` : err || "Enter an account size."}</span>
+          </div>
+        )}
+        <dl className="om-kv">
+          <div><dt>FLOW&rsquo;s reading</dt><dd>{w.label}{ready ? "" : " — placing it now is a manual override"}</dd></div>
+          <div><dt>After it is placed</dt><dd>FLOW does not look after it: the stop and target stay where they were placed.</dd></div>
+        </dl>
+        {done ? (
+          <p className="om-flow-ok" role="status">Placed {sideW.toLowerCase()} {pairName(symbol)}{done.placed && done.placed > 1 ? ` on ${done.placed} accounts` : done.orderId ? ` · #${done.orderId}` : ""}.</p>
+        ) : connected ? (
+          <button type="button" className="om-btn om-ticket-go" onClick={execute} disabled={busy || lots == null}>
+            {busy && <Loader2 className="animate-spin" aria-hidden="true" />}
+            {busy ? "Placing…" : `${ready ? `Place ${sideW.toLowerCase()}` : "Place anyway · manual override"}${many ? ` · ${acctCount} accounts` : ""}`}
+          </button>
+        ) : (
+          <p className="om-label">Connect a broker account above to place it.</p>
+        )}
+        {err && !done && connected && per && per.length > 0 && <p className="om-flow-err" role="alert">{err}</p>}
+        <p className="om-faint om-flow-small">
+          {connected ? `Places a real order at market on ${many ? `each of the ${acctCount} accounts above` : "the account above"} when you tap. FLOW's checks still run as it is placed, so an account can be skipped — it says why.` : ""}
+          {!ready ? " FLOW has not confirmed this entry." : ""}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-4 rounded-2xl border border-primary/25 bg-primary/[0.04] p-4">
       <p className="text-[11px] font-bold uppercase tracking-wide text-primary">Execute · risk-sized</p>

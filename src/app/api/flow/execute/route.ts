@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { placeMarketOrder, probeBroker, placeOnActiveAccounts } from "@/lib/flow/executor";
 import { activeAccounts } from "@/lib/flow/connection";
 import { sizeFromRisk, contractKey } from "@/lib/flow/sizing";
+import { placementSize } from "@/lib/flow/ticketSizing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -86,6 +87,10 @@ export async function POST(req: NextRequest) {
           accountId: a.accountId, accNum: a.accNum, name: a.name, environment: a.env, equity: a.equity,
           lots: s && s.ok ? s.lots : null, estLossAtStop: s && s.ok ? s.estLossAtStop : null,
           reason: a.equity == null ? "no_equity" : s && !s.ok ? s.reason : undefined,
+          // What the placement itself will size this account at: its own risk if set, the small-account caps,
+          // the broker minimum (lib/flow/ticketSizing.ts). Shown on the ticket; it changes nothing that is placed.
+          currency: a.currency ?? null,
+          placement: placementSize({ canonical: symbol, entry, stop, equity: a.equity, accountRiskPct: a.riskPct ?? null, ticketRiskPct: riskPct }),
         };
       });
       const sizable = per.filter((p) => p.lots != null);

@@ -206,7 +206,45 @@ export type FlowPosIn = {
   position_id?: unknown; id?: unknown; account_id: unknown; environment?: unknown; symbol?: unknown; side?: unknown;
   qty?: unknown; exit_price?: unknown; result_pips?: unknown; status?: unknown; outcome?: unknown;
   created_at?: unknown; resolved_at?: unknown; signal_id?: unknown;
+  entry?: unknown; fill_price?: unknown; init_stop?: unknown; cur_stop?: unknown; tp1?: unknown; strategy_version?: unknown;
 };
+
+/** Which engine a trade on the account came from. */
+export type FlowSource = "genx" | "genfx" | "flow";
+export const SOURCE_LABEL: Record<FlowSource, string> = { genx: "GENX", genfx: "GEN FX", flow: "FLOW" };
+
+/**
+ * The trade ledger has no column that names its source, so it is read from what each writer leaves:
+ * GEN FX stamps its strategy version on every row it writes; every gold row is a GENX trade (the desk
+ * record counts them so, and a ticket a member places from OM AI Plays or Find a trade is never entered
+ * in this ledger); anything else is FLOW's own forex and index trading.
+ */
+export function flowSource(r: { symbol?: unknown; strategy_version?: unknown }): FlowSource {
+  if (/^genfx/i.test(String(r.strategy_version ?? "").trim())) return "genfx";
+  if (contractKey(String(r.symbol ?? "")) === "XAUUSD") return "genx";
+  return "flow";
+}
+
+/** One trade FLOW is looking after on the account right now. */
+export type FlowPosition = {
+  id: string; at: string | null; symbol: string; side: "buy" | "sell"; source: FlowSource;
+  /** Lots, as placed. */
+  qty: number | null;
+  /** The fill when the broker reported one, else the price the trade was sent at. */
+  entry: number | null;
+  /** Where the stop is now (the trade manager may have moved it), else where it was placed. */
+  stop: number | null;
+  target: number | null;
+};
+
+/** One trade that closed in the window. */
+export type FlowClosed = {
+  id: string; at: string; symbol: string; side: "buy" | "sell"; source: FlowSource;
+  qty: number | null; pips: number | null; amount: number | null;
+};
+
+/** How many closed trades a window lists; the rest are counted, not listed. */
+export const HISTORY_MAX = 50;
 
 export type FlowResults = {
   /** FLOW trades closed inside the window. */
@@ -224,6 +262,11 @@ export type FlowResults = {
   /** FLOW trades still open on this account right now (whatever the window). */
   open: number;
   recent: { at: string; symbol: string; side: "buy" | "sell"; pips: number | null; amount: number | null }[];
+  /** The open trades themselves, newest first. */
+  positions?: FlowPosition[];
+  /** The window's closed trades, newest first — at most HISTORY_MAX; `historyMore` counts the rest. */
+  history?: FlowClosed[];
+  historyMore?: number;
 };
 
 const num = (v: unknown): number | null => {
@@ -232,6 +275,8 @@ const num = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 const round2 = (n: number) => Math.round(n * 100) / 100;
+/** A price or a size: a real positive number, or nothing. */
+const positive = (v: unknown): number | null => { const n = num(v); return n != null && n > 0 ? n : null; };
 
 /** One closed trade in the account's money, when it can honestly be worked out; otherwise null. */
 export function estimateAmount(p: { symbol: unknown; qty: unknown; result_pips: unknown; exit_price: unknown }, accountCurrency: string | null): number | null {
@@ -266,12 +311,13 @@ export function foldFlow(rows: FlowPosIn[], account: Pick<FloorAccount, "id" | "
     seen.add(key);
     mine.push(r);
   }
-  const out: FlowResults = { closed: 0, wins: 0, losses: 0, breakeven: 0, ungraded: 0, netPips: 0, realized: null, open: 0, recent: [] };
+  const out: FlowResults = { closed: 0, wins: 0, losses: 0, breakeven: 0, ungraded: 0, netPips: 0, realized: null, open: 0, recent: [], positions: [], history: [], historyMore: 0 };
   let amount = 0, counted = 0, left = 0;
   const closed: { at: number; r: FlowPosIn; pips: number | null; amt: number | null }[] = [];
+  const open: { at: number; r: FlowPosIn }[] = [];
   for (const r of mine) {
     const status = String(r.status ?? "").toLowerCase();
-    if (status === "open") { out.open += 1; continue; }
+    if (status === "open") { out.open += 1; const t = Date.parse(String(r.created_at ?? "")); open.push({ at: Number.isFinite(t) ? t : 0, r }); continue; }
     if (status !== "closed") continue;
     const at = Date.parse(String(r.resolved_at ?? ""));
     if (!Number.isFinite(at) || at < win.from || at >= win.to) continue;
@@ -286,9 +332,22 @@ export function foldFlow(rows: FlowPosIn[], account: Pick<FloorAccount, "id" | "
   }
   out.netPips = Math.round(out.netPips * 10) / 10;
   if (counted > 0) out.realized = { amount: round2(amount), currency: String(account.currency).toUpperCase(), counted, left };
-  out.recent = closed.sort((a, b) => b.at - a.at).slice(0, 5).map((c) => ({
+  const sideOf = (r: FlowPosIn): "buy" | "sell" => (String(r.side ?? "").toLowerCase() === "sell" ? "sell" : "buy");
+  const idOf = (r: FlowPosIn) => String(r.position_id ?? "").trim() || String(r.id ?? "");
+  closed.sort((a, b) => b.at - a.at);
+  out.recent = closed.slice(0, 5).map((c) => ({
     at: new Date(c.at).toISOString(), symbol: contractKey(String(c.r.symbol ?? "")),
-    side: String(c.r.side ?? "").toLowerCase() === "sell" ? "sell" : "buy", pips: c.pips, amount: c.amt,
+    side: sideOf(c.r), pips: c.pips, amount: c.amt,
+  }));
+  out.history = closed.slice(0, HISTORY_MAX).map((c) => ({
+    id: idOf(c.r), at: new Date(c.at).toISOString(), symbol: contractKey(String(c.r.symbol ?? "")), side: sideOf(c.r),
+    source: flowSource(c.r), qty: positive(c.r.qty), pips: c.pips, amount: c.amt,
+  }));
+  out.historyMore = Math.max(0, closed.length - HISTORY_MAX);
+  out.positions = open.sort((a, b) => b.at - a.at).map(({ at, r }) => ({
+    id: idOf(r), at: at > 0 ? new Date(at).toISOString() : null, symbol: contractKey(String(r.symbol ?? "")), side: sideOf(r),
+    source: flowSource(r), qty: positive(r.qty), entry: positive(r.fill_price) ?? positive(r.entry),
+    stop: positive(r.cur_stop) ?? positive(r.init_stop), target: positive(r.tp1),
   }));
   return out;
 }

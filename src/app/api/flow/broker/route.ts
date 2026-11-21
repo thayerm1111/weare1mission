@@ -78,7 +78,7 @@ export async function GET() {
       // read with the columns it has. Any other failure is tried once more, and if it fails again the
       // accounts are still listed but marked: their settings could not be read — never shown as defaults.
       const sel = (cols: string) => admin.from("flow_broker_accounts").select(cols).eq("connection_id", c.id).order("created_at", { ascending: true });
-      const lists = [baseCols + settingCols + ", trail_mode, partial_pct", baseCols + settingCols, baseCols];
+      const lists = [baseCols + settingCols + ", trail_mode, partial_pct, genfx_eurusd, genfx_gbpjpy", baseCols + settingCols + ", trail_mode, partial_pct", baseCols + settingCols, baseCols];
       for (let i = 0; i < lists.length; i++) {
         let got = await sel(lists[i]);
         if (got.error && !missingColumn(got.error)) got = await sel(lists[i]);
@@ -123,6 +123,11 @@ export async function GET() {
         styleSwing: a.style_swing === true,
         permissions: resolveAll(a as never), // resolved granular permissions (defaults applied)
         killSwitchAt: a.kill_switch_at ?? null,
+        // GEN FX's own per-pair switches (set on the GEN FX desk), so FLOW can say what this account takes.
+        // Absent when the columns could not be read — never shown as off.
+        ...(typeof a.genfx_eurusd === "boolean" || typeof a.genfx_gbpjpy === "boolean"
+          ? { genfx: { eurusd: a.genfx_eurusd === true, gbpjpy: a.genfx_gbpjpy === true } }
+          : {}),
         connectionId: c.id, environment: c.environment, server: c.server,
       });
     }

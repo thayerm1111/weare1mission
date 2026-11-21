@@ -109,7 +109,7 @@ export async function GET(req: NextRequest) {
       // The member's own clock, when they asked for one (statsSince.ts): their results start no earlier.
       const mineSince = effectiveSince(since, await memberStatsSince(admin, user.id));
       const { rows, complete } = await allRows<FlowPosIn>(() => admin.from("flow_managed_positions")
-        .select("id,position_id,account_id,environment,symbol,side,qty,exit_price,result_pips,status,outcome,created_at,resolved_at")
+        .select("id,position_id,account_id,environment,symbol,side,qty,exit_price,result_pips,status,outcome,created_at,resolved_at,entry,fill_price,init_stop,cur_stop,tp1,strategy_version")
         .eq("user_id", user.id).eq("account_id", account.id)
         .or(`created_at.gte."${mineSince}",status.eq.open`)
         .order("created_at", { ascending: true }).order("id", { ascending: true }) as unknown as Paged);

@@ -55,6 +55,13 @@ async function status(userId: string) {
     pass,
     passUntil: pass ? sub?.current_period_end ?? null : null,
     enabled: !!r?.enabled,
+    /*
+     * Whether the member has ever set the switch (owner 11-20 brief: "A saved On preference and a
+     * service-acknowledged Active state remain distinct"). With no row at all the FLOW engine does not trade
+     * for them, but GENX still reaches their armed accounts — an absent row is not OFF (autoExec's fan-out,
+     * flowOffUserIds). `enabled` alone reads that as off, so the panel is told which of the two it is.
+     */
+    set: r != null,
     paused: pass ? false : !!r?.credit_paused,
     lastCreditAt: r?.last_credit_at ?? null,
     connected: !!conn && conn.status === "connected",

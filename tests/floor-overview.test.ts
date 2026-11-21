@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  periodOf, periodWindow, accountsFrom, pickAccount, maskAccount, accountName, foldFlow, estimateAmount, genxPeriod,
+  periodOf, periodWindow, accountsFrom, pickAccount, maskAccount, accountName, foldFlow, estimateAmount, genxPeriod, flowSource, HISTORY_MAX,
   figuresState, ageText, money, pipsText, toneOf, atlasReadFor, setupView, stageSentence, STAGE_LABEL,
   FIGURES_FRESH_MS, ATLAS_READ_FRESH_MS, type FloorAccount, type FlowPosIn, type GenxFireIn,
 } from '../src/lib/floor/overview';
@@ -340,4 +340,42 @@ test('the three states have one name each, and the sentence under the chart name
     assert.ok(!/\b(buy|sell|long|short|bullish|bearish)\b/i.test(line), `"${line}" must be true for a member who has not opened the play`);
   }
   assert.equal(stageSentence('watching', 'GENX', 'gold'), 'GENX is watching gold. No confirmed entry.');
+});
+
+/* ── FLOW's own page: the open trades, the closed ones, and where each came from ── */
+test('each trade says which engine it came from, read from what that engine writes', () => {
+  assert.equal(flowSource({ symbol: 'EURUSD', strategy_version: 'genfx-1.0' }), 'genfx', 'GEN FX stamps its version');
+  assert.equal(flowSource({ symbol: 'GBPJPY', strategy_version: 'GENFX-2' }), 'genfx');
+  assert.equal(flowSource({ symbol: 'XAUUSD', strategy_version: null }), 'genx', 'every gold row is GENX\'s');
+  assert.equal(flowSource({ symbol: 'XAU/USD' }), 'genx');
+  assert.equal(flowSource({ symbol: 'NAS100' }), 'flow', 'the rest are FLOW\'s own');
+  assert.equal(flowSource({ symbol: 'EURUSD', strategy_version: '' }), 'flow');
+});
+
+test('the open trades are listed with where the stop is now; nothing is made up for a missing value', () => {
+  const r = foldFlow([
+    pos({ position_id: 'o1', status: 'open', resolved_at: null, entry: 4010, fill_price: 4011.2, init_stop: 3990, cur_stop: 4012, tp1: 4060, created_at: new Date(NOW - 2 * H).toISOString() }),
+    pos({ position_id: 'o2', status: 'open', resolved_at: null, symbol: 'EURUSD', strategy_version: 'genfx-1.0', entry: 1.084, fill_price: null, init_stop: 1.082, cur_stop: null, tp1: null, qty: 0.25, created_at: new Date(NOW - 1 * H).toISOString() }),
+    pos({ position_id: 'o2', status: 'open', resolved_at: null }),           // the same position on a second row
+    pos({ position_id: 'c1' }),
+  ], ACC, WIN);
+  assert.equal(r.open, 2);
+  assert.equal(r.positions!.length, 2, 'one line per position');
+  const [newest, older] = r.positions!;
+  assert.equal(newest.id, 'o2', 'newest first');
+  assert.deepEqual([newest.source, newest.entry, newest.stop, newest.target, newest.qty], ['genfx', 1.084, 1.082, null, 0.25], 'no fill: the price sent; no moved stop: the stop placed; no target: none');
+  assert.deepEqual([older.source, older.entry, older.stop, older.target, older.side], ['genx', 4011.2, 4012, 4060, 'buy'], 'the fill, and the stop where the trade manager has it now');
+});
+
+test('the history is the window\'s closed trades, newest first, capped and counted', () => {
+  const rows = Array.from({ length: HISTORY_MAX + 7 }, (_, i) => pos({ position_id: 'h' + i, result_pips: i % 3 === 0 ? -10 : 20, resolved_at: new Date(NOW - (i + 1) * 60_000).toISOString() }));
+  const r = foldFlow([...rows, pos({ position_id: 'old', resolved_at: new Date(NOW - 3 * D).toISOString() })], ACC, WIN);
+  assert.equal(r.closed, HISTORY_MAX + 7, 'every closed trade in the window is counted');
+  assert.equal(r.history!.length, HISTORY_MAX, 'only so many are listed');
+  assert.equal(r.historyMore, 7, 'the rest are said, not hidden');
+  assert.equal(r.history![0].id, 'h0', 'newest first');
+  assert.ok(!r.history!.some((h) => h.id === 'old'), 'a trade outside the window is not in it');
+  assert.equal(r.recent.length, 5, 'The Floor\'s short list is unchanged');
+  const none = foldFlow([pos({ position_id: 'x', result_pips: null })], ACC, WIN);
+  assert.equal(none.history![0].pips, null, 'a close with no recorded result is listed as such, never as 0');
 });

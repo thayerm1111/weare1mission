@@ -78,14 +78,14 @@ function askAtlas(question: string | null) {
   window.location.assign("/command-center");
 }
 
-const Skel = ({ w, h = "1em" }: { w: number | string; h?: number | string }) => <span className="om-skel" style={{ width: w, height: h }} aria-hidden="true">&nbsp;</span>;
+export const Skel = ({ w, h = "1em" }: { w: number | string; h?: number | string }) => <span className="om-skel" style={{ width: w, height: h }} aria-hidden="true">&nbsp;</span>;
 const Go = ({ href, children }: { href: string; children: React.ReactNode }) => <Link href={href} className="om-go">{children}<ArrowUpRight aria-hidden="true" /></Link>;
 const clock = (iso: unknown): string | null => {
   const t = Date.parse(String(iso ?? ""));
   return Number.isFinite(t) ? new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }) : null;
 };
 
-function PeriodSelect({ value, onChange, label }: { value: FloorPeriod; onChange: (p: FloorPeriod) => void; label: string }) {
+export function PeriodSelect({ value, onChange, label }: { value: FloorPeriod; onChange: (p: FloorPeriod) => void; label: string }) {
   return (
     <span className="om-select">
       <select aria-label={label} value={value} onChange={(e) => onChange(periodOf(e.target.value, value))}>
@@ -132,7 +132,7 @@ function AccountPicker({ accounts, current, onPick }: { accounts: FloorAccount[]
   );
 }
 
-function AccountSummary({ ov, state, switching, hide, onHide, onPick, now }: {
+export function AccountSummary({ ov, state, switching, hide, onHide, onPick, now }: {
   ov: FloorOverview | null; state: "loading" | "ready" | "error" | "off"; switching: boolean;
   hide: boolean; onHide: () => void; onPick: (a: FloorAccount) => void; now: number;
 }) {
@@ -339,11 +339,11 @@ function Spark({ series }: { series: number[] }) {
   );
 }
 
-const toneClass = (v: number | null | undefined) => { const t = toneOf(v); return t === "up" ? "om-pos" : t === "down" ? "om-neg" : ""; };
+export const toneClass = (v: number | null | undefined) => { const t = toneOf(v); return t === "up" ? "om-pos" : t === "down" ? "om-neg" : ""; };
 const signed = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v)}`;
 
 /** How a figure is counted, a tap away: the definitions stay whole, and stay out of the figures' way. */
-function Method({ id, children }: { id: string; children: React.ReactNode }) {
+export function Method({ id, children }: { id: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
   useEffect(() => {
