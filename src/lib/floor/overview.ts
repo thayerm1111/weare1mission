@@ -76,10 +76,31 @@ export type AccountRowIn = {
 };
 export type ConnRowIn = { id: unknown; broker?: unknown; environment?: unknown; status?: unknown };
 
-export function maskAccount(accNum: unknown, accountId: unknown): string {
-  const s = String(accNum ?? "").trim() || String(accountId ?? "").trim();
+/**
+ * The end of the account's own number — the one the member sees at their broker. (TradeLocker also gives
+ * each account a small position on its login, 1, 2, 3…; that says nothing about which account it is, and
+ * is used only when there is no number at all.)
+ */
+export function maskAccount(accountId: unknown, accNum?: unknown): string {
+  const s = String(accountId ?? "").trim() || String(accNum ?? "").trim();
   if (!s) return "••••";
   return s.length <= 4 ? `•••• ${s}` : `•••• ${s.slice(-4)}`;
+}
+
+const MACHINE_ID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+/**
+ * What the account is called on screen. The broker's own label is used when it reads like a name. Some
+ * brokers label an account with a machine identifier ("GENFX#95e9f433-…#3#3"): a person is never shown
+ * that. Its leading word is kept when it has one ("GENFX account"); otherwise the account is named by
+ * what it is and the end of its number.
+ */
+export function accountName(raw: unknown, environment: "live" | "demo", masked: string): string {
+  const s = String(raw ?? "").trim();
+  const plain = `${environment === "live" ? "Live" : "Demo"} account ${masked.replace(/^[•\s]+/, "")}`.trim();
+  if (!s) return plain;
+  if (!MACHINE_ID.test(s) && s.length <= 40) return s;
+  const lead = s.match(/^([A-Za-z][A-Za-z0-9 ]{1,15}?)\s*[#:_/|-]/)?.[1]?.trim();
+  return lead && !/^[0-9a-f]+$/i.test(lead) ? `${lead} account` : plain;
 }
 
 const BROKER_NAME: Record<string, string> = { tradelocker: "TradeLocker" };
@@ -106,11 +127,11 @@ export function accountsFrom(conns: ConnRowIn[], rows: AccountRowIn[]): FloorAcc
       if (r.is_selected === true) prev.isDefault = true;
       continue;
     }
-    const masked = maskAccount(r.acc_num, id);
+    const masked = maskAccount(id, r.acc_num);
     const broker = BROKER_NAME[String(c?.broker ?? "").toLowerCase()] ?? (String(c?.broker ?? "").trim() || "Broker");
     out.set(key, {
       id, masked, broker, environment: env,
-      name: String(r.name ?? "").trim() || `${env === "live" ? "Live" : "Demo"} account ${masked.slice(-4)}`,
+      name: accountName(r.name, env, masked),
       currency: String(r.currency ?? "").trim().toUpperCase() || null,
       connection: connected ? "connected" : "attention",
       isDefault: r.is_selected === true,

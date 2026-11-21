@@ -256,6 +256,34 @@ test('the bar steps down in tiers, so a signed-in bar always holds what is in it
   assert.match(css, /\.om-nav-right \{[^}]*flex: 0 0 auto/);
 });
 
+// Seen on the live preview, 11-20: a strip of the notifications panel showed beside the bar, and the panel
+// opened 64px tall inside it. A backdrop filter makes its element the frame for fixed-position children.
+test('the notifications panel opens on the screen, not inside the bar', () => {
+  const css = read('src/components/om/om.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const rule = (sel: string) => [...css.matchAll(new RegExp(`(?:^|[},])\\s*${sel.replace(/[.:]/g, '\\$&')} \\{([^}]*)\\}`, 'g'))].map((m) => m[1]).join(' ');
+  const framing = /backdrop-filter:\s*(?!none)|(?:^|[\s;])(?:transform|filter|perspective|contain|will-change):\s*(?!none)/;
+  // Nothing the bell sits inside may frame a fixed-position child: the app, the sticky wrap, the bar, its right side.
+  for (const sel of ['.om-app', '.om-nav-wrap', '.om-nav', '.om-nav-right']) assert.ok(!framing.test(rule(sel)), `${sel} does not frame fixed-position children`);
+  assert.match(rule('.om-nav::before'), /backdrop-filter: blur/, 'the frosted surface is its own layer behind the contents');
+  assert.match(rule('.om-nav::before'), /z-index: -1/);
+  assert.match(rule('.om-nav'), /isolation: isolate/, 'which keeps that layer behind the bar\'s contents and above the page');
+  // The panel opens from inside the sticky wrap, so the wrap sits above the phone's tab bar and Tools sheet.
+  const z = (sel: string) => Number(rule(sel).match(/z-index: (\d+)/)?.[1] ?? NaN);
+  assert.ok(z('.om-nav-wrap') > z('.om-sheet') && z('.om-sheet') > z('.om-tabbar'), 'wrap above sheet above tab bar');
+  // The real button and its panel are still the site's own, inside the bar.
+  assert.match(read('src/components/om/AppShell.tsx'), /<span className="om-bell"><NotificationsBell \/><\/span>/);
+  assert.match(read('src/components/portal/NotificationsBell.tsx'), /className=\{`fixed inset-0 /, 'the panel is fixed to the screen');
+});
+
+test('the chart card says a closed market is closed, and shows the engine\'s words as it wrote them', () => {
+  const floor = read('src/components/om/floor/Floor.tsx');
+  assert.match(floor, /const shut = now > 0 && !isOpen\("metal", now\)/);
+  assert.match(floor, /shut \? "Twelve Data · gold is closed · this is the last price before the close"/, 'a last price is not dated as if it had just been made');
+  assert.match(floor, /<span className="om-faint">Trigger · <\/span>\{own\(view\.waitingFor\)\}/);
+  assert.match(floor, /<span className="om-faint">Invalidation · <\/span>\{own\(view\.changesIf\)\}/);
+  assert.ok(!/>Waiting for <\/span>|>Changes if <\/span>/.test(floor), 'no sentence is started for the engine: its own words do not always follow on');
+});
+
 test('Market Pulse never cuts a quote through the middle', () => {
   const css = read('src/components/om/om.css').replace(/\/\*[\s\S]*?\*\//g, '');
   const list = css.match(/\.om-pulse-list \{([^}]*)\}/)?.[1] ?? '';

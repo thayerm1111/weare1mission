@@ -9,6 +9,7 @@ import { useSeeThePlay } from "@/components/portal/SetupLock";
 import { leaveFloorQuestion } from "@/components/command-center/hud/floorAsk";
 import { FLOOR_INSTRUMENTS, setupQuery, type FloorMode } from "@/lib/floor/setupInstruments";
 import { minutesLeft, type SetupGate } from "@/lib/setupLock";
+import { isOpen } from "@/lib/cashtrap/marketHours";
 import { realCandles, priceText } from "@/lib/floor/chart";
 import {
   FLOOR_PERIODS, STAGE_LABEL, stageSentence, setupView, ageText, money, pipsText, toneOf, periodOf,
@@ -210,6 +211,11 @@ function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample, onS
   const left = minutesLeft(gate, now);
   const at = clock(setup?.asOf);
   const px = (p: number) => priceText(p, GOLD.dec);
+  // Gold does not trade from Friday evening to Sunday evening or in its daily break. The last price is
+  // then the last price, and is said to be — never dated as if it had just been made.
+  const shut = now > 0 && !isOpen("metal", now);
+  // The engine's sentences are shown as it wrote them, under a label; only the first letter is raised.
+  const own = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
   return (
     <section className="om-panel om-chart-card" aria-label="Gold">
@@ -222,7 +228,7 @@ function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample, onS
             {change != null && price != null && <span className={`om-chg om-num ${change > 0 ? "om-pos" : change < 0 ? "om-neg" : "om-dim"}`} title="Change since the previous daily close">{change > 0 ? "+" : change < 0 ? "−" : ""}{Math.abs(change).toFixed(2)}%</span>}
           </div>
           <span className="om-label" style={{ display: "block", marginTop: 6 }} data-no-i18n translate="no">
-            {sample ? "Sample" : at ? `Twelve Data · price as of ${at} · checked every ${SETUP_EVERY_MS / 1000} seconds` : failed ? "Market data did not load" : " "}
+            {sample ? "Sample" : at ? (shut ? "Twelve Data · gold is closed · this is the last price before the close" : `Twelve Data · price as of ${at} · checked every ${SETUP_EVERY_MS / 1000} seconds`) : failed ? "Market data did not load" : " "}
           </span>
         </div>
         <Link href="/portal/signals" className="om-btn">Generate a play<ArrowUpRight aria-hidden="true" /></Link>
@@ -246,8 +252,8 @@ function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample, onS
           <span className="om-ring" data-stage={view.stage ?? undefined} aria-hidden="true" />
           <div style={{ minWidth: 0 }}>
             <p style={{ fontSize: 14.5 }}>{view.stage ? stageSentence(view.stage, GOLD.engine, GOLD.name) : !setup && !failed ? "Reading GENX…" : "GENX's read is not available right now."}</p>
-            {view.open && view.waitingFor && <p className="om-dim" style={{ fontSize: 13.5, marginTop: 6 }}><span className="om-faint">Waiting for </span>{view.waitingFor}</p>}
-            {view.open && view.changesIf && <p className="om-dim" style={{ fontSize: 13.5, marginTop: 4 }}><span className="om-faint">Changes if </span>{view.changesIf}</p>}
+            {view.open && view.waitingFor && <p className="om-dim" style={{ fontSize: 13.5, marginTop: 6 }}><span className="om-faint">Trigger · </span>{own(view.waitingFor)}</p>}
+            {view.open && view.changesIf && <p className="om-dim" style={{ fontSize: 13.5, marginTop: 4 }}><span className="om-faint">Invalidation · </span>{own(view.changesIf)}</p>}
             {locked && <p className="om-dim" style={{ fontSize: 13.5, marginTop: 6 }}>Which way, the entry, the stop and the targets open with credits.</p>}
             {play.err && <p className="om-neg" role="alert" style={{ fontSize: 13.5, marginTop: 6 }}>{play.err}</p>}
           </div>

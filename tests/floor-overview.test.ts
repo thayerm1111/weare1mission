@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  periodOf, periodWindow, accountsFrom, pickAccount, maskAccount, foldFlow, estimateAmount, genxPeriod,
+  periodOf, periodWindow, accountsFrom, pickAccount, maskAccount, accountName, foldFlow, estimateAmount, genxPeriod,
   figuresState, ageText, money, pipsText, toneOf, atlasReadFor, setupView, stageSentence, STAGE_LABEL,
   FIGURES_FRESH_MS, ATLAS_READ_FRESH_MS, type FloorAccount, type FlowPosIn, type GenxFireIn,
 } from '../src/lib/floor/overview';
@@ -51,10 +51,32 @@ test('7 and 30 days are rolling, All is from the record\'s restart, and nothing 
 const CONNS = [{ id: 'c1', broker: 'tradelocker', environment: 'live', status: 'connected' }, { id: 'c2', broker: 'tradelocker', environment: 'demo', status: 'error' }];
 
 test('an account number is never shown whole', () => {
-  assert.equal(maskAccount('1234567', 'x'), '•••• 4567');
-  assert.equal(maskAccount('', '998877'), '•••• 8877');
-  assert.equal(maskAccount('42', 'x'), '•••• 42');
+  assert.equal(maskAccount('1234567'), '•••• 4567');
+  assert.equal(maskAccount('998877', '3'), '•••• 8877');
+  assert.equal(maskAccount('42'), '•••• 42');
   assert.equal(maskAccount(null, null), '••••');
+});
+
+// Seen on the live preview, 11-20: the owner's account read "•••• 3" — its position on the login — and was
+// titled with the broker's machine identifier.
+test('the number shown is the account\'s own, not its position on the login', () => {
+  assert.equal(maskAccount('1234669', '3'), '•••• 4669');
+  assert.equal(maskAccount('', '3'), '•••• 3', 'the position is used only when there is no number at all');
+  const [a] = accountsFrom([{ id: 'c1', broker: 'tradelocker', environment: 'live', status: 'connected' }],
+    [{ account_id: '1234669', acc_num: '3', name: 'GENFX#95e9f433-abed-4001-bf51-1d1d37241a87#3#3', currency: 'USD', environment: 'live', is_selected: true, connection_id: 'c1' }]);
+  assert.equal(a.masked, '•••• 4669');
+  assert.equal(a.name, 'GENFX account');
+});
+
+test('a person is never shown a machine identifier as an account\'s name', () => {
+  assert.equal(accountName('Main', 'live', '•••• 4669'), 'Main', 'a name that reads like a name is the broker\'s own');
+  assert.equal(accountName('My Gold Account 2', 'demo', '•••• 4669'), 'My Gold Account 2');
+  assert.equal(accountName('GENFX#95e9f433-abed-4001-bf51-1d1d37241a87#3#3', 'live', '•••• 4669'), 'GENFX account');
+  assert.equal(accountName('95e9f433-abed-4001-bf51-1d1d37241a87', 'live', '•••• 4669'), 'Live account 4669');
+  assert.equal(accountName('abc-95e9f433-abed-4001-bf51-1d1d37241a87', 'demo', '•••• 12'), 'Demo account 12', 'a lead that is only more of the identifier is not a name');
+  assert.equal(accountName('', 'demo', '•••• 4669'), 'Demo account 4669');
+  assert.equal(accountName(null, 'live', '••••'), 'Live account');
+  assert.equal(accountName('x'.repeat(60), 'live', '•••• 9'), 'Live account 9', 'nor a label too long to be one');
 });
 
 test('one account on two logins is one account; Live and Demo with the same number are two', () => {
