@@ -3,8 +3,8 @@
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
-/** The public homepage owns its chrome. Every other route keeps the existing shell unchanged. */
+/** These public routes own their chrome. Other routes keep the existing shell. */
 export function LegacySiteChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  return pathname === "/" ? null : children;
+  return pathname === "/" || pathname === "/login" ? null : children;
 }
