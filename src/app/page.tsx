@@ -1,47 +1,29 @@
-import { Hero2 } from "@/components/home/Hero2";
-import { MarketsStrip } from "@/components/home/MarketsStrip";
-import { ProblemNoise } from "@/components/home/ProblemNoise";
-import { PlatformCards } from "@/components/home/PlatformCards";
-import { ProcessRWE } from "@/components/home/ProcessRWE";
-import { MattyPipsShowcase } from "@/components/home/MattyPipsShowcase";
-import { AutomationFlow } from "@/components/home/AutomationFlow";
-import { CommunityBridge } from "@/components/home/CommunityBridge";
-import { TheRoom } from "@/components/home/TheRoom";
-import { ProofStats } from "@/components/home/ProofStats";
-import { Ecosystem } from "@/components/home/Ecosystem";
-import { CommunityMovement } from "@/components/home/CommunityMovement";
-import { CtaFinal } from "@/components/home/CtaFinal";
+import type { Metadata, Viewport } from "next";
+import { PremiumHomepage } from "@/components/public-homepage/PremiumHomepage";
 import { buildMetadata } from "@/lib/metadata";
 
-export const metadata = buildMetadata({
-  title: "One Mission | AI-Powered Trading Tools, Market Intelligence & Community",
-  description:
-    "The One Mission trading ecosystem — AI market intelligence, Gold analysis, automated trading tools, live trading education and a community built around structure.",
-  path: "/",
+const homepageMetadata = buildMetadata({
+    title: "One Mission — Your trading. Connected.",
+    description:
+      "One Mission brings AI market intelligence, gold analysis, structured trade setups and connected execution into one focused trading platform.",
+    path: "/",
+    image: "/images/homepage/hero-poster.jpg",
 });
 
-/**
- * PUBLIC HOMEPAGE v2 — trading technology dominates the first 60%, then the
- * community hits hard, then the movement lands earned. Public-only components;
- * the member platform, engines and APIs are untouched. Social-proof section is
- * intentionally absent until real permission-granted testimonials exist.
- */
+export const metadata: Metadata = {
+  ...homepageMetadata,
+  title: { absolute: "One Mission — Your trading. Connected." },
+  icons: { icon: { url: "/images/homepage/favicon.svg", type: "image/svg+xml" } },
+  openGraph: {
+    ...homepageMetadata.openGraph,
+    images: [{ url: "/images/homepage/hero-poster.jpg", width: 1280, height: 720, alt: "One Mission — Your trading. Connected." }],
+  },
+  keywords: ["One Mission", "AI trading tools", "gold analysis", "GENX", "Atlas", "OM AI Plays", "Market Pulse", "FLOW"],
+};
+
+export const viewport: Viewport = { themeColor: "#08090b" };
+
+/** Public presentation only. This page does not initialize trading, account, or generation services. */
 export default function HomePage() {
-  return (
-    <>
-      <Hero2 />
-      <MarketsStrip />
-      <ProblemNoise />
-      <PlatformCards />
-      <ProcessRWE />
-      <MattyPipsShowcase />
-      <AutomationFlow />
-      <CommunityBridge />
-      <TheRoom />
-      <ProofStats />
-      <Ecosystem />
-      <CommunityMovement />
-      <CtaFinal />
-    </>
-  );
+  return <PremiumHomepage />;
 }

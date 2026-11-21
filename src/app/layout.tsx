@@ -4,6 +4,7 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { IntroSplash } from "@/components/IntroSplash";
 import { I18nProvider } from "@/components/I18nProvider";
+import { LegacySiteChrome } from "@/components/public-homepage/LegacySiteChrome";
 import { siteSettings } from "@/data/siteSettings";
 
 /**
@@ -80,10 +81,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         >
           Skip to content
         </a>
-        <IntroSplash />
-        <Header />
+        <LegacySiteChrome>
+          <IntroSplash />
+          <Header />
+        </LegacySiteChrome>
         <main id="main" className="flex-1">{children}</main>
-        <Footer />
+        <LegacySiteChrome>
+          <Footer />
+        </LegacySiteChrome>
         <I18nProvider />
       </body>
     </html>
