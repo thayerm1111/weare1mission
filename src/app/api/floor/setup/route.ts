@@ -57,12 +57,14 @@ function json(o: unknown, s = 200) {
 }
 
 const CHART_TF: Record<Mode, string> = { quick: "5min", intraday: "15min", swing: "1h" };
+/** How many of gold's chart candles are sent: a day of 5-minute candles, three of 15-minute, twelve of hourly. */
+const CHART_BARS = 300;
 
 type Candle = { t: string; o: number; h: number; l: number; c: number };
 /** The read as the card receives it. Only two of its fields are read here, for the history row. */
 type Read = { action?: unknown; confidence_score?: unknown } & Record<string, unknown>;
 type Built =
-  | { ok: true; g: Read; candles: Candle[]; price: number; session: string; asOf: string }
+  | { ok: true; g: Read; candles: Candle[]; price: number; session: string; asOf: string; candlesTz?: "UTC" }
   | { ok: false; error: string };
 
 const toCandles = (raw: unknown): Candle[] =>
@@ -83,11 +85,15 @@ async function goldSetup(mode: Mode, mdKey: string): Promise<Built> {
     pip: GOLD.pip, dec: GOLD.dec, marketStory: [], volatility: rr.volatility, atr: rr.atr, m15: rr.m15,
   });
 
-  // Clean candle series for the chart, matched to the mode's chart timeframe.
-  const candles = toCandles(await series("XAU/USD", CHART_TF[mode], 60, mdKey, false));
+  // Clean candle series for the chart, matched to the mode's chart timeframe. Asked for IN UTC (owner 11-21
+  // data audit: unasked, the feed stamped gold in Sydney's clock, so no clock time could be printed), and
+  // CHART_BARS of them so the chart can be moved back through the day: still one request, as before — the
+  // feed charges per request, not per candle. Every reader of these candles reads the newest 60 or fewer,
+  // except the interactive chart, which says it reads UTC because the answer says so (candlesTz).
+  const candles = toCandles(await series("XAU/USD", CHART_TF[mode], CHART_BARS, mdKey, false, "UTC"));
   const lp = await livePrice("XAU/USD", mdKey, false);
   const price = typeof lp === "number" ? lp : (candles.length ? candles[candles.length - 1].c : rr.price);
-  return { ok: true, g: g as unknown as Read, candles, price, session: rr.session, asOf: rr.nowIso };
+  return { ok: true, g: g as unknown as Read, candles, price, session: rr.session, asOf: rr.nowIso, candlesTz: "UTC" };
 }
 
 /**
@@ -156,11 +162,11 @@ export async function GET(req: NextRequest) {
       // gold map asked for "as EUR/USD" is still gold's. So the row is found first, and nothing of it
       // is sent unless the window for its own market is open.
       const { data } = await admin.from("floor_setup_history").select("id,at,mode,price,payload,instrument").eq("id", histId).maybeSingle();
-      const row = data as { id: string; at: string; mode: string; price: number | null; instrument: string | null; payload: { g?: unknown; candles?: unknown[] } } | null;
+      const row = data as { id: string; at: string; mode: string; price: number | null; instrument: string | null; payload: { g?: unknown; candles?: unknown[]; candlesTz?: string } } | null;
       const gate = await windowFor(!!row?.instrument);
       if (!gate.open) return json({ error: "locked", setups: gate }, 402);
       if (!row) return json({ error: "not_found" }, 404);
-      return json({ past: true, id: row.id, at: row.at, mode: row.mode, price: row.price, symbol: row.instrument ?? "XAUUSD", g: row.payload?.g ?? null, candles: row.payload?.candles ?? [], frozen: true });
+      return json({ past: true, id: row.id, at: row.at, mode: row.mode, price: row.price, symbol: row.instrument ?? "XAUUSD", g: row.payload?.g ?? null, candles: row.payload?.candles ?? [], candlesTz: row.payload?.candlesTz ?? null, frozen: true });
     }
     const gate = await myWindow();
     if (!gate.open) return json({ past: [], setups: gate });
@@ -183,9 +189,9 @@ export async function GET(req: NextRequest) {
 
   const built = pair ? await fxSetup(pair, mode, mdKey) : await goldSetup(mode, mdKey);
   if (!built.ok) return json({ g: null, candles: [], price: null, mode, symbol: inst.key, error: built.error });
-  const { g, candles, price, session, asOf } = built;
+  const { g, candles, price, session, asOf, candlesTz } = built;
 
-  const body = { g, candles, price, session, mode, asOf, symbol: inst.key };
+  const body = { g, candles, price, session, mode, asOf, symbol: inst.key, ...(candlesTz ? { candlesTz } : {}) };
   CACHE[ck] = { at: Date.now(), body };
 
   // Snapshot for "previous analysis" — at most one row per instrument per mode per SNAPSHOT_MS, best-effort.
@@ -199,7 +205,7 @@ export async function GET(req: NextRequest) {
       if (!lastErr && (!lastAt || Date.now() - lastAt > SNAPSHOT_MS)) {
         await admin.from("floor_setup_history").insert({
           mode, price, action: g.action ?? null, confidence: g.confidence_score ?? null,
-          payload: { g, candles: candles.slice(-60), session, asOf },
+          payload: { g, candles: candles.slice(-60), session, asOf, ...(candlesTz ? { candlesTz } : {}) },
           ...(pair ? { instrument: pair.key } : {}),
         });
       }

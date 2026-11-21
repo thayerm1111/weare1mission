@@ -35,10 +35,13 @@ test("The Floor's card: the play goes to a member whose window is open, and to n
     // Open: the map as it always was, plus the window.
     const levels = levelsOf(a.json.g).filter((x) => x !== String(a.json.price));
     assert.ok(levels.length >= 3, `${what}: the open member is sent a plan (${levels.join(", ")})`);
-    assert.deepEqual(Object.keys(a.json).filter((k) => k !== "cached").sort(), ["asOf", "candles", "g", "mode", "price", "session", "setups", "symbol"], what);
+    // Gold's chart candles say their clock (11-21: asked for in UTC); a pair's are the GEN FX read's own, as before.
+    const tz = sym ? [] : ["candlesTz"];
+    assert.deepEqual(Object.keys(a.json).filter((k) => k !== "cached").sort(), ["asOf", "candles", ...tz, "g", "mode", "price", "session", "setups", "symbol"].sort(), what);
+    if (!sym) assert.equal(a.json.candlesTz, "UTC", what);
     assert.deepEqual(a.json.setups, { cost: 5, minutes: 30, open: true, via: "credits", until: iso(clock + 25 * MIN) }, what);
     // Closed: the chart, the price and how far along it is — from the route's own 15-second cache or not.
-    assert.deepEqual(Object.keys(b.json).filter((k) => k !== "cached").sort(), ["asOf", "candles", "g", "locked", "mode", "price", "session", "setups", "symbol"], what);
+    assert.deepEqual(Object.keys(b.json).filter((k) => k !== "cached").sort(), ["asOf", "candles", ...tz, "g", "locked", "mode", "price", "session", "setups", "symbol"].sort(), what);
     assert.equal(b.json.cached, true, `${what}: answered from the cache the open member's request filled`);
     assert.equal(b.json.g, null, what);
     assert.ok(["live", "forming", "watching"].includes(b.json.locked.stage), what);

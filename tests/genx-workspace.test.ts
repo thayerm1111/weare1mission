@@ -37,7 +37,10 @@ test('opening GENX buys nothing: the page itself reads only the free shared stat
 
 test('a saved read says so, keeps its own time, and the price beside it is labelled as now', () => {
   assert.match(home, /<b>Saved read · \{whenText\(saved\.at\)\}<\/b>/);
-  assert.match(home, /The chart&rsquo;s price is gold now\./);
+  assert.match(home, /Its levels start at the candle it was made on; the candles and the quote are gold now\./);
+  // An earlier read is drawn from its own candle, labelled, and its steps start at the price it was made at (11-21).
+  assert.match(home, /analysis=\{analysis\}/);
+  assert.match(home, /t: "At the read"/);
   assert.match(home, />Back to current analysis</);
   assert.match(home, /\{!p\.saved && <p\.Confirm/, 'a saved read is not checked as if it were live');
   assert.ok(!/>LIVE</.test(home), 'no LIVE badge');

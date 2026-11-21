@@ -31,7 +31,7 @@ const SHAPES: Record<Shape, (x: number) => number> = {
   climb: (x) => 3512 + 41 * x - 5 * Math.sin(x * 7.5),
 };
 
-function candles(shape: Shape, stepMin: number, seed: number, last = 3550, n = 60): { t: string; o: number; h: number; l: number; c: number }[] {
+function candles(shape: Shape, stepMin: number, seed: number, last = 3550, n = 160): { t: string; o: number; h: number; l: number; c: number }[] {
   const rnd = stream(seed), path = SHAPES[shape];
   const wick = shape === "range" ? 1.4 : 2.6, noise = shape === "range" ? 2.4 : 5.2;
   const t0 = Date.parse("2026-11-20T21:00:00Z") - (n - 1) * stepMin * 60_000;
@@ -116,11 +116,11 @@ export function floorSample(state: SampleState, prices: { play: number; playMinu
   };
   const stageOf = (m: FloorMode) => (m === "swing" ? "forming" : "watching");
   const setup = (m: FloorMode): SetupAnswer => locked
-    ? { g: null, locked: { stage: stageOf(m) }, candles: reads[m].candles, price: 3550, asOf: iso(8_000), setups: { ...gate, open: false, via: null, until: null } }
-    : { g: reads[m].g, candles: reads[m].candles, price: 3550, asOf: iso(8_000), setups: { ...gate, open: true, via: "pass", until: null } };
+    ? { g: null, locked: { stage: stageOf(m) }, candles: reads[m].candles, candlesTz: "UTC", price: 3550, asOf: iso(8_000), setups: { ...gate, open: false, via: null, until: null } }
+    : { g: reads[m].g, candles: reads[m].candles, candlesTz: "UTC", price: 3550, asOf: iso(8_000), setups: { ...gate, open: true, via: "pass", until: null } };
   const setups: Record<FloorMode, SetupAnswer> = { quick: setup("quick"), intraday: setup("intraday"), swing: setup("swing") };
   // What "See the play" leads to where the sample starts with the play withheld: the same read, on a window with its clock running.
-  const paid = (m: FloorMode): SetupAnswer => ({ g: reads[m].g, candles: reads[m].candles, price: 3550, asOf: iso(8_000), setups: { ...gate, open: true, via: "credits", until: iso(-prices.playMinutes * 60_000) } });
+  const paid = (m: FloorMode): SetupAnswer => ({ g: reads[m].g, candles: reads[m].candles, candlesTz: "UTC", price: 3550, asOf: iso(8_000), setups: { ...gate, open: true, via: "credits", until: iso(-prices.playMinutes * 60_000) } });
   const opened: FloorSample["opened"] = locked ? { quick: paid("quick"), intraday: paid("intraday"), swing: paid("swing") } : undefined;
 
   const overview: FloorOverview = {

@@ -104,14 +104,18 @@ export const STAGE_TEXT: Record<SetupStage, string> = {
 
 /* ── The Floor's setup card ───────────────────────────────────────────────────────────────────── */
 
-export type SetupBody = { g: unknown; candles: unknown; price: unknown; session: unknown; mode: unknown; asOf: unknown; symbol: unknown; cached?: boolean };
+export type SetupBody = { g: unknown; candles: unknown; price: unknown; session: unknown; mode: unknown; asOf: unknown; symbol: unknown; cached?: boolean; candlesTz?: "UTC" };
 
-/** The card's answer without the play: the chart and the price are the market's; the read is not sent. */
-export function lockSetup(body: SetupBody): { g: null; locked: LockedSetup; candles: unknown; price: unknown; session: unknown; mode: unknown; asOf: unknown; symbol: unknown; cached?: boolean } {
+/**
+ * The card's answer without the play: the chart and the price are the market's; the read is not sent.
+ * `candlesTz` (the candles' clock — "UTC" or absent) is the chart's, and says nothing about the trade.
+ */
+export function lockSetup(body: SetupBody): { g: null; locked: LockedSetup; candles: unknown; price: unknown; session: unknown; mode: unknown; asOf: unknown; symbol: unknown; cached?: boolean; candlesTz?: "UTC" } {
   return {
     g: null, locked: { stage: stageOf(body.g) },
     candles: body.candles, price: body.price, session: body.session, mode: body.mode, asOf: body.asOf, symbol: body.symbol,
     ...(body.cached ? { cached: true } : {}),
+    ...(body.candlesTz === "UTC" ? { candlesTz: "UTC" as const } : {}),
   };
 }
 

@@ -136,3 +136,42 @@ test('the panel over the page is closed off the edge, fits a phone, and is drawn
   assert.match(drawer, /if \(e\.key === "Escape"\)/);
   assert.match(drawer, /back\?\.focus\?\.\(\)/, 'focus goes back to what opened it');
 });
+
+test('FLOW names no account state until the account it is looking at, and its Auto-run setting, are known (11-21)', async () => {
+  const React = await import('react');
+  (globalThis as unknown as { React: unknown }).React = React;     // the test runner compiles JSX the classic way
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const { FlowExecution } = await import('../src/components/om/flow/FlowExecution');
+  const acct = { accountId: 'A1', accNum: 1, name: 'Main', environment: 'live', autotradeEnabled: true, genxFollower: false, selected: true, riskPct: null } as never;
+  const base = {
+    loading: false, connected: true, conn: null, accounts: [acct], view: acct, viewName: 'Main', health: null,
+    auto: { enabled: true, set: true }, defaultRisk: 1, riskLocked: false, autoBusy: false, autoMsg: '', owner: false, busy: false, err: '', ok: '',
+    mgmtBusy: false, mgmtErr: '', manage: null, onManage: () => {}, onRecheck: () => {},
+    form: { env: 'demo', server: '', email: '', password: '', adding: false, setEnv() {}, setServer() {}, setEmail() {}, setPassword() {}, setAdding() {}, connect() {} },
+  } as never as Record<string, unknown>;
+  // The summary beside the results (the settings panel is a separate, closed drawer).
+  const html = (over: Record<string, unknown>) => {
+    const out = renderToStaticMarkup(React.createElement(FlowExecution as never, { ...base, ...over } as never));
+    return out.slice(0, out.indexOf('</aside>'));
+  };
+  // Which account is being looked at is not known yet: loading, nothing claimed, nothing to press.
+  const waiting = html({ viewReady: false });
+  assert.match(waiting, /Loading account status/);
+  assert.ok(!/Taken|Trading on|Not taken|Manage execution/.test(waiting), waiting);
+  // The Auto-run setting is still on its way: the same.
+  assert.match(html({ viewReady: true, auto: null }), /Loading account status/);
+  // It could not be read: what depends on it is said to, and nothing is called on or off.
+  const failed = html({ viewReady: true, auto: null, autoFailed: true });
+  assert.match(failed, /Depends on Auto-run, which could not be read/);
+  assert.ok(!/Taken · /.test(failed));
+  // Known: the account's own state.
+  assert.match(html({ viewReady: true }), /Taken · Trading on/);
+  // The page tells the panel when it knows; an error answer from Auto-run is not read as a setting.
+  assert.match(home, /viewReady=\{ovState !== "loading"\}/);
+  assert.match(connect, /if \(!r\.ok\) \{ setAutoFailed\(true\); return; \}/);
+  // The settings panel shows no account's switches while it is unknown which account it is, and an
+  // Auto-run switch whose position could not be read cannot be pressed.
+  const drawer = renderToStaticMarkup(React.createElement(FlowExecution as never, { ...base, viewReady: false } as never));
+  assert.ok(!/aria-label="Trading on this account"/.test(drawer));
+  assert.match(exec, /disabled=\{c\.autoBusy \|\| !c\.auto\}/);
+});

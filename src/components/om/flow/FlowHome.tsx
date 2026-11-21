@@ -158,7 +158,7 @@ export function FlowHome({ find }: { find: React.ReactNode }) {
 
       <div className="om-flow-grid">
         <MyFlow ov={ov} state={ovState} failed={failed} switching={switching} period={fp} onPeriod={period} hide={hide} tab={tab} onTab={pickTab} now={now} />
-        <FlowConnect viewing={viewing} manage={manage} onManage={setManage} onAccountsChanged={reload} />
+        <FlowConnect viewing={viewing} viewReady={ovState !== "loading"} manage={manage} onManage={setManage} onAccountsChanged={reload} />
       </div>
 
       {find}

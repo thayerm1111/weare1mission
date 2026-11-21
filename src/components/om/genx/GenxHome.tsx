@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, ChevronDown, Loader2, Pin, X } from "lucide-react";
-import { CandleChart } from "@/components/om/floor/CandleChart";
+import { OmChart } from "@/components/om/chart/OmChart";
+import { timedBars } from "@/lib/chart/candleTime";
 import { GenxCard } from "@/components/om/floor/Floor";
 import { buildSteps } from "@/components/portal/floor/GenxFlow";
-import { realCandles, type ChartCandle, type ChartLevel } from "@/lib/floor/chart";
+import { realCandles, type ChartLevel } from "@/lib/floor/chart";
 import { setupQuery, type FloorMode } from "@/lib/floor/setupInstruments";
 import { STAGE_LABEL, ageText, periodOf, pipsText, setupView, stageSentence, type FloorOverview, type FloorPeriod } from "@/lib/floor/overview";
 import { isOpen } from "@/lib/cashtrap/marketHours";
@@ -62,7 +63,7 @@ export type GenxHomeProps = {
   setupOf: (g: GenxRead) => GenxSetup;
 };
 
-type LiveAnswer = { g?: unknown; locked?: { stage?: string } | null; candles?: unknown; price?: unknown; asOf?: unknown; error?: string };
+type LiveAnswer = { g?: unknown; locked?: { stage?: string } | null; candles?: unknown; candlesTz?: unknown; price?: unknown; asOf?: unknown; error?: string };
 
 const MODES: { id: FloorMode; label: string; sub: string }[] = [
   { id: "quick", label: "Quick", sub: "30–80 pips" },
@@ -70,6 +71,8 @@ const MODES: { id: FloorMode; label: string; sub: string }[] = [
   { id: "swing", label: "Swing", sub: "hours to days" },
 ];
 const LIVE_EVERY_MS = 20_000, RESULTS_EVERY_MS = 120_000;
+const TF: Record<FloorMode, { label: string; ms: number }> = { quick: { label: "5m", ms: 5 * 60_000 }, intraday: { label: "15m", ms: 15 * 60_000 }, swing: { label: "1h", ms: 60 * 60_000 } };
+const goldOpen = (t: number) => isOpen("metal", t);
 const fin = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const px = (v: Num | undefined) => priceFor("XAUUSD", v ?? null);
 const store = {
@@ -164,18 +167,28 @@ export function GenxHome(p: GenxHomeProps) {
 
   // ── what the chart shows ──
   const liveView = useMemo(() => setupView(live as never), [live]);
-  const liveCandles = useMemo(() => realCandles(live?.candles), [live]);
-  const ownCandles = useMemo(() => realCandles(p.readCandles), [p.readCandles]);
-  const candles: ChartCandle[] = read && !saved && ownCandles.length >= 2 ? ownCandles : liveCandles;
-  const livePrice = fin(live?.price) ? live!.price as number : liveCandles.length ? liveCandles[liveCandles.length - 1].c : null;
-  const price = read && !saved && fin(p.readPrice) ? p.readPrice : livePrice;
+  // The chart is gold's own candles (UTC, from the shared free read) whenever they have loaded; the read's
+  // candles (stamped in the feed's own clock) stand in only until then.
+  const liveTb = useMemo(() => timedBars(live?.candles, live?.candlesTz), [live]);
+  const ownTb = useMemo(() => timedBars(p.readCandles, null), [p.readCandles]);
+  const tb = liveTb.bars.length >= 2 || !read || saved ? liveTb : ownTb;
+  const livePrice = fin(live?.price) ? live!.price as number : liveTb.bars.length ? liveTb.bars[liveTb.bars.length - 1].c : null;
+  // The quote is always gold now. A read keeps its own price, shown with the read.
+  const price = livePrice ?? (read && !saved && fin(p.readPrice) ? p.readPrice : null);
   const marks = read ? readLevels(read, subject) : { levels: liveView.levels, zone: liveView.zone };
   const shut = now > 0 && !isOpen("metal", now);
   const horizon = MODES.find((m) => m.id === mode)!;
+  const tf = TF[mode];
   const liveAt = typeof live?.asOf === "string" ? live.asOf : null;
+  const liveAtMs = liveAt ? Date.parse(liveAt) : NaN;
   const fresh = shut ? "Gold is closed · this is the last price before the close"
-    : read && !saved ? (p.readAt ? `Read at ${whenText(p.readAt)}${p.readLive ? "" : " · reference data"}` : "")
-      : liveAt ? `Gold now · updated ${ageText(liveAt, now)}` : liveFailed ? "Gold's price could not be read just now" : "";
+    : liveAt ? `Gold now · updated ${ageText(liveAt, now)}` : liveFailed ? "Gold's price could not be read just now" : "";
+  // When the levels on the chart were made. A read older than two candles is drawn from its own candle on,
+  // and labelled — its levels are never passed off as today's.
+  const readIso = saved?.at ?? (read ? p.readAt : null);
+  const readMs = readIso ? Date.parse(readIso) : NaN;
+  const older = read != null && Number.isFinite(readMs) && now > 0 && now - readMs > 2 * tf.ms;
+  const analysis = older ? { at: readMs, label: `${saved ? "Saved read" : "This read"} · ${whenText(readIso)}` } : null;
 
   return (
     <div className="om-ws om-genx">
@@ -200,7 +213,7 @@ export function GenxHome(p: GenxHomeProps) {
 
       {saved && (
         <div className="om-genx-saved" role="status">
-          <p><b>Saved read · {whenText(saved.at)}</b><span className="om-label"> Frozen as it was written{saved.mode ? `, ${saved.mode}` : ""}. The chart&rsquo;s price is gold now.</span></p>
+          <p><b>Saved read · {whenText(saved.at)}</b><span className="om-label"> Frozen as it was written{saved.mode ? `, ${saved.mode}` : ""}{fin(p.readPrice) ? `, with gold at ${px(p.readPrice)}` : ""}. Its levels start at the candle it was made on; the candles and the quote are gold now.</span></p>
           <button type="button" className="om-btn-quiet" onClick={p.backToCurrent}>Back to current analysis</button>
         </div>
       )}
@@ -221,11 +234,14 @@ export function GenxHome(p: GenxHomeProps) {
             )}
           </div>
           <div className="om-genx-plot">
-            {candles.length >= 2
-              ? <CandleChart candles={candles} price={price} dec={2} levels={marks.levels} zone={marks.zone} label={`Gold, ${horizon.label.toLowerCase()} horizon${price != null ? `, ${px(price)}` : ""}`} />
+            {tb.bars.length >= 2
+              ? <OmChart bars={tb.bars} timeKnown={tb.known} tfMs={tf.ms} tfLabel={tf.label} price={price}
+                  priceLive={!shut && Number.isFinite(liveAtMs) && now - liveAtMs < 120_000} dec={2}
+                  levels={marks.levels} zone={marks.zone} analysis={analysis} isOpenAt={goldOpen} viewKey={`XAUUSD:${mode}`}
+                  label={`Gold, ${tf.label} candles, ${horizon.label.toLowerCase()} horizon${price != null ? `, ${px(price)}` : ""}`} />
               : <p className="om-empty">{liveFailed ? "Gold's candles could not be read just now. This tries again on its own." : "Reading gold…"}</p>}
           </div>
-          {read && subject === "main" && <Steps g={read} price={price} />}
+          {read && subject === "main" && <Steps g={read} price={older ? p.readPrice : price} older={older} />}
         </section>
 
         <aside className="om-panel om-genx-panel" aria-label="What GENX is doing">
@@ -337,12 +353,13 @@ function Waiting({ view, failed, loaded }: { view: ReturnType<typeof setupView>;
 }
 
 /** The path GENX expects, as a strip — every step only if the one before it happens. */
-function Steps({ g, price }: { g: GenxRead; price: number | null }) {
-  const steps = buildSteps(g as never, price);
+function Steps({ g, price, older }: { g: GenxRead; price: number | null; older: boolean }) {
+  // An earlier read starts from the price it was made at, never from gold now: its steps are its own.
+  const steps = buildSteps(g as never, price).map((s, i) => (i === 0 && older && s.t === "NOW" ? { ...s, t: "At the read" } : s));
   if (steps.length < 2) return null;
   return (
     <div className="om-genx-steps">
-      <p className="om-label">If it plays out — each step only after the one before</p>
+      <p className="om-label">{older ? "As this read planned it — from the price it was made at" : "If it plays out — each step only after the one before"}</p>
       <ol data-no-i18n translate="no">
         {steps.map((s, i) => <li key={i} data-tone={s.tone}><b>{stepWords(s.t)}</b>{s.s ? <span className="om-num">{s.s.replace(/^\$/, "")}</span> : null}</li>)}
       </ol>

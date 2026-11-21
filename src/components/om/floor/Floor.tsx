@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, ChevronDown, Eye, EyeOff, Info, Mic, Send } from "lucide-react";
-import { CandleChart } from "./CandleChart";
+import { OmChart } from "@/components/om/chart/OmChart";
+import { timedBars } from "@/lib/chart/candleTime";
 import { AtlasMark } from "./AtlasMark";
 import { useSeeThePlay } from "@/components/portal/SetupLock";
 import { leaveFloorQuestion } from "@/components/command-center/hud/floorAsk";
@@ -43,6 +44,8 @@ import {
 export type SetupAnswer = {
   g?: unknown; locked?: { stage?: string } | null; candles?: unknown; price?: unknown; asOf?: unknown;
   setups?: SetupGate | null; error?: string;
+  /** "UTC" when the candles' stamps are UTC (the route says so); otherwise they are the feed's own clock. */
+  candlesTz?: unknown;
 };
 export type Tick = { label: string; price: number; percent: number | null; dp: number };
 /** Fixed, labelled sample content for the review route. Never mixed with a member's data. */
@@ -66,6 +69,9 @@ const TFS: { mode: FloorMode; tf: string; name: string }[] = [
   { mode: "swing", tf: "1h", name: "Swing" },
 ];
 const SETUP_EVERY_MS = 20_000, OVERVIEW_EVERY_MS = 60_000, TICKER_EVERY_MS = 45_000;
+const TF_MS: Record<FloorMode, number> = { quick: 5 * 60_000, intraday: 15 * 60_000, swing: 60 * 60_000 };
+/** Gold's calendar, for the chart's "market closed" shading — the same rule as the "gold is closed" line. */
+const goldOpen = (t: number) => isOpen("metal", t);
 
 const store = {
   get(k: string): string | null { try { return localStorage.getItem(k); } catch { return null; } },
@@ -207,7 +213,8 @@ function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample, onS
   onSamplePlay?: () => void;
 }) {
   const view = useMemo(() => setupView(setup), [setup]);
-  const candles = useMemo(() => realCandles(setup?.candles), [setup]);
+  const tb = useMemo(() => timedBars(setup?.candles, setup?.candlesTz), [setup]);
+  const candles = tb.bars;
   const price = typeof setup?.price === "number" && Number.isFinite(setup.price) ? setup.price : candles.length ? candles[candles.length - 1].c : null;
   const horizon = TFS.find((t) => t.mode === tf)!;
   const gate = setup?.setups ?? null;
@@ -219,6 +226,9 @@ function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample, onS
   // Gold does not trade from Friday evening to Sunday evening or in its daily break. The last price is
   // then the last price, and is said to be — never dated as if it had just been made.
   const shut = now > 0 && !isOpen("metal", now);
+  const asOfMs = Date.parse(String(setup?.asOf ?? ""));
+  // The price tag is drawn as moving only while gold trades and the quote is recent.
+  const quoteLive = !sample && !shut && Number.isFinite(asOfMs) && now - asOfMs < 120_000;
   // The engine's sentences are shown as it wrote them, under a label; only the first letter is raised.
   const own = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -243,7 +253,9 @@ function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample, onS
       <div className="om-chart-body">
         <div className="om-chart" data-no-i18n translate="no">
           {candles.length >= 2
-            ? <CandleChart candles={candles} price={price} dec={GOLD.dec} levels={view.levels} zone={view.zone} label={`Gold, ${horizon.tf} candles${price != null ? `, last price ${px(price)}` : ""}`} />
+            ? <OmChart bars={candles} timeKnown={tb.known} tfMs={TF_MS[tf]} tfLabel={horizon.tf} price={price} priceLive={quoteLive} dec={GOLD.dec}
+                levels={view.levels} zone={view.zone} isOpenAt={goldOpen} viewKey={`XAUUSD:${tf}`}
+                label={`Gold, ${horizon.tf} candles${price != null ? `, last price ${px(price)}` : ""}`} />
             : <div className="om-chart-note">{!setup && !failed ? "Loading the chart…" : "The chart could not be loaded just now. It will try again on its own."}</div>}
         </div>
 

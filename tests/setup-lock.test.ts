@@ -94,6 +94,9 @@ test("The Floor's card with the window closed: the chart, the price, the stage â
   const more = lockSetup({ ...BODY, cached: true, ...({ levels: [4130.9], note: "sell 4130" } as object) });
   assert.deepEqual(Object.keys(more).sort(), ["asOf", "cached", "candles", "g", "locked", "mode", "price", "session", "symbol"]);
   assert.ok(!JSON.stringify({ ...more, candles: [] }).includes("4130"));
+  // The candles' clock is the chart's (11-21): passed on when it is UTC, and nothing else is.
+  assert.equal(lockSetup({ ...BODY, candlesTz: "UTC" }).candlesTz, "UTC");
+  assert.equal("candlesTz" in lockSetup({ ...BODY, ...({ candlesTz: "sell 4130" } as object) }), false);
 });
 
 test("GEN FX lists with the window closed: a call still open is its pair, horizon and stage; only a win or a loss is a result", () => {

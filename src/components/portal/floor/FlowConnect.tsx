@@ -119,9 +119,11 @@ function money(n: number | null | undefined) {
   return "$" + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function FlowConnect({ viewing = null, manage = null, onManage, onAccountsChanged }: {
+export function FlowConnect({ viewing = null, viewReady = true, manage = null, onManage, onAccountsChanged }: {
   /** New shell only: the account the page is looking at, its settings shown beside its results. */
   viewing?: FlowViewing | null;
+  /** New shell only: whether the page knows yet which account it is looking at. Until it does, nothing is summarised. */
+  viewReady?: boolean;
   manage?: ManageView;
   onManage?: (v: ManageView) => void;
   /** A login was connected or disconnected: the page's account list is out of date. */
@@ -159,6 +161,8 @@ export function FlowConnect({ viewing = null, manage = null, onManage, onAccount
   const [addingAccount, setAddingAccount] = useState(false);
 
   const [auto, setAuto] = useState<AutoRun | null>(null);
+  /** The Auto-run setting could not be read. Not the same as off: nothing is said about it until it is read. */
+  const [autoFailed, setAutoFailed] = useState(false);
   const [risk, setRisk] = useState<number>(1);
   const [riskLocked, setRiskLocked] = useState(false);
   const [autoBusy, setAutoBusy] = useState(false);
@@ -202,14 +206,17 @@ export function FlowConnect({ viewing = null, manage = null, onManage, onAccount
   const loadAuto = useCallback(async () => {
     try {
       const r = await fetch("/api/flow/autorun", { cache: "no-store" });
+      // An error answer is not a setting: read as one, it showed "Off" (11-21).
+      if (!r.ok) { setAutoFailed(true); return; }
       const d = (await r.json()) as AutoRun;
       setAuto(d || {});
+      setAutoFailed(false);
       if (d && typeof d.riskPct === "number" && d.riskPct > 0) {
         setRisk(d.riskPct);
         setRiskLocked(true);
       }
     } catch {
-      /* noop */
+      setAutoFailed(true);
     }
   }, []);
 
@@ -469,6 +476,7 @@ export function FlowConnect({ viewing = null, manage = null, onManage, onAccount
       <FlowExecution
         loading={loading} connected={connected} conn={conn} accounts={accounts} view={view}
         viewName={hit && viewing ? viewing.name : null} health={hit && viewing ? viewing.health ?? null : null}
+        viewReady={viewReady} autoFailed={autoFailed}
         auto={auto} defaultRisk={risk} riskLocked={riskLocked} autoBusy={autoBusy} autoMsg={autoMsg}
         owner={!!adminSw} busy={busy} err={err} ok={ok}
         mgmtBusy={!!mgmtBusy[key]} mgmtErr={mgmtErr[key] || ""}

@@ -97,7 +97,9 @@ test("the route: gold is the GENX read as before; a pair is the GEN FX read; the
   // Gold, unchanged: the same engine call, the same builder inputs, the same chart and price reads.
   assert.ok(/computeGenxRead\(\{ mode, mdKey, fresh: false \}\)/.test(route));
   assert.ok(/buildGenx\(rr\.read, \{[\s\S]*?pip: GOLD\.pip, dec: GOLD\.dec, marketStory: \[\], volatility: rr\.volatility, atr: rr\.atr, m15: rr\.m15,\s*\}\)/.test(route));
-  assert.ok(/series\("XAU\/USD", CHART_TF\[mode\], 60, mdKey, false\)/.test(route) && /livePrice\("XAU\/USD", mdKey, false\)/.test(route));
+  // 11-21: gold's chart candles are asked for in UTC, 300 of them from the same single request, and the answer says so.
+  assert.ok(/series\("XAU\/USD", CHART_TF\[mode\], CHART_BARS, mdKey, false, "UTC"\)/.test(route) && /livePrice\("XAU\/USD", mdKey, false\)/.test(route));
+  assert.ok(/const CHART_BARS = 300;/.test(route) && /candlesTz: "UTC" \};/.test(route));
   // A pair: the GEN FX engine, the way the GEN FX page builds it, with no story.
   assert.ok(/computeGenfxRead\(\{ pair, mode, mdKey, fresh: false \}\)/.test(route));
   assert.ok(/genfxOf\(pair, rr\.read, \{[\s\S]*?marketStory: \[\], volatility: rr\.volatility, atr: rr\.atr,\s*\}\)/.test(route));
@@ -114,7 +116,7 @@ test("the route: gold is the GENX read as before; a pair is the GEN FX read; the
   // both "could not read" answers. (The card draws a map only under the market it names.)
   assert.ok(/const inst = floorInstrument\(url\.searchParams\.get\("symbol"\)\)/.test(route));
   assert.equal(count(route, "symbol: inst.key"), 3);
-  assert.ok(/const body = \{ g, candles, price, session, mode, asOf, symbol: inst\.key \}/.test(route));
+  assert.ok(/const body = \{ g, candles, price, session, mode, asOf, symbol: inst\.key, \.\.\.\(candlesTz \? \{ candlesTz \} : \{\}\) \}/.test(route));
   // A pair's chart is drawn from the candles its read was made on; it is asked for again only if there are too few.
   assert.ok(/const candles = own\.length >= 44 \? own : toCandles\(await series\(pair\.td, CHART_TF\[mode\], 60, mdKey, false\)\)/.test(route));
   for (const m of ["quick", "intraday", "swing"] as const) assert.equal(MODES[m].tf.m15, ({ quick: "5min", intraday: "15min", swing: "1h" } as const)[m], "the engine's candles are the chart's timeframe");

@@ -53,6 +53,14 @@ export type ExecControls = {
   /** That account's connection, as The Floor reads it. */
   health: "connected" | "attention" | null;
   auto: ExecAuto;
+  /**
+   * Whether the page knows which account it is looking at. Until it does — and until the Auto-run setting has
+   * been read — the panel says it is loading, and summarises no account (owner 11-21: FLOW showed "Taken ·
+   * Trading on" for a moment before the chosen account's "Trading off" arrived).
+   */
+  viewReady?: boolean;
+  /** The Auto-run setting could not be read. */
+  autoFailed?: boolean;
   defaultRisk: number;
   riskLocked: boolean;
   autoBusy: boolean;
@@ -94,7 +102,8 @@ const shortDate = (iso?: string | null) => {
 };
 
 /** The master switch in words: on, off, or never set — three different things the service does. */
-function autoState(auto: ExecAuto): { on: boolean; label: string; line: string } {
+function autoState(auto: ExecAuto, failed = false): { on: boolean; label: string; line: string } {
+  if (!auto && failed) return { on: false, label: "could not be read", line: "Your Auto-run setting could not be read just now, so what reaches this account automatically is not shown. Nothing was changed." };
   if (!auto) return { on: false, label: "reading…", line: "" };
   if (auto.enabled) return { on: true, label: "On", line: "FLOW places its forex and index trades on accounts with Trading on. GENX trades reach accounts with Trading or Follow GENX on." };
   if (auto.set === false) return { on: false, label: "Not switched on", line: "FLOW's own forex and index trades are not placed. GENX trades still reach accounts with Trading or Follow GENX on." };
@@ -151,13 +160,25 @@ export function FlowExecution(c: ExecControls) {
     body = <div className="om-flow-exec-skel" aria-busy="true"><span className="om-skel" style={{ width: 120, height: 20 }} /><span className="om-skel" style={{ width: "100%", height: 120 }} /></div>;
   } else if (!c.connected) {
     body = <ConnectForm c={c} title="Connect a broker" />;
+  } else if (c.viewReady === false || (!auto && !c.autoFailed)) {
+    // Neutral until this account's own settings and the Auto-run setting are both in: no state is guessed, and
+    // nothing here can be pressed yet.
+    body = (
+      <div className="om-flow-exec-wait" aria-busy="true">
+        <div className="om-flow-exec-head"><h2>Execution</h2><p className="om-label" role="status">Loading account status…</p></div>
+        <span className="om-skel" style={{ width: "100%", height: 18 }} aria-hidden="true" />
+        <span className="om-skel" style={{ width: "86%", height: 18 }} aria-hidden="true" />
+        <span className="om-skel" style={{ width: "64%", height: 18 }} aria-hidden="true" />
+      </div>
+    );
   } else if (!view) {
     body = <p className="om-empty">This account&rsquo;s settings could not be read just now. <button type="button" className="om-go" onClick={c.onRecheck}>Try again</button></p>;
   } else {
-    const st = autoState(auto);
+    const st = autoState(auto, c.autoFailed);
     const off = !!auto && auto.set === true && auto.enabled === false;
-    const genx = off ? "Not taken · Auto-run off" : view.autotradeEnabled ? "Taken · Trading on" : view.genxFollower ? "Every signal · Follow on" : "Not taken";
-    const flow = !view.autotradeEnabled ? "Not taken · Trading off" : !auto ? "…" : auto.enabled ? "Taken · Auto-run on" : "Not taken · Auto-run not on";
+    const unknown = !auto;      // the Auto-run setting could not be read: what it allows is not claimed
+    const genx = unknown ? (view.autotradeEnabled || view.genxFollower ? "Depends on Auto-run, which could not be read" : "Not taken") : off ? "Not taken · Auto-run off" : view.autotradeEnabled ? "Taken · Trading on" : view.genxFollower ? "Every signal · Follow on" : "Not taken";
+    const flow = !view.autotradeEnabled ? "Not taken · Trading off" : unknown ? "Depends on Auto-run, which could not be read" : auto.enabled ? "Taken · Auto-run on" : "Not taken · Auto-run not on";
     const fx = view.genfx && (view.genfx.eurusd || view.genfx.gbpjpy) ? [view.genfx.eurusd && "EUR/USD", view.genfx.gbpjpy && "GBP/JPY"].filter(Boolean).join(", ") + " · switched on in GEN FX" : null;
     const eff = view.riskPct ?? c.defaultRisk;
     const service = serviceLine(auto);
@@ -197,7 +218,9 @@ export function FlowExecution(c: ExecControls) {
       <aside ref={asideRef} className="om-panel om-flow-exec" aria-label="Execution">{body}</aside>
       <Drawer id="om-flow-manage" open={drawerOpen} onClose={close} title={c.form.adding ? "Connect another account" : "Manage execution"}
         sub={view && !c.form.adding ? <span data-no-i18n translate="no">{nameOf(view, c.viewName)} · {envWord(view.environment)}</span> : undefined}>
-        {c.form.adding ? <ConnectForm c={c} title={null} back={() => setAdding(false)} /> : view ? <Settings c={c} a={view} /> : null}
+        {c.form.adding ? <ConnectForm c={c} title={null} back={() => setAdding(false)} />
+          : view && c.viewReady !== false ? <Settings c={c} a={view} />
+            : <p className="om-label" role="status">Loading account status…</p>}
       </Drawer>
     </>
   );
@@ -252,7 +275,7 @@ function Settings({ c, a }: { c: ExecControls; a: ExecAccount }) {
   const trading = a.autotradeEnabled === true;
   const follows = a.genxFollower === true;
   const eff = a.riskPct ?? c.defaultRisk;
-  const st = autoState(c.auto);
+  const st = autoState(c.auto, c.autoFailed);
   const service = serviceLine(c.auto);
   const beOn = a.beEnabled !== false;
   const pips = a.breakEvenPips ?? 30;
@@ -319,7 +342,8 @@ function Settings({ c, a }: { c: ExecControls; a: ExecAccount }) {
             {!c.auto?.pass && <p className="om-label">1 credit when a setup starts forming and 5 when a trade is placed — once each, however many accounts. Credits: <span className="om-num">{c.auto?.credits ?? "—"}</span>.</p>}
             {c.autoMsg && <p className="om-flow-ok" role="status">{c.autoMsg}</p>}
           </div>
-          <Switch on={st.on} label="Auto-run FLOW on all your accounts" disabled={c.autoBusy} onClick={() => c.onAuto(!c.auto?.enabled)} />
+          {/* A switch whose position could not be read is not offered: pressing it would set something unseen. */}
+          <Switch on={st.on} label="Auto-run FLOW on all your accounts" disabled={c.autoBusy || !c.auto} onClick={() => { if (c.auto) c.onAuto(!c.auto.enabled); }} />
         </div>
       </Section>
 

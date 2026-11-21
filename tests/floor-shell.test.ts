@@ -315,7 +315,7 @@ test('The Floor: results on the first screen, one next step per context, methods
   const floor = read('src/components/om/floor/Floor.tsx');
   const css = read('src/components/om/om.css').replace(/\/\*[\s\S]*?\*\//g, '');
   // The chart row is held to about 400px on a desktop so the results bands are on screen at 1440 × 900 and 1728 × 881.
-  assert.match(css, /\.om-stage \{[^}]*grid-template-columns: minmax\(0, 2\.3fr\) minmax\(330px, 1fr\); grid-auto-rows: clamp\(384px, 45vh, 440px\)/);
+  assert.match(css, /\.om-stage \{[^}]*grid-template-columns: minmax\(0, 2\.3fr\) minmax\(330px, 1fr\); grid-auto-rows: clamp\(404px, 48vh, 480px\)/);
   // Atlas's mark on the Floor is small (36–48px); the full presence stays in the Command Center.
   const mark = css.match(/\.om-atlas-mark \{ width: (\d+)px; height: (\d+)px/);
   assert.ok(mark && Number(mark[1]) >= 36 && Number(mark[1]) <= 48 && mark[1] === mark[2]);

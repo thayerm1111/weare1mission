@@ -11,6 +11,11 @@ import { marketOpen } from "../../../../command-center/core/sessions";
 import { NO_CHART_ACTIONS, markNotes, receiveChartAction, settleChartActions, type ChartActionOverlay } from "./chartActions";
 import { explainBus, useExplain, useUserDrawings, userDrawings } from "./explainBus";
 import { AnnotationLayer, AnnotationMenu, ExplainCaption, UserLineLayer, annotationNotes, annotationPrices, focusIndex } from "./AtlasAnnotations";
+// The navigation maths is shared with The Floor's and GENX's charts (src/lib/chart/viewport.ts): one set of rules.
+import {
+  AUTO_VIEW as AUTO, clamp, indexOfT, timeWindow, anchorOf as anchorAt, zoomAt, spanAround, panTo, stretchPrice, toNewest,
+  type Viewport,
+} from "../../../lib/chart/viewport";
 
 /** Commands the desk sends the chart (window CustomEvent): its own view, and the candle the member means. */
 export const CHART_CMD_EVENT = "cc:chart-cmd";
@@ -68,45 +73,11 @@ export type ChartLevel = { kind: string; price: number; label: string };
  * This is a VIEW control and nothing else. It reads the same bars the engine already sent, changes no
  * data, and reports nothing back — zooming the cockpit glass never touches the pilot.
  */
-const MIN_BARS = 10;
-const PHONE_BARS = 14;     // the default window on a phone-width chart       // never zoom past a handful of candles
-const OVERSCROLL = 0.35;   // how far past the newest / oldest candle panning may run, as a fraction of the view
-const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+const PHONE_BARS = 14;     // the default window on a phone-width chart
 
 const STATUS_COLOR: Record<FeedStatus, string> = {
   live: H.green, delayed: H.gold2, reconnecting: H.gold2, stale: H.red, closed: H.mut, demo: H.blue,
 };
-
-type Viewport = {
-  /** Right-most visible candle, by its OPEN TIME (ignored while `follow` is on). */
-  endT: number;
-  /** How far past that candle the right edge sits, in bars (pans are smooth, not bar-snapped). */
-  endOff: number;
-  /** How many bars are visible. 0 means "auto: show everything the feed sent". */
-  span: number;
-  /** Stay pinned to the newest candle as bars arrive. */
-  follow: boolean;
-  /** Price-scale stretch. 1 = fit the visible candles. */
-  pz: number;
-  /** Vertical pan, in price units. */
-  pOff: number;
-};
-const AUTO: Viewport = { endT: 0, endOff: 0, span: 0, follow: true, pz: 1, pOff: 0 };
-
-/** Index of the last candle opening at or before `t` (0 when `t` is before them all). */
-function indexAtOrBefore(bars: readonly { t: number }[], t: number): number {
-  let lo = 0, hi = bars.length - 1, ans = 0;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (bars[mid].t <= t) { ans = mid; lo = mid + 1; } else hi = mid - 1;
-  }
-  return ans;
-}
-/** Index of the candle opening exactly at `t`, or -1. */
-function indexOfT(bars: readonly { t: number }[], t: number): number {
-  const i = indexAtOrBefore(bars, t);
-  return bars[i]?.t === t ? i : -1;
-}
 
 /** Was the market open for the whole of some bucket strictly between two candles? Only then is the hole
  *  missing data; a weekend or the daily break is the calendar, not a gap. Intraday timeframes only. */
@@ -301,10 +272,7 @@ export function GoldChart({
     // PHONE_BARS candles, not the whole series. Same data; pinch / drag / Reset all work as before, and
     // Reset returns here.
     const autoSpan = compact ? Math.min(n, PHONE_BARS) : n;
-    const span = clamp(vp.span > 0 ? vp.span : autoSpan, Math.min(MIN_BARS, n), n);
-    const anchored = indexAtOrBefore(bars, vp.endT) + vp.endOff;
-    const end = vp.follow ? n - 1 : clamp(anchored, span - 1 - span * OVERSCROLL, n - 1 + span * OVERSCROLL);
-    const iL = end - span + 1;
+    const { span, end, iL } = timeWindow(bars, vp, autoSpan);
     const bw = usable / span;
     const x = (i: number) => (i - iL + 0.5) * bw;
     const i0 = Math.max(0, Math.floor(iL) - 1), i1 = Math.min(n - 1, Math.ceil(end) + 1);
@@ -344,15 +312,10 @@ export function GoldChart({
   if (view) st.current = { n: view.n, bw: view.bw, iL: view.iL, end: view.end, span: view.span, usable: view.usable, plotW, pricePerPx: view.pricePerPx };
 
   /** A float bar index → the time anchor the viewport stores. */
-  const anchorOf = useCallback((end: number): { endT: number; endOff: number } => {
-    const b = barsRef.current;
-    if (!b.length) return { endT: 0, endOff: 0 };
-    const i = clamp(Math.floor(end), 0, b.length - 1);
-    return { endT: b[i].t, endOff: end - i };
-  }, []);
+  const anchorOf = useCallback((end: number): { endT: number; endOff: number } => anchorAt(barsRef.current, end), []);
 
   const reset = useCallback(() => setVp(AUTO), []);
-  const toLive = useCallback(() => setVp((v) => ({ ...v, follow: true, endOff: 0, pOff: 0 })), []);
+  const toLive = useCallback(() => setVp(toNewest), []);
 
   /* Wheel: over the plot it zooms time around the cursor, over the price axis it stretches price. */
   useEffect(() => {
@@ -363,20 +326,12 @@ export function GoldChart({
       const r = el.getBoundingClientRect();
       const px = e.clientX - r.left;
       const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-      if (px > s.plotW) { setVp((v) => ({ ...v, pz: clamp(v.pz * Math.exp(-dy * 0.0018), 0.2, 30) })); return; }
-      if (e.shiftKey) { setVp((v) => ({ ...v, pz: clamp(v.pz * Math.exp(-dy * 0.0018), 0.2, 30) })); return; }
-      const anchor = s.iL + px / s.bw - 0.5;
-      setVp((v) => {
-        const cur = v.span > 0 ? v.span : s.span;
-        const span = clamp(cur * Math.exp(dy * 0.0014), Math.min(MIN_BARS, s.n), s.n);
-        const iL = anchor - (px / (s.usable / span) - 0.5);
-        const end = iL + span - 1;
-        return { ...v, span, ...anchorOf(end), follow: end >= s.n - 1.25 };
-      });
+      if (px > s.plotW || e.shiftKey) { setVp((v) => ({ ...v, pz: stretchPrice(v.pz, dy, 0.0018) })); return; }
+      setVp((v) => zoomAt(v, s, barsRef.current, px, dy));
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [anchorOf]);
+  }, []);
 
   /* Drag to pan, two fingers to pinch, drag on the axis to stretch price. */
   const pts = useRef(new Map<number, { x: number; y: number }>());
@@ -408,10 +363,7 @@ export function GoldChart({
       const [a, b] = [...pts.current.values()];
       const dist = Math.max(1, Math.abs(a.x - b.x));
       const p = pinch.current;
-      const span = clamp((p.span || s.n) * (p.dist / dist), Math.min(MIN_BARS, s.n), s.n);
-      const iL = p.anchor - (p.px / (s.usable / span) - 0.5);
-      const end = iL + span - 1;
-      setVp((v) => ({ ...v, span, ...anchorOf(end), follow: end >= s.n - 1.25 }));
+      setVp((v) => spanAround(v, s, barsRef.current, p.anchor, p.px, (p.span || s.n) * (p.dist / dist)));
       return;
     }
 
@@ -419,9 +371,8 @@ export function GoldChart({
     if (d) {
       const dx = e.clientX - d.x, dy = e.clientY - d.y;
       if (!d.moved && Math.hypot(dx, dy) > 2) d.moved = true;
-      if (d.axis) { setVp((v) => ({ ...v, pz: clamp(d.pz * Math.exp(-dy * 0.006), 0.2, 30) })); return; }
-      const end = d.end - dx / s.bw;
-      setVp((v) => ({ ...v, span: v.span > 0 ? v.span : s.span, ...anchorOf(end), follow: end >= s.n - 1.25, pOff: d.pOff + dy * s.pricePerPx }));
+      if (d.axis) { setVp((v) => ({ ...v, pz: stretchPrice(d.pz, dy, 0.006) })); return; }
+      setVp((v) => panTo(v, s, barsRef.current, d.end - dx / s.bw, d.pOff + dy * s.pricePerPx));
       return;
     }
 
@@ -430,7 +381,7 @@ export function GoldChart({
     const b = barsRef.current;
     setHoverT(px <= plotW && i >= 0 && i < b.length ? b[i].t : null);
     setHoverY(py >= 0 && py <= priceH ? py : null);
-  }, [view, plotW, priceH, anchorOf]);
+  }, [view, plotW, priceH]);
 
   const onUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const d = drag.current;
@@ -472,7 +423,7 @@ export function GoldChart({
   useEffect(() => {
     if (ex.status === "explaining" || ex.status === "showing" || !autoFocused.current) return;
     autoFocused.current = false;
-    setVp((v) => ({ ...v, follow: true, endOff: 0, pOff: 0 }));
+    setVp(toNewest);
   }, [ex.status]);
 
   /* Commands from the desk: back to live, clear ATLAS's drawings, and "explain this candle". */
@@ -484,7 +435,7 @@ export function GoldChart({
     const on = (e: Event) => {
       const c = (e as CustomEvent<ChartCmd>).detail;
       if (!c) return;
-      if (c.type === "to_live") { autoFocused.current = false; setVp((v) => ({ ...v, follow: true, endOff: 0, pOff: 0 })); }
+      if (c.type === "to_live") { autoFocused.current = false; setVp(toNewest); }
       if (c.type === "clear_atlas") { setActions(NO_CHART_ACTIONS); explainBus.clear(); setPicked(null); }
       if (c.type === "explain_candle") {
         const b = barsRef.current, t = tfRef.current;
