@@ -721,9 +721,14 @@ function GradeBadge({ grade, score }: { grade: string; score?: number }) {
  *  record's outcome (what happened after) are two things and are shown as two. Neither is a broker order. */
 function playWords(r: Result): { setup: string; outcome: string; tone: "pos" | "neg" | null } {
   const s = r.signal;
-  const waiting = s.direction === "NEUTRAL" || s.status === "no_trade";
-  const setup = waiting ? "Waiting for confirmation" : s.direction === "LONG" ? "Buy setup" : "Sell setup";
-  const outcome = r.status === "win" ? `Target ${r.hitTp ?? 1} reached` : r.status === "loss" ? "Stopped out" : waiting ? "No trade yet" : "Open";
+  // Seen on the owner's saved plays (11-20): a play the engine had NOT confirmed still carries a side and
+  // levels, and its result can still be checked — so "Waiting for confirmation" beside "Target 3 reached"
+  // read as a contradiction. The setup column says what the engine concluded; the outcome, what price did.
+  const none = s.direction === "NEUTRAL";
+  const side = s.direction === "LONG" ? "Buy" : "Sell";
+  const waiting = none || s.status === "no_trade";
+  const setup = none ? "No setup" : waiting ? `${side} idea, not confirmed` : `${side} setup`;
+  const outcome = r.status === "win" ? `Target ${r.hitTp ?? 1} reached` : r.status === "loss" ? "Stopped out" : none ? "No trade" : waiting ? "Waiting for confirmation" : "Open";
   return { setup, outcome, tone: r.status === "win" ? "pos" : r.status === "loss" ? "neg" : null };
 }
 

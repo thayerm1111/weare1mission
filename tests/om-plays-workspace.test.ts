@@ -46,9 +46,9 @@ test('nothing is generated, charged or reset by looking', () => {
 });
 
 test('a saved play says its setup and its outcome as two things, in words', () => {
-  assert.match(src, /const waiting = s\.direction === "NEUTRAL" \|\| s\.status === "no_trade";/);
-  assert.match(src, /const setup = waiting \? "Waiting for confirmation" : s\.direction === "LONG" \? "Buy setup" : "Sell setup";/);
-  assert.match(src, /r\.status === "loss" \? "Stopped out" : waiting \? "No trade yet" : "Open"/, 'a play still waiting is never called an open trade');
+  assert.match(src, /const waiting = none \|\| s\.status === "no_trade";/);
+  assert.match(src, /const setup = none \? "No setup" : waiting \? `\$\{side\} idea, not confirmed` : `\$\{side\} setup`;/, 'an unconfirmed play is never called a setup');
+  assert.match(src, /r\.status === "loss" \? "Stopped out" : none \? "No trade" : waiting \? "Waiting for confirmation" : "Open"/, 'a play still waiting is never called an open trade');
   const row = src.slice(src.indexOf('function PlayRow('), src.indexOf('function CompactCard('));
   assert.match(row, /sure\s*\n?\s*\? <button type="button" role="menuitem" className="om-danger"/, 'deleting takes a second, named tap');
   assert.match(row, /const canCheck = r\.status === "open" && r\.signal\.direction !== "NEUTRAL";/);
