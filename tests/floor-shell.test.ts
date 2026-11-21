@@ -365,7 +365,8 @@ test('the surface rules: scoped styles, opaque fallbacks, no decorative motion, 
   assert.match(css, /@supports not \(\(backdrop-filter: blur\(1px\)\)/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.ok(!/@keyframes|animation:(?!\s*none)/.test(css), 'nothing animates on its own');
-  assert.ok(!/#ffc24b|#ffd47a|#d5a93d|gold/i.test(css), 'no gold decoration');
+  // "gold" may only appear where an earlier view's gold is being taken OUT (.om-legacy matches its class names).
+  assert.ok(!/#ffc24b|#ffd47a|#d5a93d|gold/i.test(css.replace(/\.om-legacy \[class\*="[^"]*"\]/g, '')), 'no gold decoration');
   // The owner's tokens.
   for (const token of ['#08090e', '#12131c', '#1c1d29', '#f4f5f7', '#a9afbb', '#101116', '#b6c4ff', '#87c6af', '#e099a1']) assert.ok(css.includes(token), `${token} is a token`);
   assert.match(css, /font-variant-numeric: tabular-nums/);

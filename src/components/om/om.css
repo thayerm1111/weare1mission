@@ -276,6 +276,128 @@
 .om-app :focus-visible { outline: 2px solid var(--om-ai); outline-offset: 2px; }
 .om-skel { display: inline-block; border-radius: 8px; background: rgba(255, 255, 255, 0.07); color: transparent !important; user-select: none; }
 
+/* ── a tool's workspace: shared parts ─────────────────────────────────────────────────────────── */
+/*
+ * Every tool opens the same way: one title, one sentence of purpose, its figures or its one action on the
+ * right; then its surfaces. These are the shared parts — a field, a search box with its list, a
+ * one-of-a-few choice, a disclosure, a quiet state, rows of records. A tool adds only its own grid.
+ */
+.om-ws { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--om-gap); }
+.om-ws-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px 24px; flex-wrap: wrap; padding: 2px 4px 0; }
+.om-ws-note { margin: 0 0 3px; color: var(--om-text-2); font-size: 14px; }
+.om-ws-note b { color: var(--om-text); font-weight: 500; font-size: 17px; margin-right: 3px; }
+.om-btn[disabled] { opacity: 0.5; cursor: default; box-shadow: none; }
+.om-field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; }
+.om-field > .om-label, .om-field > p { margin: 0; }
+.om-combo { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 6px 0 14px; border-radius: var(--om-r-input); border: 1px solid var(--om-edge-2); background: rgba(255, 255, 255, 0.04); }
+.om-combo:focus-within { border-color: var(--om-ai); }
+.om-combo > svg { width: 16px; height: 16px; color: var(--om-text-2); flex: 0 0 auto; }
+.om-combo input { flex: 1 1 auto; min-width: 0; height: 100%; border: 0; background: none; color: var(--om-text); font: inherit; font-size: 15px; outline: none; }
+.om-combo input::placeholder { color: var(--om-text-2); }
+.om-combo-list { max-height: 320px; overflow-y: auto; overscroll-behavior: contain; padding: 6px; border-radius: var(--om-r-input); border: 1px solid var(--om-edge); background: rgba(255, 255, 255, 0.025); }
+.om-combo-list p { margin: 8px 8px 4px; }
+.om-combo-list button {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px; width: 100%; min-height: 40px; padding: 8px 10px;
+  border: 0; border-radius: 10px; background: none; color: var(--om-text); font: inherit; font-size: 14.5px; text-align: left; cursor: pointer;
+}
+.om-combo-list button:hover, .om-combo-list button[aria-selected="true"] { background: rgba(255, 255, 255, 0.07); }
+.om-combo-list small { color: var(--om-text-2); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.om-picked { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.om-picked b { font-size: 17px; font-weight: 500; }
+.om-picked span { color: var(--om-text-2); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.om-seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 3px; border-radius: var(--om-r-input); background: rgba(255, 255, 255, 0.05); }
+.om-seg button { height: 36px; border: 0; border-radius: 9px; background: none; color: var(--om-text-2); font: inherit; font-size: 14px; cursor: pointer; transition: background-color 140ms ease, color 140ms ease; }
+.om-seg button:hover { color: var(--om-text); }
+.om-seg button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.13); color: var(--om-text); font-weight: 500; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1); }
+.om-disclose { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 0; border: 0; background: none; color: var(--om-text); font: inherit; font-size: 14.5px; line-height: 1.4; text-align: left; cursor: pointer; }
+.om-disclose > span { display: grid; gap: 4px; min-width: 0; }
+.om-disclose > svg { width: 16px; height: 16px; color: var(--om-text-2); flex: 0 0 auto; transition: transform 140ms ease; }
+.om-disclose[aria-expanded="true"] > svg { transform: rotate(180deg); }
+.om-adv { display: grid; gap: 8px; padding-top: 4px; }
+.om-adv > .om-label { margin-top: 8px; }
+.om-choices { display: grid; gap: 6px; }
+.om-choices button { display: grid; gap: 1px; padding: 9px 12px; border-radius: var(--om-r-input); border: 1px solid var(--om-edge); background: none; color: var(--om-text); font: inherit; text-align: left; cursor: pointer; }
+.om-choices button b { font-size: 14px; font-weight: 500; }
+.om-choices button small { color: var(--om-text-2); font-size: 12.5px; }
+.om-choices button[aria-pressed="true"] { border-color: rgba(182, 196, 255, 0.55); background: rgba(182, 196, 255, 0.08); }
+.om-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+.om-toggles button { height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--om-edge); background: none; color: var(--om-text-2); font: inherit; font-size: 13px; cursor: pointer; }
+.om-toggles button[aria-pressed="true"] { border-color: rgba(182, 196, 255, 0.55); background: rgba(182, 196, 255, 0.08); color: var(--om-text); }
+.om-state { display: grid; justify-items: center; gap: 8px; padding: clamp(36px, 7vh, 72px) 24px; text-align: center; }
+.om-state p { margin: 0; font-size: 17px; }
+.om-state .om-label { max-width: 46ch; font-size: 13.5px; line-height: 1.5; }
+.om-state > svg { width: 22px; height: 22px; color: var(--om-ai); }
+.om-state-acts { display: inline-flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; justify-content: center; }
+.om-rows { list-style: none; margin: 0; padding: 0; }
+.om-rows li { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--om-hair); }
+.om-rows li:first-child { border-top: 0; }
+.om-row-main {
+  flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: minmax(110px, 1.1fr) minmax(150px, 1.4fr) minmax(120px, 1fr) minmax(120px, auto);
+  align-items: center; gap: 12px; min-height: 58px; padding: 6px 8px; border: 0; border-radius: 12px; background: none;
+  color: var(--om-text); font: inherit; font-size: 14.5px; text-align: left; cursor: pointer;
+}
+.om-row-main:hover, .om-rows li[data-current] .om-row-main { background: rgba(255, 255, 255, 0.045); }
+.om-row-sym { display: grid; gap: 1px; font-weight: 500; }
+.om-row-sym small { color: var(--om-text-2); font-size: 12.5px; font-weight: 400; }
+.om-row-main > :last-child { text-align: right; font-size: 13px; }
+.om-row-more { position: relative; flex: 0 0 auto; }
+.om-row-more .om-icon-btn { width: 36px; height: 36px; }
+.om-row-more .om-icon-btn svg { width: 18px; height: 18px; }
+.om-row-more .om-menu { width: 224px; }
+.om-menu button.om-danger, .om-menu button.om-danger svg { color: var(--om-neg); }
+.om-menu button[disabled] { opacity: 0.55; cursor: default; }
+
+/* ── OM AI Plays ──────────────────────────────────────────────────────────────────────────────── */
+.om-plays-grid { display: grid; grid-template-columns: minmax(280px, 320px) minmax(0, 1fr); gap: var(--om-gap); align-items: start; }
+.om-plays-config { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; padding: 22px 22px 20px; }
+.om-plays-go { display: grid; gap: 8px; }
+.om-plays-go .om-btn { width: 100%; height: 44px; }
+.om-plays-go p { margin: 0; }
+.om-plays-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--om-gap); min-width: 0; }
+.om-plays-result { min-width: 0; }
+.om-plays-detail { padding: 20px 22px 22px; }
+/* The earlier card's own frame is dropped: the surface it sits on is the frame. Its chart keeps a sensible height. */
+.om-plays-detail > :first-child { border: 0 !important; background: none !important; box-shadow: none !important; padding: 0 !important; }
+.om-plays-detail svg[viewBox] { max-height: 340px; }
+.om-plays-detail-acts { display: flex; align-items: center; gap: 18px; margin-top: 16px; }
+.om-saved { min-width: 0; }
+.om-saved-head { display: flex; align-items: center; justify-content: space-between; gap: 6px 16px; flex-wrap: wrap; padding: 0 4px 6px; border-bottom: 1px solid var(--om-hair); }
+.om-saved-head h2 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: -0.008em; }
+.om-saved .om-empty { padding: 0 4px; }
+@media (max-width: 980px) {
+  .om-plays-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .om-row-main { grid-template-columns: minmax(0, 1fr) auto; row-gap: 2px; padding: 10px 6px; }
+  .om-row-main > :nth-child(2) { order: 3; color: var(--om-text-2); font-size: 13px; }
+  .om-row-main > :last-child { order: 4; }
+  .om-plays-detail { padding: 16px 14px 18px; }
+}
+
+/* ── a tool's earlier markup, shown inside a new workspace ────────────────────────────────────── */
+/*
+ * Until a detail view is rebuilt, its earlier markup is shown inside the new surface and brought to the
+ * same materials here: the platform's typeface and weights, sentence case, soft-white primary actions in
+ * place of gold, the AI accent in place of gold text, mint and coral for direction and result. Only how
+ * it looks changes — every control inside it is the one that was already there.
+ */
+.om-legacy { color: var(--om-text); font-family: var(--om-font); }
+.om-legacy [class*="font-serif"] { font-family: inherit !important; }
+.om-legacy [class*="font-bold"], .om-legacy [class*="font-extrabold"], .om-legacy [class*="font-black"], .om-legacy [class*="font-semibold"] { font-weight: 500 !important; }
+.om-legacy [class*="uppercase"] { text-transform: none !important; letter-spacing: 0 !important; }
+.om-legacy [class*="rounded-none"] { border-radius: 999px !important; }
+.om-legacy [class*="from-gold-light"] { background-image: none !important; background-color: var(--om-text) !important; color: var(--om-ink) !important; }
+.om-legacy [class*="text-gold-"], .om-legacy [class*="text-amber-"] { color: var(--om-ai) !important; }
+.om-legacy [class*="border-gold-"], .om-legacy [class*="border-amber-"] { border-color: rgba(182, 196, 255, 0.4) !important; }
+.om-legacy [class*="bg-gold-light/"], .om-legacy [class*="bg-amber-"] { background-color: rgba(182, 196, 255, 0.08) !important; }
+.om-legacy [class*="ring-gold-"] { --tw-ring-color: rgba(182, 196, 255, 0.35) !important; }
+.om-legacy [class*="text-emerald-"], .om-legacy [class*="text-green-"] { color: var(--om-pos) !important; }
+.om-legacy [class*="text-red-"], .om-legacy [class*="text-rose-"] { color: var(--om-neg) !important; }
+.om-legacy [class*="bg-emerald-"], .om-legacy [class*="bg-green-"] { background-color: rgba(135, 198, 175, 0.12) !important; background-image: none !important; }
+.om-legacy [class*="bg-red-"], .om-legacy [class*="bg-rose-"] { background-color: rgba(224, 153, 161, 0.12) !important; }
+.om-legacy [class*="border-emerald-"] { border-color: rgba(135, 198, 175, 0.35) !important; }
+.om-legacy [class*="border-red-"], .om-legacy [class*="border-rose-"] { border-color: rgba(224, 153, 161, 0.35) !important; }
+
 /* ── notifications ────────────────────────────────────────────────────────────────────────────── */
 /*
  * The panel is fixed to the screen and slides in from the right. Closed, it is off the edge, invisible and

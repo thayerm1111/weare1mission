@@ -7,6 +7,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Activity, CreditCard, Globe, LayoutGrid, LifeBuoy, Link2, LogOut, ShieldCheck, Sparkles, Undo2, User, UserCircle, Wrench, Zap } from "lucide-react";
 import { NotificationsBell } from "@/components/portal/NotificationsBell";
 import { NAV, TAB_ORDER, TOOLS_SHEET, activeKey, type NavKey } from "@/lib/floor/nav";
+import { ShellContext } from "./shell";
 
 /**
  * ONE SHELL FOR THE TRADING PLATFORM (owner 11-20).
@@ -176,7 +177,7 @@ export function AppShell({ children, member, configured = true, preview = false 
       <Suspense fallback={<div className="om-nav-wrap"><div className="om-frame"><div className="om-nav" /></div></div>}>
         <Bar member={member} configured={configured} preview={preview} />
       </Suspense>
-      <main className="om-main"><div className="om-frame">{children}</div></main>
+      <main className="om-main"><div className="om-frame"><ShellContext.Provider value={true}>{children}</ShellContext.Provider></div></main>
     </div>
   );
 }
