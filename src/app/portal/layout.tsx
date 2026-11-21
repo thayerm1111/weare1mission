@@ -39,7 +39,8 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     ...PORTAL_METADATA,
     manifest: APP_MANIFEST,
-    appleWebApp: { capable: true, title: APP_NAME, statusBarStyle: "black" },
+    // A light status bar with dark text: the default look is Stone (lib/floor/look.ts).
+    appleWebApp: { capable: true, title: APP_NAME, statusBarStyle: "default" },
     icons: {
       icon: [{ url: "/om-app/icon-192.png", sizes: "192x192", type: "image/png" }],
       apple: [{ url: "/om-app/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],

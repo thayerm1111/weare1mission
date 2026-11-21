@@ -367,7 +367,7 @@ test('the surface rules: scoped styles, opaque fallbacks, no decorative motion, 
   assert.ok(!/@keyframes|animation:(?!\s*none)/.test(css), 'nothing animates on its own');
   // "gold" may only appear where an earlier view's gold is being taken OUT (.om-legacy matches its class names).
   assert.ok(!/#ffc24b|#ffd47a|#d5a93d|gold/i.test(css.replace(/\.om-legacy \[class\*="[^"]*"\]/g, '')), 'no gold decoration');
-  // The owner's tokens.
-  for (const token of ['#08090e', '#12131c', '#1c1d29', '#f4f5f7', '#a9afbb', '#101116', '#b6c4ff', '#87c6af', '#e099a1']) assert.ok(css.includes(token), `${token} is a token`);
+  // The owner's tokens (11-21: "B · Stone", with Graphite a toggle away): One Mission's stone, white and ink, and the warm charcoal.
+  for (const token of ['#f5f4f1', '#ffffff', '#111111', '#5f5c56', '#1a1a1d', '#232327', '#f6f5f2', '#bab6ae', '#6f6a5d', '#cfc7b3']) assert.ok(css.includes(token), `${token} is a token`);
   assert.match(css, /font-variant-numeric: tabular-nums/);
 });

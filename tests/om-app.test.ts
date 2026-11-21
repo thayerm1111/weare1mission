@@ -131,7 +131,7 @@ test('the manifest names the One Mission app on the new design, and its icons ar
   assert.equal(m.start_url, '/portal/trading', 'it opens on The Floor');
   assert.equal(m.theme_color, APP_THEME);
   assert.equal(m.background_color, APP_THEME);
-  assert.equal(APP_THEME, '#08090e', 'the canvas the shell is drawn on');
+  assert.equal(APP_THEME, '#f5f4f1', 'the canvas of the default look, Stone');
   assert.ok(m.id && m.id !== '/app/index.html', 'its own identity: the members\' app at /app/ stays a separate app');
   const png = (p: string) => { const b = readFileSync('public' + p); assert.equal(b.toString('ascii', 1, 4), 'PNG'); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
   const icons = m.icons as { src: string; sizes: string; purpose?: string }[];
@@ -156,13 +156,13 @@ test('only the new shell\'s pages say they can be installed — and a member\'s 
     const meta = src.slice(src.indexOf('export async function generateMetadata'));
     assert.match(meta, /if \(!\(await inNewShell\(\)\)\) return (PORTAL|CC)_METADATA;/, `${f}: everyone else's page is as it was`);
     assert.match(meta, /manifest: APP_MANIFEST/);
-    assert.match(meta, /appleWebApp: \{ capable: true, title: APP_NAME, statusBarStyle: "black" \}/);
+    assert.match(meta, /appleWebApp: \{ capable: true, title: APP_NAME, statusBarStyle: "default" \}/, `${f}: a light bar with dark text, for the Stone look`);
     assert.match(meta, /apple: \[\{ url: "\/om-app\/apple-touch-icon\.png"/);
   }
   const portal = code('src/app/portal/layout.tsx');
   assert.match(portal, /return \(await inNewShell\(\)\) \? \{ themeColor: APP_THEME, viewportFit: "cover" \} : \{\};/, 'the shell reaches the screen\'s edges and pads itself');
   assert.match(portal, /<script dangerouslySetInnerHTML=\{\{ __html: APP_INSTALL_SCRIPT \}\} \/>\s*<AppShell/, 'the offer is caught before the shell mounts');
-  assert.match(code('src/app/command-center/layout.tsx'), /return \(await inNewShell\(\)\) \? \{ themeColor: APP_THEME \} : \{\};/, 'Atlas keeps its own frame inside the safe area');
+  assert.match(code('src/app/command-center/layout.tsx'), /return \(await inNewShell\(\)\) \? \{ themeColor: ATLAS_THEME \} : \{\};/, 'Atlas keeps its own dark frame, inside the safe area');
   // No site-wide manifest: Next's app/manifest convention would put it on every page, for everyone.
   assert.ok(!existsSync('src/app/manifest.ts') && !existsSync('src/app/manifest.json') && !existsSync('src/app/manifest.webmanifest'));
 });

@@ -15,8 +15,10 @@
  */
 export const APP_NAME = "One Mission";
 export const APP_MANIFEST = "/om-app/manifest.webmanifest";
-/** The canvas colour: the browser's own bars and the splash screen match the page under them. */
-export const APP_THEME = "#08090e";
+/** The canvas colour of the default look (Stone): the browser's own bars and the splash screen match the page under them. */
+export const APP_THEME = "#f5f4f1";
+/** Atlas keeps its own dark frame in either look (the Command Center's identity), and its bar colour with it. */
+export const ATLAS_THEME = "#08090e";
 
 export type InstallKind = "prompt" | "ios" | "android" | "mac-safari" | "desktop" | "none";
 export type InstallGuide = { kind: InstallKind; intro: string; steps: string[]; note?: string };

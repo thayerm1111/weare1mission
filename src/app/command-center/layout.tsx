@@ -6,7 +6,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getProfile } from "@/lib/auth";
 import { SHELL_COOKIE, wantsNextShell } from "@/lib/floor/nav";
 import { CC_NEXT_CSS } from "@/components/command-center/hud/nextTheme";
-import { APP_MANIFEST, APP_NAME, APP_THEME } from "@/lib/floor/app";
+import { APP_MANIFEST, APP_NAME, ATLAS_THEME } from "@/lib/floor/app";
 
 const CC_METADATA: Metadata = { title: "Command Center XAUUSD", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
@@ -27,7 +27,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     ...CC_METADATA,
     manifest: APP_MANIFEST,
-    appleWebApp: { capable: true, title: APP_NAME, statusBarStyle: "black" },
+    appleWebApp: { capable: true, title: APP_NAME, statusBarStyle: "default" },
     icons: {
       icon: [{ url: "/om-app/icon-192.png", sizes: "192x192", type: "image/png" }],
       apple: [{ url: "/om-app/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
@@ -37,7 +37,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export async function generateViewport(): Promise<Viewport> {
-  return (await inNewShell()) ? { themeColor: APP_THEME } : {};
+  return (await inNewShell()) ? { themeColor: ATLAS_THEME } : {};
 }
 
 /**

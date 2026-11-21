@@ -8,6 +8,7 @@ import { Activity, CreditCard, Globe, LayoutGrid, LifeBuoy, Link2, LogOut, Shiel
 import { NotificationsBell } from "@/components/portal/NotificationsBell";
 import { NAV, TAB_ORDER, TOOLS_SHEET, activeKey, type NavKey } from "@/lib/floor/nav";
 import type { InstallGuide } from "@/lib/floor/app";
+import { LOOKS, LOOK_CLASS, LOOK_KEY, applyLook, lookOf, themeOf, type Look } from "@/lib/floor/look";
 import { InstallSheet, OfflineNotice, useInstall } from "./InstallApp";
 import { ShellContext } from "./shell";
 
@@ -62,8 +63,10 @@ function Credits() {
   );
 }
 
-function ProfileMenu({ member, configured, preview, asApp, onInstall }: {
+function ProfileMenu({ member, configured, preview, asApp, onInstall, look, onLook }: {
   member: ShellMember; configured: boolean; preview: boolean;
+  /** The look on screen, and the member's way to change it (lib/floor/look.ts). */
+  look: Look; onLook: (l: Look) => void;
   /** Running as the installed app: the preview is what the app is, so there is no "leave" from inside it. */
   asApp: boolean | null;
   /** Offered while this is a browser tab that has not installed the app. */
@@ -98,6 +101,17 @@ function ProfileMenu({ member, configured, preview, asApp, onInstall }: {
           <Link role="menuitem" href="/portal/credits" onClick={() => setOpen(false)}><CreditCard aria-hidden="true" />Credits and billing</Link>
           <Link role="menuitem" href="/portal/support" onClick={() => setOpen(false)}><LifeBuoy aria-hidden="true" />Support</Link>
           {onInstall && <button type="button" role="menuitem" onClick={() => { setOpen(false); onInstall(); }}><Smartphone aria-hidden="true" />Install the app</button>}
+          {/* THE LOOK (owner 11-21): Stone or Graphite, changed in place — the menu stays open so the change is seen. */}
+          <div className="om-menu-look" role="group" aria-label="Look">
+            <span>Look</span>
+            <div className="om-menu-seg">
+              {LOOKS.map((l) => (
+                <button key={l.key} type="button" role="menuitemradio" aria-checked={look === l.key} onClick={() => onLook(l.key)}>
+                  <i className="om-swatch" data-look={l.key} aria-hidden="true" />{l.label}
+                </button>
+              ))}
+            </div>
+          </div>
           {/* The site's own language switch (I18nProvider), asked for from here instead of a floating button. */}
           <button type="button" role="menuitem" data-no-i18n translate="no" onClick={() => { window.dispatchEvent(new Event("om-lang-toggle")); setOpen(false); }}><Globe aria-hidden="true" />{lang === "es" ? "English" : "Español"}</button>
           {member.admin && <><hr /><a role="menuitem" href="/admin/controls"><ShieldCheck aria-hidden="true" />Admin workspace</a></>}
@@ -114,7 +128,7 @@ function ProfileMenu({ member, configured, preview, asApp, onInstall }: {
   );
 }
 
-function Bar({ member, configured, preview }: { member: ShellMember; configured: boolean; preview: boolean }) {
+function Bar({ member, configured, preview, look, onLook }: { member: ShellMember; configured: boolean; preview: boolean; look: Look; onLook: (l: Look) => void }) {
   const path = usePathname() || "";
   const view = useSearchParams().get("view");
   const here = activeKey(path, view);
@@ -159,7 +173,7 @@ function Bar({ member, configured, preview }: { member: ShellMember; configured:
             <div className="om-nav-right">
               {configured && <Credits />}
               {configured && <span className="om-bell"><NotificationsBell trading /></span>}
-              <ProfileMenu member={member} configured={configured} preview={preview} asApp={asApp} onInstall={configured && offer ? install : undefined} />
+              <ProfileMenu member={member} configured={configured} preview={preview} asApp={asApp} onInstall={configured && offer ? install : undefined} look={look} onLook={onLook} />
             </div>
           </nav>
         </div>
@@ -196,21 +210,34 @@ export function AppShell({ children, member, configured = true, preview = false 
   /** The admin preview: offers the way back to the classic portal. */
   preview?: boolean;
 }) {
-  // The public site's header and footer step aside while this shell is on screen.
+  // The public site's header and footer step aside while this shell is on screen, and the member's look is put on.
   // (The same classes are set before first paint by SHELL_SCRIPT; this covers arriving without a reload.)
+  const [look, setLook] = useState<Look>("stone");
   useEffect(() => {
     const d = document.documentElement;
-    d.classList.add("om-shell", "om-dark");
+    d.classList.add("om-shell");
+    let saved: Look = "stone";
+    try { saved = lookOf(localStorage.getItem(LOOK_KEY)); } catch { /* Stone */ }
+    applyLook(d, saved);
+    setLook(saved);
     return () => {
-      d.classList.remove("om-shell");
+      d.classList.remove("om-shell", LOOK_CLASS);
       // The classic portal's own theme choice comes back as the member left it.
-      try { if (localStorage.getItem("om-theme") !== "dark") d.classList.remove("om-dark"); } catch { /* leave it dark */ }
+      let dark = false;
+      try { dark = localStorage.getItem("om-theme") === "dark"; } catch { /* light */ }
+      d.classList.toggle("om-dark", dark);
     };
+  }, []);
+  const chooseLook = useCallback((l: Look) => {
+    applyLook(document.documentElement, l);
+    setLook(l);
+    try { localStorage.setItem(LOOK_KEY, l); } catch { /* this visit only */ }
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themeOf(l));
   }, []);
   return (
     <div className="om-app">
       <Suspense fallback={<div className="om-nav-wrap"><div className="om-frame"><div className="om-nav" /></div></div>}>
-        <Bar member={member} configured={configured} preview={preview} />
+        <Bar member={member} configured={configured} preview={preview} look={look} onLook={chooseLook} />
       </Suspense>
       <main className="om-main"><div className="om-frame"><ShellContext.Provider value={true}>{children}</ShellContext.Provider></div></main>
       <OfflineNotice />

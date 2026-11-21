@@ -71,15 +71,25 @@ export function wantsNextShell(cookieValue: string | null | undefined, isAdmin: 
 
 /* ── stepping the public site's chrome aside ───────────────────────────────────────────────────── */
 
-/** Applied while the shell is on screen (class on <html>, as the Command Center does it). */
+/**
+ * Applied while the shell is on screen (class on <html>, as the Command Center does it). The page behind the shell is
+ * the chosen look's canvas: Stone by default, Graphite with its class (lib/floor/look.ts).
+ */
 export const SHELL_CSS =
-  "html.om-shell,html.om-shell body{background:#08090e!important}" +
+  "html.om-shell,html.om-shell body{background:#f5f4f1!important}" +
+  "html.om-shell.om-look-graphite,html.om-shell.om-look-graphite body{background:#1a1a1d!important}" +
   "html.om-shell body>header,html.om-shell body>footer{display:none!important}" +
   "html.om-shell [data-om-splash],html.om-shell [data-om-chrome]{display:none!important}" +
   "html.om-shell body>div[data-no-i18n].fixed{display:none!important}" +     // language moves into the account menu
   "html.om-shell #main{flex:1 1 auto}" +
-  "html.om-shell{color-scheme:dark}" +
-  ".om-app .om-bell>button{width:42px!important;height:42px!important;border-color:rgba(255,255,255,.14)!important;background:rgba(255,255,255,.1)!important;color:#f4f5f7!important}";
+  "html.om-shell{color-scheme:light}html.om-shell.om-look-graphite{color-scheme:dark}" +
+  ".om-app .om-bell>button{width:42px!important;height:42px!important;border-color:var(--om-edge-2)!important;background:rgb(var(--om-fg) / .06)!important;color:var(--om-text)!important}";
 
-/** Runs before the first paint, so the public header never flashes above the shell. */
-export const SHELL_SCRIPT = "(function(){try{var d=document.documentElement;d.classList.add('om-shell');d.classList.add('om-dark');}catch(e){}})();";
+/**
+ * Runs before the first paint, so the public header never flashes above the shell and the page never shows the other
+ * look first: the member's look (Stone unless they chose Graphite) and the browser's bar colour to match it.
+ */
+export const SHELL_SCRIPT =
+  "(function(){try{var d=document.documentElement;d.classList.add('om-shell');var g=false;try{g=localStorage.getItem('om-look')==='graphite';}catch(e){}" +
+  "d.classList.toggle('om-look-graphite',g);d.classList.toggle('om-dark',g);" +
+  "var m=document.querySelector('meta[name=\"theme-color\"]');if(m)m.setAttribute('content',g?'#1a1a1d':'#f5f4f1');}catch(e){}})();";

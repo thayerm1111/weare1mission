@@ -339,13 +339,14 @@ export function Spark({ series }: { series: number[] }) {
   const pts = series.map((v, i) => [(i / (series.length - 1)) * W, 4 + (1 - (v - lo) / span) * (H - 8)] as const);
   const line = pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`).join("");
   const up = series[series.length - 1] >= series[0];
-  const col = up ? "#87C6AF" : "#E099A1";
+  // The look's own gain and loss colours (om.css tokens), set through style: SVG attributes cannot read a CSS variable.
+  const col = up ? "var(--om-pos)" : "var(--om-neg)";
   return (
     <div className="om-spark" aria-hidden="true">
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
-        <defs><linearGradient id="om-spark-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={col} stopOpacity="0.28" /><stop offset="1" stopColor={col} stopOpacity="0" /></linearGradient></defs>
+        <defs><linearGradient id="om-spark-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style={{ stopColor: col }} stopOpacity="0.28" /><stop offset="1" style={{ stopColor: col }} stopOpacity="0" /></linearGradient></defs>
         <path d={`${line}L${W} ${H}L0 ${H}Z`} fill="url(#om-spark-fill)" />
-        <path d={line} fill="none" stroke={col} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        <path d={line} fill="none" style={{ stroke: col }} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
       </svg>
     </div>
   );

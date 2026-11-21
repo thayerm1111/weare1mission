@@ -55,10 +55,15 @@ export type OmChartProps = {
   label: string;
 };
 
-const UP = "#87C6AF", DOWN = "#E099A1";
+/*
+ * Colours are the shell's tokens (om.css), so the chart follows the member's look — Stone or Graphite — with nothing
+ * redrawn. SVG presentation attributes cannot read a CSS variable, so every colour is set through `style`.
+ */
+const UP = "var(--om-pos)", DOWN = "var(--om-neg)";
 const LEVEL_COLOR: Record<ChartLevel["kind"], string> = {
-  resistance: "rgba(244,245,247,0.6)", support: "rgba(244,245,247,0.6)", entry: "#B6C4FF", stop: "#E099A1", target: "#87C6AF",
+  resistance: "var(--om-ch-level)", support: "var(--om-ch-level)", entry: "var(--om-ai)", stop: "var(--om-neg)", target: "var(--om-pos)",
 };
+const HALO = "var(--om-ch-halo)";
 const TOP_BAND = 34, TIME_H = 24;
 const PHONE_BARS = 40, DESK_BARS = 90;
 
@@ -402,14 +407,14 @@ export function OmChart(p: OmChartProps) {
           <defs>
             <clipPath id={`omch-plot-${uid}`}><rect x={0} y={0} width={plotW} height={priceH} /></clipPath>
             <pattern id={`omch-shut-${uid}`} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-              <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(255,255,255,0.05)" strokeWidth="2" />
+              <line x1="0" y1="0" x2="0" y2="6" style={{ stroke: "var(--om-ch-hatch)" }} strokeWidth="2" />
             </pattern>
           </defs>
 
           {/* grid */}
-          {yTicks.map((v) => <line key={`h${v}`} x1={0} x2={plotW} y1={y(v)} y2={y(v)} stroke="rgba(255,255,255,0.055)" />)}
-          {tTicks.map((t) => <line key={`v${t.i}`} x1={x(t.i)} x2={x(t.i)} y1={TOP_BAND - 6} y2={priceH} stroke="rgba(255,255,255,0.04)" />)}
-          <line x1={0} x2={plotW} y1={priceH} y2={priceH} stroke="rgba(255,255,255,0.1)" />
+          {yTicks.map((v) => <line key={`h${v}`} x1={0} x2={plotW} y1={y(v)} y2={y(v)} style={{ stroke: "var(--om-ch-grid)" }} />)}
+          {tTicks.map((t) => <line key={`v${t.i}`} x1={x(t.i)} x2={x(t.i)} y1={TOP_BAND - 6} y2={priceH} style={{ stroke: "var(--om-ch-grid-2)" }} />)}
+          <line x1={0} x2={plotW} y1={priceH} y2={priceH} style={{ stroke: "var(--om-ch-base)" }} />
 
           <g clipPath={`url(#omch-plot-${uid})`}>
             {/* stamped while the market was shut: said, not hidden */}
@@ -425,7 +430,7 @@ export function OmChart(p: OmChartProps) {
               return (
                 <g key={`c${r.a}`} pointerEvents="none">
                   <rect x={x0} y={0} width={Math.max(1, x1 - x0)} height={priceH} fill={`url(#omch-shut-${uid})`} />
-                  {cap && <text x={capR} y={priceH - 9} textAnchor="end" fontSize="11.5" fill="#7d8391" stroke="#12131C" strokeWidth="4" paintOrder="stroke">{cap}</text>}
+                  {cap && <text x={capR} y={priceH - 9} textAnchor="end" fontSize="11.5" style={{ fill: "var(--om-text-3)", stroke: HALO }} strokeWidth="4" paintOrder="stroke">{cap}</text>}
                 </g>
               );
             })}
@@ -433,7 +438,7 @@ export function OmChart(p: OmChartProps) {
             {/* the entry zone */}
             {p.zone && levelX0 != null && (() => {
               const zt = y(p.zone.high), zb = y(p.zone.low);
-              return zb - zt >= 1 ? <rect x={levelX0} y={zt} width={Math.max(0, plotW - levelX0)} height={zb - zt} fill="rgba(182,196,255,0.09)" /> : null;
+              return zb - zt >= 1 ? <rect x={levelX0} y={zt} width={Math.max(0, plotW - levelX0)} height={zb - zt} style={{ fill: "rgb(var(--om-ai-rgb) / 0.09)" }} /> : null;
             })()}
 
             {/* candles */}
@@ -442,8 +447,8 @@ export function OmChart(p: OmChartProps) {
               const yo = y(b.o), yc = y(b.c);
               return (
                 <g key={b.t} opacity={shut(b.t) ? 0.55 : 1}>
-                  <line x1={cx} x2={cx} y1={y(b.h)} y2={y(b.l)} stroke={col} strokeWidth="1" />
-                  <rect x={cx - cw / 2} y={Math.min(yo, yc)} width={cw} height={Math.max(1, Math.abs(yc - yo))} rx="0.6" fill={col} />
+                  <line x1={cx} x2={cx} y1={y(b.h)} y2={y(b.l)} style={{ stroke: col }} strokeWidth="1" />
+                  <rect x={cx - cw / 2} y={Math.min(yo, yc)} width={cw} height={Math.max(1, Math.abs(yc - yo))} rx="0.6" style={{ fill: col }} />
                 </g>
               );
             })}
@@ -451,55 +456,55 @@ export function OmChart(p: OmChartProps) {
             {/* the moment an earlier analysis was made */}
             {aX != null && aX >= 0 && aX <= plotW && (
               <g pointerEvents="none" data-analysis-mark="">
-                <line x1={aX} x2={aX} y1={TOP_BAND - 4} y2={priceH} stroke="rgba(182,196,255,0.55)" strokeDasharray="3 4" />
-                <text x={aLeft ? aX - 8 : aX + 8} y={priceH - 9} textAnchor={aLeft ? "end" : "start"} fontSize="11.5" fill="#B6C4FF" stroke="#12131C" strokeWidth="4" paintOrder="stroke">{aText}</text>
+                <line x1={aX} x2={aX} y1={TOP_BAND - 4} y2={priceH} style={{ stroke: "rgb(var(--om-ai-rgb) / 0.55)" }} strokeDasharray="3 4" />
+                <text x={aLeft ? aX - 8 : aX + 8} y={priceH - 9} textAnchor={aLeft ? "end" : "start"} fontSize="11.5" style={{ fill: "var(--om-ai)", stroke: HALO }} strokeWidth="4" paintOrder="stroke">{aText}</text>
               </g>
             )}
 
             {/* levels the engine produced */}
             {levelX0 != null && lv.map(({ l, ly, labelY }) => (
               <g key={`${l.kind}${l.price}`} opacity={p.analysis ? 0.85 : 1}>
-                <line x1={levelX0} x2={plotW} y1={ly} y2={ly} stroke={LEVEL_COLOR[l.kind]} strokeWidth="1" strokeDasharray={p.analysis ? "2 4" : "4 4"} />
-                <text x={levelX0 + 10} y={labelY} fill="#F4F5F7" fontSize="12.5" stroke="#12131C" strokeWidth="4" strokeLinejoin="round" paintOrder="stroke" style={{ fontVariantNumeric: "tabular-nums" }}>{l.label} {priceText(l.price, dec)}</text>
+                <line x1={levelX0} x2={plotW} y1={ly} y2={ly} style={{ stroke: LEVEL_COLOR[l.kind] }} strokeWidth="1" strokeDasharray={p.analysis ? "2 4" : "4 4"} />
+                <text x={levelX0 + 10} y={labelY} fontSize="12.5" strokeWidth="4" strokeLinejoin="round" paintOrder="stroke" style={{ fill: "var(--om-text)", stroke: HALO, fontVariantNumeric: "tabular-nums" }}>{l.label} {priceText(l.price, dec)}</text>
               </g>
             ))}
 
             {/* the last price */}
-            {pxY != null && pxY >= 0 && pxY <= priceH && <line x1={0} x2={plotW} y1={pxY} y2={pxY} stroke={p.priceLive ? "rgba(135,198,175,0.4)" : "rgba(169,175,187,0.35)"} strokeDasharray="1 4" />}
+            {pxY != null && pxY >= 0 && pxY <= priceH && <line x1={0} x2={plotW} y1={pxY} y2={pxY} style={{ stroke: p.priceLive ? "rgb(var(--om-pos-rgb) / 0.4)" : "var(--om-ch-price)" }} strokeDasharray="1 4" />}
           </g>
 
           {/* price axis */}
           {yTicks.filter((v) => pxY == null || Math.abs(y(v) - pxY) > 14).map((v) => (
-            <text key={`p${v}`} x={plotW + 10} y={y(v) + 4} fill="#A9AFBB" fontSize="12" style={{ fontVariantNumeric: "tabular-nums" }}>{priceText(v, dec)}</text>
+            <text key={`p${v}`} x={plotW + 10} y={y(v) + 4} fontSize="12" style={{ fill: "var(--om-text-2)", fontVariantNumeric: "tabular-nums" }}>{priceText(v, dec)}</text>
           ))}
           {pxY != null && pxY >= -10 && pxY <= priceH + 10 && (
             <g>
-              <rect x={plotW + 3} y={clamp(pxY, 11, priceH - 11) - 11} width={AXIS - 6} height={22} rx="6" fill={p.priceLive ? UP : "#A9AFBB"} />
-              <text x={plotW + AXIS / 2} y={clamp(pxY, 11, priceH - 11) + 4.5} textAnchor="middle" fill="#101116" fontSize="12" fontWeight="500" style={{ fontVariantNumeric: "tabular-nums" }}>{priceText(p.price!, dec)}</text>
+              <rect x={plotW + 3} y={clamp(pxY, 11, priceH - 11) - 11} width={AXIS - 6} height={22} rx="6" style={{ fill: p.priceLive ? UP : "var(--om-ch-tag)" }} />
+              <text x={plotW + AXIS / 2} y={clamp(pxY, 11, priceH - 11) + 4.5} textAnchor="middle" fontSize="12" fontWeight="500" style={{ fill: "var(--om-ch-tag-text)", fontVariantNumeric: "tabular-nums" }}>{priceText(p.price!, dec)}</text>
             </g>
           )}
 
           {/* time axis */}
-          {tTicks.filter((t) => crossX == null || !timeKnown || Math.abs(x(t.i) - crossX) > 64).map((t) => <text key={`t${t.i}`} x={x(t.i)} y={sz.h - 7} fill="#A9AFBB" fontSize="12" textAnchor="middle">{t.text}</text>)}
+          {tTicks.filter((t) => crossX == null || !timeKnown || Math.abs(x(t.i) - crossX) > 64).map((t) => <text key={`t${t.i}`} x={x(t.i)} y={sz.h - 7} fontSize="12" textAnchor="middle" style={{ fill: "var(--om-text-2)" }}>{t.text}</text>)}
 
           {/* crosshair */}
           {si >= 0 && x(si) >= 0 && x(si) <= plotW && (
             <g pointerEvents="none">
-              <rect x={x(si) - bw / 2} y={TOP_BAND - 4} width={bw} height={priceH - TOP_BAND + 4} fill="rgba(255,255,255,0.035)" />
-              <line x1={x(si)} x2={x(si)} y1={TOP_BAND - 4} y2={priceH} stroke="rgba(244,245,247,0.32)" strokeDasharray="2 3" />
+              <rect x={x(si) - bw / 2} y={TOP_BAND - 4} width={bw} height={priceH - TOP_BAND + 4} style={{ fill: "var(--om-ch-col)" }} />
+              <line x1={x(si)} x2={x(si)} y1={TOP_BAND - 4} y2={priceH} style={{ stroke: "var(--om-ch-cross)" }} strokeDasharray="2 3" />
               {timeKnown && (
                 <g>
-                  <rect x={clamp(x(si) - 34, 0, plotW - 68)} y={priceH + 2} width={68} height={TIME_H - 4} rx="5" fill="#1c1d29" stroke="rgba(255,255,255,0.14)" />
-                  <text x={clamp(x(si), 34, plotW - 34)} y={priceH + 16} textAnchor="middle" fontSize="11.5" fill="#F4F5F7">{clockText(bars[si].t, false)}</text>
+                  <rect x={clamp(x(si) - 34, 0, plotW - 68)} y={priceH + 2} width={68} height={TIME_H - 4} rx="5" style={{ fill: "var(--om-ch-tip)", stroke: "var(--om-ch-tip-edge)" }} />
+                  <text x={clamp(x(si), 34, plotW - 34)} y={priceH + 16} textAnchor="middle" fontSize="11.5" style={{ fill: "var(--om-text)" }}>{clockText(bars[si].t, false)}</text>
                 </g>
               )}
             </g>
           )}
           {hoverY != null && (
             <g pointerEvents="none">
-              <line x1={0} x2={plotW} y1={hoverY} y2={hoverY} stroke="rgba(244,245,247,0.22)" strokeDasharray="2 3" />
-              <rect x={plotW + 3} y={hoverY - 10} width={AXIS - 6} height={20} rx="5" fill="#1c1d29" stroke="rgba(255,255,255,0.14)" />
-              <text x={plotW + AXIS / 2} y={hoverY + 4} textAnchor="middle" fontSize="11.5" fill="#F4F5F7" style={{ fontVariantNumeric: "tabular-nums" }}>{priceText(view.pHi - (hoverY / Math.max(1, priceH)) * (view.pHi - view.pLo), dec)}</text>
+              <line x1={0} x2={plotW} y1={hoverY} y2={hoverY} style={{ stroke: "var(--om-ch-cross-2)" }} strokeDasharray="2 3" />
+              <rect x={plotW + 3} y={hoverY - 10} width={AXIS - 6} height={20} rx="5" style={{ fill: "var(--om-ch-tip)", stroke: "var(--om-ch-tip-edge)" }} />
+              <text x={plotW + AXIS / 2} y={hoverY + 4} textAnchor="middle" fontSize="11.5" style={{ fill: "var(--om-text)", fontVariantNumeric: "tabular-nums" }}>{priceText(view.pHi - (hoverY / Math.max(1, priceH)) * (view.pHi - view.pLo), dec)}</text>
             </g>
           )}
         </svg>
