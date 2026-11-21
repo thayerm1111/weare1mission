@@ -60,13 +60,19 @@ export function activeKey(pathname: string, view: string | null | undefined): Na
 
 export const SHELL_COOKIE = "om_shell";
 
+/** The value of SHELL_COOKIE with which an admin has chosen the classic portal. */
+export const CLASSIC_SHELL = "classic";
+
 /**
- * The redesign is a PREVIEW until the owner has reviewed it: only an admin who has switched it on sees
- * it. A member's cookie alone does nothing — the role is read on the server — so nobody can put
- * themselves into an unfinished screen, and the classic portal keeps working for everyone meanwhile.
+ * WHO SEES THE NEW DESIGN (owner 11-20: a preview, "just me first"; 11-21: "push live to everyone").
+ *
+ * Every member sees it. The one way back to the classic portal is an admin's own choice from the account menu
+ * (/api/floor/preview?on=0 sets the cookie to "classic"), kept for support: a member's cookie does nothing, because
+ * the role is read on the server. A member who is pending or suspended keeps the classic portal's notice — that is
+ * decided in the portal layout, before this.
  */
 export function wantsNextShell(cookieValue: string | null | undefined, isAdmin: boolean): boolean {
-  return isAdmin === true && cookieValue === "next";
+  return !(isAdmin === true && cookieValue === CLASSIC_SHELL);
 }
 
 /* ── stepping the public site's chrome aside ───────────────────────────────────────────────────── */

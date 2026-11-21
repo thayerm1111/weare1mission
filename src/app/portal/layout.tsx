@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/om/AppShell";
 import { SHELL_COOKIE, SHELL_CSS, SHELL_SCRIPT, wantsNextShell } from "@/lib/floor/nav";
-import { APP_INSTALL_SCRIPT, APP_MANIFEST, APP_NAME, APP_RETURN_SCRIPT, APP_THEME } from "@/lib/floor/app";
+import { APP_INSTALL_SCRIPT, APP_MANIFEST, APP_NAME, APP_THEME } from "@/lib/floor/app";
 import { PortalNav } from "@/components/portal/PortalNav";
 import { SignOutButton } from "@/components/portal/SignOutButton";
 import { NotificationsBell } from "@/components/portal/NotificationsBell";
@@ -16,22 +16,28 @@ import { AtlasAnnouncement } from "@/components/portal/AtlasAnnouncement";
 import { PassNewsBanner } from "@/components/portal/PassNewsBanner";
 import RiskConsentGate from "@/components/command-center/RiskConsentGate";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { getProfile } from "@/lib/auth";
+import { getProfile as readProfile } from "@/lib/auth";
 import { TIER_LABELS } from "@/lib/access";
 
 const PORTAL_METADATA: Metadata = { title: "Member Portal", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
 
+/** The member's profile, read once per request for the layout, its metadata and its viewport. */
+const getProfile = cache(readProfile);
+
 /*
  * THE ONE MISSION APP (owner 11-21, lib/floor/app.ts). A page in the new shell says it can be installed: the
  * manifest, the home-screen icon and name, a status bar in the page's own colour, and a viewport that reaches the
- * screen's edges (the shell pads itself by the safe areas, om.css). The cookie is read first, so a page without
- * the preview cookie — every member's — costs no extra lookup; the role is read once per request for both answers.
+ * screen's edges (the shell pads itself by the safe areas, om.css). The same answer as the layout's own: every active
+ * member, unless an admin chose the classic portal.
  */
 const inNewShell = cache(async (): Promise<boolean> => {
-  if (!isSupabaseConfigured || cookies().get(SHELL_COOKIE)?.value !== "next") return false;
+  if (!isSupabaseConfigured) return false;
   const profile = await getProfile();
-  return wantsNextShell("next", profile?.role === "admin");
+  if (!profile) return false;
+  const isAdmin = profile.role === "admin";
+  if (!isAdmin && profile.status !== "active") return false;
+  return wantsNextShell(cookies().get(SHELL_COOKIE)?.value, isAdmin);
 });
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -76,12 +82,12 @@ export default async function PortalLayout({ children }: { children: React.React
   const needsApproval = profile != null && !isAdmin && profile.status !== "active";
 
   /*
-   * THE REDESIGN PREVIEW (owner 11-20: "Work in an isolated branch or preview. Keep the current
-   * application functional"). An admin who has switched the preview on (/api/floor/preview?on=1) gets the
-   * new shell around every portal page: one floating bar — The Floor, OM AI Plays, GENX, Market Pulse,
-   * FLOW, Atlas — and a short account menu, with no sidebar and no community destinations. The role is
-   * read here, on the server, so a cookie alone never puts a member into it. Everyone else gets the
-   * portal below, unchanged. The risk disclosure and the low-balance prompt still apply inside it.
+   * THE NEW DESIGN (owner 11-20 brief; for everyone since 11-21, "push live to everyone"). Every active member
+   * gets the new shell around every portal page: one floating bar — The Floor, OM AI Plays, GENX, Market Pulse,
+   * FLOW, Atlas — and a short account menu, with no sidebar and no community destinations. A member who is
+   * pending or suspended keeps the classic portal's notice below; an admin can choose the classic portal from
+   * the account menu (nav.wantsNextShell), for support. The risk disclosure and the low-balance prompt still
+   * apply inside it.
    */
   if (profile && !needsApproval && wantsNextShell(cookies().get(SHELL_COOKIE)?.value, isAdmin)) {
     return (
@@ -89,7 +95,7 @@ export default async function PortalLayout({ children }: { children: React.React
         <style dangerouslySetInnerHTML={{ __html: SHELL_CSS }} />
         <script dangerouslySetInnerHTML={{ __html: SHELL_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: APP_INSTALL_SCRIPT }} />
-        <AppShell member={{ name: profile.full_name, email: profile.email, admin: isAdmin }} preview>{children}</AppShell>
+        <AppShell member={{ name: profile.full_name, email: profile.email, admin: isAdmin }} preview={isAdmin}>{children}</AppShell>
         <LowBalanceFlyer />
         <RiskConsentGate />
       </>
@@ -104,8 +110,6 @@ export default async function PortalLayout({ children }: { children: React.React
             "(function(){try{var d=document.documentElement;if(location.search.indexOf('embed=1')>-1){d.classList.add('om-embed');d.classList.add('om-dark');}else if(localStorage.getItem('om-theme')==='dark'){d.classList.add('om-dark');}}catch(e){}})();",
         }}
       />
-      {/* An admin who has not switched the preview on, opening the installed One Mission app: see APP_RETURN_SCRIPT. */}
-      {isAdmin && cookies().get(SHELL_COOKIE) === undefined && <script dangerouslySetInnerHTML={{ __html: APP_RETURN_SCRIPT }} />}
       <style dangerouslySetInnerHTML={{ __html: EMBED_CSS }} />
       <div className="portal-container mx-auto w-full max-w-[1760px] px-4 py-8 sm:px-6 lg:py-10">
         <div className="portal-topbar flex flex-col gap-4 border-b border-[#E7E4DD] pb-6 sm:flex-row sm:items-center sm:justify-between">

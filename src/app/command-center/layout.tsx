@@ -3,23 +3,26 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { getProfile } from "@/lib/auth";
+import { getProfile as readProfile } from "@/lib/auth";
 import { SHELL_COOKIE, wantsNextShell } from "@/lib/floor/nav";
 import { CC_NEXT_CSS } from "@/components/command-center/hud/nextTheme";
 import { APP_MANIFEST, APP_NAME, ATLAS_THEME } from "@/lib/floor/app";
 
 const CC_METADATA: Metadata = { title: "Command Center XAUUSD", robots: { index: false, follow: false } };
+/** The member's profile, read once per request for the layout and its metadata. */
+const getProfile = cache(readProfile);
 export const dynamic = "force-dynamic";
 
 /*
- * Atlas is a tab of the One Mission app (lib/floor/app.ts): in the preview its page names the same app as the
- * Floor's pages do, so installing from here installs the same thing. The cookie is read first, so nobody else's
- * page costs an extra lookup. Its viewport is left as it was: this screen keeps its own frame inside the safe area.
+ * Atlas is a tab of the One Mission app (lib/floor/app.ts): its page names the same app as the Floor's pages do, so
+ * installing from here installs the same thing. The profile is read once per request, shared with the layout. Its
+ * viewport is left as it was: this screen keeps its own frame inside the safe area.
  */
 const inNewShell = cache(async (): Promise<boolean> => {
-  if (!isSupabaseConfigured || cookies().get(SHELL_COOKIE)?.value !== "next") return false;
+  if (!isSupabaseConfigured) return false;
   const profile = await getProfile();
-  return wantsNextShell("next", profile?.role === "admin");
+  if (!profile) return false;
+  return wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile.role === "admin");
 });
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -67,10 +70,10 @@ export default async function CommandCenterLayout({ children }: { children: Reac
     admin = profile.role === "admin";
   }
   /*
-   * THE REDESIGN PREVIEW (owner 11-20 brief §11), for an admin who has switched it on: the same Command Center in
-   * the platform's materials. Every colour here is a CSS variable that falls back to its classic value
-   * (hud/theme.ts); this block defines them, on <html> so the panels drawn into <body> (the broker sheet) follow.
-   * Everyone else gets no block and sees exactly the classic colours. The entrance keeps its own.
+   * THE NEW DESIGN (owner 11-20 brief §11; for everyone since 11-21): the same Command Center in the platform's
+   * materials. Every colour here is a CSS variable that falls back to its classic value (hud/theme.ts); this block
+   * defines them, on <html> so the panels drawn into <body> (the broker sheet) follow. An admin who chose the classic
+   * portal gets no block and sees exactly the classic colours. The entrance keeps its own.
    */
   const next = wantsNextShell(cookies().get(SHELL_COOKIE)?.value, admin);
   return (

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { APP_INSTALL_SCRIPT, APP_MANIFEST, APP_RETURN_SCRIPT, APP_THEME, installGuide, landingPath } from '../src/lib/floor/app';
+import { APP_INSTALL_SCRIPT, APP_MANIFEST, APP_THEME, installGuide, landingPath } from '../src/lib/floor/app';
 
 /*
  * THE ONE MISSION APP AND THE MOBILE PASS (owner 11-21: "Need to make mobile version and app also" — the One Mission
@@ -69,45 +69,9 @@ test('the browser\'s offer is held for the menu, never shown on its own', () => 
 });
 
 /* ── the installed app opens in the new design ── */
-function runReturn(opts: { standalone?: boolean; displayMode?: boolean; framed?: boolean; search?: string; path?: string; store?: Map<string, string>; now?: number }) {
-  const replaced: string[] = [];
-  const store = opts.store ?? new Map<string, string>();
-  const self = {} as Record<string, unknown>;
-  const win = Object.assign(self, {
-    navigator: { standalone: opts.standalone === true },
-    matchMedia: (q: string) => ({ matches: q.includes('standalone') && opts.displayMode === true }),
-  });
-  win.top = opts.framed ? {} : win;
-  win.self = win;
-  const now = opts.now ?? 1_000_000;
-  runInNewContext(APP_RETURN_SCRIPT, {
-    window: win,
-    location: { search: opts.search ?? '', pathname: opts.path ?? '/portal/trading', replace: (u: string) => replaced.push(u) },
-    sessionStorage: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) },
-    Date: { now: () => now }, Number, String, encodeURIComponent,
-  });
-  return { replaced, store };
-}
-
-test('opened as the installed app without the preview cookie, an admin\'s page turns the preview on and comes back to the same screen', () => {
-  const r = runReturn({ standalone: true, path: '/portal/signals', search: '?td=EUR%2FUSD' });
-  assert.deepEqual(r.replaced, ['/api/floor/preview?on=1&to=' + encodeURIComponent('/portal/signals?td=EUR%2FUSD')]);
-  assert.equal(runReturn({ displayMode: true }).replaced.length, 1, 'Android and desktop installs report display-mode: standalone');
-  assert.equal(runReturn({}).replaced.length, 0, 'in a browser tab nothing happens: the classic portal is still there for a reason');
-  assert.equal(runReturn({ standalone: true, framed: true }).replaced.length, 0, 'inside the members\' app\'s frame, nothing happens');
-  assert.equal(runReturn({ standalone: true, search: '?embed=1' }).replaced.length, 0);
-  // Never a loop: once a minute at most.
-  const store = new Map<string, string>();
-  assert.equal(runReturn({ standalone: true, store, now: 5_000_000 }).replaced.length, 1);
-  assert.equal(runReturn({ standalone: true, store, now: 5_030_000 }).replaced.length, 0);
-  assert.equal(runReturn({ standalone: true, store, now: 5_061_000 }).replaced.length, 1);
-});
-
-test('the script is only ever sent to an admin who has no preview cookie, on the classic branch', () => {
-  const layout = code('src/app/portal/layout.tsx');
-  assert.match(layout, /\{isAdmin && cookies\(\)\.get\(SHELL_COOKIE\) === undefined && <script dangerouslySetInnerHTML=\{\{ __html: APP_RETURN_SCRIPT \}\} \/>\}/);
-  const classic = layout.slice(layout.indexOf('return (\n    <div className="bg-cream">'));
-  assert.ok(classic.includes('APP_RETURN_SCRIPT'), 'it sits in the classic portal, which is what a cookie-less first open draws');
+test('the installed app opens in the new design for everyone: nothing has to switch it on any more', () => {
+  const src = read('src/lib/floor/app.ts') + read('src/app/portal/layout.tsx');
+  assert.ok(!/APP_RETURN_SCRIPT/.test(src), 'the admin-preview workaround is gone with the preview');
 });
 
 test('the preview switch lands back on the page it was asked from — a page on this site, never another', () => {
@@ -147,12 +111,13 @@ test('the manifest names the One Mission app on the new design, and its icons ar
   assert.match(read('public/app/manifest.webmanifest'), /"scope": "\/app\/"/);
 });
 
-test('only the new shell\'s pages say they can be installed — and a member\'s page costs no extra lookup', () => {
+test('the new shell\'s pages say they can be installed — every active member\'s — with one profile lookup per request', () => {
   for (const f of ['src/app/portal/layout.tsx', 'src/app/command-center/layout.tsx']) {
     const src = code(f);
     const gate = src.slice(src.indexOf('const inNewShell = cache('), src.indexOf('export async function generateMetadata'));
-    assert.match(gate, /cookies\(\)\.get\(SHELL_COOKIE\)\?\.value !== "next"\) return false;\s*const profile = await getProfile\(\);/, `${f}: the cookie is read before any lookup`);
-    assert.match(gate, /wantsNextShell\("next", profile\?\.role === "admin"\)/, `${f}: the role decides, on the server`);
+    assert.match(gate, /const profile = await getProfile\(\);\s*if \(!profile\) return false;/, `${f}: a signed-out page says nothing`);
+    assert.match(gate, /wantsNextShell\(cookies\(\)\.get\(SHELL_COOKIE\)\?\.value, (isAdmin|profile\.role === "admin")\)/, `${f}: the same answer as the layout's own, decided on the server`);
+    assert.match(src, /const getProfile = cache\(readProfile\);/, `${f}: the profile is read once per request`);
     const meta = src.slice(src.indexOf('export async function generateMetadata'));
     assert.match(meta, /if \(!\(await inNewShell\(\)\)\) return (PORTAL|CC)_METADATA;/, `${f}: everyone else's page is as it was`);
     assert.match(meta, /manifest: APP_MANIFEST/);
@@ -160,6 +125,7 @@ test('only the new shell\'s pages say they can be installed — and a member\'s 
     assert.match(meta, /apple: \[\{ url: "\/om-app\/apple-touch-icon\.png"/);
   }
   const portal = code('src/app/portal/layout.tsx');
+  assert.match(portal, /if \(!isAdmin && profile\.status !== "active"\) return false;/, 'a pending or suspended member\'s page is the classic notice, and says nothing about an app');
   assert.match(portal, /return \(await inNewShell\(\)\) \? \{ themeColor: APP_THEME, viewportFit: "cover" \} : \{\};/, 'the shell reaches the screen\'s edges and pads itself');
   assert.match(portal, /<script dangerouslySetInnerHTML=\{\{ __html: APP_INSTALL_SCRIPT \}\} \/>\s*<AppShell/, 'the offer is caught before the shell mounts');
   assert.match(code('src/app/command-center/layout.tsx'), /return \(await inNewShell\(\)\) \? \{ themeColor: ATLAS_THEME \} : \{\};/, 'Atlas keeps its own dark frame, inside the safe area');
@@ -167,11 +133,12 @@ test('only the new shell\'s pages say they can be installed — and a member\'s 
   assert.ok(!existsSync('src/app/manifest.ts') && !existsSync('src/app/manifest.json') && !existsSync('src/app/manifest.webmanifest'));
 });
 
-test('the account menu offers "Install the app" in a browser tab, and the installed app has no "Leave the preview"', () => {
+test('the account menu offers "Install the app" in a browser tab; an admin\'s "Classic portal" is not offered inside the installed app', () => {
   const shell = code('src/components/om/AppShell.tsx');
   assert.match(shell, /\{onInstall && <button type="button" role="menuitem" onClick=\{\(\) => \{ setOpen\(false\); onInstall\(\); \}\}><Smartphone aria-hidden="true" \/>Install the app<\/button>\}/);
   assert.match(shell, /onInstall=\{configured && offer \? install : undefined\}/);
-  assert.match(shell, /\{preview && asApp !== true && <a role="menuitem" href="\/api\/floor\/preview\?on=0">/);
+  assert.match(shell, /\{preview && asApp !== true && <a role="menuitem" href="\/api\/floor\/preview\?on=0"><Undo2 aria-hidden="true" \/>Classic portal<\/a>\}/);
+  assert.match(code('src/app/portal/layout.tsx'), /preview=\{isAdmin\}/, 'only an admin is offered the classic portal');
   assert.match(shell, /<OfflineNotice \/>/);
   const ia = code('src/components/om/InstallApp.tsx');
   assert.match(ia, /return \{ asApp, offer: asApp === false && !installed, canPrompt, install \};/, 'nothing is offered on a guess, or once installed');

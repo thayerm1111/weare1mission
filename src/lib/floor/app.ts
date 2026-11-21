@@ -7,9 +7,9 @@
  * and nothing is kept on the device: every screen is the live site, so a price, an account or a play is never a
  * stale copy, and there is no second version of anything to keep in step.
  *
- * Who is offered it: only pages in the new shell say they can be installed (the manifest link, and "Install the
- * app" in the profile menu), and the new shell is an admin's preview until the owner says it is for everyone.
- * The members' app at /app/ is untouched.
+ * Who is offered it: every member (owner 11-21: "push live to everyone"). Pages in the new shell say they can be
+ * installed (the manifest link, and "Install the app" in the account menu). The members' older app at /app/ is
+ * untouched and keeps working.
  *
  * Pure: no server or browser imports.
  */
@@ -96,16 +96,3 @@ export function landingPath(raw: string | null | undefined): string | null {
 export const APP_INSTALL_SCRIPT =
   "(function(){try{window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window.__omInstall=e;window.dispatchEvent(new Event('om-install-ready'));});" +
   "window.addEventListener('appinstalled',function(){window.__omInstall=null;window.dispatchEvent(new Event('om-install-ready'));});}catch(e){}})();";
-
-/**
- * THE INSTALLED APP OPENS IN THE NEW DESIGN. An iPhone keeps a home-screen app's cookies apart from Safari's,
- * so the first open has no preview cookie and the portal would draw the classic screens. For an admin with no
- * preview cookie (only ever sent to that admin's page by the server), when the page is running as the installed
- * app — not in a browser tab, not inside the members' app's frame — this turns the preview on and comes back to
- * the same page. Once a minute at most, so nothing can loop.
- */
-export const APP_RETURN_SCRIPT =
-  "(function(){try{if(window.top!==window.self||location.search.indexOf('embed=1')>-1)return;" +
-  "var s=window.navigator.standalone===true||!!(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches);if(!s)return;" +
-  "var k='om:app:return',t=Number(sessionStorage.getItem(k))||0;if(Date.now()-t<60000)return;sessionStorage.setItem(k,String(Date.now()));" +
-  "location.replace('/api/floor/preview?on=1&to='+encodeURIComponent(location.pathname+location.search));}catch(e){}})();";

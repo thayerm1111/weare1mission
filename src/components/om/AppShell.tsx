@@ -115,7 +115,7 @@ function ProfileMenu({ member, configured, preview, asApp, onInstall, look, onLo
           {/* The site's own language switch (I18nProvider), asked for from here instead of a floating button. */}
           <button type="button" role="menuitem" data-no-i18n translate="no" onClick={() => { window.dispatchEvent(new Event("om-lang-toggle")); setOpen(false); }}><Globe aria-hidden="true" />{lang === "es" ? "English" : "Español"}</button>
           {member.admin && <><hr /><a role="menuitem" href="/admin/controls"><ShieldCheck aria-hidden="true" />Admin workspace</a></>}
-          {preview && asApp !== true && <a role="menuitem" href="/api/floor/preview?on=0"><Undo2 aria-hidden="true" />Leave the preview</a>}
+          {preview && asApp !== true && <a role="menuitem" href="/api/floor/preview?on=0"><Undo2 aria-hidden="true" />Classic portal</a>}
           {configured && (
             <>
               <hr />
@@ -207,7 +207,7 @@ export function AppShell({ children, member, configured = true, preview = false 
   children: React.ReactNode; member: ShellMember;
   /** false on the labelled sample route, where there is no session to read credits or sign out of. */
   configured?: boolean;
-  /** The admin preview: offers the way back to the classic portal. */
+  /** An admin: offers the way to the classic portal (kept for support since the new design went to everyone). */
   preview?: boolean;
 }) {
   // The public site's header and footer step aside while this shell is on screen, and the member's look is put on.

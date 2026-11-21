@@ -13,9 +13,9 @@ export default async function FloorPage({ searchParams }: { searchParams?: { vie
   if (!supabase) return <PortalNotConfigured />;
   const profile = await getProfile();
 
-  // THE REDESIGN PREVIEW (owner 11-20) — an admin who has switched it on gets the new Floor here, and the
-  // tools open without the classic workspace's own row of tabs (the new shell is the navigation). Everyone
-  // else gets this page exactly as it was.
+  // THE NEW DESIGN (owner 11-20; for everyone since 11-21) — the new Floor here, and the tools open without the
+  // classic workspace's own row of tabs (the new shell is the navigation). An admin who chose the classic portal
+  // gets this page exactly as it was.
   if (wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile?.role === "admin")) {
     const view = typeof searchParams?.view === "string" ? searchParams.view : "";
     if (!view || view === "home") return <Floor />;

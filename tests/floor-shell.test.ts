@@ -59,13 +59,14 @@ test('the lit destination follows the page, including a tool opened inside The F
   assert.equal(activeKey('/portal/credits', 'flow'), null);
 });
 
-/* ── the preview switch ── */
-test('the new shell is for an admin who switched the preview on — and for nobody else', () => {
+/* ── who sees it (owner 11-20: a preview, "just me first"; 11-21: "push live to everyone") ── */
+test('the new design is for every member; only an admin can choose the classic portal, for support', () => {
+  assert.equal(wantsNextShell(undefined, false), true, 'a member gets the new design with no cookie at all');
+  assert.equal(wantsNextShell(undefined, true), true);
+  assert.equal(wantsNextShell('classic', false), true, 'a member who sets the cookie by hand still gets the new design');
+  assert.equal(wantsNextShell('classic', true), false, 'an admin who chose the classic portal gets it');
   assert.equal(wantsNextShell('next', true), true);
-  assert.equal(wantsNextShell('next', false), false, 'a member who sets the cookie by hand still gets the classic portal');
-  assert.equal(wantsNextShell(undefined, true), false, 'an admin who has not switched it on gets the classic portal');
-  assert.equal(wantsNextShell('1', true), false);
-  assert.equal(wantsNextShell('', true), false);
+  assert.equal(wantsNextShell('', true), true);
   assert.equal(SHELL_COOKIE, 'om_shell');
 });
 
