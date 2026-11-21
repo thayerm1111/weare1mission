@@ -355,11 +355,55 @@
 .om-plays-go p { margin: 0; }
 .om-plays-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--om-gap); min-width: 0; }
 .om-plays-result { min-width: 0; }
-.om-plays-detail { padding: 20px 22px 22px; }
-/* The earlier card's own frame is dropped: the surface it sits on is the frame. Its chart keeps a sensible height. */
-.om-plays-detail > :first-child { border: 0 !important; background: none !important; box-shadow: none !important; padding: 0 !important; }
-.om-plays-detail svg[viewBox] { max-height: 340px; }
-.om-plays-detail-acts { display: flex; align-items: center; gap: 18px; margin-top: 16px; }
+/* ── one OM AI play, read top to bottom (plays/PlayDetail.tsx) ── */
+.om-play { display: grid; gap: 16px; min-width: 0; padding: 22px 24px 24px; }
+.om-play-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px 18px; }
+.om-play-head h2 { margin: 4px 0 2px; font-size: 26px; font-weight: 500; letter-spacing: -0.01em; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.om-play-head h2 small { font-size: 14px; color: var(--om-text-2); font-weight: 400; }
+.om-play-state { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.om-play-state .om-chip[data-kind="setup"] { color: var(--om-text); border-color: rgba(182, 196, 255, 0.45); }
+.om-play-state .om-chip[data-kind="idea"] { color: var(--om-text-2); border-style: dashed; }
+.om-play-decision { margin: 0; font-size: 17px; line-height: 1.5; color: var(--om-text); max-width: 72ch; }
+.om-play-note { margin: 0; padding: 10px 14px; border-radius: var(--om-r-input); border: 1px solid var(--om-edge); background: rgba(255, 255, 255, 0.035); color: var(--om-text-2); font-size: 14px; }
+.om-play-note b { color: var(--om-text); font-weight: 500; }
+.om-play-chart { position: relative; height: clamp(260px, 34vh, 380px); min-width: 0; }
+.om-play-levels { display: grid; gap: 10px; }
+.om-play-lv { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 12px 18px; margin: 0; }
+.om-play-lv > div { display: grid; gap: 3px; align-content: start; min-width: 0; padding-left: 12px; border-left: 1px solid var(--om-hair); }
+.om-play-lv dt { color: var(--om-text-2); font-size: 12.5px; }
+.om-play-lv dd { margin: 0; font-size: 17px; font-variant-numeric: tabular-nums; }
+.om-play-lv dd small { display: block; margin-top: 1px; font-size: 12.5px; color: var(--om-text-3); }
+.om-play-track { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; padding: 14px 16px; border-radius: 16px; border: 1px solid var(--om-hair); background: rgba(255, 255, 255, 0.025); }
+.om-play-track p { margin: 0; }
+.om-play-track > div:first-child { display: grid; gap: 4px; min-width: 0; flex: 1 1 320px; }
+.om-play-track-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.om-play-track-acts svg { width: 15px; height: 15px; }
+.om-play-acts { display: flex; align-items: center; gap: 10px 18px; flex-wrap: wrap; }
+.om-play-why-body { display: grid; gap: 12px; padding-top: 12px; color: var(--om-text-2); font-size: 14.5px; line-height: 1.55; }
+.om-play-why-body p { margin: 0; }
+.om-play-why-body b { color: var(--om-text); font-weight: 500; }
+.om-play-tfs { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.om-checks { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; font-size: 13.5px; color: var(--om-text-3); }
+.om-checks li::before { content: "–"; display: inline-block; width: 16px; color: var(--om-text-3); }
+.om-checks li[data-ok] { color: var(--om-text); }
+.om-checks li[data-ok]::before { content: "✓"; color: var(--om-pos); }
+
+/* ── generating a play: three steps, then the method ── */
+.om-step { display: flex; align-items: baseline; gap: 8px; }
+.om-step-n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 999px; border: 1px solid var(--om-edge-2); color: var(--om-text-2); font-size: 12px; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.om-step[data-done] .om-step-n { color: var(--om-ink); background: var(--om-text); border-color: var(--om-text); }
+.om-quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.om-quick button { height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--om-edge); background: transparent; color: var(--om-text-2); font: inherit; font-size: 13px; cursor: pointer; transition: color 140ms ease, border-color 140ms ease, background-color 140ms ease; }
+.om-quick button:hover { color: var(--om-text); border-color: var(--om-edge-2); }
+.om-quick button[aria-pressed="true"] { color: var(--om-ink); background: var(--om-text); border-color: var(--om-text); }
+.om-plays-need { margin: 0; color: var(--om-text); font-size: 13.5px; }
+.om-plays-preview { display: grid; gap: 14px; padding: 26px 26px 28px; max-width: 64ch; }
+.om-plays-preview h2 { margin: 0; font-size: 19px; font-weight: 500; }
+.om-plays-preview ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--om-text-2); font-size: 14.5px; line-height: 1.5; }
+.om-plays-preview ol b { color: var(--om-text); font-weight: 500; }
+.om-ticket-confirm { display: grid; gap: 10px; padding: 12px 14px; border-radius: var(--om-r-input); border: 1px solid rgba(182, 196, 255, 0.35); background: rgba(182, 196, 255, 0.06); }
+.om-ticket-confirm p { margin: 0; color: var(--om-text); line-height: 1.45; }
+.om-ticket-confirm-acts { display: flex; gap: 8px; flex-wrap: wrap; }
 .om-saved { min-width: 0; }
 .om-saved-head { display: flex; align-items: center; justify-content: space-between; gap: 6px 16px; flex-wrap: wrap; padding: 0 4px 6px; border-bottom: 1px solid var(--om-hair); }
 .om-saved-head h2 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: -0.008em; }
@@ -371,7 +415,12 @@
   .om-row-main { grid-template-columns: minmax(0, 1fr) auto; row-gap: 2px; padding: 10px 6px; }
   .om-row-main > :nth-child(2) { order: 3; color: var(--om-text-2); font-size: 13px; }
   .om-row-main > :last-child { order: 4; }
-  .om-plays-detail { padding: 16px 14px 18px; }
+  .om-play { padding: 16px 14px 18px; gap: 14px; }
+  .om-play-head { flex-wrap: wrap; }
+  .om-play-head h2 { font-size: 22px; }
+  .om-play-decision { font-size: 16px; }
+  .om-play-chart { height: 280px; }
+  .om-plays-preview { padding: 18px 16px 20px; }
 }
 
 /* ── more shared parts: an input, a switch, label/value rows, text tabs, a table, steps ───────────── */

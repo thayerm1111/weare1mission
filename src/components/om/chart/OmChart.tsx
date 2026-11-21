@@ -354,7 +354,8 @@ export function OmChart(p: OmChartProps) {
         return { l, ly, labelY };
       });
     const pxY = p.price != null ? y(p.price) : null;
-    const leftEdge = view.iL <= 0.5;
+    // Said only once the view has been moved there: a chart showing all it has needs no note.
+    const leftEdge = view.iL <= 0.5 && moved(vp);
     // The readout keeps clear of the view's buttons: beside them on a desk, above them on a phone.
     const toolsW = compact ? AXIS : 44 + (moved(vp) ? 92 : 0) + (!atLive ? 146 : 0);
     const crossX = si >= 0 ? x(si) : null;

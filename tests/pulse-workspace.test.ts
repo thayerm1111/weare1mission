@@ -41,7 +41,10 @@ test('the ranking is the scanner\'s: its order, its count — no badge, score or
 });
 
 test('a market opens its details, OM AI Plays with that market, a deep dive or Atlas — each with what it costs', () => {
-  assert.match(home, /href=\{`\/portal\/signals\?td=\$\{encodeURIComponent\(s\.td\)\}&style=intraday`\}/);
+  // 11-21: generate (paid, once, from this tap), open with the market filled in (free), and ask — three intents.
+  assert.match(home, /nonce = leaveGenerateIntent\(window\.sessionStorage, s\.td, "intraday"\);/);
+  assert.match(home, /window\.location\.assign\(playsHref\(s\.td, "intraday", nonce\)\)/);
+  assert.match(home, /<Link href=\{playsHref\(s\.td, "intraday"\)\} className="om-btn-quiet">Open in OM AI Plays<\/Link>/);
   assert.match(home, /Generate the full play · \{CREDIT_COST\.signal\} credits/);
   assert.match(home, /Deep dive · \{CREDIT_COST\.deepdive\} credit/);
   assert.match(home, /leaveFloorQuestion\(window\.sessionStorage,/);

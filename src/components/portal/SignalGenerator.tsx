@@ -15,6 +15,13 @@ import { CopyAllBtn, buildTradeText } from "./copykit";
 import { TradeChat } from "./TradeChat";
 import { Levels } from "./quantUi";
 import { useNextShell } from "@/components/om/shell";
+import { PlayDetail } from "@/components/om/plays/PlayDetail";
+import { analysisOf, trackingOf, playPip } from "@/lib/plays/lifecycle";
+import { takeGenerateIntent } from "@/lib/plays/intent";
+import { leaveFloorQuestion } from "@/components/command-center/hud/floorAsk";
+import { pairName, priceFor, lotsText } from "@/lib/flow/display";
+import { accountName, maskAccount, money } from "@/lib/floor/overview";
+import type { PlacementSize } from "@/lib/flow/ticketSizing";
 
 const MARKET_ICON: Record<Market["id"], typeof Bitcoin> = { crypto: Bitcoin, metal: Gem, stock: TrendingUp, forex: Globe, index: BarChart3 };
 const MARKET_TINT: Record<Market["id"], string> = { crypto: "text-orange-400", metal: "text-amber-300", stock: "text-emerald-400", forex: "text-sky-400", index: "text-violet-400" };
@@ -100,15 +107,8 @@ const fmt = (n: number | null | undefined) => {
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // Pip size per instrument class, so we can total the pips a winning trade caught.
 // FX standard = 0.0001, JPY pairs = 0.01, gold = 0.1 ($1 = 10 pips), silver = 0.01,
-// crypto & index CFDs are quoted in points (treat 1 point = 1 pip).
-const pipSize = (symbol: string): number => {
-  const s = (symbol || "").toUpperCase();
-  if (s.includes("JPY")) return 0.01;
-  if (s.includes("XAU") || s.includes("GOLD")) return 0.1;
-  if (s.includes("XAG") || s.includes("SILVER")) return 0.01;
-  if (/(BTC|ETH|SOL|XRP|DOGE|US30|NAS|NDX|SPX|US100|US500|GER|UK100|DXY)/.test(s)) return 1;
-  return 0.0001;
-};
+// crypto & index CFDs are quoted in points (treat 1 point = 1 pip). The rule lives in lib/plays/lifecycle.ts.
+const pipSize = playPip;
 // Pips captured on a winning trade: entry → the take-profit that filled (fallback TP1).
 const winPips = (r: Result): number => {
   const entry = r.signal?.entry;
@@ -118,6 +118,8 @@ const winPips = (r: Result): number => {
   return Math.abs(tp - entry) / pipSize(r.symbol);
 };
 const GEN_STEPS = ["Connecting to market data…", "Fetching live candles…", "Mapping structure & liquidity…", "Checking confirmations…", "Generating trade signal…"];
+/** Markets to start from in the new shell, after the member's own recent ones. A choice offered, never one made. */
+const POPULAR = ["XAU/USD", "EUR/USD", "GBP/USD", "USD/JPY", "NAS100", "BTC/USD"];
 
 export function SignalGenerator() {
   const [open, setOpen] = useState(false);
@@ -173,6 +175,14 @@ export function SignalGenerator() {
       const keepView = q.get("view");
       window.history.replaceState({}, "", window.location.pathname + (keepView ? `?view=${encodeURIComponent(keepView)}` : ""));
     } catch { /* ignore */ }
+    // THE NEW SHELL (owner 11-21 brief §9): an address only fills in the market and style. A play is generated on
+    // arrival only for the member's own fresh intent — left by a button that said the price — and only once
+    // (lib/plays/intent.ts). A refresh, Back, a remount or a shared address therefore charges nothing.
+    if (next) {
+      let mine = false;
+      try { mine = takeGenerateIntent(window.sessionStorage, q.get("generate"), td); } catch { mine = false; }
+      if (!mine) return;
+    }
     void generate(found.asset);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -323,20 +333,43 @@ export function SignalGenerator() {
   if (next) {
     const q = find.trim().toLowerCase();
     const groups = MARKETS.map((m) => ({ m, list: m.assets.filter((a) => !q || `${a.symbol} ${a.name} ${m.name}`.toLowerCase().includes(q)) })).filter((g) => g.list.length);
-    const STYLES = [["scalp", "Scalp", "5, 15 and 30 minute"], ["intraday", "Intraday", "1 hour"], ["swing", "Swing", "Daily"]] as const;
+    // Each style in words, from what the engine reads for it (the timeframes it is given).
+    const STYLES = [
+      ["scalp", "Scalp", "Quick trades, read on the 5, 15 and 30-minute charts."],
+      ["intraday", "Intraday", "Trades within the day, read on the 1-hour chart."],
+      ["swing", "Swing", "Trades held over days, read on the daily chart."],
+    ] as const;
     const rows = recent.filter((r) => show === "all" || r.status === show);
     const busy = step === "loading";
     const cost: number = CREDIT_COST.signal;
+    // Markets to start from: the member's own recent ones, then the most traded. Each is a choice offered —
+    // nothing is chosen for them, and nothing is analysed by choosing.
+    const quick: { m: Market; a: Asset }[] = [];
+    const offer = (td: string) => { if (quick.length >= 6 || quick.some((x) => x.a.td === td)) return; const f = findAsset(td); if (f) quick.push({ m: f.market, a: f.asset }); };
+    for (const r of recent) offer(r.td);
+    for (const td of POPULAR) offer(td);
+    // What is missing, said at the control that cannot be pressed yet.
+    const need = !asset ? "Choose a market to continue." : confs.length === 0 ? "Turn on at least one confirmation under Method to continue." : null;
+    const methodLine = `${mode === "institutional" ? "Institutional" : "Accelerator"} · ${METHODS.find((m) => m.k === method)!.label} · ${confs.length} confirmation${confs.length === 1 ? "" : "s"} · ${orderType === "limit" ? "limit entry" : "market entry"}`;
+    // Ask Atlas about a play: the question carries the play's own words and levels. Free, as asking always is.
+    const askAtlas = (r: Result) => {
+      const a = analysisOf(r.signal), s = r.signal;
+      const lv = s.direction !== "NEUTRAL" && numOk(s.entry) && numOk(s.stopLoss) ? ` Entry ${fmt(s.entry)}, stop ${fmt(s.stopLoss)}${(s.takeProfits || []).filter(numOk).length ? `, targets ${(s.takeProfits || []).filter(numOk).map((x) => fmt(x)).join(", ")}` : ""}.` : "";
+      const made = madeAt(r);
+      const question = `Explain my OM AI Play on ${r.symbol} (${r.style ?? s.timeframe}, made ${Number.isFinite(made) ? new Date(made).toLocaleString() : r.asOf}): ${a.label}.${lv} What is it waiting for, and what would cancel it?`;
+      try { leaveFloorQuestion(window.sessionStorage, question, Date.now()); } catch { /* typed again there */ }
+      window.location.assign("/command-center");
+    };
     return (
       <div className="om-ws om-plays">
         <header className="om-ws-head">
           <div>
             <h1 className="om-title">OM AI Plays</h1>
-            <p className="om-sub">Trade setups built by AI from live market data.</p>
+            <p className="om-sub">Choose a market and a style, and OM AI builds the trade setup from live market data.</p>
           </div>
           {rate !== null && (
-            <p className="om-ws-note om-num" title="Plays made since the record was reset">
-              <b className={rate >= 50 ? "om-pos" : undefined}>{rate}%</b> win rate · {wins} won, {losses} lost{totalPips > 0 ? ` · +${totalPips.toLocaleString("en-US")} pips on the wins` : ""}
+            <p className="om-ws-note om-num" title="Your saved plays since the record was reset, counted by what price did against each play's levels — not orders on an account">
+              <b className={rate >= 50 ? "om-pos" : undefined}>{rate}%</b> of tracked plays reached a target first · {wins} of {wins + losses}{totalPips > 0 ? ` · +${totalPips.toLocaleString("en-US")} pips on those` : ""}
             </p>
           )}
         </header>
@@ -344,7 +377,7 @@ export function SignalGenerator() {
         <div className="om-plays-grid">
           <aside className="om-panel om-plays-config" aria-label="Generate a play">
             <div className="om-field">
-              <label className="om-label" htmlFor="om-plays-market">Market</label>
+              <label className="om-step" htmlFor="om-plays-market" data-done={asset ? "" : undefined}><span className="om-step-n" aria-hidden="true">1</span><span className="om-label">Market</span></label>
               <div className="om-combo">
                 <Search aria-hidden="true" />
                 <input id="om-plays-market" value={find} placeholder={asset ? asset.symbol : "Search markets"} autoComplete="off"
@@ -366,21 +399,40 @@ export function SignalGenerator() {
                     </div>
                   ))}
                 </div>
-              ) : asset ? <p className="om-picked"><b>{asset.symbol}</b><span>{asset.name}{market ? ` · ${market.name}` : ""}</span></p>
-                : <p className="om-label">Any market on the list can be analyzed.</p>}
+              ) : (
+                <>
+                  {asset ? <p className="om-picked"><b>{asset.symbol}</b><span>{asset.name}{market ? ` · ${market.name}` : ""}</span></p>
+                    : <p className="om-label">Search above, or start with one of these.</p>}
+                  {quick.length > 0 && (
+                    <div className="om-quick" role="group" aria-label={recent.length ? "Your recent markets, then the most traded" : "Most traded markets"} data-no-i18n translate="no">
+                      {quick.map(({ m, a }) => <button key={a.td} type="button" aria-pressed={asset?.td === a.td} title={`${a.name} · ${m.name}`} onClick={() => { setMarket(m); setAsset(a); }}>{a.symbol}</button>)}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             <div className="om-field">
-              <span className="om-label" id="om-plays-style">Trade style</span>
+              <span className="om-step" id="om-plays-style" data-done=""><span className="om-step-n" aria-hidden="true">2</span><span className="om-label">Trade style</span></span>
               <div className="om-seg" role="group" aria-labelledby="om-plays-style">
-                {STYLES.map(([v, label, sub]) => <button key={v} type="button" aria-pressed={style === v} title={`${label} · ${sub} charts`} onClick={() => setStyle(v)}>{label}</button>)}
+                {STYLES.map(([v, label, sub]) => <button key={v} type="button" aria-pressed={style === v} title={sub} onClick={() => setStyle(v)}>{label}</button>)}
               </div>
-              <p className="om-label">{STYLES.find((x) => x[0] === style)![2]} charts</p>
+              <p className="om-label">{STYLES.find((x) => x[0] === style)![2]}</p>
+            </div>
+
+            {/* The one action, right after the two choices it needs — the method below can open without pushing it away. */}
+            <div className="om-plays-go">
+              <span className="om-step"><span className="om-step-n" aria-hidden="true">3</span><span className="om-label">Generate</span></span>
+              <button type="button" className="om-btn" onClick={() => void generate()} disabled={!!need || busy} aria-busy={busy} aria-describedby="om-plays-need">
+                {busy ? "Analyzing…" : asset ? `Generate a play · ${asset.symbol}` : "Generate a play"}
+              </button>
+              {need && <p className="om-plays-need" id="om-plays-need" role="status">{need}</p>}
+              <p className="om-label" id={need ? undefined : "om-plays-need"}>{cost} {cost === 1 ? "credit" : "credits"} a play · included with the FLOW Pass · charged only when a play is made</p>
             </div>
 
             <div className="om-field">
               <button type="button" className="om-disclose" aria-expanded={advanced} aria-controls="om-plays-adv" onClick={() => setAdvanced((v) => !v)}>
-                <span><span className="om-label">Method</span>{mode === "institutional" ? "Institutional" : "Accelerator"} · {METHODS.find((m) => m.k === method)!.label} · {orderType === "limit" ? "Limit entry" : "Market entry"}</span>
+                <span><span className="om-label">Method · used for every play you generate</span>{methodLine}</span>
                 <ChevronDown aria-hidden="true" />
               </button>
               {advanced && (
@@ -403,38 +455,50 @@ export function SignalGenerator() {
                     <button type="button" aria-pressed={orderType === "limit"} onClick={() => setOrderType("limit")}><b>Limit</b><small>An exact entry level</small></button>
                     <button type="button" aria-pressed={orderType === "market"} onClick={() => setOrderType("market")}><b>Market</b><small>Around the current price</small></button>
                   </div>
+                  <button type="button" className="om-go" onClick={() => setAdvanced(false)}>Done</button>
                 </div>
               )}
-            </div>
-
-            <div className="om-plays-go">
-              <button type="button" className="om-btn" onClick={() => void generate()} disabled={!asset || confs.length === 0 || busy} aria-busy={busy}>{busy ? "Analyzing…" : "Generate a play"}</button>
-              <p className="om-label">{cost} {cost === 1 ? "credit" : "credits"} per play{!asset ? " · choose a market first" : confs.length === 0 ? " · turn on at least one confirmation" : ""}</p>
             </div>
           </aside>
 
           <section className="om-plays-main">
             <div className="om-panel om-plays-result" aria-live="polite">
               {busy ? (
-                <div className="om-state" role="status"><Loader2 className="animate-spin" aria-hidden="true" /><p>Analyzing {asset?.symbol ?? "the market"}…</p><span className="om-label">Reading live candles and checking your confirmations. This takes a few seconds.</span></div>
+                <div className="om-state" role="status"><Loader2 className="animate-spin" aria-hidden="true" /><p>Analyzing {asset?.symbol ?? "the market"}…</p><span className="om-label">Reading live candles and checking your confirmations. This usually takes a few seconds; nothing is charged unless a play is made.</span></div>
               ) : step === "error" ? (
                 <div className="om-state" role="alert">
                   <p>{errorMsg}</p>
                   <span className="om-state-acts">
                     {needCredits && <a href="/portal/credits" className="om-btn">Get credits</a>}
+                    {!needCredits && asset && <button type="button" className="om-btn" onClick={() => void generate()}>Try again</button>}
                     <button type="button" className="om-btn-quiet" onClick={() => { setErrorMsg(""); setNeedCredits(false); setStep("config"); }}>Dismiss</button>
                   </span>
                 </div>
               ) : result ? (
-                <div className="om-legacy om-plays-detail">
-                  <FullCard r={result} onCheck={() => checkResult(result)} checking={checking === result.id} onUpdate={() => getUpdate(result)} updating={updating === result.id} update={updates[result.id]} />
-                  <div className="om-plays-detail-acts">
-                    <button type="button" className="om-btn-quiet" onClick={() => setDive(result)}>Deep dive</button>
-                    <button type="button" className="om-go" onClick={() => setResult(null)}>Close this play</button>
-                  </div>
-                </div>
+                <PlayDetail r={result} madeMs={madeAt(result)}
+                  checking={checking === result.id} onCheck={() => checkResult(result)}
+                  updating={updating === result.id} onUpdate={() => getUpdate(result)}
+                  update={updates[result.id] ? <UpdatePanel u={updates[result.id]} /> : null}
+                  onDive={() => setDive(result)} onAsk={() => askAtlas(result)} onClose={() => setResult(null)}
+                  live={result.td ? <LivePrice td={result.td} entry={numOk(result.signal.entry) ? result.signal.entry : null} direction={result.signal.direction} closed={result.marketClosed} /> : null}
+                  copy={result.signal.direction !== "NEUTRAL" ? <span className="om-legacy"><CopyAllBtn text={buildTradeText({ direction: result.signal.direction, entry: result.signal.entry, stopLoss: result.signal.stopLoss, takeProfits: result.signal.takeProfits, fmt })} /></span> : null}
+                  ticket={(result.signal.direction === "LONG" || result.signal.direction === "SHORT") && numOk(result.signal.entry) && numOk(result.signal.stopLoss)
+                    ? <ExecuteSignal key={result.id} symbol={result.symbol} direction={result.signal.direction} entry={result.signal.entry as number} stop={result.signal.stopLoss as number}
+                        tp={(result.signal.takeProfits || []).filter(numOk)[0] ?? null} unconfirmed={result.signal.status === "no_trade"} orderType={result.orderType} />
+                    : null}
+                  chat={result.signal.direction !== "NEUTRAL" && result.signal.status !== "no_trade" && numOk(result.signal.entry) && numOk(result.signal.stopLoss)
+                    ? <TradeChat trade={{ td: result.td, symbol: result.symbol, style: result.style, interval: result.interval, direction: result.signal.direction, entry: result.signal.entry, stopLoss: result.signal.stopLoss, takeProfits: (result.signal.takeProfits || []).filter(numOk), since: result.asOf || result.as_of }} />
+                    : null} />
               ) : (
-                <div className="om-state"><p>No play is open.</p><span className="om-label">Choose a market and a style, then generate a play — or open one of your saved plays below. Nothing is analyzed until you ask.</span></div>
+                <div className="om-plays-preview">
+                  <h2>{asset ? `Ready to analyze ${asset.symbol}` : "Your play appears here"}</h2>
+                  <ol>
+                    <li><b>The market read</b> — whether there is a setup worth taking, an idea that is not confirmed yet, or nothing to do.</li>
+                    <li><b>The chart and the levels</b> — entry, stop and targets with their reward to risk, when the setup is valid.</li>
+                    <li><b>What to do next</b> — track it, check how it went, or review it as a ticket for your accounts.</li>
+                  </ol>
+                  <p className="om-label">Nothing is analyzed until you press Generate. Your saved plays are below, and open without generating anything.</p>
+                </div>
               )}
             </div>
 
@@ -442,12 +506,17 @@ export function SignalGenerator() {
               <div className="om-saved-head">
                 <h2>Saved plays</h2>
                 <div className="om-tf" role="group" aria-label="Show saved plays">
-                  {([["all", "All"], ["open", "Open"], ["win", "Won"], ["loss", "Lost"]] as const).map(([k, label]) => <button key={k} type="button" aria-pressed={show === k} onClick={() => setShow(k)}>{label}</button>)}
+                  {([["all", "All"], ["open", "Open"], ["win", "Target reached"], ["loss", "Stop reached"]] as const).map(([k, label]) => <button key={k} type="button" aria-pressed={show === k} onClick={() => setShow(k)}>{label}</button>)}
                 </div>
               </div>
               {rows.length === 0 ? <p className="om-empty">{recent.length === 0 ? "You have no saved plays yet. A play you generate is saved here." : "No saved play matches that filter."}</p> : (
                 <ul className="om-rows">
-                  {rows.map((r) => <PlayRow key={r.id} r={r} current={result?.id === r.id} checking={checking === r.id} onOpen={() => { setResult(r); setStep("result"); }} onCheck={() => checkResult(r)} onDelete={() => deleteResult(r.id)} />)}
+                  {rows.map((r) => <PlayRow key={r.id} r={r} current={result?.id === r.id} checking={checking === r.id} onDelete={() => deleteResult(r.id)} onCheck={() => checkResult(r)}
+                    onOpen={() => {
+                      setResult(r); setStep("result");
+                      // Opened from the list below: bring the play into view (it opens above the list).
+                      requestAnimationFrame(() => document.querySelector(".om-plays-result")?.scrollIntoView({ block: "nearest" }));
+                    }} />)}
                 </ul>
               )}
             </div>
@@ -720,16 +789,12 @@ function GradeBadge({ grade, score }: { grade: string; score?: number }) {
 /** What a saved play says about ITSELF, in words. The setup's state (what the engine concluded) and the
  *  record's outcome (what happened after) are two things and are shown as two. Neither is a broker order. */
 function playWords(r: Result): { setup: string; outcome: string; tone: "pos" | "neg" | null } {
-  const s = r.signal;
-  // Seen on the owner's saved plays (11-20): a play the engine had NOT confirmed still carries a side and
-  // levels, and its result can still be checked — so "Waiting for confirmation" beside "Target 3 reached"
-  // read as a contradiction. The setup column says what the engine concluded; the outcome, what price did.
-  const none = s.direction === "NEUTRAL";
-  const side = s.direction === "LONG" ? "Buy" : "Sell";
-  const waiting = none || s.status === "no_trade";
-  const setup = none ? "No setup" : waiting ? `${side} idea, not confirmed` : `${side} setup`;
-  const outcome = r.status === "win" ? `Target ${r.hitTp ?? 1} reached` : r.status === "loss" ? "Stopped out" : none ? "No trade" : waiting ? "Waiting for confirmation" : "Open";
-  return { setup, outcome, tone: r.status === "win" ? "pos" : r.status === "loss" ? "neg" : null };
+  // Seen on the owner's saved plays (11-20, 11-21): "Sell idea, not confirmed" beside "Target reached" read as
+  // if an unconfirmed idea had been a winning trade. The setup column says what the engine concluded; the
+  // outcome column, what price did against the play's levels — said as price, and for an idea in a neutral
+  // voice (lib/plays/lifecycle.ts). Neither is an order.
+  const a = analysisOf(r.signal), t = trackingOf(r);
+  return { setup: a.label, outcome: t.label, tone: t.tone };
 }
 
 function PlayRow({ r, current, checking, onOpen, onCheck, onDelete }: { r: Result; current: boolean; checking: boolean; onOpen: () => void; onCheck: () => void; onDelete: () => void }) {
@@ -907,9 +972,19 @@ function UpdatePanel({ u }: { u: TradeUpdate }) {
 /* ---------- Execute (risk-sized) — take this OM AI play on TradeLocker ---------- */
 
 type SizingInfo = { estLossAtStop?: number } | null;
-type PerAcct = { accountId: string; name?: string | null; accNum?: string | null; environment?: string | null; equity?: number | null; lots?: number | null };
+type PerAcct = {
+  accountId: string; name?: string | null; accNum?: string | null; environment?: string | null; equity?: number | null; lots?: number | null;
+  currency?: string | null; estLossAtStop?: number | null; reason?: string; placement?: PlacementSize | null;
+};
+type TicketFill = { accountId: string; status: "placed" | "error" | "skipped"; qty?: number; lots?: number; orderId?: string | null; reason?: string };
 
-function ExecuteSignal({ symbol, direction, entry, stop, tp }: { symbol: string; direction: "LONG" | "SHORT"; entry: number; stop: number; tp: number | null }) {
+function ExecuteSignal({ symbol, direction, entry, stop, tp, unconfirmed = false, orderType }: {
+  symbol: string; direction: "LONG" | "SHORT"; entry: number; stop: number; tp: number | null;
+  /** New shell: the engine had not confirmed this play. Placing it is labelled a manual override. */
+  unconfirmed?: boolean;
+  /** New shell: the play's own order type, so the ticket can say how it is actually placed. */
+  orderType?: string;
+}) {
   const side: "buy" | "sell" = direction === "SHORT" ? "sell" : "buy";
   const [risk, setRisk] = useState(1);
   const [acct, setAcct] = useState("");
@@ -926,6 +1001,12 @@ function ExecuteSignal({ symbol, direction, entry, stop, tp }: { symbol: string;
   // member picks. "all" keeps the classic fan-out; an accountId places on that one only.
   const [target, setTarget] = useState<string>("all");
   const [acctList, setAcctList] = useState<PerAcct[]>([]);
+  // The new shell shows every account the ticket goes to, as the service sized it, each account's result, and
+  // asks once more before anything is placed. The requests are the same ones.
+  const next = useNextShell();
+  const [per, setPer] = useState<PerAcct[] | null>(null);
+  const [fills, setFills] = useState<TicketFill[] | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
     fetch("/api/flow/prefs", { cache: "no-store" })
@@ -954,10 +1035,11 @@ function ExecuteSignal({ symbol, direction, entry, stop, tp }: { symbol: string;
       .then((d) => {
         if (d && d.preview) {
           setLots(d.lots); setSizing(d.sizing ?? null); if (d.equity != null) setEquity(d.equity); setAcctCount(d.accountCount ?? 0); setErr("");
+          setPer(Array.isArray(d.accounts) ? (d.accounts as PerAcct[]) : null);
           // Only an unfiltered ("all") preview carries the FULL account list — keep it for the picker.
           if (target === "all" && Array.isArray(d.accounts)) setAcctList(d.accounts as PerAcct[]);
         }
-        else if (d && d.detail) { setLots(null); setErr(d.detail); }
+        else if (d && d.detail) { setLots(null); setErr(d.detail); setPer(null); }
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -971,6 +1053,7 @@ function ExecuteSignal({ symbol, direction, entry, stop, tp }: { symbol: string;
     fetch("/api/flow/execute", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(bodyFor()) })
       .then((r) => r.json())
       .then((d) => {
+        if (d && Array.isArray(d.accounts) && d.accounts.some((x: { status?: string }) => typeof x?.status === "string")) setFills(d.accounts as TicketFill[]);
         if (d && d.ok && d.outcome && d.outcome.status === "placed") setDone({ ...d.outcome, placed: d.placed });
         else setErr((d && (d.detail || (d.outcome && d.outcome.reason))) || "Couldn't place the order.");
       })
@@ -984,6 +1067,101 @@ function ExecuteSignal({ symbol, direction, entry, stop, tp }: { symbol: string;
 
   const RISKS = [0.5, 1, 2, 3];
   const sym = symbol.replace("/", "");
+
+  /* THE NEW SHELL (owner 11-21 brief §13): the same preview and the same placement request, drawn as an explicit
+     ticket — each account it goes to with its own size, how the order is actually placed, whether the play was
+     confirmed, and one more tap to confirm. Nothing about what is placed changes. */
+  if (next) {
+    const sideW = side === "sell" ? "Sell" : "Buy";
+    const env = (e?: string | null) => (String(e ?? "").toLowerCase() === "live" ? "live" : "demo");
+    const nameFor = (p: PerAcct) => accountName(p.name, env(p.environment), maskAccount(p.accountId, p.accNum));
+    const many = acctCount > 1;
+    const live = (per ?? []).some((p) => env(p.environment) === "live");
+    const fillFor = (id: string) => fills?.find((f) => String(f.accountId) === String(id)) ?? null;
+    const why = (r?: string) => (!r ? "" : r === "no_equity" ? "no equity reading from the broker" : r.replace(/_/g, " "));
+    const limit = String(orderType ?? "").toLowerCase() === "limit";
+    return (
+      <div className="om-ticket">
+        <div className="om-ticket-head">
+          <h3>Ticket</h3>
+          <span className="om-label" data-no-i18n translate="no">{sideW} {pairName(symbol)} · stop {priceFor(symbol, stop)}{tp != null ? ` · target ${priceFor(symbol, tp)}` : ""}</span>
+        </div>
+        {unconfirmed && (
+          <p className="om-play-note" role="note"><b>Manual override.</b> The engine has not confirmed this idea. Placing it is your own decision: the play stays an unconfirmed idea, and it does not become an engine signal.</p>
+        )}
+        <div className="om-field">
+          <span className="om-label">Risk for this ticket · an account with its own risk uses its own</span>
+          <div className="om-toggles" role="group" aria-label="Risk for this ticket">
+            {RISKS.map((rp) => <button key={rp} type="button" aria-pressed={risk === rp} onClick={() => { setRisk(rp); setConfirming(false); }}>{rp}%</button>)}
+          </div>
+        </div>
+        {connected && acctList.length > 1 && (
+          <div className="om-field">
+            <span className="om-label">Place on</span>
+            <div className="om-toggles" role="group" aria-label="Accounts this ticket goes to" data-no-i18n translate="no">
+              <button type="button" aria-pressed={target === "all"} onClick={() => { setTarget("all"); setConfirming(false); }}>All {acctList.length} accounts</button>
+              {acctList.map((a) => <button key={a.accountId} type="button" aria-pressed={target === String(a.accountId)} onClick={() => { setTarget(String(a.accountId)); setConfirming(false); }}>{nameFor(a)}</button>)}
+            </div>
+          </div>
+        )}
+        {connected ? (
+          per && per.length ? (
+            <table className="om-table om-ticket-accts">
+              <thead><tr><th scope="col">Account</th><th scope="col" className="om-r">Equity</th><th scope="col" className="om-r">Risk</th><th scope="col" className="om-r">Size</th><th scope="col" className="om-r">At the stop</th></tr></thead>
+              <tbody>
+                {per.map((p) => {
+                  const pl = p.placement ?? null, f = fillFor(p.accountId);
+                  return (
+                    <tr key={p.accountId}>
+                      <td className="om-lead" data-no-i18n translate="no"><b>{nameFor(p)}</b> <span className="om-faint">· {env(p.environment) === "live" ? "Live" : "Demo"}</span>
+                        {f && <span className={`om-ticket-fill ${f.status === "placed" ? "om-pos" : "om-neg"}`}>{f.status === "placed" ? `Placed ${lotsText(f.qty ?? f.lots ?? null)}${f.orderId ? ` · #${f.orderId}` : ""}` : `Not placed · ${why(f.reason)}`}</span>}
+                      </td>
+                      <td data-label="Equity" className="om-r om-num" data-no-i18n translate="no">{money(p.equity ?? null, p.currency ?? "USD")}</td>
+                      <td data-label="Risk" className="om-r om-num">{pl ? `${pl.riskPct}%` : "—"}{pl && (pl.own || pl.capped) ? <small className="om-faint">{pl.capped ? " · capped" : " · its own"}</small> : null}</td>
+                      <td data-label="Size" className="om-r om-num">{pl?.lots != null ? lotsText(pl.lots) : p.reason ? <span className="om-faint">{why(p.reason)}</span> : "—"}</td>
+                      <td data-label="At the stop" className="om-r om-num" data-no-i18n translate="no">{pl?.estLossAtStop != null ? money(-pl.estLossAtStop, p.currency ?? "USD") : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : <p className="om-label">{err || "Sizing it for each account…"}</p>
+        ) : (
+          <div className="om-field">
+            <span className="om-label">No broker connected · an account size, to see the size</span>
+            <input className="om-input om-num" type="number" inputMode="decimal" value={acct} placeholder="e.g. 5000" onChange={(e) => setAcct(e.target.value)} onBlur={saveAcct} />
+            <span className="om-label">{lots != null ? `${lotsText(lots)} · about ${money(-(sizing?.estLossAtStop ?? 0), "USD")} at the stop` : err || "Enter an account size."}</span>
+          </div>
+        )}
+        <dl className="om-kv">
+          <div><dt>How it is placed</dt><dd>{limit ? `Now, at the current price with a price limit — not left waiting at the play's limit entry of ${priceFor(symbol, entry)}.` : "Now, at the current price with a price limit."}</dd></div>
+          <div><dt>After it is placed</dt><dd>Nothing manages it: the stop and target stay where they were placed.</dd></div>
+        </dl>
+        {done ? (
+          <p className="om-flow-ok" role="status">Placed {sideW.toLowerCase()} {pairName(symbol)}{done.placed && done.placed > 1 ? ` on ${done.placed} accounts` : done.orderId ? ` · #${done.orderId}` : ""}.</p>
+        ) : connected ? (
+          confirming ? (
+            <div className="om-ticket-confirm" role="group" aria-label="Confirm the order">
+              <p>{unconfirmed ? "Place this unconfirmed idea anyway: " : "Place it: "}{sideW.toLowerCase()} {pairName(symbol)} on {many ? `${acctCount} accounts` : "this account"}{live ? ", including a live account with real money" : ""}.</p>
+              <div className="om-ticket-confirm-acts">
+                <button type="button" className="om-btn" onClick={() => { setConfirming(false); execute(); }} disabled={busy || lots == null}>{unconfirmed ? "Yes, place it · manual override" : `Yes, place ${sideW.toLowerCase()}`}</button>
+                <button type="button" className="om-btn-quiet" onClick={() => setConfirming(false)}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" className="om-btn om-ticket-go" onClick={() => setConfirming(true)} disabled={busy || lots == null}>
+              {busy && <Loader2 className="animate-spin" aria-hidden="true" />}
+              {busy ? "Placing…" : `${unconfirmed ? "Place anyway · manual override" : `Place ${sideW.toLowerCase()}`}${many ? ` · ${acctCount} accounts` : ""}`}
+            </button>
+          )
+        ) : (
+          <p className="om-label">Connect a broker account in FLOW to place it. <a href="/portal/trading?view=flow" className="om-go">Open FLOW</a></p>
+        )}
+        {err && !done && connected && per && per.length > 0 && <p className="om-flow-err" role="alert">{err}</p>}
+        {connected && <p className="om-faint om-flow-small">A real order on {many ? `each of the ${acctCount} accounts above` : "the account above"} once you confirm. FLOW&rsquo;s checks still run as it is placed, so an account can be skipped — it says why.</p>}
+      </div>
+    );
+  }
   return (
     <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-400/[0.04] p-4">
       <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-300/80">Execute · risk-sized</p>
