@@ -28,7 +28,7 @@
   --om-neg: #e099a1;
   --om-r-panel: 24px;
   --om-r-input: 12px;
-  --om-gap: 22px;
+  --om-gap: 20px;
   --om-pad: clamp(16px, 4.2vw, 60px);
   --om-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
@@ -203,7 +203,7 @@
 }
 
 /* ── surfaces ─────────────────────────────────────────────────────────────────────────────────── */
-.om-main { padding-top: 14px; padding-bottom: 56px; }
+.om-main { padding-top: 10px; padding-bottom: 56px; }
 .om-panel {
   position: relative;
   border-radius: var(--om-r-panel);
@@ -276,153 +276,239 @@
 .om-app :focus-visible { outline: 2px solid var(--om-ai); outline-offset: 2px; }
 .om-skel { display: inline-block; border-radius: 8px; background: rgba(255, 255, 255, 0.07); color: transparent !important; user-select: none; }
 
-/* ── The Floor ────────────────────────────────────────────────────────────────────────────────── */
-.om-floor { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--om-gap); }
-.om-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; padding: 6px 4px 0; }
-.om-title { margin: 0; font-size: clamp(30px, 3.1vw, 42px); line-height: 1.08; font-weight: 400; letter-spacing: -0.022em; }
-.om-sub { margin: 8px 0 0; color: var(--om-text-2); font-size: clamp(15px, 1.35vw, 19px); }
+/* ── notifications ────────────────────────────────────────────────────────────────────────────── */
+/*
+ * The panel is fixed to the screen and slides in from the right. Closed, it is off the edge, invisible and
+ * out of the keyboard's reach (the component also marks it inert). It opens from inside the bar, so the
+ * bar must never frame it — see .om-nav above.
+ */
+.om-bell { display: inline-flex; }
+.om-bell-btn { position: relative; }
+.om-bell-count {
+  position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--om-ai); color: var(--om-ink); font-size: 11px; font-weight: 600; line-height: 1;
+}
+.om-notes { position: fixed; inset: 0; z-index: 70; pointer-events: none; }
+.om-notes[data-open="true"] { pointer-events: auto; }
+.om-notes-veil { position: absolute; inset: 0; background: rgba(4, 5, 9, 0.55); opacity: 0; transition: opacity 200ms ease; }
+.om-notes[data-open="true"] .om-notes-veil { opacity: 1; }
+.om-notes-panel {
+  position: absolute; top: 0; right: 0; height: 100%; width: 400px; max-width: 92vw;
+  display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 160px), var(--om-surface);
+  border-left: 1px solid var(--om-edge-2); box-shadow: -30px 0 70px -30px rgba(0, 0, 0, 0.9);
+  transform: translateX(100%); visibility: hidden; transition: transform 240ms ease, visibility 0s linear 240ms;
+}
+.om-notes[data-open="true"] .om-notes-panel { transform: none; visibility: visible; transition-delay: 0s; }
+.om-notes-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 14px 12px 24px; }
+.om-notes-head h2 { margin: 0; font-size: 19px; font-weight: 500; letter-spacing: -0.01em; }
+.om-notes-head > div { display: flex; align-items: center; gap: 10px; }
+.om-notes-head .om-go { font-size: 13.5px; color: var(--om-text-2); }
+.om-notes-head .om-icon-btn { width: 36px; height: 36px; color: var(--om-text-2); }
+.om-notes-head .om-icon-btn svg { width: 18px; height: 18px; }
+.om-notes-tabs { padding: 0 14px 8px; border-bottom: 1px solid var(--om-hair); }
+.om-notes-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: env(safe-area-inset-bottom, 0px); }
+.om-notes-list ul { list-style: none; margin: 0; padding: 0; }
+.om-notes-list li + li { border-top: 1px solid var(--om-hair); }
+.om-notes-list li button {
+  display: flex; gap: 14px; width: 100%; min-height: 64px; padding: 14px 20px 14px 24px; border: 0; background: none;
+  color: var(--om-text); font: inherit; text-align: left; cursor: pointer; transition: background-color 140ms ease;
+}
+.om-notes-list li button:hover { background: rgba(255, 255, 255, 0.05); }
+.om-notes-list li button[data-unread="true"] { background: rgba(182, 196, 255, 0.06); }
+.om-notes-icon { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 999px; background: rgba(255, 255, 255, 0.07); color: var(--om-text-2); flex: 0 0 auto; }
+.om-notes-list li button[data-unread="true"] .om-notes-icon { color: var(--om-ai); }
+.om-notes-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.om-notes-text b { font-size: 14.5px; font-weight: 500; line-height: 1.35; }
+.om-notes-text span { color: var(--om-text-2); font-size: 13px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.om-notes-text small { color: var(--om-text-3); font-size: 12px; }
+.om-notes-empty { margin: 0; padding: 40px 28px; color: var(--om-text-2); font-size: 14.5px; line-height: 1.5; text-align: center; }
 
-.om-acct { display: flex; align-items: stretch; gap: 0; padding: 14px 8px 14px 0; min-width: 0; }
-.om-acct > div { padding: 0 34px; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
-.om-acct .om-figure { font-size: clamp(22px, 2vw, 27px); line-height: 1.1; font-weight: 400; letter-spacing: -0.012em; white-space: nowrap; }
+/* ── The Floor ────────────────────────────────────────────────────────────────────────────────── */
+/*
+ * ONE SCREEN, IN THIS ORDER: the heading and the selected account; the chart with GENX's read beside it
+ * and Atlas; the two results bands; then the markets and the account's latest trades. On a desktop the
+ * chart row is held to about 400px so the results are on screen without scrolling (checked at 1440 × 900
+ * and 1728 × 881); nothing is made smaller to get there, and a shorter window simply scrolls.
+ */
+.om-floor { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--om-gap); }
+.om-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; padding: 2px 4px 0; }
+.om-title { margin: 0; font-size: clamp(28px, 2.3vw, 34px); line-height: 1.1; font-weight: 400; letter-spacing: -0.02em; }
+.om-sub { margin: 6px 0 0; color: var(--om-text-2); font-size: clamp(14.5px, 1.1vw, 16px); }
+
+.om-acct { display: flex; align-items: stretch; gap: 0; padding: 12px 8px 12px 0; min-width: 0; }
+.om-acct > div { padding: 0 30px; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 5px; }
+/* A long account name gives way; Balance and Equity never do. */
+.om-acct > div:first-child { max-width: 340px; }
+.om-acct .om-figure { font-size: clamp(24px, 2vw, 30px); line-height: 1.1; font-weight: 400; letter-spacing: -0.012em; white-space: nowrap; }
 .om-figure[data-stale="true"] { color: var(--om-text-2); }
 .om-acct-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--om-text-2); font-size: 12.5px; }
-.om-acct-name { font-size: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.om-acct-pick { display: inline-flex; align-items: center; gap: 10px; max-width: 100%; padding: 0; border: 0; background: none; color: var(--om-text); font: inherit; font-size: 19px; cursor: pointer; }
+.om-acct-name { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.om-acct-pick { display: inline-flex; align-items: center; gap: 9px; max-width: 100%; padding: 0; border: 0; background: none; color: var(--om-text); font: inherit; font-size: 17px; cursor: pointer; }
 .om-acct-pick span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.om-acct-pick svg { width: 17px; height: 17px; color: var(--om-text-2); flex: 0 0 auto; }
+.om-acct-pick svg { width: 16px; height: 16px; color: var(--om-text-2); flex: 0 0 auto; }
 .om-acct-menu { left: -12px; right: auto; width: min(340px, 86vw); }
 .om-acct-menu button small { display: block; color: var(--om-text-2); font-size: 12.5px; margin-top: 1px; }
 .om-acct-menu button[aria-selected="true"] { background: rgba(255, 255, 255, 0.07); }
 .om-menu-note { margin: 6px 12px 8px; color: var(--om-text-3); font-size: 12px; line-height: 1.45; }
-.om-sample { margin-left: 16px; vertical-align: middle; font-size: 12.5px; letter-spacing: 0; color: var(--om-text-2); }
+.om-sample { margin-left: 14px; vertical-align: middle; font-size: 12.5px; letter-spacing: 0; color: var(--om-text-2); }
 .om-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 999px; border: 0; background: none; color: var(--om-text-3); cursor: pointer; }
 .om-icon-btn:hover { color: var(--om-text); background: rgba(255, 255, 255, 0.07); }
 .om-icon-btn svg { width: 16px; height: 16px; }
 
-.om-stage { display: grid; grid-template-columns: minmax(0, 2.12fr) minmax(320px, 1fr); gap: var(--om-gap); align-items: stretch; }
-.om-chart-card { padding: 20px 26px 16px 30px; display: flex; flex-direction: column; min-width: 0; }
-.om-chart-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.om-quote { display: flex; align-items: baseline; gap: 26px; flex-wrap: wrap; margin-top: 8px; }
-.om-sym { font-size: clamp(22px, 2.1vw, 29px); font-weight: 400; letter-spacing: -0.01em; white-space: nowrap; }
-.om-px { font-size: clamp(28px, 2.8vw, 38px); font-weight: 400; letter-spacing: -0.02em; line-height: 1; white-space: nowrap; }
-.om-chg { font-size: 16px; white-space: nowrap; }
-.om-tfs { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
-.om-tf { display: inline-flex; gap: 6px; }
+/* The two instruments: the chart (about 70%) and Atlas. */
+.om-stage { display: grid; grid-template-columns: minmax(0, 2.3fr) minmax(330px, 1fr); grid-auto-rows: clamp(384px, 45vh, 440px); gap: var(--om-gap); align-items: stretch; }
+.om-chart-card { padding: 18px 24px 18px 26px; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.om-chart-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px 20px; flex-wrap: wrap; }
+.om-quote { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+.om-sym { font-size: 19px; font-weight: 500; letter-spacing: -0.005em; white-space: nowrap; }
+.om-px { font-size: clamp(26px, 2.2vw, 32px); font-weight: 400; letter-spacing: -0.02em; line-height: 1.05; white-space: nowrap; }
+.om-chg { font-size: 15px; white-space: nowrap; }
+.om-fresh { display: block; margin-top: 5px; font-size: 12.5px; }
+/* Timeframes are quiet text tabs: choosing one changes what is looked at, and must not read as a switch that does something. */
+.om-tf { display: inline-flex; gap: 2px; }
 .om-tf button {
-  height: 30px; min-width: 46px; padding: 0 13px; border-radius: 999px; border: 1px solid transparent; background: none;
-  color: var(--om-text-2); font: inherit; font-size: 14px; cursor: pointer; transition: color 140ms ease, background-color 140ms ease;
+  position: relative; height: 32px; min-width: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: none;
+  color: var(--om-text-3); font: inherit; font-size: 14px; cursor: pointer; transition: color 140ms ease;
 }
 .om-tf button:hover { color: var(--om-text); }
-.om-tf button[aria-pressed="true"] { color: var(--om-text); font-weight: 500; background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.08); }
-.om-chart { position: relative; margin-top: 8px; height: clamp(214px, 16.4vw, 270px); min-width: 0; }
+.om-tf button[aria-pressed="true"] { color: var(--om-text); font-weight: 500; }
+.om-tf button[aria-pressed="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 3px; height: 1.5px; border-radius: 2px; background: var(--om-text); }
+
+.om-chart-body { display: grid; grid-template-columns: minmax(0, 1fr) 244px; gap: 12px 24px; flex: 1 1 auto; min-height: 0; margin-top: 10px; }
+.om-chart { position: relative; min-width: 0; min-height: 0; height: 100%; }
 .om-chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .om-chart-note { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--om-text-2); font-size: 14px; padding: 16px; }
-.om-read { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; flex-wrap: wrap; margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--om-hair); }
+/* What GENX makes of it, beside the chart: the state, what it waits for, what would change that, one next step. */
+.om-read { display: flex; flex-direction: column; justify-content: space-between; gap: 12px; min-width: 0; min-height: 0; padding-left: 22px; border-left: 1px solid var(--om-hair); }
 .om-read p { margin: 0; }
-.om-read-main { display: flex; gap: 12px; align-items: flex-start; min-width: 0; flex: 1 1 320px; }
-.om-ring { width: 15px; height: 15px; border-radius: 999px; border: 1.5px solid var(--om-text-2); margin-top: 3px; flex: 0 0 auto; }
+.om-read-main { display: flex; flex-direction: column; gap: 7px; min-width: 0; min-height: 0; overflow: hidden; }
+.om-read-state { display: flex; align-items: center; gap: 9px; font-size: 18px; line-height: 1.25; letter-spacing: -0.01em; }
+.om-read-says { color: var(--om-text-2); font-size: 13.5px; line-height: 1.45; }
+/* The engine's own sentence, under its label. Three lines of it show; the whole of it is in the title. */
+.om-read-line { display: flex; flex-direction: column; color: var(--om-text-2); font-size: 13.5px; line-height: 1.45; min-width: 0; }
+.om-read-line .om-faint { font-size: 12px; }
+.om-read-line > span:last-child { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.om-read-act { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; flex: 0 0 auto; }
+.om-read-act .om-btn, .om-read-act .om-btn-quiet { height: 40px; }
+.om-ring { width: 13px; height: 13px; border-radius: 999px; border: 1.5px solid var(--om-text-2); flex: 0 0 auto; }
 .om-ring[data-stage="forming"] { border-color: var(--om-ai); }
 .om-ring[data-stage="live"] { border-color: var(--om-pos); background: var(--om-pos); }
-.om-levels { display: flex; gap: 8px 22px; flex-wrap: wrap; margin-top: 10px; color: var(--om-text-2); font-size: 13.5px; }
-.om-levels b { color: var(--om-text); font-weight: 400; margin-left: 6px; }
 
-.om-atlas { padding: 26px 30px 22px 34px; display: flex; flex-direction: column; min-width: 0; }
-.om-atlas-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.om-atlas-head h2 { margin: 0; font-size: clamp(28px, 2.6vw, 36px); font-weight: 400; letter-spacing: -0.02em; line-height: 1.1; }
-.om-atlas-mark { width: 132px; height: 94px; flex: 0 0 auto; margin: -10px -2px 0 0; }
-.om-atlas-say { margin: 20px 0 0; font-size: clamp(17px, 1.5vw, 20px); line-height: 1.42; letter-spacing: -0.01em; }
-.om-atlas-asks { display: flex; flex-wrap: wrap; gap: 10px 26px; margin-top: 18px; }
-.om-atlas-asks .om-go { font-size: 14.5px; text-align: left; }
-.om-atlas-cta { margin-top: 20px; display: flex; flex-direction: column; align-items: flex-start; gap: 9px; }
+.om-atlas { padding: 22px 26px 20px 28px; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.om-atlas-head { display: flex; align-items: center; gap: 14px; }
+.om-atlas-head h2 { margin: 0; font-size: 19px; font-weight: 500; letter-spacing: -0.01em; line-height: 1.2; }
+.om-atlas-head p { margin: 2px 0 0; }
+/* Atlas's mark here is small: the panel's room goes to what Atlas says. Its full presence is in the Command Center. */
+.om-atlas-mark { width: 46px; height: 46px; flex: 0 0 auto; border-radius: 999px; background: radial-gradient(closest-side, rgba(150, 132, 246, 0.2), rgba(150, 132, 246, 0)); }
+.om-atlas-say { margin: 16px 0 0; font-size: clamp(16px, 1.25vw, 18px); line-height: 1.45; letter-spacing: -0.008em; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.om-atlas-asks { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 14px; }
+.om-atlas-asks .om-go { font-size: 14px; text-align: left; }
 .om-ask {
-  margin-top: auto; display: flex; align-items: center; gap: 8px; height: 54px; padding: 0 7px 0 20px;
+  margin-top: auto; display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 5px 0 18px; flex: 0 0 auto;
   border-radius: 999px; border: 1px solid rgba(214, 206, 255, 0.2); background: rgba(10, 10, 18, 0.5);
 }
 @media (prefers-reduced-transparency: reduce) { .om-ask { background: #0d0d16; } }
-.om-ask input { flex: 1 1 auto; min-width: 0; height: 100%; border: 0; background: none; color: var(--om-text); font: inherit; font-size: 15.5px; outline: none; }
+.om-ask input { flex: 1 1 auto; min-width: 0; height: 100%; border: 0; background: none; color: var(--om-text); font: inherit; font-size: 15px; outline: none; }
 .om-ask input::placeholder { color: var(--om-text-2); }
 .om-ask:focus-within { border-color: var(--om-ai); }
 .om-ask button {
-  display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 999px; border: 0;
+  display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 999px; border: 0;
   background: rgba(255, 255, 255, 0.16); color: var(--om-text); cursor: pointer; flex: 0 0 auto; transition: background-color 140ms ease;
 }
 .om-ask button:hover { background: rgba(255, 255, 255, 0.26); }
 .om-ask button.om-ask-mic { background: none; color: var(--om-text-2); }
 .om-ask button.om-ask-mic:hover { color: var(--om-text); background: rgba(255, 255, 255, 0.08); }
-.om-ask svg { width: 17px; height: 17px; }
+.om-ask svg { width: 16px; height: 16px; }
+.om-atlas-cta { margin-top: 12px; display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; flex: 0 0 auto; }
+.om-atlas-cta .om-label { flex: 1 1 130px; min-width: 0; font-size: 12.5px; line-height: 1.35; }
 
+/* Two broad, shallow results bands. How each is counted is a tap away (.om-method), not printed under the figures. */
 .om-results { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--om-gap); }
-.om-res { padding: 20px 26px 18px 32px; min-width: 0; }
-.om-res-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.om-res-head h2 { margin: 0; font-size: clamp(20px, 1.75vw, 24px); font-weight: 400; letter-spacing: -0.012em; }
-.om-res-head p { margin: 3px 0 0; }
-.om-stats { display: flex; align-items: stretch; gap: 0; margin-top: 16px; min-width: 0; }
-.om-stat { padding: 0 30px; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.om-stat:first-child { padding-left: 0; }
-.om-stat .om-figure { font-size: clamp(22px, 2.15vw, 30px); line-height: 1.1; font-weight: 400; letter-spacing: -0.018em; white-space: nowrap; }
-.om-stat .om-label { font-size: 14.5px; color: var(--om-text); white-space: nowrap; }
-.om-spark { flex: 1 1 120px; min-width: 90px; max-width: 190px; height: 56px; margin-left: auto; align-self: center; }
+.om-res { padding: 16px 20px 18px 26px; min-width: 0; }
+.om-res-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.om-res-head h2 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: -0.008em; line-height: 1.25; }
+.om-res-head p { margin: 1px 0 0; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.om-res-tools { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.om-res-tools .om-select select { height: 32px; }
+.om-method { position: relative; display: inline-flex; }
+.om-method-note { display: block; top: calc(100% + 8px); width: min(330px, 82vw); padding: 14px 16px; color: var(--om-text-2); font-size: 13px; line-height: 1.5; }
+.om-stats { display: flex; align-items: flex-end; gap: clamp(20px, 2.6vw, 44px); margin-top: 14px; min-width: 0; }
+.om-stat { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.om-stat .om-figure { font-size: clamp(22px, 1.75vw, 26px); line-height: 1.15; font-weight: 400; letter-spacing: -0.015em; white-space: nowrap; }
+.om-stat .om-label { font-size: 12.5px; white-space: nowrap; }
+.om-stat-last .om-figure { display: inline-flex; gap: 12px; font-size: clamp(17px, 1.3vw, 19px); line-height: 1.58; }
+.om-spark { flex: 1 1 100px; min-width: 80px; max-width: 170px; height: 44px; margin-left: auto; align-self: center; }
 .om-spark svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.om-foot { margin: 12px 0 0; color: var(--om-text-3); font-size: 12.5px; line-height: 1.5; }
-.om-empty { margin: 22px 0 4px; color: var(--om-text-2); font-size: 15px; }
+.om-empty { margin: 16px 0 2px; color: var(--om-text-2); font-size: 14.5px; line-height: 1.5; }
+.om-empty .om-go { margin-left: 8px; font-size: 14.5px; vertical-align: baseline; }
 
-.om-pulse { display: flex; align-items: center; gap: 0; padding: 14px 4px 4px; min-width: 0; }
-.om-pulse h2 { margin: 0; font-size: clamp(18px, 1.6vw, 22px); font-weight: 400; letter-spacing: -0.01em; white-space: nowrap; padding-right: 40px; }
+.om-lower { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.om-pulse { display: flex; align-items: center; gap: 0; padding: 6px 4px 4px; min-width: 0; }
+.om-pulse h2 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: -0.008em; white-space: nowrap; padding-right: 36px; }
 /* Whole quotes only: one that does not fit drops to a second line, which is not shown, so a price is never
    cut through the middle. On a phone the row scrolls sideways instead, and fades at its edge. */
 .om-pulse-list { display: flex; flex-wrap: wrap; align-content: flex-start; min-width: 0; height: 26px; overflow: hidden; flex: 1 1 auto; margin-right: 18px; }
-.om-pulse-item { display: inline-flex; align-items: baseline; gap: 10px; padding: 0 34px; white-space: nowrap; font-size: 15.5px; line-height: 26px; border-left: 1px solid var(--om-hair); }
-.om-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--om-hair); margin-top: 4px; }
-.om-tool { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 22px 18px 4px; color: var(--om-text); text-decoration: none; border-left: 1px solid var(--om-hair); padding-left: 22px; min-width: 0; }
-.om-tool:first-child { border-left: 0; padding-left: 4px; }
-.om-tool span { display: block; color: var(--om-text-2); font-size: 13.5px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.om-tool svg { width: 16px; height: 16px; color: var(--om-text-3); flex: 0 0 auto; transition: color 140ms ease, transform 140ms ease; }
-.om-tool:hover svg { color: var(--om-text); transform: translate(1px, -1px); }
-.om-legal { margin: 18px 4px 0; color: var(--om-text-3); font-size: 12px; line-height: 1.5; }
+.om-pulse-item { display: inline-flex; align-items: baseline; gap: 10px; padding: 0 30px; white-space: nowrap; font-size: 15px; line-height: 26px; border-left: 1px solid var(--om-hair); }
+/* The account's latest FLOW trades: plain rows, a line each. */
+.om-activity { margin-top: 12px; padding: 16px 4px 0; border-top: 1px solid var(--om-hair); }
+.om-activity-head { display: flex; align-items: center; justify-content: space-between; gap: 4px 12px; flex-wrap: wrap; }
+.om-activity h2 { white-space: nowrap; }
+.om-activity h2 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: -0.008em; }
+.om-activity ul { list-style: none; margin: 6px 0 0; padding: 0; }
+.om-activity li {
+  display: grid; grid-template-columns: minmax(84px, 1.1fr) minmax(48px, 0.6fr) minmax(130px, 1.5fr) minmax(90px, 1fr) minmax(96px, 1fr);
+  align-items: center; gap: 12px; min-height: 52px; border-top: 1px solid var(--om-hair); font-size: 14.5px;
+}
+.om-activity li:first-child { border-top: 0; }
+.om-activity li > :nth-child(n + 4) { text-align: right; }
+.om-legal { margin: 16px 4px 0; color: var(--om-text-3); font-size: 12px; line-height: 1.5; }
 .om-banner { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 14px; border: 1px solid var(--om-edge); background: rgba(255, 255, 255, 0.04); color: var(--om-text-2); font-size: 13px; }
 
 /* ── recomposed, not scaled ───────────────────────────────────────────────────────────────────── */
+@media (max-width: 1320px) {
+  /* Not wide enough for the read beside the chart: it goes under it, and the row takes the height it needs. */
+  .om-stage { grid-auto-rows: auto; }
+  .om-chart-body { grid-template-columns: minmax(0, 1fr); }
+  .om-chart { height: clamp(220px, 21vw, 280px); }
+  .om-read { flex-direction: row; align-items: flex-start; flex-wrap: wrap; gap: 12px 18px; padding: 12px 0 0; border-left: 0; border-top: 1px solid var(--om-hair); }
+  .om-read-main { flex: 1 1 320px; overflow: visible; }
+  .om-read-act { align-items: flex-end; }
+  .om-atlas-say { -webkit-line-clamp: 6; }
+  .om-ask { margin-top: 18px; }
+}
 @media (max-width: 1180px) {
   .om-stage { grid-template-columns: minmax(0, 1fr); }
-  .om-atlas { padding: 26px 26px 22px 28px; }
-  .om-atlas-say { margin-top: 18px; }
-  .om-ask { margin-top: 22px; }
-  .om-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .om-tool:nth-child(3) { border-left: 0; padding-left: 4px; }
-  .om-tool:nth-child(n + 3) { border-top: 1px solid var(--om-hair); }
 }
 @media (max-width: 980px) {
-  .om-head { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .om-head { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .om-results { grid-template-columns: minmax(0, 1fr); }
   .om-acct > div { padding: 0 24px; }
+  .om-acct > div:first-child { max-width: none; flex: 1 1 auto; }
 }
 @media (max-width: 640px) {
   .om-app { --om-gap: 14px; --om-r-panel: 22px; }
-  .om-main { padding-top: 12px; }
-  .om-head { padding: 6px 2px 0; }
-  .om-acct { flex-wrap: wrap; padding: 16px 0 14px; row-gap: 14px; }
+  .om-main { padding-top: 10px; }
+  .om-head { padding: 4px 2px 0; }
+  .om-acct { flex-wrap: wrap; padding: 14px 0 12px; row-gap: 12px; }
   .om-acct > div { padding: 0 18px; }
-  .om-acct > div:first-child { flex: 1 1 100%; padding-bottom: 14px; border-bottom: 1px solid var(--om-hair); }
+  .om-acct > div:first-child { flex: 1 1 100%; padding-bottom: 12px; border-bottom: 1px solid var(--om-hair); }
   .om-acct > .om-rule:first-of-type { display: none; }
   .om-acct > div:not(:first-child) { flex: 1 1 0; }
-  .om-chart-card { padding: 18px 12px 16px 18px; }
-  .om-quote { gap: 12px 18px; }
-  .om-chart { height: 240px; }
-  .om-atlas { padding: 22px 18px 18px 22px; }
-  .om-atlas-mark { width: 96px; height: 66px; }
-  .om-res { padding: 20px 18px 20px 22px; }
-  .om-stats { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px 16px; }
-  .om-stats > .om-rule { display: none; }
-  .om-stat, .om-stat:first-child { padding: 0; }
-  .om-stat .om-figure { font-size: clamp(20px, 6.3vw, 26px); }
-  .om-stat .om-label { white-space: normal; }
-  .om-spark { max-width: none; margin-left: 0; height: 48px; align-self: end; }
-  .om-sym { font-size: 20px; }
+  .om-chart-card { padding: 16px 14px 16px 18px; }
+  .om-quote { gap: 10px 14px; }
   .om-px { font-size: 27px; }
-  .om-chg { font-size: 15px; }
-  .om-chart-top .om-btn { height: 40px; }
-  .om-pulse { flex-wrap: wrap; row-gap: 10px; padding: 8px 2px 0; }
+  .om-tf button { height: 40px; min-width: 48px; }
+  .om-tf button[aria-pressed="true"]::after { bottom: 6px; }
+  .om-chart { height: 232px; }
+  .om-read-act { align-items: flex-start; flex: 1 1 100%; }
+  .om-atlas { padding: 20px 18px 18px 20px; }
+  .om-res { padding: 16px 16px 18px 20px; }
+  .om-stats { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  .om-stat .om-label { white-space: normal; }
+  .om-spark { grid-column: 1 / -1; max-width: none; margin-left: 0; height: 44px; }
+  .om-pulse { flex-wrap: wrap; row-gap: 10px; padding: 6px 2px 0; }
   .om-pulse h2 { padding-right: 0; flex: 1 1 auto; }
   .om-pulse-list {
     order: 3; flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
@@ -431,9 +517,9 @@
   .om-pulse-list::-webkit-scrollbar { display: none; }
   .om-pulse-item { padding: 0 18px; }
   .om-pulse-item:first-child { border-left: 0; padding-left: 0; }
-  .om-tools { grid-template-columns: minmax(0, 1fr); }
-  .om-tool, .om-tool:nth-child(3) { border-left: 0; padding-left: 4px; border-top: 1px solid var(--om-hair); }
-  .om-tool:first-child { border-top: 0; }
+  .om-activity li { display: flex; flex-wrap: wrap; gap: 2px 12px; padding: 10px 0; min-height: 0; }
+  .om-activity li > :nth-child(4) { margin-left: auto; }
+  .om-activity li > :nth-child(3) { order: 5; flex: 1 1 100%; font-size: 13px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .om-app *, .om-app *::before, .om-app *::after { transition: none !important; animation: none !important; }

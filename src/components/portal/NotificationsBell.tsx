@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bell, X, Heart, MessageCircle, Radio, LineChart, Sparkles, CheckCheck,
@@ -62,7 +62,18 @@ const TYPE_TINT: Record<string, string> = {
   system: "bg-[#faeeda] text-gold-deep",
 };
 
-export function NotificationsBell() {
+/**
+ * `trading` is the trading platform's shell (owner 11-20: a trading-only product). There the panel wears
+ * the platform's own surfaces and lists what belongs to trading — trades and notices from the platform.
+ * The community's categories (Inner Circle, Calls) and its likes and comments are not shown or counted,
+ * so the number on the bell is the number of things in the panel. The classic portal is unchanged.
+ *
+ * In both: the closed panel cannot be reached with the keyboard, opening it moves focus into it, Tab
+ * stays inside it, Escape closes it, and focus goes back to the bell.
+ */
+const TRADING_FILTERS: { id: Filter; label: string }[] = [{ id: "all", label: "All" }, { id: "trades", label: "Trades" }];
+
+export function NotificationsBell({ trading = false }: { trading?: boolean }) {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -70,32 +81,65 @@ export function NotificationsBell() {
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
+  const bell = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLElement>(null);
+  const shut = useRef<HTMLButtonElement>(null);
+
+  const mine = useCallback((n: Notif) => !trading || n.type === "trade" || n.type === "system", [trading]);
 
   const refreshCount = useCallback(async () => {
     if (!supabase) return;
+    if (trading) {
+      // The site's own count includes the community's notifications, so here it is counted from the list.
+      const { data } = await supabase.rpc("get_notifications");
+      const list = (data as Notif[]) ?? [];
+      setItems(list);
+      setUnread(list.filter((n) => mine(n) && !n.read).length);
+      return;
+    }
     const { data } = await supabase.rpc("notif_unread_count");
     if (typeof data === "number") setUnread(data);
-  }, [supabase]);
+  }, [supabase, trading, mine]);
 
   const loadList = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
     const { data } = await supabase.rpc("get_notifications");
-    setItems((data as Notif[]) ?? []);
+    const list = (data as Notif[]) ?? [];
+    setItems(list);
+    if (trading) setUnread(list.filter((n) => mine(n) && !n.read).length);
     setLoading(false);
-  }, [supabase]);
+  }, [supabase, trading, mine]);
 
   useEffect(() => {
     refreshCount();
-    const t = setInterval(refreshCount, 30000);
+    const t = setInterval(refreshCount, trading ? 60000 : 30000);
     return () => clearInterval(t);
-  }, [refreshCount]);
+  }, [refreshCount, trading]);
 
   useEffect(() => {
     if (open) { loadList(); document.body.style.overflow = "hidden"; }
     else document.body.style.overflow = "";
     return () => { document.body.style.overflow = ""; };
   }, [open, loadList]);
+
+  // Focus goes into the open panel, stays there, and returns to the bell when it closes.
+  useEffect(() => {
+    if (!open) return;
+    const from = bell.current;
+    shut.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setOpen(false); return; }
+      if (e.key !== "Tab" || !panel.current) return;
+      const stops = Array.from(panel.current.querySelectorAll<HTMLElement>("button, a[href], [tabindex]:not([tabindex='-1'])")).filter((el) => !el.hasAttribute("disabled"));
+      if (!stops.length) return;
+      const first = stops[0], last = stops[stops.length - 1], at = document.activeElement;
+      if (e.shiftKey && (at === first || !panel.current.contains(at))) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (at === last || !panel.current.contains(at))) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("keydown", onKey); from?.focus(); };
+  }, [open]);
 
   const markAll = async () => {
     if (!supabase) return;
@@ -114,12 +158,14 @@ export function NotificationsBell() {
     if (n.link) router.push(n.link);
   };
 
-  const shown = items.filter((n) =>
+  const shown = items.filter(mine).filter((n) =>
     filter === "all" ? true :
     filter === "inner" ? (n.type === "like" || n.type === "comment") :
     filter === "calls" ? n.type === "call" :
     n.type === "trade"
   );
+
+  const hidden = (open ? {} : { inert: "" }) as Record<string, string>;
 
   const line = (n: Notif) => {
     const who = n.actor_name ?? n.actor_username ?? "Someone";
@@ -131,27 +177,73 @@ export function NotificationsBell() {
   return (
     <>
       <button
+        ref={bell}
+        type="button"
         onClick={() => setOpen(true)}
-        aria-label="Notifications"
-        className="relative grid h-10 w-10 place-items-center rounded-full border border-[#E4DCCB] bg-offwhite text-navy transition hover:bg-ice"
+        aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={trading ? "om-avatar om-bell-btn" : "relative grid h-10 w-10 place-items-center rounded-full border border-[#E4DCCB] bg-offwhite text-navy transition hover:bg-ice"}
       >
-        <Bell className="h-[18px] w-[18px]" />
+        <Bell className={trading ? undefined : "h-[18px] w-[18px]"} width={trading ? 18 : undefined} height={trading ? 18 : undefined} aria-hidden="true" />
         {unread > 0 && (
-          <span className="absolute -right-1 -top-1 grid h-5 min-w-[20px] place-items-center rounded-full bg-primary px-1 text-[11px] font-bold text-cream">
+          <span className={trading ? "om-bell-count" : "absolute -right-1 -top-1 grid h-5 min-w-[20px] place-items-center rounded-full bg-primary px-1 text-[11px] font-bold text-cream"} aria-hidden="true">
             {unread > 9 ? "9+" : unread}
           </span>
         )}
       </button>
 
-      {/* Slide-in panel */}
-      <div className={`fixed inset-0 z-[70] ${open ? "" : "pointer-events-none"}`} aria-hidden={!open}>
+      {/* The trading platform's panel wears its own surfaces and lists trades and platform notices only; the classic panel follows it, unchanged to look at. */}
+      {trading ? (
+      <div className="om-notes" data-open={open} aria-hidden={!open} {...hidden}>
+        <div className="om-notes-veil" onClick={() => setOpen(false)} />
+        <aside ref={panel} className="om-notes-panel" role="dialog" aria-modal="true" aria-label="Notifications">
+          <div className="om-notes-head">
+            <h2>Notifications</h2>
+            <div>
+              {shown.some((n) => !n.read) && <button type="button" className="om-go" onClick={markAll}>Mark all read</button>}
+              <button ref={shut} type="button" className="om-icon-btn" onClick={() => setOpen(false)} aria-label="Close notifications"><X aria-hidden="true" /></button>
+            </div>
+          </div>
+          <div className="om-tf om-notes-tabs" role="group" aria-label="Show">
+            {TRADING_FILTERS.map((f) => <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>{f.label}</button>)}
+          </div>
+          <div className="om-notes-list">
+            {loading && shown.length === 0 ? <p className="om-notes-empty">Loading…</p>
+              : shown.length === 0 ? <p className="om-notes-empty">{filter === "trades" ? "No trade notifications yet. Trades you are watching show up here." : "You're all caught up. Trade updates and notices from the platform show up here."}</p>
+                : (
+                  <ul>
+                    {shown.map((n) => {
+                      const Icon = TYPE_ICON[n.type as keyof typeof TYPE_ICON] ?? Bell;
+                      return (
+                        <li key={n.id}>
+                          <button type="button" onClick={() => openItem(n)} data-unread={!n.read}>
+                            <span className="om-notes-icon"><Icon width={17} height={17} aria-hidden="true" /></span>
+                            <span className="om-notes-text">
+                              <b>{line(n)}</b>
+                              {n.body && <span>{n.body}</span>}
+                              <small>{timeAgo(n.created_at)}{n.read ? "" : " · new"}</small>
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+          </div>
+        </aside>
+      </div>
+      ) : (
+      <div className={`fixed inset-0 z-[70] ${open ? "" : "pointer-events-none"}`} aria-hidden={!open} {...hidden}>
         <div
           className={`absolute inset-0 bg-black/30 transition-opacity duration-300 ${open ? "opacity-100" : "opacity-0"}`}
           onClick={() => setOpen(false)}
         />
         <aside
+          ref={panel}
           className={`absolute right-0 top-0 flex h-full w-[400px] max-w-[92vw] flex-col border-l border-[#E4DCCB] bg-cream shadow-2xl transition-transform duration-300 ease-out ${open ? "translate-x-0" : "translate-x-full"}`}
           role="dialog"
+          aria-modal="true"
           aria-label="Notifications"
         >
           {/* Header */}
@@ -164,7 +256,7 @@ export function NotificationsBell() {
               >
                 <CheckCheck className="h-4 w-4" /> Mark all read
               </button>
-              <button onClick={() => setOpen(false)} className="grid h-8 w-8 place-items-center rounded-full text-medium hover:bg-ice" aria-label="Close">
+              <button ref={shut} onClick={() => setOpen(false)} className="grid h-8 w-8 place-items-center rounded-full text-medium hover:bg-ice" aria-label="Close notifications">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -251,6 +343,7 @@ export function NotificationsBell() {
           </div>
         </aside>
       </div>
+      )}
     </>
   );
 }

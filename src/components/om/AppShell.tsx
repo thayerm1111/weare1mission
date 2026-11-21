@@ -124,7 +124,7 @@ function Bar({ member, configured, preview }: { member: ShellMember; configured:
             </div>
             <div className="om-nav-right">
               {configured && <Credits />}
-              {configured && <span className="om-bell"><NotificationsBell /></span>}
+              {configured && <span className="om-bell"><NotificationsBell trading /></span>}
               <ProfileMenu member={member} configured={configured} preview={preview} />
             </div>
           </nav>

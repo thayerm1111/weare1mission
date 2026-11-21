@@ -271,17 +271,75 @@ test('the notifications panel opens on the screen, not inside the bar', () => {
   const z = (sel: string) => Number(rule(sel).match(/z-index: (\d+)/)?.[1] ?? NaN);
   assert.ok(z('.om-nav-wrap') > z('.om-sheet') && z('.om-sheet') > z('.om-tabbar'), 'wrap above sheet above tab bar');
   // The real button and its panel are still the site's own, inside the bar.
-  assert.match(read('src/components/om/AppShell.tsx'), /<span className="om-bell"><NotificationsBell \/><\/span>/);
-  assert.match(read('src/components/portal/NotificationsBell.tsx'), /className=\{`fixed inset-0 /, 'the panel is fixed to the screen');
+  assert.match(read('src/components/om/AppShell.tsx'), /<span className="om-bell"><NotificationsBell trading \/><\/span>/);
+  assert.match(read('src/components/portal/NotificationsBell.tsx'), /className=\{`fixed inset-0 /, 'the classic panel is fixed to the screen');
+  assert.match(rule('.om-notes'), /position: fixed; inset: 0/, 'and so is the trading shell\'s');
 });
 
 test('the chart card says a closed market is closed, and shows the engine\'s words as it wrote them', () => {
   const floor = read('src/components/om/floor/Floor.tsx');
   assert.match(floor, /const shut = now > 0 && !isOpen\("metal", now\)/);
   assert.match(floor, /shut \? "Twelve Data · gold is closed · this is the last price before the close"/, 'a last price is not dated as if it had just been made');
-  assert.match(floor, /<span className="om-faint">Trigger · <\/span>\{own\(view\.waitingFor\)\}/);
-  assert.match(floor, /<span className="om-faint">Invalidation · <\/span>\{own\(view\.changesIf\)\}/);
+  assert.match(floor, /<span className="om-faint">Trigger<\/span><span>\{own\(view\.waitingFor\)\}<\/span>/);
+  assert.match(floor, /<span className="om-faint">Invalidation<\/span><span>\{own\(view\.changesIf\)\}<\/span>/);
+  assert.match(floor, /shut && view\.stage === "live" \? " Gold is closed now, so it cannot be entered\." : ""/, 'a confirmed entry is not offered as enterable while the market is shut');
   assert.ok(!/>Waiting for <\/span>|>Changes if <\/span>/.test(floor), 'no sentence is started for the engine: its own words do not always follow on');
+});
+
+/* ── the trading platform's notifications (owner 11-20: a trading-only product) ── */
+test('the trading shell lists and counts trading notifications only; the closed panel is out of reach', () => {
+  const bell = read('src/components/portal/NotificationsBell.tsx');
+  assert.match(bell, /const TRADING_FILTERS: [^=]*= \[\{ id: "all", label: "All" \}, \{ id: "trades", label: "Trades" \}\];/, 'no Inner Circle and no Calls among its categories');
+  assert.match(bell, /const mine = useCallback\(\(n: Notif\) => !trading \|\| n\.type === "trade" \|\| n\.type === "system"/, 'likes, comments and calls are the community\'s');
+  assert.match(bell, /const shown = items\.filter\(mine\)/);
+  assert.match(bell, /setUnread\(list\.filter\(\(n\) => mine\(n\) && !n\.read\)\.length\)/, 'the number on the bell is the number of unread things in the panel');
+  const trading = bell.slice(bell.indexOf('<div className="om-notes"'), bell.indexOf(') : ('));
+  assert.ok(trading.length > 400 && !/Inner Circle|Calls you|Likes and comments/.test(trading), 'nothing of the community in the trading panel');
+  assert.match(trading, /TRADING_FILTERS\.map/);
+  // Keyboard: unreachable while closed, focus in on open, Escape closes, focus back to the bell — in both shells.
+  assert.match(bell, /const hidden = \(open \? \{\} : \{ inert: "" \}\)/);
+  assert.equal((bell.match(/\{\.\.\.hidden\}/g) ?? []).length, 2, 'both panels are inert while closed');
+  assert.equal((bell.match(/aria-modal="true"/g) ?? []).length, 2);
+  assert.match(bell, /if \(e\.key === "Escape"\) \{ setOpen\(false\); return; \}/);
+  assert.match(bell, /shut\.current\?\.focus\(\);/);
+  assert.match(bell, /from\?\.focus\(\);/);
+  const css = read('src/components/om/om.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.match(css, /\.om-notes-panel \{[^}]*transform: translateX\(100%\); visibility: hidden/, 'closed: off the edge and not rendered to anyone');
+  assert.match(css, /\.om-notes-panel \{[^}]*max-width: 92vw/, 'open: it fits a phone');
+  // The classic portal's panel keeps its own categories.
+  assert.match(bell, /\{ id: "inner", label: "Inner Circle" \}/);
+});
+
+/* ── The Floor's composition (owner's brief, 11-20 evening) ── */
+test('The Floor: results on the first screen, one next step per context, methods a tap away', () => {
+  const floor = read('src/components/om/floor/Floor.tsx');
+  const css = read('src/components/om/om.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  // The chart row is held to about 400px on a desktop so the results bands are on screen at 1440 × 900 and 1728 × 881.
+  assert.match(css, /\.om-stage \{[^}]*grid-template-columns: minmax\(0, 2\.3fr\) minmax\(330px, 1fr\); grid-auto-rows: clamp\(384px, 45vh, 440px\)/);
+  // Atlas's mark on the Floor is small (36–48px); the full presence stays in the Command Center.
+  const mark = css.match(/\.om-atlas-mark \{ width: (\d+)px; height: (\d+)px/);
+  assert.ok(mark && Number(mark[1]) >= 36 && Number(mark[1]) <= 48 && mark[1] === mark[2]);
+  // One next step in the chart card: the play when it is withheld, otherwise the way into GENX.
+  const card = floor.slice(floor.indexOf('function ChartCard('), floor.indexOf('function AtlasPanel('));
+  assert.equal((card.match(/className=\{?"?om-btn\b|className=\{view\.stage === "live" \? "om-btn" : "om-btn-quiet"\}/g) ?? []).length, 2, 'two renderings of the one action, never both at once');
+  assert.match(card, /\{locked \? \(/);
+  assert.ok(!/Generate a play/.test(card), 'generation is not repeated in the chart card');
+  // Atlas offers three suggestions at a time, a visible input and one way into the Command Center.
+  const atlas = floor.slice(floor.indexOf('function AtlasPanel('), floor.indexOf('function Spark('));
+  assert.equal((atlas.match(/className="om-go"|<Go href/g) ?? []).length, 3);
+  assert.equal((atlas.match(/Open Command Center/g) ?? []).length, 1);
+  assert.match(atlas, /placeholder="Ask Atlas…"/);
+  // How a figure is counted is whole, and a tap away — not printed under the figures.
+  assert.equal((floor.match(/<Method id="om-method-(genx|flow)">/g) ?? []).length, 2);
+  assert.match(floor, /Each GENX trade is counted once, at the average result of the accounts that took it\. These are the engine's results on gold, not a return for any one account\./);
+  assert.match(floor, /Trades FLOW placed on this account only\./);
+  assert.ok(!/className="om-foot"/.test(floor), 'no paragraph of method under the figures');
+  // The tool cards under the page repeated the navigation; the account's latest trades are there instead.
+  assert.ok(!/om-tools|className="om-tool"/.test(floor) && !/\.om-tools?\b/.test(css));
+  assert.match(floor, /<Activity ov=\{ov\} switching=\{switching\} hide=\{hide\} now=\{now\} \/>/);
+  assert.match(floor, /const rows = !switching && a \? ov\?\.flow\?\.results\.recent \?\? \[\] : \[\];/, 'the rows are the selected account\'s, and none linger while it is being switched');
+  // Timeframes are text tabs, not a switch.
+  assert.match(css, /\.om-tf button \{[^}]*border: 0;[^}]*background: none/);
 });
 
 test('Market Pulse never cuts a quote through the middle', () => {

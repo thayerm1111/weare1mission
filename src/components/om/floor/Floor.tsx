@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, ChevronDown, Eye, EyeOff, Mic, Send } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Eye, EyeOff, Info, Mic, Send } from "lucide-react";
 import { CandleChart } from "./CandleChart";
 import { AtlasMark } from "./AtlasMark";
 import { useSeeThePlay } from "@/components/portal/SetupLock";
@@ -195,6 +195,11 @@ function AccountSummary({ ov, state, switching, hide, onHide, onPick, now }: {
 
 /* ── gold, with GENX's state ──────────────────────────────────────────────────────────────────── */
 
+/**
+ * The chart, with what GENX makes of it beside it: the state, what it is waiting for, what would change
+ * that, and the one next step. One action per state — the play when it is withheld, otherwise the way
+ * into GENX's own workspace, where its tickets live.
+ */
 function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample, onSamplePlay }: {
   setup: SetupAnswer | null; failed: boolean; tf: FloorMode; onTf: (m: FloorMode) => void; change: number | null;
   onOpened: () => void; now: number; sample: boolean;
@@ -221,52 +226,51 @@ function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample, onS
     <section className="om-panel om-chart-card" aria-label="Gold">
       <div className="om-chart-top">
         <div style={{ minWidth: 0 }}>
-          <span style={{ fontSize: 16 }}>GENX · Gold intelligence</span>
           <div className="om-quote" data-no-i18n translate="no">
             <span className="om-sym">XAU / USD</span>
-            <span className="om-px om-num">{price != null ? px(price) : setup || failed ? "—" : <Skel w={150} h={34} />}</span>
+            <span className="om-px om-num">{price != null ? px(price) : setup || failed ? "—" : <Skel w={150} h={30} />}</span>
             {change != null && price != null && <span className={`om-chg om-num ${change > 0 ? "om-pos" : change < 0 ? "om-neg" : "om-dim"}`} title="Change since the previous daily close">{change > 0 ? "+" : change < 0 ? "−" : ""}{Math.abs(change).toFixed(2)}%</span>}
           </div>
-          <span className="om-label" style={{ display: "block", marginTop: 6 }} data-no-i18n translate="no">
+          <span className="om-label om-fresh" data-no-i18n translate="no">
             {sample ? "Sample" : at ? (shut ? "Twelve Data · gold is closed · this is the last price before the close" : `Twelve Data · price as of ${at} · checked every ${SETUP_EVERY_MS / 1000} seconds`) : failed ? "Market data did not load" : " "}
           </span>
         </div>
-        <Link href="/portal/signals" className="om-btn">Generate a play<ArrowUpRight aria-hidden="true" /></Link>
-      </div>
-
-      <div className="om-tfs">
-        <div className="om-tf" role="group" aria-label="Timeframe">
+        <div className="om-tf" role="group" aria-label="Candle timeframe">
           {TFS.map((t) => <button key={t.mode} type="button" aria-pressed={t.mode === tf} title={`${t.name} setup · ${t.tf} candles`} onClick={() => onTf(t.mode)}>{t.tf}</button>)}
         </div>
-        <span style={{ fontSize: 14.5 }}>{view.stage ? <><span className="om-dim">{horizon.name} · </span>{STAGE_LABEL[view.stage]}</> : setup || failed ? <span className="om-dim">{horizon.name}</span> : <Skel w={170} h={16} />}</span>
       </div>
 
-      <div className="om-chart" data-no-i18n translate="no">
-        {candles.length >= 2
-          ? <CandleChart candles={candles} price={price} dec={GOLD.dec} levels={view.levels} zone={view.zone} label={`Gold, ${horizon.tf} candles${price != null ? `, last price ${px(price)}` : ""}`} />
-          : <div className="om-chart-note">{!setup && !failed ? "Loading the chart…" : "The chart could not be loaded just now. It will try again on its own."}</div>}
-      </div>
-
-      <div className="om-read">
-        <div className="om-read-main">
-          <span className="om-ring" data-stage={view.stage ?? undefined} aria-hidden="true" />
-          <div style={{ minWidth: 0 }}>
-            <p style={{ fontSize: 14.5 }}>{view.stage ? stageSentence(view.stage, GOLD.engine, GOLD.name) : !setup && !failed ? "Reading GENX…" : "GENX's read is not available right now."}</p>
-            {view.open && view.waitingFor && <p className="om-dim" style={{ fontSize: 13.5, marginTop: 6 }}><span className="om-faint">Trigger · </span>{own(view.waitingFor)}</p>}
-            {view.open && view.changesIf && <p className="om-dim" style={{ fontSize: 13.5, marginTop: 4 }}><span className="om-faint">Invalidation · </span>{own(view.changesIf)}</p>}
-            {locked && <p className="om-dim" style={{ fontSize: 13.5, marginTop: 6 }}>Which way, the entry, the stop and the targets open with credits.</p>}
-            {play.err && <p className="om-neg" role="alert" style={{ fontSize: 13.5, marginTop: 6 }}>{play.err}</p>}
-          </div>
+      <div className="om-chart-body">
+        <div className="om-chart" data-no-i18n translate="no">
+          {candles.length >= 2
+            ? <CandleChart candles={candles} price={price} dec={GOLD.dec} levels={view.levels} zone={view.zone} label={`Gold, ${horizon.tf} candles${price != null ? `, last price ${px(price)}` : ""}`} />
+            : <div className="om-chart-note">{!setup && !failed ? "Loading the chart…" : "The chart could not be loaded just now. It will try again on its own."}</div>}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          {locked && (
-            <button type="button" className="om-btn-quiet" onClick={() => { if (sample) onSamplePlay?.(); else void play.open(); }} disabled={play.phase !== "idle" || (sample && !onSamplePlay)} aria-busy={play.phase !== "idle"}
-              title={gate ? `Opens every live setup on the site for ${gate.minutes} minutes` : undefined}>
-              {play.phase === "busy" ? "Opening…" : play.phase === "opened" ? "Open — loading the play…" : gate ? `See the play · ${gate.cost} credits` : "See the play"}
-            </button>
-          )}
-          {left != null && <span className="om-chip" title="Your window on the live setups">Open · {left} min left</span>}
-          <Link href="/portal/genx" className="om-btn-quiet">Analyze gold<ArrowUpRight width={14} height={14} aria-hidden="true" /></Link>
+
+        <div className="om-read">
+          <div className="om-read-main">
+            <p className="om-label">GENX · {horizon.name}</p>
+            <p className="om-read-state">
+              <span className="om-ring" data-stage={view.stage ?? undefined} aria-hidden="true" />
+              {view.stage ? STAGE_LABEL[view.stage] : !setup && !failed ? <Skel w={150} h={18} /> : "Not available right now"}
+            </p>
+            {view.stage && <p className="om-read-says">{stageSentence(view.stage, GOLD.engine, GOLD.name)}{shut && view.stage === "live" ? " Gold is closed now, so it cannot be entered." : ""}</p>}
+            {view.open && view.waitingFor && <p className="om-read-line" title={own(view.waitingFor)}><span className="om-faint">Trigger</span><span>{own(view.waitingFor)}</span></p>}
+            {view.open && view.changesIf && <p className="om-read-line" title={own(view.changesIf)}><span className="om-faint">Invalidation</span><span>{own(view.changesIf)}</span></p>}
+            {locked && <p className="om-read-says">Which way, the entry, the stop and the targets open with credits.</p>}
+            {play.err && <p className="om-neg om-read-says" role="alert">{play.err}</p>}
+          </div>
+          <div className="om-read-act">
+            {left != null && <span className="om-label" title="Your window on the live setups">Open · {left} min left</span>}
+            {locked ? (
+              <button type="button" className="om-btn" onClick={() => { if (sample) onSamplePlay?.(); else void play.open(); }} disabled={play.phase !== "idle" || (sample && !onSamplePlay)} aria-busy={play.phase !== "idle"}
+                title={gate ? `Opens every live setup on the site for ${gate.minutes} minutes` : undefined}>
+                {play.phase === "busy" ? "Opening…" : play.phase === "opened" ? "Open — loading the play…" : gate ? `See the play · ${gate.cost} credits` : "See the play"}
+              </button>
+            ) : (
+              <Link href="/portal/genx" className={view.stage === "live" ? "om-btn" : "om-btn-quiet"}>Open GENX<ArrowUpRight width={15} height={15} aria-hidden="true" /></Link>
+            )}
+          </div>
         </div>
       </div>
     </section>
@@ -289,31 +293,28 @@ function AtlasPanel({ atlas, stage, sample, now }: { atlas: FloorOverview["atlas
   return (
     <section className="om-panel om-panel-atlas om-atlas" aria-label="Atlas">
       <div className="om-atlas-head">
-        <div>
-          <h2>Atlas</h2>
-          <p className="om-dim" style={{ margin: "6px 0 0", fontSize: 16.5 }}>Your AI copilot</p>
-        </div>
         <AtlasMark className="om-atlas-mark" />
+        <div style={{ minWidth: 0 }}>
+          <h2>Atlas</h2>
+          <p className="om-label">{atlas?.read ? `Read ${ageText(atlas.read.at, now)}` : "Your AI copilot"}</p>
+        </div>
       </div>
-      <hr className="om-hr" style={{ marginTop: 20 }} />
       <p className="om-atlas-say">{say}</p>
-      {atlas?.read && <p className="om-label" style={{ margin: "8px 0 0" }}>Atlas · {ageText(atlas.read.at, now)}</p>}
       <div className="om-atlas-asks">
         <button type="button" className="om-go" onClick={() => go("Explain the current gold setup.")}>Explain this setup<ArrowUpRight aria-hidden="true" /></button>
         <button type="button" className="om-go" onClick={() => go("Analyze gold right now.")}>Analyze gold<ArrowUpRight aria-hidden="true" /></button>
-        <Go href="/portal/signals">Generate an OM AI Play</Go>
-        <Go href="/portal/trading?view=flow">Check FLOW</Go>
+        <Go href="/portal/signals">Generate a play</Go>
       </div>
-      <div className="om-atlas-cta">
-        <button type="button" className="om-btn" onClick={() => go(null)}>Open Command Center<ArrowUpRight aria-hidden="true" /></button>
-        {terms && <span className="om-label">{terms}</span>}
-      </div>
-      <form className="om-ask" style={{ marginTop: 22 }} onSubmit={(e) => { e.preventDefault(); if (q.trim()) go(q); }}>
+      <form className="om-ask" onSubmit={(e) => { e.preventDefault(); if (q.trim()) go(q); }}>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask Atlas…" aria-label="Ask Atlas" maxLength={400} enterKeyHint="send" />
         {/* Voice lives in the Command Center. This opens it; the microphone is only ever asked for there, on a tap. */}
         <button type="button" className="om-ask-mic" aria-label="Talk to Atlas in the Command Center" title="Talk to Atlas in the Command Center" onClick={() => go(null)}><Mic aria-hidden="true" /></button>
         <button type="submit" aria-label="Send to Atlas"><Send aria-hidden="true" /></button>
       </form>
+      <div className="om-atlas-cta">
+        <button type="button" className="om-btn" onClick={() => go(null)}>Open Command Center<ArrowUpRight aria-hidden="true" /></button>
+        {terms && <span className="om-label">{terms}</span>}
+      </div>
     </section>
   );
 }
@@ -339,36 +340,66 @@ function Spark({ series }: { series: number[] }) {
 }
 
 const toneClass = (v: number | null | undefined) => { const t = toneOf(v); return t === "up" ? "om-pos" : t === "down" ? "om-neg" : ""; };
+const signed = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v)}`;
+
+/** How a figure is counted, a tap away: the definitions stay whole, and stay out of the figures' way. */
+function Method({ id, children }: { id: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  return (
+    <span ref={box} className="om-method">
+      <button type="button" className="om-icon-btn" aria-expanded={open} aria-controls={id} aria-label="How this is counted" title="How this is counted" onClick={() => setOpen((o) => !o)}><Info aria-hidden="true" /></button>
+      {open && <span id={id} role="note" className="om-menu om-method-note">{children}</span>}
+    </span>
+  );
+}
 
 function GenxCard({ ov, state, failed, period, onPeriod }: { ov: FloorOverview | null; state: string; failed: boolean; period: FloorPeriod; onPeriod: (p: FloorPeriod) => void }) {
   const g = ov?.genx && ov.genx.period === period ? ov.genx : null;
   const r = g?.results ?? null;
   // Waiting only while an answer is actually on its way: an ask that failed ends it, and the card says so.
   const waiting = !r && !failed && (state === "loading" || (!!ov?.genx && ov.genx.period !== period));
+  const decided = r ? r.wins + r.losses : 0;
   return (
     <section className="om-panel om-res" aria-label="GENX results">
       <div className="om-res-head">
-        <h2>GENX results</h2>
-        <PeriodSelect value={period} onChange={onPeriod} label="GENX results period" />
+        <div style={{ minWidth: 0 }}>
+          <h2>GENX results</h2>
+          <p className="om-label">The engine's trades on gold</p>
+        </div>
+        <span className="om-res-tools">
+          <PeriodSelect value={period} onChange={onPeriod} label="GENX results period" />
+          <Method id="om-method-genx">
+            Each GENX trade is counted once, at the average result of the accounts that took it. These are the engine's results on gold, not a return for any one account.
+            {r && r.breakeven ? ` ${r.breakeven} closed flat.` : ""}{r && r.open ? ` ${r.open} ${r.open === 1 ? "is" : "are"} open now and not counted yet.` : ""}
+          </Method>
+        </span>
       </div>
-      {waiting ? <div className="om-stats" aria-busy="true"><div className="om-stat"><Skel w={150} h={30} /><span className="om-label">Net result</span></div><span className="om-rule" /><div className="om-stat"><Skel w={70} h={30} /><span className="om-label">Win rate</span></div><span className="om-rule" /><div className="om-stat"><Skel w={50} h={30} /><span className="om-label">Closed trades</span></div></div>
+      {waiting ? <div className="om-stats" aria-busy="true"><div className="om-stat"><Skel w={130} h={26} /><span className="om-label">Net result</span></div><div className="om-stat"><Skel w={64} h={26} /><span className="om-label">Win rate</span></div><div className="om-stat"><Skel w={44} h={26} /><span className="om-label">Closed trades</span></div></div>
         : !r ? <p className="om-empty">GENX's results could not be loaded just now.</p>
           : r.trades === 0 ? <p className="om-empty">No GENX trades have closed in this period.{r.open > 0 ? ` ${r.open} ${r.open === 1 ? "is" : "are"} open now.` : ""}</p>
             : (
               <div className="om-stats">
                 <div className="om-stat"><span data-no-i18n translate="no" className={`om-figure om-num ${toneClass(r.netPips)}`}>{pipsText(r.netPips)}</span><span className="om-label">Net result</span></div>
-                <span className="om-rule" />
-                <div className="om-stat"><span className={`om-figure om-num ${r.winRate != null && r.winRate >= 50 ? "om-pos" : ""}`}>{r.winRate == null ? "—" : `${r.winRate}%`}</span><span className="om-label">Win rate</span></div>
-                <span className="om-rule" />
+                <div className="om-stat"><span className={`om-figure om-num ${r.winRate != null && r.winRate >= 50 ? "om-pos" : ""}`}>{r.winRate == null ? "—" : `${r.winRate}%`}</span><span className="om-label">Win rate{decided ? <span className="om-faint"> · {r.wins} of {decided}</span> : null}</span></div>
                 <div className="om-stat"><span className="om-figure om-num">{r.trades.toLocaleString("en-US")}</span><span className="om-label">Closed trades</span></div>
+                {r.recent.length > 0 && (
+                  <div className="om-stat om-stat-last" data-no-i18n translate="no">
+                    <span className="om-figure om-num">{r.recent.slice(0, 3).map((x, i) => <span key={x.at + i} className={x.pips > 0 ? "om-pos" : x.pips < 0 ? "om-neg" : undefined}>{signed(x.pips)}</span>)}</span>
+                    <span className="om-label">Latest, in pips</span>
+                  </div>
+                )}
                 <Spark series={r.series} />
               </div>
             )}
-      <p className="om-foot" data-no-i18n translate="no">
-        {r && r.trades > 0 && <>{r.wins} won, {r.losses} lost{r.breakeven ? `, ${r.breakeven} flat` : ""}{r.open ? ` · ${r.open} open now` : ""}. </>}
-        {r && r.recent.length > 0 && <>Latest: {r.recent.slice(0, 5).map((x, i) => <span key={x.at + i} className={x.pips > 0 ? "om-pos" : x.pips < 0 ? "om-neg" : undefined}>{i ? ", " : ""}{x.pips > 0 ? "+" : x.pips < 0 ? "−" : ""}{Math.abs(x.pips)}</span>)} pips. </>}
-        GENX engine results on gold — each trade counted once, at the average result of the accounts that took it. Not a return for any one account.
-      </p>
     </section>
   );
 }
@@ -390,14 +421,24 @@ function FlowCard({ ov, state, failed, switching, period, onPeriod, hide }: { ov
       <div className="om-res-head">
         <div style={{ minWidth: 0 }}>
           <h2>My FLOW</h2>
-          <p className="om-label" style={{ fontSize: 14.5 }}>{a ? `${a.name} · ${a.environment === "live" ? "Live" : "Demo"}` : "Your connected account"}</p>
+          <p className="om-label" data-no-i18n translate="no">{a ? `${a.name} · ${a.environment === "live" ? "Live" : "Demo"}` : "Your connected account"}</p>
         </div>
-        {a && <PeriodSelect value={period} onChange={onPeriod} label="My FLOW period" />}
+        {a && (
+          <span className="om-res-tools">
+            <PeriodSelect value={period} onChange={onPeriod} label="My FLOW period" />
+            <Method id="om-method-flow">
+              Trades FLOW placed on this account only.
+              {r?.realized && r.closed > 0 ? ` The amount is an estimate, worked out from each trade's recorded result and size, before your broker's commission and swap${r.realized.left ? `; ${r.realized.left} ${r.realized.left === 1 ? "trade is" : "trades are"} not in it` : ""}.` : ""}
+              {r && r.ungraded ? ` ${r.ungraded} closed with no recorded result.` : ""}
+              {wholeAccount ? ` Open P&L is your broker's figure for all ${f!.positions} open ${f!.positions === 1 ? "position" : "positions"} on the account.` : ""}
+            </Method>
+          </span>
+        )}
       </div>
-      {!ov && state === "loading" ? <div className="om-stats" aria-busy="true"><div className="om-stat"><Skel w={150} h={30} /><span className="om-label">Realized P&amp;L</span></div></div>
+      {!ov && state === "loading" ? <div className="om-stats" aria-busy="true"><div className="om-stat"><Skel w={130} h={26} /><span className="om-label">Realized P&amp;L</span></div></div>
         : unknown ? <p className="om-empty">Your FLOW results could not be loaded just now.</p>
-        : !a ? <><p className="om-empty">Connect a broker account in FLOW and what FLOW does on it shows here.</p><p style={{ margin: "10px 0 0" }}><Go href="/portal/trading?view=flow">Manage accounts</Go></p></>
-          : waiting ? <div className="om-stats" aria-busy="true"><div className="om-stat"><Skel w={150} h={30} /><span className="om-label">Realized P&amp;L</span></div><span className="om-rule" /><div className="om-stat"><Skel w={120} h={30} /><span className="om-label">Open P&amp;L</span></div><span className="om-rule" /><div className="om-stat"><Skel w={40} h={30} /><span className="om-label">Open positions</span></div></div>
+        : !a ? <p className="om-empty">Connect a broker account in FLOW and what FLOW does on it shows here. <Go href="/portal/trading?view=flow">Manage accounts</Go></p>
+          : waiting ? <div className="om-stats" aria-busy="true"><div className="om-stat"><Skel w={130} h={26} /><span className="om-label">Realized P&amp;L</span></div><div className="om-stat"><Skel w={110} h={26} /><span className="om-label">Open P&amp;L</span></div><div className="om-stat"><Skel w={36} h={26} /><span className="om-label">Open positions</span></div></div>
             : !r ? <p className="om-empty">Your FLOW results could not be loaded just now.</p>
               : (
                 <div className="om-stats">
@@ -405,23 +446,43 @@ function FlowCard({ ov, state, failed, switching, period, onPeriod, hide }: { ov
                     <span data-no-i18n translate="no" className={`om-figure om-num ${r.realized ? toneClass(r.realized.amount) : toneClass(r.netPips)}`}>{r.closed === 0 ? cash(0, false) : r.realized ? cash(r.realized.amount) : pipsText(r.netPips)}</span>
                     <span className="om-label">{r.closed > 0 && !r.realized ? "Realized, in pips" : "Realized P&L"}{r.realized && r.closed > 0 ? <span className="om-faint"> · estimate</span> : null}</span>
                   </div>
-                  <span className="om-rule" />
                   <div className="om-stat">
-                    <span className={`om-figure om-num ${f?.state === "live" ? toneClass(f?.openPnl) : ""}`} data-stale={f && f.state !== "live" ? true : undefined} data-no-i18n translate="no" title={f?.openPnl == null ? (f?.note ?? "Your broker has not reported open profit for this account.") : undefined}>{f ? cash(f.openPnl) : <Skel w={110} h={30} />}</span>
+                    <span className={`om-figure om-num ${f?.state === "live" ? toneClass(f?.openPnl) : ""}`} data-stale={f && f.state !== "live" ? true : undefined} data-no-i18n translate="no" title={f?.openPnl == null ? (f?.note ?? "Your broker has not reported open profit for this account.") : undefined}>{f ? cash(f.openPnl) : <Skel w={110} h={26} />}</span>
                     <span className="om-label">Open P&amp;L{f && f.state !== "live" && f.openPnl != null ? <span className="om-faint"> · last reading</span> : wholeAccount ? <span className="om-faint"> · whole account</span> : null}</span>
                   </div>
-                  <span className="om-rule" />
                   <div className="om-stat"><span className="om-figure om-num">{r.open}</span><span className="om-label">Open positions</span></div>
+                  <div className="om-stat" data-no-i18n translate="no">
+                    <span className={`om-figure om-num ${r.closed ? toneClass(r.netPips) : ""}`}>{r.closed ? pipsText(r.netPips) : "—"}</span>
+                    <span className="om-label">{r.closed === 0 ? "No trades closed" : `${r.closed} closed`}</span>
+                  </div>
                 </div>
               )}
-      {a && r && (
-        <p className="om-foot" data-no-i18n translate="no">
-          {r.closed === 0 ? "No FLOW trades closed in this period. " : `${r.closed} closed · ${pipsText(r.netPips)} net${r.ungraded ? ` · ${r.ungraded} with no recorded result` : ""}. `}
-          {r.realized && r.closed > 0 && <>The amount is worked out from each trade's recorded result and size, before your broker's commission and swap{r.realized.left ? `; ${r.realized.left} ${r.realized.left === 1 ? "trade is" : "trades are"} not in it` : ""}. </>}
-          {wholeAccount && <>Open P&amp;L is your broker's figure for all {f!.positions} open {f!.positions === 1 ? "position" : "positions"} on the account. </>}
-          Trades FLOW placed on this account only.
-        </p>
-      )}
+    </section>
+  );
+}
+
+/** The account's latest FLOW trades, a line each. It is only shown when there are some. */
+function Activity({ ov, switching, hide, now }: { ov: FloorOverview | null; switching: boolean; hide: boolean; now: number }) {
+  const a = ov?.account ?? null;
+  const rows = !switching && a ? ov?.flow?.results.recent ?? [] : [];
+  if (!a || rows.length === 0) return null;
+  return (
+    <section className="om-activity" aria-label="Recent FLOW activity">
+      <div className="om-activity-head">
+        <h2>Recent FLOW activity</h2>
+        <Go href="/portal/trading?view=flow">View account results</Go>
+      </div>
+      <ul data-no-i18n translate="no">
+        {rows.slice(0, 4).map((x, i) => (
+          <li key={x.at + i} className="om-num">
+            <span>{x.symbol}</span>
+            <span className="om-dim">{x.side === "buy" ? "Buy" : "Sell"}</span>
+            <span className="om-dim">Closed {ageText(x.at, now)}</span>
+            <span className={x.pips == null ? "om-dim" : x.pips > 0 ? "om-pos" : x.pips < 0 ? "om-neg" : undefined}>{x.pips == null ? "No recorded result" : pipsText(x.pips)}</span>
+            <span className={x.amount == null ? "om-dim" : x.amount > 0 ? "om-pos" : x.amount < 0 ? "om-neg" : undefined}>{x.amount == null ? "" : hide ? "••••••" : money(x.amount, a.currency, { sign: true })}</span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -603,7 +664,7 @@ export function Floor({ sample }: { sample?: FloorSample }) {
         <FlowCard ov={ov} state={ovState} failed={ovFailed} switching={switching} period={fp} onPeriod={pickFlow} hide={hide} />
       </div>
 
-      <div>
+      <div className="om-lower">
         <div className="om-pulse">
           <h2>Market Pulse</h2>
           <div className="om-pulse-list" data-no-i18n translate="no">
@@ -615,14 +676,9 @@ export function Floor({ sample }: { sample?: FloorSample }) {
               </span>
             ))}
           </div>
-          <Go href="/portal/trading?view=pulse">View markets</Go>
+          <Go href="/portal/trading?view=pulse">Open Pulse</Go>
         </div>
-        <nav className="om-tools" aria-label="Tools">
-          <Link href="/portal/signals" className="om-tool"><div style={{ minWidth: 0 }}>OM AI Plays<span>Generate a play</span></div><ArrowUpRight aria-hidden="true" /></Link>
-          <Link href="/portal/genx" className="om-tool"><div style={{ minWidth: 0 }}>GENX<span>Analyze gold</span></div><ArrowUpRight aria-hidden="true" /></Link>
-          <Link href="/portal/trading?view=pulse" className="om-tool"><div style={{ minWidth: 0 }}>Market Pulse<span>Scan the markets</span></div><ArrowUpRight aria-hidden="true" /></Link>
-          <Link href="/portal/trading?view=flow" className="om-tool"><div style={{ minWidth: 0 }}>FLOW<span>Review in FLOW · manage accounts</span></div><ArrowUpRight aria-hidden="true" /></Link>
-        </nav>
+        <Activity ov={ov} switching={switching} hide={hide} now={now} />
         <p className="om-legal">Educational only — not financial advice. You approve every action on your own account.{isSample && " Sample data: this page is a review of the design, and none of its figures, prices or results are a member's."}</p>
       </div>
     </div>

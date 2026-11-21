@@ -64,9 +64,11 @@ const genx = (trades: number, wins: number, net: number, open: number, last: num
   trades, wins, losses: trades - wins, breakeven: 0, winRate: trades ? Math.round((wins / trades) * 100) : null, netPips: net, open,
   recent: recent(last), series: trades ? walk(Math.min(trades, 24), net, seed) : [0],
 });
+const TRADES: [number, "buy" | "sell", number, number][] = [[2, "buy", 22, 110], [5, "sell", 31, 155], [9, "buy", -5, -25], [27, "sell", 18, 90]];
 const flow = (closed: number, wins: number, pips: number, amount: number | null, open: number): FlowResults => ({
   closed, wins, losses: closed - wins, breakeven: 0, ungraded: 0, netPips: pips,
-  realized: closed && amount != null ? { amount, currency: "USD", counted: closed, left: 0 } : null, open, recent: [],
+  realized: closed && amount != null ? { amount, currency: "USD", counted: closed, left: 0 } : null, open,
+  recent: TRADES.slice(0, Math.min(closed, 4)).map(([h, side, p, usd]) => ({ at: iso(h * H), symbol: "XAUUSD", side, pips: p, amount: usd })),
 });
 
 const A1: FloorAccount = { id: "sample-01", name: "Trading account 01", masked: "•••• 0001", broker: "TradeLocker", environment: "demo", currency: "USD", connection: "connected", isDefault: true };
