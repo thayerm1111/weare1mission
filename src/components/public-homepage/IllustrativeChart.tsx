@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useHomepageTranslation, type HomepageTranslator } from "./homepage-i18n";
 
 type Bar = { open: number; high: number; low: number; close: number };
 type Point = { x: number; y: number };
-type ChartControls = { zoom: (direction: "in" | "out") => void; reset: () => void; destroy: () => void };
+type ChartControls = { zoom: (direction: "in" | "out") => void; reset: () => void; redraw: () => void; destroy: () => void };
 
 /** A deterministic illustration, generated locally. It is never a price feed or a trading signal. */
 const SAMPLE_BARS: Bar[] = (() => {
@@ -24,10 +25,13 @@ const SAMPLE_BARS: Bar[] = (() => {
 })();
 
 export function IllustrativeChart() {
+  const { t } = useHomepageTranslation();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<ChartControls | null>(null);
+  const translatorRef = useRef(t);
+  translatorRef.current = t;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -35,31 +39,33 @@ export function IllustrativeChart() {
     const tooltip = tooltipRef.current;
     const context = canvas?.getContext("2d");
     if (!canvas || !wrap || !tooltip || !context) return;
-    const controls = mountIllustration(canvas, context, wrap, tooltip);
+    const controls = mountIllustration(canvas, context, wrap, tooltip, (copy, values) => translatorRef.current(copy, values));
     controlsRef.current = controls;
     return () => { controls.destroy(); controlsRef.current = null; };
   }, []);
 
+  useEffect(() => { controlsRef.current?.redraw(); }, [t]);
+
   return <div className="demo-chart-panel">
     <div className="demo-quote">
-      <div><small>GOLD · SAMPLE CHART</small><strong>XAU / USD</strong></div>
-      <div className="chart-timeframes" aria-label="Illustrative chart timeframe"><span>5m</span><span className="selected">15m</span><span>1h</span></div>
+      <div><small>{t("GOLD · SAMPLE CHART")}</small><strong>{t("XAU / USD")}</strong></div>
+      <div className="chart-timeframes" aria-label={t("Illustrative chart timeframe")}><span>{t("5m")}</span><span className="selected">{t("15m")}</span><span>{t("1h")}</span></div>
     </div>
     <div className="chart-wrap" ref={wrapRef}>
-      <canvas className="preview-chart" ref={canvasRef} role="img" tabIndex={0} aria-label="Interactive illustrative gold candlestick chart. Drag or use the left and right arrow keys to pan. Use plus and minus to zoom, or Home to reset. This is sample data." />
+      <canvas className="preview-chart" ref={canvasRef} role="img" tabIndex={0} aria-label={t("Interactive illustrative gold candlestick chart. Drag or use the left and right arrow keys to pan. Use plus and minus to zoom, or Home to reset. This is sample data.")} />
       <div className="chart-tooltip" ref={tooltipRef} hidden aria-hidden="true" data-no-i18n="" />
     </div>
-    <div className="chart-help"><span>Drag to explore this sample chart.</span>
+    <div className="chart-help"><span>{t("Drag to explore this sample chart.")}</span>
       <div className="chart-controls">
-        <button type="button" aria-label="Zoom chart out" onClick={() => controlsRef.current?.zoom("out")}><svg className="icon" aria-hidden="true"><use href="#i-minus" /></svg></button>
-        <button type="button" aria-label="Zoom chart in" onClick={() => controlsRef.current?.zoom("in")}><svg className="icon" aria-hidden="true"><use href="#i-plus" /></svg></button>
-        <button type="button" onClick={() => controlsRef.current?.reset()}>Reset</button>
+        <button type="button" aria-label={t("Zoom chart out")} onClick={() => controlsRef.current?.zoom("out")}><svg className="icon" aria-hidden="true"><use href="#i-minus" /></svg></button>
+        <button type="button" aria-label={t("Zoom chart in")} onClick={() => controlsRef.current?.zoom("in")}><svg className="icon" aria-hidden="true"><use href="#i-plus" /></svg></button>
+        <button type="button" onClick={() => controlsRef.current?.reset()}>{t("Reset")}</button>
       </div>
     </div>
   </div>;
 }
 
-function mountIllustration(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, wrap: HTMLDivElement, tooltip: HTMLDivElement): ChartControls {
+function mountIllustration(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, wrap: HTMLDivElement, tooltip: HTMLDivElement, t: HomepageTranslator): ChartControls {
   const controller = new AbortController();
   const listen = { signal: controller.signal };
   const bars = SAMPLE_BARS;
@@ -108,7 +114,7 @@ function mountIllustration(canvas: HTMLCanvasElement, ctx: CanvasRenderingContex
       const hours = Math.round((bars.length - (start + visible.length * fraction)) / 4);
       ctx.fillStyle = "#626675";
       ctx.textAlign = index === 0 ? "left" : index === timeTicks - 1 ? "right" : "center";
-      ctx.fillText(hours > 0 ? `${hours}h earlier` : "Sample end", x, height - 7);
+      ctx.fillText(hours > 0 ? t("{hours}h earlier", { hours }) : t("Sample end"), x, height - 7);
     }
     ctx.textAlign = "left";
     visible.forEach((bar, index) => {
@@ -127,7 +133,7 @@ function mountIllustration(canvas: HTMLCanvasElement, ctx: CanvasRenderingContex
     ctx.fillStyle = "#9dbfaa08"; ctx.fillRect(margin.left, yy - 5, plotWidth, 10);
     ctx.strokeStyle = "#9dbfaa44";
     ctx.setLineDash([4, 5]); ctx.beginPath(); ctx.moveTo(margin.left, yy); ctx.lineTo(width - margin.right, yy); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = "#89a494"; ctx.fillText("Sample support zone", margin.left + 7, yy - 10);
+    ctx.fillStyle = "#89a494"; ctx.fillText(t("Sample support zone"), margin.left + 7, yy - 10);
     if (hover && !dragging && hover.x >= margin.left && hover.x <= width - margin.right) {
       const index = Math.max(0, Math.min(visible.length - 1, Math.floor((hover.x - margin.left) / spacing)));
       const bar = visible[index];
@@ -135,7 +141,7 @@ function mountIllustration(canvas: HTMLCanvasElement, ctx: CanvasRenderingContex
       ctx.strokeStyle = "#d8d6e455"; ctx.setLineDash([3, 4]);
       ctx.beginPath(); ctx.moveTo(x, margin.top); ctx.lineTo(x, height - margin.bottom); ctx.moveTo(margin.left, hover.y); ctx.lineTo(width - margin.right, hover.y); ctx.stroke(); ctx.setLineDash([]);
       tooltip.hidden = false;
-      tooltip.textContent = `O ${bar.open.toFixed(2)}  H ${bar.high.toFixed(2)}  L ${bar.low.toFixed(2)}  C ${bar.close.toFixed(2)}`;
+      tooltip.textContent = `${t("O")} ${bar.open.toFixed(2)}  ${t("H")} ${bar.high.toFixed(2)}  ${t("L")} ${bar.low.toFixed(2)}  ${t("C")} ${bar.close.toFixed(2)}`;
       tooltip.style.left = Math.min(Math.max(4, hover.x - 100), Math.max(4, width - 280)) + "px";
       tooltip.style.top = "2px";
     } else tooltip.hidden = true;
@@ -189,5 +195,5 @@ function mountIllustration(canvas: HTMLCanvasElement, ctx: CanvasRenderingContex
   else window.addEventListener("resize", resize, listen);
   resize();
 
-  return { zoom, reset, destroy() { controller.abort(); observer?.disconnect(); cancelAnimationFrame(drawFrame); } };
+  return { zoom, reset, redraw: scheduleDraw, destroy() { controller.abort(); observer?.disconnect(); cancelAnimationFrame(drawFrame); } };
 }
