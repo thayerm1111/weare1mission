@@ -9,7 +9,7 @@ import { NotificationsBell } from "@/components/portal/NotificationsBell";
 import { NAV, TAB_ORDER, TOOLS_SHEET, activeKey, type NavKey } from "@/lib/floor/nav";
 import type { InstallGuide } from "@/lib/floor/app";
 import { LOOKS, LOOK_CLASS, LOOK_KEY, applyLook, lookOf, themeOf, type Look } from "@/lib/floor/look";
-import { InstallSheet, OfflineNotice, useInstall } from "./InstallApp";
+import { InstallSheet, OfflineNotice, runningAsApp, useInstall } from "./InstallApp";
 import { ShellContext } from "./shell";
 
 /**
@@ -133,6 +133,18 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
   const view = useSearchParams().get("view");
   const here = activeKey(path, view);
   const [sheet, setSheet] = useState(false);
+  // THE APP BAR (owner 11-21: "make it more like an actual app"). As the installed app the bar is an app's: the
+  // screen's large title scrolls away under it and its name settles in the bar's middle, with a hairline beneath.
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    let raf = 0;
+    const read = () => { raf = 0; setScrolled(window.scrollY > 44); };
+    const on = () => { if (!raf) raf = window.requestAnimationFrame(read); };
+    read();
+    window.addEventListener("scroll", on, { passive: true });
+    return () => { window.removeEventListener("scroll", on); if (raf) window.cancelAnimationFrame(raf); };
+  }, [path, view]);
+  const screen = here ? NAV.find((n) => n.key === here)?.label ?? null : null;
   useEffect(() => { setSheet(false); }, [path, view]);
   // THE ONE MISSION APP (lib/floor/app.ts): the browser's own install dialog where it has one, else its steps.
   const { asApp, offer, install: installApp } = useInstall();
@@ -160,10 +172,11 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
 
   return (
     <>
-      <div className="om-nav-wrap">
+      <div className="om-nav-wrap" data-scrolled={scrolled ? "" : undefined}>
         <div className="om-frame">
           <nav className="om-nav" aria-label="Trading platform">
             <Link href="/portal/trading" className="om-brand" aria-label="One Mission — The Floor"><OmMark /><span>One Mission</span></Link>
+            {screen && <span className="om-apptitle" aria-hidden="true">{screen}</span>}
             <div className="om-links" ref={links} data-pill={pill ? "" : undefined}>
               {pill && <span className="om-links-pill" aria-hidden="true" style={{ transform: `translateX(${pill.x}px)`, width: pill.w }} />}
               {NAV.map((n) => n.hard
@@ -216,12 +229,13 @@ export function AppShell({ children, member, configured = true, preview = false 
   useEffect(() => {
     const d = document.documentElement;
     d.classList.add("om-shell");
+    d.classList.toggle("om-standalone", runningAsApp());
     let saved: Look = "stone";
     try { saved = lookOf(localStorage.getItem(LOOK_KEY)); } catch { /* Stone */ }
     applyLook(d, saved);
     setLook(saved);
     return () => {
-      d.classList.remove("om-shell", LOOK_CLASS);
+      d.classList.remove("om-shell", "om-standalone", LOOK_CLASS);
       // The classic portal's own theme choice comes back as the member left it.
       let dark = false;
       try { dark = localStorage.getItem("om-theme") === "dark"; } catch { /* light */ }

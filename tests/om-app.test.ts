@@ -192,7 +192,9 @@ test('the earlier installed app at /app/ shows the new design: it frames the liv
   // What the installed app was set up with stays: its manifest, its icon, its dark see-through status bar.
   assert.match(html, /<link rel="manifest" href="\/app\/manifest\.webmanifest"\/>/);
   assert.match(html, /<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"\/>/);
-  assert.match(html, /\.om-top \{[^}]*height: env\(safe-area-inset-top, 0px\); background: #08090e;/, 'the white clock stays readable');
+  assert.match(html, /\.om-top \{[^}]*height: env\(safe-area-inset-top, 0px\); background: var\(--om-clock, #1a1a1d\);/, 'the white clock stays readable');
+  assert.match(html, /if \(!localStorage\.getItem\("om-look"\)\) localStorage\.setItem\("om-look", "graphite"\);/, 'it opens in Graphite, whose bar runs on under the white clock, unless Stone was chosen');
+  assert.match(html, /r\.setProperty\("--om-clock", g \? "#1a1a1d" : "#111111"\);/);
   assert.match(html, /localStorage\.getItem\("om-look"\) === "graphite"/, 'the strip under the home indicator takes the look\'s bar colour');
   assert.match(html, /navigator\.serviceWorker\.register\("\/app\/sw\.js"\)/, 'a new version still shows on the next launch');
   assert.match(read('public/app/sw.js'), /const CACHE = "om-app-v41";/, 'the cache is renewed so every installed copy picks up the new page');
@@ -223,4 +225,35 @@ test('payment and billing pages leave the frame: they refuse to open inside one'
   }
   // Inside that frame the shell knows it is the app: it does not offer to install itself.
   assert.match(read('src/components/om/InstallApp.tsx'), /if \(window\.top !== window\.self\) return true;/);
+});
+
+/* ── drawn as an app (owner 11-21: "This looks like the website not an app. Make it more like an actual app") ── */
+test('as the installed app the shell is drawn as an app — app bar, large titles, tab bar at every size — and the website keeps its header', async () => {
+  const { SHELL_SCRIPT } = await import('../src/lib/floor/nav');
+  const run = (o: { standalone?: boolean; display?: boolean; framed?: boolean }) => {
+    const cls = new Set<string>();
+    const document = { documentElement: { classList: { add: (c: string) => cls.add(c), toggle: (c: string, f: boolean) => { if (f) cls.add(c); else cls.delete(c); } } }, querySelector: () => null };
+    const win: Record<string, unknown> = { navigator: { standalone: o.standalone === true }, matchMedia: (q: string) => ({ matches: q.includes('standalone') && o.display === true }) };
+    win.self = win; win.top = o.framed ? {} : win;
+    runInNewContext(SHELL_SCRIPT, { document, window: win, localStorage: { getItem: () => null } });
+    return cls.has('om-standalone');
+  };
+  assert.equal(run({}), false, 'a browser tab is the website');
+  assert.equal(run({ standalone: true }), true, 'an iPhone or iPad Home Screen app');
+  assert.equal(run({ display: true }), true, 'an Android or desktop install');
+  assert.equal(run({ framed: true }), true, 'the earlier app\'s frame');
+  const c = css();
+  const app = c.slice(c.indexOf('.om-standalone .om-app { --om-r-panel: 18px; }'));
+  assert.match(app, /\.om-standalone \.om-nav-wrap \{ position: fixed; left: 0; right: 0; top: 0;/, 'an app bar across the top');
+  assert.match(app, /\.om-standalone \.om-links \{ display: none; \}/, 'not the website\'s row of links');
+  assert.match(app, /\.om-standalone \.om-title::before \{ display: none; \}/);
+  assert.match(app, /\.om-standalone \.om-sub \{ display: none; \}/, 'no website tagline under the title');
+  assert.match(app, /\.om-standalone \.om-tabbar \{\s*position: fixed;[^}]*display: grid;/, 'the tab bar at every size, iPad included');
+  assert.match(app, /\.om-standalone \.om-nav-wrap\[data-scrolled\] \.om-apptitle \{ opacity: 1; \}/, 'the screen\'s name settles in the bar once the large title scrolls away');
+  assert.match(app, /@media \(max-width: 640px\) \{[\s\S]*?\.om-standalone \.om-menu \{\s*position: fixed;[^}]*bottom: calc\(8px \+ env\(safe-area-inset-bottom, 0px\)\)/, 'on a phone the account menu is a sheet from the bottom');
+  assert.match(app, /@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\) \{\s*\.om-standalone \.om-nav-wrap::before, \.om-standalone \.om-tabbar \{ background: var\(--om-appbar-solid\); \}/, 'an opaque fallback for the app\'s bars');
+  const shell = read('src/components/om/AppShell.tsx');
+  assert.match(shell, /d\.classList\.toggle\("om-standalone", runningAsApp\(\)\);/);
+  assert.match(shell, /<div className="om-nav-wrap" data-scrolled=\{scrolled \? "" : undefined\}>/);
+  assert.match(shell, /\{screen && <span className="om-apptitle" aria-hidden="true">\{screen\}<\/span>\}/);
 });

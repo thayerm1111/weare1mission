@@ -47,7 +47,9 @@ test('the look is on the page before its first paint, with the browser\'s bar co
       documentElement: { classList: { add: (c: string) => cls.add(c), toggle: (c: string, f: boolean) => { if (f) cls.add(c); else cls.delete(c); } } },
       querySelector: (q: string) => (q === 'meta[name="theme-color"]' ? { setAttribute: (_k: string, v: string) => { bar = v; } } : null),
     };
-    runInNewContext(SHELL_SCRIPT, { document, localStorage: { getItem: (k: string) => (k === 'om-look' ? saved : null) } });
+    const window: Record<string, unknown> = { navigator: {}, matchMedia: () => ({ matches: false }) };
+    window.self = window; window.top = window;   // a browser tab, not the installed app
+    runInNewContext(SHELL_SCRIPT, { document, window, localStorage: { getItem: (k: string) => (k === 'om-look' ? saved : null) } });
     return { cls: [...cls].sort().join(' '), bar };
   };
   assert.deepEqual(run(null), { cls: 'om-shell', bar: '#f5f4f1' });
@@ -110,7 +112,7 @@ test('the account menu switches the look in place, and remembers it in this brow
   assert.match(shell, /try \{ localStorage\.setItem\(LOOK_KEY, l\); \} catch/);
   assert.match(shell, /document\.querySelector\('meta\[name="theme-color"\]'\)\?\.setAttribute\("content", themeOf\(l\)\);/);
   // Leaving the shell gives the classic portal back its own theme choice.
-  assert.match(shell, /d\.classList\.remove\("om-shell", LOOK_CLASS\);/);
+  assert.match(shell, /d\.classList\.remove\("om-shell", "om-standalone", LOOK_CLASS\);/);
   assert.match(shell, /dark = localStorage\.getItem\("om-theme"\) === "dark";/);
   assert.ok(!/classList\.add\("om-shell", "om-dark"\)/.test(shell), 'the shell no longer forces the dark mode');
 });

@@ -14,14 +14,15 @@
 
   Phones keep a Home Screen app to the address it was installed from (/app/), so this page cannot become the new
   app's own pages; it frames them instead. Everything inside is the live site: The Floor, OM AI Plays, GENX, Market
-  Pulse, FLOW and Atlas, in the member's own look (Stone or Graphite). The installed app was set up with a dark,
-  see-through status bar (white clock), so the strip behind it stays dark; the strip under the home indicator takes
-  the look's tab-bar colour. A payment page will not open inside a frame, so checkout and billing leave the frame
+  Pulse, FLOW and Atlas, drawn as an app (om-standalone). The installed app was set up with a see-through status bar
+  and a white clock, so it opens in Graphite, whose bar runs on under the clock, unless the member has chosen Stone
+  here (then the strip behind the clock is ink, so the clock stays readable); the strip under the home indicator
+  takes the look's tab-bar colour. A payment page will not open inside a frame, so checkout and billing leave the frame
   (src/lib/leave.ts). `?to=` opens a page of this site instead of The Floor.
 -->
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #08090e; }
-  .om-top { position: fixed; left: 0; right: 0; top: 0; height: env(safe-area-inset-top, 0px); background: #08090e; }
+  .om-top { position: fixed; left: 0; right: 0; top: 0; height: env(safe-area-inset-top, 0px); background: var(--om-clock, #1a1a1d); }
   .om-bottom { position: fixed; left: 0; right: 0; bottom: 0; height: env(safe-area-inset-bottom, 0px); background: var(--om-bar, #ffffff); }
   iframe {
     position: fixed; border: 0; display: block; background: var(--om-page, #f5f4f1);
@@ -44,15 +45,18 @@
     var q = new URLSearchParams(location.search).get("to") || "";
     if (q.charAt(0) === "/" && q.charAt(1) !== "/" && q.charAt(1) !== "\\" && !/[\r\n]/.test(q) && q.length < 512) to = q;
   } catch (e) {}
+  // The white clock above: Graphite unless Stone was chosen in this app.
+  try { if (!localStorage.getItem("om-look")) localStorage.setItem("om-look", "graphite"); } catch (e) {}
   document.getElementById("om-app").src = to;
 
-  // The strips around the frame follow the member's look (Stone by default; Graphite if chosen).
+  // The strips around the frame follow the member's look.
   function paint() {
     var g = false;
     try { g = localStorage.getItem("om-look") === "graphite"; } catch (e) {}
     var r = document.documentElement.style;
     r.setProperty("--om-bar", g ? "#1f1f22" : "#ffffff");
     r.setProperty("--om-page", g ? "#1a1a1d" : "#f5f4f1");
+    r.setProperty("--om-clock", g ? "#1a1a1d" : "#111111");
   }
   paint();
   window.addEventListener("storage", paint);
