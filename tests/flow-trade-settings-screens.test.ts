@@ -13,52 +13,25 @@ import { optimisticMgmt, type MgmtChange } from "../src/components/portal/floor/
 const app = readFileSync("public/app/index.html", "utf8");
 const site = readFileSync("src/components/portal/floor/FlowConnect.tsx", "utf8");
 
-/** The phone app's own helpers, run as the app runs them. */
-function phoneHelpers(): { MG_BE: number[]; MG_COPY: any; mgBeLine: (on: boolean, p: number) => string; mgFollowLine: (m: string, be: boolean) => string; mgSummary: (a: any) => string } {
-  const start = app.indexOf("  var MG_BE = [");
-  const end = app.indexOf("\n  }\n", app.indexOf("  function mgSummary(a) {")) + 4;
-  assert.ok(start > 0 && end > start, "the phone app defines its trade-settings helpers");
-  return new Function(`${app.slice(start, end)}; return { MG_BE, MG_COPY, mgBeLine, mgFollowLine, mgSummary };`)();
-}
-
-test("the phone app says exactly what the site says", () => {
-  const p = phoneHelpers();
-  assert.deepEqual(p.MG_BE, [...BE_PIPS_CHOICES]);
-  assert.equal(p.MG_COPY.title, copy.MGMT_TITLE);
-  assert.equal(p.MG_COPY.applies, copy.MGMT_APPLIES);
-  assert.equal(p.MG_COPY.unread, copy.MGMT_UNREAD);
-  for (const on of [true, false]) for (const pips of [10, 20, 30, 35, 40, 50, 100]) assert.equal(p.mgBeLine(on, pips), copy.beLine(on, pips));
-  for (const m of FOLLOW_MODES) for (const be of [true, false]) assert.equal(p.mgFollowLine(m, be), copy.followLine(m, be), `${m}/${be}`);
-  for (const pct of PARTIAL_CHOICES) assert.equal(p.MG_COPY.partials[pct], copy.PARTIAL_LINES[pct]);
-  const shapes = [
-    { beEnabled: true, breakEvenPips: 30, followPrice: "normal", followActive: true, partialPct: 0 },
-    { beEnabled: true, breakEvenPips: 10, followPrice: "tight", followActive: true, partialPct: 50 },
-    { beEnabled: false, breakEvenPips: 30, followPrice: "loose", followActive: false, partialPct: 25 },
-    { beEnabled: true, breakEvenPips: 40, followPrice: "off", followActive: false, partialPct: 0 },
-    { settingsUnread: true },
-  ] as const;
-  for (const a of shapes) assert.equal(p.mgSummary(a), copy.mgmtSummary(a));
+test("the phone app says exactly what the site says: it frames the site (owner 11-21)", () => {
+  // The installed app no longer carries its own copy of FLOW's trade settings; it shows the site's own screen.
+  assert.match(app, /<iframe id="om-app"/);
+  assert.ok(!/MG_BE|mgSummary|function GxBrokerConnect/.test(app), "no second copy of the settings to drift");
+  assert.ok(/<TradeManagement /.test(site), "the one screen both now show");
 });
 
 test("the one 'AI Pips' switch is gone from FLOW on both screens (the ATLAS profile keeps its own)", () => {
   assert.ok(!/🎯 AI Pips/.test(site), "site account card");
   assert.ok(!/setAccountAiPips|setAccountGoldBePips|setAccountManage\b/.test(site), "the old handlers are gone");
   assert.ok(/<TradeManagement /.test(site));
-  const broker = app.slice(app.indexOf("function GxBrokerConnect(props)"), app.indexOf("function GxBrokerConnect(props)") + 40000);
-  assert.ok(!/🎯 AI Pips/.test(broker), "phone broker screen");
-  assert.ok(!/function setAiPips|function setBe\(|function setPartials\(|function setGuard\(|function setGoldBe\(/.test(app), "the old phone handlers are gone");
-  assert.ok(!/>AI Pips<\/button>/.test(app), "phone home: no AI Pips switch");
-  assert.ok(/toggle\("AI Pips"/.test(app), "the ATLAS trading profile's own switch is untouched");
+  // The phone shows the site's own screen (the installed app frames the site), so the same holds there.
+  assert.ok(!/AI Pips/.test(app), "no phone copy of the switch");
 });
 
 test("both screens send one request, action 'management', with only the changed setting", () => {
   assert.match(site, /action: "management", accountId: a\.accountId, connectionId: a\.connectionId, \.\.\.change/);
-  assert.match(app, /Object\.assign\(\{ action: "management", accountId: a\.accountId, connectionId: a\.connectionId \}, change\)/);
-  // the phone sends breakEven / followPrice / partials, the names the server reads
-  assert.match(app, /setMgmt\(a, \{ breakEven: "off" \}\)/);
-  assert.match(app, /setMgmt\(a, \{ breakEven: p \}\)/);
-  assert.match(app, /setMgmt\(a, \{ followPrice: m \}\)/);
-  assert.match(app, /setMgmt\(a, \{ partials: p \}\)/);
+  // The phone sends exactly this request too: it is the site's own screen, inside the installed app's frame.
+  assert.match(app, /<iframe id="om-app"/);
 });
 
 test("what the site shows at once is what the server answers", () => {

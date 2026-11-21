@@ -19,6 +19,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Infinity as InfinityIcon, Check, Loader2, AlertTriangle, ArrowUpRight, CalendarClock, PauseCircle, PlayCircle } from "lucide-react";
+import { leaveFor } from "@/lib/leave";
 
 type PassView = {
   active: boolean;
@@ -84,7 +85,7 @@ export function FlowPassCard() {
         body: JSON.stringify({ action: "subscribe_pass" }),
       });
       const d = await r.json();
-      if (d?.url) { window.location.href = d.url as string; return; }
+      if (d?.url) { leaveFor(d.url as string); return; }
       if (d?.error === "stripe_not_configured") setMsg("Payments aren't switched on yet — check back soon.");
       else if (d?.error === "already_active") { setMsg("Your Pass is already running."); await load(); }
       else setMsg("Couldn't start checkout — try again shortly.");

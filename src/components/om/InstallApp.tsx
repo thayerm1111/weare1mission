@@ -14,11 +14,15 @@ import { installGuide, type InstallGuide } from "@/lib/floor/app";
 type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 type InstallWindow = Window & { __omInstall?: InstallEvent | null };
 
-/** Running as the installed app: an iPhone home-screen app, or any browser's standalone window. */
+/**
+ * Running as an installed app: an iPhone home-screen app, any browser's standalone window, or the members' earlier
+ * installed app, which shows the site inside a frame (public/app/index.html).
+ */
 export function runningAsApp(): boolean {
   try {
+    if (window.top !== window.self) return true;
     return (window.navigator as Navigator & { standalone?: boolean }).standalone === true || window.matchMedia("(display-mode: standalone)").matches;
-  } catch { return false; }
+  } catch { return true; }
 }
 
 export function useInstall() {

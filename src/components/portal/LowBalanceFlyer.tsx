@@ -29,6 +29,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, Zap, TrendingUp, ArrowUp, ArrowDown, Loader2, ShieldCheck, Flame } from "lucide-react";
 import { LOW_BALANCE_THRESHOLD, opensOnItsOwn, whatSpendsCredits } from "@/lib/lowBalance";
+import { leaveFor } from "@/lib/leave";
 
 const THRESHOLD = LOW_BALANCE_THRESHOLD; // show when total credits are BELOW this many (early "you're getting low" warning)
 const MIN_CONFIDENT = 10; // below this many decided GENX calls, show a count, not a headline %
@@ -155,7 +156,7 @@ export function LowBalanceFlyer() {
     try {
       const r = await fetch("/api/stripe/checkout", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ packId }) });
       const d = await r.json();
-      if (d.url) { window.location.href = d.url; return; }
+      if (d.url) { leaveFor(d.url); return; }
       if (d.error === "stripe_not_configured") setMsg("Payments aren't switched on yet — check back soon.");
       else setMsg("Couldn't start checkout — try again shortly.");
     } catch { setMsg("Couldn't start checkout — try again shortly."); }

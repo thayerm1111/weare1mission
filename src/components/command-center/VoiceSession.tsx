@@ -20,6 +20,7 @@ import {
   type CommentaryInput, type CommentaryMode, type CommentarySettings,
 } from "../../../command-center/core/commentary";
 import { alpha } from "./hud/theme";
+import { leaveFor } from "@/lib/leave";
 
 export type { VoiceStatus } from "./voiceLine";
 
@@ -1512,7 +1513,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
         body: JSON.stringify(topupId ? { topupId } : planId ? { planId } : {}),
       });
       const j = await r.json().catch(() => ({}));
-      if (j?.url) { window.location.href = j.url as string; return; }
+      if (j?.url) { leaveFor(j.url as string); return; }
       setBuyError(j?.detail || j?.error === "stripe_not_configured"
         ? "Payments aren't switched on yet."
         : "Could not open checkout. Try again in a moment.");

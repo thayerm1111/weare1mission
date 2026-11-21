@@ -13,6 +13,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, Sparkles, Check, Loader2, ShieldCheck, Zap } from "lucide-react";
+import { leaveFor } from "@/lib/leave";
 
 const SEEN_KEY = "om-suite-flyer-v1"; // persistent: only ever show this once per device
 const GOLD = "#ffc24b";
@@ -81,7 +82,7 @@ export function SuiteFlyer() {
     try {
       const r = await fetch("/api/subscription", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "subscribe" }) });
       const d = await r.json();
-      if (d?.url) { markSeen(); window.location.href = d.url as string; return; }
+      if (d?.url) { markSeen(); leaveFor(d.url as string); return; }
       if (d?.error === "stripe_not_configured") setMsg("Payments aren't switched on yet — check back soon.");
       else setMsg("Couldn't start checkout — please try again.");
     } catch { setMsg("Couldn't start checkout — please try again."); }

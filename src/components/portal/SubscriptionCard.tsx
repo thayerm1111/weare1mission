@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Sparkles, Check, Loader2 } from "lucide-react";
+import { leaveFor } from "@/lib/leave";
 
 type SubView = {
   active: boolean;
@@ -42,7 +43,7 @@ export function SubscriptionCard() {
     try {
       const r = await fetch("/api/subscription", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
       const d = await r.json();
-      if (d?.url) { window.location.href = d.url as string; return; }
+      if (d?.url) { leaveFor(d.url as string); return; }
       if (d?.error === "stripe_not_configured") setMsg("Payments aren't switched on yet.");
       else if (d?.error) setMsg("Something went wrong — please try again.");
       else await load();

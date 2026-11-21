@@ -202,28 +202,30 @@ test('voice is admin-gated on the server, not in a component', async () => {
 test('the installed app opens the same real voice line the web does', async () => {
   const fs = await import('node:fs/promises');
   const app = await fs.readFile('public/app/index.html', 'utf8');
-  assert.ok(/function BrainLine\(/.test(app), 'the app has the persistent line');
-  assert.ok(/custom_llm_extra_body: \{ voice_token/.test(app), 'and sends the token in the forwarded field');
-  assert.ok(/conversation_initiation_client_data/.test(app), 'over the provider socket');
-  assert.ok(/api\/command-center\/voice\/session/.test(app), 'through the same session endpoint as the web');
+  // Since 11-21 the installed app frames the live site, so its voice line IS the web's — with the microphone allowed.
+  assert.ok(/<iframe id="om-app"[^>]*allow="microphone; autoplay; clipboard-write; fullscreen"/.test(app), 'the app frames the site and lets it hear');
+  const web = await fs.readFile('src/components/command-center/VoiceSession.tsx', 'utf8');
+  assert.ok(/api\/command-center\/voice\/session/.test(web), 'through the session endpoint');
   // No second brain: the app must never talk to a speech vendor directly.
-  assert.ok(!/xi-api-key|ELEVENLABS_API_KEY/i.test(app), 'the speech key never reaches the client');
+  assert.ok(!/xi-api-key|ELEVENLABS_API_KEY/i.test(app + web), 'the speech key never reaches the client');
 });
 
 test('two voices never answer at once', async () => {
   const fs = await import('node:fs/promises');
   const app = await fs.readFile('public/app/index.html', 'utf8');
-  const speak = app.slice(app.indexOf('function speak(text)'), app.indexOf('function ask(q)'));
-  assert.ok(/props\.lineLive/.test(speak), 'the synthesiser stands down while the line is open');
-  assert.ok(/if \(props\.lineLive\) return;/.test(speak), 'and does so before anything else');
+  // The installed app has no voice of its own any more (it frames the site): one line, the site's.
+  assert.ok(!/speechSynthesis|function speak\(|webkitSpeechRecognition/.test(app), 'no second synthesiser or recogniser in the app');
+  assert.ok(/<iframe id="om-app"/.test(app));
 });
 
 test('a dead microphone is diagnosable on the phone too', async () => {
   const fs = await import('node:fs/promises');
-  const app = await fs.readFile('public/app/index.html', 'utf8');
-  assert.ok(/blackhole/i.test(app), 'virtual inputs are known by name there as well');
-  assert.ok(/MIC_TIMEOUT/.test(app), 'and an unanswered permission prompt becomes a sentence rather than a hang');
-  assert.ok(/saidSomething/.test(app), 'silence transcribed as "..." is not answered');
+  // The phone runs the site's own voice session inside the installed app's frame.
+  assert.ok(/<iframe id="om-app"/.test(await fs.readFile('public/app/index.html', 'utf8')));
+  const web = await fs.readFile('src/components/command-center/VoiceSession.tsx', 'utf8');
+  assert.ok(/blackhole/i.test(web), 'virtual inputs are known by name');
+  assert.ok(/MIC_TIMEOUT/.test(web), 'and an unanswered permission prompt becomes a sentence rather than a hang');
+  assert.ok(/saidSomething/.test(await fs.readFile('command-center/brain/voiceLlm.ts', 'utf8')), 'silence transcribed as "..." is not answered');
 });
 
 /*
@@ -255,7 +257,8 @@ test('a token stops working the moment its session ends', async () => {
  */
 test("a track that has never produced a sample is retried without processing", async () => {
   const fs = await import('node:fs/promises');
-  for (const f of ["src/components/command-center/VoiceSession.tsx", "public/app/index.html"]) {
+  // (The installed app frames the site since 11-21, so the site's session is the phone's too.)
+  for (const f of ["src/components/command-center/VoiceSession.tsx"]) {
     const src = await fs.readFile(f, "utf8");
     assert.ok(/rawRetry/.test(src), `${f}: the retry exists`);
     assert.ok(/echoCancellation: false, noiseSuppression: false, autoGainControl: false/.test(src),

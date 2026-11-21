@@ -129,9 +129,10 @@ test("the site and the phone app read the reset-aware route and no longer add `l
   const site = code("src/components/portal/CommunityResults.tsx");
   assert.match(site, /fetch\("\/api\/community-stats"/);
   assert.ok(!/community_signal_stats|data\.launch\./.test(site));
+  // The phone app frames the site since 11-21: it reads nothing of its own, so it cannot add `launch` on top.
   const app = code("public/app/index.html");
-  assert.match(app, /apiGet\("\/api\/community-stats"\)/);
-  assert.ok(!/community_signal_stats|launch\.resolved|launch\.wins/.test(app));
+  assert.match(app, /<iframe id="om-app"/);
+  assert.ok(!/community_signal_stats|launch\.resolved|launch\.wins|apiGet\(/.test(app));
 });
 
 /* ── ATLAS ─────────────────────────────────────────────────────────────────────────────────────── */

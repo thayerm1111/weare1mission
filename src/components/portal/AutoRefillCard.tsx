@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Zap, CreditCard, Loader2 } from "lucide-react";
+import { leaveFor } from "@/lib/leave";
 
 type AutoRefillView = {
   ok: boolean;
@@ -44,7 +45,7 @@ export function AutoRefillCard() {
     try {
       const r = await fetch("/api/autorefill", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
       const j = await r.json();
-      if (j?.url) { window.location.href = j.url as string; return; }
+      if (j?.url) { leaveFor(j.url as string); return; }
       await load();
     } catch { /* ignore */ }
     setBusy(false);

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { AutoRefillCard } from "@/components/portal/AutoRefillCard";
 import { FlowPassCard } from "@/components/portal/FlowPassCard";
+import { leaveFor } from "@/lib/leave";
 
 type Balance = { dailyLeft: number; purchased: number; dailyAllowance: number };
 type Pack = { id: string; label: string; credits: number; priceUsd: number; blurb: string; best?: boolean };
@@ -59,7 +60,7 @@ export function CreditsClient() {
     try {
       const r = await fetch("/api/stripe/checkout", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ packId }) });
       const d = await r.json();
-      if (d.url) { window.location.href = d.url; return; }
+      if (d.url) { leaveFor(d.url); return; }
       if (d.error === "stripe_not_configured") setMsg("Payments aren't switched on yet — check back soon.");
       else setMsg("Couldn't start checkout — try again shortly.");
     } catch { setMsg("Couldn't start checkout — try again shortly."); }

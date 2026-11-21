@@ -181,3 +181,46 @@ test('the chart\'s closed caption never sits under a phone\'s chart buttons, and
   assert.match(chart, /const cap = compact \? null : room\(236\) \? "Market closed · feed quotes, not trading" : room\(84\) \? "Market closed" : null;/);
   assert.match(chart, /\{shut\(hb\.t\) && <span className="om-ch-tag">Market closed<\/span>\}/, 'on a phone the readout says it, for the candle being read');
 });
+
+/* ── the members' earlier installed app (owner 11-21: "App looks the same") ── */
+test('the earlier installed app at /app/ shows the new design: it frames the live site, in the member\'s look', () => {
+  const html = read('public/app/index.html');
+  // Phones keep a Home Screen app to the address it was installed from, so /app/ frames the site rather than moving.
+  assert.match(html, /<iframe id="om-app" title="One Mission" allow="microphone; autoplay; clipboard-write; fullscreen"><\/iframe>/, 'Atlas can still hear the member inside it');
+  assert.match(html, /var to = "\/portal\/trading";/, 'it opens on The Floor');
+  assert.match(html, /if \(q\.charAt\(0\) === "\/" && q\.charAt\(1\) !== "\/" && q\.charAt\(1\) !== "\\\\" && !\/\[\\r\\n\]\/\.test\(q\) && q\.length < 512\) to = q;/, '?to= is a page of this site, never another');
+  // What the installed app was set up with stays: its manifest, its icon, its dark see-through status bar.
+  assert.match(html, /<link rel="manifest" href="\/app\/manifest\.webmanifest"\/>/);
+  assert.match(html, /<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"\/>/);
+  assert.match(html, /\.om-top \{[^}]*height: env\(safe-area-inset-top, 0px\); background: #08090e;/, 'the white clock stays readable');
+  assert.match(html, /localStorage\.getItem\("om-look"\) === "graphite"/, 'the strip under the home indicator takes the look\'s bar colour');
+  assert.match(html, /navigator\.serviceWorker\.register\("\/app\/sw\.js"\)/, 'a new version still shows on the next launch');
+  assert.match(read('public/app/sw.js'), /const CACHE = "om-app-v41";/, 'the cache is renewed so every installed copy picks up the new page');
+  assert.ok(!/<script[^>]*src=/.test(html) && html.length < 6000, 'a small page: everything is the live site inside it');
+  assert.match(read('public/app/manifest.webmanifest'), /"scope": "\/app\/"/, 'the installed app keeps its own address');
+});
+
+test('payment and billing pages leave the frame: they refuse to open inside one', async () => {
+  const { leaveFor } = await import('../src/lib/leave');
+  const g = globalThis as unknown as { window?: unknown };
+  const before = g.window;
+  try {
+    const top = { location: { href: '' } };
+    const framed = { location: { href: '' }, top } as Record<string, unknown>; framed.self = framed;
+    g.window = framed;
+    leaveFor('https://checkout.stripe.com/c/pay/x');
+    assert.equal(top.location.href, 'https://checkout.stripe.com/c/pay/x', 'inside the app\'s frame, the whole app goes');
+    assert.equal((framed.location as { href: string }).href, '');
+    const tab = { location: { href: '' } } as Record<string, unknown>; tab.top = tab; tab.self = tab;
+    g.window = tab;
+    leaveFor('https://billing.stripe.com/p/session/y');
+    assert.equal((tab.location as { href: string }).href, 'https://billing.stripe.com/p/session/y', 'in a browser tab, an ordinary navigation');
+  } finally { g.window = before; }
+  for (const f of ['src/components/portal/CreditsClient.tsx', 'src/components/portal/FlowPassCard.tsx', 'src/components/portal/AutoRefillCard.tsx', 'src/components/portal/SubscriptionCard.tsx', 'src/components/portal/LowBalanceFlyer.tsx', 'src/components/command-center/VoiceSession.tsx', 'src/components/portal/SuiteFlyer.tsx']) {
+    const src = read(f);
+    assert.match(src, /import \{ leaveFor \} from "@\/lib\/leave";/, `${f} leaves through leaveFor`);
+    assert.ok(!/window\.location\.href = (d|j)\??\.url/.test(src), `${f} no longer sends a checkout into the frame`);
+  }
+  // Inside that frame the shell knows it is the app: it does not offer to install itself.
+  assert.match(read('src/components/om/InstallApp.tsx'), /if \(window\.top !== window\.self\) return true;/);
+});

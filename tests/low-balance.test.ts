@@ -63,5 +63,6 @@ test("the pop-up asks that rule, and the read tools say the Pass covers a read",
   assert.ok(!flyer.includes("GENX call spends credits"), "the line is said in one place");
   // Under the read button, on the site and in the phone app.
   assert.match(code("src/components/portal/floor/GenxDesk.tsx"), /\{CREDIT_COST\.genx\} credits per read · free on the FLOW Pass</);
-  assert.match(code("public/app/index.html"), />5 credits per read · free on the FLOW Pass</);
+  // The phone app frames the site since 11-21, so it shows the site's own line.
+  assert.match(code("public/app/index.html"), /<iframe id="om-app"/);
 });

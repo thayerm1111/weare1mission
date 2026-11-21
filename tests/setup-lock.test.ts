@@ -743,56 +743,13 @@ test("the pages: a locked answer draws the lock, and the play is drawn only from
   assert.ok(lock.includes('disabled={phase !== "idle"}') && lock.includes("`See the play · ${cost} credits`"));
 });
 
-test("the phone app: the same lock on its FLOW screen, with the same button; its gold tile points there", () => {
+test("the phone app: the same lock on its FLOW screen, with the same button — it is the site's own screen (owner 11-21)", () => {
+  // The installed app frames the live site, so its FLOW screen, its lock and its button are the site's — one
+  // request per tap, the same words — with no second copy of the payment code to drift.
   const app = src("public/app/index.html");
-  const at = (s: string) => { const i = app.indexOf(s); assert.ok(i > 0, s); return i; };
-  // The button: one request per tap, to the same route, with the same words for each way it can end.
-  const lock = app.slice(at("function SeeThePlay(props) {"), at("  function FlowScreen(props) {"));
-  // One request per tap — and one payment at a time for the whole app: the button never sends one itself,
-  // it joins the one that is out, and a lock drawn while one is out starts down and waits for it.
-  const once = app.slice(at("  function seeThePlayOnce() {"), at("  function SeeThePlay(props) {"));
-  assert.ok(once.includes("if (seePlayOut) return seePlayOut;") && once.includes('var mine = apiPost("/api/setups/pass", {})') && once.includes("if (seePlayOut === mine) seePlayOut = null;"));
-  assert.equal((app.match(/apiPost\("\/api\/setups\/pass"/g) ?? []).length, 1, "the app sends a payment from one place only");
-  assert.ok(lock.includes('if (phase[0] !== "idle") return;') && lock.includes("seeThePlayOnce().then(settle);"));
-  assert.ok(lock.includes("var joined = useState(function () { return seePlayOut; })[0];") && lock.includes('var phase = useState(joined ? "busy" : "idle")'));
-  assert.ok(lock.includes("joined.then(function (o) { if (here) settle(o); });"));
-  assert.ok(lock.includes('if (r && r.open) { phase[1]("opened"); if (now.onOpened) now.onOpened(); return; }'));
-  for (const said of [
-    "Couldn't check your access just now, so this tap took no credits. Try again in a moment.", "Already opening — one moment.",
-    "That didn't go through, and this tap took no credits. Try again.", "That didn't go through. Tap again — you won't be charged twice.",
-  ]) { assert.ok(lock.includes(said), said); assert.ok(tapMessages().includes(said), `the site says it too: ${said}`); }
-  assert.ok(lock.includes('"See the play · " + cost + " credits"') && lock.includes("e.code === 402"));
-  assert.deepEqual(JSON.parse(app.slice(at("var SETUP_STAGE = ") + 18, at("function setupStage(")).trim().replace(/;$/, "").replace(/(\w+):/g, '"$1":')), STAGE_TEXT);
-  // FLOW's screen: a locked answer draws the lock where the entry card would be. Opening it reads again
-  // even if a read was already on its way (that one was asked for before the window opened), and only
-  // the last read asked for is drawn — an older one that comes back later cannot put the lock back.
-  const flow = app.slice(at("  function FlowScreen(props) {"), at("  function GxReadDetail(props) {"));
-  assert.ok(flow.includes('${d && d.locked ? html`<${SeeThePlay} what=${symbol[0] + " · " + String(mode[0]).toUpperCase() + " — " + setupStage(d.locked)} gate=${d.setups} onOpened=${function () { run(true); }} onLogout=${props.onLogout} />` : null}'));
-  assert.ok(flow.includes("if (loading[0] && force !== true) return; loading[1](true);") && flow.includes("var mine = ++runSeq.current;"));
-  // …and it is asked for the market on the screen at that moment, and drawn only under the market it was made for.
-  assert.ok(flow.includes("picked.current = { mode: mode[0], symbol: symbol[0] };") && flow.includes('apiPost("/api/flow/read", { mode: picked.current.mode || mode[0], symbol: picked.current.symbol || symbol[0] })'));
-  assert.ok(flow.includes("var d = flowReadFits(res[0], symbol[0], mode[0]) ? res[0] : null;"));
-  // (The app cannot import the site's readFits; this is the same rule, word for word.)
-  const fitsFn = app.slice(at("  function flowReadFits(d, symbol, mode) {"), at("  var seePlayOut = null;"));
-  assert.ok(fitsFn.includes('function same(said, shown) { return said == null || said === "" || String(said).toUpperCase() === String(shown).toUpperCase(); }'));
-  assert.ok(fitsFn.includes("return !!d && same(d.symbol, symbol) && same(d.mode, mode);"));
-  assert.ok(code("src/lib/setupLock.ts").includes('const same = (said: unknown, shown: string) => said == null || said === "" || String(said).toUpperCase() === String(shown).toUpperCase();'));
-  // An older read that fails after a newer one was asked for says nothing.
-  assert.ok(flow.includes('.catch(function (e) { if (mine !== runSeq.current) return; if (e && e.code === 401) props.onLogout(); else err[1]("Something went wrong — try again."); })'));
-  // A change of market asks for its own read even while the last market's is still out — or the screen would be left with neither.
-  assert.ok(flow.includes("useEffect(function () { run(true); }, [mode[0], symbol[0]]);"));
-  assert.ok(flow.includes("if (mine !== runSeq.current) return;") && flow.includes(".then(function () { if (mine === runSeq.current) loading[1](false); });"));
-  assert.ok(flow.includes("${d && d.entry_engine ? html`<${GxEntry}"), "the entry card is drawn only from an answer that has one");
-  // (Its handler used to go on to the GENX screen's replay and plays, which do not exist here, and printed an error on every good read.)
-  assert.ok(!/replay\[1\]|loadPlays\(/.test(flow));
-  // The gold tile never drew the play — only the trend — so it does not sell it. With no read there is
-  // no trend to name: it says a setup is there and sends the member to where the play is shown.
-  const tile = app.slice(at("  function GoldFlowTile(props) {"), at("  function TradeControls() {"));
-  assert.ok(tile.includes("var locked = (d && d.locked) || null;"));
-  assert.ok(!tile.includes("SeeThePlay") && !tile.includes("/api/setups/pass"), "nothing is charged from the tile");
-  assert.ok(tile.includes("Which way, the entry, the stop and the targets open with credits.") && tile.includes("See the play in FLOW ›") && tile.includes("props.goFlow()"));
-  assert.ok(tile.indexOf("${locked ? html`") < tile.indexOf("No side is in control"), "the trend note is the other branch");
-  assert.ok(app.includes("<${GoldFlowTile} goFlow=${props.goFlow} />"));
+  assert.match(app, /<iframe id="om-app"/);
+  assert.ok(!/\/api\/setups\/pass|function SeeThePlay/.test(app), "the app sends no payment of its own");
+  assert.ok(tapMessages().length > 0, "the site's own words are the ones shown");
 });
 
 /** Every message tapOutcome can print, gathered by asking it. */
