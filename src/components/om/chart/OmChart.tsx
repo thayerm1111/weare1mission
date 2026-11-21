@@ -415,13 +415,17 @@ export function OmChart(p: OmChartProps) {
             {/* stamped while the market was shut: said, not hidden */}
             {closedRuns.map((r) => {
               const x0 = x(r.a) - bw / 2, x1 = x(r.b) + bw / 2;
-              // Its caption at the foot of the band, right-aligned, where it fits and the analysis label is not.
-              const capR = Math.min(x1, plotW) - 8, capL = capR - 236;
-              const cap = capL >= Math.max(0, x0) && !(aSpan && aSpan[0] < capR && aSpan[1] > capL);
+              // Its caption at the foot of the band, right-aligned, where it fits and the analysis label is not. Where
+              // the whole line does not fit, the two words that matter. On a phone the foot of the plot holds the view's
+              // buttons and there is no room for a caption that candles and levels would cross: there the hatching and
+              // the readout's own "Market closed" (on the candle being read) say it.
+              const capR = Math.min(x1, plotW) - 8;
+              const room = (w: number) => capR - w >= Math.max(0, x0) && !(aSpan && aSpan[0] < capR && aSpan[1] > capR - w);
+              const cap = compact ? null : room(236) ? "Market closed · feed quotes, not trading" : room(84) ? "Market closed" : null;
               return (
                 <g key={`c${r.a}`} pointerEvents="none">
                   <rect x={x0} y={0} width={Math.max(1, x1 - x0)} height={priceH} fill={`url(#omch-shut-${uid})`} />
-                  {cap && <text x={capR} y={priceH - 9} textAnchor="end" fontSize="11.5" fill="#7d8391" stroke="#12131C" strokeWidth="4" paintOrder="stroke">Market closed · feed quotes, not trading</text>}
+                  {cap && <text x={capR} y={priceH - 9} textAnchor="end" fontSize="11.5" fill="#7d8391" stroke="#12131C" strokeWidth="4" paintOrder="stroke">{cap}</text>}
                 </g>
               );
             })}

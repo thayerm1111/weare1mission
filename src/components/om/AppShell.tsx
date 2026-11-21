@@ -4,9 +4,11 @@ import "./om.css";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Activity, CreditCard, Globe, LayoutGrid, LifeBuoy, Link2, LogOut, ShieldCheck, Sparkles, Undo2, User, UserCircle, Wrench, Zap } from "lucide-react";
+import { Activity, CreditCard, Globe, LayoutGrid, LifeBuoy, Link2, LogOut, ShieldCheck, Smartphone, Sparkles, Undo2, User, UserCircle, Wrench, Zap } from "lucide-react";
 import { NotificationsBell } from "@/components/portal/NotificationsBell";
 import { NAV, TAB_ORDER, TOOLS_SHEET, activeKey, type NavKey } from "@/lib/floor/nav";
+import type { InstallGuide } from "@/lib/floor/app";
+import { InstallSheet, OfflineNotice, useInstall } from "./InstallApp";
 import { ShellContext } from "./shell";
 
 /**
@@ -60,7 +62,13 @@ function Credits() {
   );
 }
 
-function ProfileMenu({ member, configured, preview }: { member: ShellMember; configured: boolean; preview: boolean }) {
+function ProfileMenu({ member, configured, preview, asApp, onInstall }: {
+  member: ShellMember; configured: boolean; preview: boolean;
+  /** Running as the installed app: the preview is what the app is, so there is no "leave" from inside it. */
+  asApp: boolean | null;
+  /** Offered while this is a browser tab that has not installed the app. */
+  onInstall?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [lang, setLang] = useState<"en" | "es">("en");
   const box = useRef<HTMLDivElement>(null);
@@ -89,10 +97,11 @@ function ProfileMenu({ member, configured, preview }: { member: ShellMember; con
           <Link role="menuitem" href="/portal/account" onClick={() => setOpen(false)}><UserCircle aria-hidden="true" />Account and settings</Link>
           <Link role="menuitem" href="/portal/credits" onClick={() => setOpen(false)}><CreditCard aria-hidden="true" />Credits and billing</Link>
           <Link role="menuitem" href="/portal/support" onClick={() => setOpen(false)}><LifeBuoy aria-hidden="true" />Support</Link>
+          {onInstall && <button type="button" role="menuitem" onClick={() => { setOpen(false); onInstall(); }}><Smartphone aria-hidden="true" />Install the app</button>}
           {/* The site's own language switch (I18nProvider), asked for from here instead of a floating button. */}
           <button type="button" role="menuitem" data-no-i18n translate="no" onClick={() => { window.dispatchEvent(new Event("om-lang-toggle")); setOpen(false); }}><Globe aria-hidden="true" />{lang === "es" ? "English" : "Español"}</button>
           {member.admin && <><hr /><a role="menuitem" href="/admin/controls"><ShieldCheck aria-hidden="true" />Admin workspace</a></>}
-          {preview && <a role="menuitem" href="/api/floor/preview?on=0"><Undo2 aria-hidden="true" />Leave the preview</a>}
+          {preview && asApp !== true && <a role="menuitem" href="/api/floor/preview?on=0"><Undo2 aria-hidden="true" />Leave the preview</a>}
           {configured && (
             <>
               <hr />
@@ -111,6 +120,11 @@ function Bar({ member, configured, preview }: { member: ShellMember; configured:
   const here = activeKey(path, view);
   const [sheet, setSheet] = useState(false);
   useEffect(() => { setSheet(false); }, [path, view]);
+  // THE ONE MISSION APP (lib/floor/app.ts): the browser's own install dialog where it has one, else its steps.
+  const { asApp, offer, install: installApp } = useInstall();
+  const [guide, setGuide] = useState<InstallGuide | null>(null);
+  const closeGuide = useCallback(() => setGuide(null), []);
+  const install = useCallback(() => { void installApp().then((g) => { if (g) setGuide(g); }); }, [installApp]);
   // THE SELECTED TAB'S CAPSULE (owner 11-21 brief §4): one tonal capsule that slides to the tab you chose, in about
   // 200 ms. The labels never move. It is measured from the tab itself, so it follows any width; with reduced motion
   // it simply appears in place (om.css removes every transition).
@@ -145,11 +159,13 @@ function Bar({ member, configured, preview }: { member: ShellMember; configured:
             <div className="om-nav-right">
               {configured && <Credits />}
               {configured && <span className="om-bell"><NotificationsBell trading /></span>}
-              <ProfileMenu member={member} configured={configured} preview={preview} />
+              <ProfileMenu member={member} configured={configured} preview={preview} asApp={asApp} onInstall={configured && offer ? install : undefined} />
             </div>
           </nav>
         </div>
       </div>
+
+      {guide && <InstallSheet guide={guide} onClose={closeGuide} />}
 
       {/* phone: the same destinations, under the thumb */}
       {sheet && (
@@ -197,6 +213,7 @@ export function AppShell({ children, member, configured = true, preview = false 
         <Bar member={member} configured={configured} preview={preview} />
       </Suspense>
       <main className="om-main"><div className="om-frame"><ShellContext.Provider value={true}>{children}</ShellContext.Provider></div></main>
+      <OfflineNotice />
     </div>
   );
 }

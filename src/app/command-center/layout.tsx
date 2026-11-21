@@ -1,12 +1,44 @@
+import type { Metadata, Viewport } from "next";
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getProfile } from "@/lib/auth";
 import { SHELL_COOKIE, wantsNextShell } from "@/lib/floor/nav";
 import { CC_NEXT_CSS } from "@/components/command-center/hud/nextTheme";
+import { APP_MANIFEST, APP_NAME, APP_THEME } from "@/lib/floor/app";
 
-export const metadata = { title: "Command Center XAUUSD", robots: { index: false, follow: false } };
+const CC_METADATA: Metadata = { title: "Command Center XAUUSD", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
+
+/*
+ * Atlas is a tab of the One Mission app (lib/floor/app.ts): in the preview its page names the same app as the
+ * Floor's pages do, so installing from here installs the same thing. The cookie is read first, so nobody else's
+ * page costs an extra lookup. Its viewport is left as it was: this screen keeps its own frame inside the safe area.
+ */
+const inNewShell = cache(async (): Promise<boolean> => {
+  if (!isSupabaseConfigured || cookies().get(SHELL_COOKIE)?.value !== "next") return false;
+  const profile = await getProfile();
+  return wantsNextShell("next", profile?.role === "admin");
+});
+
+export async function generateMetadata(): Promise<Metadata> {
+  if (!(await inNewShell())) return CC_METADATA;
+  return {
+    ...CC_METADATA,
+    manifest: APP_MANIFEST,
+    appleWebApp: { capable: true, title: APP_NAME, statusBarStyle: "black" },
+    icons: {
+      icon: [{ url: "/om-app/icon-192.png", sizes: "192x192", type: "image/png" }],
+      apple: [{ url: "/om-app/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    },
+    formatDetection: { telephone: false },
+  };
+}
+
+export async function generateViewport(): Promise<Viewport> {
+  return (await inNewShell()) ? { themeColor: APP_THEME } : {};
+}
 
 /**
  * COMMAND CENTER XAUUSD gets its own full-bleed, chrome-free shell.

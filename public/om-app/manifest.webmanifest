@@ -1,0 +1,21 @@
+{
+  "id": "/om-app",
+  "name": "One Mission",
+  "short_name": "One Mission",
+  "description": "The One Mission trading platform: The Floor, OM AI Plays, GENX, Market Pulse, FLOW and Atlas.",
+  "start_url": "/portal/trading",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#08090e",
+  "theme_color": "#08090e",
+  "icons": [
+    { "src": "/om-app/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/om-app/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/om-app/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "OM AI Plays", "url": "/portal/signals", "icons": [{ "src": "/om-app/icon-96.png", "sizes": "96x96", "type": "image/png" }] },
+    { "name": "Atlas", "url": "/command-center", "icons": [{ "src": "/om-app/icon-96.png", "sizes": "96x96", "type": "image/png" }] },
+    { "name": "FLOW", "url": "/portal/trading?view=flow", "icons": [{ "src": "/om-app/icon-96.png", "sizes": "96x96", "type": "image/png" }] }
+  ]
+}

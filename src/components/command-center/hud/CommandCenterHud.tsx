@@ -792,7 +792,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       {/* ── HEADER ────────────────────────────────────────────────────── */}
       <header className="relative mb-[8px] flex h-[42px] shrink-0 items-center gap-2 sm:gap-3">
         {toFloor && (
-          <a href="/portal/trading" aria-label="Back to The Floor" className="flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1.5 text-[12.5px] font-medium sm:px-3" style={{ color: H.text, border: `1px solid ${H.line}`, background: "rgba(255,255,255,0.04)" }}>
+          <a href="/portal/trading" aria-label="Back to The Floor" className="flex min-h-[40px] min-w-[40px] shrink-0 items-center justify-center gap-1 rounded-full px-2.5 py-1.5 text-[12.5px] font-medium sm:px-3" style={{ color: H.text, border: `1px solid ${H.line}`, background: "rgba(255,255,255,0.04)" }}>
             <span aria-hidden="true">‹</span><span className="hidden sm:inline" aria-hidden="true"> The Floor</span>
           </a>
         )}
@@ -804,7 +804,9 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             <span className="block text-[15px] font-semibold leading-none tracking-[0.06em]" style={{ color: H.text }}>COMMAND CENTER XAUUSD</span>
             <span className="mt-1 block text-[8.5px] font-medium tracking-[0.3em]" style={{ color: H.mut }}>THE ULTIMATE GOLD INTELLIGENCE MACHINE</span>
           </span>
-          <span className="block text-[11.5px] font-semibold leading-[1.15] tracking-[0.06em] min-[1440px]:hidden" style={{ color: H.text }}>
+          {/* In the redesign preview a phone's header holds the way back, the mark, the broker, the feed and the menu:
+              the two-line name gives way to the mark there, so nothing is pushed off the screen's edge (owner 11-21). */}
+          <span className={`block text-[11.5px] font-semibold leading-[1.15] tracking-[0.06em] min-[1440px]:hidden ${toFloor ? "max-sm:hidden" : ""}`} style={{ color: H.text }}>
             <span className="block">COMMAND CENTER</span>
             <span className="block" style={{ color: H.gold2 }}>XAUUSD</span>
           </span>
@@ -834,7 +836,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           )}
           {/* GENERATE WITH ATLAS: one press, the engine's trade idea and where to enter. */}
           <button onClick={generate} data-tour="generate" data-generate-open="" title="ATLAS's engine gives you its trade idea and where to enter"
-            className="hidden items-center gap-1.5 rounded-[7px] px-2.5 py-1.5 text-[9.5px] font-black tracking-[0.14em] transition hover:brightness-110 sm:inline-flex"
+            className={`hidden items-center gap-1.5 rounded-[7px] px-2.5 py-1.5 text-[9.5px] font-black tracking-[0.14em] transition hover:brightness-110 ${toFloor ? "xl:inline-flex" : "sm:inline-flex"}`}
             style={{ color: "var(--cc-1a1305,#1A1305)", background: "linear-gradient(180deg, var(--cc-ffd875,#FFD875), var(--cc-d5a93d,#D5A93D))", boxShadow: "0 0 14px rgba(var(--cc-d5a93d-rgb,213,169,61),0.35)" }}>
             <Sparkles className="h-3 w-3" />GENERATE
           </button>
@@ -847,7 +849,9 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-[8px] px-2 py-1.5 text-[10px] font-bold tracking-[0.12em] sm:px-3 sm:text-[11px]"
             style={{ color: feedCol, border: `1px solid ${alpha(feedCol, "66")}`, background: `${alpha(feedCol, "12")}` }}>
             {feed.status === "live" ? <LiveDot color={feedCol} /> : <span className="h-[6px] w-[6px] rounded-full" style={{ background: feedCol }} />}
-            {FEED_STATUS_WORD[feed.status]}
+            {toFloor
+              ? <><span className="max-sm:hidden">{FEED_STATUS_WORD[feed.status]}</span><span className="sm:hidden">{FEED_STATUS_WORD[feed.status].replace(/^MARKET /, "")}</span></>
+              : FEED_STATUS_WORD[feed.status]}
           </span>
           {isReplay && <span className="rounded-[6px] px-2 py-1 text-[9.5px] font-bold tracking-[0.14em]" style={{ color: H.gold2, border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.45)" }}>REPLAY</span>}
           <span className="hidden text-right md:block">
@@ -855,7 +859,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             <span className="block text-[9px]" style={{ color: H.mut2 }}>{nyDate}</span>
           </span>
           <span className="hidden text-[9.5px] font-semibold leading-tight tracking-[0.2em] min-[1800px]:block" style={{ color: H.mut }}>DISCIPLINE<br />CREATES FREEDOM.</span>
-          <button onClick={() => setMenuOpen((x) => !x)} aria-label="Menu" aria-expanded={menuOpen} className="grid h-8 w-8 place-items-center rounded-[7px] lg:hidden"
+          <button onClick={() => setMenuOpen((x) => !x)} aria-label="Menu" aria-expanded={menuOpen} className={`grid place-items-center rounded-[7px] lg:hidden ${toFloor ? "h-10 w-10" : "h-8 w-8"}`}
             style={{ color: H.text, border: `1px solid ${H.line}` }}>{menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}</button>
         </div>
 

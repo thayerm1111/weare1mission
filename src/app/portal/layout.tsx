@@ -1,8 +1,11 @@
+import type { Metadata, Viewport } from "next";
+import { cache } from "react";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/om/AppShell";
 import { SHELL_COOKIE, SHELL_CSS, SHELL_SCRIPT, wantsNextShell } from "@/lib/floor/nav";
+import { APP_INSTALL_SCRIPT, APP_MANIFEST, APP_NAME, APP_RETURN_SCRIPT, APP_THEME } from "@/lib/floor/app";
 import { PortalNav } from "@/components/portal/PortalNav";
 import { SignOutButton } from "@/components/portal/SignOutButton";
 import { NotificationsBell } from "@/components/portal/NotificationsBell";
@@ -16,8 +19,39 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getProfile } from "@/lib/auth";
 import { TIER_LABELS } from "@/lib/access";
 
-export const metadata = { title: "Member Portal", robots: { index: false, follow: false } };
+const PORTAL_METADATA: Metadata = { title: "Member Portal", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
+
+/*
+ * THE ONE MISSION APP (owner 11-21, lib/floor/app.ts). A page in the new shell says it can be installed: the
+ * manifest, the home-screen icon and name, a status bar in the page's own colour, and a viewport that reaches the
+ * screen's edges (the shell pads itself by the safe areas, om.css). The cookie is read first, so a page without
+ * the preview cookie — every member's — costs no extra lookup; the role is read once per request for both answers.
+ */
+const inNewShell = cache(async (): Promise<boolean> => {
+  if (!isSupabaseConfigured || cookies().get(SHELL_COOKIE)?.value !== "next") return false;
+  const profile = await getProfile();
+  return wantsNextShell("next", profile?.role === "admin");
+});
+
+export async function generateMetadata(): Promise<Metadata> {
+  if (!(await inNewShell())) return PORTAL_METADATA;
+  return {
+    ...PORTAL_METADATA,
+    manifest: APP_MANIFEST,
+    appleWebApp: { capable: true, title: APP_NAME, statusBarStyle: "black" },
+    icons: {
+      icon: [{ url: "/om-app/icon-192.png", sizes: "192x192", type: "image/png" }],
+      apple: [{ url: "/om-app/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    },
+    // A trading screen is full of long numbers; none of them is a phone number to dial.
+    formatDetection: { telephone: false },
+  };
+}
+
+export async function generateViewport(): Promise<Viewport> {
+  return (await inNewShell()) ? { themeColor: APP_THEME, viewportFit: "cover" } : {};
+}
 
 // Embed CSS: when the mobile app loads a tool page with ?embed=1, the inline
 // script below adds `om-embed` (+ dark) to <html>, and these rules strip the
@@ -53,6 +87,7 @@ export default async function PortalLayout({ children }: { children: React.React
       <>
         <style dangerouslySetInnerHTML={{ __html: SHELL_CSS }} />
         <script dangerouslySetInnerHTML={{ __html: SHELL_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: APP_INSTALL_SCRIPT }} />
         <AppShell member={{ name: profile.full_name, email: profile.email, admin: isAdmin }} preview>{children}</AppShell>
         <LowBalanceFlyer />
         <RiskConsentGate />
@@ -68,6 +103,8 @@ export default async function PortalLayout({ children }: { children: React.React
             "(function(){try{var d=document.documentElement;if(location.search.indexOf('embed=1')>-1){d.classList.add('om-embed');d.classList.add('om-dark');}else if(localStorage.getItem('om-theme')==='dark'){d.classList.add('om-dark');}}catch(e){}})();",
         }}
       />
+      {/* An admin who has not switched the preview on, opening the installed One Mission app: see APP_RETURN_SCRIPT. */}
+      {isAdmin && cookies().get(SHELL_COOKIE) === undefined && <script dangerouslySetInnerHTML={{ __html: APP_RETURN_SCRIPT }} />}
       <style dangerouslySetInnerHTML={{ __html: EMBED_CSS }} />
       <div className="portal-container mx-auto w-full max-w-[1760px] px-4 py-8 sm:px-6 lg:py-10">
         <div className="portal-topbar flex flex-col gap-4 border-b border-[#E7E4DD] pb-6 sm:flex-row sm:items-center sm:justify-between">
