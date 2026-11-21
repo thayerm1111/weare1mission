@@ -5,7 +5,7 @@ import {
   AlertTriangle, BarChart3, Bell, BookOpen, ChevronDown, ChevronUp, Globe2, Layers, LineChart, Maximize2, Menu, Mic, PenLine, Radar, RefreshCw,
   Settings, Sparkles, Square, Target, X, Zap,
 } from "lucide-react";
-import { H, fmt2, LABEL } from "./theme";
+import { H, fmt2, LABEL, alpha } from "./theme";
 import { HudPanel, LiveDot, Chip, HUD_CSS, Sparkline } from "./Hud";
 import { BrainOrb, type OrbState } from "./BrainOrb";
 import { voiceBus, useVoiceBus, lineOpen } from "../voiceBus";
@@ -218,6 +218,9 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   /** ATLAS drew on the chart while the sheet covered it: offer to show it. */
   const [chartPing, setChartPing] = useState<number | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
+  // In the redesign preview the way out is The Floor (owner 11-20 brief §11: "a clear Back to The Floor action").
+  const [toFloor, setToFloor] = useState(false);
+  useEffect(() => { try { setToFloor(document.documentElement.classList.contains("om-cc-next")); } catch { /* the portal, as before */ } }, []);
   /* GENERATE WITH ATLAS (owner 11-11). The panel mounts the first time it is asked for and then stays, so the
      last idea is still there when the drawer is reopened. `ideaRun` changes on every press of GENERATE. */
   const [ideaMounted, setIdeaMounted] = useState(false);
@@ -755,14 +758,19 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
   /* ── render ───────────────────────────────────────────────────────────── */
   return (
-    <div className={`hud-root w-full px-[10px] pt-[8px] xl:pb-[10px] ${onCall ? "pb-[164px]" : "pb-[92px]"} ${stacked && sheetOpen && !sheetTall ? "talk-compact" : ""}`} style={{ background: `radial-gradient(1200px 500px at 12% -10%, rgba(0,199,232,0.06), transparent), radial-gradient(900px 500px at 100% 0%, rgba(213,169,61,0.05), transparent), ${H.bg0}`, color: H.text, fontFamily: "Inter, var(--font-inter), system-ui, sans-serif" }}>
+    <div className={`hud-root w-full px-[10px] pt-[8px] xl:pb-[10px] ${onCall ? "pb-[164px]" : "pb-[92px]"} ${stacked && sheetOpen && !sheetTall ? "talk-compact" : ""}`} style={{ background: `radial-gradient(1200px 500px at 12% -10%, rgba(var(--cc-00c7e8-rgb,0,199,232),0.06), transparent), radial-gradient(900px 500px at 100% 0%, rgba(var(--cc-d5a93d-rgb,213,169,61),0.05), transparent), ${H.bg0}`, color: H.text, fontFamily: "Inter, var(--font-inter), system-ui, sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: HUD_CSS + DESK }} />
       {tourOpen && <HudTour onClose={() => setTourOpen(false)} />}
 
       {/* ── HEADER ────────────────────────────────────────────────────── */}
       <header className="relative mb-[8px] flex h-[42px] shrink-0 items-center gap-2 sm:gap-3">
-        <a href="/portal" className="flex shrink-0 items-center gap-2.5" aria-label="Back to the portal">
-          <span className="grid h-9 w-9 place-items-center rounded-full" style={{ border: `1px solid ${H.lineHi}`, boxShadow: "0 0 12px rgba(0,199,232,0.25), inset 0 0 10px rgba(213,169,61,0.25)" }}>
+        {toFloor && (
+          <a href="/portal/trading" aria-label="Back to The Floor" className="flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1.5 text-[12.5px] font-medium sm:px-3" style={{ color: H.text, border: `1px solid ${H.line}`, background: "rgba(255,255,255,0.04)" }}>
+            <span aria-hidden="true">‹</span><span className="hidden sm:inline" aria-hidden="true"> The Floor</span>
+          </a>
+        )}
+        <a href={toFloor ? "/portal/trading" : "/portal"} className="flex shrink-0 items-center gap-2.5" aria-label={toFloor ? "Back to The Floor" : "Back to the portal"}>
+          <span className="grid h-9 w-9 place-items-center rounded-full" style={{ border: `1px solid ${H.lineHi}`, boxShadow: "0 0 12px rgba(var(--cc-00c7e8-rgb,0,199,232),0.25), inset 0 0 10px rgba(var(--cc-d5a93d-rgb,213,169,61),0.25)" }}>
             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden><path d="M12 3 L21 20 H3 Z" fill="none" stroke={H.gold3} strokeWidth="1.6" /><circle cx="12" cy="14" r="2.2" fill={H.cyan2} /></svg>
           </span>
           <span className="hidden min-[1440px]:block">
@@ -775,15 +783,15 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           </span>
         </a>
 
-        <nav data-tour="nav" className="hud-scroll mx-auto hidden h-full min-w-0 items-center gap-0.5 overflow-x-auto rounded-[10px] px-1.5 lg:flex" style={{ border: `1px solid ${H.line}`, background: "rgba(7,16,26,0.7)" }}>
+        <nav data-tour="nav" className="hud-scroll mx-auto hidden h-full min-w-0 items-center gap-0.5 overflow-x-auto rounded-[10px] px-1.5 lg:flex" style={{ border: `1px solid ${H.line}`, background: "rgba(var(--cc-07101a-rgb,7,16,26),0.7)" }}>
           {NAV.map((n) => (
             <button key={n} onClick={() => goNav(n)}
               className="relative h-[30px] shrink-0 rounded-[7px] px-2.5 text-[9.5px] font-semibold tracking-[0.14em] transition min-[1440px]:px-3"
               style={{
                 color: nav === n ? H.gold3 : H.mut,
-                background: nav === n ? "linear-gradient(180deg, rgba(213,169,61,0.16), rgba(213,169,61,0.04))" : "transparent",
-                border: nav === n ? "1px solid rgba(231,196,103,0.5)" : "1px solid transparent",
-                boxShadow: nav === n ? "0 0 14px rgba(213,169,61,0.25)" : "none",
+                background: nav === n ? "linear-gradient(180deg, rgba(var(--cc-d5a93d-rgb,213,169,61),0.16), rgba(var(--cc-d5a93d-rgb,213,169,61),0.04))" : "transparent",
+                border: nav === n ? "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.5)" : "1px solid transparent",
+                boxShadow: nav === n ? "0 0 14px rgba(var(--cc-d5a93d-rgb,213,169,61),0.25)" : "none",
               }}>
               {n}
             </button>
@@ -795,26 +803,26 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           {!isReplay && <BrokerBar size="auto" />}
           {!isReplay && (
             <button onClick={() => setTourOpen(true)} className="hidden rounded-[7px] px-2.5 py-1.5 text-[9.5px] font-bold tracking-[0.14em] lg:block" title="A guided walk through every part of the Command Center"
-              style={{ color: H.cyan2, border: "1px solid rgba(0,199,232,0.35)", background: "rgba(0,199,232,0.06)" }}>GUIDE</button>
+              style={{ color: H.cyan2, border: "1px solid rgba(var(--cc-00c7e8-rgb,0,199,232),0.35)", background: "rgba(var(--cc-00c7e8-rgb,0,199,232),0.06)" }}>GUIDE</button>
           )}
           {/* GENERATE WITH ATLAS: one press, the engine's trade idea and where to enter. */}
           <button onClick={generate} data-tour="generate" data-generate-open="" title="ATLAS's engine gives you its trade idea and where to enter"
             className="hidden items-center gap-1.5 rounded-[7px] px-2.5 py-1.5 text-[9.5px] font-black tracking-[0.14em] transition hover:brightness-110 sm:inline-flex"
-            style={{ color: "#1A1305", background: "linear-gradient(180deg, #FFD875, #D5A93D)", boxShadow: "0 0 14px rgba(213,169,61,0.35)" }}>
+            style={{ color: "var(--cc-1a1305,#1A1305)", background: "linear-gradient(180deg, var(--cc-ffd875,#FFD875), var(--cc-d5a93d,#D5A93D))", boxShadow: "0 0 14px rgba(var(--cc-d5a93d-rgb,213,169,61),0.35)" }}>
             <Sparkles className="h-3 w-3" />GENERATE
           </button>
           {!isReplay && (
             <button onClick={() => { setTicket(null); setCallOpen(true); }} className="hidden rounded-[7px] px-2.5 py-1.5 text-[9.5px] font-bold tracking-[0.14em] lg:block"
-              style={{ color: H.gold2, border: "1px solid rgba(231,196,103,0.4)", background: "rgba(213,169,61,0.08)" }}>MANUAL</button>
+              style={{ color: H.gold2, border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.4)", background: "rgba(var(--cc-d5a93d-rgb,213,169,61),0.08)" }}>MANUAL</button>
           )}
           {/* The feed's own status: green LIVE only when a streamed tick arrived within seconds (core/feed.ts). */}
           <span data-feed-status={feed.status} title={feedTitle}
             className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-[8px] px-2 py-1.5 text-[10px] font-bold tracking-[0.12em] sm:px-3 sm:text-[11px]"
-            style={{ color: feedCol, border: `1px solid ${feedCol}66`, background: `${feedCol}12` }}>
+            style={{ color: feedCol, border: `1px solid ${alpha(feedCol, "66")}`, background: `${alpha(feedCol, "12")}` }}>
             {feed.status === "live" ? <LiveDot color={feedCol} /> : <span className="h-[6px] w-[6px] rounded-full" style={{ background: feedCol }} />}
             {FEED_STATUS_WORD[feed.status]}
           </span>
-          {isReplay && <span className="rounded-[6px] px-2 py-1 text-[9.5px] font-bold tracking-[0.14em]" style={{ color: H.gold2, border: "1px solid rgba(231,196,103,0.45)" }}>REPLAY</span>}
+          {isReplay && <span className="rounded-[6px] px-2 py-1 text-[9.5px] font-bold tracking-[0.14em]" style={{ color: H.gold2, border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.45)" }}>REPLAY</span>}
           <span className="hidden text-right md:block">
             <span className="block text-[10px] tracking-[0.14em]" style={{ color: H.mut }}>NEW YORK <b className="ml-1 text-[13px] font-semibold tabular-nums tracking-normal" style={{ color: H.text }}>{nyTime}</b></span>
             <span className="block text-[9px]" style={{ color: H.mut2 }}>{nyDate}</span>
@@ -839,7 +847,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
       {/* ── THE STRIP: price · source · freshness · session · connection · automation ── */}
       <div data-tour="price" className="mb-[8px] shrink-0 overflow-hidden rounded-[10px]"
-        style={{ background: `linear-gradient(180deg, ${H.panel2} 0%, ${H.panel} 100%)`, border: `1px solid ${H.lineHi}`, boxShadow: "0 0 22px rgba(0,199,232,0.06)" }}>
+        style={{ background: `linear-gradient(180deg, ${H.panel2} 0%, ${H.panel} 100%)`, border: `1px solid ${H.lineHi}`, boxShadow: "0 0 22px rgba(var(--cc-00c7e8-rgb,0,199,232),0.06)" }}>
         <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 px-3 py-1.5 xl:flex-nowrap xl:gap-x-5">
           <div className="flex min-w-0 shrink-0 items-center gap-3">
             <span className="hidden sm:block"><GoldBars /></span>
@@ -880,7 +888,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           {/* automation — honest about what the screen can know */}
           <button data-tour="automation" onClick={() => (isReplay ? null : setProfileOpen(true))} title={`${auto.word} — ${auto.detail}. Opens risk, styles and automation.`}
             className="ml-auto inline-flex shrink-0 items-center gap-2 rounded-[8px] px-2.5 py-1.5 text-left transition hover:brightness-110"
-            style={{ border: "1px solid rgba(255,216,117,0.45)", background: "linear-gradient(180deg, rgba(213,169,61,0.14), rgba(213,169,61,0.04))" }}>
+            style={{ border: "1px solid rgba(var(--cc-ffd875-rgb,255,216,117),0.45)", background: "linear-gradient(180deg, rgba(var(--cc-d5a93d-rgb,213,169,61),0.14), rgba(var(--cc-d5a93d-rgb,213,169,61),0.04))" }}>
             <Zap className="h-4 w-4 shrink-0" style={{ color: toneCol(auto.tone) }} />
             <span className="min-w-0">
               <span className="block text-[8px] font-semibold uppercase tracking-[0.16em]" style={{ color: H.mut }}>Automation</span>
@@ -895,7 +903,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
         <div className="mb-[8px] flex shrink-0 flex-wrap gap-2">
           {err && (
             <div role="alert" data-error-banner="" className="flex w-full flex-wrap items-center gap-2 rounded-[8px] px-3 py-1.5 text-[11.5px]"
-              style={{ border: `1px solid ${H.red}66`, background: "rgba(255,83,100,0.08)", color: H.text }}>
+              style={{ border: `1px solid color-mix(in srgb, ${H.red} 40%, transparent)`, background: "rgba(var(--cc-ff5364-rgb,255,83,100),0.08)", color: H.text }}>
               <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: H.red }} />
               <span className="min-w-0 flex-1">
                 <b style={{ color: H.red }}>{err.msg}</b>{" "}
@@ -903,9 +911,9 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                   ? <span style={{ color: H.mut }}>Showing the last good read from {hhmmss(goodAt)}{now ? ` (${ageShort(now - goodAt)} ago)` : ""} — it is not updating.</span>
                   : <span style={{ color: H.mut }}>Nothing has loaded yet.</span>}
               </span>
-              {err.code === 401 && <a href="/login" className="rounded-[6px] px-3 py-1 text-[10.5px] font-bold tracking-[0.1em]" style={{ color: H.gold3, border: "1px solid rgba(231,196,103,0.5)" }}>SIGN IN</a>}
+              {err.code === 401 && <a href="/login" className="rounded-[6px] px-3 py-1 text-[10.5px] font-bold tracking-[0.1em]" style={{ color: H.gold3, border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.5)" }}>SIGN IN</a>}
               <button onClick={retry} disabled={retrying} className="inline-flex items-center gap-1.5 rounded-[6px] px-3 py-1 text-[10.5px] font-bold tracking-[0.1em] disabled:opacity-60"
-                style={{ color: H.gold3, border: "1px solid rgba(231,196,103,0.5)", background: "rgba(213,169,61,0.1)" }}>
+                style={{ color: H.gold3, border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.5)", background: "rgba(var(--cc-d5a93d-rgb,213,169,61),0.1)" }}>
                 <RefreshCw className={`h-3 w-3 ${retrying ? "animate-spin" : ""}`} />{retrying ? "RETRYING…" : "RETRY"}
               </button>
             </div>
@@ -933,7 +941,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                 const r = intel?.alignment.rows.find((x) => x.tf === k);
                 const col = r ? (r.dir === "down" ? H.red : r.dir === "up" ? H.green : H.mut) : H.mut2;
                 return (
-                  <div key={k} title={r ? words(r.state) : "Not enough closed bars"} className="flex flex-col items-center justify-center rounded-[6px] py-1" style={{ border: `1px solid ${H.line}`, background: "rgba(3,7,11,0.5)" }}>
+                  <div key={k} title={r ? words(r.state) : "Not enough closed bars"} className="flex flex-col items-center justify-center rounded-[6px] py-1" style={{ border: `1px solid ${H.line}`, background: "rgba(var(--cc-03070b-rgb,3,7,11),0.5)" }}>
                     <p className="text-[11.5px] font-semibold">{k === "1d" ? "1D" : k.toUpperCase()}</p>
                     <p className="max-w-full truncate px-1 text-[9.5px]" style={{ color: col }}>{r?.word ?? "No read"}</p>
                     <p className="text-[12px] leading-none" style={{ color: col }}>{!r ? "·" : r.dir === "down" ? "⌄" : r.dir === "up" ? "⌃" : "—"}</p>
@@ -947,7 +955,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           </HudPanel>
 
           <HudPanel className="hud-levels" tour="levels" title="KEY LEVELS" icon={<Target className="h-3.5 w-3.5" />}
-            right={<button onClick={() => setDrawer("alerts")} className="inline-flex items-center gap-1 rounded-[5px] px-2 py-[2px] text-[9px] font-bold tracking-[0.12em]" style={{ color: H.gold2, border: "1px solid rgba(231,196,103,0.45)" }}><Bell className="h-3 w-3" />ALERTS</button>}
+            right={<button onClick={() => setDrawer("alerts")} className="inline-flex items-center gap-1 rounded-[5px] px-2 py-[2px] text-[9px] font-bold tracking-[0.12em]" style={{ color: H.gold2, border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.45)" }}><Bell className="h-3 w-3" />ALERTS</button>}
             bodyClass="hud-scroll overflow-y-auto px-2 pb-2">
             {(intel?.keyLevels ?? []).map((l, i) => {
               const isPx = l.role === "price";
@@ -958,8 +966,8 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                   onClick={() => { if (!isPx) { setPinned(isPinned ? null : { price: l.price, label: cap(l.label) }); if (!isPinned) scrollToChart(); } }}
                   className="flex w-full items-center gap-3 rounded-[5px] px-2 py-[3px] text-left text-[11px] transition hover:brightness-125"
                   style={isPx
-                    ? { border: `1px solid ${H.gold2}`, background: "rgba(213,169,61,0.1)", boxShadow: "0 0 10px rgba(213,169,61,0.2)" }
-                    : isPinned ? { border: `1px solid ${H.cyan2}`, background: "rgba(0,199,232,0.08)" } : { border: "1px solid transparent" }}>
+                    ? { border: `1px solid ${H.gold2}`, background: "rgba(var(--cc-d5a93d-rgb,213,169,61),0.1)", boxShadow: "0 0 10px rgba(var(--cc-d5a93d-rgb,213,169,61),0.2)" }
+                    : isPinned ? { border: `1px solid ${H.cyan2}`, background: "rgba(var(--cc-00c7e8-rgb,0,199,232),0.08)" } : { border: "1px solid transparent" }}>
                   <span className="w-[66px] font-semibold tabular-nums" style={{ color: isPx ? H.gold3 : H.text }}>{fmt2(l.price)}</span>
                   <span className="min-w-0 flex-1 truncate" style={{ color: isPx ? H.gold3 : H.mut }} title={l.label}>{cap(l.label)}</span>
                   <span className="shrink-0 text-[10px]" style={{ color: isPinned ? H.cyan2 : col }}>{isPx ? "→" : isPinned ? "pinned" : l.watched || l.role === "watch" ? "● watch" : l.role === "invalidation" ? "✕ fails" : "•".repeat(Math.max(1, 4 - Math.min(3, Math.floor(Math.abs(l.price - (d?.price ?? l.price)) / Math.max(1, (intel?.volatility.atr ?? 5)))) ))}</span>
@@ -981,17 +989,17 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                       <button key={b.id} title={`${b.id} candles`} aria-pressed={tf === b.id}
                         onClick={() => setTf(b.id)}
                         className="rounded-[5px] px-2 py-1 text-[11px] transition sm:px-2.5"
-                        style={{ color: tf === b.id ? H.gold3 : H.mut, border: tf === b.id ? "1px solid rgba(231,196,103,0.55)" : "1px solid transparent", background: tf === b.id ? "rgba(213,169,61,0.1)" : "transparent" }}>{b.label}</button>
+                        style={{ color: tf === b.id ? H.gold3 : H.mut, border: tf === b.id ? "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.55)" : "1px solid transparent", background: tf === b.id ? "rgba(var(--cc-d5a93d-rgb,213,169,61),0.1)" : "transparent" }}>{b.label}</button>
                     ))}
                   </div>
                   <button onClick={generate} data-generate-chart="" title="ATLAS's engine gives you its trade idea and where to enter"
                     className="inline-flex shrink-0 items-center gap-1.5 rounded-[6px] px-2.5 py-1 text-[10px] font-black tracking-[0.12em] transition hover:brightness-110"
-                    style={{ color: H.gold3, border: "1px solid rgba(255,216,117,0.7)", background: "linear-gradient(180deg, rgba(213,169,61,0.22), rgba(213,169,61,0.06))", boxShadow: "0 0 12px rgba(213,169,61,0.25)" }}>
+                    style={{ color: H.gold3, border: "1px solid rgba(var(--cc-ffd875-rgb,255,216,117),0.7)", background: "linear-gradient(180deg, rgba(var(--cc-d5a93d-rgb,213,169,61),0.22), rgba(var(--cc-d5a93d-rgb,213,169,61),0.06))", boxShadow: "0 0 12px rgba(var(--cc-d5a93d-rgb,213,169,61),0.25)" }}>
                     <Sparkles className="h-3.5 w-3.5" />GENERATE
                   </button>
                   {shownIdea && (
                     <button onClick={openIdea} data-idea-pill="" className="inline-flex shrink-0 items-center gap-1.5 rounded-[6px] px-2 py-1 text-[9.5px] font-bold tracking-[0.08em]"
-                      style={{ color: shownIdea.side === "buy" ? H.green : H.red, border: `1px solid ${shownIdea.side === "buy" ? H.green : H.red}88`, background: "rgba(0,0,0,0.3)" }}>
+                      style={{ color: shownIdea.side === "buy" ? H.green : H.red, border: `1px solid color-mix(in srgb, ${shownIdea.side === "buy" ? H.green : H.red} 53%, transparent)`, background: "rgba(0,0,0,0.3)" }}>
                       IDEA · {shownIdea.side === "buy" ? "BUY" : "SELL"} {shownIdea.entry ? fmt2(shownIdea.entry.price) : ""} ▸
                     </button>
                   )}
@@ -1000,7 +1008,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                   <ToolBtn icon={<Layers className="h-3.5 w-3.5" />} label="Liquidity zones" title="Candidate liquidity zones — inferred from structure, not an order book" on={liquidity} onClick={() => setLiquidity((x) => !x)} />
                   {setupPill && (
                     <button onClick={() => setDrawer("trade")} className="ml-1 inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-[6px] px-2 py-1 text-[9.5px] font-bold tracking-[0.08em] hud-in"
-                      style={{ color: setupPill.color, border: `1px solid ${setupPill.color}`, background: "rgba(0,0,0,0.3)", boxShadow: `0 0 12px ${setupPill.color}55` }}>
+                      style={{ color: setupPill.color, border: `1px solid ${setupPill.color}`, background: "rgba(0,0,0,0.3)", boxShadow: `0 0 12px ${alpha(setupPill.color, "55")}` }}>
                       <LiveDot color={setupPill.color} size={5} />{setupPill.text} ▸
                     </button>
                   )}
@@ -1054,7 +1062,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                   {talk.label}
                 </span>
                 <button onClick={() => setSheetTall((x) => !x)} aria-label={sheetTall ? "Shrink the transcript so the chart shows" : "Expand the transcript"} data-sheet-size={sheetTall ? "tall" : "compact"}
-                  className="grid h-7 w-7 place-items-center rounded-[6px] xl:hidden" style={{ color: H.cyan2, border: "1px solid rgba(39,215,242,0.4)" }}>{sheetTall ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}</button>
+                  className="grid h-7 w-7 place-items-center rounded-[6px] xl:hidden" style={{ color: H.cyan2, border: "1px solid rgba(var(--cc-27d7f2-rgb,39,215,242),0.4)" }}>{sheetTall ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}</button>
                 <button onClick={() => setSheetOpen(false)} aria-label="Close" className="grid h-7 w-7 place-items-center rounded-[6px] xl:hidden" style={{ color: H.mut, border: `1px solid ${H.line}` }}><X className="h-4 w-4" /></button>
               </span>
             }
@@ -1090,14 +1098,14 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             </div>
             {chartPing && stacked && sheetOpen && (
               <button onClick={() => { setChartPing(null); setSheetOpen(false); window.setTimeout(() => chartPanelRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }), 280); }}
-                className="mx-3 mb-2 shrink-0 rounded-[7px] px-3 py-1.5 text-left text-[11px] font-semibold" style={{ color: H.cyan2, border: "1px solid rgba(39,215,242,0.45)", background: "rgba(0,199,232,0.08)" }}>
+                className="mx-3 mb-2 shrink-0 rounded-[7px] px-3 py-1.5 text-left text-[11px] font-semibold" style={{ color: H.cyan2, border: "1px solid rgba(var(--cc-27d7f2-rgb,39,215,242),0.45)", background: "rgba(var(--cc-00c7e8-rgb,0,199,232),0.08)" }}>
                 ATLAS marked the chart — view it ▸
               </button>
             )}
             <div className="grid shrink-0 grid-cols-4 gap-1.5 px-3 pb-2">
               {(["CHAT", "VOICE", "ANALYSIS", "SETTINGS"] as TalkTab[]).map((t) => (
                 <button key={t} onClick={() => setTalkTab(t)} className="rounded-[6px] py-1 text-[9.5px] font-semibold tracking-[0.14em]"
-                  style={{ color: talkTab === t ? H.gold3 : H.mut, border: `1px solid ${talkTab === t ? "rgba(231,196,103,0.6)" : H.line}`, background: talkTab === t ? "rgba(213,169,61,0.12)" : "transparent", boxShadow: talkTab === t ? "0 0 10px rgba(213,169,61,0.2)" : "none" }}>{t}</button>
+                  style={{ color: talkTab === t ? H.gold3 : H.mut, border: `1px solid ${talkTab === t ? "rgba(var(--cc-e7c467-rgb,231,196,103),0.6)" : H.line}`, background: talkTab === t ? "rgba(var(--cc-d5a93d-rgb,213,169,61),0.12)" : "transparent", boxShadow: talkTab === t ? "0 0 10px rgba(var(--cc-d5a93d-rgb,213,169,61),0.2)" : "none" }}>{t}</button>
               ))}
             </div>
             <div className="min-h-0 flex-1 border-t" style={{ borderColor: H.lineSoft }}>
@@ -1170,7 +1178,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                     </div>
                     <p className="mt-1 text-[10px] leading-snug" style={{ color: H.mut2 }}>Quote delay is our server&apos;s receipt to this browser, on the server&apos;s clock. The provider&apos;s own timestamp for gold is to the minute, so it cannot measure sub-second lag before that.</p>
                   </div>
-                  {!isReplay && <button onClick={() => setProfileOpen(true)} className="rounded-[6px] px-3 py-1.5 text-[10px] font-bold tracking-[0.12em]" style={{ color: H.gold2, border: "1px solid rgba(231,196,103,0.45)" }}>RISK, STYLES & AUTOMATION ▸</button>}
+                  {!isReplay && <button onClick={() => setProfileOpen(true)} className="rounded-[6px] px-3 py-1.5 text-[10px] font-bold tracking-[0.12em]" style={{ color: H.gold2, border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.45)" }}>RISK, STYLES & AUTOMATION ▸</button>}
                 </div>
               )}
             </div>
@@ -1189,7 +1197,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             ["context", "Global context", <Globe2 key="c" className="h-3.5 w-3.5" />],
           ] as [AnalysisTab, string, ReactNode][]).map(([id, label, icon]) => (
             <button key={id} onClick={() => openAnalysis(id)} className="flex min-w-0 items-center gap-1.5 rounded-[6px] px-2 py-1 text-left text-[10.5px] font-semibold transition hover:brightness-125"
-              style={{ color: H.text, border: `1px solid ${H.line}`, background: "rgba(3,7,11,0.4)" }}>
+              style={{ color: H.text, border: `1px solid ${H.line}`, background: "rgba(var(--cc-03070b-rgb,3,7,11),0.4)" }}>
               <span style={{ color: H.gold2 }}>{icon}</span><span className="truncate">{label}</span>
             </button>
           ))}
@@ -1199,7 +1207,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       {/* ── below 1280 px: the dock that opens the copilot ── */}
       {sheetOpen && sheetTall && <div className="fixed inset-0 z-[49] xl:hidden" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setSheetTall(false)} aria-hidden />}
       <div data-dock="" data-tour={stacked ? "dock" : undefined} className="fixed inset-x-0 bottom-0 z-[45] xl:hidden"
-        style={{ background: "linear-gradient(180deg, rgba(5,11,17,0.92), rgba(3,7,11,0.98))", borderTop: `1px solid ${H.lineHi}`, paddingBottom: "env(safe-area-inset-bottom)", backdropFilter: "blur(8px)" }}>
+        style={{ background: "linear-gradient(180deg, rgba(var(--cc-050b11-rgb,5,11,17),0.92), rgba(var(--cc-03070b-rgb,3,7,11),0.98))", borderTop: `1px solid ${H.lineHi}`, paddingBottom: "env(safe-area-inset-bottom)", backdropFilter: "blur(8px)" }}>
         {onCall && !sheetOpen && (
           <div className="mx-auto max-w-[760px] px-3 pt-2" data-voice-dock={vb.activity} aria-live="polite">
             <div className="flex items-center gap-2">
@@ -1209,9 +1217,9 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
               {vb.firstAudioMs != null && <span className="text-[9px] tabular-nums" style={{ color: H.mut2 }} title="Measured on the last reply: from your question's transcript arriving to ATLAS's first audio">first audio {(vb.firstAudioMs / 1000).toFixed(1)} s</span>}
               <span className="ml-auto flex items-center gap-1.5">
                 {voiceMode === "speaking" && (
-                  <button onClick={() => voiceBus.stopSpeaking()} className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 text-[9.5px] font-bold tracking-[0.1em]" style={{ color: H.red, border: `1px solid ${H.red}66` }}><Square className="h-2.5 w-2.5" />STOP</button>
+                  <button onClick={() => voiceBus.stopSpeaking()} className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 text-[9.5px] font-bold tracking-[0.1em]" style={{ color: H.red, border: `1px solid color-mix(in srgb, ${H.red} 40%, transparent)` }}><Square className="h-2.5 w-2.5" />STOP</button>
                 )}
-                <button onClick={() => openTalk("VOICE")} data-dock-transcript="" className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 text-[9.5px] font-bold tracking-[0.1em]" style={{ color: H.cyan2, border: "1px solid rgba(39,215,242,0.4)" }}>TRANSCRIPT<ChevronUp className="h-3 w-3" /></button>
+                <button onClick={() => openTalk("VOICE")} data-dock-transcript="" className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 text-[9.5px] font-bold tracking-[0.1em]" style={{ color: H.cyan2, border: "1px solid rgba(var(--cc-27d7f2-rgb,39,215,242),0.4)" }}>TRANSCRIPT<ChevronUp className="h-3 w-3" /></button>
               </span>
             </div>
             {vb.error ? <p className="mt-1 line-clamp-2 text-[11px]" style={{ color: H.red }}>{vb.error}</p> : (
@@ -1224,9 +1232,9 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
         )}
         <div className="mx-auto flex max-w-[760px] items-center gap-2 px-3 py-2">
           <button onClick={() => openTalk("CHAT")} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] px-3 py-2 text-left"
-            style={{ border: `1px solid ${H.line}`, background: "rgba(9,19,29,0.9)" }} aria-label="Talk to ATLAS">
-            <span className="relative grid h-7 w-7 shrink-0 place-items-center rounded-full" style={{ background: "radial-gradient(circle at 40% 35%, #FFD875, #8A5F12 70%)", boxShadow: `0 0 0 2px ${talk.tone === "live" ? "rgba(41,223,166,0.6)" : "rgba(39,215,242,0.35)"}, 0 0 10px rgba(255,216,117,0.4)` }}>
-              <span className="h-2 w-2 rounded-full" style={{ background: "#FFF3D0" }} />
+            style={{ border: `1px solid ${H.line}`, background: "rgba(var(--cc-09131d-rgb,9,19,29),0.9)" }} aria-label="Talk to ATLAS">
+            <span className="relative grid h-7 w-7 shrink-0 place-items-center rounded-full" style={{ background: "radial-gradient(circle at 40% 35%, var(--cc-ffd875,#FFD875), var(--cc-8a5f12,#8A5F12) 70%)", boxShadow: `0 0 0 2px ${talk.tone === "live" ? "rgba(var(--cc-29dfa6-rgb,41,223,166),0.6)" : "rgba(var(--cc-27d7f2-rgb,39,215,242),0.35)"}, 0 0 10px rgba(var(--cc-ffd875-rgb,255,216,117),0.4)` }}>
+              <span className="h-2 w-2 rounded-full" style={{ background: "var(--cc-fff3d0,#FFF3D0)" }} />
             </span>
             <span className="min-w-0">
               <span className="block text-[12.5px] font-semibold" style={{ color: H.text }}>Talk to ATLAS</span>
@@ -1237,13 +1245,13 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           </button>
           <button onClick={generate} aria-label="Generate a trade idea with ATLAS" data-generate-dock=""
             className="flex h-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-[10px] px-3"
-            style={{ color: "#1A1305", background: "linear-gradient(180deg, #FFD875, #D5A93D)", boxShadow: "0 0 14px rgba(213,169,61,0.35)" }}>
+            style={{ color: "var(--cc-1a1305,#1A1305)", background: "linear-gradient(180deg, var(--cc-ffd875,#FFD875), var(--cc-d5a93d,#D5A93D))", boxShadow: "0 0 14px rgba(var(--cc-d5a93d-rgb,213,169,61),0.35)" }}>
             <Sparkles className="h-4 w-4" /><span className="text-[8.5px] font-black tracking-[0.12em]">GENERATE</span>
           </button>
           <button onClick={tapCore} aria-label={onCall ? "End the voice line" : "Talk to ATLAS by voice"}
             className="relative grid h-12 w-12 shrink-0 place-items-center rounded-full"
-            style={{ background: "radial-gradient(circle at 40% 35%, #3A2C0C, #120D04)", border: `2px solid ${onCall ? "#FFD875" : "#D5A93D"}`, color: "#FFD875", boxShadow: onCall ? "0 0 0 5px rgba(255,216,117,0.12), 0 0 22px rgba(255,216,117,0.5)" : "0 0 14px rgba(213,169,61,0.35)" }}>
-            {onCall && <span className="hud-ping absolute inset-0 rounded-full" style={{ border: "1px solid #FFD875" }} />}
+            style={{ background: "radial-gradient(circle at 40% 35%, #3A2C0C, #120D04)", border: `2px solid ${onCall ? "var(--cc-ffd875,#FFD875)" : "var(--cc-d5a93d,#D5A93D)"}`, color: "var(--cc-ffd875,#FFD875)", boxShadow: onCall ? "0 0 0 5px rgba(var(--cc-ffd875-rgb,255,216,117),0.12), 0 0 22px rgba(var(--cc-ffd875-rgb,255,216,117),0.5)" : "0 0 14px rgba(var(--cc-d5a93d-rgb,213,169,61),0.35)" }}>
+            {onCall && <span className="hud-ping absolute inset-0 rounded-full" style={{ border: "1px solid var(--cc-ffd875,#FFD875)" }} />}
             {onCall ? <X className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
           </button>
         </div>
@@ -1294,7 +1302,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                 <div className="mb-3 flex flex-wrap gap-1.5" role="tablist">
                   {ANALYSIS_TABS.map((t) => (
                     <button key={t.id} role="tab" aria-selected={analysisTab === t.id} onClick={() => setAnalysisTab(t.id)} className="rounded-[6px] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
-                      style={{ color: analysisTab === t.id ? H.gold3 : H.mut, border: `1px solid ${analysisTab === t.id ? "rgba(231,196,103,0.6)" : H.line}`, background: analysisTab === t.id ? "rgba(213,169,61,0.12)" : "transparent" }}>{t.label}</button>
+                      style={{ color: analysisTab === t.id ? H.gold3 : H.mut, border: `1px solid ${analysisTab === t.id ? "rgba(var(--cc-e7c467-rgb,231,196,103),0.6)" : H.line}`, background: analysisTab === t.id ? "rgba(var(--cc-d5a93d-rgb,213,169,61),0.12)" : "transparent" }}>{t.label}</button>
                   ))}
                 </div>
                 {analysisTab === "journal" && (
@@ -1328,7 +1336,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                     <div className="mt-2 h-[3px] overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.07)" }}><div className="h-full" style={{ width: `${Math.round((w.progress ?? 0) * 100)}%`, background: H.gold2 }} /></div>
                   </div>
                 )) : <p className="text-[12px]" style={{ color: H.mut }}>No alerts armed. Ask ATLAS to watch a level — &ldquo;watch 4,360 for me&rdquo; — and it appears here.</p>}
-                <button onClick={() => { closeDrawer(); ask("What level should I have you watch right now, and why?"); }} className="mt-2 rounded-[6px] px-3 py-1.5 text-[10px] font-bold tracking-[0.12em]" style={{ color: H.gold2, border: "1px solid rgba(231,196,103,0.45)" }}>ASK WHAT TO WATCH ▸</button>
+                <button onClick={() => { closeDrawer(); ask("What level should I have you watch right now, and why?"); }} className="mt-2 rounded-[6px] px-3 py-1.5 text-[10px] font-bold tracking-[0.12em]" style={{ color: H.gold2, border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.45)" }}>ASK WHAT TO WATCH ▸</button>
               </div>
             )}
             {drawer === "journal" && (
@@ -1383,10 +1391,10 @@ function LeanJournal({ items, compact = false }: { items: Live["readHistory"]; c
         const col = toneCol(LEAN_TONE[h.lean] ?? "mut");
         const dt = new Date(h.at);
         return (
-          <li key={`${h.at}-${i}`} className="rounded-[7px] px-2.5 py-2" style={{ border: `1px solid ${i === 0 ? `${col}66` : H.lineSoft}`, background: i === 0 ? `${col}0D` : "transparent" }}>
+          <li key={`${h.at}-${i}`} className="rounded-[7px] px-2.5 py-2" style={{ border: `1px solid ${i === 0 ? `${alpha(col, "66")}` : H.lineSoft}`, background: i === 0 ? `${alpha(col, "0D")}` : "transparent" }}>
             <p className="flex flex-wrap items-center gap-2">
               <span className="text-[10.5px] tabular-nums" style={{ color: H.mut }}>{dt.toDateString() === today ? hhmm(h.at) : dt.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
-              <span className="rounded-[4px] px-1.5 py-[1px] text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color: col, border: `1px solid ${col}66` }}>{leanLabel(h.lean)}</span>
+              <span className="rounded-[4px] px-1.5 py-[1px] text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color: col, border: `1px solid ${alpha(col, "66")}` }}>{leanLabel(h.lean)}</span>
               {i === 0 && <span className="text-[9px]" style={{ color: H.mut2 }}>current</span>}
             </p>
             {h.reason && <p className="mt-1 text-[11.5px] leading-snug" style={{ color: H.text }}>{h.reason}</p>}
@@ -1428,7 +1436,7 @@ function ThesisExplainer({ d, onAsk, full = false }: { d: Live | null; onAsk: (q
           ))}
         </div>
       )}
-      <button onClick={() => onAsk("What would change your mind right now?")} className="rounded-[6px] px-3 py-1.5 text-[10px] font-bold tracking-[0.12em]" style={{ color: H.gold2, border: "1px solid rgba(231,196,103,0.45)" }}>WHAT WOULD CHANGE YOUR MIND? ▸</button>
+      <button onClick={() => onAsk("What would change your mind right now?")} className="rounded-[6px] px-3 py-1.5 text-[10px] font-bold tracking-[0.12em]" style={{ color: H.gold2, border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.45)" }}>WHAT WOULD CHANGE YOUR MIND? ▸</button>
     </div>
   );
 }
@@ -1455,7 +1463,7 @@ function ToolBtn({ icon, label, on, onClick, title }: { icon: ReactNode; label: 
   return (
     <button onClick={onClick} title={title ?? label} aria-label={label} aria-pressed={on}
       className="inline-flex shrink-0 items-center gap-1.5 rounded-[6px] px-2 py-1 text-[11px] transition"
-      style={{ color: on ? H.text : H.mut, border: `1px solid ${on ? H.line : "transparent"}`, background: on ? "rgba(89,175,255,0.06)" : "transparent" }}>
+      style={{ color: on ? H.text : H.mut, border: `1px solid ${on ? H.line : "transparent"}`, background: on ? "rgba(var(--cc-59afff-rgb,89,175,255),0.06)" : "transparent" }}>
       {icon}<span className="hidden min-[1600px]:inline">{label}</span>
     </button>
   );
@@ -1467,14 +1475,14 @@ function CtlBtn({ children, onClick, title, active = false, disabled = false, to
   return (
     <button onClick={onClick} title={title} disabled={disabled} aria-pressed={active} {...rest}
       className="inline-flex shrink-0 items-center gap-1 rounded-[6px] px-2 py-[3px] text-[10px] font-semibold transition hover:brightness-125 disabled:opacity-40"
-      style={{ color: active ? "#06090D" : c, border: `1px solid ${c}55`, background: active ? c : `${c}0D` }}>
+      style={{ color: active ? "#06090D" : c, border: `1px solid ${alpha(c, "55")}`, background: active ? c : `${alpha(c, "0D")}` }}>
       {children}
     </button>
   );
 }
 
 function Notice({ children, color }: { children: ReactNode; color: string }) {
-  return <span className="inline-block rounded-[6px] px-3 py-1.5 text-left text-[11.5px]" style={{ color, border: `1px solid ${color}55`, background: `${color}10` }}>{children}</span>;
+  return <span className="inline-block rounded-[6px] px-3 py-1.5 text-left text-[11.5px]" style={{ color, border: `1px solid ${alpha(color, "55")}`, background: `${alpha(color, "10")}` }}>{children}</span>;
 }
 
 function GoldBars() {

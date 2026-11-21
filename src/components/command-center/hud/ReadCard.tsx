@@ -1,7 +1,7 @@
 "use client";
 import { useState, type ReactNode } from "react";
 import { ChevronDown, Compass, Crosshair, Zap } from "lucide-react";
-import { H } from "./theme";
+import { H, alpha } from "./theme";
 import { HudPanel, InfoPop } from "./Hud";
 import { LEAN_LABEL, type AtlasRead, type Evidence, type EvidenceRef } from "../../../../command-center/core/atlasContract";
 import { ENTRY_WORD, LEAN_TONE, SETUP_STAGE_WORD, ageShort, balanceWords } from "./hudModel";
@@ -62,7 +62,7 @@ export function ReadCard({ read, analysisAt, analysisAgeMs, replay, onPoint, onE
             <p className="text-[18px] font-semibold leading-tight" style={{ color: leanCol }} data-lean={r.lean}>{LEAN_LABEL[r.lean]}</p>
             {r.strength && (
               <span className="rounded-[4px] px-1.5 py-[2px] text-[8.5px] font-bold tracking-[0.14em]"
-                style={{ color: leanCol, border: `1px solid ${leanCol}73`, background: `${leanCol}14` }}>{r.strength.toUpperCase()}</span>
+                style={{ color: leanCol, border: `1px solid ${alpha(leanCol, "73")}`, background: `${alpha(leanCol, "14")}` }}>{r.strength.toUpperCase()}</span>
             )}
             <span className="ml-auto text-[10px] tabular-nums" style={{ color: H.mut }} title={`This lean began at ${new Date(r.since).toLocaleString()}`}>since {hhmm(r.since)}</span>
           </div>
@@ -81,7 +81,7 @@ export function ReadCard({ read, analysisAt, analysisAgeMs, replay, onPoint, onE
           </div>
 
           {/* the trade status — boxed apart, because a lean is never an entry */}
-          <div className="mt-1.5 rounded-[7px] px-2 py-1" style={{ border: `1px dashed ${H.line}`, background: "rgba(3,7,11,0.45)" }} data-box="trade-status"
+          <div className="mt-1.5 rounded-[7px] px-2 py-1" style={{ border: `1px dashed ${H.line}`, background: "rgba(var(--cc-03070b-rgb,3,7,11),0.45)" }} data-box="trade-status"
             title="The setup stage and the entry come from the setup engine alone. No lean, however strong, confirms an entry.">
             <p className="text-[8px] font-bold uppercase tracking-[0.14em]" style={{ color: H.mut2 }}>Trade status — a lean is not an entry</p>
             <div className="mt-0.5 grid grid-cols-2 gap-1.5">
@@ -132,7 +132,7 @@ export function ReadCard({ read, analysisAt, analysisAgeMs, replay, onPoint, onE
             <div className="mt-1.5 flex items-center justify-between gap-2">
               <button onClick={onExplain}
                 className="inline-flex items-center gap-1.5 rounded-[5px] px-2 py-[3px] text-[9px] font-bold tracking-[0.12em]"
-                style={{ color: H.gold2, border: "1px solid rgba(231,196,103,0.45)" }}><Zap className="h-3 w-3" />EXPLAIN FURTHER</button>
+                style={{ color: H.gold2, border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.45)" }}><Zap className="h-3 w-3" />EXPLAIN FURTHER</button>
               <span className="truncate text-[9.5px] tabular-nums" style={{ color: H.mut }} title={`Engine ${r.version}${r.snapshotId != null ? ` · snapshot #${r.snapshotId}` : ""}`}>{fresh}</span>
             </div>
           </div>
@@ -144,7 +144,7 @@ export function ReadCard({ read, analysisAt, analysisAgeMs, replay, onPoint, onE
 
 function Fact({ k, v, col, title, bare = false }: { k: string; v: string; col: string; title?: string; bare?: boolean }) {
   return (
-    <div className={`min-w-0 rounded-[6px] ${bare ? "py-0.5" : "px-2 py-[3px]"}`} title={title} style={bare ? undefined : { border: `1px solid ${H.lineSoft}`, background: "rgba(3,7,11,0.35)" }}>
+    <div className={`min-w-0 rounded-[6px] ${bare ? "py-0.5" : "px-2 py-[3px]"}`} title={title} style={bare ? undefined : { border: `1px solid ${H.lineSoft}`, background: "rgba(var(--cc-03070b-rgb,3,7,11),0.35)" }}>
       <p className="truncate text-[8.5px] font-semibold uppercase tracking-[0.1em]" style={{ color: H.mut }}>{k}</p>
       <p className="truncate text-[11.5px] font-semibold leading-tight" style={{ color: col }}>{v}</p>
     </div>
@@ -188,7 +188,7 @@ export function Pointable({ text, target, onPoint }: { text: string; target: Poi
   if (!target) return <span style={{ color: "#C9D3DB" }}>{text}</span>;
   return (
     <button type="button" onClick={() => onPoint(target)} title="Show this on the chart"
-      className="text-left underline decoration-dotted underline-offset-2 transition hover:brightness-125" style={{ color: "#DCE6EE", textDecorationColor: "rgba(39,215,242,0.5)" }}>
+      className="text-left underline decoration-dotted underline-offset-2 transition hover:brightness-125" style={{ color: "var(--cc-dce6ee,#DCE6EE)", textDecorationColor: "rgba(var(--cc-27d7f2-rgb,39,215,242),0.5)" }}>
       {text}<Crosshair className="ml-1 inline h-3 w-3 align-[-2px]" style={{ color: H.cyan2 }} aria-hidden />
     </button>
   );

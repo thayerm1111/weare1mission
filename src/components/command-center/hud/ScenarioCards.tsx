@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Crosshair, EyeOff, MoveHorizontal, TrendingDown, TrendingUp } from "lucide-react";
-import { H, fmt2 } from "./theme";
+import { H, fmt2, alpha } from "./theme";
 import { HudPanel, InfoPop } from "./Hud";
 import type { Scenario, ScenarioRole, ScenarioStatus } from "../../../../command-center/core/atlasContract";
 import { ROLE_LABEL, ROLE_ORDER, STATUS_LABEL, ageShort, scenarioSlots } from "./hudModel";
@@ -66,7 +66,7 @@ export function ScenarioCards({ scenarios, selectedId, onShow, onPoint, now, rep
           {finished.length > 0 && (
             <button type="button" onClick={() => setOpenFinished((x) => !x)} aria-expanded={openFinished}
               className="inline-flex items-center gap-1 rounded-[5px] px-1.5 py-[2px] text-[8.5px] font-bold uppercase tracking-[0.1em]"
-              style={{ color: openFinished ? H.gold2 : H.mut, border: `1px solid ${openFinished ? "rgba(231,196,103,0.5)" : H.line}` }}>
+              style={{ color: openFinished ? H.gold2 : H.mut, border: `1px solid ${openFinished ? "rgba(var(--cc-e7c467-rgb,231,196,103),0.5)" : H.line}` }}>
               Finished · {finished.length}<ChevronDown className="h-3 w-3" style={{ transform: openFinished ? "rotate(180deg)" : "none" }} />
             </button>
           )}
@@ -99,7 +99,7 @@ export function ScenarioCards({ scenarios, selectedId, onShow, onPoint, now, rep
                 const last = s.history[s.history.length - 1];
                 return (
                   <div key={s.id} ref={(el) => { cards.current[s.id] = el; }} className="flex items-start gap-2 rounded-[6px] px-2 py-1.5"
-                    style={{ border: `1px solid ${selectedId === s.id ? H.cyan2 : H.lineSoft}`, background: "rgba(3,7,11,0.4)" }}>
+                    style={{ border: `1px solid ${selectedId === s.id ? H.cyan2 : H.lineSoft}`, background: "rgba(var(--cc-03070b-rgb,3,7,11),0.4)" }}>
                     <StatusChip st={s.status} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[11px] font-semibold" style={{ color: H.text }} title={s.title}>{s.title}</p>
@@ -125,7 +125,7 @@ function StatusChip({ st }: { st: ScenarioStatus }) {
   const c = STATUS_COL[st];
   return (
     <span className="inline-flex shrink-0 items-center gap-1 rounded-[4px] px-1.5 py-[1px] text-[8.5px] font-bold uppercase tracking-[0.1em]"
-      style={{ color: c, border: `1px solid ${c}66`, background: `${c}14` }} data-status={st}>
+      style={{ color: c, border: `1px solid ${alpha(c, "66")}`, background: `${alpha(c, "14")}` }} data-status={st}>
       {st === "developing" && <span className="h-[5px] w-[5px] rounded-full" style={{ background: c, boxShadow: `0 0 5px ${c}` }} />}
       {STATUS_LABEL[st]}
     </span>
@@ -142,9 +142,9 @@ function Card({ s, role, selected, onShow, onPoint, now, replay, refCb }: {
     <div ref={refCb} data-scenario={s.role}
       className="flex min-w-0 flex-col rounded-[8px] px-2.5 pb-1.5 pt-1.5 transition"
       style={{
-        border: `1px solid ${selected ? H.cyan2 : role === "base" ? "rgba(231,196,103,0.35)" : H.line}`,
-        background: selected ? "rgba(0,199,232,0.07)" : role === "base" ? "rgba(213,169,61,0.05)" : "rgba(3,7,11,0.35)",
-        boxShadow: selected ? "0 0 14px rgba(0,199,232,0.18)" : "none",
+        border: `1px solid ${selected ? H.cyan2 : role === "base" ? "rgba(var(--cc-e7c467-rgb,231,196,103),0.35)" : H.line}`,
+        background: selected ? "rgba(var(--cc-00c7e8-rgb,0,199,232),0.07)" : role === "base" ? "rgba(var(--cc-d5a93d-rgb,213,169,61),0.05)" : "rgba(var(--cc-03070b-rgb,3,7,11),0.35)",
+        boxShadow: selected ? "0 0 14px rgba(var(--cc-00c7e8-rgb,0,199,232),0.18)" : "none",
       }}>
       <div className="flex items-center gap-1.5">
         <span className="min-w-0 truncate text-[8.5px] font-bold uppercase tracking-[0.12em]" style={{ color: ROLE_COL[role] }} title={ROLE_LABEL[role]}>
@@ -165,7 +165,7 @@ function Card({ s, role, selected, onShow, onPoint, now, replay, refCb }: {
       <div className="mt-auto flex items-center gap-2 pt-0.5">
         <button type="button" onClick={() => onShow(selected ? null : s.id)}
           className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-[5px] px-1.5 py-[2px] text-[9px] font-bold uppercase tracking-[0.08em] transition hover:brightness-125"
-          style={{ color: selected ? H.gold3 : H.cyan2, border: `1px solid ${selected ? "rgba(231,196,103,0.5)" : "rgba(39,215,242,0.4)"}` }}>
+          style={{ color: selected ? H.gold3 : H.cyan2, border: `1px solid ${selected ? "rgba(var(--cc-e7c467-rgb,231,196,103),0.5)" : "rgba(var(--cc-27d7f2-rgb,39,215,242),0.4)"}` }}>
           {selected ? <><EyeOff className="h-3 w-3" />Hide</> : <><Crosshair className="h-3 w-3" />Show on chart</>}
         </button>
         <span className="ml-auto min-w-0 truncate text-[9px] tabular-nums" style={{ color: H.mut2 }} title={last?.reason ?? undefined}>

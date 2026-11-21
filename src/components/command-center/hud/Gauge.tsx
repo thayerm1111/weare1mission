@@ -22,7 +22,7 @@ export function Gauge({ title, display, sub, value01, color, empty = false, delt
   const segs = 10, lit = Math.round(v * segs);
   return (
     <div className="flex h-full min-w-0 flex-col items-center justify-between rounded-[8px] px-2 pb-1.5 pt-2"
-      style={{ background: "linear-gradient(180deg,#0A1520,#07101A)", border: `1px solid ${H.line}` }}>
+      style={{ background: "linear-gradient(180deg,#0A1520,var(--cc-07101a,#07101A))", border: `1px solid ${H.line}` }}>
       {/* Two lines rather than an ellipsis: "SELLER PRESSUR…" tells a trader nothing. */}
       <div className="flex w-full items-start justify-center gap-1" style={{ minHeight: 20 }}>
         <p className="min-w-0 text-center text-[8.5px] font-bold uppercase leading-[1.15] tracking-[0.1em]" style={{ color: H.text }}>{title}</p>

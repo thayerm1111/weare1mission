@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrainOrb } from "./BrainOrb";
-import { H } from "./theme";
+// The entrance keeps Atlas's own colours whatever the theme (owner 11-20 brief: keep the actual original entrance).
+import { H_CLASSIC as H } from "./theme";
 import { HoloBriefing, briefingScript, type BriefData } from "./HoloBriefing";
 import { MarketStorm, DataRain, HudRings, FX_CSS, sfxVaultOpen, sfxLatch, sfxEngage, sfxSlide, sfxHum } from "./EntryFx";
 import { priceWords, moveWords, balanceWords, speakNumbers } from "@/lib/spokenNumbers";

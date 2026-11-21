@@ -53,7 +53,7 @@ export function LiquidityPanel({ d, blips, alive, liquidity, onToggleLiquidity, 
       <div className="w-full min-w-0 flex-1 text-[11px]">
         <p className="mb-1.5 text-[10px] leading-snug" style={{ color: H.mut }}>Inferred from structure — not an order book.</p>
         {hover ? (
-          <div className="mb-2 rounded-[6px] p-2 text-[10.5px] leading-snug" style={{ border: `1px solid rgba(${blipRgb(hover, d?.price ?? null)},0.55)`, background: "rgba(3,7,11,0.7)" }}>
+          <div className="mb-2 rounded-[6px] p-2 text-[10.5px] leading-snug" style={{ border: `1px solid rgba(${blipRgb(hover, d?.price ?? null)},0.55)`, background: "rgba(var(--cc-03070b-rgb,3,7,11),0.7)" }}>
             <p className="flex items-baseline justify-between gap-1">
               <b className="text-[12px] tabular-nums" style={{ color: H.text }}>{fmt2(hover.price)}</b>
               <span style={{ color: H.mut }}>{hover.side === "above" ? "above" : "below"}{hover.distance != null ? ` · ${hover.distance.toFixed(2)}` : ""}</span>
@@ -62,7 +62,7 @@ export function LiquidityPanel({ d, blips, alive, liquidity, onToggleLiquidity, 
             <p className="mt-0.5" style={{ color: H.mut }}>{hover.meaning ?? hover.label}</p>
           </div>
         ) : read ? (
-          <div className="mb-2 rounded-[6px] px-2 py-1.5 text-[10.5px] leading-snug" style={{ background: "rgba(255,216,117,0.06)", border: `1px solid ${H.lineSoft}` }}>
+          <div className="mb-2 rounded-[6px] px-2 py-1.5 text-[10.5px] leading-snug" style={{ background: "rgba(var(--cc-ffd875-rgb,255,216,117),0.06)", border: `1px solid ${H.lineSoft}` }}>
             <p className="mb-0.5 text-[8.5px] font-bold tracking-[0.16em]" style={{ color: H.gold2 }}>WHAT IT&apos;S SAYING</p>
             <p style={{ color: H.text }}>{read}</p>
           </div>
@@ -89,9 +89,9 @@ export function LiquidityPanel({ d, blips, alive, liquidity, onToggleLiquidity, 
           <ul className="mb-1.5 grid gap-[3px] text-[10px] leading-snug" style={{ color: H.mut }}>
             <li><b style={{ color: H.gold2 }}>Gold centre</b> = gold&apos;s price right now.</li>
             <li><b style={{ color: H.text }}>Up = above price, down = below.</b> The farther from the centre, the farther away. Each ring is the dollar distance printed on it. Left/right means nothing — dots are spread out so they don&apos;t overlap.</li>
-            <li><b style={{ color: "rgb(41,223,166)" }}>Green</b> = candidate liquidity above: stops from sellers tend to sit over old highs.</li>
-            <li><b style={{ color: "rgb(255,83,100)" }}>Red</b> = candidate liquidity below: stops from buyers tend to sit under old lows.</li>
-            <li><b style={{ color: "rgb(89,175,255)" }}>Blue</b> = the busiest price lately — where gold has traded most. It tends to pull price back.</li>
+            <li><b style={{ color: "rgb(var(--cc-29dfa6-rgb,41,223,166))" }}>Green</b> = candidate liquidity above: stops from sellers tend to sit over old highs.</li>
+            <li><b style={{ color: "rgb(var(--cc-ff5364-rgb,255,83,100))" }}>Red</b> = candidate liquidity below: stops from buyers tend to sit under old lows.</li>
+            <li><b style={{ color: "rgb(var(--cc-59afff-rgb,89,175,255))" }}>Blue</b> = the busiest price lately — where gold has traded most. It tends to pull price back.</li>
             <li><b style={{ color: H.text }}>◆ Diamond</b> = equal highs/lows: price stopped at the same spot more than once, so stops are likely stacked there.</li>
             <li><b style={{ color: H.text }}>Hollow</b> = already swept. Bright dots are the nearest three each side; faint dots are farther back.</li>
           </ul>

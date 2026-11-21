@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { H } from "./theme";
+import { H, cssColor } from "./theme";
 
 export type RadarBlip = {
   price: number;
@@ -153,7 +153,7 @@ export function LiquidityRadar({ price, blips, size = 150, alive, onHover, onPic
       }
       placed.current = out;
 
-      g.beginPath(); g.fillStyle = H.gold3; g.shadowColor = H.gold3; g.shadowBlur = 8; g.arc(cx, cy, 3.5, 0, Math.PI * 2); g.fill(); g.shadowBlur = 0;
+      const dot = cssColor(c, H.gold3); g.beginPath(); g.fillStyle = dot; g.shadowColor = dot; g.shadowBlur = 8; g.arc(cx, cy, 3.5, 0, Math.PI * 2); g.fill(); g.shadowBlur = 0;
       raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);

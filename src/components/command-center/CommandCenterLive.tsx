@@ -25,9 +25,9 @@ import type { AnalysisMeta, AtlasRead, FeedState, Lean, Scenario } from "../../.
  */
 
 const C = {
-  bg: "#06090E", panel: "#0A0E15", raised: "#0E131C", line: "rgba(255,255,255,0.07)",
-  text: "#E8EFF7", mut: "rgba(232,239,247,0.56)", mut2: "rgba(232,239,247,0.34)",
-  gold: "#F0C475", up: "#3FD9A0", down: "#F4737B", cold: "#6FA8DC", amber: "#E9B949",
+  bg: "var(--cc-06090e,#06090E)", panel: "var(--cc-0a0e15,#0A0E15)", raised: "var(--cc-0e131c,#0E131C)", line: "rgba(255,255,255,0.07)",
+  text: "var(--cc-e8eff7,#E8EFF7)", mut: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.56)", mut2: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.34)",
+  gold: "var(--cc-f0c475,#F0C475)", up: "var(--cc-3fd9a0,#3FD9A0)", down: "var(--cc-f4737b,#F4737B)", cold: "var(--cc-6fa8dc,#6FA8DC)", amber: "var(--cc-e9b949,#E9B949)",
 };
 
 type Tf = { state: string; efficiency: number | null; rsi: number | null; sequence: string | null; positionInRange: number | null };
@@ -356,7 +356,7 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
           */}
           <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em]"
             style={{
-              background: d?.live ? "rgba(63,217,160,0.12)" : "rgba(233,185,73,0.12)",
+              background: d?.live ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.12)" : "rgba(var(--cc-e9b949-rgb,233,185,73),0.12)",
               color: d?.live ? C.up : C.amber,
             }}>
             <Radio className="h-3 w-3" />
@@ -366,9 +366,9 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
           {!d?.replay && (
             <span className="hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] sm:inline-flex"
               style={{
-                background: trade?.active ? "rgba(63,217,160,0.10)" : "rgba(255,255,255,0.04)",
+                background: trade?.active ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.10)" : "rgba(255,255,255,0.04)",
                 color: trade?.active ? C.up : C.mut2,
-                border: `1px solid ${trade?.active ? "rgba(63,217,160,0.26)" : C.line}`,
+                border: `1px solid ${trade?.active ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.26)" : C.line}`,
               }}>
               POSITIONS · {trade?.active ? "MANAGING" : "NONE OPEN"}
             </span>
@@ -377,9 +377,9 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
           {!d?.replay && (
             <span className="hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] sm:inline-flex"
               style={{
-                background: d?.profile?.autoEntry ? "rgba(233,185,73,0.12)" : "rgba(255,255,255,0.04)",
+                background: d?.profile?.autoEntry ? "rgba(var(--cc-e9b949-rgb,233,185,73),0.12)" : "rgba(255,255,255,0.04)",
                 color: d?.profile?.autoEntry ? C.amber : C.mut2,
-                border: `1px solid ${d?.profile?.autoEntry ? "rgba(233,185,73,0.28)" : C.line}`,
+                border: `1px solid ${d?.profile?.autoEntry ? "rgba(var(--cc-e9b949-rgb,233,185,73),0.28)" : C.line}`,
               }}>
               AUTOMATION · {d?.profile?.autoEntry ? "AUTHORISED" : d?.profile?.autoManagement ? "MANAGEMENT ONLY" : "APPROVAL REQUIRED"}
             </span>
@@ -391,7 +391,7 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
               <button
                 onClick={() => setCallOpen(true)}
                 className="rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] transition"
-                style={{ background: "rgba(240,196,117,0.12)", color: C.gold, border: "1px solid rgba(240,196,117,0.32)" }}
+                style={{ background: "rgba(var(--cc-f0c475-rgb,240,196,117),0.12)", color: C.gold, border: "1px solid rgba(var(--cc-f0c475-rgb,240,196,117),0.32)" }}
               >
                 Manual
               </button>
@@ -402,14 +402,14 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
 
       {d?.replay && (
         <div className="mb-3 rounded-xl border px-3.5 py-2.5 text-[12px] font-semibold"
-          style={{ borderColor: "rgba(240,196,117,0.32)", background: "rgba(240,196,117,0.08)", color: C.gold }}>
+          style={{ borderColor: "rgba(var(--cc-f0c475-rgb,240,196,117),0.32)", background: "rgba(var(--cc-f0c475-rgb,240,196,117),0.08)", color: C.gold }}>
           REPLAY — recorded XAUUSD stepped through the live engine. This is not the market.
         </div>
       )}
 
       {!d?.replay && (d?.reason || (d?.blockers?.length ?? 0) > 0) && (
         <div className="mb-3 rounded-xl border px-3.5 py-2.5 text-[12px]"
-          style={{ borderColor: "rgba(233,185,73,0.24)", background: "rgba(233,185,73,0.06)", color: C.mut }}>
+          style={{ borderColor: "rgba(var(--cc-e9b949-rgb,233,185,73),0.24)", background: "rgba(var(--cc-e9b949-rgb,233,185,73),0.06)", color: C.mut }}>
           {d?.blockers?.[0]?.detail ?? d?.reason}
         </div>
       )}
@@ -596,7 +596,7 @@ export function CommandCenterLive({ endpoint = "/api/command-center/live" }: { e
           {consent && !consent.signed && (
             <button onClick={() => setConsentOpen(true)}
               className="w-full rounded-2xl border px-4 py-3 text-left"
-              style={{ borderColor: "rgba(244,115,123,0.30)", background: "rgba(244,115,123,0.06)" }}>
+              style={{ borderColor: "rgba(var(--cc-f4737b-rgb,244,115,123),0.30)", background: "rgba(var(--cc-f4737b-rgb,244,115,123),0.06)" }}>
               <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: C.down }}>
                 {consent.stale ? "Risk disclosure updated" : "Risk disclosure not signed"}
               </p>

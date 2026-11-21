@@ -19,6 +19,7 @@ import {
   isVolunteeredTurn, observeCommentary, retuneCommentary, takeNextCommentary, volunteeredTurn,
   type CommentaryInput, type CommentaryMode, type CommentarySettings,
 } from "../../../command-center/core/commentary";
+import { alpha } from "./hud/theme";
 
 export type { VoiceStatus } from "./voiceLine";
 
@@ -56,9 +57,9 @@ export type { VoiceStatus } from "./voiceLine";
  */
 
 const C = {
-  panel: "#0A0E15", raised: "#0E131C", line: "rgba(255,255,255,0.07)",
-  text: "#E8EFF7", mut: "rgba(232,239,247,0.56)", mut2: "rgba(232,239,247,0.34)",
-  gold: "#F0C475", up: "#3FD9A0", down: "#F4737B", cold: "#6FA8DC", amber: "#E9B949",
+  panel: "var(--cc-0a0e15,#0A0E15)", raised: "var(--cc-0e131c,#0E131C)", line: "rgba(255,255,255,0.07)",
+  text: "var(--cc-e8eff7,#E8EFF7)", mut: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.56)", mut2: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.34)",
+  gold: "var(--cc-f0c475,#F0C475)", up: "var(--cc-3fd9a0,#3FD9A0)", down: "var(--cc-f4737b,#F4737B)", cold: "var(--cc-6fa8dc,#6FA8DC)", amber: "var(--cc-e9b949,#E9B949)",
 };
 
 /** How long to wait for a microphone before saying so. It can hang forever — see `start`. */
@@ -1603,12 +1604,12 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
   const sendingMic = !micMuted && (inputMode === "hands_free" || pttOpen);
 
   const btn = (on: boolean, color = C.gold) => ({
-    background: on ? `${color}24` : "rgba(255,255,255,0.04)",
-    color: on ? color : C.mut, border: `1px solid ${on ? `${color}55` : C.line}`,
+    background: on ? `${alpha(color, "24")}` : "rgba(255,255,255,0.04)",
+    color: on ? color : C.mut, border: `1px solid ${on ? `${alpha(color, "55")}` : C.line}`,
   });
 
   return (
-    <section className="overflow-hidden rounded-2xl border" style={{ borderColor: onLine ? "rgba(240,196,117,0.26)" : C.line, background: C.panel }}>
+    <section className="overflow-hidden rounded-2xl border" style={{ borderColor: onLine ? "rgba(var(--cc-f0c475-rgb,240,196,117),0.26)" : C.line, background: C.panel }}>
       <div className="flex items-center justify-between gap-2 border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
         <p className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: tone }}>
           <Radio className="h-3.5 w-3.5" /> Voice session · {label}
@@ -1633,7 +1634,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
           * way, which is said plainly so running out does not read as being locked out.
           */}
         {info?.budget?.exhausted && (
-          <div className="mb-3 rounded-lg border px-3 py-2.5" style={{ borderColor: "rgba(233,185,73,0.3)", background: "rgba(233,185,73,0.06)" }}>
+          <div className="mb-3 rounded-lg border px-3 py-2.5" style={{ borderColor: "rgba(var(--cc-e9b949-rgb,233,185,73),0.3)", background: "rgba(var(--cc-e9b949-rgb,233,185,73),0.06)" }}>
             <p className="text-[12px] leading-relaxed" style={{ color: C.amber }}>
               You have used all {Math.round(info.budget.budgetMinutes)} minutes for this billing period.
               The written console still works, and your minutes reset when the period renews.
@@ -1646,7 +1647,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
                   onClick={() => { void startCheckout(t.id); }}
                   disabled={buying}
                   className="rounded-md px-2.5 py-1.5 text-[11.5px] font-semibold transition disabled:opacity-60"
-                  style={{ background: "rgba(240,196,117,0.14)", color: C.gold, border: "1px solid rgba(240,196,117,0.28)" }}
+                  style={{ background: "rgba(var(--cc-f0c475-rgb,240,196,117),0.14)", color: C.gold, border: "1px solid rgba(var(--cc-f0c475-rgb,240,196,117),0.28)" }}
                 >
                   +{t.label} · ${t.priceUsd}
                 </button>
@@ -1668,7 +1669,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
             <InputModePicker inputMode={inputMode} pttStyle={pttStyle} onMode={setInputMode} onStyle={setPttStyle} />
             <button onClick={() => void start()} disabled={conn === "connecting" || info?.configured === false}
               className="mt-2.5 w-full rounded-xl px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.14em] disabled:opacity-40"
-              style={{ background: "rgba(240,196,117,0.14)", color: C.gold, border: "1px solid rgba(240,196,117,0.32)" }}>
+              style={{ background: "rgba(var(--cc-f0c475-rgb,240,196,117),0.14)", color: C.gold, border: "1px solid rgba(var(--cc-f0c475-rgb,240,196,117),0.32)" }}>
               {conn === "connecting" ? "Connecting…" : "Talk with ATLAS"}
             </button>
           </>
@@ -1789,7 +1790,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
               </button>
               <button type="button" onClick={endSession}
                 className="inline-flex items-center justify-center gap-1 rounded-xl px-2 py-2.5 text-[10.5px] font-bold uppercase tracking-[0.1em]"
-                style={{ background: "rgba(244,115,123,0.10)", color: C.down, border: "1px solid rgba(244,115,123,0.28)" }}>
+                style={{ background: "rgba(var(--cc-f4737b-rgb,244,115,123),0.10)", color: C.down, border: "1px solid rgba(var(--cc-f4737b-rgb,244,115,123),0.28)" }}>
                 <PhoneOff className="h-3.5 w-3.5" /> End
               </button>
             </div>
@@ -1811,7 +1812,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
                 <button
                   onClick={() => { void audioCtx.current?.resume().then(() => setAudioPaused(false)).catch(() => {}); }}
                   className="mt-2 w-full rounded-xl px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em]"
-                  style={{ background: "rgba(240,196,117,0.14)", color: C.gold, border: "1px solid rgba(240,196,117,0.4)" }}>
+                  style={{ background: "rgba(var(--cc-f0c475-rgb,240,196,117),0.14)", color: C.gold, border: "1px solid rgba(var(--cc-f0c475-rgb,240,196,117),0.4)" }}>
                   The browser paused audio — tap to resume
                 </button>
               )}
@@ -1873,8 +1874,8 @@ function InputModePicker({ inputMode, pttStyle, onMode, onStyle }: {
   inputMode: InputMode; pttStyle: PttStyle; onMode: (m: InputMode) => void; onStyle: (s: PttStyle) => void;
 }) {
   const chip = (on: boolean) => ({
-    background: on ? "rgba(240,196,117,0.14)" : "rgba(255,255,255,0.03)",
-    color: on ? C.gold : C.mut2, border: `1px solid ${on ? "rgba(240,196,117,0.32)" : C.line}`,
+    background: on ? "rgba(var(--cc-f0c475-rgb,240,196,117),0.14)" : "rgba(255,255,255,0.03)",
+    color: on ? C.gold : C.mut2, border: `1px solid ${on ? "rgba(var(--cc-f0c475-rgb,240,196,117),0.32)" : C.line}`,
   });
   return (
     <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
@@ -1910,9 +1911,9 @@ function CommentaryPanel({ settings, notes, onLine, onChange }: {
           <button key={m.id} type="button" title={m.hint} onClick={() => onChange({ mode: m.id })}
             className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em]"
             style={{
-              background: settings.mode === m.id ? "rgba(240,196,117,0.14)" : "rgba(255,255,255,0.03)",
+              background: settings.mode === m.id ? "rgba(var(--cc-f0c475-rgb,240,196,117),0.14)" : "rgba(255,255,255,0.03)",
               color: settings.mode === m.id ? C.gold : C.mut2,
-              border: `1px solid ${settings.mode === m.id ? "rgba(240,196,117,0.32)" : C.line}`,
+              border: `1px solid ${settings.mode === m.id ? "rgba(var(--cc-f0c475-rgb,240,196,117),0.32)" : C.line}`,
             }}>
             {m.label}
           </button>

@@ -49,9 +49,9 @@ export type PriceMapProps = {
 };
 
 const C = {
-  bg: "#080B11", grid: "rgba(255,255,255,0.045)", text: "#E8EFF7",
-  mut: "rgba(232,239,247,0.52)", mut2: "rgba(232,239,247,0.32)",
-  up: "#3FD9A0", down: "#F4737B", gold: "#F0C475", cold: "#6FA8DC", red: "#F4737B", amber: "#E9B949",
+  bg: "#080B11", grid: "rgba(255,255,255,0.045)", text: "var(--cc-e8eff7,#E8EFF7)",
+  mut: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.52)", mut2: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.32)",
+  up: "var(--cc-3fd9a0,#3FD9A0)", down: "var(--cc-f4737b,#F4737B)", gold: "var(--cc-f0c475,#F0C475)", cold: "var(--cc-6fa8dc,#6FA8DC)", red: "var(--cc-f4737b,#F4737B)", amber: "var(--cc-e9b949,#E9B949)",
 };
 
 export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, live, trade = null, className = "" }: PriceMapProps) {
@@ -137,8 +137,8 @@ export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, 
         const yb = y(above.price);
         const top = Math.max(padT, yb - cap);
         const gy = ctx.createLinearGradient(0, top, 0, yb);
-        gy.addColorStop(0, "rgba(63,217,160,0)");
-        gy.addColorStop(1, "rgba(63,217,160,0.10)");
+        gy.addColorStop(0, "rgba(var(--cc-3fd9a0-rgb,63,217,160),0)");
+        gy.addColorStop(1, "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.10)");
         ctx.fillStyle = gy;
         ctx.fillRect(padL, top, plotW, Math.max(0, yb - top));
       }
@@ -146,8 +146,8 @@ export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, 
         const yb = y(below.price);
         const bot = Math.min(padT + plotH, yb + cap);
         const gy = ctx.createLinearGradient(0, yb, 0, bot);
-        gy.addColorStop(0, "rgba(244,115,123,0.10)");
-        gy.addColorStop(1, "rgba(244,115,123,0)");
+        gy.addColorStop(0, "rgba(var(--cc-f4737b-rgb,244,115,123),0.10)");
+        gy.addColorStop(1, "rgba(var(--cc-f4737b-rgb,244,115,123),0)");
         ctx.fillStyle = gy;
         ctx.fillRect(padL, yb, plotW, Math.max(0, bot - yb));
       }
@@ -179,7 +179,7 @@ export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, 
       if (l.price < lo || l.price > hi) continue;
       const yy = Math.round(y(l.price)) + 0.5;
       const focused = focusPrice != null && Math.abs(focusPrice - l.price) < 0.02;
-      ctx.strokeStyle = focused ? C.gold : "rgba(232,239,247,0.18)";
+      ctx.strokeStyle = focused ? C.gold : "rgba(var(--cc-e8eff7-rgb,232,239,247),0.18)";
       ctx.lineWidth = focused ? 1.6 : 1;
       ctx.setLineDash(focused ? [] : [4, 5]);
       ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(padL + plotW, yy); ctx.stroke();
@@ -209,11 +209,11 @@ export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, 
       // Only a REAL position shades the ground between entry and price. A proposal has no P&L to show.
       if (price != null && !trade.proposed) {
         const winning = trade.side === "buy" ? price >= trade.entry : price <= trade.entry;
-        band(trade.entry, price, winning ? "rgba(63,217,160,0.07)" : "rgba(244,115,123,0.07)");
+        band(trade.entry, price, winning ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.07)" : "rgba(var(--cc-f4737b-rgb,244,115,123),0.07)");
       }
       if (trade.proposed && trade.stop != null) {
         // Shade the risk instead: the distance the member would actually be putting up.
-        band(trade.entry, trade.stop, "rgba(244,115,123,0.05)");
+        band(trade.entry, trade.stop, "rgba(var(--cc-f4737b-rgb,244,115,123),0.05)");
       }
       const mark = (v: number | null, colour: string, label: string, dash: number[]) => {
         if (v == null || v < lo || v > hi) return;
@@ -302,7 +302,7 @@ export function PriceMap({ bars, levels, price, focusPrice, invalidation, lean, 
       ctx.setLineDash([]);
       ctx.fillStyle = lean >= 0 ? C.up : C.down;
       ctx.fillRect(padL + plotW + 2, yy - 9, padR - 6, 18);
-      ctx.fillStyle = "#06090E";
+      ctx.fillStyle = "var(--cc-06090e,#06090E)";
       ctx.font = "600 11px ui-monospace, SFMono-Regular, Menlo, monospace";
       ctx.textAlign = "left";
       ctx.fillText(price.toFixed(2), padL + plotW + 8, yy);

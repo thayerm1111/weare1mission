@@ -1,7 +1,7 @@
 "use client";
 
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { H } from "./theme";
+import { H, alpha } from "./theme";
 import type { Annotation, ExplainState, ShownAnnotation } from "../../../../command-center/core/explain";
 import { movedSince } from "../../../../command-center/core/explain";
 import type { ChartTf } from "../../../../command-center/core/atlasContract";
@@ -149,10 +149,10 @@ export function AnnotationLayer(p: LayerProps) {
               <line className="atlas-line" x1={0} x2={plotW} y1={yy} y2={yy} stroke={col} strokeWidth={active ? 1.8 : 1} strokeDasharray={active ? undefined : "5 4"}
                 strokeOpacity={active ? 1 : 0.55} filter={active ? "url(#hudGlow)" : undefined} pointerEvents="none" />
               <rect x={plotW + 2} y={yy - 8} width={axis - 4} height={16} rx={2} fill={col} fillOpacity={active ? 1 : 0.7} pointerEvents="none" />
-              <text x={plotW + axis / 2} y={yy + 4} textAnchor="middle" fontSize={compact ? 9 : 10} fontWeight={700} fill="#04080C" pointerEvents="none">{a.price.toFixed(2)}</text>
+              <text x={plotW + axis / 2} y={yy + 4} textAnchor="middle" fontSize={compact ? 9 : 10} fontWeight={700} fill="var(--cc-04080c,#04080C)" pointerEvents="none">{a.price.toFixed(2)}</text>
               <g {...tap(a.id, plotW - 8, ly)}>
                 <text x={plotW - 6} y={ly} textAnchor="end" fontSize={fs} fontWeight={active ? 700 : 500} fill={col} fillOpacity={active ? 1 : 0.8}
-                  stroke="rgba(3,7,11,0.9)" strokeWidth={3} paintOrder="stroke" textDecoration={sel ? "underline" : undefined}>{text}</text>
+                  stroke="rgba(var(--cc-03070b-rgb,3,7,11),0.9)" strokeWidth={3} paintOrder="stroke" textDecoration={sel ? "underline" : undefined}>{text}</text>
               </g>
             </g>
           );
@@ -169,7 +169,7 @@ export function AnnotationLayer(p: LayerProps) {
               <line x1={0} x2={plotW} y1={y2} y2={y2} stroke={H.cyan2} strokeOpacity={active ? 0.8 : 0.35} pointerEvents="none" />
               <g {...tap(a.id, 12, Math.max(top + 12, y1 + 12))}>
                 <text x={8} y={row(Math.max(top + 12, y1 + 12))} fontSize={fs} fontWeight={600} fill={H.cyan2} fillOpacity={active ? 1 : 0.75}
-                  stroke="rgba(3,7,11,0.9)" strokeWidth={3} paintOrder="stroke">◆ Zone {short(a.label, compact ? 20 : 34)}</text>
+                  stroke="rgba(var(--cc-03070b-rgb,3,7,11),0.9)" strokeWidth={3} paintOrder="stroke">◆ Zone {short(a.label, compact ? 20 : 34)}</text>
               </g>
             </g>
           );
@@ -191,7 +191,7 @@ export function AnnotationLayer(p: LayerProps) {
               <path d={`M${cx - 5},${py - 7} L${cx + 5},${py - 7} L${cx},${py} Z`} fill={H.gold3} fillOpacity={active ? 1 : 0.55} pointerEvents="none" />
               <g {...tap(a.id, cx, py - 12)}>
                 <text x={Math.max(40, Math.min(plotW - 40, cx))} y={Math.max(top + 9, py - 11)} textAnchor="middle" fontSize={fs} fontWeight={600} fill={H.gold3} fillOpacity={active ? 1 : 0.75}
-                  stroke="rgba(3,7,11,0.9)" strokeWidth={3} paintOrder="stroke">{short(a.label, compact ? 22 : 38)}</text>
+                  stroke="rgba(var(--cc-03070b-rgb,3,7,11),0.9)" strokeWidth={3} paintOrder="stroke">{short(a.label, compact ? 22 : 38)}</text>
               </g>
             </g>
           );
@@ -210,7 +210,7 @@ export function AnnotationLayer(p: LayerProps) {
                 filter={active ? "url(#hudGlow)" : undefined} pointerEvents="none" />
               <g {...tap(a.id, cx, cy + (up ? -12 : 16))}>
                 <text x={Math.max(48, Math.min(plotW - 48, cx))} y={Math.max(top + 9, Math.min(priceH - 3, cy + (up ? -10 : 17)))} textAnchor="middle" fontSize={fs} fontWeight={600}
-                  fill={H.gold3} fillOpacity={active ? 1 : 0.75} stroke="rgba(3,7,11,0.9)" strokeWidth={3} paintOrder="stroke">{short(a.label, compact ? 22 : 36)}</text>
+                  fill={H.gold3} fillOpacity={active ? 1 : 0.75} stroke="rgba(var(--cc-03070b-rgb,3,7,11),0.9)" strokeWidth={3} paintOrder="stroke">{short(a.label, compact ? 22 : 36)}</text>
               </g>
             </g>
           );
@@ -225,7 +225,7 @@ export function AnnotationLayer(p: LayerProps) {
             <g key={a.id} className={cls} data-ann={a.id} data-ann-kind="current" data-active={active ? "1" : "0"} pointerEvents="none">
               <rect className="atlas-line" x={cx - bw / 2 - 3} y={yt} width={bw + 6} height={Math.max(8, yb - yt)} rx={3} fill="none" stroke={H.gold3} strokeWidth={active ? 1.5 : 1} strokeOpacity={active ? 1 : 0.5} />
               <text x={Math.min(plotW - 4, cx + bw / 2 + 6)} y={Math.max(top + 9, yt - 3)} textAnchor="end" fontSize={fs} fontWeight={700} fill={H.gold3}
-                stroke="rgba(3,7,11,0.9)" strokeWidth={3} paintOrder="stroke">{b.live ? "now · forming" : "latest candle"}</text>
+                stroke="rgba(var(--cc-03070b-rgb,3,7,11),0.9)" strokeWidth={3} paintOrder="stroke">{b.live ? "now · forming" : "latest candle"}</text>
             </g>
           );
         }
@@ -249,7 +249,7 @@ export function AnnotationLayer(p: LayerProps) {
               <line x1={cx - 4} x2={cx + 4} y1={y2} y2={y2} stroke={H.gold3} strokeOpacity={active ? 1 : 0.6} />
               {!onLabel && (
                 <>
-                  <rect x={Math.min(plotW - w - 2, cx - w / 2)} y={my - 10} width={w} height={14} rx={3} fill="rgba(3,7,11,0.92)" stroke={H.gold3} strokeOpacity={0.7} />
+                  <rect x={Math.min(plotW - w - 2, cx - w / 2)} y={my - 10} width={w} height={14} rx={3} fill="rgba(var(--cc-03070b-rgb,3,7,11),0.92)" stroke={H.gold3} strokeOpacity={0.7} />
                   <text x={Math.min(plotW - w / 2 - 2, cx)} y={my} textAnchor="middle" fontSize={compact ? 8.5 : 9.5} fontWeight={700} fill={H.gold3}>{label}</text>
                 </>
               )}
@@ -276,10 +276,10 @@ export function UserLineLayer({ lines, y, plotW, priceH, axis, compact, noPan, o
           <g key={l.id} data-user-line={l.id}>
             <line x1={0} x2={plotW} y1={yy} y2={yy} stroke={VIOLET} strokeWidth={1.2} strokeOpacity={0.9} pointerEvents="none" />
             <rect x={plotW + 2} y={yy - 8} width={axis - 4} height={16} rx={2} fill={VIOLET} pointerEvents="none" />
-            <text x={plotW + axis / 2} y={yy + 4} textAnchor="middle" fontSize={compact ? 9 : 10} fontWeight={700} fill="#04080C" pointerEvents="none">{l.price.toFixed(2)}</text>
+            <text x={plotW + axis / 2} y={yy + 4} textAnchor="middle" fontSize={compact ? 9 : 10} fontWeight={700} fill="var(--cc-04080c,#04080C)" pointerEvents="none">{l.price.toFixed(2)}</text>
             <g onPointerDown={noPan} onClick={(e) => { e.stopPropagation(); onRemove(l.id); }} style={{ cursor: "pointer" }} pointerEvents="auto">
               <title>Your line — tap to remove</title>
-              <text x={8} y={yy - 4} fontSize={compact ? 8.5 : 9.5} fontWeight={600} fill={VIOLET} stroke="rgba(3,7,11,0.9)" strokeWidth={3} paintOrder="stroke">✎ Your line ✕</text>
+              <text x={8} y={yy - 4} fontSize={compact ? 8.5 : 9.5} fontWeight={600} fill={VIOLET} stroke="rgba(var(--cc-03070b-rgb,3,7,11),0.9)" strokeWidth={3} paintOrder="stroke">✎ Your line ✕</text>
             </g>
           </g>
         );
@@ -306,7 +306,7 @@ export function ExplainCaption({ ex, price, top, compact, onStop }: { ex: Explai
   return (
     <div className="pointer-events-none absolute left-1/2 z-20 flex max-w-[calc(100%-12px)] -translate-x-1/2 justify-center" style={{ top }} data-explain-caption={ex.status} role="status" aria-live="polite">
       <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-[7px] px-2 py-[3px]" title={`Briefing built at ${stamp}`}
-        style={{ background: "rgba(3,7,11,0.93)", border: `1px solid ${col}77`, boxShadow: `0 0 12px ${col}22` }}>
+        style={{ background: "rgba(var(--cc-03070b-rgb,3,7,11),0.93)", border: `1px solid ${alpha(col, "77")}`, boxShadow: `0 0 12px ${alpha(col, "22")}` }}>
         <span className="flex shrink-0 items-end gap-[2px]" aria-hidden>
           {[0, 1, 2].map((k) => <span key={k} className={explaining ? "atlas-eq" : ""} style={{ width: 2, height: explaining ? 9 : 4, background: col, borderRadius: 1, animationDelay: `${k * 0.18}s` }} />)}
         </span>
@@ -337,7 +337,7 @@ export function AnnotationMenu({ ann, at, plotW, priceH, onAsk, onRemove, onClos
   const topPx = Math.max(6, Math.min(priceH - 104, at.y + 8));
   const btn = "block w-full rounded-[5px] px-2 py-1.5 text-left text-[11px] transition hover:brightness-125";
   return (
-    <div className="absolute z-30 rounded-[8px] p-1.5" style={{ left, top: topPx, width: W, background: "rgba(5,11,17,0.97)", border: `1px solid ${H.lineHi}`, boxShadow: "0 10px 30px rgba(0,0,0,0.6)" }}
+    <div className="absolute z-30 rounded-[8px] p-1.5" style={{ left, top: topPx, width: W, background: "rgba(var(--cc-050b11-rgb,5,11,17),0.97)", border: `1px solid ${H.lineHi}`, boxShadow: "0 10px 30px rgba(0,0,0,0.6)" }}
       onPointerDown={(e) => e.stopPropagation()} data-ann-menu={ann.id}>
       <p className="truncate px-2 pb-1 pt-0.5 text-[9px] font-bold uppercase tracking-[0.12em]" style={{ color: H.cyan2 }}>ATLAS · {short(ann.label, 30)}</p>
       <button className={btn} style={{ color: H.text }} onClick={() => { onAsk(`Why does ${what} matter right now?`); onClose(); }}>Why does this matter?</button>

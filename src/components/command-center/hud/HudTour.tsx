@@ -96,18 +96,18 @@ export function HudTour({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-[80]" style={{ pointerEvents: "auto" }} aria-modal role="dialog" aria-label="Command Center guide">
       {/* dim everything except the target (the spotlight is a huge box-shadow) */}
       {rect ? (
-        <div className="absolute rounded-[12px] transition-all duration-300" style={{ top: rect.top, left: rect.left, width: rect.width, height: rect.height, boxShadow: "0 0 0 9999px rgba(3,8,14,0.78)", border: `1px solid ${H.gold3}`, outline: "1px solid rgba(0,199,232,0.35)", outlineOffset: 3, pointerEvents: "none" }} />
+        <div className="absolute rounded-[12px] transition-all duration-300" style={{ top: rect.top, left: rect.left, width: rect.width, height: rect.height, boxShadow: "0 0 0 9999px rgba(var(--cc-03080e-rgb,3,8,14),0.78)", border: `1px solid ${H.gold3}`, outline: "1px solid rgba(var(--cc-00c7e8-rgb,0,199,232),0.35)", outlineOffset: 3, pointerEvents: "none" }} />
       ) : (
-        <div className="absolute inset-0" style={{ background: "rgba(3,8,14,0.78)" }} />
+        <div className="absolute inset-0" style={{ background: "rgba(var(--cc-03080e-rgb,3,8,14),0.78)" }} />
       )}
-      <div className="absolute rounded-[12px] p-4" style={{ top: cardTop, left: cardLeft, width: cardW, background: `linear-gradient(180deg, ${H.panel2} 0%, ${H.panel} 100%)`, border: `1px solid ${H.lineHi}`, boxShadow: "0 18px 50px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,199,232,0.08)", color: H.text }}>
+      <div className="absolute rounded-[12px] p-4" style={{ top: cardTop, left: cardLeft, width: cardW, background: `linear-gradient(180deg, ${H.panel2} 0%, ${H.panel} 100%)`, border: `1px solid ${H.lineHi}`, boxShadow: "0 18px 50px rgba(0,0,0,0.55), 0 0 0 1px rgba(var(--cc-00c7e8-rgb,0,199,232),0.08)", color: H.text }}>
         <div className="flex items-center justify-between gap-3">
           <p className="text-[9.5px] font-bold uppercase tracking-[0.2em]" style={{ color: H.gold3 }}>Command Center guide · {i + 1} / {avail.length}</p>
           <button onClick={finish} className="text-[10px] tracking-[0.12em]" style={{ color: H.mut }}>SKIP</button>
         </div>
         <h3 className="mt-2 text-[15px] font-semibold">{step.title}</h3>
         <p className="mt-1.5 text-[12.5px] leading-relaxed" style={{ color: H.mut }}>{step.body}</p>
-        {step.tip && <p className="mt-2 rounded-[8px] px-2.5 py-2 text-[11.5px]" style={{ background: "rgba(213,169,61,0.08)", border: "1px solid rgba(231,196,103,0.3)", color: H.text }}>{step.tip}</p>}
+        {step.tip && <p className="mt-2 rounded-[8px] px-2.5 py-2 text-[11.5px]" style={{ background: "rgba(var(--cc-d5a93d-rgb,213,169,61),0.08)", border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.3)", color: H.text }}>{step.tip}</p>}
         <div className="mt-3 flex items-center justify-between gap-2">
           <div className="flex gap-1">{avail.map((s, k) => <span key={s.id} className="h-1 w-3 rounded-full" style={{ background: k <= i ? H.gold2 : "rgba(255,255,255,0.12)" }} />)}</div>
           <div className="flex gap-2">

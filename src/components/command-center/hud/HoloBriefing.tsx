@@ -178,7 +178,7 @@ export function HoloBriefing({ d, active, caption, phone, level }: { d: BriefDat
         </div>
         <div className="grid gap-1 text-[10.5px]">
           {(I.scenarios ?? []).slice(0, 3).map((s) => (
-            <div key={s.title} className="flex items-center justify-between gap-2 rounded px-2 py-1" style={{ background: "rgba(7,16,26,.8)", border: `1px solid ${s.rank === "PRIMARY" ? "rgba(231,196,103,.5)" : H.line}` }}>
+            <div key={s.title} className="flex items-center justify-between gap-2 rounded px-2 py-1" style={{ background: "rgba(var(--cc-07101a-rgb,7,16,26),.8)", border: `1px solid ${s.rank === "PRIMARY" ? "rgba(var(--cc-e7c467-rgb,231,196,103),.5)" : H.line}` }}>
               <span className="font-semibold" style={{ color: s.kind === "bear" ? H.red : s.kind === "bull" ? H.green : H.gold2 }}>{s.rank} · {s.title}</span>
               <span className="text-right tabular-nums" style={{ color: H.text }}>{shortLabel(s.detail)}</span>
             </div>
@@ -209,7 +209,7 @@ export function HoloBriefing({ d, active, caption, phone, level }: { d: BriefDat
         return (
           <div key={pn.key} className={`hb-panel ${forward ? "hb-forward" : ""}`}
             style={{ width: W, height: Ht, transform: tf, opacity: leaving ? 0 : forward ? 1 : 0.42, zIndex: forward ? 5 : 1,
-              boxShadow: forward ? `0 0 ${40 + level * 60}px rgba(39,215,242,${0.25 + level * 0.3}), inset 0 0 40px rgba(39,215,242,.08)` : "0 0 18px rgba(39,215,242,.12)" }}>
+              boxShadow: forward ? `0 0 ${40 + level * 60}px rgba(var(--cc-27d7f2-rgb,39,215,242),${0.25 + level * 0.3}), inset 0 0 40px rgba(var(--cc-27d7f2-rgb,39,215,242),.08)` : "0 0 18px rgba(var(--cc-27d7f2-rgb,39,215,242),.12)" }}>
             <span className="hb-c hb-tl" /><span className="hb-c hb-tr" /><span className="hb-c hb-bl" /><span className="hb-c hb-br" />
             {forward && <div key={`scan${active}`} className="hb-materialise" />}
             <div className="flex items-center justify-between gap-2 px-3.5 pt-3">
@@ -223,7 +223,7 @@ export function HoloBriefing({ d, active, caption, phone, level }: { d: BriefDat
       {/* live caption: what ATLAS is reading off the active panel */}
       {caption && active >= 0 && active < 3 && (
         <div key={`cap${active}`} className="hb-caption absolute inset-x-0 bottom-[6%] mx-auto w-[min(92vw,720px)] rounded-lg px-4 py-2.5 text-[12.5px] leading-snug sm:text-[14px]"
-          style={{ background: "rgba(3,9,15,.82)", border: "1px solid rgba(39,215,242,.35)", color: "#DDE6EE" }}>
+          style={{ background: "rgba(3,9,15,.82)", border: "1px solid rgba(var(--cc-27d7f2-rgb,39,215,242),.35)", color: "#DDE6EE" }}>
           <span className="mr-2 font-mono text-[10px] tracking-[0.2em]" style={{ color: H.gold2 }}>ATLAS ▸</span>{caption}
         </div>
       )}
@@ -233,19 +233,19 @@ export function HoloBriefing({ d, active, caption, phone, level }: { d: BriefDat
 
 const HOLO_CSS = `
 .hb-panel{position:absolute;left:50%;top:50%;transform-style:preserve-3d;border-radius:14px;overflow:hidden;
-  background:linear-gradient(180deg,rgba(9,22,34,.92),rgba(4,11,18,.9));border:1px solid rgba(39,215,242,.45);
-  backdrop-filter:blur(3px);transition:transform 1.05s cubic-bezier(.7,0,.18,1),opacity .8s ease,box-shadow .2s linear;color:#F0F4F7}
-.hb-panel::before{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(39,215,242,.05) 0 1px,transparent 1px 3px);mix-blend-mode:screen}
-.hb-forward{border-color:rgba(120,235,255,.8)}
-.hb-c{position:absolute;width:16px;height:16px;border-color:#FFD875;z-index:3}
+  background:linear-gradient(180deg,rgba(9,22,34,.92),rgba(4,11,18,.9));border:1px solid rgba(var(--cc-27d7f2-rgb,39,215,242),.45);
+  backdrop-filter:blur(3px);transition:transform 1.05s cubic-bezier(.7,0,.18,1),opacity .8s ease,box-shadow .2s linear;color:var(--cc-f0f4f7,#F0F4F7)}
+.hb-panel::before{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(var(--cc-27d7f2-rgb,39,215,242),.05) 0 1px,transparent 1px 3px);mix-blend-mode:screen}
+.hb-forward{border-color:rgba(var(--cc-78ebff-rgb,120,235,255),.8)}
+.hb-c{position:absolute;width:16px;height:16px;border-color:var(--cc-ffd875,#FFD875);z-index:3}
 .hb-tl{left:6px;top:6px;border-left:2px solid;border-top:2px solid}.hb-tr{right:6px;top:6px;border-right:2px solid;border-top:2px solid}
 .hb-bl{left:6px;bottom:6px;border-left:2px solid;border-bottom:2px solid}.hb-br{right:6px;bottom:6px;border-right:2px solid;border-bottom:2px solid}
-.hb-materialise{position:absolute;inset:0;z-index:4;pointer-events:none;background:linear-gradient(180deg,transparent 0%,rgba(120,235,255,.0) 40%,rgba(160,245,255,.55) 50%,rgba(255,216,117,.25) 52%,transparent 60%);
+.hb-materialise{position:absolute;inset:0;z-index:4;pointer-events:none;background:linear-gradient(180deg,transparent 0%,rgba(var(--cc-78ebff-rgb,120,235,255),.0) 40%,rgba(160,245,255,.55) 50%,rgba(var(--cc-ffd875-rgb,255,216,117),.25) 52%,transparent 60%);
   background-size:100% 220%;animation:hb-scan 1.3s .55s ease-out both}
 @keyframes hb-scan{from{background-position:0 100%;opacity:1}to{background-position:0 -120%;opacity:.2}}
 .hb-forward > div{animation:hb-rez .9s .45s both}
 @keyframes hb-rez{0%{opacity:0;filter:blur(6px) brightness(2)}40%{opacity:.6}100%{opacity:1;filter:none}}
-.hb-beam{position:absolute;left:50%;top:9%;width:2px;height:22%;transform:translateX(-50%);background:linear-gradient(180deg,rgba(255,216,117,0),rgba(120,235,255,.6));box-shadow:0 0 18px 4px rgba(39,215,242,.35);animation:hb-beam .9s ease-out both}
+.hb-beam{position:absolute;left:50%;top:9%;width:2px;height:22%;transform:translateX(-50%);background:linear-gradient(180deg,rgba(var(--cc-ffd875-rgb,255,216,117),0),rgba(var(--cc-78ebff-rgb,120,235,255),.6));box-shadow:0 0 18px 4px rgba(var(--cc-27d7f2-rgb,39,215,242),.35);animation:hb-beam .9s ease-out both}
 @keyframes hb-beam{from{opacity:0;transform:translateX(-50%) scaleY(.2)}to{opacity:.8;transform:translateX(-50%) scaleY(1)}}
 .hb-orb{animation:hb-orb .8s cubic-bezier(.2,.9,.2,1) both}
 @keyframes hb-orb{from{opacity:0;transform:translate(-50%,30vh) scale(2.4)}to{opacity:1;transform:translate(-50%,0) scale(1)}}

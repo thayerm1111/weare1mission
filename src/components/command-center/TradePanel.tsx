@@ -12,9 +12,9 @@ import { Crosshair, Shield, X } from "lucide-react";
  */
 
 const C = {
-  panel: "#0A0E15", raised: "#0E131C", line: "rgba(255,255,255,0.07)",
-  text: "#E8EFF7", mut: "rgba(232,239,247,0.56)", mut2: "rgba(232,239,247,0.34)",
-  gold: "#F0C475", up: "#3FD9A0", down: "#F4737B", cold: "#6FA8DC", amber: "#E9B949",
+  panel: "var(--cc-0a0e15,#0A0E15)", raised: "var(--cc-0e131c,#0E131C)", line: "rgba(255,255,255,0.07)",
+  text: "var(--cc-e8eff7,#E8EFF7)", mut: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.56)", mut2: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.34)",
+  gold: "var(--cc-f0c475,#F0C475)", up: "var(--cc-3fd9a0,#3FD9A0)", down: "var(--cc-f4737b,#F4737B)", cold: "var(--cc-6fa8dc,#6FA8DC)", amber: "var(--cc-e9b949,#E9B949)",
 };
 
 const STYLES = [
@@ -166,7 +166,7 @@ export function CallTradeSheet({ price, levels, open, onClose, onDone, prefill =
 
         <div className="space-y-3.5 px-4 py-3.5">
           {prefill && (
-            <div className="rounded-xl px-3 py-2.5" data-ticket-idea="" style={{ background: "rgba(240,196,117,0.06)", border: "1px solid rgba(240,196,117,0.28)" }}>
+            <div className="rounded-xl px-3 py-2.5" data-ticket-idea="" style={{ background: "rgba(var(--cc-f0c475-rgb,240,196,117),0.06)", border: "1px solid rgba(var(--cc-f0c475-rgb,240,196,117),0.28)" }}>
               <p className="text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: C.gold }}>From ATLAS&apos;s idea</p>
               <p className="mt-0.5 text-[12.5px] font-semibold">{prefill.headline}</p>
               <p className="mt-1 text-[11px] leading-relaxed" style={{ color: C.mut }}>
@@ -181,9 +181,9 @@ export function CallTradeSheet({ price, levels, open, onClose, onDone, prefill =
               <button key={sd} onClick={() => { setSide(sd); setStop(""); reset(); }}
                 className="rounded-xl py-2.5 text-[12px] font-black uppercase tracking-[0.14em]"
                 style={{
-                  background: side === sd ? (sd === "buy" ? "rgba(63,217,160,0.14)" : "rgba(244,115,123,0.14)") : "rgba(255,255,255,0.03)",
+                  background: side === sd ? (sd === "buy" ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.14)" : "rgba(var(--cc-f4737b-rgb,244,115,123),0.14)") : "rgba(255,255,255,0.03)",
                   color: side === sd ? (sd === "buy" ? C.up : C.down) : C.mut2,
-                  border: `1px solid ${side === sd ? (sd === "buy" ? "rgba(63,217,160,0.34)" : "rgba(244,115,123,0.34)") : C.line}`,
+                  border: `1px solid ${side === sd ? (sd === "buy" ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.34)" : "rgba(var(--cc-f4737b-rgb,244,115,123),0.34)") : C.line}`,
                 }}>
                 {sd}
               </button>
@@ -197,8 +197,8 @@ export function CallTradeSheet({ price, levels, open, onClose, onDone, prefill =
                 <button key={s.id} onClick={() => { setStyle(s.id); reset(); }}
                   className="rounded-xl px-3 py-2 text-left"
                   style={{
-                    background: style === s.id ? "rgba(240,196,117,0.07)" : "rgba(255,255,255,0.025)",
-                    border: `1px solid ${style === s.id ? "rgba(240,196,117,0.30)" : C.line}`,
+                    background: style === s.id ? "rgba(var(--cc-f0c475-rgb,240,196,117),0.07)" : "rgba(255,255,255,0.025)",
+                    border: `1px solid ${style === s.id ? "rgba(var(--cc-f0c475-rgb,240,196,117),0.30)" : C.line}`,
                   }}>
                   <p className="text-[12px] font-black tracking-[0.06em]" style={{ color: style === s.id ? C.gold : C.text }}>
                     {s.label} <span className="font-normal tracking-normal" style={{ color: C.mut2 }}>· {s.sub}</span>
@@ -216,9 +216,9 @@ export function CallTradeSheet({ price, levels, open, onClose, onDone, prefill =
                 <button key={r} onClick={() => { setRisk(r); reset(); }}
                   className="rounded-full px-3 py-1 text-[11px] font-bold tabular-nums"
                   style={{
-                    background: risk === r ? "rgba(111,168,220,0.14)" : "rgba(255,255,255,0.04)",
+                    background: risk === r ? "rgba(var(--cc-6fa8dc-rgb,111,168,220),0.14)" : "rgba(255,255,255,0.04)",
                     color: risk === r ? C.cold : C.mut2,
-                    border: `1px solid ${risk === r ? "rgba(111,168,220,0.30)" : C.line}`,
+                    border: `1px solid ${risk === r ? "rgba(var(--cc-6fa8dc-rgb,111,168,220),0.30)" : C.line}`,
                   }}>
                   {r.toFixed(2)}%
                 </button>
@@ -265,8 +265,8 @@ export function CallTradeSheet({ price, levels, open, onClose, onDone, prefill =
 
           {result && (
             <div className="rounded-xl px-3 py-2.5 text-[12px]" style={{
-              background: result.state === "position_open" ? "rgba(63,217,160,0.08)" : "rgba(233,185,73,0.08)",
-              border: `1px solid ${result.state === "position_open" ? "rgba(63,217,160,0.28)" : "rgba(233,185,73,0.28)"}`,
+              background: result.state === "position_open" ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.08)" : "rgba(var(--cc-e9b949-rgb,233,185,73),0.08)",
+              border: `1px solid ${result.state === "position_open" ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.28)" : "rgba(var(--cc-e9b949-rgb,233,185,73),0.28)"}`,
               color: result.state === "position_open" ? C.up : C.amber,
             }}>
               <p className="font-bold uppercase tracking-[0.12em]">{result.state.replace(/_/g, " ")}</p>
@@ -277,16 +277,16 @@ export function CallTradeSheet({ price, levels, open, onClose, onDone, prefill =
           {!prep ? (
             <button onClick={() => void doPrepare()} disabled={busy || !stop}
               className="w-full rounded-xl px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.14em] disabled:opacity-40"
-              style={{ background: "rgba(240,196,117,0.14)", color: C.gold, border: "1px solid rgba(240,196,117,0.32)" }}>
+              style={{ background: "rgba(var(--cc-f0c475-rgb,240,196,117),0.14)", color: C.gold, border: "1px solid rgba(var(--cc-f0c475-rgb,240,196,117),0.32)" }}>
               {busy ? "Checking…" : "Check this trade"}
             </button>
           ) : (
             <button onClick={() => void doExecute()} disabled={busy || result?.state === "position_open"}
               className="w-full rounded-xl px-3 py-3 text-[12px] font-black uppercase tracking-[0.16em] disabled:opacity-40"
               style={{
-                background: side === "buy" ? "rgba(63,217,160,0.16)" : "rgba(244,115,123,0.16)",
+                background: side === "buy" ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.16)" : "rgba(var(--cc-f4737b-rgb,244,115,123),0.16)",
                 color: side === "buy" ? C.up : C.down,
-                border: `1px solid ${side === "buy" ? "rgba(63,217,160,0.36)" : "rgba(244,115,123,0.36)"}`,
+                border: `1px solid ${side === "buy" ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.36)" : "rgba(var(--cc-f4737b-rgb,244,115,123),0.36)"}`,
               }}>
               {busy ? "Executing…" : `Execute ${side}`}
             </button>
@@ -328,16 +328,16 @@ export function TradePanel({ trade, onChanged }: { trade: TradeStateView; onChan
     <button onClick={onClick} disabled={!!busy}
       className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] disabled:opacity-40"
       style={{
-        background: danger ? "rgba(244,115,123,0.10)" : "rgba(255,255,255,0.04)",
+        background: danger ? "rgba(var(--cc-f4737b-rgb,244,115,123),0.10)" : "rgba(255,255,255,0.04)",
         color: danger ? C.down : color,
-        border: `1px solid ${danger ? "rgba(244,115,123,0.28)" : C.line}`,
+        border: `1px solid ${danger ? "rgba(var(--cc-f4737b-rgb,244,115,123),0.28)" : C.line}`,
       }}>
       {busy === id ? "…" : label}
     </button>
   );
 
   return (
-    <section className="overflow-hidden rounded-2xl border" style={{ borderColor: "rgba(240,196,117,0.22)", background: C.panel }}>
+    <section className="overflow-hidden rounded-2xl border" style={{ borderColor: "rgba(var(--cc-f0c475-rgb,240,196,117),0.22)", background: C.panel }}>
       <div className="flex items-center justify-between gap-2 border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
         <p className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: C.gold }}>
           <Crosshair className="h-3.5 w-3.5" /> Trade active
@@ -422,7 +422,7 @@ export function TradePanel({ trade, onChanged }: { trade: TradeStateView; onChan
 
       {/* what ATLAS would do */}
       {trade.protection && (
-        <div className="border-t px-3.5 py-3" style={{ borderColor: C.line, background: trade.protection.action === "hold" ? "transparent" : "rgba(240,196,117,0.04)" }}>
+        <div className="border-t px-3.5 py-3" style={{ borderColor: C.line, background: trade.protection.action === "hold" ? "transparent" : "rgba(var(--cc-f0c475-rgb,240,196,117),0.04)" }}>
           <p className="mb-1 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: C.mut2 }}>
             <Shield className="h-3.5 w-3.5" /> ATLAS would {trade.protection.action.replace(/_/g, " ")}
           </p>
@@ -490,7 +490,7 @@ export function UnmanagedNotice({ trade, onChanged }: { trade: TradeStateView; o
     } finally { setBusy(false); }
   };
   return (
-    <section className="overflow-hidden rounded-2xl border" style={{ borderColor: "rgba(240,196,117,0.26)", background: "rgba(240,196,117,0.04)" }}>
+    <section className="overflow-hidden rounded-2xl border" style={{ borderColor: "rgba(var(--cc-f0c475-rgb,240,196,117),0.26)", background: "rgba(var(--cc-f0c475-rgb,240,196,117),0.04)" }}>
       <div className="px-3.5 py-3">
         <p className="text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: C.gold }}>New XAUUSD position detected</p>
         <p className="mt-1 text-[12.5px]" style={{ color: C.mut }}>
@@ -500,7 +500,7 @@ export function UnmanagedNotice({ trade, onChanged }: { trade: TradeStateView; o
           {STYLES.map((s) => (
             <button key={s.id} disabled={busy} onClick={() => void adopt(s.id)}
               className="rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.1em] disabled:opacity-40"
-              style={{ background: "rgba(240,196,117,0.12)", color: C.gold, border: "1px solid rgba(240,196,117,0.30)" }}>
+              style={{ background: "rgba(var(--cc-f0c475-rgb,240,196,117),0.12)", color: C.gold, border: "1px solid rgba(var(--cc-f0c475-rgb,240,196,117),0.30)" }}>
               {s.label}
             </button>
           ))}

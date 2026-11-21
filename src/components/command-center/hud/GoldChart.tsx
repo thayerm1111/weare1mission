@@ -141,20 +141,20 @@ export function ScenarioOverlay({ scenario, x0, x1, fromX, fromY, y, priceH, com
   return (
     <g opacity={faded ? 0.45 : 1} pointerEvents="none" className="hud-in" data-overlay="scenario">
       <rect x={x0} y={0} width={x1 - x0} height={priceH} fill="url(#hudHatch)" />
-      <line x1={x0} x2={x0} y1={0} y2={priceH} stroke="rgba(39,215,242,0.4)" strokeDasharray="2 4" />
+      <line x1={x0} x2={x0} y1={0} y2={priceH} stroke="rgba(var(--cc-27d7f2-rgb,39,215,242),0.4)" strokeDasharray="2 4" />
       {tp != null && scenario.direction !== "range" && (
         <path d={`M${fromX.toFixed(1)},${fromY.toFixed(1)} L${xm.toFixed(1)},${y(tp).toFixed(1)}`} fill="none" stroke={H.cyan2} strokeWidth={1.6} strokeDasharray="6 4" markerEnd="url(#hudArrow)" />
       )}
       {tp != null && (
         <g>
           <line x1={x0} x2={x1} y1={y(tp)} y2={y(tp)} stroke={H.cyan2} strokeDasharray="5 4" strokeWidth={1.1} />
-          <text x={x1 - 2} y={y(tp) - 4} textAnchor="end" fontSize={compact ? 8.5 : 9.5} fill={H.cyan2} stroke="rgba(3,7,11,0.85)" strokeWidth={3} paintOrder="stroke">Trigger {fmt2(tp)}</text>
+          <text x={x1 - 2} y={y(tp) - 4} textAnchor="end" fontSize={compact ? 8.5 : 9.5} fill={H.cyan2} stroke="rgba(var(--cc-03070b-rgb,3,7,11),0.85)" strokeWidth={3} paintOrder="stroke">Trigger {fmt2(tp)}</text>
         </g>
       )}
       {ip != null && (
         <g>
           <line x1={x0} x2={x1} y1={y(ip)} y2={y(ip)} stroke={H.red} strokeDasharray="1.5 3" strokeWidth={1.1} />
-          <text x={x1 - 2} y={y(ip) + 11} textAnchor="end" fontSize={compact ? 8.5 : 9.5} fill={H.red} stroke="rgba(3,7,11,0.85)" strokeWidth={3} paintOrder="stroke">Invalidation {fmt2(ip)}</text>
+          <text x={x1 - 2} y={y(ip) + 11} textAnchor="end" fontSize={compact ? 8.5 : 9.5} fill={H.red} stroke="rgba(var(--cc-03070b-rgb,3,7,11),0.85)" strokeWidth={3} paintOrder="stroke">Invalidation {fmt2(ip)}</text>
         </g>
       )}
       {/* Always the whole label, right-aligned in the projection area and allowed to reach left of it: a path
@@ -164,7 +164,7 @@ export function ScenarioOverlay({ scenario, x0, x1, fromX, fromY, y, priceH, com
         const chars = Math.max(6, Math.floor((bw - 10) / 5.2));
         return (
           <g data-scenario-label="">
-            <rect x={bx} y={top} width={bw} height={compact ? 14 : 26} rx={3} fill="rgba(3,7,11,0.9)" stroke="rgba(39,215,242,0.55)" />
+            <rect x={bx} y={top} width={bw} height={compact ? 14 : 26} rx={3} fill="rgba(var(--cc-03070b-rgb,3,7,11),0.9)" stroke="rgba(var(--cc-27d7f2-rgb,39,215,242),0.55)" />
             <text x={bx + 5} y={top + (compact ? 10 : 11)} fontSize={compact ? 8.5 : 9} fontWeight={700} letterSpacing="0.04em" fill={H.cyan2}>CONDITIONAL SCENARIO</text>
             {!compact && <text x={bx + 5} y={top + 22} fontSize="8.5" fill={H.text}>{title.length > chars ? `${title.slice(0, chars - 1)}…` : title}</text>}
           </g>
@@ -582,7 +582,7 @@ export function GoldChart({
       onDoubleClick={reset}>
       {/* OHLC readout — one line, on a backing; on phones only the close and change until you touch a candle */}
       <div className="pointer-events-none absolute left-1.5 top-1 z-10 flex items-center gap-2 overflow-hidden whitespace-nowrap rounded-[5px] px-1.5 py-[2px] tabular-nums"
-        style={{ background: "rgba(3,7,11,0.72)", fontSize: compact ? 10 : 11, maxWidth: touched ? "calc(100% - 190px)" : "calc(100% - 70px)" }}>
+        style={{ background: "rgba(var(--cc-03070b-rgb,3,7,11),0.72)", fontSize: compact ? 10 : 11, maxWidth: touched ? "calc(100% - 190px)" : "calc(100% - 70px)" }}>
         <span className="font-semibold" style={{ color: H.text, fontSize: compact ? 10.5 : 13 }}>{tfLabel}</span>
         {/* Feed status: green ONLY when a streamed tick arrived within seconds (core/feed.ts). */}
         <span className="inline-block h-[6px] w-[6px] shrink-0 rounded-full" title={feed ? feed.reason : undefined}
@@ -599,11 +599,11 @@ export function GoldChart({
       {/* view controls — only once the view has been moved off its automatic fit */}
       {touched && (
         <div className="absolute right-[54px] z-20 flex items-center gap-1 text-[10px]" style={{ top: 5 }}>
-          <span className="rounded-[5px] px-1.5 py-[2px] tabular-nums" style={{ color: H.mut, border: `1px solid ${H.lineSoft}`, background: "rgba(3,7,11,0.72)" }}>
+          <span className="rounded-[5px] px-1.5 py-[2px] tabular-nums" style={{ color: H.mut, border: `1px solid ${H.lineSoft}`, background: "rgba(var(--cc-03070b-rgb,3,7,11),0.72)" }}>
             {Math.round(view.span)} bars
           </span>
           <button onClick={reset} onPointerDown={noPan} className="rounded-[5px] px-1.5 py-[2px] transition hover:opacity-80"
-            style={{ color: H.gold3, border: "1px solid rgba(231,196,103,0.5)", background: "rgba(213,169,61,0.12)" }}>Reset</button>
+            style={{ color: H.gold3, border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.5)", background: "rgba(var(--cc-d5a93d-rgb,213,169,61),0.12)" }}>Reset</button>
         </div>
       )}
 
@@ -612,7 +612,7 @@ export function GoldChart({
         // Cleared through the same event ATLAS uses, so the screen (the open scenario card) hears it too.
         <button onClick={() => { setActions(NO_CHART_ACTIONS); explainBus.clear(); setPicked(null); window.dispatchEvent(new CustomEvent(CHART_ACTION_EVENT, { detail: { type: "clear" } })); }} onPointerDown={noPan} data-clear-atlas=""
           className="absolute z-20 rounded-[5px] px-1.5 py-[2px] text-[10px] transition hover:opacity-80"
-          style={{ right: AXIS + 6 + (atLive ? 0 : 112), top: Math.max(TOP_BAND + 2, priceH - 26), color: H.cyan2, border: "1px solid rgba(39,215,242,0.45)", background: "rgba(3,7,11,0.8)" }}
+          style={{ right: AXIS + 6 + (atLive ? 0 : 112), top: Math.max(TOP_BAND + 2, priceH - 26), color: H.cyan2, border: "1px solid rgba(var(--cc-27d7f2-rgb,39,215,242),0.45)", background: "rgba(var(--cc-03070b-rgb,3,7,11),0.8)" }}
           title="Clear what ATLAS drew on the chart. Your own lines stay.">Clear Atlas drawings ✕</button>
       )}
 
@@ -621,14 +621,14 @@ export function GoldChart({
         <div className="pointer-events-none absolute left-1.5 z-10 flex max-w-[calc(100%-80px)] flex-col gap-0.5" style={{ top: TOP_BAND + 22 }}>
           {notes.map((m) => (
             <span key={`${m.tf}${m.t}`} className="truncate rounded-[4px] px-1.5 py-[1px]" data-note="mark-elsewhere"
-              style={{ color: H.gold3, background: "rgba(3,7,11,0.78)", border: "1px solid rgba(231,196,103,0.35)", fontSize: compact ? 8.5 : 9.5 }}>{m.text}</span>
+              style={{ color: H.gold3, background: "rgba(var(--cc-03070b-rgb,3,7,11),0.78)", border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.35)", fontSize: compact ? 8.5 : 9.5 }}>{m.text}</span>
           ))}
           {exNotes.map((m) => (
             // Tap it to go to that timeframe: the chart never draws a candle on a timeframe it is not showing.
             <button key={m.id} data-note="annotation-elsewhere" onPointerDown={noPan}
               onClick={() => window.dispatchEvent(new CustomEvent(CHART_ACTION_EVENT, { detail: { type: "timeframe", tf: m.tf } }))}
               className="pointer-events-auto truncate rounded-[4px] px-1.5 py-[1px] text-left"
-              style={{ color: H.gold3, background: "rgba(3,7,11,0.78)", border: "1px solid rgba(231,196,103,0.35)", fontSize: compact ? 8.5 : 9.5 }}>{m.text} ▸</button>
+              style={{ color: H.gold3, background: "rgba(var(--cc-03070b-rgb,3,7,11),0.78)", border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.35)", fontSize: compact ? 8.5 : 9.5 }}>{m.text} ▸</button>
           ))}
         </div>
       )}
@@ -644,7 +644,7 @@ export function GoldChart({
       {/* the member is placing their own line */}
       {drawMode && (
         <div className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2 rounded-[6px] px-2 py-[3px] text-[10px] font-semibold" data-draw-hint=""
-          style={{ bottom: TIME_H + 30, color: "#B69CFF", background: "rgba(3,7,11,0.9)", border: "1px solid rgba(182,156,255,0.5)" }}>
+          style={{ bottom: TIME_H + 30, color: "#B69CFF", background: "rgba(var(--cc-03070b-rgb,3,7,11),0.9)", border: "1px solid rgba(182,156,255,0.5)" }}>
           Tap the chart to place your line
         </div>
       )}
@@ -662,13 +662,13 @@ export function GoldChart({
       {!atLive && (
         <button onClick={toLive} onPointerDown={noPan}
           className="absolute z-20 rounded-[5px] px-2 py-[3px] text-[10px] font-semibold transition hover:opacity-80"
-          style={{ right: AXIS + 6, top: Math.max(4, priceH - 26), color: H.cyan2, border: "1px solid rgba(39,215,242,0.55)", background: "rgba(3,7,11,0.86)", boxShadow: "0 0 10px rgba(0,199,232,0.18)" }}
+          style={{ right: AXIS + 6, top: Math.max(4, priceH - 26), color: H.cyan2, border: "1px solid rgba(var(--cc-27d7f2-rgb,39,215,242),0.55)", background: "rgba(var(--cc-03070b-rgb,3,7,11),0.86)", boxShadow: "0 0 10px rgba(var(--cc-00c7e8-rgb,0,199,232),0.18)" }}
           title="Return to the newest candle">Return to live ▸</button>
       )}
 
       {/* the feed's basis: whose price, which instrument, what kind of quote, its status and age */}
       <div className="absolute left-1.5 z-10 whitespace-nowrap rounded-[4px] px-1.5 py-[1px] tabular-nums" title={basisTitle} data-basis=""
-        style={{ top: Math.max(22, priceH - 18), color: H.mut, background: "rgba(3,7,11,0.6)", fontSize: compact ? 8.5 : 9.5 }}>
+        style={{ top: Math.max(22, priceH - 18), color: H.mut, background: "rgba(var(--cc-03070b-rgb,3,7,11),0.6)", fontSize: compact ? 8.5 : 9.5 }}>
         {compact ? basisShort : feedBasisLabel(feed)}
       </div>
 
@@ -680,7 +680,7 @@ export function GoldChart({
           <clipPath id="hudVol"><rect x={0} y={volTop} width={plotW} height={Math.max(1, volH)} /></clipPath>
           {/* the projection area is hatched: what sits on it is conditional, not history */}
           <pattern id="hudHatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-            <line x1="0" y1="0" x2="0" y2="7" stroke="rgba(39,215,242,0.09)" strokeWidth="2" />
+            <line x1="0" y1="0" x2="0" y2="7" stroke="rgba(var(--cc-27d7f2-rgb,39,215,242),0.09)" strokeWidth="2" />
           </pattern>
           <marker id="hudArrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L8,4 L0,8 z" fill={H.cyan2} />
@@ -688,8 +688,8 @@ export function GoldChart({
         </defs>
 
         {/* grid */}
-        {priceTicks.map((p) => <line key={p} x1={0} x2={plotW} y1={y(p)} y2={y(p)} stroke="rgba(89,175,255,0.06)" />)}
-        {timeTicks.map((tt) => <line key={tt.i} x1={x(tt.i)} x2={x(tt.i)} y1={0} y2={priceH} stroke="rgba(89,175,255,0.045)" />)}
+        {priceTicks.map((p) => <line key={p} x1={0} x2={plotW} y1={y(p)} y2={y(p)} stroke="rgba(var(--cc-59afff-rgb,89,175,255),0.06)" />)}
+        {timeTicks.map((tt) => <line key={tt.i} x1={x(tt.i)} x2={x(tt.i)} y1={0} y2={priceH} stroke="rgba(var(--cc-59afff-rgb,89,175,255),0.045)" />)}
 
         <g clipPath="url(#hudPlot)">
           {/* zones */}
@@ -711,8 +711,8 @@ export function GoldChart({
             const h = Math.max(4, y2 - y1);
             return (
               <g key={`az${k}`} className="hud-in" pointerEvents="none">
-                <rect x={0} y={y1} width={plotW} height={h} fill="rgba(39,215,242,0.08)" stroke="rgba(39,215,242,0.55)" strokeDasharray="4 3" strokeWidth={0.9} />
-                <text x={8} y={Math.max(TOP_BAND + 12, y1 + (h > 14 ? 12 : -4))} fontSize={compact ? 8.5 : 9.5} fontWeight={600} fill={H.cyan2} stroke="rgba(3,7,11,0.85)" strokeWidth={3} paintOrder="stroke">ATLAS · {z.label}</text>
+                <rect x={0} y={y1} width={plotW} height={h} fill="rgba(var(--cc-27d7f2-rgb,39,215,242),0.08)" stroke="rgba(var(--cc-27d7f2-rgb,39,215,242),0.55)" strokeDasharray="4 3" strokeWidth={0.9} />
+                <text x={8} y={Math.max(TOP_BAND + 12, y1 + (h > 14 ? 12 : -4))} fontSize={compact ? 8.5 : 9.5} fontWeight={600} fill={H.cyan2} stroke="rgba(var(--cc-03070b-rgb,3,7,11),0.85)" strokeWidth={3} paintOrder="stroke">ATLAS · {z.label}</text>
               </g>
             );
           })}
@@ -725,9 +725,9 @@ export function GoldChart({
             const cx = x(i);
             return (
               <g key={`am${k}`} className="hud-in" pointerEvents="none">
-                <rect x={cx - Math.max(cw, 6) / 2 - 3} y={0} width={Math.max(cw, 6) + 6} height={priceH} fill="rgba(231,196,103,0.07)" stroke="rgba(231,196,103,0.35)" strokeDasharray="2 3" />
+                <rect x={cx - Math.max(cw, 6) / 2 - 3} y={0} width={Math.max(cw, 6) + 6} height={priceH} fill="rgba(var(--cc-e7c467-rgb,231,196,103),0.07)" stroke="rgba(var(--cc-e7c467-rgb,231,196,103),0.35)" strokeDasharray="2 3" />
                 <path d={`M${cx},${y(b.h) - 12} l4,4 l-4,4 l-4,-4 z`} fill={H.gold2} />
-                <text x={clamp(cx, 40, plotW - 40)} y={Math.max(TOP_BAND + 10, y(b.h) - 16)} textAnchor="middle" fontSize={compact ? 8.5 : 9.5} fontWeight={600} fill={H.gold3} stroke="rgba(3,7,11,0.85)" strokeWidth={3} paintOrder="stroke">{m.label}</text>
+                <text x={clamp(cx, 40, plotW - 40)} y={Math.max(TOP_BAND + 10, y(b.h) - 16)} textAnchor="middle" fontSize={compact ? 8.5 : 9.5} fontWeight={600} fill={H.gold3} stroke="rgba(var(--cc-03070b-rgb,3,7,11),0.85)" strokeWidth={3} paintOrder="stroke">{m.label}</text>
               </g>
             );
           })}
@@ -737,7 +737,7 @@ export function GoldChart({
             const gx = (x(i - 1) + x(i)) / 2;
             return (
               <g key={`gap${i}`} pointerEvents="none">
-                <line x1={gx} x2={gx} y1={0} y2={priceH} stroke="rgba(129,144,158,0.35)" strokeDasharray="2 4" />
+                <line x1={gx} x2={gx} y1={0} y2={priceH} stroke="rgba(var(--cc-81909e-rgb,129,144,158),0.35)" strokeDasharray="2 4" />
                 {!compact && <text x={gx + 3} y={priceH - 24} fontSize="8.5" fill={H.mut2}>gap · no data</text>}
               </g>
             );
@@ -762,7 +762,7 @@ export function GoldChart({
             if (zoneLabelY[k] == null) return null;
             const col = z.tone === "supply" ? "255,83,100" : z.tone === "demand" ? "41,223,166" : "89,175,255";
             const x0 = Math.max(0, z.tone === "target" ? lastX - bw * 30 : lastX - bw * 70);
-            return <text key={`zl${k}`} x={x0 + 6} y={zoneLabelY[k]} textAnchor="start" fontSize="10" fill={`rgba(${col},0.95)`} stroke="rgba(3,7,11,0.85)" strokeWidth={3} paintOrder="stroke" pointerEvents="none">{z.label}</text>;
+            return <text key={`zl${k}`} x={x0 + 6} y={zoneLabelY[k]} textAnchor="start" fontSize="10" fill={`rgba(${col},0.95)`} stroke="rgba(var(--cc-03070b-rgb,3,7,11),0.85)" strokeWidth={3} paintOrder="stroke" pointerEvents="none">{z.label}</text>;
           })}
 
           {/* markers — placed so their labels never sit on top of each other */}
@@ -797,7 +797,7 @@ export function GoldChart({
                 <g key={k} className="hud-in">
                   <line x1={x(i) - 18} x2={x(i) + 18} y1={y(p)} y2={y(p)} stroke={col} strokeDasharray="2 3" strokeOpacity={0.8} />
                   {Math.abs(yy - y(p)) > 16 && <line x1={cx} x2={x(i)} y1={yy + (above ? 3 : -7)} y2={y(p)} stroke={col} strokeOpacity={0.25} />}
-                  <text x={cx} y={yy} textAnchor="middle" fontSize={compact ? 8.5 : 9.5} fontWeight={600} fill={col} stroke="rgba(3,7,11,0.85)" strokeWidth={3} paintOrder="stroke">{m.label}</text>
+                  <text x={cx} y={yy} textAnchor="middle" fontSize={compact ? 8.5 : 9.5} fontWeight={600} fill={col} stroke="rgba(var(--cc-03070b-rgb,3,7,11),0.85)" strokeWidth={3} paintOrder="stroke">{m.label}</text>
                 </g>
               );
             });
@@ -842,10 +842,10 @@ export function GoldChart({
                 {l.tag !== false && (
                   <g>
                     <rect x={plotW + 2} y={tagYs[i] - 8} width={AXIS - 4} height={16} rx={2} fill={l.color} fillOpacity={0.9} />
-                    <text x={plotW + AXIS / 2} y={tagYs[i] + 4} textAnchor="middle" fontSize={compact ? 9 : 10} fontWeight={600} fill="#04080C">{l.price.toFixed(2)}</text>
+                    <text x={plotW + AXIS / 2} y={tagYs[i] + 4} textAnchor="middle" fontSize={compact ? 9 : 10} fontWeight={600} fill="var(--cc-04080c,#04080C)">{l.price.toFixed(2)}</text>
                   </g>
                 )}
-                <text x={6} y={labYs[i]} fontSize={compact ? 8.5 : 9.5} fill={l.color} fillOpacity={0.95} stroke="rgba(3,7,11,0.85)" strokeWidth={3} paintOrder="stroke">{l.label}</text>
+                <text x={6} y={labYs[i]} fontSize={compact ? 8.5 : 9.5} fill={l.color} fillOpacity={0.95} stroke="rgba(var(--cc-03070b-rgb,3,7,11),0.85)" strokeWidth={3} paintOrder="stroke">{l.label}</text>
               </g>
             );
           });
@@ -859,8 +859,8 @@ export function GoldChart({
             <g key={`ah${h.levelId}`} className="hud-in" pointerEvents="none">
               <line x1={0} x2={plotW} y1={hy} y2={hy} stroke={H.cyan2} strokeWidth={1.6} strokeOpacity={0.95} filter="url(#hudGlow)" />
               <rect x={plotW + 2} y={hy - 8} width={AXIS - 4} height={16} rx={2} fill={H.cyan2} />
-              <text x={plotW + AXIS / 2} y={hy + 4} textAnchor="middle" fontSize={compact ? 9 : 10} fontWeight={700} fill="#04080C">{h.price.toFixed(2)}</text>
-              <text x={plotW - 6} y={hy - 5} textAnchor="end" fontSize={compact ? 8.5 : 9.5} fontWeight={600} fill={H.cyan2} stroke="rgba(3,7,11,0.85)" strokeWidth={3} paintOrder="stroke">◆ ATLAS · {h.label}</text>
+              <text x={plotW + AXIS / 2} y={hy + 4} textAnchor="middle" fontSize={compact ? 9 : 10} fontWeight={700} fill="var(--cc-04080c,#04080C)">{h.price.toFixed(2)}</text>
+              <text x={plotW - 6} y={hy - 5} textAnchor="end" fontSize={compact ? 8.5 : 9.5} fontWeight={600} fill={H.cyan2} stroke="rgba(var(--cc-03070b-rgb,3,7,11),0.85)" strokeWidth={3} paintOrder="stroke">◆ ATLAS · {h.label}</text>
             </g>
           );
         })}
@@ -870,7 +870,7 @@ export function GoldChart({
           const i = indexOfT(bars, selT);
           if (i < 0 || x(i) < 0 || x(i) > plotW) return null;
           return <rect data-selected-candle="" x={x(i) - bw / 2 - 2} y={Math.max(1, y(bars[i].h) - 3)} width={bw + 4} height={Math.max(8, y(bars[i].l) - y(bars[i].h) + 6)} rx={2}
-            fill="none" stroke="rgba(240,244,247,0.55)" strokeDasharray="2 2" pointerEvents="none" />;
+            fill="none" stroke="rgba(var(--cc-f0f4f7-rgb,240,244,247),0.55)" strokeDasharray="2 2" pointerEvents="none" />;
         })()}
 
         {/* the member's own lines: their layer, their colour, never cleared with ATLAS's */}
@@ -886,7 +886,7 @@ export function GoldChart({
           <g>
             <line x1={0} x2={plotW} y1={y(lastPx)} y2={y(lastPx)} stroke={pxColor} strokeOpacity={0.5} strokeDasharray="1 3" />
             <rect x={plotW + 2} y={y(lastPx) - 9} width={AXIS - 4} height={18} rx={2} fill={pxColor} />
-            <text x={plotW + AXIS / 2} y={y(lastPx) + 4} textAnchor="middle" fontSize={compact ? 9.5 : 10.5} fontWeight={700} fill="#04080C">{lastPx.toFixed(2)}</text>
+            <text x={plotW + AXIS / 2} y={y(lastPx) + 4} textAnchor="middle" fontSize={compact ? 9.5 : 10.5} fontWeight={700} fill="var(--cc-04080c,#04080C)">{lastPx.toFixed(2)}</text>
           </g>
         )}
 
@@ -917,7 +917,7 @@ export function GoldChart({
         {/* crosshair — time, price, and the price the cursor sits on */}
         {hover != null && hover >= i0 && hover <= i1 && (
           <g pointerEvents="none">
-            <line x1={x(hover)} x2={x(hover)} y1={0} y2={sz.h - TIME_H} stroke="rgba(240,244,247,0.25)" strokeDasharray="2 3" />
+            <line x1={x(hover)} x2={x(hover)} y1={0} y2={sz.h - TIME_H} stroke="rgba(var(--cc-f0f4f7-rgb,240,244,247),0.25)" strokeDasharray="2 3" />
             <rect x={Math.max(0, Math.min(plotW - 58, x(hover) - 29))} y={sz.h - TIME_H} width={58} height={TIME_H - 2} rx={2} fill="rgba(12,22,33,0.95)" stroke={H.lineSoft} />
             <text x={Math.max(29, Math.min(plotW - 29, x(hover)))} y={sz.h - 5} textAnchor="middle" fontSize="9.5" fill={H.text}>
               {new Date(bars[hover].t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
@@ -926,7 +926,7 @@ export function GoldChart({
         )}
         {hoverY != null && (
           <g pointerEvents="none">
-            <line x1={0} x2={plotW} y1={hoverY} y2={hoverY} stroke="rgba(240,244,247,0.18)" strokeDasharray="2 3" />
+            <line x1={0} x2={plotW} y1={hoverY} y2={hoverY} stroke="rgba(var(--cc-f0f4f7-rgb,240,244,247),0.18)" strokeDasharray="2 3" />
             <rect x={plotW + 2} y={hoverY - 8} width={AXIS - 4} height={16} rx={2} fill="rgba(12,22,33,0.96)" stroke={H.lineSoft} />
             <text x={plotW + AXIS / 2} y={hoverY + 4} textAnchor="middle" fontSize="10" fill={H.text}>
               {(view.pHi - (hoverY / Math.max(1, priceH)) * (view.pHi - view.pLo)).toFixed(2)}

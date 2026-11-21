@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Activity, Bell, Check, Copy, Crosshair, Eye, EyeOff, RefreshCw, Sparkles, X } from "lucide-react";
-import { H, fmt2, LABEL } from "./theme";
+import { H, fmt2, LABEL, alpha } from "./theme";
 import type { AtlasIdea, IdeaFollow, IdeaState } from "../../../../command-center/engines/idea";
 
 /**
@@ -219,7 +219,7 @@ export function IdeaPanel({
         </p>
         <button onClick={() => void generate()} disabled={busy} data-generate=""
           className="mt-3 flex w-full items-center justify-center gap-2 rounded-[9px] px-3 py-3 text-[12.5px] font-black uppercase tracking-[0.2em] transition hover:brightness-110 disabled:opacity-60"
-          style={{ color: "#1A1305", background: "linear-gradient(180deg, #FFD875, #D5A93D)", boxShadow: "0 0 22px rgba(213,169,61,0.35)" }}>
+          style={{ color: "var(--cc-1a1305,#1A1305)", background: "linear-gradient(180deg, var(--cc-ffd875,#FFD875), var(--cc-d5a93d,#D5A93D))", boxShadow: "0 0 22px rgba(var(--cc-d5a93d-rgb,213,169,61),0.35)" }}>
           <Sparkles className="h-4 w-4" />{busy ? "ATLAS is reading gold…" : idea ? "Generate again" : "Generate"}
         </button>
         <p className="mt-1.5 text-center text-[10px]" style={{ color: H.mut2 }}>{replay ? "Replay — recorded gold, nothing can be executed." : "Included in your Command Center window — no extra credits."}</p>
@@ -233,7 +233,7 @@ export function IdeaPanel({
           <ul className="mt-3 space-y-2">
             {STAGES.map((s, k) => (
               <li key={s} className="flex items-center gap-2.5 text-[12px]" style={{ color: k < stage ? H.text : k === stage ? H.gold3 : H.mut2 }}>
-                <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full" style={{ border: `1px solid ${k < stage ? H.green : k === stage ? H.gold2 : H.line}`, background: k < stage ? "rgba(41,223,166,0.14)" : "transparent" }}>
+                <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full" style={{ border: `1px solid ${k < stage ? H.green : k === stage ? H.gold2 : H.line}`, background: k < stage ? "rgba(var(--cc-29dfa6-rgb,41,223,166),0.14)" : "transparent" }}>
                   {k < stage ? <Check className="h-2.5 w-2.5" style={{ color: H.green }} /> : k === stage ? <span className="h-1.5 w-1.5 rounded-full" style={{ background: H.gold3 }} /> : null}
                 </span>
                 {s}
@@ -243,24 +243,24 @@ export function IdeaPanel({
         </div>
       )}
 
-      {err && !busy && <p role="alert" className="rounded-[8px] px-3 py-2 text-[12px]" style={{ color: H.red, border: `1px solid ${H.red}55`, background: "rgba(255,83,100,0.07)" }}>{err}</p>}
+      {err && !busy && <p role="alert" className="rounded-[8px] px-3 py-2 text-[12px]" style={{ color: H.red, border: `1px solid color-mix(in srgb, ${H.red} 33%, transparent)`, background: "rgba(var(--cc-ff5364-rgb,255,83,100),0.07)" }}>{err}</p>}
 
       {/* the idea */}
       {idea && !busy && (
-        <div className="hud-in overflow-hidden rounded-[10px]" style={{ border: `1px solid ${trade ? `${sideCol}66` : H.line}`, background: H.panel }} data-idea-kind={idea.kind} data-idea-source={idea.source ?? ""}>
-          <div className="px-3 pb-2 pt-3" style={{ background: trade ? `linear-gradient(180deg, ${sideCol}12, transparent)` : "transparent" }}>
+        <div className="hud-in overflow-hidden rounded-[10px]" style={{ border: `1px solid ${trade ? `${alpha(sideCol, "66")}` : H.line}`, background: H.panel }} data-idea-kind={idea.kind} data-idea-source={idea.source ?? ""}>
+          <div className="px-3 pb-2 pt-3" style={{ background: trade ? `linear-gradient(180deg, ${alpha(sideCol, "12")}, transparent)` : "transparent" }}>
             <p className="inline-block rounded-[5px] px-2 py-[3px] text-[8.5px] font-bold uppercase tracking-[0.14em]" data-idea-badge=""
-              style={confirmed ? { color: "#1A1305", border: "1px solid rgba(231,196,103,0.9)", background: "linear-gradient(180deg, #FFD875, #D5A93D)" }
-                : { color: H.gold3, border: "1px solid rgba(231,196,103,0.6)", background: "rgba(213,169,61,0.12)" }}>
+              style={confirmed ? { color: "var(--cc-1a1305,#1A1305)", border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.9)", background: "linear-gradient(180deg, var(--cc-ffd875,#FFD875), var(--cc-d5a93d,#D5A93D))" }
+                : { color: H.gold3, border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.6)", background: "rgba(var(--cc-d5a93d-rgb,213,169,61),0.12)" }}>
               {idea.badge}
             </p>
             <p className="mt-2 flex flex-wrap items-center gap-2 text-[17px] font-semibold leading-tight" data-idea-headline="">
-              {trade && <span className="rounded-[5px] px-2 py-[2px] text-[11px] font-black tracking-[0.12em]" style={{ color: sideCol, border: `1px solid ${sideCol}`, background: `${sideCol}14` }}>{up ? "LONG" : "SHORT"}</span>}
+              {trade && <span className="rounded-[5px] px-2 py-[2px] text-[11px] font-black tracking-[0.12em]" style={{ color: sideCol, border: `1px solid ${sideCol}`, background: `${alpha(sideCol, "14")}` }}>{up ? "LONG" : "SHORT"}</span>}
               {idea.headline}
             </p>
             {/* ATLAS, in its own words */}
             <div className="mt-2.5 rounded-[9px] p-3" onClick={words.typing ? words.finish : undefined}
-              style={{ border: `1px solid ${H.line}`, borderLeft: `2px solid ${H.gold2}`, background: "rgba(3,7,11,0.55)", cursor: words.typing ? "pointer" : "auto" }}
+              style={{ border: `1px solid ${H.line}`, borderLeft: `2px solid ${H.gold2}`, background: "rgba(var(--cc-03070b-rgb,3,7,11),0.55)", cursor: words.typing ? "pointer" : "auto" }}
               data-idea-reasoning="" data-typing={words.typing ? "1" : "0"}>
               <p className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[0.16em]" style={{ color: H.gold2 }}>
                 <Sparkles className="h-3 w-3" />ATLAS<span className="font-semibold normal-case tracking-normal" style={{ color: H.mut2 }}>· {hhmm(idea.at)}</span>
@@ -303,9 +303,9 @@ export function IdeaPanel({
               </div>
 
               {update && (
-                <div className="hud-in mt-2.5 rounded-[8px] p-2.5" style={{ border: `1px solid ${toneCol(STATE_WORD[update.follow.state]?.tone ?? "mut")}55`, background: "rgba(3,7,11,0.5)" }} data-idea-follow={update.follow.state}>
+                <div className="hud-in mt-2.5 rounded-[8px] p-2.5" style={{ border: `1px solid ${alpha(toneCol(STATE_WORD[update.follow.state]?.tone ?? "mut"), "55")}`, background: "rgba(var(--cc-03070b-rgb,3,7,11),0.5)" }} data-idea-follow={update.follow.state}>
                   <p className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-[4px] px-1.5 py-[1px] text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color: toneCol(STATE_WORD[update.follow.state]?.tone ?? "mut"), border: `1px solid ${toneCol(STATE_WORD[update.follow.state]?.tone ?? "mut")}66` }}>{STATE_WORD[update.follow.state]?.word ?? update.follow.state}</span>
+                    <span className="rounded-[4px] px-1.5 py-[1px] text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color: toneCol(STATE_WORD[update.follow.state]?.tone ?? "mut"), border: `1px solid ${alpha(toneCol(STATE_WORD[update.follow.state]?.tone ?? "mut"), "66")}` }}>{STATE_WORD[update.follow.state]?.word ?? update.follow.state}</span>
                     {update.follow.pips != null && <b className="text-[12px] tabular-nums" style={{ color: update.follow.pips >= 0 ? H.green : H.red }}>{update.follow.pips >= 0 ? "+" : ""}{update.follow.pips} pips</b>}
                     <span className="text-[10px]" style={{ color: H.mut2 }}>as of {hhmmss(update.follow.at)}</span>
                   </p>
@@ -315,7 +315,7 @@ export function IdeaPanel({
               )}
 
               {/* execute — through ATLAS's own trade flow, never from here */}
-              <div className="mt-3 rounded-[9px] p-3" style={{ border: "1px solid rgba(231,196,103,0.3)", background: "rgba(213,169,61,0.04)" }} data-idea-execute={trade.execute.via ?? "none"}>
+              <div className="mt-3 rounded-[9px] p-3" style={{ border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.3)", background: "rgba(var(--cc-d5a93d-rgb,213,169,61),0.04)" }} data-idea-execute={trade.execute.via ?? "none"}>
                 <p className={LABEL} style={{ color: H.gold2 }}>Take it · through ATLAS</p>
                 <p className="mt-1 text-[11px] leading-snug" style={{ color: H.mut }}>{trade.execute.note}</p>
                 {!replay && (riskPct != null || account) && (
@@ -332,12 +332,12 @@ export function IdeaPanel({
                     <span className="text-[11px]" style={{ color: H.red }}>Sign the risk disclosure (the red notice at the top) before trading.</span>
                   ) : trade.execute.via === "take_setup" && execNow ? (
                     <button onClick={onTake} data-idea-take="" className="flex-1 rounded-[8px] px-3 py-2.5 text-[11.5px] font-black uppercase tracking-[0.14em]"
-                      style={{ color: sideCol, border: `1px solid ${sideCol}`, background: `${sideCol}1A` }}>
+                      style={{ color: sideCol, border: `1px solid ${sideCol}`, background: `${alpha(sideCol, "1A")}` }}>
                       Take this {up ? "buy" : "sell"} with ATLAS ▸
                     </button>
                   ) : trade.execute.via === "manual" && execNow && prefill() ? (
                     <button onClick={() => { const p = prefill(); if (p) onManual(p); }} data-idea-ticket="" className="flex-1 rounded-[8px] px-3 py-2.5 text-[11.5px] font-black uppercase tracking-[0.14em]"
-                      style={{ color: sideCol, border: `1px solid ${sideCol}`, background: `${sideCol}1A` }}>
+                      style={{ color: sideCol, border: `1px solid ${sideCol}`, background: `${alpha(sideCol, "1A")}` }}>
                       Open the {up ? "buy" : "sell"} ticket, prefilled ▸
                     </button>
                   ) : trade.kind === "enter_now" && !update ? (
@@ -352,7 +352,7 @@ export function IdeaPanel({
                   )}
                   {!replay && trade.watch && trade.id && !execNow && (
                     <button onClick={() => void armWatch()} disabled={watching || watch?.ok === true} data-idea-watch="" className="inline-flex items-center gap-1.5 rounded-[8px] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.1em] disabled:opacity-70"
-                      style={{ color: H.cyan2, border: "1px solid rgba(39,215,242,0.45)", background: "rgba(0,199,232,0.06)" }}>
+                      style={{ color: H.cyan2, border: "1px solid rgba(var(--cc-27d7f2-rgb,39,215,242),0.45)", background: "rgba(var(--cc-00c7e8-rgb,0,199,232),0.06)" }}>
                       {watch?.ok ? <Check className="h-3.5 w-3.5" /> : <Bell className="h-3.5 w-3.5" />}{watch?.ok ? "Watching" : watching ? "Registering…" : `Watch ${fmt2(trade.watch.price)}`}
                     </button>
                   )}
@@ -383,7 +383,7 @@ export function IdeaPanel({
                   <ul className="mt-1.5 space-y-1">
                     {trade.confirmations.map((c, k) => (
                       <li key={k} className="flex items-start gap-2 text-[11.5px]" title={c.detail ?? undefined}>
-                        <span className="mt-[2px] grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full" style={{ background: c.ok ? "rgba(41,223,166,0.14)" : "rgba(255,255,255,0.05)", color: c.ok ? H.green : H.mut2 }}>
+                        <span className="mt-[2px] grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full" style={{ background: c.ok ? "rgba(var(--cc-29dfa6-rgb,41,223,166),0.14)" : "rgba(255,255,255,0.05)", color: c.ok ? H.green : H.mut2 }}>
                           {c.ok ? <Check className="h-2.5 w-2.5" /> : <X className="h-2.5 w-2.5" />}
                         </span>
                         <span style={{ color: c.ok ? H.text : H.mut }}>{c.label}{c.detail ? <span style={{ color: H.mut2 }}> — {c.detail}</span> : null}</span>
@@ -404,7 +404,7 @@ export function IdeaPanel({
                   <ul className="mt-1.5 space-y-1.5">
                     {idea.paths.map((p) => (
                       <li key={p.side} className="flex items-start gap-2 text-[11.5px]">
-                        <span className="mt-[1px] shrink-0 rounded-[4px] px-1.5 text-[9px] font-bold" style={{ color: p.side === "buy" ? H.green : H.red, border: `1px solid ${p.side === "buy" ? H.green : H.red}66` }}>{p.side === "buy" ? "BUY" : "SELL"}</span>
+                        <span className="mt-[1px] shrink-0 rounded-[4px] px-1.5 text-[9px] font-bold" style={{ color: p.side === "buy" ? H.green : H.red, border: `1px solid color-mix(in srgb, ${p.side === "buy" ? H.green : H.red} 40%, transparent)` }}>{p.side === "buy" ? "BUY" : "SELL"}</span>
                         <span className="min-w-0 flex-1" style={{ color: H.text }}>{p.text}</span>
                         {!replay && <button onClick={() => onAsk(`Watch ${p.price.toFixed(2)} and tell me if it breaks ${p.direction}.`)} className="shrink-0 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: H.cyan2 }}>Watch</button>}
                       </li>
@@ -475,7 +475,7 @@ function Cell({ k, v, sub, tone, onCopy, copied, title }: { k: string; v: string
   return (
     <button type="button" onClick={onCopy} disabled={!onCopy} title={title ?? (onCopy ? "Tap to copy" : undefined)}
       className="rounded-[8px] px-2.5 py-2 text-left transition enabled:hover:brightness-125 disabled:cursor-default"
-      style={{ border: `1px solid ${copied ? H.cyan2 : H.line}`, background: "rgba(3,7,11,0.55)" }}>
+      style={{ border: `1px solid ${copied ? H.cyan2 : H.line}`, background: "rgba(var(--cc-03070b-rgb,3,7,11),0.55)" }}>
       <span className="block text-[8.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: H.mut }}>{copied ? "Copied" : k}</span>
       <span className="mt-0.5 block text-[13.5px] font-semibold tabular-nums leading-tight" style={{ color: tone ?? H.text }}>{v}</span>
       {sub && <span className="block text-[9.5px] tabular-nums" style={{ color: H.mut2 }}>{sub}</span>}
@@ -488,7 +488,7 @@ function Btn({ children, onClick, icon, busy, active, tone = "gold", ...rest }: 
   return (
     <button onClick={onClick} disabled={busy} {...rest}
       className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10.5px] font-semibold transition hover:brightness-125 disabled:opacity-60"
-      style={{ color: active ? "#1A1305" : c, border: `1px solid ${c}66`, background: active ? c : `${c}0F` }}>
+      style={{ color: active ? "var(--cc-1a1305,#1A1305)" : c, border: `1px solid ${alpha(c, "66")}`, background: active ? c : `${alpha(c, "0F")}` }}>
       {busy ? <RefreshCw className="h-3 w-3 animate-spin" /> : icon}{children}
     </button>
   );

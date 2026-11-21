@@ -25,9 +25,9 @@ import { isDesktop, onSummoned, openCommandCenter, setAlwaysOnTop, setCompanionS
  */
 
 const C = {
-  panel: "rgba(10,14,21,0.92)", raised: "#0E131C", line: "rgba(255,255,255,0.08)",
-  text: "#E8EFF7", mut: "rgba(232,239,247,0.56)", mut2: "rgba(232,239,247,0.34)",
-  gold: "#F0C475", up: "#3FD9A0", down: "#F4737B", cold: "#6FA8DC", amber: "#E9B949",
+  panel: "rgba(var(--cc-0a0e15-rgb,10,14,21),0.92)", raised: "var(--cc-0e131c,#0E131C)", line: "rgba(255,255,255,0.08)",
+  text: "var(--cc-e8eff7,#E8EFF7)", mut: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.56)", mut2: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.34)",
+  gold: "var(--cc-f0c475,#F0C475)", up: "var(--cc-3fd9a0,#3FD9A0)", down: "var(--cc-f4737b,#F4737B)", cold: "var(--cc-6fa8dc,#6FA8DC)", amber: "var(--cc-e9b949,#E9B949)",
 };
 
 type Brain = { presence: string; headline: string; focus: string[]; question: string; intensity: number; lean: number };
@@ -193,7 +193,7 @@ export default function BrainCompanion() {
   return (
     <div
       className="flex h-screen w-screen flex-col overflow-hidden rounded-2xl border backdrop-blur-xl"
-      style={{ borderColor: "rgba(240,196,117,0.20)", background: C.panel, color: C.text }}
+      style={{ borderColor: "rgba(var(--cc-f0c475-rgb,240,196,117),0.20)", background: C.panel, color: C.text }}
     >
       {/* Drag handle. On the web it is simply a header; the attribute means nothing outside the shell. */}
       <div data-tauri-drag-region className="flex items-center justify-between gap-2 px-3 pt-2.5 pb-1.5 select-none">
@@ -282,7 +282,7 @@ export default function BrainCompanion() {
 
         {/* ── a trade that is ready ── */}
         {setup && (
-          <div className="rounded-xl border px-2.5 py-2" style={{ borderColor: "rgba(63,217,160,0.28)", background: "rgba(63,217,160,0.06)" }}>
+          <div className="rounded-xl border px-2.5 py-2" style={{ borderColor: "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.28)", background: "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.06)" }}>
             <p className="text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: C.up }}>
               {setup.side === "buy" ? "Buy" : "Sell"} XAUUSD{setup.style ? ` · ${setup.style}` : ""}
             </p>
@@ -297,7 +297,7 @@ export default function BrainCompanion() {
               */}
             <button onClick={expand}
               className="mt-2 w-full rounded-lg px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.14em]"
-              style={{ background: "rgba(63,217,160,0.14)", color: C.up, border: "1px solid rgba(63,217,160,0.30)" }}>
+              style={{ background: "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.14)", color: C.up, border: "1px solid rgba(var(--cc-3fd9a0-rgb,63,217,160),0.30)" }}>
               Review it in Command Center
             </button>
           </div>
@@ -310,7 +310,7 @@ export default function BrainCompanion() {
 
         <button onClick={() => setOpen((o) => !o)}
           className="inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.14em]"
-          style={{ background: open ? "rgba(255,255,255,0.04)" : "rgba(240,196,117,0.14)", color: open ? C.mut : C.gold, border: `1px solid ${open ? C.line : "rgba(240,196,117,0.30)"}` }}>
+          style={{ background: open ? "rgba(255,255,255,0.04)" : "rgba(var(--cc-f0c475-rgb,240,196,117),0.14)", color: open ? C.mut : C.gold, border: `1px solid ${open ? C.line : "rgba(var(--cc-f0c475-rgb,240,196,117),0.30)"}` }}>
           <ChevronUp className="h-3.5 w-3.5" style={{ transform: open ? "rotate(180deg)" : undefined }} />
           {open ? "Close the line" : "Talk to ATLAS"}
         </button>

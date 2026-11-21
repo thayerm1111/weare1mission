@@ -53,7 +53,7 @@ export function StructureViz({ pivots, price, bearish }: { pivots: Pivot[]; pric
   const short = (v: number) => v.toFixed(0);
   return (
     <svg viewBox={`0 0 ${W} ${Hh}`} className="h-full w-full" preserveAspectRatio="xMidYMid meet">
-      {seq.map((q, k) => <line key={`g${k}`} x1={q[0]} y1={q[1]} x2={q[0]} y2={Hh - 6} stroke="rgba(89,175,255,0.08)" strokeWidth={0.6} />)}
+      {seq.map((q, k) => <line key={`g${k}`} x1={q[0]} y1={q[1]} x2={q[0]} y2={Hh - 6} stroke="rgba(var(--cc-59afff-rgb,89,175,255),0.08)" strokeWidth={0.6} />)}
       <path d={d} fill="none" stroke="#9FC9EE" strokeWidth={1.4} />
       {price != null && <path d={`M${seq[seq.length - 2][0]},${seq[seq.length - 2][1]} L${seq[seq.length - 1][0]},${seq[seq.length - 1][1]}`} stroke={tone} strokeWidth={2} fill="none" />}
       {pivots.map((p, k) => {

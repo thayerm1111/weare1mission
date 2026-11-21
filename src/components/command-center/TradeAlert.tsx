@@ -32,9 +32,9 @@ import { isDesktop } from "@/lib/desktop";
  */
 
 const C = {
-  panel: "#0B1017", raised: "#0E131C", line: "rgba(255,255,255,0.08)",
-  text: "#E8EFF7", mut: "rgba(232,239,247,0.56)", mut2: "rgba(232,239,247,0.34)",
-  gold: "#F0C475", up: "#3FD9A0", down: "#F4737B",
+  panel: "var(--cc-0b1017,#0B1017)", raised: "var(--cc-0e131c,#0E131C)", line: "rgba(255,255,255,0.08)",
+  text: "var(--cc-e8eff7,#E8EFF7)", mut: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.56)", mut2: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.34)",
+  gold: "var(--cc-f0c475,#F0C475)", up: "var(--cc-3fd9a0,#3FD9A0)", down: "var(--cc-f4737b,#F4737B)",
 };
 
 export type AlertSetup = {
@@ -150,7 +150,7 @@ export function TradeAlert({
     <div className="fixed inset-0 z-[120] flex items-end justify-center p-3 sm:items-center"
       style={{ background: "rgba(3,6,11,0.72)", backdropFilter: "blur(3px)" }}>
       <section className="w-full max-w-[380px] overflow-hidden rounded-2xl border"
-        style={{ borderColor: "rgba(240,196,117,0.30)", background: C.panel, boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}>
+        style={{ borderColor: "rgba(var(--cc-f0c475-rgb,240,196,117),0.30)", background: C.panel, boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}>
 
         <div className="flex items-center justify-between border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
           <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: C.gold }}>
@@ -202,7 +202,7 @@ export function TradeAlert({
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button onClick={() => void act("take")} disabled={!!busy}
               className="rounded-xl px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.14em] disabled:opacity-40"
-              style={{ background: "rgba(63,217,160,0.16)", color: C.up, border: "1px solid rgba(63,217,160,0.34)" }}>
+              style={{ background: "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.16)", color: C.up, border: "1px solid rgba(var(--cc-3fd9a0-rgb,63,217,160),0.34)" }}>
               {busy === "take" ? "Sending…" : "Take this trade"}
             </button>
             <button onClick={() => void act("pass")} disabled={!!busy}

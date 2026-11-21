@@ -19,7 +19,7 @@ export type TimelineFilter = "ALL" | "PRICE" | "STRUCTURE" | "NEWS" | "ATLAS";
 const FILTERS: TimelineFilter[] = ["ALL", "PRICE", "STRUCTURE", "NEWS", "ATLAS"];
 
 const KIND_COL: Record<TimelineKind, string> = {
-  trade: H.gold2, news: H.blue, structure: "rgba(39,215,242,0.75)", price: "rgba(255,255,255,0.35)", atlas: H.gold3,
+  trade: H.gold2, news: H.blue, structure: "rgba(var(--cc-27d7f2-rgb,39,215,242),0.75)", price: "rgba(255,255,255,0.35)", atlas: H.gold3,
 };
 const KIND_WORD: Record<TimelineKind, string> = { trade: "TRADE", news: "NEWS", structure: "STRUCTURE", price: "PRICE", atlas: "ATLAS" };
 const clock = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });

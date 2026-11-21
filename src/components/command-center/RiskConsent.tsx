@@ -25,9 +25,9 @@ import { ShieldAlert } from "lucide-react";
  */
 
 const C = {
-  panel: "#0B1017", raised: "#0E131C", line: "rgba(255,255,255,0.08)",
-  text: "#E8EFF7", mut: "rgba(232,239,247,0.60)", mut2: "rgba(232,239,247,0.34)",
-  gold: "#F0C475", down: "#F4737B", up: "#3FD9A0",
+  panel: "var(--cc-0b1017,#0B1017)", raised: "var(--cc-0e131c,#0E131C)", line: "rgba(255,255,255,0.08)",
+  text: "var(--cc-e8eff7,#E8EFF7)", mut: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.60)", mut2: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.34)",
+  gold: "var(--cc-f0c475,#F0C475)", down: "var(--cc-f4737b,#F4737B)", up: "var(--cc-3fd9a0,#3FD9A0)",
 };
 
 export type ConsentView = {
@@ -62,7 +62,7 @@ function renderDisclosure(raw: string) {
     if (isFinal) {
       return (
         <p key={i} className="mt-4 rounded-xl px-3 py-2.5 text-[12px] font-semibold leading-relaxed"
-          style={{ color: C.text, background: "rgba(244,115,123,0.08)", border: "1px solid rgba(244,115,123,0.22)" }}>
+          style={{ color: C.text, background: "rgba(var(--cc-f4737b-rgb,244,115,123),0.08)", border: "1px solid rgba(var(--cc-f4737b-rgb,244,115,123),0.22)" }}>
           {body}
         </p>
       );
@@ -177,7 +177,7 @@ export function RiskConsent({ open, onClose, onSigned }: {
     <div className="fixed inset-0 z-[130] flex items-center justify-center p-3"
       style={{ background: "rgba(3,6,11,0.82)", backdropFilter: "blur(4px)" }}>
       <section className="flex max-h-[92vh] w-full max-w-[560px] flex-col overflow-hidden rounded-2xl border"
-        style={{ borderColor: "rgba(244,115,123,0.30)", background: C.panel, color: C.text }}>
+        style={{ borderColor: "rgba(var(--cc-f4737b-rgb,244,115,123),0.30)", background: C.panel, color: C.text }}>
 
         <div className="flex items-center gap-2 border-b px-4 py-3" style={{ borderColor: C.line }}>
           <ShieldAlert className="h-4 w-4" style={{ color: C.down }} />
@@ -214,7 +214,7 @@ export function RiskConsent({ open, onClose, onSigned }: {
                   if (!el || el.scrollHeight <= el.clientHeight + 24 || stuck) setReadToEnd(true);
                 }}
                 className="rounded-lg px-2.5 py-1 text-[11px] font-semibold"
-                style={{ background: "rgba(240,196,117,0.12)", color: C.gold, border: "1px solid rgba(240,196,117,0.28)" }}
+                style={{ background: "rgba(var(--cc-f0c475-rgb,240,196,117),0.12)", color: C.gold, border: "1px solid rgba(var(--cc-f0c475-rgb,240,196,117),0.28)" }}
               >
                 Jump to the end
               </button>
@@ -224,7 +224,7 @@ export function RiskConsent({ open, onClose, onSigned }: {
           <label className="flex cursor-pointer items-start gap-2.5 text-[12.5px] leading-snug" style={{ color: C.text }}>
             <input type="checkbox" checked={ticked} disabled={!readToEnd}
               onChange={(e) => setTicked(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-[#F0C475]" />
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--cc-f0c475,#F0C475)]" />
             <span>
               I have read and understood this disclosure. I accept that I can lose money, including all
               of the money in my account, and I am making my own trading decisions.
@@ -246,7 +246,7 @@ export function RiskConsent({ open, onClose, onSigned }: {
           <div className="mt-3 flex gap-2">
             <button onClick={submit} disabled={!ready}
               className="flex-1 rounded-xl px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.14em] disabled:opacity-35"
-              style={{ background: "rgba(63,217,160,0.16)", color: C.up, border: "1px solid rgba(63,217,160,0.34)" }}>
+              style={{ background: "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.16)", color: C.up, border: "1px solid rgba(var(--cc-3fd9a0-rgb,63,217,160),0.34)" }}>
               {busy ? "Recording…" : "Sign and continue"}
             </button>
             <button onClick={onClose} disabled={busy}

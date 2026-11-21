@@ -22,9 +22,9 @@ import { ChevronDown, ChevronLeft, Link2, ShieldCheck, X } from "lucide-react";
  */
 
 const C = {
-  panel: "#0A0E15", raised: "#0E131C", line: "rgba(255,255,255,0.07)",
-  text: "#E8EFF7", mut: "rgba(232,239,247,0.56)", mut2: "rgba(232,239,247,0.34)",
-  gold: "#F0C475", up: "#3FD9A0", down: "#F4737B", cold: "#6FA8DC", amber: "#E9B949",
+  panel: "var(--cc-0a0e15,#0A0E15)", raised: "var(--cc-0e131c,#0E131C)", line: "rgba(255,255,255,0.07)",
+  text: "var(--cc-e8eff7,#E8EFF7)", mut: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.56)", mut2: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.34)",
+  gold: "var(--cc-f0c475,#F0C475)", up: "var(--cc-3fd9a0,#3FD9A0)", down: "var(--cc-f4737b,#F4737B)", cold: "var(--cc-6fa8dc,#6FA8DC)", amber: "var(--cc-e9b949,#E9B949)",
 };
 
 export type BrokerAccount = {
@@ -176,8 +176,8 @@ export function BrokerBar({ onAccountChange, size = "full" }: { onAccountChange?
                 </p>
                 <div className="mt-3 grid gap-2">
                   {([
-                    ["live", "LIVE", "Real money. Real orders.", C.down, "rgba(244,115,123,"],
-                    ["demo", "DEMO", "Practice account. Nothing at risk.", C.cold, "rgba(111,168,220,"],
+                    ["live", "LIVE", "Real money. Real orders.", C.down, "rgba(var(--cc-f4737b-rgb,244,115,123),"],
+                    ["demo", "DEMO", "Practice account. Nothing at risk.", C.cold, "rgba(var(--cc-6fa8dc-rgb,111,168,220),"],
                   ] as const).map(([id, label, hint, colour, rgb]) => (
                     <button key={id} onClick={() => { setEnv(id); setStep("credentials"); setError(null); }}
                       className="rounded-xl px-3.5 py-3 text-left"
@@ -202,9 +202,9 @@ export function BrokerBar({ onAccountChange, size = "full" }: { onAccountChange?
               <div className="px-4 py-4">
                 <div className="mb-3 inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]"
                   style={{
-                    background: env === "live" ? "rgba(244,115,123,0.12)" : "rgba(111,168,220,0.12)",
+                    background: env === "live" ? "rgba(var(--cc-f4737b-rgb,244,115,123),0.12)" : "rgba(var(--cc-6fa8dc-rgb,111,168,220),0.12)",
                     color: env === "live" ? C.down : C.cold,
-                    border: `1px solid ${env === "live" ? "rgba(244,115,123,0.30)" : "rgba(111,168,220,0.26)"}`,
+                    border: `1px solid ${env === "live" ? "rgba(var(--cc-f4737b-rgb,244,115,123),0.30)" : "rgba(var(--cc-6fa8dc-rgb,111,168,220),0.26)"}`,
                   }}>
                   {env === "live" ? "LIVE ACCOUNT" : "DEMO ACCOUNT"}
                 </div>
@@ -219,8 +219,8 @@ export function BrokerBar({ onAccountChange, size = "full" }: { onAccountChange?
                         <button key={i} onClick={() => { setServer(k.server); setEmail(k.email); setError(null); }}
                           className="rounded-full px-2.5 py-1 text-[10.5px] font-semibold"
                           style={{
-                            background: server === k.server ? "rgba(111,168,220,0.18)" : "rgba(111,168,220,0.08)",
-                            color: C.cold, border: "1px solid rgba(111,168,220,0.26)",
+                            background: server === k.server ? "rgba(var(--cc-6fa8dc-rgb,111,168,220),0.18)" : "rgba(var(--cc-6fa8dc-rgb,111,168,220),0.08)",
+                            color: C.cold, border: "1px solid rgba(var(--cc-6fa8dc-rgb,111,168,220),0.26)",
                           }}>
                           {k.server}
                         </button>
@@ -247,7 +247,7 @@ export function BrokerBar({ onAccountChange, size = "full" }: { onAccountChange?
                 {error && <p className="mt-2 text-[11.5px]" style={{ color: C.down }}>{error}</p>}
                 <button disabled={busy || !ready || !server || !email || !password} onClick={() => void doConnect()}
                   className="mt-3 w-full rounded-xl px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.14em] transition disabled:opacity-40"
-                  style={{ background: "rgba(240,196,117,0.14)", color: C.gold, border: "1px solid rgba(240,196,117,0.32)" }}>
+                  style={{ background: "rgba(var(--cc-f0c475-rgb,240,196,117),0.14)", color: C.gold, border: "1px solid rgba(var(--cc-f0c475-rgb,240,196,117),0.32)" }}>
                   Connect
                 </button>
               </div>
@@ -284,8 +284,8 @@ export function BrokerBar({ onAccountChange, size = "full" }: { onAccountChange?
         aria-label={active ? `Broker: ${active.isLive ? "live" : "demo"} account ${active.accNum}` : "Connect broker"}
         className={`inline-flex items-center gap-2 whitespace-nowrap rounded-full ${size === "auto" ? "px-2.5 min-[1800px]:px-3" : "px-3"} py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] transition`}
         style={{
-          background: active ? (active.isLive ? "rgba(244,115,123,0.10)" : "rgba(111,168,220,0.10)") : "rgba(240,196,117,0.10)",
-          border: `1px solid ${active ? (active.isLive ? "rgba(244,115,123,0.30)" : "rgba(111,168,220,0.26)") : "rgba(240,196,117,0.30)"}`,
+          background: active ? (active.isLive ? "rgba(var(--cc-f4737b-rgb,244,115,123),0.10)" : "rgba(var(--cc-6fa8dc-rgb,111,168,220),0.10)") : "rgba(var(--cc-f0c475-rgb,240,196,117),0.10)",
+          border: `1px solid ${active ? (active.isLive ? "rgba(var(--cc-f4737b-rgb,244,115,123),0.30)" : "rgba(var(--cc-6fa8dc-rgb,111,168,220),0.26)") : "rgba(var(--cc-f0c475-rgb,240,196,117),0.30)"}`,
           color: active ? (active.isLive ? C.down : C.cold) : C.gold,
         }}
       >
@@ -325,13 +325,13 @@ function AccountCard({ a, active = false, busy, post, details, setDetails }: {
 
   return (
     <div className="rounded-xl border px-3 py-2.5"
-      style={{ borderColor: active ? "rgba(240,196,117,0.30)" : C.line, background: active ? "rgba(240,196,117,0.04)" : C.raised }}>
+      style={{ borderColor: active ? "rgba(var(--cc-f0c475-rgb,240,196,117),0.30)" : C.line, background: active ? "rgba(var(--cc-f0c475-rgb,240,196,117),0.04)" : C.raised }}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-2 text-[14px] font-black tracking-tight">
             {a.server || a.label}
             <span className="rounded-full px-1.5 py-0.5 text-[9px] font-black tracking-[0.1em]"
-              style={{ background: a.isLive ? "rgba(244,115,123,0.14)" : "rgba(111,168,220,0.14)", color: a.isLive ? C.down : C.cold }}>
+              style={{ background: a.isLive ? "rgba(var(--cc-f4737b-rgb,244,115,123),0.14)" : "rgba(var(--cc-6fa8dc-rgb,111,168,220),0.14)", color: a.isLive ? C.down : C.cold }}>
               {a.isLive ? "LIVE" : "DEMO"}
             </span>
           </p>
@@ -364,13 +364,13 @@ function AccountCard({ a, active = false, busy, post, details, setDetails }: {
       </div>
 
       {a.isLive && !a.liveAuthorized && (
-        <div className="mt-2.5 rounded-lg px-2.5 py-2" style={{ background: "rgba(244,115,123,0.07)", border: "1px solid rgba(244,115,123,0.22)" }}>
+        <div className="mt-2.5 rounded-lg px-2.5 py-2" style={{ background: "rgba(var(--cc-f4737b-rgb,244,115,123),0.07)", border: "1px solid rgba(var(--cc-f4737b-rgb,244,115,123),0.22)" }}>
           <p className="text-[11.5px] leading-relaxed" style={{ color: C.mut }}>
             This is a real-money account. ATLAS can read it, and can send nothing on it, until you authorise live trading.
           </p>
           <button onClick={() => void post({ action: "authorize_live", accountRowId: a.id, confirm: true })} disabled={busy}
             className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
-            style={{ background: "rgba(244,115,123,0.14)", color: C.down, border: "1px solid rgba(244,115,123,0.32)" }}>
+            style={{ background: "rgba(var(--cc-f4737b-rgb,244,115,123),0.14)", color: C.down, border: "1px solid rgba(var(--cc-f4737b-rgb,244,115,123),0.32)" }}>
             <ShieldCheck className="h-3 w-3" /> Authorise live trading
           </button>
         </div>
@@ -391,9 +391,9 @@ function AccountCard({ a, active = false, busy, post, details, setDetails }: {
                 <button key={k} disabled={busy} onClick={() => void post({ action: "permissions", accountRowId: a.id, [k]: !on })}
                   className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
                   style={{
-                    background: on ? "rgba(63,217,160,0.12)" : "rgba(255,255,255,0.04)",
+                    background: on ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.12)" : "rgba(255,255,255,0.04)",
                     color: on ? C.up : C.mut2,
-                    border: `1px solid ${on ? "rgba(63,217,160,0.30)" : C.line}`,
+                    border: `1px solid ${on ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.30)" : C.line}`,
                   }}>
                   {label}
                 </button>
@@ -403,9 +403,9 @@ function AccountCard({ a, active = false, busy, post, details, setDetails }: {
           <button disabled={busy} onClick={() => void post({ action: "auto_trading", accountRowId: a.id, on: !a.autoTrading })}
             className="mt-2 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
             style={{
-              background: a.autoTrading ? "rgba(233,185,73,0.12)" : "rgba(255,255,255,0.04)",
+              background: a.autoTrading ? "rgba(var(--cc-e9b949-rgb,233,185,73),0.12)" : "rgba(255,255,255,0.04)",
               color: a.autoTrading ? C.amber : C.mut2,
-              border: `1px solid ${a.autoTrading ? "rgba(233,185,73,0.30)" : C.line}`,
+              border: `1px solid ${a.autoTrading ? "rgba(var(--cc-e9b949-rgb,233,185,73),0.30)" : C.line}`,
             }}>
             {a.autoTrading ? "Turn auto entry off" : "Allow ATLAS to enter by itself"}
           </button>
@@ -425,7 +425,7 @@ function AccountCard({ a, active = false, busy, post, details, setDetails }: {
           void post({ action: "disconnect", connectionId: a.connectionId });
         }}
         className="mt-3 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
-        style={{ background: "rgba(244,115,123,0.10)", color: C.down, border: "1px solid rgba(244,115,123,0.28)" }}>
+        style={{ background: "rgba(var(--cc-f4737b-rgb,244,115,123),0.10)", color: C.down, border: "1px solid rgba(var(--cc-f4737b-rgb,244,115,123),0.28)" }}>
         Disconnect
       </button>
 

@@ -21,9 +21,9 @@ import { Brain, Check, ChevronDown, Minus, Sliders, X } from "lucide-react";
  */
 
 const C = {
-  panel: "#0A0E15", raised: "#0E131C", line: "rgba(255,255,255,0.07)",
-  text: "#E8EFF7", mut: "rgba(232,239,247,0.56)", mut2: "rgba(232,239,247,0.34)",
-  gold: "#F0C475", up: "#3FD9A0", down: "#F4737B", cold: "#6FA8DC", amber: "#E9B949",
+  panel: "var(--cc-0a0e15,#0A0E15)", raised: "var(--cc-0e131c,#0E131C)", line: "rgba(255,255,255,0.07)",
+  text: "var(--cc-e8eff7,#E8EFF7)", mut: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.56)", mut2: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.34)",
+  gold: "var(--cc-f0c475,#F0C475)", up: "var(--cc-3fd9a0,#3FD9A0)", down: "var(--cc-f4737b,#F4737B)", cold: "var(--cc-6fa8dc,#6FA8DC)", amber: "var(--cc-e9b949,#E9B949)",
 };
 
 export type SetupView = {
@@ -159,7 +159,7 @@ export function BrainTradeCard({
     ? +(setup.expectedMovePips[0] / setup.stopPips).toFixed(1) : null;
 
   return (
-    <section className="overflow-hidden rounded-2xl border" style={{ borderColor: ready ? "rgba(240,196,117,0.30)" : C.line, background: C.panel }}>
+    <section className="overflow-hidden rounded-2xl border" style={{ borderColor: ready ? "rgba(var(--cc-f0c475-rgb,240,196,117),0.30)" : C.line, background: C.panel }}>
       <div className="flex items-center justify-between gap-2 border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
         <p className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: tone }}>
           <Brain className="h-3.5 w-3.5" /> {setup?.headline ?? "ATLAS"}
@@ -220,8 +220,8 @@ export function BrainTradeCard({
               <li key={c.id} className="flex items-start gap-2">
                 <span className="mt-[2px] grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full"
                   style={{
-                    background: c.met ? "rgba(63,217,160,0.16)" : "rgba(255,255,255,0.05)",
-                    border: `1px solid ${c.met ? "rgba(63,217,160,0.42)" : C.line}`,
+                    background: c.met ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.16)" : "rgba(255,255,255,0.05)",
+                    border: `1px solid ${c.met ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.42)" : C.line}`,
                   }}>
                   {c.met ? <Check className="h-2.5 w-2.5" style={{ color: C.up }} /> : null}
                 </span>
@@ -237,13 +237,13 @@ export function BrainTradeCard({
 
       {/* the trade itself */}
       {setup?.side && setup.stop != null && (
-        <div className="border-t px-3.5 py-3" style={{ borderColor: C.line, background: ready ? "rgba(240,196,117,0.035)" : "transparent" }}>
+        <div className="border-t px-3.5 py-3" style={{ borderColor: C.line, background: ready ? "rgba(var(--cc-f0c475-rgb,240,196,117),0.035)" : "transparent" }}>
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span className="text-[16px] font-black tracking-tight" style={{ color: long ? C.up : C.down }}>
               {long ? "BUY" : "SELL"} XAUUSD
             </span>
             <span className="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em]"
-              style={{ background: "rgba(240,196,117,0.10)", color: C.gold, border: "1px solid rgba(240,196,117,0.26)" }}>
+              style={{ background: "rgba(var(--cc-f0c475-rgb,240,196,117),0.10)", color: C.gold, border: "1px solid rgba(var(--cc-f0c475-rgb,240,196,117),0.26)" }}>
               {String(setup.style).toUpperCase()}
             </span>
             {rToFirst != null && (
@@ -289,7 +289,7 @@ export function BrainTradeCard({
       {result && (
         <div className="border-t px-3.5 py-2.5 text-[12px]" style={{
           borderColor: C.line,
-          background: result.ok ? "rgba(63,217,160,0.07)" : "rgba(233,185,73,0.07)",
+          background: result.ok ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.07)" : "rgba(var(--cc-e9b949-rgb,233,185,73),0.07)",
           color: result.ok ? C.up : C.amber,
         }}>
           {result.message}
@@ -303,9 +303,9 @@ export function BrainTradeCard({
             <button onClick={() => void take()} disabled={busy || !account || (account.isLive && !account.liveAuthorized)}
               className="flex-1 rounded-xl px-3 py-3 text-[12px] font-black uppercase tracking-[0.16em] disabled:opacity-40"
               style={{
-                background: long ? "rgba(63,217,160,0.16)" : "rgba(244,115,123,0.16)",
+                background: long ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.16)" : "rgba(var(--cc-f4737b-rgb,244,115,123),0.16)",
                 color: long ? C.up : C.down,
-                border: `1px solid ${long ? "rgba(63,217,160,0.38)" : "rgba(244,115,123,0.38)"}`,
+                border: `1px solid ${long ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.38)" : "rgba(var(--cc-f4737b-rgb,244,115,123),0.38)"}`,
               }}>
               {busy ? "Sending…" : "Take this trade"}
             </button>
@@ -378,7 +378,7 @@ export function TradeCompleteCard({ c }: { c: CompletedView }) {
   const mins = Math.max(1, Math.round(c.heldMs / 60_000));
   return (
     <section className="overflow-hidden rounded-2xl border"
-      style={{ borderColor: won ? "rgba(63,217,160,0.28)" : "rgba(244,115,123,0.26)", background: C.panel }}>
+      style={{ borderColor: won ? "rgba(var(--cc-3fd9a0-rgb,63,217,160),0.28)" : "rgba(var(--cc-f4737b-rgb,244,115,123),0.26)", background: C.panel }}>
       <div className="border-b px-3.5 py-2.5" style={{ borderColor: C.line }}>
         <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: won ? C.up : C.down }}>Trade complete</p>
       </div>
@@ -479,12 +479,12 @@ export function ProfileSheet({ open, profile, onClose, onSaved }: {
   }) => (
     <button onClick={() => onChange(!value)} disabled={busy}
       className="flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left disabled:opacity-50"
-      style={{ background: "rgba(255,255,255,0.025)", border: `1px solid ${value ? (danger ? "rgba(244,115,123,0.30)" : "rgba(240,196,117,0.26)") : C.line}` }}>
+      style={{ background: "rgba(255,255,255,0.025)", border: `1px solid ${value ? (danger ? "rgba(var(--cc-f4737b-rgb,244,115,123),0.30)" : "rgba(var(--cc-f0c475-rgb,240,196,117),0.26)") : C.line}` }}>
       <span className="min-w-0">
         <span className="block text-[12.5px] font-bold" style={{ color: value ? (danger ? C.down : C.gold) : C.text }}>{label}</span>
         <span className="block text-[11px] leading-relaxed" style={{ color: C.mut2 }}>{hint}</span>
       </span>
-      <span className="mt-0.5 h-4 w-7 shrink-0 rounded-full p-[2px]" style={{ background: value ? (danger ? "rgba(244,115,123,0.34)" : "rgba(240,196,117,0.34)") : "rgba(255,255,255,0.08)" }}>
+      <span className="mt-0.5 h-4 w-7 shrink-0 rounded-full p-[2px]" style={{ background: value ? (danger ? "rgba(var(--cc-f4737b-rgb,244,115,123),0.34)" : "rgba(var(--cc-f0c475-rgb,240,196,117),0.34)") : "rgba(255,255,255,0.08)" }}>
         <span className="block h-3 w-3 rounded-full transition-transform"
           style={{ background: value ? (danger ? C.down : C.gold) : C.mut2, transform: value ? "translateX(12px)" : "none" }} />
       </span>
@@ -508,9 +508,9 @@ export function ProfileSheet({ open, profile, onClose, onSaved }: {
                 <button key={r} onClick={() => void save({ riskPct: r })} disabled={busy}
                   className="rounded-full px-3.5 py-1.5 text-[12px] font-bold tabular-nums disabled:opacity-50"
                   style={{
-                    background: draft.riskPct === r ? "rgba(111,168,220,0.16)" : "rgba(255,255,255,0.04)",
+                    background: draft.riskPct === r ? "rgba(var(--cc-6fa8dc-rgb,111,168,220),0.16)" : "rgba(255,255,255,0.04)",
                     color: draft.riskPct === r ? C.cold : C.mut2,
-                    border: `1px solid ${draft.riskPct === r ? "rgba(111,168,220,0.34)" : C.line}`,
+                    border: `1px solid ${draft.riskPct === r ? "rgba(var(--cc-6fa8dc-rgb,111,168,220),0.34)" : C.line}`,
                   }}>
                   {r.toFixed(2)}%
                 </button>
@@ -572,7 +572,7 @@ export function ProfileSheet({ open, profile, onClose, onSaved }: {
             </div>
           </div>
 
-          <div className="rounded-xl px-3 py-3" style={{ background: "rgba(244,115,123,0.05)", border: "1px solid rgba(244,115,123,0.20)" }}>
+          <div className="rounded-xl px-3 py-3" style={{ background: "rgba(var(--cc-f4737b-rgb,244,115,123),0.05)", border: "1px solid rgba(var(--cc-f4737b-rgb,244,115,123),0.20)" }}>
             <Toggle label="Enter trades without asking" danger
               hint="FULL BRAIN MODE. I find the setup, size it, send it and manage it. You watch, and you can step in at any moment. This still needs live trading authorised on the account itself."
               value={draft.autoEntry} onChange={(v) => void save({ autoEntry: v })} />

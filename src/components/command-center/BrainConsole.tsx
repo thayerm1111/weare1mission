@@ -6,6 +6,7 @@ import { asksToShow, isRepeatAsk, transcriptOf, turnKey } from "./voiceLine";
 import { Crosshair, Mic, Send, Square } from "lucide-react";
 import { CHART_ACTION_EVENT, type ChartAction, type FeedStatus, type Lean } from "../../../command-center/core/atlasContract";
 import { FEED_WORD, refToAction, type AnswerItem, type AtlasAnswer } from "../../../command-center/brain/answer";
+import { alpha } from "./hud/theme";
 
 /**
  * TALKING TO ATLAS.
@@ -96,11 +97,11 @@ export type BrainConsoleProps = {
 };
 
 const LEAN_TONE: Record<Lean, string> = {
-  bullish_lean: "#2BD48F",
-  bearish_lean: "#FF5364",
-  balanced: "#27D7F2",
-  transitioning: "#E7C467",
-  insufficient_data: "#81909E",
+  bullish_lean: "var(--cc-2bd48f,#2BD48F)",
+  bearish_lean: "var(--cc-ff5364,#FF5364)",
+  balanced: "var(--cc-27d7f2,#27D7F2)",
+  transitioning: "var(--cc-e7c467,#E7C467)",
+  insufficient_data: "var(--cc-81909e,#81909E)",
 };
 
 /** The turns sent back with a question: what was asked, what was answered, and the read it was answered against. */
@@ -418,8 +419,8 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
             <div className="flex gap-2.5">
               <BrainAvatar />
               <div className="min-w-0 flex-1">
-                <p className="mb-1 text-[9.5px] font-bold uppercase tracking-[0.12em]" style={{ color: "#E7C467" }}>Atlas</p>
-                <div className="rounded-[8px] px-3 py-2.5 text-[12.5px] leading-relaxed" style={{ background: "rgba(9,19,29,0.9)", border: "1px solid rgba(89,175,255,0.13)", color: "#DCE6EE" }}>
+                <p className="mb-1 text-[9.5px] font-bold uppercase tracking-[0.12em]" style={{ color: "var(--cc-e7c467,#E7C467)" }}>Atlas</p>
+                <div className="rounded-[8px] px-3 py-2.5 text-[12.5px] leading-relaxed" style={{ background: "rgba(var(--cc-09131d-rgb,9,19,29),0.9)", border: "1px solid rgba(var(--cc-59afff-rgb,89,175,255),0.13)", color: "var(--cc-dce6ee,#DCE6EE)" }}>
                   I&rsquo;m watching gold. Ask me what I&rsquo;m seeing, why, or what would change my mind — or press the microphone and just talk.
                 </div>
               </div>
@@ -427,72 +428,72 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
           )}
           {turns.map((t, i) => t.role === "user" ? (
             <div key={i} className="flex flex-col items-end">
-              <p className="mb-1 text-[9.5px]" style={{ color: "#81909E" }}><span style={{ color: "#59AFFF", fontWeight: 700 }}>You</span> &nbsp;{t12(t.at)}</p>
-              <div className="max-w-[88%] rounded-[8px] px-3 py-2 text-[12.5px] leading-relaxed" style={{ background: "rgba(21,52,92,0.75)", border: "1px solid rgba(89,175,255,0.35)", color: "#F0F4F7" }}>{t.content}</div>
+              <p className="mb-1 text-[9.5px]" style={{ color: "var(--cc-81909e,#81909E)" }}><span style={{ color: "var(--cc-59afff,#59AFFF)", fontWeight: 700 }}>You</span> &nbsp;{t12(t.at)}</p>
+              <div className="max-w-[88%] rounded-[8px] px-3 py-2 text-[12.5px] leading-relaxed" style={{ background: "rgba(var(--cc-15345c-rgb,21,52,92),0.75)", border: "1px solid rgba(var(--cc-59afff-rgb,89,175,255),0.35)", color: "var(--cc-f0f4f7,#F0F4F7)" }}>{t.content}</div>
             </div>
           ) : (
             <div key={i} className="flex gap-2.5">
               <BrainAvatar />
               <div className="min-w-0 flex-1">
-                <p className="mb-1 text-[9.5px]" style={{ color: "#81909E" }}><span className="font-bold uppercase tracking-[0.12em]" style={{ color: "#E7C467" }}>Atlas</span> &nbsp;{t12(t.at)}</p>
-                <div className="whitespace-pre-line rounded-[8px] px-3 py-2.5 text-[12.5px] leading-relaxed" style={{ background: "rgba(9,19,29,0.9)", border: "1px solid rgba(89,175,255,0.13)", color: "#DCE6EE" }}>
+                <p className="mb-1 text-[9.5px]" style={{ color: "var(--cc-81909e,#81909E)" }}><span className="font-bold uppercase tracking-[0.12em]" style={{ color: "var(--cc-e7c467,#E7C467)" }}>Atlas</span> &nbsp;{t12(t.at)}</p>
+                <div className="whitespace-pre-line rounded-[8px] px-3 py-2.5 text-[12.5px] leading-relaxed" style={{ background: "rgba(var(--cc-09131d-rgb,9,19,29),0.9)", border: "1px solid rgba(var(--cc-59afff-rgb,89,175,255),0.13)", color: "var(--cc-dce6ee,#DCE6EE)" }}>
                   {t.answer ? <AnswerView answer={t.answer} feed={t.meta?.feed ?? null} onPoint={pointAt} palette={HUD_PALETTE} /> : t.content}
                 </div>
               </div>
             </div>
           ))}
-          {busy && <p className="pl-10 text-[11.5px]" style={{ color: "#27D7F2" }}>ATLAS is thinking…</p>}
+          {busy && <p className="pl-10 text-[11.5px]" style={{ color: "var(--cc-27d7f2,#27D7F2)" }}>ATLAS is thinking…</p>}
           {ended && <PassEnded kind={ended} onRenew={renew} palette={HUD_PALETTE} />}
-          {notice && <p className="text-[11px]" style={{ color: "#E7C467" }}>{notice}</p>}
-          {micError && <p className="text-[11px]" style={{ color: "#FF5364" }}>{micError}</p>}
+          {notice && <p className="text-[11px]" style={{ color: "var(--cc-e7c467,#E7C467)" }}>{notice}</p>}
+          {micError && <p className="text-[11px]" style={{ color: "var(--cc-ff5364,#FF5364)" }}>{micError}</p>}
         </div>
 
         <div className="flex flex-wrap gap-1.5 px-3 pb-2">
           {(quick ?? QUICK).map((q) => (
             <button key={q.label} onClick={() => void ask(q.q)} disabled={busy}
               className="rounded-[6px] px-2.5 py-[5px] text-[10.5px] transition hover:brightness-125 disabled:opacity-40"
-              style={{ background: "rgba(9,19,29,0.9)", color: "#C5D1DB", border: "1px solid rgba(89,175,255,0.18)" }}>
+              style={{ background: "rgba(var(--cc-09131d-rgb,9,19,29),0.9)", color: "#C5D1DB", border: "1px solid rgba(var(--cc-59afff-rgb,89,175,255),0.18)" }}>
               {q.label}
             </button>
           ))}
         </div>
 
-        <div className="flex items-center gap-2 border-t px-3 py-2.5" style={{ borderColor: "rgba(89,175,255,0.1)" }}>
+        <div className="flex items-center gap-2 border-t px-3 py-2.5" style={{ borderColor: "rgba(var(--cc-59afff-rgb,89,175,255),0.1)" }}>
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void ask(input); } }}
             placeholder={listening ? "Listening…" : "Ask ATLAS…"}
             className="min-w-0 flex-1 rounded-[6px] px-2.5 py-1.5 text-[12px] outline-none"
-            style={{ background: "rgba(3,7,11,0.8)", border: "1px solid rgba(89,175,255,0.14)", color: "#F0F4F7" }}
+            style={{ background: "rgba(var(--cc-03070b-rgb,3,7,11),0.8)", border: "1px solid rgba(var(--cc-59afff-rgb,89,175,255),0.14)", color: "var(--cc-f0f4f7,#F0F4F7)" }}
           />
           <button onClick={() => void ask(input)} disabled={!input.trim()} aria-label="Send"
             className="grid h-8 w-8 shrink-0 place-items-center rounded-full disabled:opacity-35"
-            style={{ border: "1px solid rgba(89,175,255,0.25)", color: "#59AFFF" }}>
+            style={{ border: "1px solid rgba(var(--cc-59afff-rgb,89,175,255),0.25)", color: "var(--cc-59afff,#59AFFF)" }}>
             <Send className="h-3.5 w-3.5" />
           </button>
         </div>
 
         <div className="flex items-center justify-between gap-2 px-3 pb-3 pt-1">
           <span className="h-8 w-8" aria-hidden />
-          <Wave active={listening || speaking} color={speaking ? "#E7C467" : "#27D7F2"} />
+          <Wave active={listening || speaking} color={speaking ? "var(--cc-e7c467,#E7C467)" : "var(--cc-27d7f2,#27D7F2)"} />
           <button
             onClick={listening ? stopListening : startListening}
             aria-label={listening ? "Stop listening" : "Talk to ATLAS"}
             className="relative grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full transition"
             style={{
               background: "radial-gradient(circle at 40% 35%, #3A2C0C, #120D04)",
-              border: `2px solid ${listening ? "#FFD875" : "#D5A93D"}`,
-              color: "#FFD875",
-              boxShadow: listening ? "0 0 0 6px rgba(255,216,117,0.12), 0 0 26px rgba(255,216,117,0.55)" : "0 0 16px rgba(213,169,61,0.35)",
+              border: `2px solid ${listening ? "var(--cc-ffd875,#FFD875)" : "var(--cc-d5a93d,#D5A93D)"}`,
+              color: "var(--cc-ffd875,#FFD875)",
+              boxShadow: listening ? "0 0 0 6px rgba(var(--cc-ffd875-rgb,255,216,117),0.12), 0 0 26px rgba(var(--cc-ffd875-rgb,255,216,117),0.55)" : "0 0 16px rgba(var(--cc-d5a93d-rgb,213,169,61),0.35)",
             }}>
-            {listening && <span className="hud-ping absolute inset-0 rounded-full" style={{ border: "1px solid #FFD875" }} />}
+            {listening && <span className="hud-ping absolute inset-0 rounded-full" style={{ border: "1px solid var(--cc-ffd875,#FFD875)" }} />}
             <Mic className="h-5 w-5" />
           </button>
-          <Wave active={listening || speaking} color={speaking ? "#E7C467" : "#27D7F2"} flip />
-          <p className="w-[72px] text-[10px] leading-tight" style={{ color: "#81909E" }}>{listening ? "Listening…" : speaking ? "Speaking — tap to interrupt" : "Click to speak or press space"}</p>
+          <Wave active={listening || speaking} color={speaking ? "var(--cc-e7c467,#E7C467)" : "var(--cc-27d7f2,#27D7F2)"} flip />
+          <p className="w-[72px] text-[10px] leading-tight" style={{ color: "var(--cc-81909e,#81909E)" }}>{listening ? "Listening…" : speaking ? "Speaking — tap to interrupt" : "Click to speak or press space"}</p>
           {speaking && (
-            <button onClick={stopSpeaking} aria-label="Stop speaking" className="grid h-8 w-8 place-items-center rounded-full" style={{ border: "1px solid rgba(231,196,103,0.4)", color: "#E7C467" }}>
+            <button onClick={stopSpeaking} aria-label="Stop speaking" className="grid h-8 w-8 place-items-center rounded-full" style={{ border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.4)", color: "var(--cc-e7c467,#E7C467)" }}>
               <Square className="h-3 w-3" />
             </button>
           )}
@@ -512,9 +513,9 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
             title={m.hint}
             className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] transition"
             style={{
-              background: mode === m.id ? "rgba(240,196,117,0.14)" : "rgba(255,255,255,0.03)",
-              color: mode === m.id ? "#F0C475" : "rgba(232,239,247,0.45)",
-              border: `1px solid ${mode === m.id ? "rgba(240,196,117,0.32)" : "rgba(255,255,255,0.06)"}`,
+              background: mode === m.id ? "rgba(var(--cc-f0c475-rgb,240,196,117),0.14)" : "rgba(255,255,255,0.03)",
+              color: mode === m.id ? "var(--cc-f0c475,#F0C475)" : "rgba(var(--cc-e8eff7-rgb,232,239,247),0.45)",
+              border: `1px solid ${mode === m.id ? "rgba(var(--cc-f0c475-rgb,240,196,117),0.32)" : "rgba(255,255,255,0.06)"}`,
             }}
           >
             {m.label}
@@ -522,7 +523,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
         ))}
         {speaking && (
           <button onClick={stopSpeaking} className="ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em]"
-            style={{ background: "rgba(240,196,117,0.14)", color: "#F0C475", border: "1px solid rgba(240,196,117,0.32)" }}>
+            style={{ background: "rgba(var(--cc-f0c475-rgb,240,196,117),0.14)", color: "var(--cc-f0c475,#F0C475)", border: "1px solid rgba(var(--cc-f0c475-rgb,240,196,117),0.32)" }}>
             <Square className="h-3 w-3" /> Stop
           </button>
         )}
@@ -532,7 +533,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
       <div ref={scroller} className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-3 py-3">
         {!turns.length && (
           <div className="space-y-2 py-4 text-center">
-            <p className="text-[12px]" style={{ color: "rgba(232,239,247,0.45)" }}>
+            <p className="text-[12px]" style={{ color: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.45)" }}>
               Press the microphone and say &ldquo;ATLAS, talk to me&rdquo;, or ask it anything about gold right now.
             </p>
             
@@ -544,23 +545,23 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
               className="max-w-[88%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed"
               style={
                 t.role === "user"
-                  ? { background: "rgba(111,168,220,0.13)", color: "#E8EFF7", border: "1px solid rgba(111,168,220,0.22)" }
-                  : { background: "rgba(255,255,255,0.035)", color: "#E8EFF7", border: "1px solid rgba(255,255,255,0.07)" }
+                  ? { background: "rgba(var(--cc-6fa8dc-rgb,111,168,220),0.13)", color: "var(--cc-e8eff7,#E8EFF7)", border: "1px solid rgba(var(--cc-6fa8dc-rgb,111,168,220),0.22)" }
+                  : { background: "rgba(255,255,255,0.035)", color: "var(--cc-e8eff7,#E8EFF7)", border: "1px solid rgba(255,255,255,0.07)" }
               }
             >
               {t.role === "assistant" && t.answer
                 ? <AnswerView answer={t.answer} feed={t.meta?.feed ?? null} onPoint={pointAt} palette={CLASSIC_PALETTE} />
                 : t.content}
               {t.role === "assistant" && t.source === "narrator" && (
-                <span className="mt-1 block text-[10px]" style={{ color: "rgba(232,239,247,0.32)" }}>deterministic voice</span>
+                <span className="mt-1 block text-[10px]" style={{ color: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.32)" }}>deterministic voice</span>
               )}
             </div>
           </div>
         ))}
-        {busy && <div className="text-[12px]" style={{ color: "rgba(232,239,247,0.4)" }}>ATLAS is thinking…</div>}
+        {busy && <div className="text-[12px]" style={{ color: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.4)" }}>ATLAS is thinking…</div>}
         {ended && <PassEnded kind={ended} onRenew={renew} palette={CLASSIC_PALETTE} />}
-        {notice && <div className="text-[11px]" style={{ color: "#F0C475" }}>{notice}</div>}
-        {micError && <div className="text-[11px]" style={{ color: "#F4737B" }}>{micError}</div>}
+        {notice && <div className="text-[11px]" style={{ color: "var(--cc-f0c475,#F0C475)" }}>{notice}</div>}
+        {micError && <div className="text-[11px]" style={{ color: "var(--cc-f4737b,#F4737B)" }}>{micError}</div>}
       </div>
 
       {/* quick asks */}
@@ -568,7 +569,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
         {QUICK.map((q) => (
           <button key={q.label} onClick={() => void ask(q.q)} disabled={busy}
             className="rounded-full px-2.5 py-1 text-[11px] transition disabled:opacity-40"
-            style={{ background: "rgba(255,255,255,0.04)", color: "rgba(232,239,247,0.68)", border: "1px solid rgba(255,255,255,0.07)" }}>
+            style={{ background: "rgba(255,255,255,0.04)", color: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.68)", border: "1px solid rgba(255,255,255,0.07)" }}>
             {q.label}
           </button>
         ))}
@@ -581,10 +582,10 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
           aria-label={listening ? "Stop listening" : "Talk to ATLAS"}
           className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition"
           style={{
-            background: listening ? "rgba(244,115,123,0.18)" : "rgba(240,196,117,0.14)",
-            border: `1px solid ${listening ? "rgba(244,115,123,0.42)" : "rgba(240,196,117,0.34)"}`,
-            color: listening ? "#F4737B" : "#F0C475",
-            boxShadow: listening ? "0 0 0 6px rgba(244,115,123,0.08)" : "none",
+            background: listening ? "rgba(var(--cc-f4737b-rgb,244,115,123),0.18)" : "rgba(var(--cc-f0c475-rgb,240,196,117),0.14)",
+            border: `1px solid ${listening ? "rgba(var(--cc-f4737b-rgb,244,115,123),0.42)" : "rgba(var(--cc-f0c475-rgb,240,196,117),0.34)"}`,
+            color: listening ? "var(--cc-f4737b,#F4737B)" : "var(--cc-f0c475,#F0C475)",
+            boxShadow: listening ? "0 0 0 6px rgba(var(--cc-f4737b-rgb,244,115,123),0.08)" : "none",
           }}
         >
           <Mic className="h-4 w-4" />
@@ -595,11 +596,11 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void ask(input); } }}
           placeholder={listening ? "Listening…" : "Ask ATLAS about gold…"}
           className="min-w-0 flex-1 rounded-xl px-3 py-2 text-[13px] outline-none"
-          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#E8EFF7" }}
+          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "var(--cc-e8eff7,#E8EFF7)" }}
         />
         <button onClick={() => void ask(input)} disabled={!input.trim()} aria-label="Send"
           className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition disabled:opacity-35"
-          style={{ background: "rgba(111,168,220,0.14)", border: "1px solid rgba(111,168,220,0.28)", color: "#6FA8DC" }}>
+          style={{ background: "rgba(var(--cc-6fa8dc-rgb,111,168,220),0.14)", border: "1px solid rgba(var(--cc-6fa8dc-rgb,111,168,220),0.28)", color: "var(--cc-6fa8dc,#6FA8DC)" }}>
           <Send className="h-4 w-4" />
         </button>
       </div>
@@ -610,8 +611,8 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
 /* ── a structured answer ─────────────────────────────────────────────────── */
 
 type Palette = { muted: string; text: string; cyan: string; red: string; green: string; gold: string; chip: string };
-const HUD_PALETTE: Palette = { muted: "#81909E", text: "#DCE6EE", cyan: "#27D7F2", red: "#FF5364", green: "#2BD48F", gold: "#E7C467", chip: "rgba(89,175,255,0.18)" };
-const CLASSIC_PALETTE: Palette = { muted: "rgba(232,239,247,0.45)", text: "#E8EFF7", cyan: "#6FA8DC", red: "#F4737B", green: "#5FD3A0", gold: "#F0C475", chip: "rgba(255,255,255,0.1)" };
+const HUD_PALETTE: Palette = { muted: "var(--cc-81909e,#81909E)", text: "var(--cc-dce6ee,#DCE6EE)", cyan: "var(--cc-27d7f2,#27D7F2)", red: "var(--cc-ff5364,#FF5364)", green: "var(--cc-2bd48f,#2BD48F)", gold: "var(--cc-e7c467,#E7C467)", chip: "rgba(var(--cc-59afff-rgb,89,175,255),0.18)" };
+const CLASSIC_PALETTE: Palette = { muted: "rgba(var(--cc-e8eff7-rgb,232,239,247),0.45)", text: "var(--cc-e8eff7,#E8EFF7)", cyan: "var(--cc-6fa8dc,#6FA8DC)", red: "var(--cc-f4737b,#F4737B)", green: "#5FD3A0", gold: "var(--cc-f0c475,#F0C475)", chip: "rgba(255,255,255,0.1)" };
 
 /**
  * The read first (lean + horizon, and the feed when it is not live), then what ATLAS said, then the
@@ -627,14 +628,14 @@ function AnswerView({ answer, feed, onPoint, palette: P }: { answer: AtlasAnswer
         <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
           {r && (
             <span className="rounded-[4px] px-1.5 py-[1px] text-[9.5px] font-bold uppercase tracking-[0.1em]"
-              style={{ color: tone, border: `1px solid ${tone}66`, background: `${tone}17` }}>
+              style={{ color: tone, border: `1px solid ${alpha(tone, "66")}`, background: `${alpha(tone, "17")}` }}>
               {r.label}{r.strength ? ` · ${r.strength}` : ""}
             </span>
           )}
           {r && <span className="text-[10px]" style={{ color: P.muted }}>{r.horizon === "intraday" ? "Intraday" : r.horizon} · {r.horizonTf} horizon</span>}
           {feed && feed !== "live" && (
             <span className="rounded-[4px] px-1.5 py-[1px] text-[9.5px] font-bold uppercase tracking-[0.1em]"
-              style={{ color: P.gold, border: `1px solid ${P.gold}66` }}>{FEED_WORD[feed]}</span>
+              style={{ color: P.gold, border: `1px solid ${alpha(P.gold, "66")}` }}>{FEED_WORD[feed]}</span>
           )}
         </div>
       )}
@@ -688,13 +689,13 @@ function EvidenceRow({ item, kind, onPoint, palette: P }: { item: AnswerItem; ki
 /** 401/402: the window is over. Said once, plainly, with the way back. */
 function PassEnded({ kind, onRenew, palette: P }: { kind: "pass" | "auth"; onRenew: () => void; palette: Palette }) {
   return (
-    <div role="status" className="rounded-[8px] px-3 py-2.5 text-[12px] leading-snug" style={{ border: `1px solid ${P.gold}73`, background: "rgba(213,169,61,0.08)", color: P.text }}>
+    <div role="status" className="rounded-[8px] px-3 py-2.5 text-[12px] leading-snug" style={{ border: `1px solid ${alpha(P.gold, "73")}`, background: "rgba(var(--cc-d5a93d-rgb,213,169,61),0.08)", color: P.text }}>
       <p className="font-semibold" style={{ color: P.gold }}>{PASS_ENDED}</p>
       <p className="mt-0.5" style={{ color: P.muted }}>
         {kind === "auth" ? "You've also been signed out — sign in again, then renew to keep talking to ATLAS." : "Renew it to keep talking to ATLAS. Nothing renews without you."}
       </p>
       <button onClick={onRenew} className="mt-2 rounded-[6px] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.1em] hover:brightness-110"
-        style={{ background: "#D5A93D", color: "#10131A" }}>
+        style={{ background: "var(--cc-d5a93d,#D5A93D)", color: "#10131A" }}>
         Renew
       </button>
     </div>
@@ -703,8 +704,8 @@ function PassEnded({ kind, onRenew, palette: P }: { kind: "pass" | "auth"; onRen
 
 function BrainAvatar() {
   return (
-    <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full" style={{ background: "radial-gradient(circle at 40% 35%, #FFD875, #8A5F12 70%)", boxShadow: "0 0 0 2px rgba(39,215,242,0.35), 0 0 10px rgba(255,216,117,0.4)" }}>
-      <span className="h-2 w-2 rounded-full" style={{ background: "#FFF3D0" }} />
+    <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full" style={{ background: "radial-gradient(circle at 40% 35%, var(--cc-ffd875,#FFD875), var(--cc-8a5f12,#8A5F12) 70%)", boxShadow: "0 0 0 2px rgba(var(--cc-27d7f2-rgb,39,215,242),0.35), 0 0 10px rgba(var(--cc-ffd875-rgb,255,216,117),0.4)" }}>
+      <span className="h-2 w-2 rounded-full" style={{ background: "var(--cc-fff3d0,#FFF3D0)" }} />
     </span>
   );
 }

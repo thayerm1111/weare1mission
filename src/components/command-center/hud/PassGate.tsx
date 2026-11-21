@@ -107,7 +107,7 @@ export function PassGate({ children }: { children: React.ReactNode }) {
         <div className="w-full max-w-[420px] rounded-2xl p-6" style={{ border: `1px solid ${H.lineHi}`, background: H.bg1 }}>
           <p className="text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: H.gold3 }}>Command Center XAUUSD</p>
           {previewDone && !previewSkipped && (
-            <div className="mt-3 rounded-lg px-3 py-2.5 text-[12.5px] leading-relaxed" style={{ border: "1px solid rgba(231,196,103,.45)", background: "rgba(213,169,61,.08)", color: H.text }}>
+            <div className="mt-3 rounded-lg px-3 py-2.5 text-[12.5px] leading-relaxed" style={{ border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),.45)", background: "rgba(var(--cc-d5a93d-rgb,213,169,61),.08)", color: H.text }}>
               <b style={{ color: H.gold3 }}>That was ATLAS.</b> Your free first look is done. Open the live desk below to keep going — and to talk with ATLAS any time, add talk time from the Voice tab inside (from $29 for 50 minutes).
             </div>
           )}
@@ -138,7 +138,7 @@ export function PassGate({ children }: { children: React.ReactNode }) {
       {intro && <EntrySequence speak awaitTap={!!pass.admin && !paidNow.current} replay={replayWanted()} onDone={() => { setIntro(false); entered(); }} />}
       {!pass.admin && left != null && (
         <div className="pointer-events-none fixed bottom-[76px] left-3 z-50 rounded-full px-3 py-1 text-[11px] tabular-nums xl:bottom-3"
-          style={{ background: "rgba(7,16,26,0.9)", border: `1px solid ${left < 5 * 60_000 ? H.gold2 : H.line}`, color: left < 5 * 60_000 ? H.gold3 : H.mut }}>
+          style={{ background: "rgba(var(--cc-07101a-rgb,7,16,26),0.9)", border: `1px solid ${left < 5 * 60_000 ? H.gold2 : H.line}`, color: left < 5 * 60_000 ? H.gold3 : H.mut }}>
           Command Center · {mm}:{String(ss).padStart(2, "0")} left
         </div>
       )}

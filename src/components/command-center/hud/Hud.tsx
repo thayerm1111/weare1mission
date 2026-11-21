@@ -90,7 +90,7 @@ export function HudPanel({ children, className = "", style, hi = false, title, i
         background: `linear-gradient(180deg, ${H.panel2} 0%, ${H.panel} 100%)`,
         border: `1px solid ${hi ? H.lineHi : H.line}`,
         boxShadow: hi
-          ? `inset 0 1px 0 rgba(255,255,255,0.03), 0 0 0 1px rgba(0,199,232,0.05), 0 0 22px rgba(0,199,232,0.06)`
+          ? `inset 0 1px 0 rgba(255,255,255,0.03), 0 0 0 1px rgba(var(--cc-00c7e8-rgb,0,199,232),0.05), 0 0 22px rgba(var(--cc-00c7e8-rgb,0,199,232),0.06)`
           : `inset 0 1px 0 rgba(255,255,255,0.025)`,
         ...style,
       }}
@@ -133,7 +133,7 @@ export function LiveDot({ color = H.green, size = 6 }: { color?: string; size?: 
 export function LivePill({ label = "LIVE", color = H.green }: { label?: string; color?: string }) {
   return (
     <span className="inline-flex items-center gap-1.5 rounded-[5px] px-2 py-[3px] text-[9px] font-bold uppercase tracking-[0.14em]"
-      style={{ color, background: "rgba(41,223,166,0.07)", border: `1px solid rgba(41,223,166,0.28)` }}>
+      style={{ color, background: "rgba(var(--cc-29dfa6-rgb,41,223,166),0.07)", border: `1px solid rgba(var(--cc-29dfa6-rgb,41,223,166),0.28)` }}>
       <LiveDot color={color} size={5} />{label}
     </span>
   );
@@ -148,8 +148,8 @@ export function Chip({ children, active = false, onClick, tone = "gold", classNa
       className={`rounded-[5px] px-2 py-[3px] text-[9px] font-bold uppercase tracking-[0.12em] transition ${className}`}
       style={{
         color: active ? c : H.mut,
-        background: active ? (tone === "gold" ? "rgba(213,169,61,0.13)" : "rgba(0,199,232,0.1)") : "transparent",
-        border: `1px solid ${active ? (tone === "gold" ? "rgba(231,196,103,0.55)" : "rgba(39,215,242,0.45)") : H.line}`,
+        background: active ? (tone === "gold" ? "rgba(var(--cc-d5a93d-rgb,213,169,61),0.13)" : "rgba(var(--cc-00c7e8-rgb,0,199,232),0.1)") : "transparent",
+        border: `1px solid ${active ? (tone === "gold" ? "rgba(var(--cc-e7c467-rgb,231,196,103),0.55)" : "rgba(var(--cc-27d7f2-rgb,39,215,242),0.45)") : H.line}`,
       }}>
       {children}
     </button>
@@ -162,15 +162,15 @@ export const HUD_CSS = `
 .hud-ping { animation: hudPing 1.8s cubic-bezier(0,0,.2,1) infinite; }
 @keyframes hudSlideIn { from { transform: translateY(-6px); opacity: 0 } to { transform: none; opacity: 1 } }
 .hud-in { animation: hudSlideIn .45s cubic-bezier(.22,.9,.24,1) both; }
-@keyframes hudFlashUp { 0% { color: #29DFA6; text-shadow: 0 0 14px rgba(41,223,166,.6) } 100% { } }
-@keyframes hudFlashDn { 0% { color: #FF5364; text-shadow: 0 0 14px rgba(255,83,100,.6) } 100% { } }
+@keyframes hudFlashUp { 0% { color: var(--cc-29dfa6,#29DFA6); text-shadow: 0 0 14px rgba(var(--cc-29dfa6-rgb,41,223,166),.6) } 100% { } }
+@keyframes hudFlashDn { 0% { color: var(--cc-ff5364,#FF5364); text-shadow: 0 0 14px rgba(var(--cc-ff5364-rgb,255,83,100),.6) } 100% { } }
 .hud-flash-up { animation: hudFlashUp .9s ease-out; }
 .hud-flash-dn { animation: hudFlashDn .9s ease-out; }
 @keyframes hudSpin { to { transform: rotate(360deg) } }
 @keyframes hudBar { 0%,100% { transform: scaleY(.35) } 50% { transform: scaleY(1) } }
 .hud-scroll::-webkit-scrollbar { width: 4px; height: 4px }
-.hud-scroll::-webkit-scrollbar-thumb { background: rgba(89,175,255,.18); border-radius: 4px }
-.hud-scroll { scrollbar-width: thin; scrollbar-color: rgba(89,175,255,.18) transparent; }
+.hud-scroll::-webkit-scrollbar-thumb { background: rgba(var(--cc-59afff-rgb,89,175,255),.18); border-radius: 4px }
+.hud-scroll { scrollbar-width: thin; scrollbar-color: rgba(var(--cc-59afff-rgb,89,175,255),.18) transparent; }
 /* ATLAS's annotations: one slow pulse on what is being discussed, a fade when it comes to rest. */
 @keyframes atlasPulse { 0%,100% { opacity: 1 } 50% { opacity: .5 } }
 .atlas-ann { transition: opacity .4s ease; }
