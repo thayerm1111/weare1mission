@@ -57,6 +57,13 @@ export type AtlasAnswer = {
   freshness: string;
   /** Validated chart actions; the console applies them as the answer arrives. */
   actions: ChartAction[];
+  /**
+   * "help": an answer about the product, not the market (owner 11-21 brief §8). The console draws it without a
+   * market read, a feed label or a freshness line — a question about OM AI Plays is not "market closed".
+   */
+  kind?: "help";
+  /** Help only: places to go, and generate buttons that say their price (command-center/brain/platform.ts). */
+  links?: { label: string; href: string; generate?: { td: string; style: string } }[];
 };
 
 /** What the chat route returns on top of the older BrainResponse fields. */

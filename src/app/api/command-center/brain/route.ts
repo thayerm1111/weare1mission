@@ -30,6 +30,13 @@ import {
 import { chatResponse, composeAnswer, simpleAnswer, type DeterministicInput } from "../../../../../command-center/brain/reply";
 import { callAtlasModel, loadAskContext } from "../../../../../command-center/brain/askAtlas";
 import type { BrainResponse, UiAction } from "../../../../../command-center/brain/types";
+import { asksMarket, platformGuide, platformReply, platformTopic, type HelpReply, type PlatformCosts } from "../../../../../command-center/brain/platform";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { CREDIT_COST } from "@/lib/creditConfig";
+import { CC_PASS_COST, CC_PASS_MS } from "@/lib/ccPass";
+import { SETUP_MINUTES, hasPlay, stageOf, STAGE_TEXT } from "@/lib/setupLock";
+import { setupAccess } from "@/lib/setupAccess";
+import { actionWords } from "@/lib/genx/words";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,6 +63,67 @@ export const maxDuration = 45;
  */
 const MODEL = process.env.OM_AI_MODEL || "claude-sonnet-4-6";
 
+/** What things cost, from the platform's own settings — never typed into ATLAS's words. */
+const COSTS: PlatformCosts = {
+  play: CREDIT_COST.signal, deepdive: CREDIT_COST.deepdive, scan: CREDIT_COST.scan, genx: CREDIT_COST.genx,
+  cc: CC_PASS_COST, ccMinutes: CC_PASS_MS / 60_000, setupMinutes: SETUP_MINUTES,
+};
+
+/**
+ * WHAT GENX IS DOING, READ FROM GENX — not from ATLAS's own gold engine, and not past the member's window.
+ * The newest stored GENX map for the horizon (floor_setup_history, the same maps The Floor's history shows),
+ * with its own time. Its plan — side, trigger, levels — is said only to a member whose setup window is open,
+ * exactly as The Floor and GENX send it; anyone else hears the stage, which every member may know.
+ */
+async function genxNowText(userId: string, message: string, nowMs: number): Promise<string | null> {
+  const admin = createAdminClient();
+  if (!admin) return null;
+  const m = /\bquick\b/i.test(message) ? "quick" : /\bswing\b/i.test(message) ? "swing" : "intraday";
+  const { data } = await admin.from("floor_setup_history").select("at, payload").is("instrument", null).eq("mode", m).order("at", { ascending: false }).limit(1).maybeSingle();
+  const row = data as { at: string; payload?: { g?: Record<string, unknown> } } | null;
+  if (!row?.payload?.g) return null;
+  const g = row.payload.g;
+  const at = Date.parse(row.at);
+  const mins = Math.max(0, Math.round((nowMs - at) / 60_000));
+  const when = `${new Date(at).toISOString().slice(0, 16).replace("T", " ")} UTC (${mins < 60 ? `${mins} min` : `${Math.round(mins / 60)} h`} ago)`;
+  const horizon = m === "quick" ? "Quick" : m === "swing" ? "Swing" : "Intraday";
+  if (!hasPlay(g)) return `GENX ${horizon}, read at ${when}: ${STAGE_TEXT[stageOf(g)]}. There is no trade in it to wait for yet.`;
+  const gate = await setupAccess(admin, userId);
+  if (!gate.open) {
+    return `GENX ${horizon}, read at ${when}: ${STAGE_TEXT[stageOf(g)]}. What it is waiting for, which way and its levels open with the setup window — ${gate.cost} credits for ${gate.minutes} minutes, on The Floor or in GENX. I won't share them around it.`;
+  }
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v.toFixed(2) : null);
+  const words = actionWords(String(g.action ?? "")).label;
+  const lv = [num(g.entry_low) && num(g.entry_high) ? `entry ${num(g.entry_low)}–${num(g.entry_high)}` : num(g.entry) ? `entry ${num(g.entry)}` : null, num(g.stop_loss) ? `stop ${num(g.stop_loss)}` : null, num(g.tp1) ? `target ${num(g.tp1)}` : null].filter(Boolean).join(", ");
+  return [
+    `GENX ${horizon}, read at ${when}: ${words}.`,
+    typeof g.trigger_condition === "string" && g.trigger_condition ? `Waiting for: ${g.trigger_condition}` : null,
+    typeof g.invalidation_reason === "string" && g.invalidation_reason ? `Cancelled if: ${g.invalidation_reason}` : null,
+    lv ? `Its levels: ${lv}.` : null,
+    "That read is GENX's, with its own time — a newer quote does not make it newer.",
+  ].filter(Boolean).join("\n");
+}
+
+/** The member's last Market Pulse scan, as their own browser kept it (sent with the question), said with its age. */
+function pulseText(raw: unknown, nowMs: number): string | null {
+  const p = raw as { asOf?: unknown; top?: unknown } | null;
+  if (!p || !Array.isArray(p.top) || !p.top.length) return null;
+  const asOf = String(p.asOf ?? "");
+  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/.exec(asOf);
+  const t = m ? Date.parse(`${m[1]}T${m[2]}:00Z`) : Date.parse(asOf);
+  const age = Number.isFinite(t) ? Math.max(0, nowMs - t) : null;
+  const ageWords = age == null ? "at an unknown time" : age < 3_600_000 ? `${Math.round(age / 60_000)} min ago` : age < 172_800_000 ? `${Math.round(age / 3_600_000)} h ago` : `${Math.round(age / 86_400_000)} days ago`;
+  const rows = (p.top as { symbol?: unknown; dir?: unknown; confirmed?: unknown; total?: unknown }[]).slice(0, 5).map((x, i) => {
+    const side = x.dir === "LONG" ? "buy" : x.dir === "SHORT" ? "sell" : "no side";
+    const conf = typeof x.confirmed === "number" && typeof x.total === "number" ? ` · ${x.confirmed} of ${x.total} confirmations` : "";
+    return `${i + 1}. ${String(x.symbol ?? "—").slice(0, 16)} — ${side}${conf}`;
+  });
+  const old = age != null && age > 15 * 60_000;
+  return [`Your last Market Pulse scan was made ${m ? `${m[1]} ${m[2]} UTC` : asOf}, ${ageWords}:`, ...rows,
+    old ? `That is an earlier scan, not the market now. A new scan is ${CREDIT_COST.scan} credits on Market Pulse, made only when you press Scan markets.` : "It is recent, but it is still the market as it was at the scan."].join("\n");
+}
+
+
 function json(o: unknown, s = 200) {
   return new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }
@@ -81,7 +149,7 @@ export async function POST(req: Request) {
   // 5 credits per 30 minutes (owner 09-21). No open window, no data.
   if (!(await hasPass(user.id))) return json({ ok: false, error: "pass_required" }, 402);
 
-  let body: { message?: string; history?: unknown; spoken?: boolean; lastSeen?: unknown; chartTf?: unknown; requestId?: unknown };
+  let body: { message?: string; history?: unknown; spoken?: boolean; lastSeen?: unknown; chartTf?: unknown; requestId?: unknown; pulse?: unknown };
   try { body = await req.json(); } catch { return json({ error: "bad_request" }, 400); }
   const message = (body.message ?? "").toString().trim().slice(0, 2000);
   if (!message) return json({ error: "empty" }, 400);
@@ -133,6 +201,27 @@ export async function POST(req: Request) {
       markers: opts.uiActions ?? [], source: "narrator", structured: false, feed: feedNow,
       snapshotId: null, analysisAt: memory.now?.at ?? null, requestId, legacy: opts.legacy ?? plainLegacy(text), answeredAt: nowMs,
     }));
+
+  /*
+   * A QUESTION ABOUT THE PLATFORM IS ANSWERED AS ONE (owner 11-21 brief §8): from what the product is, with no
+   * market read wrapped around it — gold being closed has nothing to say about what OM AI Plays does. A
+   * question that also asks about the market goes on to the read below when there is one; when there is
+   * none, the product part is still answered and the market part is said to be unavailable.
+   */
+  const help = (r: HelpReply) => json(chatResponse({
+    answer: { say: r.say, read: null, evidence: [], against: [], next: null, invalidation: null, freshness: "", actions: [], kind: "help", links: r.links },
+    markers: [], source: "narrator", structured: false, feed: feedNow,
+    snapshotId: null, analysisAt: null, requestId, legacy: plainLegacy(r.say), answeredAt: nowMs,
+  }));
+  const topic = platformTopic(message);
+  const mixed = !!topic && asksMarket(message);
+  if (topic && (!mixed || !memory.now)) {
+    const live = topic === "genx_now" ? { genx: await genxNowText(user.id, message, nowMs).catch(() => null) } : {};
+    const reply = platformReply(topic, message, COSTS, live);
+    const pulse = topic === "pulse_last" ? pulseText((body as { pulse?: unknown }).pulse, nowMs) : null;
+    const say = (pulse ?? reply.say) + (mixed ? "\n\nAs for the market itself: I can't see a current gold read right now, so I won't describe it." : "");
+    return help({ say, links: reply.links });
+  }
 
   /*
    * NO MARKET READ IS NOT A REASON TO REFUSE A QUESTION ABOUT THE PRODUCT.
@@ -327,6 +416,8 @@ export async function POST(req: Request) {
     // Where a control lives owes nothing to the market. A member asking how to use the product gets
     // the map, on any turn, open or closed.
     asksHowTo(message) ? `\n\n${PRODUCT_MAP}` : "",
+    // A question that mixes the product and the market: the product, from what it is (11-21).
+    topic ? `\n\n${platformGuide(COSTS)}` : "",
   ].join("");
 
   // THEIR OWN TRADE (owner 09-21) — the one they described, and any gold FLOW/GENX holds for them.

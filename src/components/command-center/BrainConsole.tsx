@@ -7,6 +7,7 @@ import { Crosshair, Mic, Send, Square } from "lucide-react";
 import { CHART_ACTION_EVENT, type ChartAction, type FeedStatus, type Lean } from "../../../command-center/core/atlasContract";
 import { FEED_WORD, refToAction, type AnswerItem, type AtlasAnswer } from "../../../command-center/brain/answer";
 import { alpha } from "./hud/theme";
+import { leaveGenerateIntent, playsHref } from "@/lib/plays/intent";
 
 /**
  * TALKING TO ATLAS.
@@ -241,7 +242,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
       const r = await fetch("/api/command-center/brain", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: q, history, lastSeen, chartTf: chartTfRef.current ?? null, requestId }),
+        body: JSON.stringify({ message: q, history, lastSeen, chartTf: chartTfRef.current ?? null, requestId, ...pulseFor(q) }),
         signal: ac.signal,
       });
       if (!current()) return;
@@ -608,6 +609,44 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
   );
 }
 
+/**
+ * A question about Market Pulse travels with the member's own last scan, as their browser kept it (Market
+ * Pulse stores it here, not on a server): its time and its top five. Nothing else of the browser is sent.
+ */
+function pulseFor(q: string): { pulse?: { asOf: string; top: { symbol: string; dir: string; confirmed: number | null; total: number | null }[] } } {
+  if (!/\b(pulse|scan|scanner)\b/i.test(q)) return {};
+  try {
+    const raw = JSON.parse(window.localStorage.getItem("om_pulse_v1") ?? "null") as { asOf?: unknown; setups?: unknown } | null;
+    if (!raw || !Array.isArray(raw.setups) || !raw.setups.length) return {};
+    const top = (raw.setups as { symbol?: unknown; dir?: unknown; confirmed?: unknown; total?: unknown }[]).slice(0, 5).map((x) => ({
+      symbol: String(x.symbol ?? "").slice(0, 16), dir: String(x.dir ?? ""),
+      confirmed: typeof x.confirmed === "number" ? x.confirmed : null, total: typeof x.total === "number" ? x.total : null,
+    }));
+    return { pulse: { asOf: String(raw.asOf ?? "").slice(0, 40), top } };
+  } catch { return {}; }
+}
+
+/** Help: a link, or a generate button that leaves the member's one-time intent and says its price on its face. */
+function HelpLinks({ links, palette: P }: { links: NonNullable<AtlasAnswer["links"]>; palette: Palette }) {
+  if (!links.length) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {links.map((l) => (
+        <button key={`${l.label}${l.href}`} type="button"
+          onClick={() => {
+            let href = l.href;
+            if (l.generate) { try { href = playsHref(l.generate.td, l.generate.style, leaveGenerateIntent(window.sessionStorage, l.generate.td, l.generate.style)); } catch { /* opens without generating */ } }
+            window.location.assign(href);
+          }}
+          className="rounded-[6px] px-2 py-[3px] text-[11px] font-semibold hover:brightness-125"
+          style={{ color: l.generate ? P.text : P.cyan, border: `1px solid ${l.generate ? alpha(P.cyan, "99") : P.chip}`, background: l.generate ? alpha(P.cyan, "1a") : "transparent" }}>
+          {l.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /* ── a structured answer ─────────────────────────────────────────────────── */
 
 type Palette = { muted: string; text: string; cyan: string; red: string; green: string; gold: string; chip: string };
@@ -620,6 +659,16 @@ const CLASSIC_PALETTE: Palette = { muted: "rgba(var(--cc-e8eff7-rgb,232,239,247)
  * then what it is waiting for, what would make it wrong, and how fresh all of it is.
  */
 function AnswerView({ answer, feed, onPoint, palette: P }: { answer: AtlasAnswer; feed: FeedStatus | null; onPoint: (a: ChartAction | null) => void; palette: Palette }) {
+  // A question about the product is answered as one: no market read, feed label or freshness around it (11-21).
+  if (answer.kind === "help") {
+    return (
+      <div className="whitespace-normal">
+        <span className="mb-1.5 inline-block text-[9.5px] font-bold uppercase tracking-[0.1em]" style={{ color: P.muted }}>Platform help</span>
+        <p className="whitespace-pre-line">{answer.say}</p>
+        <HelpLinks links={answer.links ?? []} palette={P} />
+      </div>
+    );
+  }
   const r = answer.read;
   const tone = r ? LEAN_TONE[r.lean] ?? P.muted : P.muted;
   return (

@@ -16,6 +16,10 @@ import { classify } from "./language";
 import { lookBack, retrospectiveLines, isRetrospective } from "../engines/history";
 import { GOLD_KNOWLEDGE, wantsDomainKnowledge } from "./gold";
 import { PRODUCT_MAP, asksHowTo } from "./howto";
+import { asksMarket, platformGuide, platformReply, platformTopic, type PlatformCosts } from "./platform";
+import { CREDIT_COST } from "@/lib/creditConfig";
+import { CC_PASS_COST, CC_PASS_MS } from "@/lib/ccPass";
+import { SETUP_MINUTES } from "@/lib/setupLock";
 import { upcoming, calendarLines } from "../adapters/calendar";
 import { recordCall, extractClaim, trackRecord, trackRecordLines, asksAboutRecord } from "../engines/record";
 import { accountLines, asksAboutAccount, type AccountFacts } from "./account";
@@ -432,6 +436,24 @@ async function handleVoiceLlmInner(req: Request): Promise<Response> {
       `${PRODUCT_MAP}\n\nAnswer only from the map above. Name the screen and the control by the exact label it carries. If they are set up for FLOW and for COMMAND CENTER differently, say which one you are describing. Do not claim to have changed anything.`,
       question,
       "That is set on The Floor, under FLOW — risk, trade styles, break even, partials and the auto-run switch are all on the account card there. On this screen, the risk chip on the trade card opens what I may do to an open trade.",
+    );
+  }
+
+  /*
+   * A QUESTION ABOUT THE PLATFORM (owner 11-21 brief §8): what OM AI Plays, GENX, Market Pulse, FLOW or Atlas
+   * are, how to start, what things cost — answered from the product itself, open or closed, never as "gold is
+   * closed". Voice cannot press a button: a request to generate is answered with its price and where to confirm it.
+   */
+  const ptopic = platformTopic(question);
+  if (ptopic && (!asksMarket(question) || !memory.now)) {
+    const costs: PlatformCosts = { play: CREDIT_COST.signal, deepdive: CREDIT_COST.deepdive, scan: CREDIT_COST.scan, genx: CREDIT_COST.genx, cc: CC_PASS_COST, ccMinutes: CC_PASS_MS / 60_000, setupMinutes: SETUP_MINUTES };
+    const said = platformReply(ptopic, question, costs).say;
+    return streamAnswer(
+      `${platformGuide(costs)}
+
+Answer only from the platform above, in a few spoken sentences, without lists. You cannot generate, place or change anything from voice: for a request to generate a play, say what it costs and that they can confirm it in OM AI Plays, or by typing the request in chat, where a button says the price. If they ask what GENX is waiting for right now or about their last Market Pulse scan, say to ask in chat, where you can read it. Never describe the market here.`,
+      question,
+      said.replace(/\n+/g, " ").replace(/•\s*/g, ""),
     );
   }
 

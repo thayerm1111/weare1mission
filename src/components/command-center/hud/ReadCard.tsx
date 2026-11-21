@@ -25,7 +25,7 @@ const TREND_WORD = { up: "Up", down: "Down", range: "Range", unknown: "Unknown" 
 const MOM_WORD = { rising: "Rising", falling: "Falling", flat: "Flat", unknown: "Unknown" } as const;
 const dirTone = (s: string) => (s === "up" || s === "rising" ? H.green : s === "down" || s === "falling" ? H.red : s === "range" || s === "flat" ? H.cyan2 : H.mut);
 
-export function ReadCard({ read, analysisAt, analysisAgeMs, replay, onPoint, onExplain, className = "" }: {
+export function ReadCard({ read, analysisAt, analysisAgeMs, replay, onPoint, onExplain, className = "", briefing }: {
   read: AtlasRead | null | undefined;
   /** The snapshot the read was computed from, and its age now (null in the replay: recorded time has no age). */
   analysisAt: number | null;
@@ -34,6 +34,12 @@ export function ReadCard({ read, analysisAt, analysisAgeMs, replay, onPoint, onE
   onPoint: (t: PointTarget) => void;
   onExplain: () => void;
   className?: string;
+  /**
+   * The redesign preview (owner 11-21 brief §7): the same read, told as a gold briefing in five parts — the
+   * current read, what changed, what is watched next, what changes the view, and the setup — in readable type,
+   * with the evidence one tap away. `closed`: gold is shut, so the briefing leads with that and its own time.
+   */
+  briefing?: { closed: boolean };
 }) {
   // On a stacked (phone/tablet) layout the evidence folds away behind one tap; on the desk it is always open.
   const [more, setMore] = useState(false);
@@ -43,6 +49,71 @@ export function ReadCard({ read, analysisAt, analysisAgeMs, replay, onPoint, onE
   const fresh = analysisAt != null
     ? `Read from the snapshot of ${hhmm(analysisAt)}${replay ? " (recorded)" : analysisAgeMs != null ? ` · ${ageShort(analysisAgeMs)} old` : ""}`
     : "No snapshot yet";
+
+  if (briefing && r) {
+    const changed = r.previous
+      ? <>Was <b style={{ color: tone(LEAN_TONE[r.previous.lean] ?? "mut"), fontWeight: 600 }}>{LEAN_LABEL[r.previous.lean]}</b> until {hhmm(r.previous.until)}{r.previous.reason ? <> — {r.previous.reason}</> : null}</>
+      : null;
+    // The setup is the setup engine's alone; the lean never stands in for it.
+    const act = r.setupStage === "ready" ? "A setup is ready: review it on the trade card before anything is placed."
+      : r.setupStage === "in_trade" ? "In a trade: it is managed from the trade card."
+        : r.setupStage === "none" ? "No valid setup right now. Nothing to do but watch."
+          : "Watching. There is no entry until the setup engine confirms one.";
+    const closedLead = briefing.closed && analysisAt != null ? `Gold is closed. This is the last session's briefing, from ${new Date(analysisAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false })}.` : null;
+    return (
+      <HudPanel tour="read" title="GOLD BRIEFING" icon={<Compass className="h-3.5 w-3.5" />} className={className}
+        right={<span className="text-[10px]" style={{ color: H.mut }} title="What the read is about. Changing the chart's timeframe never turns it into a 5-minute forecast.">{horizon}</span>}
+        bodyClass="hud-scroll flex flex-col gap-2.5 overflow-y-auto px-3.5 pb-3 [&>*]:shrink-0" >
+        {closedLead && <p className="rounded-[7px] px-2.5 py-1.5 text-[12px] leading-snug" style={{ color: H.text, border: `1px solid ${H.lineSoft}` }} data-brief="closed">{closedLead}</p>}
+        <Brief label="Current read">
+          <span className="flex flex-wrap items-baseline gap-2">
+            <span className="text-[18px] font-semibold leading-tight" style={{ color: leanCol }} data-lean={r.lean}>{LEAN_LABEL[r.lean]}</span>
+            {r.strength && <span className="text-[11px] font-semibold" style={{ color: leanCol }}>{r.strength}</span>}
+            <span className="text-[11px] tabular-nums" style={{ color: H.mut }}>since {hhmm(r.since)}</span>
+          </span>
+          <span className="mt-1 block text-[13.5px] leading-[1.5]" style={{ color: H.text }}>{r.summary}</span>
+        </Brief>
+        {changed && <Brief label="What changed">{changed}</Brief>}
+        {r.nextWatch && (
+          <Brief label="Watching next">
+            <Pointable text={r.nextWatch.text} target={r.nextWatch.ref ? { ref: r.nextWatch.ref, label: "ATLAS is watching" } : null} onPoint={onPoint} />
+          </Brief>
+        )}
+        {r.invalidation && (
+          <Brief label="What changes this view">
+            <Pointable text={r.invalidation.text}
+              target={r.invalidation.ref ? { ref: r.invalidation.ref, label: "Invalidation" } : r.invalidation.price != null ? { price: r.invalidation.price, label: "Invalidation" } : null}
+              onPoint={onPoint} />
+          </Brief>
+        )}
+        <Brief label="Setup">
+          <span data-box="trade-status">{SETUP_STAGE_WORD[r.setupStage]} · entry {ENTRY_WORD[r.entry].toLowerCase()}. {act}</span>
+          <span className="mt-0.5 block text-[11px]" style={{ color: H.mut }}>A lean is not an entry — however strong it is.</span>
+        </Brief>
+        <button type="button" onClick={() => setMore((x) => !x)} aria-expanded={more}
+          className="inline-flex items-center gap-1 self-start text-[11.5px] font-semibold" style={{ color: H.cyan2 }}>
+          Why? View the evidence · {r.evidenceFor.length} for, {r.evidenceAgainst.length} against
+          <ChevronDown className="h-3.5 w-3.5" style={{ transform: more ? "rotate(180deg)" : "none" }} />
+        </button>
+        {more && (
+          <div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <Fact k={`Higher-TF trend · ${r.htfTrend.tf}`} v={TREND_WORD[r.htfTrend.state]} col={dirTone(r.htfTrend.state)} title={r.htfTrend.text} />
+              <Fact k={`Momentum · ${r.momentum.tf}`} v={MOM_WORD[r.momentum.state]} col={dirTone(r.momentum.state)} title={r.momentum.text} />
+            </div>
+            <EvidenceList title="For" items={r.evidenceFor} sign="+" col={H.green} onPoint={onPoint} />
+            <EvidenceList title="Against" items={r.evidenceAgainst} sign="−" col={H.red} onPoint={onPoint} />
+            <p className="mt-2 text-[11px]" style={{ color: H.mut }}>Evidence balance <b className="tabular-nums" style={{ color: H.text }} data-balance="">{balanceWords(r.score, r.lean)}</b> — how much the evidence agrees, not a probability.</p>
+          </div>
+        )}
+        <div className="mt-auto flex items-center justify-between gap-2 pt-1">
+          <button onClick={onExplain} className="inline-flex items-center gap-1.5 rounded-[6px] px-2.5 py-1 text-[11px] font-semibold"
+            style={{ color: H.text, border: `1px solid ${H.lineSoft}` }}><Zap className="h-3.5 w-3.5" />Explain further</button>
+          <span className="truncate text-[10.5px] tabular-nums" style={{ color: H.mut }} title={`Engine ${r.version}${r.snapshotId != null ? ` · snapshot #${r.snapshotId}` : ""}`}>{fresh}</span>
+        </div>
+      </HudPanel>
+    );
+  }
 
   return (
     <HudPanel tour="read" title="ATLAS'S READ" icon={<Compass className="h-3.5 w-3.5" />} className={className}
@@ -139,6 +210,16 @@ export function ReadCard({ read, analysisAt, analysisAgeMs, replay, onPoint, onE
         </>
       )}
     </HudPanel>
+  );
+}
+
+/** One part of the briefing: a quiet label above readable words. */
+function Brief({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0" data-brief={label}>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: H.mut }}>{label}</p>
+      <div className="mt-0.5 text-[12.5px] leading-[1.5]" style={{ color: H.text }}>{children}</div>
+    </div>
   );
 }
 

@@ -220,7 +220,19 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   const [tourOpen, setTourOpen] = useState(false);
   // In the redesign preview the way out is The Floor (owner 11-20 brief §11: "a clear Back to The Floor action").
   const [toFloor, setToFloor] = useState(false);
-  useEffect(() => { try { setToFloor(document.documentElement.classList.contains("om-cc-next")); } catch { /* the portal, as before */ } }, []);
+  useEffect(() => {
+    try {
+      const next = document.documentElement.classList.contains("om-cc-next");
+      setToFloor(next);
+      // The redesign preview opens on Chat — easier to find (owner 11-21 brief §7) — or on the member's own last
+      // choice. Only the visible tab: nothing here touches the microphone, which starts on a tap and never on a load.
+      if (next && !isReplay) {
+        const saved = window.localStorage.getItem("cc:talk-tab");
+        setTalkTab(saved === "VOICE" || saved === "ANALYSIS" || saved === "SETTINGS" ? saved : "CHAT");
+      }
+    } catch { /* the portal, as before */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   /* GENERATE WITH ATLAS (owner 11-11). The panel mounts the first time it is asked for and then stays, so the
      last idea is still there when the drawer is reopened. `ideaRun` changes on every press of GENERATE. */
   const [ideaMounted, setIdeaMounted] = useState(false);
@@ -931,6 +943,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
         {/* LEFT — the read, the timeframes, the levels */}
         <div className="hud-col hud-left">
           <ReadCard className="hud-read" read={read} analysisAt={analysisAt} analysisAgeMs={analysisAgeMs} replay={isReplay} onPoint={pointAt}
+            briefing={toFloor ? { closed: d?.marketOpen === false } : undefined}
             onExplain={() => ask("Explain your current read in detail: what you think, why, what changed, what you're watching, what would invalidate it and what would strengthen it.")} />
 
           <HudPanel className="hud-tf" tour="tf" title="TIMEFRAME ALIGNMENT" icon={<Layers className="h-3.5 w-3.5" />}
@@ -1104,7 +1117,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             )}
             <div className="grid shrink-0 grid-cols-4 gap-1.5 px-3 pb-2">
               {(["CHAT", "VOICE", "ANALYSIS", "SETTINGS"] as TalkTab[]).map((t) => (
-                <button key={t} onClick={() => setTalkTab(t)} className="rounded-[6px] py-1 text-[9.5px] font-semibold tracking-[0.14em]"
+                <button key={t} onClick={() => { setTalkTab(t); if (toFloor) { try { window.localStorage.setItem("cc:talk-tab", t); } catch { /* a private window */ } } }} className="rounded-[6px] py-1 text-[9.5px] font-semibold tracking-[0.14em]"
                   style={{ color: talkTab === t ? H.gold3 : H.mut, border: `1px solid ${talkTab === t ? "rgba(var(--cc-e7c467-rgb,231,196,103),0.6)" : H.line}`, background: talkTab === t ? "rgba(var(--cc-d5a93d-rgb,213,169,61),0.12)" : "transparent", boxShadow: talkTab === t ? "0 0 10px rgba(var(--cc-d5a93d-rgb,213,169,61),0.2)" : "none" }}>{t}</button>
               ))}
             </div>
