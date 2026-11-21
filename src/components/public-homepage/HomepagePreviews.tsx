@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import { IllustrativeChart } from "./IllustrativeChart";
+import { useHomepageTranslation } from "./homepage-i18n";
 
 export const PRODUCT_KEYS = ["floor", "atlas", "genx", "plays", "pulse", "flow"] as const;
 export type ProductKey = (typeof PRODUCT_KEYS)[number];
@@ -99,21 +100,22 @@ const CHART_COPY = {
 };
 
 function ChartStage({ kind }: { kind: "floor" | "atlas" | "genx" }) {
+  const { t } = useHomepageTranslation();
   const copy = CHART_COPY[kind];
   return <>
     <div className="demo-layout">
       <IllustrativeChart />
       <aside className="demo-sidebar">
-        <h4><Icon name={copy.icon} />{copy.title}</h4>
-        <p className="read">{copy.read}</p>
-        <div className="demo-detail"><span>{copy.firstLabel}</span><p>{copy.first}</p></div>
-        <div className="demo-detail"><span>{copy.nextLabel}</span><p>{copy.next}</p></div>
-        <div className="demo-input">Illustrative product experience <Icon name="spark" /></div>
+        <h4><Icon name={copy.icon} />{t(copy.title)}</h4>
+        <p className="read">{t(copy.read)}</p>
+        <div className="demo-detail"><span>{t(copy.firstLabel)}</span><p>{t(copy.first)}</p></div>
+        <div className="demo-detail"><span>{t(copy.nextLabel)}</span><p>{t(copy.next)}</p></div>
+        <div className="demo-input">{t("Illustrative product experience ")}<Icon name="spark" /></div>
       </aside>
     </div>
     <div className="demo-footer">
-      <div className="mini-stat"><span>{copy.footerA}</span><strong>{copy.footerAV}</strong></div>
-      <div className="mini-stat"><span>{copy.footerB}</span><strong>{copy.footerBV}</strong></div>
+      <div className="mini-stat"><span>{t(copy.footerA)}</span><strong>{t(copy.footerAV)}</strong></div>
+      <div className="mini-stat"><span>{t(copy.footerB)}</span><strong>{t(copy.footerBV)}</strong></div>
     </div>
   </>;
 }
@@ -125,6 +127,7 @@ const MARKETS: { key: MarketKey; label: string; name: string; symbol: string; fo
 ];
 
 function PlaysPreview({ initialMarket, focusStyle }: { initialMarket: MarketKey; focusStyle: boolean }) {
+  const { t } = useHomepageTranslation();
   const [market, setMarket] = useState(initialMarket);
   const [style, setStyle] = useState("Intraday");
   const [preview, setPreview] = useState<{ label: string; style: string } | null>(null);
@@ -133,32 +136,32 @@ function PlaysPreview({ initialMarket, focusStyle }: { initialMarket: MarketKey;
   useEffect(() => { if (focusStyle) styleRef.current?.focus({ preventScroll: true }); }, [focusStyle]);
 
   return <>
-    <div className="stage-intro"><h3>Your next play starts here.</h3><p>Try the steps. This preview does not generate a live signal or use credits.</p></div>
+    <div className="stage-intro"><h3>{t("Your next play starts here.")}</h3><p>{t("Try the steps. This preview does not generate a live signal or use credits.")}</p></div>
     <div className="play-builder">
       <div className="builder-fields">
-        <label><span>1. Choose your market</span><select id="demo-market" value={market} onChange={(event) => setMarket(event.target.value as MarketKey)}>
-          {MARKETS.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+        <label><span>{t("1. Choose your market")}</span><select id="demo-market" value={market} onChange={(event) => setMarket(event.target.value as MarketKey)}>
+          {MARKETS.map((option) => <option key={option.key} value={option.key}>{t(option.label)}</option>)}
         </select></label>
-        <label><span>2. Choose your style</span><select id="demo-style" ref={styleRef} value={style} onChange={(event) => setStyle(event.target.value)}>
-          <option>Intraday</option><option>Scalp</option><option>Swing</option>
+        <label><span>{t("2. Choose your style")}</span><select id="demo-style" ref={styleRef} value={style} onChange={(event) => setStyle(event.target.value)}>
+          <option value="Intraday">{t("Intraday")}</option><option value="Scalp">{t("Scalp")}</option><option value="Swing">{t("Swing")}</option>
         </select></label>
         <button type="button" id="preview-play" className="button button-light" onClick={() => setPreview({ label: MARKETS.find((option) => option.key === market)!.label, style })}>
-          <span key={preview ? "again" : "first"}>{preview ? "Preview another play" : "3. Preview a play"}</span> <Icon name="spark" />
+          <span key={preview ? "again" : "first"}>{t(preview ? "Preview another play" : "3. Preview a play")}</span> <Icon name="spark" />
         </button>
-        <p>Live analysis and its credit cost are available inside OM AI Plays.</p>
+        <p>{t("Live analysis and its credit cost are available inside OM AI Plays.")}</p>
       </div>
       <div className="play-result" id="play-result" aria-live="polite">
         <Fragment key={preview ? `${preview.label}:${preview.style}` : "empty"}>
         {preview ? <>
-          <span className="ready-tag">ILLUSTRATIVE PLAY</span><h4>{preview.label}</h4>
-          <p>{preview.style} · A structured view of the setup and the conditions to watch.</p>
+          <span className="ready-tag">{t("ILLUSTRATIVE PLAY")}</span><h4>{t(preview.label)}</h4>
+          <p>{t(preview.style)}{t(" · A structured view of the setup and the conditions to watch.")}</p>
           <div className="example-levels">
-            <div><span>Entry</span><strong>On confirmation</strong></div>
-            <div><span>Stop</span><strong>Defined by structure</strong></div>
-            <div><span>Targets</span><strong>Shown in the plan</strong></div>
+            <div><span>{t("Entry")}</span><strong>{t("On confirmation")}</strong></div>
+            <div><span>{t("Stop")}</span><strong>{t("Defined by structure")}</strong></div>
+            <div><span>{t("Targets")}</span><strong>{t("Shown in the plan")}</strong></div>
           </div>
-          <p className="demo-disclaimer">Example only. No market analysis was run, no credits were used and no order was placed.</p>
-        </> : <><Icon name="spark" /><h4>A clear path to your analysis.</h4><p>Select a market and style, then preview how a structured play is presented.</p></>}
+          <p className="demo-disclaimer">{t("Example only. No market analysis was run, no credits were used and no order was placed.")}</p>
+        </> : <><Icon name="spark" /><h4>{t("A clear path to your analysis.")}</h4><p>{t("Select a market and style, then preview how a structured play is presented.")}</p></>}
         </Fragment>
       </div>
     </div>
@@ -166,44 +169,47 @@ function PlaysPreview({ initialMarket, focusStyle }: { initialMarket: MarketKey;
 }
 
 function PulsePreview({ onChoose }: { onChoose: (market: MarketKey) => void }) {
+  const { t } = useHomepageTranslation();
   return <>
-    <div className="pulse-demo-head"><h3>Find a market to explore.</h3><p>Example scan layout. These are illustrative candidates, not current rankings.</p></div>
+    <div className="pulse-demo-head"><h3>{t("Find a market to explore.")}</h3><p>{t("Example scan layout. These are illustrative candidates, not current rankings.")}</p></div>
     <table className="pulse-table">
-      <thead><tr><th>Rank</th><th>Market</th><th>Focus</th><th>Read</th><th><span className="sr-only">Action</span></th></tr></thead>
+      <thead><tr><th>{t("Rank")}</th><th>{t("Market")}</th><th>{t("Focus")}</th><th>{t("Read")}</th><th><span className="sr-only">{t("Action")}</span></th></tr></thead>
       <tbody>{MARKETS.map((market, index) => <tr key={market.key}>
-        <td>0{index + 1}</td><td>{market.name}<small>{market.symbol}</small></td><td>{market.focus}</td>
+        <td>0{index + 1}</td><td>{t(market.name)}<small>{market.symbol}</small></td><td>{t(market.focus)}</td>
         <td><div className="pulse-rank"><span><i style={{ width: market.width }} /></span></div></td>
-        <td><button type="button" className="button button-outline" onClick={() => onChoose(market.key)} aria-label={`Preview ${market.name} in OM AI Plays`}>Preview</button></td>
+        <td><button type="button" className="button button-outline" onClick={() => onChoose(market.key)} aria-label={t("Preview {market} in OM AI Plays", { market: t(market.name) })}>{t("Preview")}</button></td>
       </tr>)}</tbody>
     </table>
-    <p className="demo-disclaimer">Inside the platform, check the read’s timestamp and context before exploring a setup.</p>
+    <p className="demo-disclaimer">{t("Inside the platform, check the read’s timestamp and context before exploring a setup.")}</p>
   </>;
 }
 
 function FlowPreview() {
+  const { t } = useHomepageTranslation();
   return <>
     <div className="demo-account">
-      <div><h3>Your trading account</h3><small>Supported broker · Account details stay private</small></div>
-      <div className="account-amounts"><span>Balance<strong>••••••</strong></span><span>Equity<strong>••••••</strong></span></div>
+      <div><h3>{t("Your trading account")}</h3><small>{t("Supported broker · Account details stay private")}</small></div>
+      <div className="account-amounts"><span>{t("Balance")}<strong>••••••</strong></span><span>{t("Equity")}<strong>••••••</strong></span></div>
     </div>
     <div className="flow-demo-layout">
-      <div className="flow-demo-box"><h4>Execution, on your terms.</h4>
-        <div className="account-result"><span>Eligible signal sources</span><strong>Your selection</strong></div>
-        <div className="account-result"><span>Risk per trade</span><strong>Your settings</strong></div>
-        <div className="account-result"><span>Trade management</span><strong>Account-specific</strong></div>
-        <span className="state-chip">Connection and trading are separate</span>
+      <div className="flow-demo-box"><h4>{t("Execution, on your terms.")}</h4>
+        <div className="account-result"><span>{t("Eligible signal sources")}</span><strong>{t("Your selection")}</strong></div>
+        <div className="account-result"><span>{t("Risk per trade")}</span><strong>{t("Your settings")}</strong></div>
+        <div className="account-result"><span>{t("Trade management")}</span><strong>{t("Account-specific")}</strong></div>
+        <span className="state-chip">{t("Connection and trading are separate")}</span>
       </div>
-      <div className="flow-demo-box"><h4>Follow your account.</h4>
-        <div className="account-result"><span>Realized P&L</span><strong>Closed positions</strong></div>
-        <div className="account-result"><span>Open P&L</span><strong>Current positions</strong></div>
-        <div className="account-result"><span>Execution history</span><strong>Account activity</strong></div>
-        <span className="state-chip">Illustrative account preview</span>
+      <div className="flow-demo-box"><h4>{t("Follow your account.")}</h4>
+        <div className="account-result"><span>{t("Realized P&L")}</span><strong>{t("Closed positions")}</strong></div>
+        <div className="account-result"><span>{t("Open P&L")}</span><strong>{t("Current positions")}</strong></div>
+        <div className="account-result"><span>{t("Execution history")}</span><strong>{t("Account activity")}</strong></div>
+        <span className="state-chip">{t("Illustrative account preview")}</span>
       </div>
     </div>
   </>;
 }
 
 export function OverviewChapter({ product }: { product: ProductKey }) {
+  const { t } = useHomepageTranslation();
   const item = PRODUCTS[product];
-  return <><Icon name={item.icon} /><h3>{item.name}</h3><p>{item.description}</p><div className="tour-labels">{item.labels.map((label) => <span key={label}>{label}</span>)}</div></>;
+  return <><Icon name={item.icon} /><h3>{t(item.name)}</h3><p>{t(item.description)}</p><div className="tour-labels">{item.labels.map((label) => <span key={label}>{t(label)}</span>)}</div></>;
 }
