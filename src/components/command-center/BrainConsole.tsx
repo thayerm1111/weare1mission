@@ -242,7 +242,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
       const r = await fetch("/api/command-center/brain", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: q, history, lastSeen, chartTf: chartTfRef.current ?? null, requestId, ...pulseFor(q) }),
+        body: JSON.stringify({ message: q, history, lastSeen, chartTf: chartTfRef.current ?? null, requestId, ...pulseFor(q), ...accountFor(q) }),
         signal: ac.signal,
       });
       if (!current()) return;
@@ -623,6 +623,19 @@ function pulseFor(q: string): { pulse?: { asOf: string; top: { symbol: string; d
       confirmed: typeof x.confirmed === "number" ? x.confirmed : null, total: typeof x.total === "number" ? x.total : null,
     }));
     return { pulse: { asOf: String(raw.asOf ?? "").slice(0, 40), top } };
+  } catch { return {}; }
+}
+
+/**
+ * A question about what reached an account travels with the account the member is looking at on The Floor or in
+ * FLOW (its id and Live/Demo, as the page keeps it). The server reads it only if it is theirs.
+ */
+function accountFor(q: string): { account?: { id: string; env: string } } {
+  if (!/\b(execut\w*|placed?|filled?|taken?|enter(ed)?|account)\b/i.test(q)) return {};
+  try {
+    const v = window.localStorage.getItem("om:floor:account") ?? "";
+    const i = v.indexOf(":");
+    return i > 0 ? { account: { env: v.slice(0, i), id: v.slice(i + 1).slice(0, 64) } } : {};
   } catch { return {}; }
 }
 

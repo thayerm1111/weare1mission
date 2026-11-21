@@ -348,8 +348,11 @@ export function OmChart(p: OmChartProps) {
       .filter((o) => o.ly >= TOP_BAND - 6 && o.ly <= priceH + 2)
       .sort((a, b) => a.ly - b.ly)
       .map(({ l, ly }) => {
+        const clash = (v: number) => used.some((u) => Math.abs(u - v) < 15);
         let labelY = ly - 6;
-        if (labelY < TOP_BAND + 8 || used.some((u) => Math.abs(u - labelY) < 15)) labelY = ly + 15;
+        if (labelY < TOP_BAND + 8 || clash(labelY)) labelY = ly + 15;
+        // Never below the plot (it would be cut off at the time axis): back above its line, and up past any neighbour.
+        if (labelY > priceH - 6) { labelY = Math.min(ly - 6, priceH - 6); for (let k = 0; k < 6 && clash(labelY); k++) labelY -= 15; }
         used.push(labelY);
         return { l, ly, labelY };
       });

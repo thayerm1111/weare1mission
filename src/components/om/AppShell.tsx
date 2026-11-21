@@ -111,6 +111,24 @@ function Bar({ member, configured, preview }: { member: ShellMember; configured:
   const here = activeKey(path, view);
   const [sheet, setSheet] = useState(false);
   useEffect(() => { setSheet(false); }, [path, view]);
+  // THE SELECTED TAB'S CAPSULE (owner 11-21 brief §4): one tonal capsule that slides to the tab you chose, in about
+  // 200 ms. The labels never move. It is measured from the tab itself, so it follows any width; with reduced motion
+  // it simply appears in place (om.css removes every transition).
+  const links = useRef<HTMLDivElement>(null);
+  const [pill, setPill] = useState<{ x: number; w: number } | null>(null);
+  useEffect(() => {
+    const box = links.current;
+    if (!box) return;
+    const measure = () => {
+      const cur = box.querySelector<HTMLElement>('.om-link[aria-current="page"]');
+      setPill(cur ? { x: cur.offsetLeft, w: cur.offsetWidth } : null);
+    };
+    measure();
+    if (typeof ResizeObserver !== "function") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [here]);
 
   return (
     <>
@@ -118,7 +136,8 @@ function Bar({ member, configured, preview }: { member: ShellMember; configured:
         <div className="om-frame">
           <nav className="om-nav" aria-label="Trading platform">
             <Link href="/portal/trading" className="om-brand" aria-label="One Mission — The Floor"><OmMark /><span>One Mission</span></Link>
-            <div className="om-links">
+            <div className="om-links" ref={links} data-pill={pill ? "" : undefined}>
+              {pill && <span className="om-links-pill" aria-hidden="true" style={{ transform: `translateX(${pill.x}px)`, width: pill.w }} />}
               {NAV.map((n) => n.hard
                 ? <a key={n.key} href={n.href} className="om-link" aria-current={here === n.key ? "page" : undefined}>{n.label}</a>
                 : <Link key={n.key} href={n.href} className="om-link" aria-current={here === n.key ? "page" : undefined}>{n.label}</Link>)}

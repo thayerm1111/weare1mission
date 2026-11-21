@@ -177,10 +177,14 @@ export function SignalGenerator() {
     } catch { /* ignore */ }
     // THE NEW SHELL (owner 11-21 brief §9): an address only fills in the market and style. A play is generated on
     // arrival only for the member's own fresh intent — left by a button that said the price — and only once
-    // (lib/plays/intent.ts). A refresh, Back, a remount or a shared address therefore charges nothing.
-    if (next) {
+    // (lib/plays/intent.ts). A refresh, Back, a remount or a shared address therefore charges nothing. The same
+    // holds in the classic view for an address that says so — "open=1" (fill in only) or "generate=<nonce>" —
+    // as Atlas's links do; the classic Market Pulse button, which carries neither, generates as it always has.
+    const gen = q.get("generate"), openOnly = q.get("open") === "1";
+    if (next || gen || openOnly) {
+      if (openOnly && !gen) return;
       let mine = false;
-      try { mine = takeGenerateIntent(window.sessionStorage, q.get("generate"), td); } catch { mine = false; }
+      try { mine = takeGenerateIntent(window.sessionStorage, gen, td); } catch { mine = false; }
       if (!mine) return;
     }
     void generate(found.asset);

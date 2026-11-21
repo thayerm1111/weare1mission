@@ -35,7 +35,11 @@ export function takeGenerateIntent(store: Store, nonce: string | null, td: strin
   return x.td === td && now >= x.at && now - x.at <= INTENT_TTL_MS;
 }
 
-/** The address of OM AI Plays with a market and style filled in — and, with a nonce, the member's intent to generate. */
+/**
+ * The address of OM AI Plays with a market and style filled in — with a nonce, the member's intent to generate;
+ * without one, `open=1`, which says "fill in only" in BOTH views (the classic view otherwise generates on any
+ * address with a market, for its own Market Pulse button — so a link from here must say it is not that).
+ */
 export function playsHref(td: string, style: string, nonce?: string): string {
-  return `/portal/signals?td=${encodeURIComponent(td)}&style=${encodeURIComponent(style)}${nonce ? `&generate=${encodeURIComponent(nonce)}` : ""}`;
+  return `/portal/signals?td=${encodeURIComponent(td)}&style=${encodeURIComponent(style)}${nonce ? `&generate=${encodeURIComponent(nonce)}` : "&open=1"}`;
 }

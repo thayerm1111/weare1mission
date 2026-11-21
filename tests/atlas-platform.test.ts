@@ -113,3 +113,44 @@ test("the gold briefing (redesign preview): five parts in order, closed gold lea
   assert.match(html({ closed: true }), /Gold is closed\. This is the last session&#x27;s briefing, from /);
   assert.match(html(), /ATLAS&#x27;S READ/, "the classic card is unchanged without the preview");
 });
+
+test("why a trade did not reach an account: that account's own records, and what is not recorded is said (11-21)", () => {
+  const route = read("src/app/api/command-center/brain/route.ts");
+  const ex = route.slice(route.indexOf("async function executionText"), route.indexOf("/** The member's last Market Pulse scan"));
+  assert.match(ex, /from\("flow_broker_accounts"\)[\s\S]*?\.eq\("user_id", userId\)/, "only the member's own accounts are read");
+  assert.match(ex, /from\("flow_trade_log"\)[\s\S]*?\.eq\("user_id", userId\)\.eq\("account_id", a\.account_id\)/);
+  assert.match(ex, /FLOW does not keep a per-signal record of which check it was where I can read it, so I won't guess\./);
+  assert.match(ex, /With Trading and Follow both off, this account takes no GENX trade\./);
+  assert.match(ex, /Auto-run FLOW is switched off, and with it off no automated trade reaches any of your accounts\./);
+  assert.ok(!/\.update\(|\.insert\(|\.upsert\(|\.delete\(/.test(ex), "reading only");
+  const ui = read("src/components/command-center/BrainConsole.tsx");
+  assert.match(ui, /window\.localStorage\.getItem\("om:floor:account"\)/);
+});
+
+test("the Command Center says what each section is for; the replay is named as one; closed-market lines say so", () => {
+  const hud = read("src/components/command-center/hud/CommandCenterHud.tsx");
+  assert.match(hud, /BACKTEST: "A recorded replay of past sessions — not the live market, and not a performance backtest"/);
+  assert.match(hud, /next && n === "BACKTEST" \? "REPLAY" : n/);
+  assert.match(hud, /<Timeline rows=\{timelineRows\} className="hud-timeline" closedAt=\{\(t\) => !goldOpenAt\(t\)\} live=\{alive\} \/>/);
+  const tl = read("src/components/command-center/hud/Timeline.tsx");
+  assert.match(tl, /\{live && <LiveDot size=\{5\} \/>\}/, "no live dot just because the panel runs");
+  assert.match(tl, /\{shut \? "MKT CLOSED" : r\.tag \?\? KIND_WORD\[r\.kind\]\}/);
+  assert.ok(!/filter\(\(r\) => !closedAt|rows\.filter\([^)]*closedAt/.test(tl), "closed-market lines are labelled, never deleted");
+  // The microphone is never started by a tab choice or a page load.
+  const pick = hud.slice(hud.indexOf('const saved = window.localStorage.getItem("cc:talk-tab");'), hud.indexOf('} catch { /* the portal, as before */ }'));
+  assert.ok(pick.length > 20 && !/voiceBus\.start|getUserMedia/.test(pick));
+});
+
+test("the top tabs: one capsule slides to the chosen tab; labels stay put; reduced motion removes the slide", () => {
+  const shell = read("src/components/om/AppShell.tsx");
+  assert.match(shell, /<span className="om-links-pill" aria-hidden="true" style=\{\{ transform: `translateX\(\$\{pill\.x\}px\)`, width: pill\.w \}\} \/>/);
+  const css = read("src/components/om/om.css");
+  assert.match(css, /\.om-links-pill \{[^}]*transition: transform 200ms[^}]*\}/s);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.om-app \*, \.om-app \*::before, \.om-app \*::after \{ transition: none !important; animation: none !important; \}/);
+});
+
+test("an Atlas link opens OM AI Plays without generating in either view; only its Generate button can make a play", () => {
+  const ready = platformReply("generate_play", "Generate an intraday OM AI Play for EUR/USD", C);
+  for (const l of ready.links) assert.match(l.href, /&open=1$/, `${l.label}: the plain address only fills in`);
+  assert.ok(ready.links[0].generate, "the Generate button adds the one-time intent when tapped");
+});

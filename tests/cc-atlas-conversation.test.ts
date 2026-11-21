@@ -795,7 +795,7 @@ test("the console renders the contract, puts validated actions on the chart, and
   assert.ok(!/Something went wrong reaching ATLAS/.test(ui), "the old catch-all is gone");
   assert.ok(/mySeq === seqRef\.current/.test(ui) && /abortRef\.current\?\.abort\(\)/.test(ui), "an answer to an older question is ignored");
   // 11-21: a question about Market Pulse also carries the member's own last scan (pulseFor).
-  assert.ok(/JSON\.stringify\(\{ message: q, history, lastSeen, chartTf: chartTfRef\.current \?\? null, requestId, \.\.\.pulseFor\(q\) \}\)/.test(ui), "the thread travels with each question");
+  assert.ok(/JSON\.stringify\(\{ message: q, history, lastSeen, chartTf: chartTfRef\.current \?\? null, requestId, \.\.\.pulseFor\(q\), \.\.\.accountFor\(q\) \}\)/.test(ui), "the thread travels with each question");
   assert.ok(/opts\.auto && \(busyRef\.current \|\| endedRef\.current\)/.test(ui), "a scheduled update never interrupts a question");
   assert.ok(/at: t\.meta\?\.answeredAt \?\? t\.at/.test(ui), "an answer's time travels on the server's clock");
 });

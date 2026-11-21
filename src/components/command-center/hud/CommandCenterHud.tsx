@@ -28,6 +28,7 @@ import {
 } from "../../../../command-center/core/atlasContract";
 import { FEED_STATUS_WORD, FEED_POLL_MS, feedAgeWords } from "../../../../command-center/core/feed";
 import { COMMENTARY_MODES, COPILOT_COOLDOWNS_MS } from "../../../../command-center/core/commentary";
+import { marketOpen as marketOpenAt } from "../../../../command-center/core/sessions";
 import { ReadCard, type PointTarget } from "./ReadCard";
 import { ScenarioCards } from "./ScenarioCards";
 import { IndicatorsPanel } from "./IndicatorsPanel";
@@ -61,6 +62,20 @@ import {
 const TF_BTNS: { id: ChartTf; label: string }[] = CHART_TFS.map((id) => ({ id, label: id === "1d" ? "D" : id }));
 const TF_MIN: Record<ChartTf, number> = { "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440 };
 const NAV = ["OVERVIEW", "ANALYSIS", "SCANNERS", "STRATEGY", "BACKTEST", "ALERTS", "JOURNAL"] as const;
+/** What each section is for, in a few words (owner 11-21 brief §7) — the functions behind them are unchanged. */
+const NAV_PURPOSE: Record<(typeof NAV)[number], string> = {
+  OVERVIEW: "Gold's briefing, the chart and the conversation",
+  ANALYSIS: "The lean journal, liquidity zones, structure and global context",
+  SCANNERS: "The trade watcher: the setup ATLAS wants and its trade card",
+  STRATEGY: "Your trading profile: risk, which trades ATLAS may look for, what it may do",
+  BACKTEST: "A recorded replay of past sessions — not the live market, and not a performance backtest",
+  ALERTS: "Levels and conditions ATLAS is watching for you",
+  JOURNAL: "What ATLAS said and why, with times",
+};
+/** The redesign preview names the recorded replay for what it is. */
+const navWord = (n: (typeof NAV)[number], next: boolean) => (next && n === "BACKTEST" ? "REPLAY" : n);
+/** Gold's calendar, for the timeline's closed-market lines. */
+const goldOpenAt = (t: number) => marketOpenAt(t);
 type Nav = typeof NAV[number];
 type TalkTab = "CHAT" | "VOICE" | "ANALYSIS" | "SETTINGS";
 type Drawer = null | "trade" | "analysis" | "alerts" | "journal" | "idea";
@@ -797,7 +812,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
         <nav data-tour="nav" className="hud-scroll mx-auto hidden h-full min-w-0 items-center gap-0.5 overflow-x-auto rounded-[10px] px-1.5 lg:flex" style={{ border: `1px solid ${H.line}`, background: "rgba(var(--cc-07101a-rgb,7,16,26),0.7)" }}>
           {NAV.map((n) => (
-            <button key={n} onClick={() => goNav(n)}
+            <button key={n} onClick={() => goNav(n)} title={NAV_PURPOSE[n]} aria-current={nav === n ? "page" : undefined}
               className="relative h-[30px] shrink-0 rounded-[7px] px-2.5 text-[9.5px] font-semibold tracking-[0.14em] transition min-[1440px]:px-3"
               style={{
                 color: nav === n ? H.gold3 : H.mut,
@@ -805,7 +820,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                 border: nav === n ? "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.5)" : "1px solid transparent",
                 boxShadow: nav === n ? "0 0 14px rgba(var(--cc-d5a93d-rgb,213,169,61),0.25)" : "none",
               }}>
-              {n}
+              {navWord(n, toFloor)}
             </button>
           ))}
         </nav>
@@ -848,7 +863,10 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           <div className="hud-in absolute right-0 top-[46px] z-[46] w-[220px] rounded-[10px] p-1.5 lg:hidden" style={{ background: H.bg1, border: `1px solid ${H.lineHi}`, boxShadow: "0 16px 40px rgba(0,0,0,0.6)" }}>
             {NAV.map((n) => (
               <button key={n} onClick={() => goNav(n)} className="block w-full rounded-[6px] px-3 py-2 text-left text-[11px] font-semibold tracking-[0.14em]"
-                style={{ color: nav === n ? H.gold3 : H.text }}>{n}</button>
+                style={{ color: nav === n ? H.gold3 : H.text }}>
+                {navWord(n, toFloor)}
+                {toFloor && <span className="mt-0.5 block text-[10.5px] font-normal normal-case tracking-normal" style={{ color: H.mut }}>{NAV_PURPOSE[n]}</span>}
+              </button>
             ))}
             <button onClick={generate} className="block w-full rounded-[6px] px-3 py-2 text-left text-[11px] font-black tracking-[0.14em]" style={{ color: H.gold3 }}>✦ GENERATE WITH ATLAS</button>
             {!isReplay && <button onClick={() => { setMenuOpen(false); setTourOpen(true); }} className="block w-full rounded-[6px] px-3 py-2 text-left text-[11px] font-semibold tracking-[0.14em]" style={{ color: H.cyan2 }}>GUIDE</button>}
@@ -1005,8 +1023,10 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                         style={{ color: tf === b.id ? H.gold3 : H.mut, border: tf === b.id ? "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.55)" : "1px solid transparent", background: tf === b.id ? "rgba(var(--cc-d5a93d-rgb,213,169,61),0.1)" : "transparent" }}>{b.label}</button>
                     ))}
                   </div>
+                  {/* One Generate per screen in the redesign preview (owner 11-21 brief §7): the top bar's on a desk, the
+                      dock's on a phone. This third copy beside the timeframes is the classic layout's. */}
                   <button onClick={generate} data-generate-chart="" title="ATLAS's engine gives you its trade idea and where to enter"
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-[6px] px-2.5 py-1 text-[10px] font-black tracking-[0.12em] transition hover:brightness-110"
+                    className={`${toFloor ? "!hidden " : ""}inline-flex shrink-0 items-center gap-1.5 rounded-[6px] px-2.5 py-1 text-[10px] font-black tracking-[0.12em] transition hover:brightness-110`}
                     style={{ color: H.gold3, border: "1px solid rgba(var(--cc-ffd875-rgb,255,216,117),0.7)", background: "linear-gradient(180deg, rgba(var(--cc-d5a93d-rgb,213,169,61),0.22), rgba(var(--cc-d5a93d-rgb,213,169,61),0.06))", boxShadow: "0 0 12px rgba(var(--cc-d5a93d-rgb,213,169,61),0.25)" }}>
                     <Sparkles className="h-3.5 w-3.5" />GENERATE
                   </button>
@@ -1133,6 +1153,8 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                     { label: "Key levels", q: "What are the key levels above and below price right now, and which one matters most?" },
                     { label: "Where do timeframes disagree?", q: "What are the timeframes saying, and where do they disagree?" },
                     ...(intel?.structure.nextWatched != null ? [{ label: `Watch ${fmt2(intel.structure.nextWatched)}`, q: `Watch ${fmt2(intel.structure.nextWatched)} for me and tell me when price reaches it.` }] : []),
+                    // Help with the rest of the platform — answered whether gold is open or closed (owner 11-21 brief §8).
+                    ...(toFloor ? [{ label: "How the tools fit together", q: "Explain the difference between OM AI Plays, GENX, Market Pulse, and FLOW." }] : []),
                   ]} />
               </div>
               {/* Always mounted, only hidden: the ATLAS core starts this line from anywhere on the screen. */}
@@ -1201,7 +1223,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
       {/* ── BOTTOM — the timeline, and the way into the deeper panels ── */}
       <div className="hud-bottom mt-[8px] grid gap-[8px] xl:grid-cols-[minmax(0,1fr)_268px]">
-        <Timeline rows={timelineRows} className="hud-timeline" />
+        <Timeline rows={timelineRows} className="hud-timeline" closedAt={(t) => !goldOpenAt(t)} live={alive} />
         <HudPanel tour="deeper" title="DEEPER ANALYSIS" icon={<BookOpen className="h-3 w-3" />} bodyClass="grid grid-cols-2 content-start gap-1.5 px-2.5 pb-2">
           {([
             ["journal", "Lean journal", <BookOpen key="j" className="h-3.5 w-3.5" />],

@@ -213,7 +213,8 @@ export function platformReply(topic: PlatformTopic, message: string, c: Platform
       if (!td) {
         return { say: `Which market should the play be on? OM AI Plays covers forex, metals, crypto, indices and stocks. Name it — EUR/USD, say — and a style: ${STYLE_WORDS}.`, links: [L.plays] };
       }
-      const href = (st: string) => `/portal/signals?td=${encodeURIComponent(td)}&style=${st}`;
+      // "open=1": filled in only, in either view — a tap on Generate is what makes a play (src/lib/plays/intent.ts).
+      const href = (st: string) => `/portal/signals?td=${encodeURIComponent(td)}&style=${st}&open=1`;
       if (!style) {
         return {
           say: `An OM AI Play on ${td} is ${credits(c.play)} (included with the FLOW Pass), charged only when a play is made. Which style? ${STYLE_WORDS}.`,

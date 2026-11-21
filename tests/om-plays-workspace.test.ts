@@ -46,7 +46,7 @@ test('nothing is generated, charged or reset by looking', () => {
   // one-time intent (11-21): a refresh, Back, a remount or a shared address charges nothing.
   assert.equal((src.match(/void generate\(found\.asset\);/g) ?? []).length, 1);
   const link = src.slice(src.indexOf('const td = q.get("td");'), src.indexOf('void generate(found.asset);'));
-  assert.match(link, /if \(next\) \{\s*let mine = false;\s*try \{ mine = takeGenerateIntent\(window\.sessionStorage, q\.get\("generate"\), td\); \} catch \{ mine = false; \}\s*if \(!mine\) return;/);
+  assert.match(link, /const gen = q\.get\("generate"\), openOnly = q\.get\("open"\) === "1";\s*if \(next \|\| gen \|\| openOnly\) \{\s*if \(openOnly && !gen\) return;\s*let mine = false;\s*try \{ mine = takeGenerateIntent\(window\.sessionStorage, gen, td\); \} catch \{ mine = false; \}\s*if \(!mine\) return;/);
   assert.ok(link.indexOf('replaceState') < link.indexOf('takeGenerateIntent'), 'the address is cleaned before anything else');
   // Choosing a market — from the list or a quick pick — chooses it and nothing else.
   for (const m of workspace.matchAll(/onClick=\{\(\) => \{ setMarket\(m\); setAsset\(a\);[^}]*\}\}/g)) assert.ok(!/generate/.test(m[0]), m[0]);
@@ -92,7 +92,7 @@ test('a link generates once, only for the member\'s own fresh intent (11-21 brie
   assert.equal(takeGenerateIntent(c, nc, 'EUR/USD', t0 + INTENT_TTL_MS + 1), false, 'stale');
   assert.equal(takeGenerateIntent(mem(), 'abc', 'EUR/USD', t0), false, 'a shared address has no intent behind it');
   assert.equal(takeGenerateIntent(mem(), null, 'EUR/USD', t0), false);
-  assert.equal(playsHref('EUR/USD', 'intraday'), '/portal/signals?td=EUR%2FUSD&style=intraday');
+  assert.equal(playsHref('EUR/USD', 'intraday'), '/portal/signals?td=EUR%2FUSD&style=intraday&open=1', 'fill in only, in either view');
   assert.match(playsHref('EUR/USD', 'intraday', 'n1'), /&generate=n1$/);
 });
 

@@ -104,6 +104,55 @@ async function genxNowText(userId: string, message: string, nowMs: number): Prom
   ].filter(Boolean).join("\n");
 }
 
+/**
+ * WHY A TRADE DID OR DID NOT REACH AN ACCOUNT — from that account's own records, never a guess (owner 11-21 §8).
+ *
+ * The account is the one the member is looking at on The Floor or in FLOW (sent with the question) and is read only
+ * if it is theirs. What is recorded: the account's switches (Trading, Follow every GENX signal), the Auto-run master,
+ * a kill switch, a credit pause, and the entries FLOW placed on it (flow_trade_log). What is NOT recorded anywhere
+ * ATLAS can read: a per-signal "skipped because" — so that is said, rather than invented from a switch or a badge.
+ * What the switches mean is the code's own rule: Auto-run switched off stops every automated trade; Trading takes
+ * GENX trades (and FLOW's own while Auto-run is on); Follow takes every GENX signal.
+ */
+async function executionText(userId: string, hint: unknown): Promise<string | null> {
+  const admin = createAdminClient();
+  if (!admin) return null;
+  const h = hint as { id?: unknown; env?: unknown } | null;
+  const { data: rows } = await admin.from("flow_broker_accounts")
+    .select("account_id, name, environment, currency, autotrade_enabled, genx_follower, kill_switch_at, flow_credit_paused, is_selected, updated_at")
+    .eq("user_id", userId);
+  type Acct = { account_id: string; name: string | null; environment: string | null; autotrade_enabled: boolean | null; genx_follower: boolean | null; kill_switch_at: string | null; flow_credit_paused: boolean | null; is_selected: boolean | null };
+  const list = (rows ?? []) as Acct[];
+  if (!list.length) return "You have no broker account connected to FLOW, so no trade can reach one. Connecting is in FLOW.";
+  const env = (x: Acct) => (String(x.environment ?? "").toLowerCase() === "live" ? "live" : "demo");
+  const a = (h && typeof h.id === "string" ? list.find((x) => String(x.account_id) === h.id && (!h.env || env(x) === h.env)) : null)
+    ?? list.find((x) => x.is_selected) ?? (list.length === 1 ? list[0] : null);
+  if (!a) return `You have ${list.length} accounts connected. Choose the one you mean on The Floor or in FLOW, then ask me again — I'll read that one.`;
+  const { data: auto } = await admin.from("flow_auto_settings").select("enabled, credit_paused").eq("user_id", userId).maybeSingle();
+  const master = auto as { enabled: boolean | null; credit_paused: boolean | null } | null;
+  const { data: log } = await admin.from("flow_trade_log").select("at, symbol, phase, reason")
+    .eq("user_id", userId).eq("account_id", a.account_id).in("phase", ["entry_submitted", "entry_confirmed"])
+    .order("at", { ascending: false }).limit(3);
+  const entries = (log ?? []) as { at: string; symbol: string | null; phase: string; reason: string | null }[];
+  const name = `${a.name || "This account"} (${env(a) === "live" ? "Live" : "Demo"})`;
+  const on = (b: boolean | null | undefined) => (b ? "on" : "off");
+  const masterWord = master == null ? "never switched on" : master.enabled ? "on" : "off";
+  const facts = `On ${name}: Trading is ${on(a.autotrade_enabled)}, Follow every GENX signal is ${on(a.genx_follower)}, and Auto-run FLOW is ${masterWord}.`;
+  const blocks: string[] = [];
+  if (master && master.enabled === false) blocks.push("Auto-run FLOW is switched off, and with it off no automated trade reaches any of your accounts.");
+  if (!a.autotrade_enabled && !a.genx_follower) blocks.push("With Trading and Follow both off, this account takes no GENX trade.");
+  if (a.kill_switch_at) blocks.push(`A kill switch was set on this account at ${new Date(a.kill_switch_at).toISOString().slice(0, 16).replace("T", " ")} UTC.`);
+  if (a.flow_credit_paused || master?.credit_paused) blocks.push("FLOW is paused for credits: it starts again on its own once you top up.");
+  const last = entries[0]
+    ? `The last entry FLOW recorded on it: ${entries[0].symbol ?? "a trade"} from ${entries[0].reason ?? "a signal"}, ${new Date(entries[0].at).toISOString().slice(0, 16).replace("T", " ")} UTC.`
+    : "FLOW has no entry recorded on this account recently.";
+  return [
+    facts,
+    blocks.length ? `That is the recorded reason: ${blocks.join(" ")}` : "Its switches allow GENX trades, so a specific signal that did not reach it was stopped by a check as it was placed — such as no equity reading from the broker, a size under the broker's minimum, or the safety mode after two losses in a row. FLOW does not keep a per-signal record of which check it was where I can read it, so I won't guess.",
+    last,
+  ].join("\n");
+}
+
 /** The member's last Market Pulse scan, as their own browser kept it (sent with the question), said with its age. */
 function pulseText(raw: unknown, nowMs: number): string | null {
   const p = raw as { asOf?: unknown; top?: unknown } | null;
@@ -149,7 +198,7 @@ export async function POST(req: Request) {
   // 5 credits per 30 minutes (owner 09-21). No open window, no data.
   if (!(await hasPass(user.id))) return json({ ok: false, error: "pass_required" }, 402);
 
-  let body: { message?: string; history?: unknown; spoken?: boolean; lastSeen?: unknown; chartTf?: unknown; requestId?: unknown; pulse?: unknown };
+  let body: { message?: string; history?: unknown; spoken?: boolean; lastSeen?: unknown; chartTf?: unknown; requestId?: unknown; pulse?: unknown; account?: unknown };
   try { body = await req.json(); } catch { return json({ error: "bad_request" }, 400); }
   const message = (body.message ?? "").toString().trim().slice(0, 2000);
   if (!message) return json({ error: "empty" }, 400);
@@ -219,7 +268,8 @@ export async function POST(req: Request) {
     const live = topic === "genx_now" ? { genx: await genxNowText(user.id, message, nowMs).catch(() => null) } : {};
     const reply = platformReply(topic, message, COSTS, live);
     const pulse = topic === "pulse_last" ? pulseText((body as { pulse?: unknown }).pulse, nowMs) : null;
-    const say = (pulse ?? reply.say) + (mixed ? "\n\nAs for the market itself: I can't see a current gold read right now, so I won't describe it." : "");
+    const exec = topic === "not_executed" ? await executionText(user.id, (body as { account?: unknown }).account).catch(() => null) : null;
+    const say = (pulse ?? exec ?? reply.say) + (mixed ? "\n\nAs for the market itself: I can't see a current gold read right now, so I won't describe it." : "");
     return help({ say, links: reply.links });
   }
 
