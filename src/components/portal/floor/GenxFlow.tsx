@@ -39,8 +39,8 @@ function sideOf(a: string): "buy" | "sell" | "wait" {
 }
 
 /* ── Market Flow header: the trade thesis as a readable step sequence ──────── */
-type Step = { t: string; s?: string; tone: "now" | "wait" | "buy" | "sell" | "muted" };
-function buildSteps(g: Genx, price: number | null): Step[] {
+export type Step = { t: string; s?: string; tone: "now" | "wait" | "buy" | "sell" | "muted" };
+export function buildSteps(g: Genx, price: number | null): Step[] {
   const side = sideOf(g.action);
   const p = (v: number | null) => (v != null ? `$${fmtPrice(v)}` : undefined);
   const now: Step = { t: "NOW", s: price != null ? `$${fmtPrice(price)}` : undefined, tone: "now" };

@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { Gem, Loader2, ChevronDown } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
 import { GenxFlow, ConfirmHelp } from "./GenxFlow";
+import { useNextShell } from "@/components/om/shell";
+import { GenxHome } from "@/components/om/genx/GenxHome";
 
 /**
  * GENX — flagship XAUUSD (Gold) decision engine, desktop portal edition.
@@ -202,6 +204,7 @@ function agoShort(ms: number): string {
 }
 
 function LiveConfirm({ setup }: { setup: SetupLevels }) {
+  const next = useNextShell();
   const isWait = setup.action.includes("WAIT") || setup.action.includes("LIMIT");
   const side = setup.side;
   const [st, setSt] = useState<ConfirmState | null>(null);
@@ -243,6 +246,26 @@ function LiveConfirm({ setup }: { setup: SetupLevels }) {
 
   if (!isWait) return null;
   const state = st?.state ?? "LOADING";
+  // The new shell: the same check and the same answer, in the platform's words — no emoji, nothing pulsing.
+  if (next) {
+    const T: Record<string, string> = {
+      LOADING: "Checking the market…", BUSY: "The feed is busy — checking again", NO_DATA: "Waiting for data…",
+      WAIT: "Not time to enter yet", AT_ZONE: "At the zone — waiting for the candle to close",
+      CONFIRMED: side === "sell" ? "Confirmed — the sell is live" : "Confirmed — the buy is live",
+      INVALIDATED: "Invalid — do not take this setup",
+    };
+    return (
+      <div className="om-confirm-line" data-state={state}>
+        <div className="om-confirm-line-top">
+          <b>{T[state] ?? T.NO_DATA}</b>
+          <button type="button" className="om-btn-quiet" onClick={() => void check()} disabled={loading}>{loading ? "Checking…" : "Check"}</button>
+        </div>
+        {st?.detail && <p className="om-label">{st.detail}</p>}
+        {state === "CONFIRMED" && st?.enter != null && <p className="om-num" data-no-i18n translate="no">{side === "sell" ? "Sell" : "Buy"} now around {st.enter} · stop {setup.stop} · target {setup.tp1}</p>}
+        <p className="om-faint om-flow-small">Reads closed {setup.triggerTf || "trigger"} candles and checks again every 30 seconds.</p>
+      </div>
+    );
+  }
   const S: Record<string, { bg: string; bd: string; fg: string; icon: string; title: string }> = {
     LOADING: { bg: "rgba(255,255,255,0.04)", bd: "rgba(255,255,255,0.12)", fg: "#8b94a7", icon: "…", title: "Checking the market…" },
     BUSY: { bg: "rgba(255,255,255,0.04)", bd: "rgba(255,255,255,0.12)", fg: "#8b94a7", icon: "…", title: "Feed busy — retrying…" },
@@ -304,6 +327,7 @@ function LTile({ label, value, sub, tone }: { label: string; value: string; sub?
 }
 
 export function GenxDesk() {
+  const next = useNextShell();
   const [mode, setMode] = useState<string>("quick");
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState<Resp | null>(null);
@@ -384,6 +408,20 @@ export function GenxDesk() {
   function untrack(id: string) {
     persist(tracked.filter((x) => x.id !== id));
     fetch(`/api/genx/tracked?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => { /* ignore */ });
+  }
+
+  // THE NEW SHELL (owner 11-20 brief §8): the same state and the same handlers, drawn as a gold workstation.
+  if (next) {
+    return (
+      <GenxHome
+        mode={mode} setMode={setMode} analyze={() => void analyze()} loading={loading} err={err}
+        read={g ?? null} readCandles={res?.candles} readPrice={res?.price ?? null} readLive={res?.data_status === "live"} readAt={res?.asOf ?? null}
+        saved={replay} backToCurrent={() => { setRes(null); setReplay(null); setErr(""); }}
+        plays={plays} openPlay={(id) => void openPlay(id)}
+        tracked={tracked} isTracked={isTracked} hasPlan={hasPlan} track={trackCurrent} untrack={untrack}
+        Confirm={LiveConfirm} setupOf={(x) => setupFromGenx(x as Genx)}
+      />
+    );
   }
 
   return (

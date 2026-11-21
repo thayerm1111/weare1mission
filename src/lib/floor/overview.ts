@@ -169,7 +169,11 @@ export type GenxResults = {
   recent: { at: string; side: "buy" | "sell"; pips: number }[];
   /** Running net pips across the window's closed trades, oldest first, starting from 0 — the small line beside the figures. */
   series: number[];
+  /** The window's closed trades, newest first — at most GENX_HISTORY_MAX; `historyMore` counts the rest. */
+  history?: { at: string; side: "buy" | "sell"; pips: number }[];
+  historyMore?: number;
 };
+export const GENX_HISTORY_MAX = 100;
 
 /**
  * The desk record for a window. The arithmetic is the desk record's own (realResults.buildRealResults'
@@ -197,6 +201,8 @@ export function genxPeriod(fires: GenxFireIn[], win: { from: number; to: number 
     netPips: Math.round(run), open,
     recent: decided.slice(-8).reverse().map((d) => ({ at: new Date(d.at).toISOString(), side: d.side, pips: d.pips })),
     series,
+    history: decided.slice(-GENX_HISTORY_MAX).reverse().map((d) => ({ at: new Date(d.at).toISOString(), side: d.side, pips: d.pips })),
+    historyMore: Math.max(0, decided.length - GENX_HISTORY_MAX),
   };
 }
 

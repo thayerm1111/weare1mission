@@ -321,7 +321,7 @@ function AtlasPanel({ atlas, stage, sample, now }: { atlas: FloorOverview["atlas
 
 /* ── results ──────────────────────────────────────────────────────────────────────────────────── */
 
-function Spark({ series }: { series: number[] }) {
+export function Spark({ series }: { series: number[] }) {
   if (series.length < 3) return null;
   const W = 190, H = 56, lo = Math.min(...series), hi = Math.max(...series), span = hi - lo || 1;
   const pts = series.map((v, i) => [(i / (series.length - 1)) * W, 4 + (1 - (v - lo) / span) * (H - 8)] as const);
@@ -362,7 +362,7 @@ export function Method({ id, children }: { id: string; children: React.ReactNode
   );
 }
 
-function GenxCard({ ov, state, failed, period, onPeriod }: { ov: FloorOverview | null; state: string; failed: boolean; period: FloorPeriod; onPeriod: (p: FloorPeriod) => void }) {
+export function GenxCard({ ov, state, failed, period, onPeriod }: { ov: FloorOverview | null; state: string; failed: boolean; period: FloorPeriod; onPeriod: (p: FloorPeriod) => void }) {
   const g = ov?.genx && ov.genx.period === period ? ov.genx : null;
   const r = g?.results ?? null;
   // Waiting only while an answer is actually on its way: an ask that failed ends it, and the card says so.

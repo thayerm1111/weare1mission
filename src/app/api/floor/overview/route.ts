@@ -89,6 +89,17 @@ export async function GET(req: NextRequest) {
   const tzOff = Number.isFinite(tz) ? tz : 0;
   const since = statsSince();
 
+  // GENX's own page asks only for the desk record: no account is read, so no broker is asked anything.
+  if (url.searchParams.get("only") === "genx") {
+    const fires = await deskFires(admin, since).catch(() => null);
+    const desk: FloorOverview = {
+      asOf: new Date(now).toISOString(), accountsKnown: false, accounts: [], account: null, figures: null,
+      genx: fires ? { period: gp, since, results: genxPeriod(fires, periodWindow(gp, now, since, tzOff)) } : null,
+      flow: null, atlas: null,
+    };
+    return json(desk);
+  }
+
   // ── the member's accounts, and the one being looked at ──
   const [connQ, acctQ] = await Promise.all([
     admin.from("flow_broker_connections").select("id, broker, environment, status").eq("user_id", user.id),
