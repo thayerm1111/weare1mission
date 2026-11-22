@@ -93,7 +93,7 @@ export function InstallSheet({ guide, onClose }: { guide: InstallGuide; onClose:
     const active = document.activeElement as HTMLElement | null;
     // The profile menu unmounts before this sheet opens. Its stable account button is the return point.
     const from = active && active !== document.body && active !== document.documentElement && active.isConnected
-      ? active : document.querySelector<HTMLButtonElement>(".om-app .om-avatar");
+      ? active : document.querySelector<HTMLButtonElement>("[data-om-account-trigger]");
     const body = document.body;
     const html = document.documentElement;
     const scroll = { x: window.scrollX, y: window.scrollY };
@@ -124,7 +124,7 @@ export function InstallSheet({ guide, onClose }: { guide: InstallGuide; onClose:
       Object.assign(body.style, { position: saved.position, top: saved.top, left: saved.left, width: saved.width, overflow: saved.overflow });
       html.style.overflow = saved.htmlOverflow;
       window.scrollTo({ left: scroll.x, top: scroll.y, behavior: "instant" });
-      const returnTo = from?.isConnected ? from : document.querySelector<HTMLButtonElement>(".om-app .om-avatar");
+      const returnTo = from?.isConnected ? from : document.querySelector<HTMLButtonElement>("[data-om-account-trigger]");
       returnTo?.focus({ preventScroll: true });
     };
   }, []);

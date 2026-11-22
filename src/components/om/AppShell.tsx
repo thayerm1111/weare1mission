@@ -80,7 +80,7 @@ function ProfileMenu({ member, configured, preview, asApp, onInstall, look, onLo
   }, [open]);
   return (
     <div ref={box} style={{ position: "relative" }}>
-      <button type="button" className="om-avatar" aria-label="Your account" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <button type="button" className="om-avatar" data-om-account-trigger="" aria-label="Your account" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <User width={19} height={19} aria-hidden="true" />
       </button>
       {open && (
