@@ -78,7 +78,7 @@ test('the new design is for every member; only an admin can choose the classic p
 
 test('the portal decides on the server, from the member\'s role — and the classic portal is still there underneath', () => {
   const layout = read('src/app/portal/layout.tsx');
-  assert.match(layout, /wantsNextShell\(cookies\(\)\.get\(SHELL_COOKIE\)\?\.value, isAdmin\)/);
+  assert.match(layout, /wantsNextShell\(cookies\(\)\.get\(SHELL_COOKIE\)\?\.value, isAdmin, headers\(\)\)/);
   assert.match(layout, /const isAdmin = profile\?\.role === "admin";/);
   assert.match(layout, /<PortalNav isAdmin=\{isAdmin\} isOwner=\{isOwner\} \/>/, 'the classic navigation is untouched');
   assert.ok(layout.indexOf('wantsNextShell(') < layout.indexOf('<PortalNav'), 'the preview is a branch before the classic portal, not a change to it');
@@ -88,7 +88,7 @@ test('the portal decides on the server, from the member\'s role — and the clas
   const branch = layout.slice(layout.indexOf('wantsNextShell('), layout.indexOf('return (\n    <div className="bg-cream">'));
   assert.match(branch, /<RiskConsentGate \/>/);
   const page = read('src/app/portal/trading/page.tsx');
-  assert.match(page, /wantsNextShell\(cookies\(\)\.get\(SHELL_COOKIE\)\?\.value, profile\?\.role === "admin"\)/);
+  assert.match(page, /wantsNextShell\(cookies\(\)\.get\(SHELL_COOKIE\)\?\.value, profile\?\.role === "admin", headers\(\)\)/);
   assert.match(page, /<FloorWorkspace isCaller=\{isCaller\} followerCount=\{followerCount\} \/>/, 'everyone else gets the page as it was');
 });
 

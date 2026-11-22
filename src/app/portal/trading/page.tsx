@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { LineChart, AlertTriangle } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
@@ -16,7 +16,7 @@ export default async function FloorPage({ searchParams }: { searchParams?: { vie
   // THE NEW DESIGN (owner 11-20; for everyone since 11-21) — the new Floor here, and the tools open without the
   // classic workspace's own row of tabs (the new shell is the navigation). An admin who chose the classic portal
   // gets this page exactly as it was.
-  if (wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile?.role === "admin")) {
+  if (wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile?.role === "admin", headers())) {
     const view = typeof searchParams?.view === "string" ? searchParams.view : "";
     if (!view || view === "home") return <Floor />;
     return (

@@ -89,5 +89,5 @@ test('the history is the period\'s, newest first, and a run of results ends at a
 test('engine results and an account\'s results are labelled apart, and following is FLOW\'s', () => {
   assert.match(home, /not any one account\. Your own account is in <Link href="\/portal\/trading\?view=flow"/);
   assert.match(home, /Which of your accounts take GENX trades is set in FLOW\./);
-  assert.match(read('src/app/portal/genx/page.tsx'), /if \(wantsNextShell\(cookies\(\)\.get\(SHELL_COOKIE\)\?\.value, profile\?\.role === "admin"\)\) return <GenxDesk \/>;/, 'members keep the classic page');
+  assert.match(read('src/app/portal/genx/page.tsx'), /if \(wantsNextShell\(cookies\(\)\.get\(SHELL_COOKIE\)\?\.value, profile\?\.role === "admin", headers\(\)\)\) return <GenxDesk \/>;/, 'the tool uses the same shell decision as its layout');
 });

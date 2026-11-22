@@ -1,10 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { cache } from "react";
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getProfile as readProfile } from "@/lib/auth";
-import { SHELL_COOKIE, SHELL_CSS, SHELL_SCRIPT, wantsNextShell } from "@/lib/floor/nav";
+import { APP_SHELL_RECOVERY_SCRIPT, CLASSIC_SHELL, SHELL_COOKIE, SHELL_CSS, SHELL_SCRIPT, wantsNextShell } from "@/lib/floor/nav";
 import { AppShell } from "@/components/om/AppShell";
 import { CC_NEXT_CSS } from "@/components/command-center/hud/nextTheme";
 import { APP_INSTALL_SCRIPT, APP_MANIFEST, APP_NAME, ATLAS_THEME } from "@/lib/floor/app";
@@ -23,7 +23,7 @@ const inNewShell = cache(async (): Promise<boolean> => {
   if (!isSupabaseConfigured) return false;
   const profile = await getProfile();
   if (!profile) return false;
-  return wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile.role === "admin");
+  return wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile.role === "admin", headers());
 });
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -73,9 +73,11 @@ export default async function CommandCenterLayout({ children }: { children: Reac
    * defines them, on <html> so the panels drawn into <body> (the broker sheet) follow. An admin who chose the classic
    * portal gets no block and sees exactly the classic colours. The entrance keeps its own.
    */
-  const next = wantsNextShell(cookies().get(SHELL_COOKIE)?.value, admin);
+  const next = wantsNextShell(cookies().get(SHELL_COOKIE)?.value, admin, headers());
+  const recoverApp = admin && cookies().get(SHELL_COOKIE)?.value === CLASSIC_SHELL;
   return (
     <>
+      {recoverApp && <script dangerouslySetInnerHTML={{ __html: APP_SHELL_RECOVERY_SCRIPT }} />}
       <style dangerouslySetInnerHTML={{ __html: FULLSCREEN_CSS + (next ? SHELL_CSS + CC_NEXT_CSS : "") }} />
       <script
         dangerouslySetInnerHTML={{

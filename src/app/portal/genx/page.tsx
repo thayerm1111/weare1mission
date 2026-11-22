@@ -1,5 +1,5 @@
 import { AlertTriangle } from "lucide-react";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
@@ -14,7 +14,7 @@ export default async function GenxPage() {
   if (!supabase) return <PortalNotConfigured />;
   // The redesign preview (admin only): the tool is the page, and says its own educational line at its foot.
   const profile = await getProfile();
-  if (wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile?.role === "admin")) return <GenxDesk />;
+  if (wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile?.role === "admin", headers())) return <GenxDesk />;
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">

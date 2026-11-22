@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
@@ -20,7 +20,7 @@ export default async function PortalDashboard() {
 
   // In the redesign preview (owner 11-20: "When customers log in, they immediately enter The Floor"), this
   // dashboard is not a destination: signing in lands on The Floor. Everyone else gets it as it was.
-  if (wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile?.role === "admin")) redirect("/portal/trading");
+  if (wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile?.role === "admin", headers())) redirect("/portal/trading");
 
   const { data: updates } = await supabase
     .from("team_updates").select("id,title,body,category,pinned,created_at").eq("published", true)

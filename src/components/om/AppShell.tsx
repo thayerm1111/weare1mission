@@ -12,7 +12,7 @@ import "./connected-experience.css";
 import { Suspense, useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { CreditCard, Globe, House, LifeBuoy, LogOut, ShieldCheck, Smartphone, Undo2, User, UserCircle, Waves, Wrench } from "lucide-react";
+import { CreditCard, Globe, House, LifeBuoy, LogOut, ShieldCheck, SlidersHorizontal, Smartphone, Undo2, User, UserCircle, Waves, Wrench } from "lucide-react";
 import { NotificationsBell } from "@/components/portal/NotificationsBell";
 import { NAV, APP_TABS, TAB_ORDER, activeKey, activeTabKey, type AppTabKey } from "@/lib/floor/nav";
 import type { InstallGuide } from "@/lib/floor/app";
@@ -89,13 +89,18 @@ function ProfileMenu({ member, configured, preview, asApp, onInstall, look, onLo
         <User width={19} height={19} aria-hidden="true" />
       </button>
       {open && (
-        <div className="om-menu" role="menu">
+        <div className="om-menu om-account-menu" role="menu">
           {(member.name || member.email) && (
             <div className="om-menu-head">
               {member.name && <p style={{ fontSize: 15 }}>{member.name}</p>}
               {member.email && <p className="om-dim" style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis" }}>{member.email}</p>}
             </div>
           )}
+          {member.admin && <>
+            <Link role="menuitem" href="/portal/admin" onClick={() => setOpen(false)}><ShieldCheck aria-hidden="true" />Member approvals</Link>
+            <a role="menuitem" href="/admin/controls"><SlidersHorizontal aria-hidden="true" />Trading controls</a>
+            <hr />
+          </>}
           <Link role="menuitem" href="/portal/account" onClick={() => setOpen(false)}><UserCircle aria-hidden="true" />Account and settings</Link>
           <Link role="menuitem" href="/portal/credits" onClick={() => setOpen(false)}><CreditCard aria-hidden="true" />Credits and billing</Link>
           {configured && <div className="om-mobile-notifications"><span>Notifications</span><NotificationsBell trading /></div>}
@@ -114,8 +119,7 @@ function ProfileMenu({ member, configured, preview, asApp, onInstall, look, onLo
           </div>
           {/* The site's own language switch (I18nProvider), asked for from here instead of a floating button. */}
           <button type="button" role="menuitem" data-no-i18n translate="no" onClick={() => { window.dispatchEvent(new Event("om-lang-toggle")); setOpen(false); }}><Globe aria-hidden="true" />{lang === "es" ? "English" : "Español"}</button>
-          {member.admin && <><hr /><a role="menuitem" href="/admin/controls"><ShieldCheck aria-hidden="true" />Admin workspace</a></>}
-          {preview && asApp !== true && <a role="menuitem" href="/api/floor/preview?on=0"><Undo2 aria-hidden="true" />Classic portal</a>}
+          {member.admin && preview && asApp === false && <a role="menuitem" className="om-classic-portal" href="/api/floor/preview?on=0"><Undo2 aria-hidden="true" />Classic portal</a>}
           {configured && (
             <>
               <hr />

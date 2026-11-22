@@ -1,10 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { cache } from "react";
 import Link from "next/link";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/om/AppShell";
-import { SHELL_COOKIE, SHELL_CSS, SHELL_SCRIPT, wantsNextShell } from "@/lib/floor/nav";
+import { APP_SHELL_RECOVERY_SCRIPT, CLASSIC_SHELL, SHELL_COOKIE, SHELL_CSS, SHELL_SCRIPT, wantsNextShell } from "@/lib/floor/nav";
 import { APP_INSTALL_SCRIPT, APP_MANIFEST, APP_NAME, APP_THEME } from "@/lib/floor/app";
 import { PortalNav } from "@/components/portal/PortalNav";
 import { SignOutButton } from "@/components/portal/SignOutButton";
@@ -37,7 +37,7 @@ const inNewShell = cache(async (): Promise<boolean> => {
   if (!profile) return false;
   const isAdmin = profile.role === "admin";
   if (!isAdmin && profile.status !== "active") return false;
-  return wantsNextShell(cookies().get(SHELL_COOKIE)?.value, isAdmin);
+  return wantsNextShell(cookies().get(SHELL_COOKIE)?.value, isAdmin, headers());
 });
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -80,6 +80,7 @@ export default async function PortalLayout({ children }: { children: React.React
   const isAdmin = profile?.role === "admin";
   const isOwner = (profile?.email ?? "").toLowerCase() === "thayerm1111@gmail.com";
   const needsApproval = profile != null && !isAdmin && profile.status !== "active";
+  const recoverApp = isAdmin && cookies().get(SHELL_COOKIE)?.value === CLASSIC_SHELL;
 
   /*
    * THE NEW DESIGN (owner 11-20 brief; for everyone since 11-21, "push live to everyone"). Every active member
@@ -89,9 +90,10 @@ export default async function PortalLayout({ children }: { children: React.React
    * the account menu (nav.wantsNextShell), for support. The risk disclosure and the low-balance prompt still
    * apply inside it.
    */
-  if (profile && !needsApproval && wantsNextShell(cookies().get(SHELL_COOKIE)?.value, isAdmin)) {
+  if (profile && !needsApproval && wantsNextShell(cookies().get(SHELL_COOKIE)?.value, isAdmin, headers())) {
     return (
       <>
+        {recoverApp && <script dangerouslySetInnerHTML={{ __html: APP_SHELL_RECOVERY_SCRIPT }} />}
         <style dangerouslySetInnerHTML={{ __html: SHELL_CSS }} />
         <script dangerouslySetInnerHTML={{ __html: SHELL_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: APP_INSTALL_SCRIPT }} />
@@ -104,6 +106,7 @@ export default async function PortalLayout({ children }: { children: React.React
 
   return (
     <div className="bg-cream">
+      {recoverApp && <script dangerouslySetInnerHTML={{ __html: APP_SHELL_RECOVERY_SCRIPT }} />}
       <script
         dangerouslySetInnerHTML={{
           __html:

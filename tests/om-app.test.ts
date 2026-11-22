@@ -124,7 +124,7 @@ test('the new shell\'s pages say they can be installed — every active member\'
     const src = code(f);
     const gate = src.slice(src.indexOf('const inNewShell = cache('), src.indexOf('export async function generateMetadata'));
     assert.match(gate, /const profile = await getProfile\(\);\s*if \(!profile\) return false;/, `${f}: a signed-out page says nothing`);
-    assert.match(gate, /wantsNextShell\(cookies\(\)\.get\(SHELL_COOKIE\)\?\.value, (isAdmin|profile\.role === "admin")\)/, `${f}: the same answer as the layout's own, decided on the server`);
+    assert.match(gate, /wantsNextShell\(cookies\(\)\.get\(SHELL_COOKIE\)\?\.value, (isAdmin|profile\.role === "admin"), headers\(\)\)/, `${f}: the same device-aware answer as the layout's own, decided on the server`);
     assert.match(src, /const getProfile = cache\(readProfile\);/, `${f}: the profile is read once per request`);
     const meta = src.slice(src.indexOf('export async function generateMetadata'));
     assert.match(meta, /if \(!\(await inNewShell\(\)\)\) return (PORTAL|CC)_METADATA;/, `${f}: everyone else's page is as it was`);
@@ -145,7 +145,7 @@ test('the account menu offers "Install the app" in a browser tab; an admin\'s "C
   const shell = code('src/components/om/AppShell.tsx');
   assert.match(shell, /\{onInstall && <button type="button" role="menuitem" onClick=\{\(\) => \{ setOpen\(false\); onInstall\(\); \}\}><Smartphone aria-hidden="true" \/>Install the app<\/button>\}/);
   assert.match(shell, /onInstall=\{configured && offer \? install : undefined\}/);
-  assert.match(shell, /\{preview && asApp !== true && <a role="menuitem" href="\/api\/floor\/preview\?on=0"><Undo2 aria-hidden="true" \/>Classic portal<\/a>\}/);
+  assert.match(shell, /\{member\.admin && preview && asApp === false && <a role="menuitem" className="om-classic-portal" href="\/api\/floor\/preview\?on=0"><Undo2 aria-hidden="true" \/>Classic portal<\/a>\}/);
   assert.match(code('src/app/portal/layout.tsx'), /preview=\{isAdmin\}/, 'only an admin is offered the classic portal');
   assert.match(shell, /<OfflineNotice \/>/);
   const ia = code('src/components/om/InstallApp.tsx');
@@ -205,7 +205,7 @@ test('the earlier installed app at /app/ shows the new design: it frames the liv
   assert.match(html, /r\.setProperty\("--om-clock", g \? "#1a1a1d" : "#111111"\);/);
   assert.match(html, /localStorage\.getItem\("om-look"\) === "graphite"/, 'the strip under the home indicator takes the look\'s bar colour');
   assert.match(html, /navigator\.serviceWorker\.register\("\/app\/sw\.js"\)/, 'a new version still shows on the next launch');
-  assert.match(read('public/app/sw.js'), /const CACHE = "om-app-v42";/, 'the cache is renewed so every installed copy picks up the new page');
+  assert.ok(Number(read('public/app/sw.js').match(/const CACHE = "om-app-v(\d+)";/)?.[1]) >= 45, 'the cache is renewed so every installed copy picks up the new page');
   assert.ok(!/<script[^>]*src=/.test(html) && html.length < 6000, 'a small page: everything is the live site inside it');
   assert.match(read('public/app/manifest.webmanifest'), /"scope": "\/app\/"/, 'the installed app keeps its own address');
 });

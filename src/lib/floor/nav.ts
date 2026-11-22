@@ -71,17 +71,38 @@ export const SHELL_COOKIE = "om_shell";
 /** The value of SHELL_COOKIE with which an admin has chosen the classic portal. */
 export const CLASSIC_SHELL = "classic";
 
+type ShellRequestHeaders = { get: (name: string) => string | null };
+
+/** A phone or embedded app must not inherit an admin's desktop support view. */
+export function prefersAppShell(request?: ShellRequestHeaders): boolean {
+  if (!request) return false;
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(request.get("user-agent") ?? "")
+    || request.get("sec-ch-ua-mobile") === "?1"
+    || /^(iframe|frame)$/.test(request.get("sec-fetch-dest") ?? "");
+}
+
 /**
  * WHO SEES THE NEW DESIGN (owner 11-20: a preview, "just me first"; 11-21: "push live to everyone").
  *
- * Every member sees it. The one way back to the classic portal is an admin's own choice from the account menu
+ * Every member sees it. The one way back to the classic portal is an admin's own desktop-browser choice from the account menu
  * (/api/floor/preview?on=0 sets the cookie to "classic"), kept for support: a member's cookie does nothing, because
  * the role is read on the server. A member who is pending or suspended keeps the classic portal's notice — that is
- * decided in the portal layout, before this.
+ * decided in the portal layout, before this. Phones and embedded apps always retain the new app, even when
+ * an earlier admin support session left the long-lived classic cookie behind.
  */
-export function wantsNextShell(cookieValue: string | null | undefined, isAdmin: boolean): boolean {
-  return !(isAdmin === true && cookieValue === CLASSIC_SHELL);
+export function wantsNextShell(cookieValue: string | null | undefined, isAdmin: boolean, request?: ShellRequestHeaders): boolean {
+  return prefersAppShell(request) || !(isAdmin === true && cookieValue === CLASSIC_SHELL);
 }
+
+/**
+ * A standalone window and an iPad using a desktop user-agent cannot always be identified by HTTP headers.
+ * Only emitted for an admin who still has the classic cookie. Clear that display preference through the
+ * existing admin switch, preserving the exact current page; authentication and account settings are unchanged.
+ * Clearing also keeps subsequent client-side requests inside a legacy /app iframe on the same shell.
+ */
+export const APP_SHELL_RECOVERY_SCRIPT =
+  "(function(){try{var ua=navigator.userAgent||'';var app=navigator.standalone===true||window.top!==window.self||/Android|iPhone|iPad|iPod|Mobile/i.test(ua)||(/Macintosh/i.test(ua)&&navigator.maxTouchPoints>1)||!!(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches);" +
+  "if(app)location.replace('/api/floor/preview?on=1&to='+encodeURIComponent(location.pathname+location.search+location.hash));}catch(e){}})();";
 
 /* ── stepping the public site's chrome aside ───────────────────────────────────────────────────── */
 

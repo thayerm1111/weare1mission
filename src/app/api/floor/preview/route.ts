@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getProfile } from "@/lib/auth";
-import { CLASSIC_SHELL, SHELL_COOKIE } from "@/lib/floor/nav";
+import { CLASSIC_SHELL, SHELL_COOKIE, prefersAppShell } from "@/lib/floor/nav";
 import { landingPath } from "@/lib/floor/app";
 
 export const runtime = "nodejs";
@@ -24,7 +24,8 @@ export async function GET(req: NextRequest) {
   const profile = await getProfile();
   if (!profile || profile.role !== "admin") return new NextResponse("Not found", { status: 404 });
   const q = new URL(req.url).searchParams;
-  const on = q.get("on") !== "0";
+  // The classic view is a desktop support option. A phone or embedded app always restores the app.
+  const on = q.get("on") !== "0" || prefersAppShell(req.headers);
   const res = NextResponse.redirect(new URL((on && landingPath(q.get("to"))) || "/portal/trading", req.url), 303);
   // Since the new design went to everyone (owner 11-21), "on" is the default and "off" is an admin's own choice of the
   // classic portal, for support: on=0 keeps that choice for 30 days; on=1 forgets it.
