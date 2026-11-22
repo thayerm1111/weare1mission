@@ -2,9 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   atlasPlayResult, atlasGenxResult, atlasExecution, atlasSignalContext,
-  generateAtlasSignal, mergeSavedPlays, saveAtlasPlay, SIGNALS_UPDATED_EVENT, GENX_UPDATED_EVENT,
+  generateAtlasSignal, mergeSavedPlays, restoreAtlasSignalResult, saveAtlasPlay, SIGNALS_UPDATED_EVENT, GENX_UPDATED_EVENT,
   type AtlasSignalResult,
 } from "../src/lib/atlas/signals";
+import { normalizePlayDiagnostics } from "../src/lib/plays/diagnostics";
+import { atlasContext } from "../src/lib/atlas/context";
 
 const now = 1_800_000_000_000;
 const playPayload = (signal: Record<string, unknown> = {}) => ({
@@ -33,13 +35,102 @@ test("OM adapter preserves no-trade, exact levels, and candle/analysis timestamp
   const result = atlasPlayResult(raw, now)!;
   assert.equal(result.id, now);
   assert.equal(result.status, "open");
-  assert.equal(result.signal, raw.signal, "Atlas does not regenerate or adjust the engine signal");
+  assert.deepEqual(result.signal, raw.signal, "Atlas does not regenerate or adjust the engine signal");
   assert.equal(result.signal.status, "no_trade");
   assert.deepEqual(result.candles, raw.candles);
   assert.equal(result.asOf, raw.asOf);
   assert.equal(result.as_of, raw.as_of);
   assert.equal(atlasPlayResult({ ...raw, td: "INVENTED" }), null);
   assert.equal(atlasPlayResult({ ...raw, signal: { direction: "MAYBE" } }), null);
+});
+
+const fiveFrames = () => ["4H", "1H", "30M", "15M", "5M"].map((tf, i) => ({
+  tf, trend: i === 4 ? "ranging" : "bullish", aligned: i !== 4, confirmed: 1, total: 2,
+  checklist: [{ label: "Closed-bar trend", ok: true }, { label: "Retest", ok: false }],
+  asOf: `2026-11-21 ${String(8 + i).padStart(2, "0")}:00:00`, closed: true, unavailable: false,
+}));
+
+test("five-frame evidence survives a saved conversation without changing the play's identity or eligibility", () => {
+  const diagnostics = fiveFrames();
+  const raw = { ...playPayload({ timeframeConfirmations: diagnostics }), id: now, status: "win", hitTp: 2 };
+  const saved = { kind: "plays", result: raw, saved: "synced" };
+  const restored = restoreAtlasSignalResult(JSON.parse(JSON.stringify(saved)));
+  assert.ok(restored?.kind === "plays");
+  assert.equal(restored.result.id, now);
+  assert.equal(restored.result.status, "win", "Price tracking is retained separately from the unconfirmed idea");
+  assert.equal(restored.result.hitTp, 2);
+  assert.deepEqual(normalizePlayDiagnostics(restored.result.signal).timeframeConfirmations, diagnostics);
+  assert.equal(restored.result.asOf, raw.asOf);
+  assert.equal(restored.result.as_of, raw.as_of);
+  assert.equal(restored.result.price, raw.price);
+  assert.equal(restored.result.signal.status, "no_trade");
+  assert.equal(atlasExecution(restored)?.unconfirmed, true);
+  assert.equal(atlasExecution(restored)?.entry, raw.signal.entry);
+  assert.equal(atlasExecution(restored)?.stop, raw.signal.stopLoss);
+  assert.deepEqual(raw.signal.timeframeConfirmations, diagnostics, "Normalization does not mutate the stored input");
+});
+
+test("damaged optional evidence is removed without losing a valid saved play or inventing confirmation", () => {
+  const good = fiveFrames()[0];
+  const missing = { ...fiveFrames()[1], unavailable: true, reason: "rate_limited", checklist: [null] };
+  const raw = playPayload({
+    timeframeConfirmations: [good, null, { ...fiveFrames()[2], checklist: [{ label: { unsafe: true }, ok: true }] }, missing],
+    timeframes: [{ tf: "15m", trend: "bullish", confirmed: 1, total: 1, checklist: [{ label: "Structure", ok: true }] }, { tf: "5m", trend: "ranging", confirmed: 0, total: 1, checklist: null }],
+    checklist: [{ label: "Trend", ok: "yes" }], flow: { h4: { unsafe: true }, h1: "bullish", dir: "LONG", aligned: true },
+    setup: { unsafe: true }, verdict: ["object child"], confidence: { unsafe: true }, gate_score: Infinity,
+  });
+  const result = atlasPlayResult(raw, now);
+  assert.ok(result, "Optional diagnostics cannot discard the paid read");
+  const clean = normalizePlayDiagnostics(result.signal);
+  assert.equal(clean.timeframes?.length, 1);
+  assert.equal(clean.timeframeConfirmations?.length, 2);
+  assert.deepEqual(clean.timeframeConfirmations?.[1], { tf: "1H", trend: null, aligned: null, confirmed: null, total: null, checklist: [], asOf: null, closed: true, unavailable: true, reason: "rate_limited" });
+  for (const field of ["checklist", "flow", "setup", "verdict", "confidence", "gate_score"]) assert.equal((result.signal as Record<string, unknown>)[field], undefined, field);
+  assert.equal(result.signal.rationale, raw.signal.rationale);
+  assert.deepEqual(atlasExecution({ kind: "plays", result, saved: "device" }), { symbol: "BTC/USD", direction: "LONG", entry: 70_000, stop: 69_500, tp: 71_000, unconfirmed: true, orderType: "Limit" });
+});
+
+test("older saved diagnostics stay honest and bounded instead of gaining five invented reads", () => {
+  const checklist = [{ label: "Trend", ok: true }, { label: "Retest", ok: false }];
+  const legacy = {
+    checklist, confirmed: 3, total: 6,
+    timeframes: ["30m", "15m", "5m"].map((tf) => ({ tf, trend: "bullish", confirmed: 1, total: 2, checklist })),
+    flow: { h4: "bullish", h1: "bullish", dir: "LONG", aligned: true },
+  };
+  const result = atlasPlayResult(playPayload(legacy), now)!;
+  const clean = normalizePlayDiagnostics(result.signal);
+  assert.deepEqual(clean.timeframes, legacy.timeframes);
+  assert.deepEqual(clean.flow, legacy.flow);
+  assert.equal(clean.confirmed, 3, "Legacy scalp aggregates are not recomputed from the primary-frame list");
+  assert.equal(clean.timeframeConfirmations, undefined);
+  assert.deepEqual(normalizePlayDiagnostics({ confirmed: 3 }), { confirmed: 3 }, "An older saved count remains usable without inventing its missing denominator");
+  const oversized = normalizePlayDiagnostics({ checklist: Array.from({ length: 10_000 }, () => ({ label: "Large", ok: true })), timeframes: Array.from({ length: 1000 }, () => legacy.timeframes[0]), rationale: "x".repeat(20_001) });
+  assert.equal(oversized.checklist, undefined);
+  assert.ok(oversized.timeframes!.length <= 16);
+  assert.equal(oversized.rationale, undefined);
+});
+
+test("Atlas can read every displayed check within the context budget even when legacy diagnostics are also saved", () => {
+  const checklist = ["Trend", "Structure", "Fair value gap", "Liquidity", "Support / resistance", "Fibonacci", "Break and retest", "RSI"].map((label, i) => ({ label, ok: i % 2 === 0 }));
+  const frames = fiveFrames().map((frame) => ({ ...frame, checklist, confirmed: 4, total: 8 }));
+  const legacy = ["30m", "15m", "5m"].map((tf) => ({ tf, trend: "bullish", confirmed: 4, total: 8, checklist }));
+  const result = atlasPlayResult(playPayload({
+    setup: "Closed-bar retest", bias: "Bullish", poi: "Former resistance", liquidityTarget: "Previous high", verdict: "Wait for the retest.",
+    flow: { h4: "bullish", h1: "bullish", dir: "LONG", aligned: true }, checklist, confirmed: 12, total: 24, timeframes: legacy,
+    mtf: legacy.map(({ tf, trend }) => ({ tf, trend })), timeframeConfirmations: frames,
+  }), now)!;
+  const displayed = atlasSignalContext({ kind: "plays", result, saved: "synced" });
+  const context = atlasContext({ result: { kind: "plays", data: displayed.data } });
+  const facts = (context.result?.data as { signal: Record<string, unknown> }).signal;
+  const kept = facts.timeframeConfirmations as typeof frames;
+  assert.equal(kept.length, 5);
+  assert.deepEqual(kept[4].checklist, checklist, "The final 5M row keeps all eight labels and explicit booleans");
+  assert.deepEqual(kept.map((frame) => frame.asOf), frames.map((frame) => frame.asOf));
+  assert.equal(facts.entry, result.signal.entry);
+  assert.equal(facts.status, "no_trade");
+  assert.equal(facts.timeframes, undefined, "Duplicated legacy checks are omitted only from the assistant's copy");
+  assert.equal(facts.checklist, undefined);
+  assert.deepEqual(result.signal.timeframes, legacy, "The saved/displayed history remains complete");
 });
 
 test("ticket eligibility never promotes an unconfirmed OM idea or a waiting GENX plan", () => {

@@ -1,4 +1,5 @@
 import type { AtlasContext } from "./types";
+import { normalizePlayDiagnostics } from "@/lib/plays/diagnostics";
 
 /** Bounded display facts only. Quoted values carry no instruction, user identity or execution authority. */
 export function atlasContext(raw: unknown): AtlasContext {
@@ -10,14 +11,23 @@ export function atlasContext(raw: unknown): AtlasContext {
   const result = v.result as Record<string, unknown> | null;
   if (result && ["plays", "genx", "pulse", "floor"].includes(String(result.kind)) && result.data && typeof result.data === "object") {
     const fields = new Set(["id", "symbol", "td", "name", "market", "style", "mode", "interval", "orderType", "asOf", "as_of", "price", "live_price", "marketClosed", "status", "signal", "genx", "g", "gold", "direction", "dir", "entry", "entry_low", "entry_high", "stopLoss", "stop_loss", "takeProfits", "tp1", "tp2", "tp3", "rationale", "invalidation", "no_trade_reason", "confidence", "confidence_score", "grade", "timeframe", "verdict", "action", "reason", "headline", "trigger", "trigger_condition", "invalidation_reason", "market_story", "directional_bias", "lifecycle", "data_status", "candidates", "setups", "scannedAt", "at", "score", "confirmations", "confirmed", "total", "checklist", "label", "ok", "riskReward", "rr", "bias", "confirmedSetup", "stage", "levels", "kind", "low", "high", "waitingFor", "entryZone", "levelsLocked", "locked", "session", "triggerTf", "contextTf", "timeframes", "tf", "trend", "setup", "poi", "liquidityTarget", "stop", "targets", "target", "value", "side"]);
+    for (const field of ["timeframeConfirmations", "aligned", "closed", "unavailable", "flow", "h4", "h1", "mtf"]) fields.add(field);
     let nodes = 0, textLeft = 10000;
     const clean = (value: unknown, depth = 0): unknown => {
-      if (depth > 5 || ++nodes > 350) return null;
+      if (depth > 6 || ++nodes > 350) return null;
       if (typeof value === "number") return Number.isFinite(value) ? value : null;
       if (typeof value === "boolean" || value == null) return value;
       if (typeof value === "string") { const text = value.slice(0, Math.min(700, Math.max(0, textLeft))); textLeft -= text.length; return text; }
       if (Array.isArray(value)) return value.slice(0, 8).map((x) => clean(x, depth + 1));
-      if (typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([k]) => fields.has(k)).slice(0, 40).map(([k, x]) => [k, clean(x, depth + 1)]));
+      if (typeof value === "object") {
+        const record = value as Record<string, unknown>;
+        const frames = Array.isArray(record.timeframeConfirmations) ? normalizePlayDiagnostics(record).timeframeConfirmations : undefined;
+        // Prioritize the five displayed reads within the existing budget. Old copies of the same checks
+        // add no context; omit those only from this quoted copy, never from the saved signal.
+        const entries = Object.entries(record).filter(([key]) => fields.has(key) && (!frames?.length || !["timeframeConfirmations", "timeframes", "checklist", "mtf"].includes(key)));
+        if (frames?.length) entries.unshift(["timeframeConfirmations", frames]);
+        return Object.fromEntries(entries.slice(0, 40).map(([key, item]) => [key, clean(item, depth + 1)]));
+      }
       return null;
     };
     out.result = { kind: result.kind as "plays" | "genx" | "pulse" | "floor", data: clean(result.data) };

@@ -7,6 +7,8 @@ import { timedBars } from "@/lib/chart/candleTime";
 import { priceFor } from "@/lib/flow/display";
 import { analysisOf, trackingOf, targetsWithR, pipsBetween, type PlayDirection } from "@/lib/plays/lifecycle";
 import type { ChartLevel } from "@/lib/floor/chart";
+import { sanitizePlaySignal, type PlayDiagnostics } from "@/lib/plays/diagnostics";
+import { PlayBreakdown } from "./PlayBreakdown";
 
 /**
  * ONE OM AI PLAY, READ TOP TO BOTTOM (owner 11-21 brief §9):
@@ -31,6 +33,7 @@ export type PlayView = {
     checklist?: { label: string; ok: boolean }[]; confirmed?: number; total?: number;
     flow?: { h4: string; h1: string; dir: string; aligned: boolean };
     timeframes?: { tf: string; trend: string; confirmed: number; total: number; checklist: { label: string; ok: boolean }[]; unavailable?: boolean }[];
+    timeframeConfirmations?: PlayDiagnostics["timeframeConfirmations"];
     verdict?: string; status?: "setup" | "no_trade"; grade?: string | null; gate_score?: number; no_trade_reason?: string;
     mode?: "institutional" | "accelerator"; momentum_rating?: string; trend_rating?: string; chased?: boolean; chase_note?: string;
   };
@@ -57,7 +60,8 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
   copy: React.ReactNode | null;
   chat: React.ReactNode | null;
 }) {
-  const s = r.signal;
+  const s = sanitizePlaySignal(r.signal);
+  const hasFrameEvidence = (s.timeframeConfirmations?.length ?? 0) > 0;
   const a = analysisOf(s);
   const t = trackingOf(r);
   const [why, setWhy] = useState(false);
@@ -127,6 +131,8 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
         </section>
       )}
 
+      <PlayBreakdown signal={s} interval={r.interval} />
+
       {tb.bars.length >= 2 && (
         <div className="om-play-chart">
           <OmChart bars={tb.bars} timeKnown={tb.known} tfMs={TF_MS[r.interval] ?? 3600e3} tfLabel={r.interval} price={fin(r.live_price) ? r.live_price : r.price} priceLive={false}
@@ -171,10 +177,10 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
                 {s.setup && <div><dt>Strategy</dt><dd>{s.setup}</dd></div>}
                 {s.poi && <div><dt>Point of interest</dt><dd>{s.poi}</dd></div>}
                 {s.liquidityTarget && <div><dt>Targeting</dt><dd>{s.liquidityTarget}</dd></div>}
-                {s.flow && <div><dt>Flow · 4H, 1H</dt><dd>{s.flow.h4}, {s.flow.h1} · {s.flow.aligned ? "aligned" : "mixed — following the 1H"}</dd></div>}
+                {!hasFrameEvidence && s.flow && <div><dt>Flow · 4H, 1H</dt><dd>{s.flow.h4}, {s.flow.h1} · {s.flow.aligned ? "aligned" : "mixed — following the 1H"}</dd></div>}
               </dl>
             )}
-            {Array.isArray(s.timeframes) && s.timeframes.length > 0 ? (
+            {!hasFrameEvidence && (Array.isArray(s.timeframes) && s.timeframes.length > 0 ? (
               <div className="om-play-tfs">
                 {s.timeframes.map((x) => (
                   <div key={x.tf}>
@@ -188,7 +194,7 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
                 <p className="om-label">Confirmations · {s.confirmed ?? s.checklist.filter((c) => c.ok).length} of {s.checklist.length}</p>
                 <ul className="om-checks">{s.checklist.map((c, i) => <li key={i} data-ok={c.ok || undefined}>{c.label}</li>)}</ul>
               </div>
-            ) : null}
+            ) : null)}
             {s.verdict && <p><b>Verdict.</b> {s.verdict}</p>}
             {s.rationale && <p>{s.rationale}</p>}
             {s.invalidation && <p><b>Invalidation.</b> {s.invalidation}</p>}

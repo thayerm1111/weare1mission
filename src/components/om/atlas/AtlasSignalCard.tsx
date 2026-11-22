@@ -4,6 +4,7 @@ import { useState } from "react";
 import dynamic from "next/dynamic";
 import { ChevronDown, MessageCircle } from "lucide-react";
 import { ProductIcon } from "@/components/om/ProductIcon";
+import { PlayBreakdown } from "@/components/om/plays/PlayBreakdown";
 import { priceFor } from "@/lib/flow/display";
 import { analysisOf } from "@/lib/plays/lifecycle";
 import { actionWords, convictionWords } from "@/lib/genx/words";
@@ -66,7 +67,7 @@ export function AtlasSignalCard({ signal, onAsk }: {
       : "This read could not be saved · keep this conversation open";
 
   return (
-    <article className="om-atlas-signal" aria-label={(play ? "OM AI Play" : "GENX read") + " for " + symbol} data-state={waiting ? "waiting" : "ready"}>
+    <article className="om-atlas-signal" aria-label={(play ? "OM AI Play" : "GENX read") + " for " + symbol} data-state={waiting ? "waiting" : "ready"} data-side={execution?.direction === "LONG" ? "buy" : execution?.direction === "SHORT" ? "sell" : undefined}>
       <header className="om-atlas-signal-head">
         <ProductIcon kind={play ? "plays" : "genx"} size="sm" />
         <div><span>{play ? "OM AI Plays" : "GENX"}</span><strong>{symbol}<small>{horizon}</small></strong></div>
@@ -82,7 +83,7 @@ export function AtlasSignalCard({ signal, onAsk }: {
       {levels.length > 0 && <section aria-label="Signal levels">
         <p className="om-atlas-signal-caption">{waiting ? "Reference levels · confirmation is still needed" : "Signal levels"}</p>
         <dl className="om-atlas-signal-levels" data-no-i18n translate="no">
-          {levels.map((level) => <div key={level.label}><dt>{level.label}</dt><dd>{priceFor(symbol, level.value)}</dd></div>)}
+          {levels.map((level) => <div key={level.label} data-level={level.label === "Stop" ? "stop" : level.label.startsWith("Target") ? "target" : "entry"}><dt>{level.label}</dt><dd>{priceFor(symbol, level.value)}</dd></div>)}
         </dl>
       </section>}
 
@@ -94,7 +95,9 @@ export function AtlasSignalCard({ signal, onAsk }: {
         </div>
       </details>}
 
-      {(trigger || invalidation) && <dl className="om-atlas-signal-next">
+      {play && <PlayBreakdown signal={play.signal} interval={play.interval} fullReasoning />}
+
+      {gold && (trigger || invalidation) && <dl className="om-atlas-signal-next">
         {trigger && <div><dt>What to wait for</dt><dd>{trigger}</dd></div>}
         {invalidation && <div><dt>What invalidates it</dt><dd>{invalidation}</dd></div>}
       </dl>}

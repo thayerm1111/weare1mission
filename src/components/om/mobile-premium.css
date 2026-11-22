@@ -23,9 +23,9 @@
   .om-look-graphite .om-app.om-os {
     --om-surface: #17181b; --om-raised: #202125; --om-menu: #1b1c20;
     --om-text: #f3f3f5; --om-text-2: #a4a5ac; --om-text-3: #868890;
-    --om-ai: #d8d9df; --om-ai-rgb: 216 217 223;
-    --om-atlas-bg: #17181b; --om-atlas-edge: rgba(238,240,248,.12);
-    --om-ask-edge: rgba(238,240,248,.15); --om-lift: none;
+    --om-ai: #c5b9ed; --om-ai-rgb: 197 185 237;
+    --om-atlas-bg: #17181b; --om-atlas-edge: rgba(197,185,237,.2);
+    --om-ask-edge: rgba(197,185,237,.25); --om-lift: none;
   }
   .om-app.om-os { --om-mobile-nav-height: calc(64px + env(safe-area-inset-bottom, 0px)); }
   .om-os .om-nav, .om-standalone .om-os .om-nav { min-height: 54px; }
@@ -46,7 +46,7 @@
   .om-os .om-tab, .om-standalone .om-os .om-tab { font-size: 11px; gap: 4px; }
   .om-os .om-tab[aria-current="page"] .om-tab-symbol { background: none; }
   .om-os .om-tab[aria-current="page"] svg { stroke-width: 2; }
-  .om-os .om-product-atlas { background: none; border: 0; box-shadow: none; filter: grayscale(1); }
+  .om-os .om-product-atlas { background: none; border: 0; box-shadow: none; }
   .om-os .om-icon-core { box-shadow: none; }
 
   /* Account details open from one short status row. Values always come from FLOW. */
@@ -96,7 +96,7 @@
   .om-os .om-floor-os > .om-results,
   .om-os .om-floor-os > .om-lower { display: none; }
   .om-mobile-floor { display: grid; gap: 14px; }
-  .om-mobile-atlas-card { min-width: 0; padding: 17px 17px 16px; border: 1px solid var(--om-edge); border-radius: 24px; background: var(--om-surface); }
+  .om-mobile-atlas-card { min-width: 0; padding: 17px 17px 16px; border: 1px solid var(--om-atlas-edge); border-radius: 24px; background: var(--om-surface); }
   .om-mobile-atlas-card > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .om-mobile-atlas-name { display: inline-flex; align-items: center; gap: 7px; }
   .om-mobile-atlas-name h2 { margin: 0; font-size: 17px; font-weight: 550; letter-spacing: -.025em; }
@@ -109,7 +109,7 @@
   .om-mobile-gold-chart .om-ch-read { font-size: 10px; }
   .om-mobile-gold-chart .om-chart-note { display: grid; place-items: center; height: 100%; color: var(--om-text-3); font-size: 13px; }
   .om-mobile-chart-freshness { margin: -3px 0 13px; color: var(--om-text-3); font-size: 10px; line-height: 1.4; }
-  .om-mobile-primary { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 49px; padding: 10px 16px; border: 0; border-radius: 15px; background: var(--om-text); color: var(--om-page); font: inherit; font-size: 15px; font-weight: 550; cursor: pointer; }
+  .om-mobile-primary { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 49px; padding: 10px 16px; border: 0; border-radius: 15px; background: var(--om-ai); color: var(--om-page); font: inherit; font-size: 15px; font-weight: 550; cursor: pointer; }
   .om-mobile-primary:disabled { opacity: .6; cursor: default; }
   .om-mobile-primary:focus-visible, .om-mobile-shortcuts a:focus-visible, .om-mobile-results > button:focus-visible { outline: 2px solid var(--om-text); outline-offset: 4px; }
   .om-mobile-primary:active:not(:disabled) { opacity: .8; }

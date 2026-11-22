@@ -74,6 +74,7 @@ function harness(relative = "src/components/om/atlas/AtlasProvider.tsx", name = 
     "@/lib/atlas/actions": { atlasMessages: (m) => m.map(({ role, content }) => ({ role, content })), normalizeAtlasActions: (a) => Array.isArray(a) ? a : [], planAtlasActions: () => [] },
     "@/lib/atlas/signals": {
       atlasPlayResult: (r) => r?.signal ? r : null, atlasGenxResult: (r) => r?.genx ? r : null,
+      restoreAtlasSignalResult: require("../src/lib/atlas/signals.ts").restoreAtlasSignalResult,
       atlasSignalContext: (s) => ({ source: "OM AI Plays", label: "BTC/USD", data: s.result }),
       generateAtlasSignal: (request, signal, isCurrent) => new Promise((resolve, reject) => tools.push({ request, signal, isCurrent, resolve, reject })),
     },
@@ -252,6 +253,32 @@ test("switching members restores that member's history and drops another member'
   assert.ok(h.storage.get(secondKey).includes("Second member's answer"));
   assert.ok(h.writes.filter((w) => w.key === secondKey).every((w) => !w.value.includes("First member")));
   assert.equal(h.storage.get(firstKey), firstSaved, "The earlier member's history is not modified by the new conversation");
+});
+
+test("restored signal cards receive normalized evidence while retaining their saved trade state", () => {
+  const h = harness();
+  const key = "om:atlas:conversation:v1:saved-play-member";
+  const result = {
+    id: 1_800_000_000_000, status: "win", hitTp: 1, symbol: "BTC/USD", td: "BTC/USD", orderType: "Limit", asOf: "2026-11-21T12:00:00Z",
+    signal: {
+      direction: "LONG", status: "no_trade", entry: 70_000, stopLoss: 69_500, takeProfits: [71_000], rationale: "Waiting for a retest.",
+      timeframes: [
+        { tf: "15m", trend: "bullish", confirmed: 1, total: 1, checklist: [{ label: "Trend", ok: true }] },
+        { tf: "5m", trend: "ranging", confirmed: 0, total: 1, checklist: [null] },
+      ],
+    },
+  };
+  h.storage.set(key, JSON.stringify([{ id: "saved-play", role: "assistant", content: "Your saved play.", at: 1, signal: { kind: "plays", result, saved: "device" } }]));
+  h.render({ memberKey: "saved-play-member" }); h.open();
+  const cards = h.nodes((n) => n.type === "AtlasSignalCard");
+  assert.equal(cards.length, 1, "A damaged optional row cannot discard a valid historical play");
+  const restored = cards[0].props.signal;
+  assert.equal(restored.result.signal.timeframes.length, 1, "The card receives the normalized copy, not the original stored payload");
+  assert.equal(restored.result.id, result.id);
+  assert.equal(restored.result.status, "win");
+  assert.equal(restored.result.signal.status, "no_trade");
+  assert.equal(restored.saved, "device");
+  assert.equal(h.requests.length + h.tools.length + h.scans.length, 0, "History restoration performs no generation or order request");
 });
 
 test("switching members invalidates pending tool persistence and ignores its delayed result", async () => {

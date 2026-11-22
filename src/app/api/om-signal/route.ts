@@ -7,6 +7,7 @@ import { logSignal } from "@/lib/signalLog";
 import { evaluateSetup, confirmationSignals } from "@/lib/confirmation";
 import { getAdjustmentPenalty } from "@/lib/learningStore";
 import { closedBars } from "@/lib/mtf";
+import { collectTimeframeConfirmations, type ObservationData } from "@/lib/plays/timeframeObservations";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -248,6 +249,7 @@ function buildChecklist(rows: Row[], dir: Dir, E: number, flowTrend: Trend, conf
 }
 
 export async function POST(req: NextRequest) {
+  const requestStartedAt = Date.now();
   // Accept EITHER the web's cookie session OR the native app's Bearer token — the
   // app has no cookie jar, so a cookie-only check 401s every AI Play from the app.
   const { supabase, user: authUser, configured } = await authedContext(req);
@@ -301,6 +303,9 @@ export async function POST(req: NextRequest) {
   let m30: Row[] | null = null;
   let m5: Row[] | null = null;
   let flow: { t4: Trend; t1: Trend; dir: Dir | null; trend: Trend; aligned: boolean } | null = null;
+  // References to feeds already required by the strategy. Extra display observations reuse these exact
+  // responses after the decision; recording them here does not change the engine's reads or its timing.
+  const observationFeeds = new Map<string, ObservationData>();
 
   if (isScalp) {
     const [r30, r15, r5, r4h, r1h] = await Promise.all([
@@ -310,6 +315,8 @@ export async function POST(req: NextRequest) {
       fetchSeriesCached(td, "4h", 60, mdKey, 120000, fresh),
       fetchSeriesCached(td, "1h", 60, mdKey, 60000, fresh),
     ]);
+    observationFeeds.set("30min", r30); observationFeeds.set("15min", r15); observationFeeds.set("5min", r5);
+    observationFeeds.set("4h", r4h); observationFeeds.set("1h", r1h);
     if (r15 === "ratelimit" || r30 === "ratelimit" || r5 === "ratelimit") return json({ error: "ratelimit", detail: RL_MSG }, 429);
     rows = cleanRows(Array.isArray(r15) ? r15 : null);
     m30 = cleanRows(Array.isArray(r30) ? r30 : null);
@@ -319,6 +326,7 @@ export async function POST(req: NextRequest) {
     flow = combineFlow(trendOf(f4), trendOf(f1));
   } else {
     const rowsRes = await fetchSeries(td, sty.interval, 80, mdKey, fresh);
+    observationFeeds.set(sty.interval, rowsRes);
     if (rowsRes === "ratelimit") return json({ error: "ratelimit", detail: RL_MSG }, 429);
     rows = cleanRows(rowsRes);
   }
@@ -359,6 +367,7 @@ export async function POST(req: NextRequest) {
     htfBias = `4H ${flow.t4}, 1H ${flow.t1} → ${flow.aligned ? `aligned ${flow.dir}` : flow.dir ? `mixed, following 1H (${flow.dir})` : "no clear flow"}`;
   } else if (!isScalp) {
     const htfRes = await fetchSeries(td, sty.htf, 60, mdKey, fresh);
+    observationFeeds.set(sty.htf, htfRes);
     const htf = Array.isArray(htfRes) ? cleanRows(htfRes) : null;
     if (htf && htf.length > 20) {
       const hc = htf.map((v) => +v.close);
@@ -725,6 +734,7 @@ Return the JSON signal now.`;
         fetchSeries(td, "30min", 80, mdKey, fresh),
         fetchSeries(td, "15min", 80, mdKey, fresh),
       ]);
+      observationFeeds.set("30min", i30); observationFeeds.set("15min", i15);
       t1h = trendOf(closedBars(rows, 20)); // rows is the 1h exec frame for intraday
       t30 = trendOf(closedBars(Array.isArray(i30) ? i30 : null, 20));
       t15 = trendOf(closedBars(Array.isArray(i15) ? i15 : null, 20));
@@ -740,6 +750,17 @@ Return the JSON signal now.`;
     }
   }
   signal.strategy_version = "v2-mtf-closedbar";
+
+  // Five requested timeframes, as display evidence only. Everything deciding the play is finished above:
+  // these closed-candle observations cannot change its side, confidence, gate, levels or legacy fields.
+  // Optional feeds run together for at most four seconds and stop before the final five-second reserve
+  // for charging/logging. Failed/limited feeds stay unavailable, so a finished read is never lost to them.
+  signal.timeframeConfirmations = await collectTimeframeConfirmations({
+    existing: observationFeeds, direction: dir,
+    load: (frame) => fetchSeriesCached(td, frame.interval, frame.size, mdKey, frame.ttlMs, fresh),
+    evaluate: (closed) => buildChecklist(cleanRows(closed) ?? closed, dir, E, htfTrend, confs),
+    deadlineMs: Math.min(Date.now() + 4_000, requestStartedAt + 55_000),
+  });
 
   // Work succeeded — now charge the credit (best-effort; never charged on failure above).
   const credits = await chargeCredit("signal", supabase, { pass: true });

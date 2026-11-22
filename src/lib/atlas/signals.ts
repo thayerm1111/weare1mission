@@ -2,6 +2,7 @@ import { findAsset } from "@/data/signalAssets";
 import type { PlayView } from "@/components/om/plays/PlayDetail";
 import type { GenxRead } from "@/components/om/genx/GenxHome";
 import { analysisOf } from "@/lib/plays/lifecycle";
+import { sanitizePlaySignal } from "@/lib/plays/diagnostics";
 import { actionWords } from "@/lib/genx/words";
 import { earnMission } from "@/lib/earnMission";
 import type { AtlasContext } from "@/lib/atlas/open";
@@ -49,7 +50,7 @@ export function atlasPlayResult(value: unknown, id = Date.now()): PlayView | nul
   if (![s.rationale, s.invalidation, s.no_trade_reason, s.timeframe].every(optionalText)) return null;
   if (![s.entry, s.stopLoss].every(optionalNumber) || s.takeProfits != null && (!Array.isArray(s.takeProfits) || s.takeProfits.length > 8 || !s.takeProfits.every(finite))) return null;
   if (s.status !== undefined && s.status !== "setup" && s.status !== "no_trade") return null;
-  return { ...value, id, status: "open" } as PlayView;
+  return { ...value, signal: sanitizePlaySignal(s), id, status: "open" } as PlayView;
 }
 
 export function atlasGenxResult(value: unknown): AtlasGenxResult | null {
@@ -60,6 +61,23 @@ export function atlasGenxResult(value: unknown): AtlasGenxResult | null {
   if (![g.trigger_condition, g.invalidation_reason].every(optionalText) || ![g.market_story, g.trade_reasoning, g.risk_factors].every(optionalWords)) return null;
   if (![g.entry, g.stop_loss, g.tp1, g.tp2, g.tp3].every(optionalNumber)) return null;
   return value as AtlasGenxResult;
+}
+
+/** Restore the validated copy, keeping the saved play's identity and price tracking separate from its setup state. */
+export function restoreAtlasSignalResult(value: unknown): AtlasSignalResult | null {
+  if (!object(value) || !object(value.result)) return null;
+  if (value.kind === "plays") {
+    // Atlas-generated plays have numeric ids. A legacy missing id stays undated, rather than becoming a new read.
+    const result = atlasPlayResult(value.result, finite(value.result.id) ? value.result.id : 0);
+    if (!result) return null;
+    if (value.result.status === "win" || value.result.status === "loss") result.status = value.result.status;
+    return { kind: "plays", result, saved: value.saved === "synced" || value.saved === "device" ? value.saved : "unavailable" };
+  }
+  if (value.kind === "genx") {
+    const result = atlasGenxResult(value.result);
+    if (result) return { kind: "genx", result, saved: value.saved === "synced" ? "synced" : "unavailable" };
+  }
+  return null;
 }
 
 type Saved = { id: number | string; createdAt?: string; asOf?: string };
