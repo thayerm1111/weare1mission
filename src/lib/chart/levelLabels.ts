@@ -1,0 +1,16 @@
+/**
+ * Keep signal annotations in their actual price-line order. Only the text baseline moves: clustered
+ * labels are spaced forward, then brought back inside the bottom edge together, never jumped over
+ * an earlier label. Very short plots reduce spacing only when the requested gap cannot fit at all.
+ */
+export function orderedLevelLabels<T extends { ly: number }>(
+  levels: readonly T[], top: number, bottom: number, gap = 16,
+): (T & { labelY: number })[] {
+  const labels = levels.map((level) => ({ ...level, labelY: Math.max(top, Math.min(bottom, level.ly - 6)) }))
+    .sort((a, b) => a.ly - b.ly);
+  const step = labels.length > 1 ? Math.min(gap, Math.max(0, bottom - top) / (labels.length - 1)) : gap;
+  for (let i = 1; i < labels.length; i++) labels[i].labelY = Math.max(labels[i].labelY, labels[i - 1].labelY + step);
+  if (labels.length) labels[labels.length - 1].labelY = Math.min(bottom, labels[labels.length - 1].labelY);
+  for (let i = labels.length - 2; i >= 0; i--) labels[i].labelY = Math.min(labels[i].labelY, labels[i + 1].labelY - step);
+  return labels;
+}

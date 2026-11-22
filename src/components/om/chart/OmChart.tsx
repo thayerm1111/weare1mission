@@ -8,6 +8,7 @@ import {
   type Viewport, type ViewScale,
 } from "@/lib/chart/viewport";
 import { axisMarks, candleTimeText, clockText, dayText, type TimedBar } from "@/lib/chart/candleTime";
+import { orderedLevelLabels } from "@/lib/chart/levelLabels";
 import { niceStep, priceText, type ChartLevel } from "@/lib/floor/chart";
 import "./chart-modal.css";
 
@@ -382,13 +383,15 @@ export function OmChart(p: OmChartProps) {
       if (lastRun && lastRun.b === i - 1) lastRun.b = i; else closedRuns.push({ a: i, b: i });
     }
 
-    // Level labels: on the left, above their line; one that would sit on another's drops below its own.
+    // Saved signals keep labels in price-line order even when all five levels crowd the plot's edge.
+    // Other charts retain their existing placement rule.
     const used: number[] = [];
-    const lv = (levelX0 == null ? [] : p.levels)
+    const visibleLevels = (levelX0 == null ? [] : p.levels)
       .map((l) => ({ l, ly: y(l.price) }))
       .filter((o) => o.ly >= TOP_BAND - 6 && o.ly <= priceH + 2)
-      .sort((a, b) => a.ly - b.ly)
-      .map(({ l, ly }) => {
+      .sort((a, b) => a.ly - b.ly);
+    const lv = p.fitLevels ? orderedLevelLabels(visibleLevels, TOP_BAND + 12, priceH - 6)
+      : visibleLevels.map(({ l, ly }) => {
         const clash = (v: number) => used.some((u) => Math.abs(u - v) < 15);
         let labelY = ly - 6;
         if (labelY < TOP_BAND + 8 || clash(labelY)) labelY = ly + 15;
@@ -501,6 +504,7 @@ export function OmChart(p: OmChartProps) {
             {levelX0 != null && lv.map(({ l, ly, labelY }) => (
               <g key={`${l.kind}${l.price}`} opacity={p.analysis ? 0.85 : 1}>
                 <line x1={levelX0} x2={plotW} y1={ly} y2={ly} style={{ stroke: LEVEL_COLOR[l.kind] }} strokeWidth="1" strokeDasharray={p.analysis ? "2 4" : "4 4"} />
+                {p.fitLevels && Math.abs(labelY - (ly - 6)) > 2 && <line x1={levelX0 + 3} x2={levelX0 + 8} y1={ly} y2={labelY - 4} style={{ stroke: LEVEL_COLOR[l.kind] }} strokeWidth="0.75" opacity="0.8" />}
                 <text x={levelX0 + 10} y={labelY} fontSize="12.5" strokeWidth="4" strokeLinejoin="round" paintOrder="stroke" style={{ fill: "var(--om-text)", stroke: HALO, fontVariantNumeric: "tabular-nums" }}>{l.label} {priceText(l.price, dec)}</text>
               </g>
             ))}
