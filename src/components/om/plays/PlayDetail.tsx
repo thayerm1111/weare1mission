@@ -12,8 +12,8 @@ import type { ChartLevel } from "@/lib/floor/chart";
  * ONE OM AI PLAY, READ TOP TO BOTTOM (owner 11-21 brief §9):
  *   1  the market, the style, when it was analysed, and what the engine concluded
  *   2  one sentence: what is valid, what is missing, or what to wait for
- *   3  the play's own levels, then candles — entry, stop, targets and their reward to risk
- *   4  what price has done since (tracking: price only, never an order), and the next step
+ *   3  the play's own levels and a visible Execute action, opening its existing account/risk ticket
+ *   4  candles and what price has done since (tracking: price only, never an order)
  *   5  the evidence and the full reasoning, a tap away
  * Every word and number is the play's own, as it was saved. This component fetches nothing and charges
  * nothing: the result check, the update, the deep dive and the ticket are the generator's existing
@@ -115,6 +115,18 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
         </div>
       )}
 
+      {ticket && (
+        <section className="om-play-next" aria-label="Execute this signal">
+          <details className="om-play-order">
+            <summary className="om-play-order-summary"><span>Execute {a.side?.toUpperCase()}{a.kind === "idea" ? " · manual override" : ""}</span><ChevronDown aria-hidden="true" /></summary>
+            {/* Opening the ticket only reviews accounts and risk. Its existing confirmation places the order. */}
+            {/* A play whose levels were already reached is history: placing it now is a new trade at today's price. */}
+            {t.resolved && <p className="om-play-note" role="note"><b>Price has already reached {r.status === "win" ? "a target" : "the stop"} for this play.</b> Placing it now is a new trade at today&rsquo;s price, sized on today&rsquo;s accounts.</p>}
+            {ticket}
+          </details>
+        </section>
+      )}
+
       {tb.bars.length >= 2 && (
         <div className="om-play-chart">
           <OmChart bars={tb.bars} timeKnown={tb.known} tfMs={TF_MS[r.interval] ?? 3600e3} tfLabel={r.interval} price={fin(r.live_price) ? r.live_price : r.price} priceLive={false}
@@ -138,17 +150,6 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
       </section>
       {update && <div className="om-legacy om-play-update">{update}</div>}
       {live && <div className="om-legacy om-play-live">{live}</div>}
-
-      {ticket && (
-        <section className="om-play-next" aria-label="Place it">
-          <details className="om-play-order">
-            <summary className="om-play-order-summary">{a.kind === "idea" ? "Review a manual trade" : "Trade with FLOW"}<ChevronDown aria-hidden="true" /></summary>
-            {/* A play whose levels were already reached is history: placing it now is a new trade at today's price. */}
-            {t.resolved && <p className="om-play-note" role="note"><b>Price has already reached {r.status === "win" ? "a target" : "the stop"} for this play.</b> Placing it now is a new trade at today&rsquo;s price, sized on today&rsquo;s accounts.</p>}
-            {ticket}
-          </details>
-        </section>
-      )}
 
       <div className="om-play-acts">
         <button type="button" className="om-btn-quiet" onClick={onDive}>Deep dive</button>

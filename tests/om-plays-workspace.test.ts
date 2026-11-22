@@ -108,10 +108,10 @@ test('the builder keeps market, style, optional settings and Generate in reading
   assert.match(workspace, /<PlayDetail r=\{result\}/);
 });
 
-test('an open play: decision and prices first, its own chart, tracking apart from orders, and an explicit ticket', () => {
+test('an open play: decision and prices first, execution beside the signal, then chart and tracking', () => {
   const d = read('src/components/om/plays/PlayDetail.tsx');
   assert.ok(!/fetch\(|\/api\//.test(d), 'the detail asks the server for nothing');
-  const order = ['om-play-head', 'om-play-decision', 'om-play-levels', 'om-play-chart', 'om-play-track', 'om-play-next', 'om-play-why'].map((k) => d.indexOf(`className="${k}"`));
+  const order = ['om-play-head', 'om-play-decision', 'om-play-levels', 'om-play-next', 'om-play-chart', 'om-play-track', 'om-play-why'].map((k) => d.indexOf(`className="${k}"`));
   assert.ok(order.every((x, i) => x > 0 && (i === 0 || x > order[i - 1])), `the hierarchy, in order: ${order}`);
   assert.match(d, /Since it was made · price against its levels/);
   assert.match(d, /not a chance of winning/);
@@ -119,7 +119,7 @@ test('an open play: decision and prices first, its own chart, tracking apart fro
   const nt = t.slice(t.indexOf('  if (next) {'), t.indexOf('  return (\n    <div className="mt-4 rounded-2xl border border-emerald-400/25'));
   assert.ok(nt.length > 2000);
   assert.match(nt, /Manual override\.<\/b> The engine has not confirmed this idea/);
-  assert.match(nt, /"Place anyway · manual override"/);
+  assert.match(nt, /`Execute \$\{sideW\.toUpperCase\(\)\}\$\{unconfirmed \? " · manual override" : ""\}/);
   assert.match(nt, /onClick=\{\(\) => setConfirming\(true\)\}/, 'the first tap only reviews');
   assert.match(nt, /onClick=\{\(\) => \{ setConfirming\(false\); execute\(\); \}\}/, 'the order is the existing request, on the second tap');
   assert.match(nt, /not left waiting at the play's limit entry of/, 'a limit play is not silently turned into something else');

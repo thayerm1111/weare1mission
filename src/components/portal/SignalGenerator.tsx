@@ -1193,7 +1193,7 @@ function ExecuteSignal({ symbol, direction, entry, stop, tp, unconfirmed = false
           ) : (
             <button type="button" className="om-btn om-ticket-go" onClick={() => setConfirming(true)} disabled={busy || lots == null}>
               {busy && <Loader2 className="animate-spin" aria-hidden="true" />}
-              {busy ? "Placing…" : `${unconfirmed ? "Place anyway · manual override" : `Place ${sideW.toLowerCase()}`}${many ? ` · ${acctCount} accounts` : ""}`}
+              {busy ? "Placing…" : `Execute ${sideW.toUpperCase()}${unconfirmed ? " · manual override" : ""}${many ? ` · ${acctCount} accounts` : ""}`}
             </button>
           )
         ) : (

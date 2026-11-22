@@ -29,10 +29,14 @@
 .om-plays-record p { color: var(--om-text-2); font-size: 13px; line-height: 1.5; margin: 10px 0 0; }
 .om-plays-record b { color: var(--om-text); }
 .om-play-order-summary, .om-play-followup > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 0; color: var(--om-text); font-size: 15px; font-weight: 500; list-style: none; cursor: pointer; }
+.om-plays-premium .om-play-order-summary { min-height: 54px; padding: 14px 16px; border: 1px solid var(--om-text); border-radius: 14px; background: var(--om-text); color: var(--om-page); font-size: 16px; font-weight: 550; }
+.om-plays-premium .om-play-order-summary svg { flex: 0 0 18px; width: 18px; height: 18px; color: inherit; }
+.om-play-order-summary:focus-visible { outline: 2px solid var(--om-text); outline-offset: 4px; }
+.om-play-order-summary:active { opacity: .8; }
 .om-play-order-summary::-webkit-details-marker, .om-play-followup > summary::-webkit-details-marker { display: none; }
 .om-play-order-summary svg, .om-play-followup > summary svg { width: 16px; height: 16px; color: var(--om-text-2); }
 .om-play-order[open] > summary svg, .om-play-followup[open] > summary svg { transform: rotate(180deg); }
-.om-play-order > .om-ticket { margin-top: 5px; }
+.om-play-order > .om-ticket, .om-play-order > .om-play-note { margin-top: 14px; }
 
 /* Native dialog supplies focus containment and Escape; the list changes no trading state. */
 .om-market-dialog {
