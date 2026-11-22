@@ -1,0 +1,7 @@
+/* A chart expanded from a native app dialog occupies its own top layer and keeps native focus isolation. */
+dialog.om-ch-modal {
+  width: 100vw; height: 100dvh; max-width: none; max-height: none;
+  margin: 0; border: 0; color: var(--om-text); box-sizing: border-box;
+}
+dialog.om-ch-modal:not([open]) { display: none; }
+dialog.om-ch-modal::backdrop { background: var(--om-page); }

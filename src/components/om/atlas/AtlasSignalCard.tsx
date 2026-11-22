@@ -10,6 +10,7 @@ import { analysisOf } from "@/lib/plays/lifecycle";
 import { actionWords, convictionWords } from "@/lib/genx/words";
 import { atlasExecution, atlasSignalContext, type AtlasSignalResult } from "@/lib/atlas/signals";
 import { openAtlas, type AtlasContext } from "@/lib/atlas/open";
+import { AtlasPlayChart } from "./AtlasPlayChart";
 import "./atlas-signal.css";
 
 const ExecuteSignal = dynamic(() => import("@/components/portal/SignalGenerator").then((module) => module.ExecuteSignal), {
@@ -95,6 +96,7 @@ export function AtlasSignalCard({ signal, onAsk }: {
         </div>
       </details>}
 
+      {play && <AtlasPlayChart play={play} />}
       {play && <PlayBreakdown signal={play.signal} interval={play.interval} fullReasoning />}
 
       {gold && (trigger || invalidation) && <dl className="om-atlas-signal-next">

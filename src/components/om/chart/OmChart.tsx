@@ -9,6 +9,7 @@ import {
 } from "@/lib/chart/viewport";
 import { axisMarks, candleTimeText, clockText, dayText, type TimedBar } from "@/lib/chart/candleTime";
 import { niceStep, priceText, type ChartLevel } from "@/lib/floor/chart";
+import "./chart-modal.css";
 
 /**
  * THE PLATFORM'S CHART (owner 11-21: "charts that respond to the user's hands") — The Floor's and GENX's
@@ -42,6 +43,10 @@ export type OmChartProps = {
   price: number | null;
   /** The price is a current quote: only then is its tag drawn in the "moving" colour. */
   priceLive?: boolean;
+  /** A retained analysis: returning to its newest candle must not claim this is a live feed. */
+  snapshot?: boolean;
+  /** Signal snapshots may fit every supplied level; other charts keep their candle-led automatic fit. */
+  fitLevels?: boolean;
   dec: number;
   levels: ChartLevel[];
   zone?: { low: number; high: number } | null;
@@ -80,6 +85,9 @@ export function OmChart(p: OmChartProps) {
   /** The candle being read: tapped, held, or stepped to with the keyboard. */
   const [selT, setSelT] = useState<number | null>(null);
   const [full, setFull] = useState(false);
+  const fullHost = useRef<Element | null>(null);
+  const fullOwner = useRef<HTMLDialogElement | null>(null);
+  const fullDialog = useRef<HTMLDialogElement | null>(null);
   const [grabbing, setGrabbing] = useState(false);
   const [said, setSaid] = useState("");
   const barsRef = useRef(bars);
@@ -97,16 +105,19 @@ export function OmChart(p: OmChartProps) {
     setVp({ ...AUTO_VIEW, span: Math.min(b.length, Math.max(MIN_BARS, b.length - i + 12)) });
   }, [aKey, p.viewKey, hasBars]);
 
+  const measure = useCallback(() => {
+    const r = wrap.current?.getBoundingClientRect();
+    if (r && r.width > 0 && r.height > 0) setSz({ w: Math.round(r.width), h: Math.round(r.height) });
+  }, []);
   useEffect(() => {
     const el = wrap.current;
     if (!el) return;
-    const read = () => { const r = el.getBoundingClientRect(); if (r.width > 0 && r.height > 0) setSz({ w: Math.round(r.width), h: Math.round(r.height) }); };
-    read();
+    measure();
     if (typeof ResizeObserver !== "function") return;
-    const ro = new ResizeObserver(read);
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [full]);
+  }, [full, measure]);
 
   const compact = !!sz && sz.w < 560;
   const AXIS = compact ? 62 : 76;
@@ -134,13 +145,13 @@ export function OmChart(p: OmChartProps) {
     if (atEdge && p.price != null && Number.isFinite(p.price)) { lo = Math.min(lo, p.price); hi = Math.max(hi, p.price); }
     const base = Math.max(hi - lo, Math.abs(hi) * 0.0004, 10 ** -dec);
     const near = (v: number) => Number.isFinite(v) && v >= lo - base * 0.6 && v <= hi + base * 0.6;
-    for (const v of [...p.levels.map((l) => l.price), ...(p.zone ? [p.zone.low, p.zone.high] : [])]) if (near(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    for (const v of [...p.levels.map((l) => l.price), ...(p.zone ? [p.zone.low, p.zone.high] : [])]) if (Number.isFinite(v) && (p.fitLevels || near(v))) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
     const mid = (lo + hi) / 2, half = (Math.max(hi - lo, base) / 2) * 1.1 / Math.max(0.05, vp.pz);
     const pLo = mid - half + vp.pOff;
     const pHi = mid + half + vp.pOff + (2 * half) * TOP_BAND / Math.max(40, priceH - TOP_BAND);
     const y = (v: number) => ((pHi - v) / (pHi - pLo)) * priceH;
     return { n, usable, span, end, iL, bw, x, y, i0, i1, pLo, pHi, pricePerPx: (pHi - pLo) / Math.max(1, priceH) };
-  }, [bars, sz, plotW, priceH, compact, vp, p.price, p.levels, p.zone, dec]);
+  }, [bars, sz, plotW, priceH, compact, vp, p.price, p.levels, p.zone, p.fitLevels, dec]);
 
   /* Gesture maths reads this rather than a stale closure. */
   const st = useRef<ViewScale & { plotW: number; priceH: number }>({ n: 0, span: 0, end: 0, iL: 0, bw: 1, usable: 1, pricePerPx: 1, plotW: 1, priceH: 1 });
@@ -288,16 +299,41 @@ export function OmChart(p: OmChartProps) {
     }
   };
 
-  // Full screen: Escape leaves it from anywhere, and the page underneath does not scroll meanwhile.
+  const toggleFull = () => {
+    if (!full && typeof document !== "undefined") {
+      fullOwner.current = wrap.current?.closest<HTMLDialogElement>("dialog[open]") ?? null;
+      fullHost.current = fullOwner.current ?? document.querySelector(".om-app") ?? document.body;
+    }
+    setFull((value) => !value);
+  };
+
+  // A chart opened inside Atlas needs its own top-layer dialog: a portal into the page is inert behind
+  // Atlas. Native modal focus keeps Tab inside the chart; closing it never closes its owning dialog.
   useEffect(() => {
     if (!full) return;
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setFull(false); };
-    document.addEventListener("keydown", esc);
+    const owner = fullOwner.current, sheet = fullDialog.current;
+    if (owner && !owner.open) { setFull(false); return; }
+    if (sheet && !sheet.open) {
+      try { sheet.showModal(); } catch { setFull(false); return; }
+      measure();
+    }
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setFull(false); }
+    };
+    const closeWithOwner = (event: Event) => { if (event.target === owner) setFull(false); };
+    document.addEventListener("keydown", esc, true);
+    owner?.addEventListener("close", closeWithOwner);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     wrap.current?.focus({ preventScroll: true });
-    return () => { document.removeEventListener("keydown", esc); document.body.style.overflow = prev; };
-  }, [full]);
+    return () => {
+      document.removeEventListener("keydown", esc, true);
+      owner?.removeEventListener("close", closeWithOwner);
+      if (sheet?.open) sheet.close();
+      document.body.style.overflow = prev;
+      if (!owner || owner.open) wrap.current?.focus({ preventScroll: true });
+    };
+  }, [full, measure]);
 
   const stop = (e: React.PointerEvent) => e.stopPropagation();
   const n = bars.length;
@@ -386,11 +422,11 @@ export function OmChart(p: OmChartProps) {
         <div className="om-ch-tools" onPointerDown={stop} style={compact ? { top: "auto", bottom: TIME_H + 8, right: AXIS + 4 } : undefined}>
           {moved(vp) && <button type="button" onClick={reset} title="Back to the automatic view (double-click the chart, or press 0)"><RotateCcw aria-hidden="true" />{!compact && "Reset"}</button>}
           {!atLive && (
-            <button type="button" onClick={toLive} className="om-ch-live" title={closedNow ? "To the newest candle the feed has. Gold is closed, so it is the last one before the close." : "Back to the newest candle, keeping the zoom (End)"}>
-              {closedNow ? "Latest candle" : "Return to live"}<ChevronsRight aria-hidden="true" />
+            <button type="button" onClick={toLive} className="om-ch-live" title={p.snapshot ? "Back to the newest candle in this saved snapshot (End)" : closedNow ? "To the newest candle the feed has. Gold is closed, so it is the last one before the close." : "Back to the newest candle, keeping the zoom (End)"}>
+              {p.snapshot ? compact ? "Latest" : "Latest candle" : closedNow ? "Latest candle" : "Return to live"}<ChevronsRight aria-hidden="true" />
             </button>
           )}
-          <button type="button" onClick={() => setFull((f) => !f)} aria-pressed={full} aria-label={full ? "Leave full screen" : "Full screen"} title={full ? "Leave full screen (Esc)" : "Full screen"}>
+          <button type="button" onClick={toggleFull} aria-pressed={full} aria-label={full ? "Leave full screen" : "Full screen"} title={full ? "Leave full screen (Esc)" : "Full screen"}>
             {full ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
           </button>
         </div>
@@ -537,13 +573,18 @@ export function OmChart(p: OmChartProps) {
     </div>
   );
 
-  // Full screen is the same chart, lifted over the page (kept inside the platform's shell for its colours).
+  // Keep the chart inside its owning dialog/shell for colours, and above Atlas in the native top layer.
   if (full && typeof document !== "undefined") {
-    const host = document.querySelector(".om-app") ?? document.body;
+    const host = fullHost.current ?? document.querySelector(".om-app") ?? document.body;
+    const sheet = fullOwner.current
+      ? <dialog ref={fullDialog} className="om-ch-sheet om-ch-modal" aria-label={`${p.label}, full screen`}
+        onCancel={(event) => { event.preventDefault(); event.stopPropagation(); setFull(false); }}
+        onClose={(event) => { event.stopPropagation(); setFull(false); }}>{chart}</dialog>
+      : <div className="om-ch-sheet" role="dialog" aria-modal="true" aria-label={`${p.label}, full screen`}>{chart}</div>;
     return (
       <>
         <div className="om-ch-hold" aria-hidden="true" />
-        {createPortal(<div className="om-ch-sheet" role="dialog" aria-modal="true" aria-label={`${p.label}, full screen`}>{chart}</div>, host)}
+        {createPortal(sheet, host)}
       </>
     );
   }
