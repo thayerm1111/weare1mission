@@ -3,6 +3,7 @@ import { voiceAccess } from "../../../../../../command-center/engines/voiceAcces
 import { VOICE_PLAN, VOICE_PLANS } from "@/lib/voicePlan";
 import { selectedAccount } from "../../../../../../command-center/engines/broker";
 import { callbackUrl } from "../../../../../../command-center/engines/voice";
+import { signAppVoiceSurface } from "@/lib/atlas/voiceSurface";
 import {
   availability, budgetFor, closeSession, ensureAgent, openSession, signedUrl, touch,
   MONTHLY_MINUTE_BUDGET, MAX_CALL_SECONDS,
@@ -91,21 +92,22 @@ export async function POST(req: Request) {
   const g = await gate();
   if (!g.ok) return g.res;
 
-  let body: { action?: string; turns?: number };
+  let body: { action?: string; turns?: number; surface?: string; sessionId?: string };
   try { body = await req.json(); } catch { body = {}; }
   const action = String(body.action ?? "start");
+  const sessionId = typeof body.sessionId === "string" ? body.sessionId.slice(0, 80) : undefined;
 
   if (action === "end") {
-    await closeSession(g.userId, "ended by user");
+    await closeSession(g.userId, "ended by user", sessionId);
     return json({ ok: true, ended: true });
   }
 
   if (action === "heartbeat") {
     // The browser says it is still listening; the meter agrees or the worker reaps it later.
     const c = createClient();
-    const { data } = c
-      ? await c.from("cc_voice_sessions").select("id").eq("user_id", g.userId).is("ended_at", null).maybeSingle()
-      : { data: null };
+    let query = c?.from("cc_voice_sessions").select("id").eq("user_id", g.userId).is("ended_at", null);
+    if (query && sessionId) query = query.eq("id", sessionId);
+    const { data } = query ? await query.maybeSingle() : { data: null };
     const id = (data as { id?: string } | null)?.id;
     if (id) await touch(id, Number(body.turns) || 0);
     return json({ ok: true });
@@ -139,7 +141,7 @@ export async function POST(req: Request) {
 
   const signed = await signedUrl(agent.agentId);
   if (!signed.ok) {
-    await closeSession(g.userId, "provider refused");
+    await closeSession(g.userId, "provider refused", session.id);
     return json({ ok: false, configured: true, reason: signed.reason }, 200);
   }
 
@@ -153,6 +155,7 @@ export async function POST(req: Request) {
      * cookie on it — is known to be about this member's account.
      */
     voiceToken: session.token,
+    ...(body.surface === "app" ? { surfaceToken: signAppVoiceSurface(session.token) } : {}),
     sessionId: session.id,
     expiresAt: session.expiresAt,
     budget,

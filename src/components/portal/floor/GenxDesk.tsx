@@ -6,6 +6,7 @@ import { CREDIT_COST } from "@/lib/creditConfig";
 import { GenxFlow, ConfirmHelp } from "./GenxFlow";
 import { useNextShell } from "@/components/om/shell";
 import { GenxHome } from "@/components/om/genx/GenxHome";
+import { atlasGenxResult, GENX_UPDATED_EVENT } from "@/lib/atlas/signals";
 
 /**
  * GENX — flagship XAUUSD (Gold) decision engine, desktop portal edition.
@@ -343,6 +344,17 @@ export function GenxDesk() {
     try { const r = await fetch("/api/genx/history", { cache: "no-store" }); const d = await r.json(); if (Array.isArray(d.plays)) setPlays(d.plays as PlayRow[]); } catch { /* ignore */ }
   }, []);
   useEffect(() => { void loadPlays(); }, [loadPlays]);
+  useEffect(() => {
+    const generated = (event: Event) => {
+      const read = atlasGenxResult((event as CustomEvent<{ read?: unknown }>).detail?.read);
+      if (!read) return;
+      setRes(read as unknown as Resp); setReplay(null); setErr("");
+      if (["quick", "intraday", "swing"].includes(read.mode)) setMode(read.mode);
+      void loadPlays();
+    };
+    window.addEventListener(GENX_UPDATED_EVENT, generated);
+    return () => window.removeEventListener(GENX_UPDATED_EVENT, generated);
+  }, [loadPlays]);
   async function openPlay(id: string) {
     try {
       const r = await fetch(`/api/genx/history?id=${encodeURIComponent(id)}`, { cache: "no-store" });
@@ -355,6 +367,17 @@ export function GenxDesk() {
       }
     } catch { /* ignore */ }
   }
+
+  // A saved read opens as itself. The address never starts another paid analysis.
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search), id = query.get("read");
+    if (!id) return;
+    void openPlay(id);
+    query.delete("read");
+    const rest = query.toString();
+    window.history.replaceState({}, "", window.location.pathname + (rest ? "?" + rest : ""));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Tracked setups: localStorage for instant render, then the account (synced
   // across the member's phone + computer) as the source of truth.

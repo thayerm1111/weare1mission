@@ -16,6 +16,7 @@ import { priceFor } from "@/lib/flow/display";
 import { actionWords, convictionWords, holdWords, stepWords, streakOf } from "@/lib/genx/words";
 import { ProductIcon } from "@/components/om/ProductIcon";
 import { MobileSection } from "@/components/om/MobileSection";
+import { openAtlas } from "@/lib/atlas/open";
 
 /**
  * GENX, IN THE TRADING PLATFORM'S SHELL (owner 11-20 brief §8: "a focused gold workstation").
@@ -256,6 +257,15 @@ export function GenxHome(p: GenxHomeProps) {
 
         <aside className="om-panel om-genx-panel" aria-label="What GENX is doing">
           {read ? <Decision p={p} g={read} subject={subject} /> : <Waiting view={liveView} failed={liveFailed} loaded={!!live} />}
+          <button type="button" className="om-btn-quiet om-genx-ask-atlas" onClick={() => openAtlas({
+            question: read ? `Explain this ${saved ? "saved " : ""}GENX ${subject === "scalp" ? "scalp" : "setup"}, what it is waiting for, and what would invalidate it.` : "Explain GENX's state shown here and how to find a gold signal.",
+            context: {
+              source: "genx", label: `Gold · ${saved ? "saved " : ""}${horizon.label} read`,
+              data: { td: "XAU/USD", symbol: "XAUUSD", mode, subject, asOf: readIso ?? liveAt, marketClosed: shut,
+                ...(read ? { saved: !!saved, genx: read } : { stage: liveView.stage, waitingFor: liveView.waitingFor, invalidation: liveView.changesIf }),
+              },
+            },
+          })}><ProductIcon kind="atlas" size="sm" />Explain with Atlas</button>
           <div className="om-genx-flow om-product-handoff">
             <ProductIcon kind="flow" size="sm" />
             <p className="om-label">Which of your accounts take GENX trades is set in FLOW. <Link href="/portal/trading?view=flow" className="om-go">Open FLOW<ArrowUpRight aria-hidden="true" /></Link></p>

@@ -4,12 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Check, ChevronDown, Copy, Loader2, Search, X } from "lucide-react";
 import { TradeChat } from "@/components/portal/TradeChat";
-import { leaveFloorQuestion } from "@/components/command-center/hud/floorAsk";
+import { openAtlas, type AtlasContext } from "@/lib/atlas/open";
 import { CREDIT_COST } from "@/lib/creditConfig";
 import { ageText } from "@/lib/floor/overview";
 import { SCAN_FRESH_MS, categoryOf, scanMs, type PulseCategory } from "@/lib/pulse/scan";
 import { priceFor } from "@/lib/flow/display";
-import { leaveGenerateIntent, playsHref } from "@/lib/plays/intent";
+import { playsHref } from "@/lib/plays/intent";
 import { ProductIcon } from "@/components/om/ProductIcon";
 import { MobileSection } from "@/components/om/MobileSection";
 
@@ -160,10 +160,11 @@ function Detail({ s, rank, of, scanAt, onDeepDive }: { s: PulseSetup; rank: numb
   const [chat, setChat] = useState(false);
   useEffect(() => { setCopied(false); setChat(false); }, [s.td]);
   const levels = fin(s.entry) && fin(s.stopLoss);
-  const ask = () => {
-    try { leaveFloorQuestion(window.sessionStorage, `Explain ${s.symbol} right now. Market Pulse ranked it ${rank} of ${of}, leaning ${s.dir === "LONG" ? "long" : "short"} with ${s.confirmed} of ${s.total} confirmations.`, Date.now()); } catch { /* the question is typed again there */ }
-    window.location.assign("/command-center");
+  const context: AtlasContext = {
+    source: "pulse", label: `${s.symbol} · Pulse scan`,
+    data: { td: s.td, symbol: s.symbol, style: "intraday", asOf: scanAt ? new Date(scanAt).toISOString() : null, rank, of, direction: s.dir, confirmations: s.confirmed, total: s.total, checklist: s.checklist, price: s.price, entry: s.entry, stopLoss: s.stopLoss, takeProfits: s.takeProfits, riskReward: s.riskReward, confirmedSetup: false },
   };
+  const ask = () => openAtlas({ question: `Explain ${s.symbol} from this Pulse scan and what needs confirmation before I consider a trade.`, context });
   return (
     <div className="om-pulse-d">
       <div className="om-pulse-d-head">
@@ -203,27 +204,22 @@ function Detail({ s, rank, of, scanAt, onDeepDive }: { s: PulseSetup; rank: numb
         </div>
       )}
 
-      {/* Three different intents, said as three (owner 11-21 brief §12): generate a play (paid, once, on this tap),
-          open OM AI Plays with this market filled in (free), and ask Atlas (free here). */}
+      {/* Atlas keeps this market attached to the conversation. Only its priced Generate action makes a play. */}
       <div className="om-pulse-next">
         <div className="om-product-handoff">
           <ProductIcon kind="plays" size="sm" />
           <div>
             <h3>Build the full play</h3>
-            <p className="om-label"><span data-no-i18n translate="no">{s.symbol}</span> opens in OM AI Plays with Intraday selected.</p>
+            <p className="om-label">Take <span data-no-i18n translate="no">{s.symbol}</span> from discovery to a complete setup with Atlas.</p>
           </div>
         </div>
         <div className="om-pulse-acts">
-          <button type="button" className="om-btn" onClick={() => {
-            let nonce: string | undefined;
-            try { nonce = leaveGenerateIntent(window.sessionStorage, s.td, "intraday"); } catch { nonce = undefined; }
-            window.location.assign(playsHref(s.td, "intraday", nonce));
-          }}>Generate the full play · {CREDIT_COST.signal} credits</button>
+          <button type="button" className="om-btn" onClick={() => openAtlas({ tool: "plays", context })}>Build the full play with Atlas</button>
           <Link href={playsHref(s.td, "intraday")} className="om-btn-quiet">Open in OM AI Plays</Link>
           <button type="button" className="om-btn-quiet" onClick={() => onDeepDive(s)}>Deep dive · {CREDIT_COST.deepdive} credit{CREDIT_COST.deepdive === 1 ? "" : "s"}</button>
           <button type="button" className="om-btn-quiet" onClick={ask}>Ask Atlas<ArrowUpRight aria-hidden="true" width={14} height={14} /></button>
         </div>
-        <p className="om-faint om-flow-small">Generate makes one play in OM AI Plays from this tap — opening the page again, or going back to it, makes nothing more. Open in OM AI Plays only fills in the market. Atlas answers in the Command Center, which has its own price.</p>
+        <p className="om-faint om-flow-small">Review the market and style with Atlas, then generate for {CREDIT_COST.signal} credits, included with the FLOW Pass. The signal and its execution ticket stay in your conversation.</p>
       </div>
 
       {levels && (

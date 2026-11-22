@@ -8,6 +8,7 @@ import "./floor/os-floor.css";
 import "./os-mobile.css";
 import "./mobile-tools.css";
 import "./mobile-premium.css";
+import "./connected-experience.css";
 import { Suspense, useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -21,6 +22,8 @@ import { ShellContext } from "./shell";
 import { ProductIcon } from "./ProductIcon";
 import { FlowAccountBar, FlowAccountProvider } from "./FlowAccount";
 import { MobileViewport } from "./MobileViewport";
+import { AtlasProvider, useAtlasPanel } from "./atlas/AtlasProvider";
+import { openAtlas } from "@/lib/atlas/open";
 
 /** The shared OS frame. Trading tools retain their own engines, permissions and requests. */
 export type ShellMember = { name: string | null; email: string | null; admin: boolean };
@@ -126,6 +129,7 @@ function ProfileMenu({ member, configured, preview, asApp, onInstall, look, onLo
 }
 
 function Bar({ member, configured, preview, look, onLook }: { member: ShellMember; configured: boolean; preview: boolean; look: Look; onLook: (l: Look) => void }) {
+  const atlasPanel = useAtlasPanel();
   const path = usePathname() || "";
   const view = useSearchParams().get("view");
   const here = activeKey(path, view);
@@ -163,7 +167,7 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
             <span className="om-mobile-screen" aria-hidden="true">{screen ?? "Account"}</span>
             <div className="om-os-breadcrumb"><Link href="/portal/trading" aria-current={here === "floor" ? "page" : undefined}>The Floor</Link>{here && here !== "floor" && <><span aria-hidden="true">/</span><span>{screen}</span></>}</div>
             <div className="om-nav-right">
-              <a className="om-os-ask" href="/command-center"><ProductIcon kind="atlas" size="sm" /><span>Ask Atlas</span></a>
+              <button type="button" className="om-os-ask" onClick={() => openAtlas()} aria-haspopup="dialog" aria-expanded={atlasPanel.open} disabled={!configured}><ProductIcon kind="atlas" size="sm" /><span>Ask Atlas</span></button>
               {configured && <Credits />}
               {configured && <span className="om-bell"><NotificationsBell trading /></span>}
               <ProfileMenu member={member} configured={configured} preview={preview} asApp={asApp} onInstall={configured && offer ? install : undefined} look={look} onLook={onLook} />
@@ -179,6 +183,7 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
         {TAB_ORDER.map((k) => APP_TABS.find((n) => n.key === k)!).map((n) => {
           const Icon = TAB_ICON[n.key];
           const cur = tabHere === n.key ? "page" : undefined;
+          if (n.key === "atlas") return <button key={n.key} type="button" className="om-tab" aria-label="Atlas" aria-haspopup="dialog" aria-expanded={atlasPanel.open} aria-current={atlasPanel.open ? "page" : cur} disabled={!configured} onClick={() => openAtlas()}><span className="om-tab-symbol"><Icon aria-hidden="true" /></span><span>{n.label}</span></button>;
           return n.hard
             ? <a key={n.key} href={n.href} className="om-tab" aria-label={n.label} aria-current={cur} onClick={(event) => returnToTop(event, n.key)}><span className="om-tab-symbol"><Icon aria-hidden="true" /></span><span>{n.label}</span></a>
             : <Link key={n.key} href={n.href} className="om-tab" aria-label={n.label} aria-current={cur} onClick={(event) => returnToTop(event, n.key)}><span className="om-tab-symbol"><Icon aria-hidden="true" /></span><span>{n.label}</span></Link>;
@@ -189,7 +194,7 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
 }
 
 const APPS = [
-  { key: "atlas" as const, label: "Atlas", line: "Gold intelligence", href: "/command-center", hard: true },
+  { key: "atlas" as const, label: "Atlas", line: "Your AI trading assistant", href: "#atlas", hard: false },
   { key: "genx" as const, label: "GENX", line: "The gold engine", href: "/portal/genx", hard: false },
   { key: "plays" as const, label: "OM AI Plays", line: "Any market. Full setup.", href: "/portal/signals", hard: false },
   { key: "pulse" as const, label: "Pulse", line: "Find your next market", href: "/portal/trading?view=pulse", hard: false },
@@ -202,6 +207,7 @@ function AppDock() {
   return <nav className="om-os-dock" aria-label="One Mission apps">
     {APPS.map((app, index) => {
       const content = <><ProductIcon kind={app.key} /><span className="om-os-app-title">{app.label}<small>{app.line}</small></span><span className="om-os-app-number" aria-hidden="true">0{index + 1}</span></>;
+      if (app.key === "atlas") return <button key={app.key} type="button" className="om-os-app" aria-haspopup="dialog" onClick={() => openAtlas()}>{content}</button>;
       return app.hard
         ? <a key={app.key} href={app.href} className="om-os-app" aria-current={here === app.key ? "page" : undefined}>{content}</a>
         : <Link key={app.key} href={app.href} className="om-os-app" aria-current={here === app.key ? "page" : undefined}>{content}</Link>;
@@ -253,6 +259,7 @@ export function AppShell({ children, member, configured = true, preview = false,
     <div className={`om-app om-os${atlas ? " om-os-atlas" : ""}`}>
       <MobileViewport />
       <FlowAccountProvider configured={configured}>
+      <AtlasProvider configured={configured} memberKey={member.email ?? member.name ?? "member"}>
       <Suspense fallback={<div className="om-nav-wrap"><div className="om-frame"><div className="om-nav" /></div></div>}>
         <Bar member={member} configured={configured} preview={preview} look={look} onLook={chooseLook} />
       </Suspense>
@@ -263,6 +270,7 @@ export function AppShell({ children, member, configured = true, preview = false,
         <footer className="om-os-footer"><span>One Mission OS</span><span>Your tools. One connected workspace.</span><Link href="/portal/support">Support ↗</Link></footer>
       </ShellContext.Provider></div></main>
       <OfflineNotice />
+      </AtlasProvider>
       </FlowAccountProvider>
     </div>
   );

@@ -1,0 +1,36 @@
+.om-atlas-signal { width:100%; min-width:0; border:1px solid var(--om-edge); border-radius:19px; background:var(--om-surface); color:var(--om-text); padding:18px; text-align:left; }
+.om-atlas-signal-head { display:flex; align-items:center; gap:10px; margin-bottom:15px; }
+.om-atlas-signal-head > div { min-width:0; }
+.om-atlas-signal-head span:not(.om-product-icon) { color:var(--om-text-2); font-size:11px; }
+.om-atlas-signal-head strong { display:flex; flex-wrap:wrap; gap:9px; align-items:baseline; font-size:16px; font-weight:600; }
+.om-atlas-signal-head small { color:var(--om-text-2); font-size:11px; font-weight:400; text-transform:capitalize; }
+.om-atlas-signal-decision h3 { font-size:19px; line-height:1.3; font-weight:600; margin:0 0 7px; }
+.om-atlas-signal[data-state="ready"] .om-atlas-signal-decision h3 { color:var(--om-pos); }
+.om-atlas-signal-decision p { color:var(--om-text-2); font-size:13px; line-height:1.65; margin:9px 0 0; overflow-wrap:anywhere; }
+.om-atlas-signal-tag { display:inline-block; font-size:11px; color:var(--om-text-2); padding:5px 8px; border:1px solid var(--om-edge); border-radius:8px; }
+.om-atlas-signal-caption { margin:18px 0 9px; font-size:11px; color:var(--om-text-2); }
+.om-atlas-signal-levels { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:0; }
+.om-atlas-signal-levels > div { padding:11px 10px; border-radius:10px; background:var(--om-raised, var(--om-page)); border:1px solid var(--om-edge); }
+.om-atlas-signal-levels dt { font-size:10px; color:var(--om-text-2); margin-bottom:5px; }
+.om-atlas-signal-levels dd { margin:0; font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.om-atlas-signal-order { margin-top:16px; }
+.om-atlas-signal-order > summary { display:flex; align-items:center; justify-content:space-between; gap:9px; min-height:48px; padding:12px 14px; border-radius:12px; background:var(--om-text); color:var(--om-page); font-size:13px; font-weight:600; cursor:pointer; list-style:none; }
+.om-atlas-signal-order > summary::-webkit-details-marker, .om-atlas-signal-evidence > summary::-webkit-details-marker { display:none; }
+.om-atlas-signal-order > summary svg, .om-atlas-signal-evidence > summary svg { width:16px; height:16px; flex-shrink:0; }
+.om-atlas-signal-order[open] > summary svg, .om-atlas-signal-evidence[open] > summary svg { transform:rotate(180deg); }
+.om-atlas-signal-order > summary:focus-visible, .om-atlas-signal-evidence > summary:focus-visible, .om-atlas-signal-explain:focus-visible { outline:2px solid var(--om-text); outline-offset:3px; }
+.om-atlas-signal-ticket { min-width:0; padding-top:12px; }
+.om-atlas-signal-ticket .om-ticket { min-width:0; }
+.om-atlas-signal-note { color:var(--om-text-2); font-size:12px; line-height:1.6; margin:0 0 12px; }
+.om-atlas-signal-next { display:grid; gap:12px; margin:16px 0 0; }
+.om-atlas-signal-next dt { color:var(--om-text); font-size:11px; font-weight:600; margin-bottom:3px; }
+.om-atlas-signal-next dd { color:var(--om-text-2); font-size:12px; line-height:1.6; margin:0; overflow-wrap:anywhere; }
+.om-atlas-signal-evidence { margin-top:16px; padding-top:12px; border-top:1px solid var(--om-edge); font-size:12px; color:var(--om-text-2); }
+.om-atlas-signal-evidence > summary { display:flex; justify-content:space-between; gap:12px; color:var(--om-text); cursor:pointer; list-style:none; min-height:32px; align-items:center; }
+.om-atlas-signal-evidence ul { padding-left:17px; line-height:1.65; margin:8px 0; }
+.om-atlas-signal-evidence li + li { margin-top:5px; }
+.om-atlas-signal-evidence p { font-weight:600; margin-top:14px; }
+.om-atlas-signal-explain { display:flex; align-items:center; justify-content:center; gap:8px; border:1px solid var(--om-edge); border-radius:11px; width:100%; min-height:42px; font-size:12px; margin-top:16px; color:var(--om-text); background:transparent; }
+.om-atlas-signal-explain svg { width:15px; height:15px; }
+.om-atlas-signal footer { display:flex; flex-direction:column; gap:4px; margin-top:15px; padding-top:12px; border-top:1px solid var(--om-edge); color:var(--om-text-2); font-size:10px; line-height:1.5; }
+@media (max-width:380px) { .om-atlas-signal { padding:14px; } .om-atlas-signal-levels { grid-template-columns:repeat(2,minmax(0,1fr)); } }

@@ -239,11 +239,13 @@ export function billableMinutes(startedAt: string, lastSeenAt: string | null, en
   return Math.round((ms / 60_000) * 10) / 10;
 }
 
-export async function closeSession(userId: string, reason = "ended"): Promise<void> {
+export async function closeSession(userId: string, reason = "ended", sessionId?: string): Promise<void> {
   const c = db();
   if (!c) return;
-  const { data } = await c.from("cc_voice_sessions")
-    .select("id, started_at, last_seen_at").eq("user_id", userId).is("ended_at", null).maybeSingle();
+  let query = c.from("cc_voice_sessions")
+    .select("id, started_at, last_seen_at").eq("user_id", userId).is("ended_at", null);
+  if (sessionId) query = query.eq("id", sessionId);
+  const { data } = await query.maybeSingle();
   if (!data) return;
   const r = data as { id: string; started_at: string; last_seen_at: string | null };
   const now = Date.now();

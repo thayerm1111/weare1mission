@@ -5,7 +5,9 @@ import { VOICE_TOPUPS } from "@/lib/voicePlan";
 import { explainBus } from "./hud/explainBus";
 import { explainText } from "../../../command-center/core/explain";
 import { CHART_ACTION_EVENT } from "../../../command-center/core/atlasContract";
-import { voiceBus, type CommentaryNote } from "./voiceBus";
+import { voiceBus, appVoiceBus, type CommentaryNote } from "./voiceBus";
+import type { AtlasContext } from "@/lib/atlas/types";
+import { appVoiceContextUpdate, atlasContext } from "@/lib/atlas/context";
 import { Hand, Mic, MicOff, PhoneOff, Radio, Send, Square, Volume2, VolumeX } from "lucide-react";
 import { VoicePresence, type PresenceMode } from "./VoicePresence";
 import {
@@ -177,7 +179,11 @@ const newReplyTrack = (): ReplyTrack => ({ text: "", heard: "", final: false, fi
 /** After a reply's last audio, this much quiet means it has finished (not an underrun between two chunks). */
 const EXPLAIN_END_QUIET_MS = 700;
 
-export function VoiceSession({ onUiAction, onStatus, live }: {
+export function VoiceSession({ onUiAction, onStatus, live, surface = "command-center", onTurns, context }: {
+  surface?: "command-center" | "app";
+  onTurns?: (turns: VoiceTurn[]) => void;
+  /** Current app state, also delivered as a non-interrupting update on an open app call. */
+  context?: AtlasContext;
   onUiAction?: (name: string, arg: string | number | null) => void;
   /** Reported outward so a host surface can show the line's state without owning it. */
   onStatus?: (s: VoiceStatus) => void;
@@ -187,11 +193,23 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
    */
   live?: CommentaryInput | null;
 }) {
+  const app = surface === "app", bus = app ? appVoiceBus : voiceBus;
+  const appRef = useRef(app);
+  appRef.current = app;
+  const contextRef = useRef(context);
+  const contextKey = JSON.stringify(atlasContext(context));
+  const contextPropKey = useRef(contextKey);
+  if (contextPropKey.current !== contextKey) { contextPropKey.current = contextKey; contextRef.current = context; }
+  const sentContext = useRef("");
+  const turnsListener = useRef(onTurns);
+  turnsListener.current = onTurns;
+  const prefsKey = app ? "om.atlas.voice.prefs.v1" : PREFS_KEY;
   const [info, setInfo] = useState<SessionInfo | null>(null);
   const [conn, setConn] = useState<Connection>("idle");
   const [micReady, setMicReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [turns, setTurns] = useState<VoiceTurn[]>([]);
+  useEffect(() => { turnsListener.current?.(turns); }, [turns]);
   /** Your words while you are still saying them (the provider's live partial transcript). */
   const [partial, setPartial] = useState<string | null>(null);
   const [micMuted, setMicMutedState] = useState(false);
@@ -199,7 +217,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
   const [inputMode, setInputModeState] = useState<InputMode>("hands_free");
   const [pttStyle, setPttStyleState] = useState<PttStyle>("hold");
   const [pttOpen, setPttOpenState] = useState(false);
-  const [settings, setSettingsState] = useState<CommentarySettings>(DEFAULT_COMMENTARY_SETTINGS);
+  const [settings, setSettingsState] = useState<CommentarySettings>(app ? { ...DEFAULT_COMMENTARY_SETTINGS, mode: "quiet" } : DEFAULT_COMMENTARY_SETTINGS);
   const [notes, setNotes] = useState<CommentaryNote[]>([]);
   const [typed, setTyped] = useState("");
   const [buying, setBuying] = useState(false);
@@ -230,6 +248,9 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
   const [frame, setFrame] = useState({ out: 0, inl: 0, playing: false, awaiting: false, speech: false, callSec: 0 });
 
   const ws = useRef<WebSocket | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const opening = useRef(false);
+  const startAttempt = useRef(0);
   const audioCtx = useRef<AudioContext | null>(null);
   const micStream = useRef<MediaStream | null>(null);
   const micNode = useRef<ScriptProcessorNode | null>(null);
@@ -319,7 +340,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
 
   /* Commentary. */
   const engine = useRef(initialCommentaryState());
-  const settingsRef = useRef<CommentarySettings>(DEFAULT_COMMENTARY_SETTINGS);
+  const settingsRef = useRef<CommentarySettings>(app ? { ...DEFAULT_COMMENTARY_SETTINGS, mode: "quiet" } : DEFAULT_COMMENTARY_SETTINGS);
   const lastExternalLive = useRef(0);
   const transcriptBox = useRef<HTMLDivElement | null>(null);
   const stickToEnd = useRef(true);
@@ -329,25 +350,25 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
   /* ── preferences (this browser only) ──────────────────────────────────── */
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(PREFS_KEY);
+      const raw = window.localStorage.getItem(prefsKey);
       if (!raw) return;
       const p = JSON.parse(raw) as { mode?: string; cooldown?: number; input?: string; ptt?: string };
-      const mode = COMMENTARY_MODES.some((m) => m.id === p.mode) ? (p.mode as CommentaryMode) : DEFAULT_COMMENTARY_SETTINGS.mode;
+      const mode = app ? "quiet" : COMMENTARY_MODES.some((m) => m.id === p.mode) ? (p.mode as CommentaryMode) : DEFAULT_COMMENTARY_SETTINGS.mode;
       const next = { mode, copilotCooldownMs: clampCooldown(Number(p.cooldown ?? DEFAULT_COMMENTARY_SETTINGS.copilotCooldownMs)) };
       settingsRef.current = next;
       setSettingsState(next);
       if (p.input === "push_to_talk" || p.input === "hands_free") { inputModeRef.current = p.input; setInputModeState(p.input); }
       if (p.ptt === "hold" || p.ptt === "toggle") { pttStyleRef.current = p.ptt; setPttStyleState(p.ptt); }
     } catch { /* storage blocked: the defaults stand */ }
-  }, []);
+  }, [app, prefsKey]);
   const savePrefs = useCallback(() => {
     try {
-      window.localStorage.setItem(PREFS_KEY, JSON.stringify({
+      window.localStorage.setItem(prefsKey, JSON.stringify({
         mode: settingsRef.current.mode, cooldown: settingsRef.current.copilotCooldownMs,
         input: inputModeRef.current, ptt: pttStyleRef.current,
       }));
     } catch { /* a convenience, not a requirement */ }
-  }, []);
+  }, [prefsKey]);
 
   /* ── availability ─────────────────────────────────────────────────────── */
   useEffect(() => {
@@ -383,7 +404,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
     const id = replyEventId.current;
     if (id == null) return;
     // Interrupted: nothing further from this reply reaches the chart, and its conditional path comes off.
-    explainBus.cancel(`voice-${id}`);
+    if (!appRef.current) explainBus.cancel(`voice-${id}`);
     // Whatever is still to come from this response is refused: the next response (a higher id) plays. So it is
     // over as far as this line is concerned — nothing more of it is owed, and nothing is "thinking" about it.
     marks.current = { ...marks.current, stoppedThrough: Math.max(marks.current.stoppedThrough, id) };
@@ -436,8 +457,10 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
         const known = explainText(rt.heard).split(" ").slice(0, -3).join(" ");
         if (known.length > rt.built + 8) {
           rt.built = known.length;
-          if (!rt.begun) rt.begun = !!explainBus.begin(`voice-${eventId}`, known);
-          else explainBus.update(`voice-${eventId}`, known);
+          if (!appRef.current) {
+            if (!rt.begun) rt.begun = !!explainBus.begin(`voice-${eventId}`, known);
+            else explainBus.update(`voice-${eventId}`, known);
+          }
         }
       }
       replyText.current.set(eventId, rt);
@@ -464,6 +487,8 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
    * recording indicator goes out), the socket, the audio engine, the heartbeat. Idempotent.
    */
   const teardown = useCallback((next: Connection, reason?: string) => {
+    startAttempt.current += 1;
+    opening.current = false;
     stopPlayback();
     if (heartbeat.current) { clearInterval(heartbeat.current); heartbeat.current = null; }
     try { micNode.current?.disconnect(); } catch { /* noop */ }
@@ -473,6 +498,8 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
     micTrack.current = null;
     try { ws.current?.close(); } catch { /* noop */ }
     ws.current = null;
+    sessionIdRef.current = null;
+    sentContext.current = "";
     try { void audioCtx.current?.close(); } catch { /* noop */ }
     audioCtx.current = null;
     outAnalyser.current = null;
@@ -492,10 +519,10 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
 
   /** Tell the server the line is over, so the meter stops now rather than when the reaper notices. */
   const notifyServerEnd = useCallback(() => {
-    if (!ws.current) return;
+    if (!sessionIdRef.current) return;
     void fetch("/api/command-center/voice/session", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "end" }), keepalive: true,
+      body: JSON.stringify({ action: "end", sessionId: sessionIdRef.current }), keepalive: true,
     }).catch(() => {});
   }, []);
 
@@ -512,9 +539,9 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
    */
   useEffect(() => {
     const onHide = () => {
-      if (!ws.current) return;
+      if (!sessionIdRef.current) return;
       try {
-        navigator.sendBeacon?.("/api/command-center/voice/session", new Blob([JSON.stringify({ action: "end" })], { type: "application/json" }));
+        navigator.sendBeacon?.("/api/command-center/voice/session", new Blob([JSON.stringify({ action: "end", sessionId: sessionIdRef.current })], { type: "application/json" }));
       } catch { /* the reaper is the backstop */ }
       teardown("idle");
     };
@@ -601,7 +628,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
           // Without character timing the complete text is needed before a share of it can be estimated.
           const chars = said != null ? explainText(said).length
             : rt.final && rt.firstAt != null ? spokenCharsEstimate(rt.text.length, ctx.currentTime - rt.firstAt, rt.scheduled, replyComplete.current) : 0;
-          if (chars > 0) explainBus.progress(`voice-${rid}`, chars);
+          if (chars > 0 && !appRef.current) explainBus.progress(`voice-${rid}`, chars);
         }
         // What ATLAS is audibly saying right now, stamped while it plays: the only audio that can come back
         // through the microphone (voiceLine.ts looksLikeEcho).
@@ -613,7 +640,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
          a gap between two chunks is not the end of the answer. */
       if (!playing && rid != null && replyComplete.current && lastAudioAt.current > 0 && now - lastAudioAt.current > EXPLAIN_END_QUIET_MS) {
         const rt = replyText.current.get(rid);
-        if (rt?.begun && rt.final && !rt.ended && audioPlayable(rid, marks.current)) { rt.ended = true; explainBus.end(`voice-${rid}`); }
+        if (rt?.begun && rt.final && !rt.ended && audioPlayable(rid, marks.current)) { rt.ended = true; if (!appRef.current) explainBus.end(`voice-${rid}`); }
       }
       setFrame((f) => (f.out === out && f.inl === inl && f.playing === playing && f.awaiting === awaiting && f.speech === speech && f.callSec === callSec
         ? f : { out, inl, playing, awaiting, speech, callSec }));
@@ -850,7 +877,11 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
   /* ── starting the line ────────────────────────────────────────────────── */
 
   const start = useCallback(async () => {
-    if (ws.current) return;            // one line at a time
+    if (ws.current || opening.current) return; // one line at a time, including an in-flight start
+    if (appRef.current) voiceBus.end(); else appVoiceBus.end();
+    opening.current = true;
+    const attempt = ++startAttempt.current;
+    const initialContext = contextRef.current;
     setError(null);
     setConn("connecting");
     lastActive.current = Date.now();
@@ -890,6 +921,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
       outAnalyser.current = analyser;
       speakerGain.current = gain;
     } catch {
+      opening.current = false;
       setConn("error");
       setError("This browser would not open an audio session.");
       return;
@@ -898,10 +930,16 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
     try {
       const r = await fetch("/api/command-center/voice/session", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "start" }),
+        body: JSON.stringify({ action: "start", ...(appRef.current ? { surface: "app" } : {}) }),
       });
       const j = await r.json();
+      if (attempt !== startAttempt.current) {
+        if (j.sessionId) void fetch("/api/command-center/voice/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "end", sessionId: j.sessionId }) }).catch(() => {});
+        return;
+      }
       if (!j.ok || !j.url) { teardown("error", j.reason ?? "Could not open a voice session."); return; }
+      sessionIdRef.current = typeof j.sessionId === "string" ? j.sessionId : null;
+      if (appRef.current && !j.surfaceToken) { notifyServerEnd(); teardown("error", "The app voice session could not be verified. Please try again."); return; }
       const cap = Number(j.maxCallSeconds);
       maxCallSec.current = Number.isFinite(cap) && cap > 0 ? cap : DEFAULT_MAX_CALL_SECONDS;
 
@@ -942,9 +980,14 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
            * substitutes into their prompt — so a token sent only there is a token the brain never sees,
            * and the brain then correctly refuses to discuss a position it cannot attribute.
            */
-          custom_llm_extra_body: { voice_token: j.voiceToken },
+          custom_llm_extra_body: { voice_token: j.voiceToken, ...(appRef.current ? { surface_token: j.surfaceToken, app_context: atlasContext(initialContext) } : {}) },
           dynamic_variables: { voice_token: j.voiceToken },
         }));
+        if (appRef.current) {
+          const update = JSON.stringify(appVoiceContextUpdate(contextRef.current ?? initialContext ?? {}));
+          socket.send(update);
+          sentContext.current = update;
+        }
         void ctx.resume().catch(() => {});
         setConn("open");
         callStartedAt.current = Date.now();
@@ -953,7 +996,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
         heartbeat.current = setInterval(() => {
           void fetch("/api/command-center/voice/session", {
             method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ action: "heartbeat" }),
+            body: JSON.stringify({ action: "heartbeat", sessionId: j.sessionId }),
           }).catch(() => {});
         }, 45_000);
 
@@ -1038,11 +1081,11 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
           // The member spoke, so whatever ATLAS was saying is no longer what matters.
           stopPlayback();
           // "Show me that": the evidence from the last answer is pointed at straight away, before the reply.
-          if (asksToShow(text)) explainBus.showNext();
+          if (!appRef.current && asksToShow(text)) explainBus.showNext();
           // "Switch to the fifteen-minute": the member's own instruction, so the chart does it — a validated
           // timeframe action, the same one the typed console's answers use.
           const wantTf = asksTimeframe(text);
-          if (wantTf) window.dispatchEvent(new CustomEvent(CHART_ACTION_EVENT, { detail: { type: "timeframe", tf: wantTf } }));
+          if (!appRef.current && wantTf) window.dispatchEvent(new CustomEvent(CHART_ACTION_EVENT, { detail: { type: "timeframe", tf: wantTf } }));
           replyOwner.current = "member";
           skipNext.current = false;
           pendingTurnAt.current = now;
@@ -1125,8 +1168,10 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
               rt.final = true;
               rt.built = full.length;
               // Already begun from the words that came with the audio: completed in place. Otherwise begun now.
-              if (!rt.begun) rt.begun = !!explainBus.begin(`voice-${id}`, text);
-              else explainBus.update(`voice-${id}`, text);
+              if (!appRef.current) {
+                if (!rt.begun) rt.begun = !!explainBus.begin(`voice-${id}`, text);
+                else explainBus.update(`voice-${id}`, text);
+              }
             }
             replyText.current.set(id, rt);
             atlasSaid.current = { text: text.slice(0, 600), at: Date.now() };
@@ -1203,7 +1248,9 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
         teardown("disconnected");
       };
     } catch {
-      teardown("error", "Could not start the voice session.");
+      if (attempt === startAttempt.current) teardown("error", "Could not start the voice session.");
+    } finally {
+      if (attempt === startAttempt.current) opening.current = false;
     }
   }, [enqueueAudio, stopPlayback, teardown, endSession, notifyServerEnd, attachMicrophone]);
 
@@ -1319,12 +1366,25 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
     return true;
   }, [stopPlayback]);
 
+  const updateContext = useCallback((nextContext: AtlasContext) => {
+    if (!appRef.current) return;
+    contextRef.current = nextContext;
+    const socket = ws.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    const update = JSON.stringify(appVoiceContextUpdate(nextContext));
+    if (update === sentContext.current) return;
+    try { socket.send(update); sentContext.current = update; } catch { /* the next update retries */ }
+  }, []);
+  // A stable serialized key prevents a host re-render from sending the same facts again.
+  useEffect(() => { if (app) updateContext(context ?? {}); }, [app, contextKey, updateContext]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /**
    * THE MARKET OVERTOOK THE ANSWER (hud/explainBus.ts onCorrection): what ATLAS was saying stops on this tick
    * and it says one short correction instead — the same marked turn a volunteered line uses, which the
    * reasoning endpoint speaks verbatim. Decided by a price crossing a real level, never by a model.
    */
   const correct = useCallback((text: string) => {
+    if (appRef.current) return;
     const socket = ws.current;
     if (!socket || socket.readyState !== WebSocket.OPEN || speakerMutedRef.current) return;
     stopPlayback();
@@ -1338,7 +1398,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
 
   const setCommentary = useCallback((patch: Partial<CommentarySettings>) => {
     const next: CommentarySettings = {
-      mode: patch.mode ?? settingsRef.current.mode,
+      mode: appRef.current ? "quiet" : patch.mode ?? settingsRef.current.mode,
       copilotCooldownMs: clampCooldown(patch.copilotCooldownMs ?? settingsRef.current.copilotCooldownMs),
     };
     settingsRef.current = next;
@@ -1398,23 +1458,25 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
 
   /* ── commentary: payloads in, volunteered lines out ───────────────────── */
   const ingest = useCallback((payload: unknown, external: boolean) => {
+    if (appRef.current) return;
     if (!payload || typeof payload !== "object") return;
     if (external) lastExternalLive.current = Date.now();
     engine.current = observeCommentary(engine.current, payload as CommentaryInput, Date.now(), settingsRef.current).state;
   }, []);
   useEffect(() => { if (live) ingest(live, true); }, [live, ingest]);
   useEffect(() => {
-    const last = voiceBus.lastLive();
+    if (app) return;
+    const last = bus.lastLive();
     if (last && Date.now() - last.at < EXTERNAL_FRESH_MS) ingest(last.payload, true);
-    return voiceBus.onLive((p) => ingest(p, true));
-  }, [ingest]);
+    return bus.onLive((p) => ingest(p, true));
+  }, [app, bus, ingest]);
   /*
    * NOBODY HANDED US A PAYLOAD? Read /live ourselves — slowly, only while a mode needs it, only while the page
    * is visible, and never while the host is feeding us (the moment `live` or voiceBus.feedLive arrives, this
    * stands down). Not for a member without voice, whose panel has nowhere to show the lines.
    */
   useEffect(() => {
-    if (settings.mode === "quiet" || !info || info.enabled === false) return;
+    if (app || settings.mode === "quiet" || !info || info.enabled === false) return;
     let alive = true;
     const tick = async () => {
       if (!alive || document.visibilityState !== "visible") return;
@@ -1429,7 +1491,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
     const first = window.setTimeout(() => { void tick(); }, 4000);
     const id = window.setInterval(() => { void tick(); }, SELF_POLL_MS);
     return () => { alive = false; window.clearTimeout(first); window.clearInterval(id); };
-  }, [settings.mode, info, ingest]);
+  }, [app, settings.mode, info, ingest]);
 
   /*
    * DELIVERY. Once a second: is there a gap to say something into, and is anything worth saying? On a call a
@@ -1441,6 +1503,7 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
     const id = window.setInterval(() => {
       const now = Date.now();
       if (pttOpenRef.current) sendActivity();
+      if (appRef.current) return;
       const s = settingsRef.current;
       if (s.mode === "quiet") { if (engine.current.queue.length) engine.current = retuneCommentary(engine.current, s); return; }
       const socket = ws.current;
@@ -1473,15 +1536,15 @@ export function VoiceSession({ onUiAction, onStatus, live }: {
   }, [sendActivity]);
 
   /* ── the shared line: the ATLAS core can open it, end it, and react to it ── */
-  useEffect(() => voiceBus.register({
-    start: () => { void start(); }, end: endSession, stopSpeaking, setMicMuted, setSpeakerMuted,
-    setInputMode, setPttStyle, pushToTalk: setPtt, sendText, setCommentary, correct,
-  }), [start, endSession, stopSpeaking, setMicMuted, setSpeakerMuted, setInputMode, setPttStyle, setPtt, sendText, setCommentary, correct]);
+  useEffect(() => bus.register({
+    start: (nextContext) => { if (appRef.current && nextContext) contextRef.current = nextContext; void start(); }, end: endSession, stopSpeaking, setMicMuted, setSpeakerMuted,
+    setInputMode, setPttStyle, pushToTalk: setPtt, sendText, updateContext, setCommentary, correct,
+  }), [bus, start, endSession, stopSpeaking, setMicMuted, setSpeakerMuted, setInputMode, setPttStyle, setPtt, sendText, updateContext, setCommentary, correct]);
   useEffect(() => {
     const lastYou = [...turns].reverse().find((t) => t.who === "you")?.text ?? null;
     const lastBrain = [...turns].reverse().find((t) => t.who === "brain");
     const lastAtlas = lastBrain ? (lastBrain.cut || !lastBrain.text ? lastBrain.spoken || lastBrain.text : lastBrain.text) || null : null;
-    voiceBus.set({
+    bus.set({
       status: info && info.enabled === false ? "locked" : legacyStatus(activity),
       inLevel: busInLevel(facts, frame.inl),
       outLevel: busOutLevel(activity, frame.out),

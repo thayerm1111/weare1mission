@@ -18,7 +18,8 @@ import { useNextShell } from "@/components/om/shell";
 import { PlayDetail } from "@/components/om/plays/PlayDetail";
 import { analysisOf, trackingOf, playPip } from "@/lib/plays/lifecycle";
 import { takeGenerateIntent } from "@/lib/plays/intent";
-import { leaveFloorQuestion } from "@/components/command-center/hud/floorAsk";
+import { openAtlas } from "@/lib/atlas/open";
+import { mergeSavedPlays, SIGNALS_UPDATED_EVENT } from "@/lib/atlas/signals";
 import { pairName, priceFor, lotsText } from "@/lib/flow/display";
 import { accountName, maskAccount, money } from "@/lib/floor/overview";
 import type { PlacementSize } from "@/lib/flow/ticketSizing";
@@ -159,6 +160,16 @@ export function SignalGenerator() {
     try { const raw = localStorage.getItem("om_signals"); if (raw) setRecent(JSON.parse(raw)); } catch { /* ignore */ }
   }, []);
 
+  // An Atlas play is this tool's play too. The browser's storage event does not fire in this same tab.
+  useEffect(() => {
+    const generated = (event: Event) => {
+      const play = (event as CustomEvent<{ play?: Result }>).detail?.play;
+      if (play?.id != null && play.signal) setRecent((current) => mergeSavedPlays(current, [play]));
+    };
+    window.addEventListener(SIGNALS_UPDATED_EVENT, generated);
+    return () => window.removeEventListener(SIGNALS_UPDATED_EVENT, generated);
+  }, []);
+
   // Auto-generate the full play when opened from a deep link, e.g. the Market
   // Pulse scanner's "Generate the full play": /portal/signals?td=BTC/USD&style=intraday
   useEffect(() => {
@@ -236,7 +247,13 @@ export function SignalGenerator() {
           const seen = new Set(cloud.map((r) => r.id));
           const extras = local.filter((r) => r && !seen.has(r.id));
           const merged = [...cloud, ...extras].sort((a, b) => Number(b.id) - Number(a.id)).slice(0, 20);
-          persist(merged);
+          // An Atlas read may finish while this initial cloud request is in flight. Keep that new
+          // in-memory result even when this browser has disabled local storage; cloud wins matching ids.
+          setRecent((current) => {
+            const combined = mergeSavedPlays(current, merged);
+            try { localStorage.setItem("om_signals", JSON.stringify(combined)); } catch { /* keep it in memory */ }
+            return combined;
+          });
           if (extras.length) void cloudSave(extras);
         } else if (local.length) {
           void cloudSave(local); // first run with cloud storage — back up this device's signals
@@ -365,8 +382,7 @@ export function SignalGenerator() {
       const lv = s.direction !== "NEUTRAL" && numOk(s.entry) && numOk(s.stopLoss) ? ` Entry ${fmt(s.entry)}, stop ${fmt(s.stopLoss)}${(s.takeProfits || []).filter(numOk).length ? `, targets ${(s.takeProfits || []).filter(numOk).map((x) => fmt(x)).join(", ")}` : ""}.` : "";
       const made = madeAt(r);
       const question = `Explain my OM AI Play on ${r.symbol} (${r.style ?? s.timeframe}, made ${Number.isFinite(made) ? new Date(made).toLocaleString() : r.asOf}): ${a.label}.${lv} What is it waiting for, and what would cancel it?`;
-      try { leaveFloorQuestion(window.sessionStorage, question, Date.now()); } catch { /* typed again there */ }
-      window.location.assign("/command-center");
+      openAtlas({ question, context: { source: "OM AI Plays", label: r.symbol + " · " + a.label, data: { symbol: r.symbol, style: r.style, asOf: r.as_of ?? r.asOf, marketClosed: r.marketClosed, signal: s } } });
     };
     return (
       <div className="om-ws om-plays om-os-product om-plays-premium" data-play-open={!!result || undefined}>
@@ -1020,7 +1036,7 @@ type PerAcct = {
 };
 type TicketFill = { accountId: string; status: "placed" | "error" | "skipped"; qty?: number; lots?: number; orderId?: string | null; reason?: string };
 
-function ExecuteSignal({ symbol, direction, entry, stop, tp, unconfirmed = false, orderType }: {
+export function ExecuteSignal({ symbol, direction, entry, stop, tp, unconfirmed = false, orderType }: {
   symbol: string; direction: "LONG" | "SHORT"; entry: number; stop: number; tp: number | null;
   /** New shell: the engine had not confirmed this play. Placing it is labelled a manual override. */
   unconfirmed?: boolean;

@@ -26,6 +26,7 @@ export function MobileViewport() {
       const keyboard = touchLayout && editing && loss > 140 && (viewport?.scale ?? 1) < 1.15;
       root.classList.toggle("om-keyboard-open", keyboard);
       root.style.setProperty("--om-viewport-height", `${Math.round(height)}px`);
+      root.style.setProperty("--om-viewport-top", `${Math.round(viewport?.offsetTop ?? 0)}px`);
       root.style.setProperty("--om-keyboard-inset", `${keyboard ? Math.round(loss) : 0}px`);
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
@@ -44,6 +45,7 @@ export function MobileViewport() {
       document.removeEventListener("focusout", schedule);
       root.classList.remove("om-keyboard-open");
       root.style.removeProperty("--om-viewport-height");
+      root.style.removeProperty("--om-viewport-top");
       root.style.removeProperty("--om-keyboard-inset");
     };
   }, []);

@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import type { CommentaryKind, CommentaryMode, CommentarySettings } from "../../../command-center/core/commentary";
 import type { InputMode, LineActivity, PttStyle } from "./voiceLine";
+import type { AtlasContext } from "@/lib/atlas/types";
 
 /**
  * THE VOICE LINE, SHARED.
@@ -54,16 +55,15 @@ export type VoiceBusState = {
   echoesDropped: number;
 };
 
-let state: VoiceBusState = {
+function initialVoiceState(): VoiceBusState { return {
   status: "idle", inLevel: 0, outLevel: 0, you: null, atlas: null, error: null, needsSubscription: false,
   activity: "off", micMuted: false, speakerMuted: false, inputMode: "hands_free", pttStyle: "hold", pttOpen: false,
   partial: null, commentaryMode: "watch", copilotCooldownMs: 90_000, commentary: [],
   firstAudioMs: null, echoesDropped: 0,
-};
-const subs = new Set<(s: VoiceBusState) => void>();
+}; }
 
 export type VoiceCommands = {
-  start: () => void;
+  start: (context?: AtlasContext) => void;
   end: () => void;
   /** Stop ATLAS mid-word. The line stays open. */
   stopSpeaking?: () => void;
@@ -75,11 +75,12 @@ export type VoiceCommands = {
   pushToTalk?: (down: boolean) => void;
   /** The text fallback: send a typed turn on the open line. True when it was sent. */
   sendText?: (text: string) => boolean;
+  /** Non-interrupting app state for the next voice answer; never a user instruction. */
+  updateContext?: (context: AtlasContext) => void;
   /** The market overtook what ATLAS was saying: stop that reply and say this one line instead. */
   correct?: (text: string) => void;
   setCommentary?: (s: Partial<CommentarySettings>) => void;
 };
-let commands: VoiceCommands | null = null;
 
 /*
  * THE LIVE PAYLOAD, FOR THE COMMENTARY ENGINE.
@@ -88,10 +89,14 @@ let commands: VoiceCommands | null = null;
  * commentary engine reads it from here — one poll, not two. Kept off the state above so a payload arriving
  * every few seconds does not re-render every subscriber of the line.
  */
+export function createVoiceBus() {
+let state = initialVoiceState();
+const subs = new Set<(s: VoiceBusState) => void>();
+let commands: VoiceCommands | null = null;
 const liveSubs = new Set<(p: unknown) => void>();
 let lastLive: { payload: unknown; at: number } | null = null;
 
-export const voiceBus = {
+const bus = {
   get: () => state,
   set(patch: Partial<VoiceBusState>) {
     let changed = false;
@@ -105,7 +110,7 @@ export const voiceBus = {
     commands = c;
     return () => { if (commands === c) commands = null; };
   },
-  start: () => commands?.start(),
+  start: (context?: AtlasContext) => commands?.start(context),
   end: () => commands?.end(),
   stopSpeaking: () => commands?.stopSpeaking?.(),
   setMicMuted: (m: boolean) => commands?.setMicMuted?.(m),
@@ -114,6 +119,7 @@ export const voiceBus = {
   setPttStyle: (s: PttStyle) => commands?.setPttStyle?.(s),
   pushToTalk: (down: boolean) => commands?.pushToTalk?.(down),
   sendText: (t: string): boolean => commands?.sendText?.(t) ?? false,
+  updateContext: (context: AtlasContext) => commands?.updateContext?.(context),
   correct: (t: string) => commands?.correct?.(t),
   setCommentary: (s: Partial<CommentarySettings>) => commands?.setCommentary?.(s),
   ready: () => !!commands?.start,
@@ -127,12 +133,20 @@ export const voiceBus = {
   onLive(f: (p: unknown) => void) { liveSubs.add(f); return () => { liveSubs.delete(f); }; },
   lastLive: () => lastLive,
 };
+return bus;
+}
 
-export function useVoiceBus(): VoiceBusState {
-  const [s, setS] = useState(state);
-  useEffect(() => voiceBus.subscribe(setS), []);
+/** App and gold desk have independent controls/transcripts, but the server still permits only one live call. */
+export const voiceBus = createVoiceBus();
+export const appVoiceBus = createVoiceBus();
+
+function useBus(bus: ReturnType<typeof createVoiceBus>): VoiceBusState {
+  const [s, setS] = useState(bus.get());
+  useEffect(() => bus.subscribe(setS), [bus]);
   return s;
 }
+export function useVoiceBus(): VoiceBusState { return useBus(voiceBus); }
+export function useAppVoiceBus(): VoiceBusState { return useBus(appVoiceBus); }
 
 export const lineOpen = (st: VoiceBusState["status"]) =>
   st === "connecting" || st === "awaiting_mic" || st === "listening" || st === "speaking" || st === "muted";

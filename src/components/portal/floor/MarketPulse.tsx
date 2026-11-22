@@ -16,6 +16,7 @@ import { TradeChat } from "../TradeChat";
 import { CREDIT_COST } from "@/lib/creditConfig";
 import { useNextShell } from "@/components/om/shell";
 import { PulseHome } from "@/components/om/pulse/PulseHome";
+import { PULSE_UPDATED_EVENT, type AtlasPulseResult } from "@/lib/atlas/pulse";
 
 // Friendly asset category for the deep-dive header badge.
 const catOf = (td: string) =>
@@ -61,6 +62,17 @@ export function MarketPulse() {
       }
     } catch { /* ignore */ }
     setHydrated(true);
+  }, []);
+
+  // A scan made inside Atlas is the same scan shown in the full workspace.
+  useEffect(() => {
+    const receive = (event: Event) => {
+      const result = (event as CustomEvent<AtlasPulseResult>).detail;
+      if (!result || !Array.isArray(result.setups) || typeof result.asOf !== "string") return;
+      setSetups(result.setups); setAsOf(result.asOf); setMsg(""); setHydrated(true);
+    };
+    window.addEventListener(PULSE_UPDATED_EVENT, receive);
+    return () => window.removeEventListener(PULSE_UPDATED_EVENT, receive);
   }, []);
 
   const scan = useCallback(async () => {

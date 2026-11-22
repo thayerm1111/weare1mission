@@ -1,0 +1,79 @@
+/* One path through the app: discover a market, review its signal, then confirm the trade. */
+.om-floor-os .om-os-atlas-open { text-decoration: none; }
+.om-floor-os .om-os-atlas-open:focus-visible { outline: 2px solid var(--om-text); outline-offset: 4px; border-radius: 5px; }
+.om-atlas-card-links { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 5px 0 -5px; }
+.om-atlas-card-links > button, .om-atlas-card-links > a {
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px; min-height: 44px; padding: 7px 0;
+  border: 0; background: transparent; color: var(--om-text-2); font: inherit; font-size: 11px; line-height: 1.4;
+  text-decoration: none; cursor: pointer;
+}
+.om-atlas-card-links > button:disabled { opacity: .5; cursor: default; }
+.om-atlas-card-links > :focus-visible { outline: 2px solid var(--om-text); outline-offset: 2px; border-radius: 5px; }
+.om-floor-discovery { min-width: 0; padding-top: 3px; }
+.om-floor-discovery-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 2px 10px; }
+.om-floor-discovery-head h2 { margin: 0; font-size: 15px; font-weight: 550; letter-spacing: -.025em; }
+.om-floor-discovery-head > span { color: var(--om-text-3); font-size: 11px; }
+.om-mobile-shortcuts > button {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  min-width: 0; min-height: 106px; padding: 13px 5px; border: 1px solid var(--om-edge); border-radius: 19px;
+  background: var(--om-surface); color: var(--om-text); font: inherit; font-size: 11px; font-weight: 500; cursor: pointer;
+}
+.om-mobile-shortcuts > button small { display: block; margin-top: -4px; color: var(--om-text-3); font-size: 10px; font-weight: 400; }
+.om-mobile-shortcuts > button:active:not(:disabled) { background: var(--om-raised); }
+.om-mobile-shortcuts > button:disabled { opacity: .5; cursor: default; }
+.om-mobile-shortcuts > button:focus-visible { outline: 2px solid var(--om-text); outline-offset: 4px; }
+
+.om-tools-home > header { margin-bottom: 22px; }
+.om-tools-home > header .om-tools-intro { margin: 10px 0 0; color: var(--om-text-2); font-size: 14px; line-height: 1.55; }
+.om-tools-start { padding: 24px; margin-bottom: 24px; border: 1px solid var(--om-edge); border-radius: 24px; background: var(--om-surface); }
+.om-tools-start-heading { display: flex; align-items: flex-start; gap: 13px; }
+.om-tools-start-heading > .om-product-icon { flex: 0 0 42px; width: 42px; height: 42px; }
+.om-tools-start-heading h2 { margin: 0; font-size: 22px; font-weight: 550; letter-spacing: -.035em; }
+.om-tools-start-heading p { max-width: 49ch; margin: 6px 0 0; color: var(--om-text-2); font-size: 14px; line-height: 1.6; }
+.om-tools-start-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+.om-tools-start-actions > button { min-height: 46px; }
+.om-signal-journey { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 18px 0 0; margin: 22px 0 0; border-top: 1px solid var(--om-hair); list-style: none; }
+.om-signal-journey li { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--om-text-2); font-size: 12px; line-height: 1.4; }
+.om-signal-journey li > span { display: grid; place-items: center; flex: 0 0 21px; width: 21px; height: 21px; border: 1px solid var(--om-edge); border-radius: 50%; color: var(--om-text-3); font-size: 10px; font-variant-numeric: tabular-nums; }
+.om-connected-tools > article { min-width: 0; overflow: hidden; border: 1px solid var(--om-edge); border-radius: 20px; background: var(--om-surface); }
+.om-connected-tools .om-tool-destination { display: flex; align-items: center; gap: 16px; min-height: 105px; padding: 20px 20px 17px; color: var(--om-text); text-decoration: none; }
+.om-tool-destination > span:nth-child(2) { min-width: 0; }
+.om-connected-tools .om-tool-destination small { max-width: 51ch; }
+.om-tool-destination > svg { flex: 0 0 17px; width: 17px; margin-left: auto; color: var(--om-text-3); }
+.om-tool-action { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 20px; padding: 12px 0; border-top: 1px solid var(--om-hair); }
+.om-tool-action > button { min-height: 40px; padding-left: 0; border: 0; background: transparent; font-size: 13px; }
+.om-tool-action > span { max-width: 26ch; color: var(--om-text-3); font-size: 11px; line-height: 1.5; text-align: right; }
+.om-tool-destination:focus-visible { outline: 2px solid var(--om-text); outline-offset: -4px; border-radius: 18px; }
+.om-tool-action > button:focus-visible { outline: 2px solid var(--om-text); outline-offset: 3px; border-radius: 5px; }
+.om-tool-action > button:disabled { opacity: .5; }
+.om-tools-connections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; margin-top: 6px; }
+.om-tools-connections .om-tools-atlas { margin-top: 8px; min-height: 88px; }
+.om-tools-connections .om-tools-atlas > span { min-width: 0; line-height: 1.45; }
+.om-tools-connections .om-tools-atlas > svg:first-child { flex: 0 0 26px; width: 26px; height: 26px; stroke-width: 1.4; }
+.om-tools-connections .om-tools-atlas strong { font-size: 14px; }
+.om-genx-ask-atlas { justify-content: center; width: 100%; min-height: 46px; margin-top: 14px; }
+.om-genx-ask-atlas .om-product-icon { width: 25px; height: 25px; }
+
+@media (max-width: 600px) {
+  .om-tools-home h1 { max-width: 15ch; font-size: 31px; line-height: 1.12; }
+  .om-tools-start { padding: 19px 17px 18px; margin-bottom: 18px; }
+  .om-tools-start-heading { gap: 10px; }
+  .om-tools-start-heading > .om-product-icon { flex-basis: 34px; width: 34px; height: 34px; }
+  .om-tools-start-heading h2 { font-size: 20px; }
+  .om-tools-start-heading p { font-size: 13px; line-height: 1.55; }
+  .om-tools-start-actions { gap: 8px; margin-top: 17px; }
+  .om-tools-start-actions > button { flex: 1 1 auto; justify-content: center; font-size: 13px; }
+  .om-signal-journey { gap: 7px; margin-top: 17px; padding-top: 15px; }
+  .om-signal-journey li { flex-direction: column; align-items: flex-start; gap: 7px; font-size: 10px; }
+  .om-connected-tools .om-tool-destination { gap: 12px; min-height: 105px; padding: 17px 16px 14px; }
+  .om-connected-tools .om-tools-symbol { flex-basis: 42px; width: 42px; height: 42px; }
+  .om-connected-tools .om-tools-symbol svg { width: 23px; height: 23px; }
+  .om-connected-tools strong { font-size: 18px; }
+  .om-connected-tools small { font-size: 12px; line-height: 1.5; }
+  .om-tool-action { gap: 10px; margin: 0 16px; padding: 8px 0; }
+  .om-tool-action > button { min-height: 44px; font-size: 12px; white-space: nowrap; }
+  .om-tool-action > span { max-width: 22ch; font-size: 10px; }
+  .om-tools-connections { grid-template-columns: minmax(0, 1fr); gap: 0; margin-top: 14px; }
+  .om-tools-connections .om-tools-atlas { min-height: 75px; margin: 0; padding: 14px 2px; }
+  .om-tools-connections .om-tools-atlas + .om-tools-atlas { border-top: 1px solid var(--om-hair); }
+}

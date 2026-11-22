@@ -28,6 +28,10 @@ import { aboveBelow } from "../core/levelMap";
 import { priceNow } from "../core/priceNow";
 import { statedTradeFrom, tradeGuidanceLines, ledgerPositions } from "./statedTrade";
 import { isVolunteeredTurn, parseVolunteeredTurn, VOLUNTEERED_NOTE } from "../core/commentary";
+import { answerAtlasApp } from "@/lib/atlas/brain";
+import { atlasMessages } from "@/lib/atlas/actions";
+import { isAppVoiceSurface } from "@/lib/atlas/voiceSurface";
+import { latestAppVoiceContext } from "@/lib/atlas/context";
 
 
 /**
@@ -293,6 +297,18 @@ async function handleVoiceLlmInner(req: Request): Promise<Response> {
     return sse(async function* () {
       yield `data: ${JSON.stringify(delta(question ? "I didn't catch that." : "I'm here."))}\n\n`;
     });
+  }
+
+  // The app shares transport and minutes, not the gold desk's prompt or trading capabilities.
+  // A browser-provided surface name is insufficient: the claim must belong to this live DB token.
+  if (extra.surface_token != null) {
+    if (!isAppVoiceSurface(token, extra.surface_token)) {
+      return sse(async function* () { yield `data: ${JSON.stringify(delta("This app voice session could not be verified. End the call and start it again."))}\n\n`; });
+    }
+    const thread = atlasMessages(messages.map((m) => ({ role: m.role, content: textOf(m.content) })));
+    const answer = await answerAtlasApp({ userId: session.userId, message: question, history: thread, context: latestAppVoiceContext(body.messages, extra.app_context), mode: "voice" });
+    const spoken = answer.ok ? answer.reply : answer.reason;
+    return sse(async function* () { yield `data: ${JSON.stringify(delta(speakNumbers(speakable(spoken))))}\n\n`; });
   }
 
   /* ── the same context the screen is built from ───────────────────────── */

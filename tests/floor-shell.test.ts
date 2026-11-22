@@ -11,7 +11,7 @@ import { FLOOR_ASK_KEY, FLOOR_ASK_MAX_AGE_MS, FLOOR_ASK_MAX_LEN, leaveFloorQuest
  *   • the redesign is a PREVIEW for an admin who switched it on — a member's cookie alone does nothing;
  *   • The Floor's own route reads and never charges or writes; one priced tap exists and it is the
  *     existing "See the play";
- *   • a question for Atlas is asked once, in the Command Center, never by The Floor itself;
+ *   • Atlas opens over The Floor, carrying only the visible read; the gold desk keeps its own entrance;
  *   • the sample route exists only on a developer's machine, and no member page uses its figures.
  */
 const read = (p: string) => readFileSync(p, 'utf8');
@@ -22,7 +22,7 @@ const walk = (dir: string): string[] => readdirSync(dir).flatMap((f) => {
 
 /* ── destinations ── */
 test('six destinations, in the order the owner gave, and no community among them', () => {
-  assert.deepEqual(NAV.map((n) => n.label), ['The Floor', 'OM AI Plays', 'GENX', 'Market Pulse', 'FLOW', 'Atlas']);
+  assert.deepEqual(NAV.map((n) => n.label), ['The Floor', 'OM AI Plays', 'GENX', 'Market Pulse', 'FLOW', 'Gold Command Center']);
   assert.deepEqual(NAV.map((n) => n.href), ['/portal/trading', '/portal/signals', '/portal/genx', '/portal/trading?view=pulse', '/portal/trading?view=flow', '/command-center']);
   const all = JSON.stringify({ NAV }).toLowerCase();
   for (const gone of ['leaderboard', 'leadership', 'inner circle', 'community', 'training', 'academy', 'schedule', 'collection', 'experiences', 'updates', 'team', 'prospects', 'comp-plan', 'rapid', 'matty', 'genfx', 'cashtrap', 'xaughost', 'auric', '/portal/om-ai']) {
@@ -41,11 +41,13 @@ test('the phone has four clear destinations and groups every trading product und
   assert.equal(activeTabKey('/portal/account', null), null);
 });
 
-test('Atlas opens the Command Center as a full page — its own frame and entrance are left alone', () => {
+test('the gold desk keeps its destination while the Atlas app tab opens an in-place conversation', () => {
   assert.equal(NAV.find((n) => n.key === 'atlas')!.hard, true);
   assert.equal(NAV.filter((n) => n.hard).length, 1);
   const shell = read('src/components/om/AppShell.tsx');
   assert.match(shell, /n\.hard\s*\?\s*<a key=\{n\.key\} href=\{n\.href\}/);
+  assert.equal(APP_TABS.find((n) => n.key === 'atlas')!.href, '#atlas');
+  assert.match(shell, /if \(n\.key === "atlas"\) return <button[^\n]*onClick=\{\(\) => openAtlas\(\)\}/);
 });
 
 test('the lit destination follows the page, including a tool opened inside The Floor', () => {
@@ -202,7 +204,7 @@ test('opening the Command Center with no question clears one left earlier', () =
   assert.equal(s.m.size, 0);
 });
 
-test('the desk asks the handed-over question itself, after the entrance — the entrance is not changed', () => {
+test('legacy desk handoffs still wait for its entrance; new Floor conversations open in the app', () => {
   const hud = read('src/components/command-center/hud/CommandCenterHud.tsx');
   assert.match(hud, /takeFloorQuestion\(window\.sessionStorage, Date\.now\(\)\)/);
   assert.match(hud, /window\.addEventListener\(ATLAS_ENTERED_EVENT, onEntered\)/);
@@ -214,8 +216,10 @@ test('the desk asks the handed-over question itself, after the entrance — the 
   assert.equal((gate.match(/method: "POST"/g) ?? []).length, 2);
   assert.match(gate, /<button onClick=\{buy\} disabled=\{busy\}/);
   const floor = read('src/components/om/floor/Floor.tsx');
-  assert.match(floor, /leaveFloorQuestion\(window\.sessionStorage, question, Date\.now\(\)\)/);
-  assert.match(floor, /window\.location\.assign\("\/command-center"\)/);
+  assert.match(floor, /openAtlas\(\{ question, voice, context \}\)/);
+  assert.match(floor, /openAtlas\(\{ voice: true, context \}\)/);
+  assert.ok(!/leaveFloorQuestion|window\.location\.assign/.test(floor), 'talking stays on The Floor');
+  assert.match(floor, /href="\/command-center">Gold Command Center/, 'the gold desk remains an explicit destination');
 });
 
 /* ── the sample route ── */
@@ -332,8 +336,8 @@ test('The Floor: results on the first screen, one next step per context, methods
   // Atlas offers three suggestions at a time, a visible input and one way into the Command Center.
   const atlas = floor.slice(floor.indexOf('function AtlasPanel('), floor.indexOf('function Spark('));
   assert.equal((atlas.match(/className="om-go"|<Go href/g) ?? []).length, 3);
-  assert.equal((atlas.match(/Open Command Center/g) ?? []).length, 1);
-  assert.match(atlas, /placeholder="Ask Atlas…"/);
+  assert.equal((atlas.match(/href="\/command-center"/g) ?? []).length, 1);
+  assert.match(atlas, /placeholder="Ask about gold or find a signal…"/);
   // How a figure is counted is whole, and a tap away — not printed under the figures.
   assert.equal((floor.match(/<Method id="om-method-(genx|flow)">/g) ?? []).length, 2);
   assert.match(floor, /Each GENX trade is counted once, at the average result of the accounts that took it\. These are the engine's results on gold, not a return for any one account\./);

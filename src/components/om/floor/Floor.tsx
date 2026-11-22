@@ -8,8 +8,7 @@ import { ProductIcon } from "@/components/om/ProductIcon";
 import { useFlowAccount } from "@/components/om/FlowAccount";
 import { timedBars } from "@/lib/chart/candleTime";
 import { useSeeThePlay } from "@/components/portal/SetupLock";
-import { leaveFloorQuestion } from "@/components/command-center/hud/floorAsk";
-import { playsHref } from "@/lib/plays/intent";
+import { openAtlas, type AtlasContext } from "@/lib/atlas/open";
 import { FLOOR_INSTRUMENTS, setupQuery, type FloorMode } from "@/lib/floor/setupInstruments";
 import { minutesLeft, type SetupGate } from "@/lib/setupLock";
 import { isOpen } from "@/lib/cashtrap/marketHours";
@@ -34,10 +33,9 @@ import {
  * period), a real 0 only when the answer was zero, and an em dash with the reason when a number could not
  * be read. Nothing here opens a "connect your account" prompt on its own.
  *
- * WHAT IT CAN CHARGE. One thing, and only on a tap that says its price: "See the play" (the existing
- * setup window, through the existing request — SetupLock.useSeeThePlay). Opening the page, changing the
- * timeframe, the period or the account, and asking Atlas a question from here charge nothing; Atlas's own
- * window is opened, and priced, in the Command Center as it always has been.
+ * WHAT IT CAN CHARGE. "See the play" opens the existing setup window at its stated price. Opening the
+ * page, changing the timeframe, period or account, and opening Atlas do not generate a signal. Atlas
+ * stays over this screen and shows the existing chat, voice and signal costs in its own conversation.
  *
  * CHOOSING AN ACCOUNT TO LOOK AT changes what this screen shows and nothing else. The figures and results
  * of the account that was showing are cleared the moment another is chosen, and an answer that arrives
@@ -80,10 +78,18 @@ const store = {
   set(k: string, v: string) { try { localStorage.setItem(k, v); } catch { /* a private window: the choice lasts for the visit */ } },
 };
 
-/** Hand a question to Atlas. It is asked in the Command Center, where Atlas's window and its price live. */
-function askAtlas(question: string | null) {
-  try { leaveFloorQuestion(window.sessionStorage, question, Date.now()); } catch { /* the Command Center still opens; the question is typed again there */ }
-  window.location.assign("/command-center");
+/** Carry only the gold read the member can already see; locked levels are never handed to Atlas. */
+function floorAtlasContext(setup: SetupAnswer | null, view: SetupView, tf: FloorMode, now: number): AtlasContext {
+  return {
+    source: "floor", label: `Gold · ${TFS.find((t) => t.mode === tf)!.name}`,
+    data: {
+      td: "XAU/USD", symbol: "XAUUSD", mode: tf, style: tf === "quick" ? "scalp" : tf,
+      asOf: typeof setup?.asOf === "string" ? setup.asOf : null,
+      marketClosed: now > 0 ? !goldOpen(now) : null, stage: view.stage,
+      price: typeof setup?.price === "number" ? setup.price : null,
+      ...(view.open ? { levels: view.levels, entryZone: view.zone, waitingFor: view.waitingFor, invalidation: view.changesIf } : { levelsLocked: true }),
+    },
+  };
 }
 
 export const Skel = ({ w, h = "1em" }: { w: number | string; h?: number | string }) => <span className="om-skel" style={{ width: w, height: h }} aria-hidden="true">&nbsp;</span>;
@@ -277,7 +283,7 @@ function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample, onS
         </div>
         <div className="om-os-chart-foot">
           <span>Drag to explore <span aria-hidden="true">·</span> Scroll or pinch to zoom</span>
-          <button type="button" onClick={() => { if (!sample) askAtlas(`Explain the current gold chart and GENX's ${horizon.name.toLowerCase()} setup.`); }} disabled={sample}>Explain with Atlas<ArrowUpRight aria-hidden="true" /></button>
+          <button type="button" onClick={() => { if (!sample) openAtlas({ question: `Explain the gold chart and GENX's ${horizon.name.toLowerCase()} setup shown here.`, context: floorAtlasContext(setup, view, tf, now) }); }} disabled={sample}>Explain with Atlas<ArrowUpRight aria-hidden="true" /></button>
         </div>
 
         <div className="om-read">
@@ -319,7 +325,8 @@ function AtlasPanel({ atlas, view, setup, tf, sample, now, onShowLevels }: {
   sample: boolean; now: number; onShowLevels: () => void;
 }) {
   const [q, setQ] = useState("");
-  const go = (question: string | null) => { if (!sample) askAtlas(question); };
+  const context = floorAtlasContext(setup, view, tf, now);
+  const go = (question?: string, voice = false) => { if (!sample) openAtlas({ question, voice, context }); };
   const stage = view.stage;
   // What Atlas says here is either its own newest read (while the member's window is open) or the one
   // thing every member may know — how far along GENX's setup is. It never describes the market otherwise.
@@ -341,16 +348,16 @@ function AtlasPanel({ atlas, view, setup, tf, sample, now, onShowLevels }: {
   const entry = view.levels.find((l) => l.kind === "entry");
   const watchLabel = view.zone ? "GENX entry zone" : entry ? "GENX entry" : null;
   const watchValue = view.zone ? `${priceText(view.zone.low, GOLD.dec)} – ${priceText(view.zone.high, GOLD.dec)}` : entry ? priceText(entry.price, GOLD.dec) : null;
-  const terms = !atlas ? null : atlas.open ? "Your Command Center window is open." : atlas.preview ? "Your first look inside is free." : `${atlas.cost} credits · ${atlas.minutes} minutes. Confirmed in the Command Center.`;
   return (
     <section className="om-panel om-panel-atlas om-atlas" aria-label="Atlas">
       <div className="om-atlas-head">
         <ProductIcon kind="atlas" size="md" />
         <div style={{ minWidth: 0 }}>
           <h2>Atlas</h2>
-          <p className="om-label">Your gold intelligence</p>
+          <p className="om-label">Your AI trading partner</p>
         </div>
-        <button type="button" className="om-os-atlas-open" onClick={() => go(null)} disabled={sample}>Open Command Center<ArrowUpRight aria-hidden="true" /></button>
+        {sample ? <button type="button" className="om-os-atlas-open" disabled>Gold Command Center<ArrowUpRight aria-hidden="true" /></button>
+          : <a className="om-os-atlas-open" href="/command-center">Gold Command Center<ArrowUpRight aria-hidden="true" /></a>}
       </div>
       <div className="om-os-atlas-story">
         <h3>{headline}</h3>
@@ -368,18 +375,17 @@ function AtlasPanel({ atlas, view, setup, tf, sample, now, onShowLevels }: {
       </div>}
       {shut && <p className="om-os-market-closed">Gold is closed. Any displayed read refers to the last available market data.</p>}
       <div className="om-os-atlas-prompt">
-        <form className="om-ask" onSubmit={(e) => { e.preventDefault(); if (q.trim()) go(q.trim()); }}>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask Atlas…" aria-label="Ask Atlas about gold, a setup, or your tools" maxLength={400} enterKeyHint="send" />
-          {/* Voice stays in the existing Command Center. A microphone is never opened by the Floor. */}
-          <button type="button" className="om-ask-mic" aria-label="Talk to Atlas in the Command Center" title="Talk to Atlas in the Command Center" onClick={() => go(null)} disabled={sample}><Mic aria-hidden="true" /></button>
+        <form className="om-ask" onSubmit={(e) => { e.preventDefault(); if (q.trim()) { go(q.trim()); setQ(""); } }}>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask about gold or find a signal…" aria-label="Ask Atlas about gold, a setup, or your tools" maxLength={400} enterKeyHint="send" />
+          <button type="button" className="om-ask-mic" aria-label="Talk to Atlas" title="Talk to Atlas here" onClick={() => go(undefined, true)} disabled={sample}><Mic aria-hidden="true" /></button>
           <button type="submit" aria-label="Send to Atlas" disabled={sample || !q.trim()}><Send aria-hidden="true" /></button>
         </form>
         <div className="om-atlas-asks">
           <button type="button" className="om-go" onClick={() => go("Explain the current gold setup from GENX, what it is waiting for, and what would invalidate it.")} disabled={sample}>Explain GENX</button>
-          <Go href={playsHref("XAU/USD", tf === "quick" ? "scalp" : tf)}>Generate a play</Go>
+          <button type="button" className="om-go" onClick={() => { if (!sample) openAtlas({ tool: "plays", context }); }} disabled={sample}>Find a signal</button>
           <button type="button" className="om-go" onClick={() => go("What should I watch next on gold, and which One Mission tool should I use?")} disabled={sample}>What’s next?</button>
         </div>
-        {terms && <p className="om-label om-os-atlas-terms">{terms}</p>}
+        <p className="om-label om-os-atlas-terms">Ask, generate, and review your signal here in the app.</p>
       </div>
     </section>
   );
@@ -598,6 +604,7 @@ function MobileFloor({ ov, state, failed, switching, gp, fp, pickGenx, pickFlow,
   const flowValue = switching ? "Loading…" : !ov?.account ? state === "loading" ? "Loading…" : ov?.accountsKnown ? "Connect FLOW" : "Unavailable"
     : flow ? flow.closed === 0 ? cash(0, false) : flow.realized ? cash(flow.realized.amount, true) : hide ? "••••" : pipsText(flow.netPips)
       : flowWaiting ? "Loading…" : "Unavailable";
+  const context = floorAtlasContext(setup, view, tf, now);
   return <div className="om-mobile-floor">
     <section className="om-mobile-atlas-card" aria-label="Atlas gold overview">
       <header><span className="om-mobile-atlas-name"><ProductIcon kind="atlas" size="sm" /><h2>Atlas</h2></span>
@@ -610,13 +617,20 @@ function MobileFloor({ ov, state, failed, switching, gp, fp, pickGenx, pickFlow,
           : <div className="om-chart-note">{!setup && !setupFailed ? "Loading gold…" : "Chart unavailable"}</div>}
       </div>
       <p className="om-mobile-chart-freshness" data-no-i18n translate="no">{chartFreshness}</p>
-      <button type="button" className="om-mobile-primary" onClick={() => { if (!sample) askAtlas(null); }} disabled={sample}><Mic width={19} height={19} aria-hidden="true" />Talk to Atlas</button>
+      <button type="button" className="om-mobile-primary" onClick={() => { if (!sample) openAtlas({ voice: true, context }); }} disabled={sample}><Mic width={19} height={19} aria-hidden="true" />Talk to Atlas</button>
+      <div className="om-atlas-card-links">
+        <button type="button" onClick={() => { if (!sample) openAtlas({ context }); }} disabled={sample}>Type a question</button>
+        {!sample && <a href="/command-center">Gold Command Center<ArrowUpRight width={12} height={12} aria-hidden="true" /></a>}
+      </div>
     </section>
-    <nav className="om-mobile-shortcuts" aria-label="Trading tools">
-      <Link href="/portal/genx"><Layers3 aria-hidden="true" /><span>GENX</span></Link>
-      <Link href="/portal/signals"><Sparkles aria-hidden="true" /><span>OM AI Plays</span></Link>
-      <Link href="/portal/trading?view=pulse"><PulseIcon aria-hidden="true" /><span>Pulse</span></Link>
-    </nav>
+    <section className="om-floor-discovery" aria-label="Find a signal">
+      <div className="om-floor-discovery-head"><h2>Find a signal</h2><span>With Atlas</span></div>
+      <div className="om-mobile-shortcuts" role="group" aria-label="Signal tools">
+        <button type="button" onClick={() => { if (!sample) openAtlas({ tool: "plays", context: { source: "floor", label: "Find a signal" } }); }} disabled={sample}><Sparkles aria-hidden="true" /><span>OM AI Plays</span><small>Any market</small></button>
+        <button type="button" onClick={() => { if (!sample) openAtlas({ tool: "genx", context }); }} disabled={sample}><Layers3 aria-hidden="true" /><span>GENX</span><small>Analyze gold</small></button>
+        <button type="button" onClick={() => { if (!sample) openAtlas({ tool: "pulse", context: { source: "floor", label: "Discover markets" } }); }} disabled={sample}><PulseIcon aria-hidden="true" /><span>Pulse</span><small>Scan markets</small></button>
+      </div>
+    </section>
     <section className="om-mobile-results" aria-label="Trading results">
       <button type="button" aria-expanded={result === "genx"} aria-controls="om-mobile-result-details" onClick={() => setResult((r) => r === "genx" ? null : "genx")}>
         <span className="om-mobile-result-label">GENX results <small>{period(gp)}</small></span>
@@ -821,7 +835,7 @@ export function Floor({ sample }: { sample?: FloorSample }) {
       <header className={`om-head${usingSharedAccount ? " om-os-floor-head" : ""}`}>
         <div>
           <h1 className="om-title">The Floor{isSample && <span className="om-chip om-sample" role="note">Sample data</span>}</h1>
-          <p className="om-sub">Your market. Your intelligence. Your next move.</p>
+          <p className="om-sub">Find a signal with AI. Understand the setup. Review your trade.</p>
         </div>
         {usingSharedAccount ? <span className="om-os-floor-context"><span className="om-dot" data-tone="off" />Gold workspace</span> : <AccountSummary ov={ov} state={ovState} switching={switching} hide={hide} onHide={() => setHide((h) => { store.set("om:floor:hide", h ? "0" : "1"); return !h; })} onPick={choose} now={now} />}
       </header>
