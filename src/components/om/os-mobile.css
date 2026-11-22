@@ -1,0 +1,203 @@
+/* The phone is a first-class workspace. Navigation stays in reach; product engines stay unchanged. */
+.om-mobile-screen { display: none; }
+.om-os { --om-mobile-nav-height: calc(64px + env(safe-area-inset-bottom, 0px)); }
+
+/* An installed desktop window also exposes all six destinations on one line. */
+.om-standalone .om-os .om-tabbar,
+.om-standalone .om-os.om-os-atlas .om-tabbar { display: grid; grid-template-columns: repeat(6, minmax(0, 124px)); justify-content: center; }
+.om-keyboard-open.om-standalone .om-os .om-tabbar { display: none; }
+
+@media (max-width: 980px) {
+  .om-app.om-os { --om-pad: 20px; --om-r-panel: 22px; }
+  .om-os .om-frame,
+  .om-standalone .om-os .om-nav-wrap > .om-frame {
+    padding-left: max(var(--om-pad), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--om-pad), env(safe-area-inset-right, 0px));
+  }
+  .om-os .om-nav-wrap,
+  .om-standalone .om-os .om-nav-wrap {
+    position: sticky;
+    top: 0;
+    padding: env(safe-area-inset-top, 0px) 0 0;
+    border-bottom: 1px solid transparent;
+    background: transparent;
+  }
+  /* The blur belongs on a pseudo element so fixed notification sheets remain viewport-relative. */
+  .om-os .om-nav-wrap::before {
+    inset: 0;
+    background: var(--om-appbar);
+    -webkit-backdrop-filter: blur(20px) saturate(130%);
+    backdrop-filter: blur(20px) saturate(130%);
+  }
+  .om-os .om-nav-wrap[data-scrolled] { border-bottom-color: var(--om-hair); }
+  .om-os .om-nav,
+  .om-standalone .om-os .om-nav {
+    height: auto;
+    min-height: 60px;
+    padding: 0;
+    gap: 12px;
+    border: 0;
+  }
+  .om-os .om-brand { gap: 0; min-height: 44px; }
+  .om-os .om-brand svg { width: 36px; height: 24px; }
+  .om-os .om-brand span,
+  .om-os .om-brand small,
+  .om-standalone .om-os .om-brand span { display: none; }
+  .om-os .om-mobile-screen {
+    display: block;
+    min-width: 0;
+    color: var(--om-text);
+    font-size: 16px;
+    font-weight: 550;
+    letter-spacing: -.035em;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .om-os .om-nav-right { gap: 3px; }
+  .om-os .om-os-ask { display: none; }
+  .om-os .om-credits,
+  .om-standalone .om-os .om-credits {
+    min-width: 44px;
+    height: 44px;
+    padding: 0 6px;
+    border-radius: 12px;
+    background: none;
+    font-size: 12px;
+  }
+  .om-os .om-credits-word {
+    display: block;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .om-os .om-avatar,
+  .om-standalone .om-os .om-avatar,
+  .om-os .om-bell > button,
+  .om-standalone .om-os .om-bell > button {
+    width: 44px !important;
+    height: 44px !important;
+    border: 0 !important;
+    border-radius: 14px;
+    background: transparent !important;
+  }
+  .om-os .om-avatar:active, .om-os .om-bell > button:active { background: rgb(var(--om-fg) / .065) !important; }
+  .om-os .om-main,
+  .om-standalone .om-os .om-main {
+    padding-top: 14px;
+    padding-bottom: calc(var(--om-mobile-nav-height) + 24px);
+  }
+  /* Phone navigation replaces the desktop launch tiles, keeping the first screen useful. */
+  .om-os .om-os-dock, .om-os .om-os-dock-skeleton { display: none; }
+  .om-os .om-tabbar,
+  .om-os.om-os-atlas .om-tabbar,
+  .om-standalone .om-os .om-tabbar {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    align-items: start;
+    justify-content: stretch;
+    min-height: var(--om-mobile-nav-height);
+    padding: 7px max(6px, env(safe-area-inset-right, 0px)) calc(7px + env(safe-area-inset-bottom, 0px)) max(6px, env(safe-area-inset-left, 0px));
+    border: 0;
+    border-top: 1px solid var(--om-edge);
+    border-radius: 0;
+    background: var(--om-glass-phone);
+    -webkit-backdrop-filter: blur(22px) saturate(140%);
+    backdrop-filter: blur(22px) saturate(140%);
+  }
+  .om-os .om-tab,
+  .om-standalone .om-os .om-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 0;
+    min-height: 50px;
+    padding: 0 2px;
+    border: 0;
+    border-radius: 12px;
+    color: var(--om-text-3);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    text-decoration: none;
+    transition: color 160ms ease, opacity 160ms ease;
+  }
+  .om-os .om-tab-symbol {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 29px;
+    border-radius: 10px;
+    transition: background 160ms ease;
+  }
+  .om-os .om-tab svg, .om-standalone .om-os .om-tab svg { width: 22px; height: 22px; stroke-width: 1.7; }
+  .om-os .om-tab[aria-current="page"],
+  .om-standalone .om-os .om-tab[aria-current="page"] { color: var(--om-text); }
+  .om-os .om-tab[aria-current="page"] .om-tab-symbol { background: rgb(var(--om-fg) / .085); }
+  .om-os .om-tab[aria-current="page"] svg,
+  .om-standalone .om-os .om-tab[aria-current="page"] svg { color: currentColor; }
+  .om-os .om-tab:active { opacity: .55; }
+  .om-os .om-tab:focus-visible { outline-offset: -2px; }
+  .om-os .om-offline { bottom: calc(var(--om-mobile-nav-height) + 8px); }
+  .om-keyboard-open .om-os .om-tabbar { display: none; }
+  .om-keyboard-open .om-os .om-offline { display: none; }
+  .om-os .om-title, .om-standalone .om-os .om-title { font-size: 29px; font-weight: 550; line-height: 1.15; }
+  .om-os .om-btn { min-height: 44px; }
+  .om-os .om-os-footer { padding-top: 18px; margin-top: 16px; }
+}
+
+@media (max-width: 600px) {
+  .om-app.om-os { --om-pad: 16px; }
+  .om-os .om-nav, .om-standalone .om-os .om-nav { gap: 10px; }
+  .om-os .om-mobile-screen { font-size: 15px; }
+  .om-os .om-nav-right { gap: 0; }
+  .om-os .om-head { margin-bottom: 18px; }
+  .om-os .om-sub { font-size: 13px; line-height: 1.5; }
+  .om-os .om-floor-os .om-os-floor-head { margin-bottom: 2px; }
+  .om-os .om-floor-os .om-sub { margin-top: 5px; }
+  .om-os .om-floor-os .om-atlas { padding: 20px; }
+  .om-os .om-floor-os .om-atlas-id > .om-product-icon { width: 38px; height: 38px; border-radius: 12px; }
+  .om-os .om-floor-os .om-os-atlas-story { margin-top: 20px; }
+  .om-os .om-floor-os .om-os-atlas-story h3 { font-size: 26px; line-height: 1.2; }
+  .om-os .om-floor-os .om-atlas-say { line-height: 1.6; }
+  .om-os .om-floor-os .om-os-atlas-prompt { padding-top: 17px; }
+  .om-os .om-floor-os .om-ask input { font-size: 16px; }
+  .om-os .om-floor-os .om-atlas-asks { flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding-bottom: 2px; scrollbar-width: none; }
+  .om-os .om-floor-os .om-atlas-asks::-webkit-scrollbar { display: none; }
+  .om-os .om-floor-os .om-atlas-asks .om-go { flex: 0 0 auto; min-height: 44px; font-size: 11px; padding-inline: 9px; }
+  .om-os .om-floor-os .om-os-atlas-terms { font-size: 11px; }
+  .om-os .om-floor-os .om-os-chart-layers { flex-wrap: wrap; gap: 3px 14px; }
+  .om-os .om-floor-os .om-tf button { min-width: 38px; min-height: 44px; }
+  .om-os .om-floor-os .om-ch-tools button { min-width: 44px; min-height: 44px; }
+  .om-os .om-floor-os .om-os-setup-details summary,
+  .om-os .om-floor-os .om-os-chart-layers button,
+  .om-os .om-floor-os .om-os-chart-foot button { min-height: 44px; }
+  .om-os .om-floor-os .om-res-tools .om-icon-btn { width: 44px; height: 44px; }
+  .om-os .om-floor-os .om-res-tools .om-select select { min-height: 44px; }
+  .om-os .om-floor-os .om-pulse-item { padding: 7px 0; min-height: 38px; }
+}
+
+@media (max-width: 359px) {
+  .om-app.om-os { --om-pad: 12px; }
+  .om-os .om-nav, .om-standalone .om-os .om-nav { gap: 7px; }
+  .om-os .om-brand svg { width: 30px; }
+  .om-os .om-mobile-screen { font-size: 13px; }
+  .om-os .om-credits, .om-standalone .om-os .om-credits { padding-inline: 2px; font-size: 11px; }
+  .om-os .om-floor-os .om-atlas { padding: 16px; }
+  .om-os .om-floor-os .om-chart-top { flex-wrap: wrap; }
+  .om-os .om-floor-os .om-os-chart-controls { width: 100%; flex-direction: row; align-items: center; justify-content: space-between; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .om-os .om-nav-wrap::before, .om-os .om-tabbar { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--om-appbar-solid); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .om-os .om-tab, .om-os .om-tab-symbol { transition: none; }
+}

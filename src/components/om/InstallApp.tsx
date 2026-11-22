@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { ArrowUpFromLine, Check, Ellipsis, PlusSquare, WifiOff, X } from "lucide-react";
 import { installGuide, type InstallGuide } from "@/lib/floor/app";
+import "./app-install.css";
 
 /**
  * INSTALLING THE ONE MISSION APP from the profile menu (lib/floor/app.ts).
@@ -32,7 +33,9 @@ export function useInstall() {
   const [canPrompt, setCanPrompt] = useState(false);
   useEffect(() => {
     const w = window as InstallWindow;
-    setAsApp(runningAsApp());
+    const mode = window.matchMedia("(display-mode: standalone)");
+    const measure = () => setAsApp(runningAsApp());
+    measure();
     const sync = () => setCanPrompt(!!w.__omInstall);
     sync();
     // The layout's early listener usually holds the offer already; this one covers an offer made later.
@@ -41,10 +44,12 @@ export function useInstall() {
     window.addEventListener("beforeinstallprompt", offer);
     window.addEventListener("appinstalled", done);
     window.addEventListener("om-install-ready", sync);
+    mode.addEventListener("change", measure);
     return () => {
       window.removeEventListener("beforeinstallprompt", offer);
       window.removeEventListener("appinstalled", done);
       window.removeEventListener("om-install-ready", sync);
+      mode.removeEventListener("change", measure);
     };
   }, []);
 
@@ -53,14 +58,16 @@ export function useInstall() {
     const w = window as InstallWindow;
     const offer = w.__omInstall;
     if (offer) {
+      let failed = false;
       try {
         await offer.prompt();
         const choice = await offer.userChoice;
         if (choice.outcome === "accepted") setInstalled(true);
-      } catch { /* the dialog could not open; the offer is spent either way */ }
+      } catch { failed = true; }
       w.__omInstall = null;
       setCanPrompt(false);
-      return null;
+      // A spent offer cannot be retried. Show the real browser steps if its dialog failed.
+      return failed ? installGuide(navigator.userAgent, navigator.maxTouchPoints || 0, false) : null;
     }
     return installGuide(navigator.userAgent, navigator.maxTouchPoints || 0, false);
   }, []);
@@ -78,30 +85,73 @@ function Mark() {
 }
 
 export function InstallSheet({ guide, onClose }: { guide: InstallGuide; onClose: () => void }) {
-  const done = useRef<HTMLButtonElement>(null);
+  const dismiss = useRef<HTMLButtonElement>(null);
+  const card = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
-    const from = document.activeElement as HTMLElement | null;
-    done.current?.focus();
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const active = document.activeElement as HTMLElement | null;
+    // The profile menu unmounts before this sheet opens. Its stable account button is the return point.
+    const from = active && active !== document.body && active !== document.documentElement && active.isConnected
+      ? active : document.querySelector<HTMLButtonElement>(".om-app .om-avatar");
+    const body = document.body;
+    const html = document.documentElement;
+    const scroll = { x: window.scrollX, y: window.scrollY };
+    const saved = { position: body.style.position, top: body.style.top, left: body.style.left, width: body.style.width, overflow: body.style.overflow, htmlOverflow: html.style.overflow };
+    body.style.position = "fixed";
+    body.style.top = `-${scroll.y}px`;
+    body.style.left = `-${scroll.x}px`;
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
+    html.style.overflow = "hidden";
+    dismiss.current?.focus({ preventScroll: true });
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close.current();
+      if (e.key !== "Tab") return;
+      const items = Array.from(card.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], summary, [tabindex="0"]') ?? []);
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) return;
+      if (e.shiftKey && (document.activeElement === first || !card.current?.contains(document.activeElement))) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !card.current?.contains(document.activeElement))) {
+        e.preventDefault(); first.focus();
+      }
+    };
     document.addEventListener("keydown", esc);
-    return () => { document.removeEventListener("keydown", esc); from?.focus?.(); };
-  }, [onClose]);
+    return () => {
+      document.removeEventListener("keydown", esc);
+      Object.assign(body.style, { position: saved.position, top: saved.top, left: saved.left, width: saved.width, overflow: saved.overflow });
+      html.style.overflow = saved.htmlOverflow;
+      window.scrollTo({ left: scroll.x, top: scroll.y, behavior: "instant" });
+      const returnTo = from?.isConnected ? from : document.querySelector<HTMLButtonElement>(".om-app .om-avatar");
+      returnTo?.focus({ preventScroll: true });
+    };
+  }, []);
+  const icons = guide.kind === "ios" ? [ArrowUpFromLine, PlusSquare, Check] : [Ellipsis, PlusSquare, Check];
   return (
-    <div className="om-install" role="dialog" aria-modal="true" aria-labelledby="om-install-title" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="om-install-card">
+    <div className="om-install" role="dialog" aria-modal="true" aria-labelledby="om-install-title" aria-describedby="om-install-description" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div ref={card} className="om-install-card">
+        <span className="om-install-handle" aria-hidden="true" />
+        <button ref={dismiss} type="button" className="om-install-x" aria-label="Close install guide" onClick={onClose}><X aria-hidden="true" /></button>
         <div className="om-install-head">
           <span className="om-install-icon"><Mark /></span>
           <div style={{ minWidth: 0 }}>
-            <h2 id="om-install-title">Install One Mission</h2>
-            <p>{guide.intro}</p>
+            <span className="om-install-eyebrow">One Mission OS</span>
+            <h2 id="om-install-title">Make it your app.</h2>
           </div>
-          <button type="button" className="om-install-x" aria-label="Close" onClick={onClose}><X aria-hidden="true" /></button>
         </div>
+        <p id="om-install-description" className="om-install-description">{guide.intro}</p>
+        {guide.browser && <span className="om-install-browser">{guide.browser}</span>}
         <ol className="om-install-steps">
-          {guide.steps.map((s, i) => <li key={i}>{guide.steps.length > 1 && <span className="om-num" aria-hidden="true">{i + 1}</span>}<p>{s}</p></li>)}
+          {guide.steps.map((s, i) => {
+            const Icon = icons[i] || Check;
+            return <li key={i}><span className="om-install-step-icon" aria-hidden="true"><Icon /></span><p>{s}</p></li>;
+          })}
         </ol>
+        {guide.help && <details className="om-install-help"><summary>Can’t find the option?</summary><p>{guide.help}</p></details>}
         {guide.note && <p className="om-install-note">{guide.note}</p>}
-        <button ref={done} type="button" className="om-install-done" onClick={onClose}>Done</button>
+        <button type="button" className="om-install-done" onClick={onClose}>Got it</button>
       </div>
     </div>
   );
@@ -118,5 +168,5 @@ export function OfflineNotice() {
     return () => { window.removeEventListener("online", read); window.removeEventListener("offline", read); };
   }, []);
   if (!off) return null;
-  return <div className="om-offline" role="status">You’re offline. What’s on screen is the last that arrived; it updates when you’re back online.</div>;
+  return <div className="om-offline" role="status"><WifiOff aria-hidden="true" /><span>Offline · Showing the last update</span></div>;
 }

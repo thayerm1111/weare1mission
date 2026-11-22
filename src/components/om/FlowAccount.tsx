@@ -179,6 +179,7 @@ export function FlowAccountProvider({ children, configured = true }: { children:
 /** Compact, real account figures only. Connection health is not trading permission or automation state. */
 export function FlowAccountBar() {
   const account = useFlowAccount();
+  const [expanded, setExpanded] = useState(false);
   if (!account) return null;
   const { ov, state, failed, switching, hide, now, chooseAccount, toggleHide, refresh } = account;
   const selected = ov?.account ?? null;
@@ -204,7 +205,7 @@ export function FlowAccountBar() {
     { label: "Open P&L", value: figures?.openPnl, sign: true, title: "Open profit and loss across the whole selected account" },
   ];
   return (
-    <section className="om-flow-account" aria-label="FLOW account overview" aria-busy={waiting}>
+    <section className="om-flow-account" data-expanded={expanded || undefined} data-empty={!!ov?.accountsKnown && !selected && !waiting || undefined} aria-label="FLOW account overview" aria-busy={waiting}>
       <div className="om-flow-account-brand"><Link2 width={16} height={16} aria-hidden="true" /><span>FLOW</span></div>
       <div className="om-flow-account-select-area">
         {hasAccounts ? (
@@ -222,7 +223,7 @@ export function FlowAccountBar() {
         </span>
         <span id="om-flow-account-view-note" className="om-flow-account-sr">This selects the account to view. It does not change which accounts trade.</span>
       </div>
-      <div className="om-flow-account-figures">
+      <div className="om-flow-account-figures" id="om-flow-account-figures">
         {stats.map((stat) => (
           <div className="om-flow-account-stat" key={stat.label} title={stat.title}>
             <span className="om-flow-account-label">{stat.label}</span>
@@ -238,8 +239,11 @@ export function FlowAccountBar() {
           {hide ? <EyeOff width={16} height={16} aria-hidden="true" /> : <Eye width={16} height={16} aria-hidden="true" />}
         </button>
         {failed && <button type="button" className="om-flow-account-icon" onClick={() => void refresh()} aria-label="Refresh account figures" title="Refresh account figures"><RefreshCw width={15} height={15} aria-hidden="true" /></button>}
-        <a href="/portal/trading?view=flow#flow-settings" className="om-flow-account-manage">Manage FLOW<ArrowUpRight width={13} height={13} aria-hidden="true" /></a>
       </div>
+      <a href="/portal/trading?view=flow#flow-settings" className="om-flow-account-manage">{ov?.accountsKnown && !selected ? "Connect FLOW" : "Manage FLOW"}<ArrowUpRight width={13} height={13} aria-hidden="true" /></a>
+      <button type="button" className="om-flow-account-expand" aria-expanded={expanded} aria-controls="om-flow-account-figures" onClick={() => setExpanded((open) => !open)}>
+        {expanded ? "Less" : "Account details"}<ChevronDown width={14} height={14} aria-hidden="true" />
+      </button>
     </section>
   );
 }

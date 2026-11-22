@@ -1,5 +1,6 @@
 "use client";
 import { ProductIcon } from "@/components/om/ProductIcon";
+import "./atlas-mobile.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -225,6 +226,8 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   /** The sheet at full height. It opens COMPACT, so the chart stays in view above it. */
   const [sheetTall, setSheetTall] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  /** A phone presents one workspace at a time; every panel and its live data stay mounted. */
+  const [mobileView, setMobileView] = useState<"briefing" | "chart" | "levels">("briefing");
   /** The member is placing one of their own lines on the chart. */
   const [drawMode, setDrawMode] = useState(false);
   const ex = useExplain();
@@ -518,9 +521,10 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   // it sits exactly in the room above it.
   useEffect(() => {
     if (!stacked || !sheetOpen || sheetTall) return;
+    if (toFloor && window.matchMedia("(max-width: 767px)").matches) return;
     const t = window.setTimeout(() => chartPanelRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }), 120);
     return () => window.clearTimeout(t);
-  }, [stacked, sheetOpen, sheetTall]);
+  }, [stacked, sheetOpen, sheetTall, toFloor]);
   useEffect(() => { if (!sheetOpen) setSheetTall(false); }, [sheetOpen]);
   const chartCmd = useCallback((c: ChartCmd) => window.dispatchEvent(new CustomEvent(CHART_CMD_EVENT, { detail: c })), []);
   /** Ask ATLAS something: out loud when a line is open, otherwise in the chat. */
@@ -537,10 +541,14 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   /* ── ATLAS's hands on the chart ───────────────────────────────────────── */
   const scrollToChart = useCallback(() => {
     if (!stackedRef.current) return;
-    const el = chartPanelRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    if (r.top < 0 || r.top > window.innerHeight * 0.35) el.scrollIntoView({ block: "start", behavior: "smooth" });
+    setMobileView("chart");
+    // Wait for the phone workspace to become visible before measuring its chart.
+    window.requestAnimationFrame(() => {
+      const el = chartPanelRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      if (r.top < 0 || r.top > window.innerHeight * 0.35) el.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
   }, []);
 
   /** Show a piece of evidence, a trigger or a price on the chart — only as something real. */
@@ -612,6 +620,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
     }
     if (name === "SHOW_TRADE") { setDrawer("trade"); return; }
     if (name === "SHOW_SCENARIO") {
+      setMobileView("briefing");
       const list = scenariosRef.current;
       const key = arg == null ? "" : String(arg).toLowerCase();
       const dir = /^bull|^up/.test(key) ? "up" : /^bear|^down/.test(key) ? "down" : /^neutral|^range/.test(key) ? "range" : null;
@@ -621,6 +630,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       return;
     }
     if (name === "SHOW_METRICS") {
+      setMobileView("chart");
       setIndicatorsOpen(true);
       window.setTimeout(() => document.querySelector("[data-tour='indicators']")?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 60);
       return;
@@ -786,7 +796,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
   /* ── render ───────────────────────────────────────────────────────────── */
   return (
-    <div className={`hud-root w-full px-[10px] pt-[8px] xl:pb-[10px] ${onCall ? "pb-[164px]" : "pb-[92px]"} ${stacked && sheetOpen && !sheetTall ? "talk-compact" : ""}`} style={{ background: `radial-gradient(1200px 500px at 12% -10%, rgba(var(--cc-00c7e8-rgb,0,199,232),0.06), transparent), radial-gradient(900px 500px at 100% 0%, rgba(var(--cc-d5a93d-rgb,213,169,61),0.05), transparent), ${H.bg0}`, color: H.text, fontFamily: "Inter, var(--font-inter), system-ui, sans-serif" }}>
+    <div data-mobile-view={mobileView} data-mobile-tour={tourOpen || undefined} data-talk-open={sheetOpen || undefined} data-voice-active={onCall || undefined} className={`hud-root w-full px-[10px] pt-[8px] xl:pb-[10px] ${onCall ? "pb-[164px]" : "pb-[92px]"} ${stacked && sheetOpen && !sheetTall ? "talk-compact" : ""}`} style={{ background: `radial-gradient(1200px 500px at 12% -10%, rgba(var(--cc-00c7e8-rgb,0,199,232),0.06), transparent), radial-gradient(900px 500px at 100% 0%, rgba(var(--cc-d5a93d-rgb,213,169,61),0.05), transparent), ${H.bg0}`, color: H.text, fontFamily: "Inter, var(--font-inter), system-ui, sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: HUD_CSS + DESK }} />
       {tourOpen && <HudTour onClose={() => setTourOpen(false)} />}
 
@@ -883,7 +893,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       </header>
 
       {/* ── THE STRIP: price · source · freshness · session · connection · automation ── */}
-      <div data-tour="price" className="mb-[8px] shrink-0 overflow-hidden rounded-[10px]"
+      <div data-tour="price" className="atlas-price-strip mb-[8px] shrink-0 overflow-hidden rounded-[10px]"
         style={{ background: `linear-gradient(180deg, ${H.panel2} 0%, ${H.panel} 100%)`, border: `1px solid ${H.lineHi}`, boxShadow: "0 0 22px rgba(var(--cc-00c7e8-rgb,0,199,232),0.06)" }}>
         <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 px-3 py-1.5 xl:flex-nowrap xl:gap-x-5">
           <div className="flex min-w-0 shrink-0 items-center gap-3">
@@ -964,6 +974,13 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       )}
 
       {/* ── MAIN GRID ─────────────────────────────────────────────────── */}
+      {toFloor && (
+        <nav className="atlas-mobile-segments" aria-label="Atlas workspace">
+          {([ ["briefing", "Briefing"], ["chart", "Chart"], ["levels", "Levels & activity"] ] as const).map(([id, label]) => (
+            <button key={id} type="button" aria-pressed={mobileView === id} onClick={() => setMobileView(id)}>{label}</button>
+          ))}
+        </nav>
+      )}
       <div className="hud-grid">
         {/* LEFT — the read, the timeframes, the levels */}
         <div className="hud-col hud-left">
@@ -1021,7 +1038,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           <div ref={chartPanelRef} className="hud-chart min-h-0">
             <HudPanel tour="chart" hi className="h-full" bodyClass="flex h-full flex-col">
               <div ref={chartRef} className="flex h-full min-h-0 flex-col" style={{ background: H.panel }}>
-                <div className="hud-scroll flex shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap border-b px-2 py-1.5" style={{ borderColor: H.lineSoft }}>
+                <div className="atlas-chart-toolbar hud-scroll flex shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap border-b px-2 py-1.5" style={{ borderColor: H.lineSoft }}>
                   <div className="flex shrink-0 items-center gap-0.5 rounded-[7px] p-0.5" style={{ border: `1px solid ${H.line}` }} role="group" aria-label="Chart timeframe">
                     {TF_BTNS.map((b) => (
                       <button key={b.id} title={`${b.id} candles`} aria-pressed={tf === b.id}
@@ -1108,7 +1125,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             }
             bodyClass="flex h-full flex-col">
             {/* the ATLAS core: tap to talk (the compact sheet on a phone leaves it to the dock, to keep the room for words) */}
-            <div className={`shrink-0 items-center gap-3 px-3 pb-2 ${stacked && !sheetTall ? "hidden" : "flex"}`}>
+            <div className={`atlas-talk-core shrink-0 items-center gap-3 px-3 pb-2 ${stacked && !sheetTall ? "hidden" : "flex"}`}>
               <button type="button" onClick={tapCore} aria-label={onCall ? "End the conversation with ATLAS" : "Talk to ATLAS"} title={onCall ? "Tap to end" : "Tap to talk to ATLAS"}
                 data-tour={stacked && !sheetOpen ? undefined : "core"} className="group relative grid shrink-0 cursor-pointer place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60">
                 <BrainOrb state={voiceMode === "listening" || voiceMode === "muted" ? "listening" : voiceMode ? "speaking" : orbState}
@@ -1137,12 +1154,12 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
               </div>
             </div>
             {chartPing && stacked && sheetOpen && (
-              <button onClick={() => { setChartPing(null); setSheetOpen(false); window.setTimeout(() => chartPanelRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }), 280); }}
+              <button onClick={() => { setChartPing(null); setSheetOpen(false); window.setTimeout(scrollToChart, 280); }}
                 className="mx-3 mb-2 shrink-0 rounded-[7px] px-3 py-1.5 text-left text-[11px] font-semibold" style={{ color: H.cyan2, border: "1px solid rgba(var(--cc-27d7f2-rgb,39,215,242),0.45)", background: "rgba(var(--cc-00c7e8-rgb,0,199,232),0.08)" }}>
                 ATLAS marked the chart — view it ▸
               </button>
             )}
-            <div className="grid shrink-0 grid-cols-4 gap-1.5 px-3 pb-2">
+            <div className="atlas-talk-tabs grid shrink-0 grid-cols-4 gap-1.5 px-3 pb-2">
               {(["CHAT", "VOICE", "ANALYSIS", "SETTINGS"] as TalkTab[]).map((t) => (
                 <button key={t} onClick={() => { setTalkTab(t); if (toFloor) { try { window.localStorage.setItem("cc:talk-tab", t); } catch { /* a private window */ } } }} className="rounded-[6px] py-1 text-[9.5px] font-semibold tracking-[0.14em]"
                   style={{ color: talkTab === t ? H.gold3 : H.mut, border: `1px solid ${talkTab === t ? "rgba(var(--cc-e7c467-rgb,231,196,103),0.6)" : H.line}`, background: talkTab === t ? "rgba(var(--cc-d5a93d-rgb,213,169,61),0.12)" : "transparent", boxShadow: talkTab === t ? "0 0 10px rgba(var(--cc-d5a93d-rgb,213,169,61),0.2)" : "none" }}>{t}</button>
@@ -1150,7 +1167,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             </div>
             <div className="min-h-0 flex-1 border-t" style={{ borderColor: H.lineSoft }}>
               {/* Chat stays mounted so a conversation survives switching tabs (and closing the sheet). */}
-              <div className={talkTab === "CHAT" ? "h-full" : "hidden"}>
+              <div className={talkTab === "CHAT" ? "atlas-chat-body h-full" : "hidden"}>
                 <BrainConsole variant="hud" announce={announce} onUiAction={onUiAction} mode={mode} onModeChange={setMode} live={!!d?.live} askSignal={askSignal} onActivity={onActivity}
                   chartTf={tf}
                   seen={read ? { snapshotId: read.snapshotId, at: read.at, lean: read.lean } : d?.analysis ? { snapshotId: d.analysis.snapshotId, at: d.analysis.analysisAt } : null}
@@ -1302,8 +1319,8 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       {/* ── DRAWERS (trade / analysis / alerts / journal) ─────────────── */}
       {/* GENERATE WITH ATLAS — its own drawer, kept mounted so the idea survives closing it. */}
       {ideaMounted && (
-        <div className={drawer === "idea" ? "fixed inset-0 z-[55] flex justify-end" : "hidden"} style={{ background: "rgba(0,0,0,0.45)" }} onClick={closeDrawer} data-idea-drawer={drawer === "idea" ? "open" : "closed"}>
-          <aside className="hud-scroll h-full w-full max-w-[620px] overflow-y-auto p-3" style={{ background: H.bg1, borderLeft: `1px solid ${H.lineHi}` }} onClick={(e) => e.stopPropagation()}>
+        <div className={drawer === "idea" ? "atlas-drawer-overlay fixed inset-0 z-[55] flex justify-end" : "hidden"} style={{ background: "rgba(0,0,0,0.45)" }} onClick={closeDrawer} data-idea-drawer={drawer === "idea" ? "open" : "closed"}>
+          <aside className="atlas-mobile-drawer hud-scroll h-full w-full max-w-[620px] overflow-y-auto p-3" style={{ background: H.bg1, borderLeft: `1px solid ${H.lineHi}` }} onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
               <p className="inline-flex items-center gap-2 text-[12px] font-bold tracking-[0.16em]" style={{ color: H.gold2 }}><Sparkles className="h-3.5 w-3.5" />GENERATE WITH ATLAS</p>
               <button onClick={closeDrawer} aria-label="Close" style={{ color: H.mut }}><X className="h-5 w-5" /></button>
@@ -1322,8 +1339,8 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       )}
 
       {drawer && drawer !== "idea" && (
-        <div className="fixed inset-0 z-[55] flex justify-end" style={{ background: "rgba(0,0,0,0.45)" }} onClick={closeDrawer}>
-          <aside className="hud-scroll hud-in h-full w-full max-w-[620px] overflow-y-auto p-3" style={{ background: H.bg1, borderLeft: `1px solid ${H.lineHi}` }} onClick={(e) => e.stopPropagation()}>
+        <div className="atlas-drawer-overlay fixed inset-0 z-[55] flex justify-end" style={{ background: "rgba(0,0,0,0.45)" }} onClick={closeDrawer}>
+          <aside className="atlas-mobile-drawer hud-scroll hud-in h-full w-full max-w-[620px] overflow-y-auto p-3" style={{ background: H.bg1, borderLeft: `1px solid ${H.lineHi}` }} onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
               <p className="text-[12px] font-bold tracking-[0.16em]" style={{ color: H.gold2 }}>{drawer === "trade" ? "ATLAS'S TRADE" : drawer === "analysis" ? "ANALYSIS" : drawer === "alerts" ? "ALERTS & WATCHES" : "TODAY'S ATLAS"}</p>
               <button onClick={closeDrawer} aria-label="Close" style={{ color: H.mut }}><X className="h-5 w-5" /></button>

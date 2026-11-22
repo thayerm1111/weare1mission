@@ -5,18 +5,20 @@ import "./os.css";
 import "./os-products.css";
 import "./flow-account.css";
 import "./floor/os-floor.css";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import "./os-mobile.css";
+import { Suspense, useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Activity, CreditCard, Globe, LayoutGrid, LifeBuoy, Link2, LogOut, ShieldCheck, Smartphone, Sparkles, Undo2, User, UserCircle, Wrench, Zap } from "lucide-react";
+import { Activity, CreditCard, Diamond, Globe, LayoutGrid, LifeBuoy, Link2, LogOut, ShieldCheck, Smartphone, Sparkles, Undo2, User, UserCircle, Zap } from "lucide-react";
 import { NotificationsBell } from "@/components/portal/NotificationsBell";
-import { NAV, TAB_ORDER, TOOLS_SHEET, activeKey, type NavKey } from "@/lib/floor/nav";
+import { NAV, TAB_ORDER, activeKey, type NavKey } from "@/lib/floor/nav";
 import type { InstallGuide } from "@/lib/floor/app";
 import { DEFAULT_LOOK, LOOKS, LOOK_CLASS, LOOK_KEY, applyLook, lookOf, themeOf, type Look } from "@/lib/floor/look";
 import { InstallSheet, OfflineNotice, runningAsApp, useInstall } from "./InstallApp";
 import { ShellContext } from "./shell";
 import { ProductIcon } from "./ProductIcon";
 import { FlowAccountBar, FlowAccountProvider } from "./FlowAccount";
+import { MobileViewport } from "./MobileViewport";
 
 /** The shared OS frame. Trading tools retain their own engines, permissions and requests. */
 export type ShellMember = { name: string | null; email: string | null; admin: boolean };
@@ -30,7 +32,7 @@ function OmMark() {
   );
 }
 
-const TAB_ICON: Record<NavKey | "tools", typeof Zap> = { floor: LayoutGrid, plays: Zap, atlas: Sparkles, flow: Link2, genx: Activity, pulse: Activity, tools: Wrench };
+const TAB_ICON: Record<NavKey, typeof Zap> = { floor: LayoutGrid, plays: Zap, atlas: Sparkles, flow: Link2, genx: Diamond, pulse: Activity };
 
 function Credits() {
   const [total, setTotal] = useState<number | null>(null);
@@ -124,7 +126,6 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
   const path = usePathname() || "";
   const view = useSearchParams().get("view");
   const here = activeKey(path, view);
-  const [sheet, setSheet] = useState(false);
   // THE APP BAR (owner 11-21: "make it more like an actual app"). As the installed app the bar is an app's: the
   // screen's large title scrolls away under it and its name settles in the bar's middle, with a hairline beneath.
   const [scrolled, setScrolled] = useState(false);
@@ -137,7 +138,11 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
     return () => { window.removeEventListener("scroll", on); if (raf) window.cancelAnimationFrame(raf); };
   }, [path, view]);
   const screen = here ? NAV.find((n) => n.key === here)?.label ?? null : null;
-  useEffect(() => { setSheet(false); }, [path, view]);
+  const returnToTop = (event: ReactMouseEvent<HTMLAnchorElement>, key: NavKey) => {
+    if (here !== key || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  };
   // THE ONE MISSION APP (lib/floor/app.ts): the browser's own install dialog where it has one, else its steps.
   const { asApp, offer, install: installApp } = useInstall();
   const [guide, setGuide] = useState<InstallGuide | null>(null);
@@ -146,10 +151,11 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
 
   return (
     <>
-      <div className="om-nav-wrap" data-scrolled={scrolled ? "" : undefined}>
+      <div className="om-nav-wrap" data-scrolled={scrolled ? "" : undefined} data-screen={here ?? "account"}>
         <div className="om-frame">
           <nav className="om-nav" aria-label="Trading platform">
             <Link href="/portal/trading" className="om-brand" aria-label="One Mission — The Floor"><OmMark /><span>One Mission</span><small>OS</small></Link>
+            <span className="om-mobile-screen" aria-hidden="true">{screen ?? "Account"}</span>
             <div className="om-os-breadcrumb"><Link href="/portal/trading" aria-current={here === "floor" ? "page" : undefined}>The Floor</Link>{here && here !== "floor" && <><span aria-hidden="true">/</span><span>{screen}</span></>}</div>
             <div className="om-nav-right">
               <a className="om-os-ask" href="/command-center"><ProductIcon kind="atlas" size="sm" /><span>Ask Atlas</span></a>
@@ -163,23 +169,15 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
 
       {guide && <InstallSheet guide={guide} onClose={closeGuide} />}
 
-      {/* phone: the same destinations, under the thumb */}
-      {sheet && (
-        <div className="om-sheet" role="menu" aria-label="Tools">
-          {TOOLS_SHEET.map((t) => <Link key={t.key} role="menuitem" href={t.href}>{t.label}<span>{t.line}</span></Link>)}
-        </div>
-      )}
-      <nav className="om-tabbar" aria-label="Trading platform">
+      {/* Phone: all five products and Home, without an overflow menu. */}
+      <nav className="om-tabbar" aria-label="One Mission app navigation">
         {TAB_ORDER.map((k) => NAV.find((n) => n.key === k)!).map((n) => {
           const Icon = TAB_ICON[n.key];
           const cur = here === n.key ? "page" : undefined;
           return n.hard
-            ? <a key={n.key} href={n.href} className="om-tab" aria-current={cur}><Icon aria-hidden="true" />{n.tab}</a>
-            : <Link key={n.key} href={n.href} className="om-tab" aria-current={cur}><Icon aria-hidden="true" />{n.tab}</Link>;
+            ? <a key={n.key} href={n.href} className="om-tab" aria-label={n.label} aria-current={cur} onClick={(event) => returnToTop(event, n.key)}><span className="om-tab-symbol"><Icon aria-hidden="true" /></span><span>{n.tab}</span></a>
+            : <Link key={n.key} href={n.href} className="om-tab" aria-label={n.label} aria-current={cur} onClick={(event) => returnToTop(event, n.key)}><span className="om-tab-symbol"><Icon aria-hidden="true" /></span><span>{n.tab}</span></Link>;
         })}
-        <button type="button" className="om-tab" aria-haspopup="menu" aria-expanded={sheet} aria-current={here === "genx" || here === "pulse" ? "page" : undefined} onClick={() => setSheet((s) => !s)}>
-          <Wrench aria-hidden="true" />Tools
-        </button>
       </nav>
     </>
   );
@@ -242,6 +240,7 @@ export function AppShell({ children, member, configured = true, preview = false,
   }, []);
   return (
     <div className={`om-app om-os${atlas ? " om-os-atlas" : ""}`}>
+      <MobileViewport />
       <FlowAccountProvider configured={configured}>
       <Suspense fallback={<div className="om-nav-wrap"><div className="om-frame"><div className="om-nav" /></div></div>}>
         <Bar member={member} configured={configured} preview={preview} look={look} onLook={chooseLook} />

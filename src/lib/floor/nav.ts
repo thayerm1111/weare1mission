@@ -15,7 +15,7 @@ export type NavKey = "floor" | "plays" | "genx" | "pulse" | "flow" | "atlas";
 
 export type NavItem = {
   key: NavKey; label: string; href: string;
-  /** The phone tab's word. Absent: reached through "Tools" on a phone. */
+  /** The short, always-visible label in the phone's app bar. */
   tab?: string;
   /** Opened as a full page load: the Command Center brings its own frame and first-open introduction. */
   hard?: boolean;
@@ -24,20 +24,14 @@ export type NavItem = {
 export const NAV: NavItem[] = [
   { key: "floor", label: "The Floor", href: "/portal/trading", tab: "Floor" },
   { key: "plays", label: "OM AI Plays", href: "/portal/signals", tab: "Plays" },
-  { key: "genx", label: "GENX", href: "/portal/genx" },
-  { key: "pulse", label: "Market Pulse", href: "/portal/trading?view=pulse" },
+  { key: "genx", label: "GENX", href: "/portal/genx", tab: "GENX" },
+  { key: "pulse", label: "Market Pulse", href: "/portal/trading?view=pulse", tab: "Pulse" },
   { key: "flow", label: "FLOW", href: "/portal/trading?view=flow", tab: "FLOW" },
   { key: "atlas", label: "Atlas", href: "/command-center", tab: "Atlas", hard: true },
 ];
 
-/** The phone's tabs, in the order the thumb meets them: Floor, Plays, Atlas, FLOW — then Tools. */
-export const TAB_ORDER: NavKey[] = ["floor", "plays", "atlas", "flow"];
-
-/** What "Tools" opens on a phone. */
-export const TOOLS_SHEET: { key: NavKey; label: string; line: string; href: string }[] = [
-  { key: "genx", label: "GENX", line: "Analyze gold", href: "/portal/genx" },
-  { key: "pulse", label: "Market Pulse", line: "Scan the markets", href: "/portal/trading?view=pulse" },
-];
+/** The whole system stays one tap away, including while Atlas is open. */
+export const TAB_ORDER: NavKey[] = ["floor", "atlas", "genx", "plays", "pulse", "flow"];
 
 /** Which destination a page belongs to. An inline Floor view (?view=) lights the tool it shows. */
 export function activeKey(pathname: string, view: string | null | undefined): NavKey | null {

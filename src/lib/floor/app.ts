@@ -15,16 +15,16 @@
  */
 export const APP_NAME = "One Mission";
 export const APP_MANIFEST = "/om-app/manifest.webmanifest";
-/** The canvas colour of the default look (Stone): the browser's own bars and the splash screen match the page under them. */
+/** The canvas colour of the default look (Graphite): the browser's bars and the splash screen match the page. */
 export const APP_THEME = "#08090b";
 /** Atlas keeps its own dark frame in either look (the Command Center's identity), and its bar colour with it. */
 export const ATLAS_THEME = "#08090e";
 
 export type InstallKind = "prompt" | "ios" | "android" | "mac-safari" | "desktop" | "none";
-export type InstallGuide = { kind: InstallKind; intro: string; steps: string[]; note?: string };
+export type InstallGuide = { kind: InstallKind; intro: string; steps: string[]; note?: string; browser?: string; help?: string };
 
-const ON_A_PHONE = "It opens from your home screen like an app: full screen, with your tabs under your thumb.";
-const ON_A_COMPUTER = "It opens in its own window, like an app, from your dock or taskbar.";
+const ON_A_PHONE = "Your trading workspace, one tap from your home screen.";
+const ON_A_COMPUTER = "Your trading workspace in its own window.";
 
 /**
  * How this browser installs the app. Where the browser can show its own install dialog ("prompt") nothing needs
@@ -38,47 +38,53 @@ export function installGuide(ua: string, touchPoints: number, canPrompt: boolean
     return {
       kind: "ios",
       intro: ON_A_PHONE,
+      browser: /CriOS/i.test(ua) ? "Chrome" : /FxiOS/i.test(ua) ? "Firefox" : "Safari",
       steps: [
-        "Tap the Share button: at the bottom of the screen in Safari, or beside the address bar in Chrome.",
-        "Choose “Add to Home Screen”. You may need to scroll down the list to find it.",
-        "Tap Add. One Mission is on your home screen and opens full screen.",
+        "Tap Share in your browser’s toolbar or menu.",
+        "Choose “Add to Home Screen”.",
+        "Keep “Open as Web App” on if shown, then tap Add.",
       ],
-      // iPhone keeps a home-screen app's sign-in apart from Safari's, so the first open asks once.
-      note: "The first time it opens, sign in once. Your iPhone keeps the app’s sign-in separate from Safari’s.",
+      note: "You may need to sign in once when you first open the app.",
+      help: "In Safari, scroll down the Share menu. If Add to Home Screen is missing, tap Edit Actions to add it. You can also open this page in Safari and try again.",
     };
   }
   if (/Android/i.test(ua)) {
     return {
       kind: "android",
       intro: ON_A_PHONE,
+      browser: "Android",
       steps: [
-        "Open the browser’s menu: the three dots at the top right.",
+        "Open your browser’s three-dot menu.",
         "Tap “Install app” or “Add to Home screen”.",
-        "Confirm. One Mission appears with your other apps and opens full screen.",
+        "Confirm, then open One Mission from your home screen.",
       ],
     };
   }
   if (/Firefox\//i.test(ua)) {
     return {
       kind: "none",
-      intro: "It opens like an app, in its own window or from a phone's home screen.",
-      steps: ["This browser can’t install web apps. Open weare1mission.com in Chrome, Edge or Safari and choose “Install the app” from this menu there."],
+      intro: ON_A_COMPUTER,
+      browser: "Another browser needed",
+      steps: ["Open weare1mission.com in Chrome, Edge or Safari, then choose “Install the app” in your account menu."],
     };
   }
   if (/Macintosh/i.test(ua) && /Safari\//i.test(ua) && !/Chrome\/|Chromium\/|Edg\/|OPR\//i.test(ua)) {
     return {
       kind: "mac-safari",
       intro: ON_A_COMPUTER,
-      steps: ["In the menu bar, choose File, then “Add to Dock”.", "Click Add. One Mission opens from your Dock in its own window."],
+      browser: "Safari on Mac",
+      steps: ["Choose File → Add to Dock in Safari.", "Click Add, then open One Mission from your Dock."],
     };
   }
   return {
     kind: "desktop",
     intro: ON_A_COMPUTER,
+    browser: /Edg\//i.test(ua) ? "Microsoft Edge" : "Your browser",
     steps: [
-      "Click the install icon at the right end of the address bar, or open the browser’s menu and choose “Install One Mission” (in Edge it is under Apps).",
-      "Click Install. One Mission opens in its own window, and from your dock or taskbar after that.",
+      "Click the install icon in the address bar, or choose “Install One Mission” from the browser menu.",
+      "Click Install, then open One Mission from your dock or taskbar.",
     ],
+    help: "In Edge, open the browser menu, then Apps. Installation options depend on your browser and device.",
   };
 }
 

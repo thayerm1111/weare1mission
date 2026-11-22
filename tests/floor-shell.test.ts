@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { NAV, TAB_ORDER, TOOLS_SHEET, activeKey, wantsNextShell, SHELL_COOKIE, SHELL_CSS } from '../src/lib/floor/nav';
+import { NAV, TAB_ORDER, activeKey, wantsNextShell, SHELL_COOKIE, SHELL_CSS } from '../src/lib/floor/nav';
 import { FLOOR_ASK_KEY, FLOOR_ASK_MAX_AGE_MS, FLOOR_ASK_MAX_LEN, leaveFloorQuestion, takeFloorQuestion } from '../src/components/command-center/hud/floorAsk';
 
 /*
@@ -24,17 +24,16 @@ const walk = (dir: string): string[] => readdirSync(dir).flatMap((f) => {
 test('six destinations, in the order the owner gave, and no community among them', () => {
   assert.deepEqual(NAV.map((n) => n.label), ['The Floor', 'OM AI Plays', 'GENX', 'Market Pulse', 'FLOW', 'Atlas']);
   assert.deepEqual(NAV.map((n) => n.href), ['/portal/trading', '/portal/signals', '/portal/genx', '/portal/trading?view=pulse', '/portal/trading?view=flow', '/command-center']);
-  const all = JSON.stringify({ NAV, TOOLS_SHEET }).toLowerCase();
+  const all = JSON.stringify({ NAV }).toLowerCase();
   for (const gone of ['leaderboard', 'leadership', 'inner circle', 'community', 'training', 'academy', 'schedule', 'collection', 'experiences', 'updates', 'team', 'prospects', 'comp-plan', 'rapid', 'matty', 'genfx', 'cashtrap', 'xaughost', 'auric', '/portal/om-ai']) {
     assert.ok(!all.includes(gone), `"${gone}" is not a destination of the trading platform`);
   }
 });
 
-test('on a phone: Floor, Plays, Atlas, FLOW — and Tools holds GENX and Market Pulse', () => {
-  assert.deepEqual(TAB_ORDER.map((k) => NAV.find((n) => n.key === k)!.tab), ['Floor', 'Plays', 'Atlas', 'FLOW']);
-  assert.deepEqual(TOOLS_SHEET.map((t) => t.label), ['GENX', 'Market Pulse']);
-  // Every destination is reachable on a phone, by a tab or through Tools.
-  for (const n of NAV) assert.ok(TAB_ORDER.includes(n.key) || TOOLS_SHEET.some((t) => t.key === n.key), `${n.label} is reachable on a phone`);
+test('on a phone every product has a persistent tab, including GENX and Pulse', () => {
+  assert.deepEqual(TAB_ORDER.map((k) => NAV.find((n) => n.key === k)!.tab), ['Floor', 'Atlas', 'GENX', 'Plays', 'Pulse', 'FLOW']);
+  assert.equal(new Set(TAB_ORDER).size, NAV.length, 'no product is missing or duplicated');
+  for (const n of NAV) assert.ok(TAB_ORDER.includes(n.key), `${n.label} is one tap away on a phone`);
 });
 
 test('Atlas opens the Command Center as a full page — its own frame and entrance are left alone', () => {

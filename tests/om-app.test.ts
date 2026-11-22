@@ -37,7 +37,10 @@ test('installing: the browser\'s own dialog where there is one, otherwise that b
   assert.equal(ios.kind, 'ios');
   assert.match(ios.steps.join(' '), /Share/);
   assert.match(ios.steps.join(' '), /Add to Home Screen/);
-  assert.match(ios.note ?? '', /sign in once/, 'an iPhone keeps the app\'s sign-in apart from Safari\'s, so it is said');
+  assert.match(ios.note ?? '', /may need to sign in once/, 'first-open sign-in is a possibility, not a promise about session sharing');
+  assert.match(ios.steps.join(' '), /Open as Web App/, 'current Safari can require this choice to open without browser chrome');
+  assert.ok(!/at the bottom|beside the address bar/.test(ios.steps.join(' ')), 'Share is reachable in several Safari toolbar layouts');
+  assert.equal(installGuide(IPHONE.replace('Version/18.1', 'CriOS/131.0'), 5, false).browser, 'Chrome', 'Chrome on iPhone still receives iOS Home Screen instructions');
   assert.equal(installGuide(IPAD_AS_MAC, 5, false).kind, 'ios', 'an iPad reports itself as a Mac; its touch points give it away');
   assert.equal(installGuide(MAC_SAFARI, 0, false).kind, 'mac-safari');
   assert.match(installGuide(MAC_SAFARI, 0, false).steps.join(' '), /Add to Dock/);
@@ -149,8 +152,8 @@ test('the account menu offers "Install the app" in a browser tab; an admin\'s "C
   assert.match(ia, /return \{ asApp, offer: asApp === false && !installed, canPrompt, install \};/, 'nothing is offered on a guess, or once installed');
   assert.match(ia, /\(window\.navigator as Navigator & \{ standalone\?: boolean \}\)\.standalone === true \|\| window\.matchMedia\("\(display-mode: standalone\)"\)\.matches/);
   assert.match(ia, /role="dialog" aria-modal="true" aria-labelledby="om-install-title"/);
-  assert.match(ia, /if \(e\.key === "Escape"\) onClose\(\);/);
-  assert.match(ia, /from\?\.focus\?\.\(\);/, 'focus goes back where it came from');
+  assert.match(ia, /if \(e\.key === "Escape"\) close\.current\(\);/);
+  assert.match(ia, /returnTo\?\.focus\(\{ preventScroll: true \}\);/, 'focus returns without moving the restored page');
   // Nothing installed by this work caches the site on the device: every screen is the live site.
   assert.ok(!/serviceWorker\.register/.test(ia + shell));
 });
@@ -258,11 +261,12 @@ test('the installed OS keeps its safe app bar, current-screen navigation and sta
   assert.match(os, /\.om-os \.om-title::before \{ display:none; \}/);
   const shell = read('src/components/om/AppShell.tsx');
   assert.match(shell, /d\.classList\.toggle\("om-standalone", runningAsApp\(\)\);/);
-  assert.match(shell, /<div className="om-nav-wrap" data-scrolled=\{scrolled \? "" : undefined\}>/);
+  assert.match(shell, /<div className="om-nav-wrap" data-scrolled=\{scrolled \? "" : undefined\} data-screen=\{here \?\? "account"\}>/);
   assert.match(shell, /const screen = here \? NAV\.find\(\(n\) => n\.key === here\)\?\.label \?\? null : null;/, 'screen names come from the real destinations');
   assert.match(shell, /className="om-os-breadcrumb"><Link href="\/portal\/trading" aria-current=\{here === "floor" \? "page" : undefined\}>The Floor<\/Link>/);
   assert.match(shell, /\{here && here !== "floor" && <><span aria-hidden="true">\/<\/span><span>\{screen\}<\/span><\/>\}/, 'the OS breadcrumb replaces the old scrolling title capsule');
-  assert.match(shell, /<nav className="om-tabbar" aria-label="Trading platform">/);
+  assert.match(shell, /<nav className="om-tabbar" aria-label="One Mission app navigation">/);
   assert.match(shell, /TAB_ORDER\.map\(\(k\) => NAV\.find\(\(n\) => n\.key === k\)!\)/, 'mobile destinations remain the same canonical set');
-  assert.match(shell, /className="om-tab" aria-haspopup="menu" aria-expanded=\{sheet\}/, 'the remaining tools stay accessible from the mobile menu');
+  assert.match(shell, /className="om-tab" aria-label=\{n\.label\} aria-current=\{cur\}/, 'every product has a labelled destination with its active state');
+  assert.doesNotMatch(shell, /TOOLS_SHEET/, 'GENX and Pulse are directly reachable without an overflow menu');
 });

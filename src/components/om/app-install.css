@@ -1,0 +1,98 @@
+/* Install guidance is a small system sheet, with device steps kept separate from the app underneath. */
+.om-app .om-install {
+  z-index: 110;
+  padding: max(20px, env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px)) max(20px, env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
+  background: rgba(0, 0, 0, .46);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  overscroll-behavior: contain;
+  animation: om-install-appear 180ms ease-out;
+}
+.om-app .om-install .om-install-card {
+  position: relative;
+  max-width: 420px;
+  max-height: calc(100dvh - 40px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  padding: 28px 24px 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--om-edge-2);
+  border-radius: 28px;
+  background: var(--om-menu);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .04), 0 24px 90px rgb(0 0 0 / .32);
+  animation: om-install-rise 220ms cubic-bezier(.2, .8, .2, 1);
+}
+.om-app .om-install-handle { display: none; }
+.om-app .om-install-head { align-items: center; gap: 14px; padding-right: 30px; }
+.om-app .om-install-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 15px;
+  background: linear-gradient(145deg, #272833, #0b0c10 78%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .1);
+}
+.om-app .om-install-icon svg { width: 34px; }
+.om-app .om-install-eyebrow {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--om-text-3);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+.om-app .om-install h2 { margin: 0; font-size: 21px; line-height: 1.2; letter-spacing: -.045em; font-weight: 600; }
+.om-app .om-install-x {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+}
+.om-app .om-install-x svg { width: 18px; height: 18px; }
+.om-app .om-install-description { margin: 19px 0 0; max-width: 290px; font-size: 14px; line-height: 1.5; color: var(--om-text-2); }
+.om-app .om-install-browser { display: block; margin-top: 22px; font-size: 11px; line-height: 1.2; color: var(--om-text-3); }
+.om-app .om-install-steps { gap: 0; margin: 8px 0 0; }
+.om-app .om-install-steps li { align-items: center; gap: 13px; min-height: 58px; padding: 12px 0; border-bottom: 1px solid var(--om-hair); }
+.om-app .om-install-steps li:last-child { border-bottom: 0; }
+.om-app .om-install-steps li > .om-install-step-icon { width: 32px; height: 32px; border-radius: 10px; background: rgb(var(--om-fg) / .055); }
+.om-app .om-install-step-icon svg { width: 17px; height: 17px; stroke-width: 1.65; }
+.om-app .om-install-steps li > p { margin: 0; font-size: 14px; line-height: 1.45; letter-spacing: -.012em; }
+.om-app .om-install-help { margin-top: 5px; font-size: 12px; color: var(--om-text-2); }
+.om-app .om-install-help summary { min-height: 36px; padding: 10px 0; cursor: pointer; font-size: 12px; }
+.om-app .om-install-help p { margin: 0 0 10px; line-height: 1.5; }
+.om-app .om-install-help summary:focus-visible { outline: 2px solid var(--om-ai); outline-offset: 3px; border-radius: 4px; }
+.om-app .om-install-note { margin: 13px 0 0; padding: 0; background: none; border-radius: 0; font-size: 11px; line-height: 1.5; color: var(--om-text-3); }
+.om-app .om-install-done { height: 48px; margin-top: 20px; border-radius: 14px; font-size: 14px; }
+.om-app .om-install-done:active { transform: scale(.985); }
+.om-app .om-offline { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 12px; }
+.om-app .om-offline svg { width: 14px; height: 14px; flex: 0 0 auto; }
+
+@media (max-width: 640px) {
+  .om-app .om-install {
+    align-items: flex-end;
+    padding: max(10px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
+  }
+  .om-app .om-install .om-install-card {
+    max-width: 440px;
+    max-height: calc(100dvh - 20px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    padding: 29px 21px 20px;
+    border-radius: 28px;
+  }
+  .om-app .om-install-handle { display: block; position: absolute; width: 32px; height: 4px; top: 10px; left: calc(50% - 16px); border-radius: 9px; background: rgb(var(--om-fg) / .18); }
+  .om-app .om-install-x { top: 17px; right: 9px; }
+}
+@media (max-height: 520px) {
+  .om-app .om-install { align-items: center; }
+  .om-app .om-install .om-install-card { padding-top: 22px; }
+  .om-app .om-install-description { margin-top: 12px; }
+  .om-app .om-install-browser { margin-top: 12px; }
+  .om-app .om-install-steps li { min-height: 48px; padding: 8px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .om-app .om-install, .om-app .om-install .om-install-card { animation: none; }
+  .om-app .om-install-done:active { transform: none; }
+}
+@keyframes om-install-appear { from { opacity: 0; } to { opacity: 1; } }
+@keyframes om-install-rise { from { transform: translateY(15px); opacity: .8; } to { transform: translateY(0); opacity: 1; } }

@@ -156,3 +156,86 @@
   .om-os-product .om-pulse-pick b { font-size: 13px; }
   .om-os-product .om-pulse-pick small { font-size: 11px; }
 }
+
+/* Phone workspaces: one clear task per panel, with controls sized for a thumb. */
+@media (max-width: 720px) {
+  .om-os .om-os-product,
+  .om-os .om-flow { min-width: 0; gap: 18px; }
+  .om-os .om-os-product .om-product-header { gap: 17px; }
+  .om-os .om-os-product .om-product-heading { gap: 11px; flex-basis: 100%; }
+  .om-os .om-os-product .om-product-heading > .om-product-icon { width: 43px; height: 43px; border-radius: 13px; }
+  .om-os .om-os-product .om-product-kicker { font-size: 9px; margin-bottom: 3px; letter-spacing: .08em; }
+  .om-os .om-os-product .om-title,
+  .om-os .om-flow .om-title { font-size: 26px; }
+  .om-os .om-os-product .om-sub,
+  .om-os .om-flow .om-sub { margin-top: 5px; font-size: 13px; line-height: 1.45; }
+  .om-os :is(.om-os-product, .om-flow) :is(.om-btn, .om-btn-quiet, .om-go) { min-height: 44px; touch-action: manipulation; }
+  .om-os :is(.om-os-product, .om-flow) :is(.om-seg, .om-toggles) button { min-height: 44px; height: auto; padding-top: 10px; padding-bottom: 10px; }
+  .om-os :is(.om-os-product, .om-flow) .om-disclose { min-height: 44px; }
+  .om-os :is(.om-os-product, .om-flow) .om-tabs button { min-height: 46px; }
+  .om-os :is(.om-os-product, .om-flow) .om-input,
+  .om-os :is(.om-os-product, .om-flow) .om-select select { font-size: 16px; min-height: 46px; }
+  .om-os :is(.om-os-product, .om-flow) .om-kv dd { overflow-wrap: anywhere; }
+
+  /* The existing play builder remains visible and sequential, without a second oversized hero. */
+  .om-os-product .om-plays-config { gap: 19px; padding: 18px 16px; }
+  .om-os-product .om-plays-config > .om-product-section-head { padding-bottom: 13px; }
+  .om-os-product .om-quick { flex-wrap: nowrap; overflow-x: auto; margin: 0 -2px; padding: 3px 2px 5px; scrollbar-width: none; }
+  .om-os-product .om-quick::-webkit-scrollbar { display: none; }
+  .om-os-product .om-quick button { flex-shrink: 0; min-height: 42px; height: auto; padding: 8px 13px; }
+  .om-os-product .om-combo input { min-height: 48px; }
+  .om-os-product .om-combo-list { max-height: min(300px, 40dvh); }
+  .om-os-product .om-combo-list button { min-height: 50px; padding-top: 9px; padding-bottom: 9px; }
+  .om-os-product .om-plays-go > .om-btn { min-height: 49px; font-size: 14px; border-radius: 14px; }
+  .om-os-product .om-plays-preview { padding: 20px 17px; gap: 11px; }
+  .om-os-product .om-plays-preview > .om-product-icon { width: 38px; height: 38px; border-radius: 11px; }
+  .om-os-product .om-plays-preview h2 { font-size: 22px; }
+  .om-os-product .om-product-outcomes { gap: 11px; margin: 2px 0; }
+  .om-os-product .om-product-outcomes li { padding-left: 10px; }
+  .om-os-product .om-product-outcomes span { font-size: 12px; }
+  .om-os-product .om-play-track-acts { width: 100%; }
+  .om-os-product .om-play-track-acts > button { flex: 1 1 auto; }
+  .om-os-product .om-saved-head { align-items: flex-start; }
+  .om-os-product .om-saved .om-row-main { min-height: 72px; }
+
+  /* Charts retain the existing gestures and have enough vertical room to read the candles. */
+  .om-os-product .om-genx-go { gap: 10px; }
+  .om-os-product .om-genx-go > .om-btn { min-height: 48px; border-radius: 14px; }
+  .om-os-product .om-genx-go > .om-label { font-size: 11px; line-height: 1.45; }
+  .om-os-product .om-genx-chart { padding: 16px 12px 15px; gap: 12px; }
+  .om-os-product .om-genx-plot { height: clamp(290px, 43dvh, 360px); }
+  .om-os-product .om-genx-subject { width: 100%; min-width: 0; }
+  .om-os-product .om-genx-steps ol { align-items: stretch; gap: 8px 18px; }
+  .om-os-product .om-genx-steps li { white-space: normal; flex-wrap: wrap; padding: 7px 10px; font-size: 12px; }
+  .om-os-product .om-genx-steps li + li::before { left: -15px; }
+  .om-os-product .om-genx-state { font-size: 24px; }
+  .om-os-product .om-genx-panel { padding: 19px 17px; gap: 17px; }
+  .om-os-product .om-genx-decision .om-kv-wide dd { font-size: 14px; line-height: 1.55; }
+  .om-os-product .om-genx-list .om-row-main { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; }
+  .om-os-product .om-genx-list .om-row-main > :last-child { grid-column: 1 / -1; font-size: 11px; }
+
+  .om-os-product .om-pulse-go > .om-btn { min-height: 48px; border-radius: 14px; }
+  .om-os-product .om-pulse-go > .om-label { font-size: 11px; }
+  .om-os-product .om-pulse-listwrap { gap: 13px; }
+  .om-os-product .om-pulse-listwrap .om-toggles { gap: 6px; }
+  .om-os-product .om-pulse-pick { min-height: 48px; }
+  .om-os-product .om-pulse-next .om-product-handoff { gap: 9px; }
+  .om-os-product .om-pulse-detail { scroll-margin-top: 80px; }
+
+  /* FLOW remains the real account workspace, with its existing explicit execution controls. */
+  .om-os .om-flow .om-ws-head { gap: 17px; }
+  .om-os .om-flow-acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
+  .om-os .om-flow-acts > :is(a, button) { min-width: 0; justify-content: center; padding: 10px 9px; font-size: 12px; }
+  .om-os .om-flow :is(.om-flow-main, .om-flow-exec, .om-flow-find, .om-desk) { padding: 18px 16px; }
+  .om-os .om-flow .om-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px 12px; }
+  .om-os .om-flow .om-stat { min-width: 0; }
+  .om-os .om-flow .om-figure { font-size: clamp(22px, 6vw, 28px); }
+  .om-os .om-flow .om-res-head { gap: 10px; align-items: flex-start; }
+  .om-os .om-flow .om-res-head p { font-size: 11px; white-space: normal; }
+  .om-os .om-flow .om-levels { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .om-os .om-flow .om-levels > div:first-child { grid-column: 1 / -1; }
+  .om-os .om-flow .om-levels dd { font-size: 17px; }
+  .om-os .om-flow .om-src-row { gap: 15px; }
+  .om-os .om-flow .om-src-row > :first-child { min-width: 0; }
+  .om-os .om-flow .om-set-head h3 { overflow-wrap: anywhere; }
+}

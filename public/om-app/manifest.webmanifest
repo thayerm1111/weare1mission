@@ -14,8 +14,10 @@
     { "src": "/om-app/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "OM AI Plays", "url": "/portal/signals", "icons": [{ "src": "/om-app/icon-96.png", "sizes": "96x96", "type": "image/png" }] },
     { "name": "Atlas", "url": "/command-center", "icons": [{ "src": "/om-app/icon-96.png", "sizes": "96x96", "type": "image/png" }] },
-    { "name": "FLOW", "url": "/portal/trading?view=flow", "icons": [{ "src": "/om-app/icon-96.png", "sizes": "96x96", "type": "image/png" }] }
+    { "name": "OM AI Plays", "url": "/portal/signals", "icons": [{ "src": "/om-app/icon-96.png", "sizes": "96x96", "type": "image/png" }] },
+    { "name": "GENX", "url": "/portal/genx", "icons": [{ "src": "/om-app/icon-96.png", "sizes": "96x96", "type": "image/png" }] },
+    { "name": "FLOW", "url": "/portal/trading?view=flow", "icons": [{ "src": "/om-app/icon-96.png", "sizes": "96x96", "type": "image/png" }] },
+    { "name": "Market Pulse", "url": "/portal/trading?view=pulse", "icons": [{ "src": "/om-app/icon-96.png", "sizes": "96x96", "type": "image/png" }] }
   ]
 }
