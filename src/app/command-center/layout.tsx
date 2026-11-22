@@ -87,7 +87,7 @@ export default async function CommandCenterLayout({ children }: { children: Reac
       {next ? <>
         <script dangerouslySetInnerHTML={{ __html: SHELL_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: APP_INSTALL_SCRIPT }} />
-        <AppShell atlas configured={isSupabaseConfigured} member={{ name: profile?.full_name ?? null, email: profile?.email ?? null, admin }} preview={admin}>
+        <AppShell atlas configured={isSupabaseConfigured} member={{ id: profile?.id, name: profile?.full_name ?? null, email: profile?.email ?? null, admin }} preview={admin}>
           <div className="om-cc-shell">{children}</div>
         </AppShell>
       </> : <div className="om-cc-shell" style={{ background: "#06090E", minHeight: "100vh" }}>{children}</div>}

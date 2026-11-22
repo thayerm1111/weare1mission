@@ -47,7 +47,7 @@ async function readCallouts(admin: Admin, since: string, asOf: string): Promise<
       .gte("created_at", since).lte("created_at", asOf)
       .order("created_at", { ascending: true }).order("id", { ascending: true }).abortSignal(signal) as unknown as Paged);
     return genxWinStreak(rows, { since, asOf, complete });
-  }, unavailableWinStreak("genx_calls", since, asOf));
+  }, unavailableWinStreak("genx_calls", since, asOf, "unavailable", "read_unavailable"));
   const pending = { since, promise };
   calloutsPending = pending;
   try {

@@ -24,6 +24,7 @@
 .om-streak-pips strong span { font-size: 12px; font-weight: 400; letter-spacing: 0; }
 .om-streak-pips > span { color: var(--om-text-2); font-size: 11px; }
 .om-streak-status { margin: 10px 0 0; color: var(--om-text-2); font-size: 11px; line-height: 1.4; }
+.om-streak-explanation { margin: 3px 0 0; color: var(--om-text-2); font-size: 11px; line-height: 1.5; }
 .om-streak-time { display: block; margin-top: 3px; color: var(--om-text-2); font-size: 10px; line-height: 1.4; }
 .om-streak-method { margin-top: 10px; color: var(--om-text-2); font-size: 11px; }
 .om-streak-method summary { display: flex; align-items: center; gap: 5px; width: fit-content; min-height: 30px; list-style: none; cursor: pointer; }

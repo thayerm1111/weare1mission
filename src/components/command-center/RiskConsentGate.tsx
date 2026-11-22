@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import RiskConsent, { type ConsentView } from "./RiskConsent";
+import { reserveDisclosure } from "@/lib/onboarding/entry";
 
 /**
  * EVERY MEMBER SEES THE DISCLOSURE, AND KEEPS SEEING IT UNTIL THEY SIGN.
@@ -22,16 +23,25 @@ import RiskConsent, { type ConsentView } from "./RiskConsent";
  * It renders nothing at all for a member who has already signed, which is almost everyone after the
  * first week.
  */
-export function RiskConsentGate() {
+export function RiskConsentGate({ memberId = "" }: { memberId?: string } = {}) {
   const [consent, setConsent] = useState<ConsentView | null>(null);
   const [open, setOpen] = useState(false);
+  const release = useRef<(() => void) | null>(null);
+  const finishPrompt = useCallback(() => { release.current?.(); release.current = null; }, []);
+  const deferKey = memberId ? `cc.consent.later.${memberId}` : "cc.consent.later";
 
   useEffect(() => {
-    let alive = true;
-    fetch("/api/command-center/consent", { cache: "no-store" })
+    let alive = true, expired = false;
+    const controller = new AbortController(), done = reserveDisclosure(memberId);
+    release.current = done;
+    setConsent(null); setOpen(false);
+    // An unavailable presentation must not hold the welcome forever; server-side consent still gates trading.
+    const timeout = setTimeout(() => { expired = true; controller.abort(); done(); }, 12_000);
+    fetch("/api/command-center/consent", { cache: "no-store", signal: controller.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
-        if (!alive || !j?.ok) return;
+        if (!alive || expired) return;
+        if (!j?.ok || typeof j.consent?.signed !== "boolean") { done(); return; }
         setConsent(j.consent);
         /*
          * Deferred within a session, not across them.
@@ -40,12 +50,14 @@ export function RiskConsentGate() {
          * visit, not for ever. A member who closes the tab and comes back tomorrow is asked again.
          */
         let deferred = false;
-        try { deferred = sessionStorage.getItem("cc.consent.later") === "1"; } catch { /* private window */ }
+        try { deferred = sessionStorage.getItem(deferKey) === "1"; } catch { /* private window */ }
         if (!j.consent?.signed && !deferred) setOpen(true);
+        else done();
       })
-      .catch(() => { /* unauthenticated or offline: the server still gates trading */ });
-    return () => { alive = false; };
-  }, []);
+      .catch(() => { done(); /* unauthenticated or offline: the server still gates trading */ })
+      .finally(() => clearTimeout(timeout));
+    return () => { alive = false; clearTimeout(timeout); controller.abort(); done(); if (release.current === done) release.current = null; };
+  }, [memberId, deferKey]);
 
   if (!consent || consent.signed) return null;
 
@@ -53,10 +65,11 @@ export function RiskConsentGate() {
     <RiskConsent
       open={open}
       onClose={() => {
-        try { sessionStorage.setItem("cc.consent.later", "1"); } catch { /* private window */ }
+        try { sessionStorage.setItem(deferKey, "1"); } catch { /* private window */ }
         setOpen(false);
+        finishPrompt();
       }}
-      onSigned={(c) => setConsent(c)}
+      onSigned={(c) => { setConsent(c); if (c.signed) { setOpen(false); finishPrompt(); } }}
     />
   );
 }

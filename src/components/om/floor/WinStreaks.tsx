@@ -33,7 +33,11 @@ function StreakCard({ kind, metrics, loading, stale, account, hidden, sample }: 
   const pips = ready ? metrics!.currentPips! : null;
   const noAccount = kind === "flow" && !account;
   const stamp = dated(metrics?.asOf);
-  const unavailable = sample ? "Sample view" : loading ? "Reading results…" : noAccount ? "No account selected" : "Streak unavailable";
+  const explanation = kind === "genx" && metrics?.state === "unavailable" && !sample && !loading && !stale
+    ? metrics.reason === "ungraded_callout" ? "Some entered calls have no recorded outcome."
+      : metrics.reason === "ambiguous_order" ? "Some completed calls share a timestamp, so their order cannot be verified." : null
+    : null;
+  const unavailable = sample ? "Sample view" : loading ? "Reading results…" : noAccount ? "No account selected" : explanation ? "Streak not verified" : "Streak unavailable";
   return (
     <article className={`om-streak-card om-streak-${kind}`} data-winning={ready && wins! > 0 && !stale ? "true" : "false"} aria-label={`${kind === "flow" ? "Your FLOW account" : "GENX community callouts"} winning streak`} aria-busy={loading && !metrics}>
       <div className="om-streak-identity">
@@ -44,6 +48,7 @@ function StreakCard({ kind, metrics, loading, stale, account, hidden, sample }: 
       <div className="om-streak-count"><strong data-no-i18n translate="no">{wins == null ? "—" : wins.toLocaleString("en-US")}</strong><span>Wins in a row</span></div>
       <div className="om-streak-pips"><strong data-no-i18n translate="no" aria-label={hidden && ready ? "Pips hidden" : undefined}>{pips == null ? "—" : hidden ? "••••" : `${pips > 0 ? "+" : ""}${pips.toLocaleString("en-US", { maximumFractionDigits: 1 })}`}<span>{ready && !hidden ? " pips" : ""}</span></strong><span>Pips this streak</span></div>
       <p className="om-streak-status">{!ready ? unavailable : stale ? "Last reading" : wins === 0 ? "Next streak starts here" : "Completed wins"}</p>
+      {explanation && <p className="om-streak-explanation">{explanation}</p>}
       {stamp && <time className="om-streak-time" dateTime={metrics!.asOf}>{stale ? "As of " : "Updated "}{stamp}</time>}
     </article>
   );

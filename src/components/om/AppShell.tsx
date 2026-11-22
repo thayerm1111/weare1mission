@@ -12,7 +12,7 @@ import "./connected-experience.css";
 import { Suspense, useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { CreditCard, Globe, House, LifeBuoy, LogOut, ShieldCheck, SlidersHorizontal, Smartphone, Undo2, User, UserCircle, Waves, Wrench } from "lucide-react";
+import { CreditCard, Globe, House, LifeBuoy, LogOut, PlayCircle, ShieldCheck, SlidersHorizontal, Smartphone, Undo2, User, UserCircle, Waves, Wrench } from "lucide-react";
 import { NotificationsBell } from "@/components/portal/NotificationsBell";
 import { NAV, APP_TABS, TAB_ORDER, activeKey, activeTabKey, type AppTabKey } from "@/lib/floor/nav";
 import type { InstallGuide } from "@/lib/floor/app";
@@ -24,9 +24,10 @@ import { FlowAccountBar, FlowAccountProvider } from "./FlowAccount";
 import { MobileViewport } from "./MobileViewport";
 import { AtlasProvider, useAtlasPanel } from "./atlas/AtlasProvider";
 import { openAtlas } from "@/lib/atlas/open";
+import { openWelcomeTutorial, WelcomeTutorial } from "./WelcomeTutorial";
 
 /** The shared OS frame. Trading tools retain their own engines, permissions and requests. */
-export type ShellMember = { name: string | null; email: string | null; admin: boolean };
+export type ShellMember = { id?: string | null; name: string | null; email: string | null; admin: boolean };
 
 function OmMark() {
   return (
@@ -105,6 +106,7 @@ function ProfileMenu({ member, configured, preview, asApp, onInstall, look, onLo
           <Link role="menuitem" href="/portal/credits" onClick={() => setOpen(false)}><CreditCard aria-hidden="true" />Credits and billing</Link>
           {configured && <div className="om-mobile-notifications"><span>Notifications</span><NotificationsBell trading /></div>}
           <Link role="menuitem" href="/portal/support" onClick={() => setOpen(false)}><LifeBuoy aria-hidden="true" />Support</Link>
+          {configured && member.id && <button type="button" role="menuitem" aria-haspopup="dialog" onClick={() => { setOpen(false); openWelcomeTutorial(); }}><PlayCircle aria-hidden="true" />Replay tutorial</button>}
           {onInstall && <button type="button" role="menuitem" onClick={() => { setOpen(false); onInstall(); }}><Smartphone aria-hidden="true" />Install the app</button>}
           {/* THE LOOK (owner 11-21): Stone or Graphite, changed in place — the menu stays open so the change is seen. */}
           <div className="om-menu-look" role="group" aria-label="Look">
@@ -264,6 +266,7 @@ export function AppShell({ children, member, configured = true, preview = false,
       <MobileViewport />
       <FlowAccountProvider configured={configured}>
       <AtlasProvider configured={configured} memberKey={member.email ?? member.name ?? "member"}>
+      <Suspense fallback={null}><WelcomeTutorial key={member.id ?? "sample"} memberId={member.id} configured={configured} auto={!atlas} /></Suspense>
       <Suspense fallback={<div className="om-nav-wrap"><div className="om-frame"><div className="om-nav" /></div></div>}>
         <Bar member={member} configured={configured} preview={preview} look={look} onLook={chooseLook} />
       </Suspense>

@@ -170,6 +170,7 @@ test("a failed later page never publishes a partial ledger as an exact count or 
     const h = harness({ fail: { table, from: 1000 }, tables: { [table]: rows } });
     const { body } = await h.run();
     assert.equal(body[field].state, "unavailable");
+    assert.equal(body[field].reason, "read_unavailable");
     assert.equal(body[field].currentWins, null);
     assert.equal(body[field].currentPips, null);
     assert.equal(body[field].winningPips, null);
@@ -182,6 +183,25 @@ test("the bounded page cap is incomplete, never a successful 30,000-trade record
   assert.equal(h.calls.filter((q) => q.table === "flow_managed_positions").length, 30);
   assert.equal(body.flow.state, "unavailable");
   assert.equal(body.flow.currentWins, null);
+});
+
+test("the read-only route explains verified source gaps separately and drops the explanation after a later reset", async () => {
+  const h = harness({ tables: { genx_alerts: [call(1, 12), call(2, -3), call(3, null, { outcome: "expired" })] } });
+  const first = await h.run();
+  assert.equal(first.status, 200);
+  assert.equal(first.body.flow.state, "ready");
+  assert.equal(first.body.genx.state, "unavailable");
+  assert.equal(first.body.genx.reason, "ungraded_callout");
+  assert.equal(first.body.genx.currentWins, null);
+  assert.equal(first.body.genx.currentPips, null);
+  assert.doesNotMatch(JSON.stringify(first.body.genx), /loss|negative|stop/);
+  h.tables.genx_alerts.push(call(4, -1), call(5, 7));
+  const next = await h.run();
+  assert.equal(next.body.genx.state, "ready");
+  assert.equal(next.body.genx.currentWins, 1);
+  assert.equal(next.body.genx.currentPips, 7);
+  assert.equal(next.body.genx.reason, undefined);
+  assert.equal(h.calls.filter((q) => q.table === "genx_alerts").length, 2, "an unverified reading does not suppress a fresh source read");
 });
 
 test("failed account or personal-clock reads and absent accounts have distinct unknown states", async () => {
@@ -233,4 +253,14 @@ test("a stalled display read reaches its budget and returns unknown without call
   assert.equal(body.flow.state, "unavailable");
   assert.equal(body.flow.currentWins, null);
   assert.equal(body.genx.state, "ready");
+});
+
+test("a stalled GENX source remains a generic read failure, never an invented outcome explanation", async () => {
+  const h = harness({ hangTable: "genx_alerts", fastDeadline: true });
+  const { body } = await h.run();
+  assert.equal(body.genx.state, "unavailable");
+  assert.equal(body.genx.reason, "read_unavailable");
+  assert.equal(body.genx.currentWins, null);
+  assert.equal(body.genx.currentPips, null);
+  assert.equal(body.flow.state, "ready");
 });

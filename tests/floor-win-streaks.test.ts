@@ -83,6 +83,7 @@ test("missing results, non-finite values and incomplete pages never become zero 
   }
   const short = flowWinStreak([flow("a", 1, 30)], ACCOUNT, { ...WINDOW, complete: false });
   assert.equal(short.state, "unavailable");
+  assert.equal(short.reason, "read_unavailable");
   assert.equal(short.wins, null);
   assert.equal(short.winningPips, null);
   assert.equal(flowWinStreak([], ACCOUNT, WINDOW).currentWins, 0, "a fully read empty ledger really is zero");
@@ -149,8 +150,53 @@ test("GENX expired/ungraded entered calls are unknown boundaries, never wins, fl
   assert.equal(recovered.currentWins, 1);
   assert.equal(recovered.currentPips, 9);
   assert.equal(recovered.winningPips, null);
+  assert.equal(recovered.reason, undefined, "an old ungraded call does not explain a later verified run");
   assert.equal(genxWinStreak([call("bad", 1, 10, { outcome: "loss" })], WINDOW).state, "unavailable");
   assert.equal(genxWinStreak([call("bad-entry", 1, 10, { enter_sent_at: null })], WINDOW).state, "unavailable");
+});
+
+test("entered expirations after a definite reset explain an unverified GENX run without replacing null counts", () => {
+  const rows = [call("first", 1, 20), call("reset", 2, -10),
+    call("expired-a", 3, null, { outcome: "expired" }), call("expired-b", 4, null, { outcome: "expired" })];
+  const before = JSON.stringify(rows);
+  const result = genxWinStreak(rows, WINDOW);
+  assert.equal(result.state, "unavailable");
+  assert.equal(result.reason, "ungraded_callout");
+  for (const field of ["currentWins", "currentPips", "wins", "winningPips", "lastWinAt"] as const) assert.equal(result[field], null);
+  assert.equal(JSON.stringify(rows), before, "explaining a record never rewrites it");
+  assert.doesNotMatch(JSON.stringify(result), /loss|negative|stop/);
+  assert.equal(genxWinStreak([...rows, call("later-win", 5, 8)], WINDOW).reason, "ungraded_callout", "a later win cannot bridge the unknown boundary");
+  assert.equal(genxWinStreak(rows, { ...WINDOW, complete: false }).reason, "read_unavailable", "a partial read cannot establish the source explanation");
+});
+
+test("GENX distinguishes tied completion order from an ungraded call without inventing entry order", () => {
+  const tied = [call("first-entered", 2, 10), call("later-entered", 2, -5, { created_at: at(0), enter_sent_at: at(1) })];
+  for (const rows of [tied, [...tied].reverse()]) {
+    const result = genxWinStreak(rows, WINDOW);
+    assert.equal(result.state, "unavailable");
+    assert.equal(result.reason, "ambiguous_order");
+    assert.equal(result.currentWins, null);
+    assert.equal(result.currentPips, null);
+  }
+  const recovered = genxWinStreak([...tied, call("reset", 3, -1), call("next", 4, 7)], WINDOW);
+  assert.equal(recovered.currentWins, 1);
+  assert.equal(recovered.currentPips, 7);
+  assert.equal(recovered.reason, undefined);
+});
+
+test("malformed or conflicting records do not acquire a misleading ungraded-callout explanation", () => {
+  const expired = call("same", 2, null, { outcome: "expired" });
+  for (const rows of [
+    [call("bad-pips", 1, null)],
+    [call("bad-direction", 1, 10, { outcome: "loss" })],
+    [{ ...expired, enter_sent_at: null }],
+    [expired, call("same", 3, 10, { id: "conflicting-copy" })],
+  ]) {
+    const result = genxWinStreak(rows, WINDOW);
+    assert.equal(result.state, "unavailable");
+    assert.equal(result.reason, undefined);
+    assert.equal(result.currentWins, null);
+  }
 });
 
 test("an immediate call's entry timestamp can precede the database insert timestamp without invalidating its real result", () => {

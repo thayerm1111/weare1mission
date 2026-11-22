@@ -25,11 +25,12 @@
  * automatically once the member is back above the threshold.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, Zap, TrendingUp, ArrowUp, ArrowDown, Loader2, ShieldCheck, Flame } from "lucide-react";
 import { LOW_BALANCE_THRESHOLD, opensOnItsOwn, whatSpendsCredits } from "@/lib/lowBalance";
 import { leaveFor } from "@/lib/leave";
+import { useEntryPrompts } from "@/lib/onboarding/entry";
 
 const THRESHOLD = LOW_BALANCE_THRESHOLD; // show when total credits are BELOW this many (early "you're getting low" warning)
 const MIN_CONFIDENT = 10; // below this many decided GENX calls, show a count, not a headline %
@@ -60,8 +61,11 @@ function ago(iso: string): string {
   return `${Math.round(h / 24)}d ago`;
 }
 
-export function LowBalanceFlyer() {
+export function LowBalanceFlyer({ memberId = "" }: { memberId?: string } = {}) {
   const [open, setOpen] = useState(false);
+  const prompts = useEntryPrompts(memberId);
+  const visible = open && prompts.canShowCredits;
+  const panel = useRef<HTMLDivElement>(null), dismissButton = useRef<HTMLButtonElement>(null);
   const [mounted, setMounted] = useState(false);
   const [total, setTotal] = useState<number | null>(null);
   const [pass, setPass] = useState(false);   // an active FLOW Pass, as /api/credits reports it
@@ -138,13 +142,41 @@ export function LowBalanceFlyer() {
     };
   }, [forced, loadBalance, loadStats]);
 
-  // Lock body scroll while open.
+  // The queued credit prompt takes focus only when it is actually on screen.
   useEffect(() => {
-    if (!open) return;
+    if (!visible) return;
+    const element = panel.current;
+    const active = document.activeElement;
+    const from = active instanceof HTMLElement && active !== document.body && active.isConnected
+      ? active : document.querySelector<HTMLElement>("[data-om-account-trigger]");
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
-  }, [open]);
+    dismissButton.current?.focus({ preventScroll: true });
+    const key = (event: KeyboardEvent) => {
+      // A native top-layer dialog (for example Atlas) owns its own keyboard while above this flyer.
+      if (Array.from(document.querySelectorAll<HTMLElement>("dialog[open]"))
+        .some((item) => item !== element && item.getClientRects().length > 0 && !element?.contains(item))) return;
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dismiss(); return; }
+      if (event.key !== "Tab" || !element) return;
+      const items = Array.from(element.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]'))
+        .filter((item) => item.getClientRects().length > 0 && !item.closest("[hidden], [inert]"));
+      const first = items[0], last = items[items.length - 1];
+      if (!first || !last) { event.preventDefault(); element.focus(); return; }
+      if (event.shiftKey && (document.activeElement === first || !element.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || !element.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("keydown", key);
+      document.body.style.overflow = prev;
+      const next = Array.from(document.querySelectorAll<HTMLElement>('dialog[open], [role="dialog"][aria-modal="true"]'))
+        .some((item) => item !== element && item.getClientRects().length > 0 && !item.closest("[hidden], [inert]"));
+      if (!next) {
+        const back = from?.isConnected ? from : document.querySelector<HTMLElement>("[data-om-account-trigger]");
+        back?.focus({ preventScroll: true });
+      }
+    };
+  }, [visible]);
 
   function dismiss() {
     try { sessionStorage.setItem(SNOOZE_KEY, "1"); } catch { /* ignore */ }
@@ -163,7 +195,7 @@ export function LowBalanceFlyer() {
     finally { setBuying(null); }
   }
 
-  if (!mounted || !open) return null;
+  if (!mounted || !visible) return null;
 
   // ── Honest GENX headline from real data ────────────────────────────────────
   const decided = genx?.decided ?? 0;
@@ -186,7 +218,7 @@ export function LowBalanceFlyer() {
   const flyer = (
     <div
       className="fixed inset-0 z-[95] flex items-end justify-center overflow-y-auto bg-black/75 p-0 backdrop-blur-md sm:items-center sm:p-4"
-      role="dialog" aria-modal="true" aria-label="Get more credits"
+      ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Get more credits"
       onClick={dismiss}
     >
       <div
@@ -200,7 +232,7 @@ export function LowBalanceFlyer() {
         {/* soft gold glow */}
         <div aria-hidden className="pointer-events-none absolute -top-24 left-1/2 h-56 w-56 -translate-x-1/2 rounded-full opacity-40 blur-3xl" style={{ background: "radial-gradient(circle,#ffc24b55,transparent 70%)" }} />
 
-        <button onClick={dismiss} aria-label="Close"
+        <button ref={dismissButton} onClick={dismiss} aria-label="Close"
           className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-full border border-white/10 bg-white/[0.04] text-white/55 transition hover:bg-white/10 hover:text-white">
           <X className="h-4 w-4" />
         </button>

@@ -97,9 +97,9 @@ export default async function PortalLayout({ children }: { children: React.React
         <style dangerouslySetInnerHTML={{ __html: SHELL_CSS }} />
         <script dangerouslySetInnerHTML={{ __html: SHELL_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: APP_INSTALL_SCRIPT }} />
-        <AppShell member={{ name: profile.full_name, email: profile.email, admin: isAdmin }} preview={isAdmin}>{children}</AppShell>
-        <LowBalanceFlyer />
-        <RiskConsentGate />
+        <AppShell member={{ id: profile.id, name: profile.full_name, email: profile.email, admin: isAdmin }} preview={isAdmin}>{children}</AppShell>
+        <LowBalanceFlyer key={profile.id} memberId={profile.id} />
+        <RiskConsentGate key={profile.id} memberId={profile.id} />
       </>
     );
   }

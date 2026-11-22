@@ -4,8 +4,11 @@
  * here grades a trade, changes a ledger, or supplies a trading/risk gate.
  */
 export type WinStreakScope = "account" | "genx_calls";
+export type WinStreakUnavailableReason = "read_unavailable" | "ungraded_callout" | "ambiguous_order";
 export type WinStreakMetrics = {
   state: "ready" | "unavailable" | "no_account";
+  /** Optional explanation only; it never supplies a missing result or changes the run. */
+  reason?: WinStreakUnavailableReason;
   scope: WinStreakScope;
   period: "since_reset";
   since: string | null;
@@ -37,8 +40,9 @@ export type GenxWinRow = {
 
 export function unavailableWinStreak(
   scope: WinStreakScope, since: string | null, asOf: string, state: "unavailable" | "no_account" = "unavailable",
+  reason?: WinStreakUnavailableReason,
 ): WinStreakMetrics {
-  return { state, scope, period: "since_reset", since, asOf, currentWins: null, currentPips: null, wins: null, winningPips: null, lastWinAt: null };
+  return { state, ...(state === "unavailable" && reason ? { reason } : {}), scope, period: "since_reset", since, asOf, currentWins: null, currentPips: null, wins: null, winningPips: null, lastWinAt: null };
 }
 
 const text = (v: unknown): string => typeof v === "string" ? v.trim() : typeof v === "number" && Number.isFinite(v) ? String(v) : "";
@@ -48,7 +52,7 @@ const number = (v: unknown): number | null => {
   const n = Number(v); return Number.isFinite(n) ? n : null;
 };
 const round = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
-type Result = { key: string; at: number | null; pips: number | null };
+type Result = { key: string; at: number | null; pips: number | null; ungradedCallout?: boolean };
 
 /**
  * Duplicate rows for one broker position/call do not create additional wins. Agreeing records use the
@@ -63,37 +67,45 @@ function dedupe(rows: Result[]): Result[] {
     if (prev.at == null || r.at == null) prev.at = null;
     else prev.at = prev.pips != null && prev.pips === r.pips ? Math.min(prev.at, r.at) : Math.max(prev.at, r.at);
     if (prev.pips !== r.pips) prev.pips = null;
+    // Conflicting copies are not proof that this call has no outcome; keep that case generic.
+    prev.ungradedCallout = prev.ungradedCallout === true && r.ungradedCallout === true;
   }
   return [...out.values()];
 }
 
 function fold(scope: WinStreakScope, input: Result[], window: WinStreakWindow, invalid = false): WinStreakMetrics {
-  const unknown = () => unavailableWinStreak(scope, window.since, window.asOf);
+  const unknown = (reason?: WinStreakUnavailableReason) => unavailableWinStreak(scope, window.since, window.asOf, "unavailable", reason);
   const from = time(window.since), until = time(window.asOf);
-  if (!window.complete || invalid || from == null || until == null) return unknown();
+  if (!window.complete) return unknown("read_unavailable");
+  if (invalid || from == null || until == null) return unknown();
   const rows = dedupe(input);
   if (rows.some((r) => r.at == null || !r.key)) return unknown();
   rows.sort((a, b) => a.at! - b.at!);
   let currentWins = 0, currentPips = 0, wins = 0, winningPips = 0;
   let known = true, totalsKnown = true, lastWinAt: string | null = null;
+  let reason: WinStreakUnavailableReason | undefined;
   for (let i = 0; i < rows.length;) {
     const at = rows[i].at!;
-    let positive = 0, pips = 0, reset = false, gap = false;
+    let positive = 0, pips = 0, reset = false, gap = false, ungradedCallout = false;
     // A timestamp cannot establish an order between two different outcomes. A mixed batch is unknown,
     // rather than using an arbitrary id ordering that might turn the same batch into a winning run.
     while (i < rows.length && rows[i].at === at) {
-      const p = rows[i++].pips;
-      if (p == null) { gap = true; totalsKnown = false; }
+      const row = rows[i++], p = row.pips;
+      if (p == null) { gap = true; totalsKnown = false; ungradedCallout ||= row.ungradedCallout === true; }
       else if (p < 0) reset = true;
       else if (p > 0) { positive++; pips += p; wins++; winningPips += p; lastWinAt = new Date(at).toISOString(); }
       // A real zero is a flat close: it neither increments nor resets the run.
     }
     if (gap && positive === 0) lastWinAt = null; // the missing result may have been a more recent win
-    if (gap || (reset && positive > 0)) known = false;
-    else if (reset) { known = true; currentWins = 0; currentPips = 0; }
+    if (gap || (reset && positive > 0)) {
+      known = false;
+      reason = gap ? (ungradedCallout ? "ungraded_callout" : undefined) : "ambiguous_order";
+    }
+    else if (reset) { known = true; reason = undefined; currentWins = 0; currentPips = 0; }
     else if (known) { currentWins += positive; currentPips += pips; }
   }
-  if (!known || !Number.isFinite(currentPips) || !Number.isFinite(winningPips)) return unknown();
+  if (!known) return unknown(reason);
+  if (!Number.isFinite(currentPips) || !Number.isFinite(winningPips)) return unknown();
   return {
     state: "ready", scope, period: "since_reset", since: window.since, asOf: window.asOf,
     currentWins, currentPips: round(currentPips), wins: totalsKnown ? wins : null,
@@ -159,7 +171,12 @@ export function genxWinStreak(rows: GenxWinRow[], window: WinStreakWindow): WinS
     // can consequently be a few milliseconds later. The recorded entry must precede the resolution,
     // but requiring it to follow that insert timestamp would discard real immediate callouts.
     const validEntry = entered != null && at != null && entered <= at;
-    results.push({ key, at: at != null && at >= created ? at : null, pips: coherent && validEntry ? p : null });
+    results.push({
+      key, at: at != null && at >= created ? at : null, pips: coherent && validEntry ? p : null,
+      // The grader's entered expirations have no recorded result. A malformed win, missing entry,
+      // or conflicting duplicate needs a generic explanation instead of claiming an ungraded call.
+      ungradedCallout: validEntry && p == null && (outcome === "expired" || !outcome),
+    });
   }
   return fold("genx_calls", results, window, invalid);
 }

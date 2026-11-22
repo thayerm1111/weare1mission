@@ -149,3 +149,38 @@ test("community streaks remain available without an account, and polling stops w
   h.requests[1].resolve({ ok: true, json: async () => answer(null) }); await drain();
   assert.equal(h.afterUnmount, 0);
 });
+
+test("ungraded GENX calls have a plain explanation while wins and pips remain blank", async () => {
+  const h = harness(); h.render();
+  await h.reply(0, answer(A, { genx: metric({ scope: "genx_calls", state: "unavailable", reason: "ungraded_callout", currentWins: null, currentPips: null }) }));
+  const card = content(h.card("genx"));
+  assert.match(card, /—Wins in a row—Pips this streakStreak not verifiedSome entered calls have no recorded outcome\./);
+  assert.doesNotMatch(card, /0Wins|0 pips|Awaiting|loss|win rate/i);
+  assert.equal(h.card("genx").props["data-winning"], "false");
+  h.refresh(); await h.fail(1);
+  assert.match(content(h.card("genx")), /Streak unavailable/);
+  assert.doesNotMatch(content(h.card("genx")), /no recorded outcome/);
+  h.unmount();
+});
+
+test("GENX completion-order ambiguity is explained without showing historical outcomes", async () => {
+  const h = harness(); h.render();
+  await h.reply(0, answer(A, { genx: metric({ scope: "genx_calls", state: "unavailable", reason: "ambiguous_order", currentWins: null, currentPips: null }) }));
+  assert.match(content(h.card("genx")), /Streak not verifiedSome completed calls share a timestamp, so their order cannot be verified\./);
+  assert.doesNotMatch(content(h.card("genx")), /no recorded outcome|loss|0Wins/i);
+  h.refresh(); await h.reply(1, answer(A, { genx: metric({ scope: "genx_calls", currentWins: 1, currentPips: 7 }) }));
+  assert.match(content(h.card("genx")), /1Wins in a row\+7 pipsPips this streakCompleted wins/);
+  assert.doesNotMatch(content(h.card("genx")), /not verified|share a timestamp/);
+  h.unmount();
+});
+
+test("generic and legacy unavailable GENX responses do not invent an ungraded-callout reason", async () => {
+  const h = harness(); h.render();
+  for (const [i, reason] of [undefined, "read_unavailable", "future_unknown_reason"].entries()) {
+    if (i > 0) h.refresh();
+    await h.reply(i, answer(A, { genx: metric({ scope: "genx_calls", state: "unavailable", reason, currentWins: null, currentPips: null }) }));
+    assert.match(content(h.card("genx")), /—Wins in a row—Pips this streakStreak unavailable/);
+    assert.doesNotMatch(content(h.card("genx")), /not verified|no recorded outcome|share a timestamp|loss/i);
+  }
+  h.unmount();
+});
