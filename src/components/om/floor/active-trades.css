@@ -1,0 +1,75 @@
+.om-active-trades { min-width: 0; margin: 0; }
+.om-active-heading { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin: 0 0 14px; }
+.om-active-heading > div { min-width: 0; }
+.om-active-kicker { color: var(--om-text-2); font-size: 10px; }
+.om-active-heading h2 { display: flex; align-items: center; gap: 9px; margin: 3px 0 0; color: var(--om-text); font-size: 22px; font-weight: 550; letter-spacing: -.035em; }
+.om-active-heading h2 > span { display: grid; place-items: center; min-width: 23px; height: 23px; padding: 0 6px; border: 1px solid var(--om-edge); border-radius: 8px; color: var(--om-ice); font-size: 11px; letter-spacing: 0; }
+.om-active-heading p { margin: 5px 0 0; color: var(--om-text-2); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.om-active-refresh { display: grid; place-items: center; flex: 0 0 42px; width: 42px; height: 42px; border: 1px solid var(--om-edge); border-radius: 13px; background: var(--om-surface); color: var(--om-text-2); cursor: pointer; }
+.om-active-refresh svg { width: 17px; height: 17px; }
+.om-active-trades button { font-family: inherit; cursor: pointer; }
+.om-active-trades button:disabled { opacity: .45; cursor: default; }
+.om-active-trades :is(button, a):focus-visible { outline: 2px solid var(--om-ai); outline-offset: 3px; }
+.om-active-empty { margin: 0; padding: 14px 16px; border: 1px solid var(--om-edge); border-radius: 17px; background: var(--om-surface); color: var(--om-text-2); font-size: 13px; line-height: 1.6; }
+.om-active-empty a { display: inline-flex; align-items: center; gap: 3px; color: var(--om-ice); }
+.om-active-empty svg { width: 12px; height: 12px; }
+.om-active-notice { display: flex; align-items: flex-start; gap: 7px; margin: 0 0 12px; padding: 11px 13px; border: 1px solid rgb(var(--om-gold-rgb) / .24); border-radius: 11px; background: rgb(var(--om-gold-rgb) / .04); color: var(--om-text-2); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.om-active-notice[data-tone="good"] { border-color: rgb(var(--om-pos-rgb) / .25); background: rgb(var(--om-pos-rgb) / .04); }
+.om-active-notice > svg { flex: 0 0 15px; width: 15px; height: 15px; margin-top: 2px; color: var(--om-pos); }
+.om-active-feed { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 10px; color: var(--om-text-2); font-size: 10px; line-height: 1.5; }
+.om-active-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; }
+.om-active-card { min-width: 0; padding: 18px; border: 1px solid var(--om-edge); border-radius: 20px; background: var(--om-surface); }
+.om-active-card > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.om-active-card > header > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.om-active-card h3 { margin: 0; color: var(--om-text); font-size: 17px; font-weight: 600; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.om-active-side { padding: 3px 6px; border: 1px solid var(--om-edge); border-radius: 6px; color: var(--om-text-2); font-size: 9px; font-weight: 600; }
+.om-active-card > header > span { flex: 0 0 auto; color: var(--om-text-2); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+.om-active-card > header > span small { display: block; margin-top: 4px; color: var(--om-text-2); font-size: 9px; }
+.om-active-running { display: flex; flex-direction: column; gap: 3px; margin: 18px 0 16px; color: var(--om-text-2); }
+.om-active-running strong { display: flex; align-items: baseline; gap: 7px; font-size: 31px; font-weight: 550; line-height: 1.1; letter-spacing: -.045em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.om-active-running strong > span { color: var(--om-text-2); font-size: 12px; font-weight: 400; letter-spacing: 0; }
+.om-active-running > span { color: var(--om-text-2); font-size: 10px; }
+.om-active-running[data-tone="positive"] strong { color: var(--om-pos); }
+.om-active-running[data-tone="negative"] strong { color: var(--om-neg); }
+.om-active-levels { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin: 0; }
+.om-active-levels > div { min-width: 0; }
+.om-active-levels dt { color: var(--om-text-2); font-size: 10px; }
+.om-active-levels dd { margin: 4px 0 0; color: var(--om-text); font-size: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.om-active-quote { margin: 10px 0 0; color: var(--om-text-2); font-size: 9px; line-height: 1.5; }
+.om-active-actions { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 7px; margin-top: 15px; padding-top: 13px; border-top: 1px solid var(--om-hair); }
+.om-active-actions > button { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 42px; min-width: 0; padding: 8px 5px; border: 1px solid var(--om-edge); border-radius: 10px; background: transparent; color: var(--om-text); font-size: 10px; line-height: 1.35; }
+.om-active-actions svg { flex: 0 0 13px; width: 13px; height: 13px; color: var(--om-ice); }
+.om-active-actions [data-danger] { color: var(--om-neg); border-color: rgb(var(--om-neg-rgb) / .2); }
+.om-active-actions [data-danger] svg { color: inherit; }
+.om-active-actions > button > svg:last-child:not(:first-child) { width: 11px; flex-basis: 11px; color: var(--om-text-2); }
+.om-active-partials { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 9px; }
+.om-active-partials > button { min-height: 48px; padding: 8px; border: 1px solid rgb(var(--om-ice-rgb) / .24); border-radius: 11px; background: rgb(var(--om-ice-rgb) / .045); color: var(--om-ice); font-size: 12px; }
+.om-active-partials span { display: block; margin-top: 3px; color: var(--om-text-2); font-size: 10px; line-height: 1.4; }
+.om-active-help { margin: 9px 0 0; color: var(--om-text-2); font-size: 10px; line-height: 1.5; }
+.om-active-pending { margin: 13px 0 0; padding: 10px 12px; border: 1px solid rgb(var(--om-gold-rgb) / .24); border-radius: 11px; color: var(--om-gold); font-size: 11px; line-height: 1.6; }
+.om-active-review { margin: 13px 0 0; padding: 14px; border: 1px solid rgb(var(--om-ai-rgb) / .3); border-radius: 13px; background: rgb(var(--om-ai-rgb) / .045); }
+.om-active-review h4 { margin: 0; color: var(--om-text); font-size: 14px; font-weight: 600; }
+.om-active-review p { margin: 7px 0 0; color: var(--om-text-2); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.om-active-review p strong { color: var(--om-text); font-weight: 600; }
+.om-active-review > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
+.om-active-review > div > button { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 43px; padding: 9px 12px; border: 1px solid var(--om-edge); border-radius: 10px; background: transparent; color: var(--om-text-2); font-size: 12px; }
+.om-active-review > div > .om-active-confirm { flex: 1; border-color: transparent; background: var(--om-ice); color: var(--om-page); font-weight: 600; }
+.om-active-review > div > .om-active-confirm[data-danger] { background: var(--om-neg); }
+.om-active-confirm svg { width: 15px; height: 15px; }
+.om-active-review .om-active-review-warning { color: var(--om-gold); }
+.om-active-consent-link { display: inline-flex; align-items: center; gap: 7px; min-height: 42px; margin: -5px 0 10px; padding: 8px 0; border: 0; background: transparent; color: var(--om-ai); font-size: 12px; }
+.om-active-consent-link svg { width: 14px; height: 14px; }
+.om-active-consent { --cc-0b1017: var(--om-surface); --cc-0e131c: var(--om-raised); --cc-e8eff7: var(--om-text); --cc-e8eff7-rgb: var(--om-fg); --cc-f0c475: var(--om-gold); }
+@media (max-width: 720px) {
+  .om-active-grid { grid-template-columns: minmax(0, 1fr); }
+  .om-active-heading h2 { font-size: 20px; }
+  .om-active-card { padding: 16px; }
+  .om-active-running { margin-top: 15px; }
+}
+@media (max-width: 359px) {
+  .om-active-card { padding: 13px; }
+  .om-active-actions { gap: 5px; }
+  .om-active-actions > button { flex-direction: column; min-height: 50px; gap: 4px; }
+  .om-active-actions > button > svg:last-child:not(:first-child) { display: none; }
+  .om-active-levels { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+}

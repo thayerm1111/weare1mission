@@ -397,6 +397,15 @@ export async function getQuote(env: TLEnv, accessToken: string, accNum: string, 
   return { ok: true, data: { bid: numOr(pick(d, "bp", "bid")) ?? null, ask: numOr(pick(d, "ap", "ask")) ?? null, raw: json } };
 }
 
+/** Broker-specific quantity and price increments, through the shared request scheduler. */
+export async function getInstrumentDetails(env: TLEnv, accessToken: string, accNum: string, tradableInstrumentId: string, routeId: string): Promise<TLResult<unknown>> {
+  const path = `/trade/instruments/${encodeURIComponent(tradableInstrumentId)}?routeId=${encodeURIComponent(routeId)}&locale=en`;
+  const { status, json, text } = await tlFetch(env, path, { method: "GET", accessToken, accNum });
+  const error = brokerResponseError(json);
+  if (status < 200 || status >= 300 || error) return { ok: false, status, error: error || "Couldn't load broker instrument details.", raw: json ?? text };
+  return { ok: true, data: json };
+}
+
 export type CreateOrderInput = {
   accountId: string; accNum: string;
   tradableInstrumentId: string; routeId: string;
@@ -505,11 +514,12 @@ export async function listPositions(env: TLEnv, accessToken: string, accNum: str
  * Per official docs: body { stopLoss, takeProfit, trailingOffset }; 204 on success;
  * set a field to null to remove it. Used by the trade-manager to move stops.
  */
-export async function modifyPosition(env: TLEnv, accessToken: string, accNum: string, positionId: string, mod: { stopLoss?: number | null; takeProfit?: number | null }): Promise<TLResult<true>> {
+export type PositionSendOptions = { noResend?: boolean; notAfterMs?: number };
+export async function modifyPosition(env: TLEnv, accessToken: string, accNum: string, positionId: string, mod: { stopLoss?: number | null; takeProfit?: number | null }, sendOptions: PositionSendOptions = {}): Promise<TLResult<true>> {
   const body: Record<string, unknown> = {};
   if (mod.stopLoss !== undefined) body.stopLoss = mod.stopLoss;
   if (mod.takeProfit !== undefined) body.takeProfit = mod.takeProfit;
-  const { status, json, text } = await tlFetch(env, `/trade/positions/${encodeURIComponent(positionId)}`, { method: "PATCH", accessToken, accNum, body: JSON.stringify(body) });
+  const { status, json, text } = await tlFetch(env, `/trade/positions/${encodeURIComponent(positionId)}`, { method: "PATCH", accessToken, accNum, body: JSON.stringify(body), ...sendOptions });
   if (status < 200 || status >= 300) return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text, uncertain: status >= 500 || status === 408 };
   // TradeLocker can return HTTP 200 with s:"error" (stop too close to market, market
   // closed, bad price, throttled) — that is a REJECTION, not a success. Mirror createOrder:
@@ -528,9 +538,9 @@ export async function modifyPosition(env: TLEnv, accessToken: string, accNum: st
  * PARTIAL close sets body { qty: <lots to close> }; qty 0 (or omitted) closes it
  * in full. Broker places an IOC-then-GTC closing order, so it may not be instant.
  */
-export async function closePosition(env: TLEnv, accessToken: string, accNum: string, positionId: string, qty?: number): Promise<TLResult<true>> {
+export async function closePosition(env: TLEnv, accessToken: string, accNum: string, positionId: string, qty?: number, sendOptions: PositionSendOptions = {}): Promise<TLResult<true>> {
   const body = qty && qty > 0 ? JSON.stringify({ qty }) : JSON.stringify({ qty: 0 });
-  const { status, json, text } = await tlFetch(env, `/trade/positions/${encodeURIComponent(positionId)}`, { method: "DELETE", accessToken, accNum, body });
+  const { status, json, text } = await tlFetch(env, `/trade/positions/${encodeURIComponent(positionId)}`, { method: "DELETE", accessToken, accNum, body, ...sendOptions });
   if (status < 200 || status >= 300) return { ok: false, status, error: humanOrderError(status, json, text), raw: json ?? text, uncertain: status >= 500 || status === 408 };
   // Same HTTP-200-with-s:"error" rejection as modify/create — never record a partial the
   // broker rejected (partial_done=true while the position is still fully open).

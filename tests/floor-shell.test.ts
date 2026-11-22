@@ -320,7 +320,7 @@ test('the trading shell lists and counts trading notifications only; the closed 
 });
 
 /* ── The Floor's composition (owner's brief, 11-20 evening) ── */
-test('The Floor: results on the first screen, one next step per context, methods a tap away', () => {
+test('The Floor: active controls and winning runs on the first screen, one next step per context', () => {
   const floor = read('src/components/om/floor/Floor.tsx');
   const css = read('src/components/om/om.css').replace(/\/\*[\s\S]*?\*\//g, '');
   // The chart row is held to about 400px on a desktop so the results bands are on screen at 1440 × 900 and 1728 × 881.
@@ -338,15 +338,19 @@ test('The Floor: results on the first screen, one next step per context, methods
   assert.equal((atlas.match(/className="om-go"|<Go href/g) ?? []).length, 3);
   assert.equal((atlas.match(/href="\/command-center"/g) ?? []).length, 1);
   assert.match(atlas, /placeholder="Ask about gold or find a signal…"/);
-  // How a figure is counted is whole, and a tap away — not printed under the figures.
-  assert.equal((floor.match(/<Method id="om-method-(genx|flow)">/g) ?? []).length, 2);
+  // The detailed GENX page still imports its existing record card and method.
+  assert.equal((floor.match(/<Method id="om-method-(genx|flow)">/g) ?? []).length, 1);
   assert.match(floor, /Each GENX trade is counted once, at the average result of the accounts that took it\. These are the engine's results on gold, not a return for any one account\./);
-  assert.match(floor, /Trades FLOW placed on this account only\./);
   assert.ok(!/className="om-foot"/.test(floor), 'no paragraph of method under the figures');
-  // The tool cards under the page repeated the navigation; the account's latest trades are there instead.
+  // The main screen uses the current winning run, not a feed of past positive/negative outcomes.
   assert.ok(!/om-tools|className="om-tool"/.test(floor) && !/\.om-tools?\b/.test(css));
-  assert.match(floor, /<Activity ov=\{ov\} switching=\{switching\} hide=\{hide\} now=\{now\} \/>/);
-  assert.match(floor, /const rows = !switching && a \? ov\?\.flow\?\.results\.recent \?\? \[\] : \[\];/, 'the rows are the selected account\'s, and none linger while it is being switched');
+  const main = floor.slice(floor.indexOf('export function Floor('));
+  assert.equal((main.match(/<ActiveTrades\b/g) ?? []).length, 1, 'one set of controls across phone and desktop');
+  assert.match(main, /!isSample && <ActiveTrades \/>/, 'sample pages never load a member\'s live controls');
+  assert.equal((main.match(/<WinStreaks\b/g) ?? []).length, 1);
+  assert.match(main, /<WinStreaks account=\{ov\?\.account \?\? null\} accountsKnown=\{!!ov\?\.accountsKnown\} switching=\{switching\}/);
+  assert.match(main, /hideAccountPips=\{hide\} sample=\{isSample\}/);
+  assert.ok(!/<Activity\b|<FlowCard\b|<GenxCard\b|om-mobile-results/.test(main));
   // Timeframes are text tabs, not a switch.
   assert.match(css, /\.om-tf button \{[^}]*border: 0;[^}]*background: none/);
 });

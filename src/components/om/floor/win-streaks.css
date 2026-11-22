@@ -1,0 +1,48 @@
+.om-win-streaks { min-width: 0; }
+.om-streak-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 11px; }
+.om-streak-heading h2 { margin: 0; color: var(--om-text); font-size: 15px; font-weight: 550; letter-spacing: -.02em; }
+.om-streak-tools { display: flex; align-items: center; gap: 9px; color: var(--om-text-2); font-size: 11px; }
+.om-streak-tools button { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--om-edge); border-radius: 50%; background: var(--om-surface); color: var(--om-text-2); cursor: pointer; }
+.om-streak-tools button svg { width: 15px; height: 15px; }
+.om-streak-tools button:disabled { opacity: .45; cursor: default; }
+.om-streak-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.om-streak-card { --streak-rgb: 74 138 194; --streak-positive: #16704e; min-width: 0; padding: 21px 23px 17px; border: 1px solid var(--om-edge); border-top-color: rgb(var(--streak-rgb) / .32); border-radius: 21px; background: linear-gradient(135deg, rgb(var(--streak-rgb) / .055), transparent 63%), var(--om-surface); }
+.om-look-graphite .om-streak-card { --streak-positive: var(--om-pos); }
+.om-streak-genx { --streak-rgb: 137 117 204; }
+.om-streak-identity { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.om-streak-identity > div { min-width: 0; }
+.om-streak-identity h3 { margin: 0; color: var(--om-text); font-size: 14px; font-weight: 600; letter-spacing: .01em; }
+.om-streak-identity p { margin: 2px 0 0; color: var(--om-text-2); font-size: 11px; line-height: 1.35; }
+.om-streak-mark { display: grid; place-items: center; flex-shrink: 0; width: 25px; height: 25px; margin-left: auto; border-radius: 50%; background: rgb(var(--om-pos-rgb) / .10); color: var(--streak-positive); }
+.om-streak-mark svg { width: 14px; height: 14px; }
+.om-streak-count { display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px 11px; margin-top: 18px; font-variant-numeric: tabular-nums; }
+.om-streak-count strong { color: var(--om-text); font-size: clamp(34px, 3vw, 43px); line-height: 1; letter-spacing: -.055em; font-weight: 550; }
+.om-streak-count > span { color: var(--om-text-2); font-size: 12px; }
+.om-streak-pips { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 3px 12px; margin-top: 15px; padding-top: 12px; border-top: 1px solid var(--om-hair); }
+.om-streak-pips strong { color: var(--om-text); font-size: 20px; font-weight: 550; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.om-streak-card[data-winning="true"] .om-streak-pips strong { color: var(--streak-positive); }
+.om-streak-pips strong span { font-size: 12px; font-weight: 400; letter-spacing: 0; }
+.om-streak-pips > span { color: var(--om-text-2); font-size: 11px; }
+.om-streak-status { margin: 10px 0 0; color: var(--om-text-2); font-size: 11px; line-height: 1.4; }
+.om-streak-time { display: block; margin-top: 3px; color: var(--om-text-2); font-size: 10px; line-height: 1.4; }
+.om-streak-method { margin-top: 10px; color: var(--om-text-2); font-size: 11px; }
+.om-streak-method summary { display: flex; align-items: center; gap: 5px; width: fit-content; min-height: 30px; list-style: none; cursor: pointer; }
+.om-streak-method summary::-webkit-details-marker { display: none; }
+.om-streak-method summary svg { width: 13px; height: 13px; }
+.om-streak-method p { max-width: 690px; margin: 2px 0 0; font-size: 12px; line-height: 1.65; }
+.om-streak-tools button:focus-visible, .om-streak-method summary:focus-visible { outline: 2px solid var(--om-ai); outline-offset: 3px; }
+@media (max-width: 600px) {
+  .om-streak-grid { gap: 10px; }
+  .om-streak-card { padding: 15px 14px 13px; border-radius: 18px; }
+  .om-streak-identity { gap: 7px; align-items: flex-start; }
+  .om-streak-identity .om-product-icon { width: 25px; height: 25px; min-width: 25px; border-radius: 8px; }
+  .om-streak-identity h3 { font-size: 13px; }
+  .om-streak-identity p { font-size: 10px; }
+  .om-streak-mark { display: none; }
+  .om-streak-count { margin-top: 17px; gap: 6px; }
+  .om-streak-count > span { width: 100%; font-size: 11px; }
+  .om-streak-pips { display: grid; gap: 2px; margin-top: 12px; padding-top: 10px; }
+  .om-streak-pips strong { font-size: 20px; overflow-wrap: anywhere; }
+  .om-streak-pips > span { font-size: 10px; }
+  .om-streak-time { font-size: 9px; }
+}

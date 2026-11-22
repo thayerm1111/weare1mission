@@ -67,7 +67,7 @@ test("five-frame evidence survives a saved conversation without changing the pla
   assert.equal(atlasExecution(restored)?.unconfirmed, true);
   assert.equal(atlasExecution(restored)?.entry, raw.signal.entry);
   assert.equal(atlasExecution(restored)?.stop, raw.signal.stopLoss);
-  assert.deepEqual(raw.signal.timeframeConfirmations, diagnostics, "Normalization does not mutate the stored input");
+  assert.deepEqual((raw.signal as Record<string, unknown>).timeframeConfirmations, diagnostics, "Normalization does not mutate the stored input");
 });
 
 test("damaged optional evidence is removed without losing a valid saved play or inventing confirmation", () => {

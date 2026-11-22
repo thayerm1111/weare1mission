@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Activity as PulseIcon, ArrowUpRight, ChevronDown, ChevronRight, Eye, EyeOff, Info, Layers3, Mic, Send, Sparkles } from "lucide-react";
+import { Activity as PulseIcon, ArrowUpRight, ChevronDown, Eye, EyeOff, Info, Layers3, Mic, Send, Sparkles } from "lucide-react";
 import { OmChart } from "@/components/om/chart/OmChart";
 import { ProductIcon } from "@/components/om/ProductIcon";
 import { useFlowAccount } from "@/components/om/FlowAccount";
+import { ActiveTrades } from "./ActiveTrades";
+import { WinStreaks } from "./WinStreaks";
 import { timedBars } from "@/lib/chart/candleTime";
 import { useSeeThePlay } from "@/components/portal/SetupLock";
 import { openAtlas, type AtlasContext } from "@/lib/atlas/open";
@@ -19,8 +21,7 @@ import {
 } from "@/lib/floor/overview";
 
 /**
- * THE FLOOR (owner 11-20) — the first screen: the selected account's Balance and Equity, gold with GENX's
- * current state, Atlas, GENX's results and the member's own FLOW results, in one composition.
+ * THE FLOOR — the selected account, its live positions, current winning runs, and gold with Atlas.
  *
  * WHERE EVERYTHING COMES FROM. Nothing on this screen is written here:
  *   /api/floor/overview  the member's accounts, the broker's figures, the desk record, their FLOW results,
@@ -28,6 +29,8 @@ import {
  *   /api/floor/setup     gold's candles, price and GENX's read — or, while the member's window on the play
  *                        is closed, only how far along the setup is (the server withholds the rest)
  *   /api/floor/ticker    the other markets' quotes
+ *   /api/floor/active-trades  the selected account's broker positions and reviewed management actions
+ *   /api/floor/win-streaks    the account's FLOW run and the community's GENX callout run
  * LOADING, NOTHING, ZERO AND UNAVAILABLE ARE FOUR DIFFERENT THINGS and are shown as four: a grey bar while
  * an answer is on its way, plain words when there is nothing (no account connected, no trades in the
  * period), a real 0 only when the answer was zero, and an em dash with the reason when a number could not
@@ -478,99 +481,12 @@ export function GenxCard({ ov, state, failed, period, onPeriod, icon = false }: 
   );
 }
 
-function FlowCard({ ov, state, failed, switching, period, onPeriod, hide }: { ov: FloorOverview | null; state: string; failed: boolean; switching: boolean; period: FloorPeriod; onPeriod: (p: FloorPeriod) => void; hide: boolean }) {
-  const a = ov?.account ?? null;
-  const fl = !switching && ov?.flow && ov.flow.period === period ? ov.flow : null;
-  const r = fl?.results ?? null;
-  const f = switching ? null : ov?.figures ?? null;
-  const waiting = !r && !!a && !failed && (state === "loading" || switching || (!!ov?.flow && ov.flow.period !== period));
-  // Whether the member has an account is only known once their accounts have been read.
-  const unknown = !ov ? state !== "loading" : !ov.accountsKnown;
-  const cur = a?.currency ?? null;
-  const cash = (v: number | null | undefined, sign = true) => (hide ? "••••••" : money(v ?? null, cur, { sign }));
-  // The broker's open profit is for every position on the account. It is FLOW's only when FLOW holds them all.
-  const wholeAccount = r && f?.positions != null && f.positions !== r.open;
-  return (
-    <section className="om-panel om-res om-res-flow" aria-label="My FLOW results">
-      <div className="om-res-head">
-        <div className="om-os-result-heading">
-          <ProductIcon kind="flow" size="sm" />
-          <div style={{ minWidth: 0 }}><h2>My FLOW results</h2>
-            <p className="om-label" data-no-i18n translate="no">{a ? `${a.name} · ${a.environment === "live" ? "Live" : "Demo"}` : "Your connected account"}</p></div>
-        </div>
-        {a && (
-          <span className="om-res-tools">
-            <PeriodSelect value={period} onChange={onPeriod} label="My FLOW period" />
-            <Method id="om-method-flow">
-              Trades FLOW placed on this account only.
-              {r?.realized && r.closed > 0 ? ` The amount is an estimate, worked out from each trade's recorded result and size, before your broker's commission and swap${r.realized.left ? `; ${r.realized.left} ${r.realized.left === 1 ? "trade is" : "trades are"} not in it` : ""}.` : ""}
-              {r && r.ungraded ? ` ${r.ungraded} closed with no recorded result.` : ""}
-              {wholeAccount ? ` Open P&L is your broker's figure for all ${f!.positions} open ${f!.positions === 1 ? "position" : "positions"} on the account.` : ""}
-            </Method>
-          </span>
-        )}
-      </div>
-      {!ov && state === "loading" ? <div className="om-stats" aria-busy="true"><div className="om-stat"><Skel w={130} h={26} /><span className="om-label">Realized P&amp;L</span></div></div>
-        : unknown ? <p className="om-empty">Your FLOW results could not be loaded just now.</p>
-        : !a ? <p className="om-empty">Connect a broker account in FLOW and what FLOW does on it shows here. <Go href="/portal/trading?view=flow">Manage accounts</Go></p>
-          : waiting ? <div className="om-stats" aria-busy="true"><div className="om-stat"><Skel w={130} h={26} /><span className="om-label">Realized P&amp;L</span></div><div className="om-stat"><Skel w={110} h={26} /><span className="om-label">Open P&amp;L</span></div><div className="om-stat"><Skel w={36} h={26} /><span className="om-label">Open positions</span></div></div>
-            : !r ? <p className="om-empty">Your FLOW results could not be loaded just now.</p>
-              : (
-                <div className="om-stats">
-                  <div className="om-stat">
-                    <span data-no-i18n translate="no" className={`om-figure om-num ${r.realized ? toneClass(r.realized.amount) : toneClass(r.netPips)}`}>{r.closed === 0 ? cash(0, false) : r.realized ? cash(r.realized.amount) : pipsText(r.netPips)}</span>
-                    <span className="om-label">{r.closed > 0 && !r.realized ? "Realized, in pips" : "Realized P&L"}{r.realized && r.closed > 0 ? <span className="om-faint"> · estimate</span> : null}</span>
-                  </div>
-                  <div className="om-stat">
-                    <span className={`om-figure om-num ${f?.state === "live" ? toneClass(f?.openPnl) : ""}`} data-stale={f && f.state !== "live" ? true : undefined} data-no-i18n translate="no" title={f?.openPnl == null ? (f?.note ?? "Your broker has not reported open profit for this account.") : undefined}>{f ? cash(f.openPnl) : "—"}</span>
-                    <span className="om-label">Open P&amp;L{f && f.state !== "live" && f.openPnl != null ? <span className="om-faint"> · last reading</span> : wholeAccount ? <span className="om-faint"> · whole account</span> : null}</span>
-                  </div>
-                  <div className="om-stat"><span className="om-figure om-num">{r.open}</span><span className="om-label">Open positions</span></div>
-                  <div className="om-stat" data-no-i18n translate="no">
-                    <span className={`om-figure om-num ${r.closed ? toneClass(r.netPips) : ""}`}>{r.closed ? pipsText(r.netPips) : "—"}</span>
-                    <span className="om-label">{r.closed === 0 ? "No trades closed" : `${r.closed} closed`}</span>
-                  </div>
-                </div>
-              )}
-    </section>
-  );
-}
-
-/** The account's latest FLOW trades, a line each. It is only shown when there are some. */
-function Activity({ ov, switching, hide, now }: { ov: FloorOverview | null; switching: boolean; hide: boolean; now: number }) {
-  const a = ov?.account ?? null;
-  const rows = !switching && a ? ov?.flow?.results.recent ?? [] : [];
-  if (!a || rows.length === 0) return null;
-  return (
-    <section className="om-activity" aria-label="Recent FLOW activity">
-      <div className="om-activity-head">
-        <h2>Recent FLOW activity</h2>
-        <Go href="/portal/trading?view=flow">View account results</Go>
-      </div>
-      <ul data-no-i18n translate="no">
-        {rows.slice(0, 4).map((x, i) => (
-          <li key={x.at + i} className="om-num">
-            <span>{x.symbol}</span>
-            <span className="om-dim">{x.side === "buy" ? "Buy" : "Sell"}</span>
-            <span className="om-dim">Closed {ageText(x.at, now)}</span>
-            <span className={x.pips == null ? "om-dim" : x.pips > 0 ? "om-pos" : x.pips < 0 ? "om-neg" : undefined}>{x.pips == null ? "No recorded result" : pipsText(x.pips)}</span>
-            <span className={x.amount == null ? "om-dim" : x.amount > 0 ? "om-pos" : x.amount < 0 ? "om-neg" : undefined}>{x.amount == null ? "" : hide ? "••••••" : money(x.amount, a.currency, { sign: true })}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
 /* ── the screen ───────────────────────────────────────────────────────────────────────────────── */
 
 /** The mobile Floor shares the exact feeds and selected account with the desktop workspace. */
-function MobileFloor({ ov, state, failed, switching, gp, fp, pickGenx, pickFlow, hide, now, setup, setupFailed, view, tf, sample }: {
-  ov: FloorOverview | null; state: string; failed: boolean; switching: boolean;
-  gp: FloorPeriod; fp: FloorPeriod; pickGenx: (p: FloorPeriod) => void; pickFlow: (p: FloorPeriod) => void;
-  hide: boolean; now: number; setup: SetupAnswer | null; setupFailed: boolean; view: SetupView; tf: FloorMode; sample: boolean;
+function MobileFloor({ ov, now, setup, setupFailed, view, tf, sample }: {
+  ov: FloorOverview | null; now: number; setup: SetupAnswer | null; setupFailed: boolean; view: SetupView; tf: FloorMode; sample: boolean;
 }) {
-  const [result, setResult] = useState<"genx" | "flow" | null>(null);
   const read = ov?.atlas?.read;
   const summary = read?.summary?.trim();
   const closed = now > 0 && !goldOpen(now);
@@ -594,16 +510,6 @@ function MobileFloor({ ov, state, failed, switching, gp, fp, pickGenx, pickFlow,
       : closed ? "Market closed · last price"
         : Number.isFinite(stamp) ? `${setupIsCurrent ? "Updated" : "Last update"} ${ageText(String(setup?.asOf), now)}`
           : "Waiting for market data";
-  const g = ov?.genx?.period === gp ? ov.genx.results : null;
-  const flow = !switching && ov?.flow?.period === fp ? ov.flow.results : null;
-  const period = (p: FloorPeriod) => FLOOR_PERIODS.find((x) => x.key === p)?.short ?? p;
-  const cash = (n: number, sign: boolean) => hide ? "••••" : money(n, ov?.account?.currency, { sign });
-  const genxWaiting = !failed && (state === "loading" || (!!ov?.genx && ov.genx.period !== gp));
-  const flowWaiting = !failed && (state === "loading" || (!!ov?.flow && ov.flow.period !== fp));
-  const genxValue = g ? g.trades ? pipsText(g.netPips) : "No closed trades" : genxWaiting ? "Loading…" : "Unavailable";
-  const flowValue = switching ? "Loading…" : !ov?.account ? state === "loading" ? "Loading…" : ov?.accountsKnown ? "Connect FLOW" : "Unavailable"
-    : flow ? flow.closed === 0 ? cash(0, false) : flow.realized ? cash(flow.realized.amount, true) : hide ? "••••" : pipsText(flow.netPips)
-      : flowWaiting ? "Loading…" : "Unavailable";
   const context = floorAtlasContext(setup, view, tf, now);
   return <div className="om-mobile-floor">
     <section className="om-mobile-atlas-card" aria-label="Atlas gold overview">
@@ -631,22 +537,6 @@ function MobileFloor({ ov, state, failed, switching, gp, fp, pickGenx, pickFlow,
         <button type="button" onClick={() => { if (!sample) openAtlas({ tool: "pulse", context: { source: "floor", label: "Discover markets" } }); }} disabled={sample}><PulseIcon aria-hidden="true" /><span>Pulse</span><small>Scan markets</small></button>
       </div>
     </section>
-    <section className="om-mobile-results" aria-label="Trading results">
-      <button type="button" aria-expanded={result === "genx"} aria-controls="om-mobile-result-details" onClick={() => setResult((r) => r === "genx" ? null : "genx")}>
-        <span className="om-mobile-result-label">GENX results <small>{period(gp)}</small></span>
-        <strong className={g?.trades ? toneClass(g.netPips) : ""} data-no-i18n translate="no">{genxValue}</strong>
-        <span className="om-mobile-result-note">Engine record <ChevronRight aria-hidden="true" /></span>
-      </button>
-      <button type="button" aria-expanded={result === "flow"} aria-controls="om-mobile-result-details" onClick={() => setResult((r) => r === "flow" ? null : "flow")}>
-        <span className="om-mobile-result-label">My FLOW <small>{period(fp)}</small></span>
-        <strong className={hide ? "" : flow?.realized ? toneClass(flow.realized.amount) : toneClass(flow?.netPips)} data-no-i18n translate="no">{flowValue}</strong>
-        <span className="om-mobile-result-note">{flow?.closed && flow.realized ? "Realized · estimate" : flow?.closed ? "Realized, in pips" : "Realized P&L"} <ChevronRight aria-hidden="true" /></span>
-      </button>
-    </section>
-    <div id="om-mobile-result-details" hidden={!result}>
-      {result === "genx" && <GenxCard ov={ov} state={state} failed={failed} period={gp} onPeriod={pickGenx} />}
-      {result === "flow" && <FlowCard ov={ov} state={state} failed={failed} switching={switching} period={fp} onPeriod={pickFlow} hide={hide} />}
-    </div>
   </div>;
 }
 
@@ -840,18 +730,20 @@ export function Floor({ sample }: { sample?: FloorSample }) {
         {usingSharedAccount ? <span className="om-os-floor-context"><span className="om-dot" data-tone="off" />Gold workspace</span> : <AccountSummary ov={ov} state={ovState} switching={switching} hide={hide} onHide={() => setHide((h) => { store.set("om:floor:hide", h ? "0" : "1"); return !h; })} onPick={choose} now={now} />}
       </header>
 
-      {compact ? <MobileFloor ov={ov} state={ovState} failed={ovFailed} switching={switching} gp={gp} fp={fp} pickGenx={pickGenx} pickFlow={pickFlow} hide={hide} now={now} setup={setup} setupFailed={setupFailed} view={view} tf={tf} sample={isSample} /> : <>
+      {!isSample && <ActiveTrades />}
+
+      <WinStreaks account={ov?.account ?? null} accountsKnown={!!ov?.accountsKnown} switching={switching}
+        hideAccountPips={hide} sample={isSample} />
+
+      {compact ? <MobileFloor ov={ov} now={now} setup={setup} setupFailed={setupFailed} view={view} tf={tf} sample={isSample} /> : <>
       <div className="om-stage">
         <ChartCard setup={setup} failed={setupFailed} tf={tf} onTf={pickTf} change={gold?.percent ?? null} onOpened={() => void loadSetup(true)} now={now} sample={isSample} onSamplePlay={sample?.opened ? openSamplePlay : undefined} layers={layers} onLayer={(layer) => setLayers((current) => ({ ...current, [layer]: !current[layer] }))} />
         <AtlasPanel atlas={ov?.atlas ?? null} view={view} setup={setup} tf={tf} sample={isSample} now={now} onShowLevels={() => setLayers({ levels: true, setup: true })} />
       </div>
 
-      <div className="om-results">
-        <GenxCard ov={ov} state={ovState} failed={ovFailed} period={gp} onPeriod={pickGenx} icon />
-        <FlowCard ov={ov} state={ovState} failed={ovFailed} switching={switching} period={fp} onPeriod={pickFlow} hide={hide} />
-      </div>
+      </>}
 
-      <div className="om-lower">
+      {!compact && <div className="om-lower">
         <div className="om-pulse">
           <Link className="om-os-pulse-title" href="/portal/trading?view=pulse"><ProductIcon kind="pulse" size="sm" /><span>Pulse<small>Market quotes</small></span></Link>
           <div className="om-pulse-list" data-no-i18n translate="no">
@@ -866,10 +758,8 @@ export function Floor({ sample }: { sample?: FloorSample }) {
           </div>
           <Go href="/portal/trading?view=pulse">Explore markets</Go>
         </div>
-        <Activity ov={ov} switching={switching} hide={hide} now={now} />
         <p className="om-legal">Educational only — not financial advice. You approve every action on your own account.{isSample && " Sample data: this page is a review of the design, and none of its figures, prices or results are a member's."}</p>
-      </div>
-      </>}
+      </div>}
     </div>
   );
 }
