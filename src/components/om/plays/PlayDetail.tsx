@@ -12,7 +12,7 @@ import type { ChartLevel } from "@/lib/floor/chart";
  * ONE OM AI PLAY, READ TOP TO BOTTOM (owner 11-21 brief §9):
  *   1  the market, the style, when it was analysed, and what the engine concluded
  *   2  one sentence: what is valid, what is missing, or what to wait for
- *   3  the play's own candles and levels — entry, stop, targets and their reward to risk
+ *   3  the play's own levels, then candles — entry, stop, targets and their reward to risk
  *   4  what price has done since (tracking: price only, never an order), and the next step
  *   5  the evidence and the full reasoning, a tap away
  * Every word and number is the play's own, as it was saved. This component fetches nothing and charges
@@ -79,18 +79,18 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
 
   // One sentence: what is valid, what is missing, or what to wait for — the engine's own words where it gave them.
   const decision = a.kind === "none"
-    ? `No setup worth taking on ${r.symbol} when this was analysed. OM AI's call was to stand aside.`
+    ? "No confirmed setup. Wait for a clearer opportunity."
     : a.kind === "idea"
-      ? `Not confirmed: ${(s.no_trade_reason || "the market had not yet proved this setup.").replace(/^./, (c) => c.toLowerCase())} The levels below are the idea's, for reference.`
-      : `${a.side} ${limit ? `with a limit at ${px(s.entry)}` : `around ${px(s.entry)}`}, stop ${px(s.stopLoss)}${targets.length ? `, ${targets.length === 1 ? "target" : "targets"} ${targets.map((x) => px(x.price)).join(", ")}` : ""}${best != null ? ` — up to ${best}R` : ""}.`;
+      ? `Waiting for confirmation. ${s.no_trade_reason || "The market has not confirmed this idea."} Levels are for reference.`
+      : `${a.side} ${limit ? "at the limit entry" : "around the entry"}${best != null ? ` · up to ${best}R` : ""}.`;
 
   return (
     <article className="om-play" aria-label={`${r.symbol} play`}>
       <header className="om-play-head">
         <div style={{ minWidth: 0 }}>
-          <p className="om-label">{[r.market ? r.market.charAt(0).toUpperCase() + r.market.slice(1) : null, STYLE_WORD[r.style ?? ""] ?? s.timeframe, r.interval, s.mode === "accelerator" ? "Accelerator" : s.mode === "institutional" ? "Institutional" : null, r.method ? METHOD_WORD[r.method] : null].filter(Boolean).join(" · ")}</p>
+          <p className="om-label">{[STYLE_WORD[r.style ?? ""] ?? s.timeframe, r.interval].filter(Boolean).join(" · ")}</p>
           <h2 data-no-i18n translate="no">{r.symbol}<small>{r.name}</small></h2>
-          <p className="om-label" data-no-i18n translate="no">Analysed {when} · price then {px(r.live_price ?? r.price)}{r.marketClosed ? " · the market was closed" : ""}</p>
+          <p className="om-label om-play-meta" data-no-i18n translate="no">Analysed {when} · price then {px(r.live_price ?? r.price)}{r.marketClosed ? " · the market was closed" : ""}</p>
         </div>
         <div className="om-play-state">
           <span className="om-chip" data-kind={a.kind}>{a.label}</span>
@@ -102,14 +102,6 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
       <p className="om-play-decision">{decision}</p>
       {s.chased && r.status === "open" && <p className="om-play-note" role="note"><b>Price has moved past the ideal entry.</b> {s.chase_note}</p>}
 
-      {tb.bars.length >= 2 && (
-        <div className="om-play-chart">
-          <OmChart bars={tb.bars} timeKnown={tb.known} tfMs={TF_MS[r.interval] ?? 3600e3} tfLabel={r.interval} price={fin(r.live_price) ? r.live_price : r.price} priceLive={false}
-            dec={Math.max(0, Math.min(6, px(r.price).split(".")[1]?.length ?? 2))} levels={levels} viewKey={`${r.id}`}
-            label={`${r.symbol}, the candles this play was analysed on, with its levels`} />
-        </div>
-      )}
-
       {hasLevels && (
         <div className="om-play-levels">
           <dl className="om-play-lv">
@@ -120,6 +112,14 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
             ))}
           </dl>
           {copy}
+        </div>
+      )}
+
+      {tb.bars.length >= 2 && (
+        <div className="om-play-chart">
+          <OmChart bars={tb.bars} timeKnown={tb.known} tfMs={TF_MS[r.interval] ?? 3600e3} tfLabel={r.interval} price={fin(r.live_price) ? r.live_price : r.price} priceLive={false}
+            dec={Math.max(0, Math.min(6, px(r.price).split(".")[1]?.length ?? 2))} levels={levels} viewKey={`${r.id}`}
+            label={`${r.symbol}, the candles this play was analysed on, with its levels`} />
         </div>
       )}
 
@@ -141,9 +141,12 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
 
       {ticket && (
         <section className="om-play-next" aria-label="Place it">
-          {/* A play whose levels were already reached is history: placing it now is a new trade at today's price. */}
-          {t.resolved && <p className="om-play-note" role="note"><b>Price has already reached {r.status === "win" ? "a target" : "the stop"} for this play.</b> Placing it now is a new trade at today&rsquo;s price, sized on today&rsquo;s accounts.</p>}
-          {ticket}
+          <details className="om-play-order">
+            <summary className="om-play-order-summary">{a.kind === "idea" ? "Review a manual trade" : "Trade with FLOW"}<ChevronDown aria-hidden="true" /></summary>
+            {/* A play whose levels were already reached is history: placing it now is a new trade at today's price. */}
+            {t.resolved && <p className="om-play-note" role="note"><b>Price has already reached {r.status === "win" ? "a target" : "the stop"} for this play.</b> Placing it now is a new trade at today&rsquo;s price, sized on today&rsquo;s accounts.</p>}
+            {ticket}
+          </details>
         </section>
       )}
 
@@ -154,11 +157,13 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
 
       <section className="om-play-why">
         <button type="button" className="om-disclose" aria-expanded={why} onClick={() => setWhy((w) => !w)}>
-          <span><b>Evidence and reasoning</b><span className="om-label">The market read, the confirmations, and the full rationale.</span></span>
+          <span><b>Why this trade</b><span className="om-label">The market read, confirmations, and rationale.</span></span>
           <ChevronDown aria-hidden="true" />
         </button>
         {why && (
           <div className="om-play-why-body">
+            <p className="om-label" data-no-i18n translate="no">Analysed {when} · price then {px(r.live_price ?? r.price)}{r.marketClosed ? " · market closed" : ""}</p>
+            <p className="om-label">{[r.market ? r.market.charAt(0).toUpperCase() + r.market.slice(1) : null, s.mode === "accelerator" ? "Accelerator" : s.mode === "institutional" ? "Institutional" : null, r.method ? METHOD_WORD[r.method] : null, s.grade ? `Grade ${s.grade}${fin(s.gate_score) ? ` · ${s.gate_score}/100` : ""}` : null].filter(Boolean).join(" · ")}</p>
             {(s.bias || s.setup) && (
               <dl className="om-kv">
                 {s.bias && <div><dt>Higher-timeframe bias</dt><dd>{s.bias}</dd></div>}
@@ -191,7 +196,7 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
         )}
       </section>
 
-      {chat && <div className="om-legacy om-play-chat">{chat}</div>}
+      {chat && <details className="om-play-followup"><summary>Follow this play<ChevronDown aria-hidden="true" /></summary><div className="om-legacy om-play-chat">{chat}</div></details>}
       <p className="om-legal" data-no-i18n translate="no">Price {px(r.price)} · as of {r.asOf} · live data via Twelve Data. Educational analysis, not financial advice.</p>
     </article>
   );

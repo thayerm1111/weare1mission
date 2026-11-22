@@ -6,12 +6,14 @@ import "./os-products.css";
 import "./flow-account.css";
 import "./floor/os-floor.css";
 import "./os-mobile.css";
+import "./mobile-tools.css";
+import "./mobile-premium.css";
 import { Suspense, useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Activity, CreditCard, Diamond, Globe, LayoutGrid, LifeBuoy, Link2, LogOut, ShieldCheck, Smartphone, Sparkles, Undo2, User, UserCircle, Zap } from "lucide-react";
+import { CreditCard, Globe, House, LifeBuoy, LogOut, ShieldCheck, Smartphone, Undo2, User, UserCircle, Waves, Wrench } from "lucide-react";
 import { NotificationsBell } from "@/components/portal/NotificationsBell";
-import { NAV, TAB_ORDER, activeKey, type NavKey } from "@/lib/floor/nav";
+import { NAV, APP_TABS, TAB_ORDER, activeKey, activeTabKey, type AppTabKey } from "@/lib/floor/nav";
 import type { InstallGuide } from "@/lib/floor/app";
 import { DEFAULT_LOOK, LOOKS, LOOK_CLASS, LOOK_KEY, applyLook, lookOf, themeOf, type Look } from "@/lib/floor/look";
 import { InstallSheet, OfflineNotice, runningAsApp, useInstall } from "./InstallApp";
@@ -32,7 +34,7 @@ function OmMark() {
   );
 }
 
-const TAB_ICON: Record<NavKey, typeof Zap> = { floor: LayoutGrid, plays: Zap, atlas: Sparkles, flow: Link2, genx: Diamond, pulse: Activity };
+const TAB_ICON: Record<AppTabKey, typeof House> = { floor: House, atlas: Globe, tools: Wrench, flow: Waves };
 
 function Credits() {
   const [total, setTotal] = useState<number | null>(null);
@@ -93,6 +95,7 @@ function ProfileMenu({ member, configured, preview, asApp, onInstall, look, onLo
           )}
           <Link role="menuitem" href="/portal/account" onClick={() => setOpen(false)}><UserCircle aria-hidden="true" />Account and settings</Link>
           <Link role="menuitem" href="/portal/credits" onClick={() => setOpen(false)}><CreditCard aria-hidden="true" />Credits and billing</Link>
+          {configured && <div className="om-mobile-notifications"><span>Notifications</span><NotificationsBell trading /></div>}
           <Link role="menuitem" href="/portal/support" onClick={() => setOpen(false)}><LifeBuoy aria-hidden="true" />Support</Link>
           {onInstall && <button type="button" role="menuitem" onClick={() => { setOpen(false); onInstall(); }}><Smartphone aria-hidden="true" />Install the app</button>}
           {/* THE LOOK (owner 11-21): Stone or Graphite, changed in place — the menu stays open so the change is seen. */}
@@ -126,6 +129,7 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
   const path = usePathname() || "";
   const view = useSearchParams().get("view");
   const here = activeKey(path, view);
+  const tabHere = activeTabKey(path, view);
   // THE APP BAR (owner 11-21: "make it more like an actual app"). As the installed app the bar is an app's: the
   // screen's large title scrolls away under it and its name settles in the bar's middle, with a hairline beneath.
   const [scrolled, setScrolled] = useState(false);
@@ -138,8 +142,9 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
     return () => { window.removeEventListener("scroll", on); if (raf) window.cancelAnimationFrame(raf); };
   }, [path, view]);
   const screen = here ? NAV.find((n) => n.key === here)?.label ?? null : null;
-  const returnToTop = (event: ReactMouseEvent<HTMLAnchorElement>, key: NavKey) => {
-    if (here !== key || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const returnToTop = (event: ReactMouseEvent<HTMLAnchorElement>, key: AppTabKey) => {
+    // Tapping Tools from an engine must open the picker; only re-tap the actual hub to scroll up.
+    if (tabHere !== key || (key === "tools" && path !== "/portal/tools") || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   };
@@ -169,14 +174,14 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
 
       {guide && <InstallSheet guide={guide} onClose={closeGuide} />}
 
-      {/* Phone: all five products and Home, without an overflow menu. */}
+      {/* Four stable places under the thumb. Tools opens the three distinct engines. */}
       <nav className="om-tabbar" aria-label="One Mission app navigation">
-        {TAB_ORDER.map((k) => NAV.find((n) => n.key === k)!).map((n) => {
+        {TAB_ORDER.map((k) => APP_TABS.find((n) => n.key === k)!).map((n) => {
           const Icon = TAB_ICON[n.key];
-          const cur = here === n.key ? "page" : undefined;
+          const cur = tabHere === n.key ? "page" : undefined;
           return n.hard
-            ? <a key={n.key} href={n.href} className="om-tab" aria-label={n.label} aria-current={cur} onClick={(event) => returnToTop(event, n.key)}><span className="om-tab-symbol"><Icon aria-hidden="true" /></span><span>{n.tab}</span></a>
-            : <Link key={n.key} href={n.href} className="om-tab" aria-label={n.label} aria-current={cur} onClick={(event) => returnToTop(event, n.key)}><span className="om-tab-symbol"><Icon aria-hidden="true" /></span><span>{n.tab}</span></Link>;
+            ? <a key={n.key} href={n.href} className="om-tab" aria-label={n.label} aria-current={cur} onClick={(event) => returnToTop(event, n.key)}><span className="om-tab-symbol"><Icon aria-hidden="true" /></span><span>{n.label}</span></a>
+            : <Link key={n.key} href={n.href} className="om-tab" aria-label={n.label} aria-current={cur} onClick={(event) => returnToTop(event, n.key)}><span className="om-tab-symbol"><Icon aria-hidden="true" /></span><span>{n.label}</span></Link>;
         })}
       </nav>
     </>
@@ -202,6 +207,12 @@ function AppDock() {
         : <Link key={app.key} href={app.href} className="om-os-app" aria-current={here === app.key ? "page" : undefined}>{content}</Link>;
     })}
   </nav>;
+}
+
+function AccountPlacement() {
+  const path = usePathname() || "";
+  const here = activeKey(path, useSearchParams().get("view"));
+  return <div className="om-account-placement" data-mobile-visible={here === "floor" || here === "flow" ? "true" : undefined}><FlowAccountBar /></div>;
 }
 
 export function AppShell({ children, member, configured = true, preview = false, atlas = false }: {
@@ -246,7 +257,7 @@ export function AppShell({ children, member, configured = true, preview = false,
         <Bar member={member} configured={configured} preview={preview} look={look} onLook={chooseLook} />
       </Suspense>
       <main className="om-main"><div className="om-frame"><ShellContext.Provider value={true}>
-        {configured && <FlowAccountBar />}
+        {configured && <Suspense fallback={null}><AccountPlacement /></Suspense>}
         <Suspense fallback={<div className="om-os-dock-skeleton" />}><AppDock /></Suspense>
         {children}
         <footer className="om-os-footer"><span>One Mission OS</span><span>Your tools. One connected workspace.</span><Link href="/portal/support">Support ↗</Link></footer>

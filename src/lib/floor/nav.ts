@@ -30,8 +30,21 @@ export const NAV: NavItem[] = [
   { key: "atlas", label: "Atlas", href: "/command-center", tab: "Atlas", hard: true },
 ];
 
-/** The whole system stays one tap away, including while Atlas is open. */
-export const TAB_ORDER: NavKey[] = ["floor", "atlas", "genx", "plays", "pulse", "flow"];
+/** Four stable places on a phone. The individual engines keep their canonical destinations. */
+export type AppTabKey = "floor" | "atlas" | "tools" | "flow";
+export const TAB_ORDER: AppTabKey[] = ["floor", "atlas", "tools", "flow"];
+export const APP_TABS: { key: AppTabKey; label: string; href: string; hard?: boolean }[] = [
+  { key: "floor", label: "Floor", href: "/portal/trading" },
+  { key: "atlas", label: "Atlas", href: "/command-center", hard: true },
+  { key: "tools", label: "Tools", href: "/portal/tools" },
+  { key: "flow", label: "FLOW", href: "/portal/trading?view=flow" },
+];
+
+export function activeTabKey(pathname: string, view: string | null | undefined): AppTabKey | null {
+  if ((pathname || "").replace(/\/+$/, "") === "/portal/tools") return "tools";
+  const key = activeKey(pathname, view);
+  return key === "genx" || key === "plays" || key === "pulse" ? "tools" : key;
+}
 
 /** Which destination a page belongs to. An inline Floor view (?view=) lights the tool it shows. */
 export function activeKey(pathname: string, view: string | null | undefined): NavKey | null {

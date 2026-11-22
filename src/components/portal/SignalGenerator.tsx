@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bitcoin, Gem, TrendingUp, Globe, BarChart3, Zap, X, ChevronLeft, Loader2, Check,
   ArrowUp, ArrowDown, Target, ShieldAlert, Sparkles, Clock, Minus, RefreshCw, Trash2,
-  Activity, Eye, Ban, Search, ChevronDown, MoreHorizontal,
+  Activity, Eye, Ban, Search, ChevronDown, ChevronRight, MoreHorizontal,
 } from "lucide-react";
 import { MARKETS, findAsset, type Market, type Asset } from "@/data/signalAssets";
 import { earnMission } from "@/lib/earnMission";
@@ -23,6 +23,7 @@ import { pairName, priceFor, lotsText } from "@/lib/flow/display";
 import { accountName, maskAccount, money } from "@/lib/floor/overview";
 import type { PlacementSize } from "@/lib/flow/ticketSizing";
 import { ProductIcon } from "@/components/om/ProductIcon";
+import "@/components/om/plays/plays-mobile.css";
 
 const MARKET_ICON: Record<Market["id"], typeof Bitcoin> = { crypto: Bitcoin, metal: Gem, stock: TrendingUp, forex: Globe, index: BarChart3 };
 const MARKET_TINT: Record<Market["id"], string> = { crypto: "text-orange-400", metal: "text-amber-300", stock: "text-emerald-400", forex: "text-sky-400", index: "text-violet-400" };
@@ -152,6 +153,7 @@ export function SignalGenerator() {
   const [picking, setPicking] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [show, setShow] = useState<"all" | Status>("all");
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     try { const raw = localStorage.getItem("om_signals"); if (raw) setRecent(JSON.parse(raw)); } catch { /* ignore */ }
@@ -345,6 +347,7 @@ export function SignalGenerator() {
       ["swing", "Swing", "Trades held over days, read on the daily chart."],
     ] as const;
     const rows = recent.filter((r) => show === "all" || r.status === show);
+    const displayedRows = showAll || show !== "all" ? rows : rows.slice(0, 3);
     const busy = step === "loading";
     const cost: number = CREDIT_COST.signal;
     // Markets to start from: the member's own recent ones, then the most traded. Each is a choice offered —
@@ -354,7 +357,7 @@ export function SignalGenerator() {
     for (const r of recent) offer(r.td);
     for (const td of POPULAR) offer(td);
     // What is missing, said at the control that cannot be pressed yet.
-    const need = !asset ? "Choose a market to continue." : confs.length === 0 ? "Turn on at least one confirmation under Method to continue." : null;
+    const need = !asset ? "Choose a market to continue." : confs.length === 0 ? "Choose at least one confirmation in Advanced settings." : null;
     const methodLine = `${mode === "institutional" ? "Institutional" : "Accelerator"} · ${METHODS.find((m) => m.k === method)!.label} · ${confs.length} confirmation${confs.length === 1 ? "" : "s"} · ${orderType === "limit" ? "limit entry" : "market entry"}`;
     // Ask Atlas about a play: the question carries the play's own words and levels. Free, as asking always is.
     const askAtlas = (r: Result) => {
@@ -366,16 +369,17 @@ export function SignalGenerator() {
       window.location.assign("/command-center");
     };
     return (
-      <div className="om-ws om-plays om-os-product">
+      <div className="om-ws om-plays om-os-product om-plays-premium" data-play-open={!!result || undefined}>
         <header className="om-ws-head om-product-header">
           <div className="om-product-heading">
             <ProductIcon kind="plays" size="lg" />
             <div className="om-product-copy">
-              <p className="om-product-kicker">Trade planning</p>
-              <h1 className="om-title">OM AI Plays</h1>
+              <p className="om-product-kicker"><span className="om-plays-desktop">Trade planning</span><span className="om-plays-phone">OM AI Plays</span></p>
+              <h1 className="om-title"><span className="om-plays-desktop">OM AI Plays</span><span className="om-plays-phone">{result ? "Your play" : "Create a play"}</span></h1>
               <p className="om-sub">Choose a market and a style. OM AI builds the complete read from live market data.</p>
             </div>
           </div>
+          {result && <button type="button" className="om-btn-quiet om-plays-new" onClick={() => { setResult(null); setStep("config"); }}>New play</button>}
           {rate !== null && (
             <p className="om-ws-note om-num" title="Your saved plays since the record was reset, counted by what price did against each play's levels — not orders on an account">
               <b className={rate >= 50 ? "om-pos" : undefined}>{rate}%</b> of tracked plays reached a target first · {wins} of {wins + losses}{totalPips > 0 ? ` · +${totalPips.toLocaleString("en-US")} pips on those` : ""}
@@ -385,68 +389,30 @@ export function SignalGenerator() {
 
         <div className="om-plays-grid">
           <aside className="om-panel om-plays-config" aria-label="Generate a play">
-            <div className="om-product-section-head">
+            <div className="om-product-section-head om-plays-desktop">
               <h2>Build a play</h2>
               <p className="om-label">Three steps, one complete read.</p>
             </div>
             <div className="om-field">
-              <label className="om-step" htmlFor="om-plays-market" data-done={asset ? "" : undefined}><span className="om-step-n" aria-hidden="true">1</span><span className="om-label">Choose a market</span></label>
-              <div className="om-combo">
-                <Search aria-hidden="true" />
-                <input id="om-plays-market" value={find} placeholder={asset ? asset.symbol : "Search markets"} autoComplete="off"
-                  role="combobox" aria-expanded={picking} aria-controls="om-plays-markets" aria-autocomplete="list"
-                  onFocus={() => setPicking(true)} onChange={(e) => { setFind(e.target.value); setPicking(true); }}
-                  onKeyDown={(e) => { if (e.key === "Escape") { setPicking(false); setFind(""); } }} />
-                {picking && <button type="button" className="om-icon-btn" aria-label="Close the market list" onClick={() => { setPicking(false); setFind(""); }}><X aria-hidden="true" /></button>}
-              </div>
-              {picking ? (
-                <div id="om-plays-markets" className="om-combo-list" role="listbox" aria-label="Markets">
-                  {groups.length === 0 ? <p className="om-label">No market matches that.</p> : groups.map(({ m, list }) => (
-                    <div key={m.id} role="group" aria-label={m.name}>
-                      <p className="om-label">{m.name}</p>
-                      {list.map((a) => (
-                        <button key={a.td} type="button" role="option" aria-selected={asset?.td === a.td} onClick={() => { setMarket(m); setAsset(a); setPicking(false); setFind(""); }}>
-                          <span>{a.symbol}</span><small>{a.name}</small>
-                        </button>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <>
-                  {asset ? <p className="om-picked"><b>{asset.symbol}</b><span>{asset.name}{market ? ` · ${market.name}` : ""}</span></p>
-                    : <p className="om-label">Search above, or start with one of these.</p>}
-                  {quick.length > 0 && (
-                    <div className="om-quick" role="group" aria-label={recent.length ? "Your recent markets, then the most traded" : "Most traded markets"} data-no-i18n translate="no">
-                      {quick.map(({ m, a }) => <button key={a.td} type="button" aria-pressed={asset?.td === a.td} title={`${a.name} · ${m.name}`} onClick={() => { setMarket(m); setAsset(a); }}>{a.symbol}</button>)}
-                    </div>
-                  )}
-                </>
-              )}
+              <span className="om-step" id="om-plays-market-label" data-done={asset ? "" : undefined}><span className="om-step-n" aria-hidden="true">1</span><span className="om-label">Market</span></span>
+              <button id="om-plays-market" type="button" className="om-plays-market-row" aria-haspopup="dialog" aria-labelledby="om-plays-market-label om-plays-market-name" onClick={() => setPicking(true)}>
+                <MarketGlyph symbol={asset?.symbol} market={market?.id} />
+                <span id="om-plays-market-name"><b>{asset ? asset.symbol === "XAU/USD" ? "Gold" : asset.symbol : "Choose a market"}</b><small>{asset ? asset.symbol === "XAU/USD" ? asset.symbol : asset.name : "Search all assets"}</small></span>
+                <ChevronRight aria-hidden="true" />
+              </button>
             </div>
 
             <div className="om-field">
-              <span className="om-step" id="om-plays-style" data-done=""><span className="om-step-n" aria-hidden="true">2</span><span className="om-label">Choose a trade style</span></span>
+              <span className="om-step" id="om-plays-style" data-done=""><span className="om-step-n" aria-hidden="true">2</span><span className="om-label">Trading style</span></span>
               <div className="om-seg" role="group" aria-labelledby="om-plays-style">
                 {STYLES.map(([v, label, sub]) => <button key={v} type="button" aria-pressed={style === v} title={sub} onClick={() => setStyle(v)}>{label}</button>)}
               </div>
-              <p className="om-label">{STYLES.find((x) => x[0] === style)![2]}</p>
+              <p className="om-label om-plays-desktop">{STYLES.find((x) => x[0] === style)![2]}</p>
             </div>
 
-            {/* The one action, right after the two choices it needs — the method below can open without pushing it away. */}
-            <div className="om-plays-go">
-              <span className="om-step"><span className="om-step-n" aria-hidden="true">3</span><span className="om-label">Generate</span></span>
-              <button type="button" className="om-btn" onClick={() => void generate()} disabled={!!need || busy} aria-busy={busy} aria-describedby="om-plays-need">
-                {busy && <Loader2 className="animate-spin" aria-hidden="true" />}
-                {busy ? "Analyzing…" : asset ? `Generate a play · ${asset.symbol}` : "Generate a play"}
-              </button>
-              {need && <p className="om-plays-need" id="om-plays-need" role="status">{need}</p>}
-              <p className="om-label" id={need ? undefined : "om-plays-need"}>{cost} {cost === 1 ? "credit" : "credits"} a play · included with the FLOW Pass · charged only when a play is made</p>
-            </div>
-
-            <div className="om-field">
+            <div className="om-field om-plays-advanced">
               <button type="button" className="om-disclose" aria-expanded={advanced} aria-controls="om-plays-adv" onClick={() => setAdvanced((v) => !v)}>
-                <span><span className="om-label">Method · used for every play you generate</span>{methodLine}</span>
+                <span><span className="om-plays-advanced-label">Advanced settings</span><span className="om-label om-plays-desktop">{methodLine}</span></span>
                 <ChevronDown aria-hidden="true" />
               </button>
               {advanced && (
@@ -473,10 +439,21 @@ export function SignalGenerator() {
                 </div>
               )}
             </div>
+
+            {/* One explicit paid action. Opening settings or choosing an asset never generates a play. */}
+            <div className="om-plays-go">
+              <span className="om-step"><span className="om-step-n" aria-hidden="true">3</span><span className="om-label">Generate</span></span>
+              <button type="button" className="om-btn" onClick={() => void generate()} disabled={!!need || busy} aria-busy={busy} aria-describedby="om-plays-need">
+                {busy && <Loader2 className="animate-spin" aria-hidden="true" />}
+                {busy ? "Analyzing…" : "Generate play"}
+              </button>
+              {need && <p className="om-plays-need" id="om-plays-need" role="status">{need}</p>}
+              <p className="om-label" id={need ? undefined : "om-plays-need"}>{cost} {cost === 1 ? "credit" : "credits"}<span className="om-plays-desktop"> a play · included with the FLOW Pass · charged only when a play is made</span></p>
+            </div>
           </aside>
 
           <section className="om-plays-main">
-            <div className="om-panel om-plays-result" aria-live="polite">
+            <div className="om-panel om-plays-result" data-empty={!busy && step !== "error" && !result || undefined} aria-live="polite">
               {busy ? (
                 <div className="om-state" role="status"><Loader2 className="animate-spin" aria-hidden="true" /><p>Analyzing {asset?.symbol ?? "the market"}…</p><span className="om-label">Reading live candles and checking your confirmations. This usually takes a few seconds; nothing is charged unless a play is made.</span></div>
               ) : step === "error" ? (
@@ -489,7 +466,7 @@ export function SignalGenerator() {
                   </span>
                 </div>
               ) : result ? (
-                <PlayDetail r={result} madeMs={madeAt(result)}
+                <PlayDetail r={result} key={result.id} madeMs={madeAt(result)}
                   checking={checking === result.id} onCheck={() => checkResult(result)}
                   updating={updating === result.id} onUpdate={() => getUpdate(result)}
                   update={updates[result.id] ? <UpdatePanel u={updates[result.id]} /> : null}
@@ -520,14 +497,17 @@ export function SignalGenerator() {
 
             <div className="om-saved">
               <div className="om-saved-head">
-                <h2>Saved plays</h2>
-                <div className="om-tf" role="group" aria-label="Show saved plays">
-                  {([["all", "All"], ["open", "Open"], ["win", "Target reached"], ["loss", "Stop reached"]] as const).map(([k, label]) => <button key={k} type="button" aria-pressed={show === k} onClick={() => setShow(k)}>{label}</button>)}
-                </div>
+                <h2>Recent plays</h2>
+                <details className="om-plays-filters">
+                  <summary>{show === "all" ? "Filter" : show === "open" ? "Open" : show === "win" ? "Target reached" : "Stop reached"}<ChevronDown aria-hidden="true" /></summary>
+                  <div className="om-tf" role="group" aria-label="Show saved plays">
+                    {([["all", "All"], ["open", "Open"], ["win", "Target reached"], ["loss", "Stop reached"]] as const).map(([k, label]) => <button key={k} type="button" aria-pressed={show === k} onClick={(event) => { setShow(k); event.currentTarget.closest("details")?.removeAttribute("open"); }}>{label}</button>)}
+                  </div>
+                </details>
               </div>
               {rows.length === 0 ? <p className="om-empty">{recent.length === 0 ? "You have no saved plays yet. A play you generate is saved here." : "No saved play matches that filter."}</p> : (
                 <ul className="om-rows">
-                  {rows.map((r) => <PlayRow key={r.id} r={r} current={result?.id === r.id} checking={checking === r.id} onDelete={() => deleteResult(r.id)} onCheck={() => checkResult(r)}
+                  {displayedRows.map((r) => <PlayRow key={r.id} r={r} current={result?.id === r.id} checking={checking === r.id} onDelete={() => deleteResult(r.id)} onCheck={() => checkResult(r)}
                     onOpen={() => {
                       setResult(r); setStep("result");
                       // Opened from the list below: bring the play into view (it opens above the list).
@@ -535,9 +515,15 @@ export function SignalGenerator() {
                     }} />)}
                 </ul>
               )}
+              {show === "all" && rows.length > 3 && <button type="button" className="om-go om-plays-more" aria-expanded={showAll} onClick={() => setShowAll((v) => !v)}>{showAll ? "Show recent" : `View all ${rows.length} plays`}<ChevronRight aria-hidden="true" /></button>}
+              {rate !== null && <details className="om-plays-record om-plays-phone"><summary>Play results<ChevronDown aria-hidden="true" /></summary><p><b>{rate}%</b> reached a target first · {wins} of {wins + losses} tracked plays{totalPips > 0 ? ` · +${totalPips.toLocaleString("en-US")} pips on those` : ""}.</p><p>Saved plays since the record reset. These are tracked prices, not account returns.</p></details>}
             </div>
           </section>
         </div>
+
+        {picking && <PlayMarketPicker find={find} onFind={setFind} groups={groups} quick={quick} selected={asset?.td ?? null}
+          onPick={(m, a) => { setMarket(m); setAsset(a); setPicking(false); setFind(""); }}
+          onClose={() => { setPicking(false); setFind(""); }} />}
 
         {dive && (
           <DeepDiveModal ticker={dive.symbol} name={dive.name} type={dive.market} td={dive.td} context="signal"
@@ -776,6 +762,45 @@ export function SignalGenerator() {
   );
 }
 
+function MarketGlyph({ symbol, market }: { symbol?: string; market?: string }) {
+  if (symbol === "XAU/USD") return <svg className="om-market-glyph om-market-gold" viewBox="0 0 36 30" fill="currentColor" aria-hidden="true"><path d="M14 3h8l4 10H10L14 3ZM5 17h10l4 10H1L5 17ZM22 17h9l4 10H18l4-10Z" /></svg>;
+  const Icon = market && market in MARKET_ICON ? MARKET_ICON[market as Market["id"]] : Search;
+  return <Icon className="om-market-glyph" aria-hidden="true" />;
+}
+
+/** A native modal keeps selection reachable by touch and keyboard without cluttering the builder. */
+function PlayMarketPicker({ find, onFind, groups, quick, selected, onPick, onClose }: {
+  find: string; onFind: (value: string) => void;
+  groups: { m: Market; list: Asset[] }[];
+  quick: { m: Market; a: Asset }[];
+  selected: string | null;
+  onPick: (market: Market, asset: Asset) => void;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const node = dialog.current;
+    if (!node) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    node.showModal();
+    // Focusing the heading leaves the phone keyboard closed until Search is chosen.
+    node.querySelector<HTMLElement>("h2")?.focus();
+    return () => { node.close(); previous?.focus({ preventScroll: true }); };
+  }, []);
+  return (
+    <dialog ref={dialog} className="om-market-dialog" aria-labelledby="om-market-dialog-title" onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="om-market-dialog-body">
+        <header><h2 id="om-market-dialog-title" tabIndex={-1}>Choose market</h2><button type="button" aria-label="Close market selector" onClick={onClose}><X aria-hidden="true" /></button></header>
+        <label className="om-market-search"><Search aria-hidden="true" /><input value={find} onChange={(event) => onFind(event.target.value)} placeholder="Search assets" aria-label="Search markets" autoComplete="off" /></label>
+        <div className="om-market-dialog-scroll">
+          {!find.trim() && quick.length > 0 && <section className="om-market-quick"><h3>Quick picks</h3><div>{quick.map(({ m, a }) => <button key={a.td} type="button" onClick={() => onPick(m, a)} aria-pressed={selected === a.td}>{a.symbol}</button>)}</div></section>}
+          {groups.length === 0 ? <p className="om-market-no-result">No matching markets.</p> : groups.map(({ m, list }) => <section key={m.id} className="om-market-group" aria-label={m.name}><h3>{m.name}</h3>{list.map((a) => <button key={a.td} type="button" onClick={() => onPick(m, a)} aria-pressed={selected === a.td}><MarketGlyph symbol={a.symbol} market={m.id} /><span><b>{a.symbol === "XAU/USD" ? "Gold" : a.symbol}</b><small>{a.symbol === "XAU/USD" ? a.symbol : a.name}</small></span>{selected === a.td ? <Check aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}</button>)}</section>)}
+        </div>
+      </div>
+    </dialog>
+  );
+}
+
 function dirStyle(dir: string) {
   const color = dir === "LONG" ? "text-emerald-400 bg-emerald-500/15" : dir === "SHORT" ? "text-red-400 bg-red-500/15" : "text-white/60 bg-white/10";
   const Icon = dir === "LONG" ? ArrowUp : dir === "SHORT" ? ArrowDown : Minus;
@@ -831,11 +856,12 @@ function PlayRow({ r, current, checking, onOpen, onCheck, onDelete }: { r: Resul
   const canCheck = r.status === "open" && r.signal.direction !== "NEUTRAL";
   return (
     <li data-current={current || undefined}>
-      <button type="button" className="om-row-main" onClick={onOpen} aria-label={`Open the ${r.symbol} play`}>
-        <span className="om-row-sym" data-no-i18n translate="no">{r.symbol}<small>{r.style ? r.style.charAt(0).toUpperCase() + r.style.slice(1) : r.signal.timeframe}</small></span>
-        <span>{w.setup}</span>
-        <span className={w.tone === "pos" ? "om-pos" : w.tone === "neg" ? "om-neg" : "om-dim"}>{w.outcome}</span>
-        <span className="om-dim om-num" data-no-i18n translate="no">{when}</span>
+      <button type="button" className="om-row-main" onClick={onOpen} aria-label={`Open the ${r.symbol} play: ${w.setup}. ${w.outcome}`}>
+        <span className="om-play-row-market"><MarketGlyph symbol={r.symbol} market={r.market?.toLowerCase()} /><span className="om-row-sym" data-no-i18n translate="no">{r.symbol === "XAU/USD" ? "Gold" : r.symbol}<small>{r.style ? r.style.charAt(0).toUpperCase() + r.style.slice(1) : r.signal.timeframe}</small></span></span>
+        <span className="om-play-row-analysis">{w.setup}</span>
+        <span className={`om-play-row-outcome ${w.tone === "pos" ? "om-pos" : w.tone === "neg" ? "om-neg" : "om-dim"}`}>{w.outcome}</span>
+        <span className="om-dim om-num om-play-row-date" data-no-i18n translate="no">{when}</span>
+        <span className="om-play-row-open">View setup<ChevronRight aria-hidden="true" /></span>
       </button>
       <div ref={box} className="om-row-more">
         <button type="button" className="om-icon-btn" aria-haspopup="menu" aria-expanded={menu} aria-label={`More for the ${r.symbol} play`} onClick={() => { setMenu((m) => !m); setSure(false); }}><MoreHorizontal aria-hidden="true" /></button>

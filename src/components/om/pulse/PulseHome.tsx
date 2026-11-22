@@ -11,6 +11,7 @@ import { SCAN_FRESH_MS, categoryOf, scanMs, type PulseCategory } from "@/lib/pul
 import { priceFor } from "@/lib/flow/display";
 import { leaveGenerateIntent, playsHref } from "@/lib/plays/intent";
 import { ProductIcon } from "@/components/om/ProductIcon";
+import { MobileSection } from "@/components/om/MobileSection";
 
 /**
  * MARKET PULSE, IN THE TRADING PLATFORM'S SHELL (owner 11-20 brief §13).
@@ -46,6 +47,7 @@ export function PulseHome({ setups, loading, asOf, msg, hydrated, scan, onDeepDi
   const [now, setNow] = useState(0);
   const [cat, setCat] = useState<"All" | PulseCategory>("All");
   const [sel, setSel] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const detailRef = useRef<HTMLElement>(null);
   useEffect(() => { setNow(Date.now()); const t = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(t); }, []);
 
@@ -60,12 +62,13 @@ export function PulseHome({ setups, loading, asOf, msg, hydrated, scan, onDeepDi
 
   const pick = (td: string) => {
     setSel(td);
+    setDetailOpen(true);
     // A narrow screen has the detail under the list: take the member to it.
     if (typeof window !== "undefined" && window.matchMedia("(max-width: 980px)").matches) setTimeout(() => detailRef.current?.scrollIntoView({ block: "start" }), 0);
   };
 
   return (
-    <div className="om-ws om-pulsews om-os-product">
+    <div className="om-ws om-pulsews om-os-product om-tool-mobile">
       <header className="om-ws-head om-product-header">
         <div className="om-product-heading">
           <ProductIcon kind="pulse" size="lg" />
@@ -107,6 +110,19 @@ export function PulseHome({ setups, loading, asOf, msg, hydrated, scan, onDeepDi
               </div>
             )}
             {loading && setups.length === 0 ? <div className="om-flow-skel-rows"><span className="om-skel" style={{ width: "100%", height: 18 }} /><span className="om-skel" style={{ width: "100%", height: 18 }} /><span className="om-skel" style={{ width: "70%", height: 18 }} /></div> : (
+              <>
+              <ul className="om-pulse-mobile-markets" aria-label="Markets ranked by confirmations">
+                {rows.map(({ s, rank }) => (
+                  <li key={s.td}>
+                    <button type="button" onClick={() => pick(s.td)} aria-pressed={detailOpen && current?.s.td === s.td} data-no-i18n translate="no">
+                      <span className="om-pulse-mobile-rank">{String(rank).padStart(2, "0")}</span>
+                      <span className="om-pulse-mobile-name"><b>{s.name}</b><small>{s.symbol}</small></span>
+                      <span className="om-pulse-mobile-lean" data-side={s.dir}><b>{s.dir === "LONG" ? "Long" : "Short"}</b><small>{s.confirmed} of {s.total}</small></span>
+                      <ArrowUpRight width={16} height={16} aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
               <table className="om-table om-pulse-table">
                 <thead><tr><th scope="col" className="om-r">#</th><th scope="col">Market</th><th scope="col">Leans</th><th scope="col" className="om-r">Confirmations</th><th scope="col" className="om-r">Price</th></tr></thead>
                 <tbody>
@@ -121,12 +137,17 @@ export function PulseHome({ setups, loading, asOf, msg, hydrated, scan, onDeepDi
                   ))}
                 </tbody>
               </table>
+              </>
             )}
-            <p className="om-faint om-flow-small">Ranked by the scan: the more of its confirmations line up, the higher a market sits. A lean is not a trade.</p>
+            <details className="om-pulse-method"><summary>How ranking works</summary><p className="om-faint om-flow-small">Ranked by the scan: the more of its confirmations line up, the higher a market sits. A lean is not a trade.</p></details>
           </section>
 
-          <section ref={detailRef} className="om-panel om-pulse-detail" aria-label="Selected market">
+          <section ref={detailRef} className="om-pulse-detail-wrap" aria-label="Selected market">
+          <MobileSection title={current?.s.symbol ?? "Market details"} meta="View setup" expanded={detailOpen} onExpanded={setDetailOpen}>
+          <div className="om-panel om-pulse-detail">
             {current ? <Detail s={current.s} rank={current.rank} of={setups.length} scanAt={at} onDeepDive={onDeepDive} /> : <p className="om-empty">Nothing in this group in the last scan.</p>}
+          </div>
+          </MobileSection>
           </section>
         </div>
       )}
@@ -159,12 +180,14 @@ function Detail({ s, rank, of, scanAt, onDeepDive }: { s: PulseSetup; rank: numb
         {s.rsi != null && <div><dt>RSI</dt><dd className="om-num">{s.rsi}</dd></div>}
       </dl>
 
+      <MobileSection title="Confirmations" meta={`${s.confirmed} of ${s.total}`}>
       <div>
         <p className="om-label om-pulse-sub">The confirmations</p>
         <ul className="om-pulse-checks">
           {s.checklist.map((c, i) => <li key={i} data-ok={c.ok ? "true" : "false"}>{c.ok ? <Check aria-hidden="true" /> : <X aria-hidden="true" />}<span>{c.label}</span><span className="om-sr">{c.ok ? " — lined up" : " — not lined up"}</span></li>)}
         </ul>
       </div>
+      </MobileSection>
 
       {levels && (
         <div className="om-pulse-levels">

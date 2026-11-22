@@ -205,7 +205,7 @@ test('the earlier installed app at /app/ shows the new design: it frames the liv
   assert.match(html, /r\.setProperty\("--om-clock", g \? "#1a1a1d" : "#111111"\);/);
   assert.match(html, /localStorage\.getItem\("om-look"\) === "graphite"/, 'the strip under the home indicator takes the look\'s bar colour');
   assert.match(html, /navigator\.serviceWorker\.register\("\/app\/sw\.js"\)/, 'a new version still shows on the next launch');
-  assert.match(read('public/app/sw.js'), /const CACHE = "om-app-v41";/, 'the cache is renewed so every installed copy picks up the new page');
+  assert.match(read('public/app/sw.js'), /const CACHE = "om-app-v42";/, 'the cache is renewed so every installed copy picks up the new page');
   assert.ok(!/<script[^>]*src=/.test(html) && html.length < 6000, 'a small page: everything is the live site inside it');
   assert.match(read('public/app/manifest.webmanifest'), /"scope": "\/app\/"/, 'the installed app keeps its own address');
 });
@@ -266,7 +266,7 @@ test('the installed OS keeps its safe app bar, current-screen navigation and sta
   assert.match(shell, /className="om-os-breadcrumb"><Link href="\/portal\/trading" aria-current=\{here === "floor" \? "page" : undefined\}>The Floor<\/Link>/);
   assert.match(shell, /\{here && here !== "floor" && <><span aria-hidden="true">\/<\/span><span>\{screen\}<\/span><\/>\}/, 'the OS breadcrumb replaces the old scrolling title capsule');
   assert.match(shell, /<nav className="om-tabbar" aria-label="One Mission app navigation">/);
-  assert.match(shell, /TAB_ORDER\.map\(\(k\) => NAV\.find\(\(n\) => n\.key === k\)!\)/, 'mobile destinations remain the same canonical set');
+  assert.match(shell, /TAB_ORDER\.map\(\(k\) => APP_TABS\.find\(\(n\) => n\.key === k\)!\)/, 'mobile destinations use the four-tab app navigation');
   assert.match(shell, /className="om-tab" aria-label=\{n\.label\} aria-current=\{cur\}/, 'every product has a labelled destination with its active state');
   assert.doesNotMatch(shell, /TOOLS_SHEET/, 'GENX and Pulse are directly reachable without an overflow menu');
 });

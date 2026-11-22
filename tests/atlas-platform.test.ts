@@ -159,8 +159,9 @@ test("the OS dock exposes five real apps, marks the active destination, and resp
   assert.equal((dock.match(/aria-current=\{here === app\.key \? "page" : undefined\}/g) ?? []).length, 2, "both full-page and client links identify the current app");
   assert.match(dock, /<span className="om-os-app-title">\{app\.label\}/, "the icons keep visible text labels");
   const frame = shell.slice(shell.indexOf("export function AppShell("));
-  const provider = frame.indexOf("<FlowAccountProvider configured={configured}>"), account = frame.indexOf("<FlowAccountBar />"), tools = frame.indexOf("<AppDock />"), children = frame.indexOf("{children}"), end = frame.indexOf("</FlowAccountProvider>");
+  const provider = frame.indexOf("<FlowAccountProvider configured={configured}>"), account = frame.indexOf("<AccountPlacement />"), tools = frame.indexOf("<AppDock />"), children = frame.indexOf("{children}"), end = frame.indexOf("</FlowAccountProvider>");
   assert.ok(provider > 0 && account > provider && tools > account && children > tools && end > children, "the account bar and all tools share one persistent account view");
+  assert.match(shell, /function AccountPlacement\(\)[\s\S]*?<FlowAccountBar \/>/, "the responsive account placement retains the real account bar");
   const css = read("src/components/om/om.css");
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.om-app \*, \.om-app \*::before, \.om-app \*::after \{ transition: none !important; animation: none !important; \}/);
   const os = read("src/components/om/os.css");

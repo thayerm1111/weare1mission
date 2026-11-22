@@ -4,8 +4,8 @@ import "./atlas-mobile.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  AlertTriangle, BarChart3, Bell, BookOpen, ChevronDown, ChevronUp, Globe2, Layers, LineChart, Maximize2, Menu, Mic, PenLine, Radar, RefreshCw,
-  Settings, Sparkles, Square, Target, X, Zap,
+  AlertTriangle, ArrowUp, BarChart3, Bell, BookOpen, ChevronDown, ChevronRight, ChevronUp, Globe2, History, Layers, LineChart, Maximize2, Menu, Mic, PenLine, Radar, RefreshCw,
+  Settings, SlidersHorizontal, Sparkles, Square, Target, X, Zap,
 } from "lucide-react";
 import { H, fmt2, LABEL, alpha } from "./theme";
 import { HudPanel, LiveDot, Chip, HUD_CSS, Sparkline } from "./Hud";
@@ -96,6 +96,10 @@ const cap = (s: string) => s.replace(/(^|[\s(])(\w)/g, (_, a, b) => a + b.toUppe
 const hhmmss = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 const hhmm = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 const toneCol = (t: string) => (t === "green" ? H.green : t === "red" ? H.red : t === "gold" ? H.gold2 : t === "blue" ? H.blue : t === "cyan" ? H.cyan2 : t === "text" ? H.text : H.mut);
+/** A short opening from the actual engine read. Decimal prices are not sentence breaks. */
+const openingSentence = (s: string) => s.trim().split(/(?<=[.!?])\s+(?=[A-Z])/)[0];
+/** Keep the condition and its prices; the full evidence labels remain in View analysis. */
+const compactCondition = (s: string) => s.replace(/\s*\([^)]*\)/g, "").trim();
 
 function aggregate(bars: ChartBar[], minutes: number): ChartBar[] {
   const ms = minutes * 60_000, out: ChartBar[] = [];
@@ -226,8 +230,11 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   /** The sheet at full height. It opens COMPACT, so the chart stays in view above it. */
   const [sheetTall, setSheetTall] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  /** A phone presents one workspace at a time; every panel and its live data stay mounted. */
+  /** The phone starts with the read and chart. Advanced panels stay mounted behind View analysis. */
   const [mobileView, setMobileView] = useState<"briefing" | "chart" | "levels">("briefing");
+  const [mobileAnalysis, setMobileAnalysis] = useState(false);
+  const [mobileChartTools, setMobileChartTools] = useState(false);
+  const [mobileQuestion, setMobileQuestion] = useState("");
   /** The member is placing one of their own lines on the chart. */
   const [drawMode, setDrawMode] = useState(false);
   const ex = useExplain();
@@ -621,6 +628,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
     if (name === "SHOW_TRADE") { setDrawer("trade"); return; }
     if (name === "SHOW_SCENARIO") {
       setMobileView("briefing");
+      setMobileAnalysis(true);
       const list = scenariosRef.current;
       const key = arg == null ? "" : String(arg).toLowerCase();
       const dir = /^bull|^up/.test(key) ? "up" : /^bear|^down/.test(key) ? "down" : /^neutral|^range/.test(key) ? "range" : null;
@@ -631,6 +639,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
     }
     if (name === "SHOW_METRICS") {
       setMobileView("chart");
+      setMobileAnalysis(true);
       setIndicatorsOpen(true);
       window.setTimeout(() => document.querySelector("[data-tour='indicators']")?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 60);
       return;
@@ -712,6 +721,21 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
     feed.providerTs != null ? `Provider time ${hhmmss(feed.providerTs)} (gold is stamped to the minute)` : "No provider timestamp",
   ].join("\n");
   const quoteAge = feed.status === "demo" ? "recorded" : feed.ageMs != null ? ageShort(feed.ageMs) : "—";
+  // Presentation only: use the server's read verbatim, with its own freshness. A connected stream
+  // does not make a closed market or the last good analysis into a current trading opportunity.
+  const mobileClosed = !isReplay && (d?.marketOpen === false || feed.status === "closed");
+  const mobileReadTitle = mobileClosed ? "Gold is closed."
+    : read?.summary ? openingSentence(read.summary)
+    : err ? "The read is unavailable." : "Reading gold…";
+  const mobileReadStatus = isReplay ? "Recorded read"
+    : err ? "Last available read"
+    : mobileClosed ? "Market closed"
+    : feed.status === "live" ? "Gold insight"
+    : FEED_STATUS_WORD[feed.status].replace(/^MARKET /, "").toLowerCase();
+  const mobileWatch = mobileClosed ? "Fresh candles after the open."
+    : read?.nextWatch ? compactCondition(read.nextWatch.text) : "Waiting for a clear condition.";
+  const mobileInvalidation = mobileClosed ? "A new read when gold reopens."
+    : read?.invalidation ? compactCondition(read.invalidation.text) : "No change level confirmed.";
 
   const nyTime = now ? new Date(now).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour12: false }) : "--:--:--";
   const nyDate = now ? new Date(now).toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }) : "";
@@ -796,11 +820,17 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
   /* ── render ───────────────────────────────────────────────────────────── */
   return (
-    <div data-mobile-view={mobileView} data-mobile-tour={tourOpen || undefined} data-talk-open={sheetOpen || undefined} data-voice-active={onCall || undefined} className={`hud-root w-full px-[10px] pt-[8px] xl:pb-[10px] ${onCall ? "pb-[164px]" : "pb-[92px]"} ${stacked && sheetOpen && !sheetTall ? "talk-compact" : ""}`} style={{ background: `radial-gradient(1200px 500px at 12% -10%, rgba(var(--cc-00c7e8-rgb,0,199,232),0.06), transparent), radial-gradient(900px 500px at 100% 0%, rgba(var(--cc-d5a93d-rgb,213,169,61),0.05), transparent), ${H.bg0}`, color: H.text, fontFamily: "Inter, var(--font-inter), system-ui, sans-serif" }}>
+    <div data-mobile-view={mobileView} data-mobile-analysis={mobileAnalysis || undefined} data-mobile-chart-tools={mobileChartTools || undefined} data-mobile-tour={tourOpen || undefined} data-talk-open={sheetOpen || undefined} data-voice-active={onCall || undefined} className={`hud-root w-full px-[10px] pt-[8px] xl:pb-[10px] ${onCall ? "pb-[164px]" : "pb-[92px]"} ${stacked && sheetOpen && !sheetTall ? "talk-compact" : ""}`} style={{ background: `radial-gradient(1200px 500px at 12% -10%, rgba(var(--cc-00c7e8-rgb,0,199,232),0.06), transparent), radial-gradient(900px 500px at 100% 0%, rgba(var(--cc-d5a93d-rgb,213,169,61),0.05), transparent), ${H.bg0}`, color: H.text, fontFamily: "Inter, var(--font-inter), system-ui, sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: HUD_CSS + DESK }} />
       {tourOpen && <HudTour onClose={() => setTourOpen(false)} />}
 
       {toFloor && <div className="om-atlas-os-heading"><ProductIcon kind="atlas" size="lg" /><div><span>GOLD INTELLIGENCE</span><h1>Atlas</h1><p>Your read on gold. The context, the setup, the next move.</p></div></div>}
+      {toFloor && <div className="atlas-pocket-header">
+        <span className="atlas-pocket-mark" aria-hidden="true"><Sparkles /></span>
+        <div><h1>Atlas</h1><span>Gold</span></div>
+        <button type="button" aria-label="Atlas history" onClick={() => { setNav("JOURNAL"); setDrawer("journal"); }}><History /></button>
+        <button type="button" aria-label="Atlas menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((x) => !x)}><Menu /></button>
+      </div>}
 
       {/* ── HEADER ────────────────────────────────────────────────────── */}
       <header className="om-atlas-os-toolbar relative mb-[8px] flex h-[42px] shrink-0 items-center gap-2 sm:gap-3">
@@ -877,7 +907,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
         </div>
 
         {menuOpen && (
-          <div className="hud-in absolute right-0 top-[46px] z-[46] w-[220px] rounded-[10px] p-1.5 lg:hidden" style={{ background: H.bg1, border: `1px solid ${H.lineHi}`, boxShadow: "0 16px 40px rgba(0,0,0,0.6)" }}>
+          <div className="atlas-header-menu hud-in absolute right-0 top-[46px] z-[46] w-[220px] rounded-[10px] p-1.5 lg:hidden" style={{ background: H.bg1, border: `1px solid ${H.lineHi}`, boxShadow: "0 16px 40px rgba(0,0,0,0.6)" }}>
             {NAV.map((n) => (
               <button key={n} onClick={() => goNav(n)} className="block w-full rounded-[6px] px-3 py-2 text-left text-[11px] font-semibold tracking-[0.14em]"
                 style={{ color: nav === n ? H.gold3 : H.text }}>
@@ -888,6 +918,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             <button onClick={generate} className="block w-full rounded-[6px] px-3 py-2 text-left text-[11px] font-black tracking-[0.14em]" style={{ color: H.gold3 }}>✦ GENERATE WITH ATLAS</button>
             {!isReplay && <button onClick={() => { setMenuOpen(false); setTourOpen(true); }} className="block w-full rounded-[6px] px-3 py-2 text-left text-[11px] font-semibold tracking-[0.14em]" style={{ color: H.cyan2 }}>GUIDE</button>}
             {!isReplay && <button onClick={() => { setMenuOpen(false); setTicket(null); setCallOpen(true); }} className="block w-full rounded-[6px] px-3 py-2 text-left text-[11px] font-semibold tracking-[0.14em]" style={{ color: H.gold2 }}>MANUAL TRADE</button>}
+            {!isReplay && <button onClick={() => { setMenuOpen(false); window.dispatchEvent(new CustomEvent("cc:open-broker")); }} className="atlas-pocket-account">Connected account</button>}
           </div>
         )}
       </header>
@@ -947,7 +978,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
       {/* ── notices: replay, blockers, consent, and the in-place error banner ── */}
       {(isReplay || d?.reason || hardBlock || (consent && !consent.signed) || err) && (
-        <div className="mb-[8px] flex shrink-0 flex-wrap gap-2">
+        <div className="atlas-notices mb-[8px] flex shrink-0 flex-wrap gap-2">
           {err && (
             <div role="alert" data-error-banner="" className="flex w-full flex-wrap items-center gap-2 rounded-[8px] px-3 py-1.5 text-[11.5px]"
               style={{ border: `1px solid color-mix(in srgb, ${H.red} 40%, transparent)`, background: "rgba(var(--cc-ff5364-rgb,255,83,100),0.08)", color: H.text }}>
@@ -966,7 +997,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             </div>
           )}
           {isReplay && <Notice color={H.gold2}>REPLAY — recorded XAUUSD stepped through the live engine. This is not the market.</Notice>}
-          {!isReplay && (hardBlock || d?.reason) && <Notice color={H.gold2}>{d?.blockers?.[0]?.detail ?? d?.reason}</Notice>}
+          {!isReplay && (hardBlock || d?.reason) && <span className={!hardBlock && mobileClosed ? "atlas-closed-notice" : undefined}><Notice color={H.gold2}>{d?.blockers?.[0]?.detail ?? d?.reason}</Notice></span>}
           {consent && !consent.signed && (
             <button onClick={() => setConsentOpen(true)}><Notice color={H.red}>{consent.stale ? "Risk disclosure updated — sign the new version to keep trading." : "Risk disclosure not signed — you can read the market and talk to ATLAS, but not trade. Tap to read and sign."}</Notice></button>
           )}
@@ -974,13 +1005,13 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       )}
 
       {/* ── MAIN GRID ─────────────────────────────────────────────────── */}
-      {toFloor && (
-        <nav className="atlas-mobile-segments" aria-label="Atlas workspace">
-          {([ ["briefing", "Briefing"], ["chart", "Chart"], ["levels", "Levels & activity"] ] as const).map(([id, label]) => (
-            <button key={id} type="button" aria-pressed={mobileView === id} onClick={() => setMobileView(id)}>{label}</button>
-          ))}
-        </nav>
-      )}
+      {toFloor && <section className="atlas-pocket-brief" aria-label="Atlas gold read">
+        <div className="atlas-pocket-read-meta"><span data-pocket-status={feed.status}>{mobileReadStatus}</span><time dateTime={analysisAt != null ? new Date(analysisAt).toISOString() : undefined}>{isReplay ? "Replay" : analysisAgeMs != null ? `${ageShort(analysisAgeMs)} ago` : "Awaiting data"}</time></div>
+        <h2>{mobileReadTitle}</h2>
+        <div className="atlas-pocket-price"><span>XAU/USD</span><strong>{fmt2(headPrice)}</strong><span title={feedTitle}>{feed.status === "live" ? "Live quote" : FEED_STATUS_WORD[feed.status].replace(/^MARKET /, "")}</span>
+          <button type="button" aria-label="Chart controls" aria-expanded={mobileChartTools} onClick={() => setMobileChartTools((x) => !x)}><SlidersHorizontal /></button>
+        </div>
+      </section>}
       <div className="hud-grid">
         {/* LEFT — the read, the timeframes, the levels */}
         <div className="hud-col hud-left">
@@ -1102,6 +1133,24 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
               </div>
             </HudPanel>
           </div>
+
+          {toFloor && <div className="atlas-pocket-followthrough">
+            <div className="atlas-pocket-timeframes" role="group" aria-label="Gold chart timeframe">
+              {TF_BTNS.map((b) => <button key={b.id} type="button" aria-pressed={tf === b.id} onClick={() => setTf(b.id)}>{b.label}</button>)}
+            </div>
+            <div className="atlas-pocket-conditions">
+              <button type="button" className="atlas-pocket-condition" disabled={mobileClosed || !read?.nextWatch?.ref} onClick={() => { if (read?.nextWatch?.ref) pointAt({ ref: read.nextWatch.ref, label: "Atlas is watching" }); }}>
+                <span>Watching next</span><strong>{mobileWatch}</strong>
+              </button>
+              <button type="button" className="atlas-pocket-condition" disabled={mobileClosed || !read?.invalidation || (!read.invalidation.ref && read.invalidation.price == null)} onClick={() => { if (read?.invalidation) pointAt({ ref: read.invalidation.ref, price: read.invalidation.price ?? undefined, label: "Changes the view" }); }}>
+                <span>Changes the view</span><strong>{mobileInvalidation}</strong>
+              </button>
+            </div>
+            {trade?.active && <button type="button" className="atlas-pocket-position" onClick={() => setDrawer("trade")}><span>Open {trade.side} position</span><span>{trade.metrics ? `${trade.metrics.pips >= 0 ? "+" : ""}${Math.round(trade.metrics.pips)} pips` : "View trade"}<ChevronRight /></span></button>}
+            {shownIdea && <button type="button" className="atlas-pocket-position" onClick={openIdea}><span>Your gold setup</span><ChevronRight /></button>}
+            <button type="button" className="atlas-pocket-analysis" aria-expanded={mobileAnalysis} onClick={() => setMobileAnalysis((x) => !x)}><span>{mobileAnalysis ? "Hide analysis" : "View analysis"}</span>{mobileAnalysis ? <ChevronUp /> : <ChevronRight />}</button>
+            <button type="button" className="atlas-pocket-generate" data-generate-pocket="" onClick={generate}><Sparkles />Generate gold setup</button>
+          </div>}
 
           <IndicatorsPanel className="hud-ind" d={d} open={indicatorsOpen} onToggle={() => setIndicatorsOpen((x) => !x)} freshness={freshness} />
 
@@ -1289,7 +1338,12 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             )}
           </div>
         )}
-        <div className="mx-auto flex max-w-[760px] items-center gap-2 px-3 py-2">
+        {toFloor && <form className="atlas-pocket-composer" onSubmit={(e) => { e.preventDefault(); const q = mobileQuestion.trim(); if (q) { askAtlas(q); setMobileQuestion(""); } }}>
+          <input aria-label="Ask Atlas" placeholder="Ask Atlas…" value={mobileQuestion} onChange={(e) => setMobileQuestion(e.target.value)} autoComplete="off" enterKeyHint="send" />
+          <button type="button" onClick={tapCore} aria-label={onCall ? "End Atlas voice conversation" : "Talk to Atlas by voice"} aria-pressed={onCall}>{onCall ? <Square /> : <Mic />}</button>
+          <button type="submit" aria-label="Send question to Atlas" disabled={!mobileQuestion.trim()}><ArrowUp /></button>
+        </form>}
+        <div className="atlas-dock-legacy mx-auto flex max-w-[760px] items-center gap-2 px-3 py-2">
           <button onClick={() => openTalk("CHAT")} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] px-3 py-2 text-left"
             style={{ border: `1px solid ${H.line}`, background: "rgba(var(--cc-09131d-rgb,9,19,29),0.9)" }} aria-label="Talk to ATLAS">
             <span className="relative grid h-7 w-7 shrink-0 place-items-center rounded-full" style={{ background: "radial-gradient(circle at 40% 35%, var(--cc-ffd875,#FFD875), var(--cc-8a5f12,#8A5F12) 70%)", boxShadow: `0 0 0 2px ${talk.tone === "live" ? "rgba(var(--cc-29dfa6-rgb,41,223,166),0.6)" : "rgba(var(--cc-27d7f2-rgb,39,215,242),0.35)"}, 0 0 10px rgba(var(--cc-ffd875-rgb,255,216,117),0.4)` }}>

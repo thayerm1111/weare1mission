@@ -31,11 +31,11 @@ test('the workspace runs on the generator the classic view runs on', () => {
   assert.ok(!/fetch\(/.test(workspace), 'the workspace makes no request of its own');
   assert.match(workspace, /onClick=\{\(\) => void generate\(\)\}/);
   assert.match(workspace, /const cost: number = CREDIT_COST\.signal;/);
-  assert.match(workspace, /\{cost\} \{cost === 1 \? "credit" : "credits"\} a play · included with the FLOW Pass · charged only when a play is made/, 'what it costs is beside the action, read from the setting');
+  assert.match(workspace, /\{cost\} \{cost === 1 \? "credit" : "credits"\}/, 'what it costs is beside the action, read from the setting');
   for (const h of ['checkResult(result)', 'getUpdate(result)', 'deleteResult(r.id)', 'pickMethod(m.k)', 'toggleConf(c.k)', 'setDive(result)']) assert.ok(workspace.includes(h), `${h} is the existing handler`);
   // Every choice the dialog offered is still offered.
   for (const c of ['setMode("institutional")', 'setMode("accelerator")', 'METHODS.map', 'CONFS.map', 'setOrderType("limit")', 'setOrderType("market")', '"scalp"', '"intraday"', '"swing"']) assert.ok(workspace.includes(c), c);
-  assert.match(workspace, /const need = !asset \? "Choose a market to continue\." : confs\.length === 0 \? "Turn on at least one confirmation under Method to continue\." : null;/);
+  assert.match(workspace, /const need = !asset \? "Choose a market to continue\." : confs\.length === 0 \? "Choose at least one confirmation in Advanced settings\." : null;/);
   assert.match(workspace, /disabled=\{!!need \|\| busy\}/, 'nothing can be generated without a market, a confirmation, or twice at once');
 });
 
@@ -97,10 +97,10 @@ test('a link generates once, only for the member\'s own fresh intent (11-21 brie
   assert.match(playsHref('EUR/USD', 'intraday', 'n1'), /&generate=n1$/);
 });
 
-test('the first action is obvious: market, style, then Generate — the method opens below it', () => {
+test('the builder keeps market, style, optional settings and Generate in reading order', () => {
   const i1 = workspace.indexOf('om-step-n" aria-hidden="true">1<'), i2 = workspace.indexOf('om-step-n" aria-hidden="true">2<'), i3 = workspace.indexOf('om-step-n" aria-hidden="true">3<');
   const adv = workspace.indexOf('id="om-plays-adv"');
-  assert.ok(i1 > 0 && i2 > i1 && i3 > i2 && adv > i3, 'Generate sits before the method, so opening it never pushes the action away');
+  assert.ok(i1 > 0 && i2 > i1 && adv > i2 && i3 > adv, 'optional settings precede the Generate action in both reading and focus order');
   assert.match(workspace, /for \(const r of recent\) offer\(r\.td\);\s*for \(const td of POPULAR\) offer\(td\);/, 'a few markets to start from: the member\'s own first');
   assert.match(workspace, /\{need && <p className="om-plays-need" id="om-plays-need" role="status">\{need\}<\/p>\}/, 'what is missing is said at the control');
   assert.match(workspace, /Your play appears here/);
@@ -108,10 +108,10 @@ test('the first action is obvious: market, style, then Generate — the method o
   assert.match(workspace, /<PlayDetail r=\{result\}/);
 });
 
-test('an open play: decision first, the play\'s own chart and levels, tracking apart from orders, and an explicit ticket', () => {
+test('an open play: decision and prices first, its own chart, tracking apart from orders, and an explicit ticket', () => {
   const d = read('src/components/om/plays/PlayDetail.tsx');
   assert.ok(!/fetch\(|\/api\//.test(d), 'the detail asks the server for nothing');
-  const order = ['om-play-head', 'om-play-decision', 'om-play-chart', 'om-play-levels', 'om-play-track', 'om-play-next', 'om-play-why'].map((k) => d.indexOf(`className="${k}"`));
+  const order = ['om-play-head', 'om-play-decision', 'om-play-levels', 'om-play-chart', 'om-play-track', 'om-play-next', 'om-play-why'].map((k) => d.indexOf(`className="${k}"`));
   assert.ok(order.every((x, i) => x > 0 && (i === 0 || x > order[i - 1])), `the hierarchy, in order: ${order}`);
   assert.match(d, /Since it was made · price against its levels/);
   assert.match(d, /not a chance of winning/);

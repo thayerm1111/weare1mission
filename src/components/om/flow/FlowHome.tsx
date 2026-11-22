@@ -12,6 +12,7 @@ import {
   type FloorOverview, type FloorPeriod, type FlowClosed, type FlowPosition, type FlowResults,
 } from "@/lib/floor/overview";
 import { lotsText, pairName, priceFor } from "@/lib/flow/display";
+import { MobileSection } from "@/components/om/MobileSection";
 
 /**
  * FLOW, IN THE TRADING PLATFORM'S SHELL (owner 11-20 brief §9: "Lead with the account experience").
@@ -60,6 +61,8 @@ function FlowHomeView({ find, account }: { find: React.ReactNode; account: FlowA
   const { ov, state: ovState, failed, switching, flowPeriod: fp, setFlowPeriod: period, hide, now, refresh } = account;
   const [tab, setTab] = useState<Tab>("positions");
   const [manage, setManage] = useState<ManageView>(null);
+  const [executionOpen, setExecutionOpen] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
 
   // Only FLOW's local workspace tab lives here. Account selection, periods and privacy are shared.
   useEffect(() => {
@@ -77,8 +80,11 @@ function FlowHomeView({ find, account }: { find: React.ReactNode; account: FlowA
     const el = document.getElementById("flow-find");
     if (!el) return;
     e.preventDefault();
-    el.scrollIntoView({ behavior: calm() ? "auto" : "smooth", block: "start" });
-    el.querySelector<HTMLElement>("select, button")?.focus({ preventScroll: true });
+    setFindOpen(true);
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: calm() ? "auto" : "smooth", block: "start" });
+      el.querySelector<HTMLElement>("select, button")?.focus({ preventScroll: true });
+    });
   };
 
   const a = ov?.account ?? null;
@@ -86,7 +92,7 @@ function FlowHomeView({ find, account }: { find: React.ReactNode; account: FlowA
   const none = !!ov && ov.accountsKnown && !a;
 
   return (
-    <div className="om-ws om-flow">
+    <div className="om-ws om-flow om-tool-mobile">
       <header className="om-ws-head">
         <div>
           <h1 className="om-title">FLOW</h1>
@@ -94,18 +100,20 @@ function FlowHomeView({ find, account }: { find: React.ReactNode; account: FlowA
         </div>
         <div className="om-flow-acts">
           <a href="#flow-find" className="om-btn-quiet" onClick={toFind}><Search aria-hidden="true" width={15} height={15} />Find a trade</a>
-          <button type="button" className="om-btn-quiet" onClick={() => setManage(none ? "connect" : "settings")}><Link2 aria-hidden="true" width={15} height={15} />Manage accounts</button>
+          <button type="button" className="om-btn-quiet" onClick={() => { setExecutionOpen(true); setManage(none ? "connect" : "settings"); }}><Link2 aria-hidden="true" width={15} height={15} />{none ? "Connect account" : "Manage accounts"}</button>
         </div>
       </header>
 
       <div className="om-flow-grid">
         <MyFlow ov={ov} state={ovState} failed={failed} switching={switching} period={fp} onPeriod={period} hide={hide} tab={tab} onTab={pickTab} now={now} />
-        <FlowConnect viewing={viewing} viewReady={ovState !== "loading"} manage={manage} onManage={setManage} onAccountsChanged={reload} />
+        <MobileSection title="Execution" meta="Accounts & controls" expanded={executionOpen || manage !== null} onExpanded={setExecutionOpen}>
+          <FlowConnect viewing={viewing} viewReady={ovState !== "loading"} manage={manage} onManage={setManage} onAccountsChanged={reload} />
+        </MobileSection>
       </div>
 
-      {find}
+      <MobileSection title="Find a trade" expanded={findOpen} onExpanded={setFindOpen}>{find}</MobileSection>
 
-      <FlowTrackRecord />
+      <MobileSection title="FLOW engine record"><FlowTrackRecord /></MobileSection>
     </div>
   );
 }
@@ -131,7 +139,7 @@ function MyFlow({ ov, state, failed, switching, period, onPeriod, hide, tab, onT
   let body: React.ReactNode;
   if (!ov && state === "loading") body = <Loading />;
   else if (unknown) body = <p className="om-empty">Your FLOW results could not be loaded just now. This tries again on its own.</p>;
-  else if (!a) body = <Steps />;
+  else if (!a) body = <MobileSection title="How FLOW works"><Steps /></MobileSection>;
   else if (waiting) body = <Loading />;
   else if (!r) body = <p className="om-empty">Your FLOW results could not be loaded just now. This tries again on its own.</p>;
   else {

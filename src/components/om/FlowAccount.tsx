@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, ChevronDown, Eye, EyeOff, Link2, RefreshCw } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ChevronRight, Eye, EyeOff, Link2, RefreshCw } from "lucide-react";
 import {
   ageText, figuresState, money, periodOf,
   type FloorAccount, type FloorOverview, type FloorPeriod,
@@ -206,6 +206,10 @@ export function FlowAccountBar() {
   ];
   return (
     <section className="om-flow-account" data-expanded={expanded || undefined} data-empty={!!ov?.accountsKnown && !selected && !waiting || undefined} aria-label="FLOW account overview" aria-busy={waiting}>
+      <button type="button" className="om-account-strip" aria-expanded={expanded} aria-controls="om-flow-account-figures" onClick={() => setExpanded((open) => !open)}>
+        <span>FLOW <span aria-hidden="true">·</span> <span className="om-account-strip-status">{waiting ? "Connecting…" : selected?.connection === "connected" ? "Connected" : selected ? "Needs attention" : ov?.accountsKnown ? "Connect account" : "Unavailable"}</span></span>
+        <ChevronRight width={18} height={18} aria-hidden="true" />
+      </button>
       <div className="om-flow-account-brand"><Link2 width={16} height={16} aria-hidden="true" /><span>FLOW</span></div>
       <div className="om-flow-account-select-area">
         {hasAccounts ? (
@@ -234,6 +238,7 @@ export function FlowAccountBar() {
           </div>
         ))}
       </div>
+      {selected && <p className="om-account-caption" data-no-i18n translate="no">{selected.environment === "live" ? "Live" : "Demo"} · {selected.name}{!fresh && !waiting ? " · Last reading" : ""}</p>}
       <div className="om-flow-account-actions">
         <button type="button" className="om-flow-account-icon" onClick={toggleHide} aria-pressed={hide} aria-label={hide ? "Show amounts" : "Hide amounts"} title={hide ? "Show amounts" : "Hide amounts"}>
           {hide ? <EyeOff width={16} height={16} aria-hidden="true" /> : <Eye width={16} height={16} aria-hidden="true" />}

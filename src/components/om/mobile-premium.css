@@ -1,0 +1,142 @@
+/* Approved mobile app: a quiet account, Atlas, three tools and four destinations. */
+.om-account-strip, .om-account-caption, .om-mobile-notifications { display: none; }
+.om-tools-home { max-width: 760px; margin: 0 auto; }
+.om-tools-home > header { margin: 12px 0 26px; }
+.om-tools-home > header p { margin: 0 0 8px; color: var(--om-text-2); font-size: 12px; }
+.om-tools-home h1 { margin: 0; font-size: 34px; font-weight: 550; letter-spacing: -.045em; }
+.om-tools-list { display: grid; gap: 12px; }
+.om-tools-list > a { display: flex; align-items: center; gap: 16px; min-height: 104px; padding: 20px; border: 1px solid var(--om-edge); border-radius: 20px; background: var(--om-surface); color: var(--om-text); text-decoration: none; }
+.om-tools-symbol { display: grid; place-items: center; flex: 0 0 48px; width: 48px; height: 48px; border-radius: 14px; background: rgb(var(--om-fg) / .045); }
+.om-tools-symbol svg { width: 26px; height: 26px; stroke-width: 1.5; }
+.om-tools-list strong { display: block; font-size: 20px; font-weight: 550; letter-spacing: -.025em; }
+.om-tools-list small { display: block; margin-top: 5px; font-size: 13px; line-height: 1.45; color: var(--om-text-2); }
+.om-tools-list > a > svg, .om-tools-atlas > svg:last-child { flex: 0 0 18px; width: 18px; margin-left: auto; color: var(--om-text-3); }
+.om-tools-atlas { display: flex; align-items: center; gap: 14px; margin-top: 24px; padding: 18px 4px; color: var(--om-text-2); font-size: 12px; text-decoration: none; }
+.om-tools-atlas > svg:first-child { width: 32px; height: 32px; color: var(--om-text); }
+.om-tools-atlas strong { display: block; margin-top: 4px; font-size: 16px; color: var(--om-text); font-weight: 500; }
+.om-tools-list > a:focus-visible, .om-tools-atlas:focus-visible { outline: 2px solid var(--om-text); outline-offset: 4px; }
+.om-tools-list > a:active { opacity: .7; }
+.om-standalone .om-os .om-tabbar,
+.om-standalone .om-os.om-os-atlas .om-tabbar { grid-template-columns: repeat(4, minmax(0, 124px)); }
+
+@media (max-width: 980px) {
+  .om-look-graphite .om-app.om-os {
+    --om-surface: #17181b; --om-raised: #202125; --om-menu: #1b1c20;
+    --om-text: #f3f3f5; --om-text-2: #a4a5ac; --om-text-3: #868890;
+    --om-ai: #d8d9df; --om-ai-rgb: 216 217 223;
+    --om-atlas-bg: #17181b; --om-atlas-edge: rgba(238,240,248,.12);
+    --om-ask-edge: rgba(238,240,248,.15); --om-lift: none;
+  }
+  .om-app.om-os { --om-mobile-nav-height: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  .om-os .om-nav, .om-standalone .om-os .om-nav { min-height: 54px; }
+  .om-os .om-nav-right > .om-credits,
+  .om-os .om-nav-right > .om-bell,
+  .om-os .om-mobile-screen { display: none; }
+  .om-os .om-brand svg { width: 39px; height: 25px; }
+  .om-os .om-avatar, .om-standalone .om-os .om-avatar { border-radius: 50%; }
+  .om-os .om-avatar svg { width: 21px; height: 21px; }
+  .om-os .om-main, .om-standalone .om-os .om-main { padding-top: 4px; }
+  .om-os .om-os-footer { display: none; }
+  .om-os .om-account-placement:not([data-mobile-visible]) { display: none; }
+  .om-os .om-mobile-notifications { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; padding: 0 14px; font-size: 14px; color: var(--om-text); }
+  .om-os .om-mobile-notifications .om-bell > button { width: 44px !important; height: 44px !important; }
+  .om-os .om-tabbar, .om-os.om-os-atlas .om-tabbar,
+  .om-standalone .om-os .om-tabbar,
+  .om-standalone .om-os.om-os-atlas .om-tabbar { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .om-os .om-tab, .om-standalone .om-os .om-tab { font-size: 11px; gap: 4px; }
+  .om-os .om-tab[aria-current="page"] .om-tab-symbol { background: none; }
+  .om-os .om-tab[aria-current="page"] svg { stroke-width: 2; }
+  .om-os .om-product-atlas { background: none; border: 0; box-shadow: none; filter: grayscale(1); }
+  .om-os .om-icon-core { box-shadow: none; }
+
+  /* Account details open from one short status row. Values always come from FLOW. */
+  .om-os .om-flow-account {
+    position: relative; display: block; padding: 0 0 18px; margin: 0;
+    border: 0; border-radius: 0; background: transparent; box-shadow: none;
+  }
+  .om-os .om-account-strip {
+    display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 44px;
+    margin: 0 0 7px; padding: 0; border: 0; border-bottom: 1px solid var(--om-hair);
+    border-radius: 0; background: transparent; color: var(--om-text-2); font: inherit; font-size: 12px;
+    cursor: pointer; text-align: left;
+  }
+  .om-os .om-account-strip-status { color: var(--om-text-2); }
+  .om-os .om-account-strip > svg { color: var(--om-text-3); transition: transform 160ms ease; }
+  .om-os .om-flow-account[data-expanded] .om-account-strip > svg { transform: rotate(90deg); }
+  .om-os .om-flow-account-brand, .om-os .om-flow-account-select-area,
+  .om-os .om-flow-account-expand, .om-os .om-flow-account-manage { display: none; }
+  .om-os .om-flow-account-figures { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding-top: 8px; }
+  .om-os .om-flow-account-stat { min-width: 0; gap: 2px; }
+  .om-os .om-flow-account-stat:not(:first-child) { display: none; }
+  .om-os .om-flow-account-label { font-size: 12px; color: var(--om-text-2); }
+  .om-os .om-flow-account-number { min-height: 48px; font-size: clamp(29px, 9.2vw, 42px); font-weight: 500; letter-spacing: -.055em; line-height: 1.15; }
+  .om-os .om-flow-account-placeholder { width: 190px; height: 34px; background: var(--om-surface); }
+  .om-os .om-account-caption { display: block; margin: 5px 0 0; max-width: 100%; color: var(--om-text-2); font-size: 12px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .om-os .om-flow-account-actions { position: absolute; top: 46px; right: -9px; display: flex; gap: 0; }
+  .om-os .om-flow-account-icon { min-width: 44px; min-height: 44px; }
+  .om-os .om-flow-account[data-expanded] .om-flow-account-select-area { display: block; padding-right: 40px; margin-bottom: 12px; }
+  .om-os .om-flow-account[data-expanded] .om-flow-account-picker { max-width: 100%; }
+  .om-os .om-flow-account[data-expanded] .om-flow-account-picker select { min-height: 44px; font-size: 16px; }
+  .om-os .om-flow-account[data-expanded] .om-flow-account-meta { font-size: 11px; }
+  .om-os .om-flow-account[data-expanded] .om-flow-account-figures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; }
+  .om-os .om-flow-account[data-expanded] .om-flow-account-stat:first-child { grid-column: 1 / -1; padding-bottom: 12px; border-bottom: 1px solid var(--om-hair); }
+  .om-os .om-flow-account[data-expanded] .om-flow-account-stat:not(:first-child) { display: flex; }
+  .om-os .om-flow-account[data-expanded] .om-flow-account-stat:not(:first-child) .om-flow-account-number { min-height: 28px; font-size: clamp(18px, 5vw, 24px); letter-spacing: -.035em; }
+  .om-os .om-flow-account[data-expanded] .om-account-caption { margin-top: 12px; }
+  .om-os .om-flow-account[data-expanded] .om-flow-account-manage,
+  .om-os .om-flow-account[data-empty] .om-flow-account-manage { display: inline-flex; min-height: 44px; margin-top: 4px; padding: 0; font-size: 13px; }
+  .om-os .om-flow-account[data-empty] .om-flow-account-figures,
+  .om-os .om-flow-account[data-empty] .om-flow-account-actions { display: none; }
+
+  /* The Floor: one read and chart, then direct tools and compact results. */
+  .om-os .om-floor-os .om-os-floor-head {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+  .om-os .om-floor-os > .om-stage,
+  .om-os .om-floor-os > .om-results,
+  .om-os .om-floor-os > .om-lower { display: none; }
+  .om-mobile-floor { display: grid; gap: 14px; }
+  .om-mobile-atlas-card { min-width: 0; padding: 17px 17px 16px; border: 1px solid var(--om-edge); border-radius: 24px; background: var(--om-surface); }
+  .om-mobile-atlas-card > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .om-mobile-atlas-name { display: inline-flex; align-items: center; gap: 7px; }
+  .om-mobile-atlas-name h2 { margin: 0; font-size: 17px; font-weight: 550; letter-spacing: -.025em; }
+  .om-mobile-atlas-name .om-product-icon { width: 28px; height: 28px; }
+  .om-mobile-feed-state { color: var(--om-text-2); font-size: 10px; line-height: 1.4; text-align: right; }
+  .om-mobile-atlas-card > h3 { margin: 13px 0 3px; max-width: 32ch; color: var(--om-text); font-size: 21px; font-weight: 450; line-height: 1.28; letter-spacing: -.035em; text-wrap: pretty; }
+  .om-mobile-gold-chart { position: relative; height: 180px; min-width: 0; margin: 4px -7px 12px; }
+  .om-mobile-gold-chart .om-ch { border-radius: 0; background: transparent; }
+  .om-mobile-gold-chart .om-ch-tools { top: 0; }
+  .om-mobile-gold-chart .om-ch-read { font-size: 10px; }
+  .om-mobile-gold-chart .om-chart-note { display: grid; place-items: center; height: 100%; color: var(--om-text-3); font-size: 13px; }
+  .om-mobile-chart-freshness { margin: -3px 0 13px; color: var(--om-text-3); font-size: 10px; line-height: 1.4; }
+  .om-mobile-primary { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 49px; padding: 10px 16px; border: 0; border-radius: 15px; background: var(--om-text); color: var(--om-page); font: inherit; font-size: 15px; font-weight: 550; cursor: pointer; }
+  .om-mobile-primary:disabled { opacity: .6; cursor: default; }
+  .om-mobile-primary:focus-visible, .om-mobile-shortcuts a:focus-visible, .om-mobile-results > button:focus-visible { outline: 2px solid var(--om-text); outline-offset: 4px; }
+  .om-mobile-primary:active:not(:disabled) { opacity: .8; }
+  .om-mobile-shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .om-mobile-shortcuts > a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; min-width: 0; min-height: 84px; padding: 11px 5px; border: 1px solid var(--om-edge); border-radius: 19px; background: var(--om-surface); color: var(--om-text); font-size: 11px; font-weight: 500; text-decoration: none; }
+  .om-mobile-shortcuts svg { width: 24px; height: 24px; stroke-width: 1.5; }
+  .om-mobile-shortcuts > a:active { background: var(--om-raised); }
+  .om-mobile-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .om-mobile-results > button { display: flex; flex-direction: column; gap: 11px; min-width: 0; padding: 16px 13px 13px; border: 1px solid var(--om-edge); border-radius: 19px; background: var(--om-surface); color: var(--om-text); text-align: left; font: inherit; cursor: pointer; }
+  .om-mobile-results > button[aria-expanded="true"] { border-color: var(--om-edge-2); background: var(--om-raised); }
+  .om-mobile-result-label { display: flex; align-items: baseline; justify-content: space-between; gap: 5px; width: 100%; font-size: 11px; font-weight: 550; }
+  .om-mobile-result-label small { color: var(--om-text-3); font-size: 9px; font-weight: 400; white-space: nowrap; }
+  .om-mobile-results strong { display: block; font-size: clamp(16px, 5.4vw, 23px); font-weight: 500; letter-spacing: -.04em; line-height: 1.18; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .om-mobile-result-note { display: flex; align-items: center; justify-content: space-between; gap: 3px; width: 100%; color: var(--om-text-3); font-size: 10px; }
+  .om-mobile-result-note svg { flex: 0 0 13px; width: 13px; height: 13px; }
+  #om-mobile-result-details:not([hidden]) { min-width: 0; }
+  #om-mobile-result-details .om-panel { border-radius: 20px; }
+  .om-tools-home > header { margin-top: 18px; }
+}
+@media (max-width: 359px) {
+  .om-mobile-atlas-card { padding-inline: 13px; }
+  .om-mobile-atlas-card > h3 { font-size: 19px; }
+  .om-mobile-results > button { padding-inline: 10px; }
+  .om-mobile-result-label { flex-wrap: wrap; }
+  .om-tools-list > a { padding: 16px 13px; gap: 12px; }
+  .om-tools-list strong { font-size: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .om-account-strip > svg { transition: none !important; }
+}

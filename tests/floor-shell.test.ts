@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { NAV, TAB_ORDER, activeKey, wantsNextShell, SHELL_COOKIE, SHELL_CSS } from '../src/lib/floor/nav';
+import { NAV, APP_TABS, TAB_ORDER, activeKey, activeTabKey, wantsNextShell, SHELL_COOKIE, SHELL_CSS } from '../src/lib/floor/nav';
 import { FLOOR_ASK_KEY, FLOOR_ASK_MAX_AGE_MS, FLOOR_ASK_MAX_LEN, leaveFloorQuestion, takeFloorQuestion } from '../src/components/command-center/hud/floorAsk';
 
 /*
@@ -30,10 +30,15 @@ test('six destinations, in the order the owner gave, and no community among them
   }
 });
 
-test('on a phone every product has a persistent tab, including GENX and Pulse', () => {
-  assert.deepEqual(TAB_ORDER.map((k) => NAV.find((n) => n.key === k)!.tab), ['Floor', 'Atlas', 'GENX', 'Plays', 'Pulse', 'FLOW']);
-  assert.equal(new Set(TAB_ORDER).size, NAV.length, 'no product is missing or duplicated');
-  for (const n of NAV) assert.ok(TAB_ORDER.includes(n.key), `${n.label} is one tap away on a phone`);
+test('the phone has four clear destinations and groups every trading product under Tools', () => {
+  assert.deepEqual(TAB_ORDER.map((k) => APP_TABS.find((n) => n.key === k)!.label), ['Floor', 'Atlas', 'Tools', 'FLOW']);
+  assert.equal(new Set(TAB_ORDER).size, 4, 'destinations are not duplicated');
+  assert.equal(activeTabKey('/portal/tools', null), 'tools');
+  for (const n of NAV) {
+    const url = new URL(n.href, 'https://weare1mission.com');
+    assert.equal(activeTabKey(url.pathname, url.searchParams.get('view')), ['plays', 'genx', 'pulse'].includes(n.key) ? 'tools' : n.key, `${n.label} keeps the correct tab active`);
+  }
+  assert.equal(activeTabKey('/portal/account', null), null);
 });
 
 test('Atlas opens the Command Center as a full page — its own frame and entrance are left alone', () => {

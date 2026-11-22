@@ -15,6 +15,7 @@ import { CREDIT_COST } from "@/lib/creditConfig";
 import { priceFor } from "@/lib/flow/display";
 import { actionWords, convictionWords, holdWords, stepWords, streakOf } from "@/lib/genx/words";
 import { ProductIcon } from "@/components/om/ProductIcon";
+import { MobileSection } from "@/components/om/MobileSection";
 
 /**
  * GENX, IN THE TRADING PLATFORM'S SHELL (owner 11-20 brief §8: "a focused gold workstation").
@@ -192,7 +193,7 @@ export function GenxHome(p: GenxHomeProps) {
   const analysis = older ? { at: readMs, label: `${saved ? "Saved read" : "This read"} · ${whenText(readIso)}` } : null;
 
   return (
-    <div className="om-ws om-genx om-os-product">
+    <div className="om-ws om-genx om-os-product om-tool-mobile">
       <header className="om-ws-head om-product-header">
         <div className="om-product-heading">
           <ProductIcon kind="genx" size="lg" />
@@ -225,6 +226,10 @@ export function GenxHome(p: GenxHomeProps) {
 
       <div className="om-genx-grid">
         <section className="om-panel om-genx-chart" aria-label="Gold">
+          <div className="om-genx-mobile-read">
+            <span className="om-tool-status">{saved ? "Saved read" : shut ? "Market closed" : liveAt ? `Updated ${ageText(liveAt, now)}` : "Reading gold"}</span>
+            <h2>{saved && read ? actionWords(read.action).label : shut ? "Gold is closed." : read ? subject === "scalp" && read.scalp ? `${read.scalp.side === "sell" ? "Sell" : "Buy"} now` : actionWords(read.action).label : liveView.stage ? STAGE_LABEL[liveView.stage] : liveFailed ? "Read unavailable." : "Reading gold…"}</h2>
+          </div>
           <div className="om-genx-top">
             <div className="om-quote" data-no-i18n translate="no">
               <span className="om-sym">XAU / USD</span>
@@ -246,7 +251,7 @@ export function GenxHome(p: GenxHomeProps) {
                   label={`Gold, ${tf.label} candles, ${horizon.label.toLowerCase()} horizon${price != null ? `, ${px(price)}` : ""}`} />
               : <p className="om-empty">{liveFailed ? "Gold's candles could not be read just now. This tries again on its own." : "Reading gold…"}</p>}
           </div>
-          {read && subject === "main" && <Steps g={read} price={older ? p.readPrice : price} older={older} />}
+          {read && subject === "main" && <MobileSection title="Projected path"><Steps g={read} price={older ? p.readPrice : price} older={older} /></MobileSection>}
         </section>
 
         <aside className="om-panel om-genx-panel" aria-label="What GENX is doing">
@@ -261,21 +266,23 @@ export function GenxHome(p: GenxHomeProps) {
       {read && (
         <section className="om-panel om-genx-why">
           <button type="button" className="om-disclose" aria-expanded={why} onClick={() => setWhy((w) => !w)}>
-            <span><b>How GENX reads it</b><span className="om-label">What it sees in the market, why it likes the setup, and what to watch.</span></span>
+            <span><b>View analysis</b><span className="om-label">What it sees in the market, why it likes the setup, and what to watch.</span></span>
             <ChevronDown aria-hidden="true" />
           </button>
           {why && <Why g={read} />}
         </section>
       )}
 
+      <MobileSection title="Your reads" meta={p.plays.length || undefined}>
       <div className="om-genx-mine">
         <Reads plays={p.plays} open={p.openPlay} current={saved?.at ?? null} now={now} />
         <TrackedList tracked={p.tracked} untrack={p.untrack} Confirm={p.Confirm} now={now} />
       </div>
+      </MobileSection>
 
       <div className="om-genx-results">
         <GenxCard ov={ov} state={ovState} failed={ovFailed} period={gp} onPeriod={pickPeriod} />
-        <History ov={ov} period={gp} />
+        <MobileSection title="Trade history"><History ov={ov} period={gp} /></MobileSection>
       </div>
 
       <p className="om-faint om-flow-small om-genx-legal">Every price, level and score comes from GENX&rsquo;s engine on live gold data; the AI writes only the plain-English read. Educational only, not financial advice. You approve every action on your own account.</p>
@@ -315,6 +322,7 @@ function Decision({ p, g, subject }: { p: GenxHomeProps; g: GenxRead; subject: "
         {g.trigger_condition && <div className="om-kv-wide"><dt>Waiting for</dt><dd>{g.trigger_condition}</dd></div>}
         {g.invalidation_reason && <div className="om-kv-wide"><dt>Cancelled if</dt><dd>{g.invalidation_reason}</dd></div>}
       </dl>
+      <MobileSection title={plan ? "Trade levels" : "Key levels"}>
       {plan ? (
         <dl className="om-kv" data-no-i18n translate="no">
           <div><dt>Entry</dt><dd className="om-num">{fin(g.entry_low) && fin(g.entry_high) ? `${px(g.entry_low)} – ${px(g.entry_high)}` : px(g.entry)}</dd></div>
@@ -331,6 +339,7 @@ function Decision({ p, g, subject }: { p: GenxHomeProps; g: GenxRead; subject: "
           <div><dt>Resistance</dt><dd className="om-num">{px(g.closest_resistance)}</dd></div>
         </dl>
       )}
+      </MobileSection>
       {plan && w.waiting && !p.saved && (
         <button type="button" className="om-btn-quiet om-genx-track" onClick={p.track} disabled={p.isTracked}>
           <Pin aria-hidden="true" width={14} height={14} />{p.isTracked ? "Tracking this setup" : "Track this setup"}
