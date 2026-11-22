@@ -1,14 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link2, Search } from "lucide-react";
-import { AccountSummary, Method, PeriodSelect, Skel, toneClass } from "@/components/om/floor/Floor";
+import { Method, PeriodSelect, Skel, toneClass } from "@/components/om/floor/Floor";
+import { FlowAccountBar, FlowAccountProvider, useFlowAccount, type FlowAccountValue } from "@/components/om/FlowAccount";
 import { FlowConnect, type FlowViewing } from "@/components/portal/floor/FlowConnect";
 import { FlowTrackRecord } from "@/components/portal/floor/FlowTrackRecord";
 import type { ManageView } from "@/components/om/flow/FlowExecution";
 import {
-  FLOOR_PERIODS, SOURCE_LABEL, money, periodOf, pipsText,
-  type FloorAccount, type FloorOverview, type FloorPeriod, type FlowClosed, type FlowPosition, type FlowResults,
+  FLOOR_PERIODS, SOURCE_LABEL, money, pipsText,
+  type FloorOverview, type FloorPeriod, type FlowClosed, type FlowPosition, type FlowResults,
 } from "@/lib/floor/overview";
 import { lotsText, pairName, priceFor } from "@/lib/flow/display";
 
@@ -33,8 +34,7 @@ const store = {
   get(k: string): string | null { try { return localStorage.getItem(k); } catch { return null; } },
   set(k: string, v: string) { try { localStorage.setItem(k, v); } catch { /* a private window: the choice lasts for the visit */ } },
 };
-const KEY_ACCOUNT = "om:floor:account", KEY_PERIOD = "om:floor:flow", KEY_HIDE = "om:floor:hide", KEY_TAB = "om:flow:tab";
-const EVERY_MS = 60_000;
+const KEY_TAB = "om:flow:tab";
 
 type Tab = "positions" | "history" | "results";
 const TABS: { key: Tab; label: string }[] = [{ key: "positions", label: "Positions" }, { key: "history", label: "History" }, { key: "results", label: "Results" }];
@@ -50,79 +50,29 @@ const sideWord = (s: "buy" | "sell") => (s === "sell" ? "Sell" : "Buy");
 const calm = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return true; } };
 
 export function FlowHome({ find }: { find: React.ReactNode }) {
-  const [ov, setOv] = useState<FloorOverview | null>(null);
-  const [ovState, setOvState] = useState<"loading" | "ready" | "error" | "off">("loading");
-  const [failed, setFailed] = useState(false);
-  const [pick, setPick] = useState<{ id: string; env: string } | null>(null);
-  const [switching, setSwitching] = useState(false);
-  const [fp, setFp] = useState<FloorPeriod>("today");
-  const [hide, setHide] = useState(false);
+  const account = useFlowAccount();
+  // Keep the standalone/classic host functional. Inside AppShell, only its shared provider fetches.
+  if (!account) return <FlowAccountProvider><FlowAccountBar /><FlowHome find={find} /></FlowAccountProvider>;
+  return <FlowHomeView find={find} account={account} />;
+}
+
+function FlowHomeView({ find, account }: { find: React.ReactNode; account: FlowAccountValue }) {
+  const { ov, state: ovState, failed, switching, flowPeriod: fp, setFlowPeriod: period, hide, now, refresh } = account;
   const [tab, setTab] = useState<Tab>("positions");
-  const [now, setNow] = useState(0);
-  const [prefs, setPrefs] = useState(false);
   const [manage, setManage] = useState<ManageView>(null);
 
-  // What the member chose last time, here or on The Floor: the account, the period, whether amounts are hidden.
+  // Only FLOW's local workspace tab lives here. Account selection, periods and privacy are shared.
   useEffect(() => {
-    const acct = store.get(KEY_ACCOUNT);
-    if (acct && acct.includes(":")) { const i = acct.indexOf(":"); setPick({ env: acct.slice(0, i), id: acct.slice(i + 1) }); }
-    setFp(periodOf(store.get(KEY_PERIOD), "today"));
-    setHide(store.get(KEY_HIDE) === "1");
     const t = store.get(KEY_TAB);
     if (t === "positions" || t === "history" || t === "results") setTab(t);
-    // The classic page's "Take me there" link to the settings still lands on them.
-    if (window.location.hash === "#flow-settings") setManage("settings");
-    setNow(Date.now());
-    setPrefs(true);
-    const iv = setInterval(() => setNow(Date.now()), 15_000);
-    return () => clearInterval(iv);
+    const openSettings = () => { if (window.location.hash === "#flow-settings") setManage("settings"); };
+    openSettings();
+    window.addEventListener("hashchange", openSettings);
+    return () => window.removeEventListener("hashchange", openSettings);
   }, []);
 
-  // ── the account's numbers (the same answer The Floor reads) ──
-  const seq = useRef(0);
-  const soon = useRef(0);
-  const again = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const loadRef = useRef<() => Promise<void>>(async () => {});
-  const load = useCallback(async () => {
-    const mine = ++seq.current;
-    if (again.current) { clearTimeout(again.current); again.current = null; }
-    const headers: Record<string, string> = {};
-    // The account is named in a header, not the address, so it stays out of request logs.
-    if (pick) { headers["x-floor-account"] = pick.id; headers["x-floor-env"] = pick.env; }
-    try {
-      const r = await fetch(`/api/floor/overview?gp=7d&fp=${fp}&tz=${new Date().getTimezoneOffset()}`, { cache: "no-store", headers });
-      const d = (await r.json().catch(() => null)) as FloorOverview & { error?: string } | null;
-      if (mine !== seq.current) return;
-      if (d?.error === "not_configured") { setOvState("off"); setSwitching(false); return; }
-      if (!r.ok || !d || d.error) { setOvState((s) => (s === "ready" ? s : "error")); setFailed(true); setSwitching(false); return; }
-      setOv(d); setOvState("ready"); setFailed(false); setSwitching(false); setNow(Date.now());
-      // The broker had not answered in time: its reading is on its way, so ask again shortly — a few times, not forever.
-      if (d.figures?.reading && soon.current < 3) { soon.current += 1; again.current = setTimeout(() => void loadRef.current(), 5000); }
-      else if (!d.figures?.reading) soon.current = 0;
-    } catch { if (mine === seq.current) { setOvState((s) => (s === "ready" ? s : "error")); setFailed(true); setSwitching(false); } }
-  }, [fp, pick]);
-  loadRef.current = load;
-  useEffect(() => () => { if (again.current) clearTimeout(again.current); }, []);
-  useEffect(() => {
-    if (!prefs) return;
-    void load();
-    const iv = setInterval(() => { if (document.visibilityState === "visible") void load(); }, EVERY_MS);
-    const onVis = () => { if (document.visibilityState === "visible") void load(); };
-    document.addEventListener("visibilitychange", onVis);
-    return () => { clearInterval(iv); document.removeEventListener("visibilitychange", onVis); };
-  }, [prefs, load]);
-
-  const choose = (a: FloorAccount) => {
-    // The old account's money leaves the screen now, before the new account's is asked for.
-    setSwitching(true); setFailed(false);
-    setOv((o) => (o ? { ...o, account: a, figures: null, flow: null } : o));
-    setPick({ id: a.id, env: a.environment });
-    store.set(KEY_ACCOUNT, `${a.environment}:${a.id}`);
-  };
-  const period = (p: FloorPeriod) => { setFailed(false); setFp(p); store.set(KEY_PERIOD, p); };
   const pickTab = (t: Tab) => { setTab(t); store.set(KEY_TAB, t); };
-  const onHide = () => setHide((h) => { store.set(KEY_HIDE, h ? "0" : "1"); return !h; });
-  const reload = useCallback(() => { void loadRef.current(); }, []);
+  const reload = useCallback(() => { void refresh(); }, [refresh]);
   const toFind = (e: React.MouseEvent) => {
     const el = document.getElementById("flow-find");
     if (!el) return;
@@ -140,21 +90,13 @@ export function FlowHome({ find }: { find: React.ReactNode }) {
       <header className="om-ws-head">
         <div>
           <h1 className="om-title">FLOW</h1>
-          <p className="om-sub">Your broker accounts: what each one takes, and how every trade is sized and looked after.</p>
+          <p className="om-sub">Your accounts, trade history and execution controls.</p>
         </div>
         <div className="om-flow-acts">
           <a href="#flow-find" className="om-btn-quiet" onClick={toFind}><Search aria-hidden="true" width={15} height={15} />Find a trade</a>
           <button type="button" className="om-btn-quiet" onClick={() => setManage(none ? "connect" : "settings")}><Link2 aria-hidden="true" width={15} height={15} />Manage accounts</button>
         </div>
       </header>
-
-      {none ? (
-        <div className="om-panel om-acct">
-          <div><span style={{ fontSize: 19 }}>No broker account connected</span><span className="om-label">Balance, Equity and what FLOW does on the account appear here once one is connected.</span></div>
-        </div>
-      ) : (
-        <AccountSummary ov={ov} state={ovState} switching={switching} hide={hide} onHide={onHide} onPick={choose} now={now} />
-      )}
 
       <div className="om-flow-grid">
         <MyFlow ov={ov} state={ovState} failed={failed} switching={switching} period={fp} onPeriod={period} hide={hide} tab={tab} onTab={pickTab} now={now} />

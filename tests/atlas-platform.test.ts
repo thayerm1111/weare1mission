@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { platformTopic, platformReply, asksMarket, marketIn, styleIn, type PlatformCosts } from "../command-center/brain/platform";
 import { CREDIT_COST } from "../src/lib/creditConfig";
+import { NAV } from "../src/lib/floor/nav";
 
 /**
  * ATLAS KNOWS THE PLATFORM (owner 11-21 brief §8). Asked "what is OM AI Plays?", Atlas said it had no
@@ -141,12 +142,33 @@ test("the Command Center says what each section is for; the replay is named as o
   assert.ok(pick.length > 20 && !/voiceBus\.start|getUserMedia/.test(pick));
 });
 
-test("the top tabs: one capsule slides to the chosen tab; labels stay put; reduced motion removes the slide", () => {
+test("the OS dock exposes five real apps, marks the active destination, and respects reduced motion", () => {
   const shell = read("src/components/om/AppShell.tsx");
-  assert.match(shell, /<span className="om-links-pill" aria-hidden="true" style=\{\{ transform: `translateX\(\$\{pill\.x\}px\)`, width: pill\.w \}\} \/>/);
+  const apps = shell.slice(shell.indexOf("const APPS = ["), shell.indexOf("function AppDock()"));
+  const destinations = [...apps.matchAll(/\{ key: "([^"]+)" as const,[^}]*?href: "([^"]+)", hard: (true|false) \}/g)];
+  assert.deepEqual(destinations.map((item) => item[1]), ["atlas", "genx", "plays", "pulse", "flow"]);
+  for (const [, key, href, hard] of destinations) {
+    const target = NAV.find((item) => item.key === key)!;
+    assert.ok(target, `${key} is a real platform destination`);
+    assert.equal(href, target.href, `${key} shares the mobile navigation's destination`);
+    assert.equal(hard === "true", target.hard === true, `${key} retains its established navigation behavior`);
+  }
+  const dock = shell.slice(shell.indexOf("function AppDock()"), shell.indexOf("export function AppShell("));
+  assert.match(dock, /<nav className="om-os-dock" aria-label="One Mission apps">/);
+  assert.match(dock, /activeKey\(path, useSearchParams\(\)\.get\("view"\)\)/);
+  assert.equal((dock.match(/aria-current=\{here === app\.key \? "page" : undefined\}/g) ?? []).length, 2, "both full-page and client links identify the current app");
+  assert.match(dock, /<span className="om-os-app-title">\{app\.label\}/, "the icons keep visible text labels");
+  const frame = shell.slice(shell.indexOf("export function AppShell("));
+  const provider = frame.indexOf("<FlowAccountProvider configured={configured}>"), account = frame.indexOf("<FlowAccountBar />"), tools = frame.indexOf("<AppDock />"), children = frame.indexOf("{children}"), end = frame.indexOf("</FlowAccountProvider>");
+  assert.ok(provider > 0 && account > provider && tools > account && children > tools && end > children, "the account bar and all tools share one persistent account view");
   const css = read("src/components/om/om.css");
-  assert.match(css, /\.om-links-pill \{[^}]*transition: transform 200ms[^}]*\}/s);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.om-app \*, \.om-app \*::before, \.om-app \*::after \{ transition: none !important; animation: none !important; \}/);
+  const os = read("src/components/om/os.css");
+  assert.match(os, /\.om-os-dock \{[^}]*grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(os, /\.om-os :is\(a,button,input,select,textarea\):focus-visible \{[^}]*outline: 2px solid/);
+  const calm = os.slice(os.indexOf("@media (prefers-reduced-motion:reduce)"), os.indexOf("@media (prefers-reduced-transparency:reduce)"));
+  assert.match(calm, /transition:none!important; animation:none!important/);
+  assert.match(calm, /\.om-os-app:hover \{ transform:none; \}/, "hover lifts also stop when reduced motion is requested");
 });
 
 test("an Atlas link opens OM AI Plays without generating in either view; only its Generate button can make a play", () => {

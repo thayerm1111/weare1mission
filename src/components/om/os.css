@@ -1,0 +1,187 @@
+/* One Mission OS. This layer shares the live product's tokens and controls. */
+.om-app.om-os {
+  --om-display: var(--om-font);
+  --om-r-panel: 22px;
+  --om-pad: clamp(18px, 4.2vw, 64px);
+  letter-spacing: -.015em;
+}
+.om-look-graphite .om-app.om-os {
+  --om-page: #08090b; --om-page-rgb: 8 9 11;
+  --om-surface: #131518; --om-raised: #1a1c21; --om-menu: #1a1c21;
+  --om-bar: #101114; --om-glass: rgba(16,17,20,.9); --om-glass-solid: #101114;
+  --om-glass-phone: rgba(16,17,20,.96); --om-appbar: rgba(8,9,11,.94); --om-appbar-solid: #08090b;
+  --om-float: rgba(25,27,32,.96); --om-float-active: rgba(38,40,46,.96);
+  --om-field: rgba(8,9,11,.5); --om-field-solid: #101114;
+  --om-edge: rgba(222,226,239,.09); --om-edge-2: rgba(222,226,239,.15); --om-hair: rgba(222,226,239,.065);
+  --om-text: #f2f3f6; --om-text-strong: #ffffff; --om-text-2: #a6aab5; --om-text-3: #858b98;
+  --om-ink: #111216; --om-bone: #d6bc8c; --om-ai: #c5b9ed; --om-ai-rgb: 197 185 237;
+  --om-pos: #8bc5b0; --om-pos-rgb: 139 197 176; --om-neg: #d59caa; --om-neg-rgb: 213 156 170;
+  --om-lift: 0 1px 0 rgba(255,255,255,.025) inset, 0 16px 40px -28px rgba(0,0,0,.65);
+  --om-bloom: none;
+  --om-atlas-bg: radial-gradient(ellipse at 80% 0%,rgba(139,121,185,.09),transparent 65%),linear-gradient(160deg,#18191f,#121316 72%);
+  --om-atlas-edge: rgba(197,185,237,.19); --om-atlas-line: rgba(222,216,255,.08); --om-ask-edge: rgba(197,185,237,.22);
+  --om-ch-grid: rgba(222,226,239,.055); --om-ch-grid-2: rgba(222,226,239,.035);
+  --om-ch-halo: #131518; --om-ch-tip: #1a1c21; --om-ch-tag: #a6aab5; --om-ch-tag-text: #08090b;
+}
+.om-os .om-frame { max-width: 1600px; }
+.om-os .om-nav-wrap { padding: max(16px,env(safe-area-inset-top)) 0 0; background: var(--om-page); }
+.om-os .om-nav { min-height: 62px; padding: 0 0 17px; border: 0; border-bottom: 1px solid var(--om-hair); border-radius: 0; background: none; box-shadow: none; gap: 30px; }
+.om-os .om-nav::before { display: none; }
+.om-os .om-brand { gap: 13px; flex: 0 0 auto; }
+.om-os .om-brand svg { width: 46px; height: 25px; }
+.om-os .om-brand span { display: inline; font-family: var(--om-font); font-weight: 550; font-size: 13px; letter-spacing: .16em; white-space: nowrap; }
+.om-os .om-brand small { border: 1px solid var(--om-edge-2); border-radius: 5px; padding: 2px 5px; font-size: 9px; letter-spacing: .09em; color: var(--om-text-2); }
+.om-os-breadcrumb { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--om-text-2); padding-left: 25px; border-left: 1px solid var(--om-edge); white-space: nowrap; }
+.om-os-breadcrumb a[aria-current], .om-os-breadcrumb a:hover { color: var(--om-text); }
+.om-os-breadcrumb > span:first-of-type { color: var(--om-text-3); }
+.om-os .om-nav-right { margin-left: auto; gap: 12px; }
+.om-os-ask { display: inline-flex; align-items: center; gap: 9px; margin-right: 9px; color: var(--om-text-2); font-size: 12px; }
+.om-os-ask:hover { color: var(--om-text); }
+.om-os-ask .om-product-icon { width: 23px; height: 23px; border: 0; background: none; box-shadow: none; }
+.om-os-ask .om-icon-core { width: 17px; height: 17px; }
+.om-os .om-credits { font-size: 12px; gap: 5px; }
+.om-os .om-avatar { width: 34px; height: 34px; }
+.om-os .om-bell > button { width: 34px !important; height: 34px !important; }
+.om-os .om-main { padding: 22px 0 48px; }
+.om-os .om-panel { border-color: var(--om-edge); background: var(--om-surface); box-shadow: var(--om-lift); }
+.om-os .om-btn { min-height: 42px; font-size: 13px; font-weight: 550; letter-spacing: -.015em; }
+.om-os .om-btn-quiet { font-size: 13px; }
+.om-os .om-title { font-family: var(--om-font); font-size: clamp(27px, 2.8vw, 35px); font-weight: 500; letter-spacing: -.045em; line-height: 1.16; }
+.om-os .om-sub { color: var(--om-text-2); font-size: 13px; line-height: 1.6; }
+.om-os-dock { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 10px; margin: 20px 0 30px; }
+.om-os-app { position: relative; display: flex; align-items: center; gap: 13px; min-width: 0; padding: 17px 16px; border: 1px solid var(--om-edge); border-radius: 17px; background: var(--om-surface); box-shadow: 0 1px 0 rgb(var(--om-fg) / .025) inset; transition: background .18s ease, border-color .18s ease, transform .18s ease; }
+.om-os-app:hover { background: var(--om-raised); border-color: var(--om-edge-2); transform: translateY(-2px); }
+.om-os-app[aria-current="page"] { background: var(--om-raised); border-color: rgb(var(--om-fg) / .25); }
+.om-os-app[aria-current="page"]::after { content:""; position: absolute; width: 19px; height: 2px; border-radius: 2px; bottom: 8px; left: calc(50% - 9px); background: var(--om-text-2); }
+.om-os-app-title { display: block; font-size: 14px; line-height: 1.4; font-weight: 550; white-space: nowrap; }
+.om-os-app-title small { display: block; font-size: 10.5px; color: var(--om-text-3); font-weight: 400; margin-top: 3px; }
+.om-os-app-number { position: absolute; top: 10px; right: 11px; color: var(--om-text-3); font-size: 8px; opacity: .65; font-variant-numeric: tabular-nums; }
+.om-os-dock-skeleton { height: 85px; margin: 20px 0 30px; }
+.om-os-footer { display: flex; align-items: center; gap: 12px; padding-top: 26px; margin-top: 24px; border-top: 1px solid var(--om-hair); font-size: 10px; color: var(--om-text-3); }
+.om-os-footer > span:first-child { font-weight: 550; letter-spacing: .1em; text-transform: uppercase; }
+.om-os-footer a { margin-left: auto; }
+.om-product-icon { flex: 0 0 auto; position: relative; display: inline-grid; place-items: center; width: 48px; height: 48px; border-radius: 13px; overflow: hidden; border: 1px solid rgba(255,255,255,.13); box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 6px 14px rgba(0,0,0,.18); }
+.om-product-icon-sm { width: 32px; height: 32px; border-radius: 10px; }
+.om-product-icon-lg { width: 56px; height: 56px; border-radius: 16px; }
+.om-product-icon > svg { width: 59%; height: 59%; }
+.om-product-atlas { background: linear-gradient(145deg,#302c40,#15151e 80%); }
+.om-icon-core { position: relative; width: 66%; height: 66%; border-radius: 50%; transform: rotate(-28deg); background: radial-gradient(circle at 30% 22%,#eee8ff,#a494d3 25%,#52476f 54%,#242231 76%); box-shadow: 0 0 13px rgba(173,153,219,.2); }
+.om-icon-core::before { content:""; position: absolute; inset: 18%; border-radius: 50%; background: linear-gradient(155deg,#100f19,#2c2542); box-shadow: 0 2px 4px rgba(0,0,0,.8) inset; }
+.om-icon-core::after { content:""; position: absolute; inset: 1px -2px; border: 1px solid rgba(225,215,255,.45); border-radius: 50%; transform: rotateX(55deg) rotate(17deg); }
+.om-product-genx { background: linear-gradient(145deg,#403b2c,#191a16); }
+.om-icon-crystal { width: 57%; height: 64%; background: linear-gradient(126deg,#f4e4b9 0 26%,#b3a176 27% 50%,#665c44 51% 75%,#d2bb88 76%); clip-path: polygon(50% 0,100% 32%,79% 83%,50% 100%,19% 79%,0 33%); transform: rotate(-8deg); }
+.om-icon-crystal::after { content:""; display:block; width: 50%; height: 100%; margin-left: 50%; background: linear-gradient(25deg,transparent,rgba(255,255,255,.25)); clip-path: polygon(0 0,100% 32%,0 100%); }
+.om-product-plays { background: linear-gradient(145deg,#30425b,#151b27); color:#c5daf9; }
+.om-product-pulse { background: linear-gradient(145deg,#28413b,#151f1c); color:#a3d8bd; }
+.om-icon-wave { display:flex; height:55%; align-items:center; gap:3px; }
+.om-icon-wave i { width: 3px; height: 32%; background: linear-gradient(#cee8db,#78ad94); border-radius: 2px; }
+.om-icon-wave i:nth-child(2),.om-icon-wave i:nth-child(4) { height:65%; }
+.om-icon-wave i:nth-child(3) { height:100%; }
+.om-product-flow { background: linear-gradient(145deg,#3a414b,#181b20); color: #d4e0ee; }
+.om-os .om-product-icon-sm .om-icon-wave { gap:2px; }
+.om-os .om-product-icon-sm .om-icon-wave i { width:2px; }
+.om-os :is(a,button,input,select,textarea):focus-visible { outline: 2px solid var(--om-ai); outline-offset: 4px; }
+@media (min-width:981px) and (max-width:1200px) {
+  .om-os-app { padding:16px 12px; gap:10px; }
+  .om-os-app .om-product-icon { width:40px; height:40px; border-radius:12px; }
+  .om-os-app-title { font-size:13px; }
+  .om-os-app-title small { font-size:9px; }
+}
+@media (max-width:980px) {
+  .om-os .om-nav { min-height:54px; gap:14px; padding-bottom:14px; }
+  .om-os-breadcrumb { display:none; }
+  .om-os .om-main { padding-top:18px; padding-bottom:calc(88px + env(safe-area-inset-bottom)); }
+  .om-os-dock { gap:8px; margin:16px 0 25px; }
+  .om-os-app { justify-content:center; flex-direction:column; padding:14px 5px 15px; gap:8px; }
+  .om-os-app-title { font-size:12px; text-align:center; }
+  .om-os-app-title small { display:none; }
+  .om-os-app-number { display:none; }
+  .om-os .om-tabbar { border-color:var(--om-edge); background:var(--om-glass-phone); }
+}
+@media (max-width:600px) {
+  .om-os { --om-pad:18px; }
+  .om-os .om-nav-wrap { padding-top:max(13px,env(safe-area-inset-top)); }
+  .om-os .om-brand { gap:8px; }
+  .om-os .om-brand svg { width:36px; }
+  .om-os .om-brand span { font-size:10px; letter-spacing:.1em; }
+  .om-os .om-brand small { font-size:8px; padding:1px 3px; }
+  .om-os .om-nav-right { gap:8px; }
+  .om-os-ask { display:none; }
+  .om-os .om-credits { font-size:11px; }
+  .om-os .om-credits-word { display:none; }
+  .om-os .om-bell > button, .om-os .om-avatar { height:32px!important; width:32px!important; }
+  .om-os-dock { gap:6px; }
+  .om-os-app { border-radius:14px; padding:12px 2px 13px; }
+  .om-os-app .om-product-icon { width:38px; height:38px; border-radius:11px; }
+  .om-os-app-title { font-size:10px; font-weight:550; letter-spacing:-.025em; }
+  .om-os-app[aria-current="page"]::after { bottom:5px; width:13px; left:calc(50% - 6px); }
+  .om-os-footer { margin-top:14px; font-size:9px; gap:8px; }
+  .om-os-footer > span:nth-child(2) { display:none; }
+}
+/* Installed windows use the same OS frame, with the existing native-safe navigation. */
+.om-standalone .om-os .om-nav-wrap { position:sticky; top:0; padding: max(10px,env(safe-area-inset-top)) 0 0; }
+.om-standalone .om-os .om-nav { height:auto; min-height:52px; border-radius:0; background:none; box-shadow:none; }
+.om-standalone .om-os .om-brand span { display:inline; }
+.om-standalone .om-os .om-main { padding-top:18px; }
+.om-standalone .om-os .om-sub { display:block; }
+.om-standalone .om-os .om-title { font-size:clamp(27px,2.8vw,35px); font-weight:500; }
+@media (prefers-reduced-motion:reduce) {
+  .om-os *, .om-os *::before, .om-os *::after { scroll-behavior:auto!important; transition:none!important; animation:none!important; }
+  .om-os-app:hover { transform:none; }
+}
+@media (prefers-reduced-transparency:reduce) {
+  .om-os .om-tabbar { backdrop-filter:none; background:var(--om-glass-solid); }
+}
+.om-os .om-title::before { display:none; }
+/* Atlas remains the same Command Center, presented inside the shared OS frame. */
+.om-os-atlas .om-frame { max-width:1800px; }
+.om-os-atlas .hud-root { background:transparent!important; padding:0 0 14px; height:auto; overflow:visible; font-family:var(--om-font)!important; }
+.om-atlas-os-heading { display:flex; align-items:center; gap:15px; margin:0 0 22px; color:var(--om-text); }
+.om-atlas-os-heading > div > span { font-size:9px; color:var(--om-text-3); letter-spacing:.16em; }
+.om-atlas-os-heading h1 { font-size:32px; letter-spacing:-.045em; font-weight:500; line-height:1.2; }
+.om-atlas-os-heading p { font-size:13px; color:var(--om-text-2); margin-top:4px; }
+.om-os-atlas .om-atlas-os-toolbar { height:auto; min-height:45px; margin-bottom:14px; flex-wrap:wrap; gap:12px; }
+.om-os-atlas .om-atlas-os-toolbar > a { display:none; }
+.om-os-atlas .om-atlas-os-toolbar nav { margin-left:0; margin-right:auto; min-height:40px; padding:4px; border-radius:12px; }
+.om-os-atlas .om-atlas-os-toolbar nav button { font-size:10px; letter-spacing:.035em; font-weight:500; box-shadow:none!important; border-radius:8px; }
+.om-os-atlas .om-atlas-os-toolbar > div > span:last-of-type { display:none; }
+.om-os-atlas .hud-panel { border-radius:18px; border-color:rgba(222,226,239,.1)!important; box-shadow:0 1px 0 rgba(255,255,255,.025) inset!important; }
+.om-os-atlas .hud-panel > header { padding:15px 17px 11px; flex-wrap:wrap; }
+.om-os-atlas .hud-panel > header > p { font-size:10px!important; font-weight:550; letter-spacing:.1em!important; }
+.om-os-atlas .hud-panel > header + div { padding-left:17px; padding-right:17px; }
+.om-os-atlas [data-tour="price"] { border-radius:16px; margin-bottom:14px; border-color:rgba(222,226,239,.13)!important; box-shadow:none!important; }
+.om-os-atlas [data-tour="price"] > div { padding:15px 17px; }
+.om-os-atlas .hud-grid { gap:14px; }
+.om-os-atlas .hud-col { gap:14px; }
+.om-os-atlas .hud-read { min-height:420px; }
+.om-os-atlas .hud-read [data-lean] { font-size:23px; font-weight:500; letter-spacing:-.035em; }
+.om-os-atlas .hud-read [data-brief="closed"] { padding:10px 12px; line-height:1.5; }
+.om-os-atlas .hud-read .hud-scroll { gap:15px; }
+.om-os-atlas .hud-read button { min-height:30px; }
+.om-os-atlas .hud-center > .hud-chart { min-height:440px; }
+.om-os-atlas .hud-chart .hud-panel > div { padding-left:0; padding-right:0; }
+.om-os-atlas .hud-bottom { margin-top:14px; }
+.om-os-atlas .om-os-footer { display:none; }
+@media (min-width:1280px) {
+  .om-os-atlas .hud-grid { grid-template-columns:minmax(295px,24%) minmax(0,1fr) minmax(300px,23%); min-height:780px; }
+  .om-os-atlas .hud-center > .hud-scen { height:250px; }
+  .om-os-atlas .hud-bottom { height:140px; }
+  .om-os-atlas .hud-levels { min-height:200px; }
+}
+@media (max-width:1279px) {
+  .om-os-atlas .om-tabbar { display:none; }
+  .om-os-atlas .hud-root { padding-bottom:100px; }
+  .om-os-atlas .hud-read { min-height:0; }
+  .om-os-atlas .hud-chart { height:clamp(390px,58vh,620px); }
+  .om-os-atlas .hud-talk { z-index:55; }
+}
+@media (max-width:600px) {
+  .om-os-atlas .om-atlas-os-heading { gap:12px; }
+  .om-os-atlas .om-atlas-os-heading h1 { font-size:28px; }
+  .om-os-atlas .om-atlas-os-heading p { font-size:12px; max-width:240px; }
+  .om-os-atlas .om-atlas-os-toolbar { gap:5px; }
+  .om-os-atlas .hud-chart { height:410px; min-height:0; }
+  .om-os-atlas .hud-panel > header { padding:13px 14px 9px; }
+  .om-os-atlas .hud-panel > header + div { padding-left:14px; padding-right:14px; }
+  .om-os-atlas .hud-chart .hud-panel > div { padding-left:0; padding-right:0; }
+}

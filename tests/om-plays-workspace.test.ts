@@ -19,7 +19,8 @@ const classic = src.slice(end, src.indexOf('\nfunction dirStyle('));
 test('the shell says where a tool is drawn, and nothing else', () => {
   const shell = read('src/components/om/shell.ts');
   assert.match(shell, /export const ShellContext = createContext\(false\);/, 'outside the new shell the answer is no');
-  assert.match(read('src/components/om/AppShell.tsx'), /<ShellContext\.Provider value=\{true\}>\{children\}<\/ShellContext\.Provider>/);
+  const provided = read('src/components/om/AppShell.tsx').match(/<ShellContext\.Provider value=\{true\}>([\s\S]*?)<\/ShellContext\.Provider>/)?.[1] ?? '';
+  assert.match(provided, /\{children\}/, 'tool children remain inside the new-shell provider alongside the shared frame');
   assert.match(src, /const next = useNextShell\(\);/);
   assert.ok(start > 0 && end > start && workspace.length > 3000, 'the workspace is an early return of the same component');
 });

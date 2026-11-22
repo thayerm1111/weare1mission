@@ -4,17 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, ChevronDown, Eye, EyeOff, Info, Mic, Send } from "lucide-react";
 import { OmChart } from "@/components/om/chart/OmChart";
+import { ProductIcon } from "@/components/om/ProductIcon";
+import { useFlowAccount } from "@/components/om/FlowAccount";
 import { timedBars } from "@/lib/chart/candleTime";
-import { AtlasMark } from "./AtlasMark";
 import { useSeeThePlay } from "@/components/portal/SetupLock";
 import { leaveFloorQuestion } from "@/components/command-center/hud/floorAsk";
+import { playsHref } from "@/lib/plays/intent";
 import { FLOOR_INSTRUMENTS, setupQuery, type FloorMode } from "@/lib/floor/setupInstruments";
 import { minutesLeft, type SetupGate } from "@/lib/setupLock";
 import { isOpen } from "@/lib/cashtrap/marketHours";
 import { realCandles, priceText } from "@/lib/floor/chart";
 import {
   FLOOR_PERIODS, STAGE_LABEL, stageSentence, setupView, ageText, money, pipsText, toneOf, periodOf,
-  type FloorOverview, type FloorPeriod, type FloorAccount, type AccountFigures, type GenxResults, type FlowResults,
+  type FloorOverview, type FloorPeriod, type FloorAccount, type AccountFigures, type GenxResults, type FlowResults, type SetupView,
 } from "@/lib/floor/overview";
 
 /**
@@ -206,9 +208,10 @@ export function AccountSummary({ ov, state, switching, hide, onHide, onPick, now
  * that, and the one next step. One action per state — the play when it is withheld, otherwise the way
  * into GENX's own workspace, where its tickets live.
  */
-function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample, onSamplePlay }: {
+function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample, onSamplePlay, layers, onLayer }: {
   setup: SetupAnswer | null; failed: boolean; tf: FloorMode; onTf: (m: FloorMode) => void; change: number | null;
   onOpened: () => void; now: number; sample: boolean;
+  layers: { levels: boolean; setup: boolean }; onLayer: (layer: "levels" | "setup") => void;
   /** The review route only: shows the sample's opened play. It asks the server for nothing and charges nothing. */
   onSamplePlay?: () => void;
 }) {
@@ -231,45 +234,65 @@ function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample, onS
   const quoteLive = !sample && !shut && Number.isFinite(asOfMs) && now - asOfMs < 120_000;
   // The engine's sentences are shown as it wrote them, under a label; only the first letter is raised.
   const own = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  const hasLevels = view.levels.some((l) => l.kind === "support" || l.kind === "resistance");
+  const hasSetup = !!view.zone || view.levels.some((l) => l.kind === "entry" || l.kind === "stop" || l.kind === "target");
+  const visibleLevels = view.levels.filter((l) => l.kind === "support" || l.kind === "resistance" ? layers.levels : layers.setup);
 
   return (
-    <section className="om-panel om-chart-card" aria-label="Gold">
+    <section id="floor-gold-chart" className="om-panel om-chart-card" aria-label="Gold">
       <div className="om-chart-top">
         <div style={{ minWidth: 0 }}>
+          <div className="om-os-instrument">
+            <span className="om-os-gold-coin" aria-hidden="true">Au</span>
+            <div><h2>Gold</h2><span className="om-label" data-no-i18n translate="no">XAU/USD · {horizon.name}</span></div>
+          </div>
           <div className="om-quote" data-no-i18n translate="no">
-            <span className="om-sym">XAU / USD</span>
             <span className="om-px om-num">{price != null ? px(price) : setup || failed ? "—" : <Skel w={150} h={30} />}</span>
             {change != null && price != null && <span className={`om-chg om-num ${change > 0 ? "om-pos" : change < 0 ? "om-neg" : "om-dim"}`} title="Change since the previous daily close">{change > 0 ? "+" : change < 0 ? "−" : ""}{Math.abs(change).toFixed(2)}%</span>}
           </div>
-          <span className="om-label om-fresh" data-no-i18n translate="no">
-            {sample ? "Sample" : at ? (shut ? "Twelve Data · gold is closed · this is the last price before the close" : `Twelve Data · price as of ${at} · checked every ${SETUP_EVERY_MS / 1000} seconds`) : failed ? "Market data did not load" : " "}
-          </span>
         </div>
-        <div className="om-tf" role="group" aria-label="Candle timeframe">
-          {TFS.map((t) => <button key={t.mode} type="button" aria-pressed={t.mode === tf} title={`${t.name} setup · ${t.tf} candles`} onClick={() => onTf(t.mode)}>{t.tf}</button>)}
+        <div className="om-os-chart-controls">
+          <div className="om-tf" role="group" aria-label="Candle timeframe">
+            {TFS.map((t) => <button key={t.mode} type="button" aria-pressed={t.mode === tf} title={`${t.name} setup · ${t.tf} candles`} onClick={() => onTf(t.mode)}>{t.tf}</button>)}
+          </div>
+          <span className="om-label om-fresh" data-no-i18n translate="no"
+            title={sample ? "Illustrative sample data" : at ? `${shut ? "Twelve Data · gold is closed · this is the last price before the close" : `Twelve Data · checked every ${SETUP_EVERY_MS / 1000} seconds`} · as of ${at}` : undefined}>
+            {sample ? "Sample session" : at ? `${shut ? "Market closed · " : ""}${at}` : failed ? "Feed unavailable" : "Reading market data…"}
+          </span>
         </div>
       </div>
 
+      <div className="om-os-chart-layers" role="group" aria-label="Chart overlays">
+        <button type="button" aria-pressed={layers.levels} disabled={!hasLevels} onClick={() => onLayer("levels")} title={hasLevels ? "Show or hide GENX support and resistance" : "Levels appear when the GENX read is open"}>Levels</button>
+        <button type="button" aria-pressed={layers.setup} disabled={!hasSetup} onClick={() => onLayer("setup")} title={hasSetup ? "Show or hide GENX entry, stop and target" : "A confirmed or forming GENX setup supplies these levels"}>Setup</button>
+        <span className="om-label">GENX · {horizon.name}</span>
+      </div>
       <div className="om-chart-body">
         <div className="om-chart" data-no-i18n translate="no">
           {candles.length >= 2
             ? <OmChart bars={candles} timeKnown={tb.known} tfMs={TF_MS[tf]} tfLabel={horizon.tf} price={price} priceLive={quoteLive} dec={GOLD.dec}
-                levels={view.levels} zone={view.zone} isOpenAt={goldOpen} viewKey={`XAUUSD:${tf}`}
+                levels={visibleLevels} zone={layers.setup ? view.zone : null} isOpenAt={goldOpen} viewKey={`XAUUSD:${tf}`}
                 label={`Gold, ${horizon.tf} candles${price != null ? `, last price ${px(price)}` : ""}`} />
             : <div className="om-chart-note">{!setup && !failed ? "Loading the chart…" : "The chart could not be loaded just now. It will try again on its own."}</div>}
+        </div>
+        <div className="om-os-chart-foot">
+          <span>Drag to explore <span aria-hidden="true">·</span> Scroll or pinch to zoom</span>
+          <button type="button" onClick={() => { if (!sample) askAtlas(`Explain the current gold chart and GENX's ${horizon.name.toLowerCase()} setup.`); }} disabled={sample}>Explain with Atlas<ArrowUpRight aria-hidden="true" /></button>
         </div>
 
         <div className="om-read">
           <div className="om-read-main">
-            <p className="om-label">GENX · {horizon.name}</p>
-            <p className="om-read-state">
-              <span className="om-ring" data-stage={view.stage ?? undefined} aria-hidden="true" />
-              {view.stage ? STAGE_LABEL[view.stage] : !setup && !failed ? <Skel w={150} h={18} /> : "Not available right now"}
-            </p>
+            <div className="om-os-engine-state"><ProductIcon kind="genx" size="sm" /><div><p className="om-label">GENX</p><p className="om-read-state">
+                <span className="om-ring" data-stage={view.stage ?? undefined} aria-hidden="true" />
+                {view.stage ? STAGE_LABEL[view.stage] : !setup && !failed ? <Skel w={150} h={18} /> : "Not available right now"}
+              </p></div></div>
             {view.stage && <p className="om-read-says">{stageSentence(view.stage, GOLD.engine, GOLD.name)}{shut && view.stage === "live" ? " Gold is closed now, so it cannot be entered." : ""}</p>}
-            {view.open && view.waitingFor && <p className="om-read-line" title={own(view.waitingFor)}><span className="om-faint">Trigger</span><span>{own(view.waitingFor)}</span></p>}
-            {view.open && view.changesIf && <p className="om-read-line" title={own(view.changesIf)}><span className="om-faint">Invalidation</span><span>{own(view.changesIf)}</span></p>}
-            {locked && <p className="om-read-says">Which way, the entry, the stop and the targets open with credits.</p>}
+            {view.open && (view.waitingFor || view.changesIf) && <details className="om-os-setup-details">
+              <summary>Setup conditions<ChevronDown aria-hidden="true" /></summary>
+              {view.waitingFor && <p className="om-read-line"><span className="om-faint">Trigger</span><span>{own(view.waitingFor)}</span></p>}
+              {view.changesIf && <p className="om-read-line"><span className="om-faint">Invalidation</span><span>{own(view.changesIf)}</span></p>}
+            </details>}
+            {locked && <p className="om-read-says">Open the entry, stop and targets with credits.</p>}
             {play.err && <p className="om-neg om-read-says" role="alert">{play.err}</p>}
           </div>
           <div className="om-read-act">
@@ -291,41 +314,72 @@ function ChartCard({ setup, failed, tf, onTf, change, onOpened, now, sample, onS
 
 /* ── Atlas ────────────────────────────────────────────────────────────────────────────────────── */
 
-function AtlasPanel({ atlas, stage, sample, now }: { atlas: FloorOverview["atlas"]; stage: "watching" | "forming" | "live" | null; sample: boolean; now: number }) {
+function AtlasPanel({ atlas, view, setup, tf, sample, now, onShowLevels }: {
+  atlas: FloorOverview["atlas"]; view: SetupView; setup: SetupAnswer | null; tf: FloorMode;
+  sample: boolean; now: number; onShowLevels: () => void;
+}) {
   const [q, setQ] = useState("");
   const go = (question: string | null) => { if (!sample) askAtlas(question); };
+  const stage = view.stage;
   // What Atlas says here is either its own newest read (while the member's window is open) or the one
   // thing every member may know — how far along GENX's setup is. It never describes the market otherwise.
-  const say = atlas?.read?.summary
+  const read = atlas?.read?.summary?.trim();
+  const say = read
     ?? (stage === "live" ? "GENX has a confirmed entry on gold. Ask me to walk you through it."
       : stage === "forming" ? "A gold setup is forming. I'm watching for confirmation."
         : stage === "watching" ? "No confirmed entry on gold right now. I'm watching for a trigger."
           : "Ask me about gold, a setup, or how your account is doing.");
-  const terms = !atlas ? null : atlas.open ? "Your Command Center window is open." : atlas.preview ? "Your first look inside is free." : `${atlas.cost} credits for ${atlas.minutes} minutes, confirmed before anything is charged.`;
+  // A concise lead may be lifted verbatim from Atlas's own read. No market thesis is fabricated here.
+  const firstSentence = read?.match(/^(.{1,110}?[.!?])(?:\s|$)/)?.[1] ?? null;
+  const shut = now > 0 && !isOpen("metal", now);
+  const headline = firstSentence ?? (read ? "Your latest gold read." : shut ? "Gold is between sessions." : stage === "live" ? "A gold setup is ready." : stage === "forming" ? "Waiting for confirmation." : "Your next move starts here.");
+  const explanation = firstSentence ? read!.slice(firstSentence.length).trim() : say;
+  const g = view.open && setup?.g && typeof setup.g === "object" ? setup.g as Record<string, unknown> : null;
+  const field = (key: string) => typeof g?.[key] === "string" && String(g[key]).trim() ? String(g[key]).trim().replace(/_/g, " ") : null;
+  const direction = field("directional_bias") ?? field("market_structure");
+  const momentum = field("momentum");
+  const entry = view.levels.find((l) => l.kind === "entry");
+  const watchLabel = view.zone ? "GENX entry zone" : entry ? "GENX entry" : null;
+  const watchValue = view.zone ? `${priceText(view.zone.low, GOLD.dec)} – ${priceText(view.zone.high, GOLD.dec)}` : entry ? priceText(entry.price, GOLD.dec) : null;
+  const terms = !atlas ? null : atlas.open ? "Your Command Center window is open." : atlas.preview ? "Your first look inside is free." : `${atlas.cost} credits · ${atlas.minutes} minutes. Confirmed in the Command Center.`;
   return (
     <section className="om-panel om-panel-atlas om-atlas" aria-label="Atlas">
       <div className="om-atlas-head">
-        <AtlasMark className="om-atlas-mark" />
+        <ProductIcon kind="atlas" size="md" />
         <div style={{ minWidth: 0 }}>
           <h2>Atlas</h2>
-          <p className="om-label">{atlas?.read ? `Read ${ageText(atlas.read.at, now)}` : "Your AI copilot"}</p>
+          <p className="om-label">Your gold intelligence</p>
         </div>
+        <button type="button" className="om-os-atlas-open" onClick={() => go(null)} disabled={sample}>Open Command Center<ArrowUpRight aria-hidden="true" /></button>
       </div>
-      <p className="om-atlas-say">{say}</p>
-      <div className="om-atlas-asks">
-        <button type="button" className="om-go" onClick={() => go("Explain the current gold setup.")}>Explain this setup<ArrowUpRight aria-hidden="true" /></button>
-        <button type="button" className="om-go" onClick={() => go("Analyze gold right now.")}>Analyze gold<ArrowUpRight aria-hidden="true" /></button>
-        <Go href="/portal/signals">Generate a play</Go>
+      <div className="om-os-atlas-story">
+        <h3>{headline}</h3>
+        {explanation && <p className="om-atlas-say">{explanation}</p>}
+        {atlas?.read && <span className="om-label om-os-atlas-age">Atlas read · {ageText(atlas.read.at, now)}</span>}
       </div>
-      <form className="om-ask" onSubmit={(e) => { e.preventDefault(); if (q.trim()) go(q); }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask Atlas…" aria-label="Ask Atlas" maxLength={400} enterKeyHint="send" />
-        {/* Voice lives in the Command Center. This opens it; the microphone is only ever asked for there, on a tap. */}
-        <button type="button" className="om-ask-mic" aria-label="Talk to Atlas in the Command Center" title="Talk to Atlas in the Command Center" onClick={() => go(null)}><Mic aria-hidden="true" /></button>
-        <button type="submit" aria-label="Send to Atlas"><Send aria-hidden="true" /></button>
-      </form>
-      <div className="om-atlas-cta">
-        <button type="button" className="om-btn" onClick={() => go(null)}>Open Command Center<ArrowUpRight aria-hidden="true" /></button>
-        {terms && <span className="om-label">{terms}</span>}
+      <div className="om-os-market-readings" aria-label="GENX context">
+        <div><span className="om-label">{direction ? "GENX direction" : "Market"}</span><strong>{direction ?? (shut ? "Closed" : "Gold")}</strong></div>
+        <div><span className="om-label">{momentum ? "Momentum" : "Timeframe"}</span><strong>{momentum ?? TFS.find((t) => t.mode === tf)!.tf}</strong></div>
+        <div><span className="om-label">GENX state</span><strong>{stage ? STAGE_LABEL[stage] : "—"}</strong></div>
+      </div>
+      {watchLabel && watchValue && <div className="om-os-watch-level">
+        <div><span className="om-label">{watchLabel}</span><strong className="om-num" data-no-i18n translate="no">{watchValue}</strong></div>
+        <a href="#floor-gold-chart" onClick={onShowLevels}>Show on chart</a>
+      </div>}
+      {shut && <p className="om-os-market-closed">Gold is closed. Any displayed read refers to the last available market data.</p>}
+      <div className="om-os-atlas-prompt">
+        <form className="om-ask" onSubmit={(e) => { e.preventDefault(); if (q.trim()) go(q.trim()); }}>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask Atlas…" aria-label="Ask Atlas about gold, a setup, or your tools" maxLength={400} enterKeyHint="send" />
+          {/* Voice stays in the existing Command Center. A microphone is never opened by the Floor. */}
+          <button type="button" className="om-ask-mic" aria-label="Talk to Atlas in the Command Center" title="Talk to Atlas in the Command Center" onClick={() => go(null)} disabled={sample}><Mic aria-hidden="true" /></button>
+          <button type="submit" aria-label="Send to Atlas" disabled={sample || !q.trim()}><Send aria-hidden="true" /></button>
+        </form>
+        <div className="om-atlas-asks">
+          <button type="button" className="om-go" onClick={() => go("Explain the current gold setup from GENX, what it is waiting for, and what would invalidate it.")} disabled={sample}>Explain GENX</button>
+          <Go href={playsHref("XAU/USD", tf === "quick" ? "scalp" : tf)}>Generate a play</Go>
+          <button type="button" className="om-go" onClick={() => go("What should I watch next on gold, and which One Mission tool should I use?")} disabled={sample}>What’s next?</button>
+        </div>
+        {terms && <p className="om-label om-os-atlas-terms">{terms}</p>}
       </div>
     </section>
   );
@@ -375,7 +429,7 @@ export function Method({ id, children }: { id: string; children: React.ReactNode
   );
 }
 
-export function GenxCard({ ov, state, failed, period, onPeriod }: { ov: FloorOverview | null; state: string; failed: boolean; period: FloorPeriod; onPeriod: (p: FloorPeriod) => void }) {
+export function GenxCard({ ov, state, failed, period, onPeriod, icon = false }: { ov: FloorOverview | null; state: string; failed: boolean; period: FloorPeriod; onPeriod: (p: FloorPeriod) => void; icon?: boolean }) {
   const g = ov?.genx && ov.genx.period === period ? ov.genx : null;
   const r = g?.results ?? null;
   // Waiting only while an answer is actually on its way: an ask that failed ends it, and the card says so.
@@ -384,9 +438,10 @@ export function GenxCard({ ov, state, failed, period, onPeriod }: { ov: FloorOve
   return (
     <section className="om-panel om-res" aria-label="GENX results">
       <div className="om-res-head">
-        <div style={{ minWidth: 0 }}>
-          <h2>GENX results</h2>
-          <p className="om-label">The engine's trades on gold</p>
+        <div className="om-os-result-heading">
+          {icon && <ProductIcon kind="genx" size="sm" />}
+          <div style={{ minWidth: 0 }}><h2>GENX results</h2>
+            <p className="om-label">The engine's trades on gold</p></div>
         </div>
         <span className="om-res-tools">
           <PeriodSelect value={period} onChange={onPeriod} label="GENX results period" />
@@ -430,11 +485,12 @@ function FlowCard({ ov, state, failed, switching, period, onPeriod, hide }: { ov
   // The broker's open profit is for every position on the account. It is FLOW's only when FLOW holds them all.
   const wholeAccount = r && f?.positions != null && f.positions !== r.open;
   return (
-    <section className="om-panel om-res om-res-flow" aria-label="My FLOW">
+    <section className="om-panel om-res om-res-flow" aria-label="My FLOW results">
       <div className="om-res-head">
-        <div style={{ minWidth: 0 }}>
-          <h2>My FLOW</h2>
-          <p className="om-label" data-no-i18n translate="no">{a ? `${a.name} · ${a.environment === "live" ? "Live" : "Demo"}` : "Your connected account"}</p>
+        <div className="om-os-result-heading">
+          <ProductIcon kind="flow" size="sm" />
+          <div style={{ minWidth: 0 }}><h2>My FLOW results</h2>
+            <p className="om-label" data-no-i18n translate="no">{a ? `${a.name} · ${a.environment === "live" ? "Live" : "Demo"}` : "Your connected account"}</p></div>
         </div>
         {a && (
           <span className="om-res-tools">
@@ -460,7 +516,7 @@ function FlowCard({ ov, state, failed, switching, period, onPeriod, hide }: { ov
                     <span className="om-label">{r.closed > 0 && !r.realized ? "Realized, in pips" : "Realized P&L"}{r.realized && r.closed > 0 ? <span className="om-faint"> · estimate</span> : null}</span>
                   </div>
                   <div className="om-stat">
-                    <span className={`om-figure om-num ${f?.state === "live" ? toneClass(f?.openPnl) : ""}`} data-stale={f && f.state !== "live" ? true : undefined} data-no-i18n translate="no" title={f?.openPnl == null ? (f?.note ?? "Your broker has not reported open profit for this account.") : undefined}>{f ? cash(f.openPnl) : <Skel w={110} h={26} />}</span>
+                    <span className={`om-figure om-num ${f?.state === "live" ? toneClass(f?.openPnl) : ""}`} data-stale={f && f.state !== "live" ? true : undefined} data-no-i18n translate="no" title={f?.openPnl == null ? (f?.note ?? "Your broker has not reported open profit for this account.") : undefined}>{f ? cash(f.openPnl) : "—"}</span>
                     <span className="om-label">Open P&amp;L{f && f.state !== "live" && f.openPnl != null ? <span className="om-faint"> · last reading</span> : wholeAccount ? <span className="om-faint"> · whole account</span> : null}</span>
                   </div>
                   <div className="om-stat"><span className="om-figure om-num">{r.open}</span><span className="om-label">Open positions</span></div>
@@ -504,37 +560,51 @@ function Activity({ ov, switching, hide, now }: { ov: FloorOverview | null; swit
 
 export function Floor({ sample }: { sample?: FloorSample }) {
   const isSample = !!sample;
+  const accountContext = useFlowAccount();
+  // The OS shell owns the member's selected account. A labelled sample keeps its own isolated figures.
+  const shared = isSample ? null : accountContext;
+  const usingSharedAccount = shared !== null;
   const [tf, setTf] = useState<FloorMode>("intraday");
   const [setup, setSetup] = useState<SetupAnswer | null>(sample?.setup ?? null);
   const [setupFailed, setSetupFailed] = useState(false);
-  const [ov, setOv] = useState<FloorOverview | null>(sample?.overview ?? null);
-  const [ovState, setOvState] = useState<"loading" | "ready" | "error" | "off">(sample ? "ready" : "loading");
+  const [localOv, setOv] = useState<FloorOverview | null>(sample?.overview ?? null);
+  const [localOvState, setOvState] = useState<"loading" | "ready" | "error" | "off">(sample ? "ready" : "loading");
   const [pick, setPick] = useState<{ id: string; env: string } | null>(null);
-  const [switching, setSwitching] = useState(false);
+  const [localSwitching, setSwitching] = useState(false);
   /** The last ask for the member's numbers did not come back. What is on screen keeps its dates; nothing waits on it. */
-  const [ovFailed, setOvFailed] = useState(false);
-  const [gp, setGp] = useState<FloorPeriod>("7d");
-  const [fp, setFp] = useState<FloorPeriod>("today");
-  const [hide, setHide] = useState(false);
+  const [localOvFailed, setOvFailed] = useState(false);
+  const [localGp, setGp] = useState<FloorPeriod>("7d");
+  const [localFp, setFp] = useState<FloorPeriod>("today");
+  const [localHide, setHide] = useState(false);
   const [ticks, setTicks] = useState<Tick[]>(sample?.ticks ?? []);
-  const [now, setNow] = useState<number>(sample?.nowMs ?? 0);
+  const [localNow, setNow] = useState<number>(sample?.nowMs ?? 0);
   const [prefs, setPrefs] = useState(isSample);
+  const [layers, setLayers] = useState({ levels: true, setup: true });
+  const ov = shared ? shared.ov : localOv;
+  const ovState = shared ? shared.state : localOvState;
+  const switching = shared ? shared.switching : localSwitching;
+  const ovFailed = shared ? shared.failed : localOvFailed;
+  const gp = shared ? shared.genxPeriod : localGp;
+  const fp = shared ? shared.flowPeriod : localFp;
+  const hide = shared ? shared.hide : localHide;
+  const now = shared ? shared.now : localNow;
 
   // What the member chose last time: which account to look at, the two periods, whether amounts are hidden.
   useEffect(() => {
     if (isSample) return;
-    const acct = store.get("om:floor:account");
-    if (acct && acct.includes(":")) { const i = acct.indexOf(":"); setPick({ env: acct.slice(0, i), id: acct.slice(i + 1) }); }
     const savedTf = store.get("om:floor:tf");
     if (savedTf === "quick" || savedTf === "intraday" || savedTf === "swing") setTf(savedTf);
+    setPrefs(true);
+    if (usingSharedAccount) return;
+    const acct = store.get("om:floor:account");
+    if (acct && acct.includes(":")) { const i = acct.indexOf(":"); setPick({ env: acct.slice(0, i), id: acct.slice(i + 1) }); }
     setGp(periodOf(store.get("om:floor:genx"), "7d"));
     setFp(periodOf(store.get("om:floor:flow"), "today"));
     setHide(store.get("om:floor:hide") === "1");
     setNow(Date.now());
-    setPrefs(true);
     const iv = setInterval(() => setNow(Date.now()), 15_000);
     return () => clearInterval(iv);
-  }, [isSample]);
+  }, [isSample, usingSharedAccount]);
 
   // ── the member's own numbers ──
   const ovSeq = useRef(0);
@@ -542,6 +612,7 @@ export function Floor({ sample }: { sample?: FloorSample }) {
   const again = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadRef = useRef<() => Promise<void>>(async () => {});
   const loadOverview = useCallback(async () => {
+    if (usingSharedAccount) return;
     const mine = ++ovSeq.current;
     if (again.current) { clearTimeout(again.current); again.current = null; }
     const headers: Record<string, string> = {};
@@ -558,17 +629,17 @@ export function Floor({ sample }: { sample?: FloorSample }) {
       if ((d as FloorOverview).figures?.reading && soon.current < 3) { soon.current += 1; again.current = setTimeout(() => void loadRef.current(), 5000); }
       else if (!(d as FloorOverview).figures?.reading) soon.current = 0;
     } catch { if (mine === ovSeq.current) { setOvState((s) => (s === "ready" ? s : "error")); setOvFailed(true); setSwitching(false); } }
-  }, [gp, fp, pick]);
+  }, [gp, fp, pick, usingSharedAccount]);
   loadRef.current = loadOverview;
   useEffect(() => () => { if (again.current) clearTimeout(again.current); }, []);
   useEffect(() => {
-    if (isSample || !prefs) return;
+    if (isSample || usingSharedAccount || !prefs) return;
     void loadOverview();
     const iv = setInterval(() => { if (document.visibilityState === "visible") void loadOverview(); }, OVERVIEW_EVERY_MS);
     const onVis = () => { if (document.visibilityState === "visible") void loadOverview(); };
     document.addEventListener("visibilitychange", onVis);
     return () => { clearInterval(iv); document.removeEventListener("visibilitychange", onVis); };
-  }, [isSample, prefs, loadOverview]);
+  }, [isSample, usingSharedAccount, prefs, loadOverview]);
 
   const acctKey = (a: { id: string; environment: string }) => `${a.environment}:${a.id}`;
   const sampleSince = (o: FloorOverview) => o.flow?.since ?? sample?.overview.flow?.since ?? o.asOf;
@@ -580,6 +651,7 @@ export function Floor({ sample }: { sample?: FloorSample }) {
       if (other) setOv((o) => (o ? { ...o, account: a, figures: other.figures, flow: res ? { period: fp, since: sampleSince(o), results: res } : null } : o));
       return;
     }
+    if (shared) { shared.chooseAccount(a); return; }
     // The old account's money leaves the screen now, before the new account's is asked for.
     setSwitching(true); setOvFailed(false);
     setOv((o) => (o ? { ...o, account: a, figures: null, flow: null } : o));
@@ -639,6 +711,7 @@ export function Floor({ sample }: { sample?: FloorSample }) {
       if (r) { setGp(p); setOv((o) => (o && o.genx ? { ...o, genx: { ...o.genx, period: p, results: r } } : o)); }
       return;
     }
+    if (shared) { shared.setGenxPeriod(p); return; }
     setOvFailed(false); setGp(p); store.set("om:floor:genx", p);
   };
   const pickFlow = (p: FloorPeriod) => {
@@ -647,39 +720,40 @@ export function Floor({ sample }: { sample?: FloorSample }) {
       if (r) { setFp(p); setOv((o) => (o ? { ...o, flow: { period: p, since: sampleSince(o), results: r } } : o)); }
       return;
     }
+    if (shared) { shared.setFlowPeriod(p); return; }
     setOvFailed(false); setFp(p); store.set("om:floor:flow", p);
   };
 
-  const stage = useMemo(() => setupView(setup).stage, [setup]);
+  const view = useMemo(() => setupView(setup), [setup]);
   const gold = ticks.find((t) => t.label === "XAUUSD");
-  const others = ticks.filter((t) => t.label !== "XAUUSD").slice(0, 4);
+  const others = ticks.filter((t) => t.label !== "XAUUSD").slice(0, 3);
   const pair = (l: string) => (/^[A-Z]{6}$/.test(l) ? `${l.slice(0, 3)}/${l.slice(3)}` : l);
 
   return (
-    <div className="om-floor">
+    <div className="om-floor om-floor-os">
       {ovState === "error" && !ov && <div className="om-banner" role="status">Your account and results could not be loaded just now. The chart and the tools still work, and this will try again on its own.</div>}
 
-      <header className="om-head">
+      <header className={`om-head${usingSharedAccount ? " om-os-floor-head" : ""}`}>
         <div>
           <h1 className="om-title">The Floor{isSample && <span className="om-chip om-sample" role="note">Sample data</span>}</h1>
-          <p className="om-sub">Your trading intelligence, connected.</p>
+          <p className="om-sub">Your market. Your intelligence. Your next move.</p>
         </div>
-        <AccountSummary ov={ov} state={ovState} switching={switching} hide={hide} onHide={() => setHide((h) => { store.set("om:floor:hide", h ? "0" : "1"); return !h; })} onPick={choose} now={now} />
+        {usingSharedAccount ? <span className="om-os-floor-context"><span className="om-dot" data-tone="off" />Gold workspace</span> : <AccountSummary ov={ov} state={ovState} switching={switching} hide={hide} onHide={() => setHide((h) => { store.set("om:floor:hide", h ? "0" : "1"); return !h; })} onPick={choose} now={now} />}
       </header>
 
       <div className="om-stage">
-        <ChartCard setup={setup} failed={setupFailed} tf={tf} onTf={pickTf} change={gold?.percent ?? null} onOpened={() => void loadSetup(true)} now={now} sample={isSample} onSamplePlay={sample?.opened ? openSamplePlay : undefined} />
-        <AtlasPanel atlas={ov?.atlas ?? null} stage={stage} sample={isSample} now={now} />
+        <ChartCard setup={setup} failed={setupFailed} tf={tf} onTf={pickTf} change={gold?.percent ?? null} onOpened={() => void loadSetup(true)} now={now} sample={isSample} onSamplePlay={sample?.opened ? openSamplePlay : undefined} layers={layers} onLayer={(layer) => setLayers((current) => ({ ...current, [layer]: !current[layer] }))} />
+        <AtlasPanel atlas={ov?.atlas ?? null} view={view} setup={setup} tf={tf} sample={isSample} now={now} onShowLevels={() => setLayers({ levels: true, setup: true })} />
       </div>
 
       <div className="om-results">
-        <GenxCard ov={ov} state={ovState} failed={ovFailed} period={gp} onPeriod={pickGenx} />
+        <GenxCard ov={ov} state={ovState} failed={ovFailed} period={gp} onPeriod={pickGenx} icon />
         <FlowCard ov={ov} state={ovState} failed={ovFailed} switching={switching} period={fp} onPeriod={pickFlow} hide={hide} />
       </div>
 
       <div className="om-lower">
         <div className="om-pulse">
-          <h2>Market Pulse</h2>
+          <Link className="om-os-pulse-title" href="/portal/trading?view=pulse"><ProductIcon kind="pulse" size="sm" /><span>Pulse<small>Market quotes</small></span></Link>
           <div className="om-pulse-list" data-no-i18n translate="no">
             {others.map((t) => (
               <span key={t.label} className="om-pulse-item om-num">
@@ -688,8 +762,9 @@ export function Floor({ sample }: { sample?: FloorSample }) {
                 {t.percent != null && <span className={t.percent > 0 ? "om-pos" : t.percent < 0 ? "om-neg" : "om-dim"}>{t.percent > 0 ? "+" : t.percent < 0 ? "−" : ""}{Math.abs(t.percent).toFixed(2)}%</span>}
               </span>
             ))}
+            {others.length === 0 && <span className="om-label">Market quotes are not available right now.</span>}
           </div>
-          <Go href="/portal/trading?view=pulse">Open Pulse</Go>
+          <Go href="/portal/trading?view=pulse">Explore markets</Go>
         </div>
         <Activity ov={ov} switching={switching} hide={hide} now={now} />
         <p className="om-legal">Educational only — not financial advice. You approve every action on your own account.{isSample && " Sample data: this page is a review of the design, and none of its figures, prices or results are a member's."}</p>

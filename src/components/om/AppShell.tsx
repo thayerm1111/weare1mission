@@ -1,6 +1,10 @@
 "use client";
 
 import "./om.css";
+import "./os.css";
+import "./os-products.css";
+import "./flow-account.css";
+import "./floor/os-floor.css";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -8,25 +12,13 @@ import { Activity, CreditCard, Globe, LayoutGrid, LifeBuoy, Link2, LogOut, Shiel
 import { NotificationsBell } from "@/components/portal/NotificationsBell";
 import { NAV, TAB_ORDER, TOOLS_SHEET, activeKey, type NavKey } from "@/lib/floor/nav";
 import type { InstallGuide } from "@/lib/floor/app";
-import { LOOKS, LOOK_CLASS, LOOK_KEY, applyLook, lookOf, themeOf, type Look } from "@/lib/floor/look";
+import { DEFAULT_LOOK, LOOKS, LOOK_CLASS, LOOK_KEY, applyLook, lookOf, themeOf, type Look } from "@/lib/floor/look";
 import { InstallSheet, OfflineNotice, runningAsApp, useInstall } from "./InstallApp";
 import { ShellContext } from "./shell";
+import { ProductIcon } from "./ProductIcon";
+import { FlowAccountBar, FlowAccountProvider } from "./FlowAccount";
 
-/**
- * ONE SHELL FOR THE TRADING PLATFORM (owner 11-20).
- *
- * A floating bar across the top — OM / One Mission, the six destinations, credits and the profile — and,
- * on a phone, the same destinations under the thumb (Floor, Plays, Atlas, FLOW, Tools). There is no
- * sidebar and no community destination: what is left beside the six is the short list a customer needs
- * to run their account (profile, credits and billing, notifications, support, sign out).
- *
- * The destinations and which one is lit are decided in src/lib/floor/nav.ts, so the bar and the phone
- * tabs can never disagree. Atlas opens the Command Center as a full page load: that screen brings its own
- * full-bleed frame and first-open introduction, and both are left exactly as they are.
- *
- * It hides the public site's header and footer for as long as it is mounted, and puts them back when it
- * goes — the same html-class approach the Command Center uses, without a reload.
- */
+/** The shared OS frame. Trading tools retain their own engines, permissions and requests. */
 export type ShellMember = { name: string | null; email: string | null; admin: boolean };
 
 function OmMark() {
@@ -151,39 +143,16 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
   const [guide, setGuide] = useState<InstallGuide | null>(null);
   const closeGuide = useCallback(() => setGuide(null), []);
   const install = useCallback(() => { void installApp().then((g) => { if (g) setGuide(g); }); }, [installApp]);
-  // THE SELECTED TAB'S CAPSULE (owner 11-21 brief §4): one tonal capsule that slides to the tab you chose, in about
-  // 200 ms. The labels never move. It is measured from the tab itself, so it follows any width; with reduced motion
-  // it simply appears in place (om.css removes every transition).
-  const links = useRef<HTMLDivElement>(null);
-  const [pill, setPill] = useState<{ x: number; w: number } | null>(null);
-  useEffect(() => {
-    const box = links.current;
-    if (!box) return;
-    const measure = () => {
-      const cur = box.querySelector<HTMLElement>('.om-link[aria-current="page"]');
-      setPill(cur ? { x: cur.offsetLeft, w: cur.offsetWidth } : null);
-    };
-    measure();
-    if (typeof ResizeObserver !== "function") return;
-    const ro = new ResizeObserver(measure);
-    ro.observe(box);
-    return () => ro.disconnect();
-  }, [here]);
 
   return (
     <>
       <div className="om-nav-wrap" data-scrolled={scrolled ? "" : undefined}>
         <div className="om-frame">
           <nav className="om-nav" aria-label="Trading platform">
-            <Link href="/portal/trading" className="om-brand" aria-label="One Mission — The Floor"><OmMark /><span>One Mission</span></Link>
-            {screen && <span className="om-apptitle" aria-hidden="true">{screen}</span>}
-            <div className="om-links" ref={links} data-pill={pill ? "" : undefined}>
-              {pill && <span className="om-links-pill" aria-hidden="true" style={{ transform: `translateX(${pill.x}px)`, width: pill.w }} />}
-              {NAV.map((n) => n.hard
-                ? <a key={n.key} href={n.href} className="om-link" aria-current={here === n.key ? "page" : undefined}>{n.label}</a>
-                : <Link key={n.key} href={n.href} className="om-link" aria-current={here === n.key ? "page" : undefined}>{n.label}</Link>)}
-            </div>
+            <Link href="/portal/trading" className="om-brand" aria-label="One Mission — The Floor"><OmMark /><span>One Mission</span><small>OS</small></Link>
+            <div className="om-os-breadcrumb"><Link href="/portal/trading" aria-current={here === "floor" ? "page" : undefined}>The Floor</Link>{here && here !== "floor" && <><span aria-hidden="true">/</span><span>{screen}</span></>}</div>
             <div className="om-nav-right">
+              <a className="om-os-ask" href="/command-center"><ProductIcon kind="atlas" size="sm" /><span>Ask Atlas</span></a>
               {configured && <Credits />}
               {configured && <span className="om-bell"><NotificationsBell trading /></span>}
               <ProfileMenu member={member} configured={configured} preview={preview} asApp={asApp} onInstall={configured && offer ? install : undefined} look={look} onLook={onLook} />
@@ -216,22 +185,45 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
   );
 }
 
-export function AppShell({ children, member, configured = true, preview = false }: {
+const APPS = [
+  { key: "atlas" as const, label: "Atlas", line: "Gold intelligence", href: "/command-center", hard: true },
+  { key: "genx" as const, label: "GENX", line: "The gold engine", href: "/portal/genx", hard: false },
+  { key: "plays" as const, label: "OM AI Plays", line: "Any market. Full setup.", href: "/portal/signals", hard: false },
+  { key: "pulse" as const, label: "Pulse", line: "Find your next market", href: "/portal/trading?view=pulse", hard: false },
+  { key: "flow" as const, label: "FLOW", line: "Your account connection", href: "/portal/trading?view=flow", hard: false },
+];
+
+function AppDock() {
+  const path = usePathname() || "";
+  const here = activeKey(path, useSearchParams().get("view"));
+  return <nav className="om-os-dock" aria-label="One Mission apps">
+    {APPS.map((app, index) => {
+      const content = <><ProductIcon kind={app.key} /><span className="om-os-app-title">{app.label}<small>{app.line}</small></span><span className="om-os-app-number" aria-hidden="true">0{index + 1}</span></>;
+      return app.hard
+        ? <a key={app.key} href={app.href} className="om-os-app" aria-current={here === app.key ? "page" : undefined}>{content}</a>
+        : <Link key={app.key} href={app.href} className="om-os-app" aria-current={here === app.key ? "page" : undefined}>{content}</Link>;
+    })}
+  </nav>;
+}
+
+export function AppShell({ children, member, configured = true, preview = false, atlas = false }: {
   children: React.ReactNode; member: ShellMember;
   /** false on the labelled sample route, where there is no session to read credits or sign out of. */
   configured?: boolean;
+  /** The existing Atlas Command Center lives within the same OS. */
+  atlas?: boolean;
   /** An admin: offers the way to the classic portal (kept for support since the new design went to everyone). */
   preview?: boolean;
 }) {
   // The public site's header and footer step aside while this shell is on screen, and the member's look is put on.
   // (The same classes are set before first paint by SHELL_SCRIPT; this covers arriving without a reload.)
-  const [look, setLook] = useState<Look>("stone");
+  const [look, setLook] = useState<Look>(DEFAULT_LOOK);
   useEffect(() => {
     const d = document.documentElement;
     d.classList.add("om-shell");
     d.classList.toggle("om-standalone", runningAsApp());
-    let saved: Look = "stone";
-    try { saved = lookOf(localStorage.getItem(LOOK_KEY)); } catch { /* Stone */ }
+    let saved: Look = DEFAULT_LOOK;
+    try { saved = lookOf(localStorage.getItem(LOOK_KEY)); } catch { /* default look */ }
     applyLook(d, saved);
     setLook(saved);
     return () => {
@@ -249,12 +241,19 @@ export function AppShell({ children, member, configured = true, preview = false 
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themeOf(l));
   }, []);
   return (
-    <div className="om-app">
+    <div className={`om-app om-os${atlas ? " om-os-atlas" : ""}`}>
+      <FlowAccountProvider configured={configured}>
       <Suspense fallback={<div className="om-nav-wrap"><div className="om-frame"><div className="om-nav" /></div></div>}>
         <Bar member={member} configured={configured} preview={preview} look={look} onLook={chooseLook} />
       </Suspense>
-      <main className="om-main"><div className="om-frame"><ShellContext.Provider value={true}>{children}</ShellContext.Provider></div></main>
+      <main className="om-main"><div className="om-frame"><ShellContext.Provider value={true}>
+        {configured && <FlowAccountBar />}
+        <Suspense fallback={<div className="om-os-dock-skeleton" />}><AppDock /></Suspense>
+        {children}
+        <footer className="om-os-footer"><span>One Mission OS</span><span>Your tools. One connected workspace.</span><Link href="/portal/support">Support ↗</Link></footer>
+      </ShellContext.Provider></div></main>
       <OfflineNotice />
+      </FlowAccountProvider>
     </div>
   );
 }

@@ -1,0 +1,48 @@
+.om-app .om-flow-account {
+  display: flex; align-items: center; gap: 22px; min-width: 0;
+  padding: 15px 20px; border: 1px solid var(--om-edge); border-radius: 15px;
+  background: var(--om-surface); color: var(--om-text); font-size: 12px;
+}
+.om-app .om-flow-account-brand { display: inline-flex; align-items: center; gap: 7px; color: var(--om-text-2); font-size: 10px; font-weight: 650; letter-spacing: .12em; }
+.om-app .om-flow-account-select-area { min-width: 0; flex: 1 1 190px; }
+.om-app .om-flow-account-picker { display: flex; align-items: center; position: relative; max-width: 290px; }
+.om-app .om-flow-account-picker select { appearance: none; -webkit-appearance: none; color: var(--om-text); background: transparent; border: 0; border-radius: 5px; font: inherit; font-size: 12px; font-weight: 550; min-height: 32px; padding: 3px 23px 3px 0; width: 100%; cursor: pointer; text-overflow: ellipsis; }
+.om-app .om-flow-account-picker option { color: var(--om-text); background: var(--om-menu); }
+.om-app .om-flow-account-picker > svg { position: absolute; right: 2px; color: var(--om-text-2); pointer-events: none; }
+.om-app .om-flow-account-name { display: block; font-size: 12px; font-weight: 550; line-height: 32px; }
+.om-app .om-flow-account-meta { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--om-text-2); font-size: 10px; line-height: 1.5; }
+.om-app .om-flow-account-meta > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.om-app .om-flow-account-meta i { flex: 0 0 5px; width: 5px; height: 5px; background: var(--om-text-3); border-radius: 50%; }
+.om-app .om-flow-account-meta i[data-tone="connected"] { background: var(--om-pos); }
+.om-app .om-flow-account-figures { display: flex; align-items: center; gap: clamp(20px, 3vw, 42px); }
+.om-app .om-flow-account-stat { display: flex; flex-direction: column; gap: 4px; min-width: 88px; }
+.om-app .om-flow-account-label { color: var(--om-text-2); font-size: 10px; line-height: 1.5; }
+.om-app .om-flow-account-number { display: inline-flex; align-items: center; min-height: 19px; color: var(--om-text); font-size: 14px; font-weight: 550; font-variant-numeric: tabular-nums; white-space: nowrap; letter-spacing: -.02em; }
+.om-app .om-flow-account-number[data-stale] { color: var(--om-text-2); }
+.om-app .om-flow-account-number[data-tone="positive"] { color: var(--om-pos); }
+.om-app .om-flow-account-number[data-tone="negative"] { color: var(--om-neg); }
+.om-app .om-flow-account-placeholder { display: inline-block; width: 80px; height: 14px; border-radius: 3px; background: var(--om-raised); }
+.om-app .om-flow-account-actions { display: flex; align-items: center; gap: 5px; margin-left: auto; }
+.om-app .om-flow-account-icon { display: grid; place-items: center; min-width: 36px; min-height: 40px; border: 0; border-radius: 8px; background: transparent; color: var(--om-text-2); cursor: pointer; }
+.om-app .om-flow-account-manage { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 6px 9px; border-radius: 8px; color: var(--om-text); text-decoration: none; font-size: 11px; white-space: nowrap; }
+.om-app .om-flow-account-icon:hover, .om-app .om-flow-account-manage:hover { background: var(--om-raised); }
+.om-app .om-flow-account :is(select, button, a):focus-visible { outline: 2px solid var(--om-ai); outline-offset: 3px; }
+.om-app .om-flow-account-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@media (max-width: 1040px) {
+  .om-app .om-flow-account { gap: 14px; padding: 12px 15px; }
+  .om-app .om-flow-account-brand { display: none; }
+  .om-app .om-flow-account-figures { gap: 18px; }
+  .om-app .om-flow-account-stat { min-width: 76px; }
+  .om-app .om-flow-account-number { font-size: 13px; }
+}
+@media (max-width: 720px) {
+  .om-app .om-flow-account { flex-wrap: wrap; gap: 8px 12px; padding: 10px 13px 14px; }
+  .om-app .om-flow-account-select-area { order: 1; flex: 1 1 140px; }
+  .om-app .om-flow-account-actions { order: 2; }
+  .om-app .om-flow-account-manage { padding: 4px; font-size: 10px; min-height: 44px; }
+  .om-app .om-flow-account-icon { min-width: 36px; min-height: 44px; }
+  .om-app .om-flow-account-picker select { min-height: 36px; }
+  .om-app .om-flow-account-figures { order: 3; flex: 1 0 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; border-top: 1px solid var(--om-hair); padding-top: 11px; }
+  .om-app .om-flow-account-stat { min-width: 0; }
+  .om-app .om-flow-account-number { font-size: clamp(11px, 3.1vw, 14px); }
+}

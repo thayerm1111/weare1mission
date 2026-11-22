@@ -23,14 +23,15 @@ const css = () => read('src/components/om/om.css').replace(/\/\*[\s\S]*?\*\//g, 
 const block = (c: string, head: string) => { const i = c.indexOf(head); assert.ok(i >= 0, `${head} exists`); return c.slice(i, c.indexOf('\n}', i)); };
 const tokens = (b: string) => new Set([...b.matchAll(/(--om-[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
 
-test('Stone is the default; a stored choice of Graphite is honoured; anything else is Stone', () => {
-  assert.equal(DEFAULT_LOOK, 'stone');
-  assert.equal(lookOf(null), 'stone');
+test('Graphite is the OS default; both existing stored preferences are honoured', () => {
+  assert.equal(DEFAULT_LOOK, 'graphite');
+  assert.equal(lookOf(null), 'graphite');
+  assert.equal(lookOf('stone'), 'stone');
   assert.equal(lookOf('graphite'), 'graphite');
-  assert.equal(lookOf('dark'), 'stone');
+  assert.equal(lookOf('dark'), 'graphite');
   assert.deepEqual(LOOKS.map((l) => l.label), ['Stone', 'Graphite']);
   assert.equal(themeOf('stone'), '#f5f4f1');
-  assert.equal(themeOf('graphite'), '#1a1a1d');
+  assert.equal(themeOf('graphite'), '#08090b');
   assert.equal(LOOK_KEY, 'om-look');
   const on = new Set<string>();
   const root = { classList: { toggle: (t: string, f?: boolean) => { if (f) on.add(t); else on.delete(t); return !!f; } } };
@@ -52,12 +53,12 @@ test('the look is on the page before its first paint, with the browser\'s bar co
     runInNewContext(SHELL_SCRIPT, { document, window, localStorage: { getItem: (k: string) => (k === 'om-look' ? saved : null) } });
     return { cls: [...cls].sort().join(' '), bar };
   };
-  assert.deepEqual(run(null), { cls: 'om-shell', bar: '#f5f4f1' });
+  assert.deepEqual(run(null), { cls: 'om-dark om-look-graphite om-shell', bar: '#08090b' });
   assert.deepEqual(run('stone'), { cls: 'om-shell', bar: '#f5f4f1' });
-  assert.deepEqual(run('graphite'), { cls: 'om-dark om-look-graphite om-shell', bar: '#1a1a1d' });
+  assert.deepEqual(run('graphite'), { cls: 'om-dark om-look-graphite om-shell', bar: '#08090b' });
   // The page behind the shell is the look's own canvas.
   assert.match(SHELL_CSS, /html\.om-shell,html\.om-shell body\{background:#f5f4f1!important\}/);
-  assert.match(SHELL_CSS, /html\.om-shell\.om-look-graphite,html\.om-shell\.om-look-graphite body\{background:#1a1a1d!important\}/);
+  assert.match(SHELL_CSS, /html\.om-shell\.om-look-graphite,html\.om-shell\.om-look-graphite body\{background:#08090b!important\}/);
   assert.match(SHELL_CSS, /html\.om-shell\{color-scheme:light\}html\.om-shell\.om-look-graphite\{color-scheme:dark\}/);
 });
 

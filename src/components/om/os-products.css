@@ -1,0 +1,158 @@
+/* Product presentation only. All rules stay inside the OS tool workspaces. */
+.om-os-product .om-product-header {
+  align-items: center;
+  gap: 22px 32px;
+  padding: 4px 2px 2px;
+}
+
+.om-os-product .om-product-heading {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  min-width: 0;
+  flex: 1 1 360px;
+}
+
+.om-os-product .om-product-heading > :first-child,
+.om-os-product .om-product-handoff > :first-child {
+  flex-shrink: 0;
+}
+
+.om-os-product .om-product-copy { min-width: 0; }
+.om-os-product .om-product-kicker {
+  margin: 0 0 5px;
+  color: var(--om-text-3);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.om-os-product .om-title {
+  font-size: clamp(26px, 2.2vw, 31px);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.om-os-product .om-title::before { content: none; }
+.om-os-product .om-sub { max-width: 60ch; font-size: 14px; line-height: 1.55; }
+.om-os-product .om-ws-note { max-width: 38ch; font-size: 12px; line-height: 1.5; }
+.om-os-product .om-label { line-height: 1.5; }
+.om-os-product .om-product-section-head { display: grid; gap: 4px; }
+.om-os-product .om-product-section-head h2,
+.om-os-product .om-product-handoff h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: -0.015em;
+}
+
+.om-os-product .om-product-section-head p,
+.om-os-product .om-product-handoff p { margin: 0; }
+.om-os-product .om-product-handoff { display: flex; align-items: flex-start; gap: 11px; min-width: 0; }
+.om-os-product .om-product-handoff > :last-child { min-width: 0; }
+.om-os-product .om-product-handoff h3 + p { margin-top: 3px; }
+
+/* The builder remains three visible steps; its existing method stays below the action. */
+.om-os-product .om-plays-config { gap: 24px; padding: 24px; }
+.om-os-product .om-plays-config > .om-product-section-head { padding-bottom: 17px; border-bottom: 1px solid var(--om-hair); }
+.om-os-product .om-step { align-items: center; gap: 10px; margin-bottom: 3px; }
+.om-os-product .om-step > .om-label { color: var(--om-text); font-size: 14px; font-weight: 500; }
+.om-os-product .om-step-n { width: 25px; height: 25px; font-size: 11px; border-radius: 8px; }
+.om-os-product .om-step[data-done] .om-step-n { color: var(--om-text); background: rgb(var(--om-fg) / 0.08); border-color: var(--om-edge-2); }
+.om-os-product .om-quick { gap: 6px; margin-top: 4px; }
+.om-os-product .om-quick button { height: 34px; border-radius: 9px; padding: 0 10px; font-size: 12px; }
+.om-os-product .om-plays-go { gap: 10px; }
+.om-os-product .om-plays-go > .om-btn { min-height: 46px; height: auto; padding: 11px 14px; white-space: normal; }
+.om-os-product .om-plays-go > .om-label { font-size: 12px; }
+.om-os-product .om-plays-config > .om-field:last-child { padding-top: 16px; border-top: 1px solid var(--om-hair); }
+.om-os-product .om-plays-config .om-disclose { font-size: 12px; color: var(--om-text-2); }
+.om-os-product .om-plays-config .om-disclose .om-label { font-size: 12px; color: var(--om-text); }
+.om-os-product .om-plays-preview {
+  min-height: 365px;
+  max-width: none;
+  align-content: center;
+  justify-items: start;
+  gap: 14px;
+  padding: clamp(24px, 3.6vw, 48px);
+}
+
+.om-os-product .om-plays-preview h2 { font-size: clamp(24px, 2.2vw, 30px); line-height: 1.2; letter-spacing: -0.035em; }
+.om-os-product .om-product-preview-copy { margin: -5px 0 0; font-size: 14px; line-height: 1.5; color: var(--om-text-2); }
+.om-os-product .om-product-outcomes {
+  display: grid;
+  gap: 14px;
+  list-style: none;
+  margin: 9px 0 3px;
+  padding: 0;
+  width: 100%;
+}
+
+.om-os-product .om-product-outcomes li { display: grid; gap: 3px; padding-left: 14px; border-left: 1px solid var(--om-edge-2); }
+.om-os-product .om-product-outcomes b { font-size: 13px; font-weight: 500; }
+.om-os-product .om-product-outcomes span { font-size: 13px; color: var(--om-text-2); line-height: 1.5; }
+.om-os-product .om-plays-preview > .om-label { margin: 4px 0 0; font-size: 12px; }
+.om-os-product .om-play-head h2 { letter-spacing: -0.035em; }
+.om-os-product .om-play-lv > div { padding: 12px 14px; border: 1px solid var(--om-hair); border-radius: 12px; background: rgb(var(--om-fg) / 0.025); }
+.om-os-product .om-play-lv dd { font-size: 18px; }
+
+/* GENX's existing engine state, confirmation, and levels remain separate and readable. */
+.om-os-product .om-genx-go { max-width: 100%; }
+.om-os-product .om-genx-go .om-seg { min-width: 250px; }
+.om-os-product .om-genx-go > .om-label { max-width: 54ch; font-size: 12px; text-align: right; }
+.om-os-product .om-genx-panel { padding: 24px; gap: 21px; }
+.om-os-product .om-genx-state { font-size: clamp(25px, 2vw, 30px); line-height: 1.2; letter-spacing: -0.035em; }
+.om-os-product .om-genx-decision > .om-genx-state { line-height: 1.2; }
+.om-os-product .om-genx-decision > .om-kv { padding-top: 14px; border-top: 1px solid var(--om-hair); }
+.om-os-product .om-genx-decision .om-kv-wide { gap: 5px; }
+.om-os-product .om-genx-decision .om-kv-wide dd { line-height: 1.6; }
+.om-os-product .om-genx-flow { padding-top: 18px; }
+.om-os-product .om-genx-flow .om-go { margin: 6px 0 0; display: flex; width: fit-content; }
+
+/* Pulse hands its selected market to Plays through the existing explicit actions. */
+.om-os-product .om-pulse-go { max-width: 100%; }
+.om-os-product .om-pulse-go > .om-label { max-width: 48ch; font-size: 12px; }
+.om-os-product .om-pulse-listwrap { padding: 24px 22px 20px; gap: 18px; }
+.om-os-product .om-pulse-pick { min-height: 40px; align-content: center; }
+.om-os-product .om-pulse-table td { padding-top: 12px; padding-bottom: 12px; }
+.om-os-product .om-pulse-table tr[data-current] td { background: rgb(var(--om-fg) / 0.065); }
+.om-os-product .om-pulse-detail { padding: 24px; }
+.om-os-product .om-pulse-d-head { flex-wrap: wrap; }
+.om-os-product .om-pulse-d-head h2 { font-size: 25px; letter-spacing: -0.035em; }
+.om-os-product .om-pulse-d-head h2 .om-faint { display: block; margin-top: 4px; font-size: 13px; letter-spacing: 0; }
+.om-os-product .om-pulse-next { display: grid; gap: 15px; padding-top: 20px; border-top: 1px solid var(--om-hair); }
+.om-os-product .om-pulse-next > p { margin: 0; }
+.om-os-product .om-pulse-acts > .om-btn { width: 100%; min-height: 44px; height: auto; padding: 11px 12px; white-space: normal; }
+.om-os-product .om-pulse-acts > .om-btn-quiet { min-height: 36px; height: auto; padding: 9px 12px; white-space: normal; }
+
+@media (max-width: 980px) {
+  .om-os-product .om-genx-go { grid-template-columns: minmax(0, 1fr); justify-items: stretch; width: 100%; }
+  .om-os-product .om-genx-go .om-seg { min-width: 0; }
+  .om-os-product .om-genx-go > .om-label { max-width: none; text-align: left; }
+}
+
+@media (max-width: 640px) {
+  .om-os-product .om-product-header { gap: 19px; padding: 2px 0 0; }
+  .om-os-product .om-product-heading { align-items: flex-start; gap: 12px; }
+  .om-os-product .om-product-kicker { font-size: 10px; margin-bottom: 4px; }
+  .om-os-product .om-title { font-size: 25px; }
+  .om-os-product .om-sub { font-size: 13px; line-height: 1.5; }
+  .om-os-product .om-plays-config,
+  .om-os-product .om-genx-panel,
+  .om-os-product .om-pulse-detail { padding: 19px 17px; }
+  .om-os-product .om-combo input { font-size: 16px; }
+  .om-os-product .om-plays-preview { min-height: 0; padding: 26px 20px; }
+  .om-os-product .om-play-lv { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .om-os-product .om-play-lv > div { padding: 11px 10px; overflow-wrap: anywhere; }
+  .om-os-product .om-play-lv dd { font-size: 16px; }
+  .om-os-product .om-pulse-listwrap { padding: 19px 10px 16px; }
+  .om-os-product .om-pulse-listwrap > .om-product-section-head { padding: 0 7px; }
+  .om-os-product .om-pulse-table tr { gap: 2px 9px; }
+  .om-os-product .om-pulse-table td { padding-top: 4px; padding-bottom: 4px; }
+  .om-os-product .om-pulse-table tr[data-current] td { background: none; }
+  .om-os-product .om-pulse-table td[data-label] { font-size: 12px; }
+  .om-os-product .om-pulse-pick b { font-size: 13px; }
+  .om-os-product .om-pulse-pick small { font-size: 11px; }
+}

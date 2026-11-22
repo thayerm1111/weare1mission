@@ -62,10 +62,14 @@ test('a pause, a disconnect and a close are different things, and disconnect say
 });
 
 test('the account looked at is The Floor\'s, and looking changes nothing', () => {
-  assert.match(home, /const KEY_ACCOUNT = "om:floor:account", KEY_PERIOD = "om:floor:flow", KEY_HIDE = "om:floor:hide"/, 'the same keys The Floor uses');
+  const shared = read('src/components/om/FlowAccount.tsx');
+  assert.match(shared, /KEY_ACCOUNT = "om:floor:account"/);
+  assert.match(shared, /KEY_FLOW = "om:floor:flow"/);
+  assert.match(shared, /KEY_HIDE = "om:floor:hide"/, 'the shared view keeps the saved account, period and privacy choices');
   assert.match(read('src/components/om/floor/Floor.tsx'), /store\.get\("om:floor:account"\)/);
-  assert.match(home, /headers\["x-floor-account"\] = pick\.id/, 'named in a header, not the address');
-  assert.ok(!/method: "POST"/.test(home), 'the page writes nothing of its own');
+  assert.match(home, /useFlowAccount\(\)/, 'FLOW consumes the same account context as The Floor');
+  assert.match(shared, /headers\["x-floor-account"\] = current\.pick\.id/, 'named in a header, not the address');
+  assert.ok(!/method: "POST"/.test(home + shared), 'the account view writes nothing of its own');
 });
 
 test('the desk record is labelled as the desk\'s, and shows only what it counts', () => {

@@ -14,6 +14,7 @@ import { isOpen } from "@/lib/cashtrap/marketHours";
 import { CREDIT_COST } from "@/lib/creditConfig";
 import { priceFor } from "@/lib/flow/display";
 import { actionWords, convictionWords, holdWords, stepWords, streakOf } from "@/lib/genx/words";
+import { ProductIcon } from "@/components/om/ProductIcon";
 
 /**
  * GENX, IN THE TRADING PLATFORM'S SHELL (owner 11-20 brief §8: "a focused gold workstation").
@@ -191,11 +192,15 @@ export function GenxHome(p: GenxHomeProps) {
   const analysis = older ? { at: readMs, label: `${saved ? "Saved read" : "This read"} · ${whenText(readIso)}` } : null;
 
   return (
-    <div className="om-ws om-genx">
-      <header className="om-ws-head">
-        <div>
-          <h1 className="om-title">GENX</h1>
-          <p className="om-sub">Gold intelligence: GENX&rsquo;s read of XAU/USD, the plan behind it, and its record.</p>
+    <div className="om-ws om-genx om-os-product">
+      <header className="om-ws-head om-product-header">
+        <div className="om-product-heading">
+          <ProductIcon kind="genx" size="lg" />
+          <div className="om-product-copy">
+            <p className="om-product-kicker">Gold intelligence</p>
+            <h1 className="om-title">GENX</h1>
+            <p className="om-sub">Read gold&rsquo;s structure, follow the setup, and review the engine&rsquo;s record.</p>
+          </div>
         </div>
         <div className="om-genx-go">
           <div className="om-seg" role="group" aria-label="Horizon">
@@ -246,7 +251,10 @@ export function GenxHome(p: GenxHomeProps) {
 
         <aside className="om-panel om-genx-panel" aria-label="What GENX is doing">
           {read ? <Decision p={p} g={read} subject={subject} /> : <Waiting view={liveView} failed={liveFailed} loaded={!!live} />}
-          <p className="om-label om-genx-flow">Which of your accounts take GENX trades is set in FLOW. <Link href="/portal/trading?view=flow" className="om-go">Open FLOW<ArrowUpRight aria-hidden="true" /></Link></p>
+          <div className="om-genx-flow om-product-handoff">
+            <ProductIcon kind="flow" size="sm" />
+            <p className="om-label">Which of your accounts take GENX trades is set in FLOW. <Link href="/portal/trading?view=flow" className="om-go">Open FLOW<ArrowUpRight aria-hidden="true" /></Link></p>
+          </div>
         </aside>
       </div>
 

@@ -1,4 +1,5 @@
 "use client";
+import { ProductIcon } from "@/components/om/ProductIcon";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -789,8 +790,10 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       <style dangerouslySetInnerHTML={{ __html: HUD_CSS + DESK }} />
       {tourOpen && <HudTour onClose={() => setTourOpen(false)} />}
 
+      {toFloor && <div className="om-atlas-os-heading"><ProductIcon kind="atlas" size="lg" /><div><span>GOLD INTELLIGENCE</span><h1>Atlas</h1><p>Your read on gold. The context, the setup, the next move.</p></div></div>}
+
       {/* ── HEADER ────────────────────────────────────────────────────── */}
-      <header className="relative mb-[8px] flex h-[42px] shrink-0 items-center gap-2 sm:gap-3">
+      <header className="om-atlas-os-toolbar relative mb-[8px] flex h-[42px] shrink-0 items-center gap-2 sm:gap-3">
         {toFloor && (
           <a href="/portal/trading" aria-label="Back to The Floor" className="flex min-h-[40px] min-w-[40px] shrink-0 items-center justify-center gap-1 rounded-full px-2.5 py-1.5 text-[12.5px] font-medium sm:px-3" style={{ color: H.text, border: `1px solid ${H.line}`, background: "rgba(255,255,255,0.04)" }}>
             <span aria-hidden="true">‹</span><span className="hidden sm:inline" aria-hidden="true"> The Floor</span>

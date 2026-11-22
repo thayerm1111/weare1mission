@@ -22,6 +22,7 @@ import { leaveFloorQuestion } from "@/components/command-center/hud/floorAsk";
 import { pairName, priceFor, lotsText } from "@/lib/flow/display";
 import { accountName, maskAccount, money } from "@/lib/floor/overview";
 import type { PlacementSize } from "@/lib/flow/ticketSizing";
+import { ProductIcon } from "@/components/om/ProductIcon";
 
 const MARKET_ICON: Record<Market["id"], typeof Bitcoin> = { crypto: Bitcoin, metal: Gem, stock: TrendingUp, forex: Globe, index: BarChart3 };
 const MARKET_TINT: Record<Market["id"], string> = { crypto: "text-orange-400", metal: "text-amber-300", stock: "text-emerald-400", forex: "text-sky-400", index: "text-violet-400" };
@@ -365,11 +366,15 @@ export function SignalGenerator() {
       window.location.assign("/command-center");
     };
     return (
-      <div className="om-ws om-plays">
-        <header className="om-ws-head">
-          <div>
-            <h1 className="om-title">OM AI Plays</h1>
-            <p className="om-sub">Choose a market and a style, and OM AI builds the trade setup from live market data.</p>
+      <div className="om-ws om-plays om-os-product">
+        <header className="om-ws-head om-product-header">
+          <div className="om-product-heading">
+            <ProductIcon kind="plays" size="lg" />
+            <div className="om-product-copy">
+              <p className="om-product-kicker">Trade planning</p>
+              <h1 className="om-title">OM AI Plays</h1>
+              <p className="om-sub">Choose a market and a style. OM AI builds the complete read from live market data.</p>
+            </div>
           </div>
           {rate !== null && (
             <p className="om-ws-note om-num" title="Your saved plays since the record was reset, counted by what price did against each play's levels — not orders on an account">
@@ -380,8 +385,12 @@ export function SignalGenerator() {
 
         <div className="om-plays-grid">
           <aside className="om-panel om-plays-config" aria-label="Generate a play">
+            <div className="om-product-section-head">
+              <h2>Build a play</h2>
+              <p className="om-label">Three steps, one complete read.</p>
+            </div>
             <div className="om-field">
-              <label className="om-step" htmlFor="om-plays-market" data-done={asset ? "" : undefined}><span className="om-step-n" aria-hidden="true">1</span><span className="om-label">Market</span></label>
+              <label className="om-step" htmlFor="om-plays-market" data-done={asset ? "" : undefined}><span className="om-step-n" aria-hidden="true">1</span><span className="om-label">Choose a market</span></label>
               <div className="om-combo">
                 <Search aria-hidden="true" />
                 <input id="om-plays-market" value={find} placeholder={asset ? asset.symbol : "Search markets"} autoComplete="off"
@@ -417,7 +426,7 @@ export function SignalGenerator() {
             </div>
 
             <div className="om-field">
-              <span className="om-step" id="om-plays-style" data-done=""><span className="om-step-n" aria-hidden="true">2</span><span className="om-label">Trade style</span></span>
+              <span className="om-step" id="om-plays-style" data-done=""><span className="om-step-n" aria-hidden="true">2</span><span className="om-label">Choose a trade style</span></span>
               <div className="om-seg" role="group" aria-labelledby="om-plays-style">
                 {STYLES.map(([v, label, sub]) => <button key={v} type="button" aria-pressed={style === v} title={sub} onClick={() => setStyle(v)}>{label}</button>)}
               </div>
@@ -428,6 +437,7 @@ export function SignalGenerator() {
             <div className="om-plays-go">
               <span className="om-step"><span className="om-step-n" aria-hidden="true">3</span><span className="om-label">Generate</span></span>
               <button type="button" className="om-btn" onClick={() => void generate()} disabled={!!need || busy} aria-busy={busy} aria-describedby="om-plays-need">
+                {busy && <Loader2 className="animate-spin" aria-hidden="true" />}
                 {busy ? "Analyzing…" : asset ? `Generate a play · ${asset.symbol}` : "Generate a play"}
               </button>
               {need && <p className="om-plays-need" id="om-plays-need" role="status">{need}</p>}
@@ -495,12 +505,14 @@ export function SignalGenerator() {
                     : null} />
               ) : (
                 <div className="om-plays-preview">
+                  <ProductIcon kind="plays" size="lg" />
                   <h2>{asset ? `Ready to analyze ${asset.symbol}` : "Your play appears here"}</h2>
-                  <ol>
-                    <li><b>The market read</b> — whether there is a setup worth taking, an idea that is not confirmed yet, or nothing to do.</li>
-                    <li><b>The chart and the levels</b> — entry, stop and targets with their reward to risk, when the setup is valid.</li>
-                    <li><b>What to do next</b> — track it, check how it went, or review it as a ticket for your accounts.</li>
-                  </ol>
+                  <p className="om-product-preview-copy">Your analysis, plan, and next step in one place.</p>
+                  <ul className="om-product-outcomes">
+                    <li><b>The market read</b><span>A setup, an unconfirmed idea, or a reason to wait.</span></li>
+                    <li><b>The chart and the levels</b><span>Entry, stop, targets, and reward to risk when a plan is available.</span></li>
+                    <li><b>What to do next</b><span>Track the play, review the outcome, or open an account ticket.</span></li>
+                  </ul>
                   <p className="om-label">Nothing is analyzed until you press Generate. Your saved plays are below, and open without generating anything.</p>
                 </div>
               )}

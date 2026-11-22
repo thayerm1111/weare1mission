@@ -10,6 +10,7 @@ import { ageText } from "@/lib/floor/overview";
 import { SCAN_FRESH_MS, categoryOf, scanMs, type PulseCategory } from "@/lib/pulse/scan";
 import { priceFor } from "@/lib/flow/display";
 import { leaveGenerateIntent, playsHref } from "@/lib/plays/intent";
+import { ProductIcon } from "@/components/om/ProductIcon";
 
 /**
  * MARKET PULSE, IN THE TRADING PLATFORM'S SHELL (owner 11-20 brief §13).
@@ -64,11 +65,15 @@ export function PulseHome({ setups, loading, asOf, msg, hydrated, scan, onDeepDi
   };
 
   return (
-    <div className="om-ws om-pulsews">
-      <header className="om-ws-head">
-        <div>
-          <h1 className="om-title">Market Pulse</h1>
-          <p className="om-sub">The scanner ranks the markets it covers by how many of its confirmations line up.</p>
+    <div className="om-ws om-pulsews om-os-product">
+      <header className="om-ws-head om-product-header">
+        <div className="om-product-heading">
+          <ProductIcon kind="pulse" size="lg" />
+          <div className="om-product-copy">
+            <p className="om-product-kicker">Market discovery</p>
+            <h1 className="om-title">Market Pulse</h1>
+            <p className="om-sub">Find a market worth a closer look, then take it into OM AI Plays.</p>
+          </div>
         </div>
         <div className="om-pulse-go">
           <button type="button" className="om-btn" onClick={scan} disabled={loading}>
@@ -92,6 +97,10 @@ export function PulseHome({ setups, loading, asOf, msg, hydrated, scan, onDeepDi
       ) : (
         <div className="om-pulse-grid">
           <section className="om-panel om-pulse-listwrap" aria-label="Ranked markets">
+            <div className="om-product-section-head">
+              <h2>Choose a market</h2>
+              <p className="om-label">Select a row to see the scan&rsquo;s confirmations and levels.</p>
+            </div>
             {present.size > 1 && (
               <div className="om-toggles" role="group" aria-label="Show">
                 {CATS.filter((c) => c === "All" || present.has(c)).map((c) => <button key={c} type="button" aria-pressed={cat === c} onClick={() => setCat(c)}>{c}</button>)}
@@ -173,17 +182,26 @@ function Detail({ s, rank, of, scanAt, onDeepDive }: { s: PulseSetup; rank: numb
 
       {/* Three different intents, said as three (owner 11-21 brief §12): generate a play (paid, once, on this tap),
           open OM AI Plays with this market filled in (free), and ask Atlas (free here). */}
-      <div className="om-pulse-acts">
-        <button type="button" className="om-btn" onClick={() => {
-          let nonce: string | undefined;
-          try { nonce = leaveGenerateIntent(window.sessionStorage, s.td, "intraday"); } catch { nonce = undefined; }
-          window.location.assign(playsHref(s.td, "intraday", nonce));
-        }}>Generate the full play · {CREDIT_COST.signal} credits</button>
-        <Link href={playsHref(s.td, "intraday")} className="om-btn-quiet">Open in OM AI Plays</Link>
-        <button type="button" className="om-btn-quiet" onClick={() => onDeepDive(s)}>Deep dive · {CREDIT_COST.deepdive} credit{CREDIT_COST.deepdive === 1 ? "" : "s"}</button>
-        <button type="button" className="om-btn-quiet" onClick={ask}>Ask Atlas<ArrowUpRight aria-hidden="true" width={14} height={14} /></button>
+      <div className="om-pulse-next">
+        <div className="om-product-handoff">
+          <ProductIcon kind="plays" size="sm" />
+          <div>
+            <h3>Build the full play</h3>
+            <p className="om-label"><span data-no-i18n translate="no">{s.symbol}</span> opens in OM AI Plays with Intraday selected.</p>
+          </div>
+        </div>
+        <div className="om-pulse-acts">
+          <button type="button" className="om-btn" onClick={() => {
+            let nonce: string | undefined;
+            try { nonce = leaveGenerateIntent(window.sessionStorage, s.td, "intraday"); } catch { nonce = undefined; }
+            window.location.assign(playsHref(s.td, "intraday", nonce));
+          }}>Generate the full play · {CREDIT_COST.signal} credits</button>
+          <Link href={playsHref(s.td, "intraday")} className="om-btn-quiet">Open in OM AI Plays</Link>
+          <button type="button" className="om-btn-quiet" onClick={() => onDeepDive(s)}>Deep dive · {CREDIT_COST.deepdive} credit{CREDIT_COST.deepdive === 1 ? "" : "s"}</button>
+          <button type="button" className="om-btn-quiet" onClick={ask}>Ask Atlas<ArrowUpRight aria-hidden="true" width={14} height={14} /></button>
+        </div>
+        <p className="om-faint om-flow-small">Generate makes one play in OM AI Plays from this tap — opening the page again, or going back to it, makes nothing more. Open in OM AI Plays only fills in the market. Atlas answers in the Command Center, which has its own price.</p>
       </div>
-      <p className="om-faint om-flow-small">Generate makes one play in OM AI Plays from this tap — opening the page again, or going back to it, makes nothing more. Open in OM AI Plays only fills in the market. Atlas answers in the Command Center, which has its own price.</p>
 
       {levels && (
         <div>

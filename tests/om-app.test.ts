@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { APP_INSTALL_SCRIPT, APP_MANIFEST, APP_THEME, installGuide, landingPath } from '../src/lib/floor/app';
+import { DEFAULT_LOOK, lookOf, themeOf } from '../src/lib/floor/look';
 
 /*
  * THE ONE MISSION APP AND THE MOBILE PASS (owner 11-21: "Need to make mobile version and app also" — the One Mission
@@ -10,7 +11,7 @@ import { APP_INSTALL_SCRIPT, APP_MANIFEST, APP_THEME, installGuide, landingPath 
  *
  * What is pinned here:
  *   • the new design is what installs — the manifest, its icons and the home-screen meta are on the new shell's pages
- *     only, and the new shell is still an admin's preview, so no member is offered anything yet;
+ *     only, for active members using the trading shell;
  *   • the installed app opens in the new design even on an iPhone, whose home-screen apps keep their own cookies;
  *   • installing never happens on its own: the browser's offer is held for "Install the app", and where a browser has
  *     no dialog the steps are its own words;
@@ -95,7 +96,11 @@ test('the manifest names the One Mission app on the new design, and its icons ar
   assert.equal(m.start_url, '/portal/trading', 'it opens on The Floor');
   assert.equal(m.theme_color, APP_THEME);
   assert.equal(m.background_color, APP_THEME);
-  assert.equal(APP_THEME, '#f5f4f1', 'the canvas of the default look, Stone');
+  assert.equal(DEFAULT_LOOK, 'graphite', 'the approved OS opens in Graphite');
+  assert.equal(APP_THEME, '#08090b', 'the OS canvas and install splash use the same Graphite');
+  assert.equal(APP_THEME, themeOf(DEFAULT_LOOK));
+  assert.equal(lookOf('stone'), 'stone', 'a saved Stone preference remains valid');
+  assert.equal(lookOf(null), 'graphite', 'a new install uses the OS default');
   assert.ok(m.id && m.id !== '/app/index.html', 'its own identity: the members\' app at /app/ stays a separate app');
   const png = (p: string) => { const b = readFileSync('public' + p); assert.equal(b.toString('ascii', 1, 4), 'PNG'); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
   const icons = m.icons as { src: string; sizes: string; purpose?: string }[];
@@ -121,7 +126,7 @@ test('the new shell\'s pages say they can be installed — every active member\'
     const meta = src.slice(src.indexOf('export async function generateMetadata'));
     assert.match(meta, /if \(!\(await inNewShell\(\)\)\) return (PORTAL|CC)_METADATA;/, `${f}: everyone else's page is as it was`);
     assert.match(meta, /manifest: APP_MANIFEST/);
-    assert.match(meta, /appleWebApp: \{ capable: true, title: APP_NAME, statusBarStyle: "default" \}/, `${f}: a light bar with dark text, for the Stone look`);
+    assert.match(meta, /appleWebApp: \{ capable: true, title: APP_NAME, statusBarStyle: "default" \}/, `${f}: the installed app retains its system-managed status bar`);
     assert.match(meta, /apple: \[\{ url: "\/om-app\/apple-touch-icon\.png"/);
   }
   const portal = code('src/app/portal/layout.tsx');
@@ -228,7 +233,7 @@ test('payment and billing pages leave the frame: they refuse to open inside one'
 });
 
 /* ── drawn as an app (owner 11-21: "This looks like the website not an app. Make it more like an actual app") ── */
-test('as the installed app the shell is drawn as an app — app bar, large titles, tab bar at every size — and the website keeps its header', async () => {
+test('the installed OS keeps its safe app bar, current-screen navigation and standalone tab bar', async () => {
   const { SHELL_SCRIPT } = await import('../src/lib/floor/nav');
   const run = (o: { standalone?: boolean; display?: boolean; framed?: boolean }) => {
     const cls = new Set<string>();
@@ -244,16 +249,20 @@ test('as the installed app the shell is drawn as an app — app bar, large title
   assert.equal(run({ framed: true }), true, 'the earlier app\'s frame');
   const c = css();
   const app = c.slice(c.indexOf('.om-standalone .om-app { --om-r-panel: 18px; }'));
-  assert.match(app, /\.om-standalone \.om-nav-wrap \{ position: fixed; left: 0; right: 0; top: 0;/, 'an app bar across the top');
-  assert.match(app, /\.om-standalone \.om-links \{ display: none; \}/, 'not the website\'s row of links');
-  assert.match(app, /\.om-standalone \.om-title::before \{ display: none; \}/);
-  assert.match(app, /\.om-standalone \.om-sub \{ display: none; \}/, 'no website tagline under the title');
   assert.match(app, /\.om-standalone \.om-tabbar \{\s*position: fixed;[^}]*display: grid;/, 'the tab bar at every size, iPad included');
-  assert.match(app, /\.om-standalone \.om-nav-wrap\[data-scrolled\] \.om-apptitle \{ opacity: 1; \}/, 'the screen\'s name settles in the bar once the large title scrolls away');
   assert.match(app, /@media \(max-width: 640px\) \{[\s\S]*?\.om-standalone \.om-menu \{\s*position: fixed;[^}]*bottom: calc\(8px \+ env\(safe-area-inset-bottom, 0px\)\)/, 'on a phone the account menu is a sheet from the bottom');
   assert.match(app, /@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\) \{\s*\.om-standalone \.om-nav-wrap::before, \.om-standalone \.om-tabbar \{ background: var\(--om-appbar-solid\); \}/, 'an opaque fallback for the app\'s bars');
+  const os = read('src/components/om/os.css');
+  assert.match(os, /\.om-standalone \.om-os \.om-nav-wrap \{ position:sticky; top:0; padding: max\(10px,env\(safe-area-inset-top\)\) 0 0;/, 'the shared OS app bar remains at the top and clears the notch');
+  assert.match(os, /\.om-standalone \.om-os \.om-nav \{ height:auto; min-height:52px;/, 'the app bar can grow with its content');
+  assert.match(os, /\.om-os \.om-title::before \{ display:none; \}/);
   const shell = read('src/components/om/AppShell.tsx');
   assert.match(shell, /d\.classList\.toggle\("om-standalone", runningAsApp\(\)\);/);
   assert.match(shell, /<div className="om-nav-wrap" data-scrolled=\{scrolled \? "" : undefined\}>/);
-  assert.match(shell, /\{screen && <span className="om-apptitle" aria-hidden="true">\{screen\}<\/span>\}/);
+  assert.match(shell, /const screen = here \? NAV\.find\(\(n\) => n\.key === here\)\?\.label \?\? null : null;/, 'screen names come from the real destinations');
+  assert.match(shell, /className="om-os-breadcrumb"><Link href="\/portal\/trading" aria-current=\{here === "floor" \? "page" : undefined\}>The Floor<\/Link>/);
+  assert.match(shell, /\{here && here !== "floor" && <><span aria-hidden="true">\/<\/span><span>\{screen\}<\/span><\/>\}/, 'the OS breadcrumb replaces the old scrolling title capsule');
+  assert.match(shell, /<nav className="om-tabbar" aria-label="Trading platform">/);
+  assert.match(shell, /TAB_ORDER\.map\(\(k\) => NAV\.find\(\(n\) => n\.key === k\)!\)/, 'mobile destinations remain the same canonical set');
+  assert.match(shell, /className="om-tab" aria-haspopup="menu" aria-expanded=\{sheet\}/, 'the remaining tools stay accessible from the mobile menu');
 });

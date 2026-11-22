@@ -4,9 +4,10 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getProfile as readProfile } from "@/lib/auth";
-import { SHELL_COOKIE, wantsNextShell } from "@/lib/floor/nav";
+import { SHELL_COOKIE, SHELL_CSS, SHELL_SCRIPT, wantsNextShell } from "@/lib/floor/nav";
+import { AppShell } from "@/components/om/AppShell";
 import { CC_NEXT_CSS } from "@/components/command-center/hud/nextTheme";
-import { APP_MANIFEST, APP_NAME, ATLAS_THEME } from "@/lib/floor/app";
+import { APP_INSTALL_SCRIPT, APP_MANIFEST, APP_NAME, ATLAS_THEME } from "@/lib/floor/app";
 
 const CC_METADATA: Metadata = { title: "Command Center XAUUSD", robots: { index: false, follow: false } };
 /** The member's profile, read once per request for the layout and its metadata. */
@@ -56,19 +57,16 @@ export async function generateViewport(): Promise<Viewport> {
 const FULLSCREEN_CSS = `
 html.om-fullscreen, html.om-fullscreen body { background:#06090E !important; }
 html.om-fullscreen body > header, html.om-fullscreen body > footer { display:none !important; }
-html.om-fullscreen [data-om-splash], html.om-fullscreen [data-no-i18n] { display:none !important; }
+html.om-fullscreen [data-om-splash], html.om-fullscreen body > div[data-no-i18n].fixed { display:none !important; }
 html.om-fullscreen [data-om-chrome] { display:none !important; }
 html.om-fullscreen #main { flex:1 1 auto; }
 html.om-fullscreen { color-scheme: dark; }
 `;
 
 export default async function CommandCenterLayout({ children }: { children: React.ReactNode }) {
-  let admin = false;
-  if (isSupabaseConfigured) {
-    const profile = await getProfile();
-    if (!profile) redirect("/login");
-    admin = profile.role === "admin";
-  }
+  const profile = isSupabaseConfigured ? await getProfile() : null;
+  if (isSupabaseConfigured && !profile) redirect("/login");
+  const admin = profile?.role === "admin";
   /*
    * THE NEW DESIGN (owner 11-20 brief §11; for everyone since 11-21): the same Command Center in the platform's
    * materials. Every colour here is a CSS variable that falls back to its classic value (hud/theme.ts); this block
@@ -78,13 +76,19 @@ export default async function CommandCenterLayout({ children }: { children: Reac
   const next = wantsNextShell(cookies().get(SHELL_COOKIE)?.value, admin);
   return (
     <>
-      <style dangerouslySetInnerHTML={{ __html: FULLSCREEN_CSS + (next ? CC_NEXT_CSS : "") }} />
+      <style dangerouslySetInnerHTML={{ __html: FULLSCREEN_CSS + (next ? SHELL_CSS + CC_NEXT_CSS : "") }} />
       <script
         dangerouslySetInnerHTML={{
           __html: `(function(){try{document.documentElement.classList.add('om-fullscreen');${next ? "document.documentElement.classList.add('om-cc-next');" : ""}}catch(e){}})();`,
         }}
       />
-      <div className="om-cc-shell" style={{ background: next ? "#08090E" : "#06090E", minHeight: "100vh" }}>{children}</div>
+      {next ? <>
+        <script dangerouslySetInnerHTML={{ __html: SHELL_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: APP_INSTALL_SCRIPT }} />
+        <AppShell atlas configured={isSupabaseConfigured} member={{ name: profile?.full_name ?? null, email: profile?.email ?? null, admin }} preview={admin}>
+          <div className="om-cc-shell">{children}</div>
+        </AppShell>
+      </> : <div className="om-cc-shell" style={{ background: "#06090E", minHeight: "100vh" }}>{children}</div>}
     </>
   );
 }

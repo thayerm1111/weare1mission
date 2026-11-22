@@ -79,11 +79,11 @@ export function wantsNextShell(cookieValue: string | null | undefined, isAdmin: 
 
 /**
  * Applied while the shell is on screen (class on <html>, as the Command Center does it). The page behind the shell is
- * the chosen look's canvas: Stone by default, Graphite with its class (lib/floor/look.ts).
+ * the chosen look's canvas: Graphite by default, or a previously chosen Stone look (lib/floor/look.ts).
  */
 export const SHELL_CSS =
   "html.om-shell,html.om-shell body{background:#f5f4f1!important}" +
-  "html.om-shell.om-look-graphite,html.om-shell.om-look-graphite body{background:#1a1a1d!important}" +
+  "html.om-shell.om-look-graphite,html.om-shell.om-look-graphite body{background:#08090b!important}" +
   "html.om-shell body>header,html.om-shell body>footer{display:none!important}" +
   "html.om-shell [data-om-splash],html.om-shell [data-om-chrome]{display:none!important}" +
   "html.om-shell body>div[data-no-i18n].fixed{display:none!important}" +     // language moves into the account menu
@@ -93,13 +93,13 @@ export const SHELL_CSS =
 
 /**
  * Runs before the first paint, so the public header never flashes above the shell and the page never shows the other
- * look first: the member's look (Stone unless they chose Graphite) and the browser's bar colour to match it. And
+ * look first: the member's look (Graphite unless they chose Stone) and the browser's bar colour to match it. And
  * whether this is the installed app — a Home Screen or standalone window, or the earlier app's frame (/app/) — which
  * is drawn as an app (`om-standalone`, om.css): an app bar and a tab bar, not a website's header.
  */
 export const SHELL_SCRIPT =
-  "(function(){try{var d=document.documentElement;d.classList.add('om-shell');var g=false;try{g=localStorage.getItem('om-look')==='graphite';}catch(e){}" +
+  "(function(){try{var d=document.documentElement;d.classList.add('om-shell');var g=true;try{g=localStorage.getItem('om-look')!=='stone';}catch(e){}" +
   "d.classList.toggle('om-look-graphite',g);d.classList.toggle('om-dark',g);" +
   "var a=false;try{a=window.navigator.standalone===true||!!(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.top!==window.self;}catch(e){a=true;}" +
   "d.classList.toggle('om-standalone',a);" +
-  "var m=document.querySelector('meta[name=\"theme-color\"]');if(m)m.setAttribute('content',g?'#1a1a1d':'#f5f4f1');}catch(e){}})();";
+  "var m=document.querySelector('meta[name=\"theme-color\"]');if(m)m.setAttribute('content',g?'#08090b':'#f5f4f1');}catch(e){}})();";

@@ -2,8 +2,8 @@
  * THE NEW DESIGN'S TWO LOOKS (owner 11-21: "make it a little brighter… clean Apple, Restoration Hardware, ultra luxury",
  * chose "B · Stone", then "have a toggle that can go from graphite and stone").
  *
- *   Stone     the default. One Mission's own white, warm stone and ink: the website's palette.
- *   Graphite  the dark look, lifted from near-black to a warm charcoal.
+ *   Stone     the light alternative. One Mission's own white, warm stone and ink: the website's palette.
+ *   Graphite  the default OS canvas: near-black with graphite surfaces.
  *
  * Every colour in the shell is a token (components/om/om.css); a look is a set of tokens. The choice is the member's,
  * kept in this browser, and is put on <html> before the first paint (nav.SHELL_SCRIPT), so a page never shows the other
@@ -16,15 +16,15 @@ export type Look = "stone" | "graphite";
 export const LOOK_KEY = "om-look";
 /** On <html> while Graphite is chosen. */
 export const LOOK_CLASS = "om-look-graphite";
-export const DEFAULT_LOOK: Look = "stone";
+export const DEFAULT_LOOK: Look = "graphite";
 
 export const LOOKS: { key: Look; label: string; theme: string }[] = [
   { key: "stone", label: "Stone", theme: "#f5f4f1" },
-  { key: "graphite", label: "Graphite", theme: "#1a1a1d" },
+  { key: "graphite", label: "Graphite", theme: "#08090b" },
 ];
 
 export function lookOf(v: unknown): Look {
-  return v === "graphite" ? "graphite" : DEFAULT_LOOK;
+  return v === "stone" || v === "graphite" ? v : DEFAULT_LOOK;
 }
 
 /** The browser's own bar colour for a look (theme-color). */
