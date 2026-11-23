@@ -59,7 +59,7 @@
 .om-vision-fact-icon{display:flex;color:var(--fact,#b3a9dd)}
 .om-vision-fact svg{width:19px;height:19px}
 .om-vision-fact b{display:block;font-size:11px;font-weight:640;color:#eeeaf8;line-height:1.3}
-.om-vision-fact small{display:block;margin-top:4px;font-size:11px;color:var(--fact,#b3a9dd);line-height:1.3;white-space:normal}
+.om-vision-fact small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-height:30px;margin-top:4px;font-size:11px;color:var(--fact,#b3a9dd);line-height:1.3;overflow-wrap:anywhere}
 .om-vision-subnote{font-size:10px;color:#b6b1be;line-height:1.5;margin:12px 1px 0}
 .om-vision-ticket{padding:16px;border:1px solid var(--om-vision-border);border-radius:17px;background:linear-gradient(135deg,rgba(87,65,122,.16),transparent 50%),#13141b}
 .om-vision-ticket-head{display:flex;align-items:center;flex-wrap:wrap;gap:7px 14px;justify-content:space-between;
