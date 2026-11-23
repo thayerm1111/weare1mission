@@ -7,7 +7,8 @@ import { Activity, ArrowRight, Check, ChevronDown, CircleAlert, Fingerprint, Lin
 import { openAtlas } from "@/lib/atlas/open";
 import { StrataChart } from "./StrataChart";
 import type { Analysis, Bar, Regime, Scenario } from "@/lib/strata/engine";
-import type { GeneratedOpportunity } from "@/lib/strata/generate";
+import { generatePossibleEntry, type GeneratedOpportunity } from "@/lib/strata/generate";
+import { VisionDirection, VisionLevels, type VisionFact } from "@/components/om/vision/VisionDirection";
 import "./strata.css";
 
 type Feed = {
@@ -166,11 +167,22 @@ export function StrataWorkspace() {
     now - Date.parse(tick.receivedAt) <= 6000;
   const quote = tickFresh ? tick!.price : num(feed?.price);
   const chosen = alternative && analysis?.secondary ? analysis.secondary : analysis?.primary ?? null;
-  const displayedPlan = generated ? generated.scenario : chosen;
+  // The first screen always maps a defensible CONDITIONAL watch when one exists,
+  // even when the strict auto-execution engine says "NO_SETUP".
+  const liveIdea = useMemo(() => {
+    if (!feed) return null;
+    return generatePossibleEntry({
+      analysis: feed.analysis, bars: feed.bars.m15, price: feed.price,
+      generatedAt: Date.parse(feed.asOf), marketOpen: !feed.marketClosed,
+      quoteFresh: feed.quoteSource === "stream", dataStale: feed.dataStale,
+    });
+  }, [feed]);
+  const displayedPlan = generated ? generated.scenario : chosen ?? liveIdea?.scenario ?? null;
   const displayFeed = generated && generatedSnapshot ? generatedSnapshot : feed;
   const displayAnalysis = displayFeed?.analysis ?? analysis;
-  const displayedReasons = generated ? generated.reasons : analysis?.reasons ??
-    ["Waiting for a confirmed market structure."];
+  const displayedReasons = generated ? generated.reasons : chosen ? analysis?.reasons ?? [] :
+    liveIdea?.scenario ? liveIdea.reasons : analysis?.reasons ??
+      ["Waiting for a confirmed market structure."];
   const stage = analysis?.status ?? "NO_SETUP";
   const planReady = !!analysis && !feed?.marketClosed && !feed?.dataStale &&
     chosen?.stage === "ready" && !generated;
@@ -179,6 +191,29 @@ export function StrataWorkspace() {
     ? reg : null;
   const generatedOutdated = !!generated && now > 0 &&
     (now - generated.generatedAt > 20 * 60_000 || (analysis?.asOf ?? 0) > generated.asOf);
+  const heroBias = reg === "uptrend" ? "buy" : reg === "downtrend" ? "sell"
+    : reg === "range" ? "range" : "mixed";
+  const contextH4 = feed?.bars.h4 ?? [];
+  const changeH4 = contextH4.length > 1 ? contextH4[contextH4.length-1].c -
+    contextH4[contextH4.length-2].c : null;
+  const facts: VisionFact[] = [
+    {label:"4H TREND",value:changeH4===null?"Unavailable":
+      changeH4>0?"Up":changeH4<0?"Down":"Flat",
+      tone:changeH4===null?"watch":changeH4>0?"up":changeH4<0?"down":"neutral"},
+    {label:"1H STRUCTURE",value:analysis?.structure ?? "Reading",
+      tone:reg==="uptrend"?"up":reg==="downtrend"?"down":
+        reg==="range"?"neutral":"watch"},
+    {label:"15M MOMENTUM",value:analysis?.momentum ?? "Reading",
+      tone:analysis?.momentum==="Rising"?"up":analysis?.momentum==="Falling"?"down":"watch"},
+    {label:"RANGE TESTS",value:analysis?
+      Math.min(analysis.range.topTouches,analysis.range.bottomTouches)+" both sides":"Reading",
+      tone:analysis&&analysis.range.topTouches>=2&&analysis.range.bottomTouches>=2?"ok":"watch"},
+    {label:"ENTRY TRIGGER",value:chosen?.stage==="ready"?"Qualified":
+      displayedPlan?"Watch confirmation":"Awaiting",
+      tone:chosen?.stage==="ready"?"ok":"watch"},
+  ];
+  const referenceLevels = !displayedPlan || displayedPlan.reference ||
+    displayedPlan.stage !== "ready" || !!generated && generated.tier !== "ready";
   const accounts = accountData?.accounts ?? [];
   const selectedAccount = accounts.find((a) => a.connectionId + ":" + a.accountId === accountKey) ??
     accounts.find((a) => a.selected) ?? accounts[0] ?? null;
@@ -239,66 +274,17 @@ export function StrataWorkspace() {
       </div>
     </header>
 
-    <div className="strata-regime-heading">
-      <span className="strata-kicker">LIVE MARKET REGIME · 1H + 4H STRUCTURE</span>
-      <span className="strata-regime-read">{analysis
-        ? feed?.dataStale ? "DATA STALE" : analysis.regimeLabel.toUpperCase()
-        : "AWAITING ANALYSIS"}</span>
-    </div>
-    <section className="strata-regimes" aria-label="Three price-action regimes">
-      {CASES.map((p) => <button type="button" className="strata-regime" key={p.key}
-        aria-expanded={modeGuide === p.key}
-        aria-current={detectedRegime === p.key ? "true" : undefined}
-        data-actual={detectedRegime === p.key}
-        data-guide={modeGuide === p.key}
-        data-session={feed?.marketClosed ? "closed" : "open"}
-        onClick={() => setModeGuide(modeGuide === p.key ? null : p.key)}>
-        <p.icon size={20} aria-hidden="true" /><span><strong>{p.title}</strong><small>{p.subtitle}</small></span>
-        {detectedRegime === p.key && <em><i />{feed?.marketClosed ? "LAST SESSION" :
-          p.key === "range" ? "CURRENT RANGE" : "LIVE TREND"}</em>}</button>)}
-    </section>
-    {reg === "transition" && <p className="strata-transition"><CircleAlert size={15} aria-hidden="true" />
-      Mixed structure · no confirmed trend. Generate can still map a speculative watchlist idea.</p>}
-    {modeGuide && <div className="strata-playbook">
-      <strong>{CASES.find((p) => p.key === modeGuide)?.title} playbook</strong>
-      <p>{CASES.find((p) => p.key === modeGuide)?.detail}</p>
-      {reg !== modeGuide && <small>Educational example · not the market's current classification.</small>}</div>}
-
-    <section className="strata-generate" aria-label="Generate possible gold trade entry">
-      <div className="strata-generate-copy">
-        <span className="strata-kicker"><Sparkles size={14} aria-hidden="true" /> ON-DEMAND OPPORTUNITY SCAN</span>
-        <h2>Find the best possible entry.</h2>
-        <p>Search the current gold structure for a break-and-retest or range reversal.
-          Even a mixed market can return a conditional plan—never an invented confirmed signal.</p>
-      </div>
-      <button className="strata-generate-button" type="button" disabled={generating || !feed}
-        onClick={() => void generateEntry()} aria-busy={generating}>
-        <Sparkles size={18} aria-hidden="true" />
-        {generating ? "Analyzing price action…" : generated ? "Regenerate Entry" : "Generate Possible Entry"}
-        <ArrowRight size={17} aria-hidden="true" />
-      </button>
-    </section>
-    <section className="strata-session">
-      <div className="strata-session-quote">
-        <span className="strata-kicker">XAU/USD · GOLD SPOT</span>
-        <strong className="strata-price" data-no-i18n translate="no" data-fresh={tickFresh}>{fixed(quote)}</strong>
-        <small>{tickFresh ? "Streaming quote · " + age(tick!.receivedAt, now)
-          : feed ? "Last recorded price · " + age(feed.lastCandleAt, now) : "Waiting for verified price data"}</small>
-      </div>
-      <div className="strata-session-call">
-        <span className="strata-kicker">CURRENT PRICE ACTION</span>
-        <strong>{analysis ? analysis.regimeLabel : "Reading structure…"}
-          <span className="strata-status" data-ready={planReady}>{feed?.dataStale ? "DATA STALE" : stage.replaceAll("_", " ")}</span></strong>
-        <p>{analysis ? analysis.reasons[0] : busy ? "Checking the last completed candles on four timeframes."
-          : "A confirmed market read is not available."}</p>
-      </div>
-      <div className="strata-session-count">
-        <span className="strata-kicker">SETUP COMPLETION</span>
-        <strong>{chosen ? completed + " / " + chosen.checks.length : "—"}</strong>
-        <small>{chosen ? "Closed-candle conditions met" : "Awaiting an orderly regime"}</small>
-      </div>
-    </section>
-
+    <VisionDirection product="STRATA" bias={heroBias}
+      eyebrow="ONE MISSION · GOLD PRICE ACTION INTELLIGENCE"
+      status={feed?.marketClosed?"LAST SESSION":tickFresh?"LIVE FEED":"QUOTE DELAYED"}
+      quote={quote} quoteLabel={tickFresh?"LIVE TICK":feed?"LAST RECORDED":"AWAITING DATA"}
+      tagline={reg==="uptrend"?"HIGHER HIGHS / HIGHER LOWS":
+        reg==="downtrend"?"LOWER HIGHS / LOWER LOWS":
+        reg==="range"?"TRADING BETWEEN SUPPORT AND RESISTANCE":
+        "HIGHER TIMEFRAMES NOT ALIGNED"}
+      score={displayedPlan?.score ?? null} scoreName="STRUCTURE SCORE"
+      facts={facts}
+      note={reg==="transition"?"Market structure is mixed. A conditional scenario can still be mapped without claiming a confirmed trend.":undefined} />
     {error && <p className="strata-warning" role="alert"><CircleAlert size={15} aria-hidden="true" />
       {error} {feed ? "Showing the last available analysis." : "No trade levels will be shown."}</p>}
     {!!feed?.dataStale && <p className="strata-warning">Confirmed candles are stale. Entries are disabled until they refresh.</p>}
@@ -307,45 +293,52 @@ export function StrataWorkspace() {
 
     {generateError && <p className="strata-warning" role="alert"><CircleAlert size={15} aria-hidden="true" />
       {generateError}</p>}
-    <section id="strata-opportunity" className="strata-setup" data-generated={!!generated}
-      data-idea-tier={generated?.tier ?? "default"}>
+    <section id="strata-opportunity" className="strata-setup strata-vision-setup"
+      data-generated={!!generated} data-idea-tier={generated?.tier ?? liveIdea?.tier ?? "default"}>
       {generated && <div className="strata-generated-result" data-tier={generated.tier} role="status">
-        <div><span className="strata-kicker">ON-DEMAND RESULT · {age(generated.generatedAt, now)}</span>
+        <div><span className="strata-kicker">GENERATED · {age(generated.generatedAt, now)}</span>
           <strong>{generated.label}</strong>
-          <small>{generated.tier === "ready" ? "Confirmed standard STRATA setup at generation time." :
-            "Reference scenario only · confirmation required · not sent to FLOW"}</small>
-          {generatedOutdated && <small className="strata-generated-old">Earlier snapshot. Market conditions have changed—regenerate for a current plan.</small>}
+          <small>{generated.tier === "ready"?"Confirmed by the standard engine when generated":
+            "Conditional reference · confirmation required"}</small>
+          {generatedOutdated && <small className="strata-generated-old">Previous snapshot. Regenerate for current conditions.</small>}
         </div>
-        <button type="button" onClick={() => { setGenerated(null); setGeneratedSnapshot(null); setGenerateError(""); }}>
-          Back to live read</button>
+        <button type="button" onClick={()=>{setGenerated(null);setGeneratedSnapshot(null);setGenerateError("");}}>
+          Back to live</button>
       </div>}
-      <div className="strata-setup-head">
-        <div><span className="strata-kicker">{generated ? "GENERATED PRICE-ACTION PLAN" : "OPPORTUNITY RADAR"}</span>
-          <h2>{displayedPlan ? displayedPlan.title : generated ? generated.label : "No qualified trade structure"}</h2>
-          <p>{displayedPlan ? displayedPlan.trigger :
-            generated ? generated.reasons[0] : "STRATA is waiting for a confirmed trend or repeatable range."}</p></div>
-        {displayedPlan && <span className="strata-setup-side" data-side={displayedPlan.side}>
-          {displayedPlan.side.toUpperCase()} · {generated ? generated.tier.toUpperCase() : displayedPlan.stage.toUpperCase()}</span>}
+      <div className="strata-vision-setup-top">
+        <div><span className="strata-kicker">PRICE ACTION OPPORTUNITY · XAU/USD</span>
+          <h2>{displayedPlan ? displayedPlan.title : "Watching for a qualifying price-action setup"}</h2>
+          <span className="strata-vision-setup-state" data-side={displayedPlan?.side ?? "none"}>
+            {generated ? generated.label : chosen?.stage==="ready" ? "ENGINE CONFIRMED" :
+              displayedPlan ? liveIdea?.label ?? "CONDITIONAL WATCH" : "NO DEFENSIBLE SETUP"}
+          </span>
+        </div>
+        {displayedPlan?.riskReward != null && <b className="strata-vision-rr">R:R {displayedPlan.riskReward.toFixed(2)} : 1</b>}
       </div>
-      {!generated && !!analysis?.secondary && <div className="strata-scenario-switch" role="group" aria-label="Range scenarios">
-        <button type="button" aria-pressed={!alternative} onClick={() => setAlternative(false)}>Nearest range edge</button>
-        <button type="button" aria-pressed={alternative} onClick={() => setAlternative(true)}>Opposite range edge</button>
+      {!generated && analysis?.secondary && <div className="strata-scenario-switch" role="group" aria-label="Range scenarios">
+        <button type="button" aria-pressed={!alternative} onClick={()=>setAlternative(false)}>Near edge</button>
+        <button type="button" aria-pressed={alternative} onClick={()=>setAlternative(true)}>Opposite edge</button>
       </div>}
-      {displayedPlan && <p className="strata-score">Structure score
-        <strong>{displayedPlan.score}/100</strong>
-        <span>Heuristic structure score, never a probability of winning.</span></p>}
-      <PlanLevels plan={displayedPlan} />
-      <p className="strata-levels-note">{generated
-        ? "Generated price levels are a conditional research snapshot. No automatic entry or broker order is authorized."
-        : displayedPlan?.stage === "ready" && !feed?.dataStale && !feed?.marketClosed
-          ? "Completed trigger detected · execution still requires risk review."
-          : "Reference / watch levels only. No automatic entry is authorized."}</p>
-      {displayFeed && <StrataChart analysis={displayFeed.analysis} bars={displayFeed.bars}
+      {displayFeed ? <StrataChart analysis={displayFeed.analysis} bars={displayFeed.bars}
         price={generated ? generated.quoteAtGeneration ?? displayFeed.price : quote ?? displayFeed.price}
-        live={!generated && tickFresh} selected={displayedPlan} snapshot={!!generated} />}
-      {!feed && <div className="strata-loading-chart">{busy ? "Loading verified gold candles…" : "Chart unavailable · market feed did not respond."}</div>}
+        live={!generated && tickFresh} selected={displayedPlan} snapshot={!!generated} />
+        : <div className="strata-loading-chart">{busy?"Loading actual gold candles…":"Verified candles unavailable."}</div>}
+      <VisionLevels symbol="XAUUSD" entry={displayedPlan?.entry} stop={displayedPlan?.stop}
+        targets={displayedPlan?.targets ?? []} rr={displayedPlan?.riskReward} reference={referenceLevels} />
+      <p className="strata-vision-setup-caption">{displayedPlan
+        ? referenceLevels?"WATCH ONLY · "+displayedPlan.trigger:"Engine-confirmed setup · review risk before acting"
+        : "No executable price-action setup is confirmed. This chart shows recorded structure."}</p>
+      <button className="strata-generate-button strata-vision-generate" type="button"
+        disabled={generating || !feed} onClick={()=>void generateEntry()} aria-busy={generating}>
+        <Sparkles size={18} aria-hidden="true" />
+        {generating?"SCANNING GOLD…":generated?"REGENERATE BEST OPPORTUNITY":"GENERATE BEST OPPORTUNITY"}
+        <ArrowRight size={17} aria-hidden="true"/>
+      </button>
+      {generated && <p className="strata-vision-result-note">Generated scenarios cannot submit a trade or enable FLOW. The chart uses the same recorded candles as the analysis.</p>}
     </section>
 
+    <details className="strata-vision-deep">
+      <summary>Why this setup? · Price action evidence and confirmations <ChevronDown size={17} /></summary>
     <div className="strata-detail-grid">
       <section className="strata-card strata-reasoning" aria-label="Price-action reasoning">
         <header><span className="strata-kicker">{generated ? "GENERATED REASONING" : "THE READ"}</span>
@@ -372,6 +365,9 @@ export function StrataWorkspace() {
       </section>
     </div>
 
+    </details>
+    <details className="strata-vision-deep strata-vision-automation">
+      <summary>Connected accounts · Paper automation and trade journal <ChevronDown size={17}/></summary>
     <section className="strata-card strata-automation" aria-label="Account and paper automation">
       <div className="strata-automation-header"><div><span className="strata-kicker">STRATA / EXECUTION BRIDGE</span>
         <h2>Connect. Observe. Validate.</h2>
@@ -427,6 +423,7 @@ export function StrataWorkspace() {
       </div>
     </section>
 
+    </details>
     <footer className="strata-footer">
       <span><ShieldCheck size={16} aria-hidden="true"/> Deterministic analysis from completed candles. No predicted result is guaranteed.</span>
       <button type="button" onClick={askAtlas}><Mic size={16} aria-hidden="true"/> Ask Atlas to explain this setup <ArrowRight size={14}/></button>
