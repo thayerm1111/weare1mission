@@ -75,11 +75,12 @@ export function VisionDirection({ product, bias, tagline, score, scoreName = "EN
   );
 }
 
-export function VisionLevels({ entry, stop, targets, rr, symbol = "XAUUSD", reference = false }: {
+export function VisionLevels({ entry, stop, targets, rr, symbol = "XAUUSD", dec: precision, reference = false }: {
   entry: number | null | undefined; stop: number | null | undefined;
-  targets: (number | null | undefined)[]; rr?: number | null; symbol?: string; reference?: boolean;
+  targets: (number | null | undefined)[]; rr?: number | null; symbol?: string; dec?: number; reference?: boolean;
 }) {
-  const dec = symbol.includes("JPY") ? 3 : symbol.includes("XAU") ? 2 : 5;
+  const dec = typeof precision === "number" && Number.isInteger(precision) && precision >= 0 && precision <= 8 ? precision :
+    symbol.includes("JPY") ? 3 : symbol.includes("XAU") || symbol.includes("BTC") || symbol.includes("ETH") ? 2 : 5;
   const cells = [
     { label: "ENTRY", value: entry, kind:"entry" }, { label:"STOP", value:stop, kind:"stop" },
     { label:"TP1", value:targets[0], kind:"target" }, { label:"TP2", value:targets[1], kind:"target" },
