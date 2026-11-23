@@ -1,0 +1,178 @@
+.strata-workstation{--st-accent:#b7adf7;--st-teal:#83cfbc;--st-text:var(--om-text);--st-muted:var(--om-text-3);--st-edge:var(--om-edge);color:var(--st-text);max-width:1600px;margin:0 auto;padding:7px 0 50px;font-variant-numeric:tabular-nums;min-width:0}
+.strata-workstation *{box-sizing:border-box}
+.strata-workstation button,.strata-workstation select{font:inherit}
+.strata-workstation button:focus-visible,.strata-workstation select:focus-visible,.strata-workstation a:focus-visible{outline:2px solid var(--om-ai);outline-offset:3px}
+.strata-kicker{font-size:10px;letter-spacing:.16em;text-transform:uppercase;font-weight:650;color:var(--st-muted)}
+.strata-header{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin:6px 0 24px}
+.strata-ident{display:flex;align-items:center;gap:19px;min-width:0}
+.strata-emblem{position:relative;display:inline-flex;width:53px;height:53px;flex:0 0 53px;align-items:center;justify-content:center;border:1px solid rgb(183 173 247 / .38);border-radius:16px;background:linear-gradient(140deg,rgb(183 173 247 / .14),transparent)}
+.strata-emblem i{position:absolute;width:22px;height:22px;border:1.5px solid var(--st-accent);transform:rotate(45deg);border-radius:4px}
+.strata-emblem i:nth-child(2){width:15px;height:15px;opacity:.68}
+.strata-emblem i:nth-child(3){width:7px;height:7px;background:var(--st-accent);opacity:.95}
+.strata-ident h1{font-size:clamp(30px,4vw,47px);letter-spacing:-.068em;font-weight:600;margin:3px 0 2px;line-height:1.05}
+.strata-version{font-size:11px;letter-spacing:.02em;color:var(--st-accent);vertical-align:super;margin-left:8px}
+.strata-ident p{color:var(--om-text-2);font-size:12px;margin:7px 0 0}
+.strata-header-side{display:flex;gap:10px;align-items:center}
+.strata-live-state{display:flex;gap:8px;align-items:center;border:1px solid var(--st-edge);padding:10px 13px;border-radius:100px;font-weight:650;color:var(--st-muted);font-size:10px;white-space:nowrap;letter-spacing:.08em}
+.strata-live-state i{height:7px;width:7px;border-radius:50%;background:currentColor}
+.strata-live-state[data-fresh="true"]{color:var(--st-teal);border-color:rgb(131 207 188 / .22)}
+.strata-live-state[data-fresh="true"] i{box-shadow:0 0 0 3px rgb(131 207 188 / .14);animation:strata-pulse 2.2s ease-in-out infinite}
+.strata-icon-button{display:flex;align-items:center;justify-content:center;width:38px;height:38px;border:1px solid var(--st-edge);border-radius:12px;background:var(--om-page);color:var(--om-text-2);cursor:pointer}
+.strata-regimes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:17px}
+.strata-regime{display:flex;align-items:center;gap:13px;text-align:left;min-height:82px;padding:15px 17px;color:var(--om-text-2);border:1px solid var(--st-edge);border-radius:18px;background:var(--om-page);cursor:pointer;transition:border-color .2s,transform .2s,background .2s}
+.strata-regime svg{flex:0 0 auto;color:var(--st-muted)}
+.strata-regime>span{min-width:0;flex:1}
+.strata-regime strong,.strata-regime small{display:block}
+.strata-regime strong{font-size:14px;font-weight:600;color:var(--st-text)}
+.strata-regime small{font-size:11px;color:var(--st-muted);margin-top:4px}
+.strata-regime em{font-style:normal;font-size:9px;font-weight:700;letter-spacing:.07em;color:var(--st-accent);border-radius:100px;background:rgb(183 173 247 / .1);padding:6px 8px}
+.strata-regime[data-actual="true"]{border-color:rgb(183 173 247 / .58);background:linear-gradient(120deg,rgb(183 173 247 / .095),transparent)}
+.strata-regime[data-actual="true"] svg{color:var(--st-accent)}
+.strata-regime:hover{border-color:rgb(183 173 247 / .4)}
+.strata-transition,.strata-playbook,.strata-warning{display:flex;align-items:flex-start;gap:10px;border:1px solid rgb(183 173 247 / .26);border-radius:14px;padding:14px 16px;color:var(--om-text-2);font-size:12px;line-height:1.6;margin:0 0 18px;background:rgb(183 173 247 / .045)}
+.strata-transition svg,.strata-warning svg{flex:0 0 auto;margin-top:2px;color:var(--st-accent)}
+.strata-playbook{display:block}
+.strata-playbook strong{display:block;font-weight:650;color:var(--st-text)}
+.strata-playbook p{margin:5px 0;color:var(--om-text-2)}
+.strata-playbook small{color:var(--st-muted);display:block}
+.strata-warning{border-color:rgb(237 167 140 / .35);background:rgb(237 167 140 / .04)}
+.strata-warnings{margin-bottom:18px}
+.strata-warnings p{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--om-text-2);margin:4px 0}
+.strata-warnings svg{color:var(--st-accent);flex:0 0 auto}
+.strata-session{display:grid;grid-template-columns:1fr minmax(0,1.4fr) minmax(160px,.63fr);gap:0;margin:0 0 14px;background:radial-gradient(ellipse at 95% 0%,rgb(183 173 247 / .065),transparent 42%),var(--om-page);border:1px solid var(--st-edge);border-radius:20px;overflow:hidden}
+.strata-session>div{padding:24px 25px;min-width:0}
+.strata-session>div+div{border-left:1px solid var(--st-edge)}
+.strata-session-quote .strata-price{display:block;margin:13px 0 4px;font-size:clamp(29px,3vw,38px);letter-spacing:-.05em;font-weight:600;white-space:nowrap}
+.strata-session-quote .strata-price[data-fresh="true"]{animation:strata-real-tick .5s ease-out}
+.strata-session small{display:block;color:var(--st-muted);font-size:10px;line-height:1.6}
+.strata-session-call strong{display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:var(--st-text);font-size:clamp(17px,2vw,22px);font-weight:600;line-height:1.3;margin-top:13px}
+.strata-status{font-size:9px;color:var(--st-muted);border:1px solid var(--st-edge);padding:5px 8px;border-radius:100px;letter-spacing:.08em}
+.strata-status[data-ready="true"]{color:var(--st-teal);border-color:rgb(131 207 188 / .25)}
+.strata-session-call p{margin:9px 0 0;color:var(--om-text-2);font-size:12px;line-height:1.5}
+.strata-session-count strong{display:block;margin:12px 0;font-size:27px;letter-spacing:-.04em;font-weight:600}
+.strata-setup,.strata-card{border:1px solid var(--st-edge);border-radius:21px;background:var(--om-page);min-width:0}
+.strata-setup{padding:23px 23px 21px;margin-top:16px;overflow:hidden;position:relative}
+.strata-setup:before{content:"";pointer-events:none;position:absolute;inset:0 0 auto 0;height:2px;background:linear-gradient(90deg,transparent,var(--st-accent),transparent);opacity:.45}
+.strata-setup-head{display:flex;align-items:flex-start;gap:20px;justify-content:space-between}
+.strata-setup-head h2{margin:8px 0 8px;color:var(--st-text);font-weight:550;letter-spacing:-.035em;font-size:clamp(20px,2vw,27px)}
+.strata-setup-head p{margin:0;color:var(--om-text-2);font-size:12px;line-height:1.5;max-width:730px}
+.strata-setup-side{white-space:nowrap;display:flex;align-items:center;justify-content:center;border:1px solid var(--st-edge);color:var(--st-muted);font-size:10px;letter-spacing:.09em;padding:9px 12px;border-radius:100px}
+.strata-setup-side[data-side="buy"]{color:var(--st-teal)}
+.strata-setup-side[data-side="sell"]{color:var(--om-neg)}
+.strata-scenario-switch{display:flex;align-items:center;gap:6px;margin-top:14px}
+.strata-scenario-switch button{border:1px solid var(--st-edge);background:transparent;color:var(--st-muted);border-radius:9px;font-size:11px;min-height:35px;padding:8px 11px;cursor:pointer}
+.strata-scenario-switch button[aria-pressed="true"]{border-color:rgb(183 173 247 / .4);background:rgb(183 173 247 / .08);color:var(--st-text)}
+.strata-score{display:flex;align-items:baseline;gap:7px;margin:14px 0 0;color:var(--om-text-2);font-size:11px}
+.strata-score strong{color:var(--st-accent);font-size:14px}
+.strata-score span{font-size:10px;color:var(--st-muted)}
+.strata-levels{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:17px 0 0}
+.strata-levels>div{min-width:0;padding:13px 11px;border:1px solid var(--st-edge);border-radius:13px;background:rgb(183 173 247 / .024)}
+.strata-levels small{display:block;color:var(--st-muted);font-size:9px;letter-spacing:.11em;white-space:nowrap;margin-bottom:8px}
+.strata-levels strong{display:block;font-size:clamp(13px,1.5vw,17px);font-weight:650;color:var(--st-text);letter-spacing:-.025em;white-space:nowrap}
+.strata-levels [data-kind="STOP LOSS"] strong{color:var(--om-neg)}
+.strata-levels [data-kind="TARGET 01"] strong,.strata-levels [data-kind="TARGET 02"] strong{color:var(--st-teal)}
+.strata-levels-note{font-size:10px;color:var(--st-muted);margin:12px 0 19px}
+.strata-loading-chart{display:flex;align-items:center;justify-content:center;min-height:290px;border:1px solid var(--st-edge);border-radius:15px;color:var(--st-muted);font-size:12px}
+.strata-chart{min-width:0;border:1px solid var(--st-edge);background:var(--om-page);border-radius:17px;overflow:hidden}
+.strata-chart-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:17px 16px 11px}
+.strata-chart-head h2{font-size:17px;font-weight:600;letter-spacing:-.03em;margin:6px 0 0}
+.strata-chart-head h2 small{font-size:10px;color:var(--st-muted);font-weight:450;margin-left:10px}
+.strata-timeframe{display:flex;gap:2px;padding:4px;border:1px solid var(--st-edge);border-radius:11px}
+.strata-timeframe button{min-height:35px;min-width:36px;border:0;border-radius:7px;background:transparent;color:var(--st-muted);cursor:pointer;font-size:11px}
+.strata-timeframe button[aria-pressed="true"]{color:var(--st-text);background:rgb(183 173 247 / .12)}
+.strata-chart-facts{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:0 16px 14px}
+.strata-chart-facts>span{display:inline-flex;gap:6px;align-items:center;color:var(--om-text-2);font-size:10px}
+.strata-fact-icon{height:7px;width:7px;border-radius:2px;display:inline-block;background:var(--st-accent)}
+.strata-fact-demand{background:var(--st-teal)}
+.strata-fact-supply{background:var(--om-neg)}
+.strata-chart .om-signal-focus{border:0;border-top:1px solid var(--st-edge);border-radius:0;background:transparent}
+.strata-chart-canvas{height:395px;min-height:300px;position:relative;margin:0 8px}
+.strata-chart-foot{border-top:1px solid var(--st-edge);display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 15px;color:var(--st-muted);font-size:10px}
+.strata-chart-foot>span{display:flex;align-items:center;gap:7px}
+.strata-chart-foot button{display:inline-flex;align-items:center;gap:7px;color:var(--om-text-2);background:transparent;border:0;cursor:pointer;font-size:11px;min-height:37px}
+.strata-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+.strata-card{padding:24px}
+.strata-card header h2,.strata-automation-header h2{font-size:20px;letter-spacing:-.04em;margin:8px 0 17px;font-weight:600}
+.strata-reason-line{display:flex;gap:16px;align-items:flex-start;padding:16px 0;border-top:1px solid var(--st-edge)}
+.strata-reason-line>span{color:var(--st-accent);font-size:11px;font-weight:650}
+.strata-reason-line p{font-size:12px;line-height:1.65;color:var(--om-text-2);margin:0}
+.strata-higher-context{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--st-edge);border:1px solid var(--st-edge);border-radius:11px;overflow:hidden;margin-top:10px}
+.strata-higher-context span{background:var(--om-page);padding:13px;color:var(--st-muted);font-size:9px;letter-spacing:.06em}
+.strata-higher-context b{display:block;color:var(--st-text);font-size:13px;font-weight:600;letter-spacing:0;margin-top:6px}
+.strata-step{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-top:1px solid var(--st-edge)}
+.strata-step-icon{width:29px;height:29px;border:1px solid var(--st-edge);border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--st-muted);font-size:10px;flex-shrink:0}
+.strata-step[data-complete="true"] .strata-step-icon{color:var(--st-teal);border-color:rgb(131 207 188 / .35);background:rgb(131 207 188 / .05)}
+.strata-step strong{color:var(--st-text);font-size:12px}
+.strata-step p{margin:4px 0;color:var(--st-muted);font-size:11px;line-height:1.55}
+.strata-invalidation{display:flex;gap:10px;align-items:flex-start;margin-top:14px;padding:13px;border:1px solid rgb(237 167 140 / .23);border-radius:11px;color:var(--om-text-2);font-size:11px;line-height:1.6}
+.strata-invalidation svg{color:var(--om-neg);margin-top:2px;flex-shrink:0}
+.strata-invalidation b{display:block;color:var(--st-text)}
+.strata-plain{color:var(--st-muted);font-size:12px;line-height:1.6}
+.strata-automation{margin-top:14px;overflow:hidden}
+.strata-automation-header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.strata-automation-header p{font-size:12px;color:var(--om-text-2);line-height:1.6;max-width:590px;margin:0 0 15px}
+.strata-automation-label{display:inline-flex;align-items:center;gap:7px;font-size:9px;font-weight:650;color:var(--st-accent);letter-spacing:.07em;white-space:nowrap;border:1px solid rgb(183 173 247 / .3);border-radius:100px;padding:10px 12px}
+.strata-automation-columns{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.strata-automation-columns>div{border:1px solid var(--st-edge);background:rgb(183 173 247 / .02);border-radius:14px;padding:18px;min-width:0}
+.strata-automation-connection select{width:100%;margin:13px 0 10px;color:var(--st-text);background:var(--om-page);border:1px solid var(--st-edge);border-radius:11px;min-height:48px;padding:9px 12px;font-size:12px;max-width:100%}
+.strata-connection-state{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--om-text-2);margin:5px 0 18px}
+.strata-connected,.strata-offline{width:6px;height:6px;display:inline-block;border-radius:50%;background:var(--st-teal)}
+.strata-offline{background:var(--om-neg)}
+.strata-text-link{display:inline-flex;align-items:center;gap:8px;color:var(--st-accent);text-decoration:none;font-size:12px;margin-top:8px;min-height:36px}
+.strata-paper-heading{display:flex;justify-content:space-between;align-items:center}
+.strata-paper-chip{font-size:9px;letter-spacing:.11em;font-weight:650;color:var(--st-muted);border:1px solid var(--st-edge);border-radius:100px;padding:7px 9px}
+.strata-paper-chip[data-on="true"]{color:var(--st-teal);border-color:rgb(131 207 188 / .25)}
+.strata-risk-controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:18px 0}
+.strata-risk-controls label{color:var(--st-muted);font-size:10px;line-height:1.5}
+.strata-risk-controls select{width:100%;display:block;color:var(--st-text);margin-top:6px;background:var(--om-page);border:1px solid var(--st-edge);border-radius:9px;padding:9px;min-height:40px;font-size:12px}
+.strata-paper-action,.strata-confirm button:first-of-type{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:45px;padding:8px 15px;background:var(--st-accent);color:#15111f;border:0;border-radius:11px;font-weight:650;font-size:12px;cursor:pointer}
+.strata-paper-action:disabled{opacity:.45;cursor:default}
+.strata-auto-foot{display:block;font-size:10px;color:var(--st-muted);line-height:1.6;margin-top:12px}
+.strata-confirm{border:1px solid rgb(183 173 247 / .3);background:rgb(183 173 247 / .065);border-radius:11px;padding:15px}
+.strata-confirm strong{font-size:13px}
+.strata-confirm p{font-size:11px;line-height:1.6;color:var(--om-text-2);margin:8px 0 13px}
+.strata-confirm button+button{display:block;width:100%;border:0;background:transparent;color:var(--om-text-2);font-size:11px;cursor:pointer;min-height:35px}
+.strata-error{color:var(--om-neg);font-size:11px}
+.strata-paper-log{margin-top:18px;border-top:1px solid var(--st-edge);padding-top:18px;display:flex;align-items:center;gap:13px;flex-wrap:wrap}
+.strata-paper-log>div:first-child{min-width:190px;flex:0 0 auto}
+.strata-paper-log>div:first-child strong{display:block;font-size:12px;margin-top:7px}
+.strata-paper-row{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--om-text-2);border:1px solid var(--st-edge);padding:11px 12px;border-radius:11px}
+.strata-paper-row b{font-size:11px;color:var(--st-text)}
+.strata-paper-row>span[data-side="buy"]{color:var(--st-teal)}
+.strata-paper-row>span[data-side="sell"]{color:var(--om-neg)}
+.strata-paper-row em{font-size:9px;font-style:normal;color:var(--st-muted);text-transform:uppercase}
+.strata-footer{margin:21px 0 0;display:flex;align-items:center;justify-content:space-between;gap:15px}
+.strata-footer span{display:inline-flex;align-items:center;gap:8px;color:var(--st-muted);font-size:11px}
+.strata-footer button{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:45px;padding:9px 14px;border:1px solid var(--st-edge);background:var(--om-page);color:var(--st-text);border-radius:11px;cursor:pointer;font-size:12px}
+@keyframes strata-pulse{0%,100%{opacity:.4}50%{opacity:1}}
+@keyframes strata-real-tick{from{transform:translateY(2px);opacity:.7}to{transform:translateY(0);opacity:1}}
+@media(max-width:1100px){.strata-session{grid-template-columns:1fr 1.5fr}.strata-session-count{display:none}.strata-levels strong{font-size:13px}}
+@media(max-width:760px){
+.strata-header{align-items:flex-start;gap:7px}
+.strata-ident{gap:12px}.strata-emblem{width:44px;height:44px;flex-basis:44px;border-radius:13px}
+.strata-ident h1{font-size:33px}.strata-ident p{font-size:11px}
+.strata-kicker{font-size:9px}.strata-header-side{gap:6px}
+.strata-live-state{padding:9px;font-size:8px}.strata-icon-button{height:35px;width:35px}
+.strata-regimes{gap:6px}.strata-regime{min-height:93px;padding:12px 9px;align-items:flex-start;display:block;border-radius:13px}
+.strata-regime svg{width:18px;height:18px;margin-bottom:6px}
+.strata-regime strong{font-size:11px}.strata-regime small{font-size:9px}.strata-regime em{font-size:8px;padding:3px 5px;margin-top:5px;display:inline-block}
+.strata-session{grid-template-columns:1fr;border-radius:17px}
+.strata-session>div{padding:17px}.strata-session>div+div{border-left:0;border-top:1px solid var(--st-edge)}
+.strata-session-quote .strata-price{font-size:32px;margin:8px 0}
+.strata-session-call strong{margin-top:8px;font-size:18px}.strata-setup{padding:17px;border-radius:17px}
+.strata-setup-head{display:block}.strata-setup-head h2{font-size:21px}.strata-setup-side{margin-top:13px;display:inline-flex}
+.strata-levels{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.strata-levels>div{padding:10px 8px}.strata-levels strong{font-size:13px}
+.strata-chart-head{display:block}.strata-chart-head h2{font-size:16px}.strata-timeframe{width:max-content;margin-top:13px}
+.strata-chart-facts{gap:8px;padding-bottom:10px}
+.strata-chart-canvas{height:320px;margin:0 5px}.strata-chart-foot{align-items:flex-start}.strata-chart-foot>span{max-width:60%;line-height:1.6}
+.strata-detail-grid,.strata-automation-columns{grid-template-columns:1fr;gap:11px}
+.strata-card{padding:17px;border-radius:17px}
+.strata-automation-header{display:block}
+.strata-automation-label{margin:7px 0 12px}
+.strata-paper-log>div:first-child{width:100%}
+.strata-footer{align-items:stretch;flex-direction:column}
+.strata-footer button{width:100%}
+}
+@media(max-width:385px){.strata-regime{padding:10px 7px}.strata-regime strong{font-size:10px}.strata-regime small{font-size:8px}.strata-live-state{font-size:7px}.strata-levels strong{font-size:12px}}
+@media(prefers-reduced-motion:reduce){.strata-live-state i,.strata-price[data-fresh="true"]{animation:none!important}}
