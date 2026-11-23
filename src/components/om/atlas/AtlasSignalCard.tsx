@@ -11,6 +11,8 @@ import { actionWords, convictionWords } from "@/lib/genx/words";
 import { atlasExecution, atlasSignalContext, type AtlasSignalResult } from "@/lib/atlas/signals";
 import { openAtlas, type AtlasContext } from "@/lib/atlas/open";
 import { AtlasSignalChart } from "./AtlasSignalChart";
+import { VisionDirection, VisionLevels, type VisionFact } from "@/components/om/vision/VisionDirection";
+import { decimalsFor } from "@/lib/flow/display";
 import "./atlas-signal.css";
 
 const ExecuteSignal = dynamic(() => import("@/components/portal/SignalGenerator").then((module) => module.ExecuteSignal), {
@@ -84,6 +86,36 @@ export function AtlasSignalCard({ signal, onAsk }: {
     : signal.saved === "device" ? "Saved on this device · account sync is unavailable"
       : "This read could not be saved · keep this conversation open";
 
+  const biasWord=gold?.genx.directional_bias ?? play?.signal.bias ?? "";
+  const visionBias=execution?.direction==="LONG"?"buy" as const:
+    execution?.direction==="SHORT"?"sell" as const:
+    /bull|long|buy/i.test(biasWord)?"buy" as const:
+    /bear|short|sell/i.test(biasWord)?"sell" as const:"mixed" as const;
+  const toneOf=(value:unknown):VisionFact["tone"]=>{
+    const word=String(value??"");
+    return /bull|up|long|rising|higher|buy/i.test(word)?"up":
+      /bear|down|short|falling|lower|sell/i.test(word)?"down":
+      /range|flat|sideway/i.test(word)?"neutral":"watch";
+  };
+  const factList:VisionFact[]=gold?[
+    {label:"MARKET STRUCTURE",value:gold.genx.market_structure||"Awaiting",tone:toneOf(gold.genx.market_structure)},
+    {label:"MOMENTUM",value:gold.genx.momentum||"Awaiting",tone:toneOf(gold.genx.momentum)},
+    {label:"VOLATILITY",value:gold.genx.volatility||"Not measured",tone:"watch"},
+    {label:"BUYER CONTROL",value:Number.isFinite(gold.genx.buyer_control)?Math.round(gold.genx.buyer_control)+"%":"—",
+      tone:gold.genx.buyer_control>=gold.genx.seller_control?"up":"down"},
+    {label:"ENTRY",value:waiting?"Waiting":"Engine read",tone:waiting?"watch":"ok"},
+  ]:[
+    {label:"HIGHER TF",value:play?.signal.bias||"Unconfirmed",tone:toneOf(play?.signal.bias)},
+    {label:"STRATEGY",value:play?.signal.setup||"Price action",tone:play?.signal.setup?"ok":"watch"},
+    {label:"MOMENTUM",value:play?.signal.momentum_rating||"Awaiting",tone:toneOf(play?.signal.momentum_rating)},
+    {label:"CONFLUENCE",value:play?.signal.flow?.aligned?"4H + 1H aligned":"Watch",tone:play?.signal.flow?.aligned?"ok":"watch"},
+    {label:"ENTRY",value:waiting?"Unconfirmed":"Setup available",tone:waiting?"watch":"ok"},
+  ];
+  const tradeEntry=play?play.signal.entry:gold?.genx.entry;
+  const tradeStop=play?play.signal.stopLoss:gold?.genx.stop_loss;
+  const tradeTargets=play?play.signal.takeProfits??[]:gold?[gold.genx.tp1,gold.genx.tp2,gold.genx.tp3]:[];
+  const engineQuality=gold?.genx.confidence_score??play?.signal.gate_score??null;
+  const precision=decimalsFor(symbol,play?.price??gold?.price??0);
   return (
     <article className="om-atlas-signal" aria-label={(play ? "OM AI Play" : "GENX read") + " for " + symbol} data-state={waiting ? "waiting" : "ready"} data-side={execution?.direction === "LONG" ? "buy" : execution?.direction === "SHORT" ? "sell" : undefined}>
       <header className="om-atlas-signal-head">
@@ -96,15 +128,15 @@ export function AtlasSignalCard({ signal, onAsk }: {
         {gold && gold.data_status !== "live" && <span className="om-atlas-signal-tag">Reference data</span>}
       </div>
 
-      {levels.length > 0 && <section aria-label="Signal price and levels">
-        <p className="om-atlas-signal-caption">{levelCaption}</p>
-        <dl className="om-atlas-signal-levels" data-no-i18n translate="no">
-          {levels.map((level) => <div key={level.label} data-level={level.kind}><dt>{level.label}</dt><dd>{priceFor(symbol, level.value)}</dd></div>)}
-        </dl>
-      </section>}
-
-      <AtlasSignalChart signal={signal} />
-
+      <VisionDirection product={play?"OM AI PLAYS":"ATLAS · GENX"}
+        eyebrow="ONE MISSION / ATLAS SIGNAL INTELLIGENCE"
+        bias={visionBias} tagline={waiting?"DIRECTIONAL WATCH · WAITING FOR CONFIRMATION":"ENGINE SETUP · REVIEW CONDITIONS"}
+        status={play?.marketClosed||gold&&gold.data_status!=="live"?"RECORDED DATA":"SAVED MARKET READ"}
+        quote={play?.price??gold?.price??null} quoteSymbol={symbol} quoteLabel="AT GENERATION"
+        dec={precision} score={engineQuality} scoreName="ENGINE QUALITY" facts={factList}/>
+      <AtlasSignalChart signal={signal}/>
+      <VisionLevels entry={hasTradeLevels?tradeEntry:null} stop={hasTradeLevels?tradeStop:null}
+        targets={hasTradeLevels?tradeTargets:[]} symbol={symbol} reference={waiting}/>
       {(conviction || summary) && <section className="om-atlas-signal-reason" aria-label="Signal explanation">
         {conviction && <p className="om-atlas-signal-conviction">{conviction}</p>}
         {summary && <p>{summary}</p>}
