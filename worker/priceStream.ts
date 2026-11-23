@@ -47,7 +47,7 @@ const RECONNECT_MAX_MS = 30_000;
  * only when a new tick has arrived, so those readers can quote a price that is a second or two old.
  */
 const PUBLISH_MS = 1_000;
-const PUBLISH_SYMBOLS = ["XAU/USD"];
+const PUBLISH_SYMBOLS = ["XAU/USD", ...GENFX_SYMBOLS];
 const PUBLISH_TIMEOUT_MS = 4_000;        // a write that hangs is abandoned so the next tick can go out
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
