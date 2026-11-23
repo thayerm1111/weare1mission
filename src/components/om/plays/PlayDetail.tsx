@@ -141,7 +141,7 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
           reference={a.kind!=="setup"} viewKey={chart.viewKey}
           title={r.symbol+" saved candles, conditional path and recorded trade levels"}/>
         : <p className="om-play-note" role="status">Verified original candles unavailable for this saved read.</p>}
-      <VisionLevels symbol={r.symbol} entry={hasLevels?s.entry:null}
+      <VisionLevels symbol={r.symbol} dec={chart.dec} entry={hasLevels?s.entry:null}
         stop={hasLevels?s.stopLoss:null} targets={hasLevels?s.takeProfits:[]}
         rr={targets[0]?.r ?? null} reference={a.kind!=="setup"}/>
       {hasLevels && copy&&<div className="om-vision-copy">{copy}</div>}

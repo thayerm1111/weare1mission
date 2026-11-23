@@ -135,7 +135,7 @@ export function AtlasSignalCard({ signal, onAsk }: {
         quote={play?.price??gold?.price??null} quoteSymbol={symbol} quoteLabel="AT GENERATION"
         dec={precision} score={engineQuality} scoreName="ENGINE QUALITY" facts={factList}/>
       <AtlasSignalChart signal={signal}/>
-      <VisionLevels entry={hasTradeLevels?tradeEntry:null} stop={hasTradeLevels?tradeStop:null}
+      <VisionLevels dec={precision} entry={hasTradeLevels?tradeEntry:null} stop={hasTradeLevels?tradeStop:null}
         targets={hasTradeLevels?tradeTargets:[]} symbol={symbol} reference={waiting}/>
       {(conviction || summary) && <section className="om-atlas-signal-reason" aria-label="Signal explanation">
         {conviction && <p className="om-atlas-signal-conviction">{conviction}</p>}
