@@ -1,5 +1,6 @@
 "use client";
 import { ProductIcon } from "@/components/om/ProductIcon";
+import { VisionDirection, type VisionFact } from "@/components/om/vision/VisionDirection";
 import "./atlas-mobile.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -701,6 +702,20 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
     autoEntry: !!profile?.autoEntry, autoManagement: !!profile?.autoManagement, serverMode: d?.autopilotMode ?? null,
   });
 
+  const atlasVisionBias = read?.lean === "bullish_lean" ? "buy" as const :
+    read?.lean === "bearish_lean" ? "sell" as const :
+    read?.lean === "balanced" ? "range" as const : "mixed" as const;
+  const atlasTone = (value:unknown):VisionFact["tone"] =>
+    value === "up" || value === "rising" ? "up":
+    value === "down" || value === "falling" ? "down":
+    value === "range" || value === "flat" ? "neutral":"watch";
+  const atlasVisionFacts:VisionFact[]=[
+    {label:"HIGHER TF",value:read?.htfTrend.state??"Awaiting",tone:atlasTone(read?.htfTrend.state)},
+    {label:"MOMENTUM",value:read?.momentum.state??"Awaiting",tone:atlasTone(read?.momentum.state)},
+    {label:"FOR LEAN",value:read?read.evidenceFor.length+" observations":"Awaiting",tone:read?.evidenceFor.length?"ok":"watch"},
+    {label:"AGAINST",value:read?read.evidenceAgainst.length+" objections":"Awaiting",tone:read?.evidenceAgainst.length?"watch":"ok"},
+    {label:"SETUP",value:read?.setupStage?.replace(/_/g," ")??"Awaiting",tone:read?.setupStage==="ready"?"ok":"watch"},
+  ];
   const feed = lf.feed;
   const feedCol = toneCol(FEED_TONE[feed.status]);
   const analysisAt = d?.analysis?.analysisAt ?? d?.at ?? null;
@@ -1005,13 +1020,20 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       )}
 
       {/* ── MAIN GRID ─────────────────────────────────────────────────── */}
-      {toFloor && <section className="atlas-pocket-brief" aria-label="Atlas gold read">
-        <div className="atlas-pocket-read-meta"><span data-pocket-status={feed.status}>{mobileReadStatus}</span><time dateTime={analysisAt != null ? new Date(analysisAt).toISOString() : undefined}>{isReplay ? "Replay" : analysisAgeMs != null ? `${ageShort(analysisAgeMs)} ago` : "Awaiting data"}</time></div>
-        <h2>{mobileReadTitle}</h2>
-        <div className="atlas-pocket-price"><span>XAU/USD</span><strong>{fmt2(headPrice)}</strong><span title={feedTitle}>{feed.status === "live" ? "Live quote" : FEED_STATUS_WORD[feed.status].replace(/^MARKET /, "")}</span>
-          <button type="button" aria-label="Chart controls" aria-expanded={mobileChartTools} onClick={() => setMobileChartTools((x) => !x)}><SlidersHorizontal /></button>
-        </div>
-      </section>}
+      {toFloor && <div className="atlas-vision-pocket" aria-label="Atlas price-action read">
+        <VisionDirection product="ATLAS" eyebrow="ONE MISSION · GOLD MARKET INTELLIGENCE"
+          bias={atlasVisionBias} quote={headPrice} quoteSymbol="XAU/USD"
+          quoteLabel={isReplay?"REPLAY":feed.status==="live"?"LIVE TICK":"RECORDED"}
+          status={isReplay?"REPLAY":mobileClosed?"MARKET CLOSED":feed.status==="live"?"LIVE FEED":"FEED DELAYED"}
+          score={read?.score==null?null:Math.abs(read.score)} scoreName="EVIDENCE STRENGTH"
+          tagline={read?.setupStage==="ready"?"A QUALIFIED SETUP IS READY FOR REVIEW":
+            read?.summary?openingSentence(read.summary):"AWAITING THE NEXT VERIFIED MARKET READ"}
+          facts={atlasVisionFacts}
+          note="Evidence strength is directional agreement, not the probability of a winning trade.">
+          <button type="button" className="atlas-vision-tools" aria-expanded={mobileChartTools}
+            onClick={()=>setMobileChartTools(x=>!x)}><SlidersHorizontal size={15}/>Chart controls</button>
+        </VisionDirection>
+      </div>}
       <div className="hud-grid">
         {/* LEFT — the read, the timeframes, the levels */}
         <div className="hud-col hud-left">
