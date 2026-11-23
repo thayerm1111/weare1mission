@@ -146,6 +146,12 @@ export function StrataWorkspace() {
   const saved = accountData?.settings?.find((s) => s.connection_id === selectedAccount?.connectionId &&
     s.account_id === selectedAccount?.accountId) ?? null;
   const currentMode = saved?.mode ?? "off";
+  useEffect(() => {
+    if (currentMode === "paper" && saved) {
+      setRisk(Number(saved.risk_pct));
+      setMaxDaily(Number(saved.max_entries_per_day));
+    }
+  }, [currentMode, saved?.risk_pct, saved?.max_entries_per_day]);
   const paper = accountData?.paper?.filter((p) =>
     p.connection_id === selectedAccount?.connectionId && p.account_id === selectedAccount?.accountId) ?? [];
   const activePaper = paper.find((p) => p.status === "open");
@@ -304,11 +310,11 @@ export function StrataWorkspace() {
             <span className="strata-paper-chip" data-on={currentMode === "paper"}>{currentMode === "paper" ? "ON" : "OFF"}</span></div>
           <div className="strata-risk-controls">
             <label>Illustrative risk
-              <select value={selectedAccount && saved && !confirmPaper ? Number(saved.risk_pct) : risk}
+              <select value={risk}
                 disabled={currentMode === "paper"} onChange={(e) => setRisk(Number(e.target.value))}>
                 {[0.1,0.25,0.5].map((v) => <option key={v} value={v}>{v.toFixed(2)}%</option>)}</select></label>
             <label>Maximum paper entries / day
-              <select value={selectedAccount && saved && !confirmPaper ? Number(saved.max_entries_per_day) : maxDaily}
+              <select value={maxDaily}
                 disabled={currentMode === "paper"} onChange={(e) => setMaxDaily(Number(e.target.value))}>
                 {[1,2,3,4].map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
           </div>
