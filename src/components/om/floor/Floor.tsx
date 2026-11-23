@@ -8,6 +8,7 @@ import { ProductIcon } from "@/components/om/ProductIcon";
 import { useFlowAccount } from "@/components/om/FlowAccount";
 import { ActiveTrades } from "./ActiveTrades";
 import { WinStreaks } from "./WinStreaks";
+import { WinningPipsPanel } from "./WinningPipsPanel";
 import { AtlasLiveDesk } from "./AtlasLiveDesk";
 import { timedBars } from "@/lib/chart/candleTime";
 import { useSeeThePlay } from "@/components/portal/SetupLock";
@@ -32,6 +33,7 @@ import {
  *   /api/floor/ticker    the other markets' quotes
  *   /api/floor/active-trades  the selected account's broker positions and reviewed management actions
  *   /api/floor/win-streaks    the account's FLOW run and the community's GENX callout run
+ *   /api/floor/winning-pips  gross positive winning pips in independent FLOW and GENX sources
  * LOADING, NOTHING, ZERO AND UNAVAILABLE ARE FOUR DIFFERENT THINGS and are shown as four: a grey bar while
  * an answer is on its way, plain words when there is nothing (no account connected, no trades in the
  * period), a real 0 only when the answer was zero, and an em dash with the reason when a number could not
@@ -694,10 +696,13 @@ export function Floor({ sample }: { sample?: FloorSample }) {
       <AtlasLiveDesk goldSetup={setup} goldFailed={setupFailed} atlasRead={ov?.atlas?.read ?? null}
         sample={isSample} tf={tf} onTf={pickTf} />
 
-      {!isSample && <ActiveTrades />}
+      <WinningPipsPanel account={ov?.account ?? null} accountsKnown={!!ov?.accountsKnown} switching={switching}
+        hideAccountPips={hide} sample={isSample} />
 
       <WinStreaks account={ov?.account ?? null} accountsKnown={!!ov?.accountsKnown} switching={switching}
         hideAccountPips={hide} sample={isSample} />
+
+      {!isSample && <ActiveTrades />}
 
       {compact ? <MobileFloor now={now} setup={setup} view={view} tf={tf} sample={isSample} /> : <>
       <details className="om-floor-deep">
