@@ -264,6 +264,20 @@ export function StrataWorkspace() {
       <p>{CASES.find((p) => p.key === modeGuide)?.detail}</p>
       {reg !== modeGuide && <small>Educational example · not the market's current classification.</small>}</div>}
 
+    <section className="strata-generate" aria-label="Generate possible gold trade entry">
+      <div className="strata-generate-copy">
+        <span className="strata-kicker"><Sparkles size={14} aria-hidden="true" /> ON-DEMAND OPPORTUNITY SCAN</span>
+        <h2>Find the best possible entry.</h2>
+        <p>Search the current gold structure for a break-and-retest or range reversal.
+          Even a mixed market can return a conditional plan—never an invented confirmed signal.</p>
+      </div>
+      <button className="strata-generate-button" type="button" disabled={generating || !feed}
+        onClick={() => void generateEntry()} aria-busy={generating}>
+        <Sparkles size={18} aria-hidden="true" />
+        {generating ? "Analyzing price action…" : generated ? "Regenerate Entry" : "Generate Possible Entry"}
+        <ArrowRight size={17} aria-hidden="true" />
+      </button>
+    </section>
     <section className="strata-session">
       <div className="strata-session-quote">
         <span className="strata-kicker">XAU/USD · GOLD SPOT</span>
@@ -291,20 +305,6 @@ export function StrataWorkspace() {
     {!!analysis?.warnings.length && <div className="strata-warnings">
       {analysis.warnings.map((w) => <p key={w}><CircleAlert size={14} aria-hidden="true"/>{w}</p>)}</div>}
 
-    <section className="strata-generate" aria-label="Generate possible gold trade entry">
-      <div className="strata-generate-copy">
-        <span className="strata-kicker"><Sparkles size={14} aria-hidden="true" /> ON-DEMAND OPPORTUNITY SCAN</span>
-        <h2>Find the best possible entry.</h2>
-        <p>Search the current gold structure for a break-and-retest or range reversal.
-          Even a mixed market can return a conditional plan—never an invented confirmed signal.</p>
-      </div>
-      <button className="strata-generate-button" type="button" disabled={generating || !feed}
-        onClick={() => void generateEntry()} aria-busy={generating}>
-        <Sparkles size={18} aria-hidden="true" />
-        {generating ? "Analyzing price action…" : generated ? "Regenerate Entry" : "Generate Possible Entry"}
-        <ArrowRight size={17} aria-hidden="true" />
-      </button>
-    </section>
     {generateError && <p className="strata-warning" role="alert"><CircleAlert size={15} aria-hidden="true" />
       {generateError}</p>}
     <section id="strata-opportunity" className="strata-setup" data-generated={!!generated}
