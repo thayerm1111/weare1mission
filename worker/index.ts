@@ -37,6 +37,7 @@ import { brokerRelays } from "@/lib/flow/tradelocker";
 import { archiveGoldCandles } from "@/lib/genx/candleArchive";
 import { recordStyleSetups, resolveStyleSetups, styleScoreboard } from "@/lib/genx/styles/shadow";
 import { streamLoop } from "./priceStream";
+import { strataPaperLoop } from "./strata";
 import { genfxLoop } from "./genfx";
 import { genx31Tick } from "@/lib/genx3/v31/runtime";
 import { genx32Tick } from "@/lib/genx3/v32/runtime";
@@ -352,6 +353,8 @@ void relayReport().catch(() => {});
 // bad socket) the loops keep polling exactly as before — its failure must never kill
 // the worker, so it lives OUTSIDE the fatal Promise.all.
 void streamLoop(() => shuttingDown).catch((e) => log("stream: loop error (worker continues on polling)", e instanceof Error ? e.message : e));
+// STRATA is a separate, opt-in PAPER simulator. It never calls the broker or enables FLOW.
+void strataPaperLoop(() => shuttingDown).catch((e) => log("strata: paper loop died", e instanceof Error ? e.message : e));
 // Matty entry scan is best-effort like the stream: its failure must never kill the
 // worker (the minutely Vercel cron still covers entries), so it lives OUTSIDE the
 // fatal Promise.all too.
