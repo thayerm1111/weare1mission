@@ -8,6 +8,7 @@ import { ProductIcon } from "@/components/om/ProductIcon";
 import { useFlowAccount } from "@/components/om/FlowAccount";
 import { ActiveTrades } from "./ActiveTrades";
 import { WinStreaks } from "./WinStreaks";
+import { AtlasLiveDesk } from "./AtlasLiveDesk";
 import { timedBars } from "@/lib/chart/candleTime";
 import { useSeeThePlay } from "@/components/portal/SetupLock";
 import { openAtlas, type AtlasContext } from "@/lib/atlas/open";
@@ -484,51 +485,11 @@ export function GenxCard({ ov, state, failed, period, onPeriod, icon = false }: 
 /* ── the screen ───────────────────────────────────────────────────────────────────────────────── */
 
 /** The mobile Floor shares the exact feeds and selected account with the desktop workspace. */
-function MobileFloor({ ov, now, setup, setupFailed, view, tf, sample }: {
-  ov: FloorOverview | null; now: number; setup: SetupAnswer | null; setupFailed: boolean; view: SetupView; tf: FloorMode; sample: boolean;
+function MobileFloor({ now, setup, view, tf, sample }: {
+  now: number; setup: SetupAnswer | null; view: SetupView; tf: FloorMode; sample: boolean;
 }) {
-  const read = ov?.atlas?.read;
-  const summary = read?.summary?.trim();
-  const closed = now > 0 && !goldOpen(now);
-  const readAge = read ? Date.parse(read.at) : NaN;
-  const readIsCurrent = Number.isFinite(readAge) && now > 0 && now - readAge < 5 * 60_000;
-  const stamp = Date.parse(String(setup?.asOf ?? ""));
-  const setupIsCurrent = !setupFailed && Number.isFinite(stamp) && now > 0 && now - stamp >= 0 && now - stamp <= 120_000;
-  const sentence = summary?.match(/^(.{1,110}?[.!?])(?:\s|$)/)?.[1];
-  const headline = closed ? "Gold is between sessions."
-    : summary && readIsCurrent ? sentence ?? "Your gold read is ready."
-      : summary ? "Your latest gold read."
-        : (setupIsCurrent || sample) && view.stage === "live" ? "A gold setup is ready."
-          : (setupIsCurrent || sample) && view.stage === "forming" ? "Waiting for confirmation."
-            : "Your next move starts here.";
-  const bars = useMemo(() => timedBars(setup?.candles, setup?.candlesTz), [setup?.candles, setup?.candlesTz]);
-  const last = bars.bars.at(-1);
-  const price = typeof setup?.price === "number" && Number.isFinite(setup.price) ? setup.price : last?.c ?? null;
-  const current = !sample && !closed && setupIsCurrent;
-  const chartFreshness = sample ? "Sample gold data"
-    : setupFailed ? "Feed unavailable · last chart"
-      : closed ? "Market closed · last price"
-        : Number.isFinite(stamp) ? `${setupIsCurrent ? "Updated" : "Last update"} ${ageText(String(setup?.asOf), now)}`
-          : "Waiting for market data";
   const context = floorAtlasContext(setup, view, tf, now);
   return <div className="om-mobile-floor">
-    <section className="om-mobile-atlas-card" aria-label="Atlas gold overview">
-      <header><span className="om-mobile-atlas-name"><ProductIcon kind="atlas" size="sm" /><h2>Atlas</h2></span>
-        <span className="om-mobile-feed-state">{sample ? "Sample" : closed ? "Market closed" : read ? `Read ${ageText(read.at, now)}` : "Gold"}</span></header>
-      <h3>{headline}</h3>
-      <div className="om-mobile-gold-chart" data-no-i18n translate="no">
-        {bars.bars.length >= 2 ? <OmChart bars={bars.bars} timeKnown={bars.known} tfMs={TF_MS[tf]} tfLabel={TFS.find((x) => x.mode === tf)!.tf}
-          price={price} priceLive={current} dec={GOLD.dec} levels={[]} isOpenAt={goldOpen} viewKey={`floor-mobile:XAUUSD:${tf}`}
-          label="Gold price chart. Drag to explore, pinch to zoom, or expand." />
-          : <div className="om-chart-note">{!setup && !setupFailed ? "Loading gold…" : "Chart unavailable"}</div>}
-      </div>
-      <p className="om-mobile-chart-freshness" data-no-i18n translate="no">{chartFreshness}</p>
-      <button type="button" className="om-mobile-primary" onClick={() => { if (!sample) openAtlas({ voice: true, context }); }} disabled={sample}><Mic width={19} height={19} aria-hidden="true" />Talk to Atlas</button>
-      <div className="om-atlas-card-links">
-        <button type="button" onClick={() => { if (!sample) openAtlas({ context }); }} disabled={sample}>Type a question</button>
-        {!sample && <a href="/command-center">Gold Command Center<ArrowUpRight width={12} height={12} aria-hidden="true" /></a>}
-      </div>
-    </section>
     <section className="om-floor-discovery" aria-label="Find a signal">
       <div className="om-floor-discovery-head"><h2>Find a signal</h2><span>With Atlas</span></div>
       <div className="om-mobile-shortcuts" role="group" aria-label="Signal tools">
@@ -730,16 +691,22 @@ export function Floor({ sample }: { sample?: FloorSample }) {
         {usingSharedAccount ? <span className="om-os-floor-context"><span className="om-dot" data-tone="off" />Gold workspace</span> : <AccountSummary ov={ov} state={ovState} switching={switching} hide={hide} onHide={() => setHide((h) => { store.set("om:floor:hide", h ? "0" : "1"); return !h; })} onPick={choose} now={now} />}
       </header>
 
+      <AtlasLiveDesk goldSetup={setup} goldFailed={setupFailed} atlasRead={ov?.atlas?.read ?? null}
+        sample={isSample} tf={tf} onTf={pickTf} />
+
       {!isSample && <ActiveTrades />}
 
       <WinStreaks account={ov?.account ?? null} accountsKnown={!!ov?.accountsKnown} switching={switching}
         hideAccountPips={hide} sample={isSample} />
 
-      {compact ? <MobileFloor ov={ov} now={now} setup={setup} setupFailed={setupFailed} view={view} tf={tf} sample={isSample} /> : <>
+      {compact ? <MobileFloor now={now} setup={setup} view={view} tf={tf} sample={isSample} /> : <>
+      <details className="om-floor-deep">
+        <summary>Open detailed gold workspace</summary>
       <div className="om-stage">
         <ChartCard setup={setup} failed={setupFailed} tf={tf} onTf={pickTf} change={gold?.percent ?? null} onOpened={() => void loadSetup(true)} now={now} sample={isSample} onSamplePlay={sample?.opened ? openSamplePlay : undefined} layers={layers} onLayer={(layer) => setLayers((current) => ({ ...current, [layer]: !current[layer] }))} />
         <AtlasPanel atlas={ov?.atlas ?? null} view={view} setup={setup} tf={tf} sample={isSample} now={now} onShowLevels={() => setLayers({ levels: true, setup: true })} />
       </div>
+      </details>
 
       </>}
 
