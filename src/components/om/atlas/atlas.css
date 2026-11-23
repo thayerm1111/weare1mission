@@ -167,3 +167,45 @@
   .om-atlas-quick-tools svg { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .om-atlas-listening i { animation: none !important; } }
+
+
+/* VISION SUITE · Atlas messenger: premium dark graphite, lavender technology. */
+.om-atlas-dialog{
+  --om-page:#101118;--om-surface:#191821;--om-raised:#221f2b;
+  --om-text:#f5f2fc;--om-text-2:#bfb6ce;--om-text-3:#a59bb6;
+  --om-edge:rgba(188,165,226,.2);--om-edge-2:rgba(188,165,226,.32);
+  background:radial-gradient(ellipse at 90% -12%,rgba(129,74,206,.19),transparent 46%),#101118!important;
+  border:1px solid rgba(178,145,231,.37)!important;color:#f5f2fc!important
+}
+.om-atlas-dialog .om-atlas-top{
+  border-bottom:1px solid rgba(194,159,234,.18);background:rgba(25,21,34,.85)
+}
+.om-atlas-dialog .om-atlas-top h2{font-weight:700;letter-spacing:-.035em;font-size:23px}
+.om-atlas-dialog .om-atlas-top p{color:#a99cb9}
+.om-atlas-dialog .om-atlas-journey{background:#14141d;border-bottom:1px solid rgba(190,157,229,.17)}
+.om-atlas-dialog .om-atlas-journey .is-current{color:#bfa4f8}
+.om-atlas-dialog .om-atlas-journey .is-current i{background:rgba(167,124,235,.25);color:#e2d2ff;border:1px solid rgba(175,138,246,.45)}
+.om-atlas-dialog .om-atlas-log{background:transparent}
+.om-atlas-dialog .om-atlas-welcome{padding:19px 20px 14px;border:1px solid rgba(174,147,226,.2);border-radius:20px;
+  background:linear-gradient(137deg,rgba(132,81,203,.125),rgba(15,16,24,.9) 59%)}
+.om-atlas-dialog .om-atlas-eyebrow{color:#c7b4f1!important}
+.om-atlas-dialog .om-atlas-welcome h3{color:#fbf9ff;font-weight:660;letter-spacing:-.045em}
+.om-atlas-dialog .om-atlas-welcome>p:not(.om-atlas-eyebrow){color:#beb3cd}
+.om-atlas-dialog .om-atlas-starts button{background:#1c1b26;border:1px solid rgba(180,153,230,.24);border-radius:15px}
+.om-atlas-dialog .om-atlas-starts button:hover{background:#292538;border-color:rgba(193,162,241,.37)}
+.om-atlas-dialog .om-atlas-starts strong{font-weight:620;color:#eee9fa}
+.om-atlas-dialog .om-atlas-starts small{color:#ada5bb}
+.om-atlas-dialog .om-atlas-compose{background:#11121a;border-top:1px solid rgba(181,158,233,.21)}
+.om-atlas-dialog .om-atlas-compose form{background:#1a1923;border-color:rgba(189,162,234,.29)}
+.om-atlas-dialog .om-atlas-send{background:#aa91eb;color:#120d20}
+.om-atlas-dialog .om-atlas-compose textarea{color:#f1eef9}
+.om-atlas-dialog .om-atlas-message.is-user{border-color:rgba(170,135,233,.26);background:rgba(136,97,199,.095)}
+.om-atlas-dialog .om-atlas-message.is-assistant>.om-atlas-message-who{color:#bb9df3}
+.om-atlas-dialog .om-atlas-quick-tools button{border-color:rgba(181,153,221,.25);background:#191822;color:#cdbfe4}
+.om-atlas-dialog .om-atlas-context{border-color:rgba(178,147,227,.29);background:rgba(135,99,209,.065)}
+@media(max-width:760px){
+ .om-atlas-dialog .om-atlas-top{padding:calc(12px + env(safe-area-inset-top,0px)) 14px 12px}
+ .om-atlas-dialog .om-atlas-welcome{padding:14px 12px}
+ .om-atlas-dialog .om-atlas-welcome h3{font-size:27px}
+ .om-atlas-dialog .om-atlas-journey{padding:8px}
+}

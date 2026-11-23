@@ -225,3 +225,30 @@
   html:not(.om-look-graphite) .om-os-atlas :is(.atlas-pocket-header button, .atlas-pocket-price button, .atlas-pocket-condition, .atlas-pocket-analysis, .atlas-pocket-position, .atlas-pocket-generate):focus-visible { outline-color: var(--om-text); }
   html:not(.om-look-graphite) .om-os-atlas .hud-root .hud-chart { background: var(--cc-06090e, #08090b); }
 }
+
+
+/* VISION SUITE · Atlas Command Center: same visual DNA as STRATA. */
+.atlas-vision-pocket{margin:7px 0 12px;min-width:0}
+.atlas-vision-pocket .om-vision-dashboard{padding:14px;border-radius:17px}
+.atlas-vision-pocket .om-vision-meta{margin-bottom:13px}
+.atlas-vision-pocket .om-vision-direction{min-height:88px}
+.atlas-vision-pocket .om-vision-facts{grid-template-columns:repeat(5,minmax(0,1fr))}
+.atlas-vision-pocket .om-vision-fact{padding:9px 7px;min-height:74px}
+.atlas-vision-pocket .om-vision-fact b{font-size:9px}
+.atlas-vision-pocket .om-vision-fact small{font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.atlas-vision-tools{margin:12px 0 0;width:100%;min-height:43px;display:flex;align-items:center;justify-content:center;gap:8px;
+  border:1px solid rgba(187,159,233,.29);border-radius:11px;background:rgba(170,132,240,.095);color:#d5c3fa;font-size:11px;cursor:pointer}
+.om-os-atlas .hud-root .atlas-vision-pocket{scroll-margin-top:5px}
+@media(max-width:1279px){
+ .om-os-atlas .atlas-vision-pocket{order:2;display:block}
+}
+@media(max-width:767px){
+ .om-os-atlas .atlas-vision-pocket{margin:0 0 10px}
+ .om-os-atlas .atlas-vision-pocket .om-vision-dashboard{padding:13px}
+ .om-os-atlas .atlas-vision-pocket .om-vision-direction{min-height:90px;padding:12px}
+ .om-os-atlas .atlas-vision-pocket .om-vision-heading strong{font-size:25px}
+ .om-os-atlas .atlas-vision-pocket .om-vision-facts{grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}
+ .om-os-atlas .atlas-vision-pocket .om-vision-fact:nth-child(n+5){display:none}
+ .om-os-atlas .atlas-vision-pocket .om-vision-meta-name{font-size:20px}
+ .om-os-atlas .hud-root .hud-chart{height:clamp(350px,45dvh,500px)!important;min-height:340px!important}
+}
