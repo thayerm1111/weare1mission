@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { ArrowUpRight, ChevronDown, Loader2, RefreshCw, Activity, X } from "lucide-react";
-import { SignalFocusChart } from "@/components/om/chart/SignalFocusChart";
+import { VisionChart } from "@/components/om/vision/VisionChart";
+import { VisionDirection, VisionLevels, type VisionFact } from "@/components/om/vision/VisionDirection";
 import { atlasPlayChart } from "@/lib/atlas/chart";
 import { priceFor } from "@/lib/flow/display";
 import { analysisOf, trackingOf, targetsWithR, pipsBetween, type PlayDirection } from "@/lib/plays/lifecycle";
@@ -90,6 +91,26 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
       ? `Waiting for confirmation. ${s.no_trade_reason || "The market has not confirmed this idea."} Levels are for reference.`
       : `${a.side} ${limit ? "at the limit entry" : "around the entry"}${best != null ? ` · up to ${best}R` : ""}.`;
 
+  const quality = fin(s.gate_score) ? s.gate_score : null;
+  const visionBias = a.side === "Buy" ? "buy" as const : a.side === "Sell" ? "sell" as const :
+    /bull|buy|long/i.test(s.bias ?? "") ? "buy" as const :
+    /bear|sell|short/i.test(s.bias ?? "") ? "sell" as const : "mixed" as const;
+  const toneOf = (v:unknown):VisionFact["tone"] => {
+    const value=String(v??"");
+    return /bull|up|higher|long|buy|rising/i.test(value)?"up":
+      /bear|down|lower|short|sell|falling/i.test(value)?"down":
+      /range|flat|sideway/i.test(value)?"neutral":"watch";
+  };
+  const goodChecks = (s.checklist ?? []).filter(x=>x.ok).length;
+  const factList:VisionFact[]=[
+    {label:"HIGHER TF",value:s.bias||"Not confirmed",tone:toneOf(s.bias)},
+    {label:"STRATEGY",value:s.setup||"Market structure",tone:s.setup?"ok":"watch"},
+    {label:"MOMENTUM",value:s.momentum_rating||"Awaiting",tone:toneOf(s.momentum_rating)},
+    {label:"CONFLUENCE",value:s.checklist?.length?goodChecks+"/"+s.checklist.length+" checks":
+      s.flow?.aligned?"4H + 1H aligned":"Unconfirmed",tone:s.flow?.aligned?"ok":"watch"},
+    {label:"ENTRY",value:a.kind==="setup"?"Engine setup":a.kind==="idea"?"Watchlist only":"Not qualified",
+      tone:a.kind==="setup"?"ok":"watch"},
+  ];
   return (
     <article className="om-play" aria-label={`${r.symbol} play`}>
       <header className="om-play-head">
@@ -105,29 +126,25 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
         </div>
       </header>
 
-      <div className="om-play-levels">
-        <dl className="om-play-lv">
-          <div><dt>{priceLabel}</dt><dd className="om-num" data-no-i18n translate="no">{px(generationPrice)}</dd></div>
-          {hasLevels && <>
-            <div><dt>{limit ? "Limit entry" : "Entry"}</dt><dd className="om-num" data-no-i18n translate="no">{px(s.entry)}</dd></div>
-            <div><dt>Stop</dt><dd className="om-num om-neg" data-no-i18n translate="no">{px(s.stopLoss)} <small>{pipsBetween(r.symbol, s.entry, s.stopLoss)} pips</small></dd></div>
-            {targets.map((x) => (
-              <div key={x.n}><dt>Target {x.n}</dt><dd className="om-num om-pos" data-no-i18n translate="no">{px(x.price)} <small>{pipsBetween(r.symbol, s.entry, x.price)} pips{x.r != null ? ` · ${x.r}R` : ""}</small></dd></div>
-            ))}
-          </>}
-        </dl>
-        {hasLevels && copy}
-      </div>
-
-      {chart.bars.length >= 1 ? (
-        <div className="om-play-chart" style={{ height: "auto" }}>
-          <SignalFocusChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={chart.tfMs} tfLabel={chart.tfLabel} price={generationPrice} priceLive={false} snapshot fitLevels
-            dec={chart.dec} levels={levels} viewKey={chart.viewKey}
-            direction={a.side === "Buy" ? "buy" : a.side === "Sell" ? "sell" : "neutral"} reference={a.kind === "idea"}
-            label={`${r.symbol}, the candles this play was analysed on, with its levels`} />
-        </div>
-      ) : <p className="om-play-note" role="status">Original candle chart unavailable — this play has no usable candle snapshot.</p>}
-
+      <VisionDirection product="OM AI PLAYS" bias={visionBias}
+        eyebrow="ONE MISSION / MULTI-MARKET SIGNAL INTELLIGENCE"
+        status={r.marketClosed?"MARKET CLOSED":"SAVED SIGNAL"}
+        quote={generationPrice} quoteSymbol={r.symbol} quoteLabel="AT GENERATION" dec={chart.dec}
+        tagline={a.kind==="setup"?"SIGNAL SETUP · REVIEW ENTRY":
+          a.kind==="idea"?"CONDITIONAL WATCH · CONFIRMATION NEEDED":"NO QUALIFIED ENTRY"}
+        score={quality} scoreName="ENGINE QUALITY" facts={factList}/>
+      {chart.bars.length>=2 ? <VisionChart
+          bars={chart.bars} timeKnown={chart.timeKnown} tfMs={chart.tfMs}
+          timeframe={chart.tfLabel} symbol={r.symbol} dec={chart.dec}
+          price={generationPrice} priceLive={false} snapshot
+          levels={levels} direction={visionBias}
+          reference={a.kind!=="setup"} viewKey={chart.viewKey}
+          title={r.symbol+" saved candles, conditional path and recorded trade levels"}/>
+        : <p className="om-play-note" role="status">Verified original candles unavailable for this saved read.</p>}
+      <VisionLevels symbol={r.symbol} entry={hasLevels?s.entry:null}
+        stop={hasLevels?s.stopLoss:null} targets={hasLevels?s.takeProfits:[]}
+        rr={targets[0]?.r ?? null} reference={a.kind!=="setup"}/>
+      {hasLevels && copy&&<div className="om-vision-copy">{copy}</div>}
       <p className="om-play-decision">{decision}</p>
       {s.chased && r.status === "open" && <p className="om-play-note" role="note"><b>Price has moved past the ideal entry.</b> {s.chase_note}</p>}
 
@@ -143,7 +160,10 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
         </section>
       )}
 
-      <PlayBreakdown signal={s} interval={r.interval} />
+      <details className="om-vision-play-breakdown">
+        <summary>Why it lines up · Timeframe confirmations<ChevronDown aria-hidden="true"/></summary>
+        <PlayBreakdown signal={s} interval={r.interval}/>
+      </details>
 
       <section className="om-play-track" aria-label="Since the play was made">
         <div>
