@@ -30,6 +30,7 @@ export async function POST() {
       price: state.price,
       generatedAt: Date.now(),
       marketOpen: !state.marketClosed,
+      quoteFresh: state.quoteSource === "stream",
       dataStale: state.dataStale,
     });
     return json({ ok: true, idea, state });

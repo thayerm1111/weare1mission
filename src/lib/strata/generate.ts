@@ -29,6 +29,7 @@ type Input = {
   price: number;
   generatedAt: number;
   marketOpen: boolean;
+  quoteFresh?: boolean;
   dataStale: boolean;
 };
 
@@ -44,7 +45,7 @@ function none(input: Input, reason: string): GeneratedOpportunity {
     scenario: null, direction: null,
     reasons: [reason],
     confirmationNeeded: ["Wait for fresh completed candles and a defensible structural level."],
-    asOf: input.analysis.asOf, generatedAt: input.generatedAt,
+    asOf: input.analysis?.asOf ?? 0, generatedAt: input.generatedAt,
     quoteAtGeneration: isValid(input.price) ? r2(input.price) : null,
     disclaimer: statement,
   };
@@ -212,7 +213,7 @@ export function generatePossibleEntry(input: Input): GeneratedOpportunity {
   const ready = analysis.primary;
   // Only the automatic, completed-candle qualified setup can receive READY.
   // This generator cannot upgrade a speculative idea to an executable signal.
-  const liveReady = input.marketOpen && analysis.status === "READY" &&
+  const liveReady = input.marketOpen && input.quoteFresh !== false && analysis.status === "READY" &&
     ready?.stage === "ready" && ready.entry !== null && ready.stop !== null &&
     ready.targets.length > 0 && Math.abs(input.price - ready.entry) <= analysis.atr * .4;
   if (liveReady && ready) {
@@ -252,7 +253,9 @@ export function generatePossibleEntry(input: Input): GeneratedOpportunity {
 
   const suffix = !input.marketOpen
     ? "Gold is closed. This is a plan for a future session, not a live opportunity."
-    : "The trigger has not completed. This is a conditional watch, not an entry now.";
+    : input.quoteFresh === false
+      ? "No fresh streaming quote is available. Levels use the last recorded candle close; no entry is active."
+      : "The trigger has not completed. This is a conditional watch, not an entry now.";
   return {
     tier: picked.tier,
     label: picked.tier === "aggressive" ? "Aggressive watchlist" : "Conditional setup",
