@@ -5,7 +5,7 @@
   "description": "1 Mission — One Mission. One Community. One Movement. Team onboarding, training, events & community hub.",
   "scripts": {
     "dev": "next dev",
-    "prebuild": "node --import tsx --test tests/strata-engine.test.ts tests/strata-generate.test.ts tests/all-members-rollout.test.ts",
+    "prebuild": "node --import tsx --test tests/strata-engine.test.ts tests/strata-generate.test.ts tests/all-members-rollout.test.ts tests/vision-suite.test.ts",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
