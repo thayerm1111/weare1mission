@@ -16,7 +16,7 @@ const TF = [
 ] as const;
 type Raw = { m5: Bar[]; m15: Bar[]; h1: Bar[]; h4: Bar[]; computedAt: number };
 export type StrataState = {
-  analysis: Analysis; candles: Bar[]; lastCandleAt: string; asOf: string;
+  analysis: Analysis; candles: Bar[]; bars: { m5: Bar[]; m15: Bar[]; h1: Bar[]; h4: Bar[] }; lastCandleAt: string; asOf: string;
   price: number; quoteSource: "stream" | "candle"; quoteReceivedAt: string | null;
   marketClosed: boolean; dataStale: boolean; timeframe: "15m";
 };
@@ -87,7 +87,7 @@ export async function getStrataState(): Promise<StrataState | null> {
     }
   }
   return {
-    analysis, candles: raw.m15, lastCandleAt: new Date(last.t).toISOString(),
+    analysis, candles: raw.m15, bars: { m5: raw.m5, m15: raw.m15, h1: raw.h1, h4: raw.h4 }, lastCandleAt: new Date(last.t).toISOString(),
     asOf: new Date(raw.computedAt).toISOString(), price, quoteSource, quoteReceivedAt,
     marketClosed: !open, dataStale: stale, timeframe: "15m",
   };
