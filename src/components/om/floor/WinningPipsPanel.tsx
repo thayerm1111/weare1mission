@@ -134,8 +134,7 @@ export function WinningPipsPanel({ account, accountsKnown, switching, hideAccoun
     <section className="om-winning-pips" aria-labelledby="om-winning-pips-title">
       <div className="om-wpip-title">
         <div><span className="om-wpip-eyebrow"><BarChart3 size={14} aria-hidden="true"/>ONE MISSION · WINNING PERFORMANCE</span>
-          <h2 id="om-winning-pips-title">Winning Pips <span>Only the wins.</span></h2>
-          <p>Every positive finalized result counted. Losses add zero to these gross winning totals.</p>
+          <h2 id="om-winning-pips-title">Winning Pips</h2>
         </div>
         <div className="om-wpip-tools">
           {failed&&<span role="status">Last reading</span>}
