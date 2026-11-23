@@ -11,7 +11,7 @@
  *
  * Pure: no server or browser imports.
  */
-export type NavKey = "floor" | "plays" | "genx" | "pulse" | "flow" | "atlas";
+export type NavKey = "floor" | "plays" | "genx" | "pulse" | "flow" | "atlas" | "strata";
 
 export type NavItem = {
   key: NavKey; label: string; href: string;
@@ -25,6 +25,7 @@ export const NAV: NavItem[] = [
   { key: "floor", label: "The Floor", href: "/portal/trading", tab: "Floor" },
   { key: "plays", label: "OM AI Plays", href: "/portal/signals", tab: "Plays" },
   { key: "genx", label: "GENX", href: "/portal/genx", tab: "GENX" },
+  { key: "strata", label: "STRATA", href: "/portal/strata", tab: "Strata" },
   { key: "pulse", label: "Market Pulse", href: "/portal/trading?view=pulse", tab: "Pulse" },
   { key: "flow", label: "FLOW", href: "/portal/trading?view=flow", tab: "FLOW" },
   { key: "atlas", label: "Gold Command Center", href: "/command-center", tab: "Atlas", hard: true },
@@ -44,7 +45,7 @@ export const APP_TABS: { key: AppTabKey; label: string; href: string; hard?: boo
 export function activeTabKey(pathname: string, view: string | null | undefined): AppTabKey | null {
   if ((pathname || "").replace(/\/+$/, "") === "/portal/tools") return "tools";
   const key = activeKey(pathname, view);
-  return key === "genx" || key === "plays" || key === "pulse" ? "tools" : key;
+  return key === "genx" || key === "plays" || key === "pulse" || key === "strata" ? "tools" : key;
 }
 
 /** Which destination a page belongs to. An inline Floor view (?view=) lights the tool it shows. */
@@ -53,6 +54,7 @@ export function activeKey(pathname: string, view: string | null | undefined): Na
   if (p === "/command-center" || p.startsWith("/command-center/") || p.startsWith("/portal/command-center")) return "atlas";
   if (p === "/portal/signals" || p.startsWith("/portal/signals/")) return "plays";
   if (p === "/portal/genx" || p.startsWith("/portal/genx/")) return "genx";
+  if (p === "/portal/strata" || p.startsWith("/portal/strata/")) return "strata";
   if (p === "/portal/trading" || p === "/portal" || p === "/floor-preview") {
     const v = String(view ?? "").toLowerCase();
     if (v === "flow") return "flow";

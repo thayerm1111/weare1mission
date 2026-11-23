@@ -202,6 +202,7 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
 const APPS = [
   { key: "atlas" as const, label: "Atlas", line: "Your AI trading assistant", href: "#atlas", hard: false },
   { key: "genx" as const, label: "GENX", line: "The gold engine", href: "/portal/genx", hard: false },
+  { key: "strata" as const, label: "STRATA", line: "Live price-action intelligence", href: "/portal/strata", hard: false },
   { key: "plays" as const, label: "OM AI Plays", line: "Any market. Full setup.", href: "/portal/signals", hard: false },
   { key: "pulse" as const, label: "Pulse", line: "Find your next market", href: "/portal/trading?view=pulse", hard: false },
   { key: "flow" as const, label: "FLOW", line: "Your account connection", href: "/portal/trading?view=flow", hard: false },

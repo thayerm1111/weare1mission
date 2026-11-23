@@ -31,6 +31,12 @@ export function ToolsHome() {
       </ol>
     </section>
 
+    <Link href="/portal/strata" className="om-tools-atlas" style={{ margin: "0 0 18px", display: "flex", gap: 13, alignItems: "center", padding: "18px", borderRadius: 16, border: "1px solid var(--om-edge)", background: "rgb(var(--om-ai-rgb) / .065)", textDecoration: "none" }}>
+      <ProductIcon kind="strata" size="md" />
+      <span style={{ flex: "1 1 auto" }}><span className="om-label">NEW · PRICE ACTION AI</span><strong style={{ display:"block",fontSize:18,marginTop:3,color:"var(--om-text)" }}>STRATA</strong>
+        <small style={{ display:"block",color:"var(--om-text-2)",marginTop:4 }}>Gold structure, break-and-retest setups, range reversals, and paper automation.</small>
+      </span><ChevronRight aria-hidden="true" />
+    </Link>
     <div className="om-tools-list om-connected-tools" role="group" aria-label="Signal tools">
       {tools.map(({ key, name, line, href, icon: Icon, action, cost }) => <article key={key}>
         <Link href={href} className="om-tool-destination">
