@@ -19,9 +19,9 @@ const px = (n: number | null | undefined, dec: number) =>
     : n.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
 
 /** Shared visual language only. It never computes, confirms or places a trade. */
-export function VisionDirection({ product, bias, tagline, score, scoreName = "ENGINE SCORE",
+export function VisionDirection({ product, bias, headline, tagline, score, scoreName = "ENGINE SCORE",
   quote, quoteLabel, quoteSymbol = "XAU/USD", status, facts, dec = 2, eyebrow, note, children }: {
-  product: string; bias: VisionBias; tagline: string;
+  product: string; bias: VisionBias; tagline: string; headline?: string;
   score?: number | null; scoreName?: string; quote?: number | null; quoteLabel?: string; quoteSymbol?: string;
   status: string; facts: VisionFact[]; dec?: number; eyebrow?: string; note?: string;
   children?: ReactNode;
@@ -43,7 +43,7 @@ export function VisionDirection({ product, bias, tagline, score, scoreName = "EN
       <div className="om-vision-direction" data-bias={bias}>
         <div className="om-vision-heading">
           <Icon className="om-vision-big-arrow" aria-hidden="true" strokeWidth={1.85}/>
-          <div><strong>{TITLES[bias]}</strong><span>{tagline}</span></div>
+          <div><strong>{headline ?? TITLES[bias]}</strong><span>{tagline}</span></div>
         </div>
         <div className="om-vision-quality"><span>{scoreName}</span>
           <strong>{typeof score === "number" && Number.isFinite(score)

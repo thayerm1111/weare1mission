@@ -212,6 +212,10 @@ export function StrataWorkspace() {
       displayedPlan?"Watch confirmation":"Awaiting",
       tone:chosen?.stage==="ready"?"ok":"watch"},
   ];
+  const tacticalWatch = reg === "transition" && !!displayedPlan;
+  const displayedBias = tacticalWatch && displayedPlan ? displayedPlan.side : heroBias;
+  const signalHeadline = tacticalWatch && displayedPlan
+    ? (displayedPlan.side === "buy" ? "BULLISH WATCH" : "BEARISH WATCH") : undefined;
   const referenceLevels = !displayedPlan || displayedPlan.reference ||
     displayedPlan.stage !== "ready" || !!generated && generated.tier !== "ready";
   const accounts = accountData?.accounts ?? [];
@@ -274,17 +278,17 @@ export function StrataWorkspace() {
       </div>
     </header>
 
-    <VisionDirection product="STRATA" bias={heroBias}
+    <VisionDirection product="STRATA" bias={displayedBias} headline={signalHeadline}
       eyebrow="ONE MISSION · GOLD PRICE ACTION INTELLIGENCE"
       status={feed?.marketClosed?"LAST SESSION":tickFresh?"LIVE FEED":"QUOTE DELAYED"}
       quote={quote} quoteLabel={tickFresh?"LIVE TICK":feed?"LAST RECORDED":"AWAITING DATA"}
-      tagline={reg==="uptrend"?"HIGHER HIGHS / HIGHER LOWS":
+      tagline={tacticalWatch?"MIXED STRUCTURE · SPECULATIVE SCENARIO ONLY":reg==="uptrend"?"HIGHER HIGHS / HIGHER LOWS":
         reg==="downtrend"?"LOWER HIGHS / LOWER LOWS":
         reg==="range"?"TRADING BETWEEN SUPPORT AND RESISTANCE":
         "HIGHER TIMEFRAMES NOT ALIGNED"}
       score={displayedPlan?.score ?? null} scoreName="STRUCTURE SCORE"
       facts={facts}
-      note={reg==="transition"?"Market structure is mixed. A conditional scenario can still be mapped without claiming a confirmed trend.":undefined} />
+      note={reg==="transition"?"Tactical directional watch, not a confirmed trend or executable signal. All entry levels require a completed price-action trigger.":undefined} />
     {error && <p className="strata-warning" role="alert"><CircleAlert size={15} aria-hidden="true" />
       {error} {feed ? "Showing the last available analysis." : "No trade levels will be shown."}</p>}
     {!!feed?.dataStale && <p className="strata-warning">Confirmed candles are stale. Entries are disabled until they refresh.</p>}
