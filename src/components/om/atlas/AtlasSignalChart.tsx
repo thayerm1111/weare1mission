@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { SignalFocusChart } from "@/components/om/chart/SignalFocusChart";
+import { VisionChart } from "@/components/om/vision/VisionChart";
 import { atlasGenxChart, atlasPlayChart } from "@/lib/atlas/chart";
 import type { AtlasSignalResult } from "@/lib/atlas/signals";
 import { actionWords } from "@/lib/genx/words";
@@ -24,18 +24,16 @@ export function AtlasSignalChart({ signal }: { signal: AtlasSignalResult }) {
   const annotations = chart.reference && tradeLevels ? ", with unconfirmed reference levels"
     : tradeLevels ? ", with this signal's levels" : chart.levels.length > 0 ? ", with saved market levels" : "";
   return (
-    <section className="om-atlas-signal-chart" aria-label={`${symbol} saved signal chart`} data-reference={chart.reference || undefined}>
-      <header><h4>Chart at generation</h4><span data-no-i18n translate="no">{chart.tfLabel}</span></header>
-      <p className="om-atlas-chart-caption">{caption}</p>
-      {chart.bars.length >= 1 ? (
-        <div className="om-atlas-chart-canvas">
-          <SignalFocusChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={chart.tfMs} tfLabel={chart.tfLabel}
-            price={price} priceLive={false} dec={chart.dec} levels={chart.levels} zone={chart.zone} viewKey={chart.viewKey}
-            direction={direction} reference={chart.reference}
-            snapshot fitLevels label={`${symbol}, saved candles at generation${annotations}`} />
-        </div>
-      ) : <p className="om-atlas-chart-empty" role="status">Candle chart unavailable for this saved read.</p>}
-      {chart.bars.length >= 2 && <p className="om-atlas-chart-caption">Saved snapshot · open Full chart to inspect all saved candles.</p>}
+    <section className="om-atlas-signal-chart om-vision-atlas-chart"
+      aria-label={symbol+" saved signal chart"} data-reference={chart.reference||undefined}>
+      {chart.bars.length>=2 ? <VisionChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={chart.tfMs}
+        timeframe={chart.tfLabel} price={price} priceLive={false} symbol={symbol}
+        dec={chart.dec} levels={chart.levels} zone={chart.zone}
+        direction={direction==="buy"?"buy":direction==="sell"?"sell":"mixed"}
+        reference={chart.reference||!tradeLevels} snapshot viewKey={chart.viewKey}
+        title={symbol+" original saved candles and "+caption}/>
+        : <p className="om-atlas-chart-empty" role="status">Verified candle snapshot unavailable for this saved read.</p>}
     </section>
   );
+
 }
