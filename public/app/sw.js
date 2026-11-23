@@ -1,9 +1,9 @@
-const CACHE = "om-app-v54";
+const CACHE = "om-app-v55";
 const SHELL = ["/app/index.html", "/app/manifest.webmanifest", "/app/icon-192.png", "/app/icon-512.png"];
 // Precache the shell FRESH (bypass the HTTP cache) so a new deploy is captured on install.
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => Promise.all(SHELL.map((u) => fetch(u, { cache: "no-store" }).then((r) => { if (r && r.ok) return c.put(u, r); }).catch(() => {})))).then(() => self.skipWaiting())); });
-// On activate, delete EVERY older cache (any name !== CACHE), then take control.
-self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
+// Retire only this app's previous versions; cache storage is shared by all apps on the origin.
+self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => /^om-app-v\d+$/.test(k) && k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
