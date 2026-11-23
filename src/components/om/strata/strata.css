@@ -246,3 +246,71 @@
  .strata-regime[data-actual="true"] em i{display:none}
 }
 @media(prefers-reduced-motion:reduce){.strata-regime[data-actual="true"] em i{animation:none!important}.strata-generate-button{transition:none!important}}
+
+
+/* VISION SUITE v2 · the signed-off chart-led STRATA design */
+.strata-workstation{background:#0d0d13!important;border-radius:19px;padding:18px!important;--st-text:#f5f2fb;--st-muted:#b4adbf;--st-edge:rgba(190,174,226,.18);
+  --st-accent:#b7a0f8;--st-teal:#65e3be;--om-page:#111218;--om-text:#f5f2fb;--om-text-2:#c0b9cb;--om-text-3:#a79eb7;--om-edge:rgba(190,174,226,.17);
+  color:#f5f2fb;box-shadow:0 22px 60px rgba(0,0,0,.08)}
+.strata-workstation .strata-header{margin:0 0 14px;align-items:center}
+.strata-workstation .strata-ident h1{font-weight:690;letter-spacing:-.055em}
+.strata-workstation .strata-ident p{margin-top:3px;color:#b9b4bf}
+.strata-workstation .strata-header .strata-live-state{background:rgba(101,227,190,.07)}
+.strata-workstation .strata-header .strata-ident .strata-emblem{
+  border-color:rgba(173,141,244,.42);background:linear-gradient(145deg,rgba(132,85,236,.2),transparent 75%)}
+.strata-workstation .strata-setup.strata-vision-setup{padding:15px;background:transparent;border:0;box-shadow:none;overflow:visible;margin:14px 0 0}
+.strata-workstation .strata-setup.strata-vision-setup::before{display:none}
+.strata-vision-setup-top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin:0 0 11px}
+.strata-vision-setup-top h2{margin:6px 0 8px;font-size:clamp(19px,2.4vw,25px);font-weight:640;letter-spacing:-.04em;color:#f3f0f9;line-height:1.22}
+.strata-vision-setup-state{display:inline-flex;font-size:9px;letter-spacing:.095em;color:#d1bcff;
+  background:rgba(177,151,242,.1);border:1px solid rgba(177,151,242,.3);border-radius:100px;padding:5px 8px}
+.strata-vision-setup-state[data-side="buy"]{color:#77ddbf;border-color:rgba(101,227,190,.28);background:rgba(101,227,190,.065)}
+.strata-vision-setup-state[data-side="sell"]{color:#eb95a2;border-color:rgba(241,135,152,.27);background:rgba(241,135,152,.055)}
+.strata-vision-rr{color:#ebe9f2;font-size:12px;border:1px solid rgba(181,158,234,.25);padding:9px;border-radius:10px;white-space:nowrap}
+.strata-workstation .strata-vision-generate{width:100%;margin-top:13px;min-height:54px;font-size:13px!important;
+  border-radius:14px;color:#ffffff!important;background:linear-gradient(120deg,#6b48bd,#b283ec)!important;
+  border:1px solid rgba(203,159,255,.67)!important;box-shadow:0 6px 28px rgba(127,74,219,.2)}
+.strata-vision-setup-caption{margin:10px 0 0;font-size:10px;line-height:1.55;color:#b8b0c6}
+.strata-vision-result-note{margin:10px 0 0;color:#a99fba;font-size:10px}
+.strata-workstation .strata-generated-result{background:#1a1825;border-color:rgba(183,161,233,.25)}
+.strata-workstation .strata-generated-result strong{color:#d0bdfc}
+.strata-workstation .strata-chart.strata-chart-vision{border:none!important;background:transparent!important;margin:12px 0 0;
+  padding:0;box-shadow:none;overflow:visible}
+.strata-vision-tf{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;
+  margin:0 0 10px;color:#bcb2ce;font-size:10px;letter-spacing:.12em;font-weight:650}
+.strata-vision-tf .strata-timeframe{margin:0;border-color:rgba(185,159,238,.29);background:#191720}
+.strata-vision-tf .strata-timeframe button{color:#b3acc0}
+.strata-vision-tf .strata-timeframe button[aria-pressed="true"]{color:#fff;background:rgba(148,107,236,.28)}
+.strata-workstation .strata-vision-setup .om-vision-ticket{margin-top:12px}
+.strata-vision-deep{margin:10px 14px 0;border:1px solid rgba(186,162,229,.16);border-radius:15px;background:#13131b;overflow:hidden}
+.strata-vision-deep>summary{display:flex;align-items:center;justify-content:space-between;gap:13px;list-style:none;
+  cursor:pointer;color:#ccc1da;font-size:12px;font-weight:600;min-height:53px;padding:11px 16px}
+.strata-vision-deep>summary::-webkit-details-marker{display:none}
+.strata-vision-deep>summary svg{flex:0 0 auto;transition:transform .17s}
+.strata-vision-deep[open]>summary svg{transform:rotate(180deg)}
+.strata-vision-deep .strata-detail-grid{margin:0 12px 14px}
+.strata-vision-deep .strata-card{background:#17171f;border-color:rgba(185,173,225,.2)}
+.strata-vision-deep .strata-automation{margin:0 12px 12px}
+.strata-vision-deep .strata-paper-row,.strata-vision-deep .strata-automation-columns>div{background:#171720}
+.strata-vision-deep .strata-risk-controls select,.strata-vision-deep .strata-automation-connection select{background:#14151c;color:#f5f2fb}
+.strata-workstation .strata-reason-line p,.strata-workstation .strata-step p{color:#beb6ca}
+.strata-workstation .strata-footer{padding:0 14px;margin-top:14px}
+.strata-workstation .strata-footer button{border-color:rgba(181,159,232,.24);background:#17151d;color:#d6c5fb}
+.strata-workstation .strata-warnings,.strata-workstation .strata-warning{margin:10px 0}
+@media(max-width:760px){
+ .strata-workstation{padding:10px 8px 60px!important;border-radius:0}
+ .strata-workstation .strata-header{padding:9px 8px 0;margin-bottom:12px}
+ .strata-workstation .strata-ident h1{font-size:30px}
+ .strata-workstation .strata-ident p{font-size:10px}
+ .strata-workstation .strata-setup.strata-vision-setup{padding:0 2px;margin:13px 0 0}
+ .strata-vision-setup-top{margin:0 6px 10px}
+ .strata-vision-setup-top h2{font-size:21px}
+ .strata-vision-setup-top .strata-vision-rr{font-size:11px}
+ .strata-vision-tf{padding:0 5px}
+ .strata-workstation .strata-vision-generate{margin-top:12px}
+ .strata-vision-deep{margin:10px 3px 0}
+ .strata-vision-deep>summary{font-size:11px;padding:11px 12px}
+ .strata-vision-deep .strata-detail-grid{margin:0 8px 9px}
+ .strata-vision-deep .strata-automation{margin:0 8px 9px}
+ .strata-workstation .strata-footer{padding:0 6px}
+}
