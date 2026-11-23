@@ -47,7 +47,7 @@ test("Projection requires actual coherent entry, stop and target levels",()=>{
 test("STRATA always provides conditional research when defensible without arming FLOW",()=>{
   assert.match(strata,/generatePossibleEntry/);
   assert.match(strata,/liveIdea/);
-  assert.match(strata,/TACTICAL SCENARIO · STRUCTURE STILL MIXED/);
+  assert.match(strata,/MIXED STRUCTURE · SPECULATIVE SCENARIO ONLY/);
   assert.match(strata,/GENERATE BEST OPPORTUNITY/);
   assert.match(strata,/<VisionLevels/);
   assert.match(strata,/strata-vision-deep/);
