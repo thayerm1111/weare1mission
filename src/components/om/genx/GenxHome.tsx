@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, ChevronDown, Loader2, Pin, X } from "lucide-react";
 import { OmChart } from "@/components/om/chart/OmChart";
-import { SignalFocusChart } from "@/components/om/chart/SignalFocusChart";
+import { VisionDirection, VisionLevels, type VisionFact } from "@/components/om/vision/VisionDirection";
+import { VisionChart } from "@/components/om/vision/VisionChart";
 import { genxChartView } from "@/lib/genx/chartView";
 import { GenxCard } from "@/components/om/floor/Floor";
 import { buildSteps } from "@/components/portal/floor/GenxFlow";
@@ -197,6 +198,31 @@ export function GenxHome(p: GenxHomeProps) {
       : liveAt ? `Gold now · updated ${ageText(liveAt, now)}` : liveFailed ? "Gold's price could not be read just now" : "";
   // The generated read remains a snapshot even if the free market data or horizon selector changes.
   const chartKey = chart.snapshot ? `XAUUSD:read:${readIso ?? "undated"}:${tf.interval}:${subject}` : `XAUUSD:${mode}`;
+  const sharedRead = live?.g && typeof live.g === "object" ? live.g as Partial<GenxRead> : null;
+  const seen = read ?? sharedRead;
+  const biasWords = String(seen?.directional_bias ?? read?.market_regime ?? "");
+  const visionBias = /bull|buy|long/i.test(biasWords) ? "buy" as const :
+    /bear|sell|short/i.test(biasWords) ? "sell" as const :
+    /range|sideway/i.test(biasWords) ? "range" as const : "mixed" as const;
+  const directionTone = (value:unknown):VisionFact["tone"] => {
+    const w=String(value??"");
+    return /bull|rising|buy|higher|upward|uptrend/i.test(w)?"up"
+      : /bear|falling|sell|lower|downward|downtrend/i.test(w)?"down"
+      : /range|sideway|flat/i.test(w)?"neutral":"watch";
+  };
+  const visionFacts:VisionFact[] = [
+    {label:"STRUCTURE",value:String(seen?.market_structure??"Awaiting"),tone:directionTone(seen?.market_structure)},
+    {label:"MOMENTUM",value:String(seen?.momentum??"Awaiting"),tone:directionTone(seen?.momentum)},
+    {label:"VOLATILITY",value:String(seen?.volatility??"Awaiting"),tone:"watch"},
+    {label:"BUYERS / SELLERS",
+      value:fin(seen?.buyer_control)&&fin(seen?.seller_control) ?
+        Math.round(seen.buyer_control)+"% / "+Math.round(seen.seller_control)+"%" : "Not measured",
+      tone:fin(seen?.buyer_control)&&fin(seen?.seller_control)?
+        seen.buyer_control>seen.seller_control?"up":seen.buyer_control<seen.seller_control?"down":"neutral":"watch"},
+    {label:"TRIGGER",value:read?subject==="scalp"&&read.scalp?"Scalp review":
+      action?.waiting?"Awaiting entry":"Review setup":"Not yet requested",tone:read&&!action?.waiting?"ok":"watch"},
+  ];
+
 
   return (
     <div className="om-ws om-genx om-os-product om-tool-mobile">
@@ -221,6 +247,14 @@ export function GenxHome(p: GenxHomeProps) {
         </div>
       </header>
 
+      <VisionDirection product="GENX" bias={visionBias}
+        eyebrow="ONE MISSION · GOLD SIGNAL ENGINE" status={saved?"SAVED READ":shut?"MARKET CLOSED":read?"SIGNAL ANALYSIS":"LIVE MARKET CONTEXT"}
+        quote={price} quoteLabel={chart.snapshot?"AT GENERATION":shut?"LAST PRICE":"MARKET READ"}
+        score={fin(seen?.confidence_score)?seen.confidence_score:null}
+        scoreName="ENGINE SCORE"
+        tagline={read&&action?.waiting?"DIRECTIONAL LEAN · ENTRY NOT CONFIRMED":
+          read?"GENX SIGNAL · REVIEW TRADE LEVELS":"WATCHING GOLD · RUN GENX TO ANALYZE"}
+        facts={visionFacts} note={read&&action?.waiting?"A directional bias is not an order. The engine's trigger must still confirm.":undefined}/>
       {p.err && <p className="om-flow-err" role="alert">{p.err}</p>}
 
       {saved && (
@@ -232,41 +266,27 @@ export function GenxHome(p: GenxHomeProps) {
 
       <div className="om-genx-grid" style={read ? { gridTemplateColumns: "minmax(0, 1fr)" } : undefined}>
         <section className="om-panel om-genx-chart" aria-label="Gold">
-          <div className="om-genx-mobile-read">
-            <span className="om-tool-status">{saved ? "Saved read" : chart.snapshot ? "At generation" : shut ? "Market closed" : liveAt ? `Updated ${ageText(liveAt, now)}` : "Reading gold"}</span>
-            <h2>{read ? subject === "scalp" && read.scalp ? `${read.scalp.side === "sell" ? "Sell" : "Buy"} scalp` : actionWords(read.action).label : shut ? "Gold is closed." : liveView.stage ? STAGE_LABEL[liveView.stage] : liveFailed ? "Read unavailable." : "Reading gold…"}</h2>
-          </div>
-          <div className="om-genx-top">
-            <div className="om-quote" data-no-i18n translate="no">
-              <span className="om-sym">XAU / USD</span>
-              <span className="om-px om-num">{price != null ? px(price) : "—"}</span>
-              <span className="om-fresh om-faint">{fresh}</span>
-            </div>
-            {read?.scalp && (
-              <div className="om-seg om-genx-subject" role="group" aria-label="Setup shown">
-                <button type="button" aria-pressed={subject === "main"} onClick={() => setSubject("main")}>Main setup</button>
-                <button type="button" aria-pressed={subject === "scalp"} onClick={() => setSubject("scalp")}>Right-now scalp</button>
-              </div>
-            )}
-          </div>
-          {read && <ReadLevels g={read} subject={subject} saved={!!saved} />}
-          <div className="om-genx-plot" style={read ? { height: "auto" } : undefined}>
-            {read ? chart.bars.length >= 1
-              ? <SignalFocusChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={tf.ms} tfLabel={tf.label} price={price}
-                  priceLive={false} snapshot={chart.snapshot} fitLevels dec={2} direction={chartSide} reference={chartReference}
-                  levels={marks.levels} zone={marks.zone} viewKey={chartKey}
-                  label={`Gold, ${tf.label} candles, snapshot at generation${price != null ? `, ${px(price)}` : ""}`} />
-              : <p className="om-play-note" role="status">{chart.source === "missing_saved"
-                  ? "Original candle chart unavailable — the candles were not stored with this saved read."
-                  : "Original candle chart unavailable — this read has no usable candle snapshot."}</p>
-            : chart.bars.length >= 2
-              ? <OmChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={tf.ms} tfLabel={tf.label} price={price}
-                  priceLive={!chart.snapshot && !shut && Number.isFinite(liveAtMs) && now - liveAtMs < 120_000} snapshot={chart.snapshot} fitLevels={chart.snapshot} dec={2}
-                  levels={marks.levels} zone={marks.zone} isOpenAt={goldOpen} viewKey={chartKey}
-                  label={`Gold, ${tf.label} candles${chart.snapshot ? ", saved snapshot at generation" : `, ${horizon.label.toLowerCase()} horizon`}${price != null ? `, ${px(price)}` : ""}`} />
-              : <p className="om-empty">{liveFailed ? "Gold's candles could not be read just now. This tries again on its own." : "Reading gold…"}</p>}
-          </div>
-          {read && subject === "main" && <MobileSection title="Projected path"><Steps g={read} price={price} older /></MobileSection>}
+          {read?.scalp && <div className="om-seg om-genx-subject om-vision-genx-subject" role="group" aria-label="Setup shown">
+            <button type="button" aria-pressed={subject==="main"} onClick={()=>setSubject("main")}>Main setup</button>
+            <button type="button" aria-pressed={subject==="scalp"} onClick={()=>setSubject("scalp")}>Right-now scalp</button>
+          </div>}
+          {chart.bars.length >= 2 ? <VisionChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={tf.ms}
+            timeframe={tf.label} dec={2} symbol="XAU/USD" price={price}
+            priceLive={!chart.snapshot&&!shut&&Number.isFinite(liveAtMs)&&now-liveAtMs<120_000}
+            snapshot={chart.snapshot} levels={marks.levels} zone={marks.zone}
+            direction={chartSide==="buy"?"buy":chartSide==="sell"?"sell":visionBias}
+            reference={!read || chartReference} viewKey={chartKey}
+            title="GENX gold candle chart and conditional trade levels"/> :
+            <p className="om-empty">Verified candle snapshot unavailable for this read.</p>}
+          {read && <VisionLevels entry={subject==="scalp"&&read.scalp?read.scalp.entry:read.entry}
+            stop={subject==="scalp"&&read.scalp?read.scalp.stop:read.stop_loss}
+            targets={subject==="scalp"&&read.scalp?[read.scalp.target]:[read.tp1,read.tp2,read.tp3]}
+            symbol="XAUUSD" rr={subject==="scalp"&&read.scalp?read.scalp.rr:null}
+            reference={chartReference||!!saved&&shut}/>}
+          {read && subject==="main" && <details className="om-vision-genx-steps">
+            <summary>Projected sequence · triggers and invalidation</summary>
+            <Steps g={read} price={price} older/>
+          </details>}
         </section>
 
         <aside className="om-panel om-genx-panel" aria-label="What GENX is doing">
