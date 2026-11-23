@@ -195,7 +195,10 @@ function rangeFade(bars:Bar[],side:Direction,atr:number,high:number,low:number,q
   });
 }
 export function analyzePriceAction(data:Input):Analysis|null {
-  const m5=validBars(data.m5),m15=validBars(data.m15),h1=validBars(data.h1),h4=validBars(data.h4);
+  const m5=completedBars(data.m5,300_000,data.now);
+  const m15=completedBars(data.m15,900_000,data.now);
+  const h1=completedBars(data.h1,3_600_000,data.now);
+  const h4=completedBars(data.h4,14_400_000,data.now);
   if(m5.length<30||m15.length<80||h1.length<50||h4.length<25)return null;
   const atr=atrOf(m15),h1atr=atrOf(h1);
   if(atr<=0||h1atr<=0)return null;

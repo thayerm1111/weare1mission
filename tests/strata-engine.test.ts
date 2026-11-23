@@ -41,7 +41,7 @@ test("range read is based on repeated edges, not a forced bullish or bearish tre
   const h1=make(125,3_600_000,1.7,11);
   const h4=make(85,14_400_000,1.5,16);
   const actual = analyzePriceAction({
-    m5,m15,h1,h4,now:base+191*900_000,open:true,
+    m5,m15,h1,h4,now:base+86*14_400_000,open:true,
   });
   assert.ok(actual);
   assert.ok(["range","transition"].includes(actual.regime));
