@@ -7,6 +7,7 @@ import { Activity, ArrowRight, Check, ChevronDown, CircleAlert, Fingerprint, Lin
 import { openAtlas } from "@/lib/atlas/open";
 import { StrataChart } from "./StrataChart";
 import type { Analysis, Bar, Regime, Scenario } from "@/lib/strata/engine";
+import type { GeneratedOpportunity } from "@/lib/strata/generate";
 import "./strata.css";
 
 type Feed = {
@@ -67,6 +68,10 @@ export function StrataWorkspace() {
   const [now, setNow] = useState(0);
   const [tick, setTick] = useState<{ price: number; receivedAt: string } | null>(null);
   const [modeGuide, setModeGuide] = useState<Regime | null>(null);
+  const [generated, setGenerated] = useState<GeneratedOpportunity | null>(null);
+  const [generatedSnapshot, setGeneratedSnapshot] = useState<Feed | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState("");
   const [alternative, setAlternative] = useState(false);
   const [accountData, setAccountData] = useState<Automation | null>(null);
   const [accountKey, setAccountKey] = useState("");
@@ -130,16 +135,50 @@ export function StrataWorkspace() {
     return () => { active = false; clearInterval(id); };
   }, []);
 
+  const generateEntry = async () => {
+    if (generating) return;
+    setGenerating(true);
+    setGenerateError("");
+    try {
+      const response = await fetch("/api/strata/generate", { method: "POST", cache: "no-store" });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok || !payload?.idea || !payload?.state)
+        throw new Error(payload?.detail ?? "A verified entry scenario is not available right now.");
+      // The scenario and the chart are a single immutable analysis snapshot.
+      // A newer live quote can never silently rewrite an earlier generated plan.
+      setGenerated(payload.idea as GeneratedOpportunity);
+      setGeneratedSnapshot(payload.state as Feed);
+      setFeed(payload.state as Feed);
+      setAlternative(false);
+      setError("");
+      window.requestAnimationFrame(() => document.getElementById("strata-opportunity")?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "start",
+      }));
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : "Unable to generate a verified setup.");
+    } finally { setGenerating(false); }
+  };
+
   const analysis = feed?.analysis ?? null;
   const open = !feed?.marketClosed;
   const tickFresh = !!tick && open && now - Date.parse(tick.receivedAt) >= -3000 &&
     now - Date.parse(tick.receivedAt) <= 6000;
   const quote = tickFresh ? tick!.price : num(feed?.price);
   const chosen = alternative && analysis?.secondary ? analysis.secondary : analysis?.primary ?? null;
+  const displayedPlan = generated ? generated.scenario : chosen;
+  const displayFeed = generated && generatedSnapshot ? generatedSnapshot : feed;
+  const displayAnalysis = displayFeed?.analysis ?? analysis;
+  const displayedReasons = generated ? generated.reasons : analysis?.reasons ??
+    ["Waiting for a confirmed market structure."];
   const stage = analysis?.status ?? "NO_SETUP";
   const planReady = !!analysis && !feed?.marketClosed && !feed?.dataStale &&
-    chosen?.stage === "ready";
+    chosen?.stage === "ready" && !generated;
   const reg = analysis?.regime ?? "transition";
+  const detectedRegime = analysis && !feed?.dataStale && !error && reg !== "transition"
+    ? reg : null;
+  const generatedOutdated = !!generated && now > 0 &&
+    (now - generated.generatedAt > 20 * 60_000 || (analysis?.asOf ?? 0) > generated.asOf);
   const accounts = accountData?.accounts ?? [];
   const selectedAccount = accounts.find((a) => a.connectionId + ":" + a.accountId === accountKey) ??
     accounts.find((a) => a.selected) ?? accounts[0] ?? null;
@@ -155,7 +194,7 @@ export function StrataWorkspace() {
   const paper = accountData?.paper?.filter((p) =>
     p.connection_id === selectedAccount?.connectionId && p.account_id === selectedAccount?.accountId) ?? [];
   const activePaper = paper.find((p) => p.status === "open");
-  const completed = chosen?.checks.filter((c) => c.done).length ?? 0;
+  const completed = displayedPlan?.checks.filter((c) => c.done).length ?? 0;
   const togglePaper = async (next: "off" | "paper") => {
     if (!selectedAccount || settingBusy) return;
     setSettingBusy(true); setAccountError("");
@@ -177,12 +216,14 @@ export function StrataWorkspace() {
       "STRATA current gold regime: " + analysis.regimeLabel,
       "Current stage: " + analysis.status,
       "Key range " + fixed(analysis.range.low) + "–" + fixed(analysis.range.high),
-      chosen ? chosen.title + "; " + chosen.trigger + " Invalidation: " + chosen.invalidation : "No trade is qualified",
+      displayedPlan ? (generated ? "Generated " + generated.label + ", not a confirmed trade. " : "") +
+        displayedPlan.title + "; " + displayedPlan.trigger + " Invalidation: " + displayedPlan.invalidation
+        : "No trade is qualified",
     ].join(". ") : "Explain how to analyze the gold price action";
     openAtlas({ question: "Explain this price action map in simple terms. " + detail,
       context: { source: "floor", label: "STRATA · gold price action", data: {
         symbol: "XAUUSD", price: quote, stage, asOf: feed?.asOf ?? null,
-        ...(chosen ? { direction: chosen.side, entry: chosen.entry, stop: chosen.stop, targets: chosen.targets } : {}),
+        ...(displayedPlan ? { direction: displayedPlan.side, entry: displayedPlan.entry, stop: displayedPlan.stop, targets: displayedPlan.targets } : {}),
       } } });
   };
   return <div className="strata-workstation" data-regime={reg}>
@@ -198,15 +239,26 @@ export function StrataWorkspace() {
       </div>
     </header>
 
+    <div className="strata-regime-heading">
+      <span className="strata-kicker">LIVE MARKET REGIME · 1H + 4H STRUCTURE</span>
+      <span className="strata-regime-read">{analysis
+        ? feed?.dataStale ? "DATA STALE" : analysis.regimeLabel.toUpperCase()
+        : "AWAITING ANALYSIS"}</span>
+    </div>
     <section className="strata-regimes" aria-label="Three price-action regimes">
       {CASES.map((p) => <button type="button" className="strata-regime" key={p.key}
-        aria-pressed={reg === p.key} data-actual={reg === p.key}
+        aria-expanded={modeGuide === p.key}
+        aria-current={detectedRegime === p.key ? "true" : undefined}
+        data-actual={detectedRegime === p.key}
+        data-guide={modeGuide === p.key}
+        data-session={feed?.marketClosed ? "closed" : "open"}
         onClick={() => setModeGuide(modeGuide === p.key ? null : p.key)}>
         <p.icon size={20} aria-hidden="true" /><span><strong>{p.title}</strong><small>{p.subtitle}</small></span>
-        {reg === p.key && <em>Current</em>}</button>)}
+        {detectedRegime === p.key && <em><i />{feed?.marketClosed ? "LAST SESSION" :
+          p.key === "range" ? "CURRENT RANGE" : "LIVE TREND"}</em>}</button>)}
     </section>
     {reg === "transition" && <p className="strata-transition"><CircleAlert size={15} aria-hidden="true" />
-      Market structure is mixed. STRATA will not force a buy or sell bias.</p>}
+      Mixed structure · no confirmed trend. Generate can still map a speculative watchlist idea.</p>}
     {modeGuide && <div className="strata-playbook">
       <strong>{CASES.find((p) => p.key === modeGuide)?.title} playbook</strong>
       <p>{CASES.find((p) => p.key === modeGuide)?.detail}</p>
@@ -239,48 +291,84 @@ export function StrataWorkspace() {
     {!!analysis?.warnings.length && <div className="strata-warnings">
       {analysis.warnings.map((w) => <p key={w}><CircleAlert size={14} aria-hidden="true"/>{w}</p>)}</div>}
 
-    <section className="strata-setup">
-      <div className="strata-setup-head">
-        <div><span className="strata-kicker">OPPORTUNITY RADAR</span>
-          <h2>{chosen ? chosen.title : "No qualified trade structure"}</h2>
-          <p>{chosen ? chosen.trigger : "STRATA is waiting for a confirmed trend or repeatable range."}</p></div>
-        {chosen && <span className="strata-setup-side" data-side={chosen.side}>{chosen.side.toUpperCase()} · {chosen.stage.toUpperCase()}</span>}
+    <section className="strata-generate" aria-label="Generate possible gold trade entry">
+      <div className="strata-generate-copy">
+        <span className="strata-kicker"><Sparkles size={14} aria-hidden="true" /> ON-DEMAND OPPORTUNITY SCAN</span>
+        <h2>Find the best possible entry.</h2>
+        <p>Search the current gold structure for a break-and-retest or range reversal.
+          Even a mixed market can return a conditional plan—never an invented confirmed signal.</p>
       </div>
-      {!!analysis?.secondary && <div className="strata-scenario-switch" role="group" aria-label="Range scenarios">
+      <button className="strata-generate-button" type="button" disabled={generating || !feed}
+        onClick={() => void generateEntry()} aria-busy={generating}>
+        <Sparkles size={18} aria-hidden="true" />
+        {generating ? "Analyzing price action…" : generated ? "Regenerate Entry" : "Generate Possible Entry"}
+        <ArrowRight size={17} aria-hidden="true" />
+      </button>
+    </section>
+    {generateError && <p className="strata-warning" role="alert"><CircleAlert size={15} aria-hidden="true" />
+      {generateError}</p>}
+    <section id="strata-opportunity" className="strata-setup" data-generated={!!generated}
+      data-idea-tier={generated?.tier ?? "default"}>
+      {generated && <div className="strata-generated-result" data-tier={generated.tier} role="status">
+        <div><span className="strata-kicker">ON-DEMAND RESULT · {age(generated.generatedAt, now)}</span>
+          <strong>{generated.label}</strong>
+          <small>{generated.tier === "ready" ? "Confirmed standard STRATA setup at generation time." :
+            "Reference scenario only · confirmation required · not sent to FLOW"}</small>
+          {generatedOutdated && <small className="strata-generated-old">Earlier snapshot. Market conditions have changed—regenerate for a current plan.</small>}
+        </div>
+        <button type="button" onClick={() => { setGenerated(null); setGeneratedSnapshot(null); setGenerateError(""); }}>
+          Back to live read</button>
+      </div>}
+      <div className="strata-setup-head">
+        <div><span className="strata-kicker">{generated ? "GENERATED PRICE-ACTION PLAN" : "OPPORTUNITY RADAR"}</span>
+          <h2>{displayedPlan ? displayedPlan.title : generated ? generated.label : "No qualified trade structure"}</h2>
+          <p>{displayedPlan ? displayedPlan.trigger :
+            generated ? generated.reasons[0] : "STRATA is waiting for a confirmed trend or repeatable range."}</p></div>
+        {displayedPlan && <span className="strata-setup-side" data-side={displayedPlan.side}>
+          {displayedPlan.side.toUpperCase()} · {generated ? generated.tier.toUpperCase() : displayedPlan.stage.toUpperCase()}</span>}
+      </div>
+      {!generated && !!analysis?.secondary && <div className="strata-scenario-switch" role="group" aria-label="Range scenarios">
         <button type="button" aria-pressed={!alternative} onClick={() => setAlternative(false)}>Nearest range edge</button>
         <button type="button" aria-pressed={alternative} onClick={() => setAlternative(true)}>Opposite range edge</button>
       </div>}
-      {chosen && <p className="strata-score">Setup quality <strong>{chosen.score}/100</strong>
-        <span>Rule-completion score, not a calibrated win probability.</span></p>}
-      <PlanLevels plan={chosen} />
-      <p className="strata-levels-note">{chosen?.stage === "ready" && !feed?.dataStale && !feed?.marketClosed
-        ? "Completed trigger detected · execution still requires risk review."
-        : "Reference / watch levels only. No automatic entry is authorized."}</p>
-      {feed && <StrataChart analysis={feed.analysis} bars={feed.bars} price={quote ?? feed.price}
-        live={tickFresh} selected={chosen} />}
+      {displayedPlan && <p className="strata-score">Structure score
+        <strong>{displayedPlan.score}/100</strong>
+        <span>Heuristic structure score, never a probability of winning.</span></p>}
+      <PlanLevels plan={displayedPlan} />
+      <p className="strata-levels-note">{generated
+        ? "Generated price levels are a conditional research snapshot. No automatic entry or broker order is authorized."
+        : displayedPlan?.stage === "ready" && !feed?.dataStale && !feed?.marketClosed
+          ? "Completed trigger detected · execution still requires risk review."
+          : "Reference / watch levels only. No automatic entry is authorized."}</p>
+      {displayFeed && <StrataChart analysis={displayFeed.analysis} bars={displayFeed.bars}
+        price={generated ? generated.quoteAtGeneration ?? displayFeed.price : quote ?? displayFeed.price}
+        live={!generated && tickFresh} selected={displayedPlan} snapshot={!!generated} />}
       {!feed && <div className="strata-loading-chart">{busy ? "Loading verified gold candles…" : "Chart unavailable · market feed did not respond."}</div>}
     </section>
 
     <div className="strata-detail-grid">
       <section className="strata-card strata-reasoning" aria-label="Price-action reasoning">
-        <header><span className="strata-kicker">THE READ</span><h2>Why this structure matters</h2></header>
-        {(analysis?.reasons ?? ["Waiting for a confirmed market structure."]).map((line, i) =>
+        <header><span className="strata-kicker">{generated ? "GENERATED REASONING" : "THE READ"}</span>
+          <h2>{generated ? "Why this idea was selected" : "Why this structure matters"}</h2></header>
+        {displayedReasons.map((line, i) =>
           <div className="strata-reason-line" key={i}><span>0{i+1}</span><p>{line}</p></div>)}
-        {analysis && <div className="strata-higher-context">
-          <span>1H STRUCTURE <b>{analysis.structure}</b></span>
-          <span>15M MOMENTUM <b>{analysis.momentum}</b></span>
-          <span>15M ATR <b>{fixed(analysis.atr)}</b></span>
-          <span>REGIME EFFICIENCY <b>{Math.round(analysis.efficiency*100)}%</b></span>
+        {generated && <p className="strata-generated-conditions"><strong>Still required:</strong>
+          {generated.confirmationNeeded.slice(0, 3).map((item, i) => <span key={i}>{item}</span>)}</p>}
+        {displayAnalysis && <div className="strata-higher-context">
+          <span>1H STRUCTURE <b>{displayAnalysis.structure}</b></span>
+          <span>15M MOMENTUM <b>{displayAnalysis.momentum}</b></span>
+          <span>15M ATR <b>{fixed(displayAnalysis.atr)}</b></span>
+          <span>REGIME EFFICIENCY <b>{Math.round(displayAnalysis.efficiency*100)}%</b></span>
         </div>}
       </section>
       <section className="strata-card strata-checks" aria-label="Trade trigger checklist">
         <header><span className="strata-kicker">TRADE PLAYBOOK</span><h2>What needs to happen</h2></header>
-        {chosen?.checks.map((step, i) => <div key={i} className="strata-step" data-complete={step.done}>
+        {displayedPlan?.checks.map((step, i) => <div key={i} className="strata-step" data-complete={step.done}>
           <span className="strata-step-icon">{step.done ? <Check size={15} /> : String(i+1).padStart(2,"0")}</span>
           <div><strong>{step.label}</strong><p>{step.detail}</p></div></div>)
           ?? <p className="strata-plain">Wait for structure confirmation. No setup is being forced.</p>}
         <div className="strata-invalidation"><CircleAlert size={16} aria-hidden="true" />
-          <span><b>Invalidation</b>{chosen?.invalidation ?? "A directional trade is not qualified."}</span></div>
+          <span><b>Invalidation</b>{displayedPlan?.invalidation ?? "A directional trade is not qualified."}</span></div>
       </section>
     </div>
 

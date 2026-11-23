@@ -21,8 +21,8 @@ const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2,
 
 /** An annotated structure map. Five actual candles and the conditional path are
  *  intentionally separate scales, with the full OHLC history one tap away. */
-export function StrataChart({ analysis, bars, price, live, selected }: {
-  analysis: Analysis; bars: Series; price: number; live: boolean; selected: Scenario | null;
+export function StrataChart({ analysis, bars, price, live, selected, snapshot = false }: {
+  analysis: Analysis; bars: Series; price: number; live: boolean; selected: Scenario | null; snapshot?: boolean;
 }) {
   const [frame, setFrame] = useState<Horizon>("m15");
   const [full, setFull] = useState(false);
@@ -50,7 +50,7 @@ export function StrataChart({ analysis, bars, price, live, selected }: {
   return (
     <section className="strata-chart" aria-label="Gold price-action structure chart">
       <header className="strata-chart-head">
-        <div><span className="strata-kicker">PRICE ACTION MAP</span>
+        <div><span className="strata-kicker">{snapshot ? "GENERATED SCENARIO · RECORDED SNAPSHOT" : "PRICE ACTION MAP"}</span>
           <h2>Gold market structure <small>XAU/USD</small></h2>
         </div>
         <div className="strata-timeframe" role="group" aria-label="Chart timeframe">
@@ -65,7 +65,7 @@ export function StrataChart({ analysis, bars, price, live, selected }: {
       </div>
       {!full && validFocus
         ? <SignalFocusChart bars={bars.m15} timeKnown tfMs={900000} tfLabel="15m"
-            dec={2} price={price} priceLive={live} levels={chartLevels}
+            dec={2} price={price} priceLive={live} snapshot={snapshot} levels={chartLevels}
             zone={selected ? { low: selected.zone.low, high: selected.zone.high } : null}
             direction={direction} reference={selected?.stage !== "ready"}
             isOpenAt={goldOpen} viewKey={"strata:focus:" + (selected?.id ?? "none")}
@@ -73,14 +73,14 @@ export function StrataChart({ analysis, bars, price, live, selected }: {
         : <div className="strata-chart-canvas" data-no-i18n translate="no">
             {series.length >= 2 ?
               <OmChart bars={series} timeKnown tfMs={tf.ms} tfLabel={tf.title}
-                dec={2} price={price} priceLive={live} levels={chartLevels}
+                dec={2} price={price} priceLive={live} snapshot={snapshot} levels={chartLevels}
                 zone={selected ? { low: selected.zone.low, high: selected.zone.high } : null}
                 isOpenAt={goldOpen} viewKey={"strata:full:" + frame} label={"Gold " + tf.title + " recorded candles with structure zones"} />
               : <p>Recorded candles are temporarily unavailable for {tf.title}.</p>}
           </div>}
       <footer className="strata-chart-foot">
         <span><ZoomIn size={14} aria-hidden="true" />
-          {full ? "Drag · pinch · scroll to inspect actual candles" : "Latest five enlarged candles · projected price scenario, not predicted time"}</span>
+          {snapshot ? "Frozen setup snapshot · real recorded candles, not live execution" : full ? "Drag · pinch · scroll to inspect actual candles" : "Latest five enlarged candles · projected price scenario, not predicted time"}</span>
         <button type="button" onClick={() => setFull((value) => !value)}><Maximize2 size={14} aria-hidden="true" />
           {full ? "Focused view" : "Full chart"}</button>
       </footer>
