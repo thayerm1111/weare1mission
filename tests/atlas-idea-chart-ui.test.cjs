@@ -125,6 +125,25 @@ test('native Atlas keeps price and levels above saved candles, then its full typ
   assert.deepEqual(h.requests.filter((request) => request.method === 'POST').map((request) => request.body.action), ['generate']);
 });
 
+test('native Atlas fullscreen host sits outside the transformed card and sibling-spacing wrapper', async () => {
+  const h = harness(fixture());
+  await h.generate();
+  const tree = h.render();
+  const hosts = h.find((node) => node.props['data-om-chart-host'] !== undefined);
+  assert.equal(hosts.length, 1);
+  assert.equal(hosts[0], tree, 'fullscreen is appended at the component root, not within the animated card');
+  assert.equal(tree.props.className, 'cc-idea-chart-host');
+  const spacedContent = tree.props.children;
+  assert.equal(spacedContent.props.className, 'space-y-3', 'the spacing selector applies only to content siblings');
+  const animatedCard = nodes(spacedContent, (node) => node.props['data-idea-kind'] !== undefined)[0];
+  assert.match(animatedCard.props.className, /hud-in.*overflow-hidden/);
+  assert.equal(nodes(animatedCard, (node) => node.props['data-om-chart-host'] !== undefined).length, 0,
+    'a retained animation transform cannot capture the fixed fullscreen sheet');
+  assert.equal(nodes(animatedCard, (node) => node.props['data-idea-chart'] !== undefined).length, 1,
+    'the inline chart stays in its original card');
+  assert.deepEqual(h.requests.filter((request) => request.method === 'POST').map((request) => request.body.action), ['generate']);
+});
+
 test('pending native Atlas reads retain their reference zone and watch action without becoming executable', async () => {
   const idea = fixture('at_level'), h = harness(idea);
   await h.generate();

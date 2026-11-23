@@ -1,5 +1,5 @@
-/* The shared signal chart also runs outside the OM app shell. Keep its palette local to this read. */
-.cc-idea-chart {
+/* Fullscreen inherits this local palette outside the animated card and its sibling-spacing wrapper. */
+.cc-idea-chart-host {
   --om-page: var(--cc-050b11, #050B11);
   --om-text: var(--cc-f0f4f7, #F0F4F7);
   --om-text-2: var(--cc-81909e, #81909E);
@@ -28,6 +28,9 @@
   --om-ch-tag: var(--cc-81909e, #81909E);
   --om-ch-tag-text: var(--cc-050b11, #050B11);
   --om-ch-price: rgba(var(--cc-81909e-rgb, 129,144,158), .4);
+  min-width: 0;
+}
+.cc-idea-chart {
   min-width: 0;
   margin-top: 12px;
   color: var(--om-text);

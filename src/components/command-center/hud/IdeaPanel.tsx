@@ -214,6 +214,7 @@ export function IdeaPanel({
   const chart = useMemo(() => idea ? atlasIdeaChart(idea) : null, [idea]);
 
   return (
+    <div className="cc-idea-chart-host" data-om-chart-host="">
     <div className="space-y-3" data-idea-panel="">
       {/* ask */}
       <div className="rounded-[10px] p-3" style={{ border: `1px solid ${H.lineHi}`, background: `linear-gradient(180deg, ${H.panel2}, ${H.panel})` }}>
@@ -279,7 +280,7 @@ export function IdeaPanel({
                 ))}
               </>}
             </div>
-            {chart && <section className="cc-idea-chart" data-om-chart-host="" data-idea-chart="" aria-label="Gold saved signal chart">
+            {chart && <section className="cc-idea-chart" data-idea-chart="" aria-label="Gold saved signal chart">
               <header><h4>Chart at generation</h4><span translate="no" data-no-i18n>{chart.tfLabel}</span></header>
               {chart.bars.length > 0 ? <SignalFocusChart
                 bars={chart.bars} timeKnown={chart.timeKnown} tfMs={chart.tfMs} tfLabel={chart.tfLabel}
@@ -485,6 +486,7 @@ export function IdeaPanel({
           </ul>
         </div>
       )}
+    </div>
     </div>
   );
 }
