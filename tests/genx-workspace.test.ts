@@ -35,11 +35,13 @@ test('opening GENX buys nothing: the page itself reads only the free shared stat
   assert.ok(only.length > 100 && !/accountFigures|flow_broker/.test(only), 'the desk-only answer asks no broker anything');
 });
 
-test('a saved read says so, keeps its own time, and the price beside it is labelled as now', () => {
-  assert.match(home, /<b>Saved read · \{whenText\(saved\.at\)\}<\/b>/);
-  assert.match(home, /Its levels start at the candle it was made on; the candles and the quote are gold now\./);
-  // An earlier read is drawn from its own candle, labelled, and its steps start at the price it was made at (11-21).
-  assert.match(home, /analysis=\{analysis\}/);
+test('a saved read keeps its own chart, time and price, with an honest missing-original state', () => {
+  assert.match(home, /<b>Saved read · \{whenText\(readIso\)\}<\/b>/);
+  assert.match(home, /Its chart, price, and levels are the saved snapshot at generation\./);
+  assert.match(home, /The original candles were not stored with this read\./);
+  assert.match(home, /snapshot=\{chart\.snapshot\}/);
+  // A snapshot's path starts at its own recorded price; current market data cannot replace it.
+  assert.match(home, /<Steps g=\{read\} price=\{price\} older/);
   assert.match(home, /t: "At the read"/);
   assert.match(home, />Back to current analysis</);
   assert.match(home, /\{!p\.saved && <p\.Confirm/, 'a saved read is not checked as if it were live');

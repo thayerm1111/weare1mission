@@ -69,6 +69,9 @@ export async function POST(req: NextRequest) {
     return json({ error: rr.error, detail: rr.detail }, rr.status ?? 500);
   }
   const read = rr.read;
+  // Keep the exact source candles with the read so history can reopen its chart without
+  // regenerating the signal or substituting today's market for the original snapshot.
+  const candles = Array.isArray(rr.candles) ? rr.candles.slice(-500) : [];
 
   // ── Layer 3: AI writes the MARKET STORY only (numbers locked) ──
   let marketStory: string[] = [];
@@ -121,7 +124,7 @@ export async function POST(req: NextRequest) {
         setup_type: genx.setup_type,
         status: genx.lifecycle,
         reasoning: genx,
-        market_snapshot: { price: rr.price, session: rr.session, data_status: rr.dataStatus, asOf: rr.nowIso, candles_tf: m.tf.m15 },
+        market_snapshot: { price: rr.price, session: rr.session, data_status: rr.dataStatus, asOf: rr.nowIso, candles_tf: m.tf.m15, candles },
         model_version: MODEL, prompt_version: PROMPT_VERSION, engine_version: ENGINE_VERSION,
       };
       const { data, error } = await admin.from("genx_signals").insert(rec).select("id").single();
@@ -132,7 +135,7 @@ export async function POST(req: NextRequest) {
   return json({
     ok: true, signal_id: signalId, asOf: rr.nowIso, session: rr.session, symbol: TD, mode,
     price: rr.price, data_status: rr.dataStatus, engine_version: ENGINE_VERSION,
-    genx, candles: rr.candles,
+    genx, candles, candles_tf: m.tf.m15,
     engine: read,
   }, 200);
 }

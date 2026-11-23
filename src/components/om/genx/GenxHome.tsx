@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, ChevronDown, Loader2, Pin, X } from "lucide-react";
 import { OmChart } from "@/components/om/chart/OmChart";
-import { timedBars } from "@/lib/chart/candleTime";
+import { SignalFocusChart } from "@/components/om/chart/SignalFocusChart";
+import { genxChartView } from "@/lib/genx/chartView";
 import { GenxCard } from "@/components/om/floor/Floor";
 import { buildSteps } from "@/components/portal/floor/GenxFlow";
 import { realCandles, type ChartLevel } from "@/lib/floor/chart";
@@ -22,9 +23,9 @@ import { openAtlas } from "@/lib/atlas/open";
  * GENX, IN THE TRADING PLATFORM'S SHELL (owner 11-20 brief §8: "a focused gold workstation").
  *
  *   header        GENX, one sentence, the horizon, and Analyze gold with what it costs
- *   the chart     gold's own candles with the levels of what is shown, and the quote dated
- *   the decision  what GENX is doing, what it waits for, what would cancel it, the levels — for the main
- *                 setup or the right-now scalp, one at a time and never mixed
+ *   the read      its original price and levels, focused candles, then its waiting/cancellation reasoning
+ *                 for the main setup or the scalp, one at a time and never mixed
+ *   before a read gold's current candles and the shared state, dated and refreshed for free
  *   your reads    every read kept, a saved one opened as itself; the setups being tracked, each checking
  *   results       the engine's record by period, with its history — not any account's
  *
@@ -58,6 +59,8 @@ export type GenxHomeProps = {
   mode: string; setMode: (m: string) => void;
   analyze: () => void; loading: boolean; err: string;
   read: GenxRead | null; readCandles: unknown; readPrice: Num; readLive: boolean; readAt: string | null;
+  /** The interval explicitly saved with this read's candles, when available. */
+  readInterval?: string | null;
   saved: { at: string; mode: string | null } | null; backToCurrent: () => void;
   plays: GenxPlay[]; openPlay: (id: string) => void;
   tracked: GenxTracked[]; isTracked: boolean; hasPlan: boolean; track: () => void; untrack: (id: string) => void;
@@ -74,7 +77,6 @@ const MODES: { id: FloorMode; label: string; sub: string }[] = [
   { id: "swing", label: "Swing", sub: "hours to days" },
 ];
 const LIVE_EVERY_MS = 20_000, RESULTS_EVERY_MS = 120_000;
-const TF: Record<FloorMode, { label: string; ms: number }> = { quick: { label: "5m", ms: 5 * 60_000 }, intraday: { label: "15m", ms: 15 * 60_000 }, swing: { label: "1h", ms: 60 * 60_000 } };
 const goldOpen = (t: number) => isOpen("metal", t);
 const fin = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const px = (v: Num | undefined) => priceFor("XAUUSD", v ?? null);
@@ -100,12 +102,12 @@ export function readLevels(g: GenxRead, subject: "main" | "scalp"): { levels: Ch
     return { levels: L, zone: null };
   }
   const L: ChartLevel[] = [];
-  const taken = (p: number) => L.some((l) => Math.abs(l.price - p) < 1e-9);
   if (fin(g.closest_resistance)) L.push({ kind: "resistance", price: g.closest_resistance, label: "Resistance" });
   if (fin(g.closest_support)) L.push({ kind: "support", price: g.closest_support, label: "Support" });
-  if (fin(g.entry) && !taken(g.entry)) L.push({ kind: "entry", price: g.entry, label: "Entry" });
-  if (fin(g.stop_loss) && !taken(g.stop_loss)) L.push({ kind: "stop", price: g.stop_loss, label: "Stop" });
-  ([["tp1", "Target 1"], ["tp2", "Target 2"], ["tp3", "Target 3"]] as const).forEach(([k, label]) => { const v = g[k]; if (fin(v) && !taken(v)) L.push({ kind: "target", price: v, label }); });
+  // A trade level keeps its role even when it sits exactly on support or resistance.
+  if (fin(g.entry)) L.push({ kind: "entry", price: g.entry, label: "Entry" });
+  if (fin(g.stop_loss)) L.push({ kind: "stop", price: g.stop_loss, label: "Stop" });
+  ([["tp1", "Target 1"], ["tp2", "Target 2"], ["tp3", "Target 3"]] as const).forEach(([k, label]) => { const v = g[k]; if (fin(v)) L.push({ kind: "target", price: v, label }); });
   const zone = fin(g.entry_low) && fin(g.entry_high) && g.entry_high > g.entry_low ? { low: g.entry_low, high: g.entry_high } : null;
   return { levels: L, zone };
 }
@@ -170,28 +172,31 @@ export function GenxHome(p: GenxHomeProps) {
 
   // ── what the chart shows ──
   const liveView = useMemo(() => setupView(live as never), [live]);
-  // The chart is gold's own candles (UTC, from the shared free read) whenever they have loaded; the read's
-  // candles (stamped in the feed's own clock) stand in only until then.
-  const liveTb = useMemo(() => timedBars(live?.candles, live?.candlesTz), [live]);
-  const ownTb = useMemo(() => timedBars(p.readCandles, null), [p.readCandles]);
-  const tb = liveTb.bars.length >= 2 || !read || saved ? liveTb : ownTb;
-  const livePrice = fin(live?.price) ? live!.price as number : liveTb.bars.length ? liveTb.bars[liveTb.bars.length - 1].c : null;
-  // The quote is always gold now. A read keeps its own price, shown with the read.
-  const price = livePrice ?? (read && !saved && fin(p.readPrice) ? p.readPrice : null);
-  const marks = read ? readLevels(read, subject) : { levels: liveView.levels, zone: liveView.zone };
+  const chart = useMemo(() => genxChartView({
+    mode, hasRead: !!read, saved: !!saved, savedMode: saved?.mode, readMode: read?.mode,
+    readCandles: p.readCandles, readPrice: p.readPrice, readInterval: p.readInterval,
+    liveCandles: live?.candles, liveTimezone: live?.candlesTz, livePrice: live?.price,
+  }), [mode, read, saved, p.readCandles, p.readPrice, p.readInterval, live]);
+  const price = chart.price;
+  const action = read ? actionWords(read.action) : null;
+  const chartSide = subject === "scalp" && read?.scalp ? read.scalp.side : action?.side ?? "neutral";
+  const chartReference = subject !== "scalp" && !!action?.waiting;
+  const readMarks = read ? readLevels(read, subject) : { levels: liveView.levels, zone: liveView.zone };
+  const marks = read && subject === "main" && !action?.side
+    ? { levels: readMarks.levels.filter((level) => level.kind === "support" || level.kind === "resistance"), zone: null }
+    : chartReference ? { ...readMarks, levels: readMarks.levels.map((level) => level.kind === "entry" || level.kind === "stop" || level.kind === "target"
+        ? { ...level, label: `Reference ${level.label.toLowerCase()}` } : level) } : readMarks;
   const shut = now > 0 && !isOpen("metal", now);
   const horizon = MODES.find((m) => m.id === mode)!;
-  const tf = TF[mode];
+  const tf = chart.tf;
   const liveAt = typeof live?.asOf === "string" ? live.asOf : null;
   const liveAtMs = liveAt ? Date.parse(liveAt) : NaN;
-  const fresh = shut ? "Gold is closed · this is the last price before the close"
-    : liveAt ? `Gold now · updated ${ageText(liveAt, now)}` : liveFailed ? "Gold's price could not be read just now" : "";
-  // When the levels on the chart were made. A read older than two candles is drawn from its own candle on,
-  // and labelled — its levels are never passed off as today's.
-  const readIso = saved?.at ?? (read ? p.readAt : null);
-  const readMs = readIso ? Date.parse(readIso) : NaN;
-  const older = read != null && Number.isFinite(readMs) && now > 0 && now - readMs > 2 * tf.ms;
-  const analysis = older ? { at: readMs, label: `${saved ? "Saved read" : "This read"} · ${whenText(readIso)}` } : null;
+  const readIso = p.readAt ?? saved?.at ?? null;
+  const fresh = chart.snapshot ? `${chart.priceFrom === "candle" ? "Last saved candle" : "At generation"} · ${whenText(readIso)}`
+    : shut ? "Gold is closed · this is the last price before the close"
+      : liveAt ? `Gold now · updated ${ageText(liveAt, now)}` : liveFailed ? "Gold's price could not be read just now" : "";
+  // The generated read remains a snapshot even if the free market data or horizon selector changes.
+  const chartKey = chart.snapshot ? `XAUUSD:read:${readIso ?? "undated"}:${tf.interval}:${subject}` : `XAUUSD:${mode}`;
 
   return (
     <div className="om-ws om-genx om-os-product om-tool-mobile">
@@ -220,16 +225,16 @@ export function GenxHome(p: GenxHomeProps) {
 
       {saved && (
         <div className="om-genx-saved" role="status">
-          <p><b>Saved read · {whenText(saved.at)}</b><span className="om-label"> Frozen as it was written{saved.mode ? `, ${saved.mode}` : ""}{fin(p.readPrice) ? `, with gold at ${px(p.readPrice)}` : ""}. Its levels start at the candle it was made on; the candles and the quote are gold now.</span></p>
+          <p><b>Saved read · {whenText(readIso)}</b><span className="om-label"> Frozen as it was written{saved.mode ? `, ${saved.mode}` : ""}{fin(p.readPrice) ? `, with gold at ${px(p.readPrice)}` : ""}. {chart.source === "missing_saved" ? "The original candles were not stored with this read." : "Its chart, price, and levels are the saved snapshot at generation."}</span></p>
           <button type="button" className="om-btn-quiet" onClick={p.backToCurrent}>Back to current analysis</button>
         </div>
       )}
 
-      <div className="om-genx-grid">
+      <div className="om-genx-grid" style={read ? { gridTemplateColumns: "minmax(0, 1fr)" } : undefined}>
         <section className="om-panel om-genx-chart" aria-label="Gold">
           <div className="om-genx-mobile-read">
-            <span className="om-tool-status">{saved ? "Saved read" : shut ? "Market closed" : liveAt ? `Updated ${ageText(liveAt, now)}` : "Reading gold"}</span>
-            <h2>{saved && read ? actionWords(read.action).label : shut ? "Gold is closed." : read ? subject === "scalp" && read.scalp ? `${read.scalp.side === "sell" ? "Sell" : "Buy"} now` : actionWords(read.action).label : liveView.stage ? STAGE_LABEL[liveView.stage] : liveFailed ? "Read unavailable." : "Reading gold…"}</h2>
+            <span className="om-tool-status">{saved ? "Saved read" : chart.snapshot ? "At generation" : shut ? "Market closed" : liveAt ? `Updated ${ageText(liveAt, now)}` : "Reading gold"}</span>
+            <h2>{read ? subject === "scalp" && read.scalp ? `${read.scalp.side === "sell" ? "Sell" : "Buy"} scalp` : actionWords(read.action).label : shut ? "Gold is closed." : liveView.stage ? STAGE_LABEL[liveView.stage] : liveFailed ? "Read unavailable." : "Reading gold…"}</h2>
           </div>
           <div className="om-genx-top">
             <div className="om-quote" data-no-i18n translate="no">
@@ -244,15 +249,24 @@ export function GenxHome(p: GenxHomeProps) {
               </div>
             )}
           </div>
-          <div className="om-genx-plot">
-            {tb.bars.length >= 2
-              ? <OmChart bars={tb.bars} timeKnown={tb.known} tfMs={tf.ms} tfLabel={tf.label} price={price}
-                  priceLive={!shut && Number.isFinite(liveAtMs) && now - liveAtMs < 120_000} dec={2}
-                  levels={marks.levels} zone={marks.zone} analysis={analysis} isOpenAt={goldOpen} viewKey={`XAUUSD:${mode}`}
-                  label={`Gold, ${tf.label} candles, ${horizon.label.toLowerCase()} horizon${price != null ? `, ${px(price)}` : ""}`} />
+          {read && <ReadLevels g={read} subject={subject} saved={!!saved} />}
+          <div className="om-genx-plot" style={read ? { height: "auto" } : undefined}>
+            {read ? chart.bars.length >= 1
+              ? <SignalFocusChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={tf.ms} tfLabel={tf.label} price={price}
+                  priceLive={false} snapshot={chart.snapshot} fitLevels dec={2} direction={chartSide} reference={chartReference}
+                  levels={marks.levels} zone={marks.zone} viewKey={chartKey}
+                  label={`Gold, ${tf.label} candles, snapshot at generation${price != null ? `, ${px(price)}` : ""}`} />
+              : <p className="om-play-note" role="status">{chart.source === "missing_saved"
+                  ? "Original candle chart unavailable — the candles were not stored with this saved read."
+                  : "Original candle chart unavailable — this read has no usable candle snapshot."}</p>
+            : chart.bars.length >= 2
+              ? <OmChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={tf.ms} tfLabel={tf.label} price={price}
+                  priceLive={!chart.snapshot && !shut && Number.isFinite(liveAtMs) && now - liveAtMs < 120_000} snapshot={chart.snapshot} fitLevels={chart.snapshot} dec={2}
+                  levels={marks.levels} zone={marks.zone} isOpenAt={goldOpen} viewKey={chartKey}
+                  label={`Gold, ${tf.label} candles${chart.snapshot ? ", saved snapshot at generation" : `, ${horizon.label.toLowerCase()} horizon`}${price != null ? `, ${px(price)}` : ""}`} />
               : <p className="om-empty">{liveFailed ? "Gold's candles could not be read just now. This tries again on its own." : "Reading gold…"}</p>}
           </div>
-          {read && subject === "main" && <MobileSection title="Projected path"><Steps g={read} price={older ? p.readPrice : price} older={older} /></MobileSection>}
+          {read && subject === "main" && <MobileSection title="Projected path"><Steps g={read} price={price} older /></MobileSection>}
         </section>
 
         <aside className="om-panel om-genx-panel" aria-label="What GENX is doing">
@@ -260,9 +274,9 @@ export function GenxHome(p: GenxHomeProps) {
           <button type="button" className="om-btn-quiet om-genx-ask-atlas" onClick={() => openAtlas({
             question: read ? `Explain this ${saved ? "saved " : ""}GENX ${subject === "scalp" ? "scalp" : "setup"}, what it is waiting for, and what would invalidate it.` : "Explain GENX's state shown here and how to find a gold signal.",
             context: {
-              source: "genx", label: `Gold · ${saved ? "saved " : ""}${horizon.label} read`,
-              data: { td: "XAU/USD", symbol: "XAUUSD", mode, subject, asOf: readIso ?? liveAt, marketClosed: shut,
-                ...(read ? { saved: !!saved, genx: read } : { stage: liveView.stage, waitingFor: liveView.waitingFor, invalidation: liveView.changesIf }),
+              source: "genx", label: `Gold · ${saved ? "saved " : ""}${read?.mode ?? saved?.mode ?? horizon.label} read`,
+              data: { td: "XAU/USD", symbol: "XAUUSD", mode: read?.mode ?? saved?.mode ?? mode, subject, asOf: readIso ?? liveAt,
+                ...(read ? { saved: !!saved, genx: read } : { stage: liveView.stage, waitingFor: liveView.waitingFor, invalidation: liveView.changesIf, marketClosed: shut }),
               },
             },
           })}><ProductIcon kind="atlas" size="sm" />Explain with Atlas</button>
@@ -302,39 +316,32 @@ export function GenxHome(p: GenxHomeProps) {
 
 /* ── the decision: what GENX is doing, for the setup shown ─────────────────────────────────────── */
 
-function Decision({ p, g, subject }: { p: GenxHomeProps; g: GenxRead; subject: "main" | "scalp" }) {
+/** The source read's prices stay visible above its chart, including on small screens. */
+function ReadLevels({ g, subject, saved }: { g: GenxRead; subject: "main" | "scalp"; saved: boolean }) {
   if (subject === "scalp" && g.scalp) {
     const s = g.scalp;
     return (
       <div className="om-genx-decision">
-        <p className="om-label">Right-now scalp · separate from the main setup</p>
-        <p className="om-genx-state">{s.side === "sell" ? "Sell now" : "Buy now"} <span className="om-faint">· about {s.target_pips ?? "—"} pips</span></p>
-        <p className="om-label">{s.reason}</p>
-        <dl className="om-kv" data-no-i18n translate="no">
-          <div><dt>Enter now</dt><dd className="om-num">{px(s.entry)}</dd></div>
+        <p className="om-label">Scalp at generation · separate from the main setup</p>
+        <p className="om-genx-state">{s.side === "sell" ? "Sell scalp" : "Buy scalp"} <span className="om-faint">· about {s.target_pips ?? "—"} pips</span></p>
+        <dl className="om-play-lv" aria-label="Scalp levels" data-no-i18n translate="no">
+          <div><dt>Entry</dt><dd className="om-num">{px(s.entry)}</dd></div>
           <div><dt>Stop</dt><dd className="om-num om-neg">{px(s.stop)}{fin(s.risk_pips) ? <small> · {s.risk_pips} pips</small> : null}</dd></div>
           <div><dt>Target</dt><dd className="om-num om-pos">{px(s.target)}{fin(s.rr) ? <small> · {s.rr}R</small> : null}</dd></div>
         </dl>
-        <p className="om-faint om-flow-small">The scalp is a short trade on the move toward the main entry. The main setup is unchanged.</p>
       </div>
     );
   }
   const w = actionWords(g.action);
   const conv = convictionWords(g.confidence_score);
   const hold = holdWords(g.expected_hold_minutes);
-  const plan = fin(g.entry) && fin(g.stop_loss);
+  const plan = w.side !== null && fin(g.entry) && fin(g.stop_loss);
   return (
     <div className="om-genx-decision">
-      <p className="om-label">{p.saved ? "Saved read" : "GENX now"} · {w.side === "sell" ? "Sell" : w.side === "buy" ? "Buy" : "No side"}{conv ? ` · ${conv}` : ""}</p>
+      <p className="om-label">{saved ? "Saved read" : "GENX read"} · {w.side === "sell" ? "Sell" : w.side === "buy" ? "Buy" : "No side"}{conv ? ` · ${conv}` : ""}{plan && w.waiting ? " · reference levels until confirmed" : ""}</p>
       <p className="om-genx-state">{w.label}</p>
-      {!p.saved && <p.Confirm setup={p.setupOf(g)} />}
-      <dl className="om-kv">
-        {g.trigger_condition && <div className="om-kv-wide"><dt>Waiting for</dt><dd>{g.trigger_condition}</dd></div>}
-        {g.invalidation_reason && <div className="om-kv-wide"><dt>Cancelled if</dt><dd>{g.invalidation_reason}</dd></div>}
-      </dl>
-      <MobileSection title={plan ? "Trade levels" : "Key levels"}>
       {plan ? (
-        <dl className="om-kv" data-no-i18n translate="no">
+        <dl className="om-play-lv" aria-label="Trade levels" data-no-i18n translate="no">
           <div><dt>Entry</dt><dd className="om-num">{fin(g.entry_low) && fin(g.entry_high) ? `${px(g.entry_low)} – ${px(g.entry_high)}` : px(g.entry)}</dd></div>
           <div><dt>Stop</dt><dd className="om-num om-neg">{px(g.stop_loss)}{fin(g.stop_pips) ? <small> · {g.stop_pips} pips</small> : null}</dd></div>
           {fin(g.tp1) && <div><dt>Target 1</dt><dd className="om-num om-pos">{px(g.tp1)}{fin(g.tp1_pips) ? <small> · +{g.tp1_pips}</small> : null}</dd></div>}
@@ -343,13 +350,33 @@ function Decision({ p, g, subject }: { p: GenxHomeProps; g: GenxRead; subject: "
           {hold && <div><dt>Expected hold</dt><dd>{hold}</dd></div>}
         </dl>
       ) : (
-        <dl className="om-kv" data-no-i18n translate="no">
+        <dl className="om-play-lv" aria-label="Key levels" data-no-i18n translate="no">
           <div><dt>Leaning</dt><dd>{g.directional_bias === "bullish" ? "Bullish" : g.directional_bias === "bearish" ? "Bearish" : "Neutral"}</dd></div>
           <div><dt>Support</dt><dd className="om-num">{px(g.closest_support)}</dd></div>
           <div><dt>Resistance</dt><dd className="om-num">{px(g.closest_resistance)}</dd></div>
         </dl>
       )}
-      </MobileSection>
+    </div>
+  );
+}
+
+/** Confirmation checks and explanatory conditions stay below the read's chart. */
+function Decision({ p, g, subject }: { p: GenxHomeProps; g: GenxRead; subject: "main" | "scalp" }) {
+  if (subject === "scalp" && g.scalp) return (
+    <div className="om-genx-decision">
+      <p className="om-label">{g.scalp.reason}</p>
+      <p className="om-faint om-flow-small">The scalp is a short trade on the move toward the main entry. The main setup is unchanged.</p>
+    </div>
+  );
+  const w = actionWords(g.action);
+  const plan = fin(g.entry) && fin(g.stop_loss);
+  return (
+    <div className="om-genx-decision">
+      {!p.saved && <p.Confirm setup={p.setupOf(g)} />}
+      <dl className="om-kv">
+        {g.trigger_condition && <div className="om-kv-wide"><dt>Waiting for</dt><dd>{g.trigger_condition}</dd></div>}
+        {g.invalidation_reason && <div className="om-kv-wide"><dt>Cancelled if</dt><dd>{g.invalidation_reason}</dd></div>}
+      </dl>
       {plan && w.waiting && !p.saved && (
         <button type="button" className="om-btn-quiet om-genx-track" onClick={p.track} disabled={p.isTracked}>
           <Pin aria-hidden="true" width={14} height={14} />{p.isTracked ? "Tracking this setup" : "Track this setup"}

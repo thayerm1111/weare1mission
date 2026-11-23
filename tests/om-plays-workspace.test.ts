@@ -108,10 +108,10 @@ test('the builder keeps market, style, optional settings and Generate in reading
   assert.match(workspace, /<PlayDetail r=\{result\}/);
 });
 
-test('an open play: decision and prices first, execution beside the signal, then chart and tracking', () => {
+test('an open play: original prices, focused chart, then decision, execution review and tracking', () => {
   const d = read('src/components/om/plays/PlayDetail.tsx');
   assert.ok(!/fetch\(|\/api\//.test(d), 'the detail asks the server for nothing');
-  const order = ['om-play-head', 'om-play-decision', 'om-play-levels', 'om-play-next', 'om-play-chart', 'om-play-track', 'om-play-why'].map((k) => d.indexOf(`className="${k}"`));
+  const order = ['om-play-head', 'om-play-levels', 'om-play-chart', 'om-play-decision', 'om-play-next', 'om-play-track', 'om-play-why'].map((k) => d.indexOf(`className="${k}"`));
   assert.ok(order.every((x, i) => x > 0 && (i === 0 || x > order[i - 1])), `the hierarchy, in order: ${order}`);
   assert.match(d, /Since it was made · price against its levels/);
   assert.match(d, /not a chance of winning/);

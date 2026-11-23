@@ -1,0 +1,51 @@
+.om-signal-focus {
+  --sf-path: var(--om-bone, #cfc7b3);
+  min-width: 0;
+  border: 1px solid var(--om-edge);
+  border-radius: 16px;
+  background: var(--om-page);
+  overflow: hidden;
+}
+.om-signal-focus[data-direction="buy"] { --sf-path: var(--om-pos, #8fd2b7); }
+.om-signal-focus[data-reference="true"] { --sf-path: var(--om-ai, #c6bfff); }
+.om-signal-focus-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 14px 14px 0; }
+.om-signal-focus-heading h4 { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--om-text); font-size: 12px; line-height: 1.4; font-weight: 600; }
+.om-signal-focus-heading h4 span { color: var(--om-text-3); font-size: 10px; font-weight: 500; }
+.om-signal-focus-state { color: var(--sf-path); font-size: 10px; line-height: 1.5; }
+.om-signal-focus-picture { width: 100%; min-width: 0; margin-top: 10px; }
+.om-signal-focus-svg { display: block; width: 100%; overflow: visible; font-variant-numeric: tabular-nums; }
+.om-signal-focus-extreme { fill: var(--om-text-3); font-size: 10px; }
+.om-signal-focus-grid { stroke: var(--om-edge); stroke-dasharray: 2 6; }
+.om-signal-focus-candle { fill: var(--om-bone, #cfc7b3); stroke: var(--om-bone, #cfc7b3); }
+.om-signal-focus-candle[data-up="true"] { fill: var(--om-pos, #8fd2b7); stroke: var(--om-pos, #8fd2b7); }
+.om-signal-focus-candle rect { stroke: none; }
+.om-signal-focus-divider { stroke: var(--om-edge-2); stroke-dasharray: 2 5; }
+.om-signal-focus-lane { fill: var(--om-text-3); font-size: 9px; }
+.om-signal-focus-zone { fill: rgb(var(--om-ai-rgb, 198 191 255) / .09); stroke: var(--om-ai); stroke-opacity: .3; stroke-dasharray: 3 4; }
+.om-signal-focus-level { --sf-level: var(--om-text-3); }
+.om-signal-focus-level[data-kind="entry"] { --sf-level: var(--om-ai); }
+.om-signal-focus-level[data-kind="stop"] { --sf-level: var(--om-neg); }
+.om-signal-focus-level[data-kind="target"] { --sf-level: var(--om-pos); }
+.om-signal-focus-level > line { stroke: var(--sf-level); stroke-opacity: .27; stroke-dasharray: 3 4; }
+.om-signal-focus-leader { fill: none; stroke: var(--sf-level); stroke-width: .7; stroke-opacity: .5; }
+.om-signal-focus-level-name { fill: var(--sf-level); font-size: 9px; }
+.om-signal-focus-level-price { fill: var(--om-text); font-size: 12px; font-weight: 550; }
+.om-signal-focus-scenario polyline { fill: none; stroke: var(--sf-path); stroke-width: 2; stroke-dasharray: 5 5; stroke-linejoin: round; stroke-linecap: round; }
+.om-signal-focus-arrow { stroke: var(--sf-path); }
+.om-signal-focus-scenario circle { fill: var(--om-page); stroke: var(--sf-path); stroke-width: 1.5; }
+.om-signal-focus-note { margin: 0; padding: 0 14px 12px; color: var(--om-text-3); font-size: 10px; line-height: 1.6; }
+.om-signal-focus-controls { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--om-edge); padding: 4px 12px; }
+.om-signal-focus-controls > span { color: var(--om-text-3); font-size: 10px; }
+.om-signal-focus-controls button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 6px 2px 6px 12px; border: 0; background: none; color: var(--om-text-2); font: inherit; font-size: 11px; cursor: pointer; }
+.om-signal-focus-controls button:hover { color: var(--om-text); }
+.om-signal-focus-controls button:focus-visible { outline: 2px solid var(--om-ai); outline-offset: 2px; border-radius: 4px; }
+.om-signal-focus-controls button svg { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.om-signal-focus-history { border-top: 1px solid var(--om-edge); padding: 10px 8px 0; min-width: 0; }
+.om-signal-focus-full-canvas { position: relative; min-width: 0; width: 100%; height: 360px; }
+.om-signal-focus-history > p { margin: 0; padding: 8px 6px 12px; color: var(--om-text-3); font-size: 10px; line-height: 1.5; }
+.om-signal-focus-empty { margin: 0; padding: 24px 14px; color: var(--om-text-3); font-size: 12px; line-height: 1.6; }
+@media (max-width: 540px) {
+  .om-signal-focus-heading { padding: 12px 12px 0; }
+  .om-signal-focus-full-canvas { height: 300px; }
+  .om-signal-focus-level-price { font-size: 11px; }
+}

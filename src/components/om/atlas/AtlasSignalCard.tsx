@@ -10,7 +10,7 @@ import { analysisOf } from "@/lib/plays/lifecycle";
 import { actionWords, convictionWords } from "@/lib/genx/words";
 import { atlasExecution, atlasSignalContext, type AtlasSignalResult } from "@/lib/atlas/signals";
 import { openAtlas, type AtlasContext } from "@/lib/atlas/open";
-import { AtlasPlayChart } from "./AtlasPlayChart";
+import { AtlasSignalChart } from "./AtlasSignalChart";
 import "./atlas-signal.css";
 
 const ExecuteSignal = dynamic(() => import("@/components/portal/SignalGenerator").then((module) => module.ExecuteSignal), {
@@ -19,6 +19,13 @@ const ExecuteSignal = dynamic(() => import("@/components/portal/SignalGenerator"
 
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const words = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && !!x.trim()) : [];
+const brief = (value: string | undefined) => {
+  const text = (value ?? "").trim().replace(/\s+/g, " ");
+  if (text.length <= 180) return text;
+  const beginning = text.slice(0, 180);
+  const boundary = beginning.lastIndexOf(" ");
+  return `${beginning.slice(0, boundary > 100 ? boundary : 180).trimEnd()}…`;
+};
 const when = (stamp: string) => {
   const ms = Date.parse(stamp);
   return Number.isFinite(ms) ? new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }) : stamp;
@@ -39,24 +46,34 @@ export function AtlasSignalCard({ signal, onAsk }: {
   const title = analysis?.label ?? action?.label ?? "Waiting";
   const at = play ? play.as_of ?? play.asOf : gold!.asOf;
   const horizon = play ? play.style ?? play.signal.timeframe : gold!.mode;
+  const story = gold ? words(gold.genx.market_story) : [];
   const reason = play
     ? analysis?.kind === "idea" ? play.signal.no_trade_reason || "The market has not confirmed this idea yet." : play.signal.rationale
-    : words(gold!.genx.market_story).join(" ") || gold!.genx.trigger_condition;
+    : story.join(" ") || gold!.genx.trigger_condition;
+  const summary = brief(reason);
+  const fullReason = reason && reason.trim().replace(/\s+/g, " ") !== summary;
   const invalidation = play ? play.signal.invalidation : gold!.genx.invalidation_reason;
   const trigger = gold?.genx.trigger_condition;
   const conviction = gold ? convictionWords(gold.genx.confidence_score) : null;
   const detail = play ? [] : words(gold!.genx.trade_reasoning);
   const risk = play ? [] : words(gold!.genx.risk_factors);
   const execution = atlasExecution(signal);
-  const levels: { label: string; value: number }[] = [];
-  const add = (label: string, value: unknown) => { if (finite(value)) levels.push({ label, value }); };
+  const levels: { kind: "price" | "entry" | "stop" | "target" | "support" | "resistance"; label: string; value: number }[] = [];
+  const add = (kind: (typeof levels)[number]["kind"], label: string, value: unknown) => { if (finite(value)) levels.push({ kind, label, value }); };
+  add("price", "Price at signal", play ? play.price : gold!.price);
   if (play && analysis?.kind !== "none") {
-    add("Entry", play.signal.entry); add("Stop", play.signal.stopLoss);
-    (play.signal.takeProfits ?? []).slice(0, 3).forEach((value, index) => add("Target " + (index + 1), value));
+    add("entry", "Entry", play.signal.entry); add("stop", "Stop", play.signal.stopLoss);
+    (play.signal.takeProfits ?? []).slice(0, 3).forEach((value, index) => add("target", "Target " + (index + 1), value));
+  } else if (gold && action?.side != null) {
+    add("entry", "Entry", gold.genx.entry); add("stop", "Stop", gold.genx.stop_loss);
+    add("target", "Target 1", gold.genx.tp1); add("target", "Target 2", gold.genx.tp2); add("target", "Target 3", gold.genx.tp3);
   } else if (gold) {
-    add("Entry", gold.genx.entry); add("Stop", gold.genx.stop_loss);
-    add("Target 1", gold.genx.tp1); add("Target 2", gold.genx.tp2); add("Target 3", gold.genx.tp3);
+    add("support", "Support", gold.genx.closest_support);
+    add("resistance", "Resistance", gold.genx.closest_resistance);
   }
+  const hasTradeLevels = levels.some((level) => level.kind === "entry" || level.kind === "stop" || level.kind === "target");
+  const levelCaption = hasTradeLevels ? waiting ? "Reference levels · confirmation is still needed" : "Signal levels"
+    : levels.some((level) => level.kind !== "price") ? "Market levels" : "Saved price";
   const explain = () => {
     const context = atlasSignalContext(signal);
     const question = "Explain this " + (play ? "OM AI Play on " + symbol : "GENX gold read") + ". What needs to happen next, and what would invalidate it?";
@@ -77,16 +94,25 @@ export function AtlasSignalCard({ signal, onAsk }: {
         <h3>{title}</h3>
         {play?.marketClosed && <span className="om-atlas-signal-tag">Market closed · last available data</span>}
         {gold && gold.data_status !== "live" && <span className="om-atlas-signal-tag">Reference data</span>}
-        {conviction && <p className="om-atlas-signal-conviction">{conviction}</p>}
-        {reason && <p>{reason}</p>}
       </div>
 
-      {levels.length > 0 && <section aria-label="Signal levels">
-        <p className="om-atlas-signal-caption">{waiting ? "Reference levels · confirmation is still needed" : "Signal levels"}</p>
+      {levels.length > 0 && <section aria-label="Signal price and levels">
+        <p className="om-atlas-signal-caption">{levelCaption}</p>
         <dl className="om-atlas-signal-levels" data-no-i18n translate="no">
-          {levels.map((level) => <div key={level.label} data-level={level.label === "Stop" ? "stop" : level.label.startsWith("Target") ? "target" : "entry"}><dt>{level.label}</dt><dd>{priceFor(symbol, level.value)}</dd></div>)}
+          {levels.map((level) => <div key={level.label} data-level={level.kind}><dt>{level.label}</dt><dd>{priceFor(symbol, level.value)}</dd></div>)}
         </dl>
       </section>}
+
+      <AtlasSignalChart signal={signal} />
+
+      {(conviction || summary) && <section className="om-atlas-signal-reason" aria-label="Signal explanation">
+        {conviction && <p className="om-atlas-signal-conviction">{conviction}</p>}
+        {summary && <p>{summary}</p>}
+      </section>}
+      {fullReason && <details className="om-atlas-signal-evidence om-atlas-signal-story">
+        <summary>Read full analysis<ChevronDown aria-hidden="true" /></summary>
+        {(gold && story.length > 0 ? story : [reason]).map((text, index) => <p key={index}>{text}</p>)}
+      </details>}
 
       {execution && <details className="om-atlas-signal-order" onToggle={(event) => setTicketOpen(event.currentTarget.open)}>
         <summary><span>Execute {execution.direction === "LONG" ? "BUY" : "SELL"}{execution.unconfirmed ? " · manual override" : ""}</span><ChevronDown aria-hidden="true" /></summary>
@@ -96,7 +122,6 @@ export function AtlasSignalCard({ signal, onAsk }: {
         </div>
       </details>}
 
-      {play && <AtlasPlayChart play={play} />}
       {play && <PlayBreakdown signal={play.signal} interval={play.interval} fullReasoning />}
 
       {gold && (trigger || invalidation) && <dl className="om-atlas-signal-next">

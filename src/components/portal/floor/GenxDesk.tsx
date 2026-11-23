@@ -37,7 +37,7 @@ type Genx = {
     target_pips: number | null; risk_pips: number | null; rr: number | null; reason: string;
   } | null;
 };
-type Resp = { ok?: boolean; signal_id?: string | null; price?: number; data_status?: string; asOf?: string; genx?: Genx; candles?: Candle[]; error?: string; detail?: string; notConfigured?: string; balance?: number };
+type Resp = { ok?: boolean; signal_id?: string | null; price?: number; data_status?: string; asOf?: string; genx?: Genx; candles?: Candle[]; candles_tf?: string; error?: string; detail?: string; notConfigured?: string; balance?: number };
 
 const MODES = [
   { id: "quick", label: "Quick", sub: "30–80 pips" },
@@ -360,7 +360,9 @@ export function GenxDesk() {
       const r = await fetch(`/api/genx/history?id=${encodeURIComponent(id)}`, { cache: "no-store" });
       const d = await r.json();
       if (d?.play?.genx) {
-        setRes({ ok: true, genx: d.play.genx as Genx, price: d.play.price ?? undefined, data_status: d.play.data_status ?? undefined, asOf: d.play.asOf, candles: [] });
+        setRes({ ok: true, signal_id: d.play.id, genx: d.play.genx as Genx, price: d.play.price ?? undefined, data_status: d.play.data_status ?? undefined, asOf: d.play.asOf,
+          candles: Array.isArray(d.play.candles) ? d.play.candles : [], candles_tf: typeof d.play.candles_tf === "string" ? d.play.candles_tf : undefined });
+        if (["quick", "intraday", "swing"].includes(d.play.mode)) setMode(d.play.mode);
         setReplay({ at: d.play.at, mode: d.play.mode ?? null });
         setErr(""); setShowPlays(false);
         try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { /* ignore */ }
@@ -438,7 +440,7 @@ export function GenxDesk() {
     return (
       <GenxHome
         mode={mode} setMode={setMode} analyze={() => void analyze()} loading={loading} err={err}
-        read={g ?? null} readCandles={res?.candles} readPrice={res?.price ?? null} readLive={res?.data_status === "live"} readAt={res?.asOf ?? null}
+        read={g ?? null} readCandles={res?.candles} readInterval={res?.candles_tf} readPrice={res?.price ?? null} readLive={res?.data_status === "live"} readAt={res?.asOf ?? null}
         saved={replay} backToCurrent={() => { setRes(null); setReplay(null); setErr(""); }}
         plays={plays} openPlay={(id) => void openPlay(id)}
         tracked={tracked} isTracked={isTracked} hasPlan={hasPlan} track={trackCurrent} untrack={untrack}

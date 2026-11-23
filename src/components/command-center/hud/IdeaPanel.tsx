@@ -1,8 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Activity, Bell, Check, Copy, Crosshair, Eye, EyeOff, RefreshCw, Sparkles, X } from "lucide-react";
 import { H, fmt2, LABEL, alpha } from "./theme";
+import { SignalFocusChart } from "@/components/om/chart/SignalFocusChart";
+import { atlasIdeaChart } from "@/lib/atlas/ideaChart";
+import "./idea-chart.css";
 import type { AtlasIdea, IdeaFollow, IdeaState } from "../../../../command-center/engines/idea";
 
 /**
@@ -13,7 +16,7 @@ import type { AtlasIdea, IdeaFollow, IdeaState } from "../../../../command-cente
  * the targets, why, and what would make it wrong. There is nothing to choose first and one answer to read
  * (owner 11-12: "not so many options just want an atlas option that goes off what atlas sees. Needs to feel
  * like it's come right from the AI. I don't want the quick, intraday, or swing versions") — so the card
- * leads with ATLAS's own words, in the first person, and the numbers sit under them.
+ * shows its saved price and levels, the candles behind the call, then ATLAS's own words in the first person.
  *
  * NOTHING HERE COMPUTES A NUMBER OR SENDS AN ORDER. Every figure on the card came from the server. Taking an
  * idea hands off to the two execution surfaces that already exist — ATLAS's own trade card when the idea is
@@ -208,6 +211,7 @@ export function IdeaPanel({
   const confirmed = idea?.source === "setup_engine";
   const words = useTyped(idea?.reasoning ?? "", !!idea && fresh === idea.at && !busy);
   const paragraphs = words.shown.split("\n\n");
+  const chart = useMemo(() => idea ? atlasIdeaChart(idea) : null, [idea]);
 
   return (
     <div className="space-y-3" data-idea-panel="">
@@ -258,6 +262,32 @@ export function IdeaPanel({
               {trade && <span className="rounded-[5px] px-2 py-[2px] text-[11px] font-black tracking-[0.12em]" style={{ color: sideCol, border: `1px solid ${sideCol}`, background: `${alpha(sideCol, "14")}` }}>{up ? "LONG" : "SHORT"}</span>}
               {idea.headline}
             </p>
+          </div>
+
+          <div className="px-3 pb-3">
+            <div className="cc-idea-levels" data-idea-levels="" aria-label="Signal price and levels">
+              <Cell k="Price at signal" v={fmt2(idea.price)} tone={H.cyan2} />
+              {trade && <>
+                <Cell k="Entry" v={trade.entry!.type === "market" ? fmt2(trade.entry!.price) : `${fmt2(trade.entry!.low)} – ${fmt2(trade.entry!.high)}`}
+                  sub={trade.entry!.type === "market" ? "at market" : trade.entry!.confirm === "close_15m" ? "after a 15m close" : trade.entry!.confirm === "touch" ? "on the break" : "the zone"}
+                  onCopy={() => copy("Entry", trade.entry!.price.toFixed(2))} copied={copied === "Entry"} />
+                <Cell k="Stop" v={fmt2(trade.stop!.price)} sub={`${trade.stop!.pips} pips`} tone={H.red} onCopy={() => copy("Stop", trade.stop!.price.toFixed(2))} copied={copied === "Stop"} />
+                <Cell k="Risk : reward" v={trade.rr ? `1 : ${trade.rr.first}` : "—"} sub={trade.rr && trade.rr.best !== trade.rr.first ? `to TP1 · up to 1 : ${trade.rr.best}` : "to TP1"} tone={H.gold3} />
+                {trade.targets.map((t) => (
+                  <Cell key={t.label} k={t.label} v={fmt2(t.price)} sub={`${t.pips} pips${t.basis === "measured" ? " · measured" : ""}`} tone={H.green} title={t.what}
+                    onCopy={() => copy(t.label, t.price.toFixed(2))} copied={copied === t.label} />
+                ))}
+              </>}
+            </div>
+            {chart && <section className="cc-idea-chart" data-om-chart-host="" data-idea-chart="" aria-label="Gold saved signal chart">
+              <header><h4>Chart at generation</h4><span translate="no" data-no-i18n>{chart.tfLabel}</span></header>
+              {chart.bars.length > 0 ? <SignalFocusChart
+                bars={chart.bars} timeKnown={chart.timeKnown} tfMs={chart.tfMs} tfLabel={chart.tfLabel}
+                price={chart.price} priceLive={false} dec={chart.dec} levels={chart.levels} zone={chart.zone}
+                viewKey={chart.viewKey} direction={chart.direction} reference={chart.reference} snapshot fitLevels
+                label={`Gold, saved candles at generation${chart.reference && chart.direction !== "neutral" ? ", with unconfirmed reference levels" : ""}`} />
+                : <p className="cc-idea-chart-empty" role="status">Candle chart unavailable for this saved read.</p>}
+            </section>}
             {/* ATLAS, in its own words */}
             <div className="mt-2.5 rounded-[9px] p-3" onClick={words.typing ? words.finish : undefined}
               style={{ border: `1px solid ${H.line}`, borderLeft: `2px solid ${H.gold2}`, background: "rgba(var(--cc-03070b-rgb,3,7,11),0.55)", cursor: words.typing ? "pointer" : "auto" }}
@@ -280,18 +310,6 @@ export function IdeaPanel({
 
           {trade && (
             <div className="px-3 pb-3">
-              {/* the levels */}
-              <div className="grid grid-cols-3 gap-1.5" data-idea-levels="">
-                <Cell k="Entry" v={trade.entry!.type === "market" ? fmt2(trade.entry!.price) : `${fmt2(trade.entry!.low)} – ${fmt2(trade.entry!.high)}`}
-                  sub={trade.entry!.type === "market" ? "at market" : trade.entry!.confirm === "close_15m" ? "after a 15m close" : trade.entry!.confirm === "touch" ? "on the break" : "the zone"}
-                  onCopy={() => copy("Entry", trade.entry!.price.toFixed(2))} copied={copied === "Entry"} />
-                <Cell k="Stop" v={fmt2(trade.stop!.price)} sub={`${trade.stop!.pips} pips`} tone={H.red} onCopy={() => copy("Stop", trade.stop!.price.toFixed(2))} copied={copied === "Stop"} />
-                <Cell k="Risk : reward" v={trade.rr ? `1 : ${trade.rr.first}` : "—"} sub={trade.rr && trade.rr.best !== trade.rr.first ? `to TP1 · up to 1 : ${trade.rr.best}` : "to TP1"} tone={H.gold3} />
-                {trade.targets.map((t) => (
-                  <Cell key={t.label} k={t.label} v={fmt2(t.price)} sub={`${t.pips} pips${t.basis === "measured" ? " · measured" : ""}`} tone={H.green} title={t.what}
-                    onCopy={() => copy(t.label, t.price.toFixed(2))} copied={copied === t.label} />
-                ))}
-              </div>
               <p className="mt-1.5 text-[10px]" style={{ color: H.mut2 }}>
                 {up ? "Long" : "Short"} · pips are measured from {trade.entry!.type === "market" ? "the entry" : "the worst price in the entry zone"} · tap a level to copy
               </p>

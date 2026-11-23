@@ -1,0 +1,41 @@
+/* The shared signal chart also runs outside the OM app shell. Keep its palette local to this read. */
+.cc-idea-chart {
+  --om-page: var(--cc-050b11, #050B11);
+  --om-text: var(--cc-f0f4f7, #F0F4F7);
+  --om-text-2: var(--cc-81909e, #81909E);
+  --om-text-3: var(--cc-81909e, #81909E);
+  --om-edge: rgba(var(--cc-59afff-rgb, 89,175,255), .13);
+  --om-edge-2: rgba(var(--cc-27d7f2-rgb, 39,215,242), .28);
+  --om-bone: var(--cc-e7c467, #E7C467);
+  --om-ai: var(--cc-e7c467, #E7C467);
+  --om-ai-rgb: 231 196 103;
+  --om-pos: var(--cc-29dfa6, #29DFA6);
+  --om-pos-rgb: 41 223 166;
+  --om-neg: var(--cc-ff5364, #FF5364);
+  --om-float: var(--cc-0c1721, #0C1721);
+  --om-float-active: var(--cc-09131d, #09131D);
+  --om-ch-grid: rgba(var(--cc-59afff-rgb, 89,175,255), .09);
+  --om-ch-grid-2: rgba(var(--cc-59afff-rgb, 89,175,255), .05);
+  --om-ch-base: rgba(var(--cc-59afff-rgb, 89,175,255), .2);
+  --om-ch-hatch: rgba(var(--cc-59afff-rgb, 89,175,255), .08);
+  --om-ch-halo: var(--cc-050b11, #050B11);
+  --om-ch-tip: var(--cc-0c1721, #0C1721);
+  --om-ch-tip-edge: rgba(var(--cc-27d7f2-rgb, 39,215,242), .28);
+  --om-ch-cross: rgba(var(--cc-f0f4f7-rgb, 240,244,247), .32);
+  --om-ch-cross-2: rgba(var(--cc-f0f4f7-rgb, 240,244,247), .22);
+  --om-ch-col: rgba(var(--cc-f0f4f7-rgb, 240,244,247), .04);
+  --om-ch-level: var(--cc-81909e, #81909E);
+  --om-ch-tag: var(--cc-81909e, #81909E);
+  --om-ch-tag-text: var(--cc-050b11, #050B11);
+  --om-ch-price: rgba(var(--cc-81909e-rgb, 129,144,158), .4);
+  min-width: 0;
+  margin-top: 12px;
+  color: var(--om-text);
+}
+.cc-idea-chart > header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.cc-idea-chart > header h4 { margin: 0; font-size: 11px; font-weight: 600; }
+.cc-idea-chart > header span { color: var(--om-text-2); font-size: 10px; }
+.cc-idea-chart-empty { margin: 0; padding: 22px 12px; border: 1px solid var(--om-edge); border-radius: 10px; color: var(--om-text-2); font-size: 12px; line-height: 1.6; }
+.cc-idea-levels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.cc-idea-levels > button { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 440px) { .cc-idea-levels { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

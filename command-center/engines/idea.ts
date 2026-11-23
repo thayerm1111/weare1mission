@@ -223,6 +223,8 @@ export type AtlasIdea = {
   badge: string;
   /** Gold when the idea was generated (the price the screen shows). */
   price: number | null;
+  /** The real five-minute candles used for this idea. Older stored ideas may not have a chart. */
+  chart?: { tf: "5m"; candles: Bar[] };
   entry: IdeaEntry | null;
   stop: { price: number; pips: number; what: string } | null;
   targets: IdeaTarget[];
@@ -1381,7 +1383,7 @@ function fromRead(i: BuildIdeaInput, s: MarketSnapshot, read: AtlasRead | null, 
  * doubtful read: all of them get a call that says where it stands. Only a missing market read (or no range reading at all)
  * produces no trade.
  */
-export function buildIdea(i: BuildIdeaInput): AtlasIdea {
+function buildIdeaDecision(i: BuildIdeaInput): AtlasIdea {
   const s = i.snapshot;
   const su = i.setup;
   if (!s) return noData(i, "I can't see gold right now — there is no market read to build a trade on, and I won't invent a price.", ["a market read"]);
@@ -1417,6 +1419,16 @@ export function buildIdea(i: BuildIdeaInput): AtlasIdea {
     closed, staleMin, dataProblem: dataProblem?.detail ?? null,
   });
   return call ?? noData(i, "I can't measure gold's range on any timeframe right now, so there is nothing to size an entry or a stop from — and I won't invent one.", ["a range reading"]);
+}
+
+/** Keep the original chart beside the decision; this display snapshot never feeds back into the engine. */
+export function buildIdea(i: BuildIdeaInput): AtlasIdea {
+  const idea = buildIdeaDecision(i);
+  const candles = (Array.isArray(i.bars5m) ? i.bars5m : []).filter((b) => b &&
+    [b.t, b.o, b.h, b.l, b.c].every((v) => typeof v === "number" && Number.isFinite(v)) &&
+    b.t <= i.now && b.h >= Math.max(b.o, b.c) && b.l <= Math.min(b.o, b.c) && b.h >= b.l)
+    .slice(-160).map(({ t, o, h, l, c }) => ({ t, o, h, l, c }));
+  return candles.length ? { ...idea, chart: { tf: "5m", candles } } : idea;
 }
 
 /* ── following an idea: where it stands now, and how it turned out ─────────────────────────────────── */

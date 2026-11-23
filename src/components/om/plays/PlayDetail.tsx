@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { ArrowUpRight, ChevronDown, Loader2, RefreshCw, Activity, X } from "lucide-react";
-import { OmChart } from "@/components/om/chart/OmChart";
-import { timedBars } from "@/lib/chart/candleTime";
+import { SignalFocusChart } from "@/components/om/chart/SignalFocusChart";
+import { atlasPlayChart } from "@/lib/atlas/chart";
 import { priceFor } from "@/lib/flow/display";
 import { analysisOf, trackingOf, targetsWithR, pipsBetween, type PlayDirection } from "@/lib/plays/lifecycle";
 import type { ChartLevel } from "@/lib/floor/chart";
@@ -13,10 +13,10 @@ import { PlayBreakdown } from "./PlayBreakdown";
 /**
  * ONE OM AI PLAY, READ TOP TO BOTTOM (owner 11-21 brief §9):
  *   1  the market, the style, when it was analysed, and what the engine concluded
- *   2  one sentence: what is valid, what is missing, or what to wait for
- *   3  the play's own levels and a visible Execute action, opening its existing account/risk ticket
- *   4  candles and what price has done since (tracking: price only, never an order)
- *   5  the evidence and the full reasoning, a tap away
+ *   2  its recorded price, entry, stop and targets
+ *   3  its actual candles and a clearly conditional projected direction
+ *   4  the decision, a visible Execute review, and the supporting evidence
+ *   5  what price has done since (tracking: price only, never an order), plus the full reasoning
  * Every word and number is the play's own, as it was saved. This component fetches nothing and charges
  * nothing: the result check, the update, the deep dive and the ticket are the generator's existing
  * handlers and components, passed in.
@@ -40,7 +40,6 @@ export type PlayView = {
 };
 
 const fin = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
-const TF_MS: Record<string, number> = { "1min": 60e3, "5min": 300e3, "15min": 900e3, "30min": 1800e3, "1h": 3600e3, "2h": 7200e3, "4h": 14400e3, "1day": 86400e3 };
 const STYLE_WORD: Record<string, string> = { scalp: "Scalp", intraday: "Intraday", swing: "Swing" };
 const METHOD_WORD: Record<string, string> = { best: "Best", smc: "Smart Money", structure: "Structure" };
 
@@ -73,13 +72,16 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
   const when = Number.isFinite(madeMs) ? new Date(madeMs).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }) : r.asOf;
 
   // The play's own candles, with its own levels. Their stamps are the feed's clock: distances only, never a clock time.
-  const tb = useMemo(() => timedBars(r.candles ?? [], null), [r.candles]);
+  const chart = useMemo(() => atlasPlayChart(r), [r]);
+  const generationPrice = fin(r.price) ? r.price : chart.bars.at(-1)?.c ?? null;
+  const priceLabel = fin(r.price) ? "Price at signal" : "Last saved candle";
   const levels: ChartLevel[] = useMemo(() => {
     if (!hasLevels) return [];
-    const L: ChartLevel[] = [{ kind: "entry", price: s.entry, label: limit ? "Limit entry" : "Entry" }, { kind: "stop", price: s.stopLoss, label: "Stop" }];
-    for (const x of targets) L.push({ kind: "target", price: x.price, label: `Target ${x.n}` });
+    const label = (value: string) => a.kind === "idea" ? `Reference ${value.toLowerCase()}` : value;
+    const L: ChartLevel[] = [{ kind: "entry", price: s.entry, label: label(limit ? "Limit entry" : "Entry") }, { kind: "stop", price: s.stopLoss, label: label("Stop") }];
+    for (const x of targets) L.push({ kind: "target", price: x.price, label: label(`Target ${x.n}`) });
     return L;
-  }, [hasLevels, s.entry, s.stopLoss, limit, targets]);
+  }, [hasLevels, s.entry, s.stopLoss, limit, targets, a.kind]);
 
   // One sentence: what is valid, what is missing, or what to wait for — the engine's own words where it gave them.
   const decision = a.kind === "none"
@@ -94,7 +96,7 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
         <div style={{ minWidth: 0 }}>
           <p className="om-label">{[STYLE_WORD[r.style ?? ""] ?? s.timeframe, r.interval].filter(Boolean).join(" · ")}</p>
           <h2 data-no-i18n translate="no">{r.symbol}<small>{r.name}</small></h2>
-          <p className="om-label om-play-meta" data-no-i18n translate="no">Analysed {when} · price then {px(r.live_price ?? r.price)}{r.marketClosed ? " · the market was closed" : ""}</p>
+          <p className="om-label om-play-meta" data-no-i18n translate="no">Analysed {when} · {priceLabel.toLowerCase()} {px(generationPrice)}{r.marketClosed ? " · the market was closed" : ""}</p>
         </div>
         <div className="om-play-state">
           <span className="om-chip" data-kind={a.kind}>{a.label}</span>
@@ -103,21 +105,31 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
         </div>
       </header>
 
-      <p className="om-play-decision">{decision}</p>
-      {s.chased && r.status === "open" && <p className="om-play-note" role="note"><b>Price has moved past the ideal entry.</b> {s.chase_note}</p>}
-
-      {hasLevels && (
-        <div className="om-play-levels">
-          <dl className="om-play-lv">
+      <div className="om-play-levels">
+        <dl className="om-play-lv">
+          <div><dt>{priceLabel}</dt><dd className="om-num" data-no-i18n translate="no">{px(generationPrice)}</dd></div>
+          {hasLevels && <>
             <div><dt>{limit ? "Limit entry" : "Entry"}</dt><dd className="om-num" data-no-i18n translate="no">{px(s.entry)}</dd></div>
             <div><dt>Stop</dt><dd className="om-num om-neg" data-no-i18n translate="no">{px(s.stopLoss)} <small>{pipsBetween(r.symbol, s.entry, s.stopLoss)} pips</small></dd></div>
             {targets.map((x) => (
               <div key={x.n}><dt>Target {x.n}</dt><dd className="om-num om-pos" data-no-i18n translate="no">{px(x.price)} <small>{pipsBetween(r.symbol, s.entry, x.price)} pips{x.r != null ? ` · ${x.r}R` : ""}</small></dd></div>
             ))}
-          </dl>
-          {copy}
+          </>}
+        </dl>
+        {hasLevels && copy}
+      </div>
+
+      {chart.bars.length >= 1 ? (
+        <div className="om-play-chart" style={{ height: "auto" }}>
+          <SignalFocusChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={chart.tfMs} tfLabel={chart.tfLabel} price={generationPrice} priceLive={false} snapshot fitLevels
+            dec={chart.dec} levels={levels} viewKey={chart.viewKey}
+            direction={a.side === "Buy" ? "buy" : a.side === "Sell" ? "sell" : "neutral"} reference={a.kind === "idea"}
+            label={`${r.symbol}, the candles this play was analysed on, with its levels`} />
         </div>
-      )}
+      ) : <p className="om-play-note" role="status">Original candle chart unavailable — this play has no usable candle snapshot.</p>}
+
+      <p className="om-play-decision">{decision}</p>
+      {s.chased && r.status === "open" && <p className="om-play-note" role="note"><b>Price has moved past the ideal entry.</b> {s.chase_note}</p>}
 
       {ticket && (
         <section className="om-play-next" aria-label="Execute this signal">
@@ -132,14 +144,6 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
       )}
 
       <PlayBreakdown signal={s} interval={r.interval} />
-
-      {tb.bars.length >= 2 && (
-        <div className="om-play-chart">
-          <OmChart bars={tb.bars} timeKnown={tb.known} tfMs={TF_MS[r.interval] ?? 3600e3} tfLabel={r.interval} price={fin(r.live_price) ? r.live_price : r.price} priceLive={false}
-            dec={Math.max(0, Math.min(6, px(r.price).split(".")[1]?.length ?? 2))} levels={levels} viewKey={`${r.id}`}
-            label={`${r.symbol}, the candles this play was analysed on, with its levels`} />
-        </div>
-      )}
 
       <section className="om-play-track" aria-label="Since the play was made">
         <div>
@@ -169,7 +173,7 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
         </button>
         {why && (
           <div className="om-play-why-body">
-            <p className="om-label" data-no-i18n translate="no">Analysed {when} · price then {px(r.live_price ?? r.price)}{r.marketClosed ? " · market closed" : ""}</p>
+            <p className="om-label" data-no-i18n translate="no">Analysed {when} · {priceLabel.toLowerCase()} {px(generationPrice)}{r.marketClosed ? " · market closed" : ""}</p>
             <p className="om-label">{[r.market ? r.market.charAt(0).toUpperCase() + r.market.slice(1) : null, s.mode === "accelerator" ? "Accelerator" : s.mode === "institutional" ? "Institutional" : null, r.method ? METHOD_WORD[r.method] : null, s.grade ? `Grade ${s.grade}${fin(s.gate_score) ? ` · ${s.gate_score}/100` : ""}` : null].filter(Boolean).join(" · ")}</p>
             {(s.bias || s.setup) && (
               <dl className="om-kv">

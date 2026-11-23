@@ -10,6 +10,7 @@ import {
 import { axisMarks, candleTimeText, clockText, dayText, type TimedBar } from "@/lib/chart/candleTime";
 import { orderedLevelLabels } from "@/lib/chart/levelLabels";
 import { niceStep, priceText, type ChartLevel } from "@/lib/floor/chart";
+import "./om-chart.css";
 import "./chart-modal.css";
 
 /**
@@ -303,7 +304,7 @@ export function OmChart(p: OmChartProps) {
   const toggleFull = () => {
     if (!full && typeof document !== "undefined") {
       fullOwner.current = wrap.current?.closest<HTMLDialogElement>("dialog[open]") ?? null;
-      fullHost.current = fullOwner.current ?? document.querySelector(".om-app") ?? document.body;
+      fullHost.current = fullOwner.current ?? wrap.current?.closest<HTMLElement>("[data-om-chart-host]") ?? document.querySelector(".om-app") ?? document.body;
     }
     setFull((value) => !value);
   };
@@ -579,7 +580,7 @@ export function OmChart(p: OmChartProps) {
 
   // Keep the chart inside its owning dialog/shell for colours, and above Atlas in the native top layer.
   if (full && typeof document !== "undefined") {
-    const host = fullHost.current ?? document.querySelector(".om-app") ?? document.body;
+    const host = fullHost.current ?? wrap.current?.closest<HTMLElement>("[data-om-chart-host]") ?? document.querySelector(".om-app") ?? document.body;
     const sheet = fullOwner.current
       ? <dialog ref={fullDialog} className="om-ch-sheet om-ch-modal" aria-label={`${p.label}, full screen`}
         onCancel={(event) => { event.preventDefault(); event.stopPropagation(); setFull(false); }}

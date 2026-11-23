@@ -22,6 +22,7 @@ export type AtlasGenxResult = {
   price: number; data_status: string; session?: string;
   genx: GenxRead & { lifecycle?: string; engine_state?: string; setup_type?: string };
   candles?: { t: string; o: number; h: number; l: number; c: number }[];
+  candles_tf?: string;
 };
 export type AtlasSignalResult =
   | { kind: "plays"; result: PlayView; saved: "synced" | "device" | "unavailable" }

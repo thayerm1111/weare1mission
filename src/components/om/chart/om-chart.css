@@ -1,0 +1,48 @@
+/* ── the interactive chart (chart/OmChart.tsx): moved by hand, read by touch, never decorated ── */
+.om-ch {
+  position: absolute; inset: 0; outline: none; cursor: crosshair;
+  /* A sideways drag is the chart's; up and down stays the page's. Text in the plot is not selectable. */
+  touch-action: pan-y; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+.om-ch[data-grabbing] { cursor: grabbing; }
+.om-ch:focus-visible { outline: 2px solid var(--om-ai); outline-offset: 4px; border-radius: 8px; }
+.om-ch-svg { display: block; }
+.om-ch-read {
+  position: absolute; left: 0; top: 0; z-index: 2; display: flex; align-items: baseline; gap: 4px 12px;
+  overflow: hidden; white-space: nowrap; padding: 5px 9px; border-radius: 9px; background: var(--om-float);
+  color: var(--om-text-2); font-size: 13px; font-variant-numeric: tabular-nums; pointer-events: none;
+}
+.om-ch-read b { font-weight: 500; }
+.om-ch-tf { color: var(--om-text); font-weight: 600; }
+.om-ch-when { color: var(--om-text); }
+.om-ch-tag { padding: 0 7px; border-radius: 999px; border: 1px solid var(--om-edge-2); font-size: 12px; color: var(--om-text-2); }
+.om-ch-tools { position: absolute; right: 0; top: 0; z-index: 3; display: flex; gap: 6px; }
+.om-ch-tools button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 32px; height: 32px; padding: 0 10px;
+  border-radius: 10px; border: 1px solid var(--om-edge); background: var(--om-float); color: var(--om-text-2);
+  font: inherit; font-size: 13px; cursor: pointer; transition: color 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
+.om-ch-tools button:hover { color: var(--om-text); border-color: var(--om-edge-2); }
+.om-ch-tools button:active { background: var(--om-float-active); }
+.om-ch-tools button svg { width: 15px; height: 15px; flex: 0 0 auto; }
+.om-ch-tools .om-ch-live { color: var(--om-text); border-color: rgb(var(--om-ai-rgb) / 0.42); }
+.om-ch-edge { position: absolute; left: 0; bottom: 30px; z-index: 2; padding: 3px 9px; border-radius: 8px; background: var(--om-float); color: var(--om-text-2); font-size: 12px; pointer-events: none; }
+.om-ch-hold { position: absolute; inset: 0; }
+.om-ch-sheet {
+  position: fixed; inset: 0; z-index: 60; background: var(--om-page);
+  padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+}
+.om-ch-sheet .om-ch { position: relative; inset: auto; width: 100%; height: 100%; }
+
+/* OmChart is also used outside the app shell. Keep its own accessible hint and readout colours. */
+.om-ch .om-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.om-ch .om-pos { color: var(--om-pos); }
+.om-ch .om-neg { color: var(--om-neg); }
+
+@media (max-width: 640px) {
+  .om-ch-read { font-size: 12px; gap: 2px 8px; padding: 4px 7px; flex-wrap: wrap; white-space: normal; }
+  .om-ch-tools button { min-width: 36px; height: 36px; padding: 0 9px; }
+}
+@media (pointer: coarse) {
+  .om-ch-tools button { min-width: 40px; height: 40px; }
+}
