@@ -92,7 +92,7 @@ test("Atlas has direct navigation and a prominent signal button using its own ex
   assert.match(shell,/key: "atlas" as const, label: "Atlas Command Center".*href: "\/command-center", hard: true/);
   assert.doesNotMatch(shell,/if \(n\.key === "atlas"\) return <button/);
   assert.match(shell,/className="om-os-ask".*openAtlas\(\)/);
-  assert.match(floor,/className="om-live-command-link" href="\/command-center"/);
+  assert.match(floor,/href="\/command-center" className="om-terminal-center-link"/);
   assert.match(command,/data-generate-primary="" onClick=\{generate\}/);
   assert.match(command,/Generate Gold Signal/);
   assert.match(command,/setIdeaMounted\(true\); setIdeaRun\(Date\.now\(\)\); setDrawer\("idea"\)/);
