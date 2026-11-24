@@ -158,6 +158,7 @@
 .om-floor-os .om-os-performance :is(.om-wpip-explain, .om-streak-method) { margin-top: 10px; color: var(--om-text-2); font-size: .75rem; }
 .om-floor-os .om-os-performance :is(.om-wpip-explain, .om-streak-method) summary { min-height: 34px; font-size: .75rem; line-height: 1.45; }
 .om-floor-os .om-os-performance :is(.om-wpip-explain, .om-streak-method) p { color: var(--om-text-2); font-size: .8125rem; line-height: 1.65; }
+.om-floor-os .om-os-performance .om-wpip-desktop-notes { display: none; }
 
 /* FLOW and GENX streaks remain separate, readable cards. */
 .om-floor-os .om-os-performance .om-streak-grid { gap: 10px; }
@@ -260,6 +261,49 @@
   .om-floor-os .om-os-performance { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1.18fr) minmax(0, 1fr); }
   .om-floor-os .om-os-performance > .om-active-trades { grid-column: auto; }
   .om-floor-os .om-os-performance .om-active-grid { grid-template-columns: minmax(0, 1fr); }
+}
+/* Match the approved desktop density without constraining live trade content. */
+@media (min-width: 1251px) {
+  .om-os.om-app .om-flow-account { padding: 7px 22px; }
+  .om-os.om-app .om-flow-account-picker select { min-height: 28px; }
+  .om-floor-os .om-os-performance > :is(.om-winning-pips, .om-win-streaks, .om-active-trades) { padding: 14px; }
+  .om-floor-os .om-os-performance :is(.om-wpip-title, .om-streak-heading, .om-active-heading) { min-height: 28px; margin-bottom: 8px; gap: 8px; }
+  .om-floor-os .om-os-performance :is(.om-wpip-title h2, .om-streak-heading h2, .om-active-heading h2) { font-size: .9375rem; }
+  .om-floor-os .om-os-performance :is(.om-wpip-tools, .om-streak-tools) { min-height: 28px; font-size: .6875rem; }
+  .om-floor-os .om-os-performance :is(.om-wpip-tools button, .om-streak-tools button, .om-active-refresh) { width: 28px; height: 28px; min-width: 28px; min-height: 28px; flex-basis: 28px; border-radius: 8px; }
+  .om-floor-os .om-os-performance :is(.om-wpip-tools button, .om-streak-tools button, .om-active-refresh) svg { width: 14px; height: 14px; }
+  .om-floor-os .om-os-performance .om-wpip-periods { margin-bottom: 8px; padding: 2px; }
+  .om-floor-os .om-os-performance .om-wpip-periods button { min-height: 26px; padding: 3px 2px; font-size: .6875rem; }
+  .om-floor-os .om-os-performance :is(.om-wpip-grid, .om-streak-grid) { gap: 8px; }
+  .om-floor-os .om-os-performance :is(.om-wpip-card, .om-streak-card) { padding: 8px 10px; }
+  .om-floor-os .om-os-performance :is(.om-wpip-brand, .om-streak-identity) { gap: 6px; }
+  .om-floor-os .om-os-performance :is(.om-wpip-brand, .om-streak-identity) .om-product-icon { width: 22px; height: 22px; min-width: 22px; flex-basis: 22px; border-radius: 7px; }
+  .om-floor-os .om-os-performance :is(.om-wpip-brand b, .om-streak-identity h3) { font-size: .6875rem; line-height: 1.3; }
+  .om-floor-os .om-os-performance :is(.om-wpip-brand span, .om-streak-identity p) { margin-top: 2px; font-size: .6875rem; line-height: 1.25; }
+  .om-floor-os .om-os-performance .om-wpip-number { margin: 8px 0 5px; font-size: 1.625rem; line-height: 1.05; }
+  .om-floor-os .om-os-performance .om-wpip-number span { font-size: .625rem; }
+  .om-floor-os .om-os-performance .om-wpip-subcount { gap: 3px 6px; }
+  .om-floor-os .om-os-performance .om-wpip-subcount span:first-child { font-size: .6875rem; line-height: 1.3; }
+  .om-floor-os .om-os-performance .om-wpip-subcount svg { margin-top: 1px; width: 12px; height: 12px; flex-basis: 12px; }
+  .om-floor-os .om-os-performance :is(.om-wpip-status, .om-wpip-foot) { margin-top: 6px; font-size: .6875rem; line-height: 1.4; }
+  .om-floor-os .om-os-performance .om-wpip-card-note { display: none; }
+  .om-floor-os .om-os-performance .om-wpip-desktop-notes { display: block; }
+  .om-floor-os .om-os-performance :is(.om-wpip-explain, .om-streak-method) { margin-top: 6px; }
+  .om-floor-os .om-os-performance :is(.om-wpip-explain, .om-streak-method) summary { min-height: 26px; font-size: .6875rem; }
+  .om-floor-os .om-os-performance .om-streak-mark { width: 18px; height: 18px; }
+  .om-floor-os .om-os-performance .om-streak-mark svg { width: 12px; height: 12px; }
+  .om-floor-os .om-os-performance .om-streak-count { margin-top: 8px; gap: 3px 6px; }
+  .om-floor-os .om-os-performance .om-streak-count strong { font-size: 1.625rem; }
+  .om-floor-os .om-os-performance .om-streak-count > span { font-size: .6875rem; line-height: 1.3; }
+  .om-floor-os .om-os-performance .om-streak-pips { margin-top: 8px; padding-top: 6px; gap: 3px 6px; }
+  .om-floor-os .om-os-performance .om-streak-pips strong { font-size: 1rem; line-height: 1.25; }
+  .om-floor-os .om-os-performance :is(.om-streak-pips strong span, .om-streak-pips > span) { font-size: .6875rem; }
+  .om-floor-os .om-os-performance :is(.om-streak-status, .om-streak-explanation, .om-streak-time) { font-size: .6875rem; line-height: 1.3; }
+  .om-floor-os .om-os-performance .om-streak-status { margin-top: 6px; }
+  .om-floor-os .om-os-performance .om-streak-time { margin-top: 2px; }
+  .om-floor-os .om-os-performance .om-active-kicker { margin-bottom: 2px; font-size: .6875rem; }
+  .om-floor-os .om-os-performance .om-active-heading p { margin-top: 4px; font-size: .6875rem; line-height: 1.4; }
+  .om-floor-os .om-os-performance .om-active-empty { padding: 14px 12px; font-size: .75rem; }
 }
 @media (max-width: 799px) {
   .om-floor-os .om-os-performance > :is(.om-winning-pips, .om-win-streaks, .om-active-trades) { padding: 17px; }

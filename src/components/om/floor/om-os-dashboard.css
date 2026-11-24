@@ -31,3 +31,9 @@
   .om-os .om-floor.om-floor-os { gap: 12px; }
   .om-floor-os .om-floor-deep > summary { font-size: 12px; }
 }
+
+@media (min-width:1251px) {
+  .om-os .om-nav { height: 54px; min-height: 54px; padding-bottom: 0; }
+  .om-os .om-main { padding-top: 8px; }
+  .om-os .om-account-placement { margin-bottom: 10px; }
+}

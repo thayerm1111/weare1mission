@@ -246,12 +246,11 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, tf, on
           <div className="om-terminal-range-values"><div><span>Recent high</span><strong>{fmt(analysis.rangeHigh)}</strong></div><div><span>Recent low</span><strong>{fmt(analysis.rangeLow)}</strong></div></div>
         </aside>
         <section className="om-terminal-opportunities" aria-label="Conditional opportunities">
-          <div className="om-terminal-panel-heading"><Activity size={18} aria-hidden="true"/><h3>What to watch next</h3></div>
+          <div className="om-terminal-panel-heading"><Activity size={18} aria-hidden="true"/><h3>What to watch next</h3><span>{usable && mapped ? "CONDITIONAL" : "REFERENCE"}</span></div>
           {mapped ? <div className="om-terminal-scenario-grid">
-            <div className="om-terminal-scenario" data-trend="bullish"><div><ArrowUpRight size={18} aria-hidden="true"/><strong>Upside scenario</strong></div><b>{resistance != null ? fmt(resistance) : "Not established"}</b><p>{resistance != null ? "Watch for a close above resistance, then a successful retest. A rejection keeps the level in play." : "No resistance above the last closed price is established in this window."}</p></div>
-            <div className="om-terminal-scenario" data-trend="bearish"><div><ArrowDownRight size={18} aria-hidden="true"/><strong>Downside scenario</strong></div><b>{support != null ? fmt(support) : "Not established"}</b><p>{support != null ? "Watch for a close below support, then a failed reclaim. A hold keeps support in play." : "No support below the last closed price is established in this window."}</p></div>
+            <div className="om-terminal-scenario" data-trend="bullish"><div><ArrowUpRight size={18} aria-hidden="true"/><strong>Upside scenario</strong></div><b>{resistance != null ? fmt(resistance) : "Not established"}</b><p>{resistance != null ? "Close above resistance, then a successful retest. Rejection keeps the level in play." : "No resistance above the last closed price is established in this window."}</p></div>
+            <div className="om-terminal-scenario" data-trend="bearish"><div><ArrowDownRight size={18} aria-hidden="true"/><strong>Downside scenario</strong></div><b>{support != null ? fmt(support) : "Not established"}</b><p>{support != null ? "Close below support, then a failed reclaim. A hold keeps support in play." : "No support below the last closed price is established in this window."}</p></div>
           </div> : <p className="om-terminal-muted">The watchlist will populate when enough closed candles arrive.</p>}
-          <p className="om-terminal-watch-note">{usable && mapped ? "Conditional observations · confirmation required" : "Reference only · awaiting a current read"}</p>
         </section>
       </div>
       {inPlay && entry != null ? <section className="om-terminal-signal"><div className="om-live-plan-heading"><b>{market.engine} · {view.side?.toUpperCase() ?? "SETUP"}</b><span>{view.stage === "live" ? "Review entry and risk" : "Entry pending confirmation"}</span></div>
@@ -263,8 +262,7 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, tf, on
         <button className="om-live-talk" type="button" disabled={sample} onClick={() => openAtlas({ voice: true, context })}><Mic size={19} aria-hidden="true"/>Talk to Atlas</button>
         <button className="om-live-find" type="button" disabled={sample} onClick={signal}><Sparkles size={18} aria-hidden="true"/>{symbol === "XAUUSD" ? "Generate with GENX" : "Generate AI Play"}<ArrowUpRight size={15} aria-hidden="true"/></button>
       </div>
-      {eligibleRead && <details className="om-terminal-desk-context"><summary>Atlas gold desk context</summary><p>{eligibleRead.summary}</p></details>}
-      <div className="om-live-footnote"><span>Analysis: {answer?.asOf ? age(answer.asOf, now) : "not available"}{analysis.barsUsed ? " · " + analysis.barsUsed + " closed candles" : ""}</span><span>{inPlay ? "Market observations are separate from the confirmed setup." : usable && (view.stage === "live" || view.stage === "forming") ? "A setup is available to review in " + market.engine : "No confirmed trade shown · " + state}</span></div>
+      <div className="om-live-footnote"><span>Analysis: {answer?.asOf ? age(answer.asOf, now) : "not available"}{analysis.barsUsed ? " · " + analysis.barsUsed + " closed candles" : ""}</span>{eligibleRead && <details className="om-terminal-desk-context"><summary>Atlas gold desk context</summary><p>{eligibleRead.summary}</p></details>}<span>{inPlay ? "Market observations are separate from the confirmed setup." : usable && (view.stage === "live" || view.stage === "forming") ? "A setup is available to review in " + market.engine : "No confirmed trade shown · " + state}</span></div>
     </section>
   );
 }

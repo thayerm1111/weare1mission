@@ -223,29 +223,41 @@
 .om-terminal-explain { display: inline-flex; align-items: center; gap: 2px; min-height: 25px; padding: 2px 0 2px 9px; border: 0; border-left: 1px solid var(--om-edge-2); background: none; color: var(--om-ai); font: inherit; font-size: 11px; cursor: pointer; }
 .om-terminal-explain:disabled { opacity: .4; }
 .om-terminal-layout { margin-top: 12px; }
-.om-terminal-desk-context { color: var(--om-text-2); font-size: 12px; margin-top: 12px; }
+.om-terminal-desk-context { color: var(--om-text-2); font-size: 10px; margin: 0; }
+.om-terminal-desk-context[open] { flex-basis: 100%; order: 3; }
 .om-terminal-desk-context summary { color: var(--om-ai); cursor: pointer; }
-.om-terminal-desk-context p { line-height: 1.5; margin-top: 7px; }
+.om-terminal-desk-context p { font-size: 12px; line-height: 1.5; margin-top: 7px; }
 @media (min-width:1251px) {
   .om-os .om-floor-os .om-market-terminal { padding: 16px 22px 12px; }
   .om-market-terminal .om-live-brand > .om-product-icon { width: 60px; height: 60px; }
-  .om-terminal-eyebrow { font-size: 9px; }
-  .om-live-brand h2 { font-size: 35px; }
-  .om-live-brand p { font-size: 12px; }
-  .om-terminal-markets { margin: 12px 0 10px; }
-  .om-terminal-markets button { min-height: 44px; padding-block: 6px; }
-  .om-terminal-overview { padding-block: 8px; }
-  .om-terminal-price > strong { font-size: 33px; }
-  .om-terminal-chart-card, .om-terminal-level-map, .om-terminal-opportunities { padding: 12px; }
-  .om-terminal-chart { height: 205px; min-height: 205px; }
-  .om-live-chart-empty { min-height: 205px; }
-  .om-terminal-level { padding: 8px 11px; }
-  .om-terminal-level > strong { font-size: 25px; }
-  .om-terminal-scenario { padding: 8px 10px; }
-  .om-terminal-scenario > b { font-size: 22px; margin-block: 4px; }
+  .om-terminal-eyebrow { font-size: 9px; line-height: 1.25; }
+  .om-live-brand h2 { font-size: 34px; line-height: 1.02; }
+  .om-live-brand p { font-size: 12px; line-height: 1.4; }
+  .om-terminal-markets { margin: 10px 0 8px; }
+  .om-terminal-markets button { min-height: 42px; padding-block: 4px; }
+  .om-terminal-overview { padding-block: 6px; }
+  .om-terminal-label { font-size: 9px; line-height: 1.3; }
+  .om-terminal-price > strong { font-size: 31px; }
+  .om-terminal-layout { margin-top: 10px; }
+  .om-terminal-chart-card, .om-terminal-level-map, .om-terminal-opportunities { padding: 10px; }
+  .om-live-chart-heading { margin-bottom: 7px; }
+  .om-live-frames { padding: 2px; }
+  .om-live-frames button { min-height: 26px; }
+  .om-terminal-chart { height: 180px; min-height: 180px; }
+  .om-live-chart-empty { min-height: 180px; }
+  .om-terminal-chart-legend { margin-top: 5px; }
+  .om-terminal-level-map { gap: 7px; }
+  .om-terminal-level { padding: 6px 10px; }
+  .om-terminal-level > strong { font-size: 23px; margin-block: 2px; }
+  .om-terminal-range { display: none; }
+  .om-terminal-scenario-grid { gap: 7px; }
+  .om-terminal-scenario { padding: 6px 10px; }
+  .om-terminal-scenario > b { font-size: 22px; margin-block: 3px; }
+  .om-terminal-opportunities .om-terminal-panel-heading { margin-bottom: 8px; }
+  .om-terminal-opportunities .om-terminal-panel-heading > span { font-size: 8px; }
   .om-terminal-scenario p { font-size: 11px; line-height: 1.4; }
-  .om-live-actions { margin-top: 11px; gap: 14px; }
-  .om-live-actions button { min-height: 42px; padding-block: 8px; }
+  .om-live-actions { margin-top: 10px; gap: 14px; }
+  .om-live-actions button { min-height: 40px; padding-block: 7px; }
 }
 @media (max-width:760px) {
   .om-terminal-header { flex-wrap: wrap; }
