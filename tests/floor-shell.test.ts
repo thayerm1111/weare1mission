@@ -31,7 +31,7 @@ test('six destinations, in the order the owner gave, and no community among them
 });
 
 test('the phone has four clear destinations and groups every trading product under Tools', () => {
-  assert.deepEqual(TAB_ORDER.map((k) => APP_TABS.find((n) => n.key === k)!.label), ['Floor', 'Atlas', 'Tools', 'FLOW']);
+  assert.deepEqual(TAB_ORDER.map((k) => APP_TABS.find((n) => n.key === k)!.label), ['Floor', 'Gold Center', 'Tools', 'FLOW']);
   assert.equal(new Set(TAB_ORDER).size, 4, 'destinations are not duplicated');
   assert.equal(activeTabKey('/portal/tools', null), 'tools');
   for (const n of NAV) {
