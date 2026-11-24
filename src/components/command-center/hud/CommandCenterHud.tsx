@@ -728,8 +728,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   // does not make a closed market or the last good analysis into a current trading opportunity.
   const mobileClosed = !isReplay && (d?.marketOpen === false || feed.status === "closed");
   const mobileReadTitle = mobileClosed ? "Gold is closed."
-    : read?.summary ? openingSentence(read.summary)
-    : err ? "The read is unavailable." : "Reading gold…";
+    : err && !read ? "The read is unavailable." : read?.summary ? openingSentence(read.summary) : "Reading gold…";
   const mobileReadStatus = isReplay ? "Recorded read"
     : err ? "Last available read"
     : mobileClosed ? "Market closed"
@@ -1019,7 +1018,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             <h2>{mobileClosed ? "Market closed" : read ? leanLabel(read.lean) : "Awaiting analysis"}</h2>
           </div>
           <p className="atlas-clear-summary">{mobileReadTitle}</p>
-          {read?.summary && read.summary.trim() !== mobileReadTitle && <details className="atlas-clear-details"><summary>Full gold briefing</summary><p>{read.summary}</p></details>}
+          {read && <details className="atlas-clear-details"><summary>Full gold briefing and evidence</summary><p>{read.summary}</p><p>EVIDENCE STRENGTH: {read.score == null ? "—" : `${Math.abs(read.score)}/100`} · Directional agreement, not the probability of a winning trade.</p></details>}
           <div className="atlas-clear-facts">
             <div><span>Trend · {read?.htfTrend.tf ?? "—"}</span><strong>{cap(words(read?.htfTrend.state))}</strong></div>
             <div><span>Momentum</span><strong>{cap(words(read?.momentum.state))}</strong></div>
