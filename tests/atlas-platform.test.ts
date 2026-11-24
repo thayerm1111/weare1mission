@@ -142,17 +142,12 @@ test("the Command Center says what each section is for; the replay is named as o
   assert.ok(pick.length > 20 && !/voiceBus\.start|getUserMedia/.test(pick));
 });
 
-test("the OS dock exposes five real apps, marks the active destination, and respects reduced motion", () => {
+test("the OS dock exposes six real apps, marks the active destination, and respects reduced motion", () => {
   const shell = read("src/components/om/AppShell.tsx");
   const apps = shell.slice(shell.indexOf("const APPS = ["), shell.indexOf("function AppDock()"));
   const destinations = [...apps.matchAll(/\{ key: "([^"]+)" as const,[^}]*?href: "([^"]+)", hard: (true|false) \}/g)];
-  assert.deepEqual(destinations.map((item) => item[1]), ["atlas", "genx", "plays", "pulse", "flow"]);
+  assert.deepEqual(destinations.map((item) => item[1]), ["atlas", "genx", "strata", "plays", "pulse", "flow"]);
   for (const [, key, href, hard] of destinations) {
-    if (key === "atlas") {
-      assert.equal(href, "#atlas", "Atlas opens as an in-app conversation");
-      assert.equal(hard, "false", "opening Atlas does not reload into the gold desk");
-      continue;
-    }
     const target = NAV.find((item) => item.key === key)!;
     assert.ok(target, `${key} is a real platform destination`);
     assert.equal(href, target.href, `${key} shares the mobile navigation's destination`);
