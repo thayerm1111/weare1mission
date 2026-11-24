@@ -51,6 +51,8 @@ export type OmChartProps = {
   fitLevels?: boolean;
   dec: number;
   levels: ChartLevel[];
+  /** Optional line colours for a market-specific chart; all other charts keep their existing palette. */
+  levelColors?: Partial<Record<ChartLevel["kind"], string>>;
   zone?: { low: number; high: number } | null;
   /** The analysis the levels belong to, when it is not the current one: when it was made, and what to call it. */
   analysis?: { at: number; label: string } | null;
@@ -426,7 +428,7 @@ export function OmChart(p: OmChartProps) {
         <div className="om-ch-tools" onPointerDown={stop} style={compact ? { top: "auto", bottom: TIME_H + 8, right: AXIS + 4 } : undefined}>
           {moved(vp) && <button type="button" onClick={reset} title="Back to the automatic view (double-click the chart, or press 0)"><RotateCcw aria-hidden="true" />{!compact && "Reset"}</button>}
           {!atLive && (
-            <button type="button" onClick={toLive} className="om-ch-live" title={p.snapshot ? "Back to the newest candle in this saved snapshot (End)" : closedNow ? "To the newest candle the feed has. Gold is closed, so it is the last one before the close." : "Back to the newest candle, keeping the zoom (End)"}>
+            <button type="button" onClick={toLive} className="om-ch-live" title={p.snapshot ? "Back to the newest candle in this saved snapshot (End)" : closedNow ? "To the newest candle the feed has. The market is closed, so it is the last one before the close." : "Back to the newest candle, keeping the zoom (End)"}>
               {p.snapshot ? compact ? "Latest" : "Latest candle" : closedNow ? "Latest candle" : "Return to live"}<ChevronsRight aria-hidden="true" />
             </button>
           )}
@@ -504,8 +506,8 @@ export function OmChart(p: OmChartProps) {
             {/* levels the engine produced */}
             {levelX0 != null && lv.map(({ l, ly, labelY }) => (
               <g key={`${l.kind}${l.price}`} opacity={p.analysis ? 0.85 : 1}>
-                <line x1={levelX0} x2={plotW} y1={ly} y2={ly} style={{ stroke: LEVEL_COLOR[l.kind] }} strokeWidth="1" strokeDasharray={p.analysis ? "2 4" : "4 4"} />
-                {p.fitLevels && Math.abs(labelY - (ly - 6)) > 2 && <line x1={levelX0 + 3} x2={levelX0 + 8} y1={ly} y2={labelY - 4} style={{ stroke: LEVEL_COLOR[l.kind] }} strokeWidth="0.75" opacity="0.8" />}
+                <line x1={levelX0} x2={plotW} y1={ly} y2={ly} style={{ stroke: p.levelColors?.[l.kind] ?? LEVEL_COLOR[l.kind] }} strokeWidth="1" strokeDasharray={p.analysis ? "2 4" : "4 4"} />
+                {p.fitLevels && Math.abs(labelY - (ly - 6)) > 2 && <line x1={levelX0 + 3} x2={levelX0 + 8} y1={ly} y2={labelY - 4} style={{ stroke: p.levelColors?.[l.kind] ?? LEVEL_COLOR[l.kind] }} strokeWidth="0.75" opacity="0.8" />}
                 <text x={levelX0 + 10} y={labelY} fontSize="12.5" strokeWidth="4" strokeLinejoin="round" paintOrder="stroke" style={{ fill: "var(--om-text)", stroke: HALO, fontVariantNumeric: "tabular-nums" }}>{l.label} {priceText(l.price, dec)}</text>
               </g>
             ))}
