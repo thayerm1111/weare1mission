@@ -22,8 +22,8 @@ const walk = (dir: string): string[] => readdirSync(dir).flatMap((f) => {
 
 /* ── destinations ── */
 test('six destinations, in the order the owner gave, and no community among them', () => {
-  assert.deepEqual(NAV.map((n) => n.label), ['The Floor', 'OM AI Plays', 'GENX', 'Market Pulse', 'FLOW', 'Gold Command Center']);
-  assert.deepEqual(NAV.map((n) => n.href), ['/portal/trading', '/portal/signals', '/portal/genx', '/portal/trading?view=pulse', '/portal/trading?view=flow', '/command-center']);
+  assert.deepEqual(NAV.map((n) => n.label), ['The Floor', 'OM AI Plays', 'GENX', 'STRATA', 'Market Pulse', 'FLOW', 'Atlas Command Center']);
+  assert.deepEqual(NAV.map((n) => n.href), ['/portal/trading', '/portal/signals', '/portal/genx', '/portal/strata', '/portal/trading?view=pulse', '/portal/trading?view=flow', '/command-center']);
   const all = JSON.stringify({ NAV }).toLowerCase();
   for (const gone of ['leaderboard', 'leadership', 'inner circle', 'community', 'training', 'academy', 'schedule', 'collection', 'experiences', 'updates', 'team', 'prospects', 'comp-plan', 'rapid', 'matty', 'genfx', 'cashtrap', 'xaughost', 'auric', '/portal/om-ai']) {
     assert.ok(!all.includes(gone), `"${gone}" is not a destination of the trading platform`);
@@ -31,12 +31,12 @@ test('six destinations, in the order the owner gave, and no community among them
 });
 
 test('the phone has four clear destinations and groups every trading product under Tools', () => {
-  assert.deepEqual(TAB_ORDER.map((k) => APP_TABS.find((n) => n.key === k)!.label), ['Floor', 'Atlas', 'Tools', 'FLOW']);
+  assert.deepEqual(TAB_ORDER.map((k) => APP_TABS.find((n) => n.key === k)!.label), ['Floor', 'Gold Center', 'Tools', 'FLOW']);
   assert.equal(new Set(TAB_ORDER).size, 4, 'destinations are not duplicated');
   assert.equal(activeTabKey('/portal/tools', null), 'tools');
   for (const n of NAV) {
     const url = new URL(n.href, 'https://weare1mission.com');
-    assert.equal(activeTabKey(url.pathname, url.searchParams.get('view')), ['plays', 'genx', 'pulse'].includes(n.key) ? 'tools' : n.key, `${n.label} keeps the correct tab active`);
+    assert.equal(activeTabKey(url.pathname, url.searchParams.get('view')), ['plays', 'genx', 'pulse', 'strata'].includes(n.key) ? 'tools' : n.key, `${n.label} keeps the correct tab active`);
   }
   assert.equal(activeTabKey('/portal/account', null), null);
 });
@@ -46,8 +46,9 @@ test('the gold desk keeps its destination while the Atlas app tab opens an in-pl
   assert.equal(NAV.filter((n) => n.hard).length, 1);
   const shell = read('src/components/om/AppShell.tsx');
   assert.match(shell, /n\.hard\s*\?\s*<a key=\{n\.key\} href=\{n\.href\}/);
-  assert.equal(APP_TABS.find((n) => n.key === 'atlas')!.href, '#atlas');
-  assert.match(shell, /if \(n\.key === "atlas"\) return <button[^\n]*onClick=\{\(\) => openAtlas\(\)\}/);
+  assert.equal(APP_TABS.find((n) => n.key === 'atlas')!.href, '/command-center');
+  assert.equal(APP_TABS.find((n) => n.key === 'atlas')!.hard, true);
+  assert.doesNotMatch(shell, /if \(n\.key === "atlas"\) return <button/);
 });
 
 test('the lit destination follows the page, including a tool opened inside The Floor', () => {

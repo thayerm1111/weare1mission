@@ -102,3 +102,12 @@
   .om-tools-connections .om-tools-atlas { min-height: 75px; margin: 0; padding: 14px 2px; }
   .om-tools-connections .om-tools-atlas + .om-tools-atlas { border-top: 1px solid var(--om-hair); }
 }
+
+/* Featured dedicated Atlas gold workspace, not the general Atlas chat. */
+.om-gold-center-feature{position:relative;display:block;overflow:hidden;isolation:isolate;padding:24px;margin:0 0 22px;min-height:228px;border:1px solid rgba(220,186,122,.33);border-radius:24px;background:radial-gradient(ellipse at 95% 10%,rgba(201,164,92,.18),transparent 52%),linear-gradient(150deg,#1c2028,#11151c 75%);text-decoration:none;color:#f6f5f1}
+.om-gold-center-art{position:absolute;z-index:-1;right:-35px;top:-36px;width:250px;height:250px;color:#d5b67d;opacity:.36;pointer-events:none}.om-gold-center-art svg{width:100%;height:100%;stroke:currentColor;stroke-width:.65}
+.om-gold-center-feature-top{display:flex;align-items:center;gap:10px}.om-gold-center-feature-top>span{font-size:11px;color:#c5ad85;font-weight:650;letter-spacing:.15em}.om-gold-center-feature-top>svg{margin-left:auto;width:22px;height:22px;color:#e8d4ae}
+.om-gold-center-feature-body{margin:22px 0 18px;max-width:430px}.om-gold-center-feature-body>span{font-size:10px;font-weight:650;letter-spacing:.2em;color:#c6ae84}.om-gold-center-feature-body h2{font-size:clamp(26px,4.3vw,39px);font-weight:650;line-height:1.08;letter-spacing:-.05em;margin:5px 0 9px;color:#f6f5f1}.om-gold-center-feature-body p{font-size:14px;line-height:1.5;color:#d0d0d4;margin:0;max-width:36ch}
+.om-gold-center-feature-bottom{display:flex;align-items:center;flex-wrap:wrap;gap:10px 15px;border-top:1px solid rgba(255,255,255,.12);padding-top:15px}.om-gold-center-feature-bottom>span,.om-gold-center-feature-bottom>strong{display:inline-flex;gap:6px;align-items:center;font-size:12px;color:#d6d7dc}.om-gold-center-feature-bottom>span svg{color:#d9b77a}.om-gold-center-feature-bottom>strong{margin-left:auto;color:#f0d7a5;font-size:14px}
+.om-gold-center-feature:focus-visible{outline:2px solid #d9b77a;outline-offset:3px}.om-gold-center-feature:hover{border-color:#d9b77a}
+@media(max-width:520px){.om-gold-center-feature{padding:19px;min-height:0;border-radius:20px}.om-gold-center-art{width:210px;height:210px;right:-58px;opacity:.27}.om-gold-center-feature-body{margin:18px 0 15px}.om-gold-center-feature-bottom{gap:8px 11px}.om-gold-center-feature-bottom>span{font-size:11px}.om-gold-center-feature-bottom>strong{font-size:12px}}

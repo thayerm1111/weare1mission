@@ -12,12 +12,12 @@ const atlas=source("src/components/om/atlas/AtlasSignalCard.tsx");
 const atlasChart=source("src/components/om/atlas/AtlasSignalChart.tsx");
 const command=source("src/components/command-center/hud/CommandCenterHud.tsx");
 
-test("All four tools render the same premium chart-and-direction visual language",()=>{
+test("Trading tools retain chart-and-direction visuals and Atlas has a simplified gold briefing",()=>{
   assert.match(strata,/<VisionDirection/);
   assert.match(genx,/<VisionDirection/);
   assert.match(plays,/<VisionDirection/);
   assert.match(atlas,/<VisionDirection/);
-  assert.match(command,/<VisionDirection/);
+  assert.match(command,/className="atlas-clear-brief"/);
   assert.match(atlasChart,/<VisionChart/);
   assert.match(plays,/<VisionChart/);
   assert.match(genx,/<VisionChart/);
@@ -75,11 +75,39 @@ test("Atlas signals keep actual GENX/Plays result model and manual trade review"
   assert.match(atlas,/ExecuteSignal/);
   assert.match(command,/<GoldChart/);
   assert.match(command,/<ReadCard/);
-  assert.match(command,/<VisionDirection/);
+  assert.match(command,/className="atlas-clear-brief"/);
 });
 test("Score is never presented as a promised win probability",()=>{
   assert.match(direction,/scoreName/);
   assert.match(strata,/STRUCTURE SCORE/);
   assert.match(command,/EVIDENCE STRENGTH/);
   assert.match(command,/not the probability of a winning trade/);
+});
+
+test("Atlas has direct navigation and a prominent signal button using its own existing generator",()=>{
+  const nav=source("src/lib/floor/nav.ts");
+  const shell=source("src/components/om/AppShell.tsx");
+  const floor=source("src/components/om/floor/AtlasLiveDesk.tsx");
+  assert.match(nav,/key: "atlas", label: "Gold Center", href: "\/command-center", hard: true/);
+  assert.match(shell,/key: "atlas" as const, label: "Atlas Command Center".*href: "\/command-center", hard: true/);
+  assert.doesNotMatch(shell,/if \(n\.key === "atlas"\) return <button/);
+  assert.match(shell,/className="om-os-ask".*openAtlas\(\)/);
+  assert.match(floor,/className="om-live-command-link" href="\/command-center"/);
+  assert.match(command,/data-generate-primary="" onClick=\{generate\}/);
+  assert.match(command,/Generate Gold Signal/);
+  assert.match(command,/setIdeaMounted\(true\); setIdeaRun\(Date\.now\(\)\); setDrawer\("idea"\)/);
+  assert.match(command,/endpoint=\{isReplay \? endpoint : "\/api\/command-center\/idea"\}/);
+  assert.match(command,/What Atlas is watching/);
+  assert.match(command,/What changes the view/);
+  assert.match(command,/May return no valid trade\. Does not place an order/);
+});
+
+test("Gold Command Center is featured first in Tools and retains actual engine readings",()=>{
+  const tools=source("src/components/om/ToolsHome.tsx");
+  assert.match(tools,/href="\/command-center" className="om-gold-center-feature"/);
+  assert.ok(tools.indexOf("om-gold-center-feature")<tools.indexOf("om-tools-start"));
+  assert.match(command,/directionScore.*read\?\.score/);
+  assert.match(command,/atlas-strength-mark/);
+  assert.match(command,/atlas-clear-frames/);
+  assert.match(command,/setTf\(b.id\); scrollToChart\(\)/);
 });

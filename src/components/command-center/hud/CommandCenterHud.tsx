@@ -1,11 +1,10 @@
 "use client";
 import { ProductIcon } from "@/components/om/ProductIcon";
-import { VisionDirection, type VisionFact } from "@/components/om/vision/VisionDirection";
 import "./atlas-mobile.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  AlertTriangle, ArrowUp, BarChart3, Bell, BookOpen, ChevronDown, ChevronRight, ChevronUp, Globe2, History, Layers, LineChart, Maximize2, Menu, Mic, PenLine, Radar, RefreshCw,
+  AlertTriangle, ArrowDownRight, ArrowLeftRight, ArrowUp, ArrowUpRight, BarChart3, Bell, BookOpen, ChevronDown, ChevronRight, ChevronUp, Globe2, History, Layers, LineChart, Maximize2, Menu, Mic, PenLine, Radar, RefreshCw,
   Settings, SlidersHorizontal, Sparkles, Square, Target, X, Zap,
 } from "lucide-react";
 import { H, fmt2, LABEL, alpha } from "./theme";
@@ -705,17 +704,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   const atlasVisionBias = read?.lean === "bullish_lean" ? "buy" as const :
     read?.lean === "bearish_lean" ? "sell" as const :
     read?.lean === "balanced" ? "range" as const : "mixed" as const;
-  const atlasTone = (value:unknown):VisionFact["tone"] =>
-    value === "up" || value === "rising" ? "up":
-    value === "down" || value === "falling" ? "down":
-    value === "range" || value === "flat" ? "neutral":"watch";
-  const atlasVisionFacts:VisionFact[]=[
-    {label:"HIGHER TF",value:read?.htfTrend.state??"Awaiting",tone:atlasTone(read?.htfTrend.state)},
-    {label:"MOMENTUM",value:read?.momentum.state??"Awaiting",tone:atlasTone(read?.momentum.state)},
-    {label:"FOR LEAN",value:read?read.evidenceFor.length+" observations":"Awaiting",tone:read?.evidenceFor.length?"ok":"watch"},
-    {label:"AGAINST",value:read?read.evidenceAgainst.length+" objections":"Awaiting",tone:read?.evidenceAgainst.length?"watch":"ok"},
-    {label:"SETUP",value:read?.setupStage?.replace(/_/g," ")??"Awaiting",tone:read?.setupStage==="ready"?"ok":"watch"},
-  ];
+  const directionScore = read?.lean !== "insufficient_data" && typeof read?.score === "number" && Number.isFinite(read.score) ? Math.max(-100, Math.min(100, Math.round(read.score))) : null;
   const feed = lf.feed;
   const feedCol = toneCol(FEED_TONE[feed.status]);
   const analysisAt = d?.analysis?.analysisAt ?? d?.at ?? null;
@@ -740,8 +729,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   // does not make a closed market or the last good analysis into a current trading opportunity.
   const mobileClosed = !isReplay && (d?.marketOpen === false || feed.status === "closed");
   const mobileReadTitle = mobileClosed ? "Gold is closed."
-    : read?.summary ? openingSentence(read.summary)
-    : err ? "The read is unavailable." : "Reading gold…";
+    : err && !read ? "The read is unavailable." : read?.summary ? openingSentence(read.summary) : "Reading gold…";
   const mobileReadStatus = isReplay ? "Recorded read"
     : err ? "Last available read"
     : mobileClosed ? "Market closed"
@@ -839,10 +827,10 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       <style dangerouslySetInnerHTML={{ __html: HUD_CSS + DESK }} />
       {tourOpen && <HudTour onClose={() => setTourOpen(false)} />}
 
-      {toFloor && <div className="om-atlas-os-heading"><ProductIcon kind="atlas" size="lg" /><div><span>GOLD INTELLIGENCE</span><h1>Atlas</h1><p>Your read on gold. The context, the setup, the next move.</p></div></div>}
+      {toFloor && <div className="om-atlas-os-heading"><ProductIcon kind="atlas" size="lg" /><div><span>GOLD INTELLIGENCE</span><h1>Atlas Command Center</h1><p>Your live gold workspace.</p></div></div>}
       {toFloor && <div className="atlas-pocket-header">
         <span className="atlas-pocket-mark" aria-hidden="true"><Sparkles /></span>
-        <div><h1>Atlas</h1><span>Gold</span></div>
+        <div><h1>Atlas</h1><span>Gold Command Center</span></div>
         <button type="button" aria-label="Atlas history" onClick={() => { setNav("JOURNAL"); setDrawer("journal"); }}><History /></button>
         <button type="button" aria-label="Atlas menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((x) => !x)}><Menu /></button>
       </div>}
@@ -1020,20 +1008,57 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       )}
 
       {/* ── MAIN GRID ─────────────────────────────────────────────────── */}
-      {toFloor && <div className="atlas-vision-pocket" aria-label="Atlas price-action read">
-        <VisionDirection product="ATLAS" eyebrow="ONE MISSION · GOLD MARKET INTELLIGENCE"
-          bias={atlasVisionBias} quote={headPrice} quoteSymbol="XAU/USD"
-          quoteLabel={isReplay?"REPLAY":feed.status==="live"?"LIVE TICK":"RECORDED"}
-          status={isReplay?"REPLAY":mobileClosed?"MARKET CLOSED":feed.status==="live"?"LIVE FEED":"FEED DELAYED"}
-          score={read?.score==null?null:Math.abs(read.score)} scoreName="EVIDENCE STRENGTH"
-          tagline={read?.setupStage==="ready"?"A QUALIFIED SETUP IS READY FOR REVIEW":
-            read?.summary?openingSentence(read.summary):"AWAITING THE NEXT VERIFIED MARKET READ"}
-          facts={atlasVisionFacts}
-          note="Evidence strength is directional agreement, not the probability of a winning trade.">
-          <button type="button" className="atlas-vision-tools" aria-expanded={mobileChartTools}
-            onClick={()=>setMobileChartTools(x=>!x)}><SlidersHorizontal size={15}/>Chart controls</button>
-        </VisionDirection>
-      </div>}
+      {toFloor && <section className="atlas-clear-brief" aria-label="Atlas gold briefing">
+        <div className="atlas-clear-main">
+          <div className="atlas-clear-meta">
+            <span><i data-live={feed.status === "live" && !err && !mobileClosed} />{mobileReadStatus}</span>
+            <span title={feedTitle}>XAU/USD · {quoteAge}</span>
+          </div>
+          <div className="atlas-clear-direction" data-bias={mobileClosed || !read || err ? "mixed" : atlasVisionBias}>
+            <div className="atlas-direction-orb" aria-hidden="true">
+              <svg viewBox="0 0 80 80" fill="none"><circle cx="40" cy="40" r="36"/><circle cx="40" cy="40" r="29" strokeDasharray="2 5"/><circle cx="40" cy="40" r="20"/></svg>
+              {mobileClosed || !read || err ? <ArrowLeftRight/> : atlasVisionBias === "buy" ? <ArrowUpRight/> : atlasVisionBias === "sell" ? <ArrowDownRight/> : <ArrowLeftRight/>}
+            </div>
+            <div className="atlas-direction-copy"><span>{err ? "Last market direction" : "Market direction"}</span><h2>{mobileClosed ? "Market closed" : read ? leanLabel(read.lean) : "Awaiting analysis"}</h2>{read?.strength && !mobileClosed && <small>{cap(read.strength)} directional evidence</small>}</div>
+            <div className="atlas-direction-quote"><span>{feed.status === "live" && !err && !mobileClosed ? "Live gold price" : "Last available price"}</span><strong>{headPrice == null ? "—" : fmt2(headPrice)}</strong><small>USD / oz</small></div>
+          </div>
+          <p className="atlas-clear-summary">{mobileReadTitle}</p>
+          {read && <details className="atlas-clear-details"><summary>Full gold briefing and evidence</summary><p>{read.summary}</p><p>EVIDENCE STRENGTH: {read.score == null ? "—" : `${Math.abs(read.score)}/100`} · Directional agreement, not the probability of a winning trade.</p></details>}
+          <div className="atlas-strength" aria-label={directionScore == null ? "Evidence balance unavailable" : "Signed evidence balance " + directionScore + " out of 100"}>
+            <div className="atlas-strength-head"><span>Directional evidence</span><strong>{directionScore == null ? "—" : (directionScore > 0 ? "+" : "") + directionScore + " / 100"}</strong></div>
+            <div className="atlas-strength-track" aria-hidden="true"><i className="atlas-strength-center"/>{directionScore != null && <i className="atlas-strength-mark" style={{left: ((directionScore + 100) / 2) + "%"}}/>}</div>
+            <div className="atlas-strength-labels"><span>Bearish</span><span>Balanced</span><span>Bullish</span></div>
+          </div>
+          <div className="atlas-clear-facts">
+            <div><span>Trend · {read?.htfTrend.tf ?? "—"}</span><strong>{cap(words(read?.htfTrend.state))}</strong></div>
+            <div><span>Momentum</span><strong>{cap(words(read?.momentum.state))}</strong></div>
+            <div><span>Setup status</span><strong>{mobileClosed ? "Closed" : err ? "Last read" : !read ? "Waiting" : read.setupStage === "ready" ? "Ready to review" : read.setupStage === "in_trade" ? "In trade" : read.setupStage === "none" ? "No valid setup" : "Watching"}</strong></div>
+          </div>
+          <small className="atlas-clear-age">Analysis: {freshness} · Direction is not an entry.</small>
+        </div>
+        <div className="atlas-clear-action">
+          <div className="atlas-clear-conditions">
+            <button type="button" disabled={mobileClosed || !read?.nextWatch?.ref} onClick={() => { if (read?.nextWatch?.ref) pointAt({ ref: read.nextWatch.ref, label: "Atlas is watching" }); }}><span><Target size={14} aria-hidden="true"/> What Atlas is watching</span><strong>{mobileClosed ? mobileWatch : read?.nextWatch?.text ?? mobileWatch}</strong></button>
+            <button type="button" disabled={mobileClosed || !read?.invalidation || (!read.invalidation.ref && read.invalidation.price == null)} onClick={() => { if (read?.invalidation) pointAt({ ref: read.invalidation.ref, price: read.invalidation.price ?? undefined, label: "Changes the view" }); }}><span><AlertTriangle size={14} aria-hidden="true"/> What changes the view</span><strong>{mobileClosed ? mobileInvalidation : read?.invalidation?.text ?? mobileInvalidation}</strong></button>
+          </div>
+          <button type="button" className="atlas-clear-generate" data-generate-primary="" onClick={generate}><Sparkles size={22} aria-hidden="true" /><span><strong>Generate Gold Signal</strong><small>Entry · Stop loss · Take profits</small></span><ChevronRight size={20} aria-hidden="true" /></button>
+          <small className="atlas-clear-disclaimer">Uses Atlas’s existing gold engine. May return no valid trade. Does not place an order.</small>
+          <div className="atlas-clear-secondary">
+            <button type="button" onClick={() => openTalk("CHAT")}><Mic size={16} aria-hidden="true" />Ask Atlas</button>
+            <button type="button" className="atlas-vision-tools" aria-expanded={mobileChartTools} onClick={() => setMobileChartTools(x => !x)}><SlidersHorizontal size={15} aria-hidden="true" />Chart controls</button>
+            {shownIdea && <button type="button" onClick={openIdea}>Last signal<ChevronRight size={15}/></button>}
+          </div>
+        </div>
+        <div className="atlas-clear-alignment">
+          <div className="atlas-clear-alignment-heading"><span>Timeframe alignment</span><small>{intel ? intel.alignment.agree + " of " + intel.alignment.rows.length + " agree" : "Awaiting data"}</small></div>
+          <div className="atlas-clear-frames" role="group" aria-label="Chart timeframe and market trend">
+            {TF_BTNS.map((b) => {
+              const r = intel?.alignment.rows.find(x => x.tf === b.id);
+              return <button key={b.id} type="button" aria-pressed={tf === b.id} onClick={() => { setTf(b.id); scrollToChart(); }} data-trend={r?.dir ?? "neutral"}><span>{b.label}</span><strong>{r?.dir === "up" ? <ArrowUpRight size={16}/> : r?.dir === "down" ? <ArrowDownRight size={16}/> : <ArrowLeftRight size={16}/>} {r?.word ?? "No read"}</strong></button>;
+            })}
+          </div>
+        </div>
+      </section>}
       <div className="hud-grid">
         {/* LEFT — the read, the timeframes, the levels */}
         <div className="hud-col hud-left">
@@ -1160,7 +1185,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             <div className="atlas-pocket-timeframes" role="group" aria-label="Gold chart timeframe">
               {TF_BTNS.map((b) => <button key={b.id} type="button" aria-pressed={tf === b.id} onClick={() => setTf(b.id)}>{b.label}</button>)}
             </div>
-            <div className="atlas-pocket-conditions">
+            <div className="atlas-pocket-conditions atlas-duplicate-conditions">
               <button type="button" className="atlas-pocket-condition" disabled={mobileClosed || !read?.nextWatch?.ref} onClick={() => { if (read?.nextWatch?.ref) pointAt({ ref: read.nextWatch.ref, label: "Atlas is watching" }); }}>
                 <span>Watching next</span><strong>{mobileWatch}</strong>
               </button>
@@ -1171,7 +1196,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             {trade?.active && <button type="button" className="atlas-pocket-position" onClick={() => setDrawer("trade")}><span>Open {trade.side} position</span><span>{trade.metrics ? `${trade.metrics.pips >= 0 ? "+" : ""}${Math.round(trade.metrics.pips)} pips` : "View trade"}<ChevronRight /></span></button>}
             {shownIdea && <button type="button" className="atlas-pocket-position" onClick={openIdea}><span>Your gold setup</span><ChevronRight /></button>}
             <button type="button" className="atlas-pocket-analysis" aria-expanded={mobileAnalysis} onClick={() => setMobileAnalysis((x) => !x)}><span>{mobileAnalysis ? "Hide analysis" : "View analysis"}</span>{mobileAnalysis ? <ChevronUp /> : <ChevronRight />}</button>
-            <button type="button" className="atlas-pocket-generate" data-generate-pocket="" onClick={generate}><Sparkles />Generate gold setup</button>
+            <button type="button" className="atlas-pocket-generate" data-generate-pocket="" onClick={generate}><Sparkles />Generate Gold Signal</button>
           </div>}
 
           <IndicatorsPanel className="hud-ind" d={d} open={indicatorsOpen} onToggle={() => setIndicatorsOpen((x) => !x)} freshness={freshness} />
