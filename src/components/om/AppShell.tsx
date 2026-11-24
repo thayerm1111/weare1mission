@@ -154,7 +154,7 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
   const screen = here ? NAV.find((n) => n.key === here)?.label ?? null : null;
   const returnToTop = (event: ReactMouseEvent<HTMLAnchorElement>, key: AppTabKey) => {
     // Tapping Tools from an engine must open the picker; only re-tap the actual hub to scroll up.
-    if (tabHere !== key || (key === "tools" && path !== "/portal/tools") || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (tabHere !== key || (key === "tools" && path !== "/portal/tools") || (key === "atlas" && path !== "/command-center") || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   };
