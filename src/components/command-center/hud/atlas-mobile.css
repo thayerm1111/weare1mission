@@ -294,3 +294,13 @@
 @media(max-width:767px){.om-os-atlas .atlas-clear-brief{padding:14px;gap:14px}.atlas-clear-direction{gap:8px;padding:12px 10px}.atlas-clear-brief .atlas-direction-orb{width:42px;height:42px;flex-basis:42px}.atlas-direction-orb>svg:last-child{width:21px;height:21px}.atlas-direction-copy h2{font-size:25px}.atlas-direction-quote strong{font-size:20px}.atlas-direction-copy small,.atlas-direction-quote small{font-size:10px}.atlas-clear-generate{min-height:70px}.atlas-clear-generate strong{font-size:18px}.atlas-clear-frames{gap:4px}.atlas-clear-frames button{padding:7px 4px;text-align:center;min-height:58px}.atlas-clear-frames button>strong{justify-content:center;flex-direction:column;gap:2px;font-size:10px}.atlas-clear-frames button>strong svg{width:14px;height:14px}.atlas-clear-facts>div{padding:8px}.atlas-clear-conditions button{padding:10px}.atlas-pocket-timeframes{display:none!important}.atlas-clear-action{gap:9px}}
 @media(max-width:380px){.atlas-clear-direction{flex-wrap:wrap}.atlas-direction-quote{margin-left:auto}.atlas-direction-copy h2{font-size:22px}.atlas-direction-quote strong{font-size:18px}}
 @media(prefers-reduced-motion:reduce){.atlas-clear-generate{transition:none}}
+
+/* Keep the high-priority signal within the first phone viewport; the details
+   and timeframe strip follow it, while desktop retains the side-by-side desk. */
+@media(max-width:767px){
+ .atlas-clear-main,.atlas-clear-action{display:contents}
+ .atlas-clear-meta{order:0}.atlas-clear-direction{order:1}.atlas-clear-summary{order:2}
+ .atlas-clear-brief .atlas-clear-generate{order:3}.atlas-clear-brief .atlas-clear-disclaimer{order:4;margin-top:-8px}
+ .atlas-clear-brief .atlas-clear-secondary{order:5}.atlas-strength{order:6}.atlas-clear-facts{order:7}
+ .atlas-clear-conditions{order:8}.atlas-clear-details{order:9}.atlas-clear-age{order:10}.atlas-clear-alignment{order:11}
+}
