@@ -195,6 +195,7 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, tf, on
         <div className="om-live-brand"><ProductIcon kind="atlas" size="md" /><div><b>Atlas <em>LIVE</em></b><small>Market command center</small></div></div>
         <span className="om-live-state" data-live={streaming}><i />{sample ? "SAMPLE" : !marketOpen ? "MARKET CLOSED" : streaming ? "LIVE TICKS" : "FEED DELAYED"}</span>
       </div>
+      <a className="om-live-command-link" href="/command-center"><ProductIcon kind="atlas" size="sm" /><span><strong>Atlas Command Center</strong><small>Gold briefing · live chart · generate signals</small></span><ArrowUpRight size={19} aria-hidden="true" /></a>
       <div className="om-live-pairs" role="group" aria-label="Choose market">
         {MARKETS.map((m) => <button key={m.key} type="button" aria-pressed={m.key === symbol}
           disabled={sample && m.key !== "XAUUSD"} onClick={() => setSymbol(m.key)}>{m.td}</button>)}
