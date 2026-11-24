@@ -37,7 +37,7 @@ export const TAB_ORDER: AppTabKey[] = ["floor", "atlas", "tools", "flow"];
 export const APP_TABS: { key: AppTabKey; label: string; href: string; hard?: boolean }[] = [
   { key: "floor", label: "Floor", href: "/portal/trading" },
   // Atlas opens the full gold workspace; Ask Atlas remains a separate assistant action.
-  { key: "atlas", label: "Atlas", href: "/command-center", hard: true },
+  { key: "atlas", label: "Gold Center", href: "/command-center", hard: true },
   { key: "tools", label: "Tools", href: "/portal/tools" },
   { key: "flow", label: "FLOW", href: "/portal/trading?view=flow" },
 ];
