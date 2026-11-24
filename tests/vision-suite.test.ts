@@ -88,7 +88,7 @@ test("Atlas has direct navigation and a prominent signal button using its own ex
   const nav=source("src/lib/floor/nav.ts");
   const shell=source("src/components/om/AppShell.tsx");
   const floor=source("src/components/om/floor/AtlasLiveDesk.tsx");
-  assert.match(nav,/key: "atlas", label: "Atlas", href: "\/command-center", hard: true/);
+  assert.match(nav,/key: "atlas", label: "Gold Center", href: "\/command-center", hard: true/);
   assert.match(shell,/key: "atlas" as const, label: "Atlas Command Center".*href: "\/command-center", hard: true/);
   assert.doesNotMatch(shell,/if \(n\.key === "atlas"\) return <button/);
   assert.match(shell,/className="om-os-ask".*openAtlas\(\)/);
@@ -100,4 +100,14 @@ test("Atlas has direct navigation and a prominent signal button using its own ex
   assert.match(command,/What Atlas is watching/);
   assert.match(command,/What changes the view/);
   assert.match(command,/May return no valid trade\. Does not place an order/);
+});
+
+test("Gold Command Center is featured first in Tools and retains actual engine readings",()=>{
+  const tools=source("src/components/om/ToolsHome.tsx");
+  assert.match(tools,/href="\/command-center" className="om-gold-center-feature"/);
+  assert.ok(tools.indexOf("om-gold-center-feature")<tools.indexOf("om-tools-start"));
+  assert.match(command,/directionScore.*read\?\.score/);
+  assert.match(command,/atlas-strength-mark/);
+  assert.match(command,/atlas-clear-frames/);
+  assert.match(command,/setTf\(b.id\); scrollToChart\(\)/);
 });
