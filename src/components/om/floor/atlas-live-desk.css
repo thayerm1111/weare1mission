@@ -157,3 +157,6 @@
  .om-terminal-scenario-grid{gap:7px}.om-terminal-scenario{padding:11px}.om-terminal-scenario>div{font-size:12px;gap:5px}.om-terminal-scenario>div svg{width:17px;height:17px}.om-terminal-scenario>b{font-size:21px}.om-terminal-scenario p{font-size:12px}.om-market-terminal .om-live-actions button{font-size:12px}
 }
 @media(max-width:390px){.om-market-letter{display:none}.om-terminal-header-actions .om-live-state{font-size:8px}.om-terminal-center-link{font-size:9px}.om-terminal-scenario-grid{grid-template-columns:1fr}.om-terminal-setup-state{max-width:96px}.om-terminal-level>strong{font-size:20px}}
+
+.om-terminal-chart-legend i[data-kind=support]{border-color:var(--om-pos)}.om-terminal-chart-legend i[data-kind=resistance]{border-color:var(--om-neg)}
+@media(max-width:760px){.om-terminal-layout .om-terminal-level-map{order:-1}}
