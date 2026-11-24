@@ -18,6 +18,13 @@ export function ToolsHome() {
   return <div className="om-tools-home">
     <header><p className="om-label">AI-powered trading</p><h1>Find your next signal.</h1><p className="om-tools-intro">Your tools work together, with Atlas alongside you.</p></header>
 
+    <a href="/command-center" className="om-gold-center-feature" aria-label="Open Atlas Gold Command Center">
+      <div className="om-gold-center-art" aria-hidden="true"><svg viewBox="0 0 200 200" fill="none"><circle cx="100" cy="100" r="83"/><circle cx="100" cy="100" r="62"/><circle cx="100" cy="100" r="40"/><path d="M100 6v188M6 100h188M34 34l132 132M166 34L34 166" strokeDasharray="3 9"/><path d="M100 34l48 93H52z" strokeWidth="1.5"/><circle cx="100" cy="100" r="9" fill="currentColor" stroke="none"/></svg></div>
+      <div className="om-gold-center-feature-top"><ProductIcon kind="atlas" size="md"/><span>ATLAS / XAUUSD</span><ArrowUpRight aria-hidden="true"/></div>
+      <div className="om-gold-center-feature-body"><span>GOLD INTELLIGENCE</span><h2>Gold Command Center</h2><p>Live market direction, interactive gold charts and Atlas-generated trade setups.</p></div>
+      <div className="om-gold-center-feature-bottom"><span><Activity size={15} aria-hidden="true"/> Market read</span><span><Sparkles size={15} aria-hidden="true"/> Generate signal</span><strong>Open <ChevronRight size={16} aria-hidden="true"/></strong></div>
+    </a>
+
     <section className="om-tools-start" aria-label="Start with Atlas">
       <div className="om-tools-start-heading"><ProductIcon kind="atlas" size="md" /><div><h2>Start with Atlas</h2><p>Tell Atlas what you want to trade. Build and review the signal right here.</p></div></div>
       <div className="om-tools-start-actions">
@@ -52,12 +59,8 @@ export function ToolsHome() {
     </div>
 
     <div className="om-tools-connections">
-      <a className="om-tools-atlas" href="/command-center"><GlobeMark /><span>Atlas’s dedicated gold desk<strong>Gold Command Center</strong></span><ArrowUpRight aria-hidden="true" /></a>
       <Link className="om-tools-atlas" href="/portal/trading?view=flow"><Waves aria-hidden="true" /><span>Connected accounts and risk<strong>Manage FLOW</strong></span><ChevronRight aria-hidden="true" /></Link>
     </div>
   </div>;
 }
 
-function GlobeMark() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><circle cx="12" cy="12" r="9" /><ellipse cx="12" cy="12" rx="4" ry="9" /><path d="M3 12h18M5 6.5c4 2 10 2 14 0M5 17.5c4-2 10-2 14 0" /></svg>;
-}
