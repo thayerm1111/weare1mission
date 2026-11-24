@@ -153,12 +153,12 @@ export function WinningPipsPanel({ account, accountsKnown, switching, hideAccoun
         <SourceCard source="flow" metrics={currentData?.flow} period={period}
           loading={loading} stale={failed} hidden={hideAccountPips} account={account} sample={sample}/>
       </div>
-      <div className="om-wpip-bottom">
-        <span>GENX = opportunities from graded community calls · FLOW = your recorded account executions.</span>
-        {currentData&&<span>Updated {time(currentData.asOf)} · {zone}</span>}
-      </div>
       <details className="om-wpip-explain">
         <summary><Info size={14} aria-hidden="true"/>How winning pips are counted</summary>
+        <div className="om-wpip-bottom">
+          <span>GENX = opportunities from graded community calls · FLOW = your recorded account executions.</span>
+          {currentData&&<span>Updated {time(currentData.asOf)} · {zone}</span>}
+        </div>
         <p>Today, week (Monday onward), month and year follow your device’s time zone. All Time includes every retained completed outcome in the ledger. We count each closed FLOW position once using its final recorded result, including partial-exit weighting. GENX counts each real, entered, graded callout once—not its followers. Positive results add pips and one win; losses and flat outcomes add nothing to the winning totals. Open, ungraded and incomplete records are excluded. These are gross winning pips, not net profitability. The two sources are never summed because FLOW may follow GENX and that could count the same idea twice.</p>
       </details>
     </section>

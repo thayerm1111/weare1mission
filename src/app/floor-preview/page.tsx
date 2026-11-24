@@ -8,7 +8,7 @@ import { SETUP_MINUTES } from "@/lib/setupLock";
 import { CC_PASS_COST, CC_PASS_MS } from "@/lib/ccPass";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "The Floor — design review", robots: { index: false, follow: false } };
+export const metadata = { title: "OM OS — design review", robots: { index: false, follow: false } };
 
 const STATES: SampleState[] = ["connected", "locked", "stale", "empty", "loss"];
 

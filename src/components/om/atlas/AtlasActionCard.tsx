@@ -8,7 +8,7 @@ import type { AtlasAction, AtlasDestination, AtlasStyle } from "@/lib/atlas/type
 import type { AtlasPulseResult } from "@/lib/atlas/pulse";
 
 export const ATLAS_LINKS: Record<AtlasDestination, { href: string; label: string }> = {
-  floor: { href: "/portal/trading", label: "The Floor" },
+  floor: { href: "/portal/trading", label: "OM OS" },
   plays: { href: "/portal/signals", label: "Saved OM AI Plays" },
   genx: { href: "/portal/genx", label: "GENX workspace" },
   pulse: { href: "/portal/trading?view=pulse", label: "Market Pulse" },

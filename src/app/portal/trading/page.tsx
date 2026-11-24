@@ -36,7 +36,7 @@ export default async function FloorPage({ searchParams }: { searchParams?: { vie
       {/* Compact header — keep the focus on the workspace */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="flex items-center gap-2 text-xl font-extrabold tracking-tight text-navy sm:text-2xl">
-          <LineChart className="h-6 w-6 text-primary" aria-hidden="true" /> The Floor
+          <LineChart className="h-6 w-6 text-primary" aria-hidden="true" /> OM OS
         </h1>
         <p className="inline-flex items-center gap-1.5 text-[11px] leading-tight text-charcoal/50">
           <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-amber-500" aria-hidden="true" />
