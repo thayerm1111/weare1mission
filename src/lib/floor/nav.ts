@@ -28,7 +28,7 @@ export const NAV: NavItem[] = [
   { key: "strata", label: "STRATA", href: "/portal/strata", tab: "Strata" },
   { key: "pulse", label: "Market Pulse", href: "/portal/trading?view=pulse", tab: "Pulse" },
   { key: "flow", label: "FLOW", href: "/portal/trading?view=flow", tab: "FLOW" },
-  { key: "atlas", label: "Gold Command Center", href: "/command-center", tab: "Atlas", hard: true },
+  { key: "atlas", label: "Atlas Command Center", href: "/command-center", tab: "Atlas", hard: true },
 ];
 
 /** Four stable places on a phone. The individual engines keep their canonical destinations. */
@@ -36,8 +36,8 @@ export type AppTabKey = "floor" | "atlas" | "tools" | "flow";
 export const TAB_ORDER: AppTabKey[] = ["floor", "atlas", "tools", "flow"];
 export const APP_TABS: { key: AppTabKey; label: string; href: string; hard?: boolean }[] = [
   { key: "floor", label: "Floor", href: "/portal/trading" },
-  // Atlas is an in-place dialog in AppShell. The gold desk retains its own explicit destination above.
-  { key: "atlas", label: "Atlas", href: "#atlas" },
+  // Atlas opens the full gold workspace; Ask Atlas remains a separate assistant action.
+  { key: "atlas", label: "Atlas", href: "/command-center", hard: true },
   { key: "tools", label: "Tools", href: "/portal/tools" },
   { key: "flow", label: "FLOW", href: "/portal/trading?view=flow" },
 ];
