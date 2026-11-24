@@ -135,7 +135,7 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, tf, on
     now - Date.parse(atlasRead.at) >= 0 && now - Date.parse(atlasRead.at) < 300_000 ? atlasRead : null;
   const readAge = candleData.known && analysis.candleAt != null && now > 0 ? Math.max(0, now - analysis.candleAt - currentFrame.ms) : null;
   const analysisDelayed = error || (readAge != null && readAge > currentFrame.ms * 2) || (!sample && typeof answer?.asOf === "string" && now > 0 && now - Date.parse(answer.asOf) > 120_000);
-  const usable = sample || (marketOpen && !analysisDelayed && !!answer);
+  const usable = sample || (marketOpen && !analysisDelayed && !!answer && analysis.close != null);
   const support = analysis.support?.price ?? null, resistance = analysis.resistance?.price ?? null;
   const mappedPrice = price ?? analysis.close;
   const position = marketPosition(analysis, mappedPrice);
@@ -150,9 +150,9 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, tf, on
     ...(view.open && usable ? view.levels.filter(l => l.kind !== "support" && l.kind !== "resistance") : []),
   ];
   const inPlay = usable && view.open && (view.stage === "live" || view.stage === "forming");
-  const entry = inPlay ? levels.find(x => x.kind === "entry")?.price ?? null : null;
-  const stop = inPlay ? levels.find(x => x.kind === "stop")?.price ?? null : null;
-  const tp1 = inPlay ? levels.find(x => x.kind === "target")?.price ?? null : null;
+  const entry = inPlay ? finite(g?.entry) ?? levels.find(x => x.kind === "entry")?.price ?? null : null;
+  const stop = inPlay ? finite(g?.stop_loss) ?? levels.find(x => x.kind === "stop")?.price ?? null : null;
+  const tp1 = inPlay ? finite(g?.tp1) ?? levels.find(x => x.kind === "target")?.price ?? null : null;
   const tp2 = inPlay ? finite(g?.tp2) : null;
   const tp3 = inPlay ? finite(g?.tp3) : null;
   const quoteLabel = sample ? "Illustrative quote" : !marketOpen ? "Last market quote" : streaming
@@ -162,7 +162,7 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, tf, on
     view.stage === "live" ? "Ready to review" : view.stage === "forming" ? "Waiting for entry" : "No confirmed setup";
   const distance = (level: number | null) => level == null || mappedPrice == null || mappedPrice <= 0 ? "—" :
     (Math.abs(level - mappedPrice) / mappedPrice * 100).toFixed(2) + "% from price";
-  const rangePosition = support != null && resistance != null && mappedPrice != null && resistance > support ?
+  const rangePosition = support != null && resistance != null && mappedPrice != null && mappedPrice >= support && mappedPrice <= resistance && resistance > support ?
     Math.min(100, Math.max(0, (mappedPrice-support)/(resistance-support)*100)) : null;
   const insight = !marketOpen ? "Market closed. The levels below are from the last available candles." :
     analysisDelayed ? "The market read is delayed. Treat these as historical reference levels." :
@@ -181,7 +181,7 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, tf, on
       style: tf === "quick" ? "scalp" : tf === "swing" ? "swing" : "intraday",
       asOf: typeof answer?.asOf === "string" ? answer.asOf : null,
       marketRead: { timeframe: currentFrame.label, trend: analysis.trend, momentum: analysis.momentum, support, resistance, source: "Closed candle structure", stale: analysisDelayed, closed: !marketOpen },
-      ...(view.open ? { levels: view.levels, entryZone: view.zone, waitingFor: view.waitingFor,
+      ...(view.open && usable ? { levels: view.levels, entryZone: view.zone, waitingFor: view.waitingFor,
         invalidation: view.changesIf } : { levelsLocked: true }),
     },
   };
@@ -229,7 +229,7 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, tf, on
           </div>
           {candleData.bars.length >= 2 ? <div className="om-terminal-chart">
             <OmChart bars={candleData.bars} timeKnown={candleData.known} tfMs={currentFrame.ms} tfLabel={currentFrame.label}
-              price={price} priceLive={streaming} dec={market.dp} levels={levels} zone={inPlay ? view.zone : null}
+              price={price} priceLive={streaming} dec={market.dp} levels={levels} levelColors={{ support: "var(--om-pos)", resistance: "var(--om-neg)" }} zone={inPlay ? view.zone : null}
               isOpenAt={t => isOpen(symbol === "XAUUSD" ? "metal" : "fx", t)}
               viewKey={"atlas-floor:" + symbol + ":" + tf} label={market.td + " real candles with mapped support and resistance"} />
           </div> : <div className="om-live-chart-empty" role="status">{error ? "Chart unavailable. Try another timeframe." : "Loading real market candles…"}</div>}
@@ -256,7 +256,7 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, tf, on
         <div className="om-live-levels" data-no-i18n translate="no">
           {([["ENTRY",entry],["STOP LOSS",stop],["TP 1",tp1],["TP 2",tp2],["TP 3",tp3]] as [string,number|null][]).map(([label,value]) => <div key={label}><span>{label}</span><strong>{fmt(value)}</strong></div>)}
         </div>{view.waitingFor && <p>{view.waitingFor}</p>}{view.changesIf && <p>Invalidation: {view.changesIf}</p>}
-      </section> : <div className="om-terminal-no-signal"><div><strong>{view.stage === "live" || view.stage === "forming" ? "A setup is available to review" : "No confirmed trade shown"}</strong><small>{!usable ? state : view.open ? "Atlas continues to monitor price action." : "Open the signal tool for its full analysis."}</small></div><span>{market.engine}</span></div>}
+      </section> : <div className="om-terminal-no-signal"><div><strong>{usable && (view.stage === "live" || view.stage === "forming") ? "A setup is available to review" : "No confirmed trade shown"}</strong><small>{!usable ? state : view.open ? "Atlas continues to monitor price action." : "Open the signal tool for its full analysis."}</small></div><span>{market.engine}</span></div>}
       <div className="om-live-actions">
         <button className="om-live-talk" type="button" disabled={sample} onClick={() => openAtlas({ voice: true, context })}><Mic size={19} aria-hidden="true"/>Talk to Atlas</button>
         <button className="om-live-find" type="button" disabled={sample} onClick={signal}><Sparkles size={18} aria-hidden="true"/>{symbol === "XAUUSD" ? "Generate with GENX" : "Generate AI Play"}<ArrowUpRight size={15} aria-hidden="true"/></button>
