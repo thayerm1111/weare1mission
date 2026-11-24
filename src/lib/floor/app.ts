@@ -16,7 +16,7 @@
 export const APP_NAME = "One Mission";
 export const APP_MANIFEST = "/om-app/manifest.webmanifest";
 /** The canvas colour of the default look (Graphite): the browser's bars and the splash screen match the page. */
-export const APP_THEME = "#08090b";
+export const APP_THEME = "#0b0c10";
 /** Atlas keeps its own dark frame in either look (the Command Center's identity), and its bar colour with it. */
 export const ATLAS_THEME = "#08090e";
 

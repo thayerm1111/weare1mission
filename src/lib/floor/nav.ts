@@ -113,8 +113,8 @@ export const APP_SHELL_RECOVERY_SCRIPT =
  * the chosen look's canvas: Graphite by default, or a previously chosen Stone look (lib/floor/look.ts).
  */
 export const SHELL_CSS =
-  "html.om-shell,html.om-shell body{background:#f5f4f1!important}" +
-  "html.om-shell.om-look-graphite,html.om-shell.om-look-graphite body{background:#08090b!important}" +
+  "html.om-shell,html.om-shell body{background:#f4f8ff!important}" +
+  "html.om-shell.om-look-graphite,html.om-shell.om-look-graphite body{background:#0b0c10!important}" +
   "html.om-shell body>header,html.om-shell body>footer{display:none!important}" +
   "html.om-shell [data-om-splash],html.om-shell [data-om-chrome]{display:none!important}" +
   "html.om-shell body>div[data-no-i18n].fixed{display:none!important}" +     // language moves into the account menu
@@ -133,4 +133,4 @@ export const SHELL_SCRIPT =
   "d.classList.toggle('om-look-graphite',g);d.classList.toggle('om-dark',g);" +
   "var a=false;try{a=window.navigator.standalone===true||!!(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.top!==window.self;}catch(e){a=true;}" +
   "d.classList.toggle('om-standalone',a);" +
-  "var m=document.querySelector('meta[name=\"theme-color\"]');if(m)m.setAttribute('content',g?'#08090b':'#f5f4f1');}catch(e){}})();";
+  "var m=document.querySelector('meta[name=\"theme-color\"]');if(m)m.setAttribute('content',g?'#0b0c10':'#f4f8ff');}catch(e){}})();";

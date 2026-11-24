@@ -11,6 +11,7 @@ import "./mobile-premium.css";
 import "./connected-experience.css";
 import "./floor/om-os-dashboard.css";
 import "./os-dock.css";
+import "./os-themes.css";
 import { Suspense, useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";

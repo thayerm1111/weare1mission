@@ -6,8 +6,8 @@
   "start_url": "/portal/trading",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#08090b",
-  "theme_color": "#08090b",
+  "background_color": "#0b0c10",
+  "theme_color": "#0b0c10",
   "icons": [
     {
       "src": "/om-app/icon-192.png",

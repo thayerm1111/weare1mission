@@ -100,7 +100,7 @@ test('the manifest names the One Mission app on the new design, and its icons ar
   assert.equal(m.theme_color, APP_THEME);
   assert.equal(m.background_color, APP_THEME);
   assert.equal(DEFAULT_LOOK, 'graphite', 'the approved OS opens in Graphite');
-  assert.equal(APP_THEME, '#08090b', 'the OS canvas and install splash use the same Graphite');
+  assert.equal(APP_THEME, '#0b0c10', 'the OS canvas and install splash use the same Graphite');
   assert.equal(APP_THEME, themeOf(DEFAULT_LOOK));
   assert.equal(lookOf('stone'), 'stone', 'a saved Stone preference remains valid');
   assert.equal(lookOf(null), 'graphite', 'a new install uses the OS default');
