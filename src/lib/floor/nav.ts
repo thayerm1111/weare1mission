@@ -2,7 +2,7 @@
  * THE TRADING PLATFORM'S DESTINATIONS (owner 11-20) — one list, read by the bar across the top and by the
  * phone's tabs, so the two can never disagree.
  *
- *   The Floor · OM AI Plays · GENX · Market Pulse · FLOW · Atlas
+ *   OM OS · OM AI Plays · GENX · Market Pulse · FLOW · Atlas
  *
  * Nothing else is a destination: no community, no courses, no events, no leaderboards. Account, credits,
  * support and sign-out live in the profile menu. Tools the platform no longer features (GEN FX, Cashtrap,
@@ -22,7 +22,7 @@ export type NavItem = {
 };
 
 export const NAV: NavItem[] = [
-  { key: "floor", label: "The Floor", href: "/portal/trading", tab: "Floor" },
+  { key: "floor", label: "OM OS", href: "/portal/trading", tab: "OM OS" },
   { key: "plays", label: "OM AI Plays", href: "/portal/signals", tab: "Plays" },
   { key: "genx", label: "GENX", href: "/portal/genx", tab: "GENX" },
   { key: "strata", label: "STRATA", href: "/portal/strata", tab: "Strata" },
@@ -35,7 +35,7 @@ export const NAV: NavItem[] = [
 export type AppTabKey = "floor" | "atlas" | "tools" | "flow";
 export const TAB_ORDER: AppTabKey[] = ["floor", "atlas", "tools", "flow"];
 export const APP_TABS: { key: AppTabKey; label: string; href: string; hard?: boolean }[] = [
-  { key: "floor", label: "Floor", href: "/portal/trading" },
+  { key: "floor", label: "OM OS", href: "/portal/trading" },
   // Atlas opens the full gold workspace; Ask Atlas remains a separate assistant action.
   { key: "atlas", label: "Gold Center", href: "/command-center", hard: true },
   { key: "tools", label: "Tools", href: "/portal/tools" },

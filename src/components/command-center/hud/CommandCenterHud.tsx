@@ -838,11 +838,11 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       {/* ── HEADER ────────────────────────────────────────────────────── */}
       <header className="om-atlas-os-toolbar relative mb-[8px] flex h-[42px] shrink-0 items-center gap-2 sm:gap-3">
         {toFloor && (
-          <a href="/portal/trading" aria-label="Back to The Floor" className="flex min-h-[40px] min-w-[40px] shrink-0 items-center justify-center gap-1 rounded-full px-2.5 py-1.5 text-[12.5px] font-medium sm:px-3" style={{ color: H.text, border: `1px solid ${H.line}`, background: "rgba(255,255,255,0.04)" }}>
-            <span aria-hidden="true">‹</span><span className="hidden sm:inline" aria-hidden="true"> The Floor</span>
+          <a href="/portal/trading" aria-label="Back to OM OS" className="flex min-h-[40px] min-w-[40px] shrink-0 items-center justify-center gap-1 rounded-full px-2.5 py-1.5 text-[12.5px] font-medium sm:px-3" style={{ color: H.text, border: `1px solid ${H.line}`, background: "rgba(255,255,255,0.04)" }}>
+            <span aria-hidden="true">‹</span><span className="hidden sm:inline" aria-hidden="true"> OM OS</span>
           </a>
         )}
-        <a href={toFloor ? "/portal/trading" : "/portal"} className="flex shrink-0 items-center gap-2.5" aria-label={toFloor ? "Back to The Floor" : "Back to the portal"}>
+        <a href={toFloor ? "/portal/trading" : "/portal"} className="flex shrink-0 items-center gap-2.5" aria-label={toFloor ? "Back to OM OS" : "Back to the portal"}>
           <span className="grid h-9 w-9 place-items-center rounded-full" style={{ border: `1px solid ${H.lineHi}`, boxShadow: "0 0 12px rgba(var(--cc-00c7e8-rgb,0,199,232),0.25), inset 0 0 10px rgba(var(--cc-d5a93d-rgb,213,169,61),0.25)" }}>
             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden><path d="M12 3 L21 20 H3 Z" fill="none" stroke={H.gold3} strokeWidth="1.6" /><circle cx="12" cy="14" r="2.2" fill={H.cyan2} /></svg>
           </span>

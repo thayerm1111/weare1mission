@@ -1,0 +1,287 @@
+/* OM OS overview: compact summaries, with complete account and trade controls. */
+.om-floor-os .om-os-performance {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 14px;
+  min-width: 0;
+}
+
+.om-floor-os .om-os-performance > :is(.om-winning-pips, .om-win-streaks, .om-active-trades) {
+  min-width: 0;
+  margin: 0;
+  padding: 18px;
+  border: 1px solid var(--om-edge-2);
+  border-radius: 20px;
+  background: linear-gradient(145deg, rgb(var(--om-ai-rgb) / .045), transparent 64%), var(--om-surface);
+  box-shadow: inset 0 1px 0 rgb(var(--om-fg) / .04), 0 10px 30px rgb(0 0 0 / .07);
+  color: var(--om-text);
+}
+
+.om-floor-os .om-os-performance :is(.om-wpip-title, .om-streak-heading, .om-active-heading) {
+  align-items: center;
+  min-height: 36px;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.om-floor-os .om-os-performance :is(.om-wpip-title h2, .om-streak-heading h2, .om-active-heading h2) {
+  margin: 0;
+  color: var(--om-text);
+  font-family: var(--om-font);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -.025em;
+}
+
+.om-floor-os .om-os-performance .om-wpip-eyebrow { display: none; }
+.om-floor-os .om-os-performance :is(.om-wpip-tools, .om-streak-tools) { font-size: .75rem; }
+.om-floor-os .om-os-performance :is(.om-wpip-tools button, .om-streak-tools button, .om-active-refresh) {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  flex: 0 0 36px;
+  border: 1px solid var(--om-hair);
+  border-radius: 10px;
+  background: rgb(var(--om-fg) / .025);
+  color: var(--om-text-2);
+}
+.om-floor-os .om-os-performance :is(.om-wpip-tools button, .om-streak-tools button, .om-active-refresh):hover:not(:disabled) {
+  background: rgb(var(--om-ai-rgb) / .10);
+  color: var(--om-text);
+}
+
+/* The five periods and the two independent result sources stay visible. */
+.om-floor-os .om-os-performance .om-winning-pips {
+  --wp-text: var(--om-text);
+  --wp-muted: var(--om-text-2);
+  --wp-green: var(--om-pos);
+}
+.om-floor-os .om-os-performance .om-wpip-periods {
+  gap: 2px;
+  margin: 0 0 10px;
+  padding: 3px;
+  border-color: var(--om-edge);
+  border-radius: 10px;
+  background: rgb(var(--om-fg) / .025);
+}
+.om-floor-os .om-os-performance .om-wpip-periods button {
+  min-height: 36px;
+  padding: 5px 2px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--om-text-2);
+  font-size: .8125rem;
+  white-space: nowrap;
+}
+.om-floor-os .om-os-performance .om-wpip-periods button[aria-pressed="true"] {
+  border-color: rgb(var(--om-ai-rgb) / .4);
+  background: linear-gradient(135deg, rgb(var(--om-ai-rgb) / .28), rgb(var(--om-ai-rgb) / .12));
+  color: var(--om-text);
+  box-shadow: inset 0 1px 0 rgb(var(--om-fg) / .07), 0 2px 10px rgb(var(--om-ai-rgb) / .08);
+}
+.om-floor-os .om-os-performance .om-wpip-grid { gap: 10px; }
+.om-floor-os .om-os-performance .om-wpip-card {
+  min-height: 0;
+  padding: 12px;
+  border-color: var(--om-edge);
+  border-radius: 13px;
+  background: linear-gradient(140deg, rgb(var(--om-ai-rgb) / .035), transparent 72%), rgb(var(--om-fg) / .018);
+}
+.om-floor-os .om-os-performance .om-wpip-flow {
+  background: linear-gradient(140deg, rgb(var(--om-ice-rgb) / .04), transparent 72%), rgb(var(--om-fg) / .018);
+}
+.om-floor-os .om-os-performance .om-wpip-source { position: relative; align-items: flex-start; gap: 8px; }
+.om-floor-os .om-os-performance .om-wpip-brand { width: 100%; gap: 7px; }
+.om-floor-os .om-os-performance .om-wpip-brand > div { flex: 1; }
+.om-floor-os .om-os-performance :is(.om-wpip-brand, .om-streak-identity) .om-product-icon {
+  width: 25px;
+  height: 25px;
+  min-width: 25px;
+  flex: 0 0 25px;
+  border-radius: 8px;
+}
+.om-floor-os .om-os-performance .om-wpip-brand b { padding-right: 63px; color: var(--om-text); font-size: .8125rem; font-weight: 600; }
+.om-floor-os .om-os-performance .om-wpip-brand span { color: var(--om-text-2); font-size: .75rem; line-height: 1.4; }
+.om-floor-os .om-os-performance .om-wpip-source-tag {
+  position: absolute;
+  top: 0;
+  right: 0;
+  margin: 0;
+  padding: 3px 6px;
+  border-color: rgb(var(--om-pos-rgb) / .25);
+  background: rgb(var(--om-pos-rgb) / .045);
+  color: var(--om-pos);
+  font-size: .625rem;
+  line-height: 1.3;
+  letter-spacing: .04em;
+}
+.om-floor-os .om-os-performance .om-wpip-number {
+  margin: 14px 0 9px;
+  font-size: clamp(1.375rem, 1.85vw, 1.875rem);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -.045em;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.om-floor-os .om-os-performance .om-wpip-number span {
+  display: inline-block;
+  margin-left: 3px;
+  color: var(--om-text-2);
+  font-size: .6875rem;
+  font-weight: 500;
+  letter-spacing: .03em;
+}
+.om-floor-os .om-os-performance .om-wpip-subcount { align-items: flex-start; gap: 5px 8px; }
+.om-floor-os .om-os-performance .om-wpip-subcount span:first-child {
+  align-items: flex-start;
+  gap: 4px;
+  color: var(--om-text-2);
+  font-size: .75rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+.om-floor-os .om-os-performance .om-wpip-subcount svg { flex: 0 0 13px; width: 13px; height: 13px; margin-top: 2px; }
+.om-floor-os .om-os-performance .om-wpip-subcount span:last-child { color: var(--om-text-3); font-size: .625rem; letter-spacing: .04em; }
+.om-floor-os .om-os-performance :is(.om-wpip-status, .om-wpip-foot) {
+  margin-top: 8px;
+  padding-top: 0;
+  color: var(--om-text-2);
+  font-size: .75rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.om-floor-os .om-os-performance .om-wpip-bottom { margin-top: 3px; color: var(--om-text-2); font-size: .75rem; }
+.om-floor-os .om-os-performance :is(.om-wpip-explain, .om-streak-method) { margin-top: 10px; color: var(--om-text-2); font-size: .75rem; }
+.om-floor-os .om-os-performance :is(.om-wpip-explain, .om-streak-method) summary { min-height: 34px; font-size: .75rem; line-height: 1.45; }
+.om-floor-os .om-os-performance :is(.om-wpip-explain, .om-streak-method) p { color: var(--om-text-2); font-size: .8125rem; line-height: 1.65; }
+
+/* FLOW and GENX streaks remain separate, readable cards. */
+.om-floor-os .om-os-performance .om-streak-grid { gap: 10px; }
+.om-floor-os .om-os-performance .om-streak-card {
+  padding: 12px;
+  border-color: var(--om-edge);
+  border-radius: 13px;
+  background: linear-gradient(140deg, rgb(var(--streak-rgb) / .055), transparent 72%), rgb(var(--om-fg) / .018);
+}
+.om-floor-os .om-os-performance .om-streak-identity { align-items: flex-start; gap: 7px; flex-wrap: wrap; }
+.om-floor-os .om-os-performance .om-streak-identity > div { flex: 1; min-width: 68px; }
+.om-floor-os .om-os-performance .om-streak-identity h3 { font-size: .8125rem; }
+.om-floor-os .om-os-performance .om-streak-identity p { font-size: .75rem; line-height: 1.4; }
+.om-floor-os .om-os-performance .om-streak-mark { width: 20px; height: 20px; }
+.om-floor-os .om-os-performance .om-streak-count { gap: 5px 7px; margin-top: 15px; }
+.om-floor-os .om-os-performance .om-streak-count strong { font-size: 1.875rem; font-weight: 550; }
+.om-floor-os .om-os-performance .om-streak-count > span { width: auto; font-size: .75rem; line-height: 1.4; }
+.om-floor-os .om-os-performance .om-streak-pips { display: flex; gap: 4px 8px; margin-top: 12px; padding-top: 10px; }
+.om-floor-os .om-os-performance .om-streak-pips strong { font-size: 1.0625rem; overflow-wrap: anywhere; }
+.om-floor-os .om-os-performance .om-streak-pips strong span { font-size: .75rem; }
+.om-floor-os .om-os-performance .om-streak-pips > span { font-size: .75rem; }
+.om-floor-os .om-os-performance :is(.om-streak-status, .om-streak-explanation, .om-streak-time) { font-size: .75rem; line-height: 1.45; }
+.om-floor-os .om-os-performance .om-streak-status { margin-top: 10px; }
+
+/* Trade cards grow with their content; review and execution controls are never clipped. */
+.om-floor-os .om-os-performance .om-active-heading { align-items: flex-start; }
+.om-floor-os .om-os-performance .om-active-kicker { display: block; margin-bottom: 3px; font-size: .75rem; }
+.om-floor-os .om-os-performance .om-active-heading p { margin-top: 6px; font-size: .75rem; }
+.om-floor-os .om-os-performance .om-active-heading h2 > span { border-radius: 7px; color: var(--om-text-2); }
+.om-floor-os .om-os-performance .om-active-empty {
+  display: block;
+  margin: 4px 0 0;
+  padding: 20px 15px;
+  border-color: var(--om-edge);
+  border-radius: 13px;
+  background: rgb(var(--om-fg) / .025);
+  font-size: .8125rem;
+  line-height: 1.6;
+  text-align: center;
+}
+.om-floor-os .om-os-performance .om-active-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.om-floor-os .om-os-performance .om-active-card { padding: 14px; border-radius: 14px; background: rgb(var(--om-fg) / .018); }
+.om-floor-os .om-os-performance .om-active-card > header { gap: 9px; }
+.om-floor-os .om-os-performance .om-active-card h3 { font-size: 1rem; }
+.om-floor-os .om-os-performance .om-active-card > header > span { font-size: .75rem; }
+.om-floor-os .om-os-performance .om-active-card > header > span small { font-size: .6875rem; }
+.om-floor-os .om-os-performance .om-active-side { font-size: .6875rem; }
+.om-floor-os .om-os-performance .om-active-running { margin: 15px 0; }
+.om-floor-os .om-os-performance .om-active-running strong { flex-wrap: wrap; font-size: 1.75rem; }
+.om-floor-os .om-os-performance .om-active-running > span { font-size: .75rem; }
+.om-floor-os .om-os-performance .om-active-levels { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
+.om-floor-os .om-os-performance .om-active-levels dt { font-size: .75rem; }
+.om-floor-os .om-os-performance .om-active-levels dd { font-size: .8125rem; }
+.om-floor-os .om-os-performance :is(.om-active-feed, .om-active-quote, .om-active-help, .om-active-pending) { font-size: .75rem; }
+.om-floor-os .om-os-performance .om-active-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.om-floor-os .om-os-performance .om-active-actions > button { min-height: 44px; padding: 8px; font-size: .75rem; }
+.om-floor-os .om-os-performance .om-active-actions > button[data-danger] { grid-column: 1 / -1; }
+.om-floor-os .om-os-performance .om-active-partials > button { min-height: 48px; font-size: .8125rem; }
+.om-floor-os .om-os-performance .om-active-partials span { font-size: .75rem; }
+.om-floor-os .om-os-performance .om-active-review { padding: 13px; }
+.om-floor-os .om-os-performance .om-active-review p { font-size: .8125rem; }
+.om-floor-os .om-os-performance .om-active-review > div > button { min-height: 44px; font-size: .8125rem; }
+
+/* A continuous account strip on desktop, including all three live broker figures. */
+.om-os.om-app .om-flow-account {
+  border-color: var(--om-edge-2);
+  background: linear-gradient(135deg, rgb(var(--om-ai-rgb) / .035), transparent 65%), var(--om-surface);
+  box-shadow: inset 0 1px 0 rgb(var(--om-fg) / .035), 0 6px 22px rgb(0 0 0 / .04);
+}
+@media (min-width: 981px) {
+  .om-os.om-app .om-flow-account { gap: 18px; padding: 13px 22px; border-radius: 16px; }
+  .om-os.om-app .om-flow-account-brand { gap: 9px; font-size: .75rem; letter-spacing: .16em; }
+  .om-os.om-app .om-flow-account-brand svg { width: 19px; height: 19px; }
+  .om-os.om-app .om-flow-account-select-area { flex: 1 1 180px; }
+  .om-os.om-app .om-flow-account-picker { max-width: 350px; }
+  .om-os.om-app .om-flow-account-picker select { min-height: 34px; font-size: .875rem; }
+  .om-os.om-app .om-flow-account-name { font-size: .875rem; }
+  .om-os.om-app .om-flow-account-meta { font-size: .75rem; }
+  .om-os.om-app .om-flow-account-figures { gap: clamp(18px, 2.6vw, 42px); padding-left: 24px; border-left: 1px solid var(--om-edge); }
+  .om-os.om-app .om-flow-account-stat { min-width: 90px; gap: 3px; }
+  .om-os.om-app .om-flow-account-label { font-size: .75rem; }
+  .om-os.om-app .om-flow-account-number { font-size: 1rem; font-weight: 600; letter-spacing: -.025em; }
+  .om-os.om-app .om-flow-account-actions { margin-left: 0; }
+  .om-os.om-app .om-flow-account-manage { min-height: 40px; padding-left: 17px; border-left: 1px solid var(--om-edge); border-radius: 0; font-size: .8125rem; }
+}
+@media (min-width: 981px) and (max-width: 1040px) {
+  .om-os.om-app .om-flow-account { flex-wrap: wrap; gap: 12px 18px; padding: 15px 18px; }
+  .om-os.om-app .om-flow-account-select-area { flex-basis: calc(100% - 210px); }
+  .om-os.om-app .om-flow-account-figures { order: 4; flex: 1 1 100%; justify-content: space-between; padding: 12px 0 0; border-left: 0; border-top: 1px solid var(--om-hair); }
+  .om-os.om-app .om-flow-account-stat { flex: 1; }
+  .om-os.om-app .om-flow-account-manage { margin-left: auto; }
+}
+
+@media (min-width: 800px) {
+  .om-floor-os .om-os-performance { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .om-floor-os .om-os-performance > .om-active-trades { grid-column: 1 / -1; }
+  .om-floor-os .om-os-performance .om-active-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1200px) {
+  .om-floor-os .om-os-performance { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1.18fr) minmax(0, 1fr); }
+  .om-floor-os .om-os-performance > .om-active-trades { grid-column: auto; }
+  .om-floor-os .om-os-performance .om-active-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 799px) {
+  .om-floor-os .om-os-performance > :is(.om-winning-pips, .om-win-streaks, .om-active-trades) { padding: 17px; }
+  .om-floor-os .om-os-performance :is(.om-wpip-tools button, .om-streak-tools button, .om-active-refresh) { width: 44px; height: 44px; min-width: 44px; min-height: 44px; flex-basis: 44px; }
+  .om-floor-os .om-os-performance .om-wpip-periods button { min-height: 44px; }
+  .om-floor-os .om-os-performance .om-wpip-number { font-size: clamp(1.375rem, 5vw, 1.875rem); }
+  .om-floor-os .om-os-performance :is(.om-wpip-explain, .om-streak-method) summary { min-height: 44px; font-size: .8125rem; }
+}
+@media (max-width: 980px) {
+  .om-os.om-app .om-flow-account { padding: 13px 16px 17px; border: 1px solid var(--om-edge-2); border-radius: 18px; }
+  .om-os.om-app .om-flow-account-actions { top: 58px; right: 7px; }
+  .om-os.om-app .om-account-strip { margin-bottom: 8px; }
+  .om-os.om-app .om-flow-account-number { font-size: clamp(1.75rem, 8vw, 2.5rem); }
+  .om-os.om-app .om-flow-account[data-expanded] .om-flow-account-number { overflow-wrap: anywhere; white-space: normal; }
+}
+@media (max-width: 420px) {
+  .om-floor-os .om-os-performance > :is(.om-winning-pips, .om-win-streaks, .om-active-trades) { padding: 14px; }
+  .om-floor-os .om-os-performance :is(.om-wpip-grid, .om-streak-grid) { grid-template-columns: minmax(0, 1fr); }
+  .om-floor-os .om-os-performance :is(.om-wpip-card, .om-streak-card) { padding: 14px; }
+  .om-floor-os .om-os-performance .om-wpip-source { flex-wrap: nowrap; }
+  .om-floor-os .om-os-performance .om-wpip-number { margin-top: 12px; font-size: 1.875rem; }
+  .om-floor-os .om-os-performance .om-wpip-periods button { font-size: .75rem; }
+  .om-floor-os .om-os-performance .om-streak-count { margin-top: 12px; }
+  .om-floor-os .om-os-performance .om-streak-mark { display: grid; }
+}

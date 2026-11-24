@@ -9,12 +9,14 @@ import "./os-mobile.css";
 import "./mobile-tools.css";
 import "./mobile-premium.css";
 import "./connected-experience.css";
+import "./floor/om-os-dashboard.css";
+import "./os-dock.css";
 import { Suspense, useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { CreditCard, Globe, House, LifeBuoy, LogOut, PlayCircle, ShieldCheck, SlidersHorizontal, Smartphone, Undo2, User, UserCircle, Waves, Wrench } from "lucide-react";
+import { CreditCard, Globe, LifeBuoy, LogOut, PlayCircle, ShieldCheck, SlidersHorizontal, Smartphone, Undo2, User, UserCircle } from "lucide-react";
 import { NotificationsBell } from "@/components/portal/NotificationsBell";
-import { NAV, APP_TABS, TAB_ORDER, activeKey, activeTabKey, type AppTabKey } from "@/lib/floor/nav";
+import { NAV, activeKey, type NavKey } from "@/lib/floor/nav";
 import type { InstallGuide } from "@/lib/floor/app";
 import { DEFAULT_LOOK, LOOKS, LOOK_CLASS, LOOK_KEY, applyLook, lookOf, themeOf, type Look } from "@/lib/floor/look";
 import { InstallSheet, OfflineNotice, runningAsApp, useInstall } from "./InstallApp";
@@ -37,8 +39,6 @@ function OmMark() {
     </svg>
   );
 }
-
-const TAB_ICON: Record<AppTabKey, typeof House> = { floor: House, atlas: Globe, tools: Wrench, flow: Waves };
 
 function Credits() {
   const [total, setTotal] = useState<number | null>(null);
@@ -139,7 +139,6 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
   const path = usePathname() || "";
   const view = useSearchParams().get("view");
   const here = activeKey(path, view);
-  const tabHere = activeTabKey(path, view);
   // THE APP BAR (owner 11-21: "make it more like an actual app"). As the installed app the bar is an app's: the
   // screen's large title scrolls away under it and its name settles in the bar's middle, with a hairline beneath.
   const [scrolled, setScrolled] = useState(false);
@@ -152,12 +151,6 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
     return () => { window.removeEventListener("scroll", on); if (raf) window.cancelAnimationFrame(raf); };
   }, [path, view]);
   const screen = here ? NAV.find((n) => n.key === here)?.label ?? null : null;
-  const returnToTop = (event: ReactMouseEvent<HTMLAnchorElement>, key: AppTabKey) => {
-    // Tapping Tools from an engine must open the picker; only re-tap the actual hub to scroll up.
-    if (tabHere !== key || (key === "tools" && path !== "/portal/tools") || (key === "atlas" && path !== "/command-center") || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    event.preventDefault();
-    window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-  };
   // THE ONE MISSION APP (lib/floor/app.ts): the browser's own install dialog where it has one, else its steps.
   const { asApp, offer, install: installApp } = useInstall();
   const [guide, setGuide] = useState<InstallGuide | null>(null);
@@ -169,11 +162,11 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
       <div className="om-nav-wrap" data-scrolled={scrolled ? "" : undefined} data-screen={here ?? "account"}>
         <div className="om-frame">
           <nav className="om-nav" aria-label="Trading platform">
-            <Link href="/portal/trading" className="om-brand" aria-label="One Mission — The Floor"><OmMark /><span>One Mission</span><small>OS</small></Link>
+            <Link href="/portal/trading" className="om-brand" aria-label="One Mission — OM OS"><OmMark /><span>One Mission</span></Link>
             <span className="om-mobile-screen" aria-hidden="true">{screen ?? "Account"}</span>
-            <div className="om-os-breadcrumb"><Link href="/portal/trading" aria-current={here === "floor" ? "page" : undefined}>The Floor</Link>{here && here !== "floor" && <><span aria-hidden="true">/</span><span>{screen}</span></>}</div>
+            <div className="om-os-breadcrumb"><Link href="/portal/trading" aria-current={here === "floor" ? "page" : undefined}>OM OS</Link>{here && here !== "floor" && <><span aria-hidden="true">/</span><span>{screen}</span></>}</div>
             <div className="om-nav-right">
-              <button type="button" className="om-os-ask" onClick={() => openAtlas()} aria-haspopup="dialog" aria-expanded={atlasPanel.open} disabled={!configured}><ProductIcon kind="atlas" size="sm" /><span>Ask Atlas</span></button>
+              <button type="button" className="om-os-ask" onClick={() => openAtlas()} aria-haspopup="dialog" aria-expanded={atlasPanel.open} disabled={!configured}><span>Ask Atlas</span></button>
               {configured && <Credits />}
               {configured && <span className="om-bell"><NotificationsBell trading /></span>}
               <ProfileMenu member={member} configured={configured} preview={preview} asApp={asApp} onInstall={configured && offer ? install : undefined} look={look} onLook={onLook} />
@@ -184,40 +177,43 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
 
       {guide && <InstallSheet guide={guide} onClose={closeGuide} />}
 
-      {/* Four stable places under the thumb. Tools opens the three distinct engines. */}
-      <nav className="om-tabbar" aria-label="One Mission app navigation">
-        {TAB_ORDER.map((k) => APP_TABS.find((n) => n.key === k)!).map((n) => {
-          const Icon = TAB_ICON[n.key];
-          const cur = tabHere === n.key ? "page" : undefined;
-
-          return n.hard
-            ? <a key={n.key} href={n.href} className="om-tab" aria-label={n.key === "atlas" ? "Atlas Command Center" : n.label} aria-current={cur} onClick={(event) => returnToTop(event, n.key)}><span className="om-tab-symbol"><Icon aria-hidden="true" /></span><span>{n.label}</span></a>
-            : <Link key={n.key} href={n.href} className="om-tab" aria-label={n.label} aria-current={cur} onClick={(event) => returnToTop(event, n.key)}><span className="om-tab-symbol"><Icon aria-hidden="true" /></span><span>{n.label}</span></Link>;
-        })}
-      </nav>
     </>
   );
 }
 
 const APPS = [
-  { key: "atlas" as const, label: "Atlas Command Center", line: "Live gold analysis and signals", href: "/command-center", hard: true },
-  { key: "genx" as const, label: "GENX", line: "The gold engine", href: "/portal/genx", hard: false },
-  { key: "strata" as const, label: "STRATA", line: "Live price-action intelligence", href: "/portal/strata", hard: false },
-  { key: "plays" as const, label: "OM AI Plays", line: "Any market. Full setup.", href: "/portal/signals", hard: false },
-  { key: "pulse" as const, label: "Pulse", line: "Find your next market", href: "/portal/trading?view=pulse", hard: false },
-  { key: "flow" as const, label: "FLOW", line: "Your account connection", href: "/portal/trading?view=flow", hard: false },
+  { key: "floor" as const, label: "OM OS", dockLabel: "OM OS", href: "/portal/trading", hard: false },
+  { key: "atlas" as const, label: "Atlas Command Center", dockLabel: "Atlas", href: "/command-center", hard: true },
+  { key: "genx" as const, label: "GENX", dockLabel: "GENX", href: "/portal/genx", hard: false },
+  { key: "strata" as const, label: "STRATA", dockLabel: "STRATA", href: "/portal/strata", hard: false },
+  { key: "plays" as const, label: "OM AI Plays", dockLabel: "OM AI Plays", href: "/portal/signals", hard: false },
+  { key: "pulse" as const, label: "Pulse", dockLabel: "Pulse", href: "/portal/trading?view=pulse", hard: false },
+  { key: "flow" as const, label: "FLOW", dockLabel: "FLOW", href: "/portal/trading?view=flow", hard: false },
 ];
 
+/** One persistent launcher on every screen, with the same destinations on desktop and phone. */
 function AppDock() {
   const path = usePathname() || "";
-  const here = activeKey(path, useSearchParams().get("view"));
+  const view = useSearchParams().get("view");
+  const here = activeKey(path, view);
+  const returnToTop = (event: ReactMouseEvent<HTMLAnchorElement>, key: NavKey, href: string) => {
+    // A re-tap scrolls only the actual destination. Saved signals and engine subpages still return home.
+    const current = path + (view ? `?view=${view}` : "");
+    if (here !== key || current !== href || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  };
   return <nav className="om-os-dock" aria-label="One Mission apps">
-    {APPS.map((app, index) => {
-      const content = <><ProductIcon kind={app.key} /><span className="om-os-app-title">{app.label}<small>{app.line}</small></span><span className="om-os-app-number" aria-hidden="true">0{index + 1}</span></>;
-
+    {APPS.map((app) => {
+      const content = <><ProductIcon kind={app.key} /><span className="om-os-app-title">{app.dockLabel}</span></>;
+      const props = {
+        className: "om-os-app", "data-app": app.key, "aria-label": app.label,
+        "aria-current": here === app.key ? "page" as const : undefined,
+        onClick: (event: ReactMouseEvent<HTMLAnchorElement>) => returnToTop(event, app.key, app.href),
+      };
       return app.hard
-        ? <a key={app.key} href={app.href} className="om-os-app" aria-current={here === app.key ? "page" : undefined}>{content}</a>
-        : <Link key={app.key} href={app.href} className="om-os-app" aria-current={here === app.key ? "page" : undefined}>{content}</Link>;
+        ? <a key={app.key} href={app.href} {...props}>{content}</a>
+        : <Link key={app.key} href={app.href} {...props}>{content}</Link>;
     })}
   </nav>;
 }
@@ -273,10 +269,10 @@ export function AppShell({ children, member, configured = true, preview = false,
       </Suspense>
       <main className="om-main"><div className="om-frame"><ShellContext.Provider value={true}>
         {configured && <Suspense fallback={null}><AccountPlacement /></Suspense>}
-        <Suspense fallback={<div className="om-os-dock-skeleton" />}><AppDock /></Suspense>
         {children}
-        <footer className="om-os-footer"><span>One Mission OS</span><span>Your tools. One connected workspace.</span><Link href="/portal/support">Support ↗</Link></footer>
+        <footer className="om-os-footer"><span>OM OS</span><span>Your tools. One connected workspace.</span><Link href="/portal/support">Support ↗</Link></footer>
       </ShellContext.Provider></div></main>
+      <Suspense fallback={null}><AppDock /></Suspense>
       <OfflineNotice />
       </AtlasProvider>
       </FlowAccountProvider>

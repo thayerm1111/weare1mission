@@ -1,0 +1,190 @@
+/* OM OS: a single, shared launcher. Its space is reserved even on the last screenful. */
+.om-app.om-os {
+  --om-dock-clearance: calc(112px + env(safe-area-inset-bottom, 0px));
+  --om-mobile-nav-height: var(--om-dock-clearance);
+}
+.om-os .om-main,
+.om-standalone .om-os .om-main { padding-bottom: var(--om-dock-clearance); }
+.om-os .om-os-dock {
+  position: fixed;
+  z-index: 40;
+  left: 50%;
+  bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  align-items: end;
+  gap: 4px;
+  width: min(700px, calc(100% - 32px));
+  margin: 0;
+  padding: 8px 18px 9px;
+  border: 1px solid rgb(var(--om-fg) / .16);
+  border-radius: 28px;
+  background: var(--om-glass);
+  box-shadow: 0 1px 0 rgb(var(--om-fg) / .07) inset, 0 18px 55px -15px rgba(0,0,0,.45);
+  -webkit-backdrop-filter: blur(28px) saturate(145%);
+  backdrop-filter: blur(28px) saturate(145%);
+  -webkit-user-select: none;
+  user-select: none;
+}
+.om-look-graphite .om-os .om-os-dock {
+  background: linear-gradient(165deg,rgba(45,40,59,.85),rgba(23,22,31,.89));
+  border-color: rgba(208,190,249,.23);
+  box-shadow: 0 1px 0 rgba(242,230,255,.09) inset, 0 18px 55px -15px rgba(0,0,0,.8), 0 -6px 35px -22px rgba(186,143,255,.5);
+}
+.om-os .om-os-dock .om-os-app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 62px;
+  gap: 4px;
+  padding: 0 2px 4px;
+  border: 0;
+  border-radius: 16px;
+  background: none;
+  color: var(--om-text-2);
+  box-shadow: none;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 160ms ease, background 160ms ease;
+}
+.om-os .om-os-dock .om-os-app:hover { transform: none; color: var(--om-text); }
+.om-os .om-os-dock .om-os-app:focus-visible { outline: 2px solid var(--om-ai); outline-offset: 3px; }
+.om-os .om-os-dock .om-os-app-title {
+  display: block;
+  color: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -.015em;
+  text-align: center;
+  white-space: nowrap;
+}
+.om-os .om-os-dock .om-product-icon {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 12px;
+  overflow: visible;
+  background: none;
+  box-shadow: none;
+  transform-origin: 50% 100%;
+  transition: transform 220ms cubic-bezier(.2,.75,.25,1), filter 220ms ease;
+}
+.om-os .om-os-dock .om-product-icon > svg { width: 75%; height: 75%; }
+.om-os .om-product-floor { color: var(--om-text-2); }
+.om-os .om-product-genx { color: var(--om-gold, #cfb174); }
+.om-os .om-os-dock .om-product-genx { filter: drop-shadow(0 1px 5px rgb(var(--om-gold-rgb) / .25)); }
+.om-os .om-os-dock .om-product-plays,
+.om-os .om-os-dock .om-product-pulse,
+.om-os .om-os-dock .om-product-strata { color: var(--om-ai); }
+.om-os .om-os-dock .om-product-flow { color: var(--om-text-2); }
+.om-os .om-os-dock .om-product-atlas .om-icon-core {
+  width: 86%;
+  height: 86%;
+  box-shadow: 0 0 17px rgba(179,143,241,.4), 0 0 3px rgba(227,207,255,.45);
+}
+.om-os .om-os-dock .om-os-app[aria-current="page"] { color: var(--om-text); }
+.om-os .om-os-dock .om-os-app[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  left: calc(50% - 9px);
+  bottom: -6px;
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--om-ai);
+  box-shadow: 0 0 9px rgb(var(--om-ai-rgb) / .5);
+}
+.om-os .om-os-dock .om-os-app:active .om-product-icon { transform: scale(.94); }
+.om-os .om-offline,
+.om-os .om-atlas-background { bottom: calc(var(--om-dock-clearance) + 8px); }
+.om-keyboard-open .om-os .om-os-dock { display: none; }
+
+/* Navigation has one home. The old four-tab bar no longer renders. */
+.om-os .om-tabbar,
+.om-standalone .om-os .om-tabbar,
+.om-standalone .om-os.om-os-atlas .om-tabbar { display: none; }
+
+/* The header is quiet so Atlas Live owns the first screen. */
+.om-os .om-nav-wrap { padding-top: max(8px, env(safe-area-inset-top, 0px)); }
+.om-os .om-nav { min-height: 54px; padding-bottom: 10px; }
+.om-os .om-brand { gap: 11px; }
+.om-os .om-brand span { font-size: 18px; font-weight: 600; letter-spacing: -.035em; }
+.om-os .om-os-breadcrumb { font-size: 15px; padding-left: 30px; }
+.om-os .om-os-breadcrumb > a { color: var(--om-ai); font-weight: 600; }
+.om-os .om-os-ask { min-height: 40px; margin-right: 4px; font-size: 12px; }
+
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .om-os .om-os-dock .om-os-app:hover .om-product-icon,
+  .om-os .om-os-dock .om-os-app:focus-visible .om-product-icon { transform: translateY(-7px) scale(1.28); }
+  .om-os .om-os-dock .om-os-app:has(+ .om-os-app:hover) .om-product-icon,
+  .om-os .om-os-dock .om-os-app:hover + .om-os-app .om-product-icon { transform: translateY(-2px) scale(1.1); }
+}
+
+@media (max-width: 980px) {
+  .om-os .om-nav-wrap,
+  .om-standalone .om-os .om-nav-wrap { padding-top: env(safe-area-inset-top, 0px); }
+  .om-os .om-nav,
+  .om-standalone .om-os .om-nav { min-height: 58px; padding: 0; }
+  .om-os .om-mobile-screen { display: block; color: var(--om-ai); font-size: 14px; font-weight: 600; }
+  .om-os .om-nav-right > .om-bell { display: inline-flex; }
+  .om-os .om-brand { min-height: 44px; }
+  .om-os .om-brand svg { width: 35px; }
+}
+
+/* The Command Center's fixed copilot also clears the launcher in a browser-sized tablet window. */
+@media (min-width: 981px) and (max-width: 1279px) {
+  .om-os-atlas .hud-root { --atlas-nav-height: var(--om-dock-clearance); padding-bottom: 100px; }
+  .om-os-atlas .hud-root[data-voice-active="true"] { padding-bottom: 190px; }
+  .om-os-atlas .hud-root [data-dock] { bottom: var(--atlas-nav-height); padding-bottom: 0 !important; }
+  .om-os-atlas .hud-root[data-talk-open="true"] [data-dock] { display: none; }
+  .om-os-atlas .hud-root .hud-talk {
+    bottom: var(--atlas-nav-height);
+    max-height: calc(var(--om-viewport-height, 100dvh) - var(--atlas-nav-height) - 16px);
+  }
+  .om-os-atlas .hud-root .hud-talk.is-tall { height: calc(var(--om-viewport-height, 100dvh) - var(--atlas-nav-height) - 16px); }
+}
+
+@media (max-width: 600px) {
+  .om-app.om-os { --om-dock-clearance: calc(98px + env(safe-area-inset-bottom, 0px)); }
+  .om-os .om-os-dock {
+    bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    width: calc(100% - max(16px, env(safe-area-inset-left, 0px)) - max(16px, env(safe-area-inset-right, 0px)));
+    gap: 0;
+    padding: 7px 5px 9px;
+    border-radius: 24px;
+  }
+  .om-os .om-os-dock .om-os-app { min-height: 56px; padding: 0 1px 3px; gap: 3px; border-radius: 12px; }
+  .om-os .om-os-dock .om-product-icon { width: 34px; height: 34px; }
+  .om-os .om-os-dock .om-os-app-title { font-size: 9px; letter-spacing: -.025em; }
+  .om-os .om-os-dock .om-os-app[aria-current="page"]::after { bottom: -5px; width: 14px; left: calc(50% - 7px); }
+  .om-os .om-mobile-screen { max-width: 44vw; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (max-width: 359px) {
+  .om-os .om-os-dock { width: calc(100% - 12px); padding-inline: 3px; border-radius: 20px; }
+  .om-os .om-os-dock .om-product-icon { width: 31px; height: 31px; }
+  .om-os .om-os-dock .om-os-app-title { font-size: 8.5px; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .om-app.om-os { --om-dock-clearance: calc(86px + env(safe-area-inset-bottom, 0px)); }
+  .om-os .om-os-dock { width: min(620px, calc(100% - 32px)); padding-block: 5px 8px; }
+  .om-os .om-os-dock .om-os-app { min-height: 50px; gap: 1px; }
+  .om-os .om-os-dock .om-product-icon { width: 31px; height: 31px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .om-os .om-os-dock .om-product-icon { transition: none; }
+  .om-os .om-os-dock .om-os-app:active .om-product-icon { transform: none; }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .om-os .om-os-dock,
+  .om-look-graphite .om-os .om-os-dock { background: var(--om-menu); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .om-os .om-os-dock,
+  .om-look-graphite .om-os .om-os-dock { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--om-menu); }
+}

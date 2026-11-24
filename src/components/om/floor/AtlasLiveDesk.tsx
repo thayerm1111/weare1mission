@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, ArrowDownRight, ArrowLeftRight, ArrowUpRight, ChevronRight, Crosshair, Mic, ShieldCheck, Sparkles, Target } from "lucide-react";
+import { Activity, ArrowDownRight, ArrowLeftRight, ArrowUpRight, ChevronRight, Crosshair, Mic, Sparkles, Target } from "lucide-react";
 import { ProductIcon } from "@/components/om/ProductIcon";
 import { OmChart } from "@/components/om/chart/OmChart";
 import { floorMarketRead, marketPosition, TREND_WORD } from "@/lib/floor/marketIntelligence";
@@ -36,7 +36,7 @@ function age(when: unknown, now: number): string {
   const sec = Math.max(0, Math.round((now - t) / 1000));
   return sec < 2 ? "just now" : sec < 60 ? sec + "s ago" : sec < 3600 ? Math.round(sec / 60) + "m ago" : Math.round(sec / 3600) + "h ago";
 }
-/** The Floor's new lead: real read and ticks, not a second AI or trading engine. */
+/** OM OS market intelligence: real reads and ticks from the existing engines. */
 export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, tf, onTf }: {
   goldSetup: SetupAnswer | null; goldFailed: boolean; atlasRead: { at: string; summary: string } | null;
   sample: boolean; tf: FloorMode; onTf: (mode: FloorMode) => void;
@@ -189,40 +189,43 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, tf, on
   return (
     <section className="om-live-desk om-panel om-market-terminal" aria-label="Atlas live market intelligence" data-market={symbol}>
       <header className="om-terminal-header">
-        <div className="om-live-brand"><ProductIcon kind="atlas" size="md" /><div><b>Atlas <em>LIVE</em></b><small>Market intelligence</small></div></div>
+        <div className="om-live-brand">
+          <ProductIcon kind="atlas" size="lg" />
+          <div><span className="om-terminal-eyebrow">YOUR MARKET COMMAND CENTER</span><h2>Atlas <em>Live</em></h2><p>{insight}</p></div>
+        </div>
         <div className="om-terminal-header-actions">
-          <span className="om-live-state" data-live={streaming}><i />{sample ? "SAMPLE" : !marketOpen ? "MARKET CLOSED" : streaming ? "LIVE TICKS" : "FEED DELAYED"}</span>
           <a href="/command-center" className="om-terminal-center-link"><Crosshair size={16} aria-hidden="true"/><span>Gold Command Center</span><ArrowUpRight size={14} aria-hidden="true"/></a>
+          <div className="om-terminal-live-tools"><span className="om-live-state" data-live={streaming}><i />{sample ? "SAMPLE DATA" : !marketOpen ? "MARKET CLOSED" : streaming ? "LIVE TICKS" : "FEED DELAYED"}</span>
+            <button type="button" className="om-terminal-explain" disabled={!canAsk} onClick={() => openAtlas({ question: "Explain the current " + market.td + " market structure, mapped support and resistance, and conditional opportunities on the " + currentFrame.label + " timeframe. Distinguish confirmed entries from market observations.", context })}>Explain <ChevronRight size={13} aria-hidden="true"/></button></div>
         </div>
       </header>
       <div className="om-terminal-markets" role="group" aria-label="Select market">
         {MARKETS.map(m => <button key={m.key} type="button" aria-pressed={m.key === symbol} disabled={sample && m.key !== "XAUUSD"} onClick={() => setSymbol(m.key)}>
           <span className="om-market-letter" data-symbol={m.key}>{m.key === "XAUUSD" ? "Au" : m.key === "EURUSD" ? "€" : m.key === "GBPJPY" ? "£" : "¥"}</span>
-          <span><strong>{m.td}</strong><small>{m.key === "XAUUSD" ? "Gold" : m.key === "EURUSD" ? "Euro / Dollar" : m.key === "GBPJPY" ? "Pound / Yen" : "Dollar / Yen"}</small></span>
+          <span><strong>{m.td}</strong><small>{m.key === "XAUUSD" ? "Gold / US Dollar" : m.key === "EURUSD" ? "Euro / Dollar" : m.key === "GBPJPY" ? "Pound / Yen" : "Dollar / Yen"}</small></span>
         </button>)}
       </div>
-      <div className="om-terminal-overview">
+      <div className="om-terminal-overview" aria-label="Selected market overview">
         <div className="om-terminal-market-title">
-          <span className="om-terminal-label">{market.td} · {currentFrame.label} MARKET READ</span>
-          <h2>{market.name} <span>overview</span></h2>
-          <div className="om-terminal-price" data-no-i18n translate="no"><strong>{fmt(price)}</strong>{analysis.movePct != null && <span data-trend={analysis.movePct >= 0 ? "bullish" : "bearish"}>{analysis.movePct >= 0 ? "+" : ""}{analysis.movePct.toFixed(2)}% <small>4 closed candles</small></span>}</div>
-          <small className="om-terminal-muted">{quoteLabel}</small>
+          <span className="om-terminal-label">{market.td} · {currentFrame.label} OVERVIEW</span>
+          <div className="om-terminal-price" data-no-i18n translate="no"><strong>{fmt(price)}</strong>{analysis.movePct != null && <span data-trend={analysis.movePct >= 0 ? "bullish" : "bearish"} title="Change over four closed candles">{analysis.movePct >= 0 ? "+" : ""}{analysis.movePct.toFixed(2)}%<small>4 candles</small></span>}</div>
         </div>
-        <div className="om-terminal-direction" data-trend={usable ? trend : "unknown"}>
-          <div className="om-terminal-direction-icon"><DirectionIcon aria-hidden="true"/></div>
-          <div><span className="om-terminal-label">{usable ? "Market trend" : "Last recorded trend"}</span><strong>{trendLabel}</strong><small>{analysis.momentum === "Unknown" ? "Momentum unavailable" : analysis.momentum + " momentum"}</small></div>
-          <div className="om-terminal-setup-state"><span>SETUP STATUS</span><b>{setupNote}</b></div>
+        <div className="om-terminal-metric" data-trend={usable ? trend : "unknown"}>
+          <span className="om-terminal-label">{usable ? "TREND" : "LAST TREND"}</span>
+          <strong><DirectionIcon size={21} aria-hidden="true"/>{trendLabel}</strong>
+        </div>
+        <div className="om-terminal-metric" data-trend={usable ? trend : "unknown"}>
+          <span className="om-terminal-label">MOMENTUM</span>
+          <strong><Crosshair size={19} aria-hidden="true"/>{analysis.momentum === "Unknown" ? "Awaiting read" : analysis.momentum}</strong>
+        </div>
+        <div className="om-terminal-metric om-terminal-setup-state">
+          <span className="om-terminal-label">SETUP STATUS</span>
+          <strong><Activity size={20} aria-hidden="true"/>{setupNote}</strong>
         </div>
       </div>
-      <section className="om-terminal-read" aria-label="Atlas market briefing">
-        <div><span className="om-terminal-label"><Sparkles size={14} aria-hidden="true"/> ATLAS MARKET BRIEF</span><p>{insight}</p>
-          {eligibleRead && <details><summary>Atlas gold desk context</summary><p>{eligibleRead.summary}</p></details>}
-        </div>
-        <button type="button" disabled={!canAsk} onClick={() => openAtlas({ question: "Explain the current " + market.td + " market structure, mapped support and resistance, and conditional opportunities on the " + currentFrame.label + " timeframe. Distinguish confirmed entries from market observations.", context })}><Sparkles size={15} aria-hidden="true"/> Explain <ChevronRight size={15} aria-hidden="true"/></button>
-      </section>
       <div className="om-terminal-layout">
         <section className="om-terminal-chart-card" aria-label="Market chart">
-          <div className="om-live-chart-heading"><div><b>Price action</b><small>Real candles · drag, zoom or expand</small></div>
+          <div className="om-live-chart-heading"><div><h3>Price action</h3><small>Real candles · drag, zoom or expand</small></div>
             <div className="om-live-frames" role="group" aria-label="Market timeframe">
               {FRAMES.map(f => <button key={f.id} type="button" aria-pressed={tf === f.id} onClick={() => onTf(f.id)}>{f.label}</button>)}
             </div>
@@ -233,35 +236,35 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, tf, on
               isOpenAt={t => isOpen(symbol === "XAUUSD" ? "metal" : "fx", t)}
               viewKey={"atlas-floor:" + symbol + ":" + tf} label={market.td + " real candles with mapped support and resistance"} />
           </div> : <div className="om-live-chart-empty" role="status">{error ? "Chart unavailable. Try another timeframe." : "Loading real market candles…"}</div>}
-          <div className="om-terminal-chart-legend"><span><i data-kind="support"/>Support</span><span><i data-kind="resistance"/>Resistance</span><small>{analysis.barsUsed ? analysis.barsUsed + " closed candles analysed" : "Awaiting analysis"}</small></div>
+          <div className="om-terminal-chart-legend"><span><i data-kind="support"/>Support</span><span><i data-kind="resistance"/>Resistance</span><small>{quoteLabel}</small></div>
         </section>
         <aside className="om-terminal-level-map" aria-label="Support and resistance">
           <div className="om-terminal-panel-heading"><Target size={17} aria-hidden="true"/><h3>Key market levels</h3><span>{currentFrame.label}</span></div>
           <div className="om-terminal-level" data-kind="resistance"><span>RESISTANCE <ArrowUpRight size={14} aria-hidden="true"/></span><strong>{fmt(resistance)}</strong><small>{analysis.resistance?.source ?? "Not established"} · {distance(resistance)}</small></div>
-          {rangePosition != null && <div className="om-terminal-range" aria-label="Price location between mapped levels"><div><i style={{left: rangePosition + "%"}}/></div><span>Support</span><span>Resistance</span></div>}
           <div className="om-terminal-level" data-kind="support"><span>SUPPORT <ArrowDownRight size={14} aria-hidden="true"/></span><strong>{fmt(support)}</strong><small>{analysis.support?.source ?? "Not established"} · {distance(support)}</small></div>
+          {rangePosition != null && <div className="om-terminal-range" aria-label="Price location between mapped levels"><div><i style={{left: rangePosition + "%"}}/></div><span>Support</span><span>Resistance</span></div>}
           <div className="om-terminal-range-values"><div><span>Recent high</span><strong>{fmt(analysis.rangeHigh)}</strong></div><div><span>Recent low</span><strong>{fmt(analysis.rangeLow)}</strong></div></div>
-          <small className="om-terminal-muted">Nearest confirmed swings or recent range extremes. Levels are reference areas, not guaranteed barriers.</small>
         </aside>
+        <section className="om-terminal-opportunities" aria-label="Conditional opportunities">
+          <div className="om-terminal-panel-heading"><Activity size={18} aria-hidden="true"/><h3>What to watch next</h3></div>
+          {mapped ? <div className="om-terminal-scenario-grid">
+            <div className="om-terminal-scenario" data-trend="bullish"><div><ArrowUpRight size={18} aria-hidden="true"/><strong>Upside scenario</strong></div><b>{resistance != null ? fmt(resistance) : "Not established"}</b><p>{resistance != null ? "Watch for a close above resistance, then a successful retest. A rejection keeps the level in play." : "No resistance above the last closed price is established in this window."}</p></div>
+            <div className="om-terminal-scenario" data-trend="bearish"><div><ArrowDownRight size={18} aria-hidden="true"/><strong>Downside scenario</strong></div><b>{support != null ? fmt(support) : "Not established"}</b><p>{support != null ? "Watch for a close below support, then a failed reclaim. A hold keeps support in play." : "No support below the last closed price is established in this window."}</p></div>
+          </div> : <p className="om-terminal-muted">The watchlist will populate when enough closed candles arrive.</p>}
+          <p className="om-terminal-watch-note">{usable && mapped ? "Conditional observations · confirmation required" : "Reference only · awaiting a current read"}</p>
+        </section>
       </div>
-      <section className="om-terminal-opportunities" aria-label="Conditional opportunities">
-        <div className="om-terminal-panel-heading"><Activity size={18} aria-hidden="true"/><h3>What to watch next</h3><span>{usable && mapped ? "CONDITIONAL" : "REFERENCE ONLY"}</span></div>
-        {mapped ? <div className="om-terminal-scenario-grid">
-          <div className="om-terminal-scenario" data-trend="bullish"><div><ArrowUpRight size={20} aria-hidden="true"/><strong>Upside scenario</strong></div><b>{resistance != null ? fmt(resistance) : "Not established"}</b><p>{resistance != null ? "Watch for a closed candle above resistance followed by a successful retest. A rejection keeps the level in play." : "No resistance above the last closed price has been identified in this window."}</p></div>
-          <div className="om-terminal-scenario" data-trend="bearish"><div><ArrowDownRight size={20} aria-hidden="true"/><strong>Downside scenario</strong></div><b>{support != null ? fmt(support) : "Not established"}</b><p>{support != null ? "Watch for a closed candle below support followed by a failed reclaim. A hold keeps support in play." : "No support below the last closed price has been identified in this window."}</p></div>
-        </div> : <p className="om-terminal-muted">No reliable levels yet. The watchlist will populate when enough closed candles arrive.</p>}
-        <div className="om-terminal-watch-note"><ShieldCheck size={16} aria-hidden="true"/><span>{usable ? "Market observations only. A break, retest or rejection must be confirmed before a setup is considered." : "Historical or unavailable data — not a current entry signal."}</span></div>
-      </section>
       {inPlay && entry != null ? <section className="om-terminal-signal"><div className="om-live-plan-heading"><b>{market.engine} · {view.side?.toUpperCase() ?? "SETUP"}</b><span>{view.stage === "live" ? "Review entry and risk" : "Entry pending confirmation"}</span></div>
         <div className="om-live-levels" data-no-i18n translate="no">
           {([["ENTRY",entry],["STOP LOSS",stop],["TP 1",tp1],["TP 2",tp2],["TP 3",tp3]] as [string,number|null][]).map(([label,value]) => <div key={label}><span>{label}</span><strong>{fmt(value)}</strong></div>)}
         </div>{view.waitingFor && <p>{view.waitingFor}</p>}{view.changesIf && <p>Invalidation: {view.changesIf}</p>}
-      </section> : <div className="om-terminal-no-signal"><div><strong>{usable && (view.stage === "live" || view.stage === "forming") ? "A setup is available to review" : "No confirmed trade shown"}</strong><small>{!usable ? state : view.open ? "Atlas continues to monitor price action." : "Open the signal tool for its full analysis."}</small></div><span>{market.engine}</span></div>}
+      </section> : null}
       <div className="om-live-actions">
         <button className="om-live-talk" type="button" disabled={sample} onClick={() => openAtlas({ voice: true, context })}><Mic size={19} aria-hidden="true"/>Talk to Atlas</button>
         <button className="om-live-find" type="button" disabled={sample} onClick={signal}><Sparkles size={18} aria-hidden="true"/>{symbol === "XAUUSD" ? "Generate with GENX" : "Generate AI Play"}<ArrowUpRight size={15} aria-hidden="true"/></button>
       </div>
-      <p className="om-live-footnote">Analysis: {answer?.asOf ? age(answer.asOf, now) : "not available"} · {readAge != null ? "Last closed candle " + age(new Date(analysis.candleAt! + currentFrame.ms).toISOString(), now) + " · " : ""}Live quotes do not confirm setups. Signal generation and trade execution remain separate.</p>
+      {eligibleRead && <details className="om-terminal-desk-context"><summary>Atlas gold desk context</summary><p>{eligibleRead.summary}</p></details>}
+      <div className="om-live-footnote"><span>Analysis: {answer?.asOf ? age(answer.asOf, now) : "not available"}{analysis.barsUsed ? " · " + analysis.barsUsed + " closed candles" : ""}</span><span>{inPlay ? "Market observations are separate from the confirmed setup." : usable && (view.stage === "live" || view.stage === "forming") ? "A setup is available to review in " + market.engine : "No confirmed trade shown · " + state}</span></div>
     </section>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Activity as PulseIcon, ArrowUpRight, ChevronDown, Eye, EyeOff, Info, Layers3, Mic, Send, Sparkles } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Eye, EyeOff, Info, Mic, Send, Sparkles } from "lucide-react";
 import { OmChart } from "@/components/om/chart/OmChart";
 import { ProductIcon } from "@/components/om/ProductIcon";
 import { useFlowAccount } from "@/components/om/FlowAccount";
@@ -21,6 +21,7 @@ import {
   FLOOR_PERIODS, STAGE_LABEL, stageSentence, setupView, ageText, money, pipsText, toneOf, periodOf,
   type FloorOverview, type FloorPeriod, type FloorAccount, type AccountFigures, type GenxResults, type FlowResults, type SetupView,
 } from "@/lib/floor/overview";
+import "./om-os-performance.css";
 
 /**
  * THE FLOOR — the selected account, its live positions, current winning runs, and gold with Atlas.
@@ -158,7 +159,7 @@ export function AccountSummary({ ov, state, switching, hide, onHide, onPick, now
 }) {
   if (!ov) {
     if (state === "loading") return <div className="om-panel om-acct" aria-busy="true"><div><Skel w={190} h={22} /><Skel w={92} h={22} /></div><span className="om-rule" /><div><span className="om-label">Balance</span><Skel w={132} h={26} /></div><span className="om-rule" /><div><span className="om-label">Equity</span><Skel w={132} h={26} /></div></div>;
-    return <div className="om-panel om-acct"><div><span>Account figures are not available right now.</span><span className="om-label">The rest of The Floor is unaffected.</span></div></div>;
+    return <div className="om-panel om-acct"><div><span>Account figures are not available right now.</span><span className="om-label">The rest of OM OS is unaffected.</span></div></div>;
   }
   if (!ov.accountsKnown) return <div className="om-panel om-acct"><div><span>Your accounts could not be loaded just now.</span><span className="om-label">This will try again on its own.</span></div></div>;
   const a = ov.account;
@@ -486,23 +487,6 @@ export function GenxCard({ ov, state, failed, period, onPeriod, icon = false }: 
 
 /* ── the screen ───────────────────────────────────────────────────────────────────────────────── */
 
-/** The mobile Floor shares the exact feeds and selected account with the desktop workspace. */
-function MobileFloor({ now, setup, view, tf, sample }: {
-  now: number; setup: SetupAnswer | null; view: SetupView; tf: FloorMode; sample: boolean;
-}) {
-  const context = floorAtlasContext(setup, view, tf, now);
-  return <div className="om-mobile-floor">
-    <section className="om-floor-discovery" aria-label="Find a signal">
-      <div className="om-floor-discovery-head"><h2>Find a signal</h2><span>With Atlas</span></div>
-      <div className="om-mobile-shortcuts" role="group" aria-label="Signal tools">
-        <button type="button" onClick={() => { if (!sample) openAtlas({ tool: "plays", context: { source: "floor", label: "Find a signal" } }); }} disabled={sample}><Sparkles aria-hidden="true" /><span>OM AI Plays</span><small>Any market</small></button>
-        <button type="button" onClick={() => { if (!sample) openAtlas({ tool: "genx", context }); }} disabled={sample}><Layers3 aria-hidden="true" /><span>GENX</span><small>Analyze gold</small></button>
-        <button type="button" onClick={() => { if (!sample) openAtlas({ tool: "pulse", context: { source: "floor", label: "Discover markets" } }); }} disabled={sample}><PulseIcon aria-hidden="true" /><span>Pulse</span><small>Scan markets</small></button>
-      </div>
-    </section>
-  </div>;
-}
-
 export function Floor({ sample }: { sample?: FloorSample }) {
   const [compact, setCompact] = useState(false);
   useEffect(() => {
@@ -687,15 +671,16 @@ export function Floor({ sample }: { sample?: FloorSample }) {
 
       <header className={`om-head${usingSharedAccount ? " om-os-floor-head" : ""}`}>
         <div>
-          <h1 className="om-title">The Floor{isSample && <span className="om-chip om-sample" role="note">Sample data</span>}</h1>
-          <p className="om-sub">Find a signal with AI. Understand the setup. Review your trade.</p>
+          <h1 className="om-title">OM OS{isSample && <span className="om-chip om-sample" role="note">Sample data</span>}</h1>
+          <p className="om-sub">Your markets, intelligence and performance. One workspace.</p>
         </div>
-        {usingSharedAccount ? <span className="om-os-floor-context"><span className="om-dot" data-tone="off" />Gold workspace</span> : <AccountSummary ov={ov} state={ovState} switching={switching} hide={hide} onHide={() => setHide((h) => { store.set("om:floor:hide", h ? "0" : "1"); return !h; })} onPick={choose} now={now} />}
+        {!usingSharedAccount && <AccountSummary ov={ov} state={ovState} switching={switching} hide={hide} onHide={() => setHide((h) => { store.set("om:floor:hide", h ? "0" : "1"); return !h; })} onPick={choose} now={now} />}
       </header>
 
       <AtlasLiveDesk goldSetup={setup} goldFailed={setupFailed} atlasRead={ov?.atlas?.read ?? null}
         sample={isSample} tf={tf} onTf={pickTf} />
 
+      <div className="om-os-performance">
       <WinningPipsPanel account={ov?.account ?? null} accountsKnown={!!ov?.accountsKnown} switching={switching}
         hideAccountPips={hide} sample={isSample} />
 
@@ -703,8 +688,8 @@ export function Floor({ sample }: { sample?: FloorSample }) {
         hideAccountPips={hide} sample={isSample} />
 
       {!isSample && <ActiveTrades />}
+      </div>
 
-      {compact ? <MobileFloor now={now} setup={setup} view={view} tf={tf} sample={isSample} /> : <>
       <details className="om-floor-deep">
         <summary>Open detailed gold workspace</summary>
       <div className="om-stage">
@@ -713,11 +698,9 @@ export function Floor({ sample }: { sample?: FloorSample }) {
       </div>
       </details>
 
-      </>}
-
       {!compact && <div className="om-lower">
         <div className="om-pulse">
-          <Link className="om-os-pulse-title" href="/portal/trading?view=pulse"><ProductIcon kind="pulse" size="sm" /><span>Pulse<small>Market quotes</small></span></Link>
+          <Link className="om-os-pulse-title" href="/portal/trading?view=pulse"><span>Market watch<small>Latest quotes</small></span></Link>
           <div className="om-pulse-list" data-no-i18n translate="no">
             {others.map((t) => (
               <span key={t.label} className="om-pulse-item om-num">

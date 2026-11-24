@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { NAV, APP_TABS, TAB_ORDER, activeKey, activeTabKey, wantsNextShell, SHELL_COOKIE, SHELL_CSS } from '../src/lib/floor/nav';
+import { NAV, APP_TABS, activeKey, wantsNextShell, SHELL_COOKIE, SHELL_CSS } from '../src/lib/floor/nav';
 import { FLOOR_ASK_KEY, FLOOR_ASK_MAX_AGE_MS, FLOOR_ASK_MAX_LEN, leaveFloorQuestion, takeFloorQuestion } from '../src/components/command-center/hud/floorAsk';
 
 /*
@@ -21,8 +21,8 @@ const walk = (dir: string): string[] => readdirSync(dir).flatMap((f) => {
 });
 
 /* ── destinations ── */
-test('six destinations, in the order the owner gave, and no community among them', () => {
-  assert.deepEqual(NAV.map((n) => n.label), ['The Floor', 'OM AI Plays', 'GENX', 'STRATA', 'Market Pulse', 'FLOW', 'Atlas Command Center']);
+test('the seven trading destinations use the OM OS name and keep community pages outside the workspace', () => {
+  assert.deepEqual(NAV.map((n) => n.label), ['OM OS', 'OM AI Plays', 'GENX', 'STRATA', 'Market Pulse', 'FLOW', 'Atlas Command Center']);
   assert.deepEqual(NAV.map((n) => n.href), ['/portal/trading', '/portal/signals', '/portal/genx', '/portal/strata', '/portal/trading?view=pulse', '/portal/trading?view=flow', '/command-center']);
   const all = JSON.stringify({ NAV }).toLowerCase();
   for (const gone of ['leaderboard', 'leadership', 'inner circle', 'community', 'training', 'academy', 'schedule', 'collection', 'experiences', 'updates', 'team', 'prospects', 'comp-plan', 'rapid', 'matty', 'genfx', 'cashtrap', 'xaughost', 'auric', '/portal/om-ai']) {
@@ -30,25 +30,33 @@ test('six destinations, in the order the owner gave, and no community among them
   }
 });
 
-test('the phone has four clear destinations and groups every trading product under Tools', () => {
-  assert.deepEqual(TAB_ORDER.map((k) => APP_TABS.find((n) => n.key === k)!.label), ['Floor', 'Gold Center', 'Tools', 'FLOW']);
-  assert.equal(new Set(TAB_ORDER).size, 4, 'destinations are not duplicated');
-  assert.equal(activeTabKey('/portal/tools', null), 'tools');
-  for (const n of NAV) {
-    const url = new URL(n.href, 'https://weare1mission.com');
-    assert.equal(activeTabKey(url.pathname, url.searchParams.get('view')), ['plays', 'genx', 'pulse', 'strata'].includes(n.key) ? 'tools' : n.key, `${n.label} keeps the correct tab active`);
+test('desktop and phone share one dock with all seven canonical destinations', () => {
+  const shell = read('src/components/om/AppShell.tsx');
+  const apps = shell.slice(shell.indexOf('const APPS = ['), shell.indexOf('function AppDock()'));
+  const destinations = [...apps.matchAll(/key: "([^"]+)" as const,[^}]*?dockLabel: "([^"]+)", href: "([^"]+)"/g)];
+  assert.deepEqual(destinations.map((item) => item[1]), ['floor', 'atlas', 'genx', 'strata', 'plays', 'pulse', 'flow']);
+  assert.deepEqual(destinations.map((item) => item[2]), ['OM OS', 'Atlas', 'GENX', 'STRATA', 'OM AI Plays', 'Pulse', 'FLOW']);
+  assert.equal(new Set(destinations.map((item) => item[1])).size, 7, 'every product appears once');
+  for (const [, key, , href] of destinations) {
+    const destination = NAV.find((item) => item.key === key)!;
+    assert.equal(href, destination.href, `${key} keeps its canonical route`);
+    const url = new URL(href, 'https://weare1mission.com');
+    assert.equal(activeKey(url.pathname, url.searchParams.get('view')), key, `${key} has its own active state`);
   }
-  assert.equal(activeTabKey('/portal/account', null), null);
+  assert.equal((shell.match(/<AppDock \/>/g) ?? []).length, 1, 'the shared shell renders one dock');
+  assert.doesNotMatch(shell, /<nav className="om-tabbar"/, 'the old mobile navigation is not duplicated');
+  assert.equal(activeKey('/portal/account', null), null);
 });
 
-test('the gold desk keeps its destination while the Atlas app tab opens an in-place conversation', () => {
+test('the Atlas dock destination opens the gold desk while Ask Atlas remains an in-place conversation', () => {
   assert.equal(NAV.find((n) => n.key === 'atlas')!.hard, true);
   assert.equal(NAV.filter((n) => n.hard).length, 1);
   const shell = read('src/components/om/AppShell.tsx');
-  assert.match(shell, /n\.hard\s*\?\s*<a key=\{n\.key\} href=\{n\.href\}/);
+  assert.match(shell, /app\.hard\s*\?\s*<a key=\{app\.key\} href=\{app\.href\}/);
   assert.equal(APP_TABS.find((n) => n.key === 'atlas')!.href, '/command-center');
   assert.equal(APP_TABS.find((n) => n.key === 'atlas')!.hard, true);
   assert.doesNotMatch(shell, /if \(n\.key === "atlas"\) return <button/);
+  assert.match(shell, /className="om-os-ask" onClick=\{\(\) => openAtlas\(\)\} aria-haspopup="dialog"/);
 });
 
 test('the lit destination follows the page, including a tool opened inside The Floor', () => {

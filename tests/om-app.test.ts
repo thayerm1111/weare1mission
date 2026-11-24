@@ -236,7 +236,7 @@ test('payment and billing pages leave the frame: they refuse to open inside one'
 });
 
 /* ── drawn as an app (owner 11-21: "This looks like the website not an app. Make it more like an actual app") ── */
-test('the installed OS keeps its safe app bar, current-screen navigation and standalone tab bar', async () => {
+test('the installed OS keeps its safe app bar and the same seven-destination dock as the website', async () => {
   const { SHELL_SCRIPT } = await import('../src/lib/floor/nav');
   const run = (o: { standalone?: boolean; display?: boolean; framed?: boolean }) => {
     const cls = new Set<string>();
@@ -252,9 +252,11 @@ test('the installed OS keeps its safe app bar, current-screen navigation and sta
   assert.equal(run({ framed: true }), true, 'the earlier app\'s frame');
   const c = css();
   const app = c.slice(c.indexOf('.om-standalone .om-app { --om-r-panel: 18px; }'));
-  assert.match(app, /\.om-standalone \.om-tabbar \{\s*position: fixed;[^}]*display: grid;/, 'the tab bar at every size, iPad included');
+  const dock = read('src/components/om/os-dock.css');
+  assert.match(dock, /\.om-os \.om-os-dock \{[^}]*position: fixed;[^}]*display: grid;[^}]*grid-template-columns: repeat\(7, minmax\(0, 1fr\)\)/, 'the same seven tools are present at every size, including an installed iPad app');
+  assert.match(dock, /\.om-standalone \.om-os \.om-main \{ padding-bottom: var\(--om-dock-clearance\); \}/, 'installed windows reserve the same dock space');
   assert.match(app, /@media \(max-width: 640px\) \{[\s\S]*?\.om-standalone \.om-menu \{\s*position: fixed;[^}]*bottom: calc\(8px \+ env\(safe-area-inset-bottom, 0px\)\)/, 'on a phone the account menu is a sheet from the bottom');
-  assert.match(app, /@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\) \{\s*\.om-standalone \.om-nav-wrap::before, \.om-standalone \.om-tabbar \{ background: var\(--om-appbar-solid\); \}/, 'an opaque fallback for the app\'s bars');
+  assert.match(dock, /@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\) \{[\s\S]*?\.om-os-dock \{ background: var\(--om-menu\); \}/, 'the dock is opaque when the browser cannot blur');
   const os = read('src/components/om/os.css');
   assert.match(os, /\.om-standalone \.om-os \.om-nav-wrap \{ position:sticky; top:0; padding: max\(10px,env\(safe-area-inset-top\)\) 0 0;/, 'the shared OS app bar remains at the top and clears the notch');
   assert.match(os, /\.om-standalone \.om-os \.om-nav \{ height:auto; min-height:52px;/, 'the app bar can grow with its content');
@@ -263,10 +265,14 @@ test('the installed OS keeps its safe app bar, current-screen navigation and sta
   assert.match(shell, /d\.classList\.toggle\("om-standalone", runningAsApp\(\)\);/);
   assert.match(shell, /<div className="om-nav-wrap" data-scrolled=\{scrolled \? "" : undefined\} data-screen=\{here \?\? "account"\}>/);
   assert.match(shell, /const screen = here \? NAV\.find\(\(n\) => n\.key === here\)\?\.label \?\? null : null;/, 'screen names come from the real destinations');
-  assert.match(shell, /className="om-os-breadcrumb"><Link href="\/portal\/trading" aria-current=\{here === "floor" \? "page" : undefined\}>The Floor<\/Link>/);
+  assert.match(shell, /className="om-os-breadcrumb"><Link href="\/portal\/trading" aria-current=\{here === "floor" \? "page" : undefined\}>OM OS<\/Link>/);
   assert.match(shell, /\{here && here !== "floor" && <><span aria-hidden="true">\/<\/span><span>\{screen\}<\/span><\/>\}/, 'the OS breadcrumb replaces the old scrolling title capsule');
-  assert.match(shell, /<nav className="om-tabbar" aria-label="One Mission app navigation">/);
-  assert.match(shell, /TAB_ORDER\.map\(\(k\) => APP_TABS\.find\(\(n\) => n\.key === k\)!\)/, 'mobile destinations use the four-tab app navigation');
-  assert.match(shell, /className="om-tab" aria-label=\{n\.label\} aria-current=\{cur\}/, 'every product has a labelled destination with its active state');
+  assert.match(shell, /<nav className="om-os-dock" aria-label="One Mission apps">/);
+  assert.doesNotMatch(shell, /<nav className="om-tabbar"/, 'the dock replaces the old mobile tab bar');
+  assert.equal((shell.match(/<AppDock \/>/g) ?? []).length, 1);
+  assert.match(shell, /"aria-label": app\.label/, 'every dock destination has its full accessible name');
+  assert.match(shell, /"aria-current": here === app\.key \? "page" as const : undefined/, 'every tool has its own active state');
+  assert.match(shell, /current !== href/, 're-tapping a saved subpage returns to the real tool destination');
+  assert.match(shell, /event\.metaKey \|\| event\.ctrlKey \|\| event\.shiftKey \|\| event\.altKey/, 'modified clicks retain normal browser behavior');
   assert.doesNotMatch(shell, /TOOLS_SHEET/, 'GENX and Pulse are directly reachable without an overflow menu');
 });

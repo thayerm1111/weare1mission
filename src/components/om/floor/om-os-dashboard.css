@@ -1,0 +1,33 @@
+/* The OM OS desktop: one lead workspace with a compact performance row. */
+.om-app.om-os { --om-pad: clamp(18px,3.5vw,60px); }
+.om-os .om-frame { max-width: 1800px; }
+.om-look-graphite .om-app.om-os {
+  --om-page: #0b0a10; --om-page-rgb: 11 10 16;
+  --om-surface: #15141d; --om-raised: #201d2a; --om-menu: #201d2a;
+  --om-edge: rgba(205,194,228,.12); --om-edge-2: rgba(205,194,228,.22);
+  --om-text: #f3eff8; --om-text-2: #b3aebe; --om-text-3: #9690a3;
+  --om-ai: #c9abf5; --om-ai-rgb: 201 171 245;
+  --om-pos: #92dfbd; --om-pos-rgb: 146 223 189; --om-neg: #df9daf; --om-neg-rgb: 223 157 175;
+  background: radial-gradient(ellipse at 77% -10%,rgba(129,87,184,.14),transparent 32%),
+    radial-gradient(ellipse at 5% 100%,rgba(129,87,184,.08),transparent 30%),var(--om-page);
+}
+.om-os .om-main { padding-top: 12px; }
+.om-os .om-account-placement { margin-bottom: 14px; }
+.om-os .om-floor.om-floor-os { gap: 14px; }
+.om-os .om-floor-os .om-os-floor-head {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}
+.om-floor-os .om-lower { border-top: 1px solid var(--om-edge); padding-top: 9px; }
+.om-floor-os .om-lower .om-pulse { padding-top: 0; }
+.om-floor-os .om-os-pulse-title > span { font-size: 12px; }
+.om-floor-os .om-os-pulse-title small { font-size: 10px; }
+.om-floor-os .om-legal { margin-top: 9px; color: var(--om-text-3); font-size: 10px; }
+.om-os .om-os-footer { margin-top: 12px; padding-top: 15px; }
+@media (max-width:760px) {
+  .om-app.om-os { --om-pad: 14px; }
+  .om-os .om-main { padding-top: 12px; }
+  .om-os .om-account-placement { margin-bottom: 12px; }
+  .om-os .om-floor.om-floor-os { gap: 12px; }
+  .om-floor-os .om-floor-deep > summary { font-size: 12px; }
+}
