@@ -34,9 +34,10 @@ export function floorMarketRead(bars: readonly TimedBar[], tfMs: number, now: nu
   const last = closed[closed.length-1], prev = closed[closed.length-5];
   const sample = closed.slice(-40);
   const rangeLow = Math.min(...sample.map(b=>b.l)), rangeHigh = Math.max(...sample.map(b=>b.h));
-  const trs = closed.slice(-15).slice(1).map((b,i)=>{
-    const before = closed[closed.length-15+i] ?? closed[Math.max(0,closed.length-15+i+1)];
-    return Math.max(b.h-b.l,Math.abs(b.h-(before?.c??b.o)),Math.abs(b.l-(before?.c??b.o)));
+  const recentBars=closed.slice(-15);
+  const trs = recentBars.slice(1).map((b,i)=>{
+    const before = recentBars[i];
+    return Math.max(b.h-b.l,Math.abs(b.h-before.c),Math.abs(b.l-before.c));
   });
   const atr = Math.max(mean(trs),last.c*0.000001);
   const move = last.c-prev.c;
