@@ -189,9 +189,9 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
         {TAB_ORDER.map((k) => APP_TABS.find((n) => n.key === k)!).map((n) => {
           const Icon = TAB_ICON[n.key];
           const cur = tabHere === n.key ? "page" : undefined;
-          if (n.key === "atlas") return <button key={n.key} type="button" className="om-tab" aria-label="Atlas" aria-haspopup="dialog" aria-expanded={atlasPanel.open} aria-current={atlasPanel.open ? "page" : cur} disabled={!configured} onClick={() => openAtlas()}><span className="om-tab-symbol"><Icon aria-hidden="true" /></span><span>{n.label}</span></button>;
+
           return n.hard
-            ? <a key={n.key} href={n.href} className="om-tab" aria-label={n.label} aria-current={cur} onClick={(event) => returnToTop(event, n.key)}><span className="om-tab-symbol"><Icon aria-hidden="true" /></span><span>{n.label}</span></a>
+            ? <a key={n.key} href={n.href} className="om-tab" aria-label={n.key === "atlas" ? "Atlas Command Center" : n.label} aria-current={cur} onClick={(event) => returnToTop(event, n.key)}><span className="om-tab-symbol"><Icon aria-hidden="true" /></span><span>{n.label}</span></a>
             : <Link key={n.key} href={n.href} className="om-tab" aria-label={n.label} aria-current={cur} onClick={(event) => returnToTop(event, n.key)}><span className="om-tab-symbol"><Icon aria-hidden="true" /></span><span>{n.label}</span></Link>;
         })}
       </nav>
@@ -200,7 +200,7 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
 }
 
 const APPS = [
-  { key: "atlas" as const, label: "Atlas", line: "Your AI trading assistant", href: "#atlas", hard: false },
+  { key: "atlas" as const, label: "Atlas Command Center", line: "Live gold analysis and signals", href: "/command-center", hard: true },
   { key: "genx" as const, label: "GENX", line: "The gold engine", href: "/portal/genx", hard: false },
   { key: "strata" as const, label: "STRATA", line: "Live price-action intelligence", href: "/portal/strata", hard: false },
   { key: "plays" as const, label: "OM AI Plays", line: "Any market. Full setup.", href: "/portal/signals", hard: false },
@@ -214,7 +214,7 @@ function AppDock() {
   return <nav className="om-os-dock" aria-label="One Mission apps">
     {APPS.map((app, index) => {
       const content = <><ProductIcon kind={app.key} /><span className="om-os-app-title">{app.label}<small>{app.line}</small></span><span className="om-os-app-number" aria-hidden="true">0{index + 1}</span></>;
-      if (app.key === "atlas") return <button key={app.key} type="button" className="om-os-app" aria-haspopup="dialog" onClick={() => openAtlas()}>{content}</button>;
+
       return app.hard
         ? <a key={app.key} href={app.href} className="om-os-app" aria-current={here === app.key ? "page" : undefined}>{content}</a>
         : <Link key={app.key} href={app.href} className="om-os-app" aria-current={here === app.key ? "page" : undefined}>{content}</Link>;
