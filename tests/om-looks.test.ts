@@ -10,7 +10,7 @@ import { SHELL_CSS, SHELL_SCRIPT } from '../src/lib/floor/nav';
  * then "have a toggle that can go from graphite and stone").
  *
  * What is pinned here:
- *   • Stone is the default; Graphite is one tap away in the account menu, kept in this browser, and on the page before
+ *   • Graphite is the default; Stone is one tap away in the account menu, kept in this browser, and on the page before
  *     its first paint, so a page never shows the other look first;
  *   • every colour in the shell is a token, and both looks define every token — so nothing is left in the other look's
  *     colour when the member switches;
@@ -30,8 +30,8 @@ test('Graphite is the OS default; both existing stored preferences are honoured'
   assert.equal(lookOf('graphite'), 'graphite');
   assert.equal(lookOf('dark'), 'graphite');
   assert.deepEqual(LOOKS.map((l) => l.label), ['Stone', 'Graphite']);
-  assert.equal(themeOf('stone'), '#f5f4f1');
-  assert.equal(themeOf('graphite'), '#08090b');
+  assert.equal(themeOf('stone'), '#f4f8ff');
+  assert.equal(themeOf('graphite'), '#0b0c10');
   assert.equal(LOOK_KEY, 'om-look');
   const on = new Set<string>();
   const root = { classList: { toggle: (t: string, f?: boolean) => { if (f) on.add(t); else on.delete(t); return !!f; } } };
@@ -53,28 +53,33 @@ test('the look is on the page before its first paint, with the browser\'s bar co
     runInNewContext(SHELL_SCRIPT, { document, window, localStorage: { getItem: (k: string) => (k === 'om-look' ? saved : null) } });
     return { cls: [...cls].sort().join(' '), bar };
   };
-  assert.deepEqual(run(null), { cls: 'om-dark om-look-graphite om-shell', bar: '#08090b' });
-  assert.deepEqual(run('stone'), { cls: 'om-shell', bar: '#f5f4f1' });
-  assert.deepEqual(run('graphite'), { cls: 'om-dark om-look-graphite om-shell', bar: '#08090b' });
+  assert.deepEqual(run(null), { cls: 'om-dark om-look-graphite om-shell', bar: '#0b0c10' });
+  assert.deepEqual(run('stone'), { cls: 'om-shell', bar: '#f4f8ff' });
+  assert.deepEqual(run('graphite'), { cls: 'om-dark om-look-graphite om-shell', bar: '#0b0c10' });
   // The page behind the shell is the look's own canvas.
-  assert.match(SHELL_CSS, /html\.om-shell,html\.om-shell body\{background:#f5f4f1!important\}/);
-  assert.match(SHELL_CSS, /html\.om-shell\.om-look-graphite,html\.om-shell\.om-look-graphite body\{background:#08090b!important\}/);
+  assert.match(SHELL_CSS, /html\.om-shell,html\.om-shell body\{background:#f4f8ff!important\}/);
+  assert.match(SHELL_CSS, /html\.om-shell\.om-look-graphite,html\.om-shell\.om-look-graphite body\{background:#0b0c10!important\}/);
   assert.match(SHELL_CSS, /html\.om-shell\{color-scheme:light\}html\.om-shell\.om-look-graphite\{color-scheme:dark\}/);
 });
 
-test('both looks define every token, so nothing keeps the other look\'s colour after a switch', () => {
-  const c = css();
-  const stone = tokens(block(c, '.om-app {')), graphite = tokens(block(c, '.om-look-graphite .om-app {'));
+test('both OS looks define every colour token, so nothing keeps the other look\'s colour after a switch', () => {
+  const c = read('src/components/om/os-themes.css');
+  const s = block(c, '.om-app.om-os {'), g = block(c, '.om-look-graphite .om-app.om-os {');
+  const stone = tokens(s), graphite = tokens(g);
   const layout = new Set(['--om-r-panel', '--om-r-input', '--om-gap', '--om-pad', '--om-font', '--om-display']);
-  const colours = [...stone].filter((t) => !layout.has(t));
+  const colours = [...tokens(block(css(), '.om-app {'))].filter((t) => !layout.has(t));
   assert.ok(colours.length >= 50, 'the look is a full set of tokens');
-  for (const t of colours) assert.ok(graphite.has(t), `Graphite defines ${t}`);
+  for (const t of colours) {
+    assert.ok(stone.has(t), `Stone defines ${t}`);
+    assert.ok(graphite.has(t), `Graphite defines ${t}`);
+  }
+  for (const t of stone) assert.ok(graphite.has(t), `Graphite defines ${t}`);
   for (const t of graphite) assert.ok(stone.has(t), `Stone defines ${t}`);
-  // Stone: One Mission's stone, white and ink; Graphite: the warm charcoal.
-  const s = block(c, '.om-app {'), g = block(c, '.om-look-graphite .om-app {');
-  assert.match(s, /--om-page: #f5f4f1;/); assert.match(s, /--om-surface: #ffffff;/); assert.match(s, /--om-text: #111111;/); assert.match(s, /--om-ink: #ffffff;/);
-  assert.match(g, /--om-page: #1a1a1d;/); assert.match(g, /--om-surface: #232327;/); assert.match(g, /--om-text: #f6f5f2;/); assert.match(g, /--om-ink: #1a1a1d;/);
-  assert.match(s, /color-scheme: light;/); assert.match(g, /color-scheme: dark;/);
+  // Existing preference names stay: Stone is now blue/white, Graphite is charcoal/purple.
+  assert.match(s, /--om-page: #f4f8ff;/); assert.match(s, /--om-surface: #ffffff;/); assert.match(s, /--om-text: #122b4d;/); assert.match(s, /--om-ai: #2365c0;/);
+  assert.match(g, /--om-page: #0b0c10;/); assert.match(g, /--om-surface: #17181d;/); assert.match(g, /--om-text: #f3f2f7;/); assert.match(g, /--om-ai: #c7b3f4;/);
+  assert.match(block(css(), '.om-app {'), /color-scheme: light;/);
+  assert.match(block(css(), '.om-look-graphite .om-app {'), /color-scheme: dark;/);
 });
 
 test('no colour is written into the shell outside the two looks — only highlights, sheens and the app icon\'s own tile', () => {

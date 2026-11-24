@@ -1,0 +1,283 @@
+/* Color-only OM OS palettes. Layout, typography, controls and market semantics stay in their existing styles. */
+.om-app.om-os {
+  --om-page: #f4f8ff; --om-page-rgb: 244 248 255; --om-page-comma: 244,248,255;
+  --om-surface: #ffffff; --om-surface-comma: 255,255,255;
+  --om-raised: #eaf2ff; --om-raised-comma: 234,242,255; --om-menu: #ffffff;
+  --om-bar: #ffffff; --om-glass: rgba(250,253,255,.9); --om-glass-solid: #f8fbff;
+  --om-glass-phone: rgba(248,252,255,.96); --om-appbar: rgba(244,248,255,.94); --om-appbar-solid: #f4f8ff;
+  --om-float: rgba(255,255,255,.96); --om-float-active: rgba(225,238,255,.98);
+  --om-field: rgba(230,240,255,.5); --om-field-solid: #f7faff; --om-panel: #ffffff;
+  --om-fg: 18 43 77; --om-edge: rgba(41,91,156,.14); --om-edge-2: rgba(41,91,156,.23); --om-hair: rgba(41,91,156,.10);
+  --om-text: #122b4d; --om-text-comma: 18,43,77; --om-text-strong: #0b2240;
+  --om-text-2: #44617f; --om-text-2-comma: 68,97,127; --om-text-3: #526b87; --om-text-3-comma: 82,107,135;
+  --om-ink: #ffffff; --om-btn-hover: #0b2240; --om-knob: #ffffff;
+  --om-bone: #607b9f; --om-ai: #2365c0; --om-ai-rgb: 35 101 192; --om-ai-comma: 35,101,192;
+  --om-ice: #3473bd; --om-ice-rgb: 52 115 189;
+  --om-gold: #806028; --om-gold-rgb: 128 96 40;
+  --om-pos: #18724e; --om-pos-rgb: 24 114 78; --om-neg: #b83b48; --om-neg-rgb: 184 59 72;
+  --om-shadow: rgba(27,61,113,.16); --om-lift: 0 1px 2px rgba(27,61,113,.05), 0 24px 48px -30px rgba(27,61,113,.24);
+  --om-shadow-knob: rgba(30,71,126,.25); --om-veil: rgba(20,46,83,.28); --om-veil-strong: rgba(20,46,83,.4);
+  --om-bloom: none;
+  --om-atlas-bg: radial-gradient(ellipse at 80% 0%,rgba(72,143,231,.09),transparent 65%),linear-gradient(160deg,#eff6ff,#ffffff 72%);
+  --om-atlas-edge: rgba(35,101,192,.22); --om-atlas-line: rgba(114,170,237,.16); --om-ask-edge: rgba(35,101,192,.28);
+  --om-ch-grid: rgba(31,77,137,.085); --om-ch-grid-2: rgba(31,77,137,.045); --om-ch-base: rgba(31,77,137,.16);
+  --om-ch-hatch: rgba(31,77,137,.06); --om-ch-halo: #ffffff; --om-ch-tip: #ffffff; --om-ch-tip-edge: rgba(41,91,156,.23);
+  --om-ch-cross: rgba(18,43,77,.32); --om-ch-cross-2: rgba(18,43,77,.22); --om-ch-col: rgba(35,101,192,.04);
+  --om-ch-level: rgba(31,77,137,.5); --om-ch-tag: #44617f; --om-ch-tag-text: #ffffff; --om-ch-price: rgba(68,97,127,.35);
+  --om-action-start: #296fd2; --om-action-end: #1552a5; --om-action-text: #ffffff;
+  --om-ring-highlight: #f0f8ff; --om-ring-light: #8abcf1; --om-ring-mid: #326da8; --om-ring-shadow: #183e6b;
+  --om-ring-inner: #e9f3ff; --om-ring-inner-end: #87acd8; --om-ring-line: rgba(222,240,255,.78);
+  --om-dock-start: rgba(237,246,255,.9); --om-dock-end: rgba(255,255,255,.94);
+  background: radial-gradient(ellipse at 77% -10%,rgba(72,143,231,.14),transparent 32%),
+    radial-gradient(ellipse at 5% 100%,rgba(72,143,231,.08),transparent 30%),var(--om-page);
+}
+.om-look-graphite .om-app.om-os {
+  --om-page: #0b0c10; --om-page-rgb: 11 12 16; --om-page-comma: 11,12,16;
+  --om-surface: #17181d; --om-surface-comma: 23,24,29;
+  --om-raised: #23242c; --om-raised-comma: 35,36,44; --om-menu: #202127;
+  --om-bar: #111217; --om-glass: rgba(24,25,32,.9); --om-glass-solid: #17181f;
+  --om-glass-phone: rgba(21,22,28,.96); --om-appbar: rgba(11,12,16,.94); --om-appbar-solid: #0b0c10;
+  --om-float: rgba(32,33,41,.96); --om-float-active: rgba(45,44,57,.96);
+  --om-field: rgba(11,12,16,.5); --om-field-solid: #111217; --om-panel: #17181d;
+  --om-fg: 243 242 247; --om-edge: rgba(199,195,216,.12); --om-edge-2: rgba(199,195,216,.22); --om-hair: rgba(199,195,216,.075);
+  --om-text: #f3f2f7; --om-text-comma: 243,242,247; --om-text-strong: #ffffff;
+  --om-text-2: #b6b5c2; --om-text-2-comma: 182,181,194; --om-text-3: #9997aa; --om-text-3-comma: 153,151,170;
+  --om-ink: #111216; --om-btn-hover: #ffffff; --om-knob: #f3f2f7;
+  --om-bone: #b6afc8; --om-ai: #c7b3f4; --om-ai-rgb: 199 179 244; --om-ai-comma: 199,179,244;
+  --om-ice: #b8b1df; --om-ice-rgb: 184 177 223;
+  --om-gold: #cfb174; --om-gold-rgb: 207 177 116;
+  --om-pos: #92dfbd; --om-pos-rgb: 146 223 189; --om-neg: #df9daf; --om-neg-rgb: 223 157 175;
+  --om-shadow: rgba(0,0,0,.9); --om-lift: 0 1px 0 rgba(255,255,255,.025) inset, 0 16px 40px -28px rgba(0,0,0,.65);
+  --om-shadow-knob: rgba(0,0,0,.45); --om-veil: rgba(10,11,15,.55); --om-veil-strong: rgba(10,11,15,.74);
+  --om-bloom: none;
+  --om-atlas-bg: radial-gradient(ellipse at 80% 0%,rgba(151,117,208,.09),transparent 65%),linear-gradient(160deg,#1b1b24,#14151b 72%);
+  --om-atlas-edge: rgba(199,179,244,.22); --om-atlas-line: rgba(219,206,250,.1); --om-ask-edge: rgba(199,179,244,.28);
+  --om-ch-grid: rgba(222,219,235,.06); --om-ch-grid-2: rgba(222,219,235,.035); --om-ch-base: rgba(222,219,235,.1);
+  --om-ch-hatch: rgba(222,219,235,.05); --om-ch-halo: #17181d; --om-ch-tip: #23242c; --om-ch-tip-edge: rgba(199,195,216,.22);
+  --om-ch-cross: rgba(243,242,247,.32); --om-ch-cross-2: rgba(243,242,247,.22); --om-ch-col: rgba(199,179,244,.04);
+  --om-ch-level: rgba(243,242,247,.6); --om-ch-tag: #b6b5c2; --om-ch-tag-text: #0b0c10; --om-ch-price: rgba(182,181,194,.35);
+  --om-action-start: #d9c7fa; --om-action-end: #ac8ddc; --om-action-text: #191324;
+  --om-ring-highlight: #eee8ff; --om-ring-light: #b09bdd; --om-ring-mid: #655081; --om-ring-shadow: #292332;
+  --om-ring-inner: #100f19; --om-ring-inner-end: #312545; --om-ring-line: rgba(225,215,255,.45);
+  --om-dock-start: rgba(41,39,49,.9); --om-dock-end: rgba(22,23,29,.92);
+  background: radial-gradient(ellipse at 77% -10%,rgba(142,104,195,.14),transparent 32%),
+    radial-gradient(ellipse at 5% 100%,rgba(142,104,195,.08),transparent 30%),var(--om-page);
+}
+
+/* The existing Atlas artwork keeps its exact silhouette in each palette. */
+.om-os .om-product-atlas { background: linear-gradient(145deg,rgb(var(--om-ai-rgb) / .18),rgb(var(--om-page-rgb) / .9) 80%); }
+.om-os .om-icon-core {
+  background: radial-gradient(circle at 30% 22%,var(--om-ring-highlight),var(--om-ring-light) 25%,var(--om-ring-mid) 54%,var(--om-ring-shadow) 76%);
+  box-shadow: 0 0 13px rgb(var(--om-ai-rgb) / .2);
+}
+.om-os .om-icon-core::before { background: linear-gradient(155deg,var(--om-ring-inner),var(--om-ring-inner-end)); }
+.om-os .om-icon-core::after { border-color: var(--om-ring-line); }
+.om-os .om-os-dock .om-product-atlas .om-icon-core { box-shadow: 0 0 17px rgb(var(--om-ai-rgb) / .4), 0 0 3px rgb(var(--om-ai-rgb) / .45); }
+.om-os .om-os-dock,
+.om-look-graphite .om-os .om-os-dock {
+  background: linear-gradient(165deg,var(--om-dock-start),var(--om-dock-end));
+  border-color: rgb(var(--om-ai-rgb) / .23);
+  box-shadow: 0 1px 0 rgb(var(--om-fg) / .07) inset, 0 18px 55px -15px var(--om-shadow);
+}
+.om-look-graphite .om-os .om-os-dock { box-shadow: 0 1px 0 rgb(var(--om-fg) / .09) inset, 0 18px 55px -15px var(--om-shadow), 0 -6px 35px -22px rgb(var(--om-ai-rgb) / .5); }
+.om-os .om-swatch[data-look="stone"] { background: #e8f2ff; }
+.om-os .om-swatch[data-look="graphite"] { background: #292533; }
+.om-os .om-product-flow { background: linear-gradient(145deg,rgb(var(--om-fg) / .14),rgb(var(--om-fg) / .05)); color: var(--om-text-2); }
+.om-os .om-os-dock .om-product-atlas,
+.om-os .om-os-dock .om-product-flow { background: none; }
+
+/* Main-page elements that formerly carried a fixed purple palette. */
+.om-os .om-market-terminal .om-live-find { background: linear-gradient(110deg,var(--om-action-start),var(--om-action-end)); color: var(--om-action-text); }
+.om-os .om-market-terminal .om-live-frames button[aria-pressed="true"] { background: linear-gradient(125deg,rgb(var(--om-ai-rgb) / .22),rgb(var(--om-ai-rgb) / .12)); color: var(--om-text); }
+.om-os .om-winning-pips .om-wpip-periods button:hover:not([aria-pressed="true"]) { background: rgb(var(--om-ai-rgb) / .11); color: var(--om-text); }
+.om-os .om-winning-pips :is(button,summary):focus-visible { outline-color: var(--om-ai); }
+.om-os .om-winning-pips { --wp-bg: var(--om-page); --wp-panel: var(--om-surface); --wp-line: var(--om-edge-2); --wp-text: var(--om-text); --wp-muted: var(--om-text-2); --wp-purple: var(--om-ai); --wp-green: var(--om-pos); }
+
+/* Tool-local palettes inherit the selected OS look instead of forcing a dark island. */
+.om-os :is(.om-genx.om-os-product,.om-plays.om-plays-premium,.om-play,.om-atlas-signal,.om-atlas-dialog,.strata-workstation) {
+  --om-page: inherit; --om-surface: inherit; --om-raised: inherit;
+  --om-text: inherit; --om-text-2: inherit; --om-text-3: inherit; --om-edge: inherit; --om-edge-2: inherit;
+}
+.om-os :is(.om-genx.om-os-product,.om-plays.om-plays-premium) { background: radial-gradient(ellipse at 90% -20%,rgb(var(--om-ai-rgb) / .14),transparent 48%),var(--om-page); color: var(--om-text); }
+.om-os .om-play { background: radial-gradient(ellipse at 85% -10%,rgb(var(--om-ai-rgb) / .1),transparent 50%),var(--om-page) !important; border-color: var(--om-edge-2) !important; color: var(--om-text) !important; }
+.om-os .om-atlas-signal { background: var(--om-page) !important; border-color: var(--om-edge-2) !important; color: var(--om-text) !important; }
+.om-os :is(.om-genx.om-os-product,.om-plays.om-plays-premium) .om-product-header .om-title,
+.om-os .om-play .om-play-head h2,
+.om-os .om-atlas-signal .om-atlas-signal-decision h3 { color: var(--om-text); }
+.om-os .om-genx.om-os-product .om-product-kicker { color: var(--om-ai); }
+.om-os :is(.om-genx.om-os-product,.om-plays.om-plays-premium) .om-product-header .om-sub,
+.om-os .om-genx.om-os-product .om-genx-panel .om-label,
+.om-os .om-play :is(.om-play-meta,.om-label,.om-play-decision,.om-play-note,.om-legal),
+.om-os .om-atlas-signal :is(.om-atlas-signal-caption,.om-atlas-signal-reason p) { color: var(--om-text-2); }
+.om-os .om-genx.om-os-product :is(.om-genx-panel,.om-genx-why,.om-genx-list,.om-genx-saved),
+.om-os .om-plays.om-plays-premium .om-plays-config,
+.om-os .om-plays.om-plays-premium .om-plays-main .om-plays-preview,
+.om-os .om-vision-play-breakdown > .om-play-breakdown,
+.om-os .om-atlas-signal .om-play-breakdown { background: var(--om-surface) !important; border-color: var(--om-edge-2); color: var(--om-text); }
+.om-os .om-genx.om-os-product .om-genx-panel .om-kv dd { color: var(--om-text); }
+.om-os .om-genx.om-os-product .om-genx-ask-atlas,
+.om-os .om-vision-play-breakdown > summary,
+.om-os .om-vision-genx-steps { color: var(--om-ai); border-color: rgb(var(--om-ai-rgb) / .27); }
+.om-os .om-plays.om-plays-premium .om-plays-main .om-plays-preview p,
+.om-os .om-plays.om-plays-premium .om-plays-config .om-step .om-label { color: var(--om-text-2); }
+.om-os .om-plays.om-plays-premium .om-plays-config .om-seg { background: var(--om-page); border-color: var(--om-edge-2); }
+.om-os .om-plays.om-plays-premium .om-plays-config .om-seg button[aria-pressed="true"] { background: rgb(var(--om-ai-rgb) / .18); color: var(--om-text); }
+.om-os .om-genx.om-os-product .om-genx-go > .om-btn,
+.om-os .om-plays.om-plays-premium .om-plays-new,
+.om-app.om-os .om-plays.om-plays-premium .om-plays-go > .om-btn,
+.om-os .om-play .om-play-next .om-play-order-summary,
+.om-os .om-atlas-signal .om-atlas-signal-order > summary {
+  background: linear-gradient(115deg,var(--om-action-start),var(--om-action-end)); color: var(--om-action-text); border-color: rgb(var(--om-ai-rgb) / .43);
+}
+.om-os .om-play .om-play-state .om-chip,
+.om-os .om-atlas-signal .om-atlas-signal-explain { color: var(--om-ai); background: rgb(var(--om-ai-rgb) / .08); border-color: rgb(var(--om-ai-rgb) / .29); }
+
+/* Chart-led signal cards use the same colors; bullish and bearish states keep their meanings. */
+.om-os :is(.om-vision-dashboard,.om-vision-chart,.om-vision-ticket) {
+  --om-vision-bg: var(--om-page); --om-vision-panel: var(--om-surface); --om-vision-fg: var(--om-text);
+  --om-vision-muted: var(--om-text-2); --om-vision-border: var(--om-edge-2);
+  --om-vision-purple: var(--om-ai); --om-vision-bull: var(--om-pos); --om-vision-bear: var(--om-neg);
+}
+.om-os .om-vision-dashboard { background: radial-gradient(ellipse at 88% -17%,rgb(var(--om-ai-rgb) / .18),transparent 56%),linear-gradient(160deg,var(--om-surface),var(--om-page) 68%,var(--om-page)); }
+.om-os .om-vision-direction { background: radial-gradient(ellipse at 0% 50%,var(--vision-glow),transparent 74%),linear-gradient(95deg,var(--om-surface) 0%,var(--om-raised) 54%,var(--om-page) 100%); }
+.om-os .om-vision-direction[data-bias="range"] { --vision-tone: var(--om-ai); --vision-glow: rgb(var(--om-ai-rgb) / .13); }
+.om-os .om-vision-direction[data-bias="mixed"] { --vision-tone: var(--om-text-2); --vision-glow: rgb(var(--om-ai-rgb) / .095); }
+.om-os .om-vision-fact { background: linear-gradient(145deg,var(--om-raised),var(--om-surface)); border-color: var(--om-edge-2); }
+.om-os .om-vision-fact[data-tone="neutral"] { --fact: var(--om-ai); }
+.om-os .om-vision-fact[data-tone="up"],.om-os .om-vision-fact[data-tone="ok"] { --fact: var(--om-pos); }
+.om-os .om-vision-fact[data-tone="down"] { --fact: var(--om-neg); }
+.om-os .om-vision-fact[data-tone="watch"] { --fact: var(--om-gold); }
+.om-os .om-vision-ticket { background: linear-gradient(135deg,rgb(var(--om-ai-rgb) / .08),transparent 50%),var(--om-surface); }
+.om-os .om-vision-chart { background: radial-gradient(ellipse at 51% -20%,rgb(var(--om-ai-rgb) / .14),transparent 65%),var(--om-page); border-color: var(--om-edge-2); }
+.om-os :is(.om-vision-heading strong,.om-vision-quality strong,.om-vision-fact b,.om-vision-ticket-head b,.om-vision-chart-head h3) { color: var(--om-text); }
+.om-os .om-vision-levels dd { color: var(--om-text); }
+.om-os .om-vision-levels [data-kind="stop"] dd { color: var(--om-neg); }
+.om-os .om-vision-levels [data-kind="target"] dd { color: var(--om-pos); }
+.om-os :is(.om-vision-overline,.om-vision-heading span,.om-vision-quality span,.om-vision-facts-top,.om-vision-subnote,.om-vision-ticket-head,.om-vision-ticket-head span:nth-child(2),.om-vision-levels dt,.om-vision-chart-head h3 small,.om-vision-chart-foot > span,.om-vision-chart-disclaimer,.om-vision-chart-empty) { color: var(--om-text-2); }
+.om-os .om-vision-facts-top span+span,
+.om-os .om-vision-chart-foot button,
+.om-os .om-vision-chart-mode { color: var(--om-ai); }
+.om-os :is(.om-vision-quality,.om-vision-ticket-head,.om-vision-levels > div,.om-vision-chart-foot) { border-color: var(--om-edge); }
+.om-os .om-vision-chart-tools button { color: var(--om-text-2); border-color: var(--om-edge-2); }
+.om-os .om-vision-chart-tools button:hover { background: rgb(var(--om-ai-rgb) / .12); }
+.om-os .om-vision-chart-mode { border-color: var(--om-edge-2); background: rgb(var(--om-ai-rgb) / .11); }
+.om-os .om-vision-grid { stroke: var(--om-ch-grid); }
+.om-os :is(.om-vision-tick,.om-vision-axis-note,.om-vision-projection-note) { fill: var(--om-text-2); }
+.om-os .om-vision-level-pill { fill: var(--om-surface); }
+.om-os .om-vision-level-value { fill: var(--om-text); }
+.om-os .om-vision-chart-level[data-kind="entry"] { --lvl: var(--om-ai); }
+.om-os .om-vision-projection circle { fill: var(--om-surface); stroke: var(--om-ai); }
+.om-os .om-vision-projection .om-vision-projection-halo { fill: none; stroke: rgb(var(--om-ai-rgb) / .3); }
+.om-os :is(.om-vision-chart,.om-vision-dashboard) button:focus-visible { outline-color: var(--om-ai); }
+
+/* STRATA retains its geometry and signal coloring while following the OS canvas. */
+.om-os .strata-workstation { --st-accent: var(--om-ai); --st-teal: var(--om-pos); --st-text: var(--om-text); --st-muted: var(--om-text-2); --st-edge: var(--om-edge-2); background: var(--om-page) !important; color: var(--om-text); }
+.om-os .strata-workstation :is(.strata-ident p,.strata-vision-setup-caption,.strata-vision-result-note,.strata-vision-tf,.strata-reason-line p,.strata-step p) { color: var(--om-text-2); }
+.om-os .strata-workstation :is(.strata-vision-setup-top h2,.strata-vision-rr) { color: var(--om-text); }
+.om-os .strata-workstation :is(.strata-vision-setup-state,.strata-generated-result strong,.strata-vision-deep > summary,.strata-footer button) { color: var(--om-ai); }
+.om-os .strata-workstation .strata-generated-result[data-tier="ready"] strong { color: var(--om-pos); }
+.om-os .strata-workstation .strata-generated-result[data-tier="aggressive"] strong { color: var(--om-gold); }
+.om-os .strata-workstation .strata-generated-result[data-tier="none"] strong { color: var(--om-text-2); }
+.om-os .strata-workstation .strata-vision-setup-state { background: rgb(var(--om-ai-rgb) / .1); border-color: rgb(var(--om-ai-rgb) / .3); }
+.om-os .strata-workstation .strata-vision-setup-state[data-side="buy"] { color: var(--om-pos); border-color: rgb(var(--om-pos-rgb) / .28); background: rgb(var(--om-pos-rgb) / .065); }
+.om-os .strata-workstation .strata-vision-setup-state[data-side="sell"] { color: var(--om-neg); border-color: rgb(var(--om-neg-rgb) / .27); background: rgb(var(--om-neg-rgb) / .055); }
+.om-os .strata-workstation :is(.strata-generated-result,.strata-vision-deep,.strata-vision-deep .strata-card,.strata-vision-deep .strata-paper-row,.strata-vision-deep .strata-automation-columns > div,.strata-footer button) { background: var(--om-surface); border-color: var(--om-edge-2); }
+.om-os .strata-workstation :is(.strata-vision-tf .strata-timeframe,.strata-vision-deep .strata-risk-controls select,.strata-vision-deep .strata-automation-connection select) { background: var(--om-page); color: var(--om-text); border-color: var(--om-edge-2); }
+.om-os .strata-workstation .strata-vision-tf .strata-timeframe button { color: var(--om-text-2); }
+.om-os .strata-workstation .strata-vision-tf .strata-timeframe button[aria-pressed="true"] { color: var(--om-text); background: rgb(var(--om-ai-rgb) / .18); }
+.om-os .strata-workstation .strata-vision-generate { background: linear-gradient(120deg,var(--om-action-start),var(--om-action-end)) !important; color: var(--om-action-text) !important; border-color: rgb(var(--om-ai-rgb) / .67) !important; }
+.om-os .strata-workstation :is(.strata-paper-action,.strata-confirm button:first-of-type) { color: var(--om-action-text); background: linear-gradient(120deg,var(--om-action-start),var(--om-action-end)); }
+
+/* Atlas conversations and the market picker share the selected palette too. */
+.om-os .om-atlas-dialog { background: radial-gradient(ellipse at 90% -12%,rgb(var(--om-ai-rgb) / .19),transparent 46%),var(--om-page) !important; border-color: rgb(var(--om-ai-rgb) / .37) !important; color: var(--om-text) !important; }
+.om-os .om-atlas-dialog .om-atlas-top { background: rgb(var(--om-page-rgb) / .85); border-color: var(--om-edge-2); }
+.om-os .om-atlas-dialog .om-atlas-journey { background: var(--om-surface); border-color: var(--om-edge); }
+.om-os .om-atlas-dialog .om-atlas-journey .is-current { color: var(--om-ai); }
+.om-os .om-atlas-dialog .om-atlas-journey .is-current i { background: rgb(var(--om-ai-rgb) / .15); color: var(--om-ai); border-color: rgb(var(--om-ai-rgb) / .45); }
+.om-os .om-atlas-dialog .om-atlas-welcome { border-color: var(--om-edge-2); background: linear-gradient(137deg,rgb(var(--om-ai-rgb) / .125),rgb(var(--om-page-rgb) / .9) 59%); }
+.om-os .om-atlas-dialog .om-atlas-eyebrow { color: var(--om-ai) !important; }
+.om-os .om-atlas-dialog :is(.om-atlas-welcome h3,.om-atlas-starts strong,.om-atlas-compose textarea) { color: var(--om-text); }
+.om-os .om-atlas-dialog :is(.om-atlas-top p,.om-atlas-welcome > p:not(.om-atlas-eyebrow),.om-atlas-starts small) { color: var(--om-text-2); }
+.om-os .om-atlas-dialog .om-atlas-starts button { background: var(--om-surface); border-color: var(--om-edge-2); }
+.om-os .om-atlas-dialog .om-atlas-starts button:hover { background: var(--om-raised); border-color: rgb(var(--om-ai-rgb) / .37); }
+.om-os .om-atlas-dialog .om-atlas-compose { background: var(--om-page); border-color: var(--om-edge-2); }
+.om-os .om-atlas-dialog .om-atlas-compose form { background: var(--om-surface); border-color: rgb(var(--om-ai-rgb) / .29); }
+.om-os .om-atlas-dialog .om-atlas-send { background: var(--om-ai); color: var(--om-action-text); }
+.om-os .om-atlas-dialog .om-atlas-message.is-user { background: rgb(var(--om-ai-rgb) / .095); border-color: rgb(var(--om-ai-rgb) / .26); }
+.om-os .om-atlas-dialog .om-atlas-message.is-assistant > .om-atlas-message-who { color: var(--om-ai); }
+.om-os .om-atlas-dialog .om-atlas-quick-tools button { color: var(--om-ai); background: var(--om-surface); border-color: var(--om-edge-2); }
+.om-os .om-atlas-dialog .om-atlas-context { background: rgb(var(--om-ai-rgb) / .065); border-color: rgb(var(--om-ai-rgb) / .29); }
+.om-os .om-market-dialog { color: var(--om-text); background: var(--om-page); border-color: var(--om-edge-2); }
+.om-os .om-market-dialog header button { background: var(--om-raised); color: var(--om-text-2); }
+.om-os .om-market-search { background: var(--om-surface); border-color: var(--om-edge-2); }
+.om-os .om-market-search:focus-within { border-color: var(--om-ai); }
+.om-os :is(.om-market-search svg,.om-market-dialog h3,.om-market-group small,.om-market-group > button > svg:last-child,.om-market-no-result) { color: var(--om-text-2); }
+.om-os .om-market-quick button { background: var(--om-surface); color: var(--om-text); border-color: var(--om-edge-2); }
+.om-os .om-market-quick button[aria-pressed="true"] { background: var(--om-ai); color: var(--om-action-text); }
+.om-os .om-market-group > button { border-color: var(--om-edge); }
+.om-os .om-market-group > button:hover { background: rgb(var(--om-ai-rgb) / .04); }
+.om-os :is(.om-market-dialog,.om-plays-premium) :is(button,summary):focus-visible { outline-color: var(--om-ai); }
+
+/* Shared HUD variables theme the existing Command Center without changing its engine or chart geometry. */
+.om-os-atlas {
+  --cc-03070b: var(--om-page); --cc-03070b-rgb: var(--om-page-comma);
+  --cc-050b11: var(--om-surface); --cc-050b11-rgb: var(--om-surface-comma);
+  --cc-071019: var(--om-surface); --cc-071019-rgb: var(--om-surface-comma);
+  --cc-07101a: var(--om-surface); --cc-07101a-rgb: var(--om-surface-comma);
+  --cc-09131d: var(--om-raised); --cc-09131d-rgb: var(--om-raised-comma);
+  --cc-0c1721: var(--om-raised); --cc-0c1721-rgb: var(--om-raised-comma);
+  --cc-06090e: var(--om-page); --cc-06090e-rgb: var(--om-page-comma);
+  --cc-0a0e15: var(--om-surface); --cc-0a0e15-rgb: var(--om-surface-comma);
+  --cc-0b1017: var(--om-surface); --cc-0b1017-rgb: var(--om-surface-comma);
+  --cc-0e131c: var(--om-raised); --cc-0e131c-rgb: var(--om-raised-comma);
+  --cc-04080c: var(--om-page); --cc-04080c-rgb: var(--om-page-comma);
+  --cc-03080e: var(--om-page); --cc-03080e-rgb: var(--om-page-comma);
+  --cc-15345c: var(--om-raised); --cc-15345c-rgb: var(--om-raised-comma);
+  --cc-d5a93d: var(--om-text-2); --cc-d5a93d-rgb: var(--om-text-2-comma);
+  --cc-e7c467: var(--om-text); --cc-e7c467-rgb: var(--om-text-comma);
+  --cc-ffd875: var(--om-text); --cc-ffd875-rgb: var(--om-text-comma);
+  --cc-f0c475: var(--om-text); --cc-f0c475-rgb: var(--om-text-comma);
+  --cc-e9b949: var(--om-text-2); --cc-e9b949-rgb: var(--om-text-2-comma);
+  --cc-fff3d0: var(--om-text); --cc-fff3d0-rgb: var(--om-text-comma);
+  --cc-8a5f12: var(--om-text-3); --cc-8a5f12-rgb: var(--om-text-3-comma);
+  --cc-1a1305: var(--om-page); --cc-1a1305-rgb: var(--om-page-comma);
+  --cc-ffc85a: var(--om-text); --cc-ffc85a-rgb: var(--om-text-comma);
+  --cc-00c7e8: var(--om-ai); --cc-00c7e8-rgb: var(--om-ai-comma);
+  --cc-27d7f2: var(--om-ai); --cc-27d7f2-rgb: var(--om-ai-comma);
+  --cc-6fa8dc: var(--om-ai); --cc-6fa8dc-rgb: var(--om-ai-comma);
+  --cc-59afff: var(--om-ai); --cc-59afff-rgb: var(--om-ai-comma);
+  --cc-78ebff: var(--om-ai); --cc-78ebff-rgb: var(--om-ai-comma);
+  --cc-f0f4f7: var(--om-text); --cc-f0f4f7-rgb: var(--om-text-comma);
+  --cc-e8eff7: var(--om-text); --cc-e8eff7-rgb: var(--om-text-comma);
+  --cc-81909e: var(--om-text-2); --cc-81909e-rgb: var(--om-text-2-comma);
+  --cc-596773: var(--om-text-3); --cc-596773-rgb: var(--om-text-3-comma);
+  --cc-dce6ee: var(--om-text); --cc-dce6ee-rgb: var(--om-text-comma);
+}
+html:not(.om-look-graphite) .om-os-atlas {
+  --cc-29dfa6: var(--om-pos); --cc-29dfa6-rgb: 24,114,78;
+  --cc-3fd9a0: var(--om-pos); --cc-3fd9a0-rgb: 24,114,78;
+  --cc-2bd48f: var(--om-pos); --cc-2bd48f-rgb: 24,114,78;
+  --cc-ff5364: var(--om-neg); --cc-ff5364-rgb: 184,59,72;
+  --cc-f4737b: var(--om-neg); --cc-f4737b-rgb: 184,59,72;
+}
+.om-os-atlas .hud-panel { border-color: var(--om-edge-2) !important; }
+.om-os-atlas .hud-root [data-dock] { background: var(--om-glass-solid) !important; }
+.om-os-atlas .hud-root .atlas-pocket-composer { background: var(--om-surface); border-color: var(--om-edge-2); }
+.om-os-atlas .hud-root .atlas-pocket-composer input { color: var(--om-text); }
+.om-os-atlas .hud-root .atlas-pocket-composer input::placeholder { color: var(--om-text-3); }
+.om-os-atlas .hud-root .atlas-pocket-composer button { color: var(--om-text-2); }
+.om-os-atlas .hud-root .atlas-pocket-composer button[type="submit"] { background: var(--om-ai); color: var(--om-action-text); }
+.om-os-atlas .atlas-vision-tools { color: var(--om-ai); background: rgb(var(--om-ai-rgb) / .095); border-color: rgb(var(--om-ai-rgb) / .29); }
+.om-os-atlas .atlas-clear-frames button[aria-pressed="true"] { border-color: var(--om-ai); background: rgb(var(--om-ai-rgb) / .09); }
+.om-os-atlas .atlas-clear-brief :is(button,summary):focus-visible { outline-color: var(--om-ai); }
+
+@media (max-width: 980px) {
+  .om-look-graphite .om-app.om-os { --om-lift: none; }
+  .om-os .om-icon-core { box-shadow: none; }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .om-os .om-os-dock, .om-look-graphite .om-os .om-os-dock { background: var(--om-menu); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .om-os .om-os-dock, .om-look-graphite .om-os .om-os-dock { background: var(--om-menu); }
+}
