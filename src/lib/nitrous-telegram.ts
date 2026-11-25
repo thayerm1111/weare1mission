@@ -217,3 +217,20 @@ export async function sendNitrousTelegramEvent(input: {
   }
   return { ok: result.state === "sent", ...result };
 }
+
+/** A connection test is not a market event, signal or trade. Recheck the exact channel and bot before sending. */
+export async function sendNitrousTelegramTest(config: NitrousTelegramConfig, expectedBotId: number, fetcher: Fetcher = fetch): Promise<NitrousTelegramDelivery> {
+  if (!config.enabled || !config.token || !config.channelId || !config.verifiedAt) return { state: "refused", code: "test_channel_not_ready" };
+  const verified = await verifyNitrousTelegramChannel({ token: config.token, channelId: config.channelId }, fetcher);
+  if (!verified.ok) return { state: "refused", code: verified.code };
+  if (verified.channelId !== config.channelId || verified.botId !== expectedBotId) return { state: "refused", code: "test_destination_changed" };
+  const reply = await telegramCall(config.token, "sendMessage", {
+    chat_id: verified.channelId,
+    text: "<b>⚡ ONE MISSION · NITROUS</b>\n\n<b>CONNECTION TEST</b>\n\nNitrous Telegram alerts are connected and working.\nThis is a test only — not a trade signal.\n\n<a href=\"https://weare1mission.com/portal/nitrous\">Open Nitrous</a>",
+    parse_mode: "HTML", link_preview_options: { is_disabled: true },
+  }, fetcher);
+  const id = Number(reply.envelope?.result?.message_id);
+  if (reply.envelope?.ok === true && Number.isSafeInteger(id) && id > 0) return { state: "sent", messageId: id };
+  return reply.unknown ? { state: "unknown", code: "delivery_unknown" }
+    : { state: "refused", code: `telegram_${Number(reply.envelope?.error_code || reply.status) || "refused"}` };
+}

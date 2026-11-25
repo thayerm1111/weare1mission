@@ -63,6 +63,30 @@ export function NitrousTelegramPanel({ admin = false, telegram }: { admin?: bool
     finally { setBusy(false); }
   }
 
+  async function sendTest() {
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      const response = await fetch("/api/admin/nitrous-telegram", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "test" }),
+      });
+      const body = await response.json();
+      if (!response.ok || typeof body.id !== "string") throw new Error(body.detail || "The test could not be queued.");
+      setNotice("Test queued. Checking Telegram delivery…");
+      for (let i = 0; i < 12; i++) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 2500));
+        const check = await fetch(`/api/admin/nitrous-telegram?testId=${encodeURIComponent(body.id)}`, { cache: "no-store" });
+        if (!check.ok) continue;
+        const result = await check.json();
+        if (result.state === "sent") { setNotice("Test delivered to your Telegram channel."); return; }
+        if (result.state === "refused" || result.state === "unknown") {
+          setNotice(null); throw new Error(result.state === "unknown" ? "Delivery is uncertain. Check Telegram before sending again." : "Telegram refused the test. Verify the channel and bot permissions.");
+        }
+      }
+      setNotice("Test still pending. Check Telegram before sending another test.");
+    } catch (err) { setError(err instanceof Error ? err.message : "Unable to send test."); }
+    finally { setBusy(false); }
+  }
+
   async function pause() {
     setBusy(true); setError(null); setNotice(null);
     try {
@@ -99,10 +123,11 @@ export function NitrousTelegramPanel({ admin = false, telegram }: { admin?: bool
           <label className="nitrous-telegram-checkbox"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /><span>Publish new setup alerts to this channel</span></label>
           <div className="nitrous-telegram-actions">
             <button type="submit" disabled={busy || !chatId.trim() || settings?.tokenConfigured === false}>{busy ? <Loader2 size={15} className="nitrous-telegram-spin" aria-hidden="true" /> : <CheckCircle2 size={15} aria-hidden="true" />}Verify and save</button>
+            {settings?.enabled && <button type="button" disabled={busy || settings.status !== "ready"} onClick={() => void sendTest()}><Send size={15} aria-hidden="true" />Send test message</button>}
             {settings?.enabled && <button type="button" disabled={busy} onClick={() => void pause()}>Pause alerts</button>}
           </div>
         </form>
-        <p className="nitrous-telegram-note">Verification checks channel access without posting a test message. Customer balances and account details stay private.</p>
+        <p className="nitrous-telegram-note">Verification checks channel access without posting. Send test message sends a labeled connection test. Customer balances and account details stay private.</p>
       </div>}
     </>}
     {error && <p className="nitrous-telegram-error" role="alert">{error}</p>}

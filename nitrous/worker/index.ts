@@ -16,7 +16,7 @@ import type { Bar, InstrumentSpec, MarketSnapshot, Setup } from "../../rapid/cor
 import type { Store } from "../../rapid/exec/submit";
 import { NITROUS_CONSENT_VERSION, isNitrousMode, validRisk, verifiedOwnedPosition } from "../../src/lib/nitrous/policy";
 import type { NitrousMode } from "../../src/lib/nitrous/types";
-import { publishNitrousTelegramEvent } from "../../src/lib/nitrous-telegram-store";
+import { publishNitrousTelegramEvent, processNitrousTelegramTest } from "../../src/lib/nitrous-telegram-store";
 import { NITROUS_CONFIG, configFor } from "../config";
 import { aggregateClosed, dailyAllowance, memberActive, referenceFresh, supportedSetups, triggerConfirmed } from "../logic";
 import { readAccountMetrics, readClosedOutcome, readOpeningFill, marginRequirement } from "../broker";
@@ -454,6 +454,14 @@ async function watchdog() {
   }
 }
 
+async function telegramTestLoop() {
+  while (!stopped) {
+    try { await processNitrousTelegramTest(admin()); }
+    catch { /* Test notifications must never interrupt account execution or protection. */ }
+    await wait(5000);
+  }
+}
+
 export async function main() {
   if (process.env.NITROUS_WORKER !== "1") throw new Error("Set NITROUS_WORKER=1 for this isolated worker.");
   await withNitrousDb(async () => {
@@ -463,7 +471,7 @@ export async function main() {
     market.publicSetups = Array.isArray(state?.setups) ? state.setups as Setup[] : [];
     console.log(`[nitrous] ${HOLDER} started; account activation is member-controlled.`);
     process.on("SIGTERM", () => { stopped = true; }); process.on("SIGINT", () => { stopped = true; });
-    await Promise.all([analysisLoop(), accountLoop(), watchdog()]);
+    await Promise.all([analysisLoop(), accountLoop(), watchdog(), telegramTestLoop()]);
   });
 }
 

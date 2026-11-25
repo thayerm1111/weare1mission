@@ -1,7 +1,7 @@
 import { getProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { nitrousTelegramToken, normalizeNitrousChannelId, normalizeNitrousChannelUrl, readNitrousTelegramBotUsername, verifyNitrousTelegramChannel } from "@/lib/nitrous-telegram";
-import { nitrousTelegramPublicState, readNitrousTelegramSettings } from "@/lib/nitrous-telegram-store";
+import { nitrousTelegramPublicState, readNitrousTelegramSettings, queueNitrousTelegramTest } from "@/lib/nitrous-telegram-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,10 +18,17 @@ async function adminContext() {
 }
 
 /** Metadata only. GET never emits a test post into a member channel. */
-export async function GET() {
+export async function GET(req?: Request) {
   const context = await adminContext();
   if ("error" in context) return context.error;
   try {
+    const testId = req ? new URL(req.url).searchParams.get("testId") : null;
+    if (testId) {
+      if (!/^[a-f0-9-]{36}$/i.test(testId)) return json({ error: "not_found" }, 404);
+      const test = await context.db.from("nitrous_telegram_tests").select("id,state,message_id,error_code").eq("id", testId).maybeSingle();
+      if (test.error) return json({ error: "test_status_unavailable" }, 503);
+      return test.data ? json({ ok: true, ...test.data }) : json({ error: "not_found" }, 404);
+    }
     const [row, botUsername] = await Promise.all([
       readNitrousTelegramSettings(context.db), readNitrousTelegramBotUsername(nitrousTelegramToken()),
     ]);
@@ -52,6 +59,12 @@ export async function POST(req: Request) {
       telegram_enabled: false, updated_by: context.profile.id, updated_at: new Date().toISOString(),
     }).eq("id", 1);
     return error ? json({ error: "save_failed" }, 503) : json({ ok: true, status: "paused" });
+  }
+  if (body.action === "test") {
+    try {
+      const test = await queueNitrousTelegramTest(context.db);
+      return test ? json({ ok: true, ...test }, 202) : json({ error: "channel_not_ready", detail: "Verify and enable the Nitrous channel first." }, 409);
+    } catch { return json({ error: "test_queue_unavailable", detail: "Unable to queue the test message." }, 503); }
   }
   if (body.action !== "save") return json({ error: "unsupported_action" }, 400);
   const channelId = normalizeNitrousChannelId(body.channelId);

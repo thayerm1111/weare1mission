@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   formatNitrousTelegramEvent, nitrousTelegramToken, normalizeNitrousChannelId, normalizeNitrousChannelUrl,
-  sendNitrousTelegramEvent, validNitrousTelegramEvent, verifyNitrousTelegramChannel,
+  sendNitrousTelegramEvent, sendNitrousTelegramTest, validNitrousTelegramEvent, verifyNitrousTelegramChannel,
   type NitrousTelegramConfig, type NitrousTelegramDelivery, type NitrousTelegramDeliveryStore, type NitrousTelegramEvent,
 } from "../src/lib/nitrous-telegram";
 import { nitrousTelegramPublicState, type NitrousTelegramSettingsRow } from "../src/lib/nitrous-telegram-store";
@@ -153,4 +153,23 @@ test("public status never presents an unverified, paused or errored channel as r
     const state = nitrousTelegramPublicState({ ...row, ...over }, token);
     assert.equal(state.status, status); assert.equal(state.url, null);
   }
+});
+
+test("connection test verifies the exact channel and bot and sends no fake trade signal", async () => {
+  const posts: unknown[] = [];
+  const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
+    const method = String(input).split("/").pop();
+    if (method === "getMe") return response({ ok: true, result: { id: 123 } });
+    if (method === "getChat") return response({ ok: true, result: { id: -100123456789, type: "channel", title: "Nitrous" } });
+    if (method === "getChatMember") return response({ ok: true, result: { status: "administrator", can_post_messages: true } });
+    posts.push(JSON.parse(String(init?.body)));
+    return response({ ok: true, result: { message_id: 42 } });
+  }) as typeof fetch;
+  assert.equal((await sendNitrousTelegramTest(config, 999, fetcher)).state, "refused");
+  assert.equal(posts.length, 0);
+  assert.deepEqual(await sendNitrousTelegramTest(config, 123, fetcher), { state: "sent", messageId: 42 });
+  assert.equal(posts.length, 1);
+  assert.match(JSON.stringify(posts), /CONNECTION TEST/);
+  assert.match(JSON.stringify(posts), /not a trade signal/);
+  assert.doesNotMatch(JSON.stringify(posts), /Entry zone|Stop:|Target:/);
 });

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  nitrousTelegramToken, normalizeNitrousChannelUrl, sendNitrousTelegramEvent,
+  nitrousTelegramToken, normalizeNitrousChannelUrl, sendNitrousTelegramEvent, sendNitrousTelegramTest,
   type NitrousTelegramConfig, type NitrousTelegramDeliveryStore, type NitrousTelegramEvent,
 } from "./nitrous-telegram";
 
@@ -91,4 +91,46 @@ export async function publishNitrousTelegramEvent(db: SupabaseClient, event: Nit
     const config = nitrousTelegramConfig(row);
     return await sendNitrousTelegramEvent({ config, event, store: nitrousTelegramDeliveryStore(db, config.channelId) });
   } catch { return { ok: false, state: "store_unavailable" as const }; }
+}
+
+export async function queueNitrousTelegramTest(db: SupabaseClient) {
+  const row = await readNitrousTelegramSettings(db);
+  if (!row?.telegram_enabled || !row.telegram_channel_id || !row.telegram_bot_id || !row.telegram_verified_at || row.telegram_last_error) return null;
+  const { data, error } = await db.from("nitrous_telegram_tests").insert({
+    channel_id: row.telegram_channel_id, bot_id: row.telegram_bot_id,
+  }).select("id,state").single();
+  if (error || !data) throw new Error("test_queue_unavailable");
+  return data as { id: string; state: string };
+}
+
+/** Separate worker loop. A durable conditional claim precedes sending; unknown delivery is never retried. */
+export async function processNitrousTelegramTest(db: SupabaseClient) {
+  const now = new Date().toISOString();
+  const expired = await db.from("nitrous_telegram_tests").update({ state: "unknown", error_code: "delivery_unknown", resolved_at: now })
+    .eq("state", "sending").lt("claimed_at", new Date(Date.now() - 120_000).toISOString());
+  if (expired.error) throw new Error("test_queue_unavailable");
+  const next = await db.from("nitrous_telegram_tests").select("id").eq("state", "queued")
+    .order("requested_at", { ascending: true }).limit(1).maybeSingle();
+  if (next.error) throw new Error("test_queue_unavailable");
+  if (!next.data) return;
+  const claim = await db.from("nitrous_telegram_tests").update({ state: "sending", claimed_at: now })
+    .eq("id", next.data.id).eq("state", "queued").select("id,channel_id,bot_id,requested_at").maybeSingle();
+  if (claim.error) throw new Error("test_claim_unavailable");
+  if (!claim.data) return;
+  const request = claim.data;
+  let result: import("./nitrous-telegram").NitrousTelegramDelivery;
+  try {
+    const settings = await readNitrousTelegramSettings(db);
+    if (!settings || settings.telegram_channel_id !== request.channel_id || Number(settings.telegram_bot_id) !== Number(request.bot_id)) {
+      result = { state: "refused", code: "test_destination_changed" };
+    } else if (Date.now() - Date.parse(request.requested_at) > 600_000) {
+      result = { state: "refused", code: "test_request_expired" };
+    } else {
+      result = await sendNitrousTelegramTest(nitrousTelegramConfig(settings), Number(request.bot_id));
+    }
+  } catch { result = { state: "unknown", code: "delivery_unknown" }; }
+  const saved = await db.from("nitrous_telegram_tests").update({
+    state: result.state, message_id: result.messageId ?? null, error_code: result.code ?? null, resolved_at: new Date().toISOString(),
+  }).eq("id", request.id).eq("state", "sending");
+  if (saved.error) throw new Error("test_result_unavailable");
 }
