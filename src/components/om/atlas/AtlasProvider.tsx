@@ -8,13 +8,14 @@ import { appVoiceBus, lineOpen, useAppVoiceBus, voiceBus } from "@/components/co
 import { useFlowAccount } from "@/components/om/FlowAccount";
 import { ProductIcon } from "@/components/om/ProductIcon";
 import { findAsset } from "@/data/signalAssets";
-import { ATLAS_OPEN_EVENT, type AtlasContext as ViewContext, type AtlasOpenRequest } from "@/lib/atlas/open";
+import { ATLAS_CONTEXT_EVENT, ATLAS_OPEN_EVENT, type AtlasContext as ViewContext, type AtlasContextUpdate, type AtlasOpenRequest } from "@/lib/atlas/open";
 import { atlasMessages, normalizeAtlasActions, planAtlasActions } from "@/lib/atlas/actions";
 import { atlasSignalContext, generateAtlasSignal, restoreAtlasSignalResult, type AtlasSignalResult } from "@/lib/atlas/signals";
 import { parseAtlasPulseResult, scanWithAtlas, type AtlasPulseResult } from "@/lib/atlas/pulse";
 import type { AtlasAction, AtlasContext, AtlasDestination, AtlasMessage } from "@/lib/atlas/types";
 import { AtlasActionCard, AtlasPulseCard, ATLAS_LINKS } from "./AtlasActionCard";
 import { AtlasSignalCard } from "./AtlasSignalCard";
+import { AtlasVoiceConversation } from "./AtlasVoiceConversation";
 import "./atlas.css";
 
 type Message = AtlasMessage & {
@@ -95,6 +96,7 @@ export function AtlasProvider({ children, configured = true, memberKey }: {
   const workRef = useRef(false);
   const mounted = useRef(true);
   const voiceAfter = useRef(0);
+  const followingContext = useRef<string | null>(null);
   const account = flow && !flow.switching ? flow.ov?.account ?? null : null;
   const accountRef = useRef(account);
   accountRef.current = account; messageRef.current = messages; contextRef.current = context; openRef.current = open;
@@ -105,7 +107,7 @@ export function AtlasProvider({ children, configured = true, memberKey }: {
     mounted.current = true;
     voiceAfter.current = Date.now();
     busyRef.current = false; workRef.current = false;
-    setBusy(false); setWorking(null); setContext(null); setError(""); setInput("");
+    setBusy(false); setWorking(null); setContext(null); setError(""); setInput(""); followingContext.current = null;
     const restored = restoreMessages(sessionStorageSafe(storageKey));
     setMessages(restored);
     const latestResult = [...restored].reverse().find((message) => message.signal || message.pulse);
@@ -122,6 +124,7 @@ export function AtlasProvider({ children, configured = true, memberKey }: {
   const append = useCallback((message: Message) => setMessages((previous) => [...previous, message].slice(-40)), []);
   const close = useCallback(() => {
     appVoiceBus.end();
+    followingContext.current = null;
     setOpen(false); setVoiceSettings(false); setVoiceAttempted(false);
   }, []);
   const startVoice = useCallback((view?: ViewContext) => {
@@ -129,15 +132,25 @@ export function AtlasProvider({ children, configured = true, memberKey }: {
     if (!configured) return;
     setVoiceAttempted(true);
     if (lineOpen(voiceBus.get().status)) voiceBus.end();
-    if (appVoiceBus.ready()) appVoiceBus.start(contextFor(view ?? contextRef.current, accountRef.current));
+    if (appVoiceBus.ready()) {
+      // The explicit Talk gesture starts a two-way conversation without a push-to-talk setting left over from another visit.
+      if (!lineOpen(appVoiceBus.get().status)) {
+        appVoiceBus.setInputMode("hands_free");
+        appVoiceBus.setMicMuted(false);
+        appVoiceBus.setSpeakerMuted(false);
+      }
+      const nextContext = contextFor(view ?? contextRef.current, accountRef.current);
+      appVoiceBus.updateContext(nextContext);
+      appVoiceBus.start(nextContext);
+    }
     else setError("Voice is still getting ready. You can type here, or try the microphone again in a moment.");
   }, [configured]);
 
-  const ask = useCallback(async (raw: string, supplied?: ViewContext) => {
+  const ask = useCallback(async (raw: string, supplied?: ViewContext, followContext?: string) => {
     const question = raw.trim().slice(0, 3000);
     if (!question || busyRef.current || !configured) return;
     const activeContext = supplied ?? contextRef.current;
-    if (supplied) setContext(supplied);
+    if (supplied) { followingContext.current = followContext?.slice(0, 80) || null; setContext(supplied); }
     setInput(""); setError("");
     // A typed message on an open voice line is one turn on that same line, with no second text charge.
     // An explicit signal explanation uses the text endpoint so the exact result travels with it.
@@ -175,16 +188,29 @@ export function AtlasProvider({ children, configured = true, memberKey }: {
       const request = (event as CustomEvent<AtlasOpenRequest>).detail ?? {};
       if (!openRef.current) opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setOpen(true); setError("");
+      followingContext.current = request.followContext?.slice(0, 80) || null;
       if (request.context) setContext(request.context);
       const action = actionFromOpen(request);
       if (action) prepare(action);
-      else if (request.question?.trim()) void askRef.current(request.question, request.context);
+      else if (request.question?.trim()) void askRef.current(request.question, request.context, request.followContext);
       // This callback runs on the original button tap, preserving Safari's audio gesture.
       if (request.voice) startVoice(request.context);
     };
     window.addEventListener(ATLAS_OPEN_EVENT, receive);
     return () => window.removeEventListener(ATLAS_OPEN_EVENT, receive);
   }, [configured, prepare, startVoice]);
+
+  useEffect(() => {
+    const update = (event: Event) => {
+      const next = (event as CustomEvent<AtlasContextUpdate>).detail;
+      if (!openRef.current || !next?.context || !next.key || followingContext.current !== next.key) return;
+      contextRef.current = next.context;
+      setContext(next.context);
+      if (lineOpen(appVoiceBus.get().status)) appVoiceBus.updateContext(contextFor(next.context, accountRef.current));
+    };
+    window.addEventListener(ATLAS_CONTEXT_EVENT, update);
+    return () => window.removeEventListener(ATLAS_CONTEXT_EVENT, update);
+  }, []);
 
   useEffect(() => {
     const element = dialog.current;
@@ -249,12 +275,14 @@ export function AtlasProvider({ children, configured = true, memberKey }: {
         const pulse = await scanWithAtlas(isCurrent);
         if (!mounted.current || !isCurrent()) return;
         append(newMessage("assistant", pulse.setups.length ? "The scan is ready. Pick a market below to build its full play." : "The scan finished without a qualifying candidate.", { pulse }));
+        followingContext.current = null;
         setContext({ source: "Market Pulse", label: "Latest market scan", data: pulse });
       } else {
         if (action.type === "plays" && !action.td) throw new Error("Choose a market for this play first.");
         const signal = await generateAtlasSignal(action.type === "plays" ? { tool: "plays", td: action.td!, style: action.style } : { tool: "genx", mode: action.mode }, undefined, isCurrent);
         if (!mounted.current || !isCurrent()) return;
         append(newMessage("assistant", "Your read is ready. The engine’s decision and levels are below.", { signal }));
+        followingContext.current = null;
         setContext(atlasSignalContext(signal));
       }
       setMessages((previous) => previous.map((m) => m.id === messageId ? { ...m, completed: [...(m.completed ?? []), actionIndex] } : m));
@@ -280,12 +308,13 @@ export function AtlasProvider({ children, configured = true, memberKey }: {
         <header className="om-atlas-top">
           <ProductIcon kind="atlas" size="md" />
           <div><h2 id="om-atlas-title">Atlas</h2><p role="status">{stateLabel}</p></div>
-          <button type="button" className="om-atlas-icon" aria-label="New Atlas conversation" title="New conversation" disabled={busy || !!working} onClick={() => { voiceAfter.current = Date.now(); appVoiceBus.end(); setMessages([]); setContext(null); setError(""); setInput(""); }}><SquarePen aria-hidden="true" /></button>
+          <button type="button" className="om-atlas-icon" aria-label="New Atlas conversation" title="New conversation" disabled={busy || !!working} onClick={() => { voiceAfter.current = Date.now(); followingContext.current = null; appVoiceBus.end(); setMessages([]); setContext(null); setError(""); setInput(""); }}><SquarePen aria-hidden="true" /></button>
           <button type="button" className="om-atlas-icon" aria-label="Close Atlas" onClick={close}><X aria-hidden="true" /></button>
         </header>
-        <div className="om-atlas-journey" aria-label="Signal workflow"><span className={hasResult ? "" : "is-current"}><i>1</i>Discover</span><span className={hasResult ? "is-current" : ""}><i>2</i>Review the signal</span><span><i>3</i>Execute with FLOW</span></div>
+        {!voiceAttempted && <div className="om-atlas-journey" aria-label="Signal workflow"><span className={hasResult ? "" : "is-current"}><i>1</i>Discover</span><span className={hasResult ? "is-current" : ""}><i>2</i>Review the signal</span><span><i>3</i>Execute with FLOW</span></div>}
         <div className="om-atlas-log" ref={log}>
-          {messages.length === 0 && <section className="om-atlas-welcome">
+          {voiceAttempted && <AtlasVoiceConversation voice={voice} contextLabel={context?.label} onStart={() => startVoice()} onSettings={() => setVoiceSettings((value) => !value)} />}
+          {messages.length === 0 && !voiceAttempted && <section className="om-atlas-welcome">
             <p className="om-atlas-eyebrow">One conversation. Your trading tools.</p>
             <h3>Let’s find your next setup.</h3>
             <p>Talk to me about a market, generate a play, or read gold with GENX. We’ll keep the signal and its next steps right here.</p>
@@ -314,7 +343,7 @@ export function AtlasProvider({ children, configured = true, memberKey }: {
           <div className="om-atlas-voice-settings" hidden={!voiceSettings}><VoiceSession surface="app" context={contextFor(context, account)} onTurns={onVoiceTurns} /></div>
         </div>
         <div className="om-atlas-compose">
-          {context && <div className="om-atlas-context"><span><b>{context.source}</b> · {context.label}</span><button type="button" aria-label="Stop discussing this result" onClick={() => setContext(null)}><X aria-hidden="true" /></button></div>}
+          {context && <div className="om-atlas-context"><span><b>{context.source}</b> · {context.label}</span><button type="button" aria-label="Stop discussing this result" onClick={() => { followingContext.current = null; setContext(null); }}><X aria-hidden="true" /></button></div>}
           {onLine && <div className="om-atlas-voice-controls" aria-label="Atlas voice controls">
             <span className="om-atlas-listening" data-speaking={voice.activity === "speaking"}><i /><i /><i /><i /><i /></span>
             <button type="button" onClick={() => appVoiceBus.setMicMuted(!voice.micMuted)} aria-label={voice.micMuted ? "Unmute microphone" : "Mute microphone"}>{voice.micMuted ? <MicOff aria-hidden="true" /> : <Mic aria-hidden="true" />}</button>

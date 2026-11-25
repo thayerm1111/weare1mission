@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { orderedLevelLabels } from "../src/lib/chart/levelLabels";
+import { levelTag, orderedLevelLabels } from "../src/lib/chart/levelLabels";
 
 // A 454×312 chart has a 24px time axis. Text must stay below its readout and above the time axis.
 const TOP = 46, BOTTOM = 282;
@@ -43,4 +43,29 @@ test("well-spaced annotations keep their natural baselines and empty or short ch
   const short = orderedLevelLabels(gold, TOP, TOP + 40);
   readable(short, TOP, TOP + 40, 10);
   assert.deepEqual(short.map((level) => level.ly), gold.map((level) => level.ly));
+});
+
+test("backed support/resistance tags cannot overlap at either plot edge or alter the true price lines", () => {
+  const top = 49, bottom = 279;
+  for (const coordinates of [[29, 30, 31, 32, 34], [268, 269, 274, 278, 288], [150, 150, 150, 150, 150]]) {
+    const levels = coordinates.map((ly, i) => ({ ly, price: 3560 - i }));
+    const labels = orderedLevelLabels(levels, top, bottom, 25);
+    readable(labels, top, bottom, 25);
+    assert.ok(labels.every((label) => label.labelY - 14 >= 34 && label.labelY + 8 < 288));
+    for (let i = 1; i < labels.length; i++) {
+      assert.ok(labels[i].labelY - 14 > labels[i - 1].labelY + 8, "22px backings have a visible gap");
+    }
+    assert.deepEqual(labels.map(({ ly, price }) => ({ ly, price })), levels);
+  }
+});
+
+test("narrow level tags shorten only the name, preserving exact market precision", () => {
+  const full = levelTag("Support", "3,555.36", 240);
+  assert.equal(full.text, "Support 3,555.36");
+  assert.ok(full.width < 240);
+  const fx = levelTag("Former resistance · 4h confirmed swing", "1.08457", 170);
+  assert.ok(fx.text.endsWith(" 1.08457"));
+  assert.match(fx.text, /…/);
+  assert.ok(fx.width <= 170);
+  assert.equal(levelTag("Former support", "153.742", 70).text, "153.742");
 });

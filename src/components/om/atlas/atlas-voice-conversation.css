@@ -1,0 +1,18 @@
+.om-atlas-voice-conversation { margin: 0 0 20px; padding: 19px; border: 1px solid rgb(var(--om-ai-rgb) / .25); border-radius: 18px; background: linear-gradient(135deg,rgb(var(--om-ai-rgb) / .08),transparent 70%),var(--om-surface); }
+.om-atlas-voice-conversation-head { display: flex; align-items: center; gap: 12px; }
+.om-atlas-voice-conversation-head > svg { flex: 0 0 22px; color: var(--om-ai); }
+.om-atlas-voice-conversation-head h3 { margin: 0; color: var(--om-text); font-size: 20px; letter-spacing: -.025em; font-weight: 600; }
+.om-atlas-voice-conversation-head p { margin: 5px 0 0; color: var(--om-text-2); font-size: 12px; line-height: 1.5; }
+.om-atlas-voice-activity { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; margin-top: 17px; color: var(--om-text-2); font-size: 12px; }
+.om-atlas-voice-activity[data-active="true"] > span { color: var(--om-ai); }
+.om-atlas-voice-activity > div { display: flex; gap: 13px; }
+.om-atlas-voice-activity label { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--om-text-3); }
+.om-atlas-voice-activity meter { width: 65px; height: 8px; accent-color: var(--om-ai); }
+.om-atlas-voice-activity meter::-webkit-meter-bar { border: 0; border-radius: 6px; background: var(--om-raised); }
+.om-atlas-voice-activity meter::-webkit-meter-optimum-value { border-radius: 6px; background: var(--om-ai); }
+.om-atlas-voice-activity meter::-moz-meter-bar { background: var(--om-ai); }
+.om-atlas-voice-hint { margin: 12px 0 0; color: var(--om-text-2); font-size: 12px; line-height: 1.6; }
+.om-atlas-voice-start-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 14px; }
+.om-atlas-voice-start-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 8px 12px; border: 1px solid var(--om-edge-2); border-radius: 10px; color: var(--om-ai); background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
+.om-atlas-voice-start-actions button:focus-visible { outline: 2px solid var(--om-ai); outline-offset: 3px; }
+@media (max-width: 600px) { .om-atlas-voice-conversation { padding: 15px; } .om-atlas-voice-start-actions button { min-height: 44px; } }

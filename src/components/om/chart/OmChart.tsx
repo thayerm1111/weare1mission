@@ -8,7 +8,8 @@ import {
   type Viewport, type ViewScale,
 } from "@/lib/chart/viewport";
 import { axisMarks, candleTimeText, clockText, dayText, type TimedBar } from "@/lib/chart/candleTime";
-import { orderedLevelLabels } from "@/lib/chart/levelLabels";
+import { levelTag, orderedLevelLabels } from "@/lib/chart/levelLabels";
+import { candleInSessionBreak, priceBand, validStructureZone, type StructureZone } from "@/lib/chart/structure";
 import { niceStep, priceText, type ChartLevel } from "@/lib/floor/chart";
 import "./om-chart.css";
 import "./chart-modal.css";
@@ -53,10 +54,14 @@ export type OmChartProps = {
   levels: ChartLevel[];
   /** Optional line colours for a market-specific chart; all other charts keep their existing palette. */
   levelColors?: Partial<Record<ChartLevel["kind"], string>>;
+  /** Exact observed support/resistance bounds, painted beneath candles without altering them. */
+  structureZones?: StructureZone[];
+  /** Opt-in compact label backings. Existing charts retain their current annotation appearance. */
+  labelStyle?: "backed";
   zone?: { low: number; high: number } | null;
   /** The analysis the levels belong to, when it is not the current one: when it was made, and what to call it. */
   analysis?: { at: number; label: string } | null;
-  /** The instrument's calendar. Candles stamped while it was shut are shaded and labelled. */
+  /** The instrument's calendar. Only wholly closed candle intervals are shaded and labelled. */
   isOpenAt?: (t: number) => boolean;
   /** Changing this (another instrument or timeframe) puts the view back to its automatic fit. */
   viewKey: string;
@@ -80,6 +85,12 @@ type Drag = { x: number; y: number; end: number; pOff: number; pz: number; axis:
 
 export function OmChart(p: OmChartProps) {
   const { bars, timeKnown, dec } = p;
+  const backed = p.labelStyle === "backed";
+  const structureZones = useMemo(() => (p.structureZones ?? []).filter(validStructureZone), [p.structureZones]);
+  const sessionBreaks = useMemo(() => {
+    if (!timeKnown || !p.isOpenAt) return new Set<number>();
+    return new Set(bars.filter((bar) => candleInSessionBreak(bar.t, p.tfMs, p.isOpenAt!)).map((bar) => bar.t));
+  }, [bars, timeKnown, p.tfMs, p.isOpenAt]);
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
   const wrap = useRef<HTMLDivElement | null>(null);
   const [sz, setSz] = useState<{ w: number; h: number } | null>(null);
@@ -149,13 +160,13 @@ export function OmChart(p: OmChartProps) {
     if (atEdge && p.price != null && Number.isFinite(p.price)) { lo = Math.min(lo, p.price); hi = Math.max(hi, p.price); }
     const base = Math.max(hi - lo, Math.abs(hi) * 0.0004, 10 ** -dec);
     const near = (v: number) => Number.isFinite(v) && v >= lo - base * 0.6 && v <= hi + base * 0.6;
-    for (const v of [...p.levels.map((l) => l.price), ...(p.zone ? [p.zone.low, p.zone.high] : [])]) if (Number.isFinite(v) && (p.fitLevels || near(v))) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    for (const v of [...p.levels.map((l) => l.price), ...(p.zone ? [p.zone.low, p.zone.high] : []), ...structureZones.flatMap((zone) => [zone.low, zone.high])]) if (Number.isFinite(v) && (p.fitLevels || near(v))) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
     const mid = (lo + hi) / 2, half = (Math.max(hi - lo, base) / 2) * 1.1 / Math.max(0.05, vp.pz);
     const pLo = mid - half + vp.pOff;
     const pHi = mid + half + vp.pOff + (2 * half) * TOP_BAND / Math.max(40, priceH - TOP_BAND);
     const y = (v: number) => ((pHi - v) / (pHi - pLo)) * priceH;
     return { n, usable, span, end, iL, bw, x, y, i0, i1, pLo, pHi, pricePerPx: (pHi - pLo) / Math.max(1, priceH) };
-  }, [bars, sz, plotW, priceH, compact, vp, p.price, p.levels, p.zone, p.fitLevels, dec]);
+  }, [bars, sz, plotW, priceH, compact, vp, p.price, p.levels, p.zone, p.fitLevels, structureZones, dec]);
 
   /* Gesture maths reads this rather than a stale closure. */
   const st = useRef<ViewScale & { plotW: number; priceH: number }>({ n: 0, span: 0, end: 0, iL: 0, bw: 1, usable: 1, pricePerPx: 1, plotW: 1, priceH: 1 });
@@ -354,7 +365,7 @@ export function OmChart(p: OmChartProps) {
     const up = (b: TimedBar) => b.c >= b.o;
     const ch = hb.c - hb.o;
     const forming = si < 0 || si === n - 1;
-    const shut = (t: number) => !!p.isOpenAt && timeKnown && !p.isOpenAt(t);
+    const shut = (t: number) => sessionBreaks.has(t);
     const atLive = vp.follow || atNewest(view.end, n);
     const closedNow = !!p.isOpenAt && timeKnown && Date.now() > 0 && !p.isOpenAt(Date.now());
 
@@ -378,7 +389,7 @@ export function OmChart(p: OmChartProps) {
     const aLeft = aX != null && aX - 8 - aW >= 4;
     const aSpan: [number, number] | null = aX == null || aX < 0 || aX > plotW ? null : aLeft ? [aX - 8 - aW, aX] : [aX, aX + 8 + aW];
 
-    // Shaded runs of candles stamped while the market was shut.
+    // Shaded runs whose whole candle interval falls in a scheduled closure.
     const closedRuns: { a: number; b: number }[] = [];
     for (let i = i0; i <= i1; i++) {
       if (!shut(bars[i].t)) continue;
@@ -386,14 +397,15 @@ export function OmChart(p: OmChartProps) {
       if (lastRun && lastRun.b === i - 1) lastRun.b = i; else closedRuns.push({ a: i, b: i });
     }
 
-    // Saved signals keep labels in price-line order even when all five levels crowd the plot's edge.
-    // Other charts retain their existing placement rule.
+    // Saved signals and backed labels keep actual price-line order when levels crowd the plot's edge.
+    // Backings need more vertical space than plain text. Other charts retain their placement rule.
     const used: number[] = [];
     const visibleLevels = (levelX0 == null ? [] : p.levels)
       .map((l) => ({ l, ly: y(l.price) }))
       .filter((o) => o.ly >= TOP_BAND - 6 && o.ly <= priceH + 2)
       .sort((a, b) => a.ly - b.ly);
-    const lv = p.fitLevels ? orderedLevelLabels(visibleLevels, TOP_BAND + 12, priceH - 6)
+    const lv = backed ? orderedLevelLabels(visibleLevels, TOP_BAND + 15, priceH - 9, 25)
+      : p.fitLevels ? orderedLevelLabels(visibleLevels, TOP_BAND + 12, priceH - 6)
       : visibleLevels.map(({ l, ly }) => {
         const clash = (v: number) => used.some((u) => Math.abs(u - v) < 15);
         let labelY = ly - 6;
@@ -421,7 +433,7 @@ export function OmChart(p: OmChartProps) {
           ))}
           <span className="om-ch-ohlc">C <b className={up(hb) ? "om-pos" : "om-neg"}>{priceText(hb.c, dec)}</b></span>
           <span className={up(hb) ? "om-pos" : "om-neg"}>{ch >= 0 ? "+" : "−"}{priceText(Math.abs(ch), dec)}{compact ? "" : ` (${((ch / hb.o) * 100).toFixed(2)}%)`}</span>
-          {shut(hb.t) && <span className="om-ch-tag">Market closed</span>}
+          {shut(hb.t) && <span className="om-ch-tag">{closedNow && Date.now() >= hb.t && Date.now() < hb.t + p.tfMs ? "Market closed" : "Session break"}</span>}
         </div>
 
         {/* the view's own controls */}
@@ -459,22 +471,37 @@ export function OmChart(p: OmChartProps) {
           <line x1={0} x2={plotW} y1={priceH} y2={priceH} style={{ stroke: "var(--om-ch-base)" }} />
 
           <g clipPath={`url(#omch-plot-${uid})`}>
-            {/* stamped while the market was shut: said, not hidden */}
+            {/* scheduled closure throughout the candle interval: said, not hidden */}
             {closedRuns.map((r) => {
               const x0 = x(r.a) - bw / 2, x1 = x(r.b) + bw / 2;
               // Its caption at the foot of the band, right-aligned, where it fits and the analysis label is not. Where
               // the whole line does not fit, the two words that matter. On a phone the foot of the plot holds the view's
               // buttons and there is no room for a caption that candles and levels would cross: there the hatching and
-              // the readout's own "Market closed" (on the candle being read) say it.
+              // the readout's own session-break tag (on the candle being read) say it.
               const capR = Math.min(x1, plotW) - 8;
               const room = (w: number) => capR - w >= Math.max(0, x0) && !(aSpan && aSpan[0] < capR && aSpan[1] > capR - w);
-              const cap = compact ? null : room(236) ? "Market closed · feed quotes, not trading" : room(84) ? "Market closed" : null;
+              const longCaption = "Session break · feed quotes, not trading", shortCaption = "Session break";
+              const cap = compact ? null : room(longCaption.length * 6 + 16) ? longCaption : room(shortCaption.length * 6 + 16) ? shortCaption : null;
               return (
                 <g key={`c${r.a}`} pointerEvents="none">
                   <rect x={x0} y={0} width={Math.max(1, x1 - x0)} height={priceH} fill={`url(#omch-shut-${uid})`} />
-                  {cap && <text x={capR} y={priceH - 9} textAnchor="end" fontSize="11.5" style={{ fill: "var(--om-text-3)", stroke: HALO }} strokeWidth="4" paintOrder="stroke">{cap}</text>}
+                  {cap && <>{backed && <rect x={capR - (cap.length * 6 + 12)} y={priceH - 24} width={cap.length * 6 + 16} height={21} rx="5" style={{ fill: "var(--om-surface)", stroke: "var(--om-edge)" }} />}
+                    <text x={capR} y={priceH - 9} textAnchor="end" fontSize="11.5" style={{ fill: "var(--om-text-3)", stroke: backed ? "none" : HALO }} strokeWidth={backed ? 0 : 4} paintOrder="stroke">{cap}</text></>}
                 </g>
               );
+            })}
+
+            {/* Actual structural ranges; neither candle prices nor zone thickness are embellished. */}
+            {structureZones.map((zone, index) => {
+              const band = priceBand(zone.low, zone.high, view.pLo, view.pHi, priceH);
+              if (!band || levelX0 == null) return null;
+              const tone = zone.kind === "support" ? "var(--om-pos)" : "var(--om-neg)";
+              return <g key={`${zone.kind}:${zone.low}:${zone.high}:${index}`} pointerEvents="none">
+                <title>{zone.label ?? (zone.kind === "support" ? "Support zone" : "Resistance zone")} {priceText(zone.low, dec)} – {priceText(zone.high, dec)}</title>
+                <rect x={levelX0} y={band.top} width={Math.max(0, plotW - levelX0)} height={band.height} style={{ fill: tone }} fillOpacity="0.085" />
+                <line x1={levelX0} x2={plotW} y1={y(zone.high)} y2={y(zone.high)} style={{ stroke: tone }} strokeOpacity="0.25" strokeWidth="0.75" />
+                <line x1={levelX0} x2={plotW} y1={y(zone.low)} y2={y(zone.low)} style={{ stroke: tone }} strokeOpacity="0.25" strokeWidth="0.75" />
+              </g>;
             })}
 
             {/* the entry zone */}
@@ -504,13 +531,20 @@ export function OmChart(p: OmChartProps) {
             )}
 
             {/* levels the engine produced */}
-            {levelX0 != null && lv.map(({ l, ly, labelY }) => (
-              <g key={`${l.kind}${l.price}`} opacity={p.analysis ? 0.85 : 1}>
-                <line x1={levelX0} x2={plotW} y1={ly} y2={ly} style={{ stroke: p.levelColors?.[l.kind] ?? LEVEL_COLOR[l.kind] }} strokeWidth="1" strokeDasharray={p.analysis ? "2 4" : "4 4"} />
-                {p.fitLevels && Math.abs(labelY - (ly - 6)) > 2 && <line x1={levelX0 + 3} x2={levelX0 + 8} y1={ly} y2={labelY - 4} style={{ stroke: p.levelColors?.[l.kind] ?? LEVEL_COLOR[l.kind] }} strokeWidth="0.75" opacity="0.8" />}
-                <text x={levelX0 + 10} y={labelY} fontSize="12.5" strokeWidth="4" strokeLinejoin="round" paintOrder="stroke" style={{ fill: "var(--om-text)", stroke: HALO, fontVariantNumeric: "tabular-nums" }}>{l.label} {priceText(l.price, dec)}</text>
-              </g>
-            ))}
+            {levelX0 != null && lv.map(({ l, ly, labelY }) => {
+              const tone = p.levelColors?.[l.kind] ?? LEVEL_COLOR[l.kind];
+              const tag = levelTag(l.label, priceText(l.price, dec), plotW - 12);
+              const tagX = clamp(levelX0 + 6, 4, Math.max(4, plotW - tag.width - 4));
+              return <g key={`${l.kind}${l.price}`} opacity={p.analysis ? 0.85 : 1} pointerEvents="none">
+                <line x1={levelX0} x2={plotW} y1={ly} y2={ly} style={{ stroke: tone }} strokeWidth="1" strokeDasharray={p.analysis ? "2 4" : "4 4"} />
+                {(p.fitLevels || backed) && Math.abs(labelY - (ly - 6)) > 2 && <line x1={levelX0 + 3} x2={backed ? tagX + 4 : levelX0 + 8} y1={ly} y2={labelY - 4} style={{ stroke: tone }} strokeWidth="0.75" opacity="0.8" />}
+                {backed ? <g className="om-ch-level-tag">
+                  <title>{l.label} {priceText(l.price, dec)}</title>
+                  <rect x={tagX} y={labelY - 14} width={tag.width} height={22} rx="5" style={{ fill: "var(--om-surface)", stroke: tone }} strokeWidth="0.75" strokeOpacity="0.45" />
+                  <text x={tagX + 9} y={labelY} fontSize="11.5" style={{ fill: "var(--om-text)", fontVariantNumeric: "tabular-nums" }}>{tag.text}</text>
+                </g> : <text x={levelX0 + 10} y={labelY} fontSize="12.5" strokeWidth="4" strokeLinejoin="round" paintOrder="stroke" style={{ fill: "var(--om-text)", stroke: HALO, fontVariantNumeric: "tabular-nums" }}>{l.label} {priceText(l.price, dec)}</text>}
+              </g>;
+            })}
 
             {/* the last price */}
             {pxY != null && pxY >= 0 && pxY <= priceH && <line x1={0} x2={plotW} y1={pxY} y2={pxY} style={{ stroke: p.priceLive ? "rgb(var(--om-pos-rgb) / 0.4)" : "var(--om-ch-price)" }} strokeDasharray="1 4" />}
