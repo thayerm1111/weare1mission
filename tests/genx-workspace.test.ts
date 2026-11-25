@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+import ts from 'typescript';
 import { actionWords, convictionWords, stepWords, holdWords, streakOf } from '../src/lib/genx/words';
 import { genxPeriod, GENX_HISTORY_MAX } from '../src/lib/floor/overview';
 
@@ -48,11 +50,18 @@ test('a saved read keeps its own chart, time and price, with an honest missing-o
   assert.ok(!/>LIVE</.test(home), 'no LIVE badge');
 });
 
-test('the main setup and the scalp are never mixed on the chart', async () => {
-  const { readLevels } = await import('../src/components/om/genx/GenxHome');
+test('the main setup and the scalp are never mixed on the chart', () => {
+  // Run the actual pure display helper without importing Next/React's CSS graph into Node.
+  // Its module dependencies are unused by readLevels and remain isolated stand-ins.
+  const compiled = ts.transpileModule(home, { compilerOptions: {
+    target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX,
+  }, fileName: 'GenxHome.tsx' }).outputText;
+  const mod = { exports: {} as { readLevels: typeof import('../src/components/om/genx/GenxHome')['readLevels'] } };
+  runInNewContext(`(function(require,module,exports){${compiled}\n})`)(() => ({}), mod, mod.exports);
+  const { readLevels } = mod.exports;
   const g = { entry: 10, entry_low: 9, entry_high: 11, stop_loss: 5, tp1: 20, tp2: 25, tp3: null, closest_support: 8, closest_resistance: 12,
     scalp: { side: 'buy', entry: 7, stop: 6, target: 8.5, target_pips: 15, risk_pips: 10, rr: 1.5, reason: '' } } as never;
-  const main = readLevels(g, 'main'), scalp = readLevels(g, 'scalp');
+  const main = structuredClone(readLevels(g, 'main')), scalp = structuredClone(readLevels(g, 'scalp'));
   assert.deepEqual(main.levels.map((l) => l.label), ['Resistance', 'Support', 'Entry', 'Stop', 'Target 1', 'Target 2']);
   assert.deepEqual(main.zone, { low: 9, high: 11 });
   assert.deepEqual(scalp.levels.map((l) => [l.label, l.price]), [['Scalp entry', 7], ['Scalp stop', 6], ['Scalp target', 8.5]]);
@@ -91,5 +100,5 @@ test('the history is the period\'s, newest first, and a run of results ends at a
 test('engine results and an account\'s results are labelled apart, and following is FLOW\'s', () => {
   assert.match(home, /not any one account\. Your own account is in <Link href="\/portal\/trading\?view=flow"/);
   assert.match(home, /Which of your accounts take GENX trades is set in FLOW\./);
-  assert.match(read('src/app/portal/genx/page.tsx'), /if \(wantsNextShell\(cookies\(\)\.get\(SHELL_COOKIE\)\?\.value, profile\?\.role === "admin", headers\(\)\)\) return <GenxDesk \/>;/, 'the tool uses the same shell decision as its layout');
+  assert.match(read('src/app/portal/genx/page.tsx'), /if \(wantsNextShell\(cookies\(\)\.get\(SHELL_COOKIE\)\?\.value, profile\?\.role === "admin", headers\(\)\)\) return <GenxWorkspace/, 'the combined Gold/FX workspace uses the same shell decision as its layout');
 });

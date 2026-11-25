@@ -1,0 +1,85 @@
+/* The same data in two levels of detail. Uses the existing One Mission theme. */
+.om-experience-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 0 12px;border-bottom:1px solid var(--om-hair)}
+.om-experience-bar>span{flex:1;font-size:12px;letter-spacing:.1em;color:var(--om-text-3)}
+.om-experience-bar>.om-experience-hint{text-align:right;letter-spacing:0;font-size:13px}
+.om-experience-switch{display:flex;align-items:center;gap:4px;padding:4px;border:1px solid var(--om-edge);border-radius:14px;background:var(--om-surface);flex:0 0 auto}
+.om-experience-switch button{min-width:110px;min-height:38px;padding:8px 20px;border:1px solid transparent;border-radius:10px;color:var(--om-text-2);background:transparent;font-size:14px;font-weight:600;line-height:1.2;transition:background .15s,color .15s,box-shadow .15s}
+.om-experience-switch button[aria-pressed=true]{background:var(--om-ai);color:var(--om-page);box-shadow:0 2px 8px rgb(var(--om-fg) / .08)}
+.om-experience-switch button:focus-visible{outline:2px solid var(--om-ai);outline-offset:3px}
+.om-simple-heading{margin-bottom:20px}
+.om-simple-heading h1,.om-simple-heading h2{font-size:clamp(24px,3vw,38px);font-weight:600;line-height:1.15;letter-spacing:-.035em;color:var(--om-text)}
+.om-simple-heading p{margin-top:8px;font-size:15px;line-height:1.5;color:var(--om-text-2);max-width:60ch}
+.om-simple-status{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:16px 18px;border:1px solid var(--om-edge);border-radius:16px;background:var(--om-surface)}
+.om-simple-status strong{font-size:20px;color:var(--om-text);font-weight:600}
+.om-simple-status p{flex-basis:100%;margin:0;font-size:14px;line-height:1.55;color:var(--om-text-2)}
+.om-simple-next{padding:16px 18px;border:1px solid var(--om-edge);border-radius:16px;background:rgb(var(--om-fg) / .025);font-size:15px;line-height:1.6;color:var(--om-text-2)}
+.om-simple-next strong{color:var(--om-text)}
+.om-simple-detail-link{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:8px 0;color:var(--om-ai);font-size:14px;font-weight:600}
+.om-simple-detail-link:focus-visible{outline:2px solid var(--om-ai);outline-offset:4px}
+.om-os[data-experience=simple] .om-os-footer{margin-top:24px}
+.om-os[data-experience=simple] .om-ch-ohlc{display:none}
+.om-simple-atlas{padding:clamp(18px,3vw,32px);display:grid;gap:22px;overflow:hidden}
+.om-simple-atlas-header,.om-simple-market-summary,.om-simple-atlas-foot{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.om-simple-atlas-header .om-live-brand h2{font-size:28px;line-height:1.15;letter-spacing:-.035em;font-weight:600}
+.om-simple-atlas-header .om-live-brand em{font-style:normal;color:var(--om-ai);font-weight:400}
+.om-simple-atlas-header .om-terminal-eyebrow{font-size:11px;letter-spacing:.12em;color:var(--om-text-3)}
+.om-simple-atlas-tools{display:flex;align-items:center;gap:8px}
+.om-simple-atlas-tools button{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:8px 12px;border:1px solid var(--om-edge);border-radius:12px;font-size:14px;color:var(--om-text-2)}
+.om-simple-markets{display:flex;gap:8px;flex-wrap:wrap}
+.om-simple-markets button{min-height:42px;padding:10px 18px;border:1px solid var(--om-edge);border-radius:12px;font-size:14px;font-weight:600;color:var(--om-text-2);background:var(--om-page)}
+.om-simple-markets button[aria-pressed=true]{border-color:var(--om-ai);color:var(--om-ai);background:rgb(var(--om-ai-rgb) / .07)}
+.om-simple-market-summary{padding:8px 0 2px;align-items:flex-start}
+.om-simple-market-summary>div>span{font-size:13px;color:var(--om-text-2)}
+.om-simple-market-summary h3{display:flex;align-items:center;gap:10px;margin:9px 0 7px;font-size:clamp(25px,3vw,38px);line-height:1.15;letter-spacing:-.035em;font-weight:600;color:var(--om-text)}
+.om-simple-market-summary[data-trend=bullish] h3>svg{color:var(--om-pos)}
+.om-simple-market-summary[data-trend=bearish] h3>svg{color:var(--om-neg)}
+.om-simple-market-summary p{font-size:15px;color:var(--om-text-2);margin:0}
+.om-simple-market-price{text-align:right;display:grid;gap:6px}
+.om-simple-market-price strong{font-variant-numeric:tabular-nums;font-size:30px;font-weight:500;letter-spacing:-.03em;color:var(--om-text)}
+.om-simple-market-price small{font-size:12px;color:var(--om-text-3)}
+.om-simple-market-chart{min-width:0;border:1px solid var(--om-edge);border-radius:18px;overflow:hidden;background:var(--om-page)}
+.om-simple-market-chart>header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--om-hair)}
+.om-simple-market-chart h3{font-size:14px;font-weight:600;color:var(--om-text)}
+.om-simple-market-chart label{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--om-text-2)}
+.om-simple-market-chart select{min-height:36px;border:1px solid var(--om-edge);border-radius:8px;padding:6px 10px;color:var(--om-text);background:var(--om-surface);font-size:14px}
+.om-simple-chart-canvas{position:relative;height:340px;min-width:0}
+.om-simple-chart-empty{display:grid;place-items:center;min-height:260px;padding:24px;text-align:center;font-size:15px;color:var(--om-text-2)}
+.om-simple-market-levels{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px;border-top:1px solid var(--om-hair)}
+.om-simple-market-levels>div{display:grid;gap:6px}
+.om-simple-market-levels span{font-size:13px;color:var(--om-text-2)}
+.om-simple-market-levels strong{font-size:clamp(16px,2vw,21px);font-weight:500;font-variant-numeric:tabular-nums;color:var(--om-text)}
+.om-simple-atlas .om-simple-next p{margin:6px 0 0}
+.om-simple-watch-price{display:block;margin-top:10px;font-weight:600;color:var(--om-ai);font-variant-numeric:tabular-nums}
+.om-simple-atlas-actions{display:flex;gap:10px;flex-wrap:wrap}
+.om-simple-atlas-actions>a,.om-simple-atlas-actions>button{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:50px;padding:12px 20px;border:1px solid var(--om-edge);border-radius:14px;font-size:15px;font-weight:600;color:var(--om-text)}
+.om-simple-atlas-actions>.om-simple-primary{flex:1;background:var(--om-ai);border-color:transparent;color:var(--om-page)}
+.om-simple-atlas-actions :disabled{opacity:.5;cursor:not-allowed}
+.om-simple-atlas-foot>span{font-size:12px;color:var(--om-text-3)}
+.om-simple-results-toggle{display:flex;align-items:center;justify-content:space-between;gap:14px;grid-column:1/-1;width:100%;padding:16px 18px;border:1px solid var(--om-edge);border-radius:14px;background:var(--om-surface);font-size:14px;color:var(--om-text-2)}
+.om-simple-results-toggle[aria-expanded=true]>svg{transform:rotate(180deg)}
+.om-atlas-command-simple-reason{font-size:14px;line-height:1.65;color:var(--om-text-2)}
+.om-atlas-command-simple-reason summary{min-height:40px;cursor:pointer;color:var(--om-ai);font-weight:600}
+.om-os[data-experience=simple] .om-flow-grid{grid-template-columns:minmax(0,1fr)}
+.om-os[data-experience=simple] .om-flow-engine-history .om-mobile-section-toggle{display:flex}
+.om-os[data-experience=simple] .om-flow-engine-history:not([data-open])>.om-mobile-section-body{display:none}
+@media(max-width:760px){
+  .om-experience-bar{padding:4px 0 10px;gap:10px}
+  .om-experience-bar>span{font-size:12px;letter-spacing:.06em}
+  .om-experience-bar>.om-experience-hint{display:none}
+  .om-experience-switch{padding:3px;border-radius:12px}
+  .om-experience-switch button{min-width:88px;min-height:40px;padding:8px 12px;font-size:14px;border-radius:9px}
+  .om-simple-atlas{padding:16px;gap:18px}
+  .om-simple-atlas-header .om-live-brand h2{font-size:24px}
+  .om-simple-atlas-header .om-terminal-eyebrow{font-size:10px}
+  .om-simple-markets{gap:6px}
+  .om-simple-markets button{padding:10px 11px;flex:1;white-space:nowrap;font-size:13px}
+  .om-simple-market-summary{gap:12px}
+  .om-simple-market-summary h3{font-size:26px}
+  .om-simple-market-price{text-align:left}
+  .om-simple-market-price strong{font-size:25px}
+  .om-simple-atlas-actions{display:grid;grid-template-columns:1fr}
+  .om-simple-atlas-actions>a,.om-simple-atlas-actions>button{font-size:14px;padding:12px 14px}
+  .om-simple-market-levels{gap:10px;padding:14px}
+  .om-simple-chart-canvas{height:290px}
+}
+@media(prefers-reduced-motion:reduce){.om-experience-switch button{transition:none}}

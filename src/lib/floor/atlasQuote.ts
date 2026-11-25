@@ -47,6 +47,11 @@ export function atlasQuote(
   }
   if (result.source === "none" && untimed) result = untimed;
   if (!tick || typeof tick.symbol !== "string" || tick.symbol.replace(/\//g, "") !== symbol || !(tick.price > 0) || !Number.isFinite(tick.price)) return result;
+  // A fresh timestamp does not validate a decimal error or a wrong-price feed.
+  // Compare only with a recent verified close; older session prices and unverified
+  // forming candles cannot veto a new quote after a market gap.
+  if (result.source === "candle" && result.price != null && result.at != null &&
+    now - result.at <= 20 * 60_000 && Math.abs(tick.price - result.price) / result.price >= .025) return result;
   const received = time(tick.receivedAt, now);
   const hasProviderTime = tick.providerAt != null && tick.providerAt !== "";
   const provider = hasProviderTime ? time(tick.providerAt, now) : null;

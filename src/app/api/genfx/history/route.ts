@@ -31,11 +31,13 @@ export async function GET(req: Request) {
       .eq("user_id", user.id).eq("id", id).maybeSingle();
     const r = data as Row | null;
     if (!r) return json({ error: "not_found" }, 404);
-    const snap = (r.market_snapshot ?? {}) as { price?: number; session?: string; data_status?: string; asOf?: string };
+    const snap = (r.market_snapshot ?? {}) as { price?: number; session?: string; data_status?: string; asOf?: string; candles?: unknown; candles_tf?: unknown };
     return json({
       play: {
         id: r.id, at: r.created_at, pair: r.pair, mode: r.mode, genfx: r.reasoning,
         price: snap.price ?? null, session: snap.session ?? null, data_status: snap.data_status ?? null, asOf: snap.asOf ?? r.created_at,
+        candles: Array.isArray(snap.candles) ? snap.candles.slice(-500) : [],
+        candles_tf: typeof snap.candles_tf === "string" ? snap.candles_tf : null,
       },
     });
   }

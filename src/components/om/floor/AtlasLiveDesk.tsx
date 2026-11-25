@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { Activity, ArrowDownRight, ArrowLeftRight, ArrowUpRight, Check, ChevronRight, Crosshair, Info, Mic, RefreshCw, Sparkles, Target } from "lucide-react";
 import { ProductIcon } from "@/components/om/ProductIcon";
 import { OmChart } from "@/components/om/chart/OmChart";
@@ -16,6 +17,7 @@ import { priceText, type ChartLevel } from "@/lib/floor/chart";
 import { openAtlas, updateAtlasContext, type AtlasContext } from "@/lib/atlas/open";
 import type { FloorMode } from "@/lib/floor/setupInstruments";
 import type { SetupAnswer } from "./Floor";
+import { useExperienceMode } from "@/components/om/experience";
 import "./atlas-live-desk.css";
 
 const MARKETS: { key: AtlasMarketSymbol; td: string; name: string; dp: number }[] = [
@@ -51,6 +53,7 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, sample
   goldSetup: SetupAnswer | null; goldFailed: boolean; atlasRead: { at: string; summary: string } | null;
   sample: boolean; sampleNow?: number; tf: FloorMode; onTf: (mode: FloorMode) => void;
 }) {
+  const { isSimple, setMode: setExperienceMode } = useExperienceMode();
   const [symbol, setSymbol] = useState<AtlasMarketSymbol>("XAUUSD");
   const [selectedFrame, setSelectedFrame] = useState<AtlasFrameId>(FRAME_FOR_MODE[tf]);
   const [record, setRecord] = useState<{ symbol: AtlasMarketSymbol; snapshot: AtlasMarketSnapshot | null; failed: boolean } | null>(null);
@@ -59,6 +62,7 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, sample
   const [ticks, setTicks] = useState<Record<string, AtlasTick>>({});
   const [now, setNow] = useState(sampleNow ?? 0);
   const saved = useRef(new Map<AtlasMarketSymbol, AtlasMarketSnapshot>());
+  const failedSymbols = useRef(new Set<AtlasMarketSymbol>());
   const market = MARKETS.find((m) => m.key === symbol)!;
   const frameSpec = ATLAS_FRAMES.find((f) => f.id === selectedFrame)!;
   const calendar = useMemo(() => (t: number) => isOpen(symbol === "XAUUSD" ? "metal" : "fx", t), [symbol]);
@@ -75,7 +79,8 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, sample
     if (sample) return;
     let active = true, busy = false;
     const controller = new AbortController();
-    setRecord({ symbol, snapshot: saved.current.get(symbol) ?? null, failed: false });
+    // A retry or market switch cannot make a failed read current again. Only success clears it.
+    setRecord({ symbol, snapshot: saved.current.get(symbol) ?? null, failed: failedSymbols.current.has(symbol) });
     const load = async () => {
       if (!active || busy || document.visibilityState === "hidden") return;
       busy = true; setLoading(true);
@@ -89,10 +94,14 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, sample
         if (!response.ok || !isSnapshot(body, symbol)) throw new Error("Market snapshot unavailable");
         if (active) {
           saved.current.set(symbol, body);
+          failedSymbols.current.delete(symbol);
           setRecord({ symbol, snapshot: body, failed: false });
         }
       } catch {
-        if (active) setRecord((old) => ({ symbol, snapshot: old?.symbol === symbol ? old.snapshot : null, failed: true }));
+        if (active) {
+          failedSymbols.current.add(symbol);
+          setRecord((old) => ({ symbol, snapshot: old?.symbol === symbol ? old.snapshot : null, failed: true }));
+        }
       } finally {
         clearTimeout(timeout); controller.signal.removeEventListener("abort", cancel);
         busy = false; if (active) setLoading(false);
@@ -153,7 +162,7 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, sample
   const empty = useMemo(() => buildAtlasMarketSnapshot({ symbol, frames: {}, now, marketOpen }), [symbol, now, marketOpen]);
   const view = useMemo(() => atlasMarketView({ ...(snapshot ?? empty), marketOpen }, selectedFrame, quote.price, now), [snapshot, empty, marketOpen, selectedFrame, quote.price, now]);
   const current = view.frame;
-  const validRead = current.status === "ready" && marketOpen;
+  const validRead = current.status === "ready" && marketOpen && !failed;
   const freshQuote = quote.price != null && quote.ageMs != null && quote.ageMs <= 60_000;
   const currentWatch = validRead && freshQuote;
   const atlasSignal = useAtlasCommandSignal({ symbol, disabled: sample });
@@ -178,10 +187,10 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, sample
     quote.live ? (quote.providerTimed ? "Live quote · " : "Received quote · ") + age(quote.at, now) :
     (quote.source === "tick" ? "Delayed quote · " : "Candle quote · ") + age(quote.at, now);
   const quoteState = sample ? "SAMPLE DATA" : !marketOpen ? "MARKET CLOSED" : quote.live ? "LIVE QUOTE" : quote.source === "none" ? "CONNECTING" : "LAST QUOTE";
-  const stageLabel = !marketOpen ? "Market closed" : current.status === "stale" ? "Analysis delayed" : current.status !== "ready" ? (loading ? "Reading the market" : "More data needed") : !freshQuote ? "Waiting for a fresh quote" : view.readiness.label;
-  const watchSummary = validRead && !freshQuote ? "The last candle structure is retained. A fresh quote is needed to judge the distance and whether this opportunity is still in range." : view.readiness.summary;
+  const stageLabel = !marketOpen ? "Market closed" : failed ? "Refresh needed" : current.status === "stale" ? "Analysis delayed" : current.status !== "ready" ? (loading ? "Reading the market" : "More data needed") : !freshQuote ? "Waiting for a fresh quote" : view.readiness.label;
+  const watchSummary = failed ? "The latest market read could not be verified. Refresh before using a new entry; the chart retains its last recorded candles." : validRead && !freshQuote ? "The last candle structure is retained. A fresh quote is needed to judge the distance and whether this opportunity is still in range." : view.readiness.summary;
   const summary = !snapshot && loading ? "Reading price direction, six timeframes and the nearest structural zones." :
-    validRead && !freshQuote ? "Last recorded " + current.label + " structure: " + TREND_WORD[current.read.trend].toLowerCase() + ". Waiting for a fresh quote to assess the current opportunity." : view.summary;
+    failed ? "The last market read is retained. A successful refresh is needed to assess a current opportunity." : validRead && !freshQuote ? "Last recorded " + current.label + " structure: " + TREND_WORD[current.read.trend].toLowerCase() + ". Waiting for a fresh quote to assess the current opportunity." : view.summary;
   const knownFrames = view.flow.filter((f) => f.status === "ready").length;
   const chooseFrame = (id: AtlasFrameId) => { setSelectedFrame(id); const mode = MODE_FOR_FRAME[id]; if (mode) onTf(mode); };
   const chartZones = [view.support, view.resistance, view.activeZone].filter((z): z is AtlasPositionedZone => z != null)
@@ -233,6 +242,48 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, sample
       <span className="om-snapshot-observation">Price action watch · Atlas checks trade eligibility</span>
     </section>
   );
+
+  if (isSimple) {
+    const plainDirection = !marketOpen ? "Market closed" : failed ? "Waiting for a fresh read" : !validRead ? "Reading the market" :
+      view.direction === "bullish" ? "Price is moving up" : view.direction === "bearish" ? "Price is moving down" :
+      view.direction === "range" ? "Price is moving sideways" : "No clear direction yet";
+    const signalHasChart = !!atlasSignal.result?.idea.chart?.candles?.length;
+    return <section className="om-simple-atlas om-panel" aria-label="Atlas simple market view" data-market={symbol} aria-busy={loading && !snapshot}>
+      <header className="om-simple-atlas-header">
+        <div className="om-live-brand"><ProductIcon kind="atlas" size="lg"/><div><span className="om-terminal-eyebrow">YOUR MARKET AT A GLANCE</span><h2>Atlas <em>Live</em></h2></div></div>
+        <div className="om-simple-atlas-tools"><button type="button" onClick={explain} disabled={sample}>Explain</button><button type="button" aria-label="Refresh market snapshot" disabled={sample || loading} onClick={() => setRevision(v => v + 1)}><RefreshCw size={17} className={loading ? "is-loading" : undefined}/></button></div>
+      </header>
+      <div className="om-simple-markets" role="group" aria-label="Select market">
+        {MARKETS.map(m => <button type="button" key={m.key} aria-pressed={m.key === symbol} disabled={sample && m.key !== "XAUUSD"} onClick={() => setSymbol(m.key)}>{m.key === "XAUUSD" ? "Gold" : m.td}</button>)}
+      </div>
+      <div className="om-simple-market-summary" data-trend={validRead ? view.direction : "unknown"}>
+        <div><span>{market.td} · {current.label}</span><h3><DirectionIcon size={28} aria-hidden="true"/>{plainDirection}</h3><p>{stageLabel}</p></div>
+        <div className="om-simple-market-price"><strong data-no-i18n translate="no">{fmt(quote.price)}</strong><small>{quoteNote}</small></div>
+      </div>
+      {failed && <p className="om-simple-next" role="status">{watchSummary}</p>}
+      <div className="om-simple-atlas-actions">
+        {symbol === "XAUUSD" ? <button type="button" className="om-simple-primary" disabled={sample || atlasSignal.busy || !marketOpen} onClick={() => void atlasSignal.generate()}><Sparkles size={18} aria-hidden="true"/>{atlasSignal.busy ? "Reading the market…" : "Generate Atlas signal"}</button>
+          : symbol === "EURUSD" || symbol === "GBPJPY" ? <Link className="om-simple-primary" href={"/portal/genx?market=fx&pair=" + symbol}>Find a {market.td} setup in GenX FX</Link>
+          : <Link className="om-simple-primary" href="/portal/signals">Find a forex setup in OM AI Plays</Link>}
+        <button type="button" disabled={sample} onClick={() => openAtlas({ voice: true, context, followContext: CONTEXT_KEY })}><Mic size={18} aria-hidden="true"/>Talk to Atlas</button>
+      </div>
+      {!signalHasChart && <section className="om-simple-market-chart" aria-label="Market chart">
+        <header><h3>{market.td} chart</h3><label>Timeframe<select aria-label="Chart timeframe" value={selectedFrame} onChange={event => chooseFrame(event.target.value as AtlasFrameId)}>{ATLAS_FRAMES.map(frame => <option value={frame.id} key={frame.id}>{frame.label}</option>)}</select></label></header>
+        {current.bars.length >= 2 ? <div className="om-simple-chart-canvas"><OmChart bars={current.bars} timeKnown={current.timeKnown} tfMs={frameSpec.ms} tfLabel={current.label}
+          price={quote.price} priceLive={quote.live} dec={market.dp} levels={levels} structureZones={structureZones} labelStyle="backed"
+          levelColors={{ support: "var(--om-pos)", resistance: "var(--om-neg)" }} isOpenAt={calendar}
+          viewKey={"atlas-floor:" + symbol + ":" + selectedFrame} label={market.td + " " + current.label + " candles and support and resistance"}/></div>
+          : <div className="om-simple-chart-empty" role="status">{loading ? "Loading market candles…" : "Chart data is unavailable. Refresh to try again."}</div>}
+        <div className="om-simple-market-levels"><div><span>Support</span><strong data-no-i18n translate="no">{zoneText(view.support)}</strong></div><div><span>Resistance</span><strong data-no-i18n translate="no">{zoneText(view.resistance)}</strong></div></div>
+      </section>}
+      {!atlasSignal.result && <div className="om-simple-next"><strong>What to watch next</strong><p>{currentWatch && view.trigger ? view.trigger.condition : watchSummary}</p>
+        {currentWatch && view.trigger && <span className="om-simple-watch-price" data-no-i18n translate="no">Watch {fmt(view.trigger.price)}{view.distance ? " · " + priceGap(view.distance.price) + " away" : ""}</span>}
+        {currentWatch && view.invalidation && <p><strong>Changes if:</strong> {view.invalidation.condition}</p>}
+      </div>}
+      <AtlasCommandSignalPanel controller={atlasSignal}/>
+      <div className="om-simple-atlas-foot"><span>{sample ? "Illustrative sample data" : "Analysis updated " + age(snapshot?.asOf, now)} · Price-action watch</span><button type="button" className="om-simple-detail-link" onClick={() => setExperienceMode("advanced")}>See full analysis</button></div>
+    </section>;
+  }
 
   return (
     <section className="om-live-desk om-panel om-market-terminal om-market-snapshot" aria-label="Atlas live market intelligence" data-market={symbol} aria-busy={loading && !snapshot}>

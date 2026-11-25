@@ -22,6 +22,7 @@ import {
   type FloorOverview, type FloorPeriod, type FloorAccount, type AccountFigures, type GenxResults, type FlowResults, type SetupView,
 } from "@/lib/floor/overview";
 import "./om-os-performance.css";
+import { useExperienceMode } from "@/components/om/experience";
 
 /**
  * THE FLOOR — the selected account, its live positions, current winning runs, and gold with Atlas.
@@ -488,6 +489,8 @@ export function GenxCard({ ov, state, failed, period, onPeriod, icon = false }: 
 /* ── the screen ───────────────────────────────────────────────────────────────────────────────── */
 
 export function Floor({ sample }: { sample?: FloorSample }) {
+  const { isSimple } = useExperienceMode();
+  const [showResults, setShowResults] = useState(false);
   const [compact, setCompact] = useState(false);
   useEffect(() => {
     const media = window.matchMedia("(max-width: 980px)");
@@ -672,7 +675,7 @@ export function Floor({ sample }: { sample?: FloorSample }) {
       <header className={`om-head${usingSharedAccount ? " om-os-floor-head" : ""}`}>
         <div>
           <h1 className="om-title">OM OS{isSample && <span className="om-chip om-sample" role="note">Sample data</span>}</h1>
-          <p className="om-sub">Your markets, intelligence and performance. One workspace.</p>
+          <p className="om-sub">{isSimple ? "Pick a market. See the setup. Follow the chart." : "Your markets, intelligence and performance. One workspace."}</p>
         </div>
         {!usingSharedAccount && <AccountSummary ov={ov} state={ovState} switching={switching} hide={hide} onHide={() => setHide((h) => { store.set("om:floor:hide", h ? "0" : "1"); return !h; })} onPick={choose} now={now} />}
       </header>
@@ -681,24 +684,27 @@ export function Floor({ sample }: { sample?: FloorSample }) {
         sample={isSample} sampleNow={sample?.nowMs} tf={tf} onTf={pickTf} />
 
       <div className="om-os-performance">
+      {isSimple && <button type="button" className="om-simple-results-toggle" aria-expanded={showResults} onClick={() => setShowResults(value => !value)}>{showResults ? "Hide results and streaks" : "View results and streaks"}<ChevronDown size={16} aria-hidden="true"/></button>}
+      {(!isSimple || showResults) && <>
       <WinningPipsPanel account={ov?.account ?? null} accountsKnown={!!ov?.accountsKnown} switching={switching}
         hideAccountPips={hide} sample={isSample} />
 
       <WinStreaks account={ov?.account ?? null} accountsKnown={!!ov?.accountsKnown} switching={switching}
         hideAccountPips={hide} sample={isSample} />
+      </>}
 
       {!isSample && <ActiveTrades />}
       </div>
 
-      <details className="om-floor-deep">
+      {!isSimple && <details className="om-floor-deep">
         <summary>Open detailed gold workspace</summary>
       <div className="om-stage">
         <ChartCard setup={setup} failed={setupFailed} tf={tf} onTf={pickTf} change={gold?.percent ?? null} onOpened={() => void loadSetup(true)} now={now} sample={isSample} onSamplePlay={sample?.opened ? openSamplePlay : undefined} layers={layers} onLayer={(layer) => setLayers((current) => ({ ...current, [layer]: !current[layer] }))} />
         <AtlasPanel atlas={ov?.atlas ?? null} view={view} setup={setup} tf={tf} sample={isSample} now={now} onShowLevels={() => setLayers({ levels: true, setup: true })} />
       </div>
-      </details>
+      </details>}
 
-      {!compact && <div className="om-lower">
+      {!isSimple && !compact && <div className="om-lower">
         <div className="om-pulse">
           <Link className="om-os-pulse-title" href="/portal/trading?view=pulse"><span>Market watch<small>Latest quotes</small></span></Link>
           <div className="om-pulse-list" data-no-i18n translate="no">

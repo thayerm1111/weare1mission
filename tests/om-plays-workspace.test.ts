@@ -45,8 +45,8 @@ test('nothing is generated, charged or reset by looking', () => {
   assert.match(workspace, /Nothing is analyzed until you press Generate\./);
   // The only automatic generation is the deep link — and in the new shell only for the member's own fresh,
   // one-time intent (11-21): a refresh, Back, a remount or a shared address charges nothing.
-  assert.equal((src.match(/void generate\(found\.asset\);/g) ?? []).length, 1);
-  const link = src.slice(src.indexOf('const td = q.get("td");'), src.indexOf('void generate(found.asset);'));
+  assert.equal((src.match(/void generate\(found\.asset, requestedStyle\);/g) ?? []).length, 1);
+  const link = src.slice(src.indexOf('const td = q.get("td");'), src.indexOf('void generate(found.asset, requestedStyle);'));
   assert.match(link, /const gen = q\.get\("generate"\), openOnly = q\.get\("open"\) === "1";\s*if \(next \|\| gen \|\| openOnly\) \{\s*if \(openOnly && !gen\) return;\s*let mine = false;\s*try \{ mine = takeGenerateIntent\(window\.sessionStorage, gen, td\); \} catch \{ mine = false; \}\s*if \(!mine\) return;/);
   assert.ok(link.indexOf('replaceState') < link.indexOf('takeGenerateIntent'), 'the address is cleaned before anything else');
   // Choosing a market — from the list or a quick pick — chooses it and nothing else.
@@ -111,7 +111,7 @@ test('the builder keeps market, style, optional settings and Generate in reading
 test('an open play: original prices, focused chart, then decision, execution review and tracking', () => {
   const d = read('src/components/om/plays/PlayDetail.tsx');
   assert.ok(!/fetch\(|\/api\//.test(d), 'the detail asks the server for nothing');
-  const order = ['om-play-head', 'om-play-levels', 'om-play-chart', 'om-play-decision', 'om-play-next', 'om-play-track', 'om-play-why'].map((k) => d.indexOf(`className="${k}"`));
+  const order = ['className="om-play-head"', '<VisionChart', 'className="om-play-simple-levels"', 'className="om-play-decision"', 'className="om-play-next"', 'className="om-play-track"', 'className="om-play-why"'].map((marker) => d.indexOf(marker));
   assert.ok(order.every((x, i) => x > 0 && (i === 0 || x > order[i - 1])), `the hierarchy, in order: ${order}`);
   assert.match(d, /Since it was made · price against its levels/);
   assert.match(d, /not a chance of winning/);

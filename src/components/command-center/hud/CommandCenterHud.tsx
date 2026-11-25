@@ -1,6 +1,8 @@
 "use client";
 import { ProductIcon } from "@/components/om/ProductIcon";
+import { useExperienceMode } from "@/components/om/experience";
 import "./atlas-mobile.css";
+import "./atlas-simple.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -37,6 +39,7 @@ import { IndicatorsPanel } from "./IndicatorsPanel";
 import { ContextPanel, LiquidityPanel, StructurePanel, type CtxState } from "./DeeperPanels";
 import { Timeline, type TimelineRow } from "./Timeline";
 import { IdeaPanel, type IdeaPrefill } from "./IdeaPanel";
+import { SimplePlan } from "./SimplePlan";
 import type { AtlasIdea } from "../../../../command-center/engines/idea";
 import {
   FEED_TONE, LEAN_TONE, ageShort, automationOf, leanLabel, orbLabelOf, orbVoiceOf, rangeFromArg, talkStateOf, tfFromArg,
@@ -191,6 +194,7 @@ const DESK = `
 
 export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { endpoint?: string } = {}) {
   const isReplay = endpoint.includes("replay");
+  const { isSimple } = useExperienceMode();
 
   /* ── state — EVERY hook sits above the render, with no early return anywhere ─────────────────── */
   const [d, setD] = useState<Live | null>(null);
@@ -823,7 +827,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
   /* ── render ───────────────────────────────────────────────────────────── */
   return (
-    <div data-mobile-view={mobileView} data-mobile-analysis={mobileAnalysis || undefined} data-mobile-chart-tools={mobileChartTools || undefined} data-mobile-tour={tourOpen || undefined} data-talk-open={sheetOpen || undefined} data-voice-active={onCall || undefined} className={`hud-root w-full px-[10px] pt-[8px] xl:pb-[10px] ${onCall ? "pb-[164px]" : "pb-[92px]"} ${stacked && sheetOpen && !sheetTall ? "talk-compact" : ""}`} style={{ background: `radial-gradient(1200px 500px at 12% -10%, rgba(var(--cc-00c7e8-rgb,0,199,232),0.06), transparent), radial-gradient(900px 500px at 100% 0%, rgba(var(--cc-d5a93d-rgb,213,169,61),0.05), transparent), ${H.bg0}`, color: H.text, fontFamily: "Inter, var(--font-inter), system-ui, sans-serif" }}>
+    <div data-experience={isSimple ? "simple" : "advanced"} data-mobile-view={mobileView} data-mobile-analysis={mobileAnalysis || undefined} data-mobile-chart-tools={mobileChartTools || undefined} data-mobile-tour={tourOpen || undefined} data-talk-open={sheetOpen || undefined} data-voice-active={onCall || undefined} className={`hud-root w-full px-[10px] pt-[8px] xl:pb-[10px] ${onCall ? "pb-[164px]" : "pb-[92px]"} ${stacked && sheetOpen && !sheetTall ? "talk-compact" : ""}`} style={{ background: `radial-gradient(1200px 500px at 12% -10%, rgba(var(--cc-00c7e8-rgb,0,199,232),0.06), transparent), radial-gradient(900px 500px at 100% 0%, rgba(var(--cc-d5a93d-rgb,213,169,61),0.05), transparent), ${H.bg0}`, color: H.text, fontFamily: "Inter, var(--font-inter), system-ui, sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: HUD_CSS + DESK }} />
       {tourOpen && <HudTour onClose={() => setTourOpen(false)} />}
 
@@ -905,7 +909,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             <span className="block text-[9px]" style={{ color: H.mut2 }}>{nyDate}</span>
           </span>
           <span className="hidden text-[9.5px] font-semibold leading-tight tracking-[0.2em] min-[1800px]:block" style={{ color: H.mut }}>DISCIPLINE<br />CREATES FREEDOM.</span>
-          <button onClick={() => setMenuOpen((x) => !x)} aria-label="Menu" aria-expanded={menuOpen} className={`grid place-items-center rounded-[7px] lg:hidden ${toFloor ? "h-10 w-10" : "h-8 w-8"}`}
+          <button onClick={() => setMenuOpen((x) => !x)} data-hud-menu="" aria-label="Menu" aria-expanded={menuOpen} className={`grid place-items-center rounded-[7px] lg:hidden ${toFloor ? "h-10 w-10" : "h-8 w-8"}`}
             style={{ color: H.text, border: `1px solid ${H.line}` }}>{menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}</button>
         </div>
 
@@ -1045,9 +1049,13 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           <small className="atlas-clear-disclaimer">Uses Atlas’s existing gold engine. May return no valid trade. Does not place an order.</small>
           <div className="atlas-clear-secondary">
             <button type="button" onClick={() => openTalk("CHAT")}><Mic size={16} aria-hidden="true" />Ask Atlas</button>
+            <button type="button" className="atlas-simple-explain" onClick={() => ask("Explain the current gold direction, the next entry condition and the price that would invalidate it. Show the evidence on the chart.")}><Zap size={16} aria-hidden="true" />Explain the chart</button>
             <button type="button" className="atlas-vision-tools" aria-expanded={mobileChartTools} onClick={() => setMobileChartTools(x => !x)}><SlidersHorizontal size={15} aria-hidden="true" />Chart controls</button>
             {shownIdea && <button type="button" onClick={openIdea}>Last signal<ChevronRight size={15}/></button>}
           </div>
+          <SimplePlan idea={shownIdea} trade={trade ?? null} now={now} replay={isReplay}
+            readUnavailable={!!err || mobileClosed || feed.status !== "live"}
+            onReview={openIdea} onManage={() => setDrawer("trade")} />
         </div>
         <div className="atlas-clear-alignment">
           <div className="atlas-clear-alignment-heading"><span>Timeframe alignment</span><small>{intel ? intel.alignment.agree + " of " + intel.alignment.rows.length + " agree" : "Awaiting data"}</small></div>
@@ -1138,9 +1146,11 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                       IDEA · {shownIdea.side === "buy" ? "BUY" : "SELL"} {shownIdea.entry ? fmt2(shownIdea.entry.price) : ""} ▸
                     </button>
                   )}
-                  <ToolBtn icon={<BarChart3 className="h-3.5 w-3.5" />} label="Watch lines" title="ATLAS's watched levels and the price its thesis fails at" on={watchLines} onClick={() => setWatchLines((x) => !x)} />
-                  <ToolBtn icon={<Sparkles className="h-3.5 w-3.5" style={{ color: H.gold2 }} />} label="ATLAS overlays" title="Structure events and ATLAS's conditional path" on={overlays} onClick={() => setOverlays((x) => !x)} />
-                  <ToolBtn icon={<Layers className="h-3.5 w-3.5" />} label="Liquidity zones" title="Candidate liquidity zones — inferred from structure, not an order book" on={liquidity} onClick={() => setLiquidity((x) => !x)} />
+                  <span data-hud-advanced="" className="inline-flex items-center gap-1">
+                    <ToolBtn icon={<BarChart3 className="h-3.5 w-3.5" />} label="Watch lines" title="ATLAS's watched levels and the price its thesis fails at" on={watchLines} onClick={() => setWatchLines((x) => !x)} />
+                    <ToolBtn icon={<Sparkles className="h-3.5 w-3.5" style={{ color: H.gold2 }} />} label="ATLAS overlays" title="Structure events and ATLAS's conditional path" on={overlays} onClick={() => setOverlays((x) => !x)} />
+                    <ToolBtn icon={<Layers className="h-3.5 w-3.5" />} label="Liquidity zones" title="Candidate liquidity zones — inferred from structure, not an order book" on={liquidity} onClick={() => setLiquidity((x) => !x)} />
+                  </span>
                   {setupPill && (
                     <button onClick={() => setDrawer("trade")} className="ml-1 inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-[6px] px-2 py-1 text-[9.5px] font-bold tracking-[0.08em] hud-in"
                       style={{ color: setupPill.color, border: `1px solid ${setupPill.color}`, background: "rgba(0,0,0,0.3)", boxShadow: `0 0 12px ${alpha(setupPill.color, "55")}` }}>

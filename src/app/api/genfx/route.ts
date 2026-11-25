@@ -123,6 +123,11 @@ export async function POST(req: NextRequest) {
   // Would auto-trade take this stop? Said on the card, enforced at placement.
   const room = stopRoom(pair, genfx.entry, genfx.stop_loss, minStopPips(ctl, pair));
 
+  // Save the same bounded candle evidence returned with this read. Reopening a
+  // plan must never substitute today's candles for the original market snapshot.
+  const candles = Array.isArray(rr.candles) ? rr.candles.slice(-500) : [];
+  const candlesTf = m.tf.m15;
+
   let signalId: string | null = null;
   try {
     if (admin) {
@@ -137,7 +142,7 @@ export async function POST(req: NextRequest) {
         closest_support: genfx.closest_support, closest_resistance: genfx.closest_resistance,
         setup_type: genfx.setup_type, status: genfx.lifecycle,
         reasoning: genfx,
-        market_snapshot: { price: rr.price, session: rr.session, data_status: rr.dataStatus, asOf: rr.nowIso, candles_tf: m.tf.m15 },
+        market_snapshot: { price: rr.price, session: rr.session, data_status: rr.dataStatus, asOf: rr.nowIso, candles, candles_tf: candlesTf },
         model_version: storyByAi ? MODEL : null, prompt_version: PROMPT_VERSION, engine_version: ENGINE_VERSION,
       }).select("id").single();
       if (!error && data) signalId = (data as { id: string }).id;
@@ -147,7 +152,7 @@ export async function POST(req: NextRequest) {
   return json({
     ok: true, signal_id: signalId, asOf: rr.nowIso, session: rr.session, pair: pair.key, symbol: pair.td, mode,
     price: rr.price, data_status: rr.dataStatus, engine_version: ENGINE_VERSION,
-    genfx, candles: rr.candles, engine: read,
+    genfx, candles, candles_tf: candlesTf, engine: read,
     auto: { minStopPips: room.min, stopPips: room.pips, stopOk: room.ok, costPips: pair.costPips },
     billing: ctl.billing, cost: ctl.billing ? CREDIT_COST.genx : 0,
   }, 200);

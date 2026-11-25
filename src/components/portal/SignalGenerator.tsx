@@ -15,13 +15,14 @@ import { CopyAllBtn, buildTradeText } from "./copykit";
 import { TradeChat } from "./TradeChat";
 import { Levels } from "./quantUi";
 import { useNextShell } from "@/components/om/shell";
+import { useExperienceMode } from "@/components/om/experience";
 import { PlayDetail } from "@/components/om/plays/PlayDetail";
 import { analysisOf, trackingOf, playPip } from "@/lib/plays/lifecycle";
 import { takeGenerateIntent } from "@/lib/plays/intent";
 import { openAtlas } from "@/lib/atlas/open";
 import { mergeSavedPlays, SIGNALS_UPDATED_EVENT } from "@/lib/atlas/signals";
 import { pairName, priceFor, lotsText } from "@/lib/flow/display";
-import { accountName, maskAccount, money } from "@/lib/floor/overview";
+import { accountName, maskAccount, money, ageText } from "@/lib/floor/overview";
 import type { PlacementSize } from "@/lib/flow/ticketSizing";
 import { ProductIcon } from "@/components/om/ProductIcon";
 import "@/components/om/plays/plays-mobile.css";
@@ -148,11 +149,15 @@ export function SignalGenerator() {
   const [sinceMs, setSinceMs] = useState(() => Date.parse(statsSince()));
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const backfilled = useRef<Set<number>>(new Set());
+  const checkSequence = useRef(0);
+  const checkPending = useRef<number | null>(null);
   // The trading platform's shell draws this tool as a workspace (below); these are that view's own choices.
   const next = useNextShell();
+  const { isSimple } = useExperienceMode();
   const [find, setFind] = useState("");
   const [picking, setPicking] = useState(false);
   const [advanced, setAdvanced] = useState(false);
+  const [simpleSettings, setSimpleSettings] = useState(false);
   const [show, setShow] = useState<"all" | Status>("all");
   const [showAll, setShowAll] = useState(false);
 
@@ -180,7 +185,8 @@ export function SignalGenerator() {
     const found = findAsset(td);
     if (!found) return;
     const st = q.get("style");
-    if (st === "scalp" || st === "intraday" || st === "swing") setStyle(st);
+    const requestedStyle = st === "scalp" || st === "intraday" || st === "swing" ? st : "intraday";
+    setStyle(requestedStyle);
     setMarket(found.market); setAsset(found.asset); setOpen(true);
     // Strip the consumed td/style from the CURRENT path (works on /portal/signals, the
     // portal Floor, and the standalone floor.weare1mission.com — never hard-code a path).
@@ -201,7 +207,7 @@ export function SignalGenerator() {
       try { mine = takeGenerateIntent(window.sessionStorage, gen, td); } catch { mine = false; }
       if (!mine) return;
     }
-    void generate(found.asset);
+    void generate(found.asset, requestedStyle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // When an already-won card is opened but was recorded before we tracked which
@@ -216,7 +222,15 @@ export function SignalGenerator() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result?.id, result?.status]);
 
-  function persist(next: Result[]) { setRecent(next); try { localStorage.setItem("om_signals", JSON.stringify(next.slice(0, 20))); } catch { /* ignore */ } }
+  useEffect(() => () => { checkSequence.current++; checkPending.current = null; }, []);
+
+  function persist(update: Result[] | ((current: Result[]) => Result[])) {
+    setRecent((current) => {
+      const next = typeof update === "function" ? update(current) : update;
+      try { localStorage.setItem("om_signals", JSON.stringify(next.slice(0, 20))); } catch { /* ignore */ }
+      return next;
+    });
+  }
 
   // Cloud sync — signals are saved server-side so they follow the member across
   // every device and survive a cleared browser. localStorage stays as an instant
@@ -272,14 +286,14 @@ export function SignalGenerator() {
   }
   function close() { if (timer.current) clearInterval(timer.current); setOpen(false); }
 
-  async function generate(a: Asset | null = asset) {
+  async function generate(a: Asset | null = asset, requestedStyle: "scalp" | "intraday" | "swing" = style) {
     if (!a) return;
     setStep("loading"); setGenStep(0); setErrorMsg(""); setNeedCredits(false);
     if (timer.current) clearInterval(timer.current);
     timer.current = setInterval(() => setGenStep((s) => Math.min(s + 1, GEN_STEPS.length - 1)), 700);
     try {
       const [res] = await Promise.all([
-        fetch("/api/om-signal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ td: a.td, orderType, style, method, confirmations: confs, mode }) }),
+        fetch("/api/om-signal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ td: a.td, orderType, style: requestedStyle, method, confirmations: confs, mode }) }),
         delay(3000),
       ]);
       if (timer.current) clearInterval(timer.current);
@@ -292,7 +306,7 @@ export function SignalGenerator() {
       if (data.error || !data.signal) { setErrorMsg(data.detail ? `Couldn't build a signal: ${data.detail}` : "Couldn't build a signal right now. Try another asset or try again shortly."); setStep("error"); return; }
       const r: Result = { ...data, id: Date.now(), status: "open" };
       setResult(r); setStep("result");
-      persist([r, ...recent].slice(0, 20));
+      persist((current) => [r, ...current].slice(0, 20));
       void cloudSave([r]);
       if (typeof window !== "undefined") window.dispatchEvent(new Event("credits-updated"));
       void earnMission("signal"); // auto-earn the daily "generate a play" mission
@@ -300,7 +314,9 @@ export function SignalGenerator() {
   }
 
   async function checkResult(r: Result) {
-    if (checking) return;
+    if (checkPending.current !== null) return;
+    const sequence = ++checkSequence.current;
+    checkPending.current = r.id;
     setChecking(r.id);
     try {
       const tps = (r.signal.takeProfits || []).filter((n) => typeof n === "number" && Number.isFinite(n));
@@ -309,15 +325,17 @@ export function SignalGenerator() {
         body: JSON.stringify({ td: r.td, interval: r.interval, since: r.asOf, direction: r.signal.direction, entry: r.signal.entry, sl: r.signal.stopLoss, tp1: tps[0], tps }),
       });
       const d = await res.json().catch(() => ({}));
+      if (!res.ok || sequence !== checkSequence.current || checkPending.current !== r.id) return;
       if (d.status === "win" || d.status === "loss") {
         const patch = { status: d.status as Status, hitTp: typeof d.hitTp === "number" ? d.hitTp : undefined, hitAt: typeof d.at === "string" ? d.at : undefined };
         const updated = { ...r, ...patch };
-        const next = recent.map((x) => (x.id === r.id ? updated : x));
-        persist(next);
-        if (result?.id === r.id) setResult({ ...result, ...patch });
+        persist((current) => current.map((x) => x.id === r.id ? { ...x, ...patch } : x));
+        setResult((current) => current?.id === r.id ? { ...current, ...patch } : current);
         void cloudSave([updated]); // keep the server copy's status/TP in sync
       }
-    } catch { /* ignore */ } finally { setChecking(null); }
+    } catch { /* ignore */ } finally {
+      if (sequence === checkSequence.current) { checkPending.current = null; setChecking(null); }
+    }
   }
 
   // "Get Update" — re-read the live market and explain what's happening to THIS
@@ -337,8 +355,9 @@ export function SignalGenerator() {
   }
 
   function deleteResult(id: number) {
-    persist(recent.filter((x) => x.id !== id));
-    if (result?.id === id) { setResult(null); }
+    if (checkPending.current === id) { checkSequence.current++; checkPending.current = null; setChecking(null); }
+    persist((current) => current.filter((x) => x.id !== id));
+    setResult((current) => current?.id === id ? null : current);
     void cloudDelete(id);
   }
 
@@ -376,6 +395,8 @@ export function SignalGenerator() {
     // What is missing, said at the control that cannot be pressed yet.
     const need = !asset ? "Choose a market to continue." : confs.length === 0 ? "Choose at least one confirmation in Advanced settings." : null;
     const methodLine = `${mode === "institutional" ? "Institutional" : "Accelerator"} · ${METHODS.find((m) => m.k === method)!.label} · ${confs.length} confirmation${confs.length === 1 ? "" : "s"} · ${orderType === "limit" ? "limit entry" : "market entry"}`;
+    const settingsOpen = isSimple ? simpleSettings : advanced;
+    const toggleSettings = () => isSimple ? setSimpleSettings((v) => !v) : setAdvanced((v) => !v);
     // Ask Atlas about a play: the question carries the play's own words and levels. Free, as asking always is.
     const askAtlas = (r: Result) => {
       const a = analysisOf(r.signal), s = r.signal;
@@ -385,18 +406,18 @@ export function SignalGenerator() {
       openAtlas({ question, context: { source: "OM AI Plays", label: r.symbol + " · " + a.label, data: { symbol: r.symbol, style: r.style, asOf: r.as_of ?? r.asOf, marketClosed: r.marketClosed, signal: s } } });
     };
     return (
-      <div className="om-ws om-plays om-os-product om-plays-premium" data-play-open={!!result || undefined}>
+      <div className="om-ws om-plays om-os-product om-plays-premium" data-play-open={!!result || undefined} data-experience={isSimple ? "simple" : "advanced"}>
         <header className="om-ws-head om-product-header">
           <div className="om-product-heading">
             <ProductIcon kind="plays" size="lg" />
             <div className="om-product-copy">
               <p className="om-product-kicker"><span className="om-plays-desktop">Trade planning</span><span className="om-plays-phone">OM AI Plays</span></p>
               <h1 className="om-title"><span className="om-plays-desktop">OM AI Plays</span><span className="om-plays-phone">{result ? "Your play" : "Create a play"}</span></h1>
-              <p className="om-sub">Choose a market and a style. OM AI builds the complete read from live market data.</p>
+              <p className="om-sub">{isSimple ? "Choose a market. Get a chart, a plan, and a clear next step." : "Choose a market and a style. OM AI builds the complete read from live market data."}</p>
             </div>
           </div>
           {result && <button type="button" className="om-btn-quiet om-plays-new" onClick={() => { setResult(null); setStep("config"); }}>New play</button>}
-          {rate !== null && (
+          {!isSimple && rate !== null && (
             <p className="om-ws-note om-num" title="Your saved plays since the record was reset, counted by what price did against each play's levels — not orders on an account">
               <b className={rate >= 50 ? "om-pos" : undefined}>{rate}%</b> of tracked plays reached a target first · {wins} of {wins + losses}{totalPips > 0 ? ` · +${totalPips.toLocaleString("en-US")} pips on those` : ""}
             </p>
@@ -407,7 +428,7 @@ export function SignalGenerator() {
           <aside className="om-panel om-plays-config" aria-label="Generate a play">
             <div className="om-product-section-head om-plays-desktop">
               <h2>Build a play</h2>
-              <p className="om-label">Three steps, one complete read.</p>
+              <p className="om-label">{isSimple ? "Choose below, then press Generate." : "Three steps, one complete read."}</p>
             </div>
             <div className="om-field">
               <span className="om-step" id="om-plays-market-label" data-done={asset ? "" : undefined}><span className="om-step-n" aria-hidden="true">1</span><span className="om-label">Market</span></span>
@@ -419,19 +440,19 @@ export function SignalGenerator() {
             </div>
 
             <div className="om-field">
-              <span className="om-step" id="om-plays-style" data-done=""><span className="om-step-n" aria-hidden="true">2</span><span className="om-label">Trading style</span></span>
+              <span className="om-step" id="om-plays-style" data-done=""><span className="om-step-n" aria-hidden="true">2</span><span className="om-label">{isSimple ? "How long are you planning to hold?" : "Trading style"}</span></span>
               <div className="om-seg" role="group" aria-labelledby="om-plays-style">
-                {STYLES.map(([v, label, sub]) => <button key={v} type="button" aria-pressed={style === v} title={sub} onClick={() => setStyle(v)}>{label}</button>)}
+                {STYLES.map(([v, label, sub]) => <button key={v} type="button" aria-pressed={style === v} title={sub} onClick={() => setStyle(v)}>{isSimple ? v === "scalp" ? "Quick" : v === "intraday" ? "Today" : "Days" : label}</button>)}
               </div>
               <p className="om-label om-plays-desktop">{STYLES.find((x) => x[0] === style)![2]}</p>
             </div>
 
             <div className="om-field om-plays-advanced">
-              <button type="button" className="om-disclose" aria-expanded={advanced} aria-controls="om-plays-adv" onClick={() => setAdvanced((v) => !v)}>
-                <span><span className="om-plays-advanced-label">Advanced settings</span><span className="om-label om-plays-desktop">{methodLine}</span></span>
+              <button type="button" className="om-disclose" aria-expanded={settingsOpen} aria-controls="om-plays-adv" onClick={toggleSettings}>
+                <span><span className="om-plays-advanced-label">Advanced settings</span><span className="om-label om-plays-desktop">{isSimple ? "Optional · your current choices are kept" : methodLine}</span></span>
                 <ChevronDown aria-hidden="true" />
               </button>
-              {advanced && (
+              {settingsOpen && (
                 <div id="om-plays-adv" className="om-adv">
                   <span className="om-label" id="om-plays-mode">Trading mode</span>
                   <div className="om-choices" role="group" aria-labelledby="om-plays-mode">
@@ -451,7 +472,7 @@ export function SignalGenerator() {
                     <button type="button" aria-pressed={orderType === "limit"} onClick={() => setOrderType("limit")}><b>Limit</b><small>An exact entry level</small></button>
                     <button type="button" aria-pressed={orderType === "market"} onClick={() => setOrderType("market")}><b>Market</b><small>Around the current price</small></button>
                   </div>
-                  <button type="button" className="om-go" onClick={() => setAdvanced(false)}>Done</button>
+                  <button type="button" className="om-go" onClick={() => isSimple ? setSimpleSettings(false) : setAdvanced(false)}>Done</button>
                 </div>
               )}
             </div>
@@ -465,6 +486,7 @@ export function SignalGenerator() {
               </button>
               {need && <p className="om-plays-need" id="om-plays-need" role="status">{need}</p>}
               <p className="om-label" id={need ? undefined : "om-plays-need"}>{cost} {cost === 1 ? "credit" : "credits"}<span className="om-plays-desktop"> a play · included with the FLOW Pass · charged only when a play is made</span></p>
+              {isSimple && mode === "accelerator" && <p className="om-plays-mode-note">Aggressive analysis is selected. It uses a lower confirmation threshold. Review Advanced settings to change it.</p>}
             </div>
           </aside>
 
@@ -936,45 +958,64 @@ function CompactCard({ r, onOpen, onCheck, onDelete, checking }: { r: Result; on
 }
 
 function LivePrice({ td, entry, direction, closed }: { td: string; entry: number | null; direction: Signal["direction"]; closed?: boolean }) {
-  const [price, setPrice] = useState<number | null>(null);
+  const [snapshot, setSnapshot] = useState<{ td: string; price: number; receivedAt: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const [now, setNow] = useState(0);
+  const request = useRef(0);
+  const pending = useRef<AbortController | null>(null);
 
-  // Load the price ONCE on open, then only on manual refresh — no background
-  // timer, so an open card never quietly burns market-data credits.
+  // One quote on open and explicit refresh only. The clock ages the displayed
+  // receipt; it never polls the provider or implies a streaming observation.
   const load = useCallback(async () => {
+    const sequence = ++request.current;
+    pending.current?.abort();
+    const controller = new AbortController();
+    pending.current = controller;
+    const timeout = setTimeout(() => controller.abort(), 10_000);
     setLoading(true);
     try {
-      const res = await fetch(`/api/om-price?td=${encodeURIComponent(td)}`, { cache: "no-store" });
-      const d = await res.json();
-      if (typeof d.price === "number" && Number.isFinite(d.price)) { setPrice(d.price); setFailed(false); }
-      else setFailed(true);
-    } catch { setFailed(true); }
-    finally { setLoading(false); }
+      const res = await fetch(`/api/om-price?td=${encodeURIComponent(td)}`, { cache: "no-store", signal: controller.signal });
+      const d = await res.json().catch(() => null);
+      if (sequence !== request.current) return;
+      if (controller.signal.aborted || !res.ok || typeof d?.price !== "number" || !Number.isFinite(d.price) || d.price <= 0)
+        throw new Error("Quote unavailable");
+      const receivedAt = Date.now();
+      setSnapshot({ td, price: d.price, receivedAt }); setNow(receivedAt); setFailed(false);
+    } catch { if (sequence === request.current) setFailed(true); }
+    finally {
+      clearTimeout(timeout);
+      if (sequence === request.current) { pending.current = null; setLoading(false); }
+    }
   }, [td]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    setSnapshot(null); setFailed(false); void load();
+    return () => { request.current++; pending.current?.abort(); pending.current = null; };
+  }, [load]);
+  useEffect(() => {
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
+  const quote = snapshot?.td === td ? snapshot : null;
+  const price = quote?.price ?? null;
   const diff = price !== null && entry !== null ? price - entry : null;
   const favor = diff === null ? 0 : direction === "SHORT" ? -diff : direction === "LONG" ? diff : 0;
   const pct = diff !== null && entry ? (diff / entry) * 100 : null;
   const col = favor > 0 ? "text-emerald-400" : favor < 0 ? "text-red-400" : "text-white";
 
   return (
-    <div className="mt-3 flex items-center justify-between rounded-xl border border-white/10 bg-black/40 px-4 py-3">
-      <div className="flex items-center gap-2">
-        <span className="relative flex h-2 w-2">
-          {!closed && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />}
-          <span className={`relative inline-flex h-2 w-2 rounded-full ${closed ? "bg-amber-400" : "bg-emerald-400"}`} />
-        </span>
-        <span className="text-[10px] uppercase tracking-[0.14em] text-white/45">{closed ? "Last price" : "Current price"}</span>
-        {!closed && (
-          <button onClick={() => void load()} disabled={loading} title="Refresh price" className="grid h-6 w-6 place-items-center rounded-full text-white/40 hover:bg-white/10 hover:text-white/70 disabled:opacity-40">
+    <div className="om-quote-snapshot mt-3 rounded-xl border border-white/10 bg-black/40 px-4 py-3" aria-label="Price snapshot">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-[0.14em] text-white/60">Price snapshot</span>
+          <button type="button" onClick={() => void load()} disabled={loading} aria-label="Refresh price snapshot" title="Refresh price snapshot" className="grid h-9 w-9 place-items-center rounded-full text-white/60 hover:bg-white/10 hover:text-white/80 disabled:opacity-40">
             <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
           </button>
-        )}
-      </div>
-      <div className="text-right">
+        </div>
+        <div className="text-right">
         {loading && price === null ? (
           <span className="inline-flex items-center gap-1.5 text-sm text-white/50"><Loader2 className="h-3.5 w-3.5 animate-spin" /> loading…</span>
         ) : price === null ? (
@@ -987,7 +1028,11 @@ function LivePrice({ td, entry, direction, closed }: { td: string; entry: number
             )}
           </div>
         )}
+        </div>
       </div>
+      {quote && <p className="mt-2 text-xs leading-relaxed text-white/60">Fetched {ageText(new Date(quote.receivedAt).toISOString(), now || quote.receivedAt)} · {new Date(quote.receivedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}. This quote may be delayed; it is not streaming.</p>}
+      {failed && <p className="mt-2 text-xs leading-relaxed text-amber-300" role="alert">{quote ? "Price refresh failed. The previous quote is still shown; refresh before using it." : "Price is unavailable. Try refreshing."}</p>}
+      {closed && <p className="mt-2 text-xs leading-relaxed text-white/60">The market was closed when this play was generated.</p>}
     </div>
   );
 }

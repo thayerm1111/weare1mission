@@ -98,3 +98,34 @@ test("wrong-market, future, unverified and malformed candle data cannot supply a
     assert.equal(atlasQuote(s, "XAUUSD", tick(NOW - 1000), NOW, true).source, "tick", "invalid snapshots cannot displace a valid selected-market tick");
   }
 });
+
+test("a fresh but implausible positive tick cannot replace a recent verified candle quote", () => {
+  const q = atlasQuote(snapshot(), "XAUUSD", tick(NOW - 1000, 350000), NOW, true);
+  assert.equal(q.price, 3554);
+  assert.equal(q.source, "candle");
+  assert.equal(q.at, CLOSED);
+  assert.equal(q.live, false, "a fresh timestamp cannot make a decimal-error price live");
+  assert.equal(q.ageMs, 45_000, "the retained candle keeps its actual close age");
+});
+
+test("a nearby valid fresh tick still replaces the verified close", () => {
+  const q = atlasQuote(snapshot(), "XAUUSD", tick(NOW - 1000, 3561), NOW, true);
+  assert.equal(q.price, 3561);
+  assert.equal(q.source, "tick");
+  assert.equal(q.at, NOW - 1000);
+  assert.equal(q.live, true);
+});
+
+test("untimed forming prices and old verified session prices do not veto a fresh tick", () => {
+  const untimed = snapshot({ formingOnly: true, formingPrice: 350000 });
+  const fromUntimed = atlasQuote(untimed, "XAUUSD", tick(NOW - 1000), NOW, true);
+  assert.equal(fromUntimed.price, 3550);
+  assert.equal(fromUntimed.source, "tick");
+  assert.equal(fromUntimed.live, true);
+
+  const old = snapshot({ closedAt: CLOSED - 60 * 60_000 });
+  const fromOld = atlasQuote(old, "XAUUSD", tick(NOW - 1000, 3800), NOW, true);
+  assert.equal(fromOld.price, 3800, "an old session reference cannot suppress a new session gap");
+  assert.equal(fromOld.source, "tick");
+  assert.equal(fromOld.live, true);
+});

@@ -10,6 +10,8 @@ import { analysisOf, trackingOf, targetsWithR, pipsBetween, type PlayDirection }
 import type { ChartLevel } from "@/lib/floor/chart";
 import { sanitizePlaySignal, type PlayDiagnostics } from "@/lib/plays/diagnostics";
 import { PlayBreakdown } from "./PlayBreakdown";
+import { useExperienceMode } from "@/components/om/experience";
+import "./plays-experience.css";
 
 /**
  * ONE OM AI PLAY, READ TOP TO BOTTOM (owner 11-21 brief §9):
@@ -60,6 +62,7 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
   copy: React.ReactNode | null;
   chat: React.ReactNode | null;
 }) {
+  const { isSimple } = useExperienceMode();
   const s = sanitizePlaySignal(r.signal);
   const hasFrameEvidence = (s.timeframeConfirmations?.length ?? 0) > 0;
   const a = analysisOf(s);
@@ -112,7 +115,7 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
       tone:a.kind==="setup"?"ok":"watch"},
   ];
   return (
-    <article className="om-play" aria-label={`${r.symbol} play`}>
+    <article className="om-play" aria-label={`${r.symbol} play`} data-experience={isSimple ? "simple" : "advanced"}>
       <header className="om-play-head">
         <div style={{ minWidth: 0 }}>
           <p className="om-label">{[STYLE_WORD[r.style ?? ""] ?? s.timeframe, r.interval].filter(Boolean).join(" · ")}</p>
@@ -121,18 +124,28 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
         </div>
         <div className="om-play-state">
           <span className="om-chip" data-kind={a.kind}>{a.label}</span>
-          {s.grade && <span className="om-label" title="The engine's quality grade for the setup — not a chance of winning">Grade {s.grade}{fin(s.gate_score) ? ` · ${s.gate_score}/100` : ""}</span>}
+          {!isSimple && s.grade && <span className="om-label" title="The engine's quality grade for the setup — not a chance of winning">Grade {s.grade}{fin(s.gate_score) ? ` · ${s.gate_score}/100` : ""}</span>}
           <button type="button" className="om-icon-btn" aria-label="Close this play" title="Close this play" onClick={onClose}><X aria-hidden="true" /></button>
         </div>
       </header>
 
-      <VisionDirection product="OM AI PLAYS" bias={visionBias}
+      {isSimple ? <section className="om-play-simple-read om-simple-status" aria-label="Your plan at a glance">
+        <strong>{t.resolved ? r.status === "loss" ? "This plan reached its stop" : "This plan reached a target"
+          : r.marketClosed ? "The market was closed for this read"
+          : a.kind === "none" ? "No clear trade in this read"
+          : `Saved ${a.side?.toLowerCase()} ${a.kind === "idea" ? "idea — wait for confirmation" : "plan to review"}`}</strong>
+        <p>{t.resolved ? "These levels are history. Check current conditions before considering another trade."
+          : a.kind === "idea" ? "This idea was not confirmed. Its entry, stop and targets are reference prices."
+          : a.kind === "none" ? "Wait for a clearer opportunity, or generate a new read."
+          : "A setup was confirmed when this plan was made. Get an update before acting on its saved prices."}</p>
+        <small>Saved {when} · {priceLabel} {px(generationPrice)}</small>
+      </section> : <VisionDirection product="OM AI PLAYS" bias={visionBias}
         eyebrow="ONE MISSION / MULTI-MARKET SIGNAL INTELLIGENCE"
         status={r.marketClosed?"MARKET CLOSED":"SAVED SIGNAL"}
         quote={generationPrice} quoteSymbol={r.symbol} quoteLabel="AT GENERATION" dec={chart.dec}
         tagline={a.kind==="setup"?"SIGNAL SETUP · REVIEW ENTRY":
           a.kind==="idea"?"CONDITIONAL WATCH · CONFIRMATION NEEDED":"NO QUALIFIED ENTRY"}
-        score={quality} scoreName="ENGINE QUALITY" facts={factList}/>
+        score={quality} scoreName="ENGINE QUALITY" facts={factList}/>}
       {chart.bars.length>=2 ? <VisionChart
           bars={chart.bars} timeKnown={chart.timeKnown} tfMs={chart.tfMs}
           timeframe={chart.tfLabel} symbol={r.symbol} dec={chart.dec}
@@ -141,11 +154,20 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
           reference={a.kind!=="setup"} viewKey={chart.viewKey}
           title={r.symbol+" saved candles, conditional path and recorded trade levels"}/>
         : <p className="om-play-note" role="status">Verified original candles unavailable for this saved read.</p>}
-      <VisionLevels symbol={r.symbol} dec={chart.dec} entry={hasLevels?s.entry:null}
+      {isSimple ? <div className="om-play-simple-levels">
+        <p className="om-label">{a.kind === "setup" ? "Prices saved with this plan" : "Reference prices · confirmation required"}</p>
+        <dl data-no-i18n translate="no" aria-label="Entry, stop and targets">
+          <div><dt>Entry</dt><dd>{px(hasLevels ? s.entry : null)}</dd></div>
+          <div data-kind="stop"><dt>Stop loss</dt><dd>{px(hasLevels ? s.stopLoss : null)}</dd></div>
+          {hasLevels && targets.length ? targets.map((target) => <div key={target.n} data-kind="target"><dt>Target {target.n}</dt><dd>{px(target.price)}</dd></div>)
+            : <div data-kind="target"><dt>Target</dt><dd>—</dd></div>}
+        </dl>
+      </div> : <VisionLevels symbol={r.symbol} dec={chart.dec} entry={hasLevels?s.entry:null}
         stop={hasLevels?s.stopLoss:null} targets={hasLevels?s.takeProfits:[]}
-        rr={targets[0]?.r ?? null} reference={a.kind!=="setup"}/>
+        rr={targets[0]?.r ?? null} reference={a.kind!=="setup"}/>}
       {hasLevels && copy&&<div className="om-vision-copy">{copy}</div>}
-      <p className="om-play-decision">{decision}</p>
+      <p className="om-play-decision">{isSimple && <strong>Next: </strong>}{decision}</p>
+      {isSimple && s.invalidation && <p className="om-play-simple-invalidation"><strong>Cancel this idea if:</strong> {s.invalidation}</p>}
       {s.chased && r.status === "open" && <p className="om-play-note" role="note"><b>Price has moved past the ideal entry.</b> {s.chase_note}</p>}
 
       {ticket && (
@@ -161,7 +183,7 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
       )}
 
       <details className="om-vision-play-breakdown">
-        <summary>Why it lines up · Timeframe confirmations<ChevronDown aria-hidden="true"/></summary>
+        <summary>{isSimple ? "Show the analysis behind this plan" : "Why it lines up · Timeframe confirmations"}<ChevronDown aria-hidden="true"/></summary>
         <PlayBreakdown signal={s} interval={r.interval}/>
       </details>
 

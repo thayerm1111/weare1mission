@@ -8,6 +8,8 @@ import { GENFX_OPEN_PAIR } from "@/lib/floor/setupInstruments";
 import { SetupLock, SetupTimer } from "@/components/portal/SetupLock";
 import { type SetupGate } from "@/lib/setupLock";
 import { clearlyInView } from "@/lib/inView";
+import { useNextShell } from "@/components/om/shell";
+import { GenFxHome } from "@/components/om/genx/GenFxHome";
 
 /**
  * GEN FX — the GENX decision engine on EUR/USD and GBP/JPY (owner 10-02: "an exact system, just like
@@ -39,7 +41,7 @@ type Genfx = {
   projected_path: PathPt[]; invalidation_price: number | null;
 };
 type AutoNote = { minStopPips: number; stopPips: number | null; stopOk: boolean; costPips: number };
-type Resp = { ok?: boolean; pair?: PairKey; signal_id?: string | null; price?: number; data_status?: string; asOf?: string; genfx?: Genfx; candles?: Candle[]; auto?: AutoNote; error?: string; detail?: string; notConfigured?: string; balance?: number };
+export type Resp = { ok?: boolean; pair?: PairKey; signal_id?: string | null; price?: number; data_status?: string; asOf?: string; genfx?: Genfx; candles?: Candle[]; candles_tf?: string; auto?: AutoNote; error?: string; detail?: string; notConfigured?: string; balance?: number; billing?: boolean; cost?: number };
 
 type DeskAccount = { accountId: string; connectionId: string; accNum: string | null; name: string | null; environment: string | null; server: string | null; connected: boolean; riskPct: number | null; killed: boolean; EURUSD: boolean; GBPJPY: boolean; inScope: boolean };
 // A call whose play this member's window does not cover arrives `locked`: its pair, horizon and stage,
@@ -82,6 +84,14 @@ const nameOf = (p: string | null | undefined) => (p === "GBPJPY" ? "GBP/JPY" : "
 
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const fx = (v: unknown, dec: number): string => (num(v) != null ? (v as number).toFixed(dec) : "—");
+function readMatchesPair(value: unknown, pair: PairKey): value is Genfx {
+  if (!value || typeof value !== "object") return false;
+  const g = value as Genfx;
+  return typeof g.symbol === "string" && g.symbol.replace(/[^A-Z]/gi, "").toUpperCase() === pair &&
+    ["quick", "intraday", "swing"].includes(g.mode) && typeof g.action === "string" &&
+    [g.entry, g.entry_low, g.entry_high, g.stop_loss, g.tp1, g.tp2, g.tp3].every((n) => n === null || num(n) !== null && n > 0) &&
+    [g.market_story, g.trade_reasoning, g.risk_factors].every((lines) => Array.isArray(lines) && lines.every((line) => typeof line === "string"));
+}
 
 function actionLabel(a: string): string {
   switch (a) {
@@ -178,7 +188,7 @@ function FxChart({ candles, g, dec }: { candles: Candle[]; g: Genfx; dec: number
 
 /* ---------- live entry confirmation ---------- */
 type ConfirmState = { state: string; detail?: string; enter?: number | null };
-type SetupLevels = {
+export type SetupLevels = {
   pair: PairKey; side: "buy" | "sell"; action: string; mode: string;
   entry: number | null; entryLow: number | null; entryHigh: number | null;
   watch: number | null; invalidation: number | null; stop: number | null;
@@ -193,11 +203,12 @@ function setupFrom(pair: PairKey, g: Genfx): SetupLevels {
     invalidation: g.invalidation_price ?? g.stop_loss, stop: g.stop_loss, tp1: g.tp1, triggerTf: g.trigger_tf,
   };
 }
-type PlayRow = { id: string; at: string; pair: PairKey | null; mode: string | null; action: string | null; direction: string | null; confidence: number | null; entry: number | null; entryLow: number | null; entryHigh: number | null; stop: number | null; tp1: number | null; outcome: string | null };
-type Tracked = SetupLevels & { id: string; savedAt: number; tp2: number | null; label: string };
+export type PlayRow = { id: string; at: string; pair: PairKey | null; mode: string | null; action: string | null; direction: string | null; confidence: number | null; entry: number | null; entryLow: number | null; entryHigh: number | null; stop: number | null; tp1: number | null; outcome: string | null };
+export type Tracked = SetupLevels & { id: string; savedAt: number; tp2: number | null; label: string };
 const TRACK_KEY = "genfx-tracked-v1";
 
 function LiveConfirm({ setup }: { setup: SetupLevels }) {
+  const next = useNextShell();
   const isWait = setup.action.includes("WAIT") || setup.action.includes("LIMIT");
   const side = setup.side;
   const dec = decOf(setup.pair);
@@ -242,6 +253,15 @@ function LiveConfirm({ setup }: { setup: SetupLevels }) {
     INVALIDATED: { bg: "rgba(255,93,108,0.1)", bd: "rgba(255,93,108,0.55)", fg: "#ff5d6c", title: "INVALID — do not take this setup" },
   };
   const s = S[state] ?? S.NO_DATA;
+  if (next) {
+    const labels: Record<string, string> = { LOADING: "Checking the entry condition", BUSY: "Market feed busy", NO_DATA: "Waiting for market data",
+      WAIT: "Wait for the entry condition", AT_ZONE: "Price reached the area — wait for the close", CONFIRMED: "Entry condition confirmed", INVALIDATED: "This setup is no longer valid" };
+    return <div className="om-genfx-confirm" data-state={state} role="status"><div><strong>{labels[state] ?? labels.NO_DATA}</strong>
+      <button type="button" className="om-btn-quiet" disabled={loading} onClick={() => void check()}>{loading ? "Checking…" : "Check again"}</button></div>
+      {st?.detail && <p>{st.detail}</p>}
+      {state === "CONFIRMED" && st?.enter != null && <p className="om-num">{nameOf(setup.pair)} · {side === "sell" ? "Sell" : "Buy"} reference {fx(st.enter, dec)} · stop {fx(setup.stop, dec)} · first target {fx(setup.tp1, dec)}</p>}
+      <p>Checks completed {setup.triggerTf || "trigger"} candles. This check does not place a trade.</p></div>;
+  }
   return (
     <div className={`mt-3 rounded-xl border px-3.5 py-3 ${state === "CONFIRMED" ? "animate-pulse" : ""}`} style={{ background: s.bg, borderColor: s.bd }}>
       <div className="flex items-center justify-between gap-3">
@@ -740,9 +760,10 @@ function OwnerPanel({ desk, reload }: { desk: Desk; reload: () => Promise<void> 
   );
 }
 
-export function GenFxDesk() {
-  const [pair, setPair] = useState<PairKey>("EURUSD");
-  const [mode, setMode] = useState<string>("quick");
+export function GenFxDesk({ initialPair }: { initialPair?: PairKey } = {}) {
+  const next = useNextShell();
+  const [pair, setPairState] = useState<PairKey>(initialPair ?? "EURUSD");
+  const [mode, setModeState] = useState<string>("quick");
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState<Resp | null>(null);
   const [err, setErr] = useState("");
@@ -750,8 +771,29 @@ export function GenFxDesk() {
   const [tracked, setTracked] = useState<Tracked[]>([]);
   const [plays, setPlays] = useState<PlayRow[]>([]);
   const [showPlays, setShowPlays] = useState(false);
-  const [replay, setReplay] = useState<{ at: string } | null>(null);
+  const [replay, setReplay] = useState<{ at: string; mode: string | null } | null>(null);
   const [desk, setDesk] = useState<Desk | null>(null);
+  const readSequence = useRef(0);
+  const pendingRead = useRef<number | null>(null);
+  const activeRead = useRef<{ controller: AbortController; timeout: ReturnType<typeof setTimeout> } | null>(null);
+  const stopRead = useCallback(() => {
+    if (!activeRead.current) return;
+    clearTimeout(activeRead.current.timeout);
+    activeRead.current.controller.abort();
+    activeRead.current = null;
+  }, []);
+  const selected = useRef({ pair, mode });
+  selected.current = { pair, mode };
+  const choose = useCallback((nextPair: PairKey, nextMode: string) => {
+    if (selected.current.pair === nextPair && selected.current.mode === nextMode) return;
+    readSequence.current++; pendingRead.current = null; stopRead();
+    selected.current = { pair: nextPair, mode: nextMode };
+    setPairState(nextPair); setModeState(nextMode); setRes(null); setReplay(null); setErr(""); setLoading(false);
+  }, [stopRead]);
+  const setPair = useCallback((value: PairKey) => choose(value, selected.current.mode), [choose]);
+  const setMode = useCallback((value: string) => choose(selected.current.pair, value), [choose]);
+  useEffect(() => { if (initialPair) setPair(initialPair); }, [initialPair, setPair]);
+  useEffect(() => () => { readSequence.current++; pendingRead.current = null; stopRead(); }, [stopRead]);
 
   // Opened from a pair's card on The Floor: start on that pair. The note is read once and removed.
   useEffect(() => {
@@ -759,7 +801,7 @@ export function GenFxDesk() {
       const v = window.sessionStorage.getItem(GENFX_OPEN_PAIR);
       if (!v) return;
       window.sessionStorage.removeItem(GENFX_OPEN_PAIR);
-      if (v === "EURUSD" || v === "GBPJPY") setPair(v);
+      if (!initialPair && (v === "EURUSD" || v === "GBPJPY")) setPair(v);
     } catch { /* no session storage: the default pair */ }
   }, []);
 
@@ -776,18 +818,23 @@ export function GenFxDesk() {
   }, [loadDesk, loadPlays]);
 
   async function openPlay(id: string) {
+    const mine = ++readSequence.current;
+    pendingRead.current = null; stopRead(); setLoading(false);
     try {
       const r = await fetch(`/api/genfx/history?id=${encodeURIComponent(id)}`, { cache: "no-store" });
       const d = await r.json();
-      if (d?.play?.genfx) {
-        const p: PairKey = d.play.pair === "GBPJPY" ? "GBPJPY" : "EURUSD";
-        setPair(p);
-        setRes({ ok: true, pair: p, genfx: d.play.genfx as Genfx, price: d.play.price ?? undefined, data_status: d.play.data_status ?? undefined, asOf: d.play.asOf, candles: [] });
-        setReplay({ at: d.play.at });
+      if (mine !== readSequence.current) return;
+      const p: PairKey | null = d?.play?.pair === "GBPJPY" ? "GBPJPY" : d?.play?.pair === "EURUSD" ? "EURUSD" : null;
+      if (r.ok && p && readMatchesPair(d.play.genfx, p)) {
+        const readMode = d.play.genfx.mode;
+        selected.current = { pair: p, mode: readMode }; setPairState(p); setModeState(readMode);
+        setRes({ ok: true, pair: p, genfx: d.play.genfx, price: d.play.price ?? undefined, data_status: "reference", asOf: d.play.asOf ?? d.play.at,
+          candles: Array.isArray(d.play.candles) ? d.play.candles : [], candles_tf: typeof d.play.candles_tf === "string" ? d.play.candles_tf : undefined });
+        setReplay({ at: d.play.at, mode: readMode });
         setErr(""); setShowPlays(false);
         try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { /* ignore */ }
-      }
-    } catch { /* ignore */ }
+      } else setErr("This saved FX read could not be verified. Please try opening it again.");
+    } catch { if (mine === readSequence.current) setErr("Couldn’t open this saved FX read. Please try again."); }
   }
 
   // Tracked setups: this device first for an instant render, then the account as the source of truth.
@@ -811,16 +858,31 @@ export function GenFxDesk() {
 
   const pairName = nameOf(pair);
   async function analyze() {
+    if (pendingRead.current !== null) return;
+    const mine = ++readSequence.current, scope = { ...selected.current };
+    pendingRead.current = mine;
     setLoading(true); setErr("");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      if (mine !== readSequence.current || pendingRead.current !== mine) return;
+      controller.abort(); activeRead.current = null; pendingRead.current = null; setLoading(false);
+      setErr("This analysis took too long. Check your saved FX reads before retrying; the server may still finish and apply the usual credit charge.");
+    }, 75_000);
+    activeRead.current = { controller, timeout };
     try {
-      const r = await fetch("/api/genfx", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pair, mode }) });
+      const r = await fetch("/api/genfx", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pair: scope.pair, mode: scope.mode }), signal: controller.signal });
       const d: Resp = await r.json();
+      if (mine !== readSequence.current || controller.signal.aborted) return;
       if (d.notConfigured) { setErr("Market data isn’t configured on the server yet."); setRes(null); }
       else if (d.error === "insufficient_credits") { setErr(`Not enough credits to run GEN FX${typeof d.balance === "number" ? ` (balance ${d.balance})` : ""}.`); setRes(null); try { window.dispatchEvent(new Event("open-credits-flyer")); } catch { /* ignore */ } }
-      else if (!r.ok || !d.ok) { setErr(d.detail || d.error || `GEN FX couldn’t read ${pairName} right now — try again shortly.`); setRes(null); }
+      else if (!r.ok || !d.ok || d.pair !== scope.pair || !readMatchesPair(d.genfx, scope.pair) || d.genfx.mode !== scope.mode) { setErr(d.detail || d.error || `GenX FX couldn’t verify a ${nameOf(scope.pair)} read for this horizon. Please try again.`); setRes(null); }
       else { setRes(d); setReplay(null); void loadPlays(); void loadDesk(); }   // a read opens the lists below, too
-    } catch { setErr("Couldn’t reach the server."); }
-    finally { setLoading(false); }
+    } catch { if (mine === readSequence.current && !controller.signal.aborted) setErr("Couldn’t reach the server."); }
+    finally {
+      clearTimeout(timeout);
+      if (activeRead.current?.controller === controller) activeRead.current = null;
+      if (mine === readSequence.current) { pendingRead.current = null; setLoading(false); }
+    }
   }
 
   const g = res?.genfx;
@@ -851,6 +913,14 @@ export function GenFxDesk() {
   }
   const billing = !!desk?.switches?.billing;
   const auto = res?.auto;
+
+  if (next) return <GenFxHome pair={pair} setPair={setPair} mode={mode} setMode={setMode}
+    analyze={() => void analyze()} loading={loading} error={err} response={res}
+    saved={replay} backToCurrent={() => { readSequence.current++; pendingRead.current = null; stopRead(); setLoading(false); setRes(null); setReplay(null); setErr(""); }}
+    plays={plays} openPlay={(id) => void openPlay(id)} tracked={tracked} isTracked={isTracked}
+    track={trackCurrent} untrack={untrack} setup={shownSetup} Confirm={LiveConfirm}
+    billing={typeof desk?.switches?.billing === "boolean" ? desk.switches.billing : null}
+    advancedTools={desk && <><AutoTrade desk={desk} reload={loadDesk}/><Watching desk={desk} reload={loadDesk}/><Record desk={desk}/><OwnerPanel desk={desk} reload={loadDesk}/></>}/>;
 
   return (
     <div className="rounded-2xl border border-sky-400/20 bg-[#0b0d14] p-5 text-white sm:p-6" style={{ backgroundImage: "radial-gradient(120% 80% at 0% 0%, rgba(56,189,248,0.07), transparent 60%)" }}>
