@@ -1,18 +1,43 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { AsyncLocalStorage } from "node:async_hooks";
+
+type TradingNamespace = "rapid" | "nitrous";
+const namespace = new AsyncLocalStorage<TradingNamespace>();
+
+/** Request-local isolation: concurrent web requests never share a mutable product switch. */
+export const tradingNamespace = (): TradingNamespace => namespace.getStore() ?? (process.env.NITROUS_WORKER === "1" ? "nitrous" : "rapid");
+export const withNitrousDb = <T>(work: () => T): T => namespace.run("nitrous", work);
+export const withRapidDb = <T>(work: () => T): T => namespace.run("rapid", work);
+
+export function namespacedClient<T extends object>(client: T, scope: TradingNamespace): T {
+  if (scope === "rapid") return client;
+  return new Proxy(client, {
+    get(target, key, receiver) {
+      const value = Reflect.get(target, key, receiver);
+      if ((key === "from" || key === "rpc") && typeof value === "function") {
+        return (name: string, ...args: unknown[]) => value.call(target, name.replace(/^rapid_/, "nitrous_"), ...args);
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
 
 /**
  * Service-role client for Rapid's own tables. RLS is bypassed here, which is why every route that
  * uses it must have already established who the caller is and what they own.
  */
 let cached: SupabaseClient | null = null;
+let nitrousCached: SupabaseClient | null = null;
 
 export function admin(): SupabaseClient {
-  if (cached) return cached;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-  if (!url || !key) throw new Error("rapid_no_admin_client");
-  cached = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-  return cached;
+  if (!cached) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+    if (!url || !key) throw new Error("rapid_no_admin_client");
+    cached = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+  }
+  if (tradingNamespace() === "rapid") return cached;
+  return nitrousCached ?? (nitrousCached = namespacedClient(cached, "nitrous"));
 }
 
 export const adminOrNull = (): SupabaseClient | null => {

@@ -1,0 +1,35 @@
+.nitrous-telegram { border: 1px solid var(--om-edge); border-radius: 22px; padding: 22px; background: var(--om-surface); color: var(--om-text); min-width: 0; }
+.nitrous-telegram-heading { display: flex; align-items: center; gap: 12px; }
+.nitrous-telegram-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 14px; background: rgb(var(--om-ai-rgb) / .1); color: var(--om-ai); flex: 0 0 auto; }
+.nitrous-telegram-heading > div { flex: 1; min-width: 0; }
+.nitrous-telegram-heading h2 { margin: 0; font-size: 1rem; font-weight: 650; }
+.nitrous-telegram-heading p { margin: 3px 0 0; color: var(--om-text-2); font-size: .8125rem; }
+.nitrous-telegram-heading > svg { color: var(--om-pos); }
+.nitrous-telegram-description { margin: 16px 0; font-size: .9375rem; line-height: 1.6; color: var(--om-text-2); }
+.nitrous-telegram-join { display: flex; align-items: center; justify-content: center; min-height: 44px; border-radius: 12px; background: rgb(var(--om-ai-rgb) / .12); color: var(--om-ai); font-size: .875rem; font-weight: 650; text-decoration: none; }
+.nitrous-telegram-join:hover { background: rgb(var(--om-ai-rgb) / .19); }
+.nitrous-telegram-pending { margin: 0; font-size: .8125rem; line-height: 1.55; color: var(--om-text-3); }
+.nitrous-telegram-settings-toggle { border: 0; border-top: 1px solid var(--om-edge); border-radius: 0; background: transparent; color: var(--om-text-2); width: 100%; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 12px 0 0; margin-top: 16px; font-size: .8125rem; cursor: pointer; }
+.nitrous-telegram-settings-toggle span { flex: 1; text-align: left; }
+.nitrous-telegram-settings { padding-top: 12px; }
+.nitrous-telegram-settings > p { color: var(--om-text-2); font-size: .875rem; line-height: 1.6; margin: 0 0 16px; }
+.nitrous-telegram-settings form { display: grid; gap: 14px; }
+.nitrous-telegram-settings label { display: grid; gap: 7px; font-size: .875rem; font-weight: 550; }
+.nitrous-telegram-settings label > span { color: var(--om-text-3); font-weight: 400; }
+.nitrous-telegram-settings input:not([type="checkbox"]) { width: 100%; min-width: 0; min-height: 44px; border: 1px solid var(--om-edge-2); border-radius: 10px; padding: 10px 12px; background: var(--om-field-solid); color: var(--om-text); font: inherit; font-size: 1rem; }
+.nitrous-telegram-settings input::placeholder { color: var(--om-text-3); }
+.nitrous-telegram-settings .nitrous-telegram-checkbox { display: flex; align-items: flex-start; gap: 9px; min-height: 44px; font-weight: 400; }
+.nitrous-telegram-checkbox input { accent-color: var(--om-ai); width: 17px; height: 17px; margin: 3px 0 0; flex: 0 0 auto; }
+.nitrous-telegram-settings .nitrous-telegram-checkbox span { color: var(--om-text); line-height: 1.5; }
+.nitrous-telegram-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.nitrous-telegram-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; border: 1px solid var(--om-edge-2); border-radius: 11px; padding: 10px 14px; font-size: .875rem; font-weight: 600; color: var(--om-text); background: var(--om-raised); cursor: pointer; }
+.nitrous-telegram-actions button[type="submit"] { background: var(--om-ai); color: var(--om-ink); border-color: transparent; }
+.nitrous-telegram-actions button:disabled { cursor: not-allowed; opacity: .55; }
+.nitrous-telegram .nitrous-telegram-note { font-size: .75rem; margin: 14px 0 0; color: var(--om-text-3); }
+.nitrous-telegram-error { color: var(--om-neg) !important; font-size: .875rem; line-height: 1.55; margin: 14px 0 0; }
+.nitrous-telegram-notice { color: var(--om-pos); font-size: .875rem; line-height: 1.55; margin: 14px 0 0; }
+.nitrous-telegram :is(button,a,input):focus-visible { outline: 2px solid var(--om-ai); outline-offset: 3px; }
+.nitrous-telegram-spin { animation: nitrous-telegram-spin 1s linear infinite; }
+@keyframes nitrous-telegram-spin { to { transform: rotate(360deg); } }
+@media (max-width: 480px) { .nitrous-telegram { padding: 18px; border-radius: 18px; } }
+@media (prefers-reduced-motion: reduce) { .nitrous-telegram-spin { animation: none; } }

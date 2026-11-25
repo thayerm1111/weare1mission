@@ -10,6 +10,7 @@ import { ActiveTrades } from "./ActiveTrades";
 import { WinStreaks } from "./WinStreaks";
 import { WinningPipsPanel } from "./WinningPipsPanel";
 import { AtlasLiveDesk } from "./AtlasLiveDesk";
+import { NitrousAccountSummary } from "@/components/om/nitrous/NitrousAccountSummary";
 import { timedBars } from "@/lib/chart/candleTime";
 import { useSeeThePlay } from "@/components/portal/SetupLock";
 import { openAtlas, type AtlasContext } from "@/lib/atlas/open";
@@ -682,6 +683,8 @@ export function Floor({ sample }: { sample?: FloorSample }) {
 
       <AtlasLiveDesk goldSetup={setup} goldFailed={setupFailed} atlasRead={ov?.atlas?.read ?? null}
         sample={isSample} sampleNow={sample?.nowMs} tf={tf} onTf={pickTf} />
+
+      {!isSample && <NitrousAccountSummary />}
 
       <div className="om-os-performance">
       {isSimple && <button type="button" className="om-simple-results-toggle" aria-expanded={showResults} onClick={() => setShowResults(value => !value)}>{showResults ? "Hide results and streaks" : "View results and streaks"}<ChevronDown size={16} aria-hidden="true"/></button>}

@@ -1,6 +1,6 @@
 /** A single set of app identities across the One Mission workspace. */
 export function ProductIcon({ kind, size = "md", className = "" }: {
-  kind: "floor" | "atlas" | "genx" | "plays" | "pulse" | "flow" | "strata";
+  kind: "floor" | "atlas" | "genx" | "plays" | "pulse" | "flow" | "strata" | "nitrous";
   size?: "sm" | "md" | "lg";
   className?: string;
 }) {
@@ -11,6 +11,7 @@ export function ProductIcon({ kind, size = "md", className = "" }: {
       {kind === "genx" && <svg className="om-icon-x" viewBox="0 0 32 32" fill="currentColor"><path d="M4 5h7l5 7 5-7h7L20 16l8 11h-7l-5-7-5 7H4l8-11Z"/><path d="m6 6 7 10-7 10h4l8-10-8-10H6Z" fill="#fff3c8" opacity=".45"/></svg>}
       {kind === "plays" && <svg viewBox="0 0 32 32" fill="none"><path d="M16 4c1.5 8 4 10.5 12 12-8 1.5-10.5 4-12 12C14.5 20 12 17.5 4 16 12 14.5 14.5 12 16 4Z" fill="currentColor"/><path d="m26 3 .8 3.2L30 7l-3.2.8L26 11l-.8-3.2L22 7l3.2-.8L26 3Z" fill="currentColor" opacity=".6"/></svg>}
       {kind === "pulse" && <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 17h7l4-11 5 21 4-14 3 4h5"/></svg>}
+      {kind === "nitrous" && <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><path d="M7 25V7l14 18V7"/><path d="m24 3-5 10h7l-5 10" strokeWidth="2.8"/><path d="M3 11v10" opacity=".3"/></svg>}
       {kind === "strata" && <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
         <path d="M3 23h8l5-8 4 4 8-12"/><path d="M3 29h9l5-8 4 4 8-12" opacity=".42"/>
         <circle cx="16" cy="15" r="2.5" fill="currentColor" stroke="none"/>

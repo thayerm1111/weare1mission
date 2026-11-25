@@ -12,10 +12,10 @@
   bottom: max(12px, env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   align-items: end;
   gap: 4px;
-  width: min(700px, calc(100% - 32px));
+  width: min(760px, calc(100% - 32px));
   margin: 0;
   padding: 8px 18px 9px;
   border: 1px solid rgb(var(--om-fg) / .16);
@@ -63,6 +63,7 @@
   text-align: center;
   white-space: nowrap;
 }
+.om-os .om-os-dock .om-os-title-short { display: none; }
 .om-os .om-os-dock .om-product-icon {
   flex: 0 0 auto;
   width: 42px;
@@ -83,6 +84,8 @@
 .om-os .om-os-dock .om-product-pulse,
 .om-os .om-os-dock .om-product-strata { color: var(--om-ai); }
 .om-os .om-os-dock .om-product-flow { color: var(--om-text-2); }
+.om-os .om-product-nitrous { color: var(--om-ai); }
+.om-os .om-os-dock .om-product-nitrous { filter: drop-shadow(0 0 7px rgb(var(--om-ai-rgb) / .26)); }
 .om-os .om-os-dock .om-product-atlas .om-icon-core {
   width: 86%;
   height: 86%;
@@ -160,8 +163,10 @@
     border-radius: 24px;
   }
   .om-os .om-os-dock .om-os-app { min-height: 56px; padding: 0 1px 3px; gap: 3px; border-radius: 12px; }
-  .om-os .om-os-dock .om-product-icon { width: 34px; height: 34px; }
+  .om-os .om-os-dock .om-product-icon { width: 32px; height: 32px; }
   .om-os .om-os-dock .om-os-app-title { font-size: 9px; letter-spacing: -.025em; }
+  .om-os .om-os-dock .om-os-title-full { display: none; }
+  .om-os .om-os-dock .om-os-title-short { display: inline; }
   .om-os .om-os-dock .om-os-app[aria-current="page"]::after { bottom: -5px; width: 14px; left: calc(50% - 7px); }
   .om-os .om-mobile-screen { max-width: 44vw; overflow: hidden; text-overflow: ellipsis; }
 }

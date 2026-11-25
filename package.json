@@ -2,10 +2,10 @@
   "name": "weare1mission",
   "version": "1.0.0",
   "private": true,
-  "description": "1 Mission — One Mission. One Community. One Movement. Team onboarding, training, events & community hub.",
+  "description": "1 Mission \u2014 One Mission. One Community. One Movement. Team onboarding, training, events & community hub.",
   "scripts": {
     "dev": "next dev",
-    "prebuild": "node --import tsx --test tests/strata-engine.test.ts tests/strata-generate.test.ts tests/strata-feed.test.ts tests/strata-workspace.test.cjs tests/all-members-rollout.test.ts tests/vision-suite.test.ts tests/floor-winning-pips.test.ts tests/floor-market-intelligence.test.ts tests/atlas-quote.test.ts tests/atlas-command-signal.test.ts tests/chart-structure.test.ts tests/chart-level-labels.test.ts tests/om-experience.test.cjs tests/genx-fx-workspace.test.cjs tests/genx-workspace.test.ts tests/genx-chart-view.test.ts tests/secondary-tools-experience.test.cjs tests/om-plays-workspace.test.ts tests/play-breakdown.test.cjs tests/cc-atlas-simple.test.ts tests/atlas-command-hook.test.cjs tests/atlas-provider.test.cjs tests/genfx-saved-chart.test.cjs",
+    "prebuild": "node --import tsx --test tests/strata-engine.test.ts tests/strata-generate.test.ts tests/strata-feed.test.ts tests/strata-workspace.test.cjs tests/all-members-rollout.test.ts tests/vision-suite.test.ts tests/floor-winning-pips.test.ts tests/floor-market-intelligence.test.ts tests/atlas-quote.test.ts tests/atlas-command-signal.test.ts tests/chart-structure.test.ts tests/chart-level-labels.test.ts tests/om-experience.test.cjs tests/genx-fx-workspace.test.cjs tests/genx-workspace.test.ts tests/genx-chart-view.test.ts tests/secondary-tools-experience.test.cjs tests/om-plays-workspace.test.ts tests/play-breakdown.test.cjs tests/cc-atlas-simple.test.ts tests/atlas-command-hook.test.cjs tests/atlas-provider.test.cjs tests/genfx-saved-chart.test.cjs tests/nitrous-*.test.ts tests/rapid-isolation.test.ts",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -17,6 +17,8 @@
     "auric-research": "tsx auric/research/run.ts",
     "auric-bench": "tsx auric/research/bench.ts",
     "rapid-worker": "tsx rapid/worker/index.ts",
+    "nitrous-worker": "NITROUS_WORKER=1 tsx nitrous/worker/index.ts",
+    "test:nitrous": "node --import tsx --test tests/nitrous-*.test.ts",
     "rapid-replay": "tsx rapid/research/run.ts",
     "fx-scalper": "tsx fxscalper/worker/index.ts"
   },

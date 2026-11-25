@@ -46,9 +46,15 @@ test("RAPID IS A CLEAN ROOM: nothing under rapid/ reaches FLOW, GENX, ATLAS, AUR
   }
 });
 
-test("NOTHING ELSE DEPENDS ON RAPID except the three places that are allowed to render it", () => {
+test("legacy products cannot reach Rapid; Nitrous has only explicit namespace-scoped broker bridges", () => {
   const allowed = [
     "src/components/portal/floor/FloorWorkspace.tsx", // the Floor tab
+    // Nitrous reuses transport/types under AsyncLocalStorage, never Rapid's worker or account rows.
+    // tests/nitrous-isolation.test.ts exercises concurrent namespace separation at runtime.
+    "src/app/api/nitrous/connect/route.ts",
+    "src/app/api/nitrous/settings/route.ts",
+    "src/app/api/nitrous/position/route.ts",
+    "src/lib/nitrous/prepare.ts",
   ];
   for (const root of ["src", "command-center", "worker", "relay", "auric"]) {
     for (const f of walk(root)) {
@@ -57,8 +63,19 @@ test("NOTHING ELSE DEPENDS ON RAPID except the three places that are allowed to 
       const src = readFileSync(f, "utf8");
       assert.ok(
         !/from\s+["'][^"']*\/rapid\//.test(src) && !/from\s+["']rapid\//.test(src),
-        `${f} must not import from rapid/ — add it to the allow-list only if it is a render site`,
+        `${f} must not import from rapid/ outside the reviewed render/broker bridge boundary`,
       );
+    }
+  }
+});
+
+test("Nitrous cannot run Rapid's worker, management runner or submission lifecycle", () => {
+  for (const root of ["nitrous", "src/app/api/nitrous", "src/lib/nitrous"]) {
+    for (const f of walk(root)) {
+      const src = readFileSync(f, "utf8");
+      assert.ok(!/from\s+["'][^"']*rapid\/(?:worker|manage)\//.test(src), `${f} imports a legacy account loop`);
+      assert.ok(!/import\s*\{\s*submitProtected[^}]*\}\s*from\s+["'][^"']*rapid\/exec\/submit/.test(src), `${f} imports legacy submission`);
+      assert.ok(!/\.from\(["']rapid_[^"']*["']\)\s*\.(?:insert|update|upsert|delete)/.test(src), `${f} mutates Rapid's live data`);
     }
   }
 });

@@ -59,6 +59,7 @@ export function ToolsHome() {
     </div>
 
     <div className="om-tools-connections">
+      <Link className="om-tools-atlas" href="/portal/nitrous"><ProductIcon kind="nitrous" size="sm" /><span>Gold setups · Slow Drip or Nitrous<strong>Open Nitrous</strong></span><ChevronRight aria-hidden="true" /></Link>
       <Link className="om-tools-atlas" href="/portal/trading?view=flow"><Waves aria-hidden="true" /><span>Connected accounts and risk<strong>Manage FLOW</strong></span><ChevronRight aria-hidden="true" /></Link>
     </div>
   </div>;

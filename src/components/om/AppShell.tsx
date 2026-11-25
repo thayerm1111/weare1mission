@@ -193,6 +193,7 @@ const APPS = [
   { key: "plays" as const, label: "OM AI Plays", dockLabel: "OM AI Plays", href: "/portal/signals", hard: false },
   { key: "pulse" as const, label: "Pulse", dockLabel: "Pulse", href: "/portal/trading?view=pulse", hard: false },
   { key: "flow" as const, label: "FLOW", dockLabel: "FLOW", href: "/portal/trading?view=flow", hard: false },
+  { key: "nitrous" as const, label: "Nitrous · Slow Drip", dockLabel: "Nitrous", href: "/portal/nitrous", hard: false },
 ];
 
 /** One persistent launcher on every screen, with the same destinations on desktop and phone. */
@@ -209,7 +210,7 @@ function AppDock() {
   };
   return <nav className="om-os-dock" aria-label="One Mission apps">
     {APPS.map((app) => {
-      const content = <><ProductIcon kind={app.key} /><span className="om-os-app-title">{app.dockLabel}</span></>;
+      const content = <><ProductIcon kind={app.key} /><span className="om-os-app-title">{app.key === "plays" ? <><span className="om-os-title-full">{app.dockLabel}</span><span className="om-os-title-short">AI Plays</span></> : app.dockLabel}</span></>;
       const props = {
         className: "om-os-app", "data-app": app.key, "aria-label": app.label,
         "aria-current": here === app.key ? "page" as const : undefined,

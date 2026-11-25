@@ -11,7 +11,7 @@
  *
  * Pure: no server or browser imports.
  */
-export type NavKey = "floor" | "plays" | "genx" | "pulse" | "flow" | "atlas" | "strata";
+export type NavKey = "floor" | "plays" | "genx" | "pulse" | "flow" | "atlas" | "strata" | "nitrous";
 
 export type NavItem = {
   key: NavKey; label: string; href: string;
@@ -28,6 +28,7 @@ export const NAV: NavItem[] = [
   { key: "strata", label: "STRATA", href: "/portal/strata", tab: "Strata" },
   { key: "pulse", label: "Market Pulse", href: "/portal/trading?view=pulse", tab: "Pulse" },
   { key: "flow", label: "FLOW", href: "/portal/trading?view=flow", tab: "FLOW" },
+  { key: "nitrous", label: "Nitrous", href: "/portal/nitrous", tab: "Nitrous" },
   { key: "atlas", label: "Atlas Command Center", href: "/command-center", tab: "Atlas", hard: true },
 ];
 
@@ -45,7 +46,7 @@ export const APP_TABS: { key: AppTabKey; label: string; href: string; hard?: boo
 export function activeTabKey(pathname: string, view: string | null | undefined): AppTabKey | null {
   if ((pathname || "").replace(/\/+$/, "") === "/portal/tools") return "tools";
   const key = activeKey(pathname, view);
-  return key === "genx" || key === "plays" || key === "pulse" || key === "strata" ? "tools" : key;
+  return key === "genx" || key === "plays" || key === "pulse" || key === "strata" || key === "nitrous" ? "tools" : key;
 }
 
 /** Which destination a page belongs to. An inline Floor view (?view=) lights the tool it shows. */
@@ -55,6 +56,7 @@ export function activeKey(pathname: string, view: string | null | undefined): Na
   if (p === "/portal/signals" || p.startsWith("/portal/signals/")) return "plays";
   if (p === "/portal/genx" || p.startsWith("/portal/genx/") || p === "/portal/genfx" || p.startsWith("/portal/genfx/")) return "genx";
   if (p === "/portal/strata" || p.startsWith("/portal/strata/")) return "strata";
+  if (p === "/portal/nitrous" || p.startsWith("/portal/nitrous/")) return "nitrous";
   if (p === "/portal/trading" || p === "/portal" || p === "/floor-preview") {
     const v = String(view ?? "").toLowerCase();
     if (v === "flow") return "flow";
