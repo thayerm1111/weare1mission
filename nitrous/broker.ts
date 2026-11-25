@@ -68,7 +68,8 @@ export async function readAccountMetrics(ctx: PortContext, reads: NitrousBrokerR
     };
     let balance = pick(["balance", "cashBalance", "accountBalance"]);
     let equity = pick(["equity", "projectedBalance", "netLiquidationValue"]);
-    const freeMargin = pick(["freeMargin", "freeFunds", "availableMargin"]);
+    // TradeLocker /trade/config names its available trading funds `availableFunds`.
+    const freeMargin = pick(["freeMargin", "availableFunds", "freeFunds", "availableMargin"]);
     let ccy = currency(field(row, cols, ["currency", "accountCurrency"])) ?? currency(object(root).currency);
     if (balance == null || equity == null || ccy == null) {
       const accounts = await reads.accounts(ctx);

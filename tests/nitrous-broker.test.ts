@@ -33,6 +33,30 @@ test("account metrics use current config field mapping, never fixed offsets", as
   assert.deepEqual(result, { ok: true, balance: 500, equity: 525, freeMargin: 425, currency: "USD" });
 });
 
+test("TradeLocker availableFunds maps to free margin using broker configuration, not an array offset", async () => {
+  const fields = ["projectedBalance", "blockedBalance", "availableFunds", "balance"];
+  const result = await readAccountMetrics(ctx, makeReads({
+    config: async () => ({ ok: true, data: { d: { accountDetailsConfig: columns(fields) } } }),
+    state: async () => ({ ok: true, data: { d: { accountDetailsData: [525, 30, 395, 500] } } }),
+  }));
+  assert.deepEqual(result, { ok: true, balance: 500, equity: 525, freeMargin: 395, currency: "USD" });
+});
+
+test("availableFunds object values preserve zero, negative and unknown margin; equity is never substituted", async () => {
+  for (const [availableFunds, expected] of [[400, 400], ["125.5", 125.5], [0, 0], [-10, -10], [null, null], ["", null], [undefined, null], [false, null]] as const) {
+    const result = await readAccountMetrics(ctx, makeReads({
+      state: async () => ({ ok: true, data: { balance: 500, equity: 525, currency: "USD", availableFunds } }),
+    }));
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.freeMargin, expected);
+  }
+  const explicitZero = await readAccountMetrics(ctx, makeReads({
+    state: async () => ({ ok: true, data: { balance: 500, equity: 525, currency: "USD", freeMargin: 0, availableFunds: 400 } }),
+  }));
+  assert.equal(explicitZero.ok, true);
+  if (explicitZero.ok) assert.equal(explicitZero.freeMargin, 0);
+});
+
 test("currency and balance fallback is scoped to both account ID and account number", async () => {
   const result = await readAccountMetrics(ctx, makeReads({
     state: async () => ({ ok: true, data: { equity: 520, freeMargin: 400 } }),

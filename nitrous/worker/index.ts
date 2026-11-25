@@ -405,6 +405,13 @@ async function serveAccount(acct: Account, fence: number, held: () => boolean) {
     .in("state", ["reserved", "submitting", "acknowledged", "partially_filled", "filled", "submission_unknown", "protection_pending", "cancel_requested"]);
   checked(unresolved);
   if ((unresolved.count ?? 1) > 0) throw new Error("An earlier order needs reconciliation before another entry.");
+  // The member may be unable to retry activation while an earlier preparation warning is saved.
+  // Recover only this obsolete warning, after a fresh broker read actually supplies margin.
+  // Preserve unrelated preparation blockers and all execution-time sizing checks.
+  if (metrics.freeMargin !== null && metrics.freeMargin > 0) {
+    checked(await admin().from("nitrous_accounts").update({ block_reason: null, updated_at: iso() })
+      .eq("id", acct.id).eq("block_reason", "The broker's free margin is unavailable."));
+  }
   if (!rows.length && acct.automation_enabled && (await control()).live) await considerEntry(acct, port, contract.spec, metrics.currency, metrics.equity!, metrics.freeMargin, fence, held);
   checked(await admin().from("nitrous_accounts").update({ execution_block_reason: null }).eq("id", acct.id));
 }
