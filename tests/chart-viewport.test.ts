@@ -101,11 +101,11 @@ test("the chart is a view control: it fetches nothing, charges nothing, and writ
   const om = src("src/components/om/chart/OmChart.tsx");
   assert.ok(!/fetch\(|\/api\/|localStorage|sessionStorage/.test(om));
   // Text inside the plot is not selectable; a sideways drag is the chart's and up-and-down the page's.
-  const css = src("src/components/om/om.css");
+  const css = src("src/components/om/chart/om-chart.css");
   assert.match(css, /\.om-ch \{[^}]*touch-action: pan-y;[^}]*user-select: none;/s);
   // Old levels start at their own read; candles printed while gold was shut say so.
   assert.match(om, /data-analysis-mark/);
-  assert.match(om, /Market closed · feed quotes, not trading/);
+  assert.match(om, /Session break · feed quotes, not trading/);
   // The setup route asks the feed for UTC candles and says it did.
   const route = src("src/app/api/floor/setup/route.ts");
   assert.match(route, /series\("XAU\/USD", CHART_TF\[mode\], CHART_BARS, mdKey, false, "UTC"\)/);

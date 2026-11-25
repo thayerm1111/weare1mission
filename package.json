@@ -5,7 +5,7 @@
   "description": "1 Mission — One Mission. One Community. One Movement. Team onboarding, training, events & community hub.",
   "scripts": {
     "dev": "next dev",
-    "prebuild": "node --import tsx --test tests/strata-engine.test.ts tests/strata-generate.test.ts tests/all-members-rollout.test.ts tests/vision-suite.test.ts tests/floor-winning-pips.test.ts tests/floor-market-intelligence.test.ts",
+    "prebuild": "node --import tsx --test tests/strata-engine.test.ts tests/strata-generate.test.ts tests/all-members-rollout.test.ts tests/vision-suite.test.ts tests/floor-winning-pips.test.ts tests/floor-market-intelligence.test.ts tests/atlas-quote.test.ts tests/atlas-command-signal.test.ts tests/chart-structure.test.ts tests/chart-level-labels.test.ts",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

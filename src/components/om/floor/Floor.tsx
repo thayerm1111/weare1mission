@@ -678,7 +678,7 @@ export function Floor({ sample }: { sample?: FloorSample }) {
       </header>
 
       <AtlasLiveDesk goldSetup={setup} goldFailed={setupFailed} atlasRead={ov?.atlas?.read ?? null}
-        sample={isSample} tf={tf} onTf={pickTf} />
+        sample={isSample} sampleNow={sample?.nowMs} tf={tf} onTf={pickTf} />
 
       <div className="om-os-performance">
       <WinningPipsPanel account={ov?.account ?? null} accountsKnown={!!ov?.accountsKnown} switching={switching}

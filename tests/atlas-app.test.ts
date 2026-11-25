@@ -12,6 +12,8 @@ test("Atlas proposes the actual app tools without running or routing anything", 
   assert.deepEqual(planAtlasActions("Generate a signal on gold"), [{ type: "genx" }]);
   assert.deepEqual(planAtlasActions("Give me a gold signal"), [{ type: "genx" }]);
   assert.deepEqual(planAtlasActions("Generate an OM AI Play on gold"), [{ type: "plays", td: "XAU/USD" }]);
+  assert.deepEqual(planAtlasActions("Generate an Atlas gold signal"), [{ type: "navigate", destination: "command-center" }]);
+  assert.deepEqual(planAtlasActions("Generate a Command Center signal for EUR/USD"), [{ type: "navigate", destination: "command-center" }]);
   assert.deepEqual(planAtlasActions("Run a swing GENX read"), [{ type: "genx", mode: "swing" }]);
   assert.deepEqual(planAtlasActions("Scan the markets with Market Pulse"), [{ type: "pulse" }]);
   assert.deepEqual(planAtlasActions("Open FLOW"), [{ type: "navigate", destination: "flow" }]);
@@ -61,6 +63,36 @@ test("non-interrupting voice updates replace initial context, including clear an
   assert.deepEqual(latestAppVoiceContext([{ role: "tool", content: "[[ATLAS_APP_CONTEXT_V1]]broken" }], initial), atlasContext(initial));
 });
 
+test("the selected market's six-frame structure reaches Explain and voice without execution commands", () => {
+  const data = {
+    symbol: "EURUSD", td: "EUR/USD", timeframe: "15m", quoteAt: "2026-11-25T00:00:00Z", quoteSource: "stream",
+    marketRead: {
+      timeframe: "15m", trend: "bullish", momentum: "up", higherTimeframeBias: "bullish",
+      support: { low: 1.1, high: 1.101, price: 1.1005, label: "15M support", touches: 3, timeframe: "15m", source: "Closed candles", roleReversed: true, confirmedRole: "support" },
+      resistance: { low: 1.104, high: 1.105, price: 1.1045, label: "1H resistance" },
+      crossedLevel: { zone: { price: 1.102, role: "resistance", origin: "resistance", confirmedAt: 1_700_000_000_000 }, direction: "above", confirmation: "live" },
+      flow: ["1d", "4h", "1h", "30m", "15m", "5m"].map((tf) => ({ tf, trend: "bullish", status: "fresh", summary: "Closed candle trend", closedAt: 1_700_000_000_000 })),
+      readiness: { state: "watch", label: "Waiting", summary: "Observe the close", observational: true, steps: [{ label: "Retest support", state: "waiting" }] },
+      trigger: { price: 1.105, direction: "above", timeframe: "15m", condition: "Close above the zone", confirmed: false },
+      invalidation: { price: 1.1, direction: "below", condition: "Close below support" },
+      stale: false, closed: false, source: "Closed candle structure", execute: { qty: 10 }, instruction: "Place an order",
+    },
+  };
+  const clean = atlasContext({ result: { kind: "floor", data } });
+  const read = (clean.result?.data as { marketRead: typeof data.marketRead }).marketRead;
+  assert.equal(read.flow.length, 6);
+  assert.equal(read.flow[5].tf, "5m");
+  assert.equal(read.support.roleReversed, true);
+  assert.equal(read.trigger.confirmed, false);
+  assert.equal(read.crossedLevel.zone.origin, "resistance");
+  assert.equal(read.crossedLevel.confirmation, "live");
+  assert.equal(read.readiness.observational, true);
+  assert.equal(read.readiness.steps[0].state, "waiting");
+  assert.equal("execute" in read, false);
+  assert.equal("instruction" in read, false);
+  assert.equal(latestAppVoiceContext([{ role: "tool", content: appVoiceContextUpdate(clean).text }], {}).result?.kind, "floor");
+});
+
 test("app voice scope is bound to the real session token and cannot be forged by a surface string", () => {
   const token = "opaque-test-session", secret = "test-only-signing-key";
   const claim = signAppVoiceSurface(token, secret);
@@ -93,6 +125,10 @@ test("product help and tool proposals use no model and load no market or account
   assert.ok(answer.ok);
   if (answer.ok) { assert.equal(answer.usedModel, false); assert.equal(answer.actions[0]?.type, "plays"); assert.match(answer.reply, /3 credits/); }
   assert.ok(atlasHelpReply("What is GENX?"));
+  const atlas = atlasHelpReply("Generate an Atlas gold signal");
+  assert.match(atlas?.reply ?? "", /actual Atlas gold engine/);
+  assert.match(atlas?.reply ?? "", /XAU\/USD only/);
+  assert.deepEqual(atlas?.actions, [{ type: "navigate", destination: "command-center" }]);
   assert.ok(atlasHelpReply("What is GENX?", [], { result: { kind: "plays", data: { symbol: "EURUSD" } } }), "background result context does not turn product help into a paid answer");
   assert.equal(atlasHelpReply("What is my balance?"), null, "personal figures are read rather than answered as product help");
 });

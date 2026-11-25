@@ -31,11 +31,19 @@ const GENX = /\bgen\s*x\b/i;
 const PULSE = /\b(market pulse|pulse|scan (the )?markets?)\b/i;
 const OPEN = /\b(open|show|take me|go to|switch to|bring up)\b/i;
 
+/** An explicit request for Atlas's engine must not be silently substituted with GENX or OM AI Plays. */
+export function asksAtlasCommandSignal(message: string): boolean {
+  return RUN.test(message) && /\b(atlas|command cent(?:er|re))\b/i.test(message)
+    && /\b(signal|setup|idea|trade)\b/i.test(message) && !GENX.test(message) && !PLAYS.test(message)
+    && !/^(?:please\s+)?(?:don't|do not|never|cancel)\b/i.test(message.trim());
+}
+
 function direct(message: string): AtlasAction[] {
   const s = message.trim();
   if (/^(?:please\s+)?(?:don't|do not|never|cancel)\b/i.test(s)) return [];
   const td = marketIn(s) ?? undefined, style = styleIn(s) ?? undefined;
   const actions: AtlasAction[] = [];
+  if (asksAtlasCommandSignal(s)) return [{ type: "navigate", destination: "command-center" }];
   if (RUN.test(s)) {
     if (PLAYS.test(s) || (!GENX.test(s) && td !== "XAU/USD" && /\b(signal|setup|trade|analy[sz]e)\b/i.test(s))) actions.push({ type: "plays", td, style });
     if (GENX.test(s) || (!PLAYS.test(s) && /\b(gold|xau\/?usd)\b/i.test(s) && /\b(analy[sz]e|read|setup|signal|trade)\b/i.test(s))) actions.push({ type: "genx", mode: /\bquick\b|\bscalp/i.test(s) ? "quick" : style === "intraday" || style === "swing" ? style : undefined });

@@ -6,7 +6,7 @@ import { CREDIT_COST } from "@/lib/creditConfig";
 import { CC_PASS_COST, CC_PASS_MS } from "@/lib/ccPass";
 import { callAtlasModel } from "../../../command-center/brain/askAtlas";
 import { platformGuide, platformReply, platformTopic, asksMarket } from "../../../command-center/brain/platform";
-import { atlasMessages, planAtlasActions } from "./actions";
+import { asksAtlasCommandSignal, atlasMessages, planAtlasActions } from "./actions";
 import type { AtlasAction, AtlasContext, AtlasMessage, AtlasReply } from "./types";
 import { atlasContext } from "./context";
 export { atlasContext } from "./context";
@@ -16,6 +16,10 @@ const LINK = (destination: "floor" | "plays" | "genx" | "pulse" | "flow" | "cred
 
 /** Product help and proposed tools are free. A proposal is never a claim that the tool has run. */
 export function atlasHelpReply(message: string, history: AtlasMessage[] = [], context?: AtlasContext): AtlasReply | null {
+  if (asksAtlasCommandSignal(message)) return {
+    reply: `Use Generate Atlas signal in the main market snapshot with Gold selected, or open Command Center below. That runs the actual Atlas gold engine. It requires an open ${CC_PASS_COST}-credit, ${CC_PASS_MS / 60_000}-minute Command Center window; generation is included. Atlas signals currently cover XAU/USD only. I have not generated a signal or placed a trade from this conversation.`,
+    actions: [LINK("command-center")],
+  };
   const actions = planAtlasActions(message, history);
   if (actions.length) {
     const parts = actions.map((a) => {
@@ -35,7 +39,7 @@ export function atlasHelpReply(message: string, history: AtlasMessage[] = [], co
   if (topic === "atlas" || topic === "overview" || topic === "floor") {
     return { reply: "I'm Atlas, your assistant across One Mission. We can talk here while you stay in the app. I can explain a result, prepare an OM AI Play, run a GENX gold read or scan Market Pulse after you tap the tool's priced button, and help you find FLOW and your account controls. Command Center remains the separate gold specialist, with its own chart, live read and trading controls. GENX's record is the engine's; your FLOW results belong to your selected account.", actions: [LINK("tools"), LINK("flow")] };
   }
-  if (topic === "generate_atlas") return { reply: "Command Center's own gold idea is generated in Command Center. Here I can prepare a GENX gold read or an OM AI Play, and keep its result in this conversation.", actions: [{ type: "genx" }, { type: "plays", td: "XAU/USD" }, LINK("command-center")] };
+  if (topic === "generate_atlas") return { reply: "Use Generate Atlas signal on the main market snapshot with Gold selected, or open Command Center. Both use Command Center’s own gold engine and its access window. This conversation has not generated a signal or placed a trade.", actions: [LINK("command-center")] };
   if (topic === "credits") return { reply: `OM AI Plays: ${CREDIT_COST.signal} credits per generated play. GENX: ${CREDIT_COST.genx} credits when a read returns a chargeable plan. Both are included with the FLOW Pass. Market Pulse: ${CREDIT_COST.scan} credits per scan. An AI answer here: ${CREDIT_COST.chat} credit after it succeeds; product help and preparing tool cards are free. Voice uses your existing subscribed minutes, with no extra chat-credit charge per turn. Command Center retains its separate ${CC_PASS_COST}-credit, ${CC_PASS_MS / 60_000}-minute window.`, actions: [LINK("credits")] };
   const answer = platformReply(topic, message, COSTS);
   const destinations: Record<string, "plays" | "genx" | "pulse" | "flow" | "credits"> = { plays: "plays", first_play: "plays", genx: "genx", pulse: "pulse", flow: "flow", connect: "flow", credits: "credits", results: "flow", open_in_flow: "plays" };
