@@ -19,6 +19,9 @@ import { actionWords, convictionWords, holdWords, stepWords, streakOf } from "@/
 import { ProductIcon } from "@/components/om/ProductIcon";
 import { MobileSection } from "@/components/om/MobileSection";
 import { openAtlas } from "@/lib/atlas/open";
+import { useExperienceMode } from "@/components/om/experience";
+import { SimpleGenxRead, SimpleGenxLevels } from "./SimpleGenxRead";
+import "./genx-workspace.css";
 
 /**
  * GENX, IN THE TRADING PLATFORM'S SHELL (owner 11-20 brief §8: "a focused gold workstation").
@@ -115,6 +118,7 @@ export function readLevels(g: GenxRead, subject: "main" | "scalp"): { levels: Ch
 
 export function GenxHome(p: GenxHomeProps) {
   const { read, saved } = p;
+  const { isSimple, setMode: setExperience } = useExperienceMode();
   const mode: FloorMode = p.mode === "intraday" || p.mode === "swing" ? p.mode : "quick";
   const [now, setNow] = useState(0);
   const [subject, setSubject] = useState<"main" | "scalp">("main");
@@ -122,6 +126,7 @@ export function GenxHome(p: GenxHomeProps) {
 
   // A new read, or a saved one, starts on its main setup.
   useEffect(() => { setSubject("main"); setWhy(false); }, [read]);
+  useEffect(() => { if (!isSimple) setWhy(true); }, [isSimple, read]);
   useEffect(() => { setNow(Date.now()); const t = setInterval(() => setNow(Date.now()), 15_000); return () => clearInterval(t); }, []);
 
   // ── gold now, and GENX's shared state for this horizon: free, the same answer The Floor reads ──
@@ -187,15 +192,17 @@ export function GenxHome(p: GenxHomeProps) {
     ? { levels: readMarks.levels.filter((level) => level.kind === "support" || level.kind === "resistance"), zone: null }
     : chartReference ? { ...readMarks, levels: readMarks.levels.map((level) => level.kind === "entry" || level.kind === "stop" || level.kind === "target"
         ? { ...level, label: `Reference ${level.label.toLowerCase()}` } : level) } : readMarks;
+  const simpleTarget = subject === "scalp" && read?.scalp ? read.scalp.target : read?.tp1;
+  const displayedMarks = isSimple && read ? marks.levels.filter((level) => level.kind !== "target" || level.price === simpleTarget) : marks.levels;
   const shut = now > 0 && !isOpen("metal", now);
   const horizon = MODES.find((m) => m.id === mode)!;
   const tf = chart.tf;
   const liveAt = typeof live?.asOf === "string" ? live.asOf : null;
-  const liveAtMs = liveAt ? Date.parse(liveAt) : NaN;
   const readIso = p.readAt ?? saved?.at ?? null;
   const fresh = chart.snapshot ? `${chart.priceFrom === "candle" ? "Last saved candle" : "At generation"} · ${whenText(readIso)}`
     : shut ? "Gold is closed · this is the last price before the close"
-      : liveAt ? `Gold now · updated ${ageText(liveAt, now)}` : liveFailed ? "Gold's price could not be read just now" : "";
+      : liveFailed ? "Market refresh failed · the last recorded chart is retained"
+        : liveAt ? `Market read · fetched ${ageText(liveAt, now)}` : "";
   // The generated read remains a snapshot even if the free market data or horizon selector changes.
   const chartKey = chart.snapshot ? `XAUUSD:read:${readIso ?? "undated"}:${tf.interval}:${subject}` : `XAUUSD:${mode}`;
   const sharedRead = live?.g && typeof live.g === "object" ? live.g as Partial<GenxRead> : null;
@@ -232,12 +239,12 @@ export function GenxHome(p: GenxHomeProps) {
           <div className="om-product-copy">
             <p className="om-product-kicker">Gold intelligence</p>
             <h1 className="om-title">GENX</h1>
-            <p className="om-sub">Read gold&rsquo;s structure, follow the setup, and review the engine&rsquo;s record.</p>
+            <p className="om-sub">{isSimple ? "See gold’s direction, the entry price and what to wait for." : "Read gold’s structure, follow the setup, and review the engine’s record."}</p>
           </div>
         </div>
         <div className="om-genx-go">
           <div className="om-seg" role="group" aria-label="Horizon">
-            {MODES.map((m) => <button key={m.id} type="button" aria-pressed={mode === m.id} onClick={() => p.setMode(m.id)} title={m.sub}>{m.label}</button>)}
+            {MODES.map((m) => <button key={m.id} type="button" aria-pressed={mode === m.id} onClick={() => p.setMode(m.id)} title={m.sub}>{isSimple ? m.id === "quick" ? "Short term" : m.id === "intraday" ? "Today" : "Longer term" : m.label}</button>)}
           </div>
           <button type="button" className="om-btn" onClick={p.analyze} disabled={p.loading}>
             {p.loading && <Loader2 className="animate-spin" aria-hidden="true" />}
@@ -247,14 +254,17 @@ export function GenxHome(p: GenxHomeProps) {
         </div>
       </header>
 
-      <VisionDirection product="GENX" bias={visionBias}
-        eyebrow="ONE MISSION · GOLD SIGNAL ENGINE" status={saved?"SAVED READ":shut?"MARKET CLOSED":read?"SIGNAL ANALYSIS":"LIVE MARKET CONTEXT"}
+      {isSimple && <SimpleGenxRead market={subject === "scalp" ? "Gold · scalp" : "Gold · XAU/USD"} action={read?.action} bias={seen?.directional_bias}
+        quote={price} dec={2} snapshot={chart.snapshot} summary={subject === "scalp" ? read?.scalp?.reason : read?.market_story?.[0]}
+        headline={subject === "scalp" && read?.scalp ? (read.scalp.side === "buy" ? "Buy scalp plan" : "Sell scalp plan") : undefined}/>}
+      {!isSimple && <VisionDirection product="GENX" bias={visionBias}
+        eyebrow="ONE MISSION · GOLD SIGNAL ENGINE" status={saved?"SAVED READ":shut?"MARKET CLOSED":read?"SIGNAL ANALYSIS":liveFailed?"REFRESH NEEDED":"MARKET CONTEXT"}
         quote={price} quoteLabel={chart.snapshot?"AT GENERATION":shut?"LAST PRICE":"MARKET READ"}
         score={fin(seen?.confidence_score)?seen.confidence_score:null}
         scoreName="ENGINE SCORE"
         tagline={read&&action?.waiting?"DIRECTIONAL LEAN · ENTRY NOT CONFIRMED":
           read?"GENX SIGNAL · REVIEW TRADE LEVELS":"WATCHING GOLD · RUN GENX TO ANALYZE"}
-        facts={visionFacts} note={read&&action?.waiting?"A directional bias is not an order. The engine's trigger must still confirm.":undefined}/>
+        facts={visionFacts} note={read&&action?.waiting?"A directional bias is not an order. The engine's trigger must still confirm.":undefined}/>}
       {p.err && <p className="om-flow-err" role="alert">{p.err}</p>}
 
       {saved && (
@@ -272,18 +282,20 @@ export function GenxHome(p: GenxHomeProps) {
           </div>}
           {chart.bars.length >= 2 ? <VisionChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={tf.ms}
             timeframe={tf.label} dec={2} symbol="XAU/USD" price={price}
-            priceLive={!chart.snapshot&&!shut&&Number.isFinite(liveAtMs)&&now-liveAtMs<120_000}
-            snapshot={chart.snapshot} levels={marks.levels} zone={marks.zone}
+            priceLive={false}
+            snapshot={chart.snapshot} levels={displayedMarks} zone={marks.zone}
             direction={chartSide==="buy"?"buy":chartSide==="sell"?"sell":visionBias}
             reference={!read || chartReference} viewKey={chartKey}
             title="GENX gold candle chart and conditional trade levels"/> :
             <p className="om-empty">Verified candle snapshot unavailable for this read.</p>}
-          {read && <VisionLevels entry={subject==="scalp"&&read.scalp?read.scalp.entry:read.entry}
+          {read && isSimple && <SimpleGenxLevels entry={subject==="scalp"&&read.scalp?read.scalp.entry:read.entry}
+            stop={subject==="scalp"&&read.scalp?read.scalp.stop:read.stop_loss} target={simpleTarget} dec={2} reference={chartReference||!!saved}/>}
+          {read && !isSimple && <VisionLevels entry={subject==="scalp"&&read.scalp?read.scalp.entry:read.entry}
             stop={subject==="scalp"&&read.scalp?read.scalp.stop:read.stop_loss}
             targets={subject==="scalp"&&read.scalp?[read.scalp.target]:[read.tp1,read.tp2,read.tp3]}
             symbol="XAUUSD" rr={subject==="scalp"&&read.scalp?read.scalp.rr:null}
             reference={chartReference||!!saved&&shut}/>}
-          {read && subject==="main" && <details className="om-vision-genx-steps">
+          {read && subject==="main" && <details className="om-vision-genx-steps" hidden={isSimple}>
             <summary>Projected sequence · triggers and invalidation</summary>
             <Steps g={read} price={price} older/>
           </details>}
@@ -307,8 +319,10 @@ export function GenxHome(p: GenxHomeProps) {
         </aside>
       </div>
 
+      {isSimple && <button type="button" className="om-simple-detail-link" onClick={() => setExperience("advanced")}>See the full analysis in Advanced</button>}
+
       {read && (
-        <section className="om-panel om-genx-why">
+        <section className="om-panel om-genx-why" hidden={isSimple}>
           <button type="button" className="om-disclose" aria-expanded={why} onClick={() => setWhy((w) => !w)}>
             <span><b>View analysis</b><span className="om-label">What it sees in the market, why it likes the setup, and what to watch.</span></span>
             <ChevronDown aria-hidden="true" />
@@ -317,14 +331,16 @@ export function GenxHome(p: GenxHomeProps) {
         </section>
       )}
 
+      <details className="om-genx-saved-block" open={!isSimple}><summary className="om-simple-detail-link">Your reads and tracked setups</summary>
       <MobileSection title="Your reads" meta={p.plays.length || undefined}>
       <div className="om-genx-mine">
         <Reads plays={p.plays} open={p.openPlay} current={saved?.at ?? null} now={now} />
         <TrackedList tracked={p.tracked} untrack={p.untrack} Confirm={p.Confirm} now={now} />
       </div>
       </MobileSection>
+      </details>
 
-      <div className="om-genx-results">
+      <div className="om-genx-results" hidden={isSimple}>
         <GenxCard ov={ov} state={ovState} failed={ovFailed} period={gp} onPeriod={pickPeriod} />
         <MobileSection title="Trade history"><History ov={ov} period={gp} /></MobileSection>
       </div>
@@ -382,6 +398,7 @@ function ReadLevels({ g, subject, saved }: { g: GenxRead; subject: "main" | "sca
 
 /** Confirmation checks and explanatory conditions stay below the read's chart. */
 function Decision({ p, g, subject }: { p: GenxHomeProps; g: GenxRead; subject: "main" | "scalp" }) {
+  const setup = useMemo(() => p.setupOf(g), [g, p.setupOf]);
   if (subject === "scalp" && g.scalp) return (
     <div className="om-genx-decision">
       <p className="om-label">{g.scalp.reason}</p>
@@ -392,7 +409,7 @@ function Decision({ p, g, subject }: { p: GenxHomeProps; g: GenxRead; subject: "
   const plan = fin(g.entry) && fin(g.stop_loss);
   return (
     <div className="om-genx-decision">
-      {!p.saved && <p.Confirm setup={p.setupOf(g)} />}
+      {!p.saved && <p.Confirm key={`${p.readAt}:${g.mode}:${g.entry}:${g.stop_loss}`} setup={setup} />}
       <dl className="om-kv">
         {g.trigger_condition && <div className="om-kv-wide"><dt>Waiting for</dt><dd>{g.trigger_condition}</dd></div>}
         {g.invalidation_reason && <div className="om-kv-wide"><dt>Cancelled if</dt><dd>{g.invalidation_reason}</dd></div>}

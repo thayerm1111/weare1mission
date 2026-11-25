@@ -11,6 +11,7 @@ import {
   type AtlasCommandAccess, type AtlasCommandSignalResult,
 } from "@/lib/atlas/commandSignal";
 import "./atlas-command-signal.css";
+import { useExperienceMode } from "@/components/om/experience";
 
 /** No generation or credit purchase occurs on mount, market change, or response refresh. */
 export function useAtlasCommandSignal({ symbol, disabled = false }: { symbol: string; disabled?: boolean }) {
@@ -39,25 +40,35 @@ export function useAtlasCommandSignal({ symbol, disabled = false }: { symbol: st
     inFlight.current = true;
     const id = ++sequence.current;
     const controller = new AbortController(); abort.current = controller;
-    const isCurrent = () => mounted.current && sequence.current === id && current.current.symbol === requested.symbol && !current.current.disabled;
+    const ownsRequest = () => mounted.current && sequence.current === id && current.current.symbol === requested.symbol && !current.current.disabled;
+    const isCurrent = () => ownsRequest() && !controller.signal.aborted;
+    const deadline = setTimeout(() => controller.abort(), 45_000);
     setBusy(true); setError(null); setResult(null); setAccess(null);
     try {
       if (purchaseWindow) {
-        await openAtlasCommandWindow();
+        await openAtlasCommandWindow({ signal: controller.signal });
         window.dispatchEvent(new Event("credits-updated"));
+        if (ownsRequest() && controller.signal.aborted) throw new Error("Request timed out");
         if (!isCurrent()) return;
       }
       const next = await requestAtlasCommandSignal(requested.symbol, { signal: controller.signal, isCurrent });
+      // The adapter may return null when an aborted response body loses ownership.
+      // A deadline on this still-selected request must leave visible retry feedback.
+      if (ownsRequest() && controller.signal.aborted) throw new Error("Request timed out");
       if (next && isCurrent()) setResult(next);
     } catch (err) {
-      if (!isCurrent()) return;
-      setError(err instanceof AtlasCommandSignalError ? err.message : "The Command Center could not be reached. Check your connection and try again.");
-      if (err instanceof AtlasCommandSignalError && err.code === "pass_required") {
+      if (!ownsRequest()) return;
+      setError(controller.signal.aborted ? (purchaseWindow
+        ? "The request timed out. Check your Command Center window and credit balance before trying to open it again."
+        : "The market read took too long. Try Generate again.") : err instanceof AtlasCommandSignalError ? err.message : "The Command Center could not be reached. Check your connection and try again.");
+      if (!controller.signal.aborted && err instanceof AtlasCommandSignalError && err.code === "pass_required") {
         const gate = await loadAtlasCommandAccess({ signal: controller.signal }).catch(() => null);
         if (isCurrent()) setAccess(gate);
+        else if (ownsRequest() && controller.signal.aborted) setError("The access check took too long. Try Generate again to check your window.");
       }
     } finally {
-      if (isCurrent()) { inFlight.current = false; setBusy(false); }
+      clearTimeout(deadline);
+      if (ownsRequest()) { inFlight.current = false; setBusy(false); }
     }
   }, []);
   const generate = useCallback(() => run(false), [run]);
@@ -74,6 +85,7 @@ const time = (value: number) => new Date(value).toLocaleString([], { month: "sho
 
 /** The real Atlas call is reviewable here. Trading stays in the existing consent-protected Command Center. */
 export function AtlasCommandSignalPanel({ controller }: { controller: AtlasCommandSignalController }) {
+  const { isSimple } = useExperienceMode();
   const { result, busy, error, access, clear } = controller;
   const idea = result?.idea;
   const chart = useMemo(() => idea ? atlasIdeaChart(idea) : null, [idea]);
@@ -107,7 +119,8 @@ export function AtlasCommandSignalPanel({ controller }: { controller: AtlasComma
         <p className="om-atlas-command-trigger">{idea.entry!.text}</p>
       </>}
       {chart && chart.bars.length > 0 && <SignalFocusChart {...chart} priceLive={false} label="Atlas Command Center gold call, with its saved five-minute candles" />}
-      <div className="om-atlas-command-reason">{idea.reasoning.split(/\n\n+/).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>
+      {isSimple ? <details className="om-atlas-command-simple-reason"><summary>Why this setup?</summary>{idea.reasoning.split(/\n\n+/).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</details>
+        : <div className="om-atlas-command-reason">{idea.reasoning.split(/\n\n+/).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>}
       {idea.waitingFor.length > 0 && <p className="om-atlas-command-condition"><b>Waiting for</b>{idea.waitingFor.join(" · ")}</p>}
       {idea.invalidation?.text && <p className="om-atlas-command-condition"><b>Invalidation</b>{idea.invalidation.text}</p>}
       {idea.confirmations.length > 0 && <details className="om-atlas-command-checks"><summary>View the engine’s confirmations<ChevronRight size={15} aria-hidden="true" /></summary><ul>{idea.confirmations.map((check, index) => <li key={index} data-confirmed={check.ok}><Check size={14} aria-hidden="true" /><span>{check.label}{check.detail && <small>{check.detail}</small>}</span></li>)}</ul></details>}

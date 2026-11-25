@@ -55,6 +55,10 @@ function harness(props, component = "PlayBreakdown") {
       if (name === "@/lib/plays/lifecycle") return load(path.join(ROOT, "src/lib/plays/lifecycle.ts"));
       if (name === "./PlayBreakdown") return load(path.join(ROOT, "src/components/om/plays/PlayBreakdown.tsx"));
       if (name === "@/components/om/chart/OmChart") return { OmChart: "OmChart" };
+      if (name === "@/components/om/vision/VisionChart") return { VisionChart: "VisionChart" };
+      if (name === "@/components/om/vision/VisionDirection") return { VisionDirection: "VisionDirection", VisionLevels: "VisionLevels" };
+      if (name === "@/components/om/experience") return { useExperienceMode: () => ({ mode: "advanced", isSimple: false }) };
+      if (name === "@/lib/atlas/chart") return { atlasPlayChart: () => ({ bars: [], known: false, dec: 2, tfMs: 900000, tfLabel: "15m", viewKey: "saved-play" }) };
       if (name === "@/lib/chart/candleTime") return { timedBars: () => ({ bars: [], known: false }) };
       if (name === "@/lib/flow/display") return { priceFor: (_symbol, value) => value == null ? "—" : String(value) };
       throw new Error("Unexpected breakdown dependency: " + name);

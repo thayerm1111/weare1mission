@@ -13,6 +13,7 @@ import {
 } from "@/lib/floor/overview";
 import { lotsText, pairName, priceFor } from "@/lib/flow/display";
 import { MobileSection } from "@/components/om/MobileSection";
+import { useExperienceMode } from "@/components/om/experience";
 
 /**
  * FLOW, IN THE TRADING PLATFORM'S SHELL (owner 11-20 brief §9: "Lead with the account experience").
@@ -58,6 +59,7 @@ export function FlowHome({ find }: { find: React.ReactNode }) {
 }
 
 function FlowHomeView({ find, account }: { find: React.ReactNode; account: FlowAccountValue }) {
+  const { isSimple } = useExperienceMode();
   const { ov, state: ovState, failed, switching, flowPeriod: fp, setFlowPeriod: period, hide, now, refresh } = account;
   const [tab, setTab] = useState<Tab>("positions");
   const [manage, setManage] = useState<ManageView>(null);
@@ -96,7 +98,7 @@ function FlowHomeView({ find, account }: { find: React.ReactNode; account: FlowA
       <header className="om-ws-head">
         <div>
           <h1 className="om-title">FLOW</h1>
-          <p className="om-sub">Your accounts, trade history and execution controls.</p>
+          <p className="om-sub">{isSimple ? "Your account. Your open trades. Your controls." : "Your accounts, trade history and execution controls."}</p>
         </div>
         <div className="om-flow-acts">
           <a href="#flow-find" className="om-btn-quiet" onClick={toFind}><Search aria-hidden="true" width={15} height={15} />Find a trade</a>
@@ -113,7 +115,7 @@ function FlowHomeView({ find, account }: { find: React.ReactNode; account: FlowA
 
       <MobileSection title="Find a trade" expanded={findOpen} onExpanded={setFindOpen}>{find}</MobileSection>
 
-      <MobileSection title="FLOW engine record"><FlowTrackRecord /></MobileSection>
+      <MobileSection title="FLOW engine record" className="om-flow-engine-history"><FlowTrackRecord /></MobileSection>
     </div>
   );
 }

@@ -77,6 +77,7 @@ function harness(relative = "src/components/om/atlas/AtlasProvider.tsx", name = 
     "@/components/command-center/voiceBus": { appVoiceBus: bus, voiceBus: { get: () => ({ status: "idle" }), end() {} }, useAppVoiceBus: () => voice, lineOpen: (s) => ["connecting", "awaiting_mic", "listening", "speaking", "muted"].includes(s) },
     "@/components/om/FlowAccount": { useFlowAccount: () => ({ switching: false, ov: { account: { id: "owned-test-account", environment: "demo" } } }) },
     "@/components/om/ProductIcon": { ProductIcon: "ProductIcon" },
+    "@/components/om/experience": { useExperienceMode: () => ({ mode: options.mode ?? "advanced", isSimple: options.mode === "simple", setMode: (mode) => { options.mode = mode; dirty = true; } }) },
     "@/data/signalAssets": { findAsset, MARKETS: [{ id: "crypto", name: "Crypto", assets: [{ td: "BTC/USD", name: "Bitcoin", symbol: "BTC/USD" }] }] },
     "@/lib/atlas/open": { ATLAS_OPEN_EVENT: "om:atlas:open", ATLAS_CONTEXT_EVENT: "om:atlas:context", openAtlas: (detail = {}) => { atlasRequests.push(detail); window.dispatchEvent({ type: "om:atlas:open", detail }); }, updateAtlasContext: (key, context) => marketUpdates.push({ key, context }) },
     "@/lib/atlas/actions": { atlasMessages: (m) => m.map(({ role, content }) => ({ role, content })), normalizeAtlasActions: (a) => Array.isArray(a) ? a : [], planAtlasActions: () => [] },
@@ -156,10 +157,10 @@ function mainSnapshot(symbol = "XAUUSD") {
   });
   return buildAtlasMarketSnapshot({ symbol, now: SNAPSHOT_NOW, marketOpen: true, frames: { "15m": { bars, fetchedAt: SNAPSHOT_NOW, timeKnown: true } } });
 }
-function mainDesk() {
+function mainDesk(mode = "advanced") {
   return harness("src/components/om/floor/AtlasLiveDesk.tsx", "AtlasLiveDesk", {
     goldSetup: null, goldFailed: false, atlasRead: null, sample: false, tf: "intraday", onTf() {},
-  }, "", { now: SNAPSHOT_NOW });
+  }, "", { now: SNAPSHOT_NOW, mode });
 }
 function mainTick(symbol, price, age = 1000) {
   const at = new Date(SNAPSHOT_NOW - age).toISOString();
@@ -240,6 +241,54 @@ test("switching the main desk to FX updates Explain and voice context while keep
   assert.equal(h.mainGenerations.length + h.tools.length + h.windowPurchases.length, 0);
   assert.ok(h.requests.every((r) => r.url.startsWith("/api/floor/") && (!r.init?.method || r.init.method === "GET")), "Market selection and conversation intent have no generation, purchase or trade side effects");
   h.unmount();
+});
+
+test("a failed Atlas refresh stays suspended through retry and market switches until that market receives a verified success", async () => {
+  for (const mode of ["simple", "advanced"]) {
+    const h = mainDesk(mode), snapshot = mainSnapshot();
+    const latest = (symbol) => h.requests.filter((r) => r.url === "/api/floor/market-intelligence?symbol=" + symbol).at(-1);
+    const read = () => h.marketUpdates.at(-1).context.data.marketRead;
+    const select = (symbol) => {
+      const label = symbol === "XAUUSD" ? mode === "simple" ? "Gold" : "XAU/USD" : "EUR/USD";
+      const button = h.nodes((n) => n.type === "button" && n.props["aria-pressed"] !== undefined && content(n).includes(label))[0];
+      assert.ok(button); button.props.onClick(); h.render();
+    };
+    const suspended = () => {
+      assert.equal(read().stale, true, mode);
+      assert.equal(read().readiness.label, "Refresh needed");
+      for (const key of ["trigger", "activeZone", "crossedLevel", "alternative", "invalidation"]) assert.equal(read()[key], null, key);
+      assert.equal(read().readiness.steps.length, 0);
+      assert.equal(byClass(h, mode === "simple" ? "om-simple-watch-price" : "om-snapshot-trigger").length, 0);
+      assert.equal(h.nodes((n) => n.type === "OmChart")[0].props.bars.length, 65, "Keep the genuine recorded chart available");
+    };
+    answer(latest("XAUUSD"), snapshot);
+    answer(h.requests.find((r) => r.url === "/api/floor/atlas-ticks"), { ticks: [mainTick("XAU/USD", 4003), mainTick("EUR/USD", 1.1003)] });
+    await drain(); h.render();
+    assert.equal(read().stale, false);
+    assert.ok(read().trigger, "The starting fixture really has a current watch");
+
+    h.poll(30_000);
+    latest("XAUUSD").reject(new Error("Refresh unavailable"));
+    await drain(); h.render(); suspended();
+    h.button("Refresh market snapshot").props.onClick(); h.render();
+    const abandonedRetry = latest("XAUUSD");
+    suspended();
+
+    select("EURUSD");
+    answer(abandonedRetry, snapshot);
+    answer(latest("EURUSD"), mainSnapshot("EURUSD"));
+    await drain(); h.render();
+    assert.equal(h.marketUpdates.at(-1).context.data.symbol, "EURUSD");
+    assert.equal(read().stale, false, "The other market can recover independently");
+    select("XAUUSD"); suspended();
+    answer(latest("XAUUSD"), snapshot);
+    await drain(); h.render();
+    assert.equal(read().stale, false, "Only the active market's verified response clears its failure");
+    assert.ok(read().trigger);
+    assert.equal(h.mainGenerations.length + h.tools.length + h.windowPurchases.length, 0);
+    assert.ok(h.requests.every((r) => !r.init?.method || r.init.method === "GET"));
+    h.unmount();
+  }
 });
 
 test("Atlas opens in place, starts requested voice with context, and closing stops voice only", () => {

@@ -320,3 +320,41 @@
  .strata-vision-deep .strata-automation{margin:0 8px 9px}
  .strata-workstation .strata-footer{padding:0 6px}
 }
+
+/* Simple view keeps the plan and its safety conditions in the first reading path. */
+.strata-workstation[data-experience="simple"] .strata-simple-read{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:22px 18px;margin:0 0 12px;border:1px solid var(--st-edge);border-radius:18px;background:var(--om-page)}
+.strata-simple-read>div{min-width:0}
+.strata-simple-read h2{margin:8px 0 0;font-size:clamp(24px,3vw,36px);line-height:1.15;letter-spacing:-.035em}
+.strata-simple-read p{margin:10px 0 0;font-size:14px;line-height:1.6;color:var(--om-text-2);max-width:62ch}
+.strata-simple-price{display:grid;gap:5px;flex-shrink:0;text-align:right}
+.strata-simple-price small{font-size:11px;color:var(--om-text-2);line-height:1.4}
+.strata-simple-price strong{font-size:30px;font-weight:600;letter-spacing:-.04em;color:var(--om-text)}
+.strata-workstation[data-experience="simple"] .strata-setup{padding:10px 4px}
+.strata-workstation[data-experience="simple"] .strata-vision-setup-top .strata-kicker{font-size:10px;letter-spacing:.06em}
+.strata-workstation[data-experience="simple"] .strata-vision-setup-top h2{font-size:22px}
+.strata-workstation[data-experience="simple"] .strata-vision-setup-state{font-size:11px;letter-spacing:.03em;line-height:1.4;white-space:normal}
+.strata-workstation[data-experience="simple"] .strata-levels{gap:8px;margin-top:14px}
+.strata-workstation[data-experience="simple"] .strata-levels small{font-size:10px;letter-spacing:.04em}
+.strata-workstation[data-experience="simple"] .strata-levels strong{font-size:20px}
+.strata-workstation[data-experience="simple"] .strata-levels-note{margin:9px 0 0;font-size:12px;line-height:1.5}
+.strata-simple-next{margin-top:14px;background:var(--om-page)}
+.strata-simple-next p{margin:0;font-size:14px;line-height:1.6}
+.strata-simple-next p+p{margin-top:8px}
+.strata-workstation[data-experience="simple"] .strata-vision-generate{font-size:16px!important;letter-spacing:0}
+.strata-workstation[data-experience="simple"] .strata-vision-result-note{font-size:12px;line-height:1.5}
+.strata-simple-paper{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:14px;padding:16px;border:1px solid var(--st-edge);border-radius:15px;background:var(--om-page)}
+.strata-simple-paper>div{flex:1 1 270px;min-width:0}
+.strata-simple-paper strong{font-size:15px}
+.strata-simple-paper p{margin:6px 0 0;color:var(--om-text-2);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.strata-simple-paper .strata-paper-action{width:auto;min-height:44px;margin:0;padding:10px 15px}
+.strata-simple-paper>.strata-text-link{flex-basis:100%;min-height:32px}
+.strata-simple-paper>.strata-error{flex-basis:100%}
+@media(max-width:760px){
+ .strata-workstation[data-experience="simple"] .strata-simple-read{align-items:flex-start;flex-direction:column;gap:16px;padding:18px 14px;margin:0 3px 12px}
+ .strata-simple-read h2{font-size:28px}.strata-simple-price{text-align:left;grid-template-columns:auto 1fr;column-gap:14px;align-items:baseline;width:100%}
+ .strata-simple-price strong{grid-row:1/3;grid-column:2;text-align:right;font-size:28px}
+ .strata-workstation[data-experience="simple"] .strata-levels{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .strata-workstation[data-experience="simple"] .strata-levels>div:last-child{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:10px 12px}
+ .strata-workstation[data-experience="simple"] .strata-levels>div:last-child small{margin:0}
+ .strata-simple-next{padding:14px}.strata-simple-paper{margin:12px 3px}.strata-simple-paper .strata-paper-action{width:100%}
+}

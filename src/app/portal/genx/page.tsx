@@ -4,17 +4,20 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
 import { GenxDesk } from "@/components/portal/floor/GenxDesk";
+import { GenxWorkspace } from "@/components/om/genx/GenxWorkspace";
 import { SHELL_COOKIE, wantsNextShell } from "@/lib/floor/nav";
 
 export const metadata = { title: "GENX" };
 export const dynamic = "force-dynamic";
 
-export default async function GenxPage() {
+export default async function GenxPage({ searchParams }: { searchParams?: { market?: string; pair?: string } }) {
   const supabase = createClient();
   if (!supabase) return <PortalNotConfigured />;
   // The redesign preview (admin only): the tool is the page, and says its own educational line at its foot.
   const profile = await getProfile();
-  if (wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile?.role === "admin", headers())) return <GenxDesk />;
+  if (wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile?.role === "admin", headers())) return <GenxWorkspace
+    initialMarket={searchParams?.market === "fx" ? "fx" : "gold"}
+    initialPair={searchParams?.pair === "EURUSD" || searchParams?.pair === "GBPJPY" ? searchParams.pair : undefined}/>;
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">

@@ -1,14 +1,21 @@
 import { AlertTriangle } from "lucide-react";
+import { cookies, headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/auth";
 import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
 import { GenFxDesk } from "@/components/portal/floor/GenFxDesk";
+import { GenxWorkspace } from "@/components/om/genx/GenxWorkspace";
+import { SHELL_COOKIE, wantsNextShell } from "@/lib/floor/nav";
 
-export const metadata = { title: "GEN FX" };
+export const metadata = { title: "GenX FX" };
 export const dynamic = "force-dynamic";
 
-export default function GenFxPage() {
+export default async function GenFxPage({ searchParams }: { searchParams?: { pair?: string } }) {
   const supabase = createClient();
   if (!supabase) return <PortalNotConfigured />;
+  const profile = await getProfile();
+  if (wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile?.role === "admin", headers())) return <GenxWorkspace
+    initialMarket="fx" initialPair={searchParams?.pair === "EURUSD" || searchParams?.pair === "GBPJPY" ? searchParams.pair : undefined}/>;
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">

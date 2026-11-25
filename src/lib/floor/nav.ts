@@ -5,7 +5,7 @@
  *   OM OS · OM AI Plays · GENX · Market Pulse · FLOW · Atlas
  *
  * Nothing else is a destination: no community, no courses, no events, no leaderboards. Account, credits,
- * support and sign-out live in the profile menu. Tools the platform no longer features (GEN FX, Cashtrap,
+ * support and sign-out live in the profile menu. GenX FX lives inside GENX. Other tools (Cashtrap,
  * MFXGHOST, AURIC, Rapid, the standalone OM AI) are simply not listed here — their pages, records and
  * workers are untouched, and a link straight to one still opens it.
  *
@@ -53,13 +53,13 @@ export function activeKey(pathname: string, view: string | null | undefined): Na
   const p = (pathname || "").replace(/\/+$/, "") || "/";
   if (p === "/command-center" || p.startsWith("/command-center/") || p.startsWith("/portal/command-center")) return "atlas";
   if (p === "/portal/signals" || p.startsWith("/portal/signals/")) return "plays";
-  if (p === "/portal/genx" || p.startsWith("/portal/genx/")) return "genx";
+  if (p === "/portal/genx" || p.startsWith("/portal/genx/") || p === "/portal/genfx" || p.startsWith("/portal/genfx/")) return "genx";
   if (p === "/portal/strata" || p.startsWith("/portal/strata/")) return "strata";
   if (p === "/portal/trading" || p === "/portal" || p === "/floor-preview") {
     const v = String(view ?? "").toLowerCase();
     if (v === "flow") return "flow";
     if (v === "pulse") return "pulse";
-    if (v === "genx") return "genx";
+    if (v === "genx" || v === "genfx") return "genx";
     if (v === "signals") return "plays";
     return "floor";
   }

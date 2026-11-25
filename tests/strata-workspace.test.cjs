@@ -41,7 +41,7 @@ function readyFixture(extra = {}) {
 }
 
 // Real workspace callbacks and pure generator; all network, clock and DOM effects are isolated.
-function harness() {
+function harness(experience = "advanced") {
   const filename = path.resolve(__dirname, "../src/components/om/strata/StrataWorkspace.tsx");
   const compiled = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
     compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true }, fileName: filename,
@@ -82,6 +82,7 @@ function harness() {
     if (name === "@/lib/strata/generate") return { generatePossibleEntry };
     if (name === "./StrataChart") return { StrataChart: "StrataChart" };
     if (name === "@/components/om/vision/VisionDirection") return { VisionDirection: "VisionDirection", VisionLevels: "VisionLevels" };
+    if (name === "@/components/om/experience") return { useExperienceMode: () => ({ mode: experience, isSimple: experience === "simple" }) };
     if (name.endsWith(".css")) return {};
     throw new Error(`Unexpected dependency: ${name}`);
   }, mod, mod.exports);
@@ -93,6 +94,7 @@ function harness() {
   const find = (predicate) => nodes(tree, predicate);
   return {
     render, requests, timers, atlas, scrolls, find,
+    experience(mode) { experience = mode; render(); },
     byClass: (name) => find((node) => String(node.props.className ?? "").split(/\s+/).includes(name)),
     generate: () => find((node) => node.type === "button" && String(node.props.className).includes("strata-generate-button"))[0],
     async reply(request, body, status = 200) { request.resolve({ ok: status >= 200 && status < 300, status, json: async () => body }); await drain(); render(); },
@@ -228,5 +230,53 @@ test("a failed feed refresh suspends current READY claims while retaining explic
   assert.match(text(h.byClass("strata-generated-result")[0]), /Confirmed by the standard engine when generated.*Captured/);
   assert.equal(h.find((n) => n.type === "StrataChart")[0].props.snapshot, true);
   assert.equal(h.find((n) => n.type === "StrataChart")[0].props.selected, snapshot.idea.scenario, "A failed current feed does not rewrite the previously captured plan");
+  h.unmount();
+});
+
+test("Simple mode retains the actual generated plan and its cancel condition across mode switches without another request", async () => {
+  const h = harness("simple"), payload = generated();
+  assert.equal(h.find((n) => n.type === "VisionDirection").length, 0);
+  assert.match(text(h.generate()), /Generate a gold plan/);
+  h.generate().props.onClick(); h.render();
+  await h.reply(h.requests.find((r) => r.url === "/api/strata/generate"), payload);
+  const plan = payload.idea.scenario;
+  assert.match(text(h.byClass("strata-simple-next")[0]), new RegExp(plan.invalidation));
+  const levels = h.find((n) => typeof n.type === "function" && n.type.name === "PlanLevels")[0];
+  assert.equal(levels.props.plan, plan);
+  assert.match(text(levels.type(levels.props)), /STOP LOSS.*TARGET 01.*TARGET 02/);
+  const count = h.requests.length;
+  for (const mode of ["advanced", "simple", "advanced"]) {
+    h.experience(mode);
+    const chart = h.find((n) => n.type === "StrataChart")[0];
+    assert.equal(chart.props.selected, plan);
+    assert.equal(chart.props.bars, payload.state.bars);
+    assert.equal(chart.props.snapshot, true);
+  }
+  assert.equal(h.requests.length, count, "Presentation changes do not generate, charge, or enable automation");
+  assert.equal(h.find((n) => n.type === "VisionDirection").length, 1);
+  h.unmount();
+});
+
+test("Simple mode keeps stale-data warnings and an active simulation's stop control outside collapsed details", async () => {
+  const h = harness("simple");
+  await h.reply(h.requests.find((r) => r.url === "/api/strata"), fixture({ dataStale: true }));
+  assert.match(text(h.byClass("strata-simple-read")[0]), /Wait for fresh gold data/);
+  assert.match(text(h.byClass("strata-warning")), /stale.*disabled/);
+  await h.reply(h.requests.find((r) => r.url === "/api/strata/automation"), {
+    ok: true,
+    accounts: [{ accountId: "a", connectionId: "c", name: "Demo", masked: "1234", environment: "demo", connected: true, selected: true }],
+    settings: [{ account_id: "a", connection_id: "c", environment: "demo", mode: "paper", risk_pct: .25, max_entries_per_day: 2 }],
+    paper: [{ id: "p", account_id: "a", connection_id: "c", side: "buy", entry: 3600, stop: 3595, target: 3610, status: "open", opened_at: new Date(NOW).toISOString(), closed_at: null, exit_price: null }],
+  });
+  const strip = h.byClass("strata-simple-paper")[0];
+  assert.match(text(strip), /Paper automation is on.*Simulation only.*Stop.*Target/);
+  const stop = nodes(strip, (n) => n.type === "button")[0];
+  assert.match(text(stop), /Stop paper automation/);
+  assert.equal(stop.props.disabled, false);
+  assert.equal(h.requests.filter((r) => r.init?.method === "POST").length, 0);
+  stop.props.onClick(); h.render();
+  const change = h.requests.find((r) => r.url === "/api/strata/automation" && r.init?.method === "POST");
+  assert.equal(JSON.parse(change.init.body).mode, "off");
+  assert.ok(!h.requests.some((r) => /execute|broker/.test(r.url)));
   h.unmount();
 });

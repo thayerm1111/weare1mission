@@ -12,6 +12,7 @@ import "./connected-experience.css";
 import "./floor/om-os-dashboard.css";
 import "./os-dock.css";
 import "./os-themes.css";
+import "./experience.css";
 import { Suspense, useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -28,6 +29,7 @@ import { MobileViewport } from "./MobileViewport";
 import { AtlasProvider, useAtlasPanel } from "./atlas/AtlasProvider";
 import { openAtlas } from "@/lib/atlas/open";
 import { openWelcomeTutorial, WelcomeTutorial } from "./WelcomeTutorial";
+import { ExperienceContext, ExperienceSwitch, useExperiencePreference } from "./experience";
 
 /** The shared OS frame. Trading tools retain their own engines, permissions and requests. */
 export type ShellMember = { id?: string | null; name: string | null; email: string | null; admin: boolean };
@@ -173,6 +175,7 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
               <ProfileMenu member={member} configured={configured} preview={preview} asApp={asApp} onInstall={configured && offer ? install : undefined} look={look} onLook={onLook} />
             </div>
           </nav>
+          <div className="om-experience-bar"><span>WORKSPACE VIEW</span><ExperienceSwitch /><span className="om-experience-hint">Entries &amp; charts · Full analysis</span></div>
         </div>
       </div>
 
@@ -237,6 +240,7 @@ export function AppShell({ children, member, configured = true, preview = false,
   // The public site's header and footer step aside while this shell is on screen, and the member's look is put on.
   // (The same classes are set before first paint by SHELL_SCRIPT; this covers arriving without a reload.)
   const [look, setLook] = useState<Look>(DEFAULT_LOOK);
+  const experience = useExperiencePreference();
   useEffect(() => {
     const d = document.documentElement;
     d.classList.add("om-shell");
@@ -260,7 +264,8 @@ export function AppShell({ children, member, configured = true, preview = false,
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themeOf(l));
   }, []);
   return (
-    <div className={`om-app om-os${atlas ? " om-os-atlas" : ""}`}>
+    <ExperienceContext.Provider value={experience}>
+    <div className={`om-app om-os${atlas ? " om-os-atlas" : ""}`} data-experience={experience.mode}>
       <MobileViewport />
       <FlowAccountProvider configured={configured}>
       <AtlasProvider configured={configured} memberKey={member.email ?? member.name ?? "member"}>
@@ -278,5 +283,6 @@ export function AppShell({ children, member, configured = true, preview = false,
       </AtlasProvider>
       </FlowAccountProvider>
     </div>
+    </ExperienceContext.Provider>
   );
 }

@@ -5,7 +5,7 @@ import { Gem, Loader2, ChevronDown } from "lucide-react";
 import { CREDIT_COST } from "@/lib/creditConfig";
 import { GenxFlow, ConfirmHelp } from "./GenxFlow";
 import { useNextShell } from "@/components/om/shell";
-import { GenxHome } from "@/components/om/genx/GenxHome";
+import { GenxHome, type GenxRead } from "@/components/om/genx/GenxHome";
 import { atlasGenxResult, GENX_UPDATED_EVENT } from "@/lib/atlas/signals";
 
 /**
@@ -434,6 +434,7 @@ export function GenxDesk() {
     persist(tracked.filter((x) => x.id !== id));
     fetch(`/api/genx/tracked?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => { /* ignore */ });
   }
+  const homeSetupOf = useCallback((read: GenxRead) => setupFromGenx(read as Genx), []);
 
   // THE NEW SHELL (owner 11-20 brief §8): the same state and the same handlers, drawn as a gold workstation.
   if (next) {
@@ -444,7 +445,7 @@ export function GenxDesk() {
         saved={replay} backToCurrent={() => { setRes(null); setReplay(null); setErr(""); }}
         plays={plays} openPlay={(id) => void openPlay(id)}
         tracked={tracked} isTracked={isTracked} hasPlan={hasPlan} track={trackCurrent} untrack={untrack}
-        Confirm={LiveConfirm} setupOf={(x) => setupFromGenx(x as Genx)}
+        Confirm={LiveConfirm} setupOf={homeSetupOf}
       />
     );
   }

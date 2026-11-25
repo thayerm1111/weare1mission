@@ -90,8 +90,8 @@ export async function loadAtlasCommandAccess(options: RequestOptions = {}): Prom
 }
 
 /** Only called by the separate button displaying the server's price and window duration. */
-export async function openAtlasCommandWindow(options: Pick<RequestOptions, "fetcher"> = {}): Promise<AtlasCommandAccess> {
-  const response = await (options.fetcher ?? fetch)("/api/command-center/pass", { method: "POST" });
+export async function openAtlasCommandWindow(options: Pick<RequestOptions, "fetcher" | "signal"> = {}): Promise<AtlasCommandAccess> {
+  const response = await (options.fetcher ?? fetch)("/api/command-center/pass", { method: "POST", signal: options.signal });
   const raw: unknown = await response.json().catch(() => null);
   const access = accessOf(raw);
   if (response.status === 401) throw new AtlasCommandSignalError("unauthorized", "Sign in again before opening Command Center.");

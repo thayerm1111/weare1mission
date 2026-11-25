@@ -11,6 +11,7 @@ import { MarketPulse } from "./MarketPulse";
 import { FlowDesk } from "./FlowDesk";
 import { GenxDesk } from "./GenxDesk";
 import { GenFxDesk } from "./GenFxDesk";
+import { GenxWorkspace } from "@/components/om/genx/GenxWorkspace";
 import { OmAiChat } from "../OmAiChat";
 import { SignalGenerator } from "../SignalGenerator";
 import { FlowIntro } from "./FlowTour";
@@ -148,6 +149,7 @@ export function FloorWorkspace({ isCaller = false, followerCount = 0, bare = fal
   // workspace's dark frame and cream sheet (owner 11-20 brief): FLOW and Market Pulse.
   if (bare && tab === "flow") return <FlowDesk />;
   if (bare && tab === "pulse") return <MarketPulse />;
+  if (bare && (tab === "genx" || tab === "genfx")) return <GenxWorkspace initialMarket={tab === "genfx" ? "fx" : "gold"} />;
 
   const pillCls = "inline-flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors hover:bg-white/5";
   const pillStyle = (active: boolean) => (active ? { background: "rgba(34,211,238,0.14)", color: C.cyan } : { color: C.mut });
