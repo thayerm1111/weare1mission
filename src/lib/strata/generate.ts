@@ -7,7 +7,7 @@
  * the automatic readiness gate says "NO_SETUP"; doing so NEVER changes that
  * gate or the paper/real execution path.
  */
-import { validBars, pivotsOf, type Analysis, type Bar, type Direction, type Scenario } from "./engine";
+import { completedBars, pivotsOf, type Analysis, type Bar, type Direction, type Scenario } from "./engine";
 
 export type OpportunityTier = "ready" | "conditional" | "aggressive" | "none";
 export type GeneratedOpportunity = {
@@ -98,11 +98,18 @@ function trendCandidate(input: Input, bars: Bar[], side: Direction,
   const { analysis } = input, atr = analysis.atr;
   const direction = side === "buy" ? 1 : -1;
   const relevant = pivotsOf(bars.slice(-100)).filter((p) => p.side === (side === "buy" ? "high" : "low"));
-  const recentBars = bars.slice(-38, -1);
+  const recentBars = bars.slice(-38);
   if (!recentBars.length) return null;
-  // A confirmed 15m pivot is preferable; otherwise label an observed range extreme
-  // as a watch level, never as a confirmed pivot.
-  const recentPivot = relevant.at(-1);
+  const lastClose=bars.at(-1)!.c;
+  // A historical pivot already left behind by completed price action is not
+  // a new breakout trigger. Search usable pivots first instead of returning
+  // no plan because the most recent pivot is distant after a sustained move.
+  const recentPivot = relevant.filter(p => direction*(p.price-lastClose)>=0 &&
+    Math.abs(input.price-p.price)<=atr*7)
+    .sort((a,b) => Math.abs(input.price-a.price)-Math.abs(input.price-b.price) || b.t-a.t)[0];
+  // The fallback includes the newest completed candle. Its observed high/low
+  // may be the only current boundary after an orderly move with no new pivot;
+  // its provenance stays a range extreme, never a confirmed swing.
   const observed = side === "buy"
     ? Math.max(...recentBars.map((b) => b.h))
     : Math.min(...recentBars.map((b) => b.l));
@@ -143,16 +150,30 @@ function trendCandidate(input: Input, bars: Bar[], side: Direction,
   });
   return candidate ? {
     scenario: candidate, tier: aggressive ? "aggressive" : "conditional",
-    reasons: [trend + ": observed " + (side === "buy" ? "resistance" : "support") + " at " + fmt(level) + ".",
+    reasons: [trend + ": " + (recentPivot ? "confirmed 15m pivot" : "observed 15m range extreme") +
+      " at " + fmt(level) + " is the " + (side === "buy" ? "upside" : "downside") + " decision level.",
       "A break is NOT confirmed by this generated plan; wait for the break, retest, and acceptance close.",
-      "The stop is placed across the mapped level using recorded 15m volatility (ATR " + fmt(atr) + ")."],
+      "The stop is placed across the mapped level using recorded 15m volatility (ATR " + fmt(atr) + ").",
+      "Targets are 1.8R and 2.8R risk projections, not additional confirmed swing levels."],
   } : null;
 }
 
-function rangeCandidate(input: Input, side: Direction, aggressive: boolean):
+function brokenRangeReason(input: Input, bars: Bar[]): string | null {
+  const {high,low}=input.analysis.range;
+  if (!isValid(high) || !isValid(low) || high<=low || !bars.length) return null;
+  const close=bars.at(-1)!.c;
+  if (close<low || close>high)
+    return "The latest completed 15m candle is outside the recorded range. A range fade is no longer valid; wait for new structure or a confirmed retest.";
+  const buffer=Math.max(input.analysis.atr*.49,(high-low)*.055);
+  if (input.price<low-buffer || input.price>high+buffer)
+    return "The current quote has moved beyond the recorded range's invalidation. Wait for a completed candle and reassess the structure.";
+  return null;
+}
+
+function rangeCandidate(input: Input, bars: Bar[], side: Direction, aggressive: boolean):
   { scenario: Scenario; tier: OpportunityTier; reasons: string[] } | null {
   const { analysis } = input, atr = analysis.atr, hi = analysis.range.high, lo = analysis.range.low;
-  if (!isValid(lo) || !isValid(hi) || hi <= lo || hi - lo < atr * 1.7) return null;
+  if (!isValid(lo) || !isValid(hi) || hi <= lo || hi - lo < atr * 1.7 || brokenRangeReason(input,bars)) return null;
   const up = side === "buy", level = up ? lo : hi;
   // The center is the first price-action objective; no invented 2R target.
   const width = hi - lo;
@@ -200,11 +221,17 @@ function rangeCandidate(input: Input, side: Direction, aggressive: boolean):
 }
 
 export function generatePossibleEntry(input: Input): GeneratedOpportunity {
-  const bars = validBars(input.bars);
-  if (!input.analysis || !isValid(input.price) || !Number.isFinite(input.generatedAt) ||
-      bars.length < 75 || !isValid(input.analysis.atr) ||
-      !Number.isFinite(input.analysis.asOf)) {
+  if (!input.analysis || !isValid(input.price) || !isValid(input.generatedAt) ||
+      !isValid(input.analysis.atr) || !isValid(input.analysis.asOf)) {
     return none(input, "There is not enough verified market data to calculate a defensible entry.");
+  }
+  // A manually requested plan still uses the exact completed-candle snapshot
+  // behind the analysis. Extra forming/future bars cannot invent new levels,
+  // and a mismatched or future analysis cannot be presented as current.
+  const bars = completedBars(input.bars,900_000,input.generatedAt)
+    .filter(bar => bar.t<=input.analysis.asOf);
+  if (bars.length<75 || bars.at(-1)!.t!==input.analysis.asOf) {
+    return none(input, "The analysis does not match enough completed 15m candles. Refresh the market data before generating a plan.");
   }
   if (input.dataStale || input.generatedAt - (input.analysis.asOf + 900_000) > 35 * 60_000) {
     return none(input, "Completed price-action candles are stale; new entry scenarios are withheld.");
@@ -236,8 +263,8 @@ export function generatePossibleEntry(input: Input): GeneratedOpportunity {
     const nearBuy = Math.abs(input.price - analysis.range.low) <=
       Math.abs(input.price - analysis.range.high);
     // Choose the nearer edge, but do not force it if geometry is invalid.
-    picked = rangeCandidate(input, nearBuy ? "buy" : "sell", false) ??
-      rangeCandidate(input, nearBuy ? "sell" : "buy", false);
+    picked = rangeCandidate(input, bars, nearBuy ? "buy" : "sell", false) ??
+      rangeCandidate(input, bars, nearBuy ? "sell" : "buy", false);
   } else {
     // Mixed market: search the real last-40-bar high and low. Momentum influences
     // which breakout to monitor, but conflicting structure NEVER grants READY.
@@ -247,9 +274,10 @@ export function generatePossibleEntry(input: Input): GeneratedOpportunity {
         Math.abs(input.price - analysis.range.high) < Math.abs(input.price - analysis.range.low)
           ? "buy" : "sell";
     picked = trendCandidate(input, bars, side, true) ??
-      rangeCandidate(input, side === "buy" ? "sell" : "buy", true);
+      rangeCandidate(input, bars, side === "buy" ? "sell" : "buy", true);
   }
-  if (!picked) return none(input, "Neither the recorded swings nor range edges offer defensible stop-and-target geometry.");
+  if (!picked) return none(input, (regime === "range" ? brokenRangeReason(input,bars) : null) ??
+    "Neither the recorded swings nor range edges offer defensible stop-and-target geometry.");
 
   const suffix = !input.marketOpen
     ? "Gold is closed. This is a plan for a future session, not a live opportunity."

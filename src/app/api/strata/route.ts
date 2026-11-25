@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getStrataState } from "@/lib/strata/feed";
+import { getStrataState, StrataFeedError } from "@/lib/strata/feed";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +19,12 @@ export async function GET() {
     const state = await getStrataState();
     if (!state) return json({ error: "feed_unavailable", detail: "Confirmed gold candles are unavailable. No setup issued." }, 503);
     return json({ ok: true, ...state });
-  } catch {
+  } catch (error) {
+    if (error instanceof StrataFeedError) {
+      console.warn("[strata] market data unavailable", { code: error.code, timeframe: error.timeframe });
+      return json({ error: error.code, detail: error.message }, 503);
+    }
+    console.warn("[strata] analysis unavailable", { code: "feed_unavailable" });
     return json({ error: "feed_unavailable", detail: "Market structure could not be verified. No setup issued." }, 503);
   }
 }
