@@ -274,6 +274,12 @@
 .strata-vision-result-note{margin:10px 0 0;color:#a99fba;font-size:10px}
 .strata-workstation .strata-generated-result{background:#1a1825;border-color:rgba(183,161,233,.25)}
 .strata-workstation .strata-generated-result strong{color:#d0bdfc}
+.strata-generation-summary{margin:12px 0 0;padding:12px 14px;border:1px solid var(--st-edge);border-radius:12px;background:var(--om-page);color:var(--om-text-2);font-size:12px;line-height:1.6}
+.strata-generation-summary p{margin:0}
+.strata-generation-summary p+p{margin-top:6px}
+.strata-generation-summary strong{color:var(--om-text)}
+.strata-generation-feedback>p{margin:9px 0 0;color:var(--om-text-2);font-size:12px;line-height:1.5}
+.strata-workstation .strata-generation-feedback .strata-warning{margin:10px 0 0}
 .strata-workstation .strata-chart.strata-chart-vision{border:none!important;background:transparent!important;margin:12px 0 0;
   padding:0;box-shadow:none;overflow:visible}
 .strata-vision-tf{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;

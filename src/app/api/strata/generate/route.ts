@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getStrataState } from "@/lib/strata/feed";
+import { getStrataState, StrataFeedError } from "@/lib/strata/feed";
 import { generatePossibleEntry } from "@/lib/strata/generate";
 
 export const runtime = "nodejs";
@@ -21,7 +21,7 @@ export async function POST() {
   const { data: { user } } = await client.auth.getUser();
   if (!user) return json({ error: "unauthorized" }, 401);
   try {
-    const state = await getStrataState();
+    const state = await getStrataState({ refresh: true });
     if (!state) return json({ error: "feed_unavailable",
       detail: "Not enough verified gold candles to generate a responsible scenario." }, 503);
     const idea = generatePossibleEntry({
@@ -34,7 +34,12 @@ export async function POST() {
       dataStale: state.dataStale,
     });
     return json({ ok: true, idea, state });
-  } catch {
+  } catch (error) {
+    if (error instanceof StrataFeedError) {
+      console.warn("[strata/generate] market data unavailable", { code: error.code, timeframe: error.timeframe });
+      return json({ error: error.code, detail: error.message }, 503);
+    }
+    console.warn("[strata/generate] generation unavailable", { code: "generation_unavailable" });
     return json({ error: "generation_unavailable",
       detail: "STRATA could not verify a current price-action scenario." }, 503);
   }

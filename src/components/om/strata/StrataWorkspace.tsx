@@ -12,8 +12,8 @@ import { VisionDirection, VisionLevels, type VisionFact } from "@/components/om/
 import "./strata.css";
 
 type Feed = {
-  ok: boolean; analysis: Analysis; asOf: string; lastCandleAt: string; price: number;
-  quoteSource: "stream" | "candle"; quoteReceivedAt: string | null; marketClosed: boolean;
+  ok?: boolean; analysis: Analysis; asOf: string; lastCandleAt: string; price: number;
+  quoteSource: "stream" | "delayed" | "candle"; quoteReceivedAt: string | null; quoteProviderAt?: string | null; marketClosed: boolean;
   dataStale: boolean; bars: { m5: Bar[]; m15: Bar[]; h1: Bar[]; h4: Bar[] };
 };
 type Account = { accountId: string; connectionId: string; name: string; masked: string;
@@ -27,6 +27,46 @@ type Automation = { ok?: boolean; accounts?: Account[]; settings?: Setting[]; pa
   execution?: { mode: string; liveOrdersEnabled: boolean; demoBrokerOrdersEnabled: boolean } };
 const num = (v: unknown): number | null => typeof v === "number" && Number.isFinite(v) ? v : null;
 const fixed = (n: number | null) => n === null ? "—" : n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === "string");
+const positive = (value: unknown): value is number => num(value) !== null && Number(value) > 0;
+const dated = (value: unknown): value is string => typeof value === "string" && Number.isFinite(Date.parse(value));
+function validScenario(value: unknown): value is Scenario | null {
+  if (value === null) return true;
+  if (!value || typeof value !== "object") return false;
+  const plan = value as Scenario;
+  return ["break_retest", "range_fade"].includes(plan.type) && ["buy", "sell"].includes(plan.side) &&
+    ["watch", "breakout", "retest", "ready"].includes(plan.stage) &&
+    [plan.id, plan.title, plan.trigger, plan.invalidation].every((item) => typeof item === "string") &&
+    positive(plan.level) && (plan.entry === null || positive(plan.entry)) && (plan.stop === null || positive(plan.stop)) &&
+    Array.isArray(plan.targets) && plan.targets.every(positive) && (plan.riskReward === null || num(plan.riskReward) !== null) &&
+    num(plan.score) !== null && typeof plan.reference === "boolean" && num(plan.startedAt) !== null &&
+    !!plan.zone && positive(plan.zone.low) && positive(plan.zone.high) && plan.zone.low <= plan.zone.high &&
+    Array.isArray(plan.checks) && plan.checks.every((step) => step && typeof step.label === "string" && typeof step.detail === "string" && typeof step.done === "boolean");
+}
+function validFeed(value: unknown): value is Feed {
+  if (!value || typeof value !== "object") return false;
+  const state = value as Feed, analysis = state.analysis;
+  return positive(state.price) && dated(state.asOf) && dated(state.lastCandleAt) &&
+    ["stream", "delayed", "candle"].includes(state.quoteSource) && (state.quoteReceivedAt === null || dated(state.quoteReceivedAt)) &&
+    (state.quoteProviderAt == null || dated(state.quoteProviderAt)) &&
+    typeof state.marketClosed === "boolean" && typeof state.dataStale === "boolean" && !!state.bars &&
+    [state.bars.m5, state.bars.m15, state.bars.h1, state.bars.h4].every((bars) => Array.isArray(bars) && bars.every((bar) => bar &&
+      [bar.t, bar.o, bar.h, bar.l, bar.c].every(positive) && bar.h >= Math.max(bar.o, bar.c, bar.l) && bar.l <= Math.min(bar.o, bar.c, bar.h))) &&
+    !!analysis && ["uptrend", "downtrend", "range", "transition"].includes(analysis.regime) &&
+    [analysis.regimeLabel, analysis.structure, analysis.momentum, analysis.status].every((item) => typeof item === "string") &&
+    [analysis.asOf, analysis.atr, analysis.efficiency].every((item) => num(item) !== null) &&
+    !!analysis.range && [analysis.range.high, analysis.range.low, analysis.range.topTouches, analysis.range.bottomTouches].every((item) => num(item) !== null) &&
+    strings(analysis.reasons) && strings(analysis.warnings) && validScenario(analysis.primary) && validScenario(analysis.secondary);
+}
+function validOpportunity(value: unknown): value is GeneratedOpportunity {
+  if (!value || typeof value !== "object") return false;
+  const idea = value as GeneratedOpportunity;
+  return ["ready", "conditional", "aggressive", "none"].includes(idea.tier) && typeof idea.label === "string" &&
+    strings(idea.reasons) && strings(idea.confirmationNeeded) && typeof idea.disclaimer === "string" &&
+    positive(idea.asOf) && positive(idea.generatedAt) && (idea.quoteAtGeneration === null || positive(idea.quoteAtGeneration)) &&
+    validScenario(idea.scenario) && (idea.tier === "none" ? idea.scenario === null && idea.direction === null :
+      idea.scenario !== null && idea.direction === idea.scenario.side && (idea.tier !== "ready" || idea.scenario.stage === "ready" && !idea.scenario.reference));
+}
 function age(timestamp: string | number | null | undefined, now: number): string {
   const t = typeof timestamp === "number" ? timestamp : Date.parse(timestamp ?? "");
   if (!Number.isFinite(t) || !now) return "No timestamp";
@@ -67,7 +107,7 @@ export function StrataWorkspace() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(true);
   const [now, setNow] = useState(0);
-  const [tick, setTick] = useState<{ price: number; receivedAt: string } | null>(null);
+  const [tick, setTick] = useState<{ price: number; receivedAt: string; providerAt: string | null } | null>(null);
   const [modeGuide, setModeGuide] = useState<Regime | null>(null);
   const [generated, setGenerated] = useState<GeneratedOpportunity | null>(null);
   const [generatedSnapshot, setGeneratedSnapshot] = useState<Feed | null>(null);
@@ -81,8 +121,8 @@ export function StrataWorkspace() {
   const [settingBusy, setSettingBusy] = useState(false);
   const [confirmPaper, setConfirmPaper] = useState(false);
   const [accountError, setAccountError] = useState("");
-  const current = useRef<Feed | null>(null);
   const request = useRef(0);
+  const generation = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async () => {
     if (document.visibilityState === "hidden") return;
@@ -90,8 +130,8 @@ export function StrataWorkspace() {
     try {
       const response = await fetch("/api/strata", { cache: "no-store" });
       const body = await response.json().catch(() => null);
-      if (!response.ok || !body?.ok) throw new Error(body?.detail ?? "Gold market feed unavailable");
-      if (id === request.current) { current.current = body as Feed; setFeed(body as Feed); setError(""); }
+      if (!response.ok || !body?.ok || !validFeed(body)) throw new Error(body?.detail ?? "Gold market feed unavailable");
+      if (id === request.current) { setFeed(body); setError(""); }
     } catch (err) { if (id === request.current) setError(err instanceof Error ? err.message : "Unable to read gold."); }
     finally { if (id === request.current) setBusy(false); }
   }, []);
@@ -105,6 +145,7 @@ export function StrataWorkspace() {
   }, []);
 
   useEffect(() => {
+    setNow(Date.now());
     void refresh(); void refreshAccounts();
     const clock = setInterval(() => setNow(Date.now()), 1000);
     const scanner = setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 25_000);
@@ -114,6 +155,20 @@ export function StrataWorkspace() {
     return () => { request.current++; clearInterval(clock); clearInterval(scanner); clearInterval(accounts);
       document.removeEventListener("visibilitychange", visible); };
   }, [refresh, refreshAccounts]);
+  useEffect(() => () => {
+    const pending = generation.current;
+    generation.current = null;
+    pending?.abort();
+  }, []);
+  useEffect(() => {
+    if (!generated) return;
+    const frame = window.requestAnimationFrame(() => {
+      const result = document.getElementById("strata-opportunity");
+      result?.focus({ preventScroll: true });
+      result?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [generated]);
   useEffect(() => {
     let active = true, running = false;
     const load = async () => {
@@ -123,10 +178,10 @@ export function StrataWorkspace() {
         const response = await fetch("/api/floor/atlas-ticks", { cache: "no-store" });
         const body = await response.json().catch(() => null);
         const found = body?.ticks?.find((r: { symbol?: string }) => r.symbol === "XAU/USD");
-        if (active && response.ok && found && num(found.price) !== null &&
-          typeof found.receivedAt === "string") {
+        if (active && response.ok && found && positive(found.price) && dated(found.receivedAt) &&
+          (found.providerAt == null || found.providerAt === "" || dated(found.providerAt))) {
           setTick((previous) => !previous || Date.parse(found.receivedAt) >= Date.parse(previous.receivedAt)
-            ? { price: found.price, receivedAt: found.receivedAt } : previous);
+            ? { price: found.price, receivedAt: found.receivedAt, providerAt: found.providerAt || null } : previous);
         }
       } catch { /* Only real data changes the live display. */ }
       finally { running = false; }
@@ -137,34 +192,47 @@ export function StrataWorkspace() {
   }, []);
 
   const generateEntry = async () => {
-    if (generating) return;
+    if (generation.current) return;
+    const controller = new AbortController();
+    generation.current = controller;
+    const timeout = setTimeout(() => controller.abort(), 22_000);
     setGenerating(true);
     setGenerateError("");
     try {
-      const response = await fetch("/api/strata/generate", { method: "POST", cache: "no-store" });
+      const response = await fetch("/api/strata/generate", { method: "POST", cache: "no-store", signal: controller.signal });
       const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.ok || !payload?.idea || !payload?.state)
-        throw new Error(payload?.detail ?? "A verified entry scenario is not available right now.");
+      if (generation.current !== controller) return;
+      if (controller.signal.aborted) throw new Error("Generation timed out");
+      if (!response.ok || !payload?.ok || !validOpportunity(payload?.idea) || !validFeed(payload?.state))
+        throw new Error(response.status === 401 ? "Your session has ended. Sign in again to generate a current setup." :
+          typeof payload?.detail === "string" ? payload.detail : "STRATA could not verify this response. Retry to request a fresh market read.");
       // The scenario and the chart are a single immutable analysis snapshot.
       // A newer live quote can never silently rewrite an earlier generated plan.
-      setGenerated(payload.idea as GeneratedOpportunity);
-      setGeneratedSnapshot(payload.state as Feed);
-      setFeed(payload.state as Feed);
+      request.current++; // An older background read must not overwrite this completed request.
+      setGenerated(payload.idea);
+      setGeneratedSnapshot(payload.state);
+      setFeed(payload.state);
+      setBusy(false);
       setAlternative(false);
       setError("");
-      window.requestAnimationFrame(() => document.getElementById("strata-opportunity")?.scrollIntoView({
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-        block: "start",
-      }));
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : "Unable to generate a verified setup.");
-    } finally { setGenerating(false); }
+      if (generation.current === controller) setGenerateError(controller.signal.aborted
+        ? "The current market read took too long. Retry generation; no trade was submitted."
+        : err instanceof Error ? err.message : "Unable to generate a verified setup. Please retry.");
+    } finally {
+      clearTimeout(timeout);
+      if (generation.current === controller) { generation.current = null; setGenerating(false); }
+    }
   };
 
   const analysis = feed?.analysis ?? null;
   const open = !feed?.marketClosed;
   const tickFresh = !!tick && open && now - Date.parse(tick.receivedAt) >= -3000 &&
-    now - Date.parse(tick.receivedAt) <= 6000;
+    now - Date.parse(tick.receivedAt) <= 6000 && (!tick.providerAt ||
+      now - Date.parse(tick.providerAt) >= -3000 && now - Date.parse(tick.providerAt) <= 6000);
+  const feedQuoteFresh = !!feed && open && feed.quoteSource === "stream" && !!feed.quoteReceivedAt &&
+    now - Date.parse(feed.quoteReceivedAt) >= -3000 && now - Date.parse(feed.quoteReceivedAt) <= 6000 &&
+    (!feed.quoteProviderAt || now - Date.parse(feed.quoteProviderAt) >= -3000 && now - Date.parse(feed.quoteProviderAt) <= 6000);
   const quote = tickFresh ? tick!.price : num(feed?.price);
   const chosen = alternative && analysis?.secondary ? analysis.secondary : analysis?.primary ?? null;
   // The first screen always maps a defensible CONDITIONAL watch when one exists,
@@ -172,11 +240,11 @@ export function StrataWorkspace() {
   const liveIdea = useMemo(() => {
     if (!feed) return null;
     return generatePossibleEntry({
-      analysis: feed.analysis, bars: feed.bars.m15, price: feed.price,
-      generatedAt: Date.parse(feed.asOf), marketOpen: !feed.marketClosed,
-      quoteFresh: feed.quoteSource === "stream", dataStale: feed.dataStale,
+      analysis: feed.analysis, bars: feed.bars.m15, price: quote ?? feed.price,
+      generatedAt: now || Date.parse(feed.asOf), marketOpen: !feed.marketClosed,
+      quoteFresh: tickFresh || feedQuoteFresh, dataStale: feed.dataStale || !!error,
     });
-  }, [feed]);
+  }, [feed, quote, now, tickFresh, feedQuoteFresh, error]);
   const displayedPlan = generated ? generated.scenario : chosen ?? liveIdea?.scenario ?? null;
   const displayFeed = generated && generatedSnapshot ? generatedSnapshot : feed;
   const displayAnalysis = displayFeed?.analysis ?? analysis;
@@ -184,8 +252,7 @@ export function StrataWorkspace() {
     liveIdea?.scenario ? liveIdea.reasons : analysis?.reasons ??
       ["Waiting for a confirmed market structure."];
   const stage = analysis?.status ?? "NO_SETUP";
-  const planReady = !!analysis && !feed?.marketClosed && !feed?.dataStale &&
-    chosen?.stage === "ready" && !generated;
+  const planReady = !generated && !error && liveIdea?.tier === "ready" && chosen?.id === liveIdea.scenario?.id;
   const reg = analysis?.regime ?? "transition";
   const detectedRegime = analysis && !feed?.dataStale && !error && reg !== "transition"
     ? reg : null;
@@ -208,16 +275,16 @@ export function StrataWorkspace() {
     {label:"RANGE TESTS",value:analysis?
       Math.min(analysis.range.topTouches,analysis.range.bottomTouches)+" both sides":"Reading",
       tone:analysis&&analysis.range.topTouches>=2&&analysis.range.bottomTouches>=2?"ok":"watch"},
-    {label:"ENTRY TRIGGER",value:chosen?.stage==="ready"?"Qualified":
+    {label:"ENTRY TRIGGER",value:planReady?"Qualified":
       displayedPlan?"Watch confirmation":"Awaiting",
-      tone:chosen?.stage==="ready"?"ok":"watch"},
+      tone:planReady?"ok":"watch"},
   ];
   const tacticalWatch = reg === "transition" && !!displayedPlan;
   const displayedBias = tacticalWatch && displayedPlan ? displayedPlan.side : heroBias;
   const signalHeadline = tacticalWatch && displayedPlan
     ? (displayedPlan.side === "buy" ? "BULLISH WATCH" : "BEARISH WATCH") : undefined;
   const referenceLevels = !displayedPlan || displayedPlan.reference ||
-    displayedPlan.stage !== "ready" || !!generated && generated.tier !== "ready";
+    displayedPlan.stage !== "ready" || (generated ? generated.tier !== "ready" : !planReady);
   const accounts = accountData?.accounts ?? [];
   const selectedAccount = accounts.find((a) => a.connectionId + ":" + a.accountId === accountKey) ??
     accounts.find((a) => a.selected) ?? accounts[0] ?? null;
@@ -295,15 +362,14 @@ export function StrataWorkspace() {
     {!!analysis?.warnings.length && <div className="strata-warnings">
       {analysis.warnings.map((w) => <p key={w}><CircleAlert size={14} aria-hidden="true"/>{w}</p>)}</div>}
 
-    {generateError && <p className="strata-warning" role="alert"><CircleAlert size={15} aria-hidden="true" />
-      {generateError}</p>}
     <section id="strata-opportunity" className="strata-setup strata-vision-setup"
-      data-generated={!!generated} data-idea-tier={generated?.tier ?? liveIdea?.tier ?? "default"}>
+      tabIndex={-1} data-generated={!!generated} data-idea-tier={generated?.tier ?? liveIdea?.tier ?? "default"}>
       {generated && <div className="strata-generated-result" data-tier={generated.tier} role="status">
         <div><span className="strata-kicker">GENERATED · {age(generated.generatedAt, now)}</span>
           <strong>{generated.label}</strong>
           <small>{generated.tier === "ready"?"Confirmed by the standard engine when generated":
-            "Conditional reference · confirmation required"}</small>
+            generated.tier === "none" ? "Read complete · no qualified trade" : "Conditional reference · confirmation required"}</small>
+          <small>Gold {fixed(generated.quoteAtGeneration)} · Captured {new Date(generated.generatedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</small>
           {generatedOutdated && <small className="strata-generated-old">Previous snapshot. Regenerate for current conditions.</small>}
         </div>
         <button type="button" onClick={()=>{setGenerated(null);setGeneratedSnapshot(null);setGenerateError("");}}>
@@ -311,9 +377,9 @@ export function StrataWorkspace() {
       </div>}
       <div className="strata-vision-setup-top">
         <div><span className="strata-kicker">PRICE ACTION OPPORTUNITY · XAU/USD</span>
-          <h2>{displayedPlan ? displayedPlan.title : "Watching for a qualifying price-action setup"}</h2>
+          <h2>{displayedPlan ? displayedPlan.title : generated ? "No current trade is qualified" : "Watching for a qualifying price-action setup"}</h2>
           <span className="strata-vision-setup-state" data-side={displayedPlan?.side ?? "none"}>
-            {generated ? generated.label : chosen?.stage==="ready" ? "ENGINE CONFIRMED" :
+            {generated ? generated.label : planReady ? "ENGINE CONFIRMED" :
               displayedPlan ? liveIdea?.label ?? "CONDITIONAL WATCH" : "NO DEFENSIBLE SETUP"}
           </span>
         </div>
@@ -325,19 +391,30 @@ export function StrataWorkspace() {
       </div>}
       {displayFeed ? <StrataChart analysis={displayFeed.analysis} bars={displayFeed.bars}
         price={generated ? generated.quoteAtGeneration ?? displayFeed.price : quote ?? displayFeed.price}
-        live={!generated && tickFresh} selected={displayedPlan} snapshot={!!generated} />
+        live={!generated && tickFresh} selected={displayedPlan && referenceLevels && !displayedPlan.reference
+          ? { ...displayedPlan, reference: true } : displayedPlan} snapshot={!!generated} />
         : <div className="strata-loading-chart">{busy?"Loading actual gold candles…":"Verified candles unavailable."}</div>}
       <VisionLevels symbol="XAUUSD" entry={displayedPlan?.entry} stop={displayedPlan?.stop}
         targets={displayedPlan?.targets ?? []} rr={displayedPlan?.riskReward} reference={referenceLevels} />
       <p className="strata-vision-setup-caption">{displayedPlan
         ? referenceLevels?"WATCH ONLY · "+displayedPlan.trigger:"Engine-confirmed setup · review risk before acting"
         : "No executable price-action setup is confirmed. This chart shows recorded structure."}</p>
+      {generated && <div className="strata-generation-summary">
+        <p>{generated.reasons[0] ?? "The current market read is complete."}</p>
+        {!!generated.confirmationNeeded.length && <p><strong>Next:</strong> {generated.confirmationNeeded[0]}</p>}
+      </div>}
       <button className="strata-generate-button strata-vision-generate" type="button"
-        disabled={generating || !feed} onClick={()=>void generateEntry()} aria-busy={generating}>
+        disabled={generating} onClick={()=>void generateEntry()} aria-busy={generating}
+        aria-controls="strata-opportunity" aria-describedby="strata-generation-feedback">
         <Sparkles size={18} aria-hidden="true" />
-        {generating?"SCANNING GOLD…":generated?"REGENERATE BEST OPPORTUNITY":"GENERATE BEST OPPORTUNITY"}
+        {generating?"SCANNING GOLD…":generateError?"RETRY GENERATION":generated?"REGENERATE BEST OPPORTUNITY":"GENERATE BEST OPPORTUNITY"}
         <ArrowRight size={17} aria-hidden="true"/>
       </button>
+      <div id="strata-generation-feedback" className="strata-generation-feedback">
+        {generating && <p role="status">Checking current gold price action and completed candles…</p>}
+        {generateError && <p className="strata-warning" role="alert"><CircleAlert size={15} aria-hidden="true" />
+          <span>{generateError}{generated && " The previous generated snapshot is still shown above."}</span></p>}
+      </div>
       {generated && <p className="strata-vision-result-note">Generated scenarios cannot submit a trade or enable FLOW. The chart uses the same recorded candles as the analysis.</p>}
     </section>
 
