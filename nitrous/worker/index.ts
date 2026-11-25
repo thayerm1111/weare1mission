@@ -14,11 +14,11 @@ import { dropForming, fetchBars } from "../../rapid/market/twelvedata";
 import { GOLD_SESSION, isSessionOpen } from "../../rapid/market/session";
 import type { Bar, InstrumentSpec, MarketSnapshot, Setup } from "../../rapid/core/types";
 import type { Store } from "../../rapid/exec/submit";
-import { NITROUS_CONSENT_VERSION, isNitrousMode, validRisk, verifiedOwnedPosition } from "../../src/lib/nitrous/policy";
+import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, isNitrousMode, validRisk, verifiedOwnedPosition } from "../../src/lib/nitrous/policy";
 import type { NitrousMode } from "../../src/lib/nitrous/types";
 import { publishNitrousTelegramEvent, processNitrousTelegramTest } from "../../src/lib/nitrous-telegram-store";
-import { NITROUS_CONFIG, configFor } from "../config";
-import { aggregateClosed, dailyAllowance, memberActive, referenceFresh, supportedSetups, triggerConfirmed } from "../logic";
+import { NITROUS_CONFIG, NITROUS_FAST_CONFIG, isFastSetup, configFor } from "../config";
+import { aggregateClosed, dailyAllowance, memberActive, referenceFresh, supportedSetups, fastCandidateEligible, fastSetups, mergeNitrousSetups, setupAllowedForAccount, triggerConfirmed } from "../logic";
 import { readAccountMetrics, readClosedOutcome, readOpeningFill, marginRequirement } from "../broker";
 import { protectionMatches, submitProtected } from "../submit";
 import { requestCloseOnce } from "../close";
@@ -79,6 +79,7 @@ async function control() {
 
 async function analysisLoop() {
   let prunedAt = 0;
+  let fastZones: MarketSnapshot["zones"] | undefined;
   while (!stopped) {
     const start = Date.now();
     try {
@@ -98,6 +99,15 @@ async function analysisLoop() {
         const five = aggregateClosed(market.m1, 5, now); const fifteen = aggregateClosed(market.m1, 15, now);
         const snap = buildSnapshot({ asOf: now, cfg: NITROUS_CONFIG, tick: 0.01, contractSize: null,
           minStopDistance: null, m1: market.m1, higher: { ...market.higher, M5: five, M15: fifteen }, quote: null, priorZones: market.snapshot?.zones });
+        const reference = market.m1.at(-1)!.c;
+        const fast = buildSnapshot({ asOf: now, cfg: NITROUS_FAST_CONFIG, tick: 0.01, contractSize: null,
+          minStopDistance: null, m1: market.m1, higher: { ...market.higher, M5: five, M15: fifteen }, quote: null, priorZones: fastZones,
+          candidateFilter: (s, regimes, range) => fastCandidateEligible(s, regimes, range, reference, now)
+            && (s.family !== "break_retest" || triggerConfirmed(s, s.timeframe === "M15" ? fifteen : five, now)),
+          nearestCandidates: { limit: 2, price: reference } });
+        fastZones = fast.zones;
+        const baselinePlans = supportedSetups(snap);
+        const fastPlans = fastSetups(fast);
         const thirty = aggregateClosed(market.m1, 30, now);
         const pivots = findPivots(thirty, "M15", 2, 2);
         const regime30 = classifyRegime(thirty, pivots, now, { atrPeriod: 14, noiseTicks: 2, noiseAtrMult: 0.1, tickSize: 0.01, minSwingsPerSide: 2 }).regime;
@@ -107,22 +117,22 @@ async function analysisLoop() {
         if (fifteen.length < 60) reasons.push("More completed candles are needed for a market read.");
         const h1 = market.higher.H1?.at(-1);
         if (!h1 || now - h1.t - 3_600_000 > 3_720_000) reasons.push("The 1H trend feed needs to refresh.");
-        const lifecycle = advancePublicSetups({ prior: market.publicSetups, current: supportedSetups(snap),
+        const lifecycle = advancePublicSetups({ prior: market.publicSetups, current: mergeNitrousSetups(baselinePlans, fastPlans),
           bars: market.m1, referencePrice: market.m1.at(-1)!.c, now, marketReady: reasons.length === 0,
           triggerReady: (s) => triggerConfirmed(s, s.timeframe === "M15" ? fifteen : five, now) });
         snap.scenarios = lifecycle.updatedSetups.filter((s) => !publicSetupTerminal(s));
         snap.health = { ...snap.health, state: reasons.length ? "blocked" : "ok", reasons };
         snap.marketEventTime = market.m1.at(-1)!.t + 60_000;
         snap.deterministicExplanation = snap.scenarios.length
-          ? "Gold price-action plans follow aligned 1H and 15M structure. Entries require a completed trigger, a broker price inside the zone, and account risk checks."
-          : "Waiting for a trend pullback or a closed break and retest with aligned 1H and 15M structure and at least $6 of target room.";
+          ? "Slow Drip requires aligned 1H/15M structure. Faster Nitrous also watches nearby break/retests, pullbacks and validated range reactions during 15M consolidation. Entries still require closed confirmation and broker risk checks."
+          : "Scanning both profiles. Nitrous can qualify during 15M consolidation; waiting for nearby structural plans with at least $6 of target room.";
         checked(await admin().from("nitrous_snapshots").insert({ snapshot_id: snap.snapshotId,
           strategy_version: snap.strategyVersion, config_version: snap.configVersion, generated_at: new Date(now).toISOString(),
           market_event_time: new Date(snap.marketEventTime).toISOString(), feed_source: "reference", quote_age_ms: null,
           health: snap.health, regimes: { ...snap.regimes, M30: regime30 }, regime_conflict: snap.regimeConflict,
           payload: { scenarios: snap.scenarios, explanation: snap.deterministicExplanation,
             bars: five.slice(-180), price: market.m1.at(-1)!.c, chartTimeframe: "5m",
-            rejections: snap.rejections.slice(0, 40), levels: snap.zones.slice(0, 100) } }));
+            rejections: snap.rejections.slice(0, 40), fastRejections: fast.rejections.slice(0, 40), fastConfigVersion: fast.configVersion, baselineCandidates: baselinePlans.length, fastCandidates: fastPlans.length, levels: snap.zones.slice(0, 100) } }));
         checked(await admin().from("nitrous_public_state").upsert({ id: 1, setups: lifecycle.updatedSetups, updated_at: iso() }));
         market.publicSetups = lifecycle.updatedSetups;
         market.snapshot = snap; market.persistedAt = Date.now();
@@ -312,12 +322,14 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
   const db = admin(); const cfg = configFor(acct.profile);
   if (!memberActive(checked(await db.from("profiles").select("status,role,access_expires_at").eq("id", acct.user_id).maybeSingle()), Date.now())) throw new Error("Active One Mission access is required for new entries.");
   if (!await hasNitrousAddonAccess(db, acct.user_id)) throw new Error("Nitrous add-on access is required for new entries.");
-  if (acct.consent_version !== NITROUS_CONSENT_VERSION || !acct.consented_at || !isNitrousMode(acct.profile) || validRisk(acct.profile, Number(acct.risk_pct)) === null) throw new Error("Review your account mode and risk before activating.");
+  if (![NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION].includes(acct.consent_version ?? "") || !acct.consented_at || !isNitrousMode(acct.profile) || validRisk(acct.profile, Number(acct.risk_pct)) === null) throw new Error("Review your account mode and risk before activating.");
   const recent = checked(await db.from("nitrous_positions").select("closed_at").eq("account_id", acct.id).eq("status", "closed").order("closed_at", { ascending: false }).limit(1)) ?? [];
   if (recent[0]?.closed_at && Date.now() - Date.parse(recent[0].closed_at) < cfg.entry.reentryCooldownSec * 1000) return;
   const remaining = await riskRemaining(acct, equity);
   for (const candidate of snap.scenarios) {
     if (!held()) return;
+    if (!setupAllowedForAccount(candidate, acct.profile, acct.consent_version)) continue;
+    const cfg = configFor(acct.profile, isFastSetup(candidate));
     if (!triggerConfirmed(candidate, aggregateClosed(market.m1, candidate.timeframe === "M15" ? 15 : 5, Date.now()), Date.now())) continue;
     const baseline = await port.positions();
     if (!baseline.ok || baseline.rows.some((p) => !p.positionId)) throw new Error("Current broker exposure must be readable before a new entry.");
@@ -465,8 +477,9 @@ async function telegramTestLoop() {
 export async function main() {
   if (process.env.NITROUS_WORKER !== "1") throw new Error("Set NITROUS_WORKER=1 for this isolated worker.");
   await withNitrousDb(async () => {
-    checked(await admin().from("nitrous_config_versions").upsert({ config_version: NITROUS_CONFIG.configVersion,
-      strategy_version: NITROUS_CONFIG.version, management_version: NITROUS_CONFIG.managementVersion, config: NITROUS_CONFIG }, { onConflict: "config_version" }));
+    checked(await admin().from("nitrous_config_versions").upsert([NITROUS_CONFIG, NITROUS_FAST_CONFIG].map(cfg => ({
+      config_version: cfg.configVersion, strategy_version: cfg.version, management_version: cfg.managementVersion, config: cfg,
+    })), { onConflict: "config_version" }));
     const state = checked(await admin().from("nitrous_public_state").select("setups").eq("id", 1).maybeSingle());
     market.publicSetups = Array.isArray(state?.setups) ? state.setups as Setup[] : [];
     console.log(`[nitrous] ${HOLDER} started; account activation is member-controlled.`);

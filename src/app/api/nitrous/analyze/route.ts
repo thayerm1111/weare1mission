@@ -41,7 +41,7 @@ export async function GET() {
     if (stale) health.state = "blocked";
     const scenarios = (Array.isArray(payload.scenarios) ? payload.scenarios : []) as NitrousScenario[];
     const safeScenarios = scenarios.filter((s) => s && (s.side === "buy" || s.side === "sell") && [s.refEntry,s.stop,s.target,s.entryBandLow,s.entryBandHigh,s.expiresAt].every((n) => typeof n === "number" && Number.isFinite(n)))
-      .map((s) => ({ ...s, state: s.expiresAt <= now ? "expired" : stale ? "stale" : s.state,
+      .map((s) => ({ ...s, profile: (typeof s.configVersion === "string" && s.configVersion.endsWith("+fast.2") ? "nitrous" : "both") as "nitrous" | "both", state: s.expiresAt <= now ? "expired" : stale ? "stale" : s.state,
         conditionsMet: Array.isArray(s.conditionsMet) ? s.conditionsMet : [], conditionsPending: Array.isArray(s.conditionsPending) ? s.conditionsPending : [] }));
     const regimes = (row.regimes ?? {}) as Record<string, string>;
     const labels: Record<string,string> = { D1: "D", H4: "4H", H1: "1H", M30: "30M", M15: "15M", M5: "5M" };

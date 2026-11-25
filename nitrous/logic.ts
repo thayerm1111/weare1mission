@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
-import type { Bar, MarketSnapshot, Setup } from "../rapid/core/types";
+import type { Bar, MarketSnapshot, Regime, Setup, Timeframe, ValidatedRange } from "../rapid/core/types";
 import { TF_MS } from "../rapid/market/bars";
+import { isFastSetup, NITROUS_CONFIG } from "./config";
+import { NITROUS_FAST_CONSENT_VERSION } from "../src/lib/nitrous/policy";
 
 export const MAX_REFERENCE_AGE_MS = 120_000;
 export function referenceFresh(bars: Bar[], now: number): boolean {
@@ -11,7 +13,7 @@ export function referenceFresh(bars: Bar[], now: number): boolean {
 /** Same completed setup remains the same opportunity across snapshots and worker restarts. */
 export function opportunityId(setup: Setup): string {
   return "nitrous:" + createHash("sha256").update([
-    setup.strategyVersion, setup.parentId, setup.zoneVersion, setup.side, setup.family,
+    setup.strategyVersion, ...(isFastSetup(setup) ? [setup.configVersion] : []), setup.parentId, setup.zoneVersion, setup.side, setup.family,
     setup.breakEvidence?.closedAt ?? "pullback", new Date(setup.createdAt).toISOString().slice(0, 10),
   ].join("|")).digest("hex").slice(0, 32);
 }
@@ -28,7 +30,42 @@ export function supportedSetups(snapshot: MarketSnapshot): Setup[] {
   ] }));
 }
 
-/** A trend pullback needs an observed closed rejection; a break/retest needs its closed break. */
+/** Additional nearby structural opportunities; no blind or countertrend entries. */
+export function fastCandidateEligible(s: Setup, regimes: Record<Timeframe, Regime>, range: ValidatedRange | null, price: number, now: number): boolean {
+  if (!isFastSetup(s) || !Number.isFinite(price) || price <= 0 || s.expiresAt <= now || s.createdAt > now) return false;
+  if (s.timeframe !== "M5" && s.timeframe !== "M15") return false;
+  const direction = s.side === "buy" ? "up" : "down";
+  const h1 = regimes.H1, m15 = regimes.M15;
+  if (h1 !== direction || (m15 !== direction && m15 !== "sideways")) return false;
+  if (s.family === "range_reaction") {
+    if (m15 !== "sideways" || !range || range.brokenAt != null || range.timeframe !== s.timeframe || range.knownAt > now) return false;
+    if ((s.side === "buy" ? range.lower.id : range.upper.id) !== s.zoneId) return false;
+  } else if (s.family === "break_retest") {
+    if (!s.breakEvidence || s.breakEvidence.closedAt >= now) return false;
+  } else if (s.family !== "trend_pullback") return false;
+  const distance = Math.max(s.entryBandLow - price, price - s.entryBandHigh, 0);
+  return distance <= 12 && (s.side === "buy" ? price > s.invalidation && price < s.target : price < s.invalidation && price > s.target);
+}
+export function fastSetups(snapshot: MarketSnapshot): Setup[] {
+  return snapshot.scenarios.filter(isFastSetup).map(s => ({
+    ...s, setupId: opportunityId(s),
+    conditionsMet: ["Nitrous-only · faster setup qualification", ...s.conditionsMet],
+    conditionsPending: [
+      s.family === "break_retest" ? "A fresh closed break and a return to the entry zone." : "A completed entry candle rejects the zone.",
+      "Fresh broker price, structural stop, net reward/risk, spread, margin and account risk must qualify.",
+    ],
+  }));
+}
+export function mergeNitrousSetups(baseline: Setup[], fast: Setup[]): Setup[] {
+  const key = (s: Setup) => `${s.parentId}|${s.side}`;
+  const keys = new Set(baseline.map(key));
+  return [...baseline, ...fast.filter(s => !keys.has(key(s)))];
+}
+export function setupAllowedForAccount(setup: Setup, mode: unknown, consent: unknown): boolean {
+  if (isFastSetup(setup)) return mode === "nitrous" && consent === NITROUS_FAST_CONSENT_VERSION;
+  return setup.configVersion === NITROUS_CONFIG.configVersion;
+}
+/** Pullback/range entries need a closed rejection; a break/retest needs its closed break. */
 export function triggerConfirmed(setup: Setup, bars: Bar[], now: number): boolean {
   if (setup.family === "break_retest") {
     if (!setup.breakEvidence || setup.breakEvidence.closedAt >= now || now >= setup.expiresAt) return false;
@@ -38,7 +75,7 @@ export function triggerConfirmed(setup: Setup, bars: Bar[], now: number): boolea
     // A candle already on the broken side is continuation, not a fresh structural break.
     return setup.side === "buy" ? bars[index - 1].c <= threshold : bars[index - 1].c >= threshold;
   }
-  if (setup.family !== "trend_pullback") return false;
+  if (setup.family !== "trend_pullback" && !(setup.family === "range_reaction" && isFastSetup(setup))) return false;
   const ms = TF_MS[setup.timeframe];
   const b = bars[bars.length - 1];
   if (!b || b.t + ms > now || now - b.t - ms > ms || b.h <= b.l) return false;

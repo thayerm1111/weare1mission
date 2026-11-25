@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  allowedWriteOrigin, finiteNumber, freshAt, hasFreshWorkerReadiness, NITROUS_CONSENT_VERSION, readinessBlockers,
+  allowedWriteOrigin, finiteNumber, freshAt, hasFreshWorkerReadiness, NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, readinessBlockers,
   recordedStats, validRisk, validateSettingsChange, verifiedOwnedPosition,
 } from "../src/lib/nitrous/policy";
 
@@ -160,4 +160,15 @@ test("account selection revalidates broker membership and close endpoint only qu
   assert.equal(/\.close\(|closePosition\(/.test(close),false);
   assert.ok(close.includes('"nitrous_request_close"'));
   assert.ok(close.includes("verifiedOwnedPosition(pos, broker)"));
+});
+
+test("fast consent requires explicit Nitrous activation and cannot silently apply on profile save", () => {
+  const confirm = {mode:"nitrous",riskPct:3,automationEnabled:true,acknowledgedRisk:true,consentVersion:NITROUS_FAST_CONSENT_VERSION};
+  const upgrade = validateSettingsChange({...account,profile:"nitrous",risk_pct:3,automation_enabled:true},confirm,true);
+  assert.equal(upgrade.ok,true);
+  if(upgrade.ok) assert.equal(upgrade.patch.consent_version,NITROUS_FAST_CONSENT_VERSION);
+  assert.equal(validateSettingsChange(account,{...confirm,mode:"slow_drip",riskPct:0.5},true).ok,false);
+  const save = validateSettingsChange(account,{mode:"nitrous",riskPct:3,consentVersion:NITROUS_FAST_CONSENT_VERSION},true);
+  assert.equal(save.ok,true);
+  if(save.ok) assert.equal(save.patch.consent_version,undefined);
 });

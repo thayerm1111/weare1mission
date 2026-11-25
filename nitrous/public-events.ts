@@ -1,5 +1,6 @@
 import type { Bar, Setup, Transition, VisitState } from "../rapid/core/types";
 import type { NitrousTelegramEvent } from "../src/lib/nitrous-telegram";
+import { isFastSetup } from "./config";
 
 const MINUTE = 60_000;
 const REFERENCE_MAX_AGE = 120_000;
@@ -75,7 +76,7 @@ function move(s: Setup, state: VisitState, at: number, reason: string, evidence:
 }
 
 function event(s: Setup, kind: NitrousTelegramEvent["kind"], at: number): NitrousTelegramEvent {
-  return {setupId:s.setupId,kind,side:s.side,family:s.family as NitrousTelegramEvent["family"],profile:"both",
+  return {setupId:s.setupId,kind,side:s.side,family:s.family as NitrousTelegramEvent["family"],profile:isFastSetup(s) ? "nitrous" : "both",
     occurredAt:new Date(at).toISOString(),expiresAt:new Date(s.expiresAt).toISOString(),
     entryLow:s.entryBandLow,entryHigh:s.entryBandHigh,stop:s.stop,target:s.target};
 }

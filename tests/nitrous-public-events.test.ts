@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import type { Bar, Setup } from "../rapid/core/types";
 import { advancePublicSetups, publicSetupTerminal, type PublicSetupsInput } from "../nitrous/public-events";
 import { validNitrousTelegramEvent } from "../src/lib/nitrous-telegram";
+import { NITROUS_CONFIG, NITROUS_FAST_CONFIG, configFor } from "../nitrous/config";
+import { fastCandidateEligible, setupAllowedForAccount, mergeNitrousSetups, triggerConfirmed } from "../nitrous/logic";
+import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION } from "../src/lib/nitrous/policy";
 
 const NOW=Date.UTC(2026,10,25,23,0,0);
 const MINUTE=60_000;
@@ -152,4 +155,39 @@ test("terminal history is limited to 24 hours and 200 setups while active plans 
   assert.equal(publicSetupTerminal(result.updatedSetups[0]),false);
   assert.equal(result.updatedSetups.some(s=>s.setupId==="nitrous:too-old"),false);
   assert.equal(result.updatedSetups.some(s=>s.setupId==="nitrous:old-204"),false);
+});
+
+test("fast scan allows M15 consolidation but requires hourly direction, nearby structure and closed break evidence", () => {
+  const s = plan({ configVersion: NITROUS_FAST_CONFIG.configVersion, family: "break_retest",
+    breakEvidence: { closedAt: NOW-60_000, closePrice: 4201, bodyRatio:.55, closePositionInRange:.8, beyondBy:.3 } });
+  const regimes = { W1:"unknown", D1:"up", H4:"up", H1:"up", M15:"sideways", M5:"sideways" } as const;
+  assert.equal(fastCandidateEligible(s, regimes, null, 4205, NOW), true);
+  assert.equal(fastCandidateEligible(s, {...regimes,H1:"down"}, null, 4205, NOW), false);
+  assert.equal(fastCandidateEligible(s, {...regimes,M15:"down"}, null, 4205, NOW), false);
+  assert.equal(fastCandidateEligible(s, regimes, null, 4250, NOW), false);
+  assert.equal(fastCandidateEligible({...s,breakEvidence:null}, regimes, null, 4205, NOW), false);
+  assert.equal(fastCandidateEligible({...s,family:"range_reaction"}, regimes, null, 4205, NOW), false);
+});
+test("fast plans are Nitrous-only and require consent without changing baseline risk rules", () => {
+  const strict = plan({configVersion:NITROUS_CONFIG.configVersion});
+  const fast = plan({setupId:"nitrous:fast", configVersion:NITROUS_FAST_CONFIG.configVersion});
+  assert.equal(setupAllowedForAccount(fast,"slow_drip",NITROUS_FAST_CONSENT_VERSION), false);
+  assert.equal(setupAllowedForAccount(fast,"nitrous",NITROUS_CONSENT_VERSION), false);
+  assert.equal(setupAllowedForAccount(fast,"nitrous",NITROUS_FAST_CONSENT_VERSION), true);
+  assert.equal(setupAllowedForAccount(strict,"slow_drip",NITROUS_CONSENT_VERSION), true);
+  assert.equal(setupAllowedForAccount(strict,"nitrous",NITROUS_CONSENT_VERSION), true);
+  assert.deepEqual(mergeNitrousSetups([strict],[fast]), [strict]);
+  assert.equal(advancePublicSetups(input({current:[fast]})).events[0].profile, "nitrous");
+  assert.equal(advancePublicSetups(input({current:[strict]})).events[0].profile, "both");
+  assert.equal(configFor("slow_drip",true).protection.stopCapUsd,10);
+  assert.equal(configFor("nitrous",true).protection.stopCapUsd,12);
+  assert.equal(configFor("nitrous",true).risk.sessionLossCeilingPct,15);
+  assert.equal(configFor("nitrous",true).target.minNetRewardRisk,NITROUS_CONFIG.target.minNetRewardRisk);
+});
+test("range reaction requires a completed rejection candle", () => {
+  const s=plan({family:"range_reaction",configVersion:NITROUS_FAST_CONFIG.configVersion});
+  const bars=[{t:NOW-300_000,o:4200.1,l:4199.8,h:4202,c:4201.8}];
+  assert.equal(triggerConfirmed(s,bars,NOW),true);
+  assert.equal(triggerConfirmed({...s,configVersion:NITROUS_CONFIG.configVersion},bars,NOW),false);
+  assert.equal(triggerConfirmed(s,[{...bars[0],t:NOW}],NOW),false);
 });

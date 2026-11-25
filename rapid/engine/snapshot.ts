@@ -1,4 +1,4 @@
-import type { Bar, Health, MarketSnapshot, Pivot, Quote, Regime, Timeframe, ValidatedRange, Zone } from "../core/types";
+import type { Bar, Health, MarketSnapshot, Pivot, Quote, Regime, Setup, Timeframe, ValidatedRange, Zone } from "../core/types";
 import { mid, spreadOf } from "../core/types";
 import { TF_MS, atr } from "../market/bars";
 import { GOLD_SESSION, type SessionConfig, sessionState, splitSessionDays, tradingDay, tradingWeek } from "../market/session";
@@ -35,6 +35,8 @@ export type SnapshotInput = {
   /** Zones carried over from the previous snapshot, so lifecycle and reaction history survive. */
   priorZones?: Zone[];
   session?: SessionConfig;
+  candidateFilter?: (setup: Setup, regimes: Record<Timeframe, Regime>, range: ValidatedRange | null) => boolean;
+  nearestCandidates?: { limit: number; price: number };
 };
 
 const ALL_TFS: Timeframe[] = ["M5", "M15", "H1", "H4", "D1"];
@@ -116,7 +118,8 @@ export function buildSnapshot(inp: SnapshotInput): MarketSnapshot {
   };
 
   const built = buildSetups(ctx);
-  const { selected, dropped } = arbitrate(built.setups, regimes.D1);
+  const eligible = inp.candidateFilter ? built.setups.filter(s => inp.candidateFilter!(s, regimes, range)) : built.setups;
+  const { selected, dropped } = arbitrate(eligible, regimes.D1);
   for (const d of dropped) {
     built.rejections.push({ at: asOf, stage: "arbitration", code: "arbitration_lost", detail: d.reason, family: d.setup.family, zoneId: d.setup.zoneId });
   }
@@ -124,7 +127,10 @@ export function buildSnapshot(inp: SnapshotInput): MarketSnapshot {
   // At most the best long and the best short are surfaced, each clearly conditional.
   const bestLong = selected.find((s) => s.side === "buy") ?? null;
   const bestShort = selected.find((s) => s.side === "sell") ?? null;
-  const scenarios = [bestLong, bestShort].filter((s): s is NonNullable<typeof s> => s != null);
+  const distance = (s: Setup) => Math.max(s.entryBandLow - inp.nearestCandidates!.price, inp.nearestCandidates!.price - s.entryBandHigh, 0);
+  const scenarios = inp.nearestCandidates
+    ? [...selected].sort((a,b) => distance(a) - distance(b)).slice(0, Math.max(1, Math.min(4, inp.nearestCandidates.limit)))
+    : [bestLong, bestShort].filter((s): s is NonNullable<typeof s> => s != null);
 
   return {
     snapshotId: `snap:${asOf}:${(snapSeq = (snapSeq + 1) % 1_000_000).toString(36)}`,

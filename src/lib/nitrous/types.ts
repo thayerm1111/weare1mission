@@ -20,7 +20,7 @@ export type NitrousAccount = {
   environment: "live" | "demo"; masked: string; accountMasked: string; currency: string | null;
   balance: number | null; equity: number | null; equityAt: string | null; balanceAt: string | null;
   mode: NitrousMode; riskPct: number; plannedRisk: number | null; dailyLossPct: number;
-  automationEnabled: boolean; managementEnabled: boolean;
+  automationEnabled: boolean; managementEnabled: boolean; fastStrategyEnabled?: boolean;
   state: "active" | "connected" | "paused" | "degraded" | "reconnect_required";
   blockers: string[]; resolvedSymbol: string | null; stats: NitrousStats; positions: NitrousPosition[];
 };
@@ -36,7 +36,7 @@ export type NitrousStatus = {
 };
 export type NitrousCandle = { t: number; o: number; h: number; l: number; c: number };
 export type NitrousScenario = {
-  setupId: string; family: string; side: "buy" | "sell"; timeframe: string; state: string;
+  setupId: string; family: string; side: "buy" | "sell"; timeframe: string; state: string; profile?: "both" | "nitrous"; configVersion?: string;
   entryBandLow: number; entryBandHigh: number; refEntry: number; stop: number; target: number;
   stopUsd: number; targetUsd: number; expiresAt: number;
   conditionsMet: string[]; conditionsPending: string[]; invalidation: number; explanation?: string;

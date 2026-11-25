@@ -1,6 +1,7 @@
 import type { NitrousMode, NitrousStats } from "./types";
 
 export const NITROUS_CONSENT_VERSION = "nitrous-consent-v1";
+export const NITROUS_FAST_CONSENT_VERSION = "nitrous-consent-v2-fast";
 export const WORKER_FRESH_MS = 60_000;
 export const ACCOUNT_FRESH_MS = 120_000;
 export const SNAPSHOT_FRESH_MS = 45_000;
@@ -132,13 +133,14 @@ export function validateSettingsChange(account: Record<string, unknown>, body: R
   if (account.automation_enabled === true && (changedMode || changedRisk)) return { ok: false, error: "Pause auto trading before changing mode or risk.", status: 409 };
   const arming = body.automationEnabled === true;
   if (arming && !activeMember) return { ok: false, error: "Active One Mission access is required to start auto trading.", status: 403 };
-  if (arming && (body.acknowledgedRisk !== true || body.consentVersion !== NITROUS_CONSENT_VERSION || body.mode !== mode || body.riskPct !== checkedRisk)) {
+  const consentValid = body.consentVersion === NITROUS_CONSENT_VERSION || (mode === "nitrous" && body.consentVersion === NITROUS_FAST_CONSENT_VERSION);
+  if (arming && (body.acknowledgedRisk !== true || !consentValid || body.mode !== mode || body.riskPct !== checkedRisk)) {
     return { ok: false, error: "Review and confirm the selected account, mode and risk before starting.", status: 400 };
   }
   const patch: Record<string, unknown> = { profile: mode, risk_pct: checkedRisk };
   if (body.managementEnabled !== undefined) patch.management_enabled = body.managementEnabled;
   if (body.automationEnabled !== undefined) patch.automation_enabled = body.automationEnabled;
-  if (arming) { patch.consent_version = NITROUS_CONSENT_VERSION; patch.consented_at = new Date().toISOString(); }
+  if (arming) { patch.consent_version = body.consentVersion; patch.consented_at = new Date().toISOString(); }
   return { ok: true, patch, arming };
 }
 

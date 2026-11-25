@@ -13,9 +13,18 @@ export const NITROUS_CONFIG: RapidConfig = withOverrides(DEFAULT_CONFIG, "nitrou
   feed: { maxSignalToSubmitMs: 5_000 },
 });
 
-export function configFor(mode: NitrousMode): RapidConfig {
+/** Faster setup discovery; baseline remains unchanged. */
+export const NITROUS_FAST_CONFIG = withOverrides(NITROUS_CONFIG, "fast.2", {
+  entry: { minBodyRatio: 0.45, closeOuterFraction: 0.35, touchMaxUsd: 1.5, touchAtrMult: 0.15 },
+  protection: { stopCapUsd: 12 },
+});
+export function isFastSetup(setup: { configVersion: string }): boolean {
+  return setup.configVersion === NITROUS_FAST_CONFIG.configVersion;
+}
+export function configFor(mode: NitrousMode, fast = false): RapidConfig {
   const profile = profileFor(mode);
-  return { ...NITROUS_CONFIG, risk: { ...NITROUS_CONFIG.risk,
+  const base = mode === "nitrous" && fast ? NITROUS_FAST_CONFIG : NITROUS_CONFIG;
+  return { ...base, risk: { ...base.risk,
     maxPct: Math.max(...profile.riskPresets), defaultPct: profile.defaultRisk,
     sessionLossCeilingPct: profile.dailyLossPct } };
 }
