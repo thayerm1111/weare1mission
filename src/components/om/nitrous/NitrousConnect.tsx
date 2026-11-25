@@ -43,7 +43,7 @@ export function NitrousConnect({ onClose, onConnected }: { onClose: () => void; 
   return <dialog ref={dialog} className="nitrous-dialog" aria-labelledby="nitrous-connect-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
     <div className="nitrous-dialog-head"><span className="nitrous-icon-disc"><Link2 size={21} aria-hidden="true" /></span><button type="button" className="nitrous-icon-button" onClick={onClose} disabled={busy} aria-label="Close TradeLocker connection"><X size={20} /></button></div>
     <h2 id="nitrous-connect-title">{connectionId ? "Choose your account" : "Connect TradeLocker"}</h2>
-    <p className="nitrous-muted">{connectionId ? "Link the account you want to use. Auto trading starts only when you turn it on." : "Use the same broker server and sign-in details as your TradeLocker account."}</p>
+    <p className="nitrous-muted">{connectionId ? "You can use an account connected to other One Mission tools. Nitrous manages only its own trades." : "Use your TradeLocker broker server and sign-in details. Accounts linked to other One Mission tools are supported."}</p>
     {error && <p className="nitrous-error" role="alert">{error}</p>}
     {!connectionId ? <form onSubmit={connect} className="nitrous-form">
       <div className="nitrous-environment" role="group" aria-label="TradeLocker environment">
@@ -62,6 +62,7 @@ export function NitrousConnect({ onClose, onConnected }: { onClose: () => void; 
           <span><strong>{a.name || "TradeLocker account"}</strong><small>••••{a.accountId.slice(-4)} · {a.currency ?? "Currency pending"}</small></span><b>{money(a.balance, a.currency ?? "USD")}</b>
         </label>)}
       </fieldset>
+      <p className="nitrous-inline-note">Linking an account leaves auto trading off. You choose when to activate Nitrous.</p>
       <button className="nitrous-button nitrous-button-primary" disabled={busy || !selected} type="submit">{busy ? <Loader2 className="nitrous-spin" size={17} /> : <Check size={17} />}{busy ? "Verifying account…" : "Link selected account"}</button>
       <button type="button" className="nitrous-button nitrous-button-quiet" disabled={busy} onClick={() => { setConnectionId(""); setAccounts([]); setError(""); }}>Use a different connection</button>
     </form>}

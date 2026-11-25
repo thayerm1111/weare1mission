@@ -5,6 +5,8 @@ import { getProfile } from "@/lib/auth";
 import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
 import { AdminMembers, type MemberRow } from "@/components/portal/AdminMembers";
 import { loadMemberBilling } from "@/lib/adminBilling";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getNitrousAddonAccessMap } from "@/lib/nitrous/addon";
 
 export const metadata = { title: "Approvals", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
@@ -26,6 +28,9 @@ export default async function AdminPage() {
     loadMemberBilling(),
   ]);
 
+  const admin = createAdminClient();
+  const nitrousAccess = admin ? await getNitrousAddonAccessMap(admin, (data ?? []).map(member => String(member.id))).catch(() => null) : null;
+
   return (
     <div className="space-y-6">
       <header>
@@ -33,9 +38,9 @@ export default async function AdminPage() {
         <h1 className="mt-2 flex items-center gap-2 text-3xl font-extrabold tracking-tight text-navy">
           <ShieldCheck className="h-7 w-7 text-primary" aria-hidden="true" /> Member Approvals
         </h1>
-        <p className="mt-2 text-charcoal/70">Approve new sign-ups, manage member tiers and access, and see who has bought packs or is on a subscription.</p>
+        <p className="mt-2 text-charcoal/70">Approve new sign-ups, manage member tiers and access, grant complimentary Nitrous, and review purchases and subscriptions.</p>
       </header>
-      <AdminMembers members={(data ?? []) as MemberRow[]} billing={billing} />
+      <AdminMembers members={(data ?? []) as MemberRow[]} billing={billing} nitrousAccess={nitrousAccess} />
     </div>
   );
 }

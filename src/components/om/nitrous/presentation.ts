@@ -9,7 +9,7 @@ export function accountIsActive(status: NitrousStatus | null, account: NitrousAc
   const serverNow = Date.parse(status.serverTime) + now - receivedAt;
   const equityAt = Date.parse(account.equityAt ?? "");
   const workerAt = Date.parse(status.worker.lastBeatAt ?? "");
-  return status.available && status.control.mode === "live" && !status.control.entriesPaused
+  return status.available && status.addon?.entitled === true && status.control.mode === "live" && !status.control.entriesPaused
     && status.worker.healthy && account.state === "active" && account.automationEnabled
     && account.blockers.length === 0 && account.equity !== null && account.equity > 0
     && Number.isFinite(serverNow) && Number.isFinite(equityAt) && Number.isFinite(workerAt)
@@ -44,6 +44,7 @@ export function validStatus(value: unknown): value is NitrousStatus {
   return typeof s.available === "boolean" && typeof s.serverTime === "string" && Array.isArray(s.accounts)
     && s.accounts.every(a => a && typeof a.accountId === "string" && Array.isArray(a.blockers)
       && Array.isArray(a.positions) && a.stats && typeof a.stats.wins === "number" && typeof a.stats.losses === "number")
+    && !!s.addon && typeof s.addon.entitled === "boolean" && typeof s.addon.adminGranted === "boolean"
     && !!s.worker && typeof s.worker.healthy === "boolean" && !!s.control && Array.isArray(s.profiles) && !!s.telegram;
 }
 export function validAnalyze(value: unknown): value is NitrousAnalyze {

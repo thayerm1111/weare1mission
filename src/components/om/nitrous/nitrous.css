@@ -1,6 +1,34 @@
 /* Nitrous follows the existing One Mission palettes and keeps the account state factual. */
 .nitrous { color: var(--om-text, #122b4d); font-size: 16px; line-height: 1.5; padding: 5px 0 18px; }
 .nitrous *, .nitrous-summary * { box-sizing: border-box; }
+.nitrous-addon { padding: 27px; }
+.nitrous-addon-heading { display: flex; align-items: center; gap: 13px; margin-bottom: 22px; }
+.nitrous-addon .nitrous-eyebrow { font-size: 12px; }
+.nitrous-addon h2 { font-size: clamp(25px, 3vw, 34px); font-weight: 500; letter-spacing: -.04em; line-height: 1.2; }
+.nitrous-addon .nitrous-addon-intro { margin: 14px 0 0; color: var(--om-text-2); font-size: 16px; line-height: 1.7; max-width: 54ch; }
+.nitrous-addon-price { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin: 26px 0; }
+.nitrous-addon-price strong { font-size: 43px; font-weight: 500; letter-spacing: -.055em; line-height: 1.15; }
+.nitrous-addon-price span { font-size: 14px; color: var(--om-text-3); }
+.nitrous-addon-features { display: grid; gap: 12px; margin-bottom: 23px; font-size: 14px; color: var(--om-text-2); }
+.nitrous-addon-features > span { display: flex; align-items: center; gap: 10px; }
+.nitrous-addon-features svg { color: var(--om-ai); flex: 0 0 17px; }
+.nitrous-addon-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 24px 0; }
+.nitrous-addon-modes > span { display: grid; grid-template-columns: 20px 1fr; align-items: center; gap: 8px; padding: 13px; border: 1px solid var(--om-edge); border-radius: 12px; }
+.nitrous-addon-modes svg { color: var(--om-ai); }
+.nitrous-addon-modes strong { font-size: 14px; font-weight: 500; }
+.nitrous-addon-modes small { grid-column: 1 / -1; color: var(--om-text-3); font-size: 13px; }
+.nitrous-addon > .nitrous-button-primary { width: 100%; }
+.nitrous-addon .nitrous-addon-terms { margin-top: 12px; font-size: 13px; color: var(--om-text-3); line-height: 1.6; }
+.nitrous-addon-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; margin-top: 13px; }
+.nitrous-addon-actions .nitrous-button { font-size: 13px; padding: 8px 0; }
+.nitrous-addon-included { padding: 23px; }
+.nitrous-addon-included h2 { font-size: 21px; }
+.nitrous-addon-included .nitrous-addon-heading { margin-bottom: 15px; }
+.nitrous-addon-included .nitrous-addon-intro { font-size: 14px; }
+.nitrous-addon-cancel { border-top: 1px solid var(--om-edge); padding-top: 16px; margin-top: 8px; font-size: 14px; color: var(--om-text-2); }
+.nitrous-addon-cancel > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.nitrous-addon .nitrous-error, .nitrous-addon .nitrous-notice { margin: 12px 0 0; }
+@media (max-width: 480px) { .nitrous-addon { padding: 22px; } .nitrous-addon-modes { grid-template-columns: 1fr; } }
 .nitrous h1, .nitrous h2, .nitrous h3, .nitrous p, .nitrous dl { margin: 0; }
 .nitrous button, .nitrous input, .nitrous select { font: inherit; }
 .nitrous button { cursor: pointer; }
@@ -266,3 +294,7 @@
   .nitrous-summary-compact small { font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { .nitrous-spin { animation: none; } .nitrous-account, .nitrous-mode-switch > button { transition: none; } }
+
+.nitrous-layout[data-addon-only="true"] { grid-template-columns: minmax(0, 1fr); }
+.nitrous-layout[data-addon-only="true"] > .nitrous-main-column { width: 100%; max-width: 820px; margin-inline: auto; }
+.nitrous-layout[data-addon-only="true"] > .nitrous-side-column { display: none; }

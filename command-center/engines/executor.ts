@@ -396,19 +396,22 @@ export async function reconcile(userId: string, executionId: string, tag?: strin
     .eq("account_row_id", exec.account_row_id).is("closed_at", null);
   const ownedByOthers = new Set(((ownedRows ?? []) as { broker_position_id: string; execution_id: string | null }[])
     .filter((r) => r.execution_id !== executionId).map((r) => String(r.broker_position_id)));
+  // The sweep calls reconcile without a tag; every execution still has the same
+  // deterministic label that execute sent to the broker.
+  const expectedTag = tag ?? `cc-${executionId.replace(/-/g, "").slice(0, 26)}`;
   let lastRead = "";
 
   for (let attempt = 0; attempt < RECONCILE_TRIES; attempt++) {
     const pos = await listPositions(s.session.auth);
     if (!pos.ok) lastRead = `positions read failed — HTTP ${pos.status}: ${String(pos.error).slice(0, 120)}`;
     if (pos.ok) {
-      const rows = parsePositions(pos.data, await positionColumnsFor(s.session)).filter((p) => !ownedByOthers.has(String(p.id)));
+      const rows = parsePositions(pos.data, await positionColumnsFor(s.session))
+        .filter((p) => !ownedByOthers.has(String(p.id)) && !p.strategyId?.startsWith("NITROUS:"));
       lastRead = `broker listed ${rows.length} unowned position(s)`;
-      const raw = JSON.stringify(pos.data ?? "");
-      const tagged = tag && raw.includes(tag)
-        ? rows.find((p) => raw.indexOf(tag) > -1 && (!instrumentId || p.instrumentId === instrumentId))
-        : undefined;
+      // Match the label on THIS row, never a label elsewhere in the whole response.
+      const tagged = rows.find((p) => p.strategyId === expectedTag && (!instrumentId || p.instrumentId === instrumentId));
       const candidate = tagged ?? rows.find((p) =>
+        !p.strategyId &&
         (!instrumentId || p.instrumentId === instrumentId) &&
         (!intent || p.side === intent.side) &&
         // The size WE sent. GENX/FLOW can trade the same account; their positions are sized by their own

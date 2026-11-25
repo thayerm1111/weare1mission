@@ -1,6 +1,6 @@
 import { ACCOUNT_FRESH_MS, finiteNumber, freshAt, SNAPSHOT_FRESH_MS } from "@/lib/nitrous/policy";
 import type { NitrousAnalyze, NitrousCandle, NitrousScenario } from "@/lib/nitrous/types";
-import { json, requireUser, unavailable } from "../_shared";
+import { json, requireUser, requireNitrousAddon, unavailable } from "../_shared";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +17,8 @@ export async function GET() {
     const auth = await requireUser();
     if ("error" in auth) return auth.error;
     if (!auth.active) return json({ error: "access_inactive" }, 403);
+    const access = await requireNitrousAddon(auth.admin, auth.user.id);
+    if ("error" in access) return access.error;
     const result = await auth.admin.from("nitrous_snapshots").select("snapshot_id,strategy_version,generated_at,market_event_time,feed_source,health,regimes,payload")
       .order("generated_at", { ascending: false }).limit(1).maybeSingle();
     if (result.error) return unavailable();

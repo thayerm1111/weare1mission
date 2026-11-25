@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { allowedWriteOrigin } from "@/lib/nitrous/policy";
+import { getNitrousAddonAccess } from "@/lib/nitrous/addon";
 
 export const json = (body: unknown, status = 200) => NextResponse.json(body, {
   status, headers: { "Cache-Control": "no-store, private", "Vary": "Cookie, Authorization" },
@@ -28,6 +29,16 @@ export async function requireAccount(admin: NonNullable<ReturnType<typeof create
   if (r.error) return { error: json({ error: "account_unavailable" }, 503) } as const;
   if (!r.data) return { error: json({ error: "not_found" }, 404) } as const;
   return { account: r.data as Record<string, unknown> } as const;
+}
+
+/** Only new product use needs the add-on. Account recovery and position controls stay available. */
+export async function requireNitrousAddon(admin: NonNullable<ReturnType<typeof createAdminClient>>, userId: string) {
+  try {
+    const addon = await getNitrousAddonAccess(admin, userId);
+    if (!addon.entitled) return { error: json({ error: "nitrous_addon_required",
+      detail: "Enable the Nitrous add-on to view setups, connect an account, or start new entries." }, 403) } as const;
+    return { addon } as const;
+  } catch { return { error: unavailable() } as const; }
 }
 
 export async function bodyOf(req: Request): Promise<Record<string, unknown> | null> {

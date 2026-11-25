@@ -2,7 +2,7 @@ import type { PreparableAccount } from "../../../../../rapid/exec/prepare";
 import { prepareNitrousAccount } from "@/lib/nitrous/prepare";
 import { readinessBlockers, validateSettingsChange } from "@/lib/nitrous/policy";
 import { readinessContext } from "@/lib/nitrous/server";
-import { bodyOf, json, requireAccount, requireUser, unavailable } from "../_shared";
+import { bodyOf, json, requireAccount, requireUser, requireNitrousAddon, unavailable } from "../_shared";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -18,6 +18,11 @@ export async function POST(req: Request) {
     if ("error" in owned) return owned.error;
     const change = validateSettingsChange(owned.account, body, auth.active);
     if (!change.ok) return json({ error: change.error }, change.status);
+    // Pausing and managing an existing position remain possible after an add-on expires.
+    if (change.arming || body.mode !== undefined || body.riskPct !== undefined) {
+      const access = await requireNitrousAddon(auth.admin, auth.user.id);
+      if ("error" in access) return access.error;
+    }
 
     if (change.arming) {
       // Read-only broker preparation; no order, stop, or close is sent by this endpoint.
@@ -28,11 +33,6 @@ export async function POST(req: Request) {
       const context = await readinessContext(auth.admin, auth.user.id, nextAccount);
       const blockers = readinessBlockers(context);
       if (blockers.length) return json({ error: "not_ready", blockers }, 409);
-      // No previous broker identity may silently be reused as a second product's account.
-      const duplicate = await auth.admin.from("rapid_accounts").select("id", { count: "exact", head: true })
-        .eq("environment", nextAccount.environment).eq("server", nextAccount.server).eq("broker_account_id", nextAccount.broker_account_id).neq("status", "disabled");
-      if (duplicate.error) return unavailable();
-      if ((duplicate.count ?? 0) > 0) return json({ error: "account_in_use", blockers: ["This broker account is already connected to Rapid. Use a separate TradeLocker account for Nitrous."] }, 409);
     }
 
     // Ownership, version update, consent, and audit append commit together. The worker rechecks the

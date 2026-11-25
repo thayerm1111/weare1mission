@@ -14,7 +14,7 @@ function fixture() {
     state: "active", blockers: [], resolvedSymbol: "XAUUSD", positions: [],
     stats: { wins: 0, losses: 0, flat: 0, closed: 0, unresolved: 0, netPnl: null, recordedPnl: null, grossPnl: null, winningPnl: null, pnlVerified: false, verifiedClosed: 0, period: "all_time", basis: "recorded_realised_pnl" },
   };
-  const status: NitrousStatus = { available: true, serverTime: new Date(NOW).toISOString(), accounts: [account],
+  const status: NitrousStatus = { available: true, serverTime: new Date(NOW).toISOString(), accounts: [account], addon: { entitled: true, source: "admin", adminGranted: true, priceUsd: 19.99, interval: "month", subscription: null },
     worker: { healthy: true, lastBeatAt: new Date(NOW - 5_000).toISOString(), ageMs: 5_000 },
     control: { mode: "live", entriesPaused: false, pauseReason: null }, telegram: { configured: false, url: null, name: "Nitrous" }, profiles: [], consentVersion: "nitrous-consent-v1" };
   return { status, account };
@@ -30,6 +30,12 @@ test("Nitrous glow requires a fresh armed account and healthy execution service"
   status.worker.healthy = true; status.control.entriesPaused = true;
   assert.equal(accountIsActive(status, account, NOW, NOW), false);
 });
+test("Nitrous glow ends when add-on access is removed even if the account is still armed", () => {
+  const { status, account } = fixture();
+  status.addon = { ...status.addon, entitled: false, adminGranted: false, source: null };
+  assert.equal(accountIsActive(status, account, NOW, NOW), false);
+});
+
 test("cached account state loses its active glow on network errors or stale data", () => {
   const { status, account } = fixture();
   assert.equal(accountIsActive(status, account, NOW, NOW + 46_000), false);

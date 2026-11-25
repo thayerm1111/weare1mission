@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NitrousAccount, NitrousPosition, NitrousStats, NitrousStatus } from "./types";
 import { finiteNumber, freshAt, isNitrousMode, NITROUS_CONSENT_VERSION, NITROUS_PROFILES, profileFor, readinessBlockers, WORKER_FRESH_MS } from "./policy";
 import { readNitrousTelegramPublicState } from "../nitrous-telegram-store";
+import { getNitrousAddonAccess } from "./addon";
+import type { NitrousAddonAccess } from "./addon-policy";
 
 export const UNRESOLVED_STATES = ["reserved", "submitting", "acknowledged", "partially_filled", "filled", "submission_unknown", "protection_pending", "cancel_requested"];
 
@@ -38,13 +40,17 @@ function statsView(row?: Record<string, unknown>): NitrousStats {
 
 export async function getNitrousStatus(admin: SupabaseClient, userId: string, membershipActive: boolean): Promise<NitrousStatus> {
   const now = Date.now();
-  const [accountResult, conns, controlResult, heartbeatResult, statsResult, telegramResult] = await Promise.all([
+  const [accountResult, conns, controlResult, heartbeatResult, statsResult, telegramResult, addon] = await Promise.all([
     admin.from("nitrous_accounts").select("*").eq("user_id", userId).neq("status", "disabled").order("created_at", { ascending: false }),
     admin.from("nitrous_broker_connections").select("id,status").eq("user_id", userId),
     admin.from("nitrous_control").select("mode,entries_paused,pause_reason").eq("id", 1).maybeSingle(),
     admin.from("nitrous_heartbeat").select("at,info").eq("component", "nitrous-watchdog").maybeSingle(),
     admin.rpc("nitrous_account_stats", { p_user: userId }),
     readNitrousTelegramPublicState(admin),
+    // A billing lookup failure blocks new use without hiding the member's existing exposure.
+    getNitrousAddonAccess(admin, userId).catch((): NitrousAddonAccess => ({ entitled: false,
+      source: null, adminGranted: false, priceUsd: 19.99, interval: "month", subscription: null,
+      verificationUnavailable: true })),
   ]);
   if ([accountResult, conns, controlResult, heartbeatResult, statsResult].some((r) => r.error)) throw new Error("status_unavailable");
   const rows = (accountResult.data ?? []) as Array<Record<string, unknown>>;
@@ -65,6 +71,9 @@ export async function getNitrousStatus(admin: SupabaseClient, userId: string, me
       unresolved: (unresolved.data ?? []).filter((r) => r.account_id === a.id).length, now });
     if (!workerHealthy && freshAt(workerAt, now, WORKER_FRESH_MS)) blockers.push("The execution service is checking market or broker data.");
     if (!membershipActive) blockers.push("Active One Mission access is required for new entries.");
+    if (!addon.entitled) blockers.push(addon.verificationUnavailable
+      ? "Nitrous add-on access could not be verified. New entries are paused."
+      : "Nitrous add-on access is required for new entries.");
     const mode = isNitrousMode(a.profile) ? a.profile : "slow_drip";
     const equity = finiteNumber(a.equity);
     const risk = finiteNumber(a.risk_pct) ?? profileFor(mode).defaultRisk;
@@ -85,10 +94,10 @@ export async function getNitrousStatus(admin: SupabaseClient, userId: string, me
       positions: ((positions.data ?? []) as Array<Record<string, unknown>>).filter((p) => p.account_id === a.id).map(posView),
     };
   });
-  return { available: true, serverTime: new Date(now).toISOString(), accounts,
+  return { available: true, serverTime: new Date(now).toISOString(), accounts, addon,
     worker: { healthy: workerHealthy, lastBeatAt: workerAt, ageMs: workerAt ? Math.max(0, now - Date.parse(workerAt)) : null },
     control: { mode: String(control?.mode ?? "off"), entriesPaused: control?.entries_paused !== false,
       pauseReason: typeof control?.pause_reason === "string" ? control.pause_reason : null },
-    telegram: { configured: telegramResult.configured && telegramResult.status === "ready", url: telegramResult.url, name: telegramResult.title ?? "One Mission Nitrous" },
+    telegram: { configured: addon.entitled && telegramResult.configured && telegramResult.status === "ready", url: addon.entitled ? telegramResult.url : null, name: telegramResult.title ?? "One Mission Nitrous" },
     profiles: NITROUS_PROFILES, consentVersion: NITROUS_CONSENT_VERSION };
 }

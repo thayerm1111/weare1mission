@@ -4,7 +4,7 @@ import { authenticate, listAccounts, type TLAccount } from "../../../../../rapid
 import { freshToken, type RapidConnection } from "../../../../../rapid/broker/session";
 import type { PreparableAccount } from "../../../../../rapid/exec/prepare";
 import { prepareNitrousAccount } from "@/lib/nitrous/prepare";
-import { bodyOf, json, requireAccount, requireUser, audit, unavailable } from "../_shared";
+import { bodyOf, json, requireAccount, requireUser, requireNitrousAddon, audit, unavailable } from "../_shared";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -22,6 +22,10 @@ export async function POST(req: Request) {
     if (!body) return json({ error: "bad_request" }, 400);
     const action = body.action;
     if ((action === "connect" || action === "select") && !auth.active) return json({ error: "access_inactive" }, 403);
+    if (action === "connect" || action === "select") {
+      const access = await requireNitrousAddon(admin, user.id);
+      if ("error" in access) return access.error;
+    }
 
     if (action === "connect") {
       if (!encryptionReady()) return json({ error: "connection_unavailable", detail: "Secure broker connection storage is unavailable. Please try again later." }, 503);
@@ -69,10 +73,6 @@ export async function POST(req: Request) {
       // Never trust identifiers, currency, name or money supplied by the browser.
       const selected = remote.data.find((a) => a.accountId === brokerAccountId && a.accNum);
       if (!selected || (body.accNum !== undefined && String(body.accNum) !== selected.accNum)) return json({ error: "account_not_authorized" }, 403);
-      const otherProduct = await admin.from("rapid_accounts").select("id", { count: "exact", head: true })
-        .eq("environment", conn.environment).eq("server", conn.server).eq("broker_account_id", selected.accountId).neq("status", "disabled");
-      if (otherProduct.error) return unavailable();
-      if ((otherProduct.count ?? 0) > 0) return json({ error: "account_in_use", detail: "This account is already connected to Rapid. Use a separate TradeLocker account for Nitrous." }, 409);
       const previous = await admin.from("nitrous_accounts").select("id,user_id,automation_version")
         .eq("environment", conn.environment).eq("server", conn.server).eq("broker_account_id", selected.accountId).maybeSingle();
       if (previous.error) return unavailable();
@@ -82,7 +82,7 @@ export async function POST(req: Request) {
         acc_num: selected.accNum, environment: conn.environment, server: conn.server, name: selected.name,
         currency: selected.currency, balance: null, balance_at: null,
         equity: null, equity_at: null,
-        automation_enabled: false, management_enabled: true, allow_shared_account: false,
+        automation_enabled: false, management_enabled: true, allow_shared_account: true,
         status: "linked", block_reason: null, updated_at: now };
       const saved = previous.data
         ? await admin.from("nitrous_accounts").update({ ...payload, automation_version: Number(previous.data.automation_version) + 1 })

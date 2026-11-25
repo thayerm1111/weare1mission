@@ -26,7 +26,7 @@ import { logTrade } from "@/lib/flow/tradeLog";
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
 
-export type BrokerPos = { positionId: string; instrId: string; side: string; qty: number; sl: number | null; avg: number | null; tp: number | null };
+export type BrokerPos = { positionId: string; instrId: string; side: string; qty: number; sl: number | null; avg: number | null; tp: number | null; strategyId?: string | null };
 export type OrphanWant = { instrId: string; side: "buy" | "sell"; qty: number; stop: number | null };
 
 /**
@@ -41,6 +41,9 @@ export function pickOrphanMatch(positions: BrokerPos[], want: OrphanWant, tracke
   const qtyClose = (a: number, b: number) => b > 0 && Math.abs(a - b) <= Math.max(b * 0.02, 0.005);
   let cands = positions.filter((p) =>
     p.positionId && !trackedIds.has(String(p.positionId)) &&
+    // Nitrous can use the same account. Its position is never a missing FLOW/GENX fill,
+    // even when symbol, side and size happen to match a recent uncertain placement.
+    !p.strategyId?.startsWith("NITROUS:") &&
     String(p.instrId) === String(want.instrId) &&
     String(p.side).toLowerCase() === want.side &&
     p.qty > 0 && qtyClose(p.qty, want.qty),
@@ -68,9 +71,9 @@ function valAt(p: unknown, idx: number, keys: string[]): unknown {
 }
 function numAt(p: unknown, idx: number, keys: string[]): number | null { const v = valAt(p, idx, keys); const n = typeof v === "string" ? parseFloat(v) : Number(v); return Number.isFinite(n) ? n : null; }
 
-export type PosCols = { instrIdx: number; sideIdx: number; qtyIdx: number; slIdx: number; tpIdx: number; avgIdx: number };
+export type PosCols = { instrIdx: number; sideIdx: number; qtyIdx: number; slIdx: number; tpIdx: number; avgIdx: number; strategyIdx?: number };
 export async function positionCols(env: TLEnv, token: string, accNum: string): Promise<PosCols> {
-  const def: PosCols = { instrIdx: 1, sideIdx: 3, qtyIdx: 4, slIdx: -1, tpIdx: -1, avgIdx: 5 };
+  const def: PosCols = { instrIdx: 1, sideIdx: 3, qtyIdx: 4, slIdx: -1, tpIdx: -1, avgIdx: 5, strategyIdx: -1 };
   try {
     const cfg = await getConfig(env, token, accNum);
     if (!cfg.ok) return def;
@@ -85,16 +88,23 @@ export async function positionCols(env: TLEnv, token: string, accNum: string): P
     const slIdx = find((id) => id === "stoploss" || id === "stoplossprice" || id === "sl");
     const tpIdx = find((id) => id === "takeprofit" || id === "takeprofitprice" || id === "tp");
     const avgIdx = find((id) => id === "avgprice");
+    const strategyIdIdx = find((id) => id === "strategyid");
+    const strategyIdx = strategyIdIdx >= 0 ? strategyIdIdx : find((id) => id === "comment");
     return {
       instrIdx: instrIdx >= 0 ? instrIdx : def.instrIdx,
       sideIdx: sideIdx >= 0 ? sideIdx : def.sideIdx,
       qtyIdx: qtyIdx >= 0 ? qtyIdx : def.qtyIdx,
       slIdx, tpIdx,
       avgIdx: avgIdx >= 0 ? avgIdx : def.avgIdx,
+      strategyIdx,
     };
   } catch { return def; }
 }
 export function normalizePos(p: unknown, cols: PosCols): BrokerPos {
+  // With no readable column config, a visible Nitrous label still excludes the row.
+  // This fallback grants no ownership; it only prevents adoption by another manager.
+  const strategy = valAt(p, cols.strategyIdx ?? -1, ["strategyId", "comment"])
+    ?? (Array.isArray(p) ? p.find((v) => typeof v === "string" && v.startsWith("NITROUS:")) : null);
   return {
     positionId: posIdOf(p),
     instrId: String(valAt(p, cols.instrIdx, ["tradableInstrumentId", "instrumentId"]) ?? ""),
@@ -103,6 +113,7 @@ export function normalizePos(p: unknown, cols: PosCols): BrokerPos {
     sl: numAt(p, cols.slIdx, ["stopLoss", "sl"]),
     avg: numAt(p, cols.avgIdx, ["avgPrice", "openPrice", "price"]),
     tp: numAt(p, cols.tpIdx, ["takeProfit", "tp"]),
+    strategyId: strategy == null ? null : String(strategy),
   };
 }
 

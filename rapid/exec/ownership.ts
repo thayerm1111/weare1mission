@@ -1,4 +1,4 @@
-import { admin, tradingNamespace, withRapidDb } from "../db";
+import { admin, tradingNamespace } from "../db";
 import { createHash } from "node:crypto";
 import { field } from "../broker/http";
 
@@ -27,31 +27,69 @@ export type OwnershipCheck = {
   checkedAt: string;
 };
 
+/** Sharing changes entry eligibility, never which product owns an existing position. */
+export function accountOwnershipDecision(input: {
+  scope: "rapid" | "nitrous";
+  sharedWith: string[];
+  positions: unknown[] | null;
+  positionCols: Record<string, number>;
+  allowShared: boolean;
+  checkedAt: string;
+}): OwnershipCheck {
+  const { scope, positions, positionCols, allowShared, checkedAt } = input;
+  // Nitrous uses current broker exposure, not registries of other or retired products.
+  const sharedWith = scope === "nitrous" ? [] : input.sharedWith;
+  if (positions == null) {
+    return { ok: false, shared: sharedWith.length > 0, sharedWith, foreignPositions: -1, checkedAt,
+      reason: "the broker's open positions could not be read, so external exposure on this account is unknown" };
+  }
+
+  const prefix = scope === "nitrous" ? "NITROUS:" : RAPID_TAG_PREFIX;
+  const foreign = positions.filter((p) => {
+    const tag = field(p, positionCols, ["strategyId", "comment"]);
+    return !(typeof tag === "string" && tag.startsWith(prefix));
+  }).length;
+
+  if (sharedWith.length && !allowShared) {
+    return { ok: false, shared: true, sharedWith, foreignPositions: foreign, checkedAt,
+      reason: `This broker account is also traded by ${sharedWith.join(" and ")}. Equity, margin and — on a netting account — positions are shared, so Rapid cannot guarantee isolation. Use a dedicated account or sub-account, or allow a shared account in Rapid's settings after reading this. Nothing on ${sharedWith.join("/")} has been changed.` };
+  }
+  if (foreign > 0 && !allowShared) {
+    if (scope === "nitrous") return { ok: false, shared: sharedWith.length > 0, sharedWith, foreignPositions: foreign, checkedAt,
+      reason: `${foreign} open position(s) were not opened by Nitrous. Shared-account access is not enabled on this Nitrous account.` };
+    return { ok: false, shared: sharedWith.length > 0, sharedWith, foreignPositions: foreign, checkedAt,
+      reason: `${foreign} open position(s) on this account were not opened by Rapid. New entries stay paused while external exposure exists, unless a shared account is explicitly allowed.` };
+  }
+  if (scope === "nitrous") {
+    return { ok: true, shared: foreign > 0, sharedWith: [], foreignPositions: foreign, checkedAt,
+      reason: allowShared ? "Shared-account access enabled. Nitrous manages only its own tagged positions."
+        : "Account exposure verified. Nitrous manages only its own tagged positions." };
+  }
+  return { ok: true, shared: sharedWith.length > 0, sharedWith, foreignPositions: foreign, checkedAt,
+    reason: sharedWith.length ? `shared account explicitly allowed (${sharedWith.join(", ")}); Rapid touches only its own tagged positions` : "dedicated account: no other One Mission product is enabled on it" };
+}
+
 export async function checkOwnership(
   brokerAccountId: string,
   positions: unknown[] | null,
   positionCols: Record<string, number>,
   allowShared: boolean,
 ): Promise<OwnershipCheck> {
+  const scope = tradingNamespace();
+  const checkedAt = new Date().toISOString();
+  // No other-product lookup participates in Nitrous readiness. Connection ownership and
+  // exact broker-ID/tag position ownership are verified by the Nitrous caller and manager.
+  if (scope === "nitrous") {
+    return accountOwnershipDecision({ scope, sharedWith: [], positions, positionCols, allowShared, checkedAt });
+  }
   const db = admin();
   const sharedWith: string[] = [];
-  const checkedAt = new Date().toISOString();
 
   const [flow, cc, auric] = await Promise.all([
     db.from("flow_broker_accounts").select("id, autotrade_enabled, genx_follower, manage_trades").eq("account_id", brokerAccountId),
     db.from("cc_broker_accounts").select("id, auto_trading").eq("account_id", brokerAccountId),
     db.from("auric_accounts").select("id, status").eq("broker_account_id", brokerAccountId),
   ]);
-  if (tradingNamespace() === "nitrous") {
-    const rapid = await withRapidDb(() => admin().from("rapid_accounts").select("id").eq("broker_account_id", brokerAccountId).eq("status", "linked"));
-    if (flow.error || cc.error || auric.error || rapid.error) return {
-      ok: false, shared: false, sharedWith: [], foreignPositions: -1, checkedAt,
-      reason: "Account isolation could not be verified. New Nitrous entries remain paused.",
-    };
-    if (rapid.data?.length) sharedWith.push("Rapid");
-    // Nitrous never accepts a browser flag that silently shares the same trading balance.
-    allowShared = false;
-  }
   for (const r of (flow.data ?? []) as Array<Record<string, unknown>>) {
     if (r.autotrade_enabled || r.genx_follower || r.manage_trades) { sharedWith.push("FLOW/GENX"); break; }
   }
@@ -62,25 +100,5 @@ export async function checkOwnership(
     if (r.status === "linked") { sharedWith.push("AURIC"); break; }
   }
 
-  if (positions == null) {
-    return { ok: false, shared: sharedWith.length > 0, sharedWith, foreignPositions: -1, checkedAt,
-      reason: "the broker's open positions could not be read, so external exposure on this account is unknown" };
-  }
-
-  const foreign = positions.filter((p) => !isRapidTag(field(p, positionCols, ["strategyId", "comment"]))).length;
-
-  if (sharedWith.length && !allowShared) {
-    if (tradingNamespace() === "nitrous") return { ok: false, shared: true, sharedWith, foreignPositions: foreign, checkedAt,
-      reason: `This account is already used by ${sharedWith.join(" and ")}. Connect a dedicated TradeLocker account for Nitrous.` };
-    return { ok: false, shared: true, sharedWith, foreignPositions: foreign, checkedAt,
-      reason: `This broker account is also traded by ${sharedWith.join(" and ")}. Equity, margin and — on a netting account — positions are shared, so Rapid cannot guarantee isolation. Use a dedicated account or sub-account, or allow a shared account in Rapid's settings after reading this. Nothing on ${sharedWith.join("/")} has been changed.` };
-  }
-  if (foreign > 0 && !allowShared) {
-    if (tradingNamespace() === "nitrous") return { ok: false, shared: sharedWith.length > 0, sharedWith, foreignPositions: foreign, checkedAt,
-      reason: `${foreign} open position(s) were not opened by Nitrous. New entries wait until external exposure is settled.` };
-    return { ok: false, shared: sharedWith.length > 0, sharedWith, foreignPositions: foreign, checkedAt,
-      reason: `${foreign} open position(s) on this account were not opened by Rapid. New entries stay paused while external exposure exists, unless a shared account is explicitly allowed.` };
-  }
-  return { ok: true, shared: sharedWith.length > 0, sharedWith, foreignPositions: foreign, checkedAt,
-    reason: sharedWith.length ? `shared account explicitly allowed (${sharedWith.join(", ")}); Rapid touches only its own tagged positions` : "dedicated account: no other One Mission product is enabled on it" };
+  return accountOwnershipDecision({ scope, sharedWith, positions, positionCols, allowShared, checkedAt });
 }

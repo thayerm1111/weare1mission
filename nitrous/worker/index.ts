@@ -23,6 +23,7 @@ import { readAccountMetrics, readClosedOutcome, readOpeningFill, marginRequireme
 import { protectionMatches, submitProtected } from "../submit";
 import { requestCloseOnce } from "../close";
 import { advancePublicSetups, publicSetupTerminal } from "../public-events";
+import { hasNitrousAddonAccess, revokeNitrousAutomationWithoutAccess } from "../access";
 
 const HOLDER = `nitrous-${hostname()}-${process.pid}`;
 const LEASE_MS = 45_000;
@@ -36,6 +37,7 @@ type Account = {
   id: string; user_id: string; connection_id: string; broker_account_id: string; acc_num: string;
   environment: "demo" | "live"; profile: NitrousMode; risk_pct: number;
   automation_enabled: boolean; automation_version: number; management_enabled: boolean;
+  allow_shared_account: boolean;
   consent_version: string | null; consented_at: string | null; status: string;
 };
 type Position = Record<string, unknown> & {
@@ -50,7 +52,7 @@ type Intent = Record<string, unknown> & {
   broker_position_id: string | null; broker_order_id: string | null; created_at: string;
   side: "buy" | "sell"; planned_stop: number; planned_target: number; qty: number;
   planned_entry: number; estimated_risk: number; strategy_version: string; config_version: string;
-  management_version: string; risk_pct: number; detail: { managementEnabled?: boolean } | null;
+  management_version: string; risk_pct: number; detail: { managementEnabled?: boolean; preexistingPositionIds?: string[] } | null;
 };
 
 const market: { m1: Bar[]; higher: Record<string, Bar[]>; fetchedAt: number; higherAt: number; snapshot: MarketSnapshot | null; persistedAt: number; publicSetups: Setup[] } =
@@ -181,6 +183,12 @@ async function reconcile(acct: Account, port: TradeLockerPort, ctx: PortContext,
     const opening = await readOpeningFill(ctx, { orderId: intent.broker_order_id, positionId: intent.broker_position_id,
       strategyId: intent.broker_strategy_id, side: intent.side, submittedAt: String(intent.submitted_at ?? intent.created_at) }, spec);
     const positionId = opening.ok ? opening.positionId : intent.broker_position_id;
+    const preexisting = intent.detail?.preexistingPositionIds;
+    if ((positionId && preexisting?.includes(positionId)) || (acct.allow_shared_account && !Array.isArray(preexisting))) {
+      checked(await db.from("nitrous_intents").update({ state: "protection_pending",
+        error: "Shared position ownership requires reconciliation; existing exposure was not adopted.", updated_at: iso() }).eq("id", intent.id));
+      continue;
+    }
     const live = positionId ? brokerRows.find((r) => r.positionId === positionId && r.strategyId === intent.broker_strategy_id) : undefined;
     if (live && live.side === intent.side && Number(live.entry) > 0 && Number(live.qty) > 0) {
       const store = storeFor({ ...acct, management_enabled: intent.detail?.managementEnabled === true, risk_pct: Number(intent.risk_pct) }, { side: intent.side, strategyVersion: intent.strategy_version, configVersion: intent.config_version }, intent.broker_strategy_id);
@@ -303,6 +311,7 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
   if (!snap || snap.health.state !== "ok" || Date.now() - market.persistedAt > 40_000 || !referenceFresh(market.m1, Date.now())) throw new Error("Waiting for fresh market data.");
   const db = admin(); const cfg = configFor(acct.profile);
   if (!memberActive(checked(await db.from("profiles").select("status,role,access_expires_at").eq("id", acct.user_id).maybeSingle()), Date.now())) throw new Error("Active One Mission access is required for new entries.");
+  if (!await hasNitrousAddonAccess(db, acct.user_id)) throw new Error("Nitrous add-on access is required for new entries.");
   if (acct.consent_version !== NITROUS_CONSENT_VERSION || !acct.consented_at || !isNitrousMode(acct.profile) || validRisk(acct.profile, Number(acct.risk_pct)) === null) throw new Error("Review your account mode and risk before activating.");
   const recent = checked(await db.from("nitrous_positions").select("closed_at").eq("account_id", acct.id).eq("status", "closed").order("closed_at", { ascending: false }).limit(1)) ?? [];
   if (recent[0]?.closed_at && Date.now() - Date.parse(recent[0].closed_at) < cfg.entry.reentryCooldownSec * 1000) return;
@@ -310,6 +319,10 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
   for (const candidate of snap.scenarios) {
     if (!held()) return;
     if (!triggerConfirmed(candidate, aggregateClosed(market.m1, candidate.timeframe === "M15" ? 15 : 5, Date.now()), Date.now())) continue;
+    const baseline = await port.positions();
+    if (!baseline.ok || baseline.rows.some((p) => !p.positionId)) throw new Error("Current broker exposure must be readable before a new entry.");
+    if (baseline.rows.some((p) => p.strategyId?.startsWith("NITROUS:"))) throw new Error("An existing Nitrous position must settle before another entry.");
+    const preexistingPositionIds = baseline.rows.map((p) => p.positionId);
     const q = await port.quote(); if (!q.ok) throw new Error(q.error);
     const price = executablePrice(q.quote, candidate.side, "entry"); if (price === null) continue;
     if (price < candidate.entryBandLow || price > candidate.entryBandHigh) continue;
@@ -339,20 +352,22 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
       p_spread: q.quote.ask - q.quote.bid, p_automation_version: acct.automation_version, p_fence: fence, p_broker_strategy_id: strategyId }));
     const reservation = Array.isArray(reserved) ? reserved[0] : reserved;
     if (!reservation?.created || !reservation.intent_id) continue;
-    checked(await db.from("nitrous_intents").update({ detail: { managementEnabled: acct.management_enabled, feeAllowancePerLot: cfg.risk.commissionPerLotRoundTrip, quoteBasis: basis, profile: acct.profile } }).eq("id", reservation.intent_id));
+    checked(await db.from("nitrous_intents").update({ detail: { managementEnabled: acct.management_enabled, feeAllowancePerLot: cfg.risk.commissionPerLotRoundTrip, quoteBasis: basis, profile: acct.profile, preexistingPositionIds } }).eq("id", reservation.intent_id));
     const approved = async () => {
       if (!held() || Date.now() - approvedAt > cfg.feed.maxSignalToSubmitMs || !referenceFresh(market.m1, Date.now())) return false;
-      const [a, c, lease, member] = await Promise.all([
+      const [a, c, lease, member, addonAccess] = await Promise.all([
         db.from("nitrous_accounts").select("automation_enabled,automation_version,status").eq("id", acct.id).single(),
         db.from("nitrous_control").select("mode,entries_paused").eq("id", 1).single(),
         db.from("nitrous_leases").select("owner,fence,expires_at").eq("account_id", acct.id).single(),
         db.from("profiles").select("status,role,access_expires_at").eq("id", acct.user_id).maybeSingle(),
+        hasNitrousAddonAccess(db, acct.user_id),
       ]);
-      return ![a,c,lease,member].some((r) => r.error) && a.data?.automation_enabled === true && a.data.automation_version === acct.automation_version && a.data.status === "linked" &&
+      return addonAccess && ![a,c,lease,member].some((r) => r.error) && a.data?.automation_enabled === true && a.data.automation_version === acct.automation_version && a.data.status === "linked" &&
         c.data?.mode === "live" && c.data.entries_paused === false && lease.data?.owner === HOLDER && Number(lease.data.fence) === fence &&
         Date.parse(lease.data.expires_at) > Date.now() && memberActive(member.data, Date.now()) && held() && Date.now() - q.quote.receivedAt <= cfg.feed.maxQuoteAgeMs;
     };
     const outcome = await submitProtected({ intentId: reservation.intent_id, side: setup.side, qty: size.qty, stop: setup.stop,
+      preexistingPositionIds,
       target: setup.target, strategyId, tick: spec.tickSize!, riskBudget: Math.min(size.riskBudget, remaining), valuePerPricePerLot: size.valuePerPricePerLot,
       commissionPerLot: cfg.risk.commissionPerLotRoundTrip, exitAllowance: cfg.risk.exitSlippageTicks * spec.tickSize!, protectionDeadlineMs: 8000,
       approved, stillOwned: held, port, store: storeFor(acct, setup, strategyId), requestClose: async (positionId, reason) => {
@@ -370,7 +385,7 @@ async function serveAccount(acct: Account, fence: number, held: () => boolean) {
   const [contract, positions, metrics] = await Promise.all([port.spec(), port.positions(), readAccountMetrics(ctx)]);
   if (!contract.ok) throw new Error(contract.error);
   if (!positions.ok) throw new Error(positions.error);
-  const ownership = await checkOwnership(acct.broker_account_id, positions.rows, {}, false);
+  const ownership = await checkOwnership(acct.broker_account_id, positions.rows, {}, acct.allow_shared_account === true);
   const missing = [...contract.missing];
   if (marginRequirement(contract.spec, 1, 1, metrics.ok ? metrics.currency : null) === null) missing.push("broker leverage / margin currency");
   checked(await admin().from("nitrous_accounts").update({ instrument_spec: contract.spec, instrument_resolved_at: iso(), spec_missing: missing,
@@ -379,6 +394,7 @@ async function serveAccount(acct: Account, fence: number, held: () => boolean) {
   const rows = await reconcile(acct, port, ctx, positions.rows, contract.spec, metrics.ok ? metrics.currency : null);
   // Always protect already-owned positions, even when new entries or membership are paused.
   await manage(acct, rows, positions.rows, port, contract.spec, held);
+  if (!await revokeNitrousAutomationWithoutAccess(admin(), acct)) throw new Error("Nitrous add-on access is required for new entries. Existing positions keep their protection.");
   if (rows.some((p) => p.status === "orphan_review" || p.protection_state !== "protected")) throw new Error("A position needs broker reconciliation. New entries remain paused.");
   const known = new Set(rows.map((p) => p.broker_position_id));
   if (positions.rows.some((p) => p.strategyId?.startsWith("NITROUS:") && !known.has(p.positionId))) throw new Error("An untracked Nitrous position needs reconciliation. New entries are paused.");
@@ -419,7 +435,7 @@ async function watchdog() {
       const state = market.snapshot && Date.now() - market.persistedAt < 45_000 &&
         (!sessionOpen || (market.snapshot.health.state === "ok" && referenceFresh(market.m1, Date.now()))) &&
         Date.now() - lastAccountPass < 60_000 ? "ok" : "blocked";
-      await beat("nitrous-watchdog", { state, holder: HOLDER, referenceEventAt: market.m1.at(-1)?.t ?? null,
+      await beat("nitrous-watchdog", { state, holder: HOLDER, addonEnforced: true, sharedAccountsSupported: true, referenceEventAt: market.m1.at(-1)?.t ?? null,
         marketState: sessionOpen ? "open" : "closed",
         snapshotAgeMs: market.persistedAt ? Date.now() - market.persistedAt : null,
         accountsAgeMs: lastAccountPass ? Date.now() - lastAccountPass : null });

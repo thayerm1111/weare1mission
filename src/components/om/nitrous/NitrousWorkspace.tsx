@@ -12,6 +12,7 @@ import { NITROUS_CONSENT_VERSION, NITROUS_PROFILES } from "@/lib/nitrous/policy"
 import { useNitrousStatus } from "./useNitrousStatus";
 import { accountIsActive, elapsed, modeName, money, price, scenarioState, shownPnl, shownPnlLabel, validAnalyze } from "./presentation";
 import { NitrousConnect } from "./NitrousConnect";
+import { NitrousAddonPanel } from "./NitrousAddonPanel";
 import { NitrousTelegramPanel } from "./NitrousTelegramPanel";
 import "./nitrous.css";
 
@@ -104,6 +105,7 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
   const [riskPct, setRiskPct] = useState(0.5); const [busy, setBusy] = useState(""); const [actionError, setActionError] = useState("");
   const [notice, setNotice] = useState(""); const [connecting, setConnecting] = useState(false); const [arming, setArming] = useState(false);
   const [closing, setClosing] = useState<NitrousPosition | null>(null);
+  const entitled = status.data?.addon?.entitled === true && !status.error;
   const accounts = status.data?.accounts ?? [];
   const account = accounts.find(a => a.accountId === accountId) ?? accounts[0] ?? null;
   const profiles = status.data?.profiles.length ? status.data.profiles : NITROUS_PROFILES;
@@ -115,7 +117,7 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
       lastAccount.current = account.accountId; setMode(account.mode); setRiskPct(account.riskPct);
     }
   }, [account]);
-  const chooseMode = (next: NitrousMode) => { if (account?.automationEnabled || busy) return; setMode(next); setRiskPct(profiles.find(p => p.mode === next)?.defaultRisk ?? (next === "slow_drip" ? 0.5 : 3)); setNotice(""); };
+  const chooseMode = (next: NitrousMode) => { if (!entitled || account?.automationEnabled || busy) return; setMode(next); setRiskPct(profiles.find(p => p.mode === next)?.defaultRisk ?? (next === "slow_drip" ? 0.5 : 3)); setNotice(""); };
   const active = accountIsActive(status.data, account, status.receivedAt, status.now, status.error);
   const changed = !!account && (account.mode !== mode || account.riskPct !== riskPct);
   const currency = account?.currency ?? "USD";
@@ -124,6 +126,7 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
     && status.now > 0 && analysisReceivedAt > 0 && status.now - analysisReceivedAt <= 45_000;
 
   const refreshAnalysis = useCallback(async () => {
+    if (!entitled) return;
     pendingAnalysis.current?.abort(); const controller = new AbortController(); pendingAnalysis.current = controller;
     setAnalysisLoading(true);
     try {
@@ -133,14 +136,15 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
       if (!controller.signal.aborted) { setAnalysis(body); setAnalysisError(""); setAnalysisReceivedAt(Date.now()); }
     } catch (e) { if (!controller.signal.aborted) setAnalysisError(e instanceof Error ? e.message : "Unable to refresh gold setups."); }
     finally { if (!controller.signal.aborted) setAnalysisLoading(false); }
-  }, []);
+  }, [entitled]);
   useEffect(() => {
+    if (!entitled) { pendingAnalysis.current?.abort(); setAnalysis(null); setAnalysisError(""); setAnalysisLoading(false); setArming(false); setConnecting(false); return; }
     void refreshAnalysis();
     const poll = setInterval(() => { if (document.visibilityState === "visible") void refreshAnalysis(); }, 15_000);
     const visible = () => { if (document.visibilityState === "visible") void refreshAnalysis(); };
     document.addEventListener("visibilitychange", visible);
     return () => { clearInterval(poll); pendingAnalysis.current?.abort(); document.removeEventListener("visibilitychange", visible); };
-  }, [refreshAnalysis]);
+  }, [entitled, refreshAnalysis]);
 
   async function settings(body: Record<string, unknown>, action: string) {
     if (!account || busy) return;
@@ -180,48 +184,51 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
     finally { setBusy(""); }
   }
 
-  const canArm = !!account && !status.error && !!status.data?.available && status.data.worker.healthy
+  const canArm = entitled && !!account && !status.error && !!status.data?.available && status.data.worker.healthy
     && status.data.control.mode === "live" && !status.data.control.entriesPaused && account.blockers.length === 0
     && status.now > 0 && status.now - status.receivedAt <= 45_000;
   return <div className="nitrous" data-mode={mode}>
     <header className="nitrous-header"><div className="nitrous-brand"><ProductIcon kind="nitrous" size="lg" /><div><p className="nitrous-eyebrow">ONE MISSION · GOLD AUTOMATION</p><h1>Nitrous</h1><p>Read the setup. Choose your pace.</p></div></div>
       <span className="nitrous-powered"><span />Powered by TradeLocker</span></header>
-    <div className="nitrous-mode-switch" role="group" aria-label="Trading mode">
-      <button type="button" aria-pressed={mode === "slow_drip"} onClick={() => chooseMode("slow_drip")} disabled={!!account?.automationEnabled || !!busy}><span className="nitrous-mode-icon"><Droplets size={23} /></span><span><strong>Slow Drip</strong><small>Measured risk. Selective entries.</small></span><span className="nitrous-mode-risk">0.5–1%<small>per trade</small></span></button>
-      <button type="button" aria-pressed={mode === "nitrous"} onClick={() => chooseMode("nitrous")} disabled={!!account?.automationEnabled || !!busy}><span className="nitrous-mode-icon"><Zap size={23} /></span><span><strong>Nitrous</strong><small>Higher risk. Every qualified setup.</small></span><span className="nitrous-mode-risk">3–5%<small>per trade</small></span></button>
-    </div>
-    <div className="nitrous-layout"><div className="nitrous-main-column"><MarketCard data={analysis} loading={analysisLoading} error={analysisError} fresh={readFresh} now={status.now} onRefresh={() => void refreshAnalysis()} simple={isSimple} />
+    {(entitled || account) && <div className="nitrous-mode-switch" role="group" aria-label="Trading mode">
+      <button type="button" aria-pressed={mode === "slow_drip"} onClick={() => chooseMode("slow_drip")} disabled={!entitled || !!account?.automationEnabled || !!busy}><span className="nitrous-mode-icon"><Droplets size={23} /></span><span><strong>Slow Drip</strong><small>Measured risk. Selective entries.</small></span><span className="nitrous-mode-risk">0.5–1%<small>per trade</small></span></button>
+      <button type="button" aria-pressed={mode === "nitrous"} onClick={() => chooseMode("nitrous")} disabled={!entitled || !!account?.automationEnabled || !!busy}><span className="nitrous-mode-icon"><Zap size={23} /></span><span><strong>Nitrous</strong><small>Higher risk. Every qualified setup.</small></span><span className="nitrous-mode-risk">3–5%<small>per trade</small></span></button>
+    </div>}
+    <div className="nitrous-layout" data-addon-only={!entitled && !account && !isAdmin}><div className="nitrous-main-column">{entitled ? <MarketCard data={analysis} loading={analysisLoading} error={analysisError} fresh={readFresh} now={status.now} onRefresh={() => void refreshAnalysis()} simple={isSimple} />
+      : <NitrousAddonPanel addon={status.data?.addon ?? null} loading={status.loading} unavailable={!!status.error || status.data?.addon?.verificationUnavailable === true} onUpdated={status.refresh} />}
+      {!entitled && account && <p className="nitrous-health-note">Your account and open positions remain available here. New setups and auto entries require Nitrous access.</p>}
       {account && <Positions account={account} simple={isSimple} busy={!!busy} onClose={position => { setActionError(""); setClosing(position); }} />}</div>
-      <aside className="nitrous-side-column" aria-label="Trading account controls"><section className="nitrous-account nitrous-panel" data-nitrous-active={active} aria-labelledby="nitrous-account-title">
+      <aside className="nitrous-side-column" aria-label="Trading account controls">{(entitled || account) && <section className="nitrous-account nitrous-panel" data-nitrous-active={active} aria-labelledby="nitrous-account-title">
         <div className="nitrous-section-head"><div><span className="nitrous-eyebrow">YOUR TRADELOCKER ACCOUNT</span><h2 id="nitrous-account-title">{active ? "Auto trading is active" : account ? "Account control" : "Connect. Set. Trade."}</h2></div><span className="nitrous-account-signal"><Activity size={20} /></span></div>
         {status.error && <p className="nitrous-error" role="alert">{status.error}</p>}
         {!account ? <div className="nitrous-connect-empty"><span className="nitrous-connect-orbit"><Link2 size={32} /></span><h3>Your account, in view.</h3><p>Connect a real or demo TradeLocker account to see your balance, manage risk, and turn on auto trading.</p>
-          <button type="button" className="nitrous-button nitrous-button-primary" onClick={() => setConnecting(true)} disabled={status.loading}><Link2 size={17} />{status.loading ? "Checking accounts…" : "Connect TradeLocker"}</button><small>Connecting an account does not turn on trading.</small></div>
+          <button type="button" className="nitrous-button nitrous-button-primary" onClick={() => setConnecting(true)} disabled={!entitled || status.loading}><Link2 size={17} />{status.loading ? "Checking accounts…" : "Connect TradeLocker"}</button><small>Connecting an account does not turn on trading.</small></div>
           : <>
             <div className="nitrous-account-select"><label htmlFor="nitrous-account-choice" className="nitrous-sr-only">Choose linked account</label><select id="nitrous-account-choice" value={account.accountId} onChange={e => { setAccountId(e.target.value); setNotice(""); }} disabled={!!busy || arming || !!closing}>{accounts.map(a => <option key={a.accountId} value={a.accountId}>{a.name || "TradeLocker"} {a.masked} · {a.environment}</option>)}</select><ChevronDown size={16} aria-hidden="true" /></div>
             <div className="nitrous-account-state"><span className="nitrous-status" data-active={active}><i />{active ? "AUTO ACTIVE" : account.automationEnabled ? "AUTO WAITING" : "AUTO PAUSED"}</span><span className="nitrous-account-env">{account.environment === "live" ? "REAL ACCOUNT" : "DEMO ACCOUNT"}</span></div>
             <div className="nitrous-balance"><span>Account balance</span><strong>{money(account.balance, currency)}</strong><small>Equity {money(account.equity, currency)} · {elapsed(account.equityAt, status.now)}</small></div>
             <div className="nitrous-account-stats"><div><small>Wins</small><strong>{account.stats.wins}</strong></div><div><small>Losses</small><strong>{account.stats.losses}</strong></div><div><small>{shownPnlLabel(account)}</small><strong data-result={shownPnl(account) == null ? "unknown" : Number(shownPnl(account)) >= 0 ? "positive" : "negative"}>{money(shownPnl(account), currency)}</strong></div></div>
             <p className="nitrous-stat-note">Nitrous account history · {account.stats.closed - account.stats.unresolved} graded closes{account.stats.unresolved > 0 ? ` · ${account.stats.unresolved} awaiting result` : ""}{!account.stats.pnlVerified && account.stats.closed > 0 ? " · Costs not fully reconciled" : ""}</p>
-            <div className="nitrous-risk-controls"><div><label>Risk per trade</label><span>{modeName(mode)}</span></div><div className="nitrous-risk-presets" role="group" aria-label="Risk per trade">{profile.riskPresets.map(pct => <button type="button" key={pct} aria-pressed={riskPct === pct} onClick={() => { setRiskPct(pct); setNotice(""); }} disabled={!!account.automationEnabled || !!busy}>{pct}%</button>)}</div>
+            <div className="nitrous-risk-controls"><div><label>Risk per trade</label><span>{modeName(mode)}</span></div><div className="nitrous-risk-presets" role="group" aria-label="Risk per trade">{profile.riskPresets.map(pct => <button type="button" key={pct} aria-pressed={riskPct === pct} onClick={() => { setRiskPct(pct); setNotice(""); }} disabled={!entitled || !!account.automationEnabled || !!busy}>{pct}%</button>)}</div>
               <p><strong>{money(plannedRisk, currency)}</strong> planned budget per trade</p><small>{account.automationEnabled ? "Pause auto trading to change mode or risk." : "Actual size rounds down to your broker’s lot step. Setups that cannot fit your budget are skipped."}</small></div>
-            {!isSimple && <div className="nitrous-management"><label><input type="checkbox" checked={account.managementEnabled} disabled={account.automationEnabled || !!busy} onChange={event => void settings({ managementEnabled: event.target.checked }, "management")} /><span>Automatic trade management<small>Applies to new trades. Existing trades keep their saved management plan.</small></span></label></div>}
-            {changed && !account.automationEnabled && <button className="nitrous-button nitrous-button-secondary" type="button" onClick={() => void settings({ mode, riskPct }, "save")} disabled={!!busy}>{busy === "save" ? <Loader2 className="nitrous-spin" size={17} /> : <Check size={17} />}Save {modeName(mode)} profile</button>}
+            {entitled && !isSimple && <div className="nitrous-management"><label><input type="checkbox" checked={account.managementEnabled} disabled={account.automationEnabled || !!busy} onChange={event => void settings({ managementEnabled: event.target.checked }, "management")} /><span>Automatic trade management<small>Applies to new trades. Existing trades keep their saved management plan.</small></span></label></div>}
+            {entitled && changed && !account.automationEnabled && <button className="nitrous-button nitrous-button-secondary" type="button" onClick={() => void settings({ mode, riskPct }, "save")} disabled={!!busy}>{busy === "save" ? <Loader2 className="nitrous-spin" size={17} /> : <Check size={17} />}Save {modeName(mode)} profile</button>}
             {account.automationEnabled ? <button type="button" className="nitrous-button nitrous-button-secondary" disabled={!!busy} onClick={() => void settings({ automationEnabled: false }, "pause")}>{busy === "pause" ? <Loader2 className="nitrous-spin" size={17} /> : <Pause size={17} />}Pause auto trading</button>
               : <button type="button" className="nitrous-button nitrous-button-primary" disabled={!canArm || !!busy} onClick={() => { setActionError(""); setArming(true); }}><Play size={17} />Turn on auto trading</button>}
             {account.blockers.length > 0 && <div className="nitrous-blockers"><strong>Before new entries can start</strong><ul>{account.blockers.map((blocker, i) => <li key={i}>{blocker}</li>)}</ul></div>}
             {!status.data?.worker.healthy && !account.blockers.some(b => /execution service|worker/i.test(b)) && <p className="nitrous-health-note">Waiting for the execution service to report ready.</p>}
-            <div className="nitrous-account-footer"><button type="button" onClick={() => void refreshAccount()} disabled={!!busy}>{busy === "refresh" ? <Loader2 size={14} className="nitrous-spin" /> : <RefreshCw size={14} />}Refresh account</button><button type="button" onClick={() => setConnecting(true)} disabled={!!busy}>Add account</button></div>
+            <div className="nitrous-account-footer"><button type="button" onClick={() => void refreshAccount()} disabled={!!busy}>{busy === "refresh" ? <Loader2 size={14} className="nitrous-spin" /> : <RefreshCw size={14} />}Refresh account</button>{entitled && <button type="button" onClick={() => setConnecting(true)} disabled={!!busy}>Add account</button>}</div>
           </>}
         {notice && <p className="nitrous-notice" role="status">{notice}</p>}
         {actionError && !arming && !closing && <p className="nitrous-error" role="alert">{actionError}</p>}
-      </section>
-      <NitrousTelegramPanel admin={isAdmin} telegram={status.data?.telegram} />
+      </section>}
+      {entitled && <NitrousAddonPanel addon={status.data?.addon ?? null} loading={status.loading} unavailable={!!status.error || status.data?.addon?.verificationUnavailable === true} onUpdated={status.refresh} />}
+      {(entitled || isAdmin) && <NitrousTelegramPanel admin={isAdmin} telegram={status.data?.telegram} />}
       <div className="nitrous-pace-note"><ShieldCheck size={17} aria-hidden="true" /><p>{mode === "nitrous" ? "Nitrous uses high risk. A run of losses can consume your trading allocation quickly." : "Slow Drip sizes every trade to your account. Small risk can mean fewer eligible setups."}</p></div>
       </aside></div>
     <footer className="nitrous-footer"><span>Visible setups are conditional until their triggers qualify. Trading can lose money.</span>{!isSimple && analysis?.strategyVersion && <span>{analysis.strategyVersion}</span>}</footer>
-    {connecting && <NitrousConnect onClose={() => setConnecting(false)} onConnected={id => { setConnecting(false); if (id) setAccountId(id); void status.refresh(); setNotice("Account connected. Choose your mode and turn on auto trading when ready."); }} />}
-    {arming && account && <ArmDialog account={account} mode={mode} riskPct={riskPct} consentVersion={status.data?.consentVersion ?? NITROUS_CONSENT_VERSION} busy={busy === "arm"} error={actionError} onCancel={() => { setArming(false); setActionError(""); }} onConfirm={version => void settings({ mode, riskPct, automationEnabled: true, acknowledgedRisk: true, consentVersion: version }, "arm")} />}
+    {connecting && entitled && <NitrousConnect onClose={() => setConnecting(false)} onConnected={id => { setConnecting(false); if (id) setAccountId(id); void status.refresh(); setNotice("Account connected. Choose your mode and turn on auto trading when ready."); }} />}
+    {arming && entitled && account && <ArmDialog account={account} mode={mode} riskPct={riskPct} consentVersion={status.data?.consentVersion ?? NITROUS_CONSENT_VERSION} busy={busy === "arm"} error={actionError} onCancel={() => { setArming(false); setActionError(""); }} onConfirm={version => void settings({ mode, riskPct, automationEnabled: true, acknowledgedRisk: true, consentVersion: version }, "arm")} />}
     {closing && account && <CloseDialog position={closing} account={account} busy={busy === "close"} error={actionError} onCancel={() => { setClosing(null); setActionError(""); }} onConfirm={() => void closePosition()} />}
   </div>;
 }

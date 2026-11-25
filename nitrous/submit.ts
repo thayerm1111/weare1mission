@@ -5,6 +5,8 @@ import type { Store } from "../rapid/exec/submit";
 export type ProtectedOrder = {
   intentId: string; side: Side; qty: number; stop: number; target: number;
   strategyId: string; tick: number; riskBudget: number; valuePerPricePerLot: number;
+  /** Broker IDs observed before this order, persisted with its intent before dispatch. */
+  preexistingPositionIds: readonly string[];
   commissionPerLot: number; exitAllowance: number; protectionDeadlineMs: number;
   approved: () => Promise<boolean>; stillOwned: () => boolean;
   /** Persist a close claim before dispatch; shared with member-requested and risk closes. */
@@ -55,6 +57,13 @@ export async function submitProtected(inp: ProtectedOrder): Promise<Submission> 
   if (!positionId) {
     await inp.store.setState(inp.intentId, "submission_unknown", { error: "No confirmed broker position ID." });
     return { state: "submission_unknown", reason: "Order acknowledged; its position is not yet confirmed." };
+  }
+  // A shared-account order may be merged by a broker into existing exposure. Never claim,
+  // amend or close that older position, even if the broker replaces its strategy label.
+  if (inp.preexistingPositionIds.includes(positionId)) {
+    await inp.store.setState(inp.intentId, "protection_pending", { broker_position_id: positionId,
+      error: "The order points to a position that existed before Nitrous submitted it. Shared exposure requires reconciliation." });
+    return { state: "protection_pending", reason: "Broker returned pre-existing shared exposure. Nitrous has not adopted or modified it." };
   }
   await inp.store.setState(inp.intentId, "protection_pending", { broker_position_id: positionId });
   const deadline = now() + inp.protectionDeadlineMs;

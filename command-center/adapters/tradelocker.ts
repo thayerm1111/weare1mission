@@ -51,7 +51,7 @@ export type TLResult<T> =
 export type TLAuth = { env: TLEnv; accessToken: string; accountId: string; accNum: string };
 export type TLAccount = { id: string; accNum: string; currency?: string; balance?: number; equity?: number; name?: string };
 export type TLQuote = { bid: number | null; ask: number | null; at: number };
-export type TLPosition = { id: string; instrumentId: string; side: "buy" | "sell"; qty: number; avgPrice: number | null; sl: number | null; tp: number | null; unrealisedPl: number | null; openedAt: number | null };
+export type TLPosition = { id: string; instrumentId: string; side: "buy" | "sell"; qty: number; avgPrice: number | null; sl: number | null; tp: number | null; unrealisedPl: number | null; openedAt: number | null; strategyId: string | null };
 
 const TIMEOUT_MS = 15_000;
 
@@ -513,11 +513,11 @@ export function parseAccountState(body: unknown): { balance: number | null; equi
  */
 export type PositionColumns = {
   idIdx: number; instrIdx: number; sideIdx: number; qtyIdx: number;
-  avgIdx: number; slIdx: number; tpIdx: number; openedIdx: number;
+  avgIdx: number; slIdx: number; tpIdx: number; openedIdx: number; strategyIdx: number;
 };
 
 export const DEFAULT_POSITION_COLUMNS: PositionColumns = {
-  idIdx: 0, instrIdx: 1, sideIdx: 3, qtyIdx: 4, avgIdx: 5, slIdx: -1, tpIdx: -1, openedIdx: -1,
+  idIdx: 0, instrIdx: 1, sideIdx: 3, qtyIdx: 4, avgIdx: 5, slIdx: -1, tpIdx: -1, openedIdx: -1, strategyIdx: -1,
 };
 
 /** Read the column order out of /trade/config. Falls back to the defaults above on anything unexpected. */
@@ -543,6 +543,7 @@ export function positionColumns(configBody: unknown): PositionColumns {
       slIdx: find("stoploss", "stoplossprice", "sl"),
       tpIdx: find("takeprofit", "takeprofitprice", "tp"),
       openedIdx: find("opendate", "opentime", "createddate", "createdat"),
+      strategyIdx: or(find("strategyid"), find("comment")),
     };
   } catch {
     return DEFAULT_POSITION_COLUMNS;
@@ -585,6 +586,10 @@ export function parsePositions(body: unknown, cols: PositionColumns = DEFAULT_PO
         tp: asNum(at(r, cols.tpIdx)),
         unrealisedPl: null,
         openedAt: asNum(at(r, cols.openedIdx)),
+        // When config is unavailable, a visible Nitrous label is still negative
+        // ownership evidence. It must not disappear into an untagged fallback.
+        strategyId: asStr(at(r, cols.strategyIdx))
+          ?? asStr(r.find((v) => typeof v === "string" && v.startsWith("NITROUS:"))),
       }];
     }
 
@@ -601,6 +606,7 @@ export function parsePositions(body: unknown, cols: PositionColumns = DEFAULT_PO
       tp: asNum(pick(r, ["takeProfit", "tp"])),
       unrealisedPl: asNum(pick(r, ["unrealizedPl", "unrealisedPl", "openPnL"])),
       openedAt: asNum(pick(r, ["openDate", "openTime", "createdAt"])),
+      strategyId: asStr(pick(r, ["strategyId", "comment"])),
     }];
   });
 }

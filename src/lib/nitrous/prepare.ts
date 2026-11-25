@@ -25,7 +25,7 @@ export async function prepareNitrousAccount(account: PreparableAccount): Promise
     const ctx = { env: account.environment, token: token.token, accNum: account.acc_num, accountId: account.broker_account_id, preferredSymbol: "XAUUSD" };
     const port = new TradeLockerPort(ctx);
     const [contract, positions, metrics] = await Promise.all([port.spec(), port.positions(), readAccountMetrics(ctx)]);
-    const ownership = await checkOwnership(account.broker_account_id, positions.ok ? positions.rows : null, {}, false);
+    const ownership = await checkOwnership(account.broker_account_id, positions.ok ? positions.rows : null, {}, account.allow_shared_account === true);
     const missing = contract.ok ? [...contract.missing] : ["Gold contract"];
     if (contract.ok && marginRequirement(contract.spec, 1, 1, metrics.ok ? metrics.currency : null) === null) missing.push("broker leverage / margin currency");
     const reason = !contract.ok ? brokerReadProblem(contract.error)

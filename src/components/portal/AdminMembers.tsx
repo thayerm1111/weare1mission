@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarPlus, Check, Coins, Infinity as InfinityIcon, KeyRound, Loader2, PauseCircle, RotateCcw, Search, ShoppingBag, Star, Trash2 } from "lucide-react";
+import { CalendarPlus, Check, Coins, Infinity as InfinityIcon, KeyRound, Loader2, PauseCircle, RotateCcw, Search, ShoppingBag, Star, Trash2, Zap } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { TIERS, TIER_LABELS } from "@/lib/access";
 import { PACK_LABELS, type MemberBilling, type PackKey } from "@/lib/adminBilling";
+import type { NitrousAddonAccess } from "@/lib/nitrous/addon-policy";
 
 export interface MemberRow {
   id: string;
@@ -84,12 +85,28 @@ const fmtDay = (iso: string | null) => {
   return Number.isFinite(t) ? new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 };
 
-export function AdminMembers({ members, billing = {} }: { members: MemberRow[]; billing?: Record<string, MemberBilling> }) {
+export function AdminMembers({ members, billing = {}, nitrousAccess = null }: { members: MemberRow[]; billing?: Record<string, MemberBilling>; nitrousAccess?: Record<string, NitrousAddonAccess> | null }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
   const [buyers, setBuyers] = useState<BuyerFilter>("all");
+  const [nitrousMessage, setNitrousMessage] = useState("");
+  const [nitrousError, setNitrousError] = useState("");
+
+  async function grantNitrous(userId: string, enabled: boolean) {
+    if (busy) return;
+    setBusy(userId); setNitrousMessage(""); setNitrousError("");
+    try {
+      const response = await fetch("/api/admin/nitrous-access", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId, enabled }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.ok) throw new Error(result?.detail || "Nitrous access could not be updated. Please try again.");
+      setNitrousMessage(enabled ? "Complimentary Nitrous access enabled. This member will not be charged for future Nitrous renewals."
+        : result.addon?.entitled ? "Complimentary grant removed. Paid Nitrous access remains through the current billing period." : "Complimentary grant removed. This member can add Nitrous for $19.99/month.");
+      router.refresh();
+    } catch (error) { setNitrousError(error instanceof Error ? error.message : "Unable to update Nitrous access."); }
+    finally { setBusy(null); }
+  }
 
   async function update(id: string, patch: Record<string, unknown>) {
     const supabase = createClient();
@@ -206,6 +223,9 @@ export function AdminMembers({ members, billing = {} }: { members: MemberRow[]; 
         )}
       </div>
 
+      {nitrousMessage && <p role="status" className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-navy">{nitrousMessage}</p>}
+      {nitrousError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{nitrousError}</p>}
+      {nitrousAccess === null && <p role="status" className="text-sm text-charcoal/60">Nitrous access could not be loaded. Refresh this page before changing add-on grants.</p>}
       {/* WHO BOUGHT WHAT (owner 09-29) — the headline, then the detail sits on every card below. */}
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-charcoal/70">
         <ShoppingBag className="h-4 w-4 text-primary" aria-hidden="true" />
@@ -215,8 +235,8 @@ export function AdminMembers({ members, billing = {} }: { members: MemberRow[]; 
       </p>
 
       <div className="space-y-8">
-        <Section title={`Pending approval (${pending.length})`} rows={pending} billing={billing} onUpdate={update} onRemove={remove} busy={busy} highlight />
-        <Section title={`All members (${others.length})`} rows={others} billing={billing} onUpdate={update} onRemove={remove} busy={busy} />
+        <Section title={`Pending approval (${pending.length})`} rows={pending} billing={billing} nitrousAccess={nitrousAccess} onNitrous={grantNitrous} onUpdate={update} onRemove={remove} busy={busy} highlight />
+        <Section title={`All members (${others.length})`} rows={others} billing={billing} nitrousAccess={nitrousAccess} onNitrous={grantNitrous} onUpdate={update} onRemove={remove} busy={busy} />
       </div>
     </div>
   );
@@ -259,9 +279,11 @@ function PurchasesLine({ b }: { b: MemberBilling | undefined }) {
 }
 
 function Section({
-  title, rows, billing, onUpdate, onRemove, busy, highlight = false,
+  title, rows, billing, nitrousAccess, onNitrous, onUpdate, onRemove, busy, highlight = false,
 }: {
   title: string; rows: MemberRow[]; billing: Record<string, MemberBilling>; busy: string | null; highlight?: boolean;
+  nitrousAccess: Record<string, NitrousAddonAccess> | null;
+  onNitrous: (id: string, enabled: boolean) => void;
   onUpdate: (id: string, patch: Record<string, unknown>) => void;
   onRemove: (id: string, label: string) => void;
 }) {
@@ -301,6 +323,10 @@ function Section({
                 ) : null}
                 {/* WHO BOUGHT WHAT (owner 09-29): packs, auto-refill and subscription, right on the card. */}
                 <PurchasesLine b={billing[m.id]} />
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                  <Zap className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+                  <span className={nitrousAccess?.[m.id]?.entitled ? "font-semibold text-primary" : "text-charcoal/60"}>{nitrousAccess?.[m.id]?.adminGranted ? "Nitrous · complimentary" : nitrousAccess?.[m.id]?.entitled ? `Nitrous · paid${nitrousAccess[m.id].subscription?.cancelAtPeriodEnd ? " · renewal canceled" : " · $19.99/mo"}` : nitrousAccess?.[m.id] ? "Nitrous · not enabled" : "Nitrous · status unavailable"}</span>
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -357,6 +383,12 @@ function Section({
                     <InfinityIcon className="h-3.5 w-3.5" aria-hidden="true" /> Permanent
                   </button>
                 </div>
+
+                <button type="button" disabled={!!busy || !nitrousAccess?.[m.id] || nitrousAccess[m.id].verificationUnavailable === true}
+                  onClick={() => onNitrous(m.id, !nitrousAccess?.[m.id]?.adminGranted)}
+                  title={nitrousAccess?.[m.id]?.adminGranted ? "Remove complimentary Nitrous access. Paid access, if any, lasts through its billing period." : "Grant Nitrous at no add-on charge. Any existing Nitrous renewal will be canceled."}
+                  aria-label={`${nitrousAccess?.[m.id]?.adminGranted ? "Remove Nitrous grant" : "Grant Nitrous"} for ${m.full_name || m.email || "member"}`}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60 ${nitrousAccess?.[m.id]?.adminGranted ? "bg-primary/10 text-primary" : "border border-primary/25 text-primary hover:bg-primary/5"}`}><Zap className="h-4 w-4" aria-hidden="true" />{busy === m.id ? "Updating…" : nitrousAccess?.[m.id]?.adminGranted ? "Remove Nitrous grant" : "Grant Nitrous"}</button>
 
                 {/* Grant / revoke Inner Circle creator access */}
                 <button

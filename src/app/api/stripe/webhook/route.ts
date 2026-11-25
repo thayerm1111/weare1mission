@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { syncSubscription, grantSuiteMonth, subscriptionIdOfInvoice } from "@/lib/subscriptionSync";
 import { planById, VOICE_PRODUCT_TAG } from "@/lib/voicePlan";
+import { handleNitrousStripeEvent } from "@/lib/nitrous/addon";
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
 
@@ -118,6 +119,17 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : "bad_signature";
     return json({ error: "invalid_signature", detail: msg.slice(0, 120) }, 400);
+  }
+
+  // Nitrous is an independent add-on. Route it before every Suite/Pass/voice branch so a
+  // $19.99 purchase can never replace the main subscription, grant credits, or cancel it.
+  try {
+    const admin = createAdminClient();
+    if (!admin) return json({ error: "billing_unavailable" }, 503);
+    if (await handleNitrousStripeEvent(admin, stripe, event)) return json({ received: true }, 200);
+  } catch {
+    // Includes a failed product lookup: unknown subscriptions must not fall through to Suite.
+    return json({ error: "nitrous_reconciliation_failed" }, 500);
   }
 
   if (event.type === "checkout.session.completed") {

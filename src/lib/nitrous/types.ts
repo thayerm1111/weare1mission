@@ -1,3 +1,5 @@
+import type { NitrousAddonAccess } from "./addon-policy";
+
 /** Browser-safe contracts. Broker credentials and full identifiers never enter these payloads. */
 export type NitrousMode = "slow_drip" | "nitrous";
 export type NitrousStats = {
@@ -24,6 +26,7 @@ export type NitrousAccount = {
 };
 export type NitrousStatus = {
   available: boolean; serverTime: string; error?: string; reason?: string;
+  addon: NitrousAddonAccess;
   accounts: NitrousAccount[];
   worker: { healthy: boolean; lastBeatAt: string | null; ageMs: number | null };
   control: { mode: string; entriesPaused: boolean; pauseReason: string | null };

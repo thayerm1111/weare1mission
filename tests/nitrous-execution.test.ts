@@ -34,6 +34,7 @@ function fixture() {
   };
   const input: ProtectedOrder = {
     intentId: "intent-1", side: "buy", qty: 0.05, stop: 4195, target: 4210,
+    preexistingPositionIds: [],
     strategyId: "NITROUS:owned-strategy", tick: 0.01, riskBudget: 26,
     valuePerPricePerLot: 100, commissionPerLot: 10, exitAllowance: 0.1,
     protectionDeadlineMs: 500, approved: async () => true, stillOwned: () => true,
@@ -68,6 +69,28 @@ test("an acknowledgement without a position ID remains unknown; order ID is neve
   f.port.submit = async () => ({ ok: true, orderId: "only-an-order", positionId: null });
   assert.equal((await submitProtected(f.input)).state, "submission_unknown");
   assert.deepEqual(f.opened, []); assert.deepEqual(f.requested, []);
+});
+
+test("shared-account fills cannot adopt a pre-existing position even if its broker tag changes", async () => {
+  for (const resolveFromHistory of [false, true]) {
+    const f = fixture();
+    f.input.preexistingPositionIds = ["owned-position"];
+    if (resolveFromHistory) {
+      f.port.submit = async () => { f.actions.push("submit"); return { ok: true, orderId: "order-1", positionId: null }; };
+      f.port.resolvePosition = async () => ({ positionId: "owned-position", fillPrice: 4200, filledQty: 0.05 });
+    }
+    assert.equal((await submitProtected(f.input)).state, "protection_pending");
+    assert.deepEqual(f.opened, []); assert.deepEqual(f.requested, []);
+    assert.ok(!f.actions.includes("amend")); assert.ok(!f.actions.includes("direct-close"));
+    assert.equal(f.actions.filter((a) => a === "submit").length, 1);
+  }
+});
+
+test("foreign shared-account exposure does not block a distinct new Nitrous position", async () => {
+  const f = fixture(); f.input.preexistingPositionIds = ["flow-position", "atlas-position", "manual-position"];
+  assert.equal((await submitProtected(f.input)).state, "protected");
+  assert.equal(f.opened[0].positionId, "owned-position");
+  assert.deepEqual(f.requested, []);
 });
 
 test("lost approval before or after submitting persistence cancels before any broker dispatch", async () => {

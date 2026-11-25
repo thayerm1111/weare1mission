@@ -8,8 +8,9 @@ The new worker is `npm run nitrous-worker`. `NITROUS_WORKER=1` selects only the
 `nitrous_*` tables and RPCs. The existing Rapid worker and its controls are unchanged.
 Shared broker transport, deterministic structure code and sizing helpers are reused;
 request-local `withNitrousDb` isolates their persistence. Nitrous has its own submission,
-close dispatch, reconciliation and risk controls. It refuses a physical account already
-controlled by another One Mission product and does not adopt positions from tags alone.
+close dispatch, reconciliation and risk controls. Members can connect their own account
+alongside the other tools currently on OM OS. Nitrous does not query retired product
+registries or adopt positions from tags alone.
 
 Connecting or reconnecting never activates automation. A member selects a real or demo
 TradeLocker account, chooses a mode and supported risk preset, reviews the dollar risk,
@@ -57,7 +58,9 @@ Telegram user account; the bot can verify/post once an owner adds it as an admin
 
 ## Infrastructure and rollout
 
-Apply the three `scripts/sql/nitrous-*.sql` files. The first migration starts global
+For a new installation, apply `scripts/sql/nitrous-schema.sql`,
+`scripts/sql/nitrous-telegram.sql`, and `scripts/sql/nitrous-runtime-state.sql`.
+The first migration starts global
 control off and Telegram disabled, with no accounts copied or armed. All Nitrous tables
 and functions are server-only; member routes enforce authenticated ownership.
 
@@ -74,3 +77,43 @@ Run `npm run test:nitrous`, existing Rapid isolation/regression tests, the prebu
 TypeScript, production build, and desktop/mobile UI checks. Broker mutations in tests
 are simulated. A release check is not evidence of strategy profitability or a verified
 live fill on every broker/server.
+
+## Optional Nitrous add-on
+
+Nitrous and Slow Drip share one **$19.99 USD/month** add-on. Platform administrators
+grant complimentary access from **Approve Members → Grant Nitrous**. Removing a
+complimentary grant does not create a charge; the member can opt into checkout.
+An existing paid Nitrous subscription stops renewing before a complimentary grant
+is saved. Suite, FLOW Pass, voice subscriptions, and credits remain independent.
+
+Apply `scripts/sql/nitrous-addon.sql` and then
+`scripts/sql/nitrous-addon-enforcement.sql`, followed by
+`scripts/sql/nitrous-shared-accounts.sql`, before publishing the add-on release.
+The migration grants no member access. Both the website and the dedicated Nitrous
+worker must use the new release; the worker watchdog reports `addonEnforced: true`.
+
+Paid access requires a verified paid invoice for the exact Nitrous subscription.
+The checkout return URL cannot unlock access. Cancellation keeps access through
+the verified paid period. Access expiry or removal blocks new entries and pauses
+automation; a member must explicitly activate again after access is restored.
+Account status, pause, refresh, and owned-position close controls remain available,
+and existing positions continue their saved protection and management.
+
+Reconciliation runs through `/api/cron/nitrous-addons-sync` every five minutes.
+The administrator, billing, permission, and worker dispatch tests use mocked
+providers; deployment validation does not purchase a subscription or place a trade.
+
+## Accounts shared with current OM OS tools
+
+Connecting or activating Nitrous is not blocked by a connection to another One Mission
+tool. Accounts remain tied to their verified TradeLocker login and their owning member.
+Linking another account does not activate it. New and existing Nitrous accounts support
+sharing, with current broker equity and free margin still used for sizing.
+
+Before a new order, Nitrous saves the existing broker position IDs with the intent. A
+fill mapped to a pre-existing position is kept unresolved and is never adopted, amended,
+or closed by Nitrous, even if the broker changed its tag. This guard also survives worker
+restarts. FLOW and Atlas recovery exclude Nitrous-tagged positions; Atlas matches the
+tag on the actual candidate row. Shared balance, margin and broker netting behavior are
+not independent accounts. No broker-specific shared-account live fill was placed during
+release testing.
