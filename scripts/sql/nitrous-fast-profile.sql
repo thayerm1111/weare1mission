@@ -178,4 +178,4 @@ $$;
 
 revoke all on function public.nitrous_apply_settings(uuid,uuid,bigint,jsonb) from public,anon,authenticated;
 grant execute on function public.nitrous_apply_settings(uuid,uuid,bigint,jsonb) to service_role;
-grant execute on function public.nitrous_reserve_intent(text,uuid,uuid,uuid,text,text,text,text,text,text,text,numeric,numeric,numeric,numeric,numeric,numeric,numeric,numeric,integer,numeric,bigint,bigint,text) to service_role;
+grant execute on function public.nitrous_reserve_intent(text, uuid, uuid, uuid, text, text, text, text, text, text, text, text, numeric, numeric, numeric, numeric, numeric, numeric, numeric, numeric, integer, numeric, bigint, bigint, text) to service_role;
