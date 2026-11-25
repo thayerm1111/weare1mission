@@ -389,7 +389,7 @@ async function serveAccount(acct: Account, fence: number, held: () => boolean) {
   const missing = [...contract.missing];
   if (marginRequirement(contract.spec, 1, 1, metrics.ok ? metrics.currency : null) === null) missing.push("broker leverage / margin currency");
   checked(await admin().from("nitrous_accounts").update({ instrument_spec: contract.spec, instrument_resolved_at: iso(), spec_missing: missing,
-    ownership_check: ownership, ...(metrics.ok ? { balance: metrics.balance, balance_at: metrics.balance === null ? null : iso(),
+    ...(metrics.ok ? { balance: metrics.balance, balance_at: metrics.balance === null ? null : iso(),
       equity: metrics.equity, equity_at: metrics.equity === null ? null : iso(), currency: metrics.currency } : {}), updated_at: iso() }).eq("id", acct.id));
   const rows = await reconcile(acct, port, ctx, positions.rows, contract.spec, metrics.ok ? metrics.currency : null);
   // Always protect already-owned positions, even when new entries or membership are paused.
@@ -405,14 +405,17 @@ async function serveAccount(acct: Account, fence: number, held: () => boolean) {
     .in("state", ["reserved", "submitting", "acknowledged", "partially_filled", "filled", "submission_unknown", "protection_pending", "cancel_requested"]);
   checked(unresolved);
   if ((unresolved.count ?? 1) > 0) throw new Error("An earlier order needs reconciliation before another entry.");
-  // The member may be unable to retry activation while an earlier preparation warning is saved.
-  // Recover only this obsolete warning, after a fresh broker read actually supplies margin.
-  // Preserve unrelated preparation blockers and all execution-time sizing checks.
-  if (metrics.freeMargin !== null && metrics.freeMargin > 0) {
-    checked(await admin().from("nitrous_accounts").update({ block_reason: null, updated_at: iso() })
-      .eq("id", acct.id).eq("block_reason", "The broker's free margin is unavailable."));
-  }
-  if (!rows.length && acct.automation_enabled && (await control()).live) await considerEntry(acct, port, contract.spec, metrics.currency, metrics.equity!, metrics.freeMargin, fence, held);
+  // A preparation failure on the website is not permanent: reconcile it against the
+  // worker's successful broker read, never against a fabricated or missing margin.
+  const marginReady = metrics.freeMargin !== null && metrics.freeMargin > 0;
+  if (!held()) return;
+  checked(await admin().from("nitrous_accounts").update({
+    ownership_check: { ...ownership, workerVerified: marginReady, workerConnectionId: acct.connection_id },
+    block_reason: marginReady ? null : metrics.freeMargin === null
+      ? "The broker's free margin is unavailable." : "The broker reports no positive free margin.",
+    updated_at: iso(),
+  }).eq("id", acct.id).eq("connection_id", acct.connection_id).eq("automation_version", acct.automation_version).eq("status", "linked"));
+  if (marginReady && !rows.length && acct.automation_enabled && (await control()).live) await considerEntry(acct, port, contract.spec, metrics.currency, metrics.equity!, metrics.freeMargin, fence, held);
   checked(await admin().from("nitrous_accounts").update({ execution_block_reason: null }).eq("id", acct.id));
 }
 

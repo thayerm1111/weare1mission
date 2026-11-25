@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  allowedWriteOrigin, finiteNumber, freshAt, NITROUS_CONSENT_VERSION, readinessBlockers,
+  allowedWriteOrigin, finiteNumber, freshAt, hasFreshWorkerReadiness, NITROUS_CONSENT_VERSION, readinessBlockers,
   recordedStats, validRisk, validateSettingsChange, verifiedOwnedPosition,
 } from "../src/lib/nitrous/policy";
 
@@ -82,6 +82,28 @@ test("freshness and execution readiness fail closed on missing or old evidence",
   ]) assert.ok(readinessBlockers(scenario).length>0);
   assert.equal(freshAt("invalid",NOW,60_000),false);
   assert.equal(freshAt(new Date(NOW+60_000).toISOString(),NOW,60_000),false);
+});
+
+test("activation reuses only recent connection-scoped worker proof, never missing margin or stale exposure", () => {
+  const verified = { ...account, connection_id: "conn-1", ownership_check: {
+    ok: true, checkedAt: AT, workerVerified: true, workerConnectionId: "conn-1",
+  } };
+  const context = { ...ready(), account: verified };
+  assert.equal(hasFreshWorkerReadiness(context), true);
+  assert.deepEqual(readinessBlockers(context), []);
+  for (const patch of [
+    { workerVerified: false }, { workerVerified: undefined }, { workerConnectionId: "conn-2" },
+    { ok: false }, { checkedAt: new Date(NOW - 31_000).toISOString() },
+  ]) assert.equal(hasFreshWorkerReadiness({ ...context, account: { ...verified, ownership_check: { ...verified.ownership_check, ...patch } } }), false);
+  assert.equal(hasFreshWorkerReadiness({ ...context, account: { ...verified, equity_at: new Date(NOW-31_000).toISOString() } }), false);
+  assert.equal(hasFreshWorkerReadiness({ ...context, account: { ...verified, equity: 0 } }), false);
+  assert.equal(hasFreshWorkerReadiness({ ...context, workerAt: null }), false);
+  assert.equal(hasFreshWorkerReadiness(ready()), false);
+  // Reusing proof does not bypass other blockers.
+  assert.ok(readinessBlockers({ ...context, unresolved: 1 }).length > 0);
+  assert.ok(readinessBlockers({ ...context, connection: null }).length > 0);
+  assert.ok(readinessBlockers({ ...context, control: { mode: "live", entries_paused: true } }).length > 0);
+  assert.ok(readinessBlockers({ ...context, account: { ...verified, execution_block_reason: "Broker read failed." } }).length > 0);
 });
 
 test("missing money and unknown closes never become zero-profit trades or wins", () => {

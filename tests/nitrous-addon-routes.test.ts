@@ -18,12 +18,15 @@ function load<T>(file: string, dependencies: Record<string, unknown>): T {
   return module.exports;
 }
 
-function fixture(activeMember = true, automationEnabled = false) {
+function fixture(activeMember = true, automationEnabled = false, activation?: { verified: boolean; unresolved?: number; failed?: boolean }) {
   const reads: string[] = [], brokerCalls: string[] = [];
   const writes: Array<{ name: string; args: Record<string, unknown> }> = [];
   let addonChecks = 0;
+  const at = new Date().toISOString();
   const account = { id: ACCOUNT, user_id: USER, profile: "slow_drip", risk_pct: 0.5,
-    automation_enabled: automationEnabled, automation_version: 17, management_enabled: true };
+    automation_enabled: automationEnabled, automation_version: 17, management_enabled: true,
+    ...(activation ? { connection_id: "conn-1", status: "linked", instrument_spec: { contractSize: 100 }, spec_missing: [],
+      equity: 500, equity_at: at, ownership_check: { ok: true, checkedAt: at, workerVerified: activation.verified, workerConnectionId: "conn-1" } } : {}) };
   const admin = {
     from(name: string) {
       reads.push(name);
@@ -42,7 +45,7 @@ function fixture(activeMember = true, automationEnabled = false) {
       writes.push({ name, args });
       assert.equal(name, "nitrous_apply_settings");
       assert.equal(args.p_user, USER); assert.equal(args.p_account, ACCOUNT);
-      return { data: [{ applied: true, automation_enabled: false, automation_version: 18 }], error: null };
+      return { data: [{ applied: true, automation_enabled: (args.p_patch as Record<string, unknown>).automation_enabled === true, automation_version: 18 }], error: null };
     },
   };
   const shared = load<Record<string, unknown>>("src/app/api/nitrous/_shared.ts", {
@@ -52,7 +55,7 @@ function fixture(activeMember = true, automationEnabled = false) {
     "@/lib/nitrous/policy": policy,
     "@/lib/nitrous/addon": { getNitrousAddonAccess: async () => {
       addonChecks++;
-      return { entitled: false, source: null, adminGranted: false, priceUsd: 19.99, interval: "month", subscription: null };
+      return { entitled: !!activation, source: activation ? "admin" : null, adminGranted: !!activation, priceUsd: 19.99, interval: "month", subscription: null };
     } },
   });
   const unexpectedBroker = (name: string) => () => { brokerCalls.push(name); throw new Error(`Unexpected broker use: ${name}`); };
@@ -63,8 +66,14 @@ function fixture(activeMember = true, automationEnabled = false) {
     "../../../../../rapid/broker/crypto": { encryptionReady: unexpectedBroker("encryptionReady"), encryptSecret: unexpectedBroker("encryptSecret"), maskEmail: unexpectedBroker("maskEmail") },
     "../../../../../rapid/broker/tradelocker": { authenticate: unexpectedBroker("authenticate"), listAccounts: unexpectedBroker("listAccounts") },
     "../../../../../rapid/broker/session": { freshToken: unexpectedBroker("freshToken") },
-    "@/lib/nitrous/prepare": { prepareNitrousAccount: unexpectedBroker("prepareNitrousAccount") },
-    "@/lib/nitrous/server": { readinessContext: unexpectedBroker("readinessContext") },
+    "@/lib/nitrous/prepare": { prepareNitrousAccount: activation ? async () => {
+      brokerCalls.push("prepareNitrousAccount");
+      if (activation.failed && account.ownership_check) account.ownership_check.ok = false;
+    } : unexpectedBroker("prepareNitrousAccount") },
+    "@/lib/nitrous/server": { readinessContext: activation ? async (_admin: unknown, _user: string, next: Record<string, unknown>) => ({
+      account: next, connection: { status: "connected" }, workerAt: at, control: { mode: "live", entries_paused: false },
+      unresolved: activation.unresolved ?? 0, now: Date.now(),
+    }) : unexpectedBroker("readinessContext") },
   };
   const route = (name: string) => load<Route>(`src/app/api/nitrous/${name}/route.ts`, dependencies);
   const request = (name: string, body: unknown) => new Request(`https://weare1mission.com/api/nitrous/${name}`, {
@@ -107,4 +116,26 @@ test("the actual settings route preserves pause and management controls when bas
     assert.equal(f.writes[0].args.p_expected_version, 17);
     assert.deepEqual(f.brokerCalls, []);
   }
+});
+
+const confirmActivation = { accountId: ACCOUNT, mode: "nitrous", riskPct: 3, automationEnabled: true, acknowledgedRisk: true, consentVersion: policy.NITROUS_CONSENT_VERSION };
+test("activation uses fresh verified worker evidence without another broker request", async () => {
+  const f = fixture(true, false, { verified: true });
+  const response = await f.route("settings").POST(f.request("settings", confirmActivation));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).automationEnabled, true);
+  assert.deepEqual(f.brokerCalls, []);
+  assert.equal(f.writes.length, 1);
+});
+test("activation falls back to broker preparation when worker proof is absent and refuses unknown exposure or unsettled orders", async () => {
+  const fallback = fixture(true, false, { verified: false });
+  assert.equal((await fallback.route("settings").POST(fallback.request("settings", confirmActivation))).status, 200);
+  assert.deepEqual(fallback.brokerCalls, ["prepareNitrousAccount"]);
+  const failed = fixture(true, false, { verified: false, failed: true });
+  assert.equal((await failed.route("settings").POST(failed.request("settings", confirmActivation))).status, 409);
+  assert.deepEqual(failed.writes, []);
+  const unsettled = fixture(true, false, { verified: true, unresolved: 1 });
+  assert.equal((await unsettled.route("settings").POST(unsettled.request("settings", confirmActivation))).status, 409);
+  assert.deepEqual(unsettled.brokerCalls, []);
+  assert.deepEqual(unsettled.writes, []);
 });

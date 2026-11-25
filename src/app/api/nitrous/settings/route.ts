@@ -1,6 +1,6 @@
 import type { PreparableAccount } from "../../../../../rapid/exec/prepare";
 import { prepareNitrousAccount } from "@/lib/nitrous/prepare";
-import { readinessBlockers, validateSettingsChange } from "@/lib/nitrous/policy";
+import { hasFreshWorkerReadiness, readinessBlockers, validateSettingsChange } from "@/lib/nitrous/policy";
 import { readinessContext } from "@/lib/nitrous/server";
 import { bodyOf, json, requireAccount, requireUser, requireNitrousAddon, unavailable } from "../_shared";
 
@@ -25,12 +25,16 @@ export async function POST(req: Request) {
     }
 
     if (change.arming) {
-      // Read-only broker preparation; no order, stop, or close is sent by this endpoint.
-      await prepareNitrousAccount(owned.account as PreparableAccount);
-      const refreshed = await requireAccount(auth.admin, auth.user.id, accountId);
-      if ("error" in refreshed) return refreshed.error;
-      const nextAccount = { ...refreshed.account, ...change.patch };
-      const context = await readinessContext(auth.admin, auth.user.id, nextAccount);
+      // The dedicated worker has the same broker connection and polls it continuously.
+      // Avoid a second burst of TradeLocker reads from the web host when recent verified
+      // evidence already exists. Stale or absent evidence still requires fresh preparation.
+      let context = await readinessContext(auth.admin, auth.user.id, { ...owned.account, ...change.patch });
+      if (!hasFreshWorkerReadiness(context)) {
+        await prepareNitrousAccount(owned.account as PreparableAccount);
+        const refreshed = await requireAccount(auth.admin, auth.user.id, accountId);
+        if ("error" in refreshed) return refreshed.error;
+        context = await readinessContext(auth.admin, auth.user.id, { ...refreshed.account, ...change.patch });
+      }
       const blockers = readinessBlockers(context);
       if (blockers.length) return json({ error: "not_ready", blockers }, 409);
     }

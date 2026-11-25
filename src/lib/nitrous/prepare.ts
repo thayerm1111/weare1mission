@@ -34,6 +34,7 @@ export async function prepareNitrousAccount(account: PreparableAccount): Promise
       : !metrics.ok ? metrics.error
       : !(Number(metrics.equity) > 0) ? "A fresh positive account equity is required."
       : metrics.freeMargin === null ? "The broker's free margin is unavailable."
+      : metrics.freeMargin <= 0 ? "The broker reports no positive free margin."
       : missing.length ? "Some broker contract details needed for sizing are unavailable."
       : null;
     const now = new Date().toISOString();

@@ -4,6 +4,7 @@ export const NITROUS_CONSENT_VERSION = "nitrous-consent-v1";
 export const WORKER_FRESH_MS = 60_000;
 export const ACCOUNT_FRESH_MS = 120_000;
 export const SNAPSHOT_FRESH_MS = 45_000;
+export const WORKER_ACCOUNT_READ_FRESH_MS = 30_000;
 export const NITROUS_PROFILES = [
   { mode: "slow_drip" as const, label: "Slow Drip", riskPresets: [0.5, 1], defaultRisk: 0.5, dailyLossPct: 3 },
   { mode: "nitrous" as const, label: "Nitrous", riskPresets: [3, 5], defaultRisk: 3, dailyLossPct: 15 },
@@ -40,6 +41,20 @@ export type ReadinessInput = {
   workerAt: unknown; control: Record<string, unknown> | null; unresolved: number;
   now: number;
 };
+/** The dedicated worker continuously verifies broker exposure, contract and positive margin.
+ * Reuse only its recent, connection-scoped, server-owned verification for activation.
+ * This is not entry permission: readinessBlockers and the worker's pre-order checks still apply. */
+export function hasFreshWorkerReadiness(i: ReadinessInput): boolean {
+  const a = i.account;
+  const proof = a.ownership_check as { ok?: boolean; checkedAt?: string; workerVerified?: boolean; workerConnectionId?: string } | null;
+  return typeof a.connection_id === "string" && !!a.connection_id
+    && proof?.ok === true && proof.workerVerified === true && proof.workerConnectionId === a.connection_id
+    && freshAt(proof.checkedAt, i.now, WORKER_ACCOUNT_READ_FRESH_MS)
+    && freshAt(a.equity_at, i.now, WORKER_ACCOUNT_READ_FRESH_MS)
+    && (finiteNumber(a.equity) ?? 0) > 0
+    && freshAt(i.workerAt, i.now, WORKER_FRESH_MS);
+}
+
 /** Shared by status and arming. Absence/error is never treated as healthy. */
 export function readinessBlockers(i: ReadinessInput): string[] {
   const a = i.account;
