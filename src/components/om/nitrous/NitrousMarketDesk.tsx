@@ -154,10 +154,12 @@ export function NitrousLiveTrades({account,accountNow,referencePrice,referenceAt
   account:NitrousAccount|null;embedded?:boolean;accountNow:number;referencePrice:number|null;referenceAt:string|null;now:number;simple:boolean;busy:boolean;onClose:(p:NitrousPosition)=>void;
 }) {
   const emptyTitle=!account?"Connect an account":!accountNow?"Checking account":"No active trade";
-  const emptyText=!account?"TradeLocker controls below.":!accountNow?"Awaiting account refresh.":account.automationEnabled?"Watching for entry.":"Auto trading is paused.";
+  const entryCheck = accountNow && account?.automationEnabled && !account.blockers.length ? account.lastEntryCheck : null;
+  const emptyText = !account ? "TradeLocker controls below." : !accountNow ? "Awaiting account refresh."
+    : !account.automationEnabled ? "Auto trading is paused." : account.blockers[0] ?? entryCheck?.reason ?? "Watching for entry.";
   return <section className={`nt-trades ${embedded?"nt-tile nt-trade-embedded":"nitrous-positions nitrous-panel"}`} aria-labelledby="nitrous-positions-title">
     <div className="nt-trades-title"><h3 id="nitrous-positions-title"><Zap size={17}/>Live trade</h3><Pulse fresh={!!accountNow&&!!account?.positions.some(p=>isObservedTrade(p,accountNow))} caption={account?.masked??""}/></div>
-    {!account||!account.positions.length?<div className="nt-empty-trade"><Crosshair size={28}/><strong>{emptyTitle}</strong><p>{emptyText}</p><div className="nt-empty-metrics">{["Entry","SL","TP","P&L"].map(label=><div key={label}><small>{label}</small><b>—</b></div>)}</div></div>:<div className="nt-trade-list">{account.positions.map(p=>{
+    {!account||!account.positions.length?<div className="nt-empty-trade"><Crosshair size={28}/><strong>{emptyTitle}</strong><p>{entryCheck && <small className="nt-last-check">Last recorded entry check · <time dateTime={entryCheck.at}>{elapsed(entryCheck.at, accountNow)}</time></small>}{emptyText}</p><div className="nt-empty-metrics">{["Entry","SL","TP","P&L"].map(label=><div key={label}><small>{label}</small><b>—</b></div>)}</div></div>:<div className="nt-trade-list">{account.positions.map(p=>{
       const live=isObservedTrade(p,accountNow);
       const pnl=live&&typeof p.unrealizedPnl==="number"&&Number.isFinite(p.unrealizedPnl)?p.unrealizedPnl:null;
       const progress=live?tradeProgress(p,referencePrice):null;

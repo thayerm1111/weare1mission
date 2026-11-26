@@ -1,3 +1,14 @@
+import type { Regime } from "../rapid/core/types";
+
+export function noSetupReason(hourly: Regime, fifteen: Regime, fastRules: boolean): string {
+  if (hourly === "sideways") return "Gold is ranging on the hourly chart. Entries need a confirmed hourly trend.";
+  if (hourly !== "up" && hourly !== "down") return "Waiting for a confirmed hourly trend in gold.";
+  const side = hourly === "up" ? "buy" : "sell";
+  if (fifteen === hourly) return `The hourly and 15-minute trends point ${hourly}. No ${side} setup qualified on this scan.`;
+  if (fifteen === "sideways" && fastRules) return `The hourly trend points ${hourly}. No ${side} setup qualified inside the 15-minute range.`;
+  return `The hourly trend points ${hourly}. A ${side} setup needs the 15-minute chart to trend ${hourly}${fastRules ? " or form a range" : ""}.`;
+}
+
 export type WaitingDecision = {
   accountId: string;
   userId?: string;

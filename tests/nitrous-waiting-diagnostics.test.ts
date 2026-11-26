@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createWaitingDiagnostics, type WaitingDecision } from "../nitrous/waiting-diagnostics";
+import { createWaitingDiagnostics, noSetupReason, type WaitingDecision } from "../nitrous/waiting-diagnostics";
 
 const decision = (patch: Partial<WaitingDecision> = {}): WaitingDecision => ({
   accountId: "account-one", userId: "member-one", setupId: "setup-one", snapshotId: "snapshot-one",
   stage: "entry", code: "outside_band", decision: "wait", reason: "Waiting for broker price to enter the setup's entry range.",
   ...patch,
+});
+
+test("the recorded wait names the observed trends and the entry rules this account can use", () => {
+  assert.match(noSetupReason("sideways", "up", true), /ranging on the hourly chart/);
+  assert.match(noSetupReason("unknown", "down", false), /Waiting for a confirmed hourly trend/);
+  assert.match(noSetupReason("up", "up", true), /No buy setup qualified/);
+  assert.match(noSetupReason("down", "sideways", true), /No sell setup qualified inside the 15-minute range/);
+  assert.match(noSetupReason("up", "sideways", false), /needs the 15-minute chart to trend up\./);
+  assert.match(noSetupReason("down", "up", true), /trend down or form a range/);
 });
 
 test("unchanged polls are deduplicated even when their snapshot and observed price change", async () => {

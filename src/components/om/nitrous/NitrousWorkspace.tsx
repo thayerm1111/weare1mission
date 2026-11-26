@@ -53,12 +53,13 @@ function CloseDialog({ position, account, busy, error, onCancel, onConfirm }: {
 
 export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
   const { isSimple } = useExperienceMode();
-  const status = useNitrousStatus(10_000);
+  const [accountId, setAccountId] = useState("");
+  const status = useNitrousStatus(10_000, accountId);
   const [analysis, setAnalysis] = useState<NitrousAnalyze | null>(null);
   const [analysisError, setAnalysisError] = useState(""); const [analysisLoading, setAnalysisLoading] = useState(true);
   const [analysisReceivedAt, setAnalysisReceivedAt] = useState(0);
   const pendingAnalysis = useRef<AbortController | null>(null);
-  const [accountId, setAccountId] = useState(""); const [mode, setMode] = useState<NitrousMode>("slow_drip");
+  const [mode, setMode] = useState<NitrousMode>("slow_drip");
   const [riskPct, setRiskPct] = useState(0.5); const [busy, setBusy] = useState(""); const [actionError, setActionError] = useState("");
   const [notice, setNotice] = useState(""); const [connecting, setConnecting] = useState(false); const [arming, setArming] = useState(false);
   const [armConsent, setArmConsent] = useState(NITROUS_CONSENT_VERSION);
@@ -199,7 +200,7 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
       </aside></div>
     <footer className="nitrous-footer"><span>Visible setups are conditional until their triggers qualify. Trading can lose money.</span>{!isSimple && analysis?.strategyVersion && <span>{analysis.strategyVersion}</span>}</footer>
     {connecting && entitled && <NitrousConnect onClose={() => setConnecting(false)} onConnected={id => { setConnecting(false); if (id) setAccountId(id); void status.refresh(); setNotice("Account connected. Choose your mode and turn on auto trading when ready."); }} />}
-    {arming && entitled && account && <ArmDialog account={account} mode={mode} riskPct={riskPct} consentVersion={armConsent} busy={busy === "arm"} error={actionError} onCancel={() => { setArming(false); setActionError(""); }} onConfirm={version => void settings({ mode, riskPct, automationEnabled: true, acknowledgedRisk: true, consentVersion: version }, "arm")} />}
+    {arming && entitled && account && <ArmDialog key={`${account.accountId}:${mode}:${riskPct}`} account={account} mode={mode} riskPct={riskPct} consentVersion={armConsent} busy={busy === "arm"} error={actionError} onCancel={() => { setArming(false); setActionError(""); }} onConfirm={version => void settings({ mode, riskPct, automationEnabled: true, acknowledgedRisk: true, consentVersion: version }, "arm")} />}
     {closing && account && <CloseDialog position={closing} account={account} busy={busy === "close"} error={actionError} onCancel={() => { setClosing(null); setActionError(""); }} onConfirm={() => void closePosition()} />}
   </div>;
 }

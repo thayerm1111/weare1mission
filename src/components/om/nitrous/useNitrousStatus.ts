@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { NitrousStatus } from "@/lib/nitrous/types";
 import { validStatus } from "./presentation";
 
-export function useNitrousStatus(pollMs = 20_000) {
+export function useNitrousStatus(pollMs = 20_000, entryCheckAccount?: string) {
   const [data, setData] = useState<NitrousStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -15,13 +15,14 @@ export function useNitrousStatus(pollMs = 20_000) {
     pending.current?.abort();
     const controller = new AbortController(); pending.current = controller;
     try {
-      const res = await fetch("/api/nitrous/status", { cache: "no-store", signal: controller.signal });
+      const query = entryCheckAccount === undefined ? "" : `?entryCheckAccount=${encodeURIComponent(entryCheckAccount)}`;
+      const res = await fetch(`/api/nitrous/status${query}`, { cache: "no-store", signal: controller.signal });
       const body = await res.json().catch(() => null);
       if (!res.ok || !validStatus(body)) throw new Error(res.status === 401 ? "Sign in to view your Nitrous accounts." : body?.detail ?? body?.reason ?? "Account status is temporarily unavailable.");
       if (!controller.signal.aborted) { setData(body); setError(""); setReceivedAt(Date.now()); setNow(Date.now()); }
     } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Unable to refresh account status."); }
     finally { if (!controller.signal.aborted) setLoading(false); }
-  }, []);
+  }, [entryCheckAccount]);
   useEffect(() => {
     setNow(Date.now()); void refresh();
     const poll = setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, pollMs);

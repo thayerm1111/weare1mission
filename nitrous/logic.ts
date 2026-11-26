@@ -10,6 +10,13 @@ export function referenceFresh(bars: Bar[], now: number): boolean {
   return Boolean(last && last.t + 60_000 <= now && now - last.t - 60_000 <= MAX_REFERENCE_AGE_MS);
 }
 
+/** A broker reservation can outlive the market setup while account checks are in flight. */
+export function entryStillOffered(setup: Setup, snapshot: MarketSnapshot | null, now: number): boolean {
+  return now < setup.expiresAt && snapshot?.health.state === "ok"
+    && snapshot.scenarios.some(s => s.setupId === setup.setupId && s.configVersion === setup.configVersion
+      && now < s.expiresAt && (s.state === "watching" || s.state === "approaching" || s.state === "armed" || s.state === "triggered"));
+}
+
 /** Same completed setup remains the same opportunity across snapshots and worker restarts. */
 export function opportunityId(setup: Setup): string {
   const eventTime = setup.sweepEvidence?.candleClosedAt;

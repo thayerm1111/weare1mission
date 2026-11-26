@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Bar, Regime, Setup, Timeframe } from "../rapid/core/types";
+import type { Bar, MarketSnapshot, Regime, Setup, Timeframe } from "../rapid/core/types";
 import { NITROUS_CONFIG, NITROUS_FAST_CONFIG, NITROUS_SWEEP_CONFIG, configFor } from "../nitrous/config";
-import { mergeNitrousSetups, opportunityId, setupAllowedForAccount, sweepCandidateEligible, triggerConfirmed } from "../nitrous/logic";
+import { entryStillOffered, mergeNitrousSetups, opportunityId, setupAllowedForAccount, sweepCandidateEligible, triggerConfirmed } from "../nitrous/logic";
 import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, NITROUS_SWEEP_CONSENT_VERSION } from "../src/lib/nitrous/policy";
 
 const CLOSE = Date.parse("2026-11-25T23:55:00Z");
@@ -52,6 +52,17 @@ test("forming, expired, missing, revised and hindsight sweep evidence cannot con
   assert.equal(triggerConfirmed({...f.setup,sweepEvidence:{...f.setup.sweepEvidence!,pivotKnownAt:CLOSE}},f.bars,f.now),false);
   assert.equal(triggerConfirmed({...f.setup,stop:4198.1},f.bars,f.now),false,"a stop inside the swept wick is not valid evidence");
   assert.equal(triggerConfirmed({...f.setup,expiresAt:CLOSE+2*MS},f.bars,f.now),false,"the original confirmation window cannot be extended");
+});
+
+test("an entry cannot be dispatched after its offer expires or the scanner withdraws it", () => {
+  const { setup, now } = fixture();
+  const snap = { scenarios: [setup], health: { state: "ok" } } as MarketSnapshot;
+  assert.equal(entryStillOffered(setup, snap, now), true);
+  assert.equal(entryStillOffered(setup, snap, setup.expiresAt), false);
+  assert.equal(entryStillOffered(setup, { ...snap, scenarios: [] }, now), false);
+  assert.equal(entryStillOffered(setup, { ...snap, scenarios: [{ ...setup, state: "invalidated" }] }, now), false);
+  assert.equal(entryStillOffered(setup, { ...snap, health: { ...snap.health, state: "blocked" } }, now), false);
+  assert.equal(entryStillOffered(setup, null, now), false);
 });
 
 test("a sweep requires its own explicit capability; old consent remains usable for its original strategies", () => {

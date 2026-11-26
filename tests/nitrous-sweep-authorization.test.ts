@@ -123,7 +123,7 @@ test("analysis exposes a Nitrous-only sweep with only declared public evidence f
   assert.equal(fast?.sweepEvidence, undefined);
 });
 
-test("status preserves fast permission for v3 and exposes sweep only on the authorized Nitrous account", async () => {
+function statusFixture() {
   const at = new Date().toISOString();
   const definitions = [
     { id: "baseline", profile: "nitrous", consent_version: v1 },
@@ -134,29 +134,58 @@ test("status preserves fast permission for v3 and exposes sweep only on the auth
   const rows = definitions.map(a => ({ ...a, user_id: "member", connection_id: "connection", broker_account_id: "demo-1234",
     environment: "demo", status: "linked", automation_enabled: true, management_enabled: true,
     risk_pct: a.profile === "nitrous" ? 3 : 0.5, equity: 500, equity_at: at, instrument_spec: { contractSize: 100 },
-    spec_missing: [], ownership_check: { ok: true, checkedAt: at } }));
+    consented_at: at, spec_missing: [], ownership_check: { ok: true, checkedAt: at } }));
+  const journalFilters: Array<[string, unknown]> = [];
   const tables: Record<string, unknown> = {
     nitrous_accounts: rows, nitrous_broker_connections: [{ id: "connection", status: "connected" }],
     nitrous_control: { mode: "live", entries_paused: false }, nitrous_heartbeat: { at, info: { state: "ok" } },
-    nitrous_positions: [], nitrous_intents: [], nitrous_telegram_settings: null,
+    nitrous_positions: [], nitrous_intents: [], nitrous_telegram_settings: null, nitrous_journal: null,
     nitrous_addon_grants: [{ user_id: "member", active: true }], nitrous_addon_subscriptions: [],
   };
   const admin = {
     from(table: string) {
       assert.ok(Object.hasOwn(tables, table), `Unexpected table ${table}`);
       const result = Promise.resolve({ data: tables[table], error: null });
-      const query = { select: () => query, eq: () => query, neq: () => query, order: () => query,
+      const query = { select: () => query, eq: (k: string, v: unknown) => {
+        if (table === "nitrous_journal") journalFilters.push([k, v]);
+        return query;
+      }, neq: () => query, order: () => query, limit: () => query,
         in: () => query, range: () => query, maybeSingle: () => query, then: result.then.bind(result) };
       return query;
     },
     rpc: async (name: string) => { assert.equal(name, "nitrous_account_stats"); return { data: [], error: null }; },
   } as unknown as Parameters<typeof getNitrousStatus>[0];
+  return { admin, at, tables, journalFilters };
+}
+
+test("status preserves fast permission for v3 and exposes sweep only on the authorized Nitrous account", async () => {
+  const { admin } = statusFixture();
   const status = await getNitrousStatus(admin, "member", true);
   assert.deepEqual(status.accounts.map(a => [a.id, a.fastStrategyEnabled, a.sweepStrategyEnabled]), [
     ["baseline", false, false], ["fast", true, false], ["sweep", true, true], ["slow", false, false],
   ]);
   assert.ok(status.accounts.every(a => a.automationEnabled));
   assert.equal(status.consentVersion, v1, "existing top-level baseline consent contract is retained");
+});
+
+test("only the selected owned account gets a dated journal observation for its current authorization", async () => {
+  const { admin, at, tables, journalFilters } = statusFixture();
+  const reason = "Waiting for broker price to enter the setup's entry range.";
+  tables.nitrous_journal = { at, reason, decision: "wait", evidence: { private: true } };
+  for (const id of [undefined, "unowned"]) {
+    const status = await getNitrousStatus(admin, "member", true, id);
+    assert.ok(status.accounts.every(a => !a.lastEntryCheck));
+  }
+  assert.deepEqual(journalFilters, []);
+  const status = await getNitrousStatus(admin, "member", true, "sweep");
+  assert.deepEqual(journalFilters, [["user_id", "member"], ["account_id", "sweep"], ["stage", "entry"]]);
+  assert.deepEqual(status.accounts.filter(a => a.lastEntryCheck).map(a => [a.id, a.lastEntryCheck]), [["sweep", { at, reason }]]);
+  for (const last of [{ at, decision: "protected", reason }, { at: "2000-01-01T00:00:00Z", decision: "skip", reason }, null]) {
+    tables.nitrous_journal = last;
+    const refreshed = await getNitrousStatus(admin, "member", true, "");
+    assert.ok(refreshed.accounts.every(a => !a.lastEntryCheck));
+    assert.equal(refreshed.accounts.length, status.accounts.length);
+  }
 });
 
 function functionBody(sql: string, name: string): string {

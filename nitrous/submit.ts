@@ -33,14 +33,15 @@ export function protectionMatches(row: BrokerPosition, inp: Pick<ProtectedOrder,
 export async function submitProtected(inp: ProtectedOrder): Promise<Submission> {
   const now = inp.now ?? Date.now;
   const wait = inp.wait ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const cancelledBeforeDispatch = "Final account or market checks no longer passed. No order was sent.";
   if (!inp.stillOwned() || !await inp.approved()) {
-    await inp.store.setState(inp.intentId, "cancelled", { error: "Account approval changed before dispatch." });
-    return { state: "cancelled", reason: "Account approval changed before dispatch." };
+    await inp.store.setState(inp.intentId, "cancelled", { error: cancelledBeforeDispatch });
+    return { state: "cancelled", reason: cancelledBeforeDispatch };
   }
   await inp.store.setState(inp.intentId, "submitting", { submitted_at: new Date(now()).toISOString() });
   if (!inp.stillOwned() || !await inp.approved()) {
-    await inp.store.setState(inp.intentId, "cancelled", { error: "Account approval withdrawn before dispatch." });
-    return { state: "cancelled", reason: "Account approval withdrawn before dispatch." };
+    await inp.store.setState(inp.intentId, "cancelled", { error: cancelledBeforeDispatch });
+    return { state: "cancelled", reason: cancelledBeforeDispatch };
   }
   let sent;
   try { sent = await inp.port.submit({ side: inp.side, qty: inp.qty, stopLoss: inp.stop, takeProfit: inp.target, strategyId: inp.strategyId }); }

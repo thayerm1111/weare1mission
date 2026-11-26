@@ -14,19 +14,19 @@ import { dropForming, fetchBars } from "../../rapid/market/twelvedata";
 import { GOLD_SESSION, isSessionOpen } from "../../rapid/market/session";
 import type { Bar, InstrumentSpec, MarketSnapshot, Setup } from "../../rapid/core/types";
 import type { Store } from "../../rapid/exec/submit";
-import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, NITROUS_SWEEP_CONSENT_VERSION, isNitrousMode, validRisk, verifiedOwnedPosition } from "../../src/lib/nitrous/policy";
+import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, NITROUS_SWEEP_CONSENT_VERSION, hasFastConsent, isNitrousMode, validRisk, verifiedOwnedPosition } from "../../src/lib/nitrous/policy";
 import type { NitrousMode } from "../../src/lib/nitrous/types";
 import { publishNitrousTelegramEvent, processNitrousTelegramTest } from "../../src/lib/nitrous-telegram-store";
 import { NITROUS_CONFIG, NITROUS_FAST_CONFIG, NITROUS_SWEEP_CONFIG, isFastSetup, isSweepSetup, configFor } from "../config";
 import { buildSweepReclaim } from "../sweep-reclaim";
 import { selectWatchLevels, countScanChecks } from "../../src/lib/nitrous/dashboard";
-import { aggregateClosed, dailyAllowance, memberActive, referenceFresh, supportedSetups, fastCandidateEligible, fastSetups, sweepCandidateEligible, sweepSetups, mergeNitrousSetups, setupAllowedForAccount, triggerConfirmed, qualificationRejection } from "../logic";
+import { aggregateClosed, dailyAllowance, entryStillOffered, memberActive, referenceFresh, supportedSetups, fastCandidateEligible, fastSetups, sweepCandidateEligible, sweepSetups, mergeNitrousSetups, setupAllowedForAccount, triggerConfirmed, qualificationRejection } from "../logic";
 import { readAccountMetrics, readClosedOutcome, readOpeningFill, marginRequirement } from "../broker";
 import { protectionMatches, submitProtected } from "../submit";
 import { requestCloseOnce } from "../close";
 import { advancePublicSetups, publicSetupTerminal } from "../public-events";
 import { hasNitrousAddonAccess, revokeNitrousAutomationWithoutAccess } from "../access";
-import { createWaitingDiagnostics, type WaitingDecision } from "../waiting-diagnostics";
+import { createWaitingDiagnostics, noSetupReason, type WaitingDecision } from "../waiting-diagnostics";
 
 const HOLDER = `nitrous-${hostname()}-${process.pid}`;
 const LEASE_MS = 45_000;
@@ -361,7 +361,8 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
     return;
   }
   const remaining = await riskRemaining(acct, equity);
-  if (!snap.scenarios.length) waiting("no_qualifying_setup", "The scanner has not identified a qualifying entry setup in the current market read.");
+  if (!snap.scenarios.length) waiting("no_qualifying_setup", noSetupReason(snap.regimes.H1, snap.regimes.M15,
+    acct.profile === "nitrous" && hasFastConsent(acct.consent_version)));
   // Public display sorts newest-first. Keep existing strategy precedence for execution;
   // a fresh sweep remains available when an older watch plan cannot qualify at the broker.
   const candidates = [...snap.scenarios].sort((a,b) => Number(isSweepSetup(a)) - Number(isSweepSetup(b)));
@@ -432,9 +433,12 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
         db.from("profiles").select("status,role,access_expires_at").eq("id", acct.user_id).maybeSingle(),
         hasNitrousAddonAccess(db, acct.user_id),
       ]);
+      const now = Date.now();
       return addonAccess && ![a,c,lease,member].some((r) => r.error) && a.data?.automation_enabled === true && a.data.automation_version === acct.automation_version && a.data.status === "linked" &&
         c.data?.mode === "live" && c.data.entries_paused === false && lease.data?.owner === HOLDER && Number(lease.data.fence) === fence &&
-        Date.parse(lease.data.expires_at) > Date.now() && memberActive(member.data, Date.now()) && held() && Date.now() - q.quote.receivedAt <= cfg.feed.maxQuoteAgeMs;
+        Date.parse(lease.data.expires_at) > now && memberActive(member.data, now) && held() && now - q.quote.receivedAt <= cfg.feed.maxQuoteAgeMs &&
+        now - approvedAt <= cfg.feed.maxSignalToSubmitMs && entryStillOffered(setup, market.snapshot, now) &&
+        referenceFresh(market.m1, now) && isSessionOpen(now, GOLD_SESSION);
     };
     const outcome = await submitProtected({ intentId: reservation.intent_id, side: setup.side, qty: size.qty, stop: setup.stop,
       preexistingPositionIds,

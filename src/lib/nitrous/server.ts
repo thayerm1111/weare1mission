@@ -41,7 +41,23 @@ function statsView(row?: Record<string, unknown>): NitrousStats {
     pnlVerified: row?.pnl_verified === true, period: "all_time", basis: "recorded_realised_pnl" };
 }
 
-export async function getNitrousStatus(admin: SupabaseClient, userId: string, membershipActive: boolean): Promise<NitrousStatus> {
+async function lastEntryCheck(admin: SupabaseClient, userId: string, account: Record<string, unknown>) {
+  try {
+    const { data, error } = await admin.from("nitrous_journal").select("at,decision,reason")
+      .eq("user_id", userId).eq("account_id", account.id).eq("stage", "entry")
+      .order("at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
+    if (error || !data || !["wait", "skip", "cancelled"].includes(data.decision) || typeof data.reason !== "string" || !data.reason.trim()) return null;
+    const at = Date.parse(data.at);
+    const consentAt = Date.parse(String(account.consented_at ?? ""));
+    if (!Number.isFinite(at) || at > Date.now() || at < consentAt) return null;
+    return { at: new Date(at).toISOString(), reason: data.reason.trim().slice(0, 400) };
+  } catch {
+    // Account balances, positions and controls remain available if the optional journal read fails.
+    return null;
+  }
+}
+
+export async function getNitrousStatus(admin: SupabaseClient, userId: string, membershipActive: boolean, entryCheckAccount?: string): Promise<NitrousStatus> {
   const now = Date.now();
   const [accountResult, conns, controlResult, heartbeatResult, statsResult, telegramResult, addon] = await Promise.all([
     admin.from("nitrous_accounts").select("*").eq("user_id", userId).neq("status", "disabled").order("created_at", { ascending: false }),
@@ -58,10 +74,12 @@ export async function getNitrousStatus(admin: SupabaseClient, userId: string, me
   if ([accountResult, conns, controlResult, heartbeatResult, statsResult].some((r) => r.error)) throw new Error("status_unavailable");
   const rows = (accountResult.data ?? []) as Array<Record<string, unknown>>;
   const ids = rows.map((a) => String(a.id));
-  const [positions, unresolved] = ids.length ? await Promise.all([
+  const selected = entryCheckAccount === undefined ? undefined : entryCheckAccount === "" ? rows[0] : rows.find(a => a.id === entryCheckAccount);
+  const [positions, unresolved, entryCheck] = ids.length ? await Promise.all([
     admin.from("nitrous_positions").select("id,account_id,side,entry,current_stop,initial_stop,target,current_qty,opened_at,status,protection_state,management_enabled,close_requested_at,close_request_state,close_request_error,risk_pct,live_observed_at,live_unrealized_pnl").eq("user_id", userId).in("account_id", ids).in("status", ["open", "closing", "orphan_review"]),
     admin.from("nitrous_intents").select("id,account_id").in("account_id", ids).in("state", UNRESOLVED_STATES),
-  ]) : [{ data: [], error: null }, { data: [], error: null }];
+    membershipActive && addon.entitled && selected?.automation_enabled === true ? lastEntryCheck(admin, userId, selected) : null,
+  ]) : [{ data: [], error: null }, { data: [], error: null }, null];
   if (positions.error || unresolved.error) throw new Error("position_status_unavailable");
   const control = controlResult.data as Record<string, unknown> | null;
   const workerAt = (heartbeatResult.data?.at as string | undefined) ?? null;
@@ -90,6 +108,7 @@ export async function getNitrousStatus(admin: SupabaseClient, userId: string, me
       balanceAt: typeof a.balance_at === "string" ? a.balance_at : null,
       mode, riskPct: risk, plannedRisk: equity === null ? null : equity * risk / 100,
       dailyLossPct: profileFor(mode).dailyLossPct, automationEnabled: armed, managementEnabled: a.management_enabled === true,
+      ...(a === selected && entryCheck ? { lastEntryCheck: entryCheck } : {}),
       fastStrategyEnabled: mode === "nitrous" && hasFastConsent(a.consent_version),
       sweepStrategyEnabled: mode === "nitrous" && hasSweepConsent(a.consent_version),
       state: connection?.status === "reconnect_required" || connection?.status === "revoked" ? "reconnect_required"

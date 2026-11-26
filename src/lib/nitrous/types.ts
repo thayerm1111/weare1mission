@@ -25,6 +25,7 @@ export type NitrousAccount = {
   mode: NitrousMode; riskPct: number; plannedRisk: number | null; dailyLossPct: number;
   automationEnabled: boolean; managementEnabled: boolean; fastStrategyEnabled?: boolean; sweepStrategyEnabled?: boolean;
   state: "active" | "connected" | "paused" | "degraded" | "reconnect_required";
+  lastEntryCheck?: { at: string; reason: string } | null;
   blockers: string[]; resolvedSymbol: string | null; stats: NitrousStats; positions: NitrousPosition[];
 };
 export type NitrousStatus = {
