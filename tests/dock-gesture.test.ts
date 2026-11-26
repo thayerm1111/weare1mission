@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
-import { startDockGesture } from "../src/components/om/dock-gesture";
+import { notifyDockNavigation, startDockGesture } from "../src/components/om/dock-gesture";
 
 const routes = ["/portal/trading", "/command-center", "/portal/genx", "/portal/trading?view=pulse", "/portal/trading?view=flow"];
 
@@ -47,6 +47,7 @@ function browser(t: TestContext) {
   const router = {
     push: (href: string) => { calls.push(["push", href]); },
     replace: (href: string) => { calls.push(["replace", href]); },
+    back: () => { calls.push(["back", ""]); },
   };
   function pointer(type: string, x: number, y = 430, overrides = {}) {
     const e = Object.assign(new Event(type, { cancelable: true }), {
@@ -64,7 +65,7 @@ function browser(t: TestContext) {
   return {
     pointer, click, calls, captures, outside, slots: () => dock.slots,
     dwell: () => t.mock.timers.tick(160),
-    commit(href: string) { url.href = new URL(href, url).href; },
+    commit(href: string) { url.href = new URL(href, url).href; notifyDockNavigation(); },
     remount() { dock = new Dock(); },
   };
 }
@@ -77,22 +78,37 @@ test("holding over tools routes while the finger stays down, even after the dock
   assert.equal(h.calls.length, 0);
   h.dwell();
   assert.deepEqual(h.calls, [["push", routes[1]]]);
-  // The first navigation has not committed. A faster second destination must retain the origin for Back.
   h.pointer("pointermove", 100);
   h.dwell();
-  assert.deepEqual(h.calls[1], ["push", routes[2]]);
-  h.commit(routes[2]);
+  assert.equal(h.calls.length, 1, "a held target waits for the pending navigation");
   h.remount();
+  h.commit(routes[1]);
+  assert.deepEqual(h.calls[1], ["replace", routes[2]]);
   assert.equal(h.captures.has(1), true);
   h.pointer("pointermove", 140);
   h.dwell();
-  h.commit(routes[3]);
   h.pointer("pointermove", 180);
   h.pointer("pointerup", 180);
   h.dwell();
-  assert.deepEqual(h.calls.slice(2), [["replace", routes[3]], ["replace", routes[4]]]);
+  assert.equal(h.calls.length, 2, "releasing on FLOW queues it while GENX is loading");
+  h.commit(routes[2]);
+  assert.deepEqual(h.calls[2], ["replace", routes[4]], "only the final destination opens after release");
+  h.commit(routes[4]);
+  h.dwell();
+  assert.equal(h.calls.length, 3);
   assert.equal(h.captures.size, 0);
   assert.ok(h.slots().every(link => !link.attributes.has("data-scrubbed")));
+});
+
+test("releasing on the original tool restores the prior history entry once", t => {
+  const h = browser(t);
+  h.pointer("pointerdown", 20);
+  h.pointer("pointermove", 60);
+  h.dwell();
+  h.pointer("pointerup", 20);
+  h.commit(routes[1]);
+  h.commit(routes[0]);
+  assert.deepEqual(h.calls, [["push", routes[1]], ["back", ""]]);
 });
 
 test("taps, mouse clicks and vertical scrolling keep native behavior", t => {
@@ -127,6 +143,29 @@ test("leaving the dock or canceling before dwell never follows the prior target"
   h.pointer("pointerup", 100);
   assert.equal(h.captures.size, 0);
   assert.deepEqual(h.calls, []);
+});
+
+test("a canceled drag or an immediate new tap discards pending gesture destinations", t => {
+  const h = browser(t);
+  h.pointer("pointerdown", 20);
+  h.pointer("pointermove", 60);
+  h.dwell();
+  h.pointer("pointermove", 100);
+  h.dwell();
+  h.pointer("pointercancel", 100);
+  h.commit(routes[1]);
+  assert.deepEqual(h.calls, [["push", routes[1]]]);
+
+  h.pointer("pointerdown", 60);
+  h.pointer("pointermove", 140);
+  h.dwell();
+  h.pointer("pointerup", 180);
+  h.pointer("pointerdown", 100);
+  h.pointer("pointerup", 100);
+  assert.equal(h.click(1), false);
+  h.commit(routes[3]);
+  h.commit(routes[2]); // The link activated by the subsequent native tap.
+  assert.deepEqual(h.calls, [["push", routes[1]], ["push", routes[3]]]);
 });
 
 test("the compatibility click from a drag is suppressed while the next tap and keyboard activation work", t => {

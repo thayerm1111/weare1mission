@@ -25,7 +25,7 @@ import { DEFAULT_LOOK, LOOKS, LOOK_CLASS, LOOK_KEY, applyLook, lookOf, themeOf, 
 import { InstallSheet, OfflineNotice, runningAsApp, useInstall } from "./InstallApp";
 import { ShellContext } from "./shell";
 import { ProductIcon } from "./ProductIcon";
-import { startDockGesture } from "./dock-gesture";
+import { notifyDockNavigation, startDockGesture } from "./dock-gesture";
 import { FlowAccountBar, FlowAccountProvider } from "./FlowAccount";
 import { MobileViewport } from "./MobileViewport";
 import { AtlasProvider, useAtlasPanel } from "./atlas/AtlasProvider";
@@ -206,9 +206,10 @@ function AppDock() {
   const params = useSearchParams();
   const view = params.get("view");
   const here = activeKey(path, view);
+  const query = params.toString();
+  useEffect(() => { notifyDockNavigation(); }, [path, query]);
   const returnToTop = (event: ReactMouseEvent<HTMLAnchorElement>, key: NavKey, href: string) => {
     // A re-tap scrolls only the actual destination. Saved signals and engine subpages still return home.
-    const query = params.toString();
     const current = path + (query ? `?${query}` : "");
     if (window.location.hash || here !== key || current !== href || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();

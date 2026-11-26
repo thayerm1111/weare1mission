@@ -114,6 +114,7 @@ function harness(relative = "src/components/om/atlas/AtlasProvider.tsx", name = 
     "@/lib/floor/nav": require("../src/lib/floor/nav.ts"),
     "./InstallApp": { useInstall: () => ({ asApp: false, offer: false, install: async () => null }) },
     "./atlas/AtlasProvider": { useAtlasPanel: () => ({ open: false }) },
+    "./dock-gesture": require("../src/components/om/dock-gesture.ts"),
   };
   const context = vm.createContext({
     Date: vmDate, Math, Error, console, Event, URLSearchParams, AbortController, HTMLElement: Element, document, window,
