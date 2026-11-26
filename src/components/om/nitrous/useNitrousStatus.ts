@@ -24,7 +24,7 @@ export function useNitrousStatus() {
   }, []);
   useEffect(() => {
     setNow(Date.now()); void refresh();
-    const poll = setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 20_000);
+    const poll = setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 10_000);
     const clock = setInterval(() => setNow(Date.now()), 5_000);
     const visible = () => { if (document.visibilityState === "visible") void refresh(); };
     document.addEventListener("visibilitychange", visible);

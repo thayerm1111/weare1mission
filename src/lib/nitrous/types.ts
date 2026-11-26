@@ -14,6 +14,8 @@ export type NitrousPosition = {
   managementEnabled: boolean; closeRequestedAt: string | null;
   closeRequestState: "requested" | "dispatching" | "acknowledged" | "uncertain" | "rejected" | null;
   closeRequestError: string | null;
+  initialStop?: number | null; riskPct?: number | null;
+  liveObservedAt?: string | null; unrealizedPnl?: number | null;
 };
 export type NitrousAccount = {
   id: string; accountId: string; connectionId: string; name: string | null;
@@ -41,13 +43,16 @@ export type NitrousScenario = {
   stopUsd: number; targetUsd: number; expiresAt: number;
   conditionsMet: string[]; conditionsPending: string[]; invalidation: number; explanation?: string;
 };
+export type NitrousWatchLevel = { low: number; high: number; role: "support" | "resistance"; origin: string; knownAt: number };
+export type NitrousScanCheck = { code: string; count: number };
+export type NitrousDiagnostics = { watchLevels: NitrousWatchLevel[]; baselineChecks: NitrousScanCheck[]; fastChecks: NitrousScanCheck[]; baselineCandidates: number | null; fastCandidates: number | null };
 export type NitrousAnalyze = {
   available: boolean; reason?: string; asOf: string | null; generatedAt: string | null;
   ageMs: number | null; stale: boolean; price: number | null; symbol: "XAUUSD";
   source: string | null; bars: NitrousCandle[]; scenarios: NitrousScenario[];
   flow: Array<{ timeframe: string; direction: "up" | "down" | "range" | "unknown"; label: string }>;
   explanation: string; health: { state: string; reasons: string[] };
-  strategyVersion: string | null;
+  strategyVersion: string | null; diagnostics?: NitrousDiagnostics;
 };
 export type NitrousBrokerAccount = {
   accountId: string; accNum: string; name: string | null; currency: string | null;

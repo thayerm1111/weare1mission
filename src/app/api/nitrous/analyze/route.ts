@@ -1,6 +1,7 @@
 import { ACCOUNT_FRESH_MS, finiteNumber, freshAt, SNAPSHOT_FRESH_MS } from "@/lib/nitrous/policy";
 import type { NitrousAnalyze, NitrousCandle, NitrousScenario } from "@/lib/nitrous/types";
 import { json, requireUser, requireNitrousAddon, unavailable } from "../_shared";
+import { scanDiagnostics } from "@/lib/nitrous/dashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -49,10 +50,12 @@ export async function GET() {
       const value = regimes[key]; const direction = value === "up" || value === "down" ? value : value === "sideways" ? "range" : "unknown";
       return { timeframe, direction, label: direction === "up" ? "Uptrend" : direction === "down" ? "Downtrend" : direction === "range" ? "Range" : "Unavailable" };
     });
+    const reference = finiteNumber(payload.price) ?? bars.at(-1)?.c ?? null;
     return json({ available: true, generatedAt, asOf,
       ageMs: Number.isFinite(ageMs) ? Math.max(0,ageMs) : null, stale, price: finiteNumber(payload.price) ?? bars.at(-1)?.c ?? null,
       symbol: "XAUUSD", source: typeof row.feed_source === "string" ? row.feed_source : null, bars, scenarios: safeScenarios, flow,
       explanation: typeof payload.explanation === "string" ? payload.explanation : "", health,
-      strategyVersion: typeof row.strategy_version === "string" ? row.strategy_version : null } satisfies NitrousAnalyze);
+      strategyVersion: typeof row.strategy_version === "string" ? row.strategy_version : null,
+      diagnostics: scanDiagnostics(payload, reference, Date.parse(generatedAt ?? "")) } satisfies NitrousAnalyze);
   } catch { return unavailable(); }
 }

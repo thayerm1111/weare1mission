@@ -53,4 +53,6 @@ export type BrokerPosition = {
   entry: number | null;
   stopLoss: number | null;
   takeProfit: number | null;
+  /** Optional broker-reported floating P&L, never inferred from account equity. */
+  unrealizedPnl?: number;
 };

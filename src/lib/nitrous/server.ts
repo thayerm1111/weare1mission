@@ -23,6 +23,9 @@ const posView = (p: Record<string, unknown>): NitrousPosition => ({
   id: String(p.id), side: p.side === "sell" ? "sell" : "buy", entry: Number(p.entry),
   stop: finiteNumber(p.current_stop ?? p.initial_stop), target: finiteNumber(p.target),
   quantity: Number(p.current_qty), openedAt: String(p.opened_at), status: String(p.status),
+  initialStop: finiteNumber(p.initial_stop), riskPct: finiteNumber(p.risk_pct),
+  liveObservedAt: typeof p.live_observed_at === "string" ? p.live_observed_at : null,
+  unrealizedPnl: finiteNumber(p.live_unrealized_pnl),
   protectionState: String(p.protection_state), managementEnabled: p.management_enabled === true,
   closeRequestedAt: typeof p.close_requested_at === "string" ? p.close_requested_at : null,
   closeRequestState: ["requested", "dispatching", "acknowledged", "uncertain", "rejected"].includes(String(p.close_request_state))
@@ -56,7 +59,7 @@ export async function getNitrousStatus(admin: SupabaseClient, userId: string, me
   const rows = (accountResult.data ?? []) as Array<Record<string, unknown>>;
   const ids = rows.map((a) => String(a.id));
   const [positions, unresolved] = ids.length ? await Promise.all([
-    admin.from("nitrous_positions").select("id,account_id,side,entry,current_stop,initial_stop,target,current_qty,opened_at,status,protection_state,management_enabled,close_requested_at,close_request_state,close_request_error").in("account_id", ids).in("status", ["open", "closing", "orphan_review"]),
+    admin.from("nitrous_positions").select("id,account_id,side,entry,current_stop,initial_stop,target,current_qty,opened_at,status,protection_state,management_enabled,close_requested_at,close_request_state,close_request_error,risk_pct,live_observed_at,live_unrealized_pnl").eq("user_id", userId).in("account_id", ids).in("status", ["open", "closing", "orphan_review"]),
     admin.from("nitrous_intents").select("id,account_id").in("account_id", ids).in("state", UNRESOLVED_STATES),
   ]) : [{ data: [], error: null }, { data: [], error: null }];
   if (positions.error || unresolved.error) throw new Error("position_status_unavailable");

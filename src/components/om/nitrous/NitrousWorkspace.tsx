@@ -1,12 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, Check, ChevronDown, Droplets, Link2, Loader2, Pause, Play, RefreshCw, ShieldCheck, TrendingDown, TrendingUp, Waves, X, Zap } from "lucide-react";
 import { ProductIcon } from "../ProductIcon";
 import { useExperienceMode } from "../experience";
-import { OmChart } from "../chart/OmChart";
-import { SignalFocusChart } from "../chart/SignalFocusChart";
-import type { ChartLevel } from "@/lib/floor/chart";
+import { NitrousMarketDesk, NitrousLiveTrades } from "./NitrousMarketDesk";
 import type { NitrousAccount, NitrousAnalyze, NitrousMode, NitrousPosition } from "@/lib/nitrous/types";
 import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, NITROUS_PROFILES } from "@/lib/nitrous/policy";
 import { useNitrousStatus } from "./useNitrousStatus";
@@ -15,8 +13,6 @@ import { NitrousConnect } from "./NitrousConnect";
 import { NitrousAddonPanel } from "./NitrousAddonPanel";
 import { NitrousTelegramPanel } from "./NitrousTelegramPanel";
 import "./nitrous.css";
-
-const familyName = (value: string) => ({ trend_pullback: "Trend pullback", break_retest: "Break & retest", range_reaction: "Range reaction", momentum: "Momentum" } as Record<string, string>)[value] ?? "Price-action setup";
 
 function ArmDialog({ account, mode, riskPct, consentVersion, busy, error, onCancel, onConfirm }: {
   account: NitrousAccount; mode: NitrousMode; riskPct: number; consentVersion: string; busy: boolean; error: string;
@@ -36,48 +32,6 @@ function ArmDialog({ account, mode, riskPct, consentVersion, busy, error, onCanc
     {error && <p role="alert" className="nitrous-error">{error}</p>}
     <button type="button" className="nitrous-button nitrous-button-primary" disabled={!accepted || busy} onClick={() => onConfirm(consentVersion)}>{busy ? <Loader2 className="nitrous-spin" size={17} /> : <Play size={17} />}{busy ? "Checking readiness…" : `Turn on ${modeName(mode)}`}</button>
   </dialog>;
-}
-
-function MarketCard({ data, loading, error, fresh, now, onRefresh, simple, mode }: {
-  data: NitrousAnalyze | null; loading: boolean; error: string; fresh: boolean; now: number; onRefresh: () => void; simple: boolean; mode: NitrousMode;
-}) {
-  const [chosenId, setChosenId] = useState("");
-  const scenarios = (data?.scenarios ?? []).filter(s => mode === "nitrous" || s.profile !== "nitrous");
-  const plan = scenarios.find(s => s.setupId === chosenId) ?? scenarios[0] ?? null;
-  const flow = data?.flow ?? [];
-  const bias = flow.find(f => ["1h", "h1"].includes(f.timeframe.toLowerCase())) ?? flow.find(f => f.direction !== "unknown");
-  const label = !data?.available ? "Reading the market" : bias?.direction === "up" ? "Gold is moving up" : bias?.direction === "down" ? "Gold is moving down" : bias?.direction === "range" ? "Gold is in a range" : "Waiting for clear structure";
-  const chart = useMemo(() => {
-    const levels: ChartLevel[] = plan ? [{ kind: "entry", price: plan.refEntry, label: "Entry" }, { kind: "stop", price: plan.stop, label: "Stop" }, { kind: "target", price: plan.target, label: "Target" }] : [];
-    return { bars: data?.bars ?? [], timeKnown: true, tfMs: 5 * 60_000, tfLabel: "5m", price: data?.price ?? null,
-      priceLive: fresh, dec: 2, levels, zone: plan ? { low: plan.entryBandLow, high: plan.entryBandHigh } : null,
-      viewKey: `nitrous:gold:${plan?.setupId ?? "market"}`, label: "Gold candles and the selected Nitrous setup", fitLevels: true, labelStyle: "backed" as const };
-  }, [data?.bars, data?.price, plan, fresh]);
-  const Direction = bias?.direction === "up" ? TrendingUp : bias?.direction === "down" ? TrendingDown : Waves;
-  const planExpired = !!plan && now > 0 && plan.expiresAt <= now;
-  const state = planExpired ? "Entry offer expired" : plan ? scenarioState(plan.state) : "No valid setup yet";
-  return <section className="nitrous-market nitrous-panel" aria-labelledby="nitrous-market-title">
-    <div className="nitrous-section-head"><div><span className="nitrous-eyebrow">XAUUSD · GOLD</span><h2 id="nitrous-market-title">Market &amp; setups</h2></div>
-      <button type="button" className="nitrous-icon-button" onClick={onRefresh} disabled={loading} aria-label="Refresh gold setups"><RefreshCw size={18} className={loading ? "nitrous-spin" : ""} /></button></div>
-    <div className="nitrous-market-head"><div><div className="nitrous-market-direction"><Direction size={20} aria-hidden="true" /><h3>{label}</h3></div>
-      <span className="nitrous-status" data-active={fresh}><i />{fresh ? "CURRENT READ" : data?.available ? "READ DELAYED" : "WAITING FOR DATA"}</span></div>
-      <div className="nitrous-quote"><strong>{price(data?.price)}</strong><small>USD / oz</small></div></div>
-    {error && <p className="nitrous-error" role="alert">{error}</p>}
-    {data?.bars.length ? simple ? <SignalFocusChart {...chart} direction={plan?.side ?? "neutral"} reference={!fresh || planExpired || plan?.state !== "triggered"} />
-      : <div className="nitrous-chart"><OmChart {...chart} /></div>
-      : <div className="nitrous-chart-empty"><Activity size={29} aria-hidden="true" /><strong>{loading ? "Loading gold candles…" : "Waiting for market data"}</strong><span>{data?.reason ?? "The chart appears when the market feed has a current read."}</span></div>}
-    <div className="nitrous-chart-caption"><span>Actual 5-minute candles</span><span>{elapsed(data?.asOf, now)}</span></div>
-    {!simple && flow.length > 0 && <div className="nitrous-timeframes" aria-label="Market flow by timeframe">{flow.map(item => <div key={item.timeframe} data-direction={item.direction}><small>{item.timeframe.toUpperCase()}</small><strong>{item.label || (item.direction === "up" ? "Up" : item.direction === "down" ? "Down" : item.direction === "range" ? "Range" : "Unknown")}</strong></div>)}</div>}
-    {scenarios.length > 1 && <div className="nitrous-setup-picker" role="group" aria-label="Available setups">{scenarios.map(s => <button key={s.setupId} type="button" aria-pressed={s.setupId === plan?.setupId} onClick={() => setChosenId(s.setupId)}>{s.side === "buy" ? "Buy" : "Sell"} · {familyName(s.family)}{s.profile === "nitrous" ? " · Nitrous only" : ""}</button>)}</div>}
-    <div className="nitrous-plan-head"><span className="nitrous-plan-side" data-side={plan?.side}>{plan ? `${plan.side === "buy" ? "BUY" : "SELL"} SETUP` : "WATCHING GOLD"}</span><span>{state}</span></div>
-    {plan ? <>
-      <div className="nitrous-levels"><div><small>Entry zone</small><strong>{price(plan.entryBandLow)}<span>– {price(plan.entryBandHigh)}</span></strong></div><div><small>Stop loss</small><strong>{price(plan.stop)}</strong></div><div><small>Target</small><strong>{price(plan.target)}</strong></div></div>
-      <div className="nitrous-plan-context"><strong>{familyName(plan.family)}{plan.profile === "nitrous" ? " · Nitrous only" : ""}</strong><p>{plan.explanation || data?.explanation || "Wait for the recorded trigger. A visible setup is not a filled trade."}</p></div>
-      {plan.conditionsPending.length > 0 && <div className="nitrous-next-trigger"><Activity size={17} aria-hidden="true" /><div><small>What happens next</small><p>{plan.conditionsPending[0]}</p></div></div>}
-      {!simple && <div className="nitrous-checks">{plan.conditionsMet.map((condition, i) => <span key={`met-${i}`}><Check size={15} />{condition}</span>)}{plan.conditionsPending.slice(1).map((condition, i) => <span key={`pending-${i}`}><span className="nitrous-hollow-dot" />{condition}</span>)}</div>}
-    </> : <p className="nitrous-plan-context">{data?.explanation || data?.reason || "The scanner waits for a defined pullback or breakout and retest. Levels appear when a setup qualifies."}</p>}
-    {!simple && data?.health.reasons.length ? <p className="nitrous-health-note">{data.health.reasons.join(" · ")}</p> : null}
-  </section>;
 }
 
 function CloseDialog({ position, account, busy, error, onCancel, onConfirm }: {
@@ -124,7 +78,11 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
   const currency = account?.currency ?? "USD";
   const plannedRisk = account?.equity == null ? null : account.equity * riskPct / 100;
   const readFresh = !analysisError && analysis?.available === true && !analysis.stale && analysis.health.state === "ok"
-    && status.now > 0 && analysisReceivedAt > 0 && status.now - analysisReceivedAt <= 45_000;
+    && status.now > 0 && analysisReceivedAt > 0 && typeof analysis.ageMs === "number"
+    && analysis.ageMs + Math.max(0,status.now-analysisReceivedAt) <= 45_000
+    && Date.parse(analysis.generatedAt ?? "")-Date.parse(analysis.asOf ?? "")+analysis.ageMs+Math.max(0,status.now-analysisReceivedAt) <= 120_000;
+  const accountClock = !status.error && status.data && status.receivedAt && status.now >= status.receivedAt && status.now-status.receivedAt<=45_000
+    ? Date.parse(status.data.serverTime) + status.now-status.receivedAt : 0;
 
   const refreshAnalysis = useCallback(async () => {
     if (!entitled) return;
@@ -195,10 +153,10 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
       <button type="button" aria-pressed={mode === "slow_drip"} onClick={() => chooseMode("slow_drip")} disabled={!entitled || !!account?.automationEnabled || !!busy}><span className="nitrous-mode-icon"><Droplets size={23} /></span><span><strong>Slow Drip</strong><small>Measured risk. Selective entries.</small></span><span className="nitrous-mode-risk">0.5–1%<small>per trade</small></span></button>
       <button type="button" aria-pressed={mode === "nitrous"} onClick={() => chooseMode("nitrous")} disabled={!entitled || !!account?.automationEnabled || !!busy}><span className="nitrous-mode-icon"><Zap size={23} /></span><span><strong>Nitrous</strong><small>Faster setup scanner. Higher risk.</small></span><span className="nitrous-mode-risk">3–5%<small>per trade</small></span></button>
     </div>}
-    <div className="nitrous-layout" data-addon-only={!entitled && !account && !isAdmin}><div className="nitrous-main-column">{entitled ? <MarketCard data={analysis} loading={analysisLoading} error={analysisError} fresh={readFresh} now={status.now} onRefresh={() => void refreshAnalysis()} simple={isSimple} mode={mode} />
+    <div className="nitrous-layout" data-addon-only={!entitled && !account && !isAdmin}><div className="nitrous-main-column">{entitled ? <NitrousMarketDesk data={analysis} loading={analysisLoading} error={analysisError} fresh={readFresh} now={status.now} accountNow={accountClock} account={account} onRefresh={() => void refreshAnalysis()} simple={isSimple} mode={mode} />
       : <NitrousAddonPanel addon={status.data?.addon ?? null} loading={status.loading} unavailable={!!status.error || status.data?.addon?.verificationUnavailable === true} onUpdated={status.refresh} />}
       {!entitled && account && <p className="nitrous-health-note">Your account and open positions remain available here. New setups and auto entries require Nitrous access.</p>}
-      {account && <Positions account={account} simple={isSimple} busy={!!busy} onClose={position => { setActionError(""); setClosing(position); }} />}</div>
+      {account && <NitrousLiveTrades account={account} accountNow={accountClock} referencePrice={readFresh ? analysis?.price ?? null : null} referenceAt={analysis?.asOf ?? null} now={status.now} simple={isSimple} busy={!!busy} onClose={position => { setActionError(""); setClosing(position); }} />}</div>
       <aside className="nitrous-side-column" aria-label="Trading account controls">{(entitled || account) && <section className="nitrous-account nitrous-panel" data-nitrous-active={active} aria-labelledby="nitrous-account-title">
         <div className="nitrous-section-head"><div><span className="nitrous-eyebrow">YOUR TRADELOCKER ACCOUNT</span><h2 id="nitrous-account-title">{active ? "Auto trading is active" : account ? "Account control" : "Connect. Set. Trade."}</h2></div><span className="nitrous-account-signal"><Activity size={20} /></span></div>
         {status.error && <p className="nitrous-error" role="alert">{status.error}</p>}
@@ -235,19 +193,3 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
   </div>;
 }
 
-function Positions({ account, simple, busy, onClose }: { account: NitrousAccount; simple: boolean; busy: boolean; onClose: (position: NitrousPosition) => void }) {
-  return <section className="nitrous-positions nitrous-panel" aria-labelledby="nitrous-positions-title"><div className="nitrous-section-head"><div><span className="nitrous-eyebrow">THIS ACCOUNT</span><h2 id="nitrous-positions-title">Open positions</h2></div><span className="nitrous-count">{account.positions.length}</span></div>
-    {!account.positions.length ? <p className="nitrous-empty-position">No open Nitrous positions on this account.</p> : <div className="nitrous-position-list">{account.positions.map(position => {
-      const rejected = position.closeRequestState === "rejected";
-      const pending = !rejected && (!!position.closeRequestState || position.status === "closing" || !!position.closeRequestedAt);
-      const closeLabel = position.closeRequestState === "uncertain" ? "Close pending · reconciling with broker" : pending ? "Close requested · awaiting confirmation" : rejected ? "Retry position close" : "Close position";
-      return <article key={position.id}>
-        <div className="nitrous-position-heading"><strong data-side={position.side}>{position.side.toUpperCase()} GOLD</strong><span>{position.quantity} lots</span></div>
-        <dl><div><dt>Entry</dt><dd>{price(position.entry)}</dd></div><div><dt>Stop</dt><dd>{price(position.stop)}</dd></div><div><dt>Target</dt><dd>{price(position.target)}</dd></div></dl>
-        <p><ShieldCheck size={14} />{position.protectionState === "verified" || position.protectionState === "protected" ? "Broker stop verified" : "Protection check pending"}{!simple && ` · ${position.managementEnabled ? "Management on" : "Management off"}`}</p>
-        {rejected && <p role="status">{position.closeRequestError || "The broker rejected the close request. This position is still open."}</p>}
-        <button type="button" className="nitrous-position-close" disabled={busy || pending} onClick={() => onClose(position)}>{closeLabel}</button>
-      </article>;
-    })}</div>}
-  </section>;
-}

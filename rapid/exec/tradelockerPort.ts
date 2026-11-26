@@ -131,6 +131,8 @@ export class TradeLockerPort implements BrokerPort {
       const id = field(row, cols, ["id", "positionId"]);
       if (id == null) continue;
       const sideRaw = String(field(row, cols, ["side"]) ?? "").toLowerCase();
+      const rawPnl = field(row, cols, ["unrealizedPl"]);
+      const floating = typeof rawPnl === "number" || (typeof rawPnl === "string" && rawPnl.trim()) ? Number(rawPnl) : NaN;
       rows.push({
         positionId: String(id),
         strategyId: (field(row, cols, ["strategyId"]) as string) ?? null,
@@ -139,6 +141,7 @@ export class TradeLockerPort implements BrokerPort {
         entry: num(field(row, cols, ["avgPrice", "openPrice", "price"])),
         stopLoss: num(field(row, cols, ["stopLoss", "stopLossPrice", "sl"])),
         takeProfit: num(field(row, cols, ["takeProfit", "takeProfitPrice", "tp"])),
+        ...(Number.isFinite(floating) ? { unrealizedPnl: floating } : {}),
       });
     }
     return { ok: true, rows };

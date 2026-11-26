@@ -58,6 +58,8 @@ export type OmChartProps = {
   structureZones?: StructureZone[];
   /** Opt-in compact label backings. Existing charts retain their current annotation appearance. */
   labelStyle?: "backed";
+  /** Optional EMA of actual loaded closes, not a projected path. */
+  emaPeriod?: number;
   zone?: { low: number; high: number } | null;
   /** The analysis the levels belong to, when it is not the current one: when it was made, and what to call it. */
   analysis?: { at: number; label: string } | null;
@@ -86,6 +88,13 @@ type Drag = { x: number; y: number; end: number; pOff: number; pz: number; axis:
 export function OmChart(p: OmChartProps) {
   const { bars, timeKnown, dec } = p;
   const backed = p.labelStyle === "backed";
+  const ema = useMemo(() => {
+    const period = p.emaPeriod;
+    if (!period || !Number.isInteger(period) || period < 2 || period > 100 || bars.length < period) return null;
+    const alpha = 2/(period+1);
+    let previous = bars[0].c;
+    return bars.map(b => { previous += alpha*(b.c-previous); return previous; });
+  }, [bars,p.emaPeriod]);
   const structureZones = useMemo(() => (p.structureZones ?? []).filter(validStructureZone), [p.structureZones]);
   const sessionBreaks = useMemo(() => {
     if (!timeKnown || !p.isOpenAt) return new Set<number>();
@@ -522,6 +531,8 @@ export function OmChart(p: OmChartProps) {
               );
             })}
 
+            {ema && i1 > i0 && <polyline pointerEvents="none" points={ema.slice(i0,i1+1).map((v,k)=>`${x(i0+k)},${y(v)}`).join(" ")}
+              fill="none" strokeWidth="1.4" style={{stroke:"var(--om-ai)"}} strokeOpacity=".85" />}
             {/* the moment an earlier analysis was made */}
             {aX != null && aX >= 0 && aX <= plotW && (
               <g pointerEvents="none" data-analysis-mark="">

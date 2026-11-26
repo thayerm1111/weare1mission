@@ -18,6 +18,7 @@ import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, isNitrousMode, v
 import type { NitrousMode } from "../../src/lib/nitrous/types";
 import { publishNitrousTelegramEvent, processNitrousTelegramTest } from "../../src/lib/nitrous-telegram-store";
 import { NITROUS_CONFIG, NITROUS_FAST_CONFIG, isFastSetup, configFor } from "../config";
+import { selectWatchLevels, countScanChecks } from "../../src/lib/nitrous/dashboard";
 import { aggregateClosed, dailyAllowance, memberActive, referenceFresh, supportedSetups, fastCandidateEligible, fastSetups, mergeNitrousSetups, setupAllowedForAccount, triggerConfirmed } from "../logic";
 import { readAccountMetrics, readClosedOutcome, readOpeningFill, marginRequirement } from "../broker";
 import { protectionMatches, submitProtected } from "../submit";
@@ -132,7 +133,7 @@ async function analysisLoop() {
           health: snap.health, regimes: { ...snap.regimes, M30: regime30 }, regime_conflict: snap.regimeConflict,
           payload: { scenarios: snap.scenarios, explanation: snap.deterministicExplanation,
             bars: five.slice(-180), price: market.m1.at(-1)!.c, chartTimeframe: "5m",
-            rejections: snap.rejections.slice(0, 40), fastRejections: fast.rejections.slice(0, 40), fastConfigVersion: fast.configVersion, baselineCandidates: baselinePlans.length, fastCandidates: fastPlans.length, levels: snap.zones.slice(0, 100) } }));
+            rejections: snap.rejections.slice(0, 40), fastRejections: fast.rejections.slice(0, 40), fastConfigVersion: fast.configVersion, baselineCandidates: baselinePlans.length, fastCandidates: fastPlans.length, watchLevels: selectWatchLevels([...snap.zones,...fast.zones], reference, now), baselineChecks: countScanChecks(snap.rejections), fastChecks: countScanChecks(fast.rejections), levels: snap.zones.slice(0, 100) } }));
         checked(await admin().from("nitrous_public_state").upsert({ id: 1, setups: lifecycle.updatedSetups, updated_at: iso() }));
         market.publicSetups = lifecycle.updatedSetups;
         market.snapshot = snap; market.persistedAt = Date.now();
@@ -394,7 +395,8 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
 
 async function serveAccount(acct: Account, fence: number, held: () => boolean) {
   const { port, ctx } = await portFor(acct);
-  const [contract, positions, metrics] = await Promise.all([port.spec(), port.positions(), readAccountMetrics(ctx)]);
+  const [contract, exposureRead, metrics] = await Promise.all([port.spec(), port.positions().then(result => ({result, observedAt: iso()})), readAccountMetrics(ctx)]);
+  const {result: positions, observedAt} = exposureRead;
   if (!contract.ok) throw new Error(contract.error);
   if (!positions.ok) throw new Error(positions.error);
   const ownership = await checkOwnership(acct.broker_account_id, positions.rows, {}, acct.allow_shared_account === true);
@@ -406,6 +408,18 @@ async function serveAccount(acct: Account, fence: number, held: () => boolean) {
   const rows = await reconcile(acct, port, ctx, positions.rows, contract.spec, metrics.ok ? metrics.currency : null);
   // Always protect already-owned positions, even when new entries or membership are paused.
   await manage(acct, rows, positions.rows, port, contract.spec, held);
+  // Display-only telemetry: use exact ledger/broker identity. Failure cannot prevent protection.
+  for (const row of rows) {
+    if (!held()) break;
+    const live = positions.rows.find(p => p.positionId === row.broker_position_id);
+    const confirmed = verifiedOwnedPosition(row, live) && live?.side === row.side && Number(live?.qty) > 0 && row.status !== "orphan_review";
+    try {
+      await admin().from("nitrous_positions").update({
+        live_observed_at: confirmed ? observedAt : null,
+        live_unrealized_pnl: confirmed && typeof live?.unrealizedPnl === "number" && Number.isFinite(live.unrealizedPnl) ? live.unrealizedPnl : null,
+      }).eq("id",row.id).eq("account_id",acct.id).eq("broker_strategy_id",row.broker_strategy_id).in("status",["open","closing","orphan_review"]);
+    } catch { /* Best effort UI data; old observations age out. */ }
+  }
   if (!await revokeNitrousAutomationWithoutAccess(admin(), acct)) throw new Error("Nitrous add-on access is required for new entries. Existing positions keep their protection.");
   if (rows.some((p) => p.status === "orphan_review" || p.protection_state !== "protected")) throw new Error("A position needs broker reconciliation. New entries remain paused.");
   const known = new Set(rows.map((p) => p.broker_position_id));

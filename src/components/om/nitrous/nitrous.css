@@ -298,3 +298,6 @@
 .nitrous-layout[data-addon-only="true"] { grid-template-columns: minmax(0, 1fr); }
 .nitrous-layout[data-addon-only="true"] > .nitrous-main-column { width: 100%; max-width: 820px; margin-inline: auto; }
 .nitrous-layout[data-addon-only="true"] > .nitrous-side-column { display: none; }
+
+/* Market-first mobile view: every existing account, membership and channel control remains below. */
+@media (max-width: 820px) { .nitrous-layout > .nitrous-side-column { grid-row: auto; } }
