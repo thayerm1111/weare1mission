@@ -9,6 +9,7 @@ const lifecycle = require("../src/lib/plays/lifecycle.ts");
 const diagnostics = require("../src/lib/plays/diagnostics.ts");
 const intent = require("../src/lib/plays/intent.ts");
 const scan = require("../src/lib/pulse/scan.ts");
+const comparison = require("../src/lib/pulse/comparison.ts");
 const { atlasPlayChart } = require("../src/lib/atlas/chart.ts");
 const { mergeSavedPlays, SIGNALS_UPDATED_EVENT } = require("../src/lib/atlas/signals.ts");
 
@@ -30,7 +31,9 @@ function play(id = NOW - 5000, symbol = "XAU/USD") {
 // remain inert nodes: a render or mode switch must never trigger their paid actions.
 function harness(component, options = {}) {
   const file = component === "SignalGenerator" || component === "LivePrice" ? "src/components/portal/SignalGenerator.tsx"
-    : component === "PlayDetail" ? "src/components/om/plays/PlayDetail.tsx" : "src/components/om/pulse/PulseHome.tsx";
+    : component === "FlowPositionChart" ? "src/components/om/flow/FlowPositionChart.tsx"
+    : component === "PlayDetail" ? "src/components/om/plays/PlayDetail.tsx"
+    : component === "PulseMovement" ? "src/components/om/pulse/PulseMovement.tsx" : "src/components/om/pulse/PulseHome.tsx";
   const filename = path.resolve(__dirname, "..", file);
   const compiled = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
     compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true }, fileName: filename,
@@ -51,7 +54,7 @@ function harness(component, options = {}) {
   const jsx = (type, value) => ({ type, props: value ?? {} });
   const timer = (fn, ms, repeat) => { const id = ++timerId; timers.set(id, { fn, ms, repeat }); return id; };
   class Clock extends Date { constructor(...args) { if (args.length) super(...args); else super(clock); } static now() { return clock; } }
-  const context = vm.createContext({ Date: Clock, Math, Error, console, AbortController, URLSearchParams, Event,
+  const context = vm.createContext({ Date: Clock, Math, Error, console, AbortController, URLSearchParams, Headers, Event,
     localStorage: local,
     window: { location: { search: options.search ?? "", pathname: "/portal/signals" }, sessionStorage: session,
       history: { replaceState() {} }, matchMedia: () => ({ matches: false }),
@@ -61,7 +64,7 @@ function harness(component, options = {}) {
     requestAnimationFrame: (fn) => { fn(); return 1; },
     setTimeout: (fn, ms) => timer(fn, ms, false), clearTimeout: (id) => timers.delete(id),
     setInterval: (fn, ms) => timer(fn, ms, true), clearInterval: (id) => timers.delete(id),
-    fetch: (url, init) => new Promise((resolve, reject) => { requests.push({ url, init, resolve, reject }); init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }); }),
+    fetch: (url, init) => new Promise((resolve, reject) => { requests.push({ url, init, resolve, reject }); if (!options.allowLateResponses) init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }); }),
   });
   const mod = { exports: {} };
   const requireHere = (name) => {
@@ -78,12 +81,18 @@ function harness(component, options = {}) {
     if (name === "@/lib/plays/diagnostics") return diagnostics;
     if (name === "@/lib/plays/intent") return { ...intent, takeGenerateIntent: (storage, nonce, td) => intent.takeGenerateIntent(storage, nonce, td, clock) };
     if (name === "@/lib/pulse/scan") return scan;
+    if (name === "@/lib/pulse/comparison") return comparison;
+    if (name === "./PulseMovement") return { PulseMovement: "PulseMovement" };
     if (name === "@/lib/atlas/chart") return { atlasPlayChart };
     if (name === "@/lib/atlas/signals") return { mergeSavedPlays, SIGNALS_UPDATED_EVENT };
     if (name === "@/lib/atlas/open") return { openAtlas: (value) => calls.push(["atlas", value]) };
     if (name === "@/lib/creditConfig") return { CREDIT_COST: { signal: 3, scan: 2, deepdive: 1 } };
     if (name === "@/lib/statsClock") return { statsSince: () => "2026-01-01T00:00:00Z" };
     if (name === "@/lib/earnMission") return { earnMission: async () => {} };
+    if (name === "@/components/om/chart/OmChart") return { OmChart: "OmChart" };
+    if (name === "@/lib/flow/positionChart") return require("../src/lib/flow/positionChart.ts");
+    if (component === "FlowPositionChart" && name === "@/lib/floor/overview") return require("../src/lib/floor/overview.ts");
+    if (component === "FlowPositionChart" && name === "@/lib/flow/display") return require("../src/lib/flow/display.ts");
     if (name === "@/lib/floor/overview") return { accountName: () => "Account", maskAccount: String, money: String, ageText: (stamp, at) => `${Math.round((at - Date.parse(stamp)) / 1000)}s ago` };
     if (name === "@/lib/flow/display") return { pairName: String, lotsText: String, priceFor: (_symbol, value) => value == null ? "—" : String(value) };
     if (name === "./copykit") return { CopyAllBtn: "CopyAllBtn", buildTradeText: () => "saved levels" };
@@ -230,6 +239,8 @@ test("Simple Pulse retains scan age and price levels without inventing a chart o
   const home = harness("PulseHome", { props: { setups: [setup], loading: false, asOf: new Date(NOW - 20 * 60_000).toISOString(), msg: "Latest scan failed", hydrated: true, scan() {}, onDeepDive() {} } });
   assert.match(home.text(), /An earlier scan.*Scan again for current conditions/);
   assert.match(home.text(), /Leans up/);
+  assert.match(home.text(), /history unavailable for this scan/i);
+  assert.equal(home.find(isType("PulseMovement")).length, 0, "A legacy scan cannot draw a price history");
   const meter = home.find(n => n.type === "meter")[0];
   assert.equal(meter.props.max, setup.total);
   assert.equal(meter.props.value, setup.confirmed);
@@ -250,4 +261,136 @@ test("Simple Pulse retains scan age and price levels without inventing a chart o
   assert.match(h.text(), /RSI51.*RSI factor/);
   assert.equal(h.requests.length, 0);
   h.unmount(); home.unmount();
+});
+
+test("Pulse compares the same six completed hours on one scale and leaves incomplete histories blank", () => {
+  const hour = 3_600_000;
+  const hourly = (closes) => closes.map((close, i) => ({
+    datetime: new Date(NOW - (7 - i) * hour).toISOString(), close: String(close),
+  }));
+  // Include the forming hour to catch an accidental look-ahead in the last point.
+  const gold = comparison.pulseComparison(hourly([100, 101, 102, 102, 104, 103, 102, 250]).reverse(), NOW);
+  const euro = comparison.pulseComparison(hourly([200, 198, 197, 196, 194, 192, 190]), NOW);
+  assert.deepEqual(gold, { end: NOW, changes: [0, 1, 2, 2, 4, 3, 2] });
+  assert.deepEqual(euro.changes, [0, -1, -1.5, -2, -3, -4, -5]);
+  assert.equal(comparison.pulseComparison(hourly([100, 101, 102, 103, 104, 105, 106]).filter((_, i) => i !== 3), NOW), null);
+  const setup = (td, history) => ({ td, symbol: td, name: td, comparison: history,
+    dir: "SHORT", confirmed: 3, total: 5, price: 100, checklist: [], takeProfits: [] });
+  const home = harness("PulseHome", { props: { setups: [
+    setup("XAU/USD", gold), setup("EUR/USD", euro), setup("BTC/USD", { ...gold, end: NOW - hour }),
+  ], loading: false, asOf: new Date(NOW).toISOString(), msg: "", hydrated: true, scan() {}, onDeepDive() {} } });
+  const mobile = () => nodes(home.find(n => n.type === "ul" && n.props["aria-label"] === "Markets ranked by confirmations")[0], isType("PulseMovement"));
+  const charts = mobile().map(n => n.props);
+  assert.deepEqual(charts.map(c => c.series), [gold, euro, null]);
+  assert.ok(charts.every(c => c.scale === 5), "Positive and negative series share their largest absolute percent");
+  const movement = harness("PulseMovement", { props: charts[0] });
+  assert.match(movement.text(), /\+2\.00%/);
+  const points = movement.find(n => n.type === "polyline")[0].props.points.split(" ").map(p => p.split(",").map(Number));
+  assert.equal(points.length, 7);
+  assert.equal(points[0][1], 14);
+  assert.ok(points[4][1] < points[6][1] && points[6][1] < points[0][1], "A retreat from the peak remains visible above the common baseline");
+  movement.render(charts[1]);
+  assert.match(movement.text(), /-5\.00%/);
+  assert.ok(Number(movement.find(n => n.type === "circle")[0].props.cy) > points[0][1]);
+  movement.render(charts[2]);
+  assert.equal(movement.find(n => n.type === "polyline").length, 0);
+  home.find(n => n.type === "button" && text(n) === "Commodities")[0].props.onClick(); home.render();
+  assert.equal(mobile().length, 1);
+  assert.equal(mobile()[0].props.scale, 5, "Filtering a row must not silently magnify its price movement");
+  home.advance(20 * 60_000);
+  assert.equal(home.find(isType("Detail"))[0].props.stale, true);
+  assert.equal(home.requests.length, 0, "Filtering, viewing, and aging the scan make no new request");
+  home.unmount(); movement.unmount();
+});
+
+const ownedPosition = (id) => ({ id, symbol: "XAUUSD", side: "buy", at: new Date(NOW - 3_600_000).toISOString(),
+  source: "genx", qty: 0.1, entry: 3600, stop: 3590, target: 3615 });
+const flowProps = (accountId, positionId) => ({ accountId, environment: "demo", position: ownedPosition(positionId),
+  currency: "USD", hide: false, simple: true, now: NOW });
+const chartSnapshot = (props) => ({ ok: true, accountId: props.accountId, environment: props.environment, positionId: props.position.id,
+  symbol: props.position.symbol, brokerSymbol: null, side: props.position.side, observedAt: new Date(NOW).toISOString(),
+  entry: 3600, stop: 3591.25, target: 3611.5, unrealizedPnl: 73.61,
+  bars: Array.from({ length: 6 }, (_, i) => ({ t: NOW - (6 - i) * 300_000, o: 3598 + i, h: 3602 + i, l: 3596 + i, c: 3601 + i })) });
+function assertRead(request, props) {
+  assert.equal(request.url, "/api/flow/position-chart");
+  assert.equal(request.init?.method ?? "GET", "GET");
+  assert.equal(request.init?.body, undefined);
+  const headers = new Headers(request.init?.headers);
+  assert.equal(headers.get("x-floor-account"), props.accountId);
+  assert.equal(headers.get("x-floor-env"), props.environment);
+  assert.equal(headers.get("x-flow-position"), props.position.id);
+}
+
+test("Flow shows only the currently selected account and position and a presentation change cannot submit an order", async () => {
+  const first = flowProps("account-a", "position-a");
+  const second = flowProps("account-b", "position-a");
+  const last = { ...flowProps("account-b", "position-b"), environment: "live" };
+  const h = harness("FlowPositionChart", { props: first, allowLateResponses: true });
+  assertRead(h.requests[0], first);
+  h.render(second); assertRead(h.requests[1], second);
+  h.render(last); assertRead(h.requests[2], last);
+  const evidence = chartSnapshot(last);
+  await h.reply(h.requests[2], evidence);
+  const chart = () => h.find(isType("OmChart"))[0]?.props;
+  assert.ok(chart());
+  assert.equal(chart().framing, "setup");
+  assert.deepEqual(Array.from(chart().levels, l => l.price), [evidence.entry, evidence.stop, evidence.target]);
+  assert.equal(chart().bars.length, evidence.bars.length);
+  assert.match(h.text(), /73\.61/);
+  await h.reply(h.requests[0], { ...chartSnapshot(first), unrealizedPnl: 1001.21 });
+  await h.reply(h.requests[1], { ...chartSnapshot(second), unrealizedPnl: 2002.43 });
+  assert.match(h.text(), /73\.61/);
+  assert.doesNotMatch(h.text(), /1001\.21|2002\.43/);
+  h.render({ simple: false, hide: true });
+  assert.equal(chart().framing, "context");
+  assert.doesNotMatch(h.text(), /73\.61/);
+  assert.equal(h.find(n => n.props["data-tone"] === "up" || n.props["data-tone"] === "down").length, 0, "Masked profit cannot leak its direction");
+  assert.equal(h.requests.length, 3);
+  h.unmount();
+});
+
+test("Flow withholds the chart on an identity mismatch or failed broker read", async () => {
+  const props = flowProps("account-c", "position-c");
+  for (const mismatch of [{ accountId: "account-a" }, { environment: "live" }, { positionId: "position-a" }, { symbol: "EURUSD" }, { side: "sell" }]) {
+    const h = harness("FlowPositionChart", { props });
+    await h.reply(h.requests[0], { ...chartSnapshot(props), ...mismatch });
+    assert.equal(h.find(isType("OmChart")).length, 0);
+    assert.doesNotMatch(h.text(), /73\.61/);
+    assert.equal(h.requests.length, 1);
+    assertRead(h.requests[0], props);
+    h.unmount();
+  }
+  const h = harness("FlowPositionChart", { props });
+  await h.fail(h.requests[0]);
+  assert.equal(h.find(isType("OmChart")).length, 0);
+  assert.doesNotMatch(h.text(), /73\.61/);
+  assert.match(h.text(), /unavailable|could not|retry|try again/i);
+  h.unmount();
+});
+
+test("Flow keeps absent protection and missing P&L unknown, and only draws completed broker candles", async () => {
+  const props = flowProps("account-c", "position-c");
+  const h = harness("FlowPositionChart", { props });
+  const evidence = chartSnapshot(props);
+  const forming = { ...evidence.bars.at(-1), t: NOW, c: 3598 };
+  const response = { ...evidence, stop: null, target: null, unrealizedPnl: null, bars: [...evidence.bars, forming] };
+  await h.reply(h.requests[0], response);
+  const chart = h.find(isType("OmChart"))[0].props;
+  assert.deepEqual(Array.from(chart.levels, l => l.kind), ["entry"], "The account overview's stop and target cannot replace absent broker observations");
+  assert.equal(chart.bars.length, evidence.bars.length);
+  assert.equal(chart.price, evidence.bars.at(-1).c);
+  assert.equal(chart.priceLive, false);
+  assert.doesNotMatch(h.text(), /\$0\.00/);
+  h.event("offline");
+  assert.equal(h.find(isType("OmChart")).length, 0, "An offline observation clears the broker chart");
+  h.find(n => n.type === "button" && text(n).includes("Retry"))[0].props.onClick(); h.render();
+  assertRead(h.requests[1], props);
+  await h.reply(h.requests[1], { ...response, brokerSymbol: "XAUUSD.pro", entry: 3602.75, stop: 3591.25, bars: [] });
+  assert.match(h.text(), /candles unavailable/i);
+  assert.match(h.text(), /XAUUSD\.pro/i);
+  assert.match(h.text(), /3,?602\.75/, "The broker fill remains visible without candles");
+  assert.match(h.text(), /3,?591\.25/, "The broker stop remains visible without candles");
+  assert.doesNotMatch(h.text(), /3,?615/, "Missing broker targets are never populated from the overview");
+  assert.equal(h.find(isType("OmChart")).length, 0);
+  h.unmount();
 });

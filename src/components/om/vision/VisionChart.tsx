@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { CandlestickChart, Route } from "lucide-react";
+import { CandlestickChart } from "lucide-react";
 import { OmChart } from "@/components/om/chart/OmChart";
 import { candleTimeText, type TimedBar } from "@/lib/chart/candleTime";
 import type { ChartLevel } from "@/lib/floor/chart";
@@ -13,6 +13,7 @@ export type VisionChartProps = {
   timeframe: string; tfMs: number; price: number | null;
   direction: VisionBias; reference: boolean; snapshot?: boolean; priceLive?: boolean;
   simpleView?: boolean; watchPrice?: number | null; headerControl?: ReactNode;
+  swing?: { t: number; price: number; label: string }; priceLabel?: string;
   marketStatus?: string; isOpenAt?: (at: number) => boolean;
   viewKey: string; zone?: {low:number;high:number}|null; title?:string; timeKnown?:boolean;
 };
@@ -37,7 +38,7 @@ const compact=(l:ChartLevel,idx:number):string=>{
  * available when the read contains a coherent entry, stop and target.
  */
 export function VisionChart({ bars: sourceBars, levels, symbol, dec, timeframe, tfMs, price, direction,
-  reference, snapshot=false, priceLive=false, marketStatus, isOpenAt, viewKey, zone, title, timeKnown=true, simpleView=false, watchPrice, headerControl }:VisionChartProps) {
+  reference, snapshot=false, priceLive=false, marketStatus, isOpenAt, viewKey, zone, title, timeKnown=true, simpleView=false, watchPrice, headerControl, swing, priceLabel }:VisionChartProps) {
   const [mapKey, setMapKey] = useState<string | null>(null);
   const host=useRef<HTMLDivElement>(null);
   const [width,setWidth]=useState(640);
@@ -119,21 +120,20 @@ export function VisionChart({ bars: sourceBars, levels, symbol, dec, timeframe, 
     const startX=candleRight+8;
     const finishX=chartRight-13;
     const scenario=directionValid&&entry&&targetLast?{
-      startX, startY:y(entry.price),
-      endX:finishX, endY:y(targetLast.price),
-      path:"M"+startX+" "+y(entry.price)+
-        " C"+(startX+38)+" "+y(entry.price)+
-        " "+(finishX-70)+" "+y(targets[0].price)+
-        " "+(finishX-49)+" "+y(targets[0].price)+
-        " S"+(finishX-24)+" "+y(targetLast.price)+" "+finishX+" "+y(targetLast.price),
+      startX,
+      endX:finishX,
       entryY:y(entry.price),stopY:y(stop!.price),targetY:y(targetLast.price),
     }:null;
-    return {w,h,top,bottom,chartRight,display:sorted,candles,scenario,y,min,max,zone:directionValid&&zone?zone:null};
-  },[recent,levels,price,zone,direction,width]);
+    const focusLevels = directionValid && entry && stop ? [
+      {...entry, label: reference ? (isBuy ? "Buy watch" : "Sell watch") : "Entry"},
+      {...stop, label: "Stop"}, {...targets[0], label: "First target"},
+    ] : undefined;
+    return {w,h,top,bottom,chartRight,focusLevels,display:sorted,candles,scenario,y,min,max,zone:directionValid&&zone?zone:null};
+  },[recent,levels,price,zone,direction,width,reference]);
 
   const tone=direction==="sell"?"sell":direction==="buy"?"buy":"neutral";
   const hasHistory = bars.length >= 2;
-  const showMap = Boolean(model.scenario && mapKey === viewKey);
+  const showMap = Boolean(!simpleView && model.scenario && mapKey === viewKey);
   const sourceLabel = marketStatus || (snapshot ? "Saved snapshot" : priceLive ? "Live quote" : "Market read");
   const chartId = `vision-plot-${id}`;
   return <section className="om-vision-chart" data-direction={tone} data-reference={reference} aria-label={title ?? symbol + " price action chart"}>
@@ -151,6 +151,7 @@ export function VisionChart({ bars: sourceBars, levels, symbol, dec, timeframe, 
     <div ref={host} id={chartId} className="om-vision-chart-body">
       {hasHistory && !showMap ? <div className="om-vision-expanded">
         <OmChart bars={bars} timeKnown={timeKnown} tfMs={tfMs} tfLabel={timeframe}
+          framing={simpleView ? "setup" : "context"} focusLevels={model.focusLevels} swing={swing} priceLabel={priceLabel}
           simpleView={simpleView} watchPrice={watchPrice} price={price} priceLive={!snapshot && priceLive} snapshot={snapshot}
           dec={dec} levels={levels} isOpenAt={isOpenAt} labelStyle="backed" zone={zone ?? null}
           viewKey={viewKey} label={title ?? symbol + " recorded candlesticks"}/>
@@ -165,9 +166,6 @@ export function VisionChart({ bars: sourceBars, levels, symbol, dec, timeframe, 
             <stop offset="0%" stopColor="var(--om-vision-bear)" stopOpacity=".02"/>
             <stop offset="100%" stopColor="var(--om-vision-bear)" stopOpacity=".13"/>
           </linearGradient>
-          <marker id={"vision-arrow-"+id} markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
-            <path d="M1 1L7.5 4.5L1 8" fill="none" stroke={direction === "sell" ? "var(--om-vision-bear)" : "var(--om-vision-bull)"} strokeWidth="1.8" strokeLinecap="round"/>
-          </marker>
           <clipPath id={"vision-clip-"+id}><rect x="14" y={model.top} width={model.chartRight-14} height={model.bottom-model.top}/></clipPath>
         </defs>
         {[0,1,2,3,4].map((n)=>{
@@ -199,28 +197,17 @@ export function VisionChart({ bars: sourceBars, levels, symbol, dec, timeframe, 
           <line x1={bar.x} x2={bar.x} y1={bar.hi} y2={bar.lo} strokeWidth="2"/>
           <rect x={bar.x-bar.w/2} y={bar.bodyY} width={bar.w} height={bar.bodyHeight} rx="1.6"/>
         </g>)}
-        {model.scenario&&<g className="om-vision-projection">
-          <path d={model.scenario.path} fill="none" strokeDasharray="8 7" strokeWidth="2.6"
-            markerEnd={"url(#vision-arrow-"+id+")"}/>
-          <circle cx={model.scenario.startX} cy={model.scenario.startY} r="5"/>
-          <circle cx={model.scenario.startX} cy={model.scenario.startY} r="11" className="om-vision-projection-halo"/>
-        </g>}
         {priceLive&&!snapshot&&finite(price)&&<g className="om-vision-live-price">
           <line x1="15" x2={model.chartRight} y1={model.y(price)} y2={model.y(price)}/>
           <circle cx={model.chartRight} cy={model.y(price)} r="3"/>
         </g>}
         <text className="om-vision-axis-note" x="18" y={model.h-13}>{recent.length} {recent.length === 1 ? "CANDLE" : "CANDLES"} · {timeframe}</text>
         {model.scenario&&<text className="om-vision-projection-note" x={model.chartRight-6}
-          y="19" textAnchor="end">{reference?"CONDITIONAL PATH":"SETUP PATH"}</text>}
+          y="19" textAnchor="end">{reference?"WATCH LEVELS":"SETUP LEVELS"}</text>}
       </svg> : <div className="om-vision-chart-empty" role="status">Candle history is unavailable for this read.</div>}
     </div>
-    {simpleView && hasHistory && model.scenario && <button className="om-simple-map-toggle" type="button" aria-controls={chartId}
-      aria-pressed={showMap} onClick={() => setMapKey(showMap ? null : viewKey)}>
-      {showMap ? <CandlestickChart size={16} aria-hidden="true"/> : <Route size={16} aria-hidden="true"/>}
-      {showMap ? "Back to price chart" : "View setup map"}
-    </button>}
     {model.scenario && (showMap || bars.length === 1) && <p className="om-vision-chart-disclaimer">
-      {reference?"Illustrated scenario only. Entry confirmation is still required.":"Conditional path from the recorded entry to its targets."}
+      {reference?"Illustrated scenario only. Entry confirmation is still required.":"Recorded distances from entry to the stop and targets."}
     </p>}
   </section>;
 }

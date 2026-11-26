@@ -12,6 +12,8 @@ import { priceFor } from "@/lib/flow/display";
 import { playsHref } from "@/lib/plays/intent";
 import { ProductIcon } from "@/components/om/ProductIcon";
 import { MobileSection } from "@/components/om/MobileSection";
+import { readComparison, type PulseComparison } from "@/lib/pulse/comparison";
+import { PulseMovement } from "./PulseMovement";
 import { MarketStory } from "../simple/MarketStory";
 import { useExperienceMode } from "@/components/om/experience";
 import "./pulse-experience.css";
@@ -31,6 +33,7 @@ import "./pulse-experience.css";
 export type PulseSetup = {
   symbol: string; name: string; td: string; dir: "LONG" | "SHORT"; price: number; confirmed: number; total: number;
   checklist: { label: string; ok: boolean }[]; zone: "discount" | "premium"; rsi: number | null;
+  comparison?: PulseComparison | null;
   entry?: number; stopLoss?: number; takeProfits?: number[]; riskReward?: string;
 };
 
@@ -61,6 +64,9 @@ export function PulseHome({ setups, loading, asOf, msg, hydrated, scan, onDeepDi
   // The scanner's own order is kept; a filter only hides rows, and every row keeps its rank in the whole scan.
   const ranked = useMemo(() => setups.map((s, i) => ({ s, rank: i + 1 })), [setups]);
   const rows = ranked.filter((r) => cat === "All" || categoryOf(r.s.td) === cat);
+  const comparisons = useMemo(() => new Map(setups.map(s => [s.td, readComparison(s.comparison, at)])), [setups, at]);
+  const scale = Math.max(0, ...Array.from(comparisons.values()).flatMap(s => s ? s.changes.map(Math.abs) : []));
+  const hasComparison = Array.from(comparisons.values()).some(Boolean);
   const current = rows.find((r) => r.s.td === sel) ?? rows[0] ?? null;
   useEffect(() => { if (cat !== "All" && !present.has(cat)) setCat("All"); }, [cat, present]);
 
@@ -108,6 +114,7 @@ export function PulseHome({ setups, loading, asOf, msg, hydrated, scan, onDeepDi
               <h2>Choose a market</h2>
               <p className="om-label">{isSimple ? "Ranked by how many checks line up." : "Select a row to see the scan’s confirmations and levels."}</p>
             </div>
+            {setups.length > 0 && <p className="om-label om-pulse-window">{hasComparison ? "6-hour price change · shared scale" : "Six-hour price history unavailable for this scan."}</p>}
             {present.size > 1 && (
               <div className="om-toggles" role="group" aria-label="Show">
                 {CATS.filter((c) => c === "All" || present.has(c)).map((c) => <button key={c} type="button" aria-pressed={cat === c} onClick={() => setCat(c)}>{c}</button>)}
@@ -115,20 +122,21 @@ export function PulseHome({ setups, loading, asOf, msg, hydrated, scan, onDeepDi
             )}
             {loading && setups.length === 0 ? <div className="om-flow-skel-rows"><span className="om-skel" style={{ width: "100%", height: 18 }} /><span className="om-skel" style={{ width: "100%", height: 18 }} /><span className="om-skel" style={{ width: "70%", height: 18 }} /></div> : (
               <>
-              <ul className="om-pulse-mobile-markets" aria-label="Markets ranked by confirmations">
+              <ul data-comparison={hasComparison || undefined} className="om-pulse-mobile-markets" aria-label="Markets ranked by confirmations">
                 {rows.map(({ s, rank }) => (
                   <li key={s.td}>
                     <button type="button" onClick={() => pick(s.td)} aria-pressed={(isSimple || detailOpen) && current?.s.td === s.td} data-no-i18n translate="no">
                       <span className="om-pulse-mobile-rank">{isSimple ? s.dir === "LONG" ? <TrendingUp aria-label="Upward lean"/> : <TrendingDown aria-label="Downward lean"/> : String(rank).padStart(2, "0")}</span>
                       <span className="om-pulse-mobile-name"><b>{s.name}</b><small>{s.symbol}</small></span>
                       <span className="om-pulse-mobile-lean" data-side={s.dir}><b>{isSimple ? s.dir === "LONG" ? "Leans up" : "Leans down" : s.dir === "LONG" ? "Long" : "Short"}</b><small>{isSimple ? s.total > 0 && <meter min={0} max={s.total} value={s.confirmed} aria-label={s.confirmed + " of " + s.total + " checks lined up"}/> : <>{s.confirmed} of {s.total}</>}</small></span>
+                      {hasComparison && <PulseMovement series={comparisons.get(s.td) ?? null} scale={scale} />}
                       <ArrowUpRight width={16} height={16} aria-hidden="true" />
                     </button>
                   </li>
                 ))}
               </ul>
               <table className="om-table om-pulse-table">
-                <thead><tr><th scope="col" className="om-r">#</th><th scope="col">Market</th><th scope="col">Leans</th><th scope="col" className="om-r">Confirmations</th><th scope="col" className="om-r">Price</th></tr></thead>
+                <thead><tr><th scope="col" className="om-r">#</th><th scope="col">Market</th><th scope="col">Leans</th><th scope="col" className="om-r">Confirmations</th><th scope="col" className="om-r">Price</th>{hasComparison && <th scope="col" className="om-r">6h change</th>}</tr></thead>
                 <tbody>
                   {rows.map(({ s, rank }) => (
                     <tr key={s.td} data-current={current?.s.td === s.td ? "" : undefined}>
@@ -137,6 +145,7 @@ export function PulseHome({ setups, loading, asOf, msg, hydrated, scan, onDeepDi
                       <td data-label="Leans">{s.dir === "LONG" ? "Long" : "Short"}</td>
                       <td data-label="Confirmations" className="om-r om-num"><span className="om-pulse-meter" aria-hidden="true"><span style={{ width: `${Math.round((s.confirmed / Math.max(1, s.total)) * 100)}%` }} /></span>{s.confirmed} of {s.total}</td>
                       <td data-label="Price" className="om-r om-num" data-no-i18n translate="no">{pp(s, s.price)}</td>
+                      {hasComparison && <td className="om-r"><PulseMovement series={comparisons.get(s.td) ?? null} scale={scale}/></td>}
                     </tr>
                   ))}
                 </tbody>

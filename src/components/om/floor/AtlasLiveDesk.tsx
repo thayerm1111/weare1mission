@@ -10,6 +10,7 @@ import {
   ATLAS_FRAMES, atlasMarketView, buildAtlasMarketSnapshot, TREND_WORD,
   type AtlasFrameId, type AtlasMarketSnapshot, type AtlasMarketSymbol, type AtlasPositionedZone, type MarketDirection,
 } from "@/lib/floor/marketIntelligence";
+import { atlasChartFocus, zoneRole } from "@/lib/floor/atlasChartFocus";
 import { atlasQuote, type AtlasTick } from "@/lib/floor/atlasQuote";
 import { timedBars } from "@/lib/chart/candleTime";
 import { isOpen } from "@/lib/cashtrap/marketHours";
@@ -197,11 +198,20 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, sample
   const chartZones = [view.support, view.resistance, view.activeZone].filter((z): z is AtlasPositionedZone => z != null)
     .filter((z, i, all) => all.findIndex((other) => other.id === z.id) === i);
   const levels: ChartLevel[] = chartZones.map((z) => ({
-    kind: z.role === "testing" ? z.origin : z.role,
+    kind: zoneRole(z),
     price: z.price,
     label: z.role === "testing" ? "Testing " + current.label : (z.roleReversed ? "Former " + z.origin : z.role === "support" ? "Support" : "Resistance") + " · " + current.label,
   }));
-  const structureZones = chartZones.map((z) => ({ low: z.low, high: z.high, kind: z.role === "testing" ? z.origin : z.role, label: z.label }));
+  const structureZones = chartZones.map((z) => ({ low: z.low, high: z.high, kind: zoneRole(z), label: z.label }));
+  const focus = atlasChartFocus(view.activeZone, [view.support, view.resistance], quote.price, current.bars, currentWatch);
+  const tested = focus.meter;
+  const bandMeter = tested && <div className="om-atlas-band-meter" data-kind={tested.role}>
+    <strong>Inside the {tested.role} band</strong>
+    <div className="om-atlas-band-track" role="meter" aria-label={`Price within the ${tested.role} band`} aria-valuemin={tested.low} aria-valuemax={tested.high} aria-valuenow={quote.price ?? undefined} aria-valuetext={fmt(quote.price)}>
+      <i style={{ left: tested.percent + "%" }} />
+    </div>
+    <div className="om-atlas-band-bounds" data-no-i18n translate="no"><span>{fmt(tested.low)}</span><span>{fmt(tested.high)}</span></div>
+  </div>;
   const context = useMemo<AtlasContext>(() => ({
     source: "floor", label: market.td + " · Atlas Live · " + current.label,
     data: {
@@ -268,13 +278,14 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, sample
       <MarketStory market={symbol === "XAUUSD" ? "Gold" : market.td} direction={storyDirection(view.direction)} stage={phase} feed={feed}
         next={next} stamp={sample ? "Sample data" : feed === "current" ? current.label + " candles" : undefined}/>
       {!signalHasChart && <section className="om-simple-market-chart" aria-label="Market chart">
-        <header><h3>{market.td} chart</h3><label>Timeframe<select aria-label="Chart timeframe" value={selectedFrame} onChange={event => chooseFrame(event.target.value as AtlasFrameId)}>{ATLAS_FRAMES.map(frame => <option value={frame.id} key={frame.id}>{frame.label}</option>)}</select></label></header>
+        <header><h3>{tested ? (symbol === "XAUUSD" ? "Gold" : market.td) + " is testing " + tested.role : market.td + " price action"}</h3><label>Timeframe<select aria-label="Chart timeframe" value={selectedFrame} onChange={event => chooseFrame(event.target.value as AtlasFrameId)}>{ATLAS_FRAMES.map(frame => <option value={frame.id} key={frame.id}>{frame.label}</option>)}</select></label></header>
         {current.bars.length >= 2 ? <div className="om-simple-chart-canvas"><OmChart bars={current.bars} timeKnown={current.timeKnown} tfMs={frameSpec.ms} tfLabel={current.label}
-          simpleView watchPrice={feed === "current" && currentWatch ? view.trigger?.price : null}
+          framing="setup" focusLevels={focus.levels} focusZones={focus.zones} priceLabel={quoteNote}
           price={quote.price} priceLive={quote.live} dec={market.dp} levels={levels} structureZones={structureZones} labelStyle="backed"
-          levelColors={{ support: "var(--om-pos)", resistance: "var(--om-neg)" }} isOpenAt={calendar}
+          levelColors={{ support: "var(--om-band-support)", resistance: "var(--om-band-resistance)" }} isOpenAt={calendar}
           viewKey={"atlas-floor:" + symbol + ":" + selectedFrame} label={market.td + " " + current.label + " candles and support and resistance"}/></div>
           : <div className="om-simple-chart-empty" role="status">{loading ? "Loading market candles…" : "Chart data is unavailable. Refresh to try again."}</div>}
+        {bandMeter}
       </section>}
       <div className="om-simple-atlas-actions">
         {symbol === "XAUUSD" ? <button type="button" className="om-simple-primary" disabled={sample || atlasSignal.busy || !marketOpen} onClick={() => void atlasSignal.generate()}><Sparkles size={18} aria-hidden="true"/>{atlasSignal.busy ? "Reading the market…" : "Generate Atlas signal"}</button>
@@ -335,14 +346,15 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, sample
           <div className="om-live-chart-heading"><div><h3>{current.label} price action</h3><small>Structural zones · drag, zoom or expand</small></div><span className="om-snapshot-chart-status" data-stale={current.status !== "ready"}>{current.read.barsUsed ? current.read.barsUsed + " closed candles" : "Awaiting candles"}</span></div>
           {current.bars.length >= 2 ? <div className="om-terminal-chart">
             <OmChart bars={current.bars} timeKnown={current.timeKnown} tfMs={frameSpec.ms} tfLabel={current.label} price={quote.price} priceLive={quote.live} dec={market.dp}
-              levels={levels} levelColors={{ support: "var(--om-pos)", resistance: "var(--om-neg)" }} structureZones={structureZones} labelStyle="backed"
+              framing="context" priceLabel={quoteNote} levels={levels} levelColors={{ support: "var(--om-band-support)", resistance: "var(--om-band-resistance)" }} structureZones={structureZones} labelStyle="backed"
               isOpenAt={calendar} viewKey={"atlas-floor:" + symbol + ":" + selectedFrame} label={market.td + " " + current.label + " candles and market structure zones"}/>
           </div> : <div className="om-live-chart-empty" role="status">{loading ? "Loading real market candles…" : "No reliable " + current.label + " history is available yet."}</div>}
           <div className="om-terminal-chart-legend"><span><i data-kind="support"/>Support zone</span><span><i data-kind="resistance"/>Resistance zone</span><small>{quoteNote}</small></div>
         </section>
         <aside className="om-terminal-level-map" aria-label="Support and resistance">
           <div className="om-terminal-panel-heading"><Target size={17} aria-hidden="true"/><h3>Market structure</h3><span>{current.label}</span></div>
-          {view.activeZone && <div className="om-snapshot-testing"><span>{freshQuote ? "PRICE IS TESTING" : "LAST QUOTE WITHIN ZONE"}</span><strong data-no-i18n translate="no">{zoneText(view.activeZone)}</strong><small>{view.activeZone.label}</small></div>}
+          {bandMeter}
+          {!bandMeter && view.activeZone && <div className="om-snapshot-testing"><span>{freshQuote ? "PRICE IS TESTING" : "LAST QUOTE WITHIN ZONE"}</span><strong data-no-i18n translate="no">{zoneText(view.activeZone)}</strong><small>{view.activeZone.label}</small></div>}
           {(["resistance", "support"] as const).map((role) => {
             const zone = view[role], Icon = role === "support" ? ArrowDownRight : ArrowUpRight;
             return <div className="om-terminal-level" data-kind={role} key={role}><span>{role === "support" ? "SUPPORT BELOW" : "RESISTANCE ABOVE"}<Icon size={14} aria-hidden="true"/></span>

@@ -6,6 +6,7 @@ import { Activity, ArrowRight, Check, ChevronDown, CircleAlert, Fingerprint, Lin
   Mic, Play, Radio, RotateCw, ShieldCheck, SlidersHorizontal, Sparkles, Square, TrendingDown, TrendingUp, Waves } from "lucide-react";
 import { openAtlas } from "@/lib/atlas/open";
 import { StrataChart } from "./StrataChart";
+import { priceStructure, type ChartFrame } from "./priceStructure";
 import type { Analysis, Bar, Regime, Scenario } from "@/lib/strata/engine";
 import { generatePossibleEntry, type GeneratedOpportunity } from "@/lib/strata/generate";
 import { VisionDirection, VisionLevels, type VisionFact } from "@/components/om/vision/VisionDirection";
@@ -117,6 +118,7 @@ export function StrataWorkspace() {
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState("");
   const [alternative, setAlternative] = useState(false);
+  const [chartFrame, setChartFrame] = useState<ChartFrame>("m15");
   const [accountData, setAccountData] = useState<Automation | null>(null);
   const [accountKey, setAccountKey] = useState("");
   const [risk, setRisk] = useState(0.25);
@@ -251,6 +253,9 @@ export function StrataWorkspace() {
   const displayedPlan = generated ? generated.scenario : chosen ?? liveIdea?.scenario ?? null;
   const displayFeed = generated && generatedSnapshot ? generatedSnapshot : feed;
   const displayAnalysis = displayFeed?.analysis ?? analysis;
+  const chartPrice = generated ? generated.quoteAtGeneration ?? displayFeed?.price : quote ?? displayFeed?.price;
+  const structure = useMemo(() => priceStructure(displayFeed?.bars[chartFrame] ?? [], displayedPlan?.side, chartPrice ?? null),
+    [displayFeed?.bars, chartFrame, displayedPlan?.side, chartPrice]);
   const displayedReasons = generated ? generated.reasons : chosen ? analysis?.reasons ?? [] :
     liveIdea?.scenario ? liveIdea.reasons : analysis?.reasons ??
       ["Waiting for a confirmed market structure."];
@@ -337,12 +342,18 @@ export function StrataWorkspace() {
   };
   const storyFeed: StoryFeed = feed?.marketClosed ? "closed" : error || feed?.dataStale || generatedOutdated ? "delayed" :
     !displayFeed ? busy ? "loading" : "unavailable" : generated ? "recorded" : !tickFresh && !feedQuoteFresh ? "delayed" : "current";
-  const storyNext = !displayedPlan ? "Wait for gold to show a clearer pattern." :
+  const storyHeadline = !displayedPlan ? "Waiting for a clear pattern." :
+    !referenceLevels ? "Gold confirmed the setup." :
+    structure?.reaction === "Recovery" ? "Gold bounced. Can it hold?" :
+    structure?.reaction === "Pullback" ? "Gold turned lower. Will it hold?" :
+    displayedPlan.type === "range_fade" ? "Watching the edge of the range." :
+    displayedPlan.stage === "watch" ? "Watching for a break." : "Watching the retest.";
+  const storyNext = !displayedPlan ? "Strata is checking the recent swings." :
     !referenceLevels ? "Review the entry and stop in the plan." :
     displayedPlan.type === "range_fade" ? "Watch for price to turn near " + fixed(displayedPlan.level) + "." :
-    displayedPlan.stage === "breakout" || displayedPlan.stage === "retest" ?
-      "Watch whether price returns to " + fixed(displayedPlan.level) + " and holds." :
-      "Watch for a move " + (displayedPlan.side === "buy" ? "above " : "below ") + fixed(displayedPlan.level) + ".";
+    displayedPlan.stage === "breakout" ? "Watch for price to return to " + fixed(displayedPlan.level) + "." :
+    displayedPlan.stage === "retest" ? "Watch for a 15m close back " + (displayedPlan.side === "buy" ? "above " : "below ") + fixed(displayedPlan.level) + "." :
+    "Watch for a 15m close " + (displayedPlan.side === "buy" ? "above " : "below ") + fixed(displayedPlan.level) + ".";
   return <div className="strata-workstation" data-regime={reg} data-experience={isSimple ? "simple" : "advanced"}>
     <header className="strata-header">
       <div className="strata-ident"><span className="strata-emblem"><i /><i /><i /></span>
@@ -356,7 +367,7 @@ export function StrataWorkspace() {
       </div>
     </header>
 
-    {isSimple ? <MarketStory className="strata-market-story" market="Gold" direction={storyDirection(displayAnalysis?.regime)}
+    {isSimple ? <MarketStory compact headline={storyHeadline} className="strata-market-story" market="Gold" direction={storyDirection(displayAnalysis?.regime)}
       stage={displayedPlan ? referenceLevels ? "forming" : "review" : "looking"} feed={storyFeed} next={storyNext}
       stamp={generated ? "Saved plan · " + age(generated.generatedAt, now) : undefined}/> : <VisionDirection product="STRATA" bias={displayedBias} headline={signalHeadline}
       eyebrow="ONE MISSION · GOLD PRICE ACTION INTELLIGENCE"
@@ -402,9 +413,9 @@ export function StrataWorkspace() {
         <button type="button" aria-pressed={!alternative} onClick={()=>setAlternative(false)}>Near edge</button>
         <button type="button" aria-pressed={alternative} onClick={()=>setAlternative(true)}>Opposite edge</button>
       </div>}
-      {displayFeed ? <StrataChart watchPrice={storyFeed === "current" || storyFeed === "recorded" ? displayedPlan?.level : null} analysis={displayFeed.analysis} bars={displayFeed.bars}
-        price={generated ? generated.quoteAtGeneration ?? displayFeed.price : quote ?? displayFeed.price}
-        live={!generated && tickFresh} selected={displayedPlan && referenceLevels && !displayedPlan.reference
+      {displayFeed ? <StrataChart frame={chartFrame} onFrame={setChartFrame} structure={structure}
+        watchPrice={storyFeed === "current" || storyFeed === "recorded" ? displayedPlan?.level : null} analysis={displayFeed.analysis} bars={displayFeed.bars}
+        price={chartPrice ?? displayFeed.price} live={!generated && storyFeed === "current"} selected={displayedPlan && referenceLevels && !displayedPlan.reference
           ? { ...displayedPlan, reference: true } : displayedPlan} snapshot={!!generated} simple={isSimple} />
         : <div className="strata-loading-chart">{busy?"Loading actual gold candles…":"Verified candles unavailable."}</div>}
       {isSimple ? displayedPlan && <details className="om-simple-fold"><summary>Plan prices and rules</summary><PlanLevels plan={displayedPlan}/>

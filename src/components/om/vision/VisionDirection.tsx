@@ -18,6 +18,20 @@ const px = (n: number | null | undefined, dec: number) =>
   n === null || n === undefined || !Number.isFinite(n) ? "—"
     : n.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
 
+export function alignedFacts(facts: VisionFact[], bias: VisionBias) {
+  return facts.filter(f => f.tone === "ok" ||
+    (bias === "buy" && f.tone === "up") || (bias === "sell" && f.tone === "down") ||
+    (bias === "range" && f.tone === "neutral")).length;
+}
+
+export function SignalChecks({facts, bias}: {facts: VisionFact[]; bias: VisionBias}) {
+  const aligned = alignedFacts(facts, bias);
+  return <section className="om-chart-summary" aria-label="Signal checks">
+    <header><h3>Signal checks</h3><span>{aligned} of {facts.length} aligned</span></header>
+    <div className="om-signal-meter" aria-hidden="true">{facts.map((fact, i) => <i key={fact.label} data-filled={i < aligned}/>)}</div>
+  </section>;
+}
+
 /** Shared visual language only. It never computes, confirms or places a trade. */
 export function VisionDirection({ product, bias, headline, tagline, score, scoreName = "ENGINE SCORE",
   quote, quoteLabel, quoteSymbol = "XAU/USD", status, facts, dec = 2, eyebrow, note, children }: {
@@ -27,9 +41,7 @@ export function VisionDirection({ product, bias, headline, tagline, score, score
   children?: ReactNode;
 }) {
   const Icon = ICONS[bias];
-  const alignment = facts.filter(f => f.tone === "ok" ||
-    (bias === "buy" && f.tone === "up") || (bias === "sell" && f.tone === "down") ||
-    (bias === "range" && f.tone === "neutral")).length;
+  const alignment = alignedFacts(facts, bias);
   return (
     <section className="om-vision-dashboard" data-bias={bias} aria-label={product + " market direction"}>
       <div className="om-vision-meta">

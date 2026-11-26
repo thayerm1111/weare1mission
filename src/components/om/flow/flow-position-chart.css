@@ -1,0 +1,20 @@
+.om-flow-position-select { display: flex; align-items: center; gap: 12px; margin: 10px 0; font-size: 13px; color: var(--om-text-2); }
+.om-flow-position-select select { min-width: 0; max-width: 100%; min-height: 44px; border-radius: 10px; padding: 6px 9px; border: 1px solid var(--om-edge); background: var(--om-surface); color: var(--om-text); font: inherit; }
+.om-flow-position-chart { overflow: hidden; min-width: 0; margin: 12px 0 14px; border: 1px solid var(--om-edge); border-radius: 15px; background: var(--om-surface); }
+.om-flow-position-chart > header, .om-flow-position-chart > footer, .om-flow-position-status { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 12px 15px; }
+.om-flow-position-chart > header { border-bottom: 1px solid var(--om-hair); }
+.om-flow-position-heading { display: flex; align-items: center; gap: 9px; }
+.om-flow-position-heading strong { font-size: 16px; letter-spacing: -.025em; }
+.om-flow-position-heading small, .om-flow-position-profit small { display: block; color: var(--om-text-2); font-size: 11px; }
+.om-flow-position-direction { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--om-edge); border-radius: 10px; color: var(--om-ai); }
+.om-flow-confirmed-levels { display: flex; flex-wrap: wrap; gap: 12px 22px; margin: 0; padding: 0 15px 14px; }
+.om-flow-confirmed-levels dt { color: var(--om-text-2); font-size: 11px; }
+.om-flow-confirmed-levels dd { margin: 4px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.om-flow-position-profit { text-align: right; font-variant-numeric: tabular-nums; }
+.om-flow-position-profit strong { font-size: 15px; }
+.om-flow-position-profit [data-tone=up] { color: var(--om-pos); }
+.om-flow-position-profit [data-tone=down] { color: var(--om-neg); }
+.om-flow-position-plot { position: relative; height: clamp(268px, 40vh, 410px); }
+.om-flow-position-chart > footer { flex-wrap: wrap; border-top: 1px solid var(--om-hair); color: var(--om-text-2); font-size: 11px; }
+.om-flow-position-status { font-size: 13px; color: var(--om-text-2); }
+.om-flow-position-status button { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 10px; border: 1px solid var(--om-edge); border-radius: 9px; background: transparent; color: var(--om-text); cursor: pointer; }

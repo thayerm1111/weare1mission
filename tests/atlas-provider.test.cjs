@@ -105,6 +105,7 @@ function harness(relative = "src/components/om/atlas/AtlasProvider.tsx", name = 
       generate: () => { if (!disabled) mainGenerations.push(symbol); },
     }) },
     "@/lib/floor/marketIntelligence": require("../src/lib/floor/marketIntelligence.ts"),
+    "@/lib/floor/atlasChartFocus": require("../src/lib/floor/atlasChartFocus.ts"),
     "@/lib/floor/atlasQuote": require("../src/lib/floor/atlasQuote.ts"),
     "@/lib/chart/candleTime": require("../src/lib/chart/candleTime.ts"),
     "@/lib/cashtrap/marketHours": require("../src/lib/cashtrap/marketHours.ts"),

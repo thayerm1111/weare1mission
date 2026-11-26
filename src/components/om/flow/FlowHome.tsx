@@ -6,10 +6,11 @@ import { Method, PeriodSelect, Skel, toneClass } from "@/components/om/floor/Flo
 import { FlowAccountBar, FlowAccountProvider, useFlowAccount, type FlowAccountValue } from "@/components/om/FlowAccount";
 import { FlowConnect, type FlowViewing } from "@/components/portal/floor/FlowConnect";
 import { FlowTrackRecord } from "@/components/portal/floor/FlowTrackRecord";
+import { FlowPositionChart } from "./FlowPositionChart";
 import type { ManageView } from "@/components/om/flow/FlowExecution";
 import {
   FLOOR_PERIODS, SOURCE_LABEL, money, pipsText,
-  type FloorOverview, type FloorPeriod, type FlowClosed, type FlowPosition, type FlowResults,
+  type FloorAccount, type FloorOverview, type FloorPeriod, type FlowClosed, type FlowPosition, type FlowResults,
 } from "@/lib/floor/overview";
 import { lotsText, pairName, priceFor } from "@/lib/flow/display";
 import { MobileSection } from "@/components/om/MobileSection";
@@ -183,7 +184,8 @@ function MyFlow({ simple, ov, state, failed, switching, period, onPeriod, hide, 
           ))}
         </div>
         <div id="om-flow-tabpanel" role="tabpanel" aria-labelledby={`om-flow-tab-${tab}`} className="om-flow-tabpanel">
-          {tab === "positions" ? <Positions rows={positions} broker={f?.positions ?? null} now={now} />
+          {tab === "positions" ? <Positions key={JSON.stringify([a.environment, a.id])} rows={positions} broker={f?.positions ?? null} now={now}
+              account={a} simple={simple} hide={hide} available={!failed && state === "ready" && a.connection === "connected"} />
             : tab === "history" ? <History rows={history} more={r.historyMore ?? 0} cash={cash} periodWord={periodWord} now={now} />
               : <Results r={r} periodWord={periodWord} />}
         </div>
@@ -245,31 +247,47 @@ function Steps() {
   );
 }
 
-function Positions({ rows, broker, now }: { rows: FlowPosition[]; broker: number | null; now: number }) {
+function Positions({ rows, broker, now, account, simple, hide, available }: {
+  rows: FlowPosition[]; broker: number | null; now: number; account: FloorAccount;
+  simple: boolean; hide: boolean; available: boolean;
+}) {
+  const [selectedId, selectPosition] = useState<string | null>(null);
+  const selected = rows.find(row => row.id === selectedId) ?? rows[0];
   const outside = broker != null && broker > rows.length ? broker - rows.length : 0;
   if (!rows.length) {
     return <p className="om-empty">No FLOW trades are open on this account.{outside ? ` Your broker shows ${outside} open ${outside === 1 ? "position" : "positions"} that FLOW did not place.` : ""}</p>;
   }
+  const positionsTable = (
+    <table className="om-table">
+      <thead><tr><th scope="col">Market</th><th scope="col">Side</th><th scope="col" className="om-r">Size</th><th scope="col" className="om-r">Entry</th><th scope="col" className="om-r">Stop</th><th scope="col" className="om-r">Target</th><th scope="col">Source</th><th scope="col" className="om-r">Opened</th></tr></thead>
+      <tbody>
+        {rows.map((p) => (
+          <tr key={p.id}>
+            <td className="om-lead" data-no-i18n translate="no"><b>{pairName(p.symbol)}</b></td>
+            <td data-label="Side"><span className="om-side" data-side={p.side}>{sideWord(p.side)}</span></td>
+            <td data-label="Size" className="om-r om-num">{lotsText(p.qty)}</td>
+            <td data-label="Entry" className="om-r om-num" data-no-i18n translate="no">{priceFor(p.symbol, p.entry)}</td>
+            <td data-label="Stop" className="om-r om-num" data-no-i18n translate="no">{priceFor(p.symbol, p.stop)}</td>
+            <td data-label="Target" className="om-r om-num" data-no-i18n translate="no">{priceFor(p.symbol, p.target)}</td>
+            <td data-label="Source">{SOURCE_LABEL[p.source]}</td>
+            <td data-label="Opened" className="om-r">{whenText(p.at, now)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
   return (
     <>
-      <table className="om-table">
-        <thead><tr><th scope="col">Market</th><th scope="col">Side</th><th scope="col" className="om-r">Size</th><th scope="col" className="om-r">Entry</th><th scope="col" className="om-r">Stop</th><th scope="col" className="om-r">Target</th><th scope="col">Source</th><th scope="col" className="om-r">Opened</th></tr></thead>
-        <tbody>
-          {rows.map((p) => (
-            <tr key={p.id}>
-              <td className="om-lead" data-no-i18n translate="no"><b>{pairName(p.symbol)}</b></td>
-              <td data-label="Side"><span className="om-side" data-side={p.side}>{sideWord(p.side)}</span></td>
-              <td data-label="Size" className="om-r om-num">{lotsText(p.qty)}</td>
-              <td data-label="Entry" className="om-r om-num" data-no-i18n translate="no">{priceFor(p.symbol, p.entry)}</td>
-              <td data-label="Stop" className="om-r om-num" data-no-i18n translate="no">{priceFor(p.symbol, p.stop)}</td>
-              <td data-label="Target" className="om-r om-num" data-no-i18n translate="no">{priceFor(p.symbol, p.target)}</td>
-              <td data-label="Source">{SOURCE_LABEL[p.source]}</td>
-              <td data-label="Opened" className="om-r">{whenText(p.at, now)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {outside > 0 && <p className="om-label om-flow-foot">Your broker also shows {outside} open {outside === 1 ? "position" : "positions"} FLOW did not place. Open P&amp;L above is for all of them.</p>}
+      {rows.length > 1 && <label className="om-flow-position-select">Position
+        <select value={selected.id} onChange={event => selectPosition(event.target.value)}>
+          {rows.map((row, index) => <option key={row.id} value={row.id}>{index + 1}. {pairName(row.symbol)} · {sideWord(row.side)} · {whenText(row.at, now)}</option>)}
+        </select>
+      </label>}
+      {available ? <FlowPositionChart key={selected.id} accountId={account.id} environment={account.environment}
+        position={selected} currency={account.currency} hide={hide} simple={simple} now={now} />
+        : <p className="om-empty" role="status">Broker position chart unavailable.</p>}
+      {simple ? <details className="om-simple-fold"><summary>Position details</summary>{positionsTable}</details> : positionsTable}
+      {outside > 0 && <p className="om-label om-flow-foot">Your broker also shows {outside} open {outside === 1 ? "position" : "positions"} FLOW did not place. Account P&amp;L includes those positions.</p>}
     </>
   );
 }

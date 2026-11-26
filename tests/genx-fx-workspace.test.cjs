@@ -234,10 +234,14 @@ test('FX Simple and Advanced share real precision, candles and the same confirma
     const chart = h.find((n) => n.type === 'OmChart')[0];
     assert.equal(chart.props.dec, PAIRS[pair].dec); assert.equal(chart.props.bars.length, 3); assert.equal(chart.props.snapshot, true); assert.equal(chart.props.priceLive, false);
     assert.equal(chart.props.simpleView, true); assert.equal(chart.props.watchPrice, props.response.genfx.entry);
+    assert.equal(chart.props.framing, 'setup');
+    const story = h.find(n => n.type === 'MarketStory')[0];
+    assert.equal(story.props.compact, true); assert.match(story.props.next, /1\.0 pips below/);
     assert.equal(chart.props.price, props.response.price); assert.match(chart.props.label, new RegExp(PAIRS[pair].name));
     const confirmation = h.find((n) => n.type === 'Confirm')[0], requests = h.requests.length;
     h.experience('advanced');
     assert.equal(h.find((n) => n.type === 'VisionLevels')[0].props.entry, simple.props.entry);
+    assert.equal(h.find((n) => n.type === 'OmChart')[0].props.framing, 'context');
     assert.equal(h.find((n) => n.type === 'OmChart')[0].props.price, chart.props.price);
     assert.equal(h.find((n) => n.type === 'Confirm')[0].key, confirmation.key);
     assert.equal(h.find((n) => n.type === 'Confirm')[0].props.setup, confirmation.props.setup);

@@ -150,3 +150,8 @@ details.om-simple-fold:not([open])>:not(summary){display:none}
 .om-simple-map-toggle{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;min-height:44px;border-top:1px solid var(--om-edge);color:var(--om-text-2);font:inherit;font-size:13px;cursor:pointer}
 .om-simple-map-toggle:hover,.om-simple-map-toggle:focus-visible{color:var(--om-ai)}
 .om-simple-chart-frame{color:var(--om-text);background:var(--om-surface);border:1px solid var(--om-edge);border-radius:9px;min-height:44px;padding:5px 8px;font-size:14px}
+
+.om-chart-headline{padding:6px 2px 9px;min-width:0;color:var(--om-text,#f4f6fa)}
+.om-chart-headline-source{font-size:.75rem;color:var(--om-text-2,#a5b2c2);font-weight:650;letter-spacing:.035em}
+.om-chart-headline h2{font-size:clamp(1.4rem,3vw,2rem);line-height:1.14;margin:6px 0;font-weight:610;letter-spacing:-.035em;text-wrap:balance}
+.om-chart-headline p{margin:6px 0 0;font-size:.875rem;line-height:1.45;color:var(--om-text-2,#a5b2c2)}

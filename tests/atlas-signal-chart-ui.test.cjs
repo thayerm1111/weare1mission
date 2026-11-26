@@ -16,6 +16,8 @@ function harness(signal) {
   let cursor = 0, tree;
   const react = {
     useState(value) { const i = cursor++; if (!(i in slots)) slots[i] = value; return [slots[i], (next) => { slots[i] = typeof next === "function" ? next(slots[i]) : next; }]; },
+    useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
+    useEffect() { cursor++; },
     useMemo(factory) { cursor++; return factory(); },
     useId() { const i = cursor++; return slots[i] ??= `atlas-chart-${i}`; },
   };
@@ -36,7 +38,7 @@ function harness(signal) {
       if (name === "lucide-react") return new Proxy({}, { get: (_, key) => `icon:${String(key)}` });
       if (name.endsWith(".css")) return {};
       if (name === "@/components/om/ProductIcon") return { ProductIcon: "ProductIcon" };
-      if (name === "@/components/om/chart/SignalFocusChart") return { SignalFocusChart: "SignalFocusChart" };
+      if (name === "@/components/om/chart/OmChart") return { OmChart: "OmChart" };
       const base = name.startsWith("@/") ? path.join(ROOT, "src", name.slice(2)) : name.startsWith(".") ? path.resolve(path.dirname(filename), name) : null;
       if (base) {
         const resolved = [base, `${base}.ts`, `${base}.tsx`].find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
@@ -81,18 +83,19 @@ const genxFixture = (action = "WAIT_FOR_SELL_TRIGGER", extra = {}) => ({ kind: "
 
 test("Atlas automatically renders its real snapshot chart while keeping the five-frame breakdown and manual ticket", () => {
   const signal = fixture(), h = harness(signal);
-  const charts = h.find((node) => node.type === "SignalFocusChart");
+  const charts = h.find((node) => node.type === "OmChart");
   assert.equal(charts.length, 1);
   assert.equal(charts[0].props.bars.length, 2);
   assert.equal(charts[0].props.priceLive, false);
   assert.equal(charts[0].props.snapshot, true);
-  assert.equal(charts[0].props.fitLevels, true);
-  assert.equal(charts[0].props.direction, "buy");
-  assert.equal(charts[0].props.reference, false);
+  assert.equal(charts[0].props.framing, "context");
+  const vision = h.find((node) => node.props.className === "om-vision-chart")[0];
+  assert.equal(vision.props["data-direction"], "buy");
+  assert.equal(vision.props["data-reference"], false);
   assert.equal(charts[0].props.tfLabel, "1H");
   assert.equal(charts[0].props.timeKnown, false);
   assert.equal(charts[0].props.levels.length, 5);
-  assert.match(h.text(), /Chart at generation/);
+  assert.match(h.text(), /AT GENERATION/);
   assert.match(h.text(), /Saved snapshot/);
   assert.equal(h.find((node) => node.props.className === "om-play-frame").length, 5);
   assert.equal(h.find((node) => node.type === "ExecuteSignal").length, 0, "chart display never opens the trading ticket");
@@ -109,9 +112,9 @@ test("Atlas automatically renders its real snapshot chart while keeping the five
 test("an unconfirmed retained play stays an idea with reference chart labels and its original override ticket", () => {
   const h = harness(JSON.parse(JSON.stringify(fixture("no_trade"))));
   assert.match(h.text(), /Buy idea, not confirmed/);
-  assert.match(h.text(), /Reference levels · confirmation is still needed\./);
+  assert.match(h.text(), /CONDITIONAL REFERENCE · CONFIRMATION REQUIRED/);
   assert.match(h.text(), /Execute BUY · manual override/);
-  assert.ok(h.find((node) => node.type === "SignalFocusChart")[0].props.levels.every((level) => level.label.startsWith("Reference ")));
+  assert.ok(h.find((node) => node.type === "OmChart")[0].props.levels.every((level) => level.label.startsWith("Reference ")));
   h.find((node) => node.type === "details" && node.props.className === "om-atlas-signal-order")[0].props.onToggle({ currentTarget: { open: true } });
   h.render();
   assert.equal(h.find((node) => node.type === "ExecuteSignal")[0].props.unconfirmed, true);
@@ -120,8 +123,8 @@ test("an unconfirmed retained play stays an idea with reference chart labels and
 
 test("a legacy play without candles explains the missing snapshot without fetching or inventing a chart", () => {
   const h = harness(fixture("setup", []));
-  assert.equal(h.find((node) => node.type === "SignalFocusChart").length, 0);
-  assert.match(h.text(), /Candle chart unavailable for this saved read\./);
+  assert.equal(h.find((node) => node.type === "OmChart").length, 0);
+  assert.match(h.text(), /Verified candle snapshot unavailable for this saved read\./);
   assert.match(h.text(), /Execute BUY/);
   assert.equal(h.requests.length, 0);
 });
@@ -130,18 +133,17 @@ test("one genuine saved candle remains visible for both Atlas signal engines wit
   for (const signal of [fixture(), genxFixture()]) {
     signal.result.candles = signal.result.candles.slice(0, 1);
     const h = harness(signal);
-    const chart = h.find((node) => node.type === "SignalFocusChart")[0];
-    assert.ok(chart);
-    assert.equal(chart.props.bars.length, 1);
-    assert.equal(chart.props.bars[0].c, signal.result.candles[0].c);
-    assert.doesNotMatch(h.text(), /Full chart to inspect all saved candles/);
+    const chart = h.find((node) => node.props.className === "om-vision-chart-svg")[0];
+    assert.ok(chart, "the single saved candle is drawn directly");
+    assert.equal(nodes(chart, (node) => node.props.className === "om-vision-candle").length, 1);
+    assert.equal(h.find((node) => node.props["aria-label"] === "Chart view").length, 0);
     assert.equal(h.requests.length, 0);
   }
 });
 
 test("a waiting GENX sell trigger automatically shows saved candles and its exact reference zone before the manual ticket", () => {
   const signal = genxFixture(), h = harness(JSON.parse(JSON.stringify(signal)));
-  const chart = h.find((node) => node.type === "SignalFocusChart")[0];
+  const chart = h.find((node) => node.type === "OmChart")[0];
   assert.ok(chart, "a waiting signal still has its chart without an extra click");
   assert.equal(chart.props.bars.length, 2);
   assert.equal(chart.props.bars[1].c, signal.result.candles[1].c);
@@ -149,18 +151,19 @@ test("a waiting GENX sell trigger automatically shows saved candles and its exac
   assert.equal(chart.props.timeKnown, false);
   assert.equal(chart.props.priceLive, false);
   assert.equal(chart.props.snapshot, true);
-  assert.equal(chart.props.direction, "sell");
-  assert.equal(chart.props.reference, true);
+  const vision = h.find((node) => node.props.className === "om-vision-chart")[0];
+  assert.equal(vision.props["data-direction"], "sell");
+  assert.equal(vision.props["data-reference"], true);
   assert.equal(chart.props.zone.low, signal.result.genx.entry_low);
   assert.equal(chart.props.zone.high, signal.result.genx.entry_high);
   assert.deepEqual(Array.from(chart.props.levels, (level) => level.price), [3506, 3512, 3498, 3493, 3485]);
   assert.ok(chart.props.levels.every((level) => level.label.startsWith("Reference ")));
-  assert.match(chart.props.label, /unconfirmed reference levels/);
+  assert.match(chart.props.label, /Reference levels · confirmation is still needed/);
   assert.match(h.text(), /Waiting for a sell trigger/);
-  assert.match(h.text(), /Reference levels · confirmation is still needed\./);
-  const order = h.find((node) => node.type === "SignalFocusChart" || node.props["aria-label"] === "Signal price and levels" || node.props.className === "om-atlas-signal-order");
-  assert.equal(order[0].props["aria-label"], "Signal price and levels", "saved price and trade levels precede the chart");
-  assert.equal(order[1].type, "SignalFocusChart");
+  assert.match(h.text(), /CONDITIONAL REFERENCE · CONFIRMATION REQUIRED/);
+  const order = h.find((node) => node.type === "OmChart" || node.props.className === "om-vision-quote" || node.props.className === "om-atlas-signal-order");
+  assert.equal(order[0].props.className, "om-vision-quote", "the saved quote precedes the chart");
+  assert.equal(order[1].type, "OmChart");
   assert.equal(h.find((node) => node.type === "ExecuteSignal").length, 0);
   h.find((node) => node.props.className === "om-atlas-signal-order")[0].props.onToggle({ currentTarget: { open: true } });
   h.render();
@@ -194,8 +197,8 @@ test("a long saved GENX story stays complete below the chart with no explanation
   assert.ok(full);
   assert.notEqual(full.props.open, true, "native details starts collapsed");
   assert.deepEqual(nodes(full, (node) => node.type === "p").map(content), story);
-  const order = h.find((node) => node.type === "SignalFocusChart" || node === explanation || node === full);
-  assert.equal(order[0].type, "SignalFocusChart");
+  const order = h.find((node) => node.type === "OmChart" || node === explanation || node === full);
+  assert.equal(order[0].type, "OmChart");
   assert.match(h.text(), /Wait for a closed rejection candle\./);
   assert.match(h.text(), /A close above resistance\./);
   assert.equal(h.requests.length, 0);
@@ -203,10 +206,10 @@ test("a long saved GENX story stays complete below the chart with no explanation
 
 test("ready GENX results keep their chart, saved timeframe and normal ticket eligibility", () => {
   const signal = genxFixture("SELL_NOW", { mode: "intraday" }), h = harness(signal);
-  const chart = h.find((node) => node.type === "SignalFocusChart")[0];
+  const chart = h.find((node) => node.type === "OmChart")[0];
   assert.equal(chart.props.tfLabel, "15M");
   assert.ok(chart.props.levels.every((level) => !level.label.startsWith("Reference ")));
-  assert.match(h.text(), /Entry zone, stop and targets from this read\./);
+  assert.match(chart.props.label, /Entry zone, stop and targets from this read\./);
   assert.match(h.text(), /Sell now/);
   assert.doesNotMatch(h.text(), /manual override/);
   h.find((node) => node.props.className === "om-atlas-signal-order")[0].props.onToggle({ currentTarget: { open: true } });
@@ -219,19 +222,20 @@ test("GENX no-trade candles stay visible and older missing snapshots show an hon
   const signal = genxFixture("HOLD");
   Object.assign(signal.result.genx, { closest_support: 3490, closest_resistance: 3520 });
   const h = harness(signal);
-  const chart = h.find((node) => node.type === "SignalFocusChart")[0];
+  const chart = h.find((node) => node.type === "OmChart")[0];
   assert.equal(chart.props.bars.length, 2);
   assert.deepEqual(Array.from(chart.props.levels, (level) => level.kind), ["support", "resistance"]);
   assert.equal(chart.props.zone, null);
-  assert.equal(chart.props.direction, "neutral");
-  assert.match(h.text(), /Support and resistance from this read\./);
+  assert.equal(h.find((node) => node.props.className === "om-vision-chart")[0].props["data-direction"], "neutral");
+  assert.match(chart.props.label, /Support and resistance from this read\./);
   assert.match(h.text(), /No trade — waiting/);
-  assert.deepEqual(h.find((node) => node.props["data-level"]).map((node) => node.props["data-level"]), ["price", "support", "resistance"], "dormant entry/stop/target values never become a plan on a HOLD read");
+  const levels = h.find((node) => node.props["aria-label"] === "Trade levels")[0];
+  assert.ok(nodes(levels, (node) => node.type === "dd").every((node) => content(node) === "—"), "dormant entry/stop/target values never become a plan on a HOLD read");
   assert.equal(h.find((node) => node.props.className === "om-atlas-signal-order").length, 0);
   for (const candles of [undefined, [], [{ t: "bad date", o: 1, h: 2, l: 0, c: 1 }]]) {
     const missing = harness(genxFixture("WAIT_FOR_SELL_TRIGGER", { candles }));
-    assert.equal(missing.find((node) => node.type === "SignalFocusChart").length, 0);
-    assert.match(missing.text(), /Candle chart unavailable for this saved read\./);
+    assert.equal(missing.find((node) => node.type === "OmChart").length, 0);
+    assert.match(missing.text(), /Verified candle snapshot unavailable for this saved read\./);
     assert.match(missing.text(), /Waiting for a sell trigger/);
     assert.match(missing.text(), /Execute SELL · manual override/);
     assert.equal(missing.requests.length, 0);
@@ -239,34 +243,37 @@ test("GENX no-trade candles stay visible and older missing snapshots show an hon
   assert.equal(h.requests.length, 0);
 });
 
-test("both signal types place the saved price and levels above the focused chart, and all reasoning below it", () => {
+test("both signal types show the saved quote above the chart, followed by exact trade levels and reasoning", () => {
   for (const signal of [fixture(), genxFixture()]) {
     signal.result.live_price = 9999;
     const h = harness(signal);
-    const price = h.find((node) => node.props["data-level"] === "price")[0];
-    assert.equal(content(price), "Price at signal3,506.00");
-    const chart = h.find((node) => node.type === "SignalFocusChart")[0];
+    const price = h.find((node) => node.props.className === "om-vision-quote")[0];
+    assert.equal(content(price), "XAU/USD · AT GENERATION3,506.00");
+    const chart = h.find((node) => node.type === "OmChart")[0];
     assert.equal(chart.props.price, signal.result.price, "a saved signal price never becomes a later quote");
-    const ordered = h.find((node) => node.props["aria-label"] === "Signal price and levels"
-      || node.type === "SignalFocusChart" || node.props.className === "om-atlas-signal-reason");
-    assert.equal(ordered[0].props["aria-label"], "Signal price and levels");
-    assert.equal(ordered[1].type, "SignalFocusChart");
-    assert.equal(ordered[2].props.className, "om-atlas-signal-reason");
-    assert.match(h.text(), /Full chart to inspect all saved candles/);
+    const ordered = h.find((node) => node.props.className === "om-vision-quote"
+      || node.type === "OmChart" || node.props["aria-label"] === "Trade levels" || node.props.className === "om-atlas-signal-reason");
+    assert.equal(ordered[0].props.className, "om-vision-quote");
+    assert.equal(ordered[1].type, "OmChart");
+    assert.equal(ordered[2].props["aria-label"], "Trade levels");
+    assert.deepEqual(nodes(ordered[2], (node) => node.type === "dd").map(content),
+      Array.from(chart.props.levels, (level) => level.price.toLocaleString("en-US", { minimumFractionDigits: 2 })));
+    assert.equal(ordered[3].props.className, "om-atlas-signal-reason");
+    assert.equal(chart.props.bars.length, signal.result.candles.length);
     assert.equal(h.find((node) => node.type === "ExecuteSignal").length, 0);
     assert.equal(h.requests.length, 0);
   }
 });
 
 test("replacing a displayed play with a retained GENX result cannot reuse the previous chart's candles or view identity", () => {
-  const h = harness(fixture()), old = h.find((node) => node.type === "SignalFocusChart")[0].props;
+  const h = harness(fixture()), old = h.find((node) => node.type === "OmChart")[0].props;
   const signal = genxFixture("BUY_LIMIT", { signal_id: "other-genx", mode: "swing", price: 3601, candles: [
     { t: "2026-11-21 10:00:00", o: 3598, h: 3602, l: 3595, c: 3600 },
     { t: "2026-11-21 11:00:00", o: 3600, h: 3604, l: 3598, c: 3601 },
   ] });
   h.render(JSON.parse(JSON.stringify(signal)));
-  const chart = h.find((node) => node.type === "SignalFocusChart")[0];
-  assert.equal(h.find((node) => node.type === "SignalFocusChart").length, 1);
+  const chart = h.find((node) => node.type === "OmChart")[0];
+  assert.equal(h.find((node) => node.type === "OmChart").length, 1);
   assert.notEqual(chart.props.viewKey, old.viewKey);
   assert.equal(chart.props.tfLabel, "1H");
   assert.equal(chart.props.bars.at(-1).c, 3601);

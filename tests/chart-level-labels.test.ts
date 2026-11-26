@@ -69,3 +69,41 @@ test("narrow level tags shorten only the name, preserving exact market precision
   assert.ok(fx.width <= 170);
   assert.equal(levelTag("Former support", "153.742", 70).text, "153.742");
 });
+
+import { focusedLevels, railName, railRows, riskBracket, setupSpan } from "../src/lib/chart/setupFraming";
+import type { ChartLevel } from "../src/lib/floor/chart";
+
+test("the standard focus fits the actual entry, stop and first target without unrelated context", () => {
+  const levels: ChartLevel[] = [
+    {kind:"support",price:3440,label:"Support"}, {kind:"target",price:3600,label:"Reference target 3"},
+    {kind:"stop",price:3565.42,label:"Reference stop"}, {kind:"entry",price:3571.8,label:"Reference entry"},
+    {kind:"target",price:3581.43,label:"Reference target 1"},
+  ];
+  assert.deepEqual(focusedLevels(levels,3571.68).map(level => level.price),[3571.8,3565.42,3581.43]);
+  assert.deepEqual(riskBracket(levels,3571.68),{entry:3571.8,stop:3565.42,target:3581.43});
+  assert.equal(railName(levels[4]),"First target");
+  assert.equal(railName(levels[3]),"Watch entry");
+  assert.equal(railName({...levels[4],label:"First target"}),"First target");
+  assert.equal(railName({...levels[4],label:"First target"},true),"Target 1");
+  assert.equal(railName(levels[4],true),"Target 1");
+  assert.equal(railName({kind:"resistance",label:"Former resistance · 1h upper boundary",price:3578},true),"Old resistance");
+  assert.equal(riskBracket(levels.filter(level => level.kind !== "entry"),3571.68),null);
+  assert.equal(riskBracket(levels.map(level => level.kind === "stop" ? {...level,price:3578} : level),3571.68),null);
+});
+
+test("an old outlier leaves the setup window while the visible swing and all newer candles stay included", () => {
+  const bars = Array.from({length:70}, (_,i) => ({t:i*300000, o:102, h:i===50?155:104, l:98, c:100}));
+  const levels: ChartLevel[]=[{kind:"stop",price:98,label:"Stop"},{kind:"target",price:106,label:"Target"}];
+  assert.equal(setupSpan(bars,levels,100,true),19);
+  assert.equal(setupSpan(bars,levels,100,true,bars[50].t),22);
+  assert.equal(setupSpan(bars.slice(-4),levels,100,true),4);
+});
+
+test("a short, dense context rail groups nearby labels and retains every original line coordinate", () => {
+  const raw=[50,51,52,78,95,112,113,114,135].map(ly=>({ly}));
+  const rows=railRows(raw,60,140);
+  assert.ok(rows.length <= 3);
+  assert.deepEqual(rows.flatMap(r=>r.items.map(l=>l.ly)),raw.map(l=>l.ly));
+  assert.ok(rows.every((r,i) => r.y >=60 && r.y <=140 && (!i || r.y-rows[i-1].y>=30)));
+  assert.deepEqual(railRows([],60,140),[]);
+});

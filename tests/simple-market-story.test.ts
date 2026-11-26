@@ -84,3 +84,15 @@ test("the simple chart uses only observed closes and breaks the line for gaps an
   const unknownTimes = renderToStaticMarkup(React.createElement(SimpleChartPlot,{...props,timeKnown:false,watch:null}));
   assert.doesNotMatch(unknownTimes,/om-ch-line-time|om-ch-line-watch/);
 });
+
+test("compact setup headlines use the recorded distance and disappear when the feed is stale", () => {
+  const common = { market:"Gold", action:"WAIT_FOR_BUY_TRIGGER", dec:2, entry:3571.8, stop:3565.42,
+    quote:3571.68, snapshot:true, closed:false, failed:false, loaded:true, bars:[], tfMs:300_000,
+    timeKnown:true, now:1_000_000 };
+  const saved = genxMarketStory(common);
+  assert.equal(saved.headline, "Gold is near the buy level.");
+  assert.match(draw({...saved, compact:true}), /Gold is near the buy level/);
+  assert.equal(genxMarketStory({...common, quote:3585}).headline, "Watching for a buy setup.");
+  assert.equal(genxMarketStory({...common, stop:3580}).headline, "Watching for a buy setup.");
+  assert.doesNotMatch(draw({...saved, compact:true, feed:"delayed"}), /near the buy level|3,571\.80/);
+});

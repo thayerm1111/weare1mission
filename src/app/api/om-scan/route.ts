@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { authedContext } from "@/lib/supabase/bearer";
 import { gateCredits, chargeCredit } from "@/lib/credits";
+import { pulseComparison } from "@/lib/pulse/comparison";
 import { series, isPriorityEmail } from "@/lib/marketData";
 
 export const runtime = "nodejs";
@@ -39,11 +40,11 @@ function pivots(highs: number[], lows: number[], k = 2) { const sh: { i: number;
 
 // Community-cached 1H pull via the shared fetcher (skips API + budget on a cache hit).
 async function fetchSeries(td: string, key: string, fresh: boolean): Promise<Row[] | null> {
-  const r = await series(td, "1h", 80, key, fresh);
+  const r = await series(td, "1h", 80, key, fresh, "UTC");
   return Array.isArray(r) ? r : null;
 }
 
-function analyze(rows: Row[]) {
+function analyze(rows: Row[], scanAt: number) {
   const closes = rows.map((v) => +v.close), highs = rows.map((v) => +v.high), lows = rows.map((v) => +v.low);
   const price = closes[closes.length - 1];
   const rangeHi = Math.max(...highs.slice(-40)), rangeLo = Math.min(...lows.slice(-40));
@@ -119,7 +120,7 @@ function analyze(rows: Row[]) {
   const takeProfits = [1.5, 2.5, 4.0].map((m) => rnd(isLong ? price + riskDist * m : price - riskDist * m));
 
   return {
-    dir, price, confirmed, total: checklist.length, checklist,
+    dir, price, confirmed, total: checklist.length, checklist, comparison: pulseComparison(rows, scanAt),
     zone: price <= eq ? "discount" : "premium", rsi: rv == null ? null : Math.round(rv),
     entry: rnd(price), stopLoss: rnd(stop), takeProfits, riskReward: "1:2.5",
   };
@@ -158,15 +159,16 @@ export async function POST(req: NextRequest) {
     return json({ asOf: scanCache.asOf, setups: scanCache.setups, credits, cached: true }, 200);
   }
 
+  const scanAt = Date.now();
   const results = await Promise.all(UNIVERSE.map(async (a) => {
     const rows = await fetchSeries(a.td, mdKey, fresh);
     if (!rows || rows.length < 30) return null;
-    const r = analyze(rows);
+    const r = analyze(rows, scanAt);
     return { ...a, ...r };
   }));
 
   const setups = (results.filter(Boolean) as Setup[]).sort((x, y) => (y.confirmed - x.confirmed));
-  const asOf = new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC";
+  const asOf = new Date(scanAt).toISOString().slice(0, 16).replace("T", " ") + " UTC";
   // Cache the computed result for the next members' scans in this window.
   if (setups.length > 0 && !fresh) scanCache = { at: Date.now(), asOf, setups };
   // Only charge if the scan actually produced setups (don't bill a fully rate-limited scan).

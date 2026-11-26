@@ -52,5 +52,7 @@ export function genxChartView(input: {
     ? finite(input.readPrice) ? input.readPrice : own.bars.at(-1)?.c ?? null
     : finite(input.livePrice) ? input.livePrice : live.bars.at(-1)?.c ?? null;
   const priceFrom = finite(snapshot ? input.readPrice : input.livePrice) ? "quote" : price != null ? "candle" : null;
-  return { source, snapshot, bars: selected.bars, timeKnown: selected.known, price, priceFrom, tf };
+  const priceLabel = priceFrom === "candle" ? (snapshot ? "Last saved close" : "Last candle close")
+    : priceFrom === "quote" ? (snapshot ? "At generation" : "Market read") : "Price unavailable";
+  return { source, snapshot, bars: selected.bars, timeKnown: selected.known, price, priceFrom, priceLabel, tf };
 }

@@ -1,8 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { connectionToken } from "@/lib/flow/connection";
+import { contractKey } from "@/lib/flow/sizing";
+import type { FlowPositionChart } from "@/lib/flow/positionChart";
 import { brokerConfig } from "@/lib/flow/brokerEvidence";
 import { brokerBusy } from "./brokerState";
-import { brokerRateStats, withBrokerPriority, listPositions, listOrders, listInstruments, getQuote, getInstrumentDetails, closePosition, modifyPosition, type TLInstrument } from "@/lib/flow/tradelocker";
+import { brokerRateStats, withBrokerPriority, listPositions, listOrders, listInstruments, getQuote, getInstrumentDetails, getPositionChartBars, closePosition, modifyPosition, type TLInstrument } from "@/lib/flow/tradelocker";
 import { parseInstrumentSpec, type TLInstrumentSpec } from "../../../command-center/adapters/tradelocker";
 import { requireConsent } from "../../../command-center/engines/consent";
 import { logTrade } from "@/lib/flow/tradeLog";
@@ -117,6 +119,40 @@ async function partialStatus(s: Session, positionIds: string[]): Promise<{ known
   ]);
   return { known: !reserved.error && !ledger.error && Array.isArray(reserved.data) && Array.isArray(ledger.data) && reserved.data.length < 1000 && ledger.data.length < 1000,
     reserved: new Set((reserved.data ?? []).map((r) => String(r.position_id))), done: new Set((ledger.data ?? []).filter((r) => r.partial_done).map((r) => String(r.position_id))) };
+}
+
+/** FLOW shows broker evidence for one open position tracked by this member on this account. */
+export async function readFlowPositionChart(userId: string, scope: ActiveTradeScope, positionId: string): Promise<FlowPositionChart> {
+  const admin = createAdminClient();
+  if (!admin) throw new ActiveTradeError(503, "Position data is unavailable.");
+  const owned = await ownedTradeAccount(admin, userId, scope);
+  const tracked = await admin.from("flow_managed_positions").select("position_id,symbol,side")
+    .eq("user_id", userId).eq("environment", scope.environment).eq("account_id", scope.accountId)
+    .eq("position_id", positionId).eq("status", "open").limit(1).maybeSingle();
+  if (tracked.error) throw new ActiveTradeError(503, "The selected position could not be verified.");
+  const ledger = tracked.data;
+  if (!ledger) throw new ActiveTradeError(404, "This account has no matching open FLOW position.");
+  if (brokerBusy(brokerRateStats())) throw new ActiveTradeError(503, "Your broker is busy. Try again shortly.");
+  return withBrokerPriority("background", async () => {
+    const s = await session(admin, userId, scope, owned);
+    const reading = await positions(s);
+    const position = reading.rows.find(p => p.id === positionId);
+    if (!position) throw new ActiveTradeError(404, "Your broker no longer reports this open position.");
+    const symbol = contractKey(String(ledger.symbol ?? ""));
+    if (!symbol || String(ledger.side).toLowerCase() !== position.side) {
+      throw new ActiveTradeError(409, "The broker position does not match this FLOW trade.");
+    }
+    const list = await safeRead(() => instrumentList(s));
+    const instrument = list?.find(i => i.tradableInstrumentId === position.instrumentId);
+    const route = instrument?.infoRouteId;
+    const bars = route && !brokerBusy(brokerRateStats())
+      ? await safeRead(() => getPositionChartBars(s.env, s.token, String(s.row.acc_num), position.instrumentId, route, reading.observedAt))
+      : null;
+    return { ok: true, ...scope, positionId, side: position.side,
+      symbol, brokerSymbol: instrument?.brokerSymbol || position.symbol || null,
+      entry: position.entry, stop: position.stopKnown ? position.stop : null, target: position.target,
+      unrealizedPnl: position.unrealizedPnl ?? null, observedAt: new Date(reading.observedAt).toISOString(), bars: bars ?? [] };
+  });
 }
 
 /** Only display reads are cached. Every mutation uses new broker and permission reads. */

@@ -105,6 +105,21 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
       /bear|down|lower|short|sell|falling/i.test(value)?"down":
       /range|flat|sideway/i.test(value)?"neutral":"watch";
   };
+  const side = a.side === "Buy" ? "buy" : a.side === "Sell" ? "sell" : null;
+  const firstTarget = targets[0]?.price;
+  const coherentPlan = side && hasLevels && fin(firstTarget) && (side === "buy"
+    ? s.stopLoss < s.entry && s.entry < firstTarget
+    : s.stopLoss > s.entry && s.entry > firstTarget);
+  const stopDistance = coherentPlan ? Math.abs(s.entry - s.stopLoss) : 0;
+  const targetDistance = coherentPlan ? Math.abs(firstTarget! - s.entry) : 0;
+  let chartHeadline = "Waiting for a clearer setup.";
+  if (t.resolved) chartHeadline = t.label;
+  else if (r.marketClosed) chartHeadline = "Saved while the market was closed.";
+  else if (hasLevels && side) {
+    if (limit && fin(generationPrice) && side === "sell" && generationPrice < s.entry) chartHeadline = "Waiting for a bounce to sell.";
+    else if (limit && fin(generationPrice) && side === "buy" && generationPrice > s.entry) chartHeadline = "Waiting for a dip to buy.";
+    else chartHeadline = a.kind === "idea" ? "Watching a possible " + side + "." : "Review the " + side + " setup.";
+  }
   const goodChecks = (s.checklist ?? []).filter(x=>x.ok).length;
   const factList:VisionFact[]=[
     {label:"HIGHER TF",value:s.bias||"Not confirmed",tone:toneOf(s.bias)},
@@ -130,7 +145,7 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
         </div>
       </header>
 
-      {isSimple ? <MarketStory market={r.name || r.symbol} lean direction={storyDirection(visionBias)} feed="recorded"
+      {isSimple ? <MarketStory compact headline={chartHeadline} market={r.name || r.symbol} lean direction={storyDirection(visionBias)} feed="recorded"
         stage={t.resolved ? "finished" : a.kind === "setup" ? "review" : a.kind === "idea" ? "forming" : "looking"}
         stamp={r.marketClosed ? "Market closed at analysis" : "At analysis"}
         next={t.resolved ? r.status === "loss" ? "This plan reached its stop." : "This plan reached a target." :
@@ -146,11 +161,19 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
           simpleView={isSimple} watchPrice={hasLevels && !t.resolved && !r.marketClosed ? s.entry : null}
           bars={chart.bars} timeKnown={chart.timeKnown} tfMs={chart.tfMs}
           timeframe={chart.tfLabel} symbol={r.symbol} dec={chart.dec}
-          price={generationPrice} marketStatus={`Saved snapshot · ${priceLabel.toLowerCase()}`} priceLive={false} snapshot
+          price={generationPrice} priceLabel={priceLabel} marketStatus={`Saved snapshot · ${priceLabel.toLowerCase()}`} priceLive={false} snapshot
           levels={levels} direction={visionBias}
           reference={a.kind!=="setup"} viewKey={chart.viewKey}
-          title={r.symbol+" saved candles, conditional path and recorded trade levels"}/>
+          title={r.symbol+" saved candles and recorded trade levels"}/>
         : <p className="om-play-note" role="status">Verified original candles unavailable for this saved read.</p>}
+      {isSimple && stopDistance > 0 && targetDistance > 0 && <section className="om-chart-summary" aria-label="First target versus stop">
+        <header><h3>First target vs. stop</h3><span>{(targetDistance / stopDistance).toFixed(2)} : 1</span></header>
+        <div className="om-chart-distance-meter" aria-hidden="true">
+          <i data-stop style={{flexGrow: stopDistance / (stopDistance + targetDistance)}}/>
+          <i data-target style={{flexGrow: targetDistance / (stopDistance + targetDistance)}}/>
+        </div>
+        <div className="om-chart-distance-labels"><span>Stop distance {px(stopDistance)}</span><span>Target distance {px(targetDistance)}</span></div>
+      </section>}
       {isSimple ? <details className="om-play-simple-levels om-simple-fold"><summary>Plan prices and rules</summary>
         <p className="om-label">{a.kind === "setup" ? "Prices saved with this plan" : "Reference prices · confirmation required"}</p>
         <dl data-no-i18n translate="no" aria-label="Entry, stop and targets">

@@ -171,3 +171,22 @@
 .om-ch[data-chart-view=line] .om-ch-tools{right:3px;top:2px}
 .om-ch[data-chart-view=line] .om-ch-tools button{min-height:38px}
 @media(pointer:coarse){.om-ch[data-chart-view=line] .om-ch-tools button{min-height:44px;min-width:44px}}
+
+.om-ch[data-framing] .om-ch-svg { overflow: hidden; }
+.om-ch[data-framing] .om-ch-tools { top: 3px; right: 2px; }
+.om-ch[data-framing]::before { height: 55px; }
+.om-ch-framing-header {
+  display: grid; align-content: start; gap: 2px; position: absolute; top: 2px; left: 5px;
+  max-width: calc(100% - 45px); pointer-events: none; z-index: 2; font-variant-numeric: tabular-nums;
+}
+.om-ch-frame-source { font-size: 11px; font-weight: 500; line-height: 1.35; color: var(--om-text-2); }
+.om-ch-frame-quote { color: var(--om-text); font-size: 20px; line-height: 1.2; font-weight: 650; letter-spacing: -.035em; }
+.om-ch-frame-quote small { font-size: 11px; color: var(--om-text-2); letter-spacing: 0; padding-left: 4px; }
+.om-ch-frame-inspection { display: flex; flex-wrap: wrap; gap: 1px 7px; font-size: 11.5px; color: var(--om-text); font-weight: 600; }
+.om-ch-frame-inspection small { font: inherit; color: var(--om-text-2); }
+.om-ch-rail text { font-family: inherit; }
+.om-ch-rail-name { font-size: 10.5px; font-weight: 600; }
+.om-ch-rail-price { font-size: 12px; font-weight: 600; fill: var(--om-text); font-variant-numeric: tabular-nums; }
+.om-ch-framing-header[data-inspecting] { right: 5px; max-width: none; }
+.om-ch-framing-header[data-inspecting] .om-ch-frame-source { max-width: calc(100% - 92px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.om-ch-frame-inspection { position: absolute; top: 40px; left: 0; right: 0; justify-content: flex-start; gap: 2px clamp(3px,1.5vw,14px); }

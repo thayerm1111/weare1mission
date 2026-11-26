@@ -795,28 +795,54 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
     zones.push({ from: end - 0.6, to: end + 0.6, tone: "target", label: `Scenario level ${fmt2(end)}` });
   }
 
+  const showRead = isReplay || (!mobileClosed && !err && feed.status === "live" && analysisAgeMs != null && analysisAgeMs <= 180_000);
+  const simpleZones: ChartZone[] = [];
+  if (showRead && watchRef?.kind === "zone") {
+    const match = zones.find(z => z.tone !== "target" && z.from === watchRef.from && z.to === watchRef.to);
+    simpleZones.push(match ?? { from: watchRef.from, to: watchRef.to, tone: "watch", label: watchRef.label });
+  } else if (showRead && headPrice != null) {
+    const distance = (z: ChartZone) => Math.max(0, Math.min(z.from, z.to) - headPrice, headPrice - Math.max(z.from, z.to));
+    const nearest = zones.filter(z => z.tone !== "target").sort((a, b) => distance(a) - distance(b))[0];
+    if (nearest) simpleZones.push(nearest);
+  }
+
   const lines: ChartLine[] = [];
   if (watchLines) {
     for (const w of thesis?.watching ?? []) lines.push({ price: w, label: "Atlas watch", color: H.gold2 });
     if (thesis?.invalidationPrice != null) lines.push({ price: thesis.invalidationPrice, label: "Read fails here", color: H.red });
   }
-  if (pinned) lines.push({ price: pinned.price, label: `◆ ${pinned.label}`, color: H.cyan2, dashed: false });
+  const simpleLines: ChartLine[] = [];
+  if (showRead && watchLines && !trade?.active && watchRef && "price" in watchRef) {
+    simpleLines.push({ price: watchRef.price, label: "Watching", color: H.gold2 });
+  }
+  const focusedLines: ChartLine[] = [];
+  if (pinned) focusedLines.push({ price: pinned.price, label: `◆ ${pinned.label}`, color: H.cyan2, dashed: false });
   if (trade?.active && trade.entry != null) {
-    lines.push({ price: trade.entry, label: `Entry ${trade.side?.toUpperCase()}`, color: H.blue, dashed: false });
-    if (trade.stop != null) lines.push({ price: trade.stop, label: "Stop", color: H.red, dashed: false });
-    if (trade.takeProfit != null) lines.push({ price: trade.takeProfit, label: "Target", color: H.green, dashed: false });
+    focusedLines.push({ price: trade.entry, label: `Entry ${trade.side?.toUpperCase()}`, color: H.blue, dashed: false });
+    if (trade.stop != null) focusedLines.push({ price: trade.stop, label: "Stop", color: H.red, dashed: false });
+    if (trade.takeProfit != null) focusedLines.push({ price: trade.takeProfit, label: "Target", color: H.green, dashed: false });
   } else if (setup?.side && setup.stop != null && setup.entryHigh != null) {
     lines.push({ price: setup.entryHigh, label: `Proposed ${setup.side.toUpperCase()}`, color: H.blue, tag: false });
     lines.push({ price: setup.stop, label: "Proposed stop", color: H.red, tag: false });
   }
+  lines.push(...focusedLines);
+  simpleLines.push(...focusedLines);
 
   // The idea the member asked to see (GENERATE): its own levels, exactly as the engine returned them.
   if (shownIdea?.entry && shownIdea.stop && shownIdea.side) {
     const e = shownIdea.entry, buy = shownIdea.side === "buy";
-    if (e.high - e.low > 0.005) zones.push({ from: e.low, to: e.high, tone: buy ? "demand" : "supply", label: `ATLAS idea · ${buy ? "buy" : "sell"} zone ${fmt2(e.low)} – ${fmt2(e.high)}` });
-    lines.push({ price: e.price, label: `Idea entry ${buy ? "BUY" : "SELL"}`, color: H.blue, dashed: e.type !== "market" });
-    lines.push({ price: shownIdea.stop.price, label: "Idea stop", color: H.red, dashed: false });
-    for (const t of shownIdea.targets) lines.push({ price: t.price, label: `Idea ${t.label}`, color: H.green, dashed: t.basis === "measured" });
+    const ideaZone: ChartZone | null = e.high - e.low > 0.005 ? { from: e.low, to: e.high, tone: buy ? "demand" : "supply", label: `Atlas idea · ${buy ? "buy" : "sell"} zone ${fmt2(e.low)} – ${fmt2(e.high)}` } : null;
+    if (ideaZone) zones.push(ideaZone);
+    const ideaLines: ChartLine[] = [
+      { price: e.price, label: `Idea entry ${buy ? "BUY" : "SELL"}`, color: H.blue, dashed: e.type !== "market" },
+      { price: shownIdea.stop.price, label: "Idea stop", color: H.red, dashed: false },
+      ...shownIdea.targets.map(t => ({ price: t.price, label: `Idea ${t.label}`, color: H.green, dashed: t.basis === "measured" })),
+    ];
+    lines.push(...ideaLines);
+    if (!trade?.active) {
+      simpleLines.splice(0, simpleLines.length, ...ideaLines.slice(0, 3), ...focusedLines);
+      simpleZones.splice(0, simpleZones.length, ...(ideaZone ? [ideaZone] : []));
+    }
   }
 
   // Every blip is computed server-side in the read-only present layer, so the meaning shown is the same
@@ -1207,8 +1233,9 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                 </div>
                 <div className="min-h-0 flex-1 px-1 pt-1">
                   <GoldChart
-                    bars={chartBars} price={d?.price ?? null} markers={markers} zones={zones} lines={lines}
-                    path={pathPts} pathLabel={intel?.path?.label ?? "Atlas scenario"}
+                    bars={chartBars} price={d?.price ?? null} focused={isSimple} markers={isSimple ? markers.slice(0, 1) : markers}
+                    zones={isSimple ? simpleZones : zones} lines={isSimple ? simpleLines : lines}
+                    path={isSimple ? null : pathPts} pathLabel={intel?.path?.label ?? "Atlas scenario"}
                     showOverlays={overlays} showLiquidity={liquidity}
                     tfLabel={`XAUUSD · ${tfWord}`}
                     activityLabel={chartBars.some((b) => b.v && b.v > 0) ? "Activity · tick volume" : "Activity · bar range (spot gold has no traded volume)"}

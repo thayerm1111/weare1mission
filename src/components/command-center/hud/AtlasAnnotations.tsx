@@ -293,7 +293,7 @@ export function UserLineLayer({ lines, y, plotW, priceH, axis, compact, noPan, o
  * candles: which part of the answer the chart is showing, and — only when gold has moved since the answer was
  * built — by how much. The briefing's own time is on hover.
  */
-export function ExplainCaption({ ex, price, top, compact, onStop }: { ex: ExplainState; price: number | null; top: number; compact: boolean; onStop: () => void }) {
+export function ExplainCaption({ ex, price, compact, onStop }: { ex: ExplainState; price: number | null; compact: boolean; onStop: () => void }) {
   const e = ex.explanation;
   if (!e) return null;
   const explaining = ex.status === "explaining", showing = ex.status === "showing", corrected = ex.status === "corrected" && !!ex.correction;
@@ -304,20 +304,19 @@ export function ExplainCaption({ ex, price, top, compact, onStop }: { ex: Explai
   const col = corrected ? H.gold3 : H.cyan2;
   const since = !corrected && moved != null && Math.abs(moved) >= 3 ? `gold ${moved > 0 ? "+" : ""}${moved} pips since` : null;
   return (
-    <div className="pointer-events-none absolute left-1/2 z-20 flex max-w-[calc(100%-12px)] -translate-x-1/2 justify-center" style={{ top }} data-explain-caption={ex.status} role="status" aria-live="polite">
-      <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-[7px] px-2 py-[3px]" title={`Briefing built at ${stamp}`}
-        style={{ background: "rgba(var(--cc-03070b-rgb,3,7,11),0.93)", border: `1px solid ${alpha(col, "77")}`, boxShadow: `0 0 12px ${alpha(col, "22")}` }}>
+    <div className="w-full shrink-0 border-t" style={{ borderColor: H.lineSoft }} data-explain-caption={ex.status} role="status" aria-live="polite">
+      <div className="flex min-w-0 items-center gap-2 px-2 py-1.5" title={`Briefing built at ${stamp}`} style={{ background: H.bg1 }}>
         <span className="flex shrink-0 items-end gap-[2px]" aria-hidden>
           {[0, 1, 2].map((k) => <span key={k} className={explaining ? "atlas-eq" : ""} style={{ width: 2, height: explaining ? 9 : 4, background: col, borderRadius: 1, animationDelay: `${k * 0.18}s` }} />)}
         </span>
         <span className="shrink-0 text-[8.5px] font-bold uppercase tracking-[0.14em]" style={{ color: col }}>
           {corrected ? "Correction" : explaining ? (compact ? "ATLAS" : "ATLAS is explaining") : "Showing"}
         </span>
-        <span className="min-w-0 truncate text-[10.5px]" style={{ color: H.text, maxWidth: compact ? 168 : 440 }} data-explain-text="">
+        <span className="min-w-0 flex-1 overflow-y-auto text-[12px] leading-snug" style={{ color: H.text, maxHeight: "4.5em", overflowWrap: "anywhere" }} data-explain-text="">
           {corrected ? ex.correction : seg ? seg.text : "…"}
         </span>
         {since && <span className="hidden shrink-0 text-[9px] tabular-nums sm:inline" style={{ color: H.gold2 }} data-explain-moved="">{since}</span>}
-        <button onClick={onStop} onPointerDown={(ev) => ev.stopPropagation()} aria-label={explaining ? "Stop the explanation" : "Dismiss"} data-explain-stop="" className="shrink-0 px-0.5 text-[11px] leading-none" style={{ color: H.mut }}>✕</button>
+        <button onClick={onStop} onPointerDown={(ev) => ev.stopPropagation()} aria-label={explaining ? "Stop the explanation" : "Dismiss"} data-explain-stop="" className="shrink-0 p-2 text-[12px] leading-none" style={{ color: H.mut }}>✕</button>
       </div>
     </div>
   );

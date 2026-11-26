@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, ChevronDown, Loader2, Pin, X } from "lucide-react";
-import { VisionDirection, VisionLevels, type VisionFact } from "@/components/om/vision/VisionDirection";
+import { VisionDirection, VisionLevels, SignalChecks, type VisionFact } from "@/components/om/vision/VisionDirection";
 import { VisionChart } from "@/components/om/vision/VisionChart";
 import { genxChartView } from "@/lib/genx/chartView";
 import { GenxCard } from "@/components/om/floor/Floor";
@@ -196,13 +196,14 @@ export function GenxHome(p: GenxHomeProps) {
         ? { ...level, label: `Reference ${level.label.toLowerCase()}` } : level) } : readMarks;
   const hasTradeSide = chartSide === "buy" || chartSide === "sell";
   const simpleTarget = subject === "scalp" && read?.scalp ? read.scalp.target : read?.tp1;
-  const displayedMarks = isSimple && read ? marks.levels.filter((level) => level.kind !== "target" || level.price === simpleTarget) : marks.levels;
+  const displayedMarks = isSimple && hasTradeSide && read ? marks.levels.filter(level =>
+    level.kind === "entry" || level.kind === "stop" || (level.kind === "target" && level.price === simpleTarget)) : marks.levels;
   const shut = now > 0 && !isOpen("metal", now);
   const horizon = MODES.find((m) => m.id === mode)!;
   const tf = chart.tf;
   const liveAt = typeof live?.asOf === "string" ? live.asOf : null;
   const readIso = p.readAt ?? saved?.at ?? null;
-  const fresh = chart.snapshot ? `${chart.priceFrom === "candle" ? "Last saved candle" : "At generation"} · ${whenText(readIso)}`
+  const fresh = chart.snapshot ? `${chart.priceLabel} · ${whenText(readIso)}`
     : liveFailed ? "Last market read · refresh unavailable"
       : shut ? "Gold market closed" : liveAt ? `Market read · ${ageText(liveAt, now)}` : "Market read";
   // The generated read remains a snapshot even if the free market data or horizon selector changes.
@@ -236,7 +237,7 @@ export function GenxHome(p: GenxHomeProps) {
     market: subject === "scalp" ? "Gold · short-term" : "Gold", action: read?.action, bias: seen?.directional_bias,
     entry: subject === "scalp" ? read?.scalp?.entry : read?.entry, dec: 2, snapshot: chart.snapshot, closed: shut,
     failed: liveFailed, loaded: !!live, stage: liveView.stage, bars: chart.bars, tfMs: tf.ms, timeKnown: chart.timeKnown,
-    asOf: liveAt, now, scalp: subject === "scalp" ? read?.scalp?.side : undefined,
+    asOf: liveAt, now, quote: price, stop: subject === "scalp" ? read?.scalp?.stop : read?.stop_loss, scalp: subject === "scalp" ? read?.scalp?.side : undefined,
   }) : null;
   const controls = <div className="om-genx-go">
           {isSimple ? <label className="om-simple-horizon"><span>Timeframe</span>
@@ -265,10 +266,10 @@ export function GenxHome(p: GenxHomeProps) {
         {!isSimple && controls}
       </header>
 
-      {simpleStory && <MarketStory {...simpleStory}/>}
+      {simpleStory && <MarketStory compact {...simpleStory}/>}
       {!isSimple && <VisionDirection product="GENX" bias={visionBias}
         eyebrow="ONE MISSION · GOLD SIGNAL ENGINE" status={saved?"SAVED READ":shut?"MARKET CLOSED":read?"SIGNAL ANALYSIS":liveFailed?"REFRESH NEEDED":"MARKET CONTEXT"}
-        quote={price} quoteLabel={chart.snapshot?"AT GENERATION":shut?"LAST PRICE":"MARKET READ"}
+        quote={price} quoteLabel={!chart.snapshot && shut && chart.priceFrom === "quote" ? "LAST PRICE" : chart.priceLabel.toUpperCase()}
         score={fin(seen?.confidence_score)?seen.confidence_score:null}
         scoreName="ENGINE SCORE"
         tagline={read&&action?.waiting?"DIRECTIONAL LEAN · ENTRY NOT CONFIRMED":
@@ -291,13 +292,14 @@ export function GenxHome(p: GenxHomeProps) {
           </div>}
           {chart.bars.length > 0 ? <VisionChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={tf.ms}
             timeframe={tf.label} dec={2} symbol="XAU/USD" price={price}
-            priceLive={false} marketStatus={fresh} isOpenAt={goldOpen}
+            priceLive={false} priceLabel={chart.priceLabel} marketStatus={fresh} isOpenAt={goldOpen}
             simpleView={isSimple} watchPrice={simpleStory?.watchPrice} snapshot={chart.snapshot} levels={displayedMarks} zone={marks.zone}
             direction={chartSide==="buy"?"buy":chartSide==="sell"?"sell":visionBias}
             reference={!read || chartReference} viewKey={chartKey}
             title="GENX gold candle chart and conditional trade levels"/> :
             <div className="om-genx-chart-status" role="status"><strong>{chart.snapshot ? "Original chart unavailable" : liveFailed ? "Gold chart unavailable" : !live ? "Loading gold chart…" : "Waiting for candles"}</strong>
               <span>{chart.snapshot ? "This read has no stored candle history." : liveFailed ? "The next market refresh will try again." : `XAU/USD · ${tf.label}`}</span></div>}
+          {isSimple && subject === "main" && seen && (simpleStory?.feed === "recorded" || simpleStory?.feed === "current") && <SignalChecks facts={visionFacts} bias={visionBias}/>}
           {isSimple && controls}
           {read && !hasTradeSide && (isSimple ? <details className="om-simple-fold"><summary>Key prices</summary><ReadLevels g={read} subject={subject} saved={!!saved} /></details> : <ReadLevels g={read} subject={subject} saved={!!saved} />)}
           {read && hasTradeSide && isSimple && <SimpleGenxLevels entry={subject==="scalp"&&read.scalp?read.scalp.entry:read.entry}

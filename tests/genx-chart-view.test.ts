@@ -20,6 +20,7 @@ test("a reopened GENX read uses its recorded candles, quote and interval despite
   assert.equal(view.source, "saved");
   assert.equal(view.snapshot, true);
   assert.equal(view.price, 2606);
+  assert.equal(view.priceLabel, "At generation");
   assert.equal(view.tf.ms, 3_600_000);
   assert.equal(view.tf.label, "1h");
   assert.equal(view.timeKnown, false, "UTC on the current market never labels a saved feed clock");
@@ -83,4 +84,5 @@ test("malformed stored bars are discarded without altering valid OHLC or coercin
   assert.equal(view.bars[1].c, 2608);
   assert.equal(view.price, 2608, "only an actual saved close may stand in for a missing saved quote");
   assert.equal(view.priceFrom, "candle");
+  assert.equal(view.priceLabel, "Last saved close");
 });

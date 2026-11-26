@@ -432,3 +432,19 @@
   .om-snapshot-flow button > strong svg { width: 12px; }
   .om-market-snapshot .om-snapshot-actions > button { font-size: 12px; }
 }
+
+.om-simple-atlas, .om-market-snapshot {
+  --om-band-support: light-dark(#326d92, #94c7f8);
+  --om-band-resistance: light-dark(#8c5e20, #ecc588);
+}
+.om-atlas-band-meter {
+  --band-color: var(--om-band-support);
+  display: grid; gap: 10px; padding: 15px 17px; border-top: 1px solid var(--om-edge);
+}
+.om-atlas-band-meter[data-kind="resistance"] { --band-color: var(--om-band-resistance); }
+.om-atlas-band-meter strong { font-weight: 600; font-size: 14px; }
+.om-atlas-band-track { position: relative; height: 5px; margin: 3px 4px; background: color-mix(in srgb, var(--band-color) 38%, var(--om-surface)); border-radius: 8px; }
+.om-atlas-band-track i { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 10px; height: 10px; border-radius: 50%; background: var(--om-text); border: 2px solid var(--band-color); }
+.om-atlas-band-bounds { display: flex; justify-content: space-between; color: var(--band-color); font-variant-numeric: tabular-nums; font-size: 12px; }
+.om-market-snapshot .om-terminal-chart-legend i { border-color: var(--om-band-support); }
+.om-market-snapshot .om-terminal-chart-legend i[data-kind="resistance"] { border-color: var(--om-band-resistance); }

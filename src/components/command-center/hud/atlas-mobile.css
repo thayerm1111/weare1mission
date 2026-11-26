@@ -263,10 +263,10 @@
 }
 @media (max-width: 1279px) {
   .om-os-atlas .hud-root[data-experience] { padding-bottom: 12px; }
-  .om-os-atlas .hud-root .hud-talk.is-open { order: 0; height: clamp(360px, 65dvh, 580px); flex: none; }
+  .om-os-atlas .hud-root .hud-talk.is-open { order: 2; height: clamp(360px, 65dvh, 580px); flex: none; }
   .om-os-atlas .hud-root .atlas-chat-body input { font-size: 16px; }
   html.om-keyboard-open .om-os-atlas .hud-root .hud-talk.is-open { height: max(270px, calc(var(--om-viewport-height, 100dvh) - 68px)); }
 }
 @media (max-width: 767px) {
-  .om-os-atlas .hud-root .hud-talk.is-open { order: 2; margin-bottom: 14px; }
+  .om-os-atlas .hud-root .hud-talk.is-open { order: 4; margin-bottom: 14px; }
 }

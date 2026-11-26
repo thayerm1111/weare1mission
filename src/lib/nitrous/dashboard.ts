@@ -38,6 +38,19 @@ export function isObservedTrade(p: NitrousPosition, now: number): boolean {
   const at=Date.parse(p.liveObservedAt??"");
   return (p.status==="open"||p.status==="closing")&&positive(p.quantity)&&positive(p.entry)&&finite(now)&&now>0&&finite(at)&&now-at>=-5000&&now-at<=30000;
 }
+/** The latest reference trigger and a verified broker position are independent observations. */
+export function chartProgressStage(marketFresh: boolean, plan: NitrousScenario | null, chartPosition: NitrousPosition | null, accountNow: number) {
+  if (chartPosition) return isObservedTrade(chartPosition, accountNow) ? "Filled" : null;
+  if (!marketFresh) return null;
+  return plan?.state === "triggered" ? "Confirmed" : "Watching";
+}
+
+export function insideBothZones(zones: NitrousWatchLevel[], reference: number | null) {
+  if (!positive(reference)) return false;
+  const contains = (z: NitrousWatchLevel) => z.low <= reference && reference <= z.high;
+  return zones.some(z => z.role === "support" && contains(z)) && zones.some(z => z.role === "resistance" && contains(z));
+}
+
 /** Reference-only progress; neither a fill prediction nor a P&L calculation. */
 export function tradeProgress(p: NitrousPosition, reference: number|null) {
   if (!positive(reference)||!positive(p.entry)||!positive(p.target)) return null;

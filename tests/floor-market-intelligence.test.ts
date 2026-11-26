@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   floorMarketRead, marketPosition, ATLAS_FRAMES, buildAtlasMarketSnapshot, atlasMarketView,
-  type AtlasFrameId, type AtlasFrameInput,
+  type AtlasFrameId, type AtlasFrameInput, type AtlasPositionedZone,
 } from "../src/lib/floor/marketIntelligence";
+import { atlasChartFocus } from "../src/lib/floor/atlasChartFocus";
 import { createAtlasSnapshotFeed } from "../src/lib/floor/marketSnapshotFeed";
 import type { TimedBar } from "../src/lib/chart/candleTime";
 
@@ -343,4 +344,23 @@ test("a delayed provider response cannot advance the closed-candle cutoff past r
   assert.equal(snapshot.frames["5m"].closedAt,NOW);
   assert.equal(snapshot.frames["5m"].read.close,frameBars("5m").at(-1)!.c);
   assert.equal(atlasMarketView(snapshot,"5m",partial.c,clock).readiness.state,"awaiting_close");
+});
+
+
+test("the chart locates the quote inside the tested band's current role and keeps only nearby context", () => {
+  const tested: AtlasPositionedZone = {
+    id: "retest", timeframe: "5m", low: 99, high: 101, price: 100, origin: "resistance",
+    role: "testing", roleReversed: true, confirmedRole: true, label: "Former resistance",
+    firstAt: BASE, lastAt: BASE, confirmedAt: BASE, touches: 2, source: "Confirmed swing",
+  };
+  const near: AtlasPositionedZone = { ...tested, id: "near", low: 101.3, high: 101.5, price: 101.4, role: "resistance" };
+  const far: AtlasPositionedZone = { ...near, id: "far", low: 150, high: 151, price: 150.5 };
+  const candles = bars(20, () => 100);
+  const result = atlasChartFocus(tested, [far, near], 100.5, candles, true);
+  assert.deepEqual(result.meter, { low: 99, high: 101, role: "support", percent: 75 });
+  assert.deepEqual(result.zones, [{ low: 99, high: 101, kind: "support", label: "Support band" }]);
+  assert.deepEqual(result.levels.map(l => [l.kind, l.price]), [["support", 100], ["resistance", 101.3]]);
+  assert.deepEqual(atlasChartFocus(tested, [near], 100.5, candles, false), { levels: [], zones: [], meter: null });
+  assert.equal(atlasChartFocus(tested, [near], 101.1, candles, true).meter, null);
+  assert.equal(atlasChartFocus({ ...tested, low: 100, high: 100 }, [], 100, candles, true).meter, null);
 });

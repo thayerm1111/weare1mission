@@ -101,11 +101,6 @@
 .om-vision-level-pill{fill:#141821;stroke:var(--lvl);stroke-width:1}
 .om-vision-level-name,.om-vision-level-value{fill:#efeaf9;font-size:10px;font-weight:660}
 .om-vision-level-name{fill:var(--lvl);font-size:9px}
-.om-vision-projection{color:var(--om-vision-bull)}
-.om-vision-projection path{stroke:var(--om-vision-bull);filter:drop-shadow(0 0 5px rgba(101,227,190,.25))}
-.om-vision-projection circle{fill:#efeaff;stroke:#aa8aef;stroke-width:2}
-.om-vision-projection .om-vision-projection-halo{fill:none;stroke:rgba(185,145,255,.3);stroke-width:3}
-.om-vision-chart[data-direction="sell"] .om-vision-projection path{stroke:var(--om-vision-bear)}
 .om-vision-chart[data-direction="sell"] .om-vision-projection{color:var(--om-vision-bear)}
 .om-vision-live-price line{stroke:rgba(101,227,190,.36);stroke-dasharray:2 5;stroke-width:1}
 .om-vision-live-price circle{fill:#65e3be}
@@ -267,3 +262,15 @@
   .om-atlas-signal .om-vision-meta-name{font-size:17px}
   .om-atlas-signal .om-vision-heading strong{font-size:22px}
 }
+
+.om-chart-summary{margin:12px 0;padding:16px 18px;border:1px solid var(--om-edge);border-radius:15px;background:var(--om-surface)}
+.om-chart-summary header,.om-chart-distance-labels{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.om-chart-summary h3,.om-chart-summary p{margin:0}
+.om-chart-summary h3{font-size:.9375rem;font-weight:650;color:var(--om-text)}
+.om-chart-summary header span,.om-chart-distance-labels{color:var(--om-text-2);font-size:.8125rem;font-variant-numeric:tabular-nums}
+.om-signal-meter,.om-chart-distance-meter{display:flex;gap:4px;margin-top:12px}
+.om-signal-meter i,.om-chart-distance-meter i{display:block;height:6px;border-radius:4px;flex:1;background:var(--om-edge-2,var(--om-edge))}
+.om-signal-meter i[data-filled=true]{background:#d7b775}
+.om-chart-distance-meter [data-stop]{background:var(--om-neg,#e4a2b5)}
+.om-chart-distance-meter [data-target]{background:var(--om-pos,#8edcc3)}
+.om-chart-distance-labels{margin-top:8px;flex-wrap:wrap}

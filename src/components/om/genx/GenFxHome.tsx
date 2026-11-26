@@ -8,7 +8,7 @@ import { ProductIcon } from "@/components/om/ProductIcon";
 import { useExperienceMode } from "@/components/om/experience";
 import { genxChartView } from "@/lib/genx/chartView";
 import { actionWords } from "@/lib/genx/words";
-import { PAIRS, type PairKey } from "@/lib/genfx/pairs";
+import { PAIRS, pipsBetween, type PairKey } from "@/lib/genfx/pairs";
 import { setupQuery, type FloorMode } from "@/lib/floor/setupInstruments";
 import { setupView } from "@/lib/floor/overview";
 import { isOpen } from "@/lib/cashtrap/marketHours";
@@ -118,7 +118,8 @@ export function GenFxHome(p: GenFxHomeProps) {
   const simpleStory = isSimple ? genxMarketStory({
     market: instrument.name, action: read?.action, bias: seen?.directional_bias, entry: read?.entry,
     dec: instrument.dec, snapshot: chart.snapshot, closed, failed, loaded: !!current, stage: shared.stage,
-    bars: chart.bars, tfMs: chart.tf.ms, timeKnown: chart.timeKnown, asOf: current?.asOf, now,
+    bars: chart.bars, tfMs: chart.tf.ms, timeKnown: chart.timeKnown, asOf: current?.asOf, now, quote: chart.price, stop: read?.stop_loss,
+    distancePips: finite(chart.price) && finite(read?.entry) ? pipsBetween(instrument, chart.price, read.entry) : null,
   }) : null;
   const controls = <div className="om-genx-go">
         {isSimple ? <label className="om-simple-horizon"><span>Timeframe</span>
@@ -140,8 +141,8 @@ export function GenFxHome(p: GenFxHomeProps) {
       <strong>{pair.name}</strong><small>{pair.key === "EURUSD" ? "Euro / US dollar" : "British pound / Japanese yen"}</small>
     </button>)}</div>
     {p.error && <p className="om-flow-err" role="alert">{p.error}</p>}
-    {simpleStory ? <MarketStory {...simpleStory}/> :
-      <VisionDirection product="GenX FX" quoteSymbol={instrument.name} dec={instrument.dec} quote={chart.price} quoteLabel={chart.snapshot ? "AT GENERATION" : "MARKET READ"}
+    {simpleStory ? <MarketStory compact {...simpleStory}/> :
+      <VisionDirection product="GenX FX" quoteSymbol={instrument.name} dec={instrument.dec} quote={chart.price} quoteLabel={chart.priceLabel.toUpperCase()}
         bias={bias} status={p.saved ? "SAVED READ" : read ? "ANALYSIS SNAPSHOT" : failed ? "REFRESH NEEDED" : closed ? "MARKET CLOSED" : "MARKET CONTEXT"}
         tagline={read ? action?.waiting ? "ENTRY CONDITION STILL REQUIRED" : "REVIEW THE ENGINE’S LEVELS" : "CHOOSE A PAIR AND ANALYZE"}
         score={seen?.confidence_score} facts={facts}/>
@@ -150,6 +151,7 @@ export function GenFxHome(p: GenFxHomeProps) {
     <section className="om-panel om-genfx-chart" aria-label={instrument.name + " chart and entry levels"}>
       <div className="om-genfx-chart-head"><h2>{instrument.name} · {chart.tf.label} price action</h2><span>{chart.snapshot ? "Recorded " + when(readAt) : failed ? current ? "Refresh unavailable · last market read " + when(current.asOf) : "Market read unavailable" : "Last market read " + when(current?.asOf)}</span></div>
       {chart.bars.length >= 2 ? <div className="om-genfx-chart-canvas"><OmChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={chart.tf.ms} tfLabel={chart.tf.label}
+        framing={isSimple ? "setup" : "context"} priceLabel={chart.priceLabel}
         simpleView={isSimple} watchPrice={simpleStory?.watchPrice} price={chart.price} priceLive={false} snapshot={chart.snapshot} fitLevels={!!read} dec={instrument.dec} levels={displayLevels} zone={zone}
         labelStyle="backed" isOpenAt={fxOpen} viewKey={`${p.pair}:${chart.snapshot ? "read:" + readAt : "current"}:${chart.tf.interval}`}
         label={`${instrument.name} actual candles and ${reference ? "conditional reference" : "engine"} levels`}/></div> :

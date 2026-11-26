@@ -8,7 +8,7 @@ import { ACTIVE_TRADE_FRESH_MS, type ActiveTrade, type ActiveTradeScope, type Ac
 
 export type BrokerPosition = {
   id: string; instrumentId: string; symbol: string; side: "buy" | "sell"; qty: number;
-  entry: number | null; stop: number | null; target: number | null; stopKnown: boolean;
+  entry: number | null; stop: number | null; target: number | null; stopKnown: boolean; unrealizedPnl?: number;
 };
 export const positive = (value: unknown): number | null => {
   if (value == null || value === "" || typeof value === "boolean") return null;
@@ -51,11 +51,21 @@ export function parseOpenPositions(rows: unknown[], config: unknown, accountId: 
     let target = positive(f(["takeProfit", "takeProfitPrice", "tp"]));
     const tpId = id(f(["takeProfitId"]));
     if (!target && tpId && tpId !== "0" && orders) {
-      const tp = orders.find((o) => id(field(o, oc, ["id", "orderId"])) === tpId);
-      if (tp && ["limit", "takeprofit"].includes(String(field(tp, oc, ["type", "orderType"]) ?? "").toLowerCase().replace(/[ _-]/g, ""))) target = positive(field(tp, oc, ["price", "limitPrice"]));
+      const matching = orders.filter((order) => {
+        const read = (names: string[]) => field(order, oc, names);
+        const linkedPosition = id(read(["positionId", "positionID", "posId"]));
+        const orderType = id(read(["type", "orderType"])).toLowerCase().replace(/[ _-]/g, "");
+        const status = id(read(["status", "orderStatus"])).toLowerCase().replace(/[ _-]/g, "");
+        return id(read(["id", "orderId"])) === tpId && (!linkedPosition || linkedPosition === "0" || linkedPosition === pid)
+          && ["limit", "takeprofit"].includes(orderType) && ["new", "working", "open", "pending", "accepted", "partiallyfilled"].includes(status);
+      });
+      if (matching.length === 1) target = positive(field(matching[0], oc, ["price", "limitPrice"]));
     }
+    const rawPnl = f(["unrealizedPl", "unrealizedPnl", "unrealizedPnL", "upl"]);
+    const pnl = typeof rawPnl === "number" || typeof rawPnl === "string" && rawPnl.trim() ? Number(rawPnl) : NaN;
     return { id: pid, instrumentId, symbol: id(f(["symbol", "name"])), side: side as "buy" | "sell", qty,
-      entry: positive(f(["avgPrice", "openPrice", "entryPrice", "price"])), stop, target, stopKnown };
+      entry: positive(f(["avgPrice", "openPrice", "entryPrice", "price"])), stop, target, stopKnown,
+      ...(Number.isFinite(pnl) ? { unrealizedPnl: pnl } : {}) };
   });
 }
 

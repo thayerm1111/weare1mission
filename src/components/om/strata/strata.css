@@ -340,6 +340,16 @@
 .strata-simple-next{margin-top:14px;background:var(--om-page)}
 .strata-simple-next p{margin:0;font-size:14px;line-height:1.6}
 .strata-simple-next p+p{margin-top:8px}
+.strata-chart-structure{margin:12px 0;padding:12px 14px;border:1px solid var(--st-edge);border-radius:14px;background:var(--om-page)}
+.strata-chart-structure h3{margin:0 0 10px;color:var(--om-text-2);font-size:12px;font-weight:550}
+.strata-chart-structure ul{list-style:none;display:flex;gap:8px;margin:0;padding:0}
+.strata-chart-structure li{min-width:0;flex:1;display:flex;align-items:center;gap:6px}
+.strata-chart-structure li+li{border-inline-start:1px solid var(--st-edge);padding-inline-start:8px}
+.strata-chart-structure li>svg{width:14px;height:14px;color:var(--st-accent);flex-shrink:0}
+.strata-chart-structure strong,.strata-chart-structure small{display:block;font-variant-numeric:tabular-nums}
+.strata-chart-structure strong{font-size:12px;color:var(--om-text);line-height:1.4}
+.strata-chart-structure small{margin-top:2px;font-size:11px;color:var(--om-text-2)}
+@media(max-width:360px){.strata-chart-structure li{align-items:flex-start;flex-direction:column}}
 .strata-workstation[data-experience="simple"] .strata-vision-generate{font-size:16px!important;letter-spacing:0}
 .strata-workstation[data-experience="simple"] .strata-vision-result-note{font-size:12px;line-height:1.5}
 .strata-simple-paper{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:14px;padding:16px;border:1px solid var(--st-edge);border-radius:15px;background:var(--om-page)}

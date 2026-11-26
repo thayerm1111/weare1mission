@@ -5,11 +5,23 @@ const path = require("node:path");
 const vm = require("node:vm");
 const ts = require("typescript");
 const { generatePossibleEntry } = require("../src/lib/strata/generate.ts");
+const { priceStructure } = require("../src/components/om/strata/priceStructure.ts");
 
 const NOW = Date.parse("2026-11-25T16:04:00Z");
 const drain = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 const text = (tree) => Array.isArray(tree) ? tree.map(text).join("") : tree == null || typeof tree === "boolean" ? "" : typeof tree === "object" ? text(tree.props?.children) : String(tree);
 const nodes = (tree, predicate) => Array.isArray(tree) ? tree.flatMap((child) => nodes(child, predicate)) : !tree || typeof tree !== "object" ? [] : [...(predicate(tree) ? [tree] : []), ...nodes(tree.props?.children, predicate)];
+
+test("a Strata swing marker requires two confirming candles and a bounce headline requires a held recovery", () => {
+  const bars = [10, 9, 7, 8, 9, 10].map((low, i) => ({ t: NOW + i * 300_000, o: low + 1, c: low + 1.5, l: low, h: low + 2 }));
+  assert.equal(priceStructure(bars.slice(0, 4), "buy", 11), null);
+  const expected = { t: bars[2].t, price: 7, label: "Swing low" };
+  assert.deepEqual(priceStructure(bars, "buy", 11), { swing: expected, reaction: "Recovery" });
+  assert.deepEqual(priceStructure(bars, "buy", 8), { swing: expected, reaction: null });
+  assert.equal(priceStructure(bars, "sell", 11), null);
+  const broken = { ...bars.at(-1), t: NOW + bars.length * 300_000, l: 6 };
+  assert.equal(priceStructure([...bars, broken], "buy", 11).reaction, null);
+});
 
 function fixture(extra = {}) {
   const bars = Array.from({ length: 100 }, (_, i) => {
@@ -82,6 +94,7 @@ function harness(experience = "advanced") {
     if (name === "@/lib/atlas/open") return { openAtlas: (value) => atlas.push(value) };
     if (name === "@/lib/strata/generate") return { generatePossibleEntry };
     if (name === "./StrataChart") return { StrataChart: "StrataChart" };
+    if (name === "./priceStructure") return require("../src/components/om/strata/priceStructure.ts");
     if (name === "@/components/om/vision/VisionDirection") return { VisionDirection: "VisionDirection", VisionLevels: "VisionLevels" };
     if (name === "@/components/om/experience") return { useExperienceMode: () => ({ mode: experience, isSimple: experience === "simple" }) };
     if (name.endsWith(".css")) return {};

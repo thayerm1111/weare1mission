@@ -26,9 +26,9 @@ const phases = {
 const steps = ["looking", "forming", "review"] as const;
 
 /** A qualitative reading of the tool's own state. The stages do not represent probabilities. */
-export function MarketStory({ market, direction, stage, feed = "current", next, pausedNext, stamp, lean = false, className = "" }: {
+export function MarketStory({ market, direction, stage, feed = "current", next, pausedNext, stamp, lean = false, className = "", compact = false, headline: setupHeadline }: {
   market: string; direction: StoryDirection; stage: StoryStage; feed?: StoryFeed;
-  next: string; pausedNext?: string; stamp?: string; lean?: boolean; className?: string;
+  next: string; pausedNext?: string; stamp?: string; lean?: boolean; className?: string; compact?: boolean; headline?: string;
 }) {
   const known = feed === "current" || feed === "recorded";
   const shown = known ? direction : "unclear";
@@ -38,6 +38,11 @@ export function MarketStory({ market, direction, stage, feed = "current", next, 
   const phase = known ? phases[stage] : { label: "Paused", icon: Pause };
   const PhaseIcon = phase.icon;
   const follow = known ? next : pausedNext;
+  if (compact) return <section className={"om-chart-headline " + className} data-direction={shown} data-feed={feed} aria-label={market + " market story"}>
+    <span className="om-chart-headline-source">{market}{known && (stamp || feed === "recorded") ? " · " + (stamp || feedWord[feed]) : ""}</span>
+    <h2>{known ? setupHeadline || headline : feedWord[feed]}</h2>
+    {follow && <p>{follow}</p>}
+  </section>;
   return <section className={'om-market-story ' + className} data-direction={shown} data-feed={feed} aria-label={market + " market story"}>
     <div className="om-story-reading">
       <span className="om-story-direction-icon"><DirectionIcon aria-hidden="true" strokeWidth={2.2}/></span>

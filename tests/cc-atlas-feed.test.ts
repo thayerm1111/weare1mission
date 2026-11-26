@@ -493,6 +493,9 @@ test("the chart: the forming candle follows the ticks, and the basis label says 
     showOverlays: true, showLiquidity: true, tfLabel: "XAUUSD · 5m", activityLabel: "Activity",
   };
   const plain = renderToStaticMarkup(React.createElement(GoldChart, props));
+  const watch = { price: 4068.20, label: "Recorded watch level", color: "#b6a6ed" };
+  const framed = renderToStaticMarkup(React.createElement(GoldChart, { ...props, focused: true, lines: [watch] }));
+  assert.ok(framed.includes(watch.label), "Simple includes the actual watched level even outside the recent candle range");
   assert.ok(plain.includes("Twelve Data · XAU/USD composite (mid)"), "the basis is always said");
   assert.ok(!/\bLIVE\b/.test(plain), "without a feed state the chart claims nothing about being live");
   assert.ok(!plain.includes("Return to live"), "following the newest candle: no return button");

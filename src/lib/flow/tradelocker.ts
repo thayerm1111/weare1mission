@@ -18,6 +18,7 @@
  * Header on every /trade/* call: Authorization: Bearer <token>, accNum: <accNum>.
  */
 
+import { completedBrokerBars, FLOW_CHART_HISTORY_MS } from "./positionChart";
 import { AsyncLocalStorage } from "node:async_hooks";
 
 export type TLEnv = "demo" | "live";
@@ -385,6 +386,14 @@ export async function listInstruments(env: TLEnv, accessToken: string, accNum: s
     };
   }).filter((i) => i.tradableInstrumentId);
   return { ok: true, data: out };
+}
+
+/** Account-specific 5-minute candles from the broker's instrument information route. */
+export async function getPositionChartBars(env: TLEnv, accessToken: string, accNum: string, instrumentId: string, routeId: string, asOf: number) {
+  const qs = new URLSearchParams({ routeId, tradableInstrumentId: instrumentId, resolution: "5m", from: String(asOf - FLOW_CHART_HISTORY_MS), to: String(asOf) });
+  const { status, json } = await tlFetch(env, `/trade/history?${qs}`, { method: "GET", accessToken, accNum });
+  if (status < 200 || status >= 300 || brokerResponseError(json)) return [];
+  return completedBrokerBars(pick(pick(json, "d") ?? json, "barDetails"), asOf);
 }
 
 /** GET /trade/quotes — current bid/ask for a tradable instrument (INFO route). */

@@ -9,11 +9,12 @@ const price = (value: number | null | undefined, dec: number) => typeof value ==
   ? value.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec }) : "—";
 
 export function genxMarketStory({ market, action, bias, entry, dec, snapshot, closed, failed, loaded,
-  stage, bars, tfMs, timeKnown, asOf, now, scalp }: {
+  stage, bars, tfMs, timeKnown, asOf, now, scalp, quote, stop, distancePips }: {
   market: string; action?: string; bias?: string | null; entry?: number | null; dec: number;
   snapshot: boolean; closed: boolean; failed: boolean; loaded: boolean;
   stage?: "watching" | "forming" | "live" | null; bars: TimedBar[]; tfMs: number;
   timeKnown: boolean; asOf?: string | null; now: number; scalp?: "buy" | "sell";
+  quote?: number | null; stop?: number | null; distancePips?: number | null;
 }) {
   const candleRead = floorMarketRead(bars, tfMs, now, timeKnown);
   const candleAge = candleRead.candleAt == null ? null : now - candleRead.candleAt - tfMs;
@@ -49,7 +50,21 @@ export function genxMarketStory({ market, action, bias, entry, dec, snapshot, cl
       next = "See how price reacts near " + price(nearest, dec) + ".";
     }
   }
-  return { market, lean: biasDirection === "up" || biasDirection === "down", direction, stage: phase, feed, next, stamp: snapshot ? "At analysis" : undefined,
+  const side = scalp ?? signal.side;
+  let headline: string | undefined;
+  if (side && level && typeof entry === "number") {
+    const hasQuote = typeof quote === "number" && Number.isFinite(quote) && quote > 0;
+    const coherentStop = typeof stop === "number" && Number.isFinite(stop) && stop > 0 &&
+      (side === "buy" ? stop < entry : stop > entry);
+    const near = hasQuote && coherentStop && Math.abs(entry - quote) <= .25 * Math.abs(entry - stop);
+    headline = phase === "review" ? "Review the " + side + " setup." :
+      near ? market + " is near the " + side + " level." : "Watching for a " + side + " setup.";
+    if (signal.waiting && !scalp && hasQuote && typeof distancePips === "number" && Number.isFinite(distancePips)) {
+      next = distancePips === 0 ? "Price is at the watched entry. Confirmation is pending." :
+        "Watched entry is " + distancePips.toFixed(1) + " pips " + (entry > quote ? "above" : "below") + " the marked price.";
+    }
+  }
+  return { market, headline, lean: biasDirection === "up" || biasDirection === "down", direction, stage: phase, feed, next, stamp: snapshot ? "At analysis" : undefined,
     watchPrice: feed === "recorded" || feed === "current" ? watchPrice : null };
 }
 

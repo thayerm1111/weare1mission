@@ -1,5 +1,6 @@
 import { findAsset } from "@/data/signalAssets";
 import type { PulseSetup } from "@/components/om/pulse/PulseHome";
+import { readComparison } from "@/lib/pulse/comparison";
 import { scanMs } from "@/lib/pulse/scan";
 
 export type AtlasPulseResult = { setups: PulseSetup[]; asOf: string };
@@ -22,7 +23,9 @@ export function parseAtlasPulseResult(raw: unknown): AtlasPulseResult | null {
     if (s.entry != null && (!finite(s.entry) || s.entry <= 0) || s.stopLoss != null && (!finite(s.stopLoss) || s.stopLoss <= 0)) continue;
     if (s.takeProfits != null && (!Array.isArray(s.takeProfits) || s.takeProfits.length > 8 || s.takeProfits.some((n) => !finite(n) || n <= 0))) continue;
     if (s.riskReward != null && !text(s.riskReward, 80)) continue;
+    const comparison = readComparison(s.comparison, scanMs(raw.asOf));
     const row: PulseSetup = {
+      ...(comparison ? { comparison } : {}),
       td: s.td, symbol: s.symbol, name: s.name, dir: s.dir, price: s.price, confirmed: s.confirmed, total: s.total,
       checklist: s.checklist.map((c) => ({ label: c.label, ok: c.ok })), zone: s.zone, rsi: s.rsi as number | null,
       ...(finite(s.entry) ? { entry: s.entry } : {}), ...(finite(s.stopLoss) ? { stopLoss: s.stopLoss } : {}),

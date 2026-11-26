@@ -1,12 +1,11 @@
 "use client";
 
-import { MarketStory, storyDirection } from "../simple/MarketStory";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, ArrowDown, ArrowRight, ArrowUp, CheckCircle2, ChevronDown, Crosshair, Minus, Radio, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { OmChart } from "../chart/OmChart";
 import type { ChartLevel } from "@/lib/floor/chart";
 import type { NitrousAccount, NitrousAnalyze, NitrousMode, NitrousPosition, NitrousWatchLevel } from "@/lib/nitrous/types";
-import { isObservedTrade, tradeProgress } from "@/lib/nitrous/dashboard";
+import { chartProgressStage, insideBothZones, isObservedTrade, tradeProgress } from "@/lib/nitrous/dashboard";
 import { buildMarketStory, marketUpdate, rankedSetups, scanWaitMessage } from "@/lib/nitrous/market-story";
 import { elapsed, money, price, scenarioState } from "./presentation";
 import { sweepAccountMessage } from "./NitrousStrategyOptions";
@@ -85,14 +84,28 @@ export function NitrousMarketDesk({ data, loading, error, fresh, now, accountNow
       add("entry", plan.refEntry, plan.family === "sweep_reclaim" ? "Reclaim entry" : "Planned entry"); add("stop", plan.stop, "Plan stop"); add("target", plan.target, "Plan target");
       if (plan.family === "sweep_reclaim" && plan.sweepEvidence) add(plan.side === "buy" ? "support" : "resistance", plan.sweepEvidence.pivotPrice,
         `Swept swing ${plan.sweepEvidence.pivotKind}`);
-    } else for (const zone of story.zones) {
-      const inside = reference !== null && reference >= zone.low && reference <= zone.high;
-      add(zone.role, zone.role === "support" ? inside ? zone.low : zone.high : inside ? zone.high : zone.low,
-        inside ? zone.role === "support" ? "Demand floor" : "Supply ceiling" : zone.role === "support" ? "Support" : "Resistance");
+    }
+    const focusLevels = levels.filter(level => level.kind === "entry" || level.kind === "stop" || level.kind === "target");
+    const recentBars = data?.bars.slice(-24) ?? [];
+    const recentRange = recentBars.length ? Math.max(...recentBars.map(bar => bar.h)) - Math.min(...recentBars.map(bar => bar.l)) : 0;
+    const boundaryReach = Math.max(recentRange, (reference ?? 0) * 0.0004) * 1.5;
+    if (!chartPosition && !plan) {
+      for (const zone of story.zones) {
+        const inside = reference !== null && reference >= zone.low && reference <= zone.high;
+        const support = zone.role === "support";
+        const boundary = support ? (inside ? zone.low : zone.high) : (inside ? zone.high : zone.low);
+        const focusLabel = inside ? (support ? "Demand floor" : "Supply ceiling") : (support ? "Support" : "Resistance");
+        // A distant higher-timeframe boundary belongs in the full view. Its shading can still enter the close-up.
+        if (reference !== null && Math.abs(reference - boundary) <= boundaryReach) {
+          focusLevels.push({ kind: zone.role, price: boundary, label: focusLabel });
+        }
+        add(zone.role, zone.low, support ? "Demand floor" : "Supply base");
+        add(zone.role, zone.high, support ? "Demand top" : "Supply ceiling");
+      }
     }
     return {
       bars: data?.bars ?? [], timeKnown: true, tfMs: 300_000, tfLabel: "5m", price: reference, priceLive: false,
-      dec: 2, levels, snapshot: true, appearance: "nitrous" as const,
+      dec: 2, levels, focusLevels, snapshot: true, appearance: "nitrous" as const,
       levelColors: { support: "#82c8f6", resistance: "#e8bc7a" },
       zone: !chartPosition && plan ? { low: plan.entryBandLow, high: plan.entryBandHigh } : null,
       structureZones: chartPosition || plan ? [] : story.zones.map(zone => ({ low: zone.low, high: zone.high, kind: zone.role,
@@ -113,29 +126,21 @@ export function NitrousMarketDesk({ data, loading, error, fresh, now, accountNow
     nearPrice != null ? "Watch how gold reacts near " + price(nearPrice) + "." :
     plan || opportunity.zone ? "Watch for the entry signal in the marked area." : "Wait for a new gold setup.";
   const PlanSection = simple ? "details" : "section";
-  return <section className="nitrous-market nitrous-panel nt-desk nt-story-desk" aria-label={simple ? "Gold market" : undefined} aria-labelledby={simple ? undefined : "nitrous-market-title"} data-fresh={marketFresh}>
-    <header className="nt-market-header">
-      <div className="nt-market-price"><span className="nt-eyebrow">GOLD <span>/ XAUUSD</span></span>
-        <div><strong key={activity.movement?.key ?? "initial"} className="nt-reference-price" data-movement={marketFresh ? activity.movement?.direction : undefined}>{price(reference)}</strong><span className="nt-price-unit">USD</span></div>
-        <small>{marketFresh ? "1m reference close" : "Last reference close"} · {age(story.quoteAgeMs)}</small>
-      </div>
-      <div className="nt-refresh-state"><div><Pulse fresh={marketFresh} caption={marketFresh ? "AUTO-UPDATING" : loading && !data ? "CONNECTING" : "DATA DELAYED"}/><button type="button" className="nitrous-icon-button" onClick={onRefresh} disabled={loading} aria-label="Refresh market analysis"><RefreshCw size={17} className={loading ? "nitrous-spin" : ""}/></button></div><span>Analysis {age(story.analysisAgeMs).toLowerCase()}</span>{!simple && <small>Checks every 15 seconds</small>}</div>
-    </header>
-    {error && <p className="nt-feed-alert" role="alert">{error}</p>}
-    {simple ? <MarketStory market="Gold" direction={storyDirection(flow.find(item => item.timeframe.toUpperCase() === "5M")?.direction)}
-      stage={plan?.state === "triggered" || plan?.state === "armed" ? "review" : plan ? "forming" : "looking"}
-      feed={!data && loading ? "loading" : !data ? "unavailable" : !marketFresh || error ? "delayed" : "current"}
-      stamp={marketFresh ? "5-minute trend" : undefined} next={simpleNext}/> : <section className="nt-market-brief" aria-label="Current market explanation">
-      <span className="nt-eyebrow"><Activity size={14}/>{marketFresh ? "THE MARKET NOW" : "MARKET READ"}</span>
-      <h2 id="nitrous-market-title">{story.headline}</h2><p>{story.summary}</p>
-      <div className="nt-tf-strip" aria-label="Timeframe context">{["D", "4H", "1H", "15M", "5M"].map(label => {
-        const value = flow.find(item => item.timeframe.toUpperCase() === label);
-        const Icon = !marketFresh ? Minus : value?.direction === "up" ? ArrowUp : value?.direction === "down" ? ArrowDown : ArrowRight;
-        return <div key={label}><small>{label === "D" ? "Daily" : label}</small><b data-tone={marketFresh ? tone(value?.direction) : "neutral"}><Icon size={12}/>{marketFresh ? directionWord(value?.direction) : "—"}</b></div>;
-      })}</div>
-    </section>}
-    {open && <div className="nt-position-banner"><Zap size={17}/><span>{tradeLive ? "Open trade" : "Recorded position"}: <b>{open.side.toUpperCase()} XAUUSD</b> · {tradeLive ? "broker observed" : "awaiting broker refresh"}</span><a href="#nitrous-positions-title">View trade <ArrowRight size={14}/></a></div>}
-    <PlanSection className={simple ? "nt-next om-simple-fold" : "nt-next"} aria-labelledby="nitrous-next-title" data-kind={opportunity.kind}>
+  const stage = chartProgressStage(marketFresh, plan, chartPosition, accountNow);
+  const overlap = insideBothZones(story.zones, reference);
+  const simpleTitle = chartPosition ? (tradeLive ? "Your trade is open." : "Checking your position.")
+    : !marketFresh ? "Waiting for a fresh market read."
+    : plan?.state === "triggered" ? `The ${plan.side} setup is confirmed.`
+    : plan ? `Watching a possible ${plan.side}.`
+    : overlap ? "Two zones overlap here."
+    : opportunity.zone ? zoneLabel(opportunity.zone, reference) + "."
+    : "Looking for a gold setup.";
+  const simpleSummary = chartPosition ? (tradeLive ? "TradeLocker verified this position." : "Waiting for a fresh broker update.")
+    : !marketFresh ? "The chart shows the most recent available candles."
+    : plan?.state === "triggered" ? "The reference chart triggered. A fill needs broker confirmation."
+    : overlap && !plan ? `Gold is inside supply and demand. ${waitingFor ?? "Nitrous is watching for an entry."}`
+    : simpleNext;
+  const setupDetails = <PlanSection className={simple ? "nt-next om-simple-fold" : "nt-next"} aria-labelledby="nitrous-next-title" data-kind={opportunity.kind}>
       {simple && <summary>Setup details</summary>}
       <div className="nt-next-heading"><span className="nt-eyebrow"><Crosshair size={15}/>{opportunity.kind === "setup" ? "NEXT SETUP" : opportunity.kind === "watch" ? "NEXT AREA TO WATCH" : "NEXT SETUP"}</span><span className="nt-condition-badge">{opportunity.status}</span></div>
       <h3 id="nitrous-next-title">{opportunity.title}</h3>
@@ -145,17 +150,43 @@ export function NitrousMarketDesk({ data, loading, error, fresh, now, accountNow
       <div className="nt-confirmation"><span className="nt-step-icon"><Activity size={17}/></span><div><strong>{plan?.state === "triggered" ? "Execution status" : plan?.state === "armed" ? "What happens next" : opportunity.kind === "setup" ? "What confirms the entry" : opportunity.kind === "watch" ? "What Nitrous needs next" : "What happens next"}</strong><p>{opportunity.trigger}</p></div></div>
       {plan && <div className="nt-plan-facts"><div><small>Planned stop</small><b>{price(opportunity.stop)}</b></div><div><small>Planned target</small><b>{price(opportunity.target)}</b></div><div><small>Valid until</small><b>{new Date(plan.expiresAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</b></div>{opportunity.invalidationText && <p>{opportunity.invalidationText}</p>}</div>}
       {availableScenarios.length > 1 && <div className="nitrous-setup-picker" role="group" aria-label="Current engine setups">{availableScenarios.map(item => <button key={item.setupId} type="button" aria-pressed={item.setupId === plan?.setupId} onClick={() => { setChosenId(item.setupId); setChartView("setup"); }}>{item.side.toUpperCase()} · {familyName(item.family)}</button>)}</div>}
-    </PlanSection>
-    {simple && plan?.family === "sweep_reclaim" && <p className="nt-detail-note" role="status">{sweepAccountMessage(account, accountNow > 0)}</p>}
+    </PlanSection>;
+  return <section className="nitrous-market nitrous-panel nt-desk nt-story-desk" aria-labelledby="nitrous-market-title" data-fresh={marketFresh} data-view={simple ? "simple" : "advanced"}>
+    {!simple && <header className="nt-market-header">
+      <div className="nt-market-price"><span className="nt-eyebrow">GOLD <span>/ XAUUSD</span></span>
+        <div><strong key={activity.movement?.key ?? "initial"} className="nt-reference-price" data-movement={marketFresh ? activity.movement?.direction : undefined}>{price(reference)}</strong><span className="nt-price-unit">USD</span></div>
+        <small>{marketFresh ? "1m reference close" : "Last reference close"} · {age(story.quoteAgeMs)}</small>
+      </div>
+      <div className="nt-refresh-state"><div><Pulse fresh={marketFresh} caption={marketFresh ? "AUTO-UPDATING" : loading && !data ? "CONNECTING" : "DATA DELAYED"}/><button type="button" className="nitrous-icon-button" onClick={onRefresh} disabled={loading} aria-label="Refresh market analysis"><RefreshCw size={17} className={loading ? "nitrous-spin" : ""}/></button></div><span>Analysis {age(story.analysisAgeMs).toLowerCase()}</span>{!simple && <small>Checks every 15 seconds</small>}</div>
+    </header>}
+    {error && <p className="nt-feed-alert" role="alert">{error}</p>}
+    {simple ? <header className="nt-focus-brief">
+      <h2 id="nitrous-market-title">{simpleTitle}</h2><p>{simpleSummary}</p>
+    </header> : <section className="nt-market-brief" aria-label="Current market explanation">
+      <span className="nt-eyebrow"><Activity size={14}/>{marketFresh ? "THE MARKET NOW" : "MARKET READ"}</span>
+      <h2 id="nitrous-market-title">{story.headline}</h2><p>{story.summary}</p>
+      <div className="nt-tf-strip" aria-label="Timeframe context">{["D", "4H", "1H", "15M", "5M"].map(label => {
+        const value = flow.find(item => item.timeframe.toUpperCase() === label);
+        const Icon = !marketFresh ? Minus : value?.direction === "up" ? ArrowUp : value?.direction === "down" ? ArrowDown : ArrowRight;
+        return <div key={label}><small>{label === "D" ? "Daily" : label}</small><b data-tone={marketFresh ? tone(value?.direction) : "neutral"}><Icon size={12}/>{marketFresh ? directionWord(value?.direction) : "—"}</b></div>;
+      })}</div>
+    </section>}
+    {open && !simple && <div className="nt-position-banner"><Zap size={17}/><span>{tradeLive ? "Open trade" : "Recorded position"}: <b>{open.side.toUpperCase()} XAUUSD</b> · {tradeLive ? "broker observed" : "awaiting broker refresh"}</span><a href="#nitrous-positions-title">View trade <ArrowRight size={14}/></a></div>}
+    {!simple && setupDetails}
     {!simple && story.zones.length > 0 && !plan && <div className="nt-location-map" aria-label="Nearby market levels">{story.zones.map(zone => <div key={`${zone.role}:${zone.low}:${zone.high}`}><span><i data-role={zone.role}/>{zoneLabel(zone, reference)} <small>{tfName(zone.origin)}</small></span><strong>{price(zone.low)} – {price(zone.high)}</strong></div>)}</div>}
     <section className="nt-chart-card" aria-label="Gold market chart">
-      <div className="nt-chart-toolbar"><h3><Activity size={17}/>{chartPosition ? "Your trade on the chart" : "The market map"}</h3><span>5 minute candles</span></div>
+      <div className="nt-chart-toolbar"><h3><Activity size={17}/>Gold <small>XAU/USD</small></h3>
+        {simple ? <button className="nitrous-icon-button nt-focus-refresh" type="button" onClick={onRefresh} disabled={loading} aria-label="Refresh gold chart">
+          <RefreshCw size={16} className={loading ? "nitrous-spin" : ""}/></button> : <span>5 minute candles</span>}
+      </div>
       {open && <div className="nt-chart-views" role="group" aria-label="Chart levels"><button type="button" aria-pressed={!!chartPosition} onClick={() => setChartView("trade")}>Open trade</button><button type="button" aria-pressed={!chartPosition} disabled={!marketFresh || (!plan && !story.zones.length)} onClick={() => setChartView("setup")}>{plan ? "Next setup" : "Watch areas"}</button></div>}
-      {data?.bars.length ? <div className="nitrous-chart nt-chart"><OmChart {...chart} simpleView={simple && !chartPosition} watchPrice={marketFresh && !error ? nearPrice ?? plan?.refEntry : null}/></div> : <div className="nitrous-chart-empty"><Activity size={28}/><strong>{loading ? "Loading gold candles…" : "Waiting for market data"}</strong><span>{data?.reason ?? "The chart appears with the next market read."}</span></div>}
-      <div className="nt-chart-explainer"><span><i/>{chartPosition ? "Your recorded trade levels" : simple ? "Market price history" : plan ? "Shaded band = planned entry area" : story.zones.length ? "Shaded bands = observed supply / demand" : "No nearby validated zone in this read"}</span><small>Completed candles · reference feed</small></div>
+      {data?.bars.length ? <div className="nitrous-chart nt-chart"><OmChart {...chart} framing={simple ? "setup" : "context"} priceLabel={marketFresh ? "1m reference close" : "Last reference close"}/></div> : <div className="nitrous-chart-empty"><Activity size={28}/><strong>{loading ? "Loading gold candles…" : "Waiting for market data"}</strong><span>{data?.reason ?? "The chart appears with the next market read."}</span></div>}
+      <div className="nt-chart-explainer"><span><i/>{chartPosition ? "Recorded trade levels" : plan ? "Planned entry area" : story.zones.length ? "Supply / demand" : "Gold price history"}</span><small>{marketFresh ? "Reference" : "Last reference"} · {age(story.quoteAgeMs)}</small></div>
     </section>
     {!simple && marketFresh && activity.events.length > 0 && <section className="nt-market-activity" aria-label="Recent observed market change"><Radio size={16}/><div><small>LATEST CHANGE · {elapsed(activity.events[0].at, now)}</small><p role="status">{activity.events[0].text}</p></div></section>}
-    <NitrousLiveTrades account={account} accountNow={accountNow} referencePrice={marketFresh ? reference : null} referenceAt={data?.asOf ?? null} now={now} simple={simple} busy={busy} onClose={onClose} embedded/>
+    <NitrousLiveTrades account={account} accountNow={accountNow} referencePrice={marketFresh ? reference : null} referenceAt={data?.asOf ?? null} now={now} simple={simple} busy={busy} onClose={onClose} embedded chartStage={stage}/>
+    {simple && plan?.family === "sweep_reclaim" && <p className="nt-detail-note" role="status">{sweepAccountMessage(account, accountNow > 0)}</p>}
+    {simple && setupDetails}
     {!simple && <details className="nt-details"><summary>Why Nitrous is waiting <ChevronDown size={16}/></summary>
       {plan && <div className="nt-raw"><strong>{familyName(plan.family)} · {plan.family === "sweep_reclaim" && plan.state === "armed" ? "Waiting for broker entry checks" : scenarioState(plan.state)}</strong>{plan.conditionsMet.filter(condition => typeof condition === "string" && !/no extra rejection candle required/i.test(condition)).map((condition, index) => <p className="nt-met-condition" key={`met:${index}`}><CheckCircle2 size={14}/>{condition}</p>)}{plan.conditionsPending.map((condition, index) => <p key={`pending:${index}`}>{condition}</p>)}</div>}
       {checks.length > 0 && <div className="nt-funnel"><small>{fastScan ? "Fast scanner" : "Baseline scanner"} · reasons candidates were filtered in this read</small>{checks.map(check => <div key={check.code}><span>{checkName(check.code)}</span><b>{check.count}</b></div>)}<p className="nt-detail-note">These counts cover all candidates; they are not a checklist for the selected area.</p></div>}
@@ -165,16 +196,23 @@ export function NitrousMarketDesk({ data, loading, error, fresh, now, accountNow
     </details>}
   </section>;
 }
-export function NitrousLiveTrades({account,accountNow,referencePrice,referenceAt,now,simple,busy,onClose,embedded=false}:{
-  account:NitrousAccount|null;embedded?:boolean;accountNow:number;referencePrice:number|null;referenceAt:string|null;now:number;simple:boolean;busy:boolean;onClose:(p:NitrousPosition)=>void;
+export function NitrousLiveTrades({account,accountNow,referencePrice,referenceAt,now,simple,busy,onClose,embedded=false,chartStage}:{
+  account:NitrousAccount|null;embedded?:boolean;chartStage?:ReturnType<typeof chartProgressStage>;accountNow:number;referencePrice:number|null;referenceAt:string|null;now:number;simple:boolean;busy:boolean;onClose:(p:NitrousPosition)=>void;
 }) {
   const emptyTitle=!account?"Connect an account":!accountNow?"Checking account":"No active trade";
   const entryCheck = accountNow && account?.automationEnabled && !account.blockers.length ? account.lastEntryCheck : null;
   const emptyText = !account ? "TradeLocker controls below." : !accountNow ? "Awaiting account refresh."
     : !account.automationEnabled ? "Auto trading is paused." : account.blockers[0] ?? entryCheck?.reason ?? "Watching for entry.";
-  return <section className={`nt-trades ${embedded?"nt-tile nt-trade-embedded":"nitrous-positions nitrous-panel"}`} aria-labelledby="nitrous-positions-title">
-    <div className="nt-trades-title"><h3 id="nitrous-positions-title"><Zap size={17}/>Live trade</h3><Pulse fresh={!!accountNow&&!!account?.positions.some(p=>isObservedTrade(p,accountNow))} caption={account?.masked??""}/></div>
-    {!account||!account.positions.length?<div className="nt-empty-trade"><Crosshair size={28}/><strong>{emptyTitle}</strong><p>{entryCheck && <small className="nt-last-check">Last recorded entry check · <time dateTime={entryCheck.at}>{elapsed(entryCheck.at, accountNow)}</time></small>}{emptyText}</p><div className="nt-empty-metrics">{["Entry","SL","TP","P&L"].map(label=><div key={label}><small>{label}</small><b>—</b></div>)}</div></div>:<div className="nt-trade-list">{account.positions.map(p=>{
+  return <section data-simple={simple} className={`nt-trades ${embedded?"nt-tile nt-trade-embedded":"nitrous-positions nitrous-panel"}`} aria-labelledby="nitrous-positions-title">
+    <div className="nt-trades-title"><h3 id="nitrous-positions-title"><Zap size={17}/>{simple && embedded ? "Automation" : "Live trade"}</h3>
+      {simple && embedded && !account?.positions.length ? <span className="nt-account-caption">{emptyTitle}</span> : <Pulse fresh={!!accountNow&&!!account?.positions.some(p=>isObservedTrade(p,accountNow))} caption={account?.masked??""}/>}
+    </div>
+    {embedded && <ol className="nt-progress-steps" aria-label="Chart and broker progress">
+      {(["Watching","Confirmed","Filled"] as const).map(label => <li key={label} aria-current={chartStage === label ? "step" : undefined}>
+        <span aria-hidden="true"/>{label}
+      </li>)}
+    </ol>}
+    {!account||!account.positions.length?<div className="nt-empty-trade">{(!simple || !embedded) && <><Crosshair size={28}/><strong>{emptyTitle}</strong></>}<p>{entryCheck && <small className="nt-last-check">Last recorded entry check · <time dateTime={entryCheck.at}>{elapsed(entryCheck.at, accountNow)}</time></small>}{emptyText}</p>{!simple && <div className="nt-empty-metrics">{["Entry","SL","TP","P&L"].map(label=><div key={label}><small>{label}</small><b>—</b></div>)}</div>}</div>:<div className="nt-trade-list">{account.positions.map(p=>{
       const live=isObservedTrade(p,accountNow);
       const pnl=live&&typeof p.unrealizedPnl==="number"&&Number.isFinite(p.unrealizedPnl)?p.unrealizedPnl:null;
       const progress=live?tradeProgress(p,referencePrice):null;

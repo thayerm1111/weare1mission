@@ -31,3 +31,12 @@
  .om-pulsews[data-experience="simple"] .om-pulse-levels .om-levels{grid-template-columns:repeat(2,minmax(0,1fr))}
  .om-pulsews[data-experience="simple"] .om-pulse-levels .om-levels>div:last-child{grid-column:1/-1}
 }
+.om-pulse-window{margin:0 0 12px}
+.om-pulse-move{display:inline-grid;min-width:54px;max-width:76px;width:100%;justify-items:end;align-content:center;vertical-align:middle;color:var(--om-text-2);font-variant-numeric:tabular-nums}
+.om-pulse-move[data-trend="up"]{color:var(--om-pos)}
+.om-pulse-move[data-trend="down"]{color:var(--om-neg)}
+.om-pulse-move svg{width:100%;height:27px}
+.om-pulse-move small{font-size:12px}
+.om-pulsews .om-pulse-mobile-markets[data-comparison] button{grid-template-columns:20px minmax(55px,1fr) auto minmax(55px,76px);gap:8px}
+.om-pulse-mobile-markets[data-comparison] button>svg:last-child{display:none}
+@media(min-width:981px){.om-pulsews[data-experience="simple"] .om-pulse-grid{grid-template-columns:minmax(320px,1fr) minmax(0,1.5fr)}}

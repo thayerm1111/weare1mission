@@ -29,7 +29,7 @@ export type ChartBar = {
   partialOpen?: boolean;
 };
 export type ChartMarker = { at: number; price: number | null; label: string; tone: "up" | "down" | "gold" | "cold" };
-export type ChartZone = { from: number; to: number; label: string; tone: "supply" | "demand" | "target" };
+export type ChartZone = { from: number; to: number; label: string; tone: "supply" | "demand" | "target" | "watch" };
 export type ChartLine = { price: number; label: string; color: string; dashed?: boolean; tag?: boolean };
 /** A level ATLAS may point at, identified by levelIdOf(kind, price) — the same list the live read sends. */
 export type ChartLevel = { kind: string; price: number; label: string };
@@ -147,7 +147,7 @@ export function ScenarioOverlay({ scenario, x0, x1, fromX, fromY, y, priceH, com
 
 export function GoldChart({
   bars: serverBars, price, markers, zones, lines, path, pathLabel, showOverlays, showLiquidity, tfLabel, activityLabel,
-  tf: tfProp, ticks, barsAsOf, feed, levels, scenarios, drawMode = false, onDrew, onAsk, ownClear = true,
+  tf: tfProp, ticks, barsAsOf, feed, levels, scenarios, drawMode = false, onDrew, onAsk, ownClear = true, focused = false,
 }: {
   bars: ChartBar[]; price: number | null; markers: ChartMarker[]; zones: ChartZone[]; lines: ChartLine[];
   path: number[] | null; pathLabel: string; showOverlays: boolean; showLiquidity: boolean; tfLabel: string; activityLabel: string;
@@ -170,6 +170,8 @@ export function GoldChart({
   onAsk?: (question: string) => void;
   /** The chart's own "clear" button. Off where the screen has its own control for it (the desk's ATLAS row). */
   ownClear?: boolean;
+  /** Start close to the latest setup and follow the subject of the current explanation. */
+  focused?: boolean;
 }) {
   /** Only a timeframe the chart knows the length of; anything else (the screen's disabled 1m) folds no ticks. */
   const tf: ChartTf | undefined = tfProp && Object.prototype.hasOwnProperty.call(TF_MS, tfProp) ? tfProp : undefined;
@@ -201,7 +203,7 @@ export function GoldChart({
 
   useEffect(() => {
     const el = wrap.current; if (!el) return;
-    const ro = new ResizeObserver(([e]) => setSz({ w: Math.max(320, e.contentRect.width), h: Math.max(220, e.contentRect.height) }));
+    const ro = new ResizeObserver(([e]) => setSz({ w: Math.max(200, e.contentRect.width), h: Math.max(155, e.contentRect.height) }));
     ro.observe(el); return () => ro.disconnect();
   }, []);
 
@@ -238,10 +240,12 @@ export function GoldChart({
   const marks = actions.marks.filter((m) => m.tf === tf);
   const notes = markNotes(actions, tf, (t) => new Date(t).toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }));
   // A conditional path is only ever a real scenario, by its ID: from a card, or from the answer being explained.
-  const explainedScenario = ex.shown.find((x) => x.ann.kind === "scenario")?.ann;
+  const activeNarration = (ex.status === "showing" || ex.status === "explaining") && ex.shown.some(x => x.active);
+  const shown = focused && activeNarration ? ex.shown.filter(x => x.active) : ex.shown;
+  const explainedScenario = shown.find((x) => x.ann.kind === "scenario")?.ann;
   const scenarioId = actions.scenarioId ?? (explainedScenario?.kind === "scenario" ? explainedScenario.scenarioId : null);
   const scenario = scenarioId ? (scenarios ?? []).find((s) => s.id === scenarioId) ?? null : null;
-  const exNotes = annotationNotes(ex.shown, tf);
+  const exNotes = annotationNotes(shown, tf);
   const hasActions = highlights.length > 0 || actions.zones.length > 0 || marks.length > 0 || notes.length > 0 || !!scenario || ex.shown.length > 0;
 
   const compact = sz.w < 560;               // phones: fewer words, same information
@@ -256,10 +260,9 @@ export function GoldChart({
   const actionPrices = [
     ...highlights.map((h) => h.price), ...actions.zones.flatMap((z) => [z.from, z.to]),
     ...(scenario ? [scenario.trigger.price, scenario.invalidation.price].filter((p): p is number => p != null) : []),
-    // What ATLAS is discussing right now stays inside the price scale.
-    ...annotationPrices(ex.shown),
   ];
 
+  const narratedPrices = annotationPrices(shown);
   const view = useMemo(() => {
     const n = bars.length;
     if (!n) return null;
@@ -271,7 +274,7 @@ export function GoldChart({
     // more clearly … just change the starting point"): the automatic view on a small screen is the newest
     // PHONE_BARS candles, not the whole series. Same data; pinch / drag / Reset all work as before, and
     // Reset returns here.
-    const autoSpan = compact ? Math.min(n, PHONE_BARS) : n;
+    const autoSpan = compact ? Math.min(n, PHONE_BARS) : focused ? Math.min(n, 28) : n;
     const { span, end, iL } = timeWindow(bars, vp, autoSpan);
     const bw = usable / span;
     const x = (i: number) => (i - iL + 0.5) * bw;
@@ -290,6 +293,12 @@ export function GoldChart({
     const ref = vp.follow || end >= n - 1 ? bars[n - 1].c : (lo + hi) / 2, base = Math.max(hi - lo, 0.5);
     const extra = [...(showPath ? (path ?? []) : []), ...lines.map((l) => l.price), ...(showLiquidity ? zones.flatMap((z) => [z.from, z.to]) : []), ...actionPrices]
       .filter((p) => Number.isFinite(p) && Math.abs(p - ref) < base * 0.9);
+    // A validated level Atlas is explaining must fit even when a distant level is the subject.
+    // Keep a member's manual price stretch or historical viewport intact.
+    if ((vp.follow || autoFocused.current) && vp.pz === 1 && vp.pOff === 0) {
+      const mainPrices = focused && narratedPrices.length === 0 ? lines.map(l => l.price) : [];
+      extra.push(...[...narratedPrices, ...mainPrices].filter(p => Number.isFinite(p) && p > 0));
+    }
     for (const p of extra) { if (p < lo) lo = p; if (p > hi) hi = p; }
     const mid = (lo + hi) / 2, half = (Math.max(hi - lo, 0.5) / 2) * 1.07 / Math.max(0.05, vp.pz);
     // The top TOP_BAND pixels are headroom for the readout: the fitted range maps below it.
@@ -305,7 +314,7 @@ export function GoldChart({
     const idxAt = (t: number) => { let best = -1, d = Infinity; bars.forEach((b, i) => { const dd = Math.abs(b.t - t); if (dd < d) { d = dd; best = i; } }); return best; };
     return { n, bw, iL, end, span, usable, futurePx, pLo, pHi, y, x, vmax, hasVol, ticks: ticksY, idxAt, i0, i1, seen, pricePerPx: (pHi - pLo) / Math.max(1, priceH) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bars, plotW, priceH, path, lines, zones, showOverlays, showLiquidity, vp, compact, showPath, scenario, actionPrices.join(","), TOP_BAND]);
+  }, [bars, plotW, priceH, path, lines, zones, showOverlays, showLiquidity, vp, compact, showPath, scenario, actionPrices.join(","), narratedPrices.join(","), focused, TOP_BAND]);
 
   /* Gesture maths reads this rather than a stale closure. */
   const st = useRef({ n: 0, bw: 1, iL: 0, end: 0, span: 0, usable: 1, plotW: 1, pricePerPx: 1 });
@@ -410,7 +419,7 @@ export function GoldChart({
 
   /* ATLAS FOCUSES THE VIEW on the candle it is discussing when that candle is off screen — and hands the view
      back (to live) when it has finished, unless the member moved it in the meantime. */
-  const focusI = focusIndex(ex.shown, bars, tf);
+  const focusI = focusIndex(shown, bars, tf);
   useEffect(() => {
     const s = st.current;
     if (focusI == null || !s.n) return;
@@ -464,7 +473,7 @@ export function GoldChart({
   const noPan = (e: React.PointerEvent) => e.stopPropagation();
 
   if (!view) {
-    return <div ref={wrap} className="grid h-full w-full place-items-center text-[12px]" style={{ color: H.mut }}>Waiting for candles from the feed…</div>;
+    return <div className="flex h-full min-h-0 w-full flex-col"><div ref={wrap} className="grid min-h-0 flex-1 place-items-center text-[12px]" style={{ color: H.mut }}>Waiting for candles from the feed…</div></div>;
   }
   const { n, bw, y, x, vmax, hasVol, ticks: priceTicks, idxAt, i0, i1, seen } = view;
   const last = bars[n - 1];
@@ -526,7 +535,8 @@ export function GoldChart({
   }
 
   return (
-    <div ref={wrap} className="relative h-full w-full select-none"
+    <div className="flex h-full min-h-0 w-full flex-col">
+    <div ref={wrap} className="relative min-h-0 w-full flex-1 select-none"
       style={{ touchAction: "none", cursor: drag.current?.moved ? "grabbing" : drawMode ? "copy" : "crosshair" }}
       onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
       onPointerLeave={() => { setHoverT(null); setHoverY(null); }}
@@ -584,14 +594,6 @@ export function GoldChart({
         </div>
       )}
 
-      {/* what ATLAS is saying about the chart right now, and when that briefing was true */}
-      <ExplainCaption ex={ex} price={lastPx} top={priceH + 3} compact={compact}
-        onStop={() => {
-          // While ATLAS is speaking this is STOP; afterwards it only puts the chart at rest (the evidence stays).
-          if (ex.status === "explaining") { window.dispatchEvent(new CustomEvent("cc:stop-speaking")); explainBus.cancelCurrent(); }
-          else explainBus.rest();
-        }} />
-
       {/* the member is placing their own line */}
       {drawMode && (
         <div className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2 rounded-[6px] px-2 py-[3px] text-[10px] font-semibold" data-draw-hint=""
@@ -602,7 +604,7 @@ export function GoldChart({
 
       {/* tap an ATLAS annotation: ask about it, or remove it */}
       {picked && (() => {
-        const hit = ex.shown.find((x) => x.ann.id === picked.id);
+        const hit = shown.find((x) => x.ann.id === picked.id);
         return hit ? (
           <AnnotationMenu ann={hit.ann} at={picked} plotW={plotW} priceH={priceH}
             onAsk={(q) => onAsk?.(q)} onRemove={() => explainBus.remove(hit.ann.id)} onClose={() => setPicked(null)} />
@@ -828,7 +830,7 @@ export function GoldChart({
         <UserLineLayer lines={userLines} y={y} plotW={plotW} priceH={priceH} axis={AXIS} compact={compact} noPan={noPan} onRemove={(id) => userDrawings.remove(id)} />
 
         {/* ATLAS: what it is pointing at as it explains — real levels, zones, candles and swings only */}
-        <AnnotationLayer shown={ex.shown} bars={bars} tf={tf} x={x} y={y} plotW={plotW} priceH={priceH} axis={AXIS} bw={bw} lastPx={lastPx}
+        <AnnotationLayer shown={shown} bars={bars} tf={tf} x={x} y={y} plotW={plotW} priceH={priceH} axis={AXIS} bw={bw} lastPx={lastPx}
           compact={compact} top={TOP_BAND} picked={picked?.id ?? null} noPan={noPan} onPick={(id, at) => setPicked((p) => (p?.id === id ? null : { id, ...at }))}
           scenario={scenario ? { trigger: scenario.trigger.price, invalidation: scenario.invalidation.price } : null} />
 
@@ -885,6 +887,14 @@ export function GoldChart({
           </g>
         )}
       </svg>
+    </div>
+      {/* what ATLAS is saying about the chart right now, and when that briefing was true */}
+      <ExplainCaption ex={ex} price={lastPx} compact={compact}
+        onStop={() => {
+          // While ATLAS is speaking this is STOP; afterwards it only puts the chart at rest (the evidence stays).
+          if (ex.status === "explaining") { window.dispatchEvent(new CustomEvent("cc:stop-speaking")); explainBus.cancelCurrent(); }
+          else explainBus.rest();
+        }} />
     </div>
   );
 }
