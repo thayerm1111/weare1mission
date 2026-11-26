@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NitrousAccount, NitrousPosition, NitrousStats, NitrousStatus } from "./types";
 import { finiteNumber, freshAt, hasFastConsent, hasSweepConsent, isNitrousMode, NITROUS_CONSENT_VERSION, NITROUS_PROFILES, profileFor, readinessBlockers, WORKER_FRESH_MS } from "./policy";
-import { readNitrousTelegramPublicState } from "../nitrous-telegram-store";
+import { nitrousTelegramPublicState, readNitrousTelegramPublicState } from "../nitrous-telegram-store";
 import { getNitrousAddonAccess } from "./addon";
 import type { NitrousAddonAccess } from "./addon-policy";
 
@@ -118,10 +118,11 @@ export async function getNitrousStatus(admin: SupabaseClient, userId: string, me
       positions: ((positions.data ?? []) as Array<Record<string, unknown>>).filter((p) => p.account_id === a.id).map(posView),
     };
   });
+  const telegram = membershipActive && addon.entitled ? telegramResult : nitrousTelegramPublicState(null, false);
   return { available: true, serverTime: new Date(now).toISOString(), accounts, addon,
     worker: { healthy: workerHealthy, lastBeatAt: workerAt, ageMs: workerAt ? Math.max(0, now - Date.parse(workerAt)) : null },
     control: { mode: String(control?.mode ?? "off"), entriesPaused: control?.entries_paused !== false,
       pauseReason: typeof control?.pause_reason === "string" ? control.pause_reason : null },
-    telegram: { configured: addon.entitled && telegramResult.configured && telegramResult.status === "ready", url: addon.entitled ? telegramResult.url : null, name: telegramResult.title ?? "One Mission Nitrous" },
+    telegram: { ...telegram, name: telegram.title ?? "One Mission Nitrous" },
     profiles: NITROUS_PROFILES, consentVersion: NITROUS_CONSENT_VERSION };
 }

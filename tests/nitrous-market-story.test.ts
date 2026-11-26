@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildMarketStory, marketAge, marketUpdate, rankedSetups, watchBoundary } from "../src/lib/nitrous/market-story";
+import { buildMarketStory, marketAge, marketUpdate, rankedSetups, scanWaitMessage, watchBoundary } from "../src/lib/nitrous/market-story";
 import type { NitrousAnalyze, NitrousScenario, NitrousWatchLevel } from "../src/lib/nitrous/types";
 
 const NOW = Date.parse("2026-11-26T03:00:00Z");
@@ -24,6 +24,13 @@ const buy = (over: Partial<NitrousScenario> = {}): NitrousScenario => ({
 });
 const sell = (over: Partial<NitrousScenario> = {}): NitrousScenario => buy({ setupId: "sell", side: "sell", entryBandLow:3595, entryBandHigh:3596,
   refEntry:3595.5, stop:3601, invalidation:3600, target:3583, ...over });
+
+test("the simple waiting message uses an observed check and allows older snapshots with no checks", () => {
+  assert.equal(scanWaitMessage([], []), null);
+  assert.equal(scanWaitMessage([{code:"no_zone",count:0}], []), null);
+  assert.match(scanWaitMessage([{code:"regime_conflict",count:2}], [{code:"no_reclaim",count:1}])!, /close back across/);
+  assert.match(scanWaitMessage([{code:"stop_too_wide",count:1}], [])!, /wider stop/);
+});
 
 test("market narrative explains short-term rally versus daily/4h downtrend and hourly range", () => {
   const story = buildMarketStory(snapshot(), { fresh:true, now:NOW });

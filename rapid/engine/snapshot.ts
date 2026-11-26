@@ -34,6 +34,8 @@ export type SnapshotInput = {
   quote: Quote | null;
   /** Zones carried over from the previous snapshot, so lifecycle and reaction history survive. */
   priorZones?: Zone[];
+  /** Carry retired and absorbed source levels across repeated scans of the same candles. */
+  preserveZoneHistory?: boolean;
   session?: SessionConfig;
   candidateFilter?: (setup: Setup, regimes: Record<Timeframe, Regime>, range: ValidatedRange | null) => boolean;
   /** Optional explanation for a candidateFilter failure; called only after that filter returns false. */
@@ -213,12 +215,23 @@ function buildZones(
   session: SessionConfig,
 ): Zone[] {
   const cfg = inp.cfg;
-  const carried = (inp.priorZones ?? []).map((z) => ({ ...z, reactions: [...z.reactions] }));
+  const prior = inp.priorZones ?? [];
+  const carried = (inp.preserveZoneHistory ? prior.filter(z => z.invalidatedAt == null) : prior)
+    .map(z => ({ ...z, reactions: [...z.reactions] }));
   const known = new Set(carried.map((z) => z.id));
+  const observed = new Set<string>();
+  if (inp.preserveZoneHistory) {
+    for (const z of prior) {
+      known.add(z.id);
+      for (const id of z.mergedFrom) known.add(id);
+    }
+  }
   const fresh: Zone[] = [];
 
   const add = (seed: ReturnType<typeof seedFromPivot> | ReturnType<typeof seedFromLine> | null, id: string) => {
-    if (!seed || known.has(id)) return;
+    if (!seed) return;
+    if (inp.preserveZoneHistory) observed.add(id);
+    if (known.has(id)) return;
     known.add(id);
     fresh.push(makeZone(seed, id, id, asOf));
   };
@@ -260,6 +273,9 @@ function buildZones(
   void tradingDay;
 
   let all = [...carried, ...fresh];
+  if (inp.preserveZoneHistory) {
+    all = mergeZones(all, atrs, cfg.zones.mergeAtrMult, new Set(carried.map(z => z.id)));
+  }
 
   // Completed reactions, recomputed against the current geometry.
   for (const z of all) {
@@ -269,8 +285,14 @@ function buildZones(
     z.reactions = collectReactions(bars[tf] ?? [], z, separation, tf, asOf);
   }
 
-  all = mergeZones(all, atrs, cfg.zones.mergeAtrMult);
+  if (!inp.preserveZoneHistory) all = mergeZones(all, atrs, cfg.zones.mergeAtrMult);
   all = expireStaleZones(all, asOf, cfg.zones.executionExpiryBars, cfg.zones.primaryExpiryBars);
+  if (inp.preserveZoneHistory) {
+    // A retired level can only be re-seeded while one of its source candles is still in the input window.
+    const retired = prior.filter(z => z.invalidatedAt != null && (observed.has(z.id) || z.mergedFrom.some(id => observed.has(id))));
+    return [...all, ...retired].sort((a, b) => Number(a.invalidatedAt != null) - Number(b.invalidatedAt != null)
+      || a.knownAt - b.knownAt || a.id.localeCompare(b.id));
+  }
   return all;
 }
 

@@ -34,7 +34,7 @@ export type NitrousStatus = {
   accounts: NitrousAccount[];
   worker: { healthy: boolean; lastBeatAt: string | null; ageMs: number | null };
   control: { mode: string; entriesPaused: boolean; pauseReason: string | null };
-  telegram: { configured: boolean; url: string | null; name: string };
+  telegram: import("../nitrous-telegram-store").NitrousTelegramPublicState & { name: string };
   profiles: Array<{ mode: NitrousMode; label: string; riskPresets: number[]; defaultRisk: number; dailyLossPct: number }>;
   consentVersion: string;
 };

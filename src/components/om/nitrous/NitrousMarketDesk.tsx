@@ -7,7 +7,7 @@ import { OmChart } from "../chart/OmChart";
 import type { ChartLevel } from "@/lib/floor/chart";
 import type { NitrousAccount, NitrousAnalyze, NitrousMode, NitrousPosition, NitrousWatchLevel } from "@/lib/nitrous/types";
 import { isObservedTrade, tradeProgress } from "@/lib/nitrous/dashboard";
-import { buildMarketStory, marketUpdate, rankedSetups } from "@/lib/nitrous/market-story";
+import { buildMarketStory, marketUpdate, rankedSetups, scanWaitMessage } from "@/lib/nitrous/market-story";
 import { elapsed, money, price, scenarioState } from "./presentation";
 import { sweepAccountMessage } from "./NitrousStrategyOptions";
 import "./nitrous-desk.css";
@@ -106,8 +106,10 @@ export function NitrousMarketDesk({ data, loading, error, fresh, now, accountNow
   const hasBoundary = opportunity.kind === "watch" && opportunity.boundary !== null;
   const nearPrice = opportunity.boundary ?? (mainRange && reference !== null ?
     reference < mainRange.low ? mainRange.low : reference > mainRange.high ? mainRange.high : null : null);
+  const waitingFor = marketFresh && !plan ? scanWaitMessage(checks, sweepChecks) : null;
   const simpleNext = plan?.state === "triggered" ? "Check your account for the trade result." :
     plan?.state === "armed" ? "Wait for the account and broker checks." :
+    waitingFor ? waitingFor :
     nearPrice != null ? "Watch how gold reacts near " + price(nearPrice) + "." :
     plan || opportunity.zone ? "Watch for the entry signal in the marked area." : "Wait for a new gold setup.";
   const PlanSection = simple ? "details" : "section";
@@ -121,7 +123,7 @@ export function NitrousMarketDesk({ data, loading, error, fresh, now, accountNow
     </header>
     {error && <p className="nt-feed-alert" role="alert">{error}</p>}
     {simple ? <MarketStory market="Gold" direction={storyDirection(flow.find(item => item.timeframe.toUpperCase() === "5M")?.direction)}
-      stage={plan?.state === "triggered" || plan?.state === "armed" ? "review" : plan && plan.state !== "watching" ? "forming" : "looking"}
+      stage={plan?.state === "triggered" || plan?.state === "armed" ? "review" : plan ? "forming" : "looking"}
       feed={!data && loading ? "loading" : !data ? "unavailable" : !marketFresh || error ? "delayed" : "current"}
       stamp={marketFresh ? "5-minute trend" : undefined} next={simpleNext}/> : <section className="nt-market-brief" aria-label="Current market explanation">
       <span className="nt-eyebrow"><Activity size={14}/>{marketFresh ? "THE MARKET NOW" : "MARKET READ"}</span>

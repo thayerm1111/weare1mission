@@ -16,7 +16,7 @@ function fixture() {
   };
   const status: NitrousStatus = { available: true, serverTime: new Date(NOW).toISOString(), accounts: [account], addon: { entitled: true, source: "admin", adminGranted: true, priceUsd: 19.99, interval: "month", subscription: null },
     worker: { healthy: true, lastBeatAt: new Date(NOW - 5_000).toISOString(), ageMs: 5_000 },
-    control: { mode: "live", entriesPaused: false, pauseReason: null }, telegram: { configured: false, url: null, name: "Nitrous" }, profiles: [], consentVersion: "nitrous-consent-v1" };
+    control: { mode: "live", entriesPaused: false, pauseReason: null }, telegram: { configured: false, status: "pending", url: null, name: "Nitrous", title: null, lastVerifiedAt: null, latestAlert: null }, profiles: [], consentVersion: "nitrous-consent-v1" };
   return { status, account };
 }
 

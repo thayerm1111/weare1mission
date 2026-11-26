@@ -1,7 +1,7 @@
 import { getProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { nitrousTelegramToken, normalizeNitrousChannelId, normalizeNitrousChannelUrl, readNitrousTelegramBotUsername, verifyNitrousTelegramChannel } from "@/lib/nitrous-telegram";
-import { nitrousTelegramPublicState, readNitrousTelegramSettings, queueNitrousTelegramTest } from "@/lib/nitrous-telegram-store";
+import { readNitrousTelegramPublicState, readNitrousTelegramSettings, queueNitrousTelegramTest } from "@/lib/nitrous-telegram-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,7 +33,7 @@ export async function GET(req: Request) {
       readNitrousTelegramSettings(context.db), readNitrousTelegramBotUsername(nitrousTelegramToken()),
     ]);
     return json({
-      ok: true, ...nitrousTelegramPublicState(row, Boolean(nitrousTelegramToken())),
+      ok: true, ...await readNitrousTelegramPublicState(context.db, row),
       channelId: row?.telegram_channel_id ?? "", channelUrl: row?.telegram_channel_url ?? "",
       enabled: row?.telegram_enabled ?? false, tokenConfigured: Boolean(nitrousTelegramToken()),
       botUsername,
@@ -76,16 +76,17 @@ export async function POST(req: Request) {
   const verification = await verifyNitrousTelegramChannel({ token: nitrousTelegramToken(), channelId, channelUrl });
   if (!verification.ok) return json({ error: verification.code, detail: verification.detail }, 409);
 
-  const { error } = await context.db.from("nitrous_telegram_settings").upsert({
+  const settings = {
     id: 1, telegram_channel_id: verification.channelId, telegram_channel_url: verification.channelUrl,
     telegram_enabled: body.enabled, telegram_verified_at: verification.checkedAt,
     telegram_channel_title: verification.title, telegram_bot_id: verification.botId,
     telegram_last_error: null, updated_by: context.profile.id, updated_at: new Date().toISOString(),
-  }, { onConflict: "id" });
+  };
+  const { error } = await context.db.from("nitrous_telegram_settings").upsert(settings, { onConflict: "id" });
   if (error) return json({ error: "save_failed" }, 503);
   return json({
-    ok: true, configured: true, status: body.enabled ? "ready" : "paused",
-    channelId: verification.channelId, channelUrl: verification.channelUrl, url: body.enabled ? verification.channelUrl : null,
+    ok: true, ...await readNitrousTelegramPublicState(context.db, settings),
+    channelId: verification.channelId, channelUrl: verification.channelUrl,
     title: verification.title, enabled: body.enabled, tokenConfigured: true,
     botUsername: verification.botUsername, lastVerifiedAt: verification.checkedAt,
   });

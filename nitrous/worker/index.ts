@@ -109,18 +109,17 @@ async function analysisLoop() {
       if (market.m1.length) {
         const now = Date.now();
         const five = aggregateClosed(market.m1, 5, now); const fifteen = aggregateClosed(market.m1, 15, now);
-        const snap = buildSnapshot({ asOf: now, cfg: NITROUS_CONFIG, tick: 0.01, contractSize: null,
-          minStopDistance: null, m1: market.m1, higher: { ...market.higher, M5: five, M15: fifteen }, quote: null, priorZones: market.snapshot?.zones });
+        const input = { asOf: now, tick: 0.01, contractSize: null, minStopDistance: null, m1: market.m1,
+          higher: { ...market.higher, M5: five, M15: fifteen }, quote: null, preserveZoneHistory: true };
+        const snap = buildSnapshot({ ...input, cfg: NITROUS_CONFIG, priorZones: market.snapshot?.zones });
         const reference = market.m1.at(-1)!.c;
-        const fast = buildSnapshot({ asOf: now, cfg: NITROUS_FAST_CONFIG, tick: 0.01, contractSize: null,
-          minStopDistance: null, m1: market.m1, higher: { ...market.higher, M5: five, M15: fifteen }, quote: null, priorZones: fastZones,
+        const fast = buildSnapshot({ ...input, cfg: NITROUS_FAST_CONFIG, priorZones: fastZones,
           candidateFilter: (s, regimes, range) => fastCandidateEligible(s, regimes, range, reference, now)
             && (s.family !== "break_retest" || triggerConfirmed(s, s.timeframe === "M15" ? fifteen : five, now)),
           candidateRejection: (s, regimes, range) => qualificationRejection(s, regimes, range, reference, now, s.timeframe === "M15" ? fifteen : five),
           nearestCandidates: { limit: 2, price: reference } });
         fastZones = fast.zones;
-        const sweep = buildSnapshot({ asOf: now, cfg: NITROUS_SWEEP_CONFIG, tick: 0.01, contractSize: null,
-          minStopDistance: null, m1: market.m1, higher: { ...market.higher, M5: five, M15: fifteen }, quote: null, priorZones: sweepZones,
+        const sweep = buildSnapshot({ ...input, cfg: NITROUS_SWEEP_CONFIG, priorZones: sweepZones,
           candidateBuilder: ctx => buildSweepReclaim({ ...ctx, refPrice: reference }),
           candidateFilter: (s, regimes) => sweepCandidateEligible(s, regimes, reference, now)
             && triggerConfirmed(s, s.timeframe === "M15" ? fifteen : five, now),

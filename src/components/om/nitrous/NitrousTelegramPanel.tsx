@@ -1,13 +1,11 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { CheckCircle2, ChevronDown, Loader2, Send, Settings2 } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, ChevronDown, Loader2, Send, Settings2 } from "lucide-react";
+import type { NitrousTelegramPublicState } from "@/lib/nitrous-telegram-store";
 import "./nitrous-telegram.css";
 
-type ChannelState = {
-  url?: string | null; configured?: boolean; status?: string; title?: string | null;
-  lastVerifiedAt?: string | null;
-};
+type ChannelState = Partial<NitrousTelegramPublicState>;
 type AdminSettings = ChannelState & {
   channelId?: string; channelUrl?: string | null; enabled?: boolean; tokenConfigured?: boolean;
   botUsername?: string | null; lastError?: string | null;
@@ -32,6 +30,8 @@ export function NitrousTelegramPanel({ admin = false, telegram }: { admin?: bool
   const [notice, setNotice] = useState<string | null>(null);
   const state = settings ?? telegram;
   const link = state?.status === "ready" && state.configured ? channelUrl(state.url) : null;
+  const receipt = (settings && settings.lastVerifiedAt !== telegram?.lastVerifiedAt ? settings.latestAlert : telegram?.latestAlert) ?? state?.latestAlert;
+  const post = state?.status === "ready" && state.configured ? channelUrl(receipt?.url) : null;
   const label = state?.status === "ready" ? "Channel verified" : state?.status === "paused" ? "Alerts paused" : state?.status === "error" ? "Channel needs attention" : "Channel setup pending";
 
   async function openSettings() {
@@ -103,13 +103,17 @@ export function NitrousTelegramPanel({ admin = false, telegram }: { admin?: bool
   return <section className="nitrous-telegram" aria-label="Nitrous Telegram channel">
     <div className="nitrous-telegram-heading">
       <span className="nitrous-telegram-icon"><Send size={20} aria-hidden="true" /></span>
-      <div><h2>Nitrous channel</h2><p>{label}</p></div>
+      <div><h2>Nitrous Telegram</h2><p>{state?.status === "ready" && state.title ? state.title : label}</p></div>
       {state?.status === "ready" && <CheckCircle2 size={17} aria-label="Verified channel" />}
     </div>
-    <p className="nitrous-telegram-description">Gold setups and their progress, together in one Telegram feed.</p>
+    <p className="nitrous-telegram-description">Alerts appear when a gold setup opens or changes.</p>
+    {post && receipt && <a className="nitrous-telegram-receipt" href={post} target="_blank" rel="noopener noreferrer">
+      <span>Open latest alert<time dateTime={receipt.sentAt}>{new Date(receipt.sentAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></span>
+      <ArrowUpRight size={17} aria-hidden="true"/>
+    </a>}
     {link
       ? <a className="nitrous-telegram-join" href={link} target="_blank" rel="noopener noreferrer">Join Telegram</a>
-      : <p className="nitrous-telegram-pending">{state?.status === "paused" ? "Alerts are currently paused. Follow live setups here in Nitrous." : "The channel link will appear here when setup is complete."}</p>}
+      : <p className="nitrous-telegram-pending">{state?.status === "paused" ? "Alerts are paused." : state?.status === "ready" ? "Ask the channel admin for an invite." : "The channel link will appear here when setup is complete."}</p>}
     {admin && <>
       <button className="nitrous-telegram-settings-toggle" type="button" onClick={() => void openSettings()} aria-expanded={expanded} aria-controls="nitrous-telegram-settings">
         <Settings2 size={15} aria-hidden="true" /><span>Channel settings</span><ChevronDown size={15} aria-hidden="true" />

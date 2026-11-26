@@ -1,5 +1,5 @@
 import { displayableSetup, selectWatchLevels } from "./dashboard";
-import type { NitrousAnalyze, NitrousMode, NitrousScenario, NitrousWatchLevel } from "./types";
+import type { NitrousAnalyze, NitrousMode, NitrousScanCheck, NitrousScenario, NitrousWatchLevel } from "./types";
 
 export type MarketTone = "positive" | "negative" | "neutral";
 export type MarketOpportunity = {
@@ -115,6 +115,19 @@ function distanceText(low: number, high: number, reference: number): string {
   if (reference >= low && reference <= high) return "Reference price is inside the zone";
   return reference > high ? `$${formatPrice(reference - high)} below current reference` : `$${formatPrice(low - reference)} above current reference`;
 }
+/** Prefer a specific observed entry check over a general wait message. */
+export function scanWaitMessage(checks: NitrousScanCheck[], sweep: NitrousScanCheck[]): string | null {
+  const observed = new Set([...checks, ...sweep].filter(item => item.count > 0).map(item => item.code));
+  if (observed.has("outside_band")) return "Gold needs to come back to an entry area.";
+  if (observed.has("target_room_short")) return "A price level is too close to the target for this setup.";
+  if (observed.has("stop_too_wide")) return "A possible setup needed a wider stop than the rules allow.";
+  if (observed.has("reward_risk_short")) return "The possible gain was too small for the risk.";
+  if (observed.has("no_reclaim")) return "Waiting for gold to close back across a level it swept.";
+  if (observed.has("regime_conflict")) return "Waiting for the charts to agree on a direction.";
+  if (observed.has("no_zone")) return "Waiting for a clear price range to form.";
+  return null;
+}
+
 function emptyOpportunity(kind: MarketOpportunity["kind"], title: string, status: string, detail: string, trigger: string): MarketOpportunity {
   return { kind, title, status, detail, trigger, range: null, distance: null, distanceText: "", invalidationText: null,
     target: null, stop: null, plan: null, zone: null, boundary: null, boundaryText: "", boundaryDistance: null };

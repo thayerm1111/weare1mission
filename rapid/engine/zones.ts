@@ -132,14 +132,15 @@ export function makeZone(seed: ZoneSeed, id: string, parentId: string, now: numb
  * zone. When the bounds actually change, the version increments — that is the signal to downstream
  * code that this is new geometry and any frozen reference is now historical.
  */
-export function mergeZones(zones: Zone[], atrByTimeframe: Partial<Record<Timeframe, number>>, mergeAtrMult: number): Zone[] {
+export function mergeZones(zones: Zone[], atrByTimeframe: Partial<Record<Timeframe, number>>, mergeAtrMult: number, carriedIds?: ReadonlySet<string>): Zone[] {
   const live = zones.filter((z) => z.invalidatedAt == null).slice().sort((a, b) => a.knownAt - b.knownAt || a.id.localeCompare(b.id));
   const out: Zone[] = [];
 
   for (const z of live) {
     const tolerance = (atrByTimeframe[z.origin] ?? 0) * mergeAtrMult;
     const host = out.find(
-      (h) => h.role === z.role && (overlaps(h, z) || Math.abs(zoneMid(h) - zoneMid(z)) <= tolerance),
+      (h) => h.role === z.role && !(carriedIds?.has(h.id) && carriedIds.has(z.id))
+        && (overlaps(h, z) || Math.abs(zoneMid(h) - zoneMid(z)) <= tolerance),
     );
     if (!host) {
       out.push({ ...z, reactions: [...z.reactions], mergedFrom: [...z.mergedFrom] });
@@ -152,6 +153,9 @@ export function mergeZones(zones: Zone[], atrByTimeframe: Partial<Record<Timefra
     host.high = high;
     host.knownAt = Math.min(host.knownAt, z.knownAt);
     if (!host.mergedFrom.includes(z.id)) host.mergedFrom.push(z.id);
+    if (carriedIds) {
+      for (const id of z.mergedFrom) if (!host.mergedFrom.includes(id)) host.mergedFrom.push(id);
+    }
     host.reactions = dedupeReactions([...host.reactions, ...z.reactions]);
     host.failedStops = Math.max(host.failedStops, z.failedStops);
     if (changed) host.version += 1;

@@ -6,6 +6,9 @@
 .nitrous-telegram-heading p { margin: 3px 0 0; color: var(--om-text-2); font-size: .8125rem; }
 .nitrous-telegram-heading > svg { color: var(--om-pos); }
 .nitrous-telegram-description { margin: 16px 0; font-size: .9375rem; line-height: 1.6; color: var(--om-text-2); }
+.nitrous-telegram-receipt { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; margin-bottom: 10px; color: var(--om-text); font-size: .875rem; font-weight: 600; text-decoration: none; }
+.nitrous-telegram-receipt time { display: block; margin-top: 3px; color: var(--om-text-2); font-size: .75rem; font-weight: 400; }
+.nitrous-telegram-receipt:hover { color: var(--om-ai); }
 .nitrous-telegram-join { display: flex; align-items: center; justify-content: center; min-height: 44px; border-radius: 12px; background: rgb(var(--om-ai-rgb) / .12); color: var(--om-ai); font-size: .875rem; font-weight: 650; text-decoration: none; }
 .nitrous-telegram-join:hover { background: rgb(var(--om-ai-rgb) / .19); }
 .nitrous-telegram-pending { margin: 0; font-size: .8125rem; line-height: 1.55; color: var(--om-text-3); }

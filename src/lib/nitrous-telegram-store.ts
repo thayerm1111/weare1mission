@@ -22,6 +22,7 @@ export type NitrousTelegramPublicState = {
   url: string | null;
   title: string | null;
   lastVerifiedAt: string | null;
+  latestAlert: { url: string; sentAt: string } | null;
 };
 
 export async function readNitrousTelegramSettings(db: SupabaseClient): Promise<NitrousTelegramSettingsRow | null> {
@@ -40,12 +41,27 @@ export function nitrousTelegramPublicState(row: NitrousTelegramSettingsRow | nul
     url: status === "ready" ? normalizeNitrousChannelUrl(row?.telegram_channel_url) : null,
     title: row?.telegram_channel_title ?? null,
     lastVerifiedAt: row?.telegram_verified_at ?? null,
+    latestAlert: null,
   };
 }
 
-export async function readNitrousTelegramPublicState(db: SupabaseClient): Promise<NitrousTelegramPublicState> {
-  try { return nitrousTelegramPublicState(await readNitrousTelegramSettings(db), Boolean(nitrousTelegramToken())); }
-  catch { return { configured: false, status: "pending", url: null, title: null, lastVerifiedAt: null }; }
+export async function readNitrousTelegramPublicState(db: SupabaseClient, settings?: NitrousTelegramSettingsRow | null): Promise<NitrousTelegramPublicState> {
+  const row = settings === undefined ? await readNitrousTelegramSettings(db).catch(() => null) : settings;
+  const state = nitrousTelegramPublicState(row, Boolean(nitrousTelegramToken()));
+  if (state.status !== "ready" || !row?.telegram_channel_id) return state;
+
+  // Verification stores the canonical numeric channel ID returned by Telegram.
+  const channel = /^-100([1-9]\d*)$/.exec(row.telegram_channel_id)?.[1];
+  if (!channel) return state;
+  try {
+    const { data, error } = await db.from("nitrous_telegram_deliveries").select("resolved_at,message_id")
+      .eq("channel_id", row.telegram_channel_id).eq("state", "sent").gt("message_id", 0).not("resolved_at", "is", null)
+      .order("resolved_at", { ascending: false }).limit(1).maybeSingle();
+    if (!error && data && Number.isSafeInteger(data.message_id) && data.message_id > 0 && Number.isFinite(Date.parse(data.resolved_at))) {
+      state.latestAlert = { url: `https://t.me/c/${channel}/${data.message_id}`, sentAt: data.resolved_at };
+    }
+  } catch { /* A missing delivery record must not hide the verified join link. */ }
+  return state;
 }
 
 export function nitrousTelegramConfig(row: NitrousTelegramSettingsRow | null): NitrousTelegramConfig {

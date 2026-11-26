@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createClient } from "@supabase/supabase-js";
+import { getNitrousStatus } from "../src/lib/nitrous/server";
 import {
   formatNitrousTelegramEvent, nitrousTelegramToken, normalizeNitrousChannelId, normalizeNitrousChannelUrl,
   sendNitrousTelegramEvent, sendNitrousTelegramTest, validNitrousTelegramEvent, verifyNitrousTelegramChannel,
@@ -161,6 +163,56 @@ test("public status never presents an unverified, paused or errored channel as r
   ] as const) {
     const state = nitrousTelegramPublicState({ ...row, ...over }, token);
     assert.equal(state.status, status); assert.equal(state.url, null);
+  }
+});
+
+test("member status exposes the verified channel and latest sent post only to an active entitled member", async () => {
+  const user = "00000000-0000-4000-8000-000000000001";
+  const sentAt = new Date(NOW).toISOString();
+  let entitled = true;
+  let deliveryState = "sent";
+  let messageId = 8;
+  let receiptUnavailable = false;
+  let channelReads = 0;
+  const db = createClient("https://example.invalid", "test-key", { global: { fetch: async input => {
+    const url = new URL(String(input));
+    const table = url.pathname.split("/").at(-1);
+    if (table === "nitrous_telegram_settings") return Response.json([{ telegram_channel_id: config.channelId,
+      telegram_channel_url: config.channelUrl, telegram_enabled: true, telegram_verified_at: sentAt, telegram_channel_title: "Test channel" }]);
+    if (table === "nitrous_addon_grants") return Response.json(entitled ? [{ user_id: user, active: true }] : []);
+    if (table === "nitrous_telegram_deliveries") {
+      channelReads++;
+      assert.equal(url.searchParams.get("channel_id"), "eq." + config.channelId);
+      assert.equal(url.searchParams.get("state"), "eq.sent");
+      assert.equal(url.searchParams.get("order"), "resolved_at.desc");
+      assert.equal(url.searchParams.get("limit"), "1");
+      if (receiptUnavailable) return Response.json({ message: "unavailable" }, {status: 400});
+      return Response.json(deliveryState === "sent" ? [{ message_id: messageId, resolved_at: sentAt }] : []);
+    }
+    return Response.json([]);
+  } }, auth: { persistSession: false } });
+  const original = process.env.NITROUS_TELEGRAM_BOT_TOKEN;
+  process.env.NITROUS_TELEGRAM_BOT_TOKEN = "mock-token";
+  try {
+    const member = (await getNitrousStatus(db, user, true)).telegram;
+    assert.equal(member.status, "ready"); assert.equal(member.url, config.channelUrl);
+    assert.equal(member.name, "Test channel"); assert.equal(member.title, member.name);
+    assert.deepEqual(member.latestAlert, { url: "https://t.me/c/123456789/8", sentAt });
+    assert.ok(channelReads > 0);
+    const inactive = (await getNitrousStatus(db, user, false)).telegram;
+    assert.equal(inactive.url, null); assert.equal(inactive.latestAlert, null);
+    entitled = false;
+    const locked = (await getNitrousStatus(db, user, true)).telegram;
+    assert.equal(locked.url, null); assert.equal(locked.latestAlert, null);
+    entitled = true; deliveryState = "unknown";
+    assert.equal((await getNitrousStatus(db, user, true)).telegram.latestAlert, null);
+    deliveryState = "sent"; messageId = -1;
+    assert.equal((await getNitrousStatus(db, user, true)).telegram.latestAlert, null);
+    receiptUnavailable = true;
+    assert.equal((await getNitrousStatus(db, user, true)).telegram.url, config.channelUrl);
+  } finally {
+    if (original === undefined) delete process.env.NITROUS_TELEGRAM_BOT_TOKEN;
+    else process.env.NITROUS_TELEGRAM_BOT_TOKEN = original;
   }
 });
 
