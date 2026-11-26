@@ -16,7 +16,7 @@ import "./experience.css";
 import "./simple/simple-os.css";
 import { Suspense, useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CreditCard, Globe, LifeBuoy, LogOut, PlayCircle, ShieldCheck, SlidersHorizontal, Smartphone, Undo2, User, UserCircle } from "lucide-react";
 import { NotificationsBell } from "@/components/portal/NotificationsBell";
 import { NAV, activeKey, type NavKey } from "@/lib/floor/nav";
@@ -25,6 +25,7 @@ import { DEFAULT_LOOK, LOOKS, LOOK_CLASS, LOOK_KEY, applyLook, lookOf, themeOf, 
 import { InstallSheet, OfflineNotice, runningAsApp, useInstall } from "./InstallApp";
 import { ShellContext } from "./shell";
 import { ProductIcon } from "./ProductIcon";
+import { startDockGesture } from "./dock-gesture";
 import { FlowAccountBar, FlowAccountProvider } from "./FlowAccount";
 import { MobileViewport } from "./MobileViewport";
 import { AtlasProvider, useAtlasPanel } from "./atlas/AtlasProvider";
@@ -200,6 +201,7 @@ const APPS = [
 
 /** One persistent launcher on every screen, with the same destinations on desktop and phone. */
 function AppDock() {
+  const router = useRouter();
   const path = usePathname() || "";
   const params = useSearchParams();
   const view = params.get("view");
@@ -212,7 +214,7 @@ function AppDock() {
     event.preventDefault();
     window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   };
-  return <nav className="om-os-dock" aria-label="One Mission apps">
+  return <nav className="om-os-dock" aria-label="One Mission apps" onPointerDown={event => startDockGesture(event.nativeEvent, router)}>
     {APPS.map((app) => {
       const content = <><ProductIcon kind={app.key} /><span className="om-os-app-title">{app.key === "plays" ? <><span className="om-os-title-full">{app.dockLabel}</span><span className="om-os-title-short">AI Plays</span></> : app.dockLabel}</span></>;
       const props = {

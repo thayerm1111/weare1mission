@@ -7,8 +7,8 @@ import { FLOOR_ASK_KEY, FLOOR_ASK_MAX_AGE_MS, FLOOR_ASK_MAX_LEN, leaveFloorQuest
 
 /*
  * THE REDESIGNED SHELL AND THE FLOOR (owner 11-20). What is pinned here is what must not drift:
- *   • the six destinations, in order, and nothing else beside them;
- *   • the redesign is a PREVIEW for an admin who switched it on — a member's cookie alone does nothing;
+ *   • the eight trading destinations and their shared desktop and phone dock;
+ *   • the redesign is available to active members, with classic support available to admins;
  *   • The Floor's own route reads and never charges or writes; one priced tap exists and it is the
  *     existing "See the play";
  *   • Atlas opens over The Floor, carrying only the visible read; the gold desk keeps its own entrance;
@@ -21,22 +21,22 @@ const walk = (dir: string): string[] => readdirSync(dir).flatMap((f) => {
 });
 
 /* ── destinations ── */
-test('the seven trading destinations use the OM OS name and keep community pages outside the workspace', () => {
-  assert.deepEqual(NAV.map((n) => n.label), ['OM OS', 'OM AI Plays', 'GENX', 'STRATA', 'Market Pulse', 'FLOW', 'Atlas Command Center']);
-  assert.deepEqual(NAV.map((n) => n.href), ['/portal/trading', '/portal/signals', '/portal/genx', '/portal/strata', '/portal/trading?view=pulse', '/portal/trading?view=flow', '/command-center']);
+test('the eight trading destinations use the OM OS name and keep community pages outside the workspace', () => {
+  assert.deepEqual(NAV.map((n) => n.label), ['OM OS', 'OM AI Plays', 'GENX', 'STRATA', 'Market Pulse', 'FLOW', 'Nitrous', 'Atlas Command Center']);
+  assert.deepEqual(NAV.map((n) => n.href), ['/portal/trading', '/portal/signals', '/portal/genx', '/portal/strata', '/portal/trading?view=pulse', '/portal/trading?view=flow', '/portal/nitrous', '/command-center']);
   const all = JSON.stringify({ NAV }).toLowerCase();
   for (const gone of ['leaderboard', 'leadership', 'inner circle', 'community', 'training', 'academy', 'schedule', 'collection', 'experiences', 'updates', 'team', 'prospects', 'comp-plan', 'rapid', 'matty', 'genfx', 'cashtrap', 'xaughost', 'auric', '/portal/om-ai']) {
     assert.ok(!all.includes(gone), `"${gone}" is not a destination of the trading platform`);
   }
 });
 
-test('desktop and phone share one dock with all seven canonical destinations', () => {
+test('desktop and phone share one dock with all eight canonical destinations', () => {
   const shell = read('src/components/om/AppShell.tsx');
   const apps = shell.slice(shell.indexOf('const APPS = ['), shell.indexOf('function AppDock()'));
   const destinations = [...apps.matchAll(/key: "([^"]+)" as const,[^}]*?dockLabel: "([^"]+)", href: "([^"]+)"/g)];
-  assert.deepEqual(destinations.map((item) => item[1]), ['floor', 'atlas', 'genx', 'strata', 'plays', 'pulse', 'flow']);
-  assert.deepEqual(destinations.map((item) => item[2]), ['OM OS', 'Atlas', 'GENX', 'STRATA', 'OM AI Plays', 'Pulse', 'FLOW']);
-  assert.equal(new Set(destinations.map((item) => item[1])).size, 7, 'every product appears once');
+  assert.deepEqual(destinations.map((item) => item[1]), ['floor', 'atlas', 'genx', 'strata', 'plays', 'pulse', 'flow', 'nitrous']);
+  assert.deepEqual(destinations.map((item) => item[2]), ['OM OS', 'Atlas', 'GENX', 'STRATA', 'OM AI Plays', 'Pulse', 'FLOW', 'Nitrous']);
+  assert.equal(new Set(destinations.map((item) => item[1])).size, NAV.length, 'every product appears once');
   for (const [, key, , href] of destinations) {
     const destination = NAV.find((item) => item.key === key)!;
     assert.equal(href, destination.href, `${key} keeps its canonical route`);
@@ -94,8 +94,8 @@ test('the portal decides on the server, from the member\'s role — and the clas
   // A member who is pending or suspended never reaches the new shell.
   assert.match(layout, /profile && !needsApproval && wantsNextShell/);
   // The risk disclosure still applies inside it.
-  const branch = layout.slice(layout.indexOf('wantsNextShell('), layout.indexOf('return (\n    <div className="bg-cream">'));
-  assert.match(branch, /<RiskConsentGate \/>/);
+  const branch = layout.slice(layout.indexOf('if (profile && !needsApproval && wantsNextShell('), layout.indexOf('return (\n    <div className="bg-cream">'));
+  assert.match(branch, /<RiskConsentGate key=\{profile\.id\} memberId=\{profile\.id\} \/>/);
   const page = read('src/app/portal/trading/page.tsx');
   assert.match(page, /wantsNextShell\(cookies\(\)\.get\(SHELL_COOKIE\)\?\.value, profile\?\.role === "admin", headers\(\)\)/);
   assert.match(page, /<FloorWorkspace isCaller=\{isCaller\} followerCount=\{followerCount\} \/>/, 'everyone else gets the page as it was');
@@ -226,7 +226,10 @@ test('legacy desk handoffs still wait for its entrance; new Floor conversations 
   assert.match(gate, /<button onClick=\{buy\} disabled=\{busy\}/);
   const floor = read('src/components/om/floor/Floor.tsx');
   assert.match(floor, /openAtlas\(\{ question, voice, context \}\)/);
-  assert.match(floor, /openAtlas\(\{ voice: true, context \}\)/);
+  assert.match(floor, /aria-label="Talk to Atlas"[^>]*?onClick=\{\(\) => go\(undefined, true\)\} disabled=\{sample\}/);
+  const liveDesk = read('src/components/om/floor/AtlasLiveDesk.tsx');
+  assert.match(floor, /<AtlasLiveDesk\b/);
+  assert.match(liveDesk, /disabled=\{sample\} onClick=\{\(\) => openAtlas\(\{ voice: true, context, followContext: CONTEXT_KEY \}\)\}/);
   assert.ok(!/leaveFloorQuestion|window\.location\.assign/.test(floor), 'talking stays on The Floor');
   assert.match(floor, /href="\/command-center">Gold Command Center/, 'the gold desk remains an explicit destination');
 });

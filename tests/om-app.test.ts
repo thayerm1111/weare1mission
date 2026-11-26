@@ -267,7 +267,7 @@ test('the installed OS keeps its safe app bar and the same eight-destination doc
   assert.match(shell, /const destination = NAV\.find\(\(item\) => item\.key === here\);\s*const screen = destination\?\.label;/, 'screen names come from the real destinations');
   assert.match(shell, /className="om-os-breadcrumb"><Link href="\/portal\/trading" aria-current=\{here === "floor" \? "page" : undefined\}>OM OS<\/Link>/);
   assert.match(shell, /\{here && here !== "floor" && <><span aria-hidden="true">\/<\/span><span>\{screen\}<\/span><\/>\}/, 'the OS breadcrumb replaces the old scrolling title capsule');
-  assert.match(shell, /<nav className="om-os-dock" aria-label="One Mission apps">/);
+  assert.match(shell, /<nav className="om-os-dock" aria-label="One Mission apps" onPointerDown=/);
   assert.doesNotMatch(shell, /<nav className="om-tabbar"/, 'the dock replaces the old mobile tab bar');
   assert.equal((shell.match(/<AppDock \/>/g) ?? []).length, 1);
   assert.match(shell, /"aria-label": app\.label/, 'every dock destination has its full accessible name');

@@ -154,7 +154,7 @@ test("the single OM OS dock exposes eight real apps, marks the active destinatio
     assert.equal(hard === "true", target.hard === true, `${key} retains its established navigation behavior`);
   }
   const dock = shell.slice(shell.indexOf("function AppDock()"), shell.indexOf("export function AppShell("));
-  assert.match(dock, /<nav className="om-os-dock" aria-label="One Mission apps">/);
+  assert.match(dock, /<nav className="om-os-dock" aria-label="One Mission apps" onPointerDown=/);
   assert.match(dock, /activeKey\(path, view\)/);
   assert.match(dock, /"aria-current": here === app\.key \? "page" as const : undefined/);
   assert.equal((dock.match(/href=\{app\.href\} \{\.\.\.props\}/g) ?? []).length, 2, "full-page and client links share the same accessible active-state props");

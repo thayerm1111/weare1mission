@@ -6,6 +6,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getProfile as readProfile } from "@/lib/auth";
 import { APP_SHELL_RECOVERY_SCRIPT, CLASSIC_SHELL, SHELL_COOKIE, SHELL_CSS, SHELL_SCRIPT, wantsNextShell } from "@/lib/floor/nav";
 import { AppShell } from "@/components/om/AppShell";
+import { AtlasDocumentFrame } from "@/components/command-center/AtlasDocumentFrame";
 import { CC_NEXT_CSS } from "@/components/command-center/hud/nextTheme";
 import { APP_INSTALL_SCRIPT, APP_MANIFEST, APP_NAME, ATLAS_THEME } from "@/lib/floor/app";
 
@@ -51,8 +52,8 @@ export async function generateViewport(): Promise<Viewport> {
  * tools inside a page. The Command Center IS the page — dropping a living screen into a cream container
  * with a nav bar would make it look like one more widget, which is exactly what it is not.
  *
- * Next has a single root layout, so the chrome is removed the same way the portal's embed mode does it:
- * a class on <html> and two CSS rules. No client component, no hydration risk.
+ * A direct load applies the frame before the first paint. Client navigation also needs to apply and
+ * release these document-wide classes as the Command Center layout mounts and unmounts.
  */
 const FULLSCREEN_CSS = `
 html.om-fullscreen, html.om-fullscreen body { background:#06090E !important; }
@@ -84,6 +85,7 @@ export default async function CommandCenterLayout({ children }: { children: Reac
           __html: `(function(){try{document.documentElement.classList.add('om-fullscreen');${next ? "document.documentElement.classList.add('om-cc-next');" : ""}}catch(e){}})();`,
         }}
       />
+      <AtlasDocumentFrame os={next} />
       {next ? <>
         <script dangerouslySetInnerHTML={{ __html: SHELL_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: APP_INSTALL_SCRIPT }} />
