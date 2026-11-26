@@ -21,6 +21,8 @@ const FAMILY_RANK: Record<Setup["family"], number> = {
   break_retest: 3,
   trend_pullback: 3,
   sweep_reclaim: 3,
+  compression_breakout: 3,
+  range_edge_rejection: 2,
   momentum: 2,
   range_reaction: 1,
 };

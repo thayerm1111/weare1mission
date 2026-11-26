@@ -2,20 +2,20 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  hasFastConsent, hasNitrousConsent, hasSweepConsent, NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION,
+  hasAggressiveConsent, hasFastConsent, hasNitrousConsent, hasSweepConsent, NITROUS_AGGRESSIVE_CONSENT_VERSION, NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION,
   NITROUS_SETUP_CONFIGS, NITROUS_SWEEP_CONSENT_VERSION, setupAuthorized, setupCapability, validateSettingsChange,
 } from "../src/lib/nitrous/policy";
 import { publicNitrousScenario } from "../src/lib/nitrous/scenarios";
 import { getNitrousStatus } from "../src/lib/nitrous/server";
-import { NITROUS_CONFIG, NITROUS_FAST_CONFIG, NITROUS_SWEEP_CONFIG } from "../nitrous/config";
+import { NITROUS_AGGRESSIVE_CONFIG, NITROUS_CONFIG, NITROUS_FAST_CONFIG, NITROUS_SWEEP_CONFIG } from "../nitrous/config";
 
 const NOW = Date.UTC(2026, 10, 26, 6);
-const v1 = NITROUS_CONSENT_VERSION, v2 = NITROUS_FAST_CONSENT_VERSION, v3 = NITROUS_SWEEP_CONSENT_VERSION;
+const v1 = NITROUS_CONSENT_VERSION, v2 = NITROUS_FAST_CONSENT_VERSION, v3 = NITROUS_SWEEP_CONSENT_VERSION, v4 = NITROUS_AGGRESSIVE_CONSENT_VERSION;
 const configs = NITROUS_SETUP_CONFIGS;
 
-test("sweep consent adds the new capability without removing baseline or fast authorization", () => {
+test("strategy authorizations are cumulative and scoped to the chosen account mode", () => {
   assert.equal(v3, "nitrous-consent-v3-sweep");
-  for (const consent of [v1, v2, v3]) {
+  for (const consent of [v1, v2, v3, v4]) {
     assert.equal(hasNitrousConsent(consent), true);
     for (const mode of ["slow_drip", "nitrous"]) {
       for (const family of ["trend_pullback", "break_retest"]) {
@@ -23,25 +23,31 @@ test("sweep consent adds the new capability without removing baseline or fast au
       }
     }
     assert.equal(hasFastConsent(consent), consent !== v1);
-    assert.equal(hasSweepConsent(consent), consent === v3);
+    assert.equal(hasSweepConsent(consent), consent === v3 || consent === v4);
+    assert.equal(hasAggressiveConsent(consent), consent === v4);
     for (const family of ["trend_pullback", "break_retest", "range_reaction"]) {
       assert.equal(setupAuthorized(configs.fast, family, "nitrous", consent), consent !== v1);
       assert.equal(setupAuthorized(configs.fast, family, "slow_drip", consent), false);
     }
-    assert.equal(setupAuthorized(configs.sweep, "sweep_reclaim", "nitrous", consent), consent === v3);
+    assert.equal(setupAuthorized(configs.sweep, "sweep_reclaim", "nitrous", consent), consent === v3 || consent === v4);
     assert.equal(setupAuthorized(configs.sweep, "sweep_reclaim", "slow_drip", consent), false);
+    for (const family of ["range_edge_rejection", "compression_breakout"]) {
+      assert.equal(setupAuthorized(configs.aggressive, family, "nitrous", consent), consent === v4);
+      assert.equal(setupAuthorized(configs.aggressive, family, "slow_drip", consent), false);
+      for (const old of [configs.baseline, configs.fast, configs.sweep]) assert.equal(setupCapability(old, family), null);
+    }
   }
 });
 
 test("only exact supported configuration and family combinations are classified or authorized", () => {
   assert.deepEqual(configs, { baseline: NITROUS_CONFIG.configVersion, fast: NITROUS_FAST_CONFIG.configVersion,
-    sweep: NITROUS_SWEEP_CONFIG.configVersion }, "authorization versions must match the generated strategy configurations");
+    sweep: NITROUS_SWEEP_CONFIG.configVersion, aggressive: NITROUS_AGGRESSIVE_CONFIG.configVersion }, "authorization versions must match the generated strategy configurations");
   assert.equal(setupCapability(configs.baseline, "trend_pullback"), "baseline");
   assert.equal(setupCapability(configs.fast, "range_reaction"), "fast");
   assert.equal(setupCapability(configs.sweep, "sweep_reclaim"), "sweep");
   for (const [config, family] of [
     [configs.baseline, "sweep_reclaim"], [configs.fast, "sweep_reclaim"], [configs.sweep, "break_retest"],
-    [configs.baseline, "range_reaction"], [configs.fast, "momentum"], [configs.sweep, "__proto__"],
+    [configs.aggressive, "sweep_reclaim"], [configs.aggressive, "momentum"], [configs.baseline, "range_reaction"], [configs.fast, "momentum"], [configs.sweep, "__proto__"],
     [`${configs.sweep}.unknown`, "sweep_reclaim"], ["invented+fast.2", "range_reaction"], [null, "sweep_reclaim"],
     [configs.sweep, null], [configs.sweep, undefined],
   ]) {
@@ -129,6 +135,7 @@ function statusFixture() {
     { id: "baseline", profile: "nitrous", consent_version: v1 },
     { id: "fast", profile: "nitrous", consent_version: v2 },
     { id: "sweep", profile: "nitrous", consent_version: v3 },
+    { id: "aggressive", profile: "nitrous", consent_version: v4 },
     { id: "slow", profile: "slow_drip", consent_version: v3 },
   ];
   const rows = definitions.map(a => ({ ...a, user_id: "member", connection_id: "connection", broker_account_id: "demo-1234",
@@ -161,8 +168,9 @@ function statusFixture() {
 test("status preserves fast permission for v3 and exposes sweep only on the authorized Nitrous account", async () => {
   const { admin } = statusFixture();
   const status = await getNitrousStatus(admin, "member", true);
-  assert.deepEqual(status.accounts.map(a => [a.id, a.fastStrategyEnabled, a.sweepStrategyEnabled]), [
-    ["baseline", false, false], ["fast", true, false], ["sweep", true, true], ["slow", false, false],
+  assert.deepEqual(status.accounts.map(a => [a.id, a.fastStrategyEnabled, a.sweepStrategyEnabled, a.aggressiveStrategyEnabled]), [
+    ["baseline", false, false, false], ["fast", true, false, false], ["sweep", true, true, false],
+    ["aggressive", true, true, true], ["slow", false, false, false],
   ]);
   assert.ok(status.accounts.every(a => a.automationEnabled));
   assert.equal(status.consentVersion, v1, "existing top-level baseline consent contract is retained");
@@ -216,7 +224,7 @@ test("sweep migration preserves installed reservation and settings semantics out
   assert.equal(compact(restored), compact(previousReservation), "ownership, leases, entitlement, risk, exposure and journaling stay intact");
 
   const guard = reservation.slice(guardStart, guardEnd);
-  for (const config of Object.values(configs)) assert.ok(guard.includes(`p_config = '${config}'`));
+  for (const config of [configs.baseline, configs.fast, configs.sweep]) assert.ok(guard.includes(`p_config = '${config}'`));
   assert.ok(guard.includes("p_family = 'sweep_reclaim'"));
   assert.ok(guard.includes("v_account.consent_version = 'nitrous-consent-v3-sweep'"));
   assert.ok(guard.includes("p_family in ('trend_pullback','break_retest')"));
@@ -230,4 +238,44 @@ test("sweep migration preserves installed reservation and settings semantics out
   assert.ok(outsideFunctions.includes("from public,anon,authenticated"));
   assert.ok(outsideFunctions.includes("to service_role"));
   assert.ok(migration.trimEnd().endsWith("commit;"));
+});
+
+test("v4 requires a fresh account-specific activation at the selected risk and can be revoked in place", () => {
+  const active = { profile: "nitrous", risk_pct: 3, automation_enabled: true, consent_version: v3 };
+  const review = { mode: "nitrous", riskPct: 3, automationEnabled: true, consentVersion: v4, acknowledgedRisk: true };
+  for (const consentVersion of [v3, v4]) {
+    const change = validateSettingsChange(active, { ...review, consentVersion }, true);
+    assert.ok(change.ok && change.arming);
+    assert.equal(change.patch.consent_version, consentVersion);
+    assert.equal(change.patch.risk_pct, 3);
+  }
+  for (const invalid of [{ mode: undefined }, { acknowledgedRisk: false }, { riskPct: 5 }, { consentVersion: v4 + ".1" }]) {
+    assert.equal(validateSettingsChange(active, { ...review, ...invalid }, true).ok, false);
+  }
+  const slow = { profile: "slow_drip", risk_pct: 0.5, automation_enabled: false };
+  assert.equal(validateSettingsChange(slow, { ...review, mode: "slow_drip", riskPct: 0.5 }, true).ok, false);
+  assert.equal(validateSettingsChange(active, review, false).ok, false);
+  const save = validateSettingsChange(active, { consentVersion: v4, managementEnabled: true }, true);
+  assert.ok(save.ok && !save.arming && !("consent_version" in save.patch));
+});
+
+test("aggressive migration adds only two consented families and preserves all existing reservation and account fences", () => {
+  const previous = readFileSync("scripts/sql/nitrous-sweep-profile.sql", "utf8");
+  const migration = readFileSync("scripts/sql/nitrous-aggressive-profile.sql", "utf8");
+  const from = (s: string, name: string) => compact(functionBody(s, name));
+  const v4Addition = ",'" + v4 + "'";
+  assert.equal(from(migration, "nitrous_apply_settings").replace(v4Addition, ""), from(previous, "nitrous_apply_settings"));
+
+  const newGuard = " or (p_config = '" + configs.aggressive + "' and p_family in ('range_edge_rejection','compression_breakout')" +
+    " and v_account.profile = 'nitrous' and v_account.consent_version = '" + v4 + "')";
+  const reserve = from(migration, "nitrous_reserve_intent");
+  assert.ok(reserve.includes(newGuard));
+  const restored = reserve.replace(newGuard, "").replaceAll(v4Addition, "")
+    .replace("v_account.consent_version in ('" + v3 + "')", "v_account.consent_version = '" + v3 + "'");
+  assert.equal(restored, from(previous, "nitrous_reserve_intent"));
+  const ddl = migration.replace(/CREATE OR REPLACE FUNCTION[\s\S]*?\$function\$;/g, "");
+  assert.match(ddl, /check \(family in \('range_reaction','break_retest','trend_pullback','momentum','sweep_reclaim','range_edge_rejection','compression_breakout'\)\)/);
+  assert.doesNotMatch(ddl, /\b(?:insert\s+into|update|delete\s+from)\s+(?:public\.)?nitrous_/i);
+  assert.equal((ddl.match(/from public,anon,authenticated;/g) ?? []).length, 2);
+  assert.equal((ddl.match(/to service_role;/g) ?? []).length, 2);
 });

@@ -132,7 +132,7 @@ export type ValidatedRange = {
   brokenBy: Side | null;
 };
 
-export type SetupFamily = "range_reaction" | "break_retest" | "trend_pullback" | "momentum" | "sweep_reclaim";
+export type SetupFamily = "range_reaction" | "break_retest" | "trend_pullback" | "momentum" | "sweep_reclaim" | "range_edge_rejection" | "compression_breakout";
 
 export type VisitState =
   | "watching"
@@ -196,6 +196,21 @@ export type Setup = {
   breakEvidence: BreakEvidence | null;
   /** For Nitrous sweep_reclaim: confirmed structure and the completed reclaim candle. */
   sweepEvidence?: SweepEvidence | null;
+  aggressiveEvidence?: AggressiveEvidence | null;
+};
+
+export type AggressiveEvidence = {
+  rangeStartedAt: number;
+  rangeEndedAt: number;
+  edgeTime: number;
+  rangeLow: number;
+  rangeHigh: number;
+  candleOpenedAt: number;
+  candleClosedAt: number;
+  candleOpen: number;
+  candleHigh: number;
+  candleLow: number;
+  candleClose: number;
 };
 
 export type BreakEvidence = {

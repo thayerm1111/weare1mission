@@ -6,7 +6,7 @@ import { ProductIcon } from "../ProductIcon";
 import { useExperienceMode } from "../experience";
 import { NitrousMarketDesk, NitrousLiveTrades } from "./NitrousMarketDesk";
 import type { NitrousAccount, NitrousAnalyze, NitrousMode, NitrousPosition } from "@/lib/nitrous/types";
-import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, NITROUS_PROFILES, NITROUS_SWEEP_CONSENT_VERSION } from "@/lib/nitrous/policy";
+import { NITROUS_CONSENT_VERSION, NITROUS_PROFILES } from "@/lib/nitrous/policy";
 import { useNitrousStatus } from "./useNitrousStatus";
 import { accountIsActive, elapsed, modeName, money, price, shownPnl, shownPnlLabel, validAnalyze } from "./presentation";
 import { NitrousConnect } from "./NitrousConnect";
@@ -61,12 +61,17 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
   const pendingAnalysis = useRef<AbortController | null>(null);
   const [mode, setMode] = useState<NitrousMode>("slow_drip");
   const [riskPct, setRiskPct] = useState(0.5); const [busy, setBusy] = useState(""); const [actionError, setActionError] = useState("");
-  const [notice, setNotice] = useState(""); const [connecting, setConnecting] = useState(false); const [arming, setArming] = useState(false);
+  const [notice, setNotice] = useState(""); const [connecting, setConnecting] = useState(false); const [reviewScope, setReviewScope] = useState<string | null>(null);
   const [armConsent, setArmConsent] = useState(NITROUS_CONSENT_VERSION);
   const [closing, setClosing] = useState<NitrousPosition | null>(null);
   const entitled = status.data?.addon?.entitled === true && !status.error;
   const accounts = status.data?.accounts ?? [];
   const account = accounts.find(a => a.accountId === accountId) ?? accounts[0] ?? null;
+  const selectedScope = account ? account.environment + "/" + account.accountId : null;
+  const arming = reviewScope !== null && reviewScope === selectedScope;
+  useEffect(() => {
+    if (reviewScope !== null && reviewScope !== selectedScope) setReviewScope(null);
+  }, [reviewScope, selectedScope]);
   const profiles = status.data?.profiles.length ? status.data.profiles : NITROUS_PROFILES;
   const profile = profiles.find(p => p.mode === mode) ?? NITROUS_PROFILES[0];
   const lastAccount = useRef("");
@@ -103,7 +108,7 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
     finally { if (!controller.signal.aborted) setAnalysisLoading(false); }
   }, [entitled]);
   useEffect(() => {
-    if (!entitled) { pendingAnalysis.current?.abort(); setAnalysis(null); setAnalysisError(""); setAnalysisLoading(false); setArming(false); setConnecting(false); return; }
+    if (!entitled) { pendingAnalysis.current?.abort(); setAnalysis(null); setAnalysisError(""); setAnalysisLoading(false); setReviewScope(null); setConnecting(false); return; }
     void refreshAnalysis();
     const poll = setInterval(() => { if (document.visibilityState === "visible") void refreshAnalysis(); }, 15_000);
     const visible = () => { if (document.visibilityState === "visible") void refreshAnalysis(); };
@@ -118,7 +123,7 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
       const res = await fetch("/api/nitrous/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ accountId: account.accountId, ...body }) });
       const out = await res.json().catch(() => null);
       if (!res.ok || !out?.ok) throw new Error(out?.blockers?.join(" ") || out?.detail || out?.error || "Unable to update this account.");
-      setArming(false);
+      setReviewScope(null);
       setNotice(action === "pause" ? "New entries are paused. Existing position protection remains in place." : action === "arm" ? "Auto trading authorized. Checking the execution service…" : "Account settings saved.");
       await status.refresh();
     } catch (e) { setActionError(e instanceof Error ? e.message : "Unable to update this account."); }
@@ -152,9 +157,9 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
   const canArm = entitled && !!account && !status.error && !!status.data?.available && status.data.worker.healthy
     && status.data.control.mode === "live" && !status.data.control.entriesPaused && account.blockers.length === 0
     && status.now > 0 && status.now - status.receivedAt <= 45_000;
-  const reviewStrategies = (version?: string) => {
+  const reviewStrategies = () => {
     if (!account || !canArm || busy) return;
-    setArmConsent(version ?? accountStrategyConsent(account, mode)); setActionError(""); setArming(true);
+    setArmConsent(accountStrategyConsent(account, mode)); setActionError(""); setReviewScope(selectedScope);
   };
   return <div className="nitrous" data-mode={mode}>
     <header className="nitrous-header"><div className="nitrous-brand"><ProductIcon kind="nitrous" size="lg" /><div>{!isSimple && <p className="nitrous-eyebrow">ONE MISSION · GOLD AUTOMATION</p>}<h1>Nitrous</h1><p>{isSimple ? "Gold automation" : "Read the setup. Choose your pace."}</p></div></div>
@@ -183,8 +188,8 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
             {entitled && !isSimple && <div className="nitrous-management"><label><input type="checkbox" checked={account.managementEnabled} disabled={account.automationEnabled || !!busy} onChange={event => void settings({ managementEnabled: event.target.checked }, "management")} /><span>Automatic trade management<small>Applies to new trades. Existing trades keep their saved management plan.</small></span></label></div>}
             {entitled && changed && !account.automationEnabled && <button className="nitrous-button nitrous-button-secondary" type="button" onClick={() => void settings({ mode, riskPct }, "save")} disabled={!!busy}>{busy === "save" ? <Loader2 className="nitrous-spin" size={17} /> : <Check size={17} />}Save {modeName(mode)} profile</button>}
             <p className="nitrous-health-note"><strong>Account entry rules:</strong> {accountStrategyName(account)}.{account.automationEnabled ? " Qualifying entries still require broker and risk checks." : " Auto trading is paused."}</p>
-            {entitled && account.automationEnabled && account.mode === "nitrous" && !account.fastStrategyEnabled && <button type="button" className="nitrous-button nitrous-button-primary" disabled={!canArm || !!busy} onClick={() => reviewStrategies(NITROUS_FAST_CONSENT_VERSION)}><Zap size={17} />Enable faster Nitrous</button>}
-            {entitled && mode === "nitrous" && !account.sweepStrategyEnabled && <><p className="nitrous-health-note">Sweep &amp; reclaim is available as an additional strategy. It can enter near a completed reclaim close without waiting for another retest. Review and authorize it for this account to enable it.</p><button type="button" className="nitrous-button nitrous-button-secondary" disabled={!canArm || !!busy} onClick={() => reviewStrategies(NITROUS_SWEEP_CONSENT_VERSION)}><Zap size={17} />Review sweep &amp; reclaim</button></>}
+            {entitled && mode === "nitrous" && !account.aggressiveStrategyEnabled && <p className="nitrous-health-note">Aggressive entries add range edge rejections and compression breakouts. {account.automationEnabled ? "Review the strategies to authorize them here." : "Choose them when turning on auto trading."}</p>}
+            {entitled && account.automationEnabled && account.mode === "nitrous" && <button type="button" className="nitrous-button nitrous-button-secondary" disabled={!canArm || !!busy} onClick={reviewStrategies}><Zap size={17} />Review entry strategies</button>}
             {account.automationEnabled ? <button type="button" className="nitrous-button nitrous-button-secondary" disabled={!!busy} onClick={() => void settings({ automationEnabled: false }, "pause")}>{busy === "pause" ? <Loader2 className="nitrous-spin" size={17} /> : <Pause size={17} />}Pause auto trading</button>
               : <button type="button" className="nitrous-button nitrous-button-primary" disabled={!canArm || !!busy} onClick={() => reviewStrategies()}><Play size={17} />Turn on auto trading</button>}
             {account.blockers.length > 0 && <div className="nitrous-blockers"><strong>Before new entries can start</strong><ul>{account.blockers.map((blocker, i) => <li key={i}>{blocker}</li>)}</ul></div>}
@@ -200,7 +205,7 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
       </aside></div>
     <footer className="nitrous-footer"><span>Visible setups are conditional until their triggers qualify. Trading can lose money.</span>{!isSimple && analysis?.strategyVersion && <span>{analysis.strategyVersion}</span>}</footer>
     {connecting && entitled && <NitrousConnect onClose={() => setConnecting(false)} onConnected={id => { setConnecting(false); if (id) setAccountId(id); void status.refresh(); setNotice("Account connected. Choose your mode and turn on auto trading when ready."); }} />}
-    {arming && entitled && account && <ArmDialog key={`${account.accountId}:${mode}:${riskPct}`} account={account} mode={mode} riskPct={riskPct} consentVersion={armConsent} busy={busy === "arm"} error={actionError} onCancel={() => { setArming(false); setActionError(""); }} onConfirm={version => void settings({ mode, riskPct, automationEnabled: true, acknowledgedRisk: true, consentVersion: version }, "arm")} />}
+    {arming && entitled && account && <ArmDialog key={`${selectedScope}:${mode}:${riskPct}`} account={account} mode={mode} riskPct={riskPct} consentVersion={armConsent} busy={busy === "arm"} error={actionError} onCancel={() => { setReviewScope(null); setActionError(""); }} onConfirm={version => void settings({ mode, riskPct, automationEnabled: true, acknowledgedRisk: true, consentVersion: version }, "arm")} />}
     {closing && account && <CloseDialog position={closing} account={account} busy={busy === "close"} error={actionError} onCancel={() => { setClosing(null); setActionError(""); }} onConfirm={() => void closePosition()} />}
   </div>;
 }

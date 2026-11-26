@@ -8,10 +8,10 @@ import type { NitrousAccount, NitrousAnalyze, NitrousMode, NitrousPosition, Nitr
 import { chartProgressStage, insideBothZones, isObservedTrade, tradeProgress } from "@/lib/nitrous/dashboard";
 import { buildMarketStory, marketUpdate, rankedSetups, scanWaitMessage } from "@/lib/nitrous/market-story";
 import { elapsed, money, price, scenarioState } from "./presentation";
-import { sweepAccountMessage } from "./NitrousStrategyOptions";
+import { aggressiveAccountMessage, sweepAccountMessage } from "./NitrousStrategyOptions";
 import "./nitrous-desk.css";
 
-const familyName = (value: string) => ({ trend_pullback: "Pullback", break_retest: "Break & retest", range_reaction: "Range reaction", sweep_reclaim: "Sweep & reclaim", momentum: "Momentum" } as Record<string, string>)[value] ?? "Price action";
+const familyName = (value: string) => ({ trend_pullback: "Pullback", break_retest: "Break & retest", range_reaction: "Range reaction", sweep_reclaim: "Sweep & reclaim", range_edge_rejection: "Range edge rejection", compression_breakout: "Compression breakout", momentum: "Momentum" } as Record<string, string>)[value] ?? "Price action";
 const checkName = (value: string) => ({ no_zone: "No validated zone", stop_too_wide: "Stops exceeded the strategy limit", target_room_short: "Not enough room to target", regime_conflict: "Timeframes did not align", reward_risk_short: "Reward/risk below the requirement", arbitration_lost: "Another plan took priority", no_anchor: "No confirmed structural anchor", opposite_break: "An opposing break was recorded", outside_band: "Price outside the entry zone", expired: "Setup expired", warmup: "More candle history needed", cost_too_high: "Trading costs too high", spread_too_wide: "Spread too wide", no_opposing_room: "Not enough room ahead", no_sweep: "No confirmed swing sweep", no_reclaim: "Sweep did not close back through the level", forming_candle: "Reclaim candle must close", stale_quote: "Waiting for a fresh reference close", zone_expired: "Structure has expired", zone_suspended: "Structure is suspended" } as Record<string, string>)[value] ?? value.replaceAll("_", " ");
 const tone = (value: unknown) => value === "up" ? "positive" : value === "down" ? "negative" : "neutral";
 const directionWord = (value: unknown) => value === "up" ? "Up" : value === "down" ? "Down" : value === "range" ? "Range" : "—";
@@ -58,10 +58,14 @@ export function NitrousMarketDesk({ data, loading, error, fresh, now, accountNow
   const reference = typeof data?.price === "number" && Number.isFinite(data.price) && data.price > 0 ? data.price : null;
   const scenarios = useMemo(() => rankedSetups(data?.scenarios ?? [], reference, now, fresh, mode), [data?.scenarios, reference, now, fresh, mode]);
   const selectedPlan = scenarios.find(item => item.setupId === chosenId) ?? scenarios[0] ?? null;
-  const story = useMemo(() => buildMarketStory(data, { fresh, now, plan: selectedPlan }), [data, fresh, now, selectedPlan]);
+  const aggressiveRules = mode === "nitrous" && account?.aggressiveStrategyEnabled === true;
+  const story = useMemo(() => buildMarketStory(data, { fresh, now, plan: selectedPlan, aggressiveRules }), [data, fresh, now, selectedPlan, aggressiveRules]);
   const opportunity = story.opportunity;
   const marketFresh = opportunity.kind !== "stale";
   const plan = opportunity.plan;
+  const aggressivePlan = plan?.capability === "aggressive";
+  const strategyMessage = aggressivePlan ? aggressiveAccountMessage(account, accountNow > 0)
+    : plan?.family === "sweep_reclaim" ? sweepAccountMessage(account, accountNow > 0) : null;
   const availableScenarios = marketFresh ? scenarios : [];
   const open = account?.positions.find(item => item.status === "open" || item.status === "closing") ?? null;
   const tradeLive = !!open && isObservedTrade(open, accountNow);
@@ -71,6 +75,8 @@ export function NitrousMarketDesk({ data, loading, error, fresh, now, accountNow
   const checks = (fastScan ? data?.diagnostics?.fastChecks : data?.diagnostics?.baselineChecks) ?? [];
   const sweepChecks = mode === "nitrous" ? data?.diagnostics?.sweepChecks ?? [] : [];
   const sweepCandidates = mode === "nitrous" ? data?.diagnostics?.sweepCandidates : null;
+  const aggressiveChecks = mode === "nitrous" ? data?.diagnostics?.aggressiveChecks ?? [] : [];
+  const aggressiveCandidates = mode === "nitrous" ? data?.diagnostics?.aggressiveCandidates : null;
   const activity = useMarketActivity(data, marketFresh, now, mode);
   const flow = data?.flow ?? [];
   const chart = useMemo(() => {
@@ -84,6 +90,10 @@ export function NitrousMarketDesk({ data, loading, error, fresh, now, accountNow
       add("entry", plan.refEntry, plan.family === "sweep_reclaim" ? "Reclaim entry" : "Planned entry"); add("stop", plan.stop, "Plan stop"); add("target", plan.target, "Plan target");
       if (plan.family === "sweep_reclaim" && plan.sweepEvidence) add(plan.side === "buy" ? "support" : "resistance", plan.sweepEvidence.pivotPrice,
         `Swept swing ${plan.sweepEvidence.pivotKind}`);
+      if (plan.aggressiveEvidence) {
+        add("support", plan.aggressiveEvidence.rangeLow, "Range floor");
+        add("resistance", plan.aggressiveEvidence.rangeHigh, "Range ceiling");
+      }
     }
     const focusLevels = levels.filter(level => level.kind === "entry" || level.kind === "stop" || level.kind === "target");
     const recentBars = data?.bars.slice(-24) ?? [];
@@ -119,7 +129,7 @@ export function NitrousMarketDesk({ data, loading, error, fresh, now, accountNow
   const hasBoundary = opportunity.kind === "watch" && opportunity.boundary !== null;
   const nearPrice = opportunity.boundary ?? (mainRange && reference !== null ?
     reference < mainRange.low ? mainRange.low : reference > mainRange.high ? mainRange.high : null : null);
-  const waitingFor = marketFresh && !plan ? scanWaitMessage(checks, sweepChecks) : null;
+  const waitingFor = marketFresh && !plan ? scanWaitMessage(checks, sweepChecks, aggressiveRules ? aggressiveChecks : []) : null;
   const simpleNext = plan?.state === "triggered" ? "Check your account for the trade result." :
     plan?.state === "armed" ? "Wait for the account and broker checks." :
     waitingFor ? waitingFor :
@@ -130,6 +140,8 @@ export function NitrousMarketDesk({ data, loading, error, fresh, now, accountNow
   const overlap = insideBothZones(story.zones, reference);
   const simpleTitle = chartPosition ? (tradeLive ? "Your trade is open." : "Checking your position.")
     : !marketFresh ? "Waiting for a fresh market read."
+    : plan?.family === "range_edge_rejection" ? (plan.side === "buy" ? "Gold bounced off the range floor." : "Gold turned down at the range ceiling.")
+    : plan?.family === "compression_breakout" ? (plan.side === "buy" ? "Gold broke above its tight range." : "Gold broke below its tight range.")
     : plan?.state === "triggered" ? `The ${plan.side} setup is confirmed.`
     : plan ? `Watching a possible ${plan.side}.`
     : overlap ? "Two zones overlap here."
@@ -146,7 +158,7 @@ export function NitrousMarketDesk({ data, loading, error, fresh, now, accountNow
       <h3 id="nitrous-next-title">{opportunity.title}</h3>
       {mainRange && <div className="nt-watch-price"><strong>{hasBoundary ? price(opportunity.boundary) : `${price(mainRange.low)} – ${price(mainRange.high)}`}</strong><span>{hasBoundary ? opportunity.boundaryText : opportunity.distanceText}</span>{hasBoundary && <small>Full {opportunity.zone?.role === "support" ? "demand" : "supply"} zone {price(mainRange.low)} – {price(mainRange.high)}</small>}</div>}
       <p className="nt-next-detail">{opportunity.detail}</p>
-      {!simple && plan?.family === "sweep_reclaim" && <p className="nt-detail-note" style={{fontSize:13,lineHeight:1.6,margin:"10px 0 14px"}} role="status">{sweepAccountMessage(account, accountNow > 0)}</p>}
+      {!simple && strategyMessage && <p className="nt-detail-note" style={{fontSize:13,lineHeight:1.6,margin:"10px 0 14px"}} role="status">{strategyMessage}</p>}
       <div className="nt-confirmation"><span className="nt-step-icon"><Activity size={17}/></span><div><strong>{plan?.state === "triggered" ? "Execution status" : plan?.state === "armed" ? "What happens next" : opportunity.kind === "setup" ? "What confirms the entry" : opportunity.kind === "watch" ? "What Nitrous needs next" : "What happens next"}</strong><p>{opportunity.trigger}</p></div></div>
       {plan && <div className="nt-plan-facts"><div><small>Planned stop</small><b>{price(opportunity.stop)}</b></div><div><small>Planned target</small><b>{price(opportunity.target)}</b></div><div><small>Valid until</small><b>{new Date(plan.expiresAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</b></div>{opportunity.invalidationText && <p>{opportunity.invalidationText}</p>}</div>}
       {availableScenarios.length > 1 && <div className="nitrous-setup-picker" role="group" aria-label="Current engine setups">{availableScenarios.map(item => <button key={item.setupId} type="button" aria-pressed={item.setupId === plan?.setupId} onClick={() => { setChosenId(item.setupId); setChartView("setup"); }}>{item.side.toUpperCase()} · {familyName(item.family)}</button>)}</div>}
@@ -185,12 +197,13 @@ export function NitrousMarketDesk({ data, loading, error, fresh, now, accountNow
     </section>
     {!simple && marketFresh && activity.events.length > 0 && <section className="nt-market-activity" aria-label="Recent observed market change"><Radio size={16}/><div><small>LATEST CHANGE · {elapsed(activity.events[0].at, now)}</small><p role="status">{activity.events[0].text}</p></div></section>}
     <NitrousLiveTrades account={account} accountNow={accountNow} referencePrice={marketFresh ? reference : null} referenceAt={data?.asOf ?? null} now={now} simple={simple} busy={busy} onClose={onClose} embedded chartStage={stage}/>
-    {simple && plan?.family === "sweep_reclaim" && <p className="nt-detail-note" role="status">{sweepAccountMessage(account, accountNow > 0)}</p>}
+    {simple && strategyMessage && <p className="nt-detail-note" role="status">{strategyMessage}</p>}
     {simple && setupDetails}
     {!simple && <details className="nt-details"><summary>Why Nitrous is waiting <ChevronDown size={16}/></summary>
-      {plan && <div className="nt-raw"><strong>{familyName(plan.family)} · {plan.family === "sweep_reclaim" && plan.state === "armed" ? "Waiting for broker entry checks" : scenarioState(plan.state)}</strong>{plan.conditionsMet.filter(condition => typeof condition === "string" && !/no extra rejection candle required/i.test(condition)).map((condition, index) => <p className="nt-met-condition" key={`met:${index}`}><CheckCircle2 size={14}/>{condition}</p>)}{plan.conditionsPending.map((condition, index) => <p key={`pending:${index}`}>{condition}</p>)}</div>}
+      {plan && <div className="nt-raw"><strong>{familyName(plan.family)} · {(plan.family === "sweep_reclaim" || aggressivePlan) && plan.state === "armed" ? "Waiting for broker entry checks" : scenarioState(plan.state)}</strong>{plan.conditionsMet.filter(condition => typeof condition === "string" && !/no extra rejection candle required/i.test(condition)).map((condition, index) => <p className="nt-met-condition" key={`met:${index}`}><CheckCircle2 size={14}/>{condition}</p>)}{plan.conditionsPending.map((condition, index) => <p key={`pending:${index}`}>{condition}</p>)}</div>}
       {checks.length > 0 && <div className="nt-funnel"><small>{fastScan ? "Fast scanner" : "Baseline scanner"} · reasons candidates were filtered in this read</small>{checks.map(check => <div key={check.code}><span>{checkName(check.code)}</span><b>{check.count}</b></div>)}<p className="nt-detail-note">These counts cover all candidates; they are not a checklist for the selected area.</p></div>}
       {typeof sweepCandidates === "number" && <div className="nt-funnel"><small>Sweep &amp; reclaim scanner · {sweepCandidates} qualifying {sweepCandidates === 1 ? "candidate" : "candidates"}</small>{sweepChecks.map(check => <div key={check.code}><span>{checkName(check.code)}</span><b>{check.count}</b></div>)}<p className="nt-detail-note">Confirmed swing sweeps need a completed reclaim candle and price near its close. Account authorization and broker checks apply separately.</p></div>}
+      {typeof aggressiveCandidates === "number" && <div className="nt-funnel"><small>Aggressive scanner · {aggressiveCandidates} qualifying {aggressiveCandidates === 1 ? "candidate" : "candidates"}</small>{aggressiveChecks.map(check => <div key={check.code}><span>{checkName(check.code)}</span><b>{check.count}</b></div>)}<p className="nt-detail-note">Watching range edges and breakouts on completed 5-minute candles.</p></div>}
       <p className="nt-detail-note">{data?.explanation || "Waiting for a market read."}</p>{data?.health.reasons.map((reason, index) => <p className="nt-detail-note" key={index}>{reason}</p>)}
       <p className="nt-detail-note">The reference price comes from completed one-minute candles. Analysis checks about every 15 seconds; broker quotes and fills can differ.</p>
     </details>}

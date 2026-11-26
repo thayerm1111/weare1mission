@@ -47,7 +47,7 @@ test("pulse uses real completed close values, never a random readiness score",()
 });
 test("market redesign preserves existing connection, settings, close and Telegram paths",()=>{
  const workspace=readFileSync("src/components/om/nitrous/NitrousWorkspace.tsx","utf8");
- for(const literal of ["NitrousConnect","/api/nitrous/connect","/api/nitrous/settings","/api/nitrous/position","NitrousAddonPanel","NitrousTelegramPanel","NitrousLiveTrades","NitrousMarketDesk","Enable faster Nitrous"])assert.ok(workspace.includes(literal),literal);
+ for(const literal of ["NitrousConnect","/api/nitrous/connect","/api/nitrous/settings","/api/nitrous/position","NitrousAddonPanel","NitrousTelegramPanel","NitrousLiveTrades","NitrousMarketDesk","Review entry strategies"])assert.ok(workspace.includes(literal),literal);
  const desk=readFileSync("src/components/om/nitrous/NitrousMarketDesk.tsx","utf8");assert.ok(desk.includes("Broker reported"));assert.ok(desk.includes("not an executable quote"));
 });
 

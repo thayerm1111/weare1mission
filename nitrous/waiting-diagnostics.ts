@@ -1,6 +1,11 @@
 import type { Regime } from "../rapid/core/types";
 
-export function noSetupReason(hourly: Regime, fifteen: Regime, fastRules: boolean): string {
+export function noSetupReason(hourly: Regime, fifteen: Regime, fastRules: boolean, aggressiveRules = false): string {
+  if (aggressiveRules && hourly === "sideways") {
+    return fifteen === "sideways"
+      ? "Gold is ranging. Waiting for a 5-minute rejection at a range edge or a confirmed breakout from compression."
+      : "Gold is ranging on the hourly chart. Waiting for a 5-minute compression breakout compatible with the 15-minute chart.";
+  }
   if (hourly === "sideways") return "Gold is ranging on the hourly chart. Entries need a confirmed hourly trend.";
   if (hourly !== "up" && hourly !== "down") return "Waiting for a confirmed hourly trend in gold.";
   const side = hourly === "up" ? "buy" : "sell";

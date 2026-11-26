@@ -3,15 +3,18 @@ import type { NitrousMode, NitrousSetupCapability, NitrousStats } from "./types"
 export const NITROUS_CONSENT_VERSION = "nitrous-consent-v1";
 export const NITROUS_FAST_CONSENT_VERSION = "nitrous-consent-v2-fast";
 export const NITROUS_SWEEP_CONSENT_VERSION = "nitrous-consent-v3-sweep";
+export const NITROUS_AGGRESSIVE_CONSENT_VERSION = "nitrous-consent-v4-aggressive";
 
 /** Exact immutable configurations, shared by account authorization and public classification. */
 export const NITROUS_SETUP_CONFIGS = {
   baseline: "matty_rapid_v1.cfg.1+nitrous.1",
   fast: "matty_rapid_v1.cfg.1+nitrous.1+fast.2",
   sweep: "matty_rapid_v1.cfg.1+nitrous.1+fast.2+sweep.1",
+  aggressive: "matty_rapid_v1.cfg.1+nitrous.1+fast.2+sweep.1+aggressive.1",
 } as const;
 
-export const hasSweepConsent = (consent: unknown): boolean => consent === NITROUS_SWEEP_CONSENT_VERSION;
+export const hasAggressiveConsent = (consent: unknown): boolean => consent === NITROUS_AGGRESSIVE_CONSENT_VERSION;
+export const hasSweepConsent = (consent: unknown): boolean => consent === NITROUS_SWEEP_CONSENT_VERSION || hasAggressiveConsent(consent);
 export const hasFastConsent = (consent: unknown): boolean => consent === NITROUS_FAST_CONSENT_VERSION || hasSweepConsent(consent);
 export const hasNitrousConsent = (consent: unknown): boolean => consent === NITROUS_CONSENT_VERSION || hasFastConsent(consent);
 
@@ -21,6 +24,7 @@ export function setupCapability(configVersion: unknown, family: unknown): Nitrou
   if (configVersion === NITROUS_SETUP_CONFIGS.baseline && baselineFamily) return "baseline";
   if (configVersion === NITROUS_SETUP_CONFIGS.fast && (baselineFamily || family === "range_reaction")) return "fast";
   if (configVersion === NITROUS_SETUP_CONFIGS.sweep && family === "sweep_reclaim") return "sweep";
+  if (configVersion === NITROUS_SETUP_CONFIGS.aggressive && (family === "range_edge_rejection" || family === "compression_breakout")) return "aggressive";
   return null;
 }
 
@@ -31,7 +35,8 @@ export function setupAuthorized(configVersion: unknown, family: unknown, mode: u
   if (capability === "baseline") return true;
   if (mode !== "nitrous") return false;
   if (capability === "fast") return hasFastConsent(consent);
-  return capability === "sweep" && hasSweepConsent(consent);
+  if (capability === "sweep") return hasSweepConsent(consent);
+  return capability === "aggressive" && hasAggressiveConsent(consent);
 }
 export const WORKER_FRESH_MS = 60_000;
 export const ACCOUNT_FRESH_MS = 120_000;

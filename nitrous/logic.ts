@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import type { Bar, MarketSnapshot, Regime, Rejection, Setup, Timeframe, ValidatedRange } from "../rapid/core/types";
 import { TF_MS } from "../rapid/market/bars";
-import { isFastSetup, isSweepSetup } from "./config";
+import { aggressiveEvidenceSane, aggressiveRegimeEligible, aggressiveTriggerConfirmed } from "./aggressive-patterns";
+import { isAggressiveSetup, isFastSetup, isSweepSetup } from "./config";
 import { setupAuthorized } from "../src/lib/nitrous/policy";
 
 export const MAX_REFERENCE_AGE_MS = 120_000;
@@ -19,9 +20,9 @@ export function entryStillOffered(setup: Setup, snapshot: MarketSnapshot | null,
 
 /** Same completed setup remains the same opportunity across snapshots and worker restarts. */
 export function opportunityId(setup: Setup): string {
-  const eventTime = setup.sweepEvidence?.candleClosedAt;
+  const eventTime = setup.aggressiveEvidence?.candleClosedAt ?? setup.sweepEvidence?.candleClosedAt;
   return "nitrous:" + createHash("sha256").update([
-    setup.strategyVersion, ...(isFastSetup(setup) || isSweepSetup(setup) ? [setup.configVersion] : []), setup.parentId, setup.zoneVersion, setup.side, setup.family,
+    setup.strategyVersion, ...(isFastSetup(setup) || isSweepSetup(setup) || isAggressiveSetup(setup) ? [setup.configVersion] : []), setup.parentId, setup.zoneVersion, setup.side, setup.family,
     eventTime ?? setup.breakEvidence?.closedAt ?? "pullback", new Date(eventTime ?? setup.createdAt).toISOString().slice(0, 10),
   ].join("|")).digest("hex").slice(0, 32);
 }
@@ -84,7 +85,17 @@ export function sweepSetups(snapshot: MarketSnapshot): Setup[] {
     ],
   }));
 }
-export function mergeNitrousSetups(baseline: Setup[], fast: Setup[], sweeps: Setup[] = []): Setup[] {
+export function aggressiveCandidateEligible(s: Setup, regimes: Record<Timeframe, Regime>, price: number, now: number): boolean {
+  return isAggressiveSetup(s) && aggressiveEvidenceSane(s) && aggressiveRegimeEligible(s.family, s.side, regimes)
+    && s.createdAt <= now && now < s.expiresAt && price >= s.entryBandLow && price <= s.entryBandHigh
+    && (s.side === "buy" ? s.invalidation < price && price < s.target : s.target < price && price < s.invalidation);
+}
+
+export function aggressiveSetups(snapshot: MarketSnapshot): Setup[] {
+  return snapshot.scenarios.filter(isAggressiveSetup).map(s => ({ ...s, setupId: opportunityId(s) }));
+}
+
+export function mergeNitrousSetups(baseline: Setup[], fast: Setup[], sweeps: Setup[] = [], aggressive: Setup[] = []): Setup[] {
   const key = (s: Setup) => `${s.parentId}|${s.side}`;
   const keys = new Set(baseline.map(key));
   const existing = [...baseline, ...fast.filter(s => !keys.has(key(s)))];
@@ -92,8 +103,12 @@ export function mergeNitrousSetups(baseline: Setup[], fast: Setup[], sweeps: Set
   // Keep earlier authorized plans available to v1/v2 accounts. A separately confirmed sweep
   // is a capability alternative; the unchanged account + parent + side + day intent key
   // still permits only one reservation at that economic level.
-  return [...existing, ...sweeps.filter(s => {
-    if (!isSweepSetup(s) || s.family !== "sweep_reclaim" || ids.has(s.setupId)) return false;
+  const additional = [
+    ...sweeps.filter(s => isSweepSetup(s) && s.family === "sweep_reclaim"),
+    ...aggressive.filter(s => isAggressiveSetup(s) && (s.family === "range_edge_rejection" || s.family === "compression_breakout")),
+  ];
+  return [...existing, ...additional.filter(s => {
+    if (ids.has(s.setupId)) return false;
     ids.add(s.setupId);
     return true;
   })];
@@ -104,6 +119,14 @@ export function setupAllowedForAccount(setup: Setup, mode: unknown, consent: unk
 /** Explain a rejected context filter without changing the eligibility decision. */
 export function qualificationRejection(s: Setup, regimes: Record<Timeframe, Regime>, range: ValidatedRange | null,
   price: number, now: number, bars: Bar[]): Pick<Rejection, "code" | "detail"> {
+  if (isAggressiveSetup(s)) {
+    if (now >= s.expiresAt) return { code: "expired", detail: "The completed 5-minute entry window expired." };
+    if (!aggressiveRegimeEligible(s.family, s.side, regimes)) return { code: "regime_conflict", detail: s.family === "range_edge_rejection"
+      ? "A range rejection needs sideways hourly and 15-minute structure."
+      : "A breakout needs known hourly and 15-minute structure that supports its direction or is ranging." };
+    if (!aggressiveTriggerConfirmed(s, bars, now)) return { code: "not_fresh_visit", detail: "The confirmed 5-minute pattern is unavailable, revised or no longer fresh." };
+    return { code: "outside_band", detail: "Price has left the entry band around the completed 5-minute close." };
+  }
   const direction = s.side === "buy" ? "up" : "down";
   if (regimes.H1 !== direction) return { code: "regime_conflict", detail: `The 1H structure is ${regimes.H1}; this ${s.side} setup requires ${direction} structure.` };
   if (regimes.M15 !== direction && regimes.M15 !== "sideways") return { code: "regime_conflict", detail: `The 15M structure opposes this ${s.side} setup.` };
@@ -123,6 +146,7 @@ export function qualificationRejection(s: Setup, regimes: Record<Timeframe, Regi
 }
 /** Pullback/range entries need a closed rejection; a break/retest needs its closed break. */
 export function triggerConfirmed(setup: Setup, bars: Bar[], now: number): boolean {
+  if (setup.family === "range_edge_rejection" || setup.family === "compression_breakout") return isAggressiveSetup(setup) && aggressiveTriggerConfirmed(setup, bars, now);
   if (setup.family === "sweep_reclaim") return sweepTriggerConfirmed(setup, bars, now);
   if (setup.family === "break_retest") {
     if (!setup.breakEvidence || setup.breakEvidence.closedAt >= now || now >= setup.expiresAt) return false;

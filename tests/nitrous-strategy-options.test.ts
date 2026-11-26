@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { accountStrategyConsent, accountStrategyName, NitrousStrategyOptions, sweepAccountMessage } from "../src/components/om/nitrous/NitrousStrategyOptions";
-import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, NITROUS_SWEEP_CONSENT_VERSION } from "../src/lib/nitrous/policy";
+import { accountStrategyConsent, accountStrategyName, NitrousStrategyOptions, aggressiveAccountMessage, sweepAccountMessage } from "../src/components/om/nitrous/NitrousStrategyOptions";
+import { NITROUS_AGGRESSIVE_CONSENT_VERSION, NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, NITROUS_SWEEP_CONSENT_VERSION } from "../src/lib/nitrous/policy";
 
 const original = { mode: "nitrous" as const, fastStrategyEnabled: false, sweepStrategyEnabled: false, automationEnabled: true };
 const fast = { ...original, fastStrategyEnabled: true };
@@ -40,4 +40,26 @@ test("account strategy status distinguishes available, authorized, paused and st
   assert.match(sweepAccountMessage(sweep, false), /Refreshing this account/);
   assert.match(sweepAccountMessage(null, true), /Connect an account and review/);
   assert.match(sweepAccountMessage({ ...sweep, mode: "slow_drip" }, true), /has not authorized it/);
+});
+
+test("aggressive entries are a separate account choice and describe the additional gold strategies", () => {
+  const account = { ...sweep, aggressiveStrategyEnabled: true };
+  assert.equal(accountStrategyConsent(account, "nitrous"), NITROUS_AGGRESSIVE_CONSENT_VERSION);
+  assert.equal(accountStrategyName(account), "Aggressive entries");
+  assert.equal(accountStrategyConsent(account, "slow_drip"), NITROUS_CONSENT_VERSION);
+  for (const prior of [original, fast, sweep]) {
+    assert.doesNotMatch(selectedInputs(renderOptions(accountStrategyConsent(prior, "nitrous")))[0], /v4-aggressive/);
+  }
+  const html = renderOptions(NITROUS_AGGRESSIVE_CONSENT_VERSION);
+  assert.equal(selectedInputs(html).length, 1);
+  assert.match(selectedInputs(html)[0], /v4-aggressive/);
+  for (const text of ["Range edge rejection", "Compression breakout", "5-minute candle", "sideways", "Includes all earlier strategies", "risk per trade and daily loss allowance stay the same"]) assert.ok(html.includes(text), text);
+  assert.match(html, /tests it again/);
+  assert.match(html, /together lost money after estimated trading costs/);
+  assert.doesNotMatch(renderOptions(NITROUS_SWEEP_CONSENT_VERSION), /together lost money/);
+  assert.match(aggressiveAccountMessage(sweep, true), /Watching only/);
+  assert.match(aggressiveAccountMessage(account, true), /authorized on this account/);
+  assert.match(aggressiveAccountMessage({ ...account, automationEnabled: false }, true), /paused/);
+  assert.match(aggressiveAccountMessage(account, false), /Checking/);
+  assert.match(aggressiveAccountMessage(null, true), /Connect/);
 });

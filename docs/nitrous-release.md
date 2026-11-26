@@ -117,3 +117,16 @@ restarts. FLOW and Atlas recovery exclude Nitrous-tagged positions; Atlas matche
 tag on the actual candidate row. Shared balance, margin and broker netting behavior are
 not independent accounts. No broker-specific shared-account live fill was placed during
 release testing.
+
+## Aggressive entries
+
+The fourth Nitrous strategy choice includes the previously authorized entry families and adds two gold setups. Both use completed five-minute candles.
+
+- **Range edge rejection** looks for a previously tested edge of a two-hour range. With sideways hourly and 15-minute structure, gold must move back toward the middle, return to the edge, and close back inside on a five-minute rejection candle. The opposite edge limits available target room.
+- **Compression breakout** looks for a directional close beyond the preceding six candles after a narrow half-hour range. Hourly and 15-minute structure can be sideways or aligned with the break. The entry offer expires at the close of the next five-minute candle.
+
+The member selects **Review entry strategies → Aggressive entries** on the intended account and confirms its displayed risk. Existing accounts retain their selected strategy version. Both setups use the account's broker quote, structural stop, sizing, margin, daily allowance and single-position checks.
+
+In five historical samples, the two new strategies produced 205 reference signals and 78 modeled trades, losing 16.23R after estimated costs. An independent October 2026 sample produced 91 signals, all breakouts, and 47 modeled trades, losing 13.51R. One R represents the modeled initial risk of one trade. The replay used archived one-minute gold candles, a $500 starting balance, 3% risk per trade, a $0.35 spread, $0.10 per-side slippage and $10 per lot in round-trip fees. It evaluated the added strategies in isolation with one open position at a time. Actual broker quotes and fills can differ.
+
+For an existing v3 installation, apply `scripts/sql/nitrous-aggressive-profile.sql`, deploy the dedicated worker at the new commit, and verify its watchdog and aggressive configuration before publishing the website. For a fresh installation, apply the fast and sweep profile migrations in order before the aggressive profile migration.

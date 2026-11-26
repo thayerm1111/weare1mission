@@ -10,7 +10,7 @@ export type NitrousTelegramEvent = {
   setupId: string;
   kind: NitrousTelegramKind;
   side: "buy" | "sell";
-  family: "trend_pullback" | "break_retest" | "range_reaction" | "sweep_reclaim";
+  family: "trend_pullback" | "break_retest" | "range_reaction" | "sweep_reclaim" | "range_edge_rejection" | "compression_breakout";
   profile: "slow_drip" | "nitrous" | "both";
   occurredAt: string;
   expiresAt: string;
@@ -50,7 +50,7 @@ export type NitrousTelegramResult = {
 type Fetcher = typeof fetch;
 type ApiEnvelope = { ok?: boolean; result?: Record<string, unknown>; error_code?: number };
 const KINDS: NitrousTelegramKind[] = ["setup", "triggered", "expired", "invalidated", "target_observed", "stop_observed"];
-const FAMILY = { trend_pullback: "Trend pullback", break_retest: "Break and retest", range_reaction: "Range reaction", sweep_reclaim: "Sweep and reclaim" };
+const FAMILY = { trend_pullback: "Trend pullback", break_retest: "Break and retest", range_reaction: "Range reaction", sweep_reclaim: "Sweep and reclaim", range_edge_rejection: "Range edge rejection", compression_breakout: "Compression breakout" };
 const PROFILE = { slow_drip: "Slow Drip", nitrous: "Nitrous", both: "Slow Drip + Nitrous" };
 const LABEL: Record<NitrousTelegramKind, string> = {
   setup: "SETUP WATCH", triggered: "TRIGGER CONFIRMED", expired: "SETUP EXPIRED",

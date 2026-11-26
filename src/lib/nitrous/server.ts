@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NitrousAccount, NitrousPosition, NitrousStats, NitrousStatus } from "./types";
-import { finiteNumber, freshAt, hasFastConsent, hasSweepConsent, isNitrousMode, NITROUS_CONSENT_VERSION, NITROUS_PROFILES, profileFor, readinessBlockers, WORKER_FRESH_MS } from "./policy";
+import { finiteNumber, freshAt, hasAggressiveConsent, hasFastConsent, hasSweepConsent, isNitrousMode, NITROUS_CONSENT_VERSION, NITROUS_PROFILES, profileFor, readinessBlockers, WORKER_FRESH_MS } from "./policy";
 import { nitrousTelegramPublicState, readNitrousTelegramPublicState } from "../nitrous-telegram-store";
 import { getNitrousAddonAccess } from "./addon";
 import type { NitrousAddonAccess } from "./addon-policy";
@@ -111,6 +111,7 @@ export async function getNitrousStatus(admin: SupabaseClient, userId: string, me
       ...(a === selected && entryCheck ? { lastEntryCheck: entryCheck } : {}),
       fastStrategyEnabled: mode === "nitrous" && hasFastConsent(a.consent_version),
       sweepStrategyEnabled: mode === "nitrous" && hasSweepConsent(a.consent_version),
+      aggressiveStrategyEnabled: mode === "nitrous" && hasAggressiveConsent(a.consent_version),
       state: connection?.status === "reconnect_required" || connection?.status === "revoked" ? "reconnect_required"
         : blockers.length ? "degraded" : armed ? "active" : a.automation_enabled_at ? "paused" : "connected",
       blockers, resolvedSymbol: (a.instrument_spec as { brokerSymbol?: string } | null)?.brokerSymbol ?? null,

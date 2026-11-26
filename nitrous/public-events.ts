@@ -1,6 +1,8 @@
 import type { Bar, Setup, Transition, VisitState } from "../rapid/core/types";
 import type { NitrousTelegramEvent } from "../src/lib/nitrous-telegram";
-import { isFastSetup } from "./config";
+import { readAggressiveEvidence } from "../src/lib/nitrous/aggressive-evidence";
+import { aggressiveEvidenceSane } from "./aggressive-patterns";
+import { isAggressiveSetup, isFastSetup } from "./config";
 
 const MINUTE = 60_000;
 const REFERENCE_MAX_AGE = 120_000;
@@ -26,10 +28,12 @@ export type PublicSetupsResult = { updatedSetups: Setup[]; events: NitrousTelegr
 
 function validPlan(s: Setup): boolean {
   if (!s || !/^[A-Za-z0-9_.:-]{1,180}$/.test(s.setupId)
-    || !["trend_pullback", "break_retest", "range_reaction", "sweep_reclaim"].includes(s.family)
+    || !["trend_pullback", "break_retest", "range_reaction", "sweep_reclaim", "range_edge_rejection", "compression_breakout"].includes(s.family)
     || !["buy", "sell"].includes(s.side) || !s.tolerances
     || ![s.entryBandLow,s.entryBandHigh,s.stop,s.target,s.refEntry,s.invalidation,s.expiresAt,s.createdAt].every(positive)
     || s.entryBandLow > s.entryBandHigh || s.expiresAt <= s.createdAt) return false;
+  if ((s.family === "compression_breakout" || s.family === "range_edge_rejection") &&
+    (!isAggressiveSetup(s) || !aggressiveEvidenceSane(s) || !readAggressiveEvidence(s.aggressiveEvidence, s.family, s.side, s.createdAt))) return false;
   if (s.family === "sweep_reclaim") {
     const e = s.sweepEvidence;
     if (!e || typeof e.pivotId !== "string" || !e.pivotId || e.pivotId.length > 180
@@ -61,6 +65,7 @@ function copy(s: Setup): Setup {
     transitions,conditionsMet:[...(s.conditionsMet ?? [])],conditionsPending:[...(s.conditionsPending ?? [])],
     breakEvidence:s.breakEvidence ? {closedAt:s.breakEvidence.closedAt,closePrice:s.breakEvidence.closePrice,
       bodyRatio:s.breakEvidence.bodyRatio,closePositionInRange:s.breakEvidence.closePositionInRange,beyondBy:s.breakEvidence.beyondBy} : null,
+    ...(isAggressiveSetup(s) ? { aggressiveEvidence: readAggressiveEvidence(s.aggressiveEvidence, s.family, s.side, s.createdAt) } : {}),
     ...(s.family === "sweep_reclaim" && s.sweepEvidence ? {sweepEvidence:{pivotId:s.sweepEvidence.pivotId,pivotKind:s.sweepEvidence.pivotKind,pivotPrice:s.sweepEvidence.pivotPrice,
       pivotTime:s.sweepEvidence.pivotTime,pivotKnownAt:s.sweepEvidence.pivotKnownAt,candleOpenedAt:s.sweepEvidence.candleOpenedAt,candleClosedAt:s.sweepEvidence.candleClosedAt,
       candleOpen:s.sweepEvidence.candleOpen,candleHigh:s.sweepEvidence.candleHigh,candleLow:s.sweepEvidence.candleLow,candleClose:s.sweepEvidence.candleClose,
@@ -90,7 +95,7 @@ function move(s: Setup, state: VisitState, at: number, reason: string, evidence:
 }
 
 function event(s: Setup, kind: NitrousTelegramEvent["kind"], at: number): NitrousTelegramEvent {
-  return {setupId:s.setupId,kind,side:s.side,family:s.family as NitrousTelegramEvent["family"],profile:isFastSetup(s) || s.family === "sweep_reclaim" ? "nitrous" : "both",
+  return {setupId:s.setupId,kind,side:s.side,family:s.family as NitrousTelegramEvent["family"],profile:isAggressiveSetup(s) || isFastSetup(s) || s.family === "sweep_reclaim" ? "nitrous" : "both",
     occurredAt:new Date(at).toISOString(),expiresAt:new Date(s.expiresAt).toISOString(),
     entryLow:s.entryBandLow,entryHigh:s.entryBandHigh,stop:s.stop,target:s.target};
 }

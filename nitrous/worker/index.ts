@@ -14,13 +14,14 @@ import { dropForming, fetchBars } from "../../rapid/market/twelvedata";
 import { GOLD_SESSION, isSessionOpen } from "../../rapid/market/session";
 import type { Bar, InstrumentSpec, MarketSnapshot, Setup } from "../../rapid/core/types";
 import type { Store } from "../../rapid/exec/submit";
-import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, NITROUS_SWEEP_CONSENT_VERSION, hasFastConsent, isNitrousMode, validRisk, verifiedOwnedPosition } from "../../src/lib/nitrous/policy";
+import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, NITROUS_SWEEP_CONSENT_VERSION, NITROUS_AGGRESSIVE_CONSENT_VERSION, hasAggressiveConsent, hasFastConsent, isNitrousMode, validRisk, verifiedOwnedPosition } from "../../src/lib/nitrous/policy";
 import type { NitrousMode } from "../../src/lib/nitrous/types";
 import { publishNitrousTelegramEvent, processNitrousTelegramTest } from "../../src/lib/nitrous-telegram-store";
-import { NITROUS_CONFIG, NITROUS_FAST_CONFIG, NITROUS_SWEEP_CONFIG, isFastSetup, isSweepSetup, configFor } from "../config";
+import { NITROUS_CONFIG, NITROUS_FAST_CONFIG, NITROUS_SWEEP_CONFIG, NITROUS_AGGRESSIVE_CONFIG, isAggressiveSetup, isFastSetup, isSweepSetup, configFor } from "../config";
+import { buildAggressivePatterns } from "../aggressive-patterns";
 import { buildSweepReclaim } from "../sweep-reclaim";
 import { selectWatchLevels, countScanChecks } from "../../src/lib/nitrous/dashboard";
-import { aggregateClosed, dailyAllowance, entryStillOffered, memberActive, referenceFresh, supportedSetups, fastCandidateEligible, fastSetups, sweepCandidateEligible, sweepSetups, mergeNitrousSetups, setupAllowedForAccount, triggerConfirmed, qualificationRejection } from "../logic";
+import { aggregateClosed, dailyAllowance, entryStillOffered, memberActive, referenceFresh, supportedSetups, fastCandidateEligible, fastSetups, sweepCandidateEligible, sweepSetups, aggressiveCandidateEligible, aggressiveSetups, mergeNitrousSetups, setupAllowedForAccount, triggerConfirmed, qualificationRejection } from "../logic";
 import { readAccountMetrics, readClosedOutcome, readOpeningFill, marginRequirement } from "../broker";
 import { protectionMatches, submitProtected } from "../submit";
 import { requestCloseOnce } from "../close";
@@ -91,6 +92,7 @@ async function control() {
 async function analysisLoop() {
   let prunedAt = 0;
   let fastZones: MarketSnapshot["zones"] | undefined;
+  let aggressiveZones: MarketSnapshot["zones"] | undefined;
   let sweepZones: MarketSnapshot["zones"] | undefined;
   while (!stopped) {
     const start = Date.now();
@@ -126,6 +128,13 @@ async function analysisLoop() {
           candidateRejection: (s, regimes, range) => qualificationRejection(s, regimes, range, reference, now, s.timeframe === "M15" ? fifteen : five),
           nearestCandidates: { limit: 2, price: reference } });
         sweepZones = sweep.zones;
+        const aggressive = buildSnapshot({ ...input, cfg: NITROUS_AGGRESSIVE_CONFIG, priorZones: aggressiveZones,
+          candidateBuilder: ctx => buildAggressivePatterns({ ...ctx, refPrice: reference }),
+          candidateFilter: (s, regimes) => aggressiveCandidateEligible(s, regimes, reference, now) && triggerConfirmed(s, five, now),
+          candidateRejection: (s, regimes, range) => qualificationRejection(s, regimes, range, reference, now, five),
+          nearestCandidates: { limit: 2, price: reference } });
+        aggressiveZones = aggressive.zones;
+        const aggressivePlans = aggressiveSetups(aggressive);
         const baselinePlans = supportedSetups(snap);
         const fastPlans = fastSetups(fast);
         const sweepPlans = sweepSetups(sweep);
@@ -138,15 +147,15 @@ async function analysisLoop() {
         if (fifteen.length < 60) reasons.push("More completed candles are needed for a market read.");
         const h1 = market.higher.H1?.at(-1);
         if (!h1 || now - h1.t - 3_600_000 > 3_720_000) reasons.push("The 1H trend feed needs to refresh.");
-        const lifecycle = advancePublicSetups({ prior: market.publicSetups, current: mergeNitrousSetups(baselinePlans, fastPlans, sweepPlans),
+        const lifecycle = advancePublicSetups({ prior: market.publicSetups, current: mergeNitrousSetups(baselinePlans, fastPlans, sweepPlans, aggressivePlans),
           bars: market.m1, referencePrice: market.m1.at(-1)!.c, now, marketReady: reasons.length === 0,
           triggerReady: (s) => triggerConfirmed(s, s.timeframe === "M15" ? fifteen : five, now) });
         snap.scenarios = lifecycle.updatedSetups.filter((s) => !publicSetupTerminal(s));
         snap.health = { ...snap.health, state: reasons.length ? "blocked" : "ok", reasons };
         snap.marketEventTime = market.m1.at(-1)!.t + 60_000;
         snap.deterministicExplanation = snap.scenarios.length
-          ? "Slow Drip requires aligned 1H/15M structure. Nitrous also watches pullbacks, break/retests and validated range reactions during 15M consolidation. The optional sweep-and-reclaim strategy qualifies near a completed reclaim close, without a separate retest. Each account must authorize its strategies, and every entry must pass broker risk checks."
-          : "Scanning pullbacks, break/retests, validated range reactions and completed sweeps of known swing levels. Waiting for a nearby confirmed entry with at least $6 of target room and aligned 1H structure.";
+          ? "Slow Drip requires aligned 1H/15M structure. Nitrous also watches pullbacks, break/retests and validated range reactions during 15M consolidation. Nitrous can also enter a completed sweep and reclaim. The expanded profile adds confirmed range-edge rejections and compression breakouts. Each account uses its selected rules and broker risk checks."
+          : "Scanning trend, sweep, range-edge and breakout entries. Waiting for a confirmed pattern with at least $6 of target room.";
         checked(await admin().from("nitrous_snapshots").insert({ snapshot_id: snap.snapshotId,
           strategy_version: snap.strategyVersion, config_version: snap.configVersion, generated_at: new Date(now).toISOString(),
           market_event_time: new Date(snap.marketEventTime).toISOString(), feed_source: "reference", quote_age_ms: null,
@@ -155,6 +164,8 @@ async function analysisLoop() {
             bars: five.slice(-180), price: market.m1.at(-1)!.c, chartTimeframe: "5m",
             rejections: snap.rejections.slice(0, 40), fastRejections: fast.rejections.slice(0, 40), fastConfigVersion: fast.configVersion,
             sweepRejections: sweep.rejections.slice(0, 40), sweepConfigVersion: sweep.configVersion,
+            aggressiveRejections: aggressive.rejections.slice(0, 40), aggressiveConfigVersion: aggressive.configVersion,
+            aggressiveChecks: countScanChecks(aggressive.rejections), aggressiveCandidates: aggressivePlans.length,
             baselineCandidates: baselinePlans.length, fastCandidates: fastPlans.length, sweepCandidates: sweepPlans.length,
             watchLevels: selectWatchLevels([...snap.zones,...fast.zones,...sweep.zones], reference, now),
             baselineChecks: countScanChecks(snap.rejections), fastChecks: countScanChecks(fast.rejections), sweepChecks: countScanChecks(sweep.rejections), levels: snap.zones.slice(0, 100) } }));
@@ -347,7 +358,7 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
   const db = admin(); const cfg = configFor(acct.profile);
   if (!memberActive(checked(await db.from("profiles").select("status,role,access_expires_at").eq("id", acct.user_id).maybeSingle()), Date.now())) throw new Error("Active One Mission access is required for new entries.");
   if (!await hasNitrousAddonAccess(db, acct.user_id)) throw new Error("Nitrous add-on access is required for new entries.");
-  if (![NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, NITROUS_SWEEP_CONSENT_VERSION].includes(acct.consent_version ?? "") || !acct.consented_at || !isNitrousMode(acct.profile) || validRisk(acct.profile, Number(acct.risk_pct)) === null) throw new Error("Review your account mode and risk before activating.");
+  if (![NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, NITROUS_SWEEP_CONSENT_VERSION, NITROUS_AGGRESSIVE_CONSENT_VERSION].includes(acct.consent_version ?? "") || !acct.consented_at || !isNitrousMode(acct.profile) || validRisk(acct.profile, Number(acct.risk_pct)) === null) throw new Error("Review your account mode and risk before activating.");
   const waiting = (code: string, reason: string, setup?: Setup, evidence?: WaitingDecision["evidence"], decision: WaitingDecision["decision"] = "wait") => {
     // This observation cannot delay an entry, consume its quote lifetime, or interrupt protection.
     void recordWaitingDecision({ accountId: acct.id, userId: acct.user_id, snapshotId: snap.snapshotId,
@@ -361,17 +372,18 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
   }
   const remaining = await riskRemaining(acct, equity);
   if (!snap.scenarios.length) waiting("no_qualifying_setup", noSetupReason(snap.regimes.H1, snap.regimes.M15,
-    acct.profile === "nitrous" && hasFastConsent(acct.consent_version)));
+    acct.profile === "nitrous" && hasFastConsent(acct.consent_version), acct.profile === "nitrous" && hasAggressiveConsent(acct.consent_version)));
   // Public display sorts newest-first. Keep existing strategy precedence for execution;
   // a fresh sweep remains available when an older watch plan cannot qualify at the broker.
-  const candidates = [...snap.scenarios].sort((a,b) => Number(isSweepSetup(a)) - Number(isSweepSetup(b)));
+  const priority = (s: Setup) => isAggressiveSetup(s) ? 2 : isSweepSetup(s) ? 1 : 0;
+  const candidates = [...snap.scenarios].sort((a,b) => priority(a) - priority(b));
   for (const candidate of candidates) {
     if (!held()) return;
     if (!setupAllowedForAccount(candidate, acct.profile, acct.consent_version)) {
       waiting("setup_not_authorized", "This setup is outside the account's selected profile or authorization.", candidate);
       continue;
     }
-    const cfg = configFor(acct.profile, isSweepSetup(candidate) ? "sweep" : isFastSetup(candidate) ? "fast" : "baseline");
+    const cfg = configFor(acct.profile, isAggressiveSetup(candidate) ? "aggressive" : isSweepSetup(candidate) ? "sweep" : isFastSetup(candidate) ? "fast" : "baseline");
     if (!triggerConfirmed(candidate, aggregateClosed(market.m1, candidate.timeframe === "M15" ? 15 : 5, Date.now()), Date.now())) {
       waiting("trigger_pending", "Waiting for completed candle confirmation for this setup.", candidate);
       continue;
@@ -407,8 +419,13 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
       conversionRate: currency && currency === spec.currency ? 1 : null, remainingSessionRisk: remaining, cfg });
     if (!size.ok) { waiting("sizing_blocked", size.reason, setup, { blockers: size.blockers }, "skip"); continue; }
     const margin = marginRequirement(spec, size.qty, price, currency);
-    if (margin === null || freeMargin === null || margin > freeMargin - equity * 0.2) throw new Error("This setup does not fit the broker's verified free margin with a 20% equity reserve.");
-    const visit = `${acct.id}|${setup.parentId}|${setup.zoneVersion}|${setup.side}|${iso().slice(0, 10)}`;
+    if (margin === null || freeMargin === null || margin > freeMargin - equity * 0.2) {
+      waiting("margin_blocked", "This setup does not fit the broker's verified free margin with a 20% equity reserve.", setup, undefined, "skip");
+      continue;
+    }
+    const visitDay = isAggressiveSetup(setup) && setup.aggressiveEvidence
+      ? new Date(setup.aggressiveEvidence.candleClosedAt).toISOString().slice(0, 10) : iso().slice(0, 10);
+    const visit = `${acct.id}|${setup.parentId}|${setup.zoneVersion}|${setup.side}|${visitDay}`;
     const intentKey = `om_nitrous_v1|${visit}`; const strategyId = tagFor(intentKey);
     const reserved = checked(await db.rpc("nitrous_reserve_intent", { p_intent_key: intentKey, p_account: acct.id, p_user: acct.user_id,
       p_session: null, p_visit: visit, p_setup: setup.setupId, p_snapshot: snap.snapshotId, p_strategy: setup.strategyVersion,
@@ -437,6 +454,7 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
         c.data?.mode === "live" && c.data.entries_paused === false && lease.data?.owner === HOLDER && Number(lease.data.fence) === fence &&
         Date.parse(lease.data.expires_at) > now && memberActive(member.data, now) && held() && now - q.quote.receivedAt <= cfg.feed.maxQuoteAgeMs &&
         now - approvedAt <= cfg.feed.maxSignalToSubmitMs && entryStillOffered(setup, market.snapshot, now) &&
+        (!isAggressiveSetup(candidate) || triggerConfirmed(candidate, aggregateClosed(market.m1, 5, now), now)) &&
         referenceFresh(market.m1, now) && isSessionOpen(now, GOLD_SESSION);
     };
     const outcome = await submitProtected({ intentId: reservation.intent_id, side: setup.side, qty: size.qty, stop: setup.stop,
@@ -551,7 +569,7 @@ async function telegramTestLoop() {
 export async function main() {
   if (process.env.NITROUS_WORKER !== "1") throw new Error("Set NITROUS_WORKER=1 for this isolated worker.");
   await withNitrousDb(async () => {
-    checked(await admin().from("nitrous_config_versions").upsert([NITROUS_CONFIG, NITROUS_FAST_CONFIG, NITROUS_SWEEP_CONFIG].map(cfg => ({
+    checked(await admin().from("nitrous_config_versions").upsert([NITROUS_CONFIG, NITROUS_FAST_CONFIG, NITROUS_SWEEP_CONFIG, NITROUS_AGGRESSIVE_CONFIG].map(cfg => ({
       config_version: cfg.configVersion, strategy_version: cfg.version, management_version: cfg.managementVersion, config: cfg,
     })), { onConflict: "config_version" }));
     const state = checked(await admin().from("nitrous_public_state").select("setups").eq("id", 1).maybeSingle());

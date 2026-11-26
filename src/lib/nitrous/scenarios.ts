@@ -1,3 +1,4 @@
+import { readAggressiveEvidence } from "./aggressive-evidence";
 import { setupCapability } from "./policy";
 import type { NitrousScenario, NitrousSweepEvidence } from "./types";
 
@@ -43,6 +44,8 @@ export function publicNitrousScenario(value: unknown, now: number, stale: boolea
       : n.stop <= n.entryBandHigh || n.target >= n.entryBandLow)) return null;
   const evidence = capability === "sweep" ? sweepEvidence(s.sweepEvidence, s.timeframe, s.side, now) : null;
   if (capability === "sweep" && !evidence) return null;
+  const aggressive = capability === "aggressive" ? readAggressiveEvidence(s.aggressiveEvidence, s.family, s.side, now) : null;
+  if (capability === "aggressive" && (!aggressive || s.timeframe !== "M5" || n.refEntry !== aggressive.candleClose)) return null;
   return {
     setupId: s.setupId, family: s.family, side: s.side, timeframe: s.timeframe,
     state: n.expiresAt <= now ? "expired" : stale ? "stale" : s.state,
@@ -52,6 +55,7 @@ export function publicNitrousScenario(value: unknown, now: number, stale: boolea
     expiresAt: n.expiresAt, invalidation: n.invalidation,
     conditionsMet: strings(s.conditionsMet), conditionsPending: strings(s.conditionsPending),
     ...(typeof s.explanation === "string" ? { explanation: s.explanation } : {}),
+    ...(aggressive ? { aggressiveEvidence: aggressive } : {}),
     ...(evidence ? { sweepEvidence: evidence } : {}),
   };
 }

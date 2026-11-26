@@ -20,17 +20,21 @@ export const NITROUS_FAST_CONFIG = withOverrides(NITROUS_CONFIG, "fast.2", {
 });
 /** Proposed closed-candle sweep/reclaim rules, isolated from the existing baseline and fast families. */
 export const NITROUS_SWEEP_CONFIG = withOverrides(NITROUS_FAST_CONFIG, "sweep.1", {});
+export const NITROUS_AGGRESSIVE_CONFIG = withOverrides(NITROUS_SWEEP_CONFIG, "aggressive.1", {});
+export function isAggressiveSetup(setup: { configVersion: string }): boolean {
+  return setup.configVersion === NITROUS_AGGRESSIVE_CONFIG.configVersion;
+}
 export function isFastSetup(setup: { configVersion: string }): boolean {
   return setup.configVersion === NITROUS_FAST_CONFIG.configVersion;
 }
 export function isSweepSetup(setup: { configVersion: string }): boolean {
   return setup.configVersion === NITROUS_SWEEP_CONFIG.configVersion;
 }
-export type NitrousStrategyVariant = "baseline" | "fast" | "sweep";
+export type NitrousStrategyVariant = "baseline" | "fast" | "sweep" | "aggressive";
 export function configFor(mode: NitrousMode, variant: boolean | NitrousStrategyVariant = false): RapidConfig {
   const profile = profileFor(mode);
   const choice = typeof variant === "boolean" ? (variant ? "fast" : "baseline") : variant;
-  const base = mode !== "nitrous" ? NITROUS_CONFIG : choice === "sweep" ? NITROUS_SWEEP_CONFIG
+  const base = mode !== "nitrous" ? NITROUS_CONFIG : choice === "aggressive" ? NITROUS_AGGRESSIVE_CONFIG : choice === "sweep" ? NITROUS_SWEEP_CONFIG
     : choice === "fast" ? NITROUS_FAST_CONFIG : NITROUS_CONFIG;
   return { ...base, risk: { ...base.risk,
     maxPct: Math.max(...profile.riskPresets), defaultPct: profile.defaultRisk,

@@ -1,3 +1,4 @@
+import { readAggressiveEvidence } from "./aggressive-evidence";
 import { displayableSetup, selectWatchLevels } from "./dashboard";
 import type { NitrousAnalyze, NitrousMode, NitrousScanCheck, NitrousScenario, NitrousWatchLevel } from "./types";
 
@@ -38,7 +39,7 @@ const formatPrice = (v: number) => v.toLocaleString("en-US", { minimumFractionDi
 const timeframes: Record<string, string> = { D1: "D", H4: "4H", H1: "1H", M30: "30M", M15: "15M", M5: "5M" };
 const timeframe = (v: string) => timeframes[v.toUpperCase()] ?? v.toUpperCase();
 const timeframeWords = (v: string) => ({ D: "daily", "4H": "4-hour", "1H": "1-hour", "30M": "30-minute", "15M": "15-minute", "5M": "5-minute" } as Record<string, string>)[timeframe(v)] ?? "";
-const family = (v: string) => ({ trend_pullback: "pullback", break_retest: "break & retest", range_reaction: "range reaction", sweep_reclaim: "sweep & reclaim" } as Record<string, string>)[v] ?? "setup";
+const family = (v: string) => ({ trend_pullback: "pullback", break_retest: "break & retest", range_reaction: "range reaction", sweep_reclaim: "sweep & reclaim", range_edge_rejection: "range edge rejection", compression_breakout: "compression breakout" } as Record<string, string>)[v] ?? "setup";
 const distanceTo = (low: number, high: number, price: number) => Math.max(low - price, price - high, 0);
 const direction = (data: NitrousAnalyze | null, tf: string): Direction => {
   const value = data?.flow.find(v => typeof v?.timeframe === "string" && timeframe(v.timeframe) === tf)?.direction;
@@ -60,8 +61,12 @@ function currentRead(data: NitrousAnalyze | null, now: number, fresh: boolean): 
 /** A display filter only. It never creates, rearms, or submits an engine setup. */
 function coherentPlan(s: NitrousScenario, reference: number | null, now: number, fresh: boolean): boolean {
   if (!s || !displayableSetup(s, reference, now, fresh) || !s.setupId
-    || !["trend_pullback", "break_retest", "range_reaction", "sweep_reclaim"].includes(s.family)
+    || !["trend_pullback", "break_retest", "range_reaction", "sweep_reclaim", "range_edge_rejection", "compression_breakout"].includes(s.family)
     || s.refEntry < s.entryBandLow || s.refEntry > s.entryBandHigh) return false;
+  if (s.family === "range_edge_rejection" || s.family === "compression_breakout") {
+    const evidence = readAggressiveEvidence(s.aggressiveEvidence, s.family, s.side, now);
+    if (s.capability !== "aggressive" || s.profile !== "nitrous" || s.timeframe !== "M5" || !evidence || evidence.candleClose !== s.refEntry) return false;
+  }
   if (s.family === "sweep_reclaim") {
     const e = s.sweepEvidence;
     if (!e || ![e.pivotPrice,e.pivotTime,e.pivotKnownAt,e.candleOpenedAt,e.candleClosedAt,e.candleClose,e.sweepExtreme,e.confirmationThreshold].every(positive)
@@ -116,8 +121,8 @@ function distanceText(low: number, high: number, reference: number): string {
   return reference > high ? `$${formatPrice(reference - high)} below current reference` : `$${formatPrice(low - reference)} above current reference`;
 }
 /** Prefer a specific observed entry check over a general wait message. */
-export function scanWaitMessage(checks: NitrousScanCheck[], sweep: NitrousScanCheck[]): string | null {
-  const observed = new Set([...checks, ...sweep].filter(item => item.count > 0).map(item => item.code));
+export function scanWaitMessage(checks: NitrousScanCheck[], sweep: NitrousScanCheck[], aggressive: NitrousScanCheck[] = []): string | null {
+  const observed = new Set([...checks, ...sweep, ...aggressive].filter(item => item.count > 0).map(item => item.code));
   if (observed.has("outside_band")) return "Gold needs to come back to an entry area.";
   if (observed.has("target_room_short")) return "A price level is too close to the target for this setup.";
   if (observed.has("stop_too_wide")) return "A possible setup needed a wider stop than the rules allow.";
@@ -139,7 +144,9 @@ function planOpportunity(plan: NitrousScenario, reference: number): MarketOpport
   // These requirements come from nitrous/logic.ts, not assumptions from the chart's candle shape.
   const pending = Array.isArray(plan.conditionsPending) ? plan.conditionsPending.filter((v): v is string => typeof v === "string" && v.trim().length > 0) : [];
   const firstPending = pending.find(v => !/broker|margin|affordable|risk must qualify/i.test(v)) ?? pending[0];
-  const trigger = sweep ? `${triggered ? "The reference reclaim and entry-band conditions were observed. Broker execution still needs its own confirmation."
+  const pattern = plan.aggressiveEvidence;
+  const trigger = pattern ? "The 5-minute candle closed. A broker entry needs a price inside the band, enough room to the target and available account risk."
+    : sweep ? `${triggered ? "The reference reclaim and entry-band conditions were observed. Broker execution still needs its own confirmation."
     : `The completed reclaim is recorded. Broker price must be inside the entry band near ${formatPrice(sweep.candleClose)} and pass size, spread, margin and risk checks.`} No additional retest is required.`
     : triggered ? "The reference trigger and entry-zone visit were observed. Broker execution still needs its own confirmation."
     : confirmed ? "The reference trigger is confirmed. Broker price must enter the band and pass size, spread, margin and risk checks."
@@ -147,13 +154,16 @@ function planOpportunity(plan: NitrousScenario, reference: number): MarketOpport
         : plan.family === "break_retest" ? "A completed break and return to the entry band must be confirmed, followed by broker risk checks."
           : `A completed ${tf} candle must reject the zone, followed by broker price and risk checks.`;
   const chartName = timeframeWords(plan.timeframe);
-  const detail = sweep ? `The ${chartName || "entry"} candle swept ${plan.side === "buy" ? "below" : "above"} the known swing ${sweep.pivotKind} at ${formatPrice(sweep.pivotPrice)} to ${formatPrice(sweep.sweepExtreme)}, then closed back ${plan.side === "buy" ? "above" : "below"} it at ${formatPrice(sweep.candleClose)} (${new Date(sweep.candleClosedAt).toISOString().slice(11,16)} UTC).`
+  const detail = pattern ? plan.family === "compression_breakout"
+    ? `Gold closed ${plan.side === "buy" ? "above" : "below"} the ${formatPrice(pattern.rangeLow)}–${formatPrice(pattern.rangeHigh)} consolidation at ${formatPrice(pattern.candleClose)}.`
+    : `Gold tested the ${plan.side === "buy" ? "bottom" : "top"} of the ${formatPrice(pattern.rangeLow)}–${formatPrice(pattern.rangeHigh)} range and closed back inside at ${formatPrice(pattern.candleClose)}.`
+    : sweep ? `The ${chartName || "entry"} candle swept ${plan.side === "buy" ? "below" : "above"} the known swing ${sweep.pivotKind} at ${formatPrice(sweep.pivotPrice)} to ${formatPrice(sweep.sweepExtreme)}, then closed back ${plan.side === "buy" ? "above" : "below"} it at ${formatPrice(sweep.candleClose)} (${new Date(sweep.candleClosedAt).toISOString().slice(11,16)} UTC).`
     : plan.family === "break_retest" ? `The ${chartName || "entry"} chart has recorded a break ${plan.side === "buy" ? "above" : "below"} the zone. This ${plan.side} plan watches the retest.`
     : plan.family === "range_reaction" ? `This ${plan.side} setup watches the ${plan.side === "buy" ? "lower" : "upper"} boundary of an established ${chartName ? `${chartName} ` : ""}range.`
       : `This ${plan.side} plan follows a ${chartName ? `${chartName} ` : ""}pullback into ${plan.side === "buy" ? "support" : "resistance"}. The entry area is shown above.`;
   return {
-    kind: "setup", title: triggered ? `${plan.side === "buy" ? "Buy" : "Sell"}${sweep ? " sweep & reclaim ·" : ""} trigger observed` : `${plan.side === "buy" ? "Buy" : "Sell"} ${family(plan.family)}`,
-    status: triggered ? "Reference trigger · not a broker fill" : sweep ? "Closed reclaim observed · entry checks pending" : confirmed ? "Confirmation observed · waiting for entry" : "Conditional setup · waiting for confirmation",
+    kind: "setup", title: triggered ? `${plan.side === "buy" ? "Buy" : "Sell"}${sweep ? " sweep & reclaim ·" : pattern ? " " + family(plan.family) + " ·" : ""} trigger observed` : `${plan.side === "buy" ? "Buy" : "Sell"} ${family(plan.family)}`,
+    status: triggered ? "Reference trigger · not a broker fill" : pattern ? "Closed pattern · broker checks pending" : sweep ? "Closed reclaim observed · entry checks pending" : confirmed ? "Confirmation observed · waiting for entry" : "Conditional setup · waiting for confirmation",
     detail, range: { low: plan.entryBandLow, high: plan.entryBandHigh },
     distance: distanceTo(plan.entryBandLow, plan.entryBandHigh, reference), distanceText: distanceText(plan.entryBandLow, plan.entryBandHigh, reference),
     trigger, invalidationText: `This idea is invalid if reference price reaches ${formatPrice(plan.invalidation)} or ${plan.side === "buy" ? "lower" : "higher"}.`,
@@ -165,7 +175,7 @@ export function watchBoundary(zone: NitrousWatchLevel, reference: number): numbe
   const inside = reference >= zone.low && reference <= zone.high;
   return zone.role === "support" ? inside ? zone.low : zone.high : inside ? zone.high : zone.low;
 }
-function watchOpportunity(zone: NitrousWatchLevel, reference: number, hourly: Direction): MarketOpportunity {
+function watchOpportunity(zone: NitrousWatchLevel, reference: number, hourly: Direction, aggressiveRules: boolean): MarketOpportunity {
   const inside = reference >= zone.low && reference <= zone.high;
   const name = zone.role === "support" ? "demand" : "supply";
   const boundary = watchBoundary(zone, reference);
@@ -175,7 +185,8 @@ function watchOpportunity(zone: NitrousWatchLevel, reference: number, hourly: Di
   const tf = zone.origin ? timeframeWords(zone.origin) : "";
   const location = inside ? "inside" : reference > zone.high ? "above" : "below";
   const area = `${tf ? `${tf} ` : ""}${name} area`;
-  const trigger = hourly === "range" ? "The hourly chart needs a directional trend before a setup can qualify. Then wait for an entry pattern and broker checks."
+  const trigger = hourly === "range" && aggressiveRules ? "Watch for a 5-minute rejection at the edge of a confirmed range, or a breakout from compression."
+    : hourly === "range" ? "The hourly chart needs a directional trend before a setup can qualify. Then wait for an entry pattern and broker checks."
     : hourly === "unknown" ? "Wait for the hourly trend and a qualifying entry pattern to be available. A zone touch alone is not an entry."
       : "Wait for Nitrous to confirm an entry pattern here. A zone touch alone is not an entry.";
   return {
@@ -188,7 +199,7 @@ function watchOpportunity(zone: NitrousWatchLevel, reference: number, hourly: Di
 
 /** Deterministic narration of reported structure. No predicted path, probability, or invented trade levels. */
 export function buildMarketStory(data: NitrousAnalyze | null,
-  { fresh, now, plan = null }: { fresh: boolean; now: number; plan?: NitrousScenario | null }): MarketStory {
+  { fresh, now, plan = null, aggressiveRules = false }: { fresh: boolean; now: number; plan?: NitrousScenario | null; aggressiveRules?: boolean }): MarketStory {
   const quoteAgeMs = marketAge(data?.asOf, now), analysisAgeMs = marketAge(data?.generatedAt, now);
   if (!data || !currentRead(data, now, fresh)) {
     const detail = data?.health.reasons.find(v => typeof v === "string" && v.trim()) ?? data?.reason ?? "Waiting for the next fresh market read.";
@@ -204,9 +215,10 @@ export function buildMarketStory(data: NitrousAnalyze | null,
   const hourly = direction(data, "1H");
   const selected = plan ? data.scenarios.find(s => s.setupId === plan.setupId) ?? null : null;
   const opportunity = selected && coherentPlan(selected, reference, now, true) ? planOpportunity(selected, reference)
-    : zones[0] ? watchOpportunity(zones[0], reference, hourly)
+    : zones[0] ? watchOpportunity(zones[0], reference, hourly, aggressiveRules)
       : emptyOpportunity("none", "No nearby setup identified", "No entry signal", "The current read has no qualifying entry plan or nearby validated watch area.",
-        hourly === "range" ? "The hourly chart needs a directional trend, then a nearby entry pattern with a structural stop and target."
+        hourly === "range" && aggressiveRules ? "Waiting for a completed range-edge rejection or compression breakout."
+        : hourly === "range" ? "The hourly chart needs a directional trend, then a nearby entry pattern with a structural stop and target."
           : "Wait for a nearby structural plan with a confirmed entry pattern, stop and target.");
   return { ...marketContext(data), quoteAgeMs, analysisAgeMs, zones, opportunity };
 }
