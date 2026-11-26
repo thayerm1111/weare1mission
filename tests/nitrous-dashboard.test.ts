@@ -41,9 +41,10 @@ test("desk hides expired, invalidated and already-crossed offers; it never displ
  assert.equal(displayableSetup({...plan,expiresAt:NOW},3498,NOW,true),false);
  assert.equal(displayableSetup({...plan,state:"invalidated"},3498,NOW,true),false);
 });
-test("approved desk includes price bias status, compact timeframe strip and embedded live trade panel",()=>{
+test("market brief leads with current context and next area before the chart, retaining broker position access",()=>{
  const desk=readFileSync("src/components/om/nitrous/NitrousMarketDesk.tsx","utf8");
- for(const s of ["nt-approved-metrics","nt-tf-strip","What Nitrous is waiting for","nt-bottom-grid","No active trade","nt-empty-metrics","onClose={onClose} embedded"])assert.ok(desk.includes(s),s);
+ for(const s of ["nt-market-brief","nt-tf-strip","NEXT AREA TO WATCH","What confirms the entry","No active trade","onClose={onClose} embedded"])assert.ok(desk.includes(s),s);
+ assert.ok(desk.indexOf('className="nt-next"') < desk.indexOf('className="nt-chart-card"'), "next watched area comes before the chart");
  const workspace=readFileSync("src/components/om/nitrous/NitrousWorkspace.tsx","utf8");
  assert.ok(workspace.includes("!entitled && account && <NitrousLiveTrades"),"existing positions remain visible after membership lapses");
  const route=readFileSync("src/app/api/admin/nitrous-telegram/route.ts","utf8");

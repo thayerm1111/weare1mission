@@ -47,3 +47,110 @@
 @media (pointer: coarse) {
   .om-ch-tools button { min-width: 40px; height: 40px; }
 }
+
+/* Nitrous opts into a complete palette: a light shell must not leak white controls into its dark desk. */
+.om-ch[data-appearance="nitrous"],
+.om-ch-sheet[data-appearance="nitrous"] {
+  --om-page: #101923;
+  --om-surface: #172434;
+  --om-float: #192a3d;
+  --om-float-active: #263d56;
+  --om-text: #eaf3ff;
+  --om-text-strong: #f4f8ff;
+  --om-text-2: #c0d2e8;
+  --om-text-3: #a1bad6;
+  --om-edge: #3d5571;
+  --om-edge-2: #6b93bd;
+  --om-ai: #91c9ff;
+  --om-ai-rgb: 145 201 255;
+  --om-pos: #4de5ab;
+  --om-pos-rgb: 77 229 171;
+  --om-neg: #ff8493;
+  --om-neg-rgb: 255 132 147;
+  --om-ch-col: #1c3046;
+  --om-ch-grid: rgba(153, 181, 215, .13);
+  --om-ch-grid-2: rgba(153, 181, 215, .07);
+  --om-ch-base: #3d526b;
+  --om-ch-level: #aac7e5;
+  --om-ch-halo: #111d2a;
+  --om-ch-tag: #31577a;
+  --om-ch-tag-text: #f4f9ff;
+  --om-ch-price: #91b9de;
+  --om-ch-cross: #89a8ca;
+  --om-ch-cross-2: #728dac;
+  --om-ch-tip: #20364d;
+  --om-ch-tip-edge: #6488b1;
+  --om-ch-hatch: #3b516b;
+  color: var(--om-text);
+  color-scheme: dark;
+}
+.om-ch[data-appearance="nitrous"] .om-ch-read {
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 3px 2px;
+  gap: 3px 9px;
+  align-items: center;
+  align-content: center;
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow: visible;
+  background: transparent;
+  border-radius: 0;
+  font-size: 12px;
+  line-height: 16px;
+}
+.om-ch[data-appearance="nitrous"]::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 76px;
+  z-index: 1;
+  background: var(--om-page);
+  pointer-events: none;
+}
+.om-ch[data-appearance="nitrous"] .om-ch-tf { flex: 0 0 auto; }
+.om-ch[data-appearance="nitrous"] .om-ch-when { overflow-wrap: anywhere; }
+.om-ch[data-appearance="nitrous"] .om-ch-tools { gap: 4px; }
+.om-ch[data-appearance="nitrous"] .om-ch-tools button,
+.om-ch[data-appearance="nitrous"] .om-ch-latest button {
+  min-width: 40px;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--om-edge);
+  border-radius: 10px;
+  background: var(--om-float);
+  color: var(--om-text);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .16);
+}
+.om-ch[data-appearance="nitrous"] .om-ch-tools button:hover,
+.om-ch[data-appearance="nitrous"] .om-ch-latest button:hover { border-color: var(--om-edge-2); background: var(--om-float-active); }
+.om-ch[data-appearance="nitrous"] .om-ch-tools button:focus-visible,
+.om-ch[data-appearance="nitrous"] .om-ch-latest button:focus-visible { outline: 2px solid var(--om-ai); outline-offset: 2px; }
+.om-ch[data-appearance="nitrous"] .om-ch-inspect {
+  position: absolute;
+  z-index: 2;
+  inset: 43px 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-height: 29px;
+  padding: 0 2px;
+  color: var(--om-text-2);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.om-ch[data-appearance="nitrous"] .om-ch-inspect > span { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.om-ch[data-appearance="nitrous"] .om-ch-inspect small { color: var(--om-text-3); font-size: 11px; line-height: 14px; }
+.om-ch[data-appearance="nitrous"] .om-ch-inspect b { color: var(--om-text); font-size: 12px; font-weight: 600; line-height: 15px; white-space: nowrap; }
+.om-ch[data-appearance="nitrous"] .om-ch-inspect .om-pos { color: var(--om-pos); }
+.om-ch[data-appearance="nitrous"] .om-ch-inspect .om-neg { color: var(--om-neg); }
+.om-ch[data-appearance="nitrous"] .om-ch-inspect .om-ch-inspect-hint { font-size: 11px; color: var(--om-text-3); }
+.om-ch[data-appearance="nitrous"] .om-ch-inspect[data-selected="true"] { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.om-ch[data-appearance="nitrous"] .om-ch-inspect[data-selected="true"] > span { display: grid; gap: 0; }
+.om-ch[data-appearance="nitrous"] .om-ch-latest { position: absolute; z-index: 3; }
+.om-ch[data-appearance="nitrous"] .om-ch-latest button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; font: inherit; font-size: 12px; cursor: pointer; }
+.om-ch[data-appearance="nitrous"] .om-ch-latest svg { width: 16px; height: 16px; }
+.om-ch[data-appearance="nitrous"] .om-ch-edge { max-width: calc(100% - 175px); font-size: 11px; line-height: 1.4; }
+.om-ch[data-appearance="nitrous"][data-compact] .om-ch-inspect:not([data-selected="true"]) > span:first-child { display: grid; gap: 0; }
+.om-ch[data-appearance="nitrous"][data-compact] .om-ch-inspect .om-ch-inspect-hint { max-width: 105px; text-align: right; line-height: 14px; }

@@ -48,6 +48,8 @@ export type OmChartProps = {
   priceLive?: boolean;
   /** A retained analysis: returning to its newest candle must not claim this is a live feed. */
   snapshot?: boolean;
+  /** A self-contained dark chart treatment, including controls and fullscreen. */
+  appearance?: "nitrous";
   /** Signal snapshots may fit every supplied level; other charts keep their candle-led automatic fit. */
   fitLevels?: boolean;
   dec: number;
@@ -88,6 +90,9 @@ type Drag = { x: number; y: number; end: number; pOff: number; pz: number; axis:
 export function OmChart(p: OmChartProps) {
   const { bars, timeKnown, dec } = p;
   const backed = p.labelStyle === "backed";
+  const nitrousAppearance = p.appearance === "nitrous";
+  // Reserve one stable header area for inspection; selecting a candle never moves the chart.
+  const topBand = nitrousAppearance ? 76 : TOP_BAND;
   const ema = useMemo(() => {
     const period = p.emaPeriod;
     if (!period || !Number.isInteger(period) || period < 2 || period > 100 || bars.length < period) return null;
@@ -172,10 +177,10 @@ export function OmChart(p: OmChartProps) {
     for (const v of [...p.levels.map((l) => l.price), ...(p.zone ? [p.zone.low, p.zone.high] : []), ...structureZones.flatMap((zone) => [zone.low, zone.high])]) if (Number.isFinite(v) && (p.fitLevels || near(v))) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
     const mid = (lo + hi) / 2, half = (Math.max(hi - lo, base) / 2) * 1.1 / Math.max(0.05, vp.pz);
     const pLo = mid - half + vp.pOff;
-    const pHi = mid + half + vp.pOff + (2 * half) * TOP_BAND / Math.max(40, priceH - TOP_BAND);
+    const pHi = mid + half + vp.pOff + (2 * half) * topBand / Math.max(40, priceH - topBand);
     const y = (v: number) => ((pHi - v) / (pHi - pLo)) * priceH;
     return { n, usable, span, end, iL, bw, x, y, i0, i1, pLo, pHi, pricePerPx: (pHi - pLo) / Math.max(1, priceH) };
-  }, [bars, sz, plotW, priceH, compact, vp, p.price, p.levels, p.zone, p.fitLevels, structureZones, dec]);
+  }, [bars, sz, plotW, priceH, compact, vp, p.price, p.levels, p.zone, p.fitLevels, structureZones, dec, topBand]);
 
   /* Gesture maths reads this rather than a stale closure. */
   const st = useRef<ViewScale & { plotW: number; priceH: number }>({ n: 0, span: 0, end: 0, iL: 0, bw: 1, usable: 1, pricePerPx: 1, plotW: 1, priceH: 1 });
@@ -381,7 +386,7 @@ export function OmChart(p: OmChartProps) {
     // Price grid
     const step = niceStep(view.pHi - view.pLo, Math.max(3, Math.min(8, Math.round(priceH / 56))));
     const yTicks: number[] = [];
-    for (let v = Math.ceil(view.pLo / step) * step; v <= view.pHi; v += step) { const yy = y(v); if (yy > TOP_BAND - 4 && yy < priceH - 4) yTicks.push(Number(v.toFixed(Math.max(dec, 6)))); }
+    for (let v = Math.ceil(view.pLo / step) * step; v <= view.pHi; v += step) { const yy = y(v); if (yy > topBand - 4 && yy < priceH - 4) yTicks.push(Number(v.toFixed(Math.max(dec, 6)))); }
     const tTicks = axisMarks(bars, Math.max(i0, Math.ceil(view.iL)), Math.min(i1, Math.floor(view.end)), Math.max(2, Math.floor(plotW / 120)), timeKnown);
 
     // Where an earlier analysis starts: its own candle, if it is on the chart.
@@ -411,14 +416,14 @@ export function OmChart(p: OmChartProps) {
     const used: number[] = [];
     const visibleLevels = (levelX0 == null ? [] : p.levels)
       .map((l) => ({ l, ly: y(l.price) }))
-      .filter((o) => o.ly >= TOP_BAND - 6 && o.ly <= priceH + 2)
+      .filter((o) => o.ly >= topBand - 6 && o.ly <= priceH + 2)
       .sort((a, b) => a.ly - b.ly);
-    const lv = backed ? orderedLevelLabels(visibleLevels, TOP_BAND + 15, priceH - 9, 25)
-      : p.fitLevels ? orderedLevelLabels(visibleLevels, TOP_BAND + 12, priceH - 6)
+    const lv = backed ? orderedLevelLabels(visibleLevels, topBand + 15, priceH - 9, 25)
+      : p.fitLevels ? orderedLevelLabels(visibleLevels, topBand + 12, priceH - 6)
       : visibleLevels.map(({ l, ly }) => {
         const clash = (v: number) => used.some((u) => Math.abs(u - v) < 15);
         let labelY = ly - 6;
-        if (labelY < TOP_BAND + 8 || clash(labelY)) labelY = ly + 15;
+        if (labelY < topBand + 8 || clash(labelY)) labelY = ly + 15;
         // Never below the plot (it would be cut off at the time axis): back above its line, and up past any neighbour.
         if (labelY > priceH - 6) { labelY = Math.min(ly - 6, priceH - 6); for (let k = 0; k < 6 && clash(labelY); k++) labelY -= 15; }
         used.push(labelY);
@@ -428,7 +433,7 @@ export function OmChart(p: OmChartProps) {
     // Said only once the view has been moved there: a chart showing all it has needs no note.
     const leftEdge = view.iL <= 0.5 && moved(vp);
     // The readout keeps clear of the view's buttons: beside them on a desk, above them on a phone.
-    const toolsW = compact ? AXIS : 44 + (moved(vp) ? 92 : 0) + (!atLive ? 146 : 0);
+    const toolsW = nitrousAppearance ? 48 + (moved(vp) ? 46 : 0) : compact ? AXIS : 44 + (moved(vp) ? 92 : 0) + (!atLive ? 146 : 0);
     const crossX = si >= 0 ? x(si) : null;
 
     body = (
@@ -437,18 +442,25 @@ export function OmChart(p: OmChartProps) {
         <div className="om-ch-read" data-no-i18n translate="no" style={{ maxWidth: `calc(100% - ${toolsW}px)` }}>
           <span className="om-ch-tf">{p.tfLabel}</span>
           <span className="om-ch-when">{forming && si < 0 ? (timeKnown ? clockText(hb.t) : "Newest candle") : candleTimeText(hb.t, timeKnown, last.t)}</span>
-          {(!compact || si >= 0) && (["O", "H", "L"] as const).map((k) => (
-            <span key={k} className="om-ch-ohlc">{k} <b className={up(hb) ? "om-pos" : "om-neg"}>{priceText(k === "O" ? hb.o : k === "H" ? hb.h : hb.l, dec)}</b></span>
-          ))}
-          <span className="om-ch-ohlc">C <b className={up(hb) ? "om-pos" : "om-neg"}>{priceText(hb.c, dec)}</b></span>
-          <span className={up(hb) ? "om-pos" : "om-neg"}>{ch >= 0 ? "+" : "−"}{priceText(Math.abs(ch), dec)}{compact ? "" : ` (${((ch / hb.o) * 100).toFixed(2)}%)`}</span>
+          {!nitrousAppearance && <>
+            {(!compact || si >= 0) && (["O", "H", "L"] as const).map((k) => (
+              <span key={k} className="om-ch-ohlc">{k} <b className={up(hb) ? "om-pos" : "om-neg"}>{priceText(k === "O" ? hb.o : k === "H" ? hb.h : hb.l, dec)}</b></span>
+            ))}
+            <span className="om-ch-ohlc">C <b className={up(hb) ? "om-pos" : "om-neg"}>{priceText(hb.c, dec)}</b></span>
+            <span className={up(hb) ? "om-pos" : "om-neg"}>{ch >= 0 ? "+" : "−"}{priceText(Math.abs(ch), dec)}{compact ? "" : ` (${((ch / hb.o) * 100).toFixed(2)}%)`}</span>
+          </>}
           {shut(hb.t) && <span className="om-ch-tag">{closedNow && Date.now() >= hb.t && Date.now() < hb.t + p.tfMs ? "Market closed" : "Session break"}</span>}
         </div>
 
+        {nitrousAppearance && <div className="om-ch-inspect" data-selected={si >= 0} data-no-i18n translate="no">
+          {si >= 0 ? (["Open", "High", "Low", "Close"] as const).map((key) => <span key={key}><small>{key}</small><b className={up(hb) ? "om-pos" : "om-neg"}>{priceText(key === "Open" ? hb.o : key === "High" ? hb.h : key === "Low" ? hb.l : hb.c, dec)}</b></span>)
+            : <><span><small>{p.snapshot ? "Last closed candle" : "Latest candle"}</small><b>Close {priceText(hb.c, dec)}</b></span><span className="om-ch-inspect-hint">Hold a candle to inspect</span></>}
+        </div>}
+
         {/* the view's own controls */}
-        <div className="om-ch-tools" onPointerDown={stop} style={compact ? { top: "auto", bottom: TIME_H + 8, right: AXIS + 4 } : undefined}>
-          {moved(vp) && <button type="button" onClick={reset} title="Back to the automatic view (double-click the chart, or press 0)"><RotateCcw aria-hidden="true" />{!compact && "Reset"}</button>}
-          {!atLive && (
+        <div className="om-ch-tools" onPointerDown={stop} style={compact && !nitrousAppearance ? { top: "auto", bottom: TIME_H + 8, right: AXIS + 4 } : undefined}>
+          {moved(vp) && <button type="button" onClick={reset} aria-label="Reset chart view" title="Back to the automatic view (double-click the chart, or press 0)"><RotateCcw aria-hidden="true" />{!compact && !nitrousAppearance && "Reset"}</button>}
+          {!atLive && !nitrousAppearance && (
             <button type="button" onClick={toLive} className="om-ch-live" title={p.snapshot ? "Back to the newest candle in this saved snapshot (End)" : closedNow ? "To the newest candle the feed has. The market is closed, so it is the last one before the close." : "Back to the newest candle, keeping the zoom (End)"}>
               {p.snapshot ? compact ? "Latest" : "Latest candle" : closedNow ? "Latest candle" : "Return to live"}<ChevronsRight aria-hidden="true" />
             </button>
@@ -457,6 +469,10 @@ export function OmChart(p: OmChartProps) {
             {full ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
           </button>
         </div>
+
+        {nitrousAppearance && !atLive && <div className="om-ch-latest" onPointerDown={stop} style={{ bottom: TIME_H + 8, right: AXIS + 4 }}>
+          <button type="button" onClick={toLive} aria-label="Show latest available candle" title="Back to the newest available candle, keeping the zoom (End)">Latest <ChevronsRight aria-hidden="true" /></button>
+        </div>}
 
         {(leftEdge || before) && (
           <div className="om-ch-edge" data-no-i18n translate="no">
@@ -476,7 +492,7 @@ export function OmChart(p: OmChartProps) {
 
           {/* grid */}
           {yTicks.map((v) => <line key={`h${v}`} x1={0} x2={plotW} y1={y(v)} y2={y(v)} style={{ stroke: "var(--om-ch-grid)" }} />)}
-          {tTicks.map((t) => <line key={`v${t.i}`} x1={x(t.i)} x2={x(t.i)} y1={TOP_BAND - 6} y2={priceH} style={{ stroke: "var(--om-ch-grid-2)" }} />)}
+          {tTicks.map((t) => <line key={`v${t.i}`} x1={x(t.i)} x2={x(t.i)} y1={topBand - 6} y2={priceH} style={{ stroke: "var(--om-ch-grid-2)" }} />)}
           <line x1={0} x2={plotW} y1={priceH} y2={priceH} style={{ stroke: "var(--om-ch-base)" }} />
 
           <g clipPath={`url(#omch-plot-${uid})`}>
@@ -536,7 +552,7 @@ export function OmChart(p: OmChartProps) {
             {/* the moment an earlier analysis was made */}
             {aX != null && aX >= 0 && aX <= plotW && (
               <g pointerEvents="none" data-analysis-mark="">
-                <line x1={aX} x2={aX} y1={TOP_BAND - 4} y2={priceH} style={{ stroke: "rgb(var(--om-ai-rgb) / 0.55)" }} strokeDasharray="3 4" />
+                <line x1={aX} x2={aX} y1={topBand - 4} y2={priceH} style={{ stroke: "rgb(var(--om-ai-rgb) / 0.55)" }} strokeDasharray="3 4" />
                 <text x={aLeft ? aX - 8 : aX + 8} y={priceH - 9} textAnchor={aLeft ? "end" : "start"} fontSize="11.5" style={{ fill: "var(--om-ai)", stroke: HALO }} strokeWidth="4" paintOrder="stroke">{aText}</text>
               </g>
             )}
@@ -578,8 +594,8 @@ export function OmChart(p: OmChartProps) {
           {/* crosshair */}
           {si >= 0 && x(si) >= 0 && x(si) <= plotW && (
             <g pointerEvents="none">
-              <rect x={x(si) - bw / 2} y={TOP_BAND - 4} width={bw} height={priceH - TOP_BAND + 4} style={{ fill: "var(--om-ch-col)" }} />
-              <line x1={x(si)} x2={x(si)} y1={TOP_BAND - 4} y2={priceH} style={{ stroke: "var(--om-ch-cross)" }} strokeDasharray="2 3" />
+              <rect x={x(si) - bw / 2} y={topBand - 4} width={bw} height={priceH - topBand + 4} style={{ fill: "var(--om-ch-col)" }} />
+              <line x1={x(si)} x2={x(si)} y1={topBand - 4} y2={priceH} style={{ stroke: "var(--om-ch-cross)" }} strokeDasharray="2 3" />
               {timeKnown && (
                 <g>
                   <rect x={clamp(x(si) - 34, 0, plotW - 68)} y={priceH + 2} width={68} height={TIME_H - 4} rx="5" style={{ fill: "var(--om-ch-tip)", stroke: "var(--om-ch-tip-edge)" }} />
@@ -604,6 +620,8 @@ export function OmChart(p: OmChartProps) {
     <div
       ref={wrap}
       className="om-ch"
+      data-appearance={p.appearance}
+      data-compact={compact || undefined}
       data-full={full || undefined}
       data-grabbing={grabbing || undefined}
       tabIndex={0}
@@ -629,10 +647,10 @@ export function OmChart(p: OmChartProps) {
   if (full && typeof document !== "undefined") {
     const host = fullHost.current ?? wrap.current?.closest<HTMLElement>("[data-om-chart-host]") ?? document.querySelector(".om-app") ?? document.body;
     const sheet = fullOwner.current
-      ? <dialog ref={fullDialog} className="om-ch-sheet om-ch-modal" aria-label={`${p.label}, full screen`}
+      ? <dialog ref={fullDialog} className="om-ch-sheet om-ch-modal" data-appearance={p.appearance} aria-label={`${p.label}, full screen`}
         onCancel={(event) => { event.preventDefault(); event.stopPropagation(); setFull(false); }}
         onClose={(event) => { event.stopPropagation(); setFull(false); }}>{chart}</dialog>
-      : <div className="om-ch-sheet" role="dialog" aria-modal="true" aria-label={`${p.label}, full screen`}>{chart}</div>;
+      : <div className="om-ch-sheet" data-appearance={p.appearance} role="dialog" aria-modal="true" aria-label={`${p.label}, full screen`}>{chart}</div>;
     return (
       <>
         <div className="om-ch-hold" aria-hidden="true" />

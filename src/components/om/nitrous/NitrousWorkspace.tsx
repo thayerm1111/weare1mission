@@ -81,6 +81,8 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
     && status.now > 0 && analysisReceivedAt > 0 && typeof analysis.ageMs === "number"
     && analysis.ageMs + Math.max(0,status.now-analysisReceivedAt) <= 45_000
     && Date.parse(analysis.generatedAt ?? "")-Date.parse(analysis.asOf ?? "")+analysis.ageMs+Math.max(0,status.now-analysisReceivedAt) <= 120_000;
+  const marketClock = analysis?.generatedAt && typeof analysis.ageMs === "number" && analysisReceivedAt > 0
+    ? Date.parse(analysis.generatedAt) + analysis.ageMs + Math.max(0, status.now - analysisReceivedAt) : status.now;
   const accountClock = !status.error && status.data && status.receivedAt && status.now >= status.receivedAt && status.now-status.receivedAt<=45_000
     ? Date.parse(status.data.serverTime) + status.now-status.receivedAt : 0;
 
@@ -153,7 +155,7 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
       <button type="button" aria-pressed={mode === "slow_drip"} onClick={() => chooseMode("slow_drip")} disabled={!entitled || !!account?.automationEnabled || !!busy}><span className="nitrous-mode-icon"><Droplets size={23} /></span><span><strong>Slow Drip</strong><small>Measured risk. Selective entries.</small></span><span className="nitrous-mode-risk">0.5–1%<small>per trade</small></span></button>
       <button type="button" aria-pressed={mode === "nitrous"} onClick={() => chooseMode("nitrous")} disabled={!entitled || !!account?.automationEnabled || !!busy}><span className="nitrous-mode-icon"><Zap size={23} /></span><span><strong>Nitrous</strong><small>Faster setup scanner. Higher risk.</small></span><span className="nitrous-mode-risk">3–5%<small>per trade</small></span></button>
     </div>}
-    <div className="nitrous-layout" data-addon-only={!entitled && !account && !isAdmin}><div className="nitrous-main-column">{entitled ? <NitrousMarketDesk data={analysis} loading={analysisLoading} error={analysisError} fresh={readFresh} now={status.now} accountNow={accountClock} account={account} onRefresh={() => void refreshAnalysis()} simple={isSimple} mode={mode} busy={!!busy} onClose={position => { setActionError(""); setClosing(position); }} />
+    <div className="nitrous-layout" data-addon-only={!entitled && !account && !isAdmin}><div className="nitrous-main-column">{entitled ? <NitrousMarketDesk data={analysis} loading={analysisLoading} error={analysisError} fresh={readFresh} now={marketClock} accountNow={accountClock} account={account} onRefresh={() => void refreshAnalysis()} simple={isSimple} mode={mode} busy={!!busy} onClose={position => { setActionError(""); setClosing(position); }} />
       : <NitrousAddonPanel addon={status.data?.addon ?? null} loading={status.loading} unavailable={!!status.error || status.data?.addon?.verificationUnavailable === true} onUpdated={status.refresh} />}
       {!entitled && account && <p className="nitrous-health-note">Your account and open positions remain available here. New setups and auto entries require Nitrous access.</p>}
       {!entitled && account && <NitrousLiveTrades account={account} accountNow={accountClock} referencePrice={readFresh ? analysis?.price ?? null : null} referenceAt={analysis?.asOf ?? null} now={status.now} simple={isSimple} busy={!!busy} onClose={position => { setActionError(""); setClosing(position); }} />}</div>
