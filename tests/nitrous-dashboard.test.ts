@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { selectWatchLevels, scanDiagnostics, isObservedTrade, tradeProgress, pricePulse } from "../src/lib/nitrous/dashboard";
+import { selectWatchLevels, scanDiagnostics, isObservedTrade, tradeProgress, pricePulse, displayableSetup } from "../src/lib/nitrous/dashboard";
 import type { NitrousPosition } from "../src/lib/nitrous/types";
 const NOW=Date.parse("2026-11-25T23:00:00Z");
 const zone=(role:string,low:number,high:number,over={})=>({role,low,high,knownAt:NOW-1000,origin:"M5",invalidatedAt:null,...over});
@@ -30,4 +30,22 @@ test("market redesign preserves existing connection, settings, close and Telegra
  const workspace=readFileSync("src/components/om/nitrous/NitrousWorkspace.tsx","utf8");
  for(const literal of ["NitrousConnect","/api/nitrous/connect","/api/nitrous/settings","/api/nitrous/position","NitrousAddonPanel","NitrousTelegramPanel","NitrousLiveTrades","NitrousMarketDesk","Enable faster Nitrous"])assert.ok(workspace.includes(literal),literal);
  const desk=readFileSync("src/components/om/nitrous/NitrousMarketDesk.tsx","utf8");assert.ok(desk.includes("Broker reported"));assert.ok(desk.includes("not an executable quote"));
+});
+
+test("desk hides expired, invalidated and already-crossed offers; it never displays a missed target as a new entry",()=>{
+ const plan={setupId:"test",family:"break_retest",side:"sell" as const,timeframe:"M5",state:"watching",entryBandLow:3500,entryBandHigh:3501,refEntry:3500,stop:3505,target:3490,stopUsd:5,targetUsd:10,invalidation:3504,expiresAt:NOW+60000,conditionsMet:[],conditionsPending:[]};
+ assert.equal(displayableSetup(plan,3498,NOW,true),true);
+ assert.equal(displayableSetup(plan,3489,NOW,true),false);
+ assert.equal(displayableSetup(plan,3504,NOW,true),false);
+ assert.equal(displayableSetup(plan,3498,NOW,false),false);
+ assert.equal(displayableSetup({...plan,expiresAt:NOW},3498,NOW,true),false);
+ assert.equal(displayableSetup({...plan,state:"invalidated"},3498,NOW,true),false);
+});
+test("approved desk includes price bias status, compact timeframe strip and embedded live trade panel",()=>{
+ const desk=readFileSync("src/components/om/nitrous/NitrousMarketDesk.tsx","utf8");
+ for(const s of ["nt-approved-metrics","nt-tf-strip","What Nitrous is waiting for","nt-bottom-grid","No active trade","nt-empty-metrics","onClose={onClose} embedded"])assert.ok(desk.includes(s),s);
+ const workspace=readFileSync("src/components/om/nitrous/NitrousWorkspace.tsx","utf8");
+ assert.ok(workspace.includes("!entitled && account && <NitrousLiveTrades"),"existing positions remain visible after membership lapses");
+ const route=readFileSync("src/app/api/admin/nitrous-telegram/route.ts","utf8");
+ assert.ok(route.includes("export async function GET(req: Request)"),"Next.js route exports require a nonoptional Request");
 });

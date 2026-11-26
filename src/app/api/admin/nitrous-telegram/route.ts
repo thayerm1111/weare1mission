@@ -18,11 +18,11 @@ async function adminContext() {
 }
 
 /** Metadata only. GET never emits a test post into a member channel. */
-export async function GET(req?: Request) {
+export async function GET(req: Request) {
   const context = await adminContext();
   if ("error" in context) return context.error;
   try {
-    const testId = req ? new URL(req.url).searchParams.get("testId") : null;
+    const testId = new URL(req.url).searchParams.get("testId");
     if (testId) {
       if (!/^[a-f0-9-]{36}$/i.test(testId)) return json({ error: "not_found" }, 404);
       const test = await context.db.from("nitrous_telegram_tests").select("id,state,message_id,error_code").eq("id", testId).maybeSingle();

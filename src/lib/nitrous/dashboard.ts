@@ -1,4 +1,4 @@
-import type { NitrousDiagnostics, NitrousScanCheck, NitrousWatchLevel, NitrousPosition, NitrousCandle } from "./types";
+import type { NitrousDiagnostics, NitrousScanCheck, NitrousWatchLevel, NitrousPosition, NitrousCandle, NitrousScenario } from "./types";
 const record = (v: unknown): Record<string, unknown> => v && typeof v === "object" && !Array.isArray(v) ? v as Record<string,unknown> : {};
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 const positive = (n: unknown): n is number => finite(n) && n > 0;
@@ -53,4 +53,13 @@ export function pricePulse(bars: NitrousCandle[]) {
   const min=Math.min(...closes),max=Math.max(...closes),span=max-min;
   return {points:closes.map((v,i)=>`${(i*120/(closes.length-1)).toFixed(2)},${(span?32-26*(v-min)/span:19).toFixed(2)}`).join(" "),
     change:(closes.at(-1)!-closes[0])/closes[0]*100};
+}
+
+/** Presentation only: an expired or already-crossed reference offer is not a new entry opportunity. */
+export function displayableSetup(s: NitrousScenario, reference:number|null, now:number, fresh:boolean):boolean {
+  if (!fresh||!positive(reference)||!finite(now)||!finite(s.expiresAt)||s.expiresAt<=now||
+    !["watching","approaching","armed","triggered"].includes(s.state)||
+    ![s.entryBandLow,s.entryBandHigh,s.refEntry,s.stop,s.target,s.invalidation].every(positive)||s.entryBandLow>s.entryBandHigh) return false;
+  return s.side==="buy"? reference>s.invalidation&&reference<s.target :
+    s.side==="sell"?reference<s.invalidation&&reference>s.target:false;
 }
