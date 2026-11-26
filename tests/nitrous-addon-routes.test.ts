@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import * as policy from "../src/lib/nitrous/policy";
+import * as dashboard from "../src/lib/nitrous/dashboard";
 
 const USER = "11111111-1111-4111-8111-111111111111";
 const ACCOUNT = "22222222-2222-4222-8222-222222222222";
@@ -62,6 +63,7 @@ function fixture(activeMember = true, automationEnabled = false, activation?: { 
   const dependencies: Record<string, unknown> = {
     "../_shared": shared,
     "@/lib/nitrous/policy": policy,
+    "@/lib/nitrous/dashboard": dashboard,
     "../../../../../rapid/db": { withNitrousDb: unexpectedBroker("withNitrousDb") },
     "../../../../../rapid/broker/crypto": { encryptionReady: unexpectedBroker("encryptionReady"), encryptSecret: unexpectedBroker("encryptSecret"), maskEmail: unexpectedBroker("maskEmail") },
     "../../../../../rapid/broker/tradelocker": { authenticate: unexpectedBroker("authenticate"), listAccounts: unexpectedBroker("listAccounts") },
