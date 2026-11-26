@@ -117,8 +117,8 @@ export function GenFxHome(p: GenFxHomeProps) {
   return <div className="om-ws om-genx om-genfx om-os-product om-tool-mobile" data-pair={p.pair}>
     <header className="om-ws-head om-product-header">
       <div className="om-product-heading"><ProductIcon kind="genx" size="lg"/><div className="om-product-copy">
-        <p className="om-product-kicker">Currency intelligence</p><h1 className="om-title">GenX FX</h1>
-        <p className="om-sub">{isSimple ? "Pick a pair. Read the direction. See the entry and what to wait for." : "Currency markets, mapped into direction, levels and entry conditions."}</p>
+        {!isSimple && <p className="om-product-kicker">Currency intelligence</p>}<h1 className="om-title">GenX FX</h1>
+        <p className="om-sub">{isSimple ? "Currency setup finder" : "Currency markets, mapped into direction, levels and entry conditions."}</p>
       </div></div>
       <div className="om-genx-go">
         <div className="om-seg" role="group" aria-label="FX trade horizon">{MODES.map((option) => <button type="button" key={option.id} aria-pressed={mode === option.id} onClick={() => p.setMode(option.id)} title={option.sub}>{isSimple ? option.simple : option.label}</button>)}</div>
@@ -130,7 +130,9 @@ export function GenFxHome(p: GenFxHomeProps) {
       <strong>{pair.name}</strong><small>{pair.key === "EURUSD" ? "Euro / US dollar" : "British pound / Japanese yen"}</small>
     </button>)}</div>
     {p.error && <p className="om-flow-err" role="alert">{p.error}</p>}
-    {isSimple ? <SimpleGenxRead market={instrument.name} action={read?.action} bias={seen?.directional_bias} quote={chart.price} dec={instrument.dec} snapshot={chart.snapshot} summary={read?.market_story?.[0]}/> :
+    {isSimple ? <SimpleGenxRead market={instrument.name} action={read?.action} bias={seen?.directional_bias} entry={read?.entry}
+      dec={instrument.dec} snapshot={chart.snapshot} closed={closed} failed={failed} loaded={!!current}
+      stage={shared.stage} bars={chart.bars} tfMs={chart.tf.ms} timeKnown={chart.timeKnown} asOf={current?.asOf} now={now}/> :
       <VisionDirection product="GenX FX" quoteSymbol={instrument.name} dec={instrument.dec} quote={chart.price} quoteLabel={chart.snapshot ? "AT GENERATION" : "MARKET READ"}
         bias={bias} status={p.saved ? "SAVED READ" : read ? "ANALYSIS SNAPSHOT" : failed ? "REFRESH NEEDED" : closed ? "MARKET CLOSED" : "MARKET CONTEXT"}
         tagline={read ? action?.waiting ? "ENTRY CONDITION STILL REQUIRED" : "REVIEW THE ENGINE’S LEVELS" : "CHOOSE A PAIR AND ANALYZE"}
@@ -147,17 +149,20 @@ export function GenFxHome(p: GenFxHomeProps) {
       {read && (isSimple ? <SimpleGenxLevels entry={action?.side ? read.entry : null} stop={action?.side ? read.stop_loss : null} target={action?.side ? read.tp1 : null} dec={instrument.dec} reference={reference}/> :
         <VisionLevels symbol={p.pair} dec={instrument.dec} entry={action?.side ? read.entry : null} stop={action?.side ? read.stop_loss : null} targets={action?.side ? [read.tp1, read.tp2, read.tp3] : []} reference={reference}/>)}
       <div className="om-genfx-decision">
+        <details className="om-simple-fold" open={!isSimple}><summary>Entry rules</summary>
         {read ? <>
+          {isSimple && chart.snapshot && chart.price != null && <p className="om-label">{chart.priceFrom === "candle" ? "Last saved candle" : "Price at analysis"} <b data-no-i18n translate="no">{px(chart.price)}</b></p>}
           <p className="om-simple-next"><strong>{action?.waiting || !action?.side ? "Wait for: " : "Entry condition: "}</strong>{read.trigger_condition || "No confirmed entry condition was returned. Wait for a new engine read."}</p>
           {read.invalidation_reason && <p className="om-genfx-read-note"><b>Setup fails if: </b>{read.invalidation_reason}</p>}
         </> : <p className="om-simple-next">{shared.waitingFor || "Analyze " + instrument.name + " to request the FX engine’s entry, stop, targets and reason to wait."}</p>}
+        </details>
         {/* This confirmation component remains in one place across Simple/Advanced changes. */}
         {read && !p.saved && p.setup && <p.Confirm key={`${p.setup.pair}:${p.setup.mode}:${p.setup.entry}:${p.setup.stop}:${readAt}`} setup={p.setup}/>}
         {read && !p.saved && action?.waiting && action.side && finite(read.entry) && finite(read.stop_loss) && <button type="button" className="om-btn-quiet" onClick={p.track} disabled={p.isTracked}><Pin size={14} aria-hidden="true"/>{p.isTracked ? "Tracking this setup" : "Track this setup"}</button>}
         {p.response?.auto && !p.response.auto.stopOk && <p className="om-genfx-read-note">Automatic trading does not accept this stop. {instrument.name} needs at least {p.response.auto.minStopPips} pips of stop distance.</p>}
       </div>
     </section>
-    {isSimple && <button type="button" className="om-simple-detail-link" onClick={() => setExperience("advanced")}>See the full analysis in Advanced</button>}
+    {isSimple && <button type="button" className="om-simple-detail-link" onClick={() => setExperience("advanced")}>Advanced analysis</button>}
     <section className="om-panel om-genx-why" hidden={isSimple || !read}>
       {read && <div className="om-genx-why-body">
         <div><h3>What GenX FX sees</h3>{read.market_story?.map((line, i) => <p key={i}>{line}</p>)}</div>
@@ -177,6 +182,6 @@ export function GenFxHome(p: GenFxHomeProps) {
       </div>
     </details>
     <details className="om-genfx-advanced-tools" open={!isSimple}><summary className="om-simple-detail-link">Account controls, scanner and trading record</summary>{p.advancedTools}</details>
-    <p className="om-faint om-flow-small om-genx-legal">Each pair uses its own FX prices, precision and risk checks. An analysis does not turn on automatic trading; existing account switches and permissions still apply.</p>
+    {!isSimple && <p className="om-faint om-flow-small om-genx-legal">Each pair uses its own FX prices, precision and risk checks. An analysis does not turn on automatic trading; existing account switches and permissions still apply.</p>}
   </div>;
 }

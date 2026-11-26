@@ -17,6 +17,7 @@ import { priceText, type ChartLevel } from "@/lib/floor/chart";
 import { openAtlas, updateAtlasContext, type AtlasContext } from "@/lib/atlas/open";
 import type { FloorMode } from "@/lib/floor/setupInstruments";
 import type { SetupAnswer } from "./Floor";
+import { MarketStory, storyDirection, type StoryFeed, type StoryStage } from "../simple/MarketStory";
 import { useExperienceMode } from "@/components/om/experience";
 import "./atlas-live-desk.css";
 
@@ -244,23 +245,28 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, sample
   );
 
   if (isSimple) {
-    const plainDirection = !marketOpen ? "Market closed" : failed ? "Waiting for a fresh read" : !validRead ? "Reading the market" :
-      view.direction === "bullish" ? "Price is moving up" : view.direction === "bearish" ? "Price is moving down" :
-      view.direction === "range" ? "Price is moving sideways" : "No clear direction yet";
+    const feed: StoryFeed = !marketOpen ? "closed" : failed || current.status === "stale" ? "delayed" :
+      !snapshot && loading ? "loading" : !validRead ? "unavailable" : !freshQuote ? "delayed" : "current";
+    const state = view.readiness.state;
+    const phase: StoryStage = state === "retest_confirmed" ? "review" :
+      state === "approaching" || state === "awaiting_close" || state === "awaiting_retest" ? "forming" : "looking";
+    const level = view.trigger ? fmt(view.trigger.price) : null;
+    const next = state === "retest_confirmed" ? "The level held. Ask Atlas to check for a trade." :
+      state === "extended" ? "Price moved past the area. Wait for it to come back." :
+      !level ? "Wait for a clearer price pattern." : state === "awaiting_close" ?
+      `Watch for a candle to finish ${view.trigger!.direction} ${level}.` : state === "awaiting_retest" ?
+      `Watch whether price comes back to ${level} and holds.` : `Watch how price reacts near ${level}.`;
     const signalHasChart = !!atlasSignal.result?.idea.chart?.candles?.length;
     return <section className="om-simple-atlas om-panel" aria-label="Atlas simple market view" data-market={symbol} aria-busy={loading && !snapshot}>
       <header className="om-simple-atlas-header">
-        <div className="om-live-brand"><ProductIcon kind="atlas" size="lg"/><div><span className="om-terminal-eyebrow">YOUR MARKET AT A GLANCE</span><h2>Atlas <em>Live</em></h2></div></div>
-        <div className="om-simple-atlas-tools"><button type="button" onClick={explain} disabled={sample}>Explain</button><button type="button" aria-label="Refresh market snapshot" disabled={sample || loading} onClick={() => setRevision(v => v + 1)}><RefreshCw size={17} className={loading ? "is-loading" : undefined}/></button></div>
+        <div className="om-live-brand"><ProductIcon kind="atlas" size="lg"/><div><h2>Market overview</h2></div></div>
+        <div className="om-simple-atlas-tools"><button type="button" onClick={explain} disabled={sample}>Ask Atlas</button><button type="button" aria-label="Refresh market snapshot" disabled={sample || loading} onClick={() => setRevision(v => v + 1)}><RefreshCw size={17} className={loading ? "is-loading" : undefined}/></button></div>
       </header>
       <div className="om-simple-markets" role="group" aria-label="Select market">
         {MARKETS.map(m => <button type="button" key={m.key} aria-pressed={m.key === symbol} disabled={sample && m.key !== "XAUUSD"} onClick={() => setSymbol(m.key)}>{m.key === "XAUUSD" ? "Gold" : m.td}</button>)}
       </div>
-      <div className="om-simple-market-summary" data-trend={validRead ? view.direction : "unknown"}>
-        <div><span>{market.td} · {current.label}</span><h3><DirectionIcon size={28} aria-hidden="true"/>{plainDirection}</h3><p>{stageLabel}</p></div>
-        <div className="om-simple-market-price"><strong data-no-i18n translate="no">{fmt(quote.price)}</strong><small>{quoteNote}</small></div>
-      </div>
-      {failed && <p className="om-simple-next" role="status">{watchSummary}</p>}
+      <MarketStory market={symbol === "XAUUSD" ? "Gold" : market.td} direction={storyDirection(view.direction)} stage={phase} feed={feed}
+        next={next} stamp={sample ? "Sample data" : feed === "current" ? current.label + " candles" : undefined}/>
       <div className="om-simple-atlas-actions">
         {symbol === "XAUUSD" ? <button type="button" className="om-simple-primary" disabled={sample || atlasSignal.busy || !marketOpen} onClick={() => void atlasSignal.generate()}><Sparkles size={18} aria-hidden="true"/>{atlasSignal.busy ? "Reading the market…" : "Generate Atlas signal"}</button>
           : symbol === "EURUSD" || symbol === "GBPJPY" ? <Link className="om-simple-primary" href={"/portal/genx?market=fx&pair=" + symbol}>Find a {market.td} setup in GenX FX</Link>
@@ -274,14 +280,15 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, sample
           levelColors={{ support: "var(--om-pos)", resistance: "var(--om-neg)" }} isOpenAt={calendar}
           viewKey={"atlas-floor:" + symbol + ":" + selectedFrame} label={market.td + " " + current.label + " candles and support and resistance"}/></div>
           : <div className="om-simple-chart-empty" role="status">{loading ? "Loading market candles…" : "Chart data is unavailable. Refresh to try again."}</div>}
-        <div className="om-simple-market-levels"><div><span>Support</span><strong data-no-i18n translate="no">{zoneText(view.support)}</strong></div><div><span>Resistance</span><strong data-no-i18n translate="no">{zoneText(view.resistance)}</strong></div></div>
       </section>}
-      {!atlasSignal.result && <div className="om-simple-next"><strong>What to watch next</strong><p>{currentWatch && view.trigger ? view.trigger.condition : watchSummary}</p>
-        {currentWatch && view.trigger && <span className="om-simple-watch-price" data-no-i18n translate="no">Watch {fmt(view.trigger.price)}{view.distance ? " · " + priceGap(view.distance.price) + " away" : ""}</span>}
-        {currentWatch && view.invalidation && <p><strong>Changes if:</strong> {view.invalidation.condition}</p>}
-      </div>}
+      <details className="om-simple-fold"><summary>Prices and conditions</summary>
+        <p className="om-label">{quoteNote} · {fmt(quote.price)}</p>
+        <div className="om-simple-market-levels"><div><span>Support</span><strong data-no-i18n translate="no">{zoneText(view.support)}</strong></div><div><span>Resistance</span><strong data-no-i18n translate="no">{zoneText(view.resistance)}</strong></div></div>
+        <p>{currentWatch && view.trigger ? view.trigger.condition : watchSummary}</p>
+        {currentWatch && view.invalidation && <p>{view.invalidation.condition}</p>}
+      </details>
       <AtlasCommandSignalPanel controller={atlasSignal}/>
-      <div className="om-simple-atlas-foot"><span>{sample ? "Illustrative sample data" : "Analysis updated " + age(snapshot?.asOf, now)} · Price-action watch</span><button type="button" className="om-simple-detail-link" onClick={() => setExperienceMode("advanced")}>See full analysis</button></div>
+      <div className="om-simple-atlas-foot"><span>{sample ? "Illustrative sample data" : "Analysis updated " + age(snapshot?.asOf, now)} · Price-action watch</span><button type="button" className="om-simple-detail-link" onClick={() => setExperienceMode("advanced")}>Advanced view</button></div>
     </section>;
   }
 

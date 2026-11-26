@@ -62,3 +62,13 @@
   .om-os-atlas .hud-root[data-experience="simple"] .hud-chart { height: clamp(340px,48dvh,500px) !important; min-height: 340px !important; }
   .atlas-simple-plan-levels { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
+
+.atlas-conditions-disclosure>summary,.atlas-alignment-disclosure>summary{font-size:14px;line-height:44px;cursor:pointer;color:var(--om-text-2);font-weight:550}
+.om-os-atlas .hud-root[data-experience="simple"] .atlas-clear-brief>.om-market-story{grid-column:1/-1;width:100%}
+.om-os-atlas .hud-root[data-experience="simple"] .atlas-clear-brief{grid-template-columns:minmax(0,1fr);padding:0;background:transparent;border:0}
+.om-os-atlas .hud-root[data-experience="simple"] .atlas-clear-action{padding:0 4px}
+.om-os-atlas .hud-root[data-experience="simple"] .atlas-conditions-disclosure{order:8}
+.om-os-atlas .hud-root[data-experience="simple"] .atlas-clear-alignment{padding:0 4px}
+
+.om-os-atlas .hud-root[data-experience=simple] :is(.atlas-source-facts,.atlas-quote-summary,.atlas-ny-clock,[data-generate-open]){display:none!important}
+.om-os-atlas .hud-root[data-experience=simple] .atlas-quote-caption{color:var(--om-text-2);font-size:13px}

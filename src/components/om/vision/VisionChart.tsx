@@ -139,7 +139,7 @@ export function VisionChart({ bars: sourceBars, levels, symbol, dec, timeframe, 
     <header className="om-vision-chart-head">
       <div className="om-vision-instrument">
         <CandlestickChart size={19} aria-hidden="true" />
-        <div><h3>{symbol}</h3><span>{timeframe} · {sourceLabel}</span></div>
+        <div><h3>{symbol}</h3><span>{timeframe} · {sourceLabel}{reference && model.scenario && " · Watch levels only"}</span></div>
       </div>
       {hasHistory && model.scenario && <div className="om-vision-view" role="group" aria-label="Chart view">
         <button type="button" aria-controls={chartId} aria-pressed={!showMap} onClick={() => setMapKey(null)}>Candles</button>

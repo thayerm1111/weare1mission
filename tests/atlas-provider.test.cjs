@@ -69,6 +69,7 @@ function harness(relative = "src/components/om/atlas/AtlasProvider.tsx", name = 
   const links = Object.fromEntries(["floor", "plays", "genx", "pulse", "flow", "credits", "tools", "command-center"].map((key) => [key, { href: `/${key}`, label: key }]));
   const bus = { ready: () => true, start: (c) => starts.push(c), end: () => { ended++; voice.status = "idle"; }, get: () => voice, sendText: () => false, setMicMuted() {}, setSpeakerMuted() {}, setInputMode: (mode) => inputModes.push(mode), updateContext: (context) => voiceUpdates.push(context) };
   const deps = {
+    "../simple/MarketStory": { ...require("../src/components/om/simple/MarketStory.tsx"), MarketStory: "MarketStory" },
     react, "react/jsx-runtime": { jsx, jsxs: jsx },
     "next/navigation": { useRouter: () => ({ push: (href) => navigation.push(href) }), usePathname: () => "/portal/trading", useSearchParams: () => new URLSearchParams() },
     "next/link": { __esModule: true, default: "Link" },

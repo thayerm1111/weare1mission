@@ -10,6 +10,7 @@ import { analysisOf, trackingOf, targetsWithR, pipsBetween, type PlayDirection }
 import type { ChartLevel } from "@/lib/floor/chart";
 import { sanitizePlaySignal, type PlayDiagnostics } from "@/lib/plays/diagnostics";
 import { PlayBreakdown } from "./PlayBreakdown";
+import { MarketStory, storyDirection } from "../simple/MarketStory";
 import { useExperienceMode } from "@/components/om/experience";
 import "./plays-experience.css";
 
@@ -120,7 +121,7 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
         <div style={{ minWidth: 0 }}>
           <p className="om-label">{[STYLE_WORD[r.style ?? ""] ?? s.timeframe, r.interval].filter(Boolean).join(" · ")}</p>
           <h2 data-no-i18n translate="no">{r.symbol}<small>{r.name}</small></h2>
-          <p className="om-label om-play-meta" data-no-i18n translate="no">Analysed {when} · {priceLabel.toLowerCase()} {px(generationPrice)}{r.marketClosed ? " · the market was closed" : ""}</p>
+          {!isSimple && <p className="om-label om-play-meta" data-no-i18n translate="no">Analysed {when} · {priceLabel.toLowerCase()} {px(generationPrice)}{r.marketClosed ? " · the market was closed" : ""}</p>}
         </div>
         <div className="om-play-state">
           <span className="om-chip" data-kind={a.kind}>{a.label}</span>
@@ -129,17 +130,12 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
         </div>
       </header>
 
-      {isSimple ? <section className="om-play-simple-read om-simple-status" aria-label="Your plan at a glance">
-        <strong>{t.resolved ? r.status === "loss" ? "This plan reached its stop" : "This plan reached a target"
-          : r.marketClosed ? "The market was closed for this read"
-          : a.kind === "none" ? "No clear trade in this read"
-          : `Saved ${a.side?.toLowerCase()} ${a.kind === "idea" ? "idea — wait for confirmation" : "plan to review"}`}</strong>
-        <p>{t.resolved ? "These levels are history. Check current conditions before considering another trade."
-          : a.kind === "idea" ? "This idea was not confirmed. Its entry, stop and targets are reference prices."
-          : a.kind === "none" ? "Wait for a clearer opportunity, or generate a new read."
-          : "A setup was confirmed when this plan was made. Get an update before acting on its saved prices."}</p>
-        <small>Saved {when} · {priceLabel} {px(generationPrice)}</small>
-      </section> : <VisionDirection product="OM AI PLAYS" bias={visionBias}
+      {isSimple ? <MarketStory market={r.name || r.symbol} lean direction={storyDirection(visionBias)} feed="recorded"
+        stage={t.resolved ? "finished" : a.kind === "setup" ? "review" : a.kind === "idea" ? "forming" : "looking"}
+        stamp={r.marketClosed ? "Market closed at analysis" : "At analysis"}
+        next={t.resolved ? r.status === "loss" ? "This plan reached its stop." : "This plan reached a target." :
+          r.marketClosed ? "Get a new read when the market opens." : a.kind === "setup" ? "Check the entry and stop against the market now."
+          : a.kind === "idea" ? "Wait for confirmation before using these prices." : "Wait for a clearer setup."}/> : <VisionDirection product="OM AI PLAYS" bias={visionBias}
         eyebrow="ONE MISSION / MULTI-MARKET SIGNAL INTELLIGENCE"
         status={r.marketClosed?"MARKET CLOSED":"SAVED SIGNAL"}
         quote={generationPrice} quoteSymbol={r.symbol} quoteLabel={priceLabel.toUpperCase()} dec={chart.dec}
@@ -154,7 +150,7 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
           reference={a.kind!=="setup"} viewKey={chart.viewKey}
           title={r.symbol+" saved candles, conditional path and recorded trade levels"}/>
         : <p className="om-play-note" role="status">Verified original candles unavailable for this saved read.</p>}
-      {isSimple ? <div className="om-play-simple-levels">
+      {isSimple ? <details className="om-play-simple-levels om-simple-fold"><summary>Plan prices and rules</summary>
         <p className="om-label">{a.kind === "setup" ? "Prices saved with this plan" : "Reference prices · confirmation required"}</p>
         <dl data-no-i18n translate="no" aria-label="Entry, stop and targets">
           <div><dt>Entry</dt><dd>{px(hasLevels ? s.entry : null)}</dd></div>
@@ -162,12 +158,13 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
           {hasLevels && targets.length ? targets.map((target) => <div key={target.n} data-kind="target"><dt>Target {target.n}</dt><dd>{px(target.price)}</dd></div>)
             : <div data-kind="target"><dt>Target</dt><dd>—</dd></div>}
         </dl>
-      </div> : <VisionLevels symbol={r.symbol} dec={chart.dec} entry={hasLevels?s.entry:null}
+        {s.invalidation && <p className="om-play-simple-invalidation"><strong>Cancel this idea if:</strong> {s.invalidation}</p>}
+        {hasLevels && copy && <div className="om-vision-copy">{copy}</div>}
+      </details> : <VisionLevels symbol={r.symbol} dec={chart.dec} entry={hasLevels?s.entry:null}
         stop={hasLevels?s.stopLoss:null} targets={hasLevels?s.takeProfits:[]}
         rr={targets[0]?.r ?? null} reference={a.kind!=="setup"}/>}
-      {hasLevels && copy&&<div className="om-vision-copy">{copy}</div>}
-      <p className="om-play-decision">{isSimple && <strong>Next: </strong>}{decision}</p>
-      {isSimple && s.invalidation && <p className="om-play-simple-invalidation"><strong>Cancel this idea if:</strong> {s.invalidation}</p>}
+      {!isSimple && hasLevels && copy&&<div className="om-vision-copy">{copy}</div>}
+      {!isSimple && <p className="om-play-decision">{decision}</p>}
       {s.chased && r.status === "open" && <p className="om-play-note" role="note"><b>Price has moved past the ideal entry.</b> {s.chase_note}</p>}
 
       {ticket && (
@@ -250,7 +247,7 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
       </section>
 
       {chat && <details className="om-play-followup"><summary>Follow this play<ChevronDown aria-hidden="true" /></summary><div className="om-legacy om-play-chat">{chat}</div></details>}
-      <p className="om-legal" data-no-i18n translate="no">Price {px(r.price)} · as of {r.asOf} · live data via Twelve Data. Educational analysis, not financial advice.</p>
+      {!isSimple && <p className="om-legal" data-no-i18n translate="no">Price {px(r.price)} · as of {r.asOf} · live data via Twelve Data. Educational analysis, not financial advice.</p>}
     </article>
   );
 }

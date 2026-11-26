@@ -1,5 +1,6 @@
 "use client";
 import { ProductIcon } from "@/components/om/ProductIcon";
+import { MarketStory, storyDirection } from "@/components/om/simple/MarketStory";
 import { useNextShell } from "@/components/om/shell";
 import { useExperienceMode } from "@/components/om/experience";
 import "./atlas-mobile.css";
@@ -760,6 +761,13 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   const mobileInvalidation = mobileClosed ? "A new read when gold reopens."
     : read?.invalidation ? compactCondition(read.invalidation.text) : "No change level confirmed.";
 
+  const BriefSection = isSimple ? "details" : "div";
+  const watchRef = read?.nextWatch?.ref;
+  const simpleWatch = read?.setupStage === "in_trade" ? "Check the open position below." : read?.setupStage === "ready" ?
+    "Review the entry and stop in the gold plan." : watchRef && "price" in watchRef ?
+    "Watch how gold reacts near " + fmt2(watchRef.price) + "." : watchRef?.kind === "zone" ?
+    "Watch gold as it returns to the marked area." : "Wait for gold to show a clearer setup.";
+
   const nyTime = now ? new Date(now).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour12: false }) : "--:--:--";
   const nyDate = now ? new Date(now).toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }) : "";
 
@@ -847,7 +855,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       <style dangerouslySetInnerHTML={{ __html: HUD_CSS + DESK }} />
       {tourOpen && <HudTour onClose={() => setTourOpen(false)} />}
 
-      {toFloor && <div className="om-atlas-os-heading"><ProductIcon kind="atlas" size="lg" /><div><span>GOLD INTELLIGENCE</span><h1>Atlas Command Center</h1><p>Your live gold workspace.</p></div></div>}
+      {toFloor && <div className="om-atlas-os-heading"><ProductIcon kind="atlas" size="lg" /><div>{!isSimple && <span>GOLD INTELLIGENCE</span>}<h1>Atlas Command Center</h1><p>{isSimple ? "Your gold AI" : "Your live gold workspace."}</p></div></div>}
       {toFloor && <div className="atlas-pocket-header">
         <span className="atlas-pocket-mark" aria-hidden="true"><Sparkles /></span>
         <div><h1>Atlas</h1><span>Gold Command Center</span></div>
@@ -920,7 +928,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
               : FEED_STATUS_WORD[feed.status]}
           </span>
           {isReplay && <span className="rounded-[6px] px-2 py-1 text-[9.5px] font-bold tracking-[0.14em]" style={{ color: H.gold2, border: "1px solid rgba(var(--cc-e7c467-rgb,231,196,103),0.45)" }}>REPLAY</span>}
-          <span className="hidden text-right md:block">
+          <span className="atlas-ny-clock hidden text-right md:block">
             <span className="block text-[10px] tracking-[0.14em]" style={{ color: H.mut }}>NEW YORK <b className="ml-1 text-[13px] font-semibold tabular-nums tracking-normal" style={{ color: H.text }}>{nyTime}</b></span>
             <span className="block text-[9px]" style={{ color: H.mut2 }}>{nyDate}</span>
           </span>
@@ -968,12 +976,12 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           <span className="hidden min-[1440px]:block"><Sparkline values={spark} color={change != null && change < 0 ? H.red : H.green} w={84} h={28} /></span>
 
           {/* phone: one compact line */}
-          <p className="w-full text-[10.5px] leading-snug md:hidden" style={{ color: H.mut }} title={feedTitle}>
+          <p className="atlas-quote-summary w-full text-[10.5px] leading-snug md:hidden" style={{ color: H.mut }} title={feedTitle}>
             {feed.provider} · {feed.quoteType} · <span style={{ color: feedCol }}>quote {quoteAge}</span> · analysis {isReplay ? "recorded" : analysisAgeMs != null ? `${ageShort(analysisAgeMs)} old` : "—"} · {words(d?.session)}
           </p>
 
           {/* tablet and desktop: labelled facts */}
-          <div className="hidden min-w-0 flex-1 items-center gap-x-4 gap-y-1 md:flex md:flex-wrap xl:flex-nowrap xl:gap-x-5">
+          <div className="atlas-source-facts hidden min-w-0 flex-1 items-center gap-x-4 gap-y-1 md:flex md:flex-wrap xl:flex-nowrap xl:gap-x-5">
             <Fact k="Source" title={`${feed.provider} · ${feed.symbol} composite (${feed.quoteType}). A composite spot price — not a broker's executable bid or ask.`}
               v={<><span className="min-[1536px]:hidden">{feed.provider} · {feed.quoteType}</span><span className="hidden min-[1536px]:inline">{feed.provider} · {feed.symbol} composite ({feed.quoteType})</span></>} />
             <Fact k="Quote" title={feedTitle} v={<span style={{ color: feedCol }}>{feed.receivedTs != null && feed.status !== "demo" ? `${hhmmss(feed.receivedTs)} · ${quoteAge}` : quoteAge}</span>} />
@@ -986,6 +994,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             </div>
           </div>
 
+          {isSimple && toFloor && <span className="atlas-quote-caption">{isReplay ? "Recorded quote" : feed.status === "live" ? "Quote · " + quoteAge : FEED_STATUS_WORD[feed.status]}</span>}
           {/* automation — honest about what the screen can know */}
           <button data-tour="automation" onClick={() => (isReplay ? null : setProfileOpen(true))} title={`${auto.word} — ${auto.detail}. Opens risk, styles and automation.`}
             className="ml-auto inline-flex shrink-0 items-center gap-2 rounded-[8px] px-2.5 py-1.5 text-left transition hover:brightness-110"
@@ -1019,7 +1028,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
               </button>
             </div>
           )}
-          {isReplay && <Notice color={H.gold2}>REPLAY — recorded XAUUSD stepped through the live engine. This is not the market.</Notice>}
+          {isReplay && <Notice color={H.gold2}>{isSimple && toFloor ? "Replay · recorded gold prices" : "REPLAY — recorded XAUUSD stepped through the live engine. This is not the market."}</Notice>}
           {!isReplay && (hardBlock || d?.reason) && <span className={!hardBlock && mobileClosed ? "atlas-closed-notice" : undefined}><Notice color={H.gold2}>{d?.blockers?.[0]?.detail ?? d?.reason}</Notice></span>}
           {consent && !consent.signed && (
             <button onClick={() => setConsentOpen(true)}><Notice color={H.red}>{consent.stale ? "Risk disclosure updated — sign the new version to keep trading." : "Risk disclosure not signed — you can read the market and talk to ATLAS, but not trade. Tap to read and sign."}</Notice></button>
@@ -1029,7 +1038,10 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
       {/* ── MAIN GRID ─────────────────────────────────────────────────── */}
       {toFloor && <section className="atlas-clear-brief" aria-label="Atlas gold briefing">
-        <div className="atlas-clear-main">
+        {isSimple ? <MarketStory market="Gold" lean direction={storyDirection(read?.lean)}
+          stage={read?.setupStage === "in_trade" ? "inTrade" : read?.setupStage === "ready" ? "review" : read?.setupStage === "developing" ? "forming" : "looking"}
+          feed={isReplay ? "recorded" : mobileClosed ? "closed" : err ? "delayed" : !read ? "loading" : feed.status !== "live" || analysisAgeMs == null || analysisAgeMs > 180_000 ? "delayed" : "current"}
+          next={simpleWatch} stamp={isReplay ? "Replay" : undefined}/> : <div className="atlas-clear-main">
           <div className="atlas-clear-meta">
             <span><i data-live={feed.status === "live" && !err && !mobileClosed} />{mobileReadStatus}</span>
             <span title={feedTitle}>XAU/USD · {quoteAge}</span>
@@ -1055,14 +1067,16 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             <div><span>Setup status</span><strong>{mobileClosed ? "Closed" : err ? "Last read" : !read ? "Waiting" : read.setupStage === "ready" ? "Ready to review" : read.setupStage === "in_trade" ? "In trade" : read.setupStage === "none" ? "No valid setup" : "Watching"}</strong></div>
           </div>
           <small className="atlas-clear-age">Analysis: {freshness} · Direction is not an entry.</small>
-        </div>
+        </div>}
         <div className="atlas-clear-action">
+          <BriefSection className="atlas-conditions-disclosure">{isSimple && <summary>Show levels on chart</summary>}
           <div className="atlas-clear-conditions">
             <button type="button" disabled={mobileClosed || !read?.nextWatch?.ref} onClick={() => { if (read?.nextWatch?.ref) pointAt({ ref: read.nextWatch.ref, label: "Atlas is watching" }); }}><span><Target size={14} aria-hidden="true"/> What Atlas is watching</span><strong>{mobileClosed ? mobileWatch : read?.nextWatch?.text ?? mobileWatch}</strong></button>
             <button type="button" disabled={mobileClosed || !read?.invalidation || (!read.invalidation.ref && read.invalidation.price == null)} onClick={() => { if (read?.invalidation) pointAt({ ref: read.invalidation.ref, price: read.invalidation.price ?? undefined, label: "Changes the view" }); }}><span><AlertTriangle size={14} aria-hidden="true"/> What changes the view</span><strong>{mobileClosed ? mobileInvalidation : read?.invalidation?.text ?? mobileInvalidation}</strong></button>
           </div>
-          <button type="button" className="atlas-clear-generate" data-generate-primary="" onClick={generate}><Sparkles size={22} aria-hidden="true" /><span><strong>Generate Gold Signal</strong><small>Entry · Stop loss · Take profits</small></span><ChevronRight size={20} aria-hidden="true" /></button>
-          <small className="atlas-clear-disclaimer">Uses Atlas’s existing gold engine. May return no valid trade. Does not place an order.</small>
+          </BriefSection>
+          <button type="button" className="atlas-clear-generate" data-generate-primary="" onClick={generate}><Sparkles size={22} aria-hidden="true" /><span><strong>Generate Gold Signal</strong>{!isSimple && <small>Entry · Stop loss · Take profits</small>}</span><ChevronRight size={20} aria-hidden="true" /></button>
+          {!isSimple && <small className="atlas-clear-disclaimer">Uses Atlas’s existing gold engine. May return no valid trade. Does not place an order.</small>}
           <div className="atlas-clear-secondary">
             <button type="button" data-atlas-chat-trigger="" data-tour="dock" aria-expanded={sheetOpen} aria-controls="atlas-desk-conversation" onClick={() => openTalk("CHAT")}><MessageCircle size={16} aria-hidden="true" />Ask Atlas</button>
             {!isReplay && <button type="button" aria-pressed={onCall} onClick={tapCore}>{onCall ? <Square size={15} aria-hidden="true" /> : <Mic size={16} aria-hidden="true" />}{onCall ? "End voice" : "Voice"}</button>}
@@ -1070,11 +1084,11 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             <button type="button" className="atlas-vision-tools" aria-expanded={mobileChartTools} onClick={() => setMobileChartTools(x => !x)}><SlidersHorizontal size={15} aria-hidden="true" />Chart controls</button>
             {shownIdea && <button type="button" onClick={openIdea}>Last signal<ChevronRight size={15}/></button>}
           </div>
-          <SimplePlan idea={shownIdea} trade={trade ?? null} now={now} replay={isReplay}
+          {(!isSimple || shownIdea || trade?.active || !!trade?.unmanaged?.length) && <SimplePlan idea={shownIdea} trade={trade ?? null} now={now} replay={isReplay}
             readUnavailable={!!err || mobileClosed || feed.status !== "live"}
-            onReview={openIdea} onManage={() => setDrawer("trade")} />
+            onReview={openIdea} onManage={() => setDrawer("trade")} />}
         </div>
-        <div className="atlas-clear-alignment">
+        <BriefSection className="atlas-clear-alignment atlas-alignment-disclosure">{isSimple && <summary>View timeframes</summary>}
           <div className="atlas-clear-alignment-heading"><span>Timeframe alignment</span><small>{intel ? intel.alignment.agree + " of " + intel.alignment.rows.length + " agree" : "Awaiting data"}</small></div>
           <div className="atlas-clear-frames" role="group" aria-label="Chart timeframe and market trend">
             {TF_BTNS.map((b) => {
@@ -1082,7 +1096,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
               return <button key={b.id} type="button" aria-pressed={tf === b.id} onClick={() => { setTf(b.id); scrollToChart(); }} data-trend={r?.dir ?? "neutral"}><span>{b.label}</span><strong>{r?.dir === "up" ? <ArrowUpRight size={16}/> : r?.dir === "down" ? <ArrowDownRight size={16}/> : <ArrowLeftRight size={16}/>} {r?.word ?? "No read"}</strong></button>;
             })}
           </div>
-        </div>
+        </BriefSection>
       </section>}
       <div className="hud-grid">
         {/* LEFT — the read, the timeframes, the levels */}

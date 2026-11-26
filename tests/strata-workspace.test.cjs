@@ -76,6 +76,7 @@ function harness(experience = "advanced") {
   vm.runInContext(`(function(require,module,exports){${compiled}\n})`, context, { filename })((name) => {
     if (name === "react") return react;
     if (name === "react/jsx-runtime") return { jsx, jsxs: jsx };
+    if (name === "../simple/MarketStory") return { ...require("../src/components/om/simple/MarketStory.tsx"), MarketStory: "MarketStory" };
     if (name === "lucide-react") return new Proxy({}, { get: (_, key) => `icon:${String(key)}` });
     if (name === "next/link") return { __esModule: true, default: "Link" };
     if (name === "@/lib/atlas/open") return { openAtlas: (value) => atlas.push(value) };
@@ -260,7 +261,7 @@ test("Simple mode retains the actual generated plan and its cancel condition acr
 test("Simple mode keeps stale-data warnings and an active simulation's stop control outside collapsed details", async () => {
   const h = harness("simple");
   await h.reply(h.requests.find((r) => r.url === "/api/strata"), fixture({ dataStale: true }));
-  assert.match(text(h.byClass("strata-simple-read")[0]), /Wait for fresh gold data/);
+  assert.equal(h.find(n => n.type === "MarketStory")[0].props.feed, "delayed");
   assert.match(text(h.byClass("strata-warning")), /stale.*disabled/);
   await h.reply(h.requests.find((r) => r.url === "/api/strata/automation"), {
     ok: true,

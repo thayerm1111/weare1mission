@@ -411,9 +411,9 @@ export function SignalGenerator() {
           <div className="om-product-heading">
             <ProductIcon kind="plays" size="lg" />
             <div className="om-product-copy">
-              <p className="om-product-kicker"><span className="om-plays-desktop">Trade planning</span><span className="om-plays-phone">OM AI Plays</span></p>
-              <h1 className="om-title"><span className="om-plays-desktop">OM AI Plays</span><span className="om-plays-phone">{result ? "Your play" : "Create a play"}</span></h1>
-              <p className="om-sub">{isSimple ? "Choose a market. Get a chart, a plan, and a clear next step." : "Choose a market and a style. OM AI builds the complete read from live market data."}</p>
+              {!isSimple && <p className="om-product-kicker"><span className="om-plays-desktop">Trade planning</span><span className="om-plays-phone">OM AI Plays</span></p>}
+              <h1 className="om-title">{isSimple ? "OM AI Plays" : <><span className="om-plays-desktop">OM AI Plays</span><span className="om-plays-phone">{result ? "Your play" : "Create a play"}</span></>}</h1>
+              <p className="om-sub">{isSimple ? "AI signals from current market data" : "Choose a market and a style. OM AI builds the complete read from live market data."}</p>
             </div>
           </div>
           {result && <button type="button" className="om-btn-quiet om-plays-new" onClick={() => { setResult(null); setStep("config"); }}>New play</button>}
@@ -428,10 +428,10 @@ export function SignalGenerator() {
           <aside className="om-panel om-plays-config" aria-label="Generate a play">
             <div className="om-product-section-head om-plays-desktop">
               <h2>Build a play</h2>
-              <p className="om-label">{isSimple ? "Choose below, then press Generate." : "Three steps, one complete read."}</p>
+              {!isSimple && <p className="om-label">Three steps, one complete read.</p>}
             </div>
             <div className="om-field">
-              <span className="om-step" id="om-plays-market-label" data-done={asset ? "" : undefined}><span className="om-step-n" aria-hidden="true">1</span><span className="om-label">Market</span></span>
+              <span className="om-step" id="om-plays-market-label" data-done={asset ? "" : undefined}><span className="om-step-n" aria-hidden="true">{isSimple ? <Globe size={15}/> : "1"}</span><span className="om-label">Market</span></span>
               <button id="om-plays-market" type="button" className="om-plays-market-row" aria-haspopup="dialog" aria-labelledby="om-plays-market-label om-plays-market-name" onClick={() => setPicking(true)}>
                 <MarketGlyph symbol={asset?.symbol} market={market?.id} />
                 <span id="om-plays-market-name"><b>{asset ? asset.symbol === "XAU/USD" ? "Gold" : asset.symbol : "Choose a market"}</b><small>{asset ? asset.symbol === "XAU/USD" ? asset.symbol : asset.name : "Search all assets"}</small></span>
@@ -440,16 +440,16 @@ export function SignalGenerator() {
             </div>
 
             <div className="om-field">
-              <span className="om-step" id="om-plays-style" data-done=""><span className="om-step-n" aria-hidden="true">2</span><span className="om-label">{isSimple ? "How long are you planning to hold?" : "Trading style"}</span></span>
+              <span className="om-step" id="om-plays-style" data-done=""><span className="om-step-n" aria-hidden="true">{isSimple ? <Clock size={15}/> : "2"}</span><span className="om-label">{isSimple ? "Time horizon" : "Trading style"}</span></span>
               <div className="om-seg" role="group" aria-labelledby="om-plays-style">
                 {STYLES.map(([v, label, sub]) => <button key={v} type="button" aria-pressed={style === v} title={sub} onClick={() => setStyle(v)}>{isSimple ? v === "scalp" ? "Quick" : v === "intraday" ? "Today" : "Days" : label}</button>)}
               </div>
-              <p className="om-label om-plays-desktop">{STYLES.find((x) => x[0] === style)![2]}</p>
+              {!isSimple && <p className="om-label om-plays-desktop">{STYLES.find((x) => x[0] === style)![2]}</p>}
             </div>
 
             <div className="om-field om-plays-advanced">
               <button type="button" className="om-disclose" aria-expanded={settingsOpen} aria-controls="om-plays-adv" onClick={toggleSettings}>
-                <span><span className="om-plays-advanced-label">Advanced settings</span><span className="om-label om-plays-desktop">{isSimple ? "Optional · your current choices are kept" : methodLine}</span></span>
+                <span><span className="om-plays-advanced-label">Advanced settings</span><span className="om-label om-plays-desktop">{isSimple ? "Optional" : methodLine}</span></span>
                 <ChevronDown aria-hidden="true" />
               </button>
               {settingsOpen && (
@@ -479,7 +479,7 @@ export function SignalGenerator() {
 
             {/* One explicit paid action. Opening settings or choosing an asset never generates a play. */}
             <div className="om-plays-go">
-              <span className="om-step"><span className="om-step-n" aria-hidden="true">3</span><span className="om-label">Generate</span></span>
+              {!isSimple && <span className="om-step"><span className="om-step-n" aria-hidden="true">3</span><span className="om-label">Generate</span></span>}
               <button type="button" className="om-btn" onClick={() => void generate()} disabled={!!need || busy} aria-busy={busy} aria-describedby="om-plays-need">
                 {busy && <Loader2 className="animate-spin" aria-hidden="true" />}
                 {busy ? "Analyzing…" : "Generate play"}
@@ -493,7 +493,7 @@ export function SignalGenerator() {
           <section className="om-plays-main">
             <div className="om-panel om-plays-result" data-empty={!busy && step !== "error" && !result || undefined} aria-live="polite">
               {busy ? (
-                <div className="om-state" role="status"><Loader2 className="animate-spin" aria-hidden="true" /><p>Analyzing {asset?.symbol ?? "the market"}…</p><span className="om-label">Reading live candles and checking your confirmations. This usually takes a few seconds; nothing is charged unless a play is made.</span></div>
+                <div className="om-state" role="status"><Loader2 className="animate-spin" aria-hidden="true" /><p>Analyzing {asset?.symbol ?? "the market"}…</p><span className="om-label">{isSimple ? "Checking prices and setup rules." : "Reading live candles and checking your confirmations. Credits apply when a play is made."}</span></div>
               ) : step === "error" ? (
                 <div className="om-state" role="alert">
                   <p>{errorMsg}</p>
@@ -522,13 +522,13 @@ export function SignalGenerator() {
                 <div className="om-plays-preview">
                   <ProductIcon kind="plays" size="lg" />
                   <h2>{asset ? `Ready to analyze ${asset.symbol}` : "Your play appears here"}</h2>
-                  <p className="om-product-preview-copy">Your analysis, plan, and next step in one place.</p>
+                  {!isSimple && <><p className="om-product-preview-copy">Your analysis, plan, and next step in one place.</p>
                   <ul className="om-product-outcomes">
                     <li><b>The market read</b><span>A setup, an unconfirmed idea, or a reason to wait.</span></li>
                     <li><b>The chart and the levels</b><span>Entry, stop, targets, and reward to risk when a plan is available.</span></li>
                     <li><b>What to do next</b><span>Track the play, review the outcome, or open an account ticket.</span></li>
                   </ul>
-                  <p className="om-label">Nothing is analyzed until you press Generate. Your saved plays are below, and open without generating anything.</p>
+                  <p className="om-label">Nothing is analyzed until you press Generate. Your saved plays are below, and open without generating anything.</p></>}
                 </div>
               )}
             </div>

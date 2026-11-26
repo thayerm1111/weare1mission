@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Link2, Search } from "lucide-react";
+import { Activity, Link2, Search } from "lucide-react";
 import { Method, PeriodSelect, Skel, toneClass } from "@/components/om/floor/Floor";
 import { FlowAccountBar, FlowAccountProvider, useFlowAccount, type FlowAccountValue } from "@/components/om/FlowAccount";
 import { FlowConnect, type FlowViewing } from "@/components/portal/floor/FlowConnect";
@@ -98,7 +98,7 @@ function FlowHomeView({ find, account }: { find: React.ReactNode; account: FlowA
       <header className="om-ws-head">
         <div>
           <h1 className="om-title">FLOW</h1>
-          <p className="om-sub">{isSimple ? "Your account. Your open trades. Your controls." : "Your accounts, trade history and execution controls."}</p>
+          <p className="om-sub">{isSimple ? "TradeLocker accounts" : "Your accounts, trade history and execution controls."}</p>
         </div>
         <div className="om-flow-acts">
           <a href="#flow-find" className="om-btn-quiet" onClick={toFind}><Search aria-hidden="true" width={15} height={15} />Find a trade</a>
@@ -107,7 +107,7 @@ function FlowHomeView({ find, account }: { find: React.ReactNode; account: FlowA
       </header>
 
       <div className="om-flow-grid">
-        <MyFlow ov={ov} state={ovState} failed={failed} switching={switching} period={fp} onPeriod={period} hide={hide} tab={tab} onTab={pickTab} now={now} />
+        <MyFlow simple={isSimple} ov={ov} state={ovState} failed={failed} switching={switching} period={fp} onPeriod={period} hide={hide} tab={tab} onTab={pickTab} now={now} />
         <MobileSection title="Execution" meta="Accounts & controls" expanded={executionOpen || manage !== null} onExpanded={setExecutionOpen}>
           <FlowConnect viewing={viewing} viewReady={ovState !== "loading"} manage={manage} onManage={setManage} onAccountsChanged={reload} />
         </MobileSection>
@@ -122,8 +122,8 @@ function FlowHomeView({ find, account }: { find: React.ReactNode; account: FlowA
 
 /* ── My FLOW: one account's results ───────────────────────────────────────────────────────────── */
 
-function MyFlow({ ov, state, failed, switching, period, onPeriod, hide, tab, onTab, now }: {
-  ov: FloorOverview | null; state: string; failed: boolean; switching: boolean; period: FloorPeriod; onPeriod: (p: FloorPeriod) => void;
+function MyFlow({ simple, ov, state, failed, switching, period, onPeriod, hide, tab, onTab, now }: {
+  simple: boolean; ov: FloorOverview | null; state: string; failed: boolean; switching: boolean; period: FloorPeriod; onPeriod: (p: FloorPeriod) => void;
   hide: boolean; tab: Tab; onTab: (t: Tab) => void; now: number;
 }) {
   const a = ov?.account ?? null;
@@ -138,18 +138,20 @@ function MyFlow({ ov, state, failed, switching, period, onPeriod, hide, tab, onT
   const wholeAccount = !!r && f?.positions != null && f.positions !== r.open;
   const periodWord = (FLOOR_PERIODS.find((p) => p.key === period)?.label ?? "").toLowerCase();
 
+  const checking = state === "loading" || switching;
+  const accountState = checking ? "Checking" : failed || unknown ? "Unavailable" : !a ? "No account" : a.connection === "connected" ? "Connected" : "Needs attention";
+  const tradeState = checking ? "Checking" : failed || unknown ? "Unavailable" : !a ? "Awaiting account" : !r ? "Unavailable" : r.open === 0 ? "None open" : r.open + " open";
   let body: React.ReactNode;
   if (!ov && state === "loading") body = <Loading />;
   else if (unknown) body = <p className="om-empty">Your FLOW results could not be loaded just now. This tries again on its own.</p>;
-  else if (!a) body = <MobileSection title="How FLOW works"><Steps /></MobileSection>;
+  else if (!a) body = simple ? <details className="om-simple-fold"><summary>How to connect</summary><Steps /></details> :
+    <MobileSection title="How FLOW works"><Steps /></MobileSection>;
   else if (waiting) body = <Loading />;
   else if (!r) body = <p className="om-empty">Your FLOW results could not be loaded just now. This tries again on its own.</p>;
   else {
     const positions = r.positions ?? [];
     const history = r.history ?? [];
-    body = (
-      <>
-        <div className="om-stats">
+    const metrics = <div className="om-stats">
           <div className="om-stat">
             <span data-no-i18n translate="no" className={`om-figure om-num ${r.realized ? toneClass(r.realized.amount) : toneClass(r.netPips)}`}>{r.closed === 0 ? cash(0, false) : r.realized ? cash(r.realized.amount) : pipsText(r.netPips)}</span>
             <span className="om-label">{r.closed > 0 && !r.realized ? "Realized, in pips" : "Realized P&L"}{r.realized && r.closed > 0 ? <span className="om-faint"> · estimate</span> : null}</span>
@@ -163,8 +165,10 @@ function MyFlow({ ov, state, failed, switching, period, onPeriod, hide, tab, onT
             <span className={`om-figure om-num ${r.closed ? toneClass(r.netPips) : ""}`}>{r.closed ? pipsText(r.netPips) : "—"}</span>
             <span className="om-label">{r.closed === 0 ? `No trades closed ${periodWord}` : `${r.closed} closed`}</span>
           </div>
-        </div>
-
+        </div>;
+    body = (
+      <>
+        {simple ? <details className="om-simple-fold"><summary>Performance</summary>{metrics}</details> : metrics}
         <div className="om-tabs" role="tablist" aria-label="My FLOW">
           {TABS.map((t) => (
             <button key={t.key} type="button" role="tab" id={`om-flow-tab-${t.key}`} aria-selected={tab === t.key} aria-controls="om-flow-tabpanel" tabIndex={tab === t.key ? 0 : -1}
@@ -192,7 +196,7 @@ function MyFlow({ ov, state, failed, switching, period, onPeriod, hide, tab, onT
       <div className="om-res-head">
         <div style={{ minWidth: 0 }}>
           <h2>My FLOW</h2>
-          <p className="om-label" data-no-i18n translate="no">{a ? `${a.name} · ${a.environment === "live" ? "Live" : "Demo"} · trades FLOW placed on this account` : "What FLOW does on your connected account"}</p>
+          {!simple && <p className="om-label" data-no-i18n translate="no">{a ? `${a.name} · ${a.environment === "live" ? "Live" : "Demo"} · trades FLOW placed on this account` : "What FLOW does on your connected account"}</p>}
         </div>
         {a && (
           <span className="om-res-tools">
@@ -206,7 +210,11 @@ function MyFlow({ ov, state, failed, switching, period, onPeriod, hide, tab, onT
           </span>
         )}
       </div>
-      {body}
+      {simple && <div className="om-flow-simple-state" aria-label="Account overview">
+        <div><Link2 size={20} aria-hidden="true"/><small>Account</small><strong>{accountState}</strong></div>
+        <div><Activity size={20} aria-hidden="true"/><small>Flow trades</small><strong>{tradeState}</strong></div>
+      </div>}
+      {simple && checking ? <p className="om-empty" role="status">Loading account activity…</p> : body}
     </section>
   );
 }

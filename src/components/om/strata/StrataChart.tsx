@@ -15,9 +15,9 @@ type Horizon = typeof OPTIONS[number]["key"];
 type Series = { m5: Bar[]; m15: Bar[]; h1: Bar[]; h4: Bar[] };
 
 /** STRATA visualization only — never overrides or invents the engine's levels. */
-export function StrataChart({ analysis, bars, price, live, selected, snapshot = false }: {
+export function StrataChart({ analysis, bars, price, live, selected, snapshot = false, simple = false }: {
   analysis: Analysis; bars: Series; price: number; live: boolean;
-  selected: Scenario | null; snapshot?: boolean;
+  selected: Scenario | null; snapshot?: boolean; simple?: boolean;
 }) {
   const [frame,setFrame]=useState<Horizon>("m15");
   const tf=OPTIONS.find(x=>x.key===frame)!;
@@ -26,8 +26,8 @@ export function StrataChart({ analysis, bars, price, live, selected, snapshot = 
     if(typeof value==="number"&&Number.isFinite(value))levels.push({kind,price:value,label});
   };
   if(selected && selected.entry!==null){
-    add("entry",selected.entry,"Entry"); add("stop",selected.stop,"Stop");
-    selected.targets.slice(0,3).forEach((target,i)=>add("target",target,"Target "+(i+1)));
+    add("entry",selected.entry,selected.reference || selected.stage !== "ready" ? "Watch entry" : "Entry"); add("stop",selected.stop,"Stop");
+    selected.targets.slice(0,simple ? 1 : 3).forEach((target,i)=>add("target",target,"Target "+(i+1)));
   }else{
     add("support",analysis.range.low,"Range low");
     add("resistance",analysis.range.high,"Range high");
@@ -39,7 +39,7 @@ export function StrataChart({ analysis, bars, price, live, selected, snapshot = 
   return (
     <div className="strata-chart strata-chart-vision">
       <div className="strata-vision-tf">
-        <span>GOLD PRICE ACTION</span>
+        <span>{simple ? "Gold chart" : "GOLD PRICE ACTION"}</span>
         <div className="strata-timeframe" role="group" aria-label="Price-action timeframe">
           {OPTIONS.map(x=><button type="button" key={x.key} aria-pressed={frame===x.key}
             onClick={()=>setFrame(x.key)}>{x.title}</button>)}

@@ -46,6 +46,8 @@ function harness(file, exported, initial = {}, opts = {}) {
     '@/components/om/floor/Floor': { GenxCard: 'GenxCard' },
     '@/components/om/MobileSection': { MobileSection: 'MobileSection' },
     '@/components/portal/SetupLock': { SetupLock: 'SetupLock', SetupTimer: 'SetupTimer' },
+    '../simple/MarketStory': { ...require("../src/components/om/simple/MarketStory.tsx"), MarketStory: "MarketStory" },
+    '@/lib/floor/marketIntelligence': require('../src/lib/floor/marketIntelligence.ts'),
     './SimpleGenxRead': { SimpleGenxRead: 'SimpleGenxRead', SimpleGenxLevels: 'SimpleGenxLevels' },
     './GenxFlow': { GenxFlow: 'GenxFlow', ConfirmHelp: 'ConfirmHelp' }, './GenFxFlow': { GenFxFlow: 'GenFxFlow' },
     '@/components/portal/floor/GenxFlow': { buildSteps: () => [] },
@@ -249,7 +251,10 @@ test('a saved FX read without candles never borrows the current pair feed as its
   const fresh = fxRead('GBPJPY'); await h.reply(h.requests[0], { symbol: 'GBPJPY', g: fresh.genfx, candles: fresh.candles, candlesTz: 'UTC', price: 215, asOf: fresh.asOf });
   assert.equal(h.find((n) => n.type === 'OmChart').length, 0);
   assert.match(text(h.value()), /original candles were not stored/);
-  assert.equal(h.find((n) => n.type === 'SimpleGenxRead')[0].props.quote, props.response.price);
+  const story = h.find((n) => n.type === 'SimpleGenxRead')[0];
+  assert.equal(story.props.snapshot, true);
+  assert.equal(story.props.bars.length, 0);
+  assert.ok(text(h.value()).includes('Price at analysis ' + props.response.price.toFixed(3)));
   assert.equal(h.find((n) => n.type === 'SimpleGenxLevels')[0].props.entry, props.response.genfx.entry);
   assert.equal(h.find((n) => n.type === 'Confirm').length, 0, 'Saved analyses do not start a current-entry confirmation');
   h.unmount();

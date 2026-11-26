@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Check, ChevronDown, Copy, Loader2, Search, X } from "lucide-react";
+import { TrendingDown, TrendingUp, ArrowUpRight, Check, ChevronDown, Copy, Loader2, Search, X } from "lucide-react";
 import { TradeChat } from "@/components/portal/TradeChat";
 import { openAtlas, type AtlasContext } from "@/lib/atlas/open";
 import { CREDIT_COST } from "@/lib/creditConfig";
@@ -12,6 +12,7 @@ import { priceFor } from "@/lib/flow/display";
 import { playsHref } from "@/lib/plays/intent";
 import { ProductIcon } from "@/components/om/ProductIcon";
 import { MobileSection } from "@/components/om/MobileSection";
+import { MarketStory } from "../simple/MarketStory";
 import { useExperienceMode } from "@/components/om/experience";
 import "./pulse-experience.css";
 
@@ -76,9 +77,9 @@ export function PulseHome({ setups, loading, asOf, msg, hydrated, scan, onDeepDi
         <div className="om-product-heading">
           <ProductIcon kind="pulse" size="lg" />
           <div className="om-product-copy">
-            <p className="om-product-kicker">Market discovery</p>
+            {!isSimple && <p className="om-product-kicker">Market discovery</p>}
             <h1 className="om-title">Market Pulse</h1>
-            <p className="om-sub">{isSimple ? "Find a market to watch. Open its full plan when you are ready to look closer." : "Find a market worth a closer look, then take it into OM AI Plays."}</p>
+            <p className="om-sub">{isSimple ? "Multi-market setup scanner" : "Find a market worth a closer look, then take it into OM AI Plays."}</p>
           </div>
         </div>
         <div className="om-pulse-go">
@@ -98,14 +99,14 @@ export function PulseHome({ setups, loading, asOf, msg, hydrated, scan, onDeepDi
         <div className="om-panel om-state">
           <Search aria-hidden="true" />
           <p>No scan yet</p>
-          <span className="om-label">Scan markets runs the scanner across every market it covers and ranks them. It costs {CREDIT_COST.scan} credits; opening this page is free.</span>
+          <span className="om-label">{isSimple ? "Scan to find markets worth watching." : <>Scan markets ranks the markets it covers. It costs {CREDIT_COST.scan} credits.</>}</span>
         </div>
       ) : (
         <div className="om-pulse-grid">
           <section className="om-panel om-pulse-listwrap" aria-label="Ranked markets">
             <div className="om-product-section-head">
               <h2>Choose a market</h2>
-              <p className="om-label">{isSimple ? "Choose one to see its direction and reference prices." : "Select a row to see the scan’s confirmations and levels."}</p>
+              <p className="om-label">{isSimple ? "Ranked by how many checks line up." : "Select a row to see the scan’s confirmations and levels."}</p>
             </div>
             {present.size > 1 && (
               <div className="om-toggles" role="group" aria-label="Show">
@@ -118,9 +119,9 @@ export function PulseHome({ setups, loading, asOf, msg, hydrated, scan, onDeepDi
                 {rows.map(({ s, rank }) => (
                   <li key={s.td}>
                     <button type="button" onClick={() => pick(s.td)} aria-pressed={(isSimple || detailOpen) && current?.s.td === s.td} data-no-i18n translate="no">
-                      <span className="om-pulse-mobile-rank">{String(rank).padStart(2, "0")}</span>
+                      <span className="om-pulse-mobile-rank">{isSimple ? s.dir === "LONG" ? <TrendingUp aria-label="Upward lean"/> : <TrendingDown aria-label="Downward lean"/> : String(rank).padStart(2, "0")}</span>
                       <span className="om-pulse-mobile-name"><b>{s.name}</b><small>{s.symbol}</small></span>
-                      <span className="om-pulse-mobile-lean" data-side={s.dir}><b>{isSimple ? s.dir === "LONG" ? "Buy watch" : "Sell watch" : s.dir === "LONG" ? "Long" : "Short"}</b><small>{isSimple ? "Not confirmed" : <>{s.confirmed} of {s.total}</>}</small></span>
+                      <span className="om-pulse-mobile-lean" data-side={s.dir}><b>{isSimple ? s.dir === "LONG" ? "Buy watch" : "Sell watch" : s.dir === "LONG" ? "Long" : "Short"}</b><small>{isSimple ? s.total > 0 && <meter min={0} max={s.total} value={s.confirmed} aria-label={s.confirmed + " of " + s.total + " checks lined up"}/> : <>{s.confirmed} of {s.total}</>}</small></span>
                       <ArrowUpRight width={16} height={16} aria-hidden="true" />
                     </button>
                   </li>
@@ -168,22 +169,20 @@ function Detail({ s, rank, of, scanAt, onDeepDive, isSimple, stale }: { s: Pulse
     source: "pulse", label: `${s.symbol} · Pulse scan`,
     data: { td: s.td, symbol: s.symbol, style: "intraday", asOf: scanAt ? new Date(scanAt).toISOString() : null, rank, of, direction: s.dir, confirmations: s.confirmed, total: s.total, checklist: s.checklist, price: s.price, entry: s.entry, stopLoss: s.stopLoss, takeProfits: s.takeProfits, riskReward: s.riskReward, confirmedSetup: false },
   };
+  const LevelSection = isSimple ? "details" : "div";
   const ask = () => openAtlas({ question: `Explain ${s.symbol} from this Pulse scan and what needs confirmation before I consider a trade.`, context });
   return (
     <div className="om-pulse-d">
       <div className="om-pulse-d-head">
         <div style={{ minWidth: 0 }}>
-          <p className="om-label">#{rank} of {of} · {categoryOf(s.td)}{scanAt ? ` · scanned ${when(scanAt)}` : ""}</p>
+          {!isSimple && <p className="om-label">#{rank} of {of} · {categoryOf(s.td)}{scanAt ? ` · scanned ${when(scanAt)}` : ""}</p>}
           <h2 data-no-i18n translate="no">{s.symbol} <span className="om-faint">{s.name}</span></h2>
         </div>
         {!isSimple && <span className="om-chip">{s.dir === "LONG" ? "Leans long" : "Leans short"}</span>}
       </div>
-      {isSimple ? <section className="om-pulse-simple-read om-simple-status" aria-label="Market watch">
-        <strong>{stale ? "Scan again before making a plan" : s.dir === "LONG" ? "Watching for a move up" : "Watching for a move down"}</strong>
-        <p>{stale ? `The last scan leaned ${s.dir === "LONG" ? "up" : "down"}. Its prices are for reference only.`
-          : "This is a market to watch, not a confirmed trade. Open a full play to check its chart and entry conditions."}</p>
-        <small>Price at this scan: <b data-no-i18n translate="no">{pp(s, s.price)}</b>{scanAt ? ` · ${when(scanAt)}` : " · scan time unavailable"}</small>
-      </section> : <dl className="om-kv" data-no-i18n translate="no">
+      {isSimple ? <MarketStory market={s.name || s.symbol} direction={s.dir === "LONG" ? "up" : "down"} lean
+        stage="forming" feed={stale ? "delayed" : "recorded"} stamp={scanAt ? "Scan · " + when(scanAt) : "Scan time unavailable"}
+        next="Open OM AI Plays to check for an entry." pausedNext="Run a new scan before making a plan."/> : <dl className="om-kv" data-no-i18n translate="no">
         <div><dt>Confirmations</dt><dd className="om-num">{s.confirmed} of {s.total}</dd></div>
         <div><dt>Price at the scan</dt><dd className="om-num">{pp(s, s.price)}</dd></div>
         <div><dt>Where price sits</dt><dd>{s.zone === "discount" ? "Discount (lower half of its range)" : "Premium (upper half of its range)"}</dd></div>
@@ -200,7 +199,8 @@ function Detail({ s, rank, of, scanAt, onDeepDive, isSimple, stale }: { s: Pulse
       </MobileSection>}
 
       {levels && (
-        <div className="om-pulse-levels">
+        <LevelSection className={isSimple ? "om-pulse-levels om-simple-fold" : "om-pulse-levels"}>
+          {isSimple && <summary>Reference prices</summary>}
           <p className="om-label om-pulse-sub">Levels from the scan{s.riskReward ? ` · R:R ${s.riskReward}` : ""}</p>
           <dl className="om-levels" data-no-i18n translate="no">
             <div><dt>Entry</dt><dd className="om-num">{pp(s, s.entry)}</dd></div>
@@ -211,30 +211,26 @@ function Detail({ s, rank, of, scanAt, onDeepDive, isSimple, stale }: { s: Pulse
           <p className="om-faint om-flow-small">{isSimple ? "Reference prices from this scan. The stop marks where the idea fails. Not a confirmed setup."
             : "A take-it-now read at the scan’s price: the stop sits beyond the swing that cancels the idea, the targets are a plain R ladder. Not a confirmed setup."}</p>
           <button type="button" className="om-btn-quiet" onClick={() => { copy(tradeText(s)); setCopied(true); setTimeout(() => setCopied(false), 1400); }}><Copy aria-hidden="true" width={14} height={14} />{copied ? "Copied" : "Copy trade"}</button>
-        </div>
+        </LevelSection>
       )}
       {!levels && <p className="om-play-note" role="status">This scan did not provide usable entry and stop levels. Open a full play for a new market read.</p>}
 
-      {isSimple && <div className="om-pulse-simple-next om-simple-next"><strong>Next:</strong> {stale
-        ? "Run a new scan before using these prices. You can still open this market in OM AI Plays to request a fresh plan."
-        : "Open this market in OM AI Plays, then press Generate to see its chart, entry, stop and targets."}</div>}
-
       {/* Atlas keeps this market attached to the conversation. Only its priced Generate action makes a play. */}
       <div className="om-pulse-next">
-        <div className="om-product-handoff">
+        {!isSimple && <div className="om-product-handoff">
           <ProductIcon kind="plays" size="sm" />
           <div>
             <h3>Build the full play</h3>
             <p className="om-label">Take <span data-no-i18n translate="no">{s.symbol}</span> from discovery to a complete setup with Atlas.</p>
           </div>
-        </div>
+        </div>}
         <div className="om-pulse-acts">
-          <button type="button" className="om-btn" onClick={() => openAtlas({ tool: "plays", context })}>Build the full play with Atlas</button>
+          <button type="button" className="om-btn" onClick={() => openAtlas({ tool: "plays", context })}>{isSimple ? "Build with Atlas" : "Build the full play with Atlas"}</button>
           <Link href={playsHref(s.td, "intraday")} className="om-btn-quiet">Open in OM AI Plays</Link>
           {!isSimple && <button type="button" className="om-btn-quiet" onClick={() => onDeepDive(s)}>Deep dive · {CREDIT_COST.deepdive} credit{CREDIT_COST.deepdive === 1 ? "" : "s"}</button>}
           <button type="button" className="om-btn-quiet" onClick={ask}>Ask Atlas<ArrowUpRight aria-hidden="true" width={14} height={14} /></button>
         </div>
-        <p className="om-faint om-flow-small">Review the market and style with Atlas, then generate for {CREDIT_COST.signal} credits, included with the FLOW Pass. The signal and its execution ticket stay in your conversation.</p>
+        <p className="om-faint om-flow-small">{isSimple ? <>Generating a play costs {CREDIT_COST.signal} credits or is included with the FLOW Pass.</> : <>Review the market and style with Atlas, then generate for {CREDIT_COST.signal} credits, included with the FLOW Pass. The signal and its execution ticket stay in your conversation.</>}</p>
       </div>
 
       {!isSimple && levels && (

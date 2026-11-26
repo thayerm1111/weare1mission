@@ -47,6 +47,7 @@ function harness(props, component = "PlayBreakdown") {
     const module = { exports: {} }; cache.set(filename, module);
     const requireHere = (name) => {
       if (name === "react") return react;
+      if (name === "../simple/MarketStory") return { ...require("../src/components/om/simple/MarketStory.tsx"), MarketStory: "MarketStory" };
       if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "Fragment" };
       if (name === "lucide-react") return new Proxy({}, { get: (_, key) => `icon:${String(key)}` });
       if (name.endsWith(".css")) return {};

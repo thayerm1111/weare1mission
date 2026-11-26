@@ -23,6 +23,7 @@ import {
   type FloorOverview, type FloorPeriod, type FloorAccount, type AccountFigures, type GenxResults, type FlowResults, type SetupView,
 } from "@/lib/floor/overview";
 import "./om-os-performance.css";
+import { HomeApps } from "./HomeApps";
 import { useExperienceMode } from "@/components/om/experience";
 
 /**
@@ -675,8 +676,8 @@ export function Floor({ sample }: { sample?: FloorSample }) {
 
       <header className={`om-head${usingSharedAccount ? " om-os-floor-head" : ""}`}>
         <div>
-          <h1 className="om-title">OM OS{isSample && <span className="om-chip om-sample" role="note">Sample data</span>}</h1>
-          <p className="om-sub">{isSimple ? "Pick a market. See the setup. Follow the chart." : "Your markets, intelligence and performance. One workspace."}</p>
+          <h1 className="om-title">{isSimple ? "One Mission OS" : "OM OS"}{isSample && <span className="om-chip om-sample" role="note">Sample data</span>}</h1>
+          {!isSimple && <p className="om-sub">Your markets, intelligence and performance. One workspace.</p>}
         </div>
         {!usingSharedAccount && <AccountSummary ov={ov} state={ovState} switching={switching} hide={hide} onHide={() => setHide((h) => { store.set("om:floor:hide", h ? "0" : "1"); return !h; })} onPick={choose} now={now} />}
       </header>
@@ -684,6 +685,7 @@ export function Floor({ sample }: { sample?: FloorSample }) {
       <AtlasLiveDesk goldSetup={setup} goldFailed={setupFailed} atlasRead={ov?.atlas?.read ?? null}
         sample={isSample} sampleNow={sample?.nowMs} tf={tf} onTf={pickTf} />
 
+      {isSimple && <HomeApps />}
       {!isSample && <NitrousAccountSummary />}
 
       <div className="om-os-performance">

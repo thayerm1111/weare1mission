@@ -98,7 +98,7 @@ test('a link generates once, only for the member\'s own fresh intent (11-21 brie
 });
 
 test('the builder keeps market, style, optional settings and Generate in reading order', () => {
-  const i1 = workspace.indexOf('om-step-n" aria-hidden="true">1<'), i2 = workspace.indexOf('om-step-n" aria-hidden="true">2<'), i3 = workspace.indexOf('om-step-n" aria-hidden="true">3<');
+  const i1 = workspace.indexOf('id="om-plays-market"'), i2 = workspace.indexOf('id="om-plays-style"'), i3 = workspace.indexOf('Generate play', workspace.indexOf('id="om-plays-adv"'));
   const adv = workspace.indexOf('id="om-plays-adv"');
   assert.ok(i1 > 0 && i2 > i1 && adv > i2 && i3 > adv, 'optional settings precede the Generate action in both reading and focus order');
   assert.match(workspace, /for \(const r of recent\) offer\(r\.td\);\s*for \(const td of POPULAR\) offer\(td\);/, 'a few markets to start from: the member\'s own first');
@@ -111,7 +111,7 @@ test('the builder keeps market, style, optional settings and Generate in reading
 test('an open play: original prices, focused chart, then decision, execution review and tracking', () => {
   const d = read('src/components/om/plays/PlayDetail.tsx');
   assert.ok(!/fetch\(|\/api\//.test(d), 'the detail asks the server for nothing');
-  const order = ['className="om-play-head"', '<VisionChart', 'className="om-play-simple-levels"', 'className="om-play-decision"', 'className="om-play-next"', 'className="om-play-track"', 'className="om-play-why"'].map((marker) => d.indexOf(marker));
+  const order = ['className="om-play-head"', '<VisionChart', '<summary>Plan prices and rules</summary>', 'className="om-play-decision"', 'className="om-play-next"', 'className="om-play-track"', 'className="om-play-why"'].map((marker) => d.indexOf(marker));
   assert.ok(order.every((x, i) => x > 0 && (i === 0 || x > order[i - 1])), `the hierarchy, in order: ${order}`);
   assert.match(d, /Since it was made · price against its levels/);
   assert.match(d, /not a chance of winning/);

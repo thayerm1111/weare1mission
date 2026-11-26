@@ -67,6 +67,7 @@ function harness(component, options = {}) {
   const requireHere = (name) => {
     if (name === "react") return react;
     if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "Fragment" };
+    if (name === "../simple/MarketStory") return { ...require("../src/components/om/simple/MarketStory.tsx"), MarketStory: "MarketStory" };
     if (name === "lucide-react") return new Proxy({}, { get: (_, key) => `icon:${String(key)}` });
     if (name === "next/link") return { __esModule: true, default: "Link" };
     if (name.endsWith(".css")) return {};
@@ -206,7 +207,12 @@ test("Simple saved plays retain original candles, every target, invalidation and
   assert.equal(chart.props.snapshot, true);
   assert.equal(chart.props.priceLive, false);
   assert.equal(chart.props.reference, true);
-  assert.match(h.text(), /wait for confirmation.*reference prices/);
+  const story = h.find(isType("MarketStory"))[0].props;
+  assert.equal(story.feed, "recorded");
+  assert.equal(story.stage, "forming");
+  assert.match(story.next, /Wait for confirmation/);
+  assert.ok(h.find(n => n.type === "details" && !n.props.open && text(n).includes("Plan prices and rules")).length);
+  assert.match(h.text(), /Reference prices · confirmation required/);
   assert.match(h.text(), /Entry3600Stop loss3595Target 13610Target 23615/);
   assert.match(h.text(), /Cancel this idea if:.*A close below 3595/);
   assert.match(h.text(), /manual override.*Execution review control/);
@@ -226,10 +232,14 @@ test("Simple Pulse retains scan age and price levels without inventing a chart o
   const detail = home.find(isType("Detail"))[0];
   assert.equal(detail.props.stale, true);
   const h = harness("Detail", { props: detail.props });
-  assert.match(h.text(), /Scan again before making a plan/);
+  const story = h.find(isType("MarketStory"))[0].props;
+  assert.equal(story.feed, "delayed");
+  assert.match(story.pausedNext, /new scan before making a plan/);
+  assert.ok(h.find(n => n.type === "details" && !n.props.open && text(n).includes("Reference prices")).length);
   assert.match(h.text(), /Entry3600Stop3595Target 13610/);
   assert.match(h.text(), /not a confirmed trade|Not a confirmed setup/);
-  assert.match(h.text(), /press Generate to see its chart|request a fresh plan/);
+  assert.ok(h.find(n => n.type === "Link" && text(n) === "Open in OM AI Plays" && n.props.href.includes("td=XAU%2FUSD")).length);
+  assert.match(h.text(), /Generating a play costs 3 credits/);
   assert.equal(h.find(isType("VisionChart")).length, 0);
   assert.equal(h.requests.length + home.requests.length, 0);
   h.render({ isSimple: false });

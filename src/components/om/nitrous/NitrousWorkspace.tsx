@@ -157,7 +157,7 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
     setArmConsent(version ?? accountStrategyConsent(account, mode)); setActionError(""); setArming(true);
   };
   return <div className="nitrous" data-mode={mode}>
-    <header className="nitrous-header"><div className="nitrous-brand"><ProductIcon kind="nitrous" size="lg" /><div><p className="nitrous-eyebrow">ONE MISSION · GOLD AUTOMATION</p><h1>Nitrous</h1><p>Read the setup. Choose your pace.</p></div></div>
+    <header className="nitrous-header"><div className="nitrous-brand"><ProductIcon kind="nitrous" size="lg" /><div>{!isSimple && <p className="nitrous-eyebrow">ONE MISSION · GOLD AUTOMATION</p>}<h1>Nitrous</h1><p>{isSimple ? "Gold automation" : "Read the setup. Choose your pace."}</p></div></div>
       <span className="nitrous-powered"><span />Powered by TradeLocker</span></header>
     {(entitled || account) && <div className="nitrous-mode-switch" role="group" aria-label="Trading mode">
       <button type="button" aria-pressed={mode === "slow_drip"} onClick={() => chooseMode("slow_drip")} disabled={!entitled || !!account?.automationEnabled || !!busy}><span className="nitrous-mode-icon"><Droplets size={23} /></span><span><strong>Slow Drip</strong><small>Measured risk. Selective entries.</small></span><span className="nitrous-mode-risk">0.5–1%<small>per trade</small></span></button>
