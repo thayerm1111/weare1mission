@@ -5,10 +5,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/auth";
 import { PortalNotConfigured } from "@/components/portal/PortalNotConfigured";
 import { FloorWorkspace } from "@/components/portal/floor/FloorWorkspace";
-import { Floor } from "@/components/om/floor/Floor";
+import { FloorOutlet } from "@/components/om/floor/FloorOutlet";
 import { SHELL_COOKIE, wantsNextShell } from "@/lib/floor/nav";
 
-export default async function FloorPage({ searchParams }: { searchParams?: { view?: string | string[] } }) {
+export default async function FloorPage() {
   const supabase = createClient();
   if (!supabase) return <PortalNotConfigured />;
   const profile = await getProfile();
@@ -17,11 +17,9 @@ export default async function FloorPage({ searchParams }: { searchParams?: { vie
   // classic workspace's own row of tabs (the new shell is the navigation). An admin who chose the classic portal
   // gets this page exactly as it was.
   if (wantsNextShell(cookies().get(SHELL_COOKIE)?.value, profile?.role === "admin", headers())) {
-    const view = typeof searchParams?.view === "string" ? searchParams.view : "";
-    if (!view || view === "home") return <Floor />;
     return (
       <Suspense fallback={<div className="h-[80vh] rounded-2xl bg-[#17130d]" />}>
-        <FloorWorkspace isCaller={profile?.role === "admin"} followerCount={128} bare />
+        <FloorOutlet isCaller={profile?.role === "admin"} />
       </Suspense>
     );
   }

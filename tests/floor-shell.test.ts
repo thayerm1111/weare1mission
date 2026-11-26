@@ -101,6 +101,16 @@ test('the portal decides on the server, from the member\'s role — and the clas
   assert.match(page, /<FloorWorkspace isCaller=\{isCaller\} followerCount=\{followerCount\} \/>/, 'everyone else gets the page as it was');
 });
 
+test('the authenticated trading outlet chooses Home or a deep link from the current client URL', () => {
+  const page = read('src/app/portal/trading/page.tsx');
+  assert.doesNotMatch(page, /searchParams/, 'a late server response must not pin an earlier dock destination');
+  assert.match(page, /<FloorOutlet isCaller=\{profile\?\.role === "admin"\} \/>/);
+  const outlet = read('src/components/om/floor/FloorOutlet.tsx');
+  assert.match(outlet, /useSearchParams\(\)\.getAll\("view"\)/);
+  assert.match(outlet, /if \(!view \|\| view === "home"\) return <Floor \/>/);
+  assert.match(outlet, /<FloorWorkspace isCaller=\{isCaller\} followerCount=\{128\} bare \/>/);
+});
+
 test('the switch itself is admin-only, sets one cookie, and answers anyone else as if it were not there', () => {
   const src = read('src/app/api/floor/preview/route.ts');
   assert.match(src, /if \(!profile \|\| profile\.role !== "admin"\) return new NextResponse\("Not found", \{ status: 404 \}\)/);
