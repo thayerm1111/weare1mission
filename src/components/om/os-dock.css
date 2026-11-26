@@ -140,19 +140,6 @@
   .om-os .om-brand svg { width: 35px; }
 }
 
-/* The Command Center's fixed copilot also clears the launcher in a browser-sized tablet window. */
-@media (min-width: 981px) and (max-width: 1279px) {
-  .om-os-atlas .hud-root { --atlas-nav-height: var(--om-dock-clearance); padding-bottom: 100px; }
-  .om-os-atlas .hud-root[data-voice-active="true"] { padding-bottom: 190px; }
-  .om-os-atlas .hud-root [data-dock] { bottom: var(--atlas-nav-height); padding-bottom: 0 !important; }
-  .om-os-atlas .hud-root[data-talk-open="true"] [data-dock] { display: none; }
-  .om-os-atlas .hud-root .hud-talk {
-    bottom: var(--atlas-nav-height);
-    max-height: calc(var(--om-viewport-height, 100dvh) - var(--atlas-nav-height) - 16px);
-  }
-  .om-os-atlas .hud-root .hud-talk.is-tall { height: calc(var(--om-viewport-height, 100dvh) - var(--atlas-nav-height) - 16px); }
-}
-
 @media (max-width: 600px) {
   .om-app.om-os { --om-dock-clearance: calc(98px + env(safe-area-inset-bottom, 0px)); }
   .om-os .om-os-dock {

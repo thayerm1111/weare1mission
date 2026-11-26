@@ -153,7 +153,8 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
     window.addEventListener("scroll", on, { passive: true });
     return () => { window.removeEventListener("scroll", on); if (raf) window.cancelAnimationFrame(raf); };
   }, [path, view]);
-  const screen = here ? NAV.find((n) => n.key === here)?.label ?? null : null;
+  const destination = NAV.find((item) => item.key === here);
+  const screen = destination?.label;
   // THE ONE MISSION APP (lib/floor/app.ts): the browser's own install dialog where it has one, else its steps.
   const { asApp, offer, install: installApp } = useInstall();
   const [guide, setGuide] = useState<InstallGuide | null>(null);
@@ -166,16 +167,16 @@ function Bar({ member, configured, preview, look, onLook }: { member: ShellMembe
         <div className="om-frame">
           <nav className="om-nav" aria-label="Trading platform">
             <Link href="/portal/trading" className="om-brand" aria-label="One Mission — OM OS"><OmMark /><span>One Mission</span></Link>
-            <span className="om-mobile-screen" aria-hidden="true">{screen ?? "Account"}</span>
+            <span className="om-mobile-screen" aria-hidden="true">{destination?.tab ?? screen ?? "Account"}</span>
             <div className="om-os-breadcrumb"><Link href="/portal/trading" aria-current={here === "floor" ? "page" : undefined}>OM OS</Link>{here && here !== "floor" && <><span aria-hidden="true">/</span><span>{screen}</span></>}</div>
+            <div className="om-experience-bar"><ExperienceSwitch /></div>
             <div className="om-nav-right">
-              <button type="button" className="om-os-ask" onClick={() => openAtlas()} aria-haspopup="dialog" aria-expanded={atlasPanel.open} disabled={!configured}><span>Ask Atlas</span></button>
+              {here !== "atlas" && <button type="button" className="om-os-ask" onClick={() => openAtlas()} aria-haspopup="dialog" aria-expanded={atlasPanel.open} disabled={!configured}><span>Ask Atlas</span></button>}
               {configured && <Credits />}
               {configured && <span className="om-bell"><NotificationsBell trading /></span>}
               <ProfileMenu member={member} configured={configured} preview={preview} asApp={asApp} onInstall={configured && offer ? install : undefined} look={look} onLook={onLook} />
             </div>
           </nav>
-          <div className="om-experience-bar"><span>WORKSPACE VIEW</span><ExperienceSwitch /><span className="om-experience-hint">Entries &amp; charts · Full analysis</span></div>
         </div>
       </div>
 
@@ -199,12 +200,14 @@ const APPS = [
 /** One persistent launcher on every screen, with the same destinations on desktop and phone. */
 function AppDock() {
   const path = usePathname() || "";
-  const view = useSearchParams().get("view");
+  const params = useSearchParams();
+  const view = params.get("view");
   const here = activeKey(path, view);
   const returnToTop = (event: ReactMouseEvent<HTMLAnchorElement>, key: NavKey, href: string) => {
     // A re-tap scrolls only the actual destination. Saved signals and engine subpages still return home.
-    const current = path + (view ? `?view=${view}` : "");
-    if (here !== key || current !== href || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const query = params.toString();
+    const current = path + (query ? `?${query}` : "");
+    if (window.location.hash || here !== key || current !== href || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   };
@@ -277,7 +280,7 @@ export function AppShell({ children, member, configured = true, preview = false,
       <main className="om-main"><div className="om-frame"><ShellContext.Provider value={true}>
         {configured && <Suspense fallback={null}><AccountPlacement /></Suspense>}
         {children}
-        <footer className="om-os-footer"><span>OM OS</span><span>Your tools. One connected workspace.</span><Link href="/portal/support">Support ↗</Link></footer>
+        <footer className="om-os-footer"><span>OM OS</span><Link href="/portal/support">Support</Link></footer>
       </ShellContext.Provider></div></main>
       <Suspense fallback={null}><AppDock /></Suspense>
       <OfflineNotice />

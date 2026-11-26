@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronsRight, Maximize2, Minimize2, RotateCcw } from "lucide-react";
 import {
@@ -84,6 +84,7 @@ const LEVEL_COLOR: Record<ChartLevel["kind"], string> = {
 const HALO = "var(--om-ch-halo)";
 const TOP_BAND = 34, TIME_H = 24;
 const PHONE_BARS = 40, DESK_BARS = 90;
+const useChartLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 type Drag = { x: number; y: number; end: number; pOff: number; pz: number; axis: boolean; moved: boolean; touch: boolean };
 
@@ -136,9 +137,11 @@ export function OmChart(p: OmChartProps) {
 
   const measure = useCallback(() => {
     const r = wrap.current?.getBoundingClientRect();
-    if (r && r.width > 0 && r.height > 0) setSz({ w: Math.round(r.width), h: Math.round(r.height) });
+    if (!r || r.width <= 0 || r.height <= 0) return;
+    const w = Math.round(r.width), h = Math.round(r.height);
+    setSz((previous) => previous?.w === w && previous.h === h ? previous : { w, h });
   }, []);
-  useEffect(() => {
+  useChartLayoutEffect(() => {
     const el = wrap.current;
     if (!el) return;
     measure();

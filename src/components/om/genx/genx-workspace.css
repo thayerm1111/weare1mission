@@ -50,3 +50,7 @@
 .om-genfx-confirm p{font-size:12px;line-height:1.6;color:var(--om-text-2);margin:8px 0 0}
 .om-genfx [hidden],.om-genx [hidden]{display:none!important}
 @media(max-width:680px){.om-genx-market-switch{max-width:none;margin-bottom:17px}.om-genx-market-switch>button{padding:9px 10px}.om-genfx-lists{grid-template-columns:1fr}.om-genfx-chart{padding:13px}.om-genx-simple-levels{padding:12px;gap:8px}.om-genx-simple-levels dd{font-size:17px}.om-genfx-chart-head{align-items:flex-start;flex-direction:column;gap:5px}}
+
+.om-genx-chart-status{display:grid;align-content:center;justify-items:center;gap:6px;min-height:clamp(260px,42vh,400px);border:1px solid var(--om-edge);border-radius:18px;background:var(--om-surface);text-align:center}
+.om-genx-chart-status strong{font-size:16px;font-weight:550;color:var(--om-text)}
+.om-genx-chart-status span{font-size:13px;color:var(--om-text-2)}

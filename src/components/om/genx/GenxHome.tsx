@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, ChevronDown, Loader2, Pin, X } from "lucide-react";
-import { OmChart } from "@/components/om/chart/OmChart";
 import { VisionDirection, VisionLevels, type VisionFact } from "@/components/om/vision/VisionDirection";
 import { VisionChart } from "@/components/om/vision/VisionChart";
 import { genxChartView } from "@/lib/genx/chartView";
@@ -140,7 +139,9 @@ export function GenxHome(p: GenxHomeProps) {
       const d = (await r.json().catch(() => null)) as LiveAnswer | null;
       if (mine !== liveSeq.current) return;
       if (!r.ok || !d) { setLiveFailed(true); return; }
-      setLive(d); setLiveFailed(!!d.error && realCandles(d.candles).length < 2); setNow(Date.now());
+      const hasCandles = realCandles(d.candles).length > 0;
+      if (d.error && !hasCandles) { setLiveFailed(true); return; }
+      setLive(d); setLiveFailed(false); setNow(Date.now());
     } catch { if (mine === liveSeq.current) setLiveFailed(true); }
   }, [mode]);
   useEffect(() => {
@@ -192,6 +193,7 @@ export function GenxHome(p: GenxHomeProps) {
     ? { levels: readMarks.levels.filter((level) => level.kind === "support" || level.kind === "resistance"), zone: null }
     : chartReference ? { ...readMarks, levels: readMarks.levels.map((level) => level.kind === "entry" || level.kind === "stop" || level.kind === "target"
         ? { ...level, label: `Reference ${level.label.toLowerCase()}` } : level) } : readMarks;
+  const hasTradeSide = chartSide === "buy" || chartSide === "sell";
   const simpleTarget = subject === "scalp" && read?.scalp ? read.scalp.target : read?.tp1;
   const displayedMarks = isSimple && read ? marks.levels.filter((level) => level.kind !== "target" || level.price === simpleTarget) : marks.levels;
   const shut = now > 0 && !isOpen("metal", now);
@@ -200,9 +202,8 @@ export function GenxHome(p: GenxHomeProps) {
   const liveAt = typeof live?.asOf === "string" ? live.asOf : null;
   const readIso = p.readAt ?? saved?.at ?? null;
   const fresh = chart.snapshot ? `${chart.priceFrom === "candle" ? "Last saved candle" : "At generation"} · ${whenText(readIso)}`
-    : shut ? "Gold is closed · this is the last price before the close"
-      : liveFailed ? "Market refresh failed · the last recorded chart is retained"
-        : liveAt ? `Market read · fetched ${ageText(liveAt, now)}` : "";
+    : liveFailed ? "Last market read · refresh unavailable"
+      : shut ? "Gold market closed" : liveAt ? `Market read · ${ageText(liveAt, now)}` : "Market read";
   // The generated read remains a snapshot even if the free market data or horizon selector changes.
   const chartKey = chart.snapshot ? `XAUUSD:read:${readIso ?? "undated"}:${tf.interval}:${subject}` : `XAUUSD:${mode}`;
   const sharedRead = live?.g && typeof live.g === "object" ? live.g as Partial<GenxRead> : null;
@@ -280,22 +281,24 @@ export function GenxHome(p: GenxHomeProps) {
             <button type="button" aria-pressed={subject==="main"} onClick={()=>setSubject("main")}>Main setup</button>
             <button type="button" aria-pressed={subject==="scalp"} onClick={()=>setSubject("scalp")}>Right-now scalp</button>
           </div>}
-          {chart.bars.length >= 2 ? <VisionChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={tf.ms}
+          {chart.bars.length > 0 ? <VisionChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={tf.ms}
             timeframe={tf.label} dec={2} symbol="XAU/USD" price={price}
-            priceLive={false}
+            priceLive={false} marketStatus={fresh} isOpenAt={goldOpen}
             snapshot={chart.snapshot} levels={displayedMarks} zone={marks.zone}
             direction={chartSide==="buy"?"buy":chartSide==="sell"?"sell":visionBias}
             reference={!read || chartReference} viewKey={chartKey}
             title="GENX gold candle chart and conditional trade levels"/> :
-            <p className="om-empty">Verified candle snapshot unavailable for this read.</p>}
-          {read && isSimple && <SimpleGenxLevels entry={subject==="scalp"&&read.scalp?read.scalp.entry:read.entry}
+            <div className="om-genx-chart-status" role="status"><strong>{chart.snapshot ? "Original chart unavailable" : liveFailed ? "Gold chart unavailable" : !live ? "Loading gold chart…" : "Waiting for candles"}</strong>
+              <span>{chart.snapshot ? "This read has no stored candle history." : liveFailed ? "The next market refresh will try again." : `XAU/USD · ${tf.label}`}</span></div>}
+          {read && !hasTradeSide && <ReadLevels g={read} subject={subject} saved={!!saved} />}
+          {read && hasTradeSide && isSimple && <SimpleGenxLevels entry={subject==="scalp"&&read.scalp?read.scalp.entry:read.entry}
             stop={subject==="scalp"&&read.scalp?read.scalp.stop:read.stop_loss} target={simpleTarget} dec={2} reference={chartReference||!!saved}/>}
-          {read && !isSimple && <VisionLevels entry={subject==="scalp"&&read.scalp?read.scalp.entry:read.entry}
+          {read && hasTradeSide && !isSimple && <VisionLevels entry={subject==="scalp"&&read.scalp?read.scalp.entry:read.entry}
             stop={subject==="scalp"&&read.scalp?read.scalp.stop:read.stop_loss}
             targets={subject==="scalp"&&read.scalp?[read.scalp.target]:[read.tp1,read.tp2,read.tp3]}
             symbol="XAUUSD" rr={subject==="scalp"&&read.scalp?read.scalp.rr:null}
             reference={chartReference||!!saved&&shut}/>}
-          {read && subject==="main" && <details className="om-vision-genx-steps" hidden={isSimple}>
+          {read && hasTradeSide && subject==="main" && <details className="om-vision-genx-steps" hidden={isSimple}>
             <summary>Projected sequence · triggers and invalidation</summary>
             <Steps g={read} price={price} older/>
           </details>}
@@ -425,7 +428,7 @@ function Decision({ p, g, subject }: { p: GenxHomeProps; g: GenxRead; subject: "
 
 /** Before a read: GENX's shared state for this horizon, and nothing it has not said. */
 function Waiting({ view, failed, loaded }: { view: ReturnType<typeof setupView>; failed: boolean; loaded: boolean }) {
-  if (!loaded) return <div className="om-genx-decision" aria-busy="true"><span className="om-skel" style={{ width: 160, height: 22 }} /><span className="om-skel" style={{ width: "100%", height: 64 }} /></div>;
+  if (!loaded && !failed) return <div className="om-genx-decision" aria-busy="true"><span className="om-skel" style={{ width: 160, height: 22 }} /><span className="om-skel" style={{ width: "100%", height: 64 }} /></div>;
   if (!view.stage) return <div className="om-genx-decision"><p className="om-genx-state">No read yet</p><p className="om-label">{failed ? "GENX's state could not be read just now." : "Analyze gold for GENX's full read: the plan, its levels and why."}</p></div>;
   return (
     <div className="om-genx-decision">

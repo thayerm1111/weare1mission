@@ -3,7 +3,6 @@
 .atlas-pocket-header,
 .atlas-pocket-brief,
 .atlas-pocket-followthrough,
-.atlas-pocket-composer,
 .atlas-pocket-account { display: none; }
 
 @media (max-width: 767px) {
@@ -119,42 +118,8 @@
   .om-os-atlas .hud-root[data-mobile-tour="true"] .om-atlas-os-toolbar { height: auto; min-height: 44px; }
   .om-os-atlas .hud-root[data-mobile-tour="true"] .om-atlas-os-toolbar > :not(.atlas-header-menu) { display: flex !important; }
 
-  .om-os-atlas .hud-root [data-dock] .atlas-dock-legacy { display: none; }
-  .om-os-atlas .hud-root [data-dock] .atlas-pocket-composer { display: flex; align-items: center; gap: 4px; margin: 7px; padding: 4px 5px 4px 14px; border: 1px solid rgba(255,255,255,.11); border-radius: 17px; background: #1a1c1f; }
-  .om-os-atlas .atlas-pocket-composer input { width: 100%; min-width: 0; height: 42px; border: 0; padding: 0; border-radius: 4px; outline: none; background: transparent; color: #f0f0ed; font-size: 16px; }
-  .om-os-atlas .atlas-pocket-composer input::placeholder { color: #96999f; }
-  .om-os-atlas .hud-root [data-dock] .atlas-pocket-composer button { display: grid; place-items: center; flex-shrink: 0; min-height: 40px; width: 40px; border: 0; border-radius: 12px; background: transparent; color: #b7b9be; }
-  .om-os-atlas .atlas-pocket-composer button svg { width: 18px; height: 18px; }
-  .om-os-atlas .hud-root [data-dock] .atlas-pocket-composer button[type="submit"] { border-radius: 50%; background: #e0e2df; color: #181a1d; width: 36px; min-height: 36px; }
-  .om-os-atlas .hud-root [data-dock] .atlas-pocket-composer button[type="submit"]:disabled { opacity: .4; }
-  .om-os-atlas .hud-root [data-dock] .atlas-pocket-composer button[aria-pressed="true"] { color: #cfaaaa; background: rgba(205,150,150,.09); }
-  .om-os-atlas .hud-root[data-mobile-tour="true"] [data-dock] .atlas-dock-legacy { display: flex; }
-  .om-os-atlas .hud-root[data-mobile-tour="true"] [data-dock] .atlas-pocket-composer { display: none; }
-  html.om-keyboard-open .om-os-atlas .hud-root [data-dock] { bottom: var(--om-keyboard-inset, 0px); }
 }
-
-/* The shell shows its mobile navigation through 980px, including a phone in
-   landscape. Its conversation and voice dock share that same boundary. */
 @media (max-width: 980px) {
-  .om-os-atlas .hud-root {
-    --atlas-nav-height: var(--om-mobile-nav-height, calc(64px + env(safe-area-inset-bottom, 0px)));
-    padding-bottom: 96px;
-  }
-  .om-os-atlas .hud-root[data-voice-active="true"] { padding-bottom: 190px; }
-  .om-os-atlas .hud-root [data-dock] { bottom: var(--atlas-nav-height); left: 8px; right: 8px; padding: 0 !important; border: 1px solid var(--om-edge, rgba(220,224,240,.1)) !important; border-radius: 21px 21px 0 0; background: var(--om-glass-solid, #15161b) !important; backdrop-filter: blur(20px); box-shadow: 0 -6px 28px rgba(0,0,0,.15); }
-  .om-os-atlas .hud-root [data-dock] > div:last-child { padding: 10px; gap: 7px; }
-  .om-os-atlas .hud-root [data-dock] button { min-height: 46px; }
-  .om-os-atlas .hud-root [data-dock] button[aria-label="Talk to ATLAS"] { border: 0 !important; background: transparent !important; padding: 5px; }
-  .om-os-atlas .hud-root [data-dock] button[aria-label="Talk to ATLAS"] > span:first-child { width: 30px; height: 30px; background: linear-gradient(145deg, #55585d, #25272b) !important; box-shadow: inset 0 0 0 1px rgba(255,255,255,.12) !important; }
-  .om-os-atlas .hud-root [data-dock] button[aria-label="Talk to ATLAS"] > span:first-child > span { width: 5px; height: 5px; background: #e5e6e3 !important; }
-  .om-os-atlas .hud-root [data-dock] button[aria-label="Talk to ATLAS"] > span:last-child > span:first-child { font-size: 14px; font-weight: 500; }
-  .om-os-atlas .hud-root [data-dock] [data-generate-dock] { border-radius: 13px; padding-inline: 12px; box-shadow: none !important; }
-  .om-os-atlas .hud-root [data-dock] [data-generate-dock] > span { font-size: 9px; font-weight: 600; letter-spacing: .04em; }
-  .om-os-atlas .hud-root [data-dock] button[aria-label="Talk to ATLAS by voice"],
-  .om-os-atlas .hud-root [data-dock] button[aria-label="End the voice line"] { width: 46px; height: 46px; border: 1px solid rgba(255,255,255,.16) !important; border-radius: 13px; background: rgba(255,255,255,.035) !important; box-shadow: none !important; color: var(--om-text, #f2f3f7) !important; }
-  .om-os-atlas .hud-root[data-talk-open="true"] [data-dock] { display: none; }
-  .om-os-atlas .hud-root .hud-talk { left: 0; right: 0; width: 100%; bottom: var(--atlas-nav-height); height: min(700px, calc(var(--om-viewport-height, 100dvh) - var(--atlas-nav-height) - 72px)); max-height: calc(var(--om-viewport-height, 100dvh) - var(--atlas-nav-height) - 16px); border-radius: 25px 25px 0 0; z-index: 55; padding-bottom: 5px; box-shadow: 0 -14px 60px rgba(0,0,0,.45) !important; }
-  .om-os-atlas .hud-root .hud-talk.is-tall { height: calc(var(--om-viewport-height, 100dvh) - var(--atlas-nav-height) - 16px); }
   .om-os-atlas .hud-root .hud-talk > header { padding: 13px 14px 8px; gap: 3px; flex-wrap: nowrap; }
   .om-os-atlas .hud-root .hud-talk > header > p { font-size: 11px !important; letter-spacing: .04em !important; }
   .om-os-atlas .hud-root .hud-talk > header > span { flex: 1; min-width: 0; }
@@ -179,7 +144,6 @@
   .om-os-atlas .hud-root .atlas-mobile-drawer { padding: max(16px, env(safe-area-inset-top, 0px)) 16px calc(24px + env(safe-area-inset-bottom, 0px)); overscroll-behavior-y: contain; }
   .om-os-atlas .hud-root .atlas-mobile-drawer > div:first-child { position: sticky; top: calc(-1 * max(16px, env(safe-area-inset-top, 0px))); z-index: 2; padding-top: 5px; padding-bottom: 10px; background: var(--cc-050b11, #101116); }
   .om-os-atlas .hud-root .atlas-mobile-drawer button[aria-label="Close"] { min-width: 44px; min-height: 44px; display: grid; place-items: center; }
-  html.om-keyboard-open .om-os-atlas .hud-root .hud-talk.is-open { bottom: var(--om-keyboard-inset, 0px); height: calc(var(--om-viewport-height, 100dvh) - 8px); max-height: calc(var(--om-viewport-height, 100dvh) - 8px); border-radius: 18px 18px 0 0; }
   html.om-keyboard-open .om-os-atlas .hud-root .hud-talk > header { padding-block: 4px; }
   html.om-keyboard-open .om-os-atlas .hud-root .atlas-talk-tabs { padding-bottom: 6px; }
   html.om-keyboard-open .om-os-atlas .hud-root .atlas-talk-core { display: none; }
@@ -187,33 +151,11 @@
   html.om-keyboard-open .om-os-atlas .hud-root .atlas-chat-body > div > div:last-child button { width: 40px; height: 40px; }
 }
 
-@media (min-width: 768px) and (max-width: 980px) {
-  .om-os-atlas .hud-root .hud-talk { left: auto; width: min(560px, 100vw); border-radius: 25px 0 0 0; }
-}
-
-/* Installed tablet windows keep the wider desk layout and the shell's app
-   navigation. Only the fixed Atlas surfaces move up to make room for it. */
-@media (min-width: 981px) and (max-width: 1279px) {
-  .om-standalone .om-os-atlas .hud-root { --atlas-nav-height: var(--om-mobile-nav-height, calc(64px + env(safe-area-inset-bottom, 0px))); padding-bottom: 100px; }
-  .om-standalone .om-os-atlas .hud-root[data-voice-active="true"] { padding-bottom: 190px; }
-  .om-standalone .om-os-atlas .hud-root [data-dock] { bottom: var(--atlas-nav-height); padding-bottom: 0 !important; }
-  .om-standalone .om-os-atlas .hud-root[data-talk-open="true"] [data-dock] { display: none; }
-  .om-standalone .om-os-atlas .hud-root .hud-talk { bottom: var(--atlas-nav-height); max-height: calc(var(--om-viewport-height, 100dvh) - var(--atlas-nav-height) - 16px); }
-  .om-standalone .om-os-atlas .hud-root .hud-talk.is-tall { height: calc(var(--om-viewport-height, 100dvh) - var(--atlas-nav-height) - 16px); }
-  .om-standalone .om-os-atlas .hud-root .atlas-chat-body input { font-size: 16px; }
-  .om-standalone .om-os-atlas .hud-root .atlas-drawer-overlay { z-index: 56; }
-  html.om-standalone.om-keyboard-open .om-os-atlas .hud-root .hud-talk.is-open { bottom: var(--om-keyboard-inset, 0px); height: calc(var(--om-viewport-height, 100dvh) - 8px); max-height: calc(var(--om-viewport-height, 100dvh) - 8px); }
-  html.om-standalone.om-keyboard-open .om-os-atlas .hud-root .atlas-talk-core { display: none; }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .atlas-pocket-timeframes button { transition: none; }
 }
 
 @media (max-width: 767px) {
-  .om-os-atlas .hud-root [data-dock] { left: 12px; right: 12px; border: 0 !important; border-radius: 18px 18px 0 0; background: #101214 !important; box-shadow: 0 -8px 18px #101214; }
-  .om-os-atlas .hud-root [data-dock] .atlas-dock-legacy { display: none; }
-  .om-os-atlas .hud-root[data-mobile-tour="true"] [data-dock] .atlas-dock-legacy { display: flex; }
 
   /* Stone's unboxed read follows the shell palette. Atlas's chart keeps its
      dark backing because its price labels and annotations use the dark HUD palette. */
@@ -303,4 +245,28 @@
  .atlas-clear-brief .atlas-clear-generate{order:3}.atlas-clear-brief .atlas-clear-disclaimer{order:4;margin-top:-8px}
  .atlas-clear-brief .atlas-clear-secondary{order:5}.atlas-strength{order:6}.atlas-clear-facts{order:7}
  .atlas-clear-conditions{order:8}.atlas-clear-details{order:9}.atlas-clear-age{order:10}.atlas-clear-alignment{order:11}
+}
+
+/* The transcript lives in the desk. Closing it keeps the voice line and chat history mounted. */
+.om-os-atlas .hud-root .hud-talk:not(.is-open) { display: none; }
+.om-os-atlas .hud-root .hud-talk.is-open {
+  position: relative; inset: auto; z-index: auto; width: 100%; max-width: 100%;
+  visibility: visible; transform: none; transition: none; border-radius: 18px;
+  scroll-margin-block: 72px var(--om-dock-clearance, 95px);
+}
+.om-os-atlas .hud-root .atlas-talk-close { width: 44px; height: 44px; flex: 0 0 auto; }
+.om-os-atlas .hud-root .atlas-clear-secondary button[aria-pressed="true"] { color: var(--om-ai); }
+@media (min-width: 1280px) {
+  .om-os-atlas .hud-root:not([data-talk-open]) .hud-right { display: none; }
+  .om-os-atlas .hud-root[data-experience="advanced"]:not([data-talk-open]) .hud-grid { grid-template-columns: minmax(295px, 25%) minmax(0, 1fr); }
+  .om-os-atlas .hud-root[data-experience="simple"]:not([data-talk-open]) .hud-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 1279px) {
+  .om-os-atlas .hud-root[data-experience] { padding-bottom: 12px; }
+  .om-os-atlas .hud-root .hud-talk.is-open { order: 0; height: clamp(360px, 65dvh, 580px); flex: none; }
+  .om-os-atlas .hud-root .atlas-chat-body input { font-size: 16px; }
+  html.om-keyboard-open .om-os-atlas .hud-root .hud-talk.is-open { height: max(270px, calc(var(--om-viewport-height, 100dvh) - 68px)); }
+}
+@media (max-width: 767px) {
+  .om-os-atlas .hud-root .hud-talk.is-open { order: 2; margin-bottom: 14px; }
 }

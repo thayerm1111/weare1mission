@@ -1,12 +1,13 @@
 "use client";
 import { ProductIcon } from "@/components/om/ProductIcon";
+import { useNextShell } from "@/components/om/shell";
 import { useExperienceMode } from "@/components/om/experience";
 import "./atlas-mobile.css";
 import "./atlas-simple.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  AlertTriangle, ArrowDownRight, ArrowLeftRight, ArrowUp, ArrowUpRight, BarChart3, Bell, BookOpen, ChevronDown, ChevronRight, ChevronUp, Globe2, History, Layers, LineChart, Maximize2, Menu, Mic, PenLine, Radar, RefreshCw,
+  AlertTriangle, ArrowDownRight, ArrowLeftRight, ArrowUpRight, BarChart3, Bell, BookOpen, ChevronDown, ChevronRight, ChevronUp, Globe2, History, Layers, LineChart, Maximize2, Menu, MessageCircle, Mic, PenLine, Radar, RefreshCw,
   Settings, SlidersHorizontal, Sparkles, Square, Target, X, Zap,
 } from "lucide-react";
 import { H, fmt2, LABEL, alpha } from "./theme";
@@ -238,7 +239,8 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   const [mobileView, setMobileView] = useState<"briefing" | "chart" | "levels">("briefing");
   const [mobileAnalysis, setMobileAnalysis] = useState(false);
   const [mobileChartTools, setMobileChartTools] = useState(false);
-  const [mobileQuestion, setMobileQuestion] = useState("");
+  const closeTalkButton = useRef<HTMLButtonElement>(null);
+  const talkLauncher = useRef<HTMLElement | null>(null);
   /** The member is placing one of their own lines on the chart. */
   const [drawMode, setDrawMode] = useState(false);
   const ex = useExplain();
@@ -249,20 +251,17 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   const [chartPing, setChartPing] = useState<number | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
   // In the redesign preview the way out is The Floor (owner 11-20 brief §11: "a clear Back to The Floor action").
-  const [toFloor, setToFloor] = useState(false);
+  const toFloor = useNextShell();
   useEffect(() => {
     try {
-      const next = document.documentElement.classList.contains("om-cc-next");
-      setToFloor(next);
       // The redesign preview opens on Chat — easier to find (owner 11-21 brief §7) — or on the member's own last
       // choice. Only the visible tab: nothing here touches the microphone, which starts on a tap and never on a load.
-      if (next && !isReplay) {
+      if (toFloor && !isReplay) {
         const saved = window.localStorage.getItem("cc:talk-tab");
         setTalkTab(saved === "VOICE" || saved === "ANALYSIS" || saved === "SETTINGS" ? saved : "CHAT");
       }
     } catch { /* the portal, as before */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [toFloor, isReplay]);
   /* GENERATE WITH ATLAS (owner 11-11). The panel mounts the first time it is asked for and then stays, so the
      last idea is still there when the drawer is reopened. `ideaRun` changes on every press of GENERATE. */
   const [ideaMounted, setIdeaMounted] = useState(false);
@@ -424,9 +423,26 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   }, [vb.status, onCall]);
 
   const openTalk = useCallback((tab?: TalkTab) => {
+    if (toFloor && !sheetOpenRef.current) {
+      const active = document.activeElement;
+      talkLauncher.current = active instanceof HTMLElement && active !== document.body ? active : null;
+    }
     if (tab) setTalkTab(tab);
-    if (stackedRef.current) setSheetOpen(true);
-  }, []);
+    if (toFloor || stackedRef.current) setSheetOpen(true);
+  }, [toFloor]);
+  const closeTalk = useCallback(() => {
+    setSheetOpen(false);
+    if (!toFloor) return;
+    const launcher = talkLauncher.current;
+    if (launcher?.isConnected && launcher.getClientRects().length) launcher.focus();
+    else document.querySelector<HTMLButtonElement>("[data-atlas-chat-trigger]")?.focus();
+  }, [toFloor]);
+  useEffect(() => {
+    if (!toFloor || !sheetOpen) return;
+    const close = closeTalkButton.current;
+    close?.focus({ preventScroll: true });
+    close?.closest("section")?.scrollIntoView({ block: "nearest" });
+  }, [toFloor, sheetOpen]);
   const tapCore = useCallback(() => {
     if (isReplay) { openTalk("CHAT"); return; }
     if (lineOpen(voiceBus.get().status)) { voiceBus.end(); return; }
@@ -434,10 +450,10 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
     /* CHART FIRST: on a phone the line opens under the chart, in the dock — the market stays on screen. The
        transcript is one tap away. Only something that needs reading (voice not unlocked yet) opens the sheet. */
     setTalkTab("VOICE");
-    if (!stackedRef.current || blocked) openTalk("VOICE");
+    if (toFloor || !stackedRef.current || blocked) openTalk("VOICE");
     if (blocked) return;
     voiceBus.start();     // inside the tap: Safari only lets audio begin from the gesture that asked for it
-  }, [isReplay, openTalk]);
+  }, [isReplay, openTalk, toFloor]);
   const ask = useCallback((q: string) => { openTalk("CHAT"); setAskSignal({ n: Date.now(), q }); }, [openTalk]);
   // A question typed on The Floor (owner 11-20) is asked here once the member is inside and the entrance has
   // finished — through the same `ask` the chips on this screen use, and only once (floorAsk.ts).
@@ -532,7 +548,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   // it sits exactly in the room above it.
   useEffect(() => {
     if (!stacked || !sheetOpen || sheetTall) return;
-    if (toFloor && window.matchMedia("(max-width: 767px)").matches) return;
+    if (toFloor) return;
     const t = window.setTimeout(() => chartPanelRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }), 120);
     return () => window.clearTimeout(t);
   }, [stacked, sheetOpen, sheetTall, toFloor]);
@@ -655,16 +671,16 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
   // Escape closes the top-most of this screen's own overlays.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key !== "Escape" || e.defaultPrevented || tourOpen || profileOpen || consentOpen || callOpen || document.querySelector("dialog[open]")) return;
       if (menuOpen) setMenuOpen(false);
       else if (drawer) { setDrawer(null); setNav("OVERVIEW"); }
-      else if (sheetOpen) setSheetOpen(false);
+      else if (sheetOpen) closeTalk();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [menuOpen, drawer, sheetOpen]);
-  // The sheet only exists below 1280 px.
-  useEffect(() => { if (!stacked) setSheetOpen(false); }, [stacked]);
+  }, [menuOpen, drawer, sheetOpen, closeTalk, tourOpen, profileOpen, consentOpen, callOpen]);
+  // Only the classic desk changes the visibility of its transcript on rotation.
+  useEffect(() => { if (!toFloor && !stacked) setSheetOpen(false); }, [stacked, toFloor]);
 
   const announce = useMemo(() => {
     const st = d?.statements?.[0];
@@ -827,7 +843,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
 
   /* ── render ───────────────────────────────────────────────────────────── */
   return (
-    <div data-experience={isSimple ? "simple" : "advanced"} data-mobile-view={mobileView} data-mobile-analysis={mobileAnalysis || undefined} data-mobile-chart-tools={mobileChartTools || undefined} data-mobile-tour={tourOpen || undefined} data-talk-open={sheetOpen || undefined} data-voice-active={onCall || undefined} className={`hud-root w-full px-[10px] pt-[8px] xl:pb-[10px] ${onCall ? "pb-[164px]" : "pb-[92px]"} ${stacked && sheetOpen && !sheetTall ? "talk-compact" : ""}`} style={{ background: `radial-gradient(1200px 500px at 12% -10%, rgba(var(--cc-00c7e8-rgb,0,199,232),0.06), transparent), radial-gradient(900px 500px at 100% 0%, rgba(var(--cc-d5a93d-rgb,213,169,61),0.05), transparent), ${H.bg0}`, color: H.text, fontFamily: "Inter, var(--font-inter), system-ui, sans-serif" }}>
+    <div data-experience={isSimple ? "simple" : "advanced"} data-mobile-view={mobileView} data-mobile-analysis={mobileAnalysis || undefined} data-mobile-chart-tools={mobileChartTools || undefined} data-mobile-tour={tourOpen || undefined} data-talk-open={sheetOpen || undefined} data-voice-active={onCall || undefined} className={`hud-root w-full px-[10px] pt-[8px] xl:pb-[10px] ${onCall ? "pb-[164px]" : "pb-[92px]"} ${!toFloor && stacked && sheetOpen && !sheetTall ? "talk-compact" : ""}`} style={{ background: `radial-gradient(1200px 500px at 12% -10%, rgba(var(--cc-00c7e8-rgb,0,199,232),0.06), transparent), radial-gradient(900px 500px at 100% 0%, rgba(var(--cc-d5a93d-rgb,213,169,61),0.05), transparent), ${H.bg0}`, color: H.text, fontFamily: "Inter, var(--font-inter), system-ui, sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: HUD_CSS + DESK }} />
       {tourOpen && <HudTour onClose={() => setTourOpen(false)} />}
 
@@ -1048,7 +1064,8 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
           <button type="button" className="atlas-clear-generate" data-generate-primary="" onClick={generate}><Sparkles size={22} aria-hidden="true" /><span><strong>Generate Gold Signal</strong><small>Entry · Stop loss · Take profits</small></span><ChevronRight size={20} aria-hidden="true" /></button>
           <small className="atlas-clear-disclaimer">Uses Atlas’s existing gold engine. May return no valid trade. Does not place an order.</small>
           <div className="atlas-clear-secondary">
-            <button type="button" onClick={() => openTalk("CHAT")}><Mic size={16} aria-hidden="true" />Ask Atlas</button>
+            <button type="button" data-atlas-chat-trigger="" data-tour="dock" aria-expanded={sheetOpen} aria-controls="atlas-desk-conversation" onClick={() => openTalk("CHAT")}><MessageCircle size={16} aria-hidden="true" />Ask Atlas</button>
+            {!isReplay && <button type="button" aria-pressed={onCall} onClick={tapCore}>{onCall ? <Square size={15} aria-hidden="true" /> : <Mic size={16} aria-hidden="true" />}{onCall ? "End voice" : "Voice"}</button>}
             <button type="button" className="atlas-simple-explain" onClick={() => ask("Explain the current gold direction, the next entry condition and the price that would invalidate it. Show the evidence on the chart.")}><Zap size={16} aria-hidden="true" />Explain the chart</button>
             <button type="button" className="atlas-vision-tools" aria-expanded={mobileChartTools} onClick={() => setMobileChartTools(x => !x)}><SlidersHorizontal size={15} aria-hidden="true" />Chart controls</button>
             {shownIdea && <button type="button" onClick={openIdea}>Last signal<ChevronRight size={15}/></button>}
@@ -1216,7 +1233,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
         </div>
 
         {/* RIGHT — the copilot (a sheet below 1280 px) */}
-        <div className="hud-col hud-right">
+        <div id="atlas-desk-conversation" className="hud-col hud-right">
           <HudPanel className={`hud-talk ${sheetOpen ? "is-open" : ""} ${sheetTall ? "is-tall" : ""}`} tour={stacked && !sheetOpen ? undefined : "talk"} title="TALK WITH ATLAS" icon={<Mic className="h-3.5 w-3.5" />}
             right={
               <span className="flex items-center gap-2">
@@ -1224,9 +1241,9 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
                   {talk.tone === "live" ? <LiveDot size={5} /> : <span className="h-[5px] w-[5px] rounded-full" style={{ background: talk.tone === "busy" ? H.cyan2 : talk.tone === "warn" ? H.gold2 : H.mut2 }} />}
                   {talk.label}
                 </span>
-                <button onClick={() => setSheetTall((x) => !x)} aria-label={sheetTall ? "Shrink the transcript so the chart shows" : "Expand the transcript"} data-sheet-size={sheetTall ? "tall" : "compact"}
-                  className="grid h-7 w-7 place-items-center rounded-[6px] xl:hidden" style={{ color: H.cyan2, border: "1px solid rgba(var(--cc-27d7f2-rgb,39,215,242),0.4)" }}>{sheetTall ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}</button>
-                <button onClick={() => setSheetOpen(false)} aria-label="Close" className="grid h-7 w-7 place-items-center rounded-[6px] xl:hidden" style={{ color: H.mut, border: `1px solid ${H.line}` }}><X className="h-4 w-4" /></button>
+                {!toFloor && <button onClick={() => setSheetTall((x) => !x)} aria-label={sheetTall ? "Shrink the transcript so the chart shows" : "Expand the transcript"} data-sheet-size={sheetTall ? "tall" : "compact"}
+                  className="grid h-7 w-7 place-items-center rounded-[6px] xl:hidden" style={{ color: H.cyan2, border: "1px solid rgba(var(--cc-27d7f2-rgb,39,215,242),0.4)" }}>{sheetTall ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}</button>}
+                <button type="button" ref={closeTalkButton} onClick={closeTalk} aria-label="Close Atlas conversation" className={`atlas-talk-close grid h-7 w-7 place-items-center rounded-[6px] ${toFloor ? "" : "xl:hidden"}`} style={{ color: H.mut, border: `1px solid ${H.line}` }}><X className="h-4 w-4" /></button>
               </span>
             }
             bodyClass="flex h-full flex-col">
@@ -1274,7 +1291,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             <div className="min-h-0 flex-1 border-t" style={{ borderColor: H.lineSoft }}>
               {/* Chat stays mounted so a conversation survives switching tabs (and closing the sheet). */}
               <div className={talkTab === "CHAT" ? "atlas-chat-body h-full" : "hidden"}>
-                <BrainConsole variant="hud" announce={announce} onUiAction={onUiAction} mode={mode} onModeChange={setMode} live={!!d?.live} askSignal={askSignal} onActivity={onActivity}
+                <BrainConsole variant="hud" keyboardActive={talkTab === "CHAT" && (sheetOpen || (!toFloor && !stacked))} announce={announce} onUiAction={onUiAction} mode={mode} onModeChange={setMode} live={!!d?.live} askSignal={askSignal} onActivity={onActivity}
                   chartTf={tf}
                   seen={read ? { snapshotId: read.snapshotId, at: read.at, lean: read.lean } : d?.analysis ? { snapshotId: d.analysis.snapshotId, at: d.analysis.analysisAt } : null}
                   quick={[
@@ -1370,8 +1387,8 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
       </div>
 
       {/* ── below 1280 px: the dock that opens the copilot ── */}
-      {sheetOpen && sheetTall && <div className="fixed inset-0 z-[49] xl:hidden" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setSheetTall(false)} aria-hidden />}
-      <div data-dock="" data-tour={stacked ? "dock" : undefined} className="fixed inset-x-0 bottom-0 z-[45] xl:hidden"
+      {!toFloor && sheetOpen && sheetTall && <div className="fixed inset-0 z-[49] xl:hidden" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setSheetTall(false)} aria-hidden />}
+      {!toFloor && <div data-dock="" data-tour={stacked ? "dock" : undefined} className="fixed inset-x-0 bottom-0 z-[45] xl:hidden"
         style={{ background: "linear-gradient(180deg, rgba(var(--cc-050b11-rgb,5,11,17),0.92), rgba(var(--cc-03070b-rgb,3,7,11),0.98))", borderTop: `1px solid ${H.lineHi}`, paddingBottom: "env(safe-area-inset-bottom)", backdropFilter: "blur(8px)" }}>
         {onCall && !sheetOpen && (
           <div className="mx-auto max-w-[760px] px-3 pt-2" data-voice-dock={vb.activity} aria-live="polite">
@@ -1395,11 +1412,6 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             )}
           </div>
         )}
-        {toFloor && <form className="atlas-pocket-composer" onSubmit={(e) => { e.preventDefault(); const q = mobileQuestion.trim(); if (q) { askAtlas(q); setMobileQuestion(""); } }}>
-          <input aria-label="Ask Atlas" placeholder="Ask Atlas…" value={mobileQuestion} onChange={(e) => setMobileQuestion(e.target.value)} autoComplete="off" enterKeyHint="send" />
-          <button type="button" onClick={tapCore} aria-label={onCall ? "End Atlas voice conversation" : "Talk to Atlas by voice"} aria-pressed={onCall}>{onCall ? <Square /> : <Mic />}</button>
-          <button type="submit" aria-label="Send question to Atlas" disabled={!mobileQuestion.trim()}><ArrowUp /></button>
-        </form>}
         <div className="atlas-dock-legacy mx-auto flex max-w-[760px] items-center gap-2 px-3 py-2">
           <button onClick={() => openTalk("CHAT")} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] px-3 py-2 text-left"
             style={{ border: `1px solid ${H.line}`, background: "rgba(var(--cc-09131d-rgb,9,19,29),0.9)" }} aria-label="Talk to ATLAS">
@@ -1425,7 +1437,7 @@ export function CommandCenterHud({ endpoint = "/api/command-center/live" }: { en
             {onCall ? <X className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* ── DRAWERS (trade / analysis / alerts / journal) ─────────────── */}
       {/* GENERATE WITH ATLAS — its own drawer, kept mounted so the idea survives closing it. */}

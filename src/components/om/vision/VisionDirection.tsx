@@ -92,7 +92,7 @@ export function VisionLevels({ entry, stop, targets, rr, symbol = "XAUUSD", dec:
       {typeof rr === "number" && Number.isFinite(rr) && rr > 0 &&
         <b>R:R {rr.toFixed(2)} : 1</b>}
     </div>
-    <dl className="om-vision-levels" data-no-i18n translate="no">
+    <dl className="om-vision-levels" aria-label="Trade levels" data-no-i18n translate="no">
       {cells.map(c=><div key={c.label} data-kind={c.kind}><dt>{c.label}</dt><dd>{px(c.value, dec)}</dd></div>)}
     </dl>
   </div>;

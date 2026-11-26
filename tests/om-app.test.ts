@@ -186,8 +186,8 @@ test('Atlas\'s header fits a phone in the preview, and the members\' Command Cen
 test('the chart\'s closed caption never sits under a phone\'s chart buttons, and shortens where the whole line does not fit', () => {
   const chart = code('src/components/om/chart/OmChart.tsx');
   assert.match(chart, /const capR = Math\.min\(x1, plotW\) - 8;/);
-  assert.match(chart, /const cap = compact \? null : room\(236\) \? "Market closed · feed quotes, not trading" : room\(84\) \? "Market closed" : null;/);
-  assert.match(chart, /\{shut\(hb\.t\) && <span className="om-ch-tag">Market closed<\/span>\}/, 'on a phone the readout says it, for the candle being read');
+  assert.match(chart, /const cap = compact \? null : room\(longCaption\.length \* 6 \+ 16\) \? longCaption : room\(shortCaption\.length \* 6 \+ 16\) \? shortCaption : null;/);
+  assert.match(chart, /\{shut\(hb\.t\) && <span className="om-ch-tag">\{closedNow && Date\.now\(\) >= hb\.t && Date\.now\(\) < hb\.t \+ p\.tfMs \? "Market closed" : "Session break"\}<\/span>\}/, 'on a phone the readout says it, for the candle being read');
 });
 
 /* ── the members' earlier installed app (owner 11-21: "App looks the same") ── */
@@ -236,7 +236,7 @@ test('payment and billing pages leave the frame: they refuse to open inside one'
 });
 
 /* ── drawn as an app (owner 11-21: "This looks like the website not an app. Make it more like an actual app") ── */
-test('the installed OS keeps its safe app bar and the same seven-destination dock as the website', async () => {
+test('the installed OS keeps its safe app bar and the same eight-destination dock as the website', async () => {
   const { SHELL_SCRIPT } = await import('../src/lib/floor/nav');
   const run = (o: { standalone?: boolean; display?: boolean; framed?: boolean }) => {
     const cls = new Set<string>();
@@ -253,7 +253,7 @@ test('the installed OS keeps its safe app bar and the same seven-destination doc
   const c = css();
   const app = c.slice(c.indexOf('.om-standalone .om-app { --om-r-panel: 18px; }'));
   const dock = read('src/components/om/os-dock.css');
-  assert.match(dock, /\.om-os \.om-os-dock \{[^}]*position: fixed;[^}]*display: grid;[^}]*grid-template-columns: repeat\(7, minmax\(0, 1fr\)\)/, 'the same seven tools are present at every size, including an installed iPad app');
+  assert.match(dock, /\.om-os \.om-os-dock \{[^}]*position: fixed;[^}]*display: grid;[^}]*grid-template-columns: repeat\(8, minmax\(0, 1fr\)\)/, 'the same eight tools are present at every size, including an installed iPad app');
   assert.match(dock, /\.om-standalone \.om-os \.om-main \{ padding-bottom: var\(--om-dock-clearance\); \}/, 'installed windows reserve the same dock space');
   assert.match(app, /@media \(max-width: 640px\) \{[\s\S]*?\.om-standalone \.om-menu \{\s*position: fixed;[^}]*bottom: calc\(8px \+ env\(safe-area-inset-bottom, 0px\)\)/, 'on a phone the account menu is a sheet from the bottom');
   assert.match(dock, /@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\) \{[\s\S]*?\.om-os-dock \{ background: var\(--om-menu\); \}/, 'the dock is opaque when the browser cannot blur');
@@ -264,7 +264,7 @@ test('the installed OS keeps its safe app bar and the same seven-destination doc
   const shell = read('src/components/om/AppShell.tsx');
   assert.match(shell, /d\.classList\.toggle\("om-standalone", runningAsApp\(\)\);/);
   assert.match(shell, /<div className="om-nav-wrap" data-scrolled=\{scrolled \? "" : undefined\} data-screen=\{here \?\? "account"\}>/);
-  assert.match(shell, /const screen = here \? NAV\.find\(\(n\) => n\.key === here\)\?\.label \?\? null : null;/, 'screen names come from the real destinations');
+  assert.match(shell, /const destination = NAV\.find\(\(item\) => item\.key === here\);\s*const screen = destination\?\.label;/, 'screen names come from the real destinations');
   assert.match(shell, /className="om-os-breadcrumb"><Link href="\/portal\/trading" aria-current=\{here === "floor" \? "page" : undefined\}>OM OS<\/Link>/);
   assert.match(shell, /\{here && here !== "floor" && <><span aria-hidden="true">\/<\/span><span>\{screen\}<\/span><\/>\}/, 'the OS breadcrumb replaces the old scrolling title capsule');
   assert.match(shell, /<nav className="om-os-dock" aria-label="One Mission apps">/);

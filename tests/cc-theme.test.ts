@@ -52,12 +52,12 @@ test('the entrance keeps Atlas\'s own colours, and a canvas reads a real colour'
   }
 });
 
-test('only the redesign preview defines the variables; the way out is The Floor there', () => {
+test('only the redesign preview defines the variables; its back link returns to OM OS', () => {
   const layout = readFileSync('src/app/command-center/layout.tsx', 'utf8');
   assert.match(layout, /const next = wantsNextShell\(cookies\(\)\.get\(SHELL_COOKIE\)\?\.value, admin, headers\(\)\);/);
   assert.match(layout, /FULLSCREEN_CSS \+ \(next \? SHELL_CSS \+ CC_NEXT_CSS : ""\)/);
   assert.match(CC_NEXT_CSS, /^html\.om-cc-next \{/);
   for (const k of mapped) assert.match(CC_NEXT_CSS, new RegExp(`--cc-${k}-rgb: \\d+,\\d+,\\d+;`), `${k} has its rgb twin`);
   const hud = readFileSync(join(ROOT, 'hud/CommandCenterHud.tsx'), 'utf8');
-  assert.match(hud, /aria-label=\{toFloor \? "Back to The Floor" : "Back to the portal"\}/);
+  assert.match(hud, /aria-label=\{toFloor \? "Back to OM OS" : "Back to the portal"\}/);
 });

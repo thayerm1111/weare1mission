@@ -142,14 +142,14 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
       </section> : <VisionDirection product="OM AI PLAYS" bias={visionBias}
         eyebrow="ONE MISSION / MULTI-MARKET SIGNAL INTELLIGENCE"
         status={r.marketClosed?"MARKET CLOSED":"SAVED SIGNAL"}
-        quote={generationPrice} quoteSymbol={r.symbol} quoteLabel="AT GENERATION" dec={chart.dec}
+        quote={generationPrice} quoteSymbol={r.symbol} quoteLabel={priceLabel.toUpperCase()} dec={chart.dec}
         tagline={a.kind==="setup"?"SIGNAL SETUP · REVIEW ENTRY":
           a.kind==="idea"?"CONDITIONAL WATCH · CONFIRMATION NEEDED":"NO QUALIFIED ENTRY"}
         score={quality} scoreName="ENGINE QUALITY" facts={factList}/>}
-      {chart.bars.length>=2 ? <VisionChart
+      {chart.bars.length>0 ? <VisionChart
           bars={chart.bars} timeKnown={chart.timeKnown} tfMs={chart.tfMs}
           timeframe={chart.tfLabel} symbol={r.symbol} dec={chart.dec}
-          price={generationPrice} priceLive={false} snapshot
+          price={generationPrice} marketStatus={`Saved snapshot · ${priceLabel.toLowerCase()}`} priceLive={false} snapshot
           levels={levels} direction={visionBias}
           reference={a.kind!=="setup"} viewKey={chart.viewKey}
           title={r.symbol+" saved candles, conditional path and recorded trade levels"}/>

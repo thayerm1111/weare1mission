@@ -21,13 +21,14 @@ export function MobileViewport() {
       }
       if (!editing) restingHeight = window.innerHeight;
       const height = viewport?.height ?? window.innerHeight;
-      const loss = Math.max(0, restingHeight - height - (viewport?.offsetTop ?? 0));
-      const touchLayout = window.innerWidth <= 980 || (window.innerWidth <= 1279 && root.classList.contains("om-standalone"));
+      const loss = Math.max(0, restingHeight - height);
+      const inset = Math.max(0, window.innerHeight - height - (viewport?.offsetTop ?? 0));
+      const touchLayout = window.innerWidth <= 980 || window.matchMedia("(any-pointer: coarse)").matches;
       const keyboard = touchLayout && editing && loss > 140 && (viewport?.scale ?? 1) < 1.15;
       root.classList.toggle("om-keyboard-open", keyboard);
       root.style.setProperty("--om-viewport-height", `${Math.round(height)}px`);
       root.style.setProperty("--om-viewport-top", `${Math.round(viewport?.offsetTop ?? 0)}px`);
-      root.style.setProperty("--om-keyboard-inset", `${keyboard ? Math.round(loss) : 0}px`);
+      root.style.setProperty("--om-keyboard-inset", `${keyboard ? Math.round(inset) : 0}px`);
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
     measure();

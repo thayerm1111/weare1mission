@@ -26,7 +26,7 @@ export function AtlasSignalChart({ signal }: { signal: AtlasSignalResult }) {
   return (
     <section className="om-atlas-signal-chart om-vision-atlas-chart"
       aria-label={symbol+" saved signal chart"} data-reference={chart.reference||undefined}>
-      {chart.bars.length>=2 ? <VisionChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={chart.tfMs}
+      {chart.bars.length>0 ? <VisionChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={chart.tfMs}
         timeframe={chart.tfLabel} price={price} priceLive={false} symbol={symbol}
         dec={chart.dec} levels={chart.levels} zone={chart.zone}
         direction={direction==="buy"?"buy":direction==="sell"?"sell":"mixed"}

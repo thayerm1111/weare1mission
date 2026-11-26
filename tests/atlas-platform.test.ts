@@ -142,11 +142,11 @@ test("the Command Center says what each section is for; the replay is named as o
   assert.ok(pick.length > 20 && !/voiceBus\.start|getUserMedia/.test(pick));
 });
 
-test("the single OM OS dock exposes seven real apps, marks the active destination, and respects reduced motion", () => {
+test("the single OM OS dock exposes eight real apps, marks the active destination, and respects reduced motion", () => {
   const shell = read("src/components/om/AppShell.tsx");
   const apps = shell.slice(shell.indexOf("const APPS = ["), shell.indexOf("function AppDock()"));
   const destinations = [...apps.matchAll(/\{ key: "([^"]+)" as const,[^}]*?href: "([^"]+)", hard: (true|false) \}/g)];
-  assert.deepEqual(destinations.map((item) => item[1]), ["floor", "atlas", "genx", "strata", "plays", "pulse", "flow"]);
+  assert.deepEqual(destinations.map((item) => item[1]), ["floor", "atlas", "genx", "strata", "plays", "pulse", "flow", "nitrous"]);
   for (const [, key, href, hard] of destinations) {
     const target = NAV.find((item) => item.key === key)!;
     assert.ok(target, `${key} is a real platform destination`);
@@ -158,7 +158,7 @@ test("the single OM OS dock exposes seven real apps, marks the active destinatio
   assert.match(dock, /activeKey\(path, view\)/);
   assert.match(dock, /"aria-current": here === app\.key \? "page" as const : undefined/);
   assert.equal((dock.match(/href=\{app\.href\} \{\.\.\.props\}/g) ?? []).length, 2, "full-page and client links share the same accessible active-state props");
-  assert.match(dock, /<span className="om-os-app-title">\{app\.dockLabel\}/, "the icons keep visible text labels");
+  assert.match(dock, /<span className="om-os-app-title">[^\n]*\{app\.dockLabel\}/, "the icons keep visible text labels");
   const frame = shell.slice(shell.indexOf("export function AppShell("));
   const provider = frame.indexOf("<FlowAccountProvider configured={configured}>"), account = frame.indexOf("<AccountPlacement />"), tools = frame.indexOf("<AppDock />"), children = frame.indexOf("{children}"), end = frame.indexOf("</FlowAccountProvider>");
   assert.ok(provider > 0 && account > provider && children > account && tools > children && end > tools, "the account, content and dock share one persistent account view");
@@ -168,7 +168,7 @@ test("the single OM OS dock exposes seven real apps, marks the active destinatio
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.om-app \*, \.om-app \*::before, \.om-app \*::after \{ transition: none !important; animation: none !important; \}/);
   const os = read("src/components/om/os.css");
   const launcher = read("src/components/om/os-dock.css");
-  assert.match(launcher, /\.om-os \.om-os-dock \{[^}]*position: fixed;[^}]*grid-template-columns: repeat\(7, minmax\(0, 1fr\)\)/);
+  assert.match(launcher, /\.om-os \.om-os-dock \{[^}]*position: fixed;[^}]*grid-template-columns: repeat\(8, minmax\(0, 1fr\)\)/);
   assert.match(launcher, /--om-dock-clearance: calc\(112px \+ env\(safe-area-inset-bottom, 0px\)\)/);
   assert.match(launcher, /padding-bottom: var\(--om-dock-clearance\)/, "the final content remains reachable above the dock");
   assert.match(launcher, /\.om-keyboard-open \.om-os \.om-os-dock \{ display: none; \}/);

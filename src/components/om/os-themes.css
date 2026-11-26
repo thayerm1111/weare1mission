@@ -153,14 +153,9 @@
 .om-os .om-vision-levels dd { color: var(--om-text); }
 .om-os .om-vision-levels [data-kind="stop"] dd { color: var(--om-neg); }
 .om-os .om-vision-levels [data-kind="target"] dd { color: var(--om-pos); }
-.om-os :is(.om-vision-overline,.om-vision-heading span,.om-vision-quality span,.om-vision-facts-top,.om-vision-subnote,.om-vision-ticket-head,.om-vision-ticket-head span:nth-child(2),.om-vision-levels dt,.om-vision-chart-head h3 small,.om-vision-chart-foot > span,.om-vision-chart-disclaimer,.om-vision-chart-empty) { color: var(--om-text-2); }
-.om-os .om-vision-facts-top span+span,
-.om-os .om-vision-chart-foot button,
-.om-os .om-vision-chart-mode { color: var(--om-ai); }
-.om-os :is(.om-vision-quality,.om-vision-ticket-head,.om-vision-levels > div,.om-vision-chart-foot) { border-color: var(--om-edge); }
-.om-os .om-vision-chart-tools button { color: var(--om-text-2); border-color: var(--om-edge-2); }
-.om-os .om-vision-chart-tools button:hover { background: rgb(var(--om-ai-rgb) / .12); }
-.om-os .om-vision-chart-mode { border-color: var(--om-edge-2); background: rgb(var(--om-ai-rgb) / .11); }
+.om-os :is(.om-vision-overline,.om-vision-heading span,.om-vision-quality span,.om-vision-facts-top,.om-vision-subnote,.om-vision-ticket-head,.om-vision-ticket-head span:nth-child(2),.om-vision-levels dt,.om-vision-chart-foot > span,.om-vision-chart-disclaimer,.om-vision-chart-empty) { color: var(--om-text-2); }
+.om-os .om-vision-facts-top span+span { color: var(--om-ai); }
+.om-os :is(.om-vision-quality,.om-vision-ticket-head,.om-vision-levels > div) { border-color: var(--om-edge); }
 .om-os .om-vision-grid { stroke: var(--om-ch-grid); }
 .om-os :is(.om-vision-tick,.om-vision-axis-note,.om-vision-projection-note) { fill: var(--om-text-2); }
 .om-os .om-vision-level-pill { fill: var(--om-surface); }

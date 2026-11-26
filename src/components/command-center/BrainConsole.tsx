@@ -85,6 +85,7 @@ export type BrainConsoleProps = {
   className?: string;
   /** "hud" is the Command Center HUD layout: avatars, action chips, and the large microphone bar. */
   variant?: "classic" | "hud";
+  keyboardActive?: boolean;
   /** HUD action chips (replace the classic quick asks). */
   quick?: { label: string; q: string }[];
   /** Ask something from outside the console (EXPLAIN FURTHER, a chip elsewhere). A new `n` asks again. */
@@ -123,7 +124,7 @@ const QUICK = [
   { label: "Show me the math", q: "Show me the math." },
 ];
 
-export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = false, className = "", variant = "classic", quick, askSignal, onActivity, chartTf = null, seen = null }: BrainConsoleProps) {
+export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = false, className = "", variant = "classic", keyboardActive = true, quick, askSignal, onActivity, chartTf = null, seen = null }: BrainConsoleProps) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -399,7 +400,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
 
   // Space to talk, when the HUD is showing and focus is not in a text field.
   useEffect(() => {
-    if (variant !== "hud") return;
+    if (variant !== "hud" || !keyboardActive) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== "Space" || e.repeat) return;
       const el = document.activeElement as HTMLElement | null;
@@ -409,7 +410,7 @@ export function BrainConsole({ announce, onUiAction, mode, onModeChange, live = 
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [variant, listening, startListening, stopListening]);
+  }, [variant, keyboardActive, listening, startListening, stopListening]);
 
   if (variant === "hud") {
     const t12 = (at: number) => new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
