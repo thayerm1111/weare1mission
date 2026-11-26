@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { NitrousStatus } from "@/lib/nitrous/types";
 import { validStatus } from "./presentation";
 
-export function useNitrousStatus() {
+export function useNitrousStatus(pollMs = 20_000) {
   const [data, setData] = useState<NitrousStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -24,13 +24,13 @@ export function useNitrousStatus() {
   }, []);
   useEffect(() => {
     setNow(Date.now()); void refresh();
-    const poll = setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 10_000);
+    const poll = setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, pollMs);
     const clock = setInterval(() => setNow(Date.now()), 5_000);
     const visible = () => { if (document.visibilityState === "visible") void refresh(); };
     document.addEventListener("visibilitychange", visible);
     window.addEventListener("nitrous-account-updated", visible);
     return () => { pending.current?.abort(); clearInterval(poll); clearInterval(clock);
       document.removeEventListener("visibilitychange", visible); window.removeEventListener("nitrous-account-updated", visible); };
-  }, [refresh]);
+  }, [refresh, pollMs]);
   return { data, loading, error, receivedAt, now, refresh };
 }

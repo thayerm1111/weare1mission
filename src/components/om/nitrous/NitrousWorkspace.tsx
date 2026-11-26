@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Check, ChevronDown, Droplets, Link2, Loader2, Pause, Play, RefreshCw, ShieldCheck, TrendingDown, TrendingUp, Waves, X, Zap } from "lucide-react";
+import { Activity, Check, ChevronDown, Droplets, Link2, Loader2, Pause, Play, RefreshCw, ShieldCheck, X, Zap } from "lucide-react";
 import { ProductIcon } from "../ProductIcon";
 import { useExperienceMode } from "../experience";
 import { NitrousMarketDesk, NitrousLiveTrades } from "./NitrousMarketDesk";
 import type { NitrousAccount, NitrousAnalyze, NitrousMode, NitrousPosition } from "@/lib/nitrous/types";
 import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, NITROUS_PROFILES } from "@/lib/nitrous/policy";
 import { useNitrousStatus } from "./useNitrousStatus";
-import { accountIsActive, elapsed, modeName, money, price, scenarioState, shownPnl, shownPnlLabel, validAnalyze } from "./presentation";
+import { accountIsActive, elapsed, modeName, money, price, shownPnl, shownPnlLabel, validAnalyze } from "./presentation";
 import { NitrousConnect } from "./NitrousConnect";
 import { NitrousAddonPanel } from "./NitrousAddonPanel";
 import { NitrousTelegramPanel } from "./NitrousTelegramPanel";
@@ -51,7 +51,7 @@ function CloseDialog({ position, account, busy, error, onCancel, onConfirm }: {
 
 export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
   const { isSimple } = useExperienceMode();
-  const status = useNitrousStatus();
+  const status = useNitrousStatus(10_000);
   const [analysis, setAnalysis] = useState<NitrousAnalyze | null>(null);
   const [analysisError, setAnalysisError] = useState(""); const [analysisLoading, setAnalysisLoading] = useState(true);
   const [analysisReceivedAt, setAnalysisReceivedAt] = useState(0);
